@@ -1,0 +1,190 @@
+# Source-only pending explicit permission for deployment and real telemetry tests.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: canvas-prometheus, namespace: aiops-demo}
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 5s
+      scrape_timeout: 3s
+    scrape_configs:
+      - job_name: canvas-checkout
+        static_configs:
+          - targets: [checkout:8080]
+            labels:
+              application: demo
+              namespace: aiops-demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: canvas-prometheus, namespace: aiops-demo}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: canvas-prometheus}}
+  template:
+    metadata: {labels: {app: canvas-prometheus}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 65534, fsGroup: 65534, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v3.13.3
+          imagePullPolicy: IfNotPresent
+          args: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=2h", "--storage.tsdb.retention.size=128MB", "--query.max-concurrency=2"]
+          ports: [{containerPort: 9090}]
+          readinessProbe: {httpGet: {path: /-/ready, port: 9090}, periodSeconds: 3}
+          resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 250m, memory: 256Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts: [{name: config, mountPath: /etc/prometheus, readOnly: true}, {name: data, mountPath: /prometheus}]
+      volumes:
+        - name: config
+          configMap: {name: canvas-prometheus}
+        - name: data
+          emptyDir: {sizeLimit: 256Mi}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: canvas-prometheus, namespace: aiops-demo}
+spec:
+  selector: {app: canvas-prometheus}
+  ports: [{name: http, port: 9090, targetPort: 9090}]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: canvas-loki, namespace: aiops-demo}
+data:
+  loki.yml: |
+    auth_enabled: false
+    server:
+      http_listen_port: 3100
+      log_level: warn
+    common:
+      instance_addr: 127.0.0.1
+      path_prefix: /loki
+      storage:
+        filesystem:
+          chunks_directory: /loki/chunks
+          rules_directory: /loki/rules
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
+    schema_config:
+      configs:
+        - from: "2024-01-01"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+    query_range:
+      results_cache:
+        cache:
+          embedded_cache:
+            enabled: true
+            max_size_mb: 16
+    limits_config:
+      ingestion_rate_mb: 2
+      ingestion_burst_size_mb: 4
+      max_query_parallelism: 2
+      max_entries_limit_per_query: 1000
+    compactor:
+      working_directory: /loki/compactor
+    analytics:
+      reporting_enabled: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: canvas-loki, namespace: aiops-demo}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: canvas-loki}}
+  template:
+    metadata: {labels: {app: canvas-loki}}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: {runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: loki
+          image: grafana/loki:3.7.0
+          imagePullPolicy: IfNotPresent
+          args: ["-config.file=/etc/loki/loki.yml"]
+          ports: [{containerPort: 3100}]
+          readinessProbe: {httpGet: {path: /ready, port: 3100}, initialDelaySeconds: 10, periodSeconds: 5}
+          resources: {requests: {cpu: 50m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts: [{name: config, mountPath: /etc/loki, readOnly: true}, {name: data, mountPath: /loki}, {name: tmp, mountPath: /tmp}]
+      volumes:
+        - name: config
+          configMap: {name: canvas-loki}
+        - name: data
+          emptyDir: {sizeLimit: 1Gi}
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: canvas-loki, namespace: aiops-demo}
+spec:
+  selector: {app: canvas-loki}
+  ports: [{name: http, port: 3100, targetPort: 3100}]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: canvas-log-collector, namespace: aiops-demo}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: canvas-log-collector, namespace: aiops-demo}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [list]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: canvas-log-collector, namespace: aiops-demo}
+subjects: [{kind: ServiceAccount, name: canvas-log-collector, namespace: aiops-demo}]
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: canvas-log-collector}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: canvas-log-collector, namespace: aiops-demo}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: canvas-log-collector}}
+  template:
+    metadata: {labels: {app: canvas-log-collector}}
+    spec:
+      serviceAccountName: canvas-log-collector
+      securityContext: {runAsNonRoot: true, runAsUser: 65532, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: collector
+          image: aiops-canvas-telemetry-collector:local
+          imagePullPolicy: Never
+          resources: {requests: {cpu: 10m, memory: 16Mi}, limits: {cpu: 100m, memory: 64Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: canvas-telemetry-reader, namespace: aiops-demo}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: canvas-telemetry-reader, namespace: aiops-demo}
+rules:
+  - apiGroups: [""]
+    resources: [services/proxy]
+    resourceNames: ["http:canvas-prometheus:9090", "http:canvas-loki:3100"]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: canvas-telemetry-reader, namespace: aiops-demo}
+subjects: [{kind: ServiceAccount, name: canvas-telemetry-reader, namespace: aiops-demo}]
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: canvas-telemetry-reader}

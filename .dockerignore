@@ -1,0 +1,7 @@
+.git
+.env*
+.local
+bin
+docs/research
+node_modules
+.idea

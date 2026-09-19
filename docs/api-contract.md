@@ -1,0 +1,51 @@
+# 后端 API 契约
+
+状态：2026-09-19 后端源码基线，最新改动按用户要求未测试。机器契约见 internal/apicontract/openapi.json（0.2.0）。API 前缀 `/api/v1`，JSON 使用 snake_case。时间为 RFC3339，标识为不透明字符串。错误格式 `{error:{code,message}}`；HTTP 401/403/404/409/422/503 分别表达认证、权限、不存在、冲突、输入、依赖故障。
+
+## 身份和配置
+
+- `POST /auth/login` `{email,password}` → `{user:{id,email,name,role}}`，HttpOnly 同站 cookie。
+- `GET /auth/me` → `{user}`；`POST /auth/logout` → 204。
+- `GET /applications` → `{items:[{id,name,description,environment}]}`。
+- `GET /models` → `{items:[{id,name,provider,available}]}`。不可配置的模型不伪装成可用。
+
+## 调查、分支、上下文
+
+- `GET /investigations` → `{items:[{id,application_id,title,status,created_at,updated_at}]}`。
+- `POST /investigations` `{application_id,title}` → InvestigationDetail。
+- `GET /investigations/{id}` → InvestigationDetail。
+- InvestigationDetail：`{id,application_id,title,status,created_at,updated_at,branches:[Branch],evidence:[Evidence],runs:[Run]}`。
+- Branch：`{id,investigation_id,parent_id?,title,model_id,revision,status,messages:[Message]}`。
+- Message：`{id,role:"user"|"assistant"|"tool",content,created_at,model_id?,evidence_ids?}`。
+- Evidence：`{id,branch_id,kind,title,content,source,created_at}`。
+- Run：`{id,branch_id,status,model_id,attempt,error?,created_at}`。
+- `POST /branches/{id}/messages` `{content,model_id,client_request_id}` → `{run:Run}`，202；分支正在运行时 409。同一 request id 重试幂等。
+- `POST /branches/{id}/fork` `{title,revision?}` → Branch；只继承指定的已提交版本。
+- `PATCH /branches/{id}` `{model_id?,title?}` → Branch；新模型仅用于后续轮次。
+- `POST /runs/{id}/cancel` → `{run}`。
+- `POST /branches/{id}/merge-preview` `{source_branch_id}` → `{id,source_branch_id,target_branch_id,source_revision,target_revision,additions:[Message],conflicts:[string]}`。
+- `POST /branches/{id}/merge` `{preview_id,message_ids?,mode?:"messages"|"evidence_only"}` → Branch；过期 preview 返回 409。省略 IDs 全选，未知／重复／空选返回 422。同步父上下文复用此流程。
+- Branch 包含初次继承版本、父同步水位、当前父版本与 parent_has_updates；只有完整直接父消息同步推进水位。
+- `GET /branches/{id}/revisions` 和 `GET /branches/{id}/revisions/{revision}` 返回历史、来源及证据。
+
+## 持久事件与个人布局
+
+- `GET /investigations/{id}/events?after=N`：SSE；读取 `Last-Event-ID` 和 after。`id` 是递增持久序号，`event: update`，`data: {seq,type,investigation_id,branch_id?,payload,created_at}`；客户端按序号去重并重新获取已提交状态。心跳为 SSE comment。
+- `GET /investigations/{id}/layout` → `{layout:{...}}`；`PUT` 同形状，按当前用户隔离。布局与草稿不改变业务上下文。
+
+## 第一阶段边界
+
+首条切片必须使用真实 PG 和显式模型；模型不可用时报告失败，不返回示例答案。前端仅渲染后端真实状态，未经接入的功能不伪造成功。知识、审批、执行具体字段以机器契约为准。
+
+
+## 完整后端工作流（0.2.0，新代码未测试）
+
+1. admin 创建／修改账号；role/password/disabled 变化撤销 Session。前端不得仅凭隐藏按钮实现权限。
+2. operator 在应用下创建调查、启动 Run、派生分支；SSE 驱动视图，历史读取以后端提交为准。
+3. 只读取证工具可读取已登记 Kubernetes、Prometheus 固定查询和 Loki 标签范围。遥测 HTTP 接口仅查询，不自动形成某分支的持久 Evidence；Agent 工具经持久化 callback 后才向模型返回结果。
+4. 操作员选择具体 Deployment 历史版本创建 immutable ActionPlan；approve 绑定 digest。reject/revoke 必须提供原因，已入队执行不可撤销；重复 execute 读取同一执行记录。
+5. `/executions/{id}` 区分写入与恢复观察。未知结果只读协调，不盲重试。
+6. `/investigations/{id}/close` 要求同调查最新动作成功且无活跃推理或动作，保存不可变 report；关闭后新增上下文和执行返回 409。
+7. 经验先 POST `/investigations/{id}/knowledge-drafts`，引用本调查证据；草稿不可检索。关闭后 POST `/knowledge-drafts/{id}/confirm` 由操作员确认，幂等产生知识文档；失败索引使用原文 reindex。
+
+前端设计尚可变化；这份契约规定数据和行为，不规定卡片颜色、位置或页面结构。错误提示、空态和确认视图后续依据这些状态设计。

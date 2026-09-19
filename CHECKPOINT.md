@@ -1,5 +1,18 @@
 # AIOps Canvas 检查点
 
+## 当前状态 · CP-004 · 2026-09-19 · 首次 GitHub 交付
+
+- 用户明确要求本地提交，并新建 GitHub 仓库推送；此前暂停测试的约束继续有效。
+- 关联任务：[WAN-51](https://linear.app/wansss/issue/WAN-51)，接口契约另见 WAN-52。
+- 仓库：[destinywans/aiops-canvas](https://github.com/destinywans/aiops-canvas)，新建为私有。分支 `main`，上游 `origin/main`。
+- 后端源码基线：[a4ca9c6](https://github.com/destinywans/aiops-canvas/commit/a4ca9c6807a8825d52de3cec3d554c0c8ba390f0)。已提交、已推送，已通过 Git 远端引用和 GitHub API 回读核对；未创建 PR、未执行合并或发布部署。
+- 本次是已有整体源码的首次归档，没有追溯编造按需求提交的历史。后续独立需求使用 `codex/<issue-id>-<topic>`；本检查点另作交付记录提交。
+- 源码基线包含 92 个文件；`.env`、`.local/`、`.idea/`、缓存和运行数据均未暂存。核对远端后工作区无源码修改；本次仅补充本检查点作为交付记录。
+- 本轮仅检查提交清单和 Git 推送结果，未运行测试、构建、程序校验器、迁移或服务。最新代码仍未验证；任务不标记 Done。
+- 下一步：用户继续调整需求，或明确允许后再执行相应测试。前端继续暂缓，不自动恢复验证。
+
+以下保留历史记录；CP-001 的运行证据不适用于之后的完整源码基线。
+
 ## CP-000 · 2026-09-19 · 开始实施
 
 - 仓库只有用户原研究报告，未发现已有应用代码；保留原始 docs/research。

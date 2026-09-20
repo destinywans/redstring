@@ -1,3 +1,4 @@
+import { useSearchParams } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -18,7 +19,7 @@ import {
   Sparkles,
   Terminal,
   X,
-} from "lucide-react";
+} from "../../lib/icons";
 import { request, patch } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
 import type { Investigation, Model } from "../../lib/types";
@@ -172,7 +173,8 @@ export default function SettingsPage() {
   const { preview, models, user, application, investigationId, notify } =
     useWorkspace();
   const qc = useQueryClient();
-  const [tab, setTab] = useState("models");
+  const [params] = useSearchParams();
+  const tab = ["models", "knowledge", "tools"].includes(params.get("tab") ?? "") ? params.get("tab")! : "tools";
   const [chosenProvider, setProvider] = useState<
     "openai" | "claude" | "ollama" | null
   >(null);
@@ -261,22 +263,6 @@ export default function SettingsPage() {
         <h1>模型与集成</h1>
         {preview && <span className="badge">演示配置 · 未验证真实连接</span>}
       </div>
-      <nav className="settings-tabs" aria-label="设置分类">
-        {[
-          { id: "models", label: "模型服务" },
-          { id: "tools", label: "工具连接" },
-          { id: "knowledge", label: "知识检索" },
-        ].map((t) => (
-          <button
-            key={t.id}
-            className={tab === t.id ? "active" : ""}
-            aria-current={tab === t.id ? "page" : undefined}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
       {integrations.isError && (
         <div className="settings-notice settings-error" role="alert">
           <Info size={17} />
@@ -466,7 +452,7 @@ export default function SettingsPage() {
           </section>
         </div>
       )}
-      {(tab === "models" || tab === "tools") && (
+      {tab === "tools" && (
         <section className="card settings-connectors">
           {cardHeading(
             "运维工具连接",
@@ -571,7 +557,7 @@ export default function SettingsPage() {
           )}
         </section>
       )}
-      {(tab === "models" || tab === "knowledge") && (
+      {tab === "knowledge" && (
         <section className="card settings-knowledge">
           <button
             className="settings-knowledge-heading"

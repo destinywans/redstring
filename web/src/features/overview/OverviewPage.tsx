@@ -1,3 +1,4 @@
+import ScopeFilter from "../../components/ScopeFilter";
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -22,7 +23,7 @@ import {
   Minus,
   Layers,
   Activity,
-} from "lucide-react";
+} from "../../lib/icons";
 import { useWorkspace } from "../../lib/workspace";
 import { post, request } from "../../lib/api";
 import type { Investigation, Items } from "../../lib/types";
@@ -268,7 +269,8 @@ export default function OverviewPage() {
     return (
       <div className="empty-state">
         <Box size={30} />
-        <h2>还没有可用应用</h2>
+        <h2>选择应用与环境</h2>
+        <ScopeFilter single />
         <p>请由管理员在应用目录登记应用与环境，并绑定连接器。</p>
       </div>
     );
@@ -296,6 +298,7 @@ export default function OverviewPage() {
     : (knowledge.data?.items ?? []).slice(0, 3);
   return (
     <div className="page overview-page">
+      <ScopeFilter single />
       <div className="page-heading overview-heading">
         <div>
           <div className="overview-title">
@@ -312,7 +315,7 @@ export default function OverviewPage() {
         <div className="app-facts">
           <div>
             <span>工作空间</span>
-            <strong>平台工程</strong>
+            <strong>AIOps 工作区</strong>
           </div>
           <div>
             <span>环境</span>

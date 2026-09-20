@@ -1,4 +1,4 @@
-import { useEffect, useState, lazy, Suspense } from "react";
+import { useEffect, useState, useRef, lazy, Suspense } from "react";
 import type { FormEvent } from "react";
 import {
   NavLink,
@@ -30,7 +30,10 @@ import {
   ScrollText,
   Server,
   ChartNoAxesCombined,
-} from "lucide-react";
+  Menu,
+  ChevronRight,
+  Building2,
+} from "./lib/icons";
 import { ApiError, post, request } from "./lib/api";
 import type {
   Application,
@@ -41,6 +44,8 @@ import type {
 } from "./lib/types";
 import { WorkspaceContext } from "./lib/workspace";
 import { useWorkspaceSelection } from "./lib/selection";
+import { useTheme } from "./lib/theme";
+import { navigation, isNavigationCurrent } from "./lib/navigation";
 import { Modal, ErrorNotice } from "./components/ui";
 const DashboardPage = lazy(() => import("./features/workspace/DashboardPage"));
 const ApplicationsPage = lazy(
@@ -97,8 +102,22 @@ export default function App() {
   const [toast, setToast] = useState<{ message: string; kind: string } | null>(
     null,
   );
-  const [theme, setTheme] = useState(
-    () => localStorage.getItem("aiops-theme") ?? "system",
+  const { theme, toggleTheme } = useTheme();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [narrow, setNarrow] = useState(
+    () => matchMedia("(max-width: 760px)").matches,
+  );
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const sidebarRef = useRef<HTMLElement>(null);
+  const menuTrigger = useRef<HTMLButtonElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const currentSection = navigation.find((section) =>
+    section.children.some((item) =>
+      isNavigationCurrent(item.to, location.pathname, location.search),
+    ),
+  );
+  const currentDestination = currentSection?.children.find((item) =>
+    isNavigationCurrent(item.to, location.pathname, location.search),
   );
   const [searchOpen, setSearchOpen] = useState(false),
     [search, setSearch] = useState("");
@@ -172,20 +191,62 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [toast]);
   useEffect(() => {
-    const query = matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => {
-      document.documentElement.dataset.theme =
-        theme === "system" ? (query.matches ? "dark" : "light") : theme;
+    const query = matchMedia("(max-width: 760px)");
+    const sync = () => {
+      setNarrow(query.matches);
+      if (!query.matches) setMenuOpen(false);
     };
-    apply();
-    query.addEventListener("change", apply);
-    localStorage.setItem("aiops-theme", theme);
-    return () => query.removeEventListener("change", apply);
-  }, [theme]);
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+  useEffect(() => {
+    if (currentSection)
+      setExpanded((value) => ({ ...value, [currentSection.id]: true }));
+  }, [currentSection?.id]);
+  useEffect(() => {
+    setMenuOpen(false);
+    document.title = `${currentDestination?.label ?? "工作区"} · AIOps Canvas`;
+  }, [location.pathname, location.search, currentDestination?.label]);
+  useEffect(() => {
+    if (!narrow || !menuOpen) return;
+    const sidebar = sidebarRef.current;
+    const focusable = () =>
+      Array.from(
+        sidebar?.querySelectorAll<HTMLElement>(
+          "button:not([disabled]),a[href]",
+        ) ?? [],
+      ).filter((element) => element.getClientRects().length > 0);
+    focusable()[0]?.focus();
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMenuOpen(false);
+        requestAnimationFrame(() => menuTrigger.current?.focus());
+      }
+      if (event.key !== "Tab") return;
+      const items = focusable(),
+        first = items[0],
+        last = items[items.length - 1];
+      if (
+        event.shiftKey &&
+        (document.activeElement === first ||
+          !sidebar?.contains(document.activeElement))
+      ) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+    document.addEventListener("keydown", key);
+    return () => document.removeEventListener("keydown", key);
+  }, [narrow, menuOpen]);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
+        setMenuOpen(false);
         setSearchOpen((v) => !v);
       }
     };
@@ -239,23 +300,22 @@ export default function App() {
         onLogin={() => client.invalidateQueries({ queryKey: ["auth"] })}
       />
     );
-  const nav = [
-    { to: "/", icon: LayoutGrid, label: "工作台" },
-    { to: "/applications", icon: Activity, label: "应用" },
-    { to: "/infrastructure", icon: Server, label: "基础设施" },
-    { to: "/observability/metrics", icon: ChartNoAxesCombined, label: "观测" },
-    { to: "/incidents", icon: Bell, label: "告警事件" },
-    { to: "/investigations", icon: Search, label: "调查" },
-    { to: "/knowledge", icon: BookOpen, label: "知识" },
-    { to: "/integrations", icon: Plug, label: "集成" },
-    ...(user.role === "admin"
-      ? [
-          { to: "/members", icon: Users, label: "成员" },
-          { to: "/teams", icon: UsersRound, label: "团队" },
-          { to: "/audit", icon: ScrollText, label: "审计" },
-        ]
-      : []),
-  ];
+  const sections = navigation.filter(
+    (section) => !section.admin || user.role === "admin",
+  );
+  const nav = sections.flatMap((section) =>
+    section.children.map((item) => ({ ...item, icon: section.icon })),
+  );
+  const routeLink = (to: string) => {
+    if (!preview) return to;
+    const url = new URL(to, window.location.origin);
+    url.searchParams.set("preview", "1");
+    return `${url.pathname}${url.search}`;
+  };
+  const closeMenu = () => {
+    setMenuOpen(false);
+    requestAnimationFrame(() => menuTrigger.current?.focus());
+  };
   return (
     <WorkspaceContext.Provider
       value={{
@@ -277,78 +337,174 @@ export default function App() {
         <a className="skip-link" href="#main">
           跳到主要内容
         </a>
-        <header className="topbar">
-          <NavLink to="/" className="brand" aria-label="AIOps 首页">
-            <span className="brand-symbol">
-              <Activity size={22} />
-            </span>
-            AIOps
-          </NavLink>
-          <span className="header-divider" />
-          <div className="workspace-label">
-            平台工程 <ChevronDown size={14} />
+        {narrow && menuOpen && (
+          <button
+            className="sidebar-overlay"
+            aria-label="关闭导航"
+            tabIndex={-1}
+            onClick={closeMenu}
+          />
+        )}
+        <aside
+          ref={sidebarRef}
+          id="workspace-navigation"
+          className={`workspace-sidebar ${menuOpen ? "open" : ""}`}
+          inert={narrow && !menuOpen}
+          role={narrow && menuOpen ? "dialog" : undefined}
+          aria-modal={narrow && menuOpen ? true : undefined}
+          aria-label="工作区导航"
+        >
+          <div className="sidebar-brand-row">
+            <NavLink
+              to={routeLink("/")}
+              className="brand"
+              aria-label="AIOps 首页"
+            >
+              <span className="brand-symbol">
+                <Activity size={29} />
+              </span>
+              <span>
+                AIOps<small>AI 运维工作区</small>
+              </span>
+            </NavLink>
+            <button
+              className="icon-button mobile-nav-close"
+              aria-label="关闭导航"
+              onClick={closeMenu}
+            >
+              <X size={20} />
+            </button>
           </div>
-          <span className="header-divider" />
-          <label className="app-switch">
-            <span className="muted">应用</span>
-            <select
-              aria-label="选择应用"
-              value={application?.id ?? ""}
-              onChange={(e) => {
-                setApplicationId(e.target.value);
-                setEnvironmentId("");
-                setInvestigationId(null);
-                navigate("/applications/detail");
-              }}
-            >
-              {!application && <option value="">应用范围不可用</option>}
-              {applications.map((x) => (
-                <option key={x.id} value={x.id}>
-                  {preview ? "checkout-api" : x.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="environment">
-            <select
-              aria-label="选择环境"
-              disabled={!!scopeInvestigationId && !preview}
-              title={
-                scopeInvestigationId
-                  ? "当前调查范围固定；如需其他环境，请从应用页面新建调查"
-                  : "选择环境"
+          <div className="sidebar-workspace">
+            <Building2 size={20} />
+            <span>
+              <small>工作空间</small>
+              <strong>AIOps 工作区</strong>
+            </span>
+          </div>
+          <div className="sidebar-scroll">
+            {["工作空间", "运行与保障", "平台管理"].map((group) => (
+              <section className="sidebar-group" key={group}>
+                <h2>{group}</h2>
+                <nav aria-label={`${group}导航`}>
+                  {sections
+                    .filter((section) => section.group === group)
+                    .map((section) => (
+                      <div
+                        key={section.id}
+                        className={`nav-section ${currentSection?.id === section.id ? "is-current" : ""}`}
+                      >
+                        <button
+                          className="nav-parent"
+                          aria-expanded={!!expanded[section.id]}
+                          aria-controls={`nav-${section.id}`}
+                          onClick={() =>
+                            setExpanded((value) => ({
+                              ...value,
+                              [section.id]: !value[section.id],
+                            }))
+                          }
+                        >
+                          <section.icon size={18} />
+                          <span>{section.label}</span>
+                          <ChevronRight size={12} className="nav-chevron" />
+                        </button>
+                        <div
+                          className="nav-children"
+                          id={`nav-${section.id}`}
+                          hidden={!expanded[section.id]}
+                        >
+                          {section.children.map((item) => {
+                            const active = isNavigationCurrent(
+                              item.to,
+                              location.pathname,
+                              location.search,
+                            );
+                            return (
+                              <NavLink
+                                key={item.to}
+                                to={routeLink(item.to)}
+                                className={`nav-child ${active ? "active" : ""}`}
+                                aria-current={active ? "page" : false}
+                                onClick={() => {
+                                  if (narrow) {
+                                    setMenuOpen(false);
+                                    requestAnimationFrame(() =>
+                                      mainRef.current?.focus(),
+                                    );
+                                  }
+                                }}
+                              >
+                                {item.label}
+                              </NavLink>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                </nav>
+              </section>
+            ))}
+          </div>
+          <div className="sidebar-account">
+            <span className="avatar" aria-hidden="true">
+              {user.name.slice(0, 1).toUpperCase()}
+            </span>
+            <span>
+              <strong>{user.name}</strong>
+              <small>
+                {user.role === "admin"
+                  ? "管理员"
+                  : user.role === "operator"
+                    ? "操作员"
+                    : "只读成员"}
+              </small>
+            </span>
+            <button
+              className="icon-button"
+              title={preview ? "返回登录" : "退出登录"}
+              aria-label={preview ? "返回登录" : "退出登录"}
+              onClick={() =>
+                preview ? window.location.assign("/") : void logout()
               }
-              value={environment?.id ?? ""}
-              onChange={(e) => {
-                setEnvironmentId(e.target.value);
-                setInvestigationId(null);
-              }}
             >
-              {environments.length ? (
-                <>
-                  {!environment && <option value="">调查环境不可用</option>}
-                  {environments.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.name}
-                    </option>
-                  ))}
-                </>
-              ) : (
-                <option value="">
-                  {preview ? "生产（示例）" : "尚无环境"}
-                </option>
-              )}
-            </select>
-          </label>
+              <LogOut size={18} />
+            </button>
+          </div>
+        </aside>
+        <header className="topbar" inert={narrow && menuOpen}>
+          <button
+            ref={menuTrigger}
+            className="icon-button mobile-nav-trigger"
+            aria-label="打开导航"
+            aria-expanded={menuOpen}
+            aria-controls="workspace-navigation"
+            onClick={() => setMenuOpen(true)}
+          >
+            <Menu size={21} />
+          </button>
+          <div className="workspace-breadcrumb">
+            <span>工作空间</span>
+            <ChevronRight size={11} />
+            <span>{currentSection?.label ?? "工作区"}</span>
+            {currentDestination && (
+              <>
+                <ChevronRight size={11} />
+                <strong>{currentDestination.label}</strong>
+              </>
+            )}
+          </div>
           <button
             className="global-search"
+            aria-label="搜索工作区"
+            title="搜索工作区 · ⌘ K / Ctrl K"
             onClick={(event) => {
               event.currentTarget.focus();
               setSearchOpen(true);
             }}
           >
-            <Search size={16} />
-            <span>搜索调查、证据、Runbook…</span>
+            <Search size={17} />
+            <span>搜索</span>
             <kbd>⌘ K</kbd>
           </button>
           {preview && (
@@ -362,56 +518,21 @@ export default function App() {
           )}
           <button
             className="icon-button theme-toggle"
-            aria-label="切换深浅主题"
-            title="切换深浅主题"
-            onClick={() =>
-              setTheme(
-                document.documentElement.dataset.theme === "dark"
-                  ? "light"
-                  : "dark",
-              )
-            }
+            aria-label={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
+            title={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
+            onClick={toggleTheme}
           >
-            {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
-          <button
-            className="avatar"
-            title={preview ? "返回登录" : `${user.name} · 退出登录`}
-            aria-label={preview ? "返回登录" : "退出登录"}
-            onClick={() =>
-              preview ? window.location.assign("/") : void logout()
-            }
-          >
-            {user.name.slice(0, 1).toUpperCase()}
+            <Sun className="sun" size={19} />
+            <Moon className="moon" size={19} />
           </button>
         </header>
-        <aside className="nav-rail" aria-label="主导航">
-          {nav.map(({ to, icon: Icon, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === "/"}
-              className={({ isActive }) =>
-                `nav-item ${isActive || (to.startsWith("/observability") && location.pathname.startsWith("/observability/")) || (to === "/incidents" && location.pathname.startsWith("/alerts")) ? "active" : ""}`
-              }
-            >
-              <Icon size={21} />
-              <span>{label}</span>
-            </NavLink>
-          ))}
-          {user.role === "admin" && (
-            <NavLink
-              to="/platform/settings"
-              className={({ isActive }) =>
-                `nav-item nav-settings ${isActive || location.pathname.startsWith("/platform/") || location.pathname === "/settings" ? "active" : ""}`
-              }
-            >
-              <Settings size={21} />
-              <span>平台设置</span>
-            </NavLink>
-          )}
-        </aside>
-        <main id="main" className="workspace-main">
+        <main
+          id="main"
+          ref={mainRef}
+          tabIndex={-1}
+          className="workspace-main"
+          inert={narrow && menuOpen}
+        >
           {apps.error && <ErrorNotice error={apps.error} />}
           {models.error && <ErrorNotice error={models.error} />}
           <Suspense
@@ -505,7 +626,6 @@ export default function App() {
         <div className="command-list">
           {[
             ...nav,
-            { to: "/settings", icon: Settings, label: "模型与设置" },
             ...(investigations.data?.items ?? []).map((x) => ({
               to: `/investigations/${x.id}`,
               icon: Search,
@@ -517,7 +637,7 @@ export default function App() {
               <button
                 key={x.to}
                 onClick={() => {
-                  navigate(x.to);
+                  navigate(routeLink(x.to));
                   setSearchOpen(false);
                   setSearch("");
                 }}

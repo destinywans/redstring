@@ -45,7 +45,7 @@ func (s *Service) Notifications(ctx context.Context, u core.User) ([]Notificatio
 	if e != nil {
 		return nil, e
 	}
-	rows, e := s.DB.Query(ctx, "SELECT id,incident_id,application_id,environment_id,channel,status,attempts,next_attempt_at,last_error,created_at FROM ops_notifications WHERE application_id=ANY($1::text[]) ORDER BY created_at DESC LIMIT 200", ids)
+	rows, e := s.DB.Query(ctx, "SELECT id,incident_id,application_id,environment_id,channel,status,attempts,next_attempt_at,last_error,created_at FROM ops_notifications WHERE application_id=ANY($1::text[]) AND (cardinality($2::text[])=0 OR application_id=ANY($2::text[])) AND (cardinality($3::text[])=0 OR environment_id=ANY($3::text[])) ORDER BY created_at DESC LIMIT 200", ids, readScopeArrays(ctx).ApplicationIDs, readScopeArrays(ctx).EnvironmentIDs)
 	if e != nil {
 		return nil, e
 	}

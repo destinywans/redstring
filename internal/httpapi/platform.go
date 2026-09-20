@@ -237,14 +237,7 @@ func (s *Server) platformRoutes() {
 		}
 		WriteJSON(w, 200, v)
 	})
-	s.Register("GET /api/v1/audit", "admin", func(w http.ResponseWriter, r *http.Request) {
-		v, e := p.AuditEntries(r.Context())
-		if e != nil {
-			fail(w, e)
-			return
-		}
-		WriteJSON(w, 200, map[string]any{"items": v})
-	})
+	s.Register("GET /api/v1/audit", "admin", s.auditEntries)
 }
 
 func (s *Server) enrichApplication(a *core.Application) {

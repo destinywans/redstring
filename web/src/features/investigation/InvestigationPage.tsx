@@ -1,3 +1,4 @@
+import ScopeFilter from "../../components/ScopeFilter";
 import ContextInspector from "./ContextInspector";
 import EvidenceTelemetry from "./EvidenceTelemetry";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -60,7 +61,7 @@ import {
   TriangleAlert,
   User,
   X,
-} from "lucide-react";
+} from "../../lib/icons";
 import {
   Area,
   AreaChart,
@@ -394,7 +395,10 @@ function EvidenceCard({
               {data.preview ? (
                 <MetricChart kind="wait" />
               ) : (
-                <EvidenceTelemetry kind={data.evidence.kind} content={data.evidence.content} />
+                <EvidenceTelemetry
+                  kind={data.evidence.kind}
+                  content={data.evidence.content}
+                />
               )}
               <footer>{data.evidence.source}</footer>
             </>
@@ -1193,7 +1197,7 @@ function InvestigationWorkspace() {
     return list;
   }, [inv, nodes, branch?.id, preview]);
   const create = async () => {
-    if (!application || !title.trim()) return;
+    if (!application || !environment || !title.trim()) return;
     setCreating(true);
     try {
       const v = await post<CanvasInvestigation>("/investigations", {
@@ -1379,7 +1383,7 @@ function InvestigationWorkspace() {
           </select>
           <button
             className="btn"
-            disabled={readOnly || preview || !application}
+            disabled={readOnly || preview || !application || !environment}
             onClick={() => setCreateOpen(true)}
           >
             <Plus size={15} />
@@ -1393,6 +1397,7 @@ function InvestigationWorkspace() {
           )}
         </div>
       </header>
+      {!inv && <ScopeFilter single />}
       {toolbar}
       <Modal
         open={createOpen}

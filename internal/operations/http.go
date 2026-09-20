@@ -20,7 +20,13 @@ func (s *Service) Register() {
 	})
 	s.API.RegisterPublic("POST /api/v1/webhooks/alertmanager/{source}", s.webhook)
 	s.API.Register("GET /api/v1/incidents", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		v, e := s.Incidents(r.Context(), httpapi.CurrentUser(r), r.URL.Query().Get("application_id"), r.URL.Query().Get("environment_id"))
+		scope, err := httpapi.ParseReadScope(r.URL.Query())
+		if err != nil {
+			httpapi.AuthorizationError(w, err)
+			return
+		}
+		r = r.WithContext(core.WithReadScope(r.Context(), scope))
+		v, e := s.Incidents(r.Context(), httpapi.CurrentUser(r), "", "")
 		respond(w, map[string]any{"items": v}, e)
 	})
 	s.API.Register("GET /api/v1/incidents/{id}", "viewer", func(w http.ResponseWriter, r *http.Request) {
@@ -62,6 +68,12 @@ func (s *Service) Register() {
 		respond(w, v, e)
 	})
 	s.API.Register("GET /api/v1/notifications", "viewer", func(w http.ResponseWriter, r *http.Request) {
+		scope, err := httpapi.ParseReadScope(r.URL.Query())
+		if err != nil {
+			httpapi.AuthorizationError(w, err)
+			return
+		}
+		r = r.WithContext(core.WithReadScope(r.Context(), scope))
 		v, e := s.Notifications(r.Context(), httpapi.CurrentUser(r))
 		respond(w, map[string]any{"items": v}, e)
 	})
@@ -98,7 +110,13 @@ func (s *Service) Register() {
 		respond(w, v, e)
 	})
 	s.API.Register("GET /api/v1/automation/runs", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		v, e := s.AutomationRuns(r.Context(), httpapi.CurrentUser(r), r.URL.Query().Get("environment_id"))
+		scope, err := httpapi.ParseReadScope(r.URL.Query())
+		if err != nil {
+			httpapi.AuthorizationError(w, err)
+			return
+		}
+		r = r.WithContext(core.WithReadScope(r.Context(), scope))
+		v, e := s.AutomationRuns(r.Context(), httpapi.CurrentUser(r), "")
 		respond(w, map[string]any{"items": v}, e)
 	})
 	s.API.Register("POST /api/v1/automation/runs/{id}/cancel", "operator", func(w http.ResponseWriter, r *http.Request) {
@@ -106,6 +124,12 @@ func (s *Service) Register() {
 		respond(w, map[string]bool{"cancelled": e == nil}, e)
 	})
 	s.API.Register("GET /api/v1/dashboard", "viewer", func(w http.ResponseWriter, r *http.Request) {
+		scope, err := httpapi.ParseReadScope(r.URL.Query())
+		if err != nil {
+			httpapi.AuthorizationError(w, err)
+			return
+		}
+		r = r.WithContext(core.WithReadScope(r.Context(), scope))
 		v, e := s.Dashboard(r.Context(), httpapi.CurrentUser(r))
 		respond(w, v, e)
 	})
@@ -140,7 +164,7 @@ func (s *Service) Dashboard(ctx context.Context, u core.User) (Dashboard, error)
 	if d.Incidents, e = s.Incidents(ctx, u, "", ""); e != nil {
 		return d, e
 	}
-	rows, e := s.DB.Query(ctx, `SELECT p.id,i.application_id,COALESCE(i.environment_id,''),i.id,i.title,COALESCE(a.decision,'pending'),p.created_at FROM action_plans p JOIN investigations i ON i.id=p.investigation_id LEFT JOIN approvals a ON a.plan_id=p.id WHERE i.application_id=ANY($1::text[]) AND i.status<>'closed' AND COALESCE(a.decision,'pending')='pending' ORDER BY p.created_at DESC LIMIT 100`, ids)
+	rows, e := s.DB.Query(ctx, `SELECT p.id,i.application_id,COALESCE(i.environment_id,''),i.id,i.title,COALESCE(a.decision,'pending'),p.created_at FROM action_plans p JOIN investigations i ON i.id=p.investigation_id LEFT JOIN approvals a ON a.plan_id=p.id WHERE i.application_id=ANY($1::text[]) AND (cardinality($2::text[])=0 OR i.application_id=ANY($2::text[])) AND (cardinality($3::text[])=0 OR i.environment_id=ANY($3::text[])) AND i.status<>'closed' AND COALESCE(a.decision,'pending')='pending' ORDER BY p.created_at DESC LIMIT 100`, ids, readScopeArrays(ctx).ApplicationIDs, readScopeArrays(ctx).EnvironmentIDs)
 	if e != nil {
 		return d, e
 	}
@@ -157,7 +181,7 @@ func (s *Service) Dashboard(ctx context.Context, u core.User) (Dashboard, error)
 	if e = rows.Err(); e != nil {
 		return d, e
 	}
-	rows, e = s.DB.Query(ctx, `SELECT x.id,i.application_id,COALESCE(i.environment_id,''),i.id,i.title,x.status,x.updated_at FROM executions x JOIN action_plans p ON p.id=x.plan_id JOIN investigations i ON i.id=p.investigation_id WHERE i.application_id=ANY($1::text[]) AND x.status IN('queued','executing','verifying','failed','needs_attention') ORDER BY x.updated_at DESC LIMIT 100`, ids)
+	rows, e = s.DB.Query(ctx, `SELECT x.id,i.application_id,COALESCE(i.environment_id,''),i.id,i.title,x.status,x.updated_at FROM executions x JOIN action_plans p ON p.id=x.plan_id JOIN investigations i ON i.id=p.investigation_id WHERE i.application_id=ANY($1::text[]) AND (cardinality($2::text[])=0 OR i.application_id=ANY($2::text[])) AND (cardinality($3::text[])=0 OR i.environment_id=ANY($3::text[])) AND x.status IN('queued','executing','verifying','failed','needs_attention') ORDER BY x.updated_at DESC LIMIT 100`, ids, readScopeArrays(ctx).ApplicationIDs, readScopeArrays(ctx).EnvironmentIDs)
 	if e != nil {
 		return d, e
 	}
@@ -191,25 +215,44 @@ func (s *Service) Dashboard(ctx context.Context, u core.User) (Dashboard, error)
 			d.NotificationFailures = append(d.NotificationFailures, n)
 		}
 	}
-	allowed := map[string]bool{}
-	for _, id := range ids {
-		allowed[id] = true
+	integrations, err := s.API.ReadIntegrations(ctx, u)
+	if err != nil {
+		return d, err
 	}
-	for _, v := range s.API.Integrations {
-		if u.Role == "admin" {
-			d.DataSources = append(d.DataSources, v)
+	scope := readScopeArrays(ctx)
+	for _, integration := range integrations {
+		if len(scope.ApplicationIDs) == 0 && len(scope.EnvironmentIDs) == 0 {
+			d.DataSources = append(d.DataSources, integration)
 			continue
 		}
-		visible := []string{}
-		for _, id := range v.ApplicationIDs {
-			if allowed[id] {
-				visible = append(visible, id)
+		matched := []string{}
+		for _, id := range integration.ApplicationIDs {
+			envs, err := s.Store.Environments(ctx, id)
+			if err != nil {
+				return d, err
+			}
+			for _, env := range envs {
+				if !scope.Matches(id, env.ID) {
+					continue
+				}
+				for _, binding := range env.Bindings {
+					for _, registered := range integration.RegisteredBindings {
+						if binding == registered {
+							matched = append(matched, id)
+							break
+						}
+					}
+				}
+				if len(matched) > 0 && matched[len(matched)-1] == id {
+					break
+				}
 			}
 		}
-		if len(visible) > 0 {
-			v.ApplicationIDs = visible
-			d.DataSources = append(d.DataSources, v)
+		if len(matched) > 0 {
+			integration.ApplicationIDs = matched
+			d.DataSources = append(d.DataSources, integration)
 		}
 	}
+
 	return d, nil
 }

@@ -1,5 +1,13 @@
 # AIOps Canvas 检查点
 
+## 当前状态 · CP-010 · 2026-09-20 · 交付扩展阶段 A
+
+- 用户批准 WAN-87～92 完整分阶段计划；详见 docs/plans/2026-09-20-delivery-workspace.md。基线未合并 WAN-86 d7ba116，分支 codex/wan-87-delivery-workspace。
+- WAN-87/88 界面/导航/范围/审计已实现并完成受影响构建、90操作契约、随机PG schema定向与浏览器检查；证据 docs/releases/2026-09-20-delivery-stage-a.md。18081已更新供体验。
+- B/C/D 正在独立模块与 aiops-test 新交付环境实现，不把阶段A标作整计划完成。已有练习集群、原数据和连接凭据保留。
+- 本条随阶段A提交；后续提交/推送/运行与剩余限制继续追加，不自动标Done。
+
+
 ## 当前状态 · CP-009 · 2026-09-20 · 本地实验数据与产品联调
 
 - 用户明确要求运行 AIOps 做产品测试、把实验数据接入页面再亲自体验，恢复必要构建/迁移/定向检查与真实数据联调。对应 [WAN-86](https://linear.app/wansss/issue/WAN-86)，实验环境为 WAN-85；范围与复用步骤见 [产品体验记录](docs/releases/2026-09-20-lab-integration.md)。

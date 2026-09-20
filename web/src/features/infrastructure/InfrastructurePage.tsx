@@ -9,12 +9,13 @@ import {
   Layers,
   RefreshCw,
   Server,
-} from "lucide-react";
+} from "../../lib/icons";
 import { request } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
 import { ErrorNotice } from "../../components/ui";
 import "./infrastructure.css";
-import HostMetrics from "./HostMetrics";
+import ScopeFilter, { usePageScope } from "../../components/ScopeFilter";
+import ResourceSnapshots from "./ResourceSnapshots";
 
 type DeploymentSnapshot = {
   application_id: string;
@@ -72,17 +73,23 @@ function capturedLabel(value: string) {
     : date.toLocaleString();
 }
 export default function InfrastructurePage() {
-  const { applications, application, environment, preview, setScope, user } =
-    useWorkspace();
+  const { application, environment, preview, setScope, user } = useWorkspace();
   const [params, setParams] = useSearchParams();
   const requested = params.get("view") ?? "summary";
   const view = destinations.some(([id]) => id === requested)
     ? requested
     : "summary";
   const [search, setSearch] = useState("");
-  const inventory = applications.flatMap((app) =>
+  const scope = usePageScope();
+  const inventory = scope.apps.flatMap((app) =>
     (app.environments ?? [])
-      .filter((env) => !app.archived && !env.archived)
+      .filter(
+        (env) =>
+          !app.archived &&
+          !env.archived &&
+          (!scope.environmentIds.length ||
+            scope.environmentIds.includes(env.id)),
+      )
       .map((env) => ({ app, env })),
   );
   const registered = inventory.filter(({ env }) =>
@@ -140,29 +147,13 @@ export default function InfrastructurePage() {
           <ArrowRight size={15} />
         </Link>
       </header>
-      <nav className="infra-categories" aria-label="基础设施分类">
-        {destinations.map(([id, label]) => (
-          <button
-            key={id}
-            className={view === id ? "active" : ""}
-            aria-current={view === id ? "page" : undefined}
-            onClick={() => selectView(id)}
-          >
-            {label}
-            {id !== "summary" && id !== "workloads" && id !== "hosts" && (
-              <small>待接入</small>
-            )}
-          </button>
-        ))}
-      </nav>
+      <ScopeFilter />
       {view === "summary" && (
         <>
           <div className="infra-summary-grid">
             <article className="card infra-summary">
               <Box size={18} />
-              <strong>
-                {applications.filter((app) => !app.archived).length}
-              </strong>
+              <strong>{scope.apps.length}</strong>
               <span>可访问的在用应用</span>
             </article>
             <article className="card infra-summary">
@@ -190,159 +181,171 @@ export default function InfrastructurePage() {
       )}
       {view === "summary" || view === "workloads" ? (
         <>
-          <section className="card infra-snapshot">
-            <header>
-              <div>
-                <h2>当前环境 · Deployment</h2>
-                <p>
-                  {application?.name || "尚未选择应用"} /{" "}
-                  {environment?.name || "尚未选择环境"}
-                </p>
-              </div>
-              <button
-                className="btn"
-                disabled={!readable || snapshot.isFetching}
-                onClick={() => void snapshot.refetch()}
-              >
-                <RefreshCw size={15} />
-                {snapshot.isFetching ? "读取中…" : "刷新快照"}
-              </button>
-            </header>
-            {!readable && (
-              <div className="infra-empty">
-                <Server size={26} />
-                <h3>
-                  {preview
-                    ? "设计预览没有真实集群数据"
-                    : "当前范围尚无可读取的 Deployment"}
-                </h3>
-                <p>
-                  先为应用环境绑定服务端登记的 Kubernetes
-                  连接器，再读取工作负载。
-                </p>
-                <div className="infra-actions">
-                  <Link className="btn" to={scopeLink("/applications")}>
-                    应用与环境
-                  </Link>
-                  {user.role === "admin" && (
-                    <Link className="btn" to={scopeLink("/integrations")}>
-                      查看集成配置
-                    </Link>
-                  )}
-                </div>
-              </div>
-            )}
-            {readable && snapshot.isPending && (
-              <p className="infra-scope-note" role="status">
-                正在读取已登记 Deployment…
-              </p>
-            )}
-            {readable && snapshot.error && (
-              <div className="infra-query-error">
-                <ErrorNotice error={snapshot.error} />
-                <p>
-                  本次读取失败不代表工作负载已停止。请核对连接器和资源绑定。
-                </p>
-              </div>
-            )}
-            {data && (
-              <>
-                <div className="infra-snapshot-label">
-                  <span className="badge">
-                    {snapshot.isError ? "上次成功快照" : "已采集快照"}
-                  </span>
-                  <span>
-                    采集于 {capturedLabel(data.captured_at)} · 非持续监控
-                  </span>
-                </div>
-                <dl className="infra-facts">
-                  <div>
-                    <dt>Deployment</dt>
-                    <dd>{data.deployment}</dd>
-                  </div>
-                  <div>
-                    <dt>命名空间</dt>
-                    <dd>{data.namespace}</dd>
-                  </div>
-                  <div>
-                    <dt>连接器登记</dt>
-                    <dd>{selectedBinding?.connector_id}</dd>
-                  </div>
-                  <div>
-                    <dt>期望 / 就绪副本</dt>
-                    <dd>
-                      {data.replicas} / {data.ready_replicas}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>已更新副本</dt>
-                    <dd>{data.updated_replicas}</dd>
-                  </div>
-                  <div>
-                    <dt>Generation / 已观测</dt>
-                    <dd>
-                      {data.generation} / {data.observed_generation}
-                    </dd>
-                  </div>
-                </dl>
-                <p className="infra-scope-note">
-                  副本和控制器状态仅描述本次采样，不能替代业务健康检查或恢复验证。
-                </p>
-                <h3>容器镜像</h3>
-                <div className="infra-table-scroll">
-                  <table className="infra-table">
-                    <thead>
-                      <tr>
-                        <th>容器</th>
-                        <th>镜像</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.images.map((image) => (
-                        <tr key={image.name}>
-                          <td>{image.name}</td>
-                          <td>
-                            <code>{image.image}</code>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {!data.images.length && (
-                    <p className="infra-scope-note">本次快照未返回容器镜像。</p>
-                  )}
-                </div>
-                <details className="infra-revisions">
-                  <summary>历史模板版本 · {data.revisions.length} 项</summary>
-                  <p className="infra-scope-note">
-                    来自关联 ReplicaSet 的模板记录，不表示镜像可用或已批准回滚。
+          {application && environment ? (
+            <section className="card infra-snapshot">
+              <header>
+                <div>
+                  <h2>当前环境 · Deployment</h2>
+                  <p>
+                    {application?.name || "尚未选择应用"} /{" "}
+                    {environment?.name || "尚未选择环境"}
                   </p>
-                  {data.revisions.map((revision, index) => (
-                    <article
-                      key={`${revision.revision}-${revision.digest}-${index}`}
-                    >
-                      <strong>Revision {revision.revision || "未标记"}</strong>
-                      <code>{revision.digest}</code>
-                      <ul>
-                        {revision.images.map((image) => (
-                          <li key={image.name}>
-                            {image.name} · {image.image}
-                          </li>
-                        ))}
-                      </ul>
-                    </article>
-                  ))}
-                  {!data.revisions.length && <p>暂无历史模板记录。</p>}
-                </details>
-                <div className="infra-actions">
-                  <Link className="btn" to={scopeLink("/applications/detail")}>
-                    应用指标与调查
-                    <ArrowRight size={14} />
-                  </Link>
                 </div>
-              </>
-            )}
-          </section>
+                <button
+                  className="btn"
+                  disabled={!readable || snapshot.isFetching}
+                  onClick={() => void snapshot.refetch()}
+                >
+                  <RefreshCw size={15} />
+                  {snapshot.isFetching ? "读取中…" : "刷新快照"}
+                </button>
+              </header>
+              {!readable && (
+                <div className="infra-empty">
+                  <Server size={26} />
+                  <h3>
+                    {preview
+                      ? "设计预览没有真实集群数据"
+                      : "当前范围尚无可读取的 Deployment"}
+                  </h3>
+                  <p>
+                    先为应用环境绑定服务端登记的 Kubernetes
+                    连接器，再读取工作负载。
+                  </p>
+                  <div className="infra-actions">
+                    <Link className="btn" to={scopeLink("/applications")}>
+                      应用与环境
+                    </Link>
+                    {user.role === "admin" && (
+                      <Link className="btn" to={scopeLink("/integrations")}>
+                        查看集成配置
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              )}
+              {readable && snapshot.isPending && (
+                <p className="infra-scope-note" role="status">
+                  正在读取已登记 Deployment…
+                </p>
+              )}
+              {readable && snapshot.error && (
+                <div className="infra-query-error">
+                  <ErrorNotice error={snapshot.error} />
+                  <p>
+                    本次读取失败不代表工作负载已停止。请核对连接器和资源绑定。
+                  </p>
+                </div>
+              )}
+              {data && (
+                <>
+                  <div className="infra-snapshot-label">
+                    <span className="badge">
+                      {snapshot.isError ? "上次成功快照" : "已采集快照"}
+                    </span>
+                    <span>
+                      采集于 {capturedLabel(data.captured_at)} · 非持续监控
+                    </span>
+                  </div>
+                  <dl className="infra-facts">
+                    <div>
+                      <dt>Deployment</dt>
+                      <dd>{data.deployment}</dd>
+                    </div>
+                    <div>
+                      <dt>命名空间</dt>
+                      <dd>{data.namespace}</dd>
+                    </div>
+                    <div>
+                      <dt>连接器登记</dt>
+                      <dd>{selectedBinding?.connector_id}</dd>
+                    </div>
+                    <div>
+                      <dt>期望 / 就绪副本</dt>
+                      <dd>
+                        {data.replicas} / {data.ready_replicas}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>已更新副本</dt>
+                      <dd>{data.updated_replicas}</dd>
+                    </div>
+                    <div>
+                      <dt>Generation / 已观测</dt>
+                      <dd>
+                        {data.generation} / {data.observed_generation}
+                      </dd>
+                    </div>
+                  </dl>
+                  <p className="infra-scope-note">
+                    副本和控制器状态仅描述本次采样，不能替代业务健康检查或恢复验证。
+                  </p>
+                  <h3>容器镜像</h3>
+                  <div className="infra-table-scroll">
+                    <table className="infra-table">
+                      <thead>
+                        <tr>
+                          <th>容器</th>
+                          <th>镜像</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.images.map((image) => (
+                          <tr key={image.name}>
+                            <td>{image.name}</td>
+                            <td>
+                              <code>{image.image}</code>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {!data.images.length && (
+                      <p className="infra-scope-note">
+                        本次快照未返回容器镜像。
+                      </p>
+                    )}
+                  </div>
+                  <details className="infra-revisions">
+                    <summary>历史模板版本 · {data.revisions.length} 项</summary>
+                    <p className="infra-scope-note">
+                      来自关联 ReplicaSet
+                      的模板记录，不表示镜像可用或已批准回滚。
+                    </p>
+                    {data.revisions.map((revision, index) => (
+                      <article
+                        key={`${revision.revision}-${revision.digest}-${index}`}
+                      >
+                        <strong>
+                          Revision {revision.revision || "未标记"}
+                        </strong>
+                        <code>{revision.digest}</code>
+                        <ul>
+                          {revision.images.map((image) => (
+                            <li key={image.name}>
+                              {image.name} · {image.image}
+                            </li>
+                          ))}
+                        </ul>
+                      </article>
+                    ))}
+                    {!data.revisions.length && <p>暂无历史模板记录。</p>}
+                  </details>
+                  <div className="infra-actions">
+                    <Link
+                      className="btn"
+                      to={scopeLink("/applications/detail")}
+                    >
+                      应用指标与调查
+                      <ArrowRight size={14} />
+                    </Link>
+                  </div>
+                </>
+              )}
+            </section>
+          ) : (
+            <ResourceSnapshots targets={registered} />
+          )}
           <section className="card infra-catalog">
             <header>
               <div>
@@ -422,7 +425,7 @@ export default function InfrastructurePage() {
           </section>
         </>
       ) : view === "hosts" ? (
-        <HostMetrics />
+        <ResourceSnapshots targets={inventory} hosts />
       ) : (
         <section className="card infra-empty infra-planned">
           <div className="infra-planned-icon">

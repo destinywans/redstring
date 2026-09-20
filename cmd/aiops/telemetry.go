@@ -21,6 +21,7 @@ import (
 func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
 	path := os.Getenv("AIOPS_TELEMETRY_CONFIG")
 	if path == "" {
+		api.RegisterTelemetryBatch(nil)
 		registerTelemetryMetadata(api, connectors.TelemetryConfig{}, nil)
 		api.Integrations = append(api.Integrations,
 			httpapi.NewIntegration("prometheus", "Prometheus", "connector", "prometheus", false, nil, []string{"metrics.read"}),
@@ -46,6 +47,7 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
 	if e != nil {
 		return e
 	}
+	api.RegisterTelemetryBatch(client)
 	previous := worker.Tools
 	worker.Tools = func(ctx context.Context, app string) ([]inference.EvidenceTool, error) {
 		var tools []inference.EvidenceTool

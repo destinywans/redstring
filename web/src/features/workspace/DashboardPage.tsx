@@ -7,9 +7,10 @@ import {
   CheckCheck,
   Clock,
   ShieldCheck,
-} from "lucide-react";
+} from "../../lib/icons";
 import { request } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
+import ScopeFilter, { usePageScope } from "../../components/ScopeFilter";
 import { ErrorNotice } from "../../components/ui";
 import { type Dashboard, type Todo, statusName, timeLabel } from "./operations";
 import "./workspace.css";
@@ -24,9 +25,10 @@ const empty: Dashboard = {
 };
 export default function DashboardPage() {
   const { preview, user, applications } = useWorkspace();
+  const scope = usePageScope();
   const q = useQuery({
-    queryKey: ["dashboard", preview],
-    queryFn: () => request<Dashboard>("/dashboard"),
+    queryKey: ["dashboard", preview, scope.query],
+    queryFn: () => request<Dashboard>(`/dashboard?${scope.query}`),
     enabled: !preview,
     refetchInterval: 30000,
   });
@@ -78,6 +80,7 @@ export default function DashboardPage() {
           查看应用 <ArrowRight size={16} />
         </Link>
       </header>
+      <ScopeFilter />
       {preview && (
         <div className="management-notice">
           设计预览 · 此页展示真实工作台的空状态，未连接数据源。
@@ -86,7 +89,7 @@ export default function DashboardPage() {
       {q.error && <ErrorNotice error={q.error} />}
       <div className="management-grid">
         {[
-          { label: "可访问应用", value: applications.length, icon: Activity },
+          { label: "可访问应用", value: scope.apps.length, icon: Activity },
           {
             label: "待关注异常",
             value: data.incidents.filter((i) => i.alert_status !== "resolved")

@@ -87,3 +87,8 @@ func NewIntegration(id, name, kind, provider string, configured bool, apps, capa
 	}
 	return Integration{ID: id, Name: name, Kind: kind, Provider: provider, Configured: configured, Status: status, ApplicationIDs: apps, Capabilities: capabilities}
 }
+
+// ReadIntegrations shares the authorized registration projection with dashboards.
+func (s *Server) ReadIntegrations(ctx context.Context, user core.User) ([]Integration, error) {
+	return s.visibleIntegrations(ctx, user)
+}

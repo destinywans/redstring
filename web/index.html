@@ -4,6 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f7f8fa" />
+    <script>
+      // Apply the saved palette before the first paint; theme motion is for changes only.
+      (() => {
+        let preference = "system";
+        try {
+          preference = localStorage.getItem("aiops-theme") || "system";
+        } catch {}
+        const dark =
+          preference === "dark" ||
+          (preference !== "light" &&
+            matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+        document.querySelector('meta[name="theme-color"]').content = dark
+          ? "#030405"
+          : "#f7f8fa";
+      })();
+    </script>
     <title>AIOps Canvas · 运维工作区</title>
   </head>
   <body>

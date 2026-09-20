@@ -1,3 +1,4 @@
+import ScopeFilter from "../../components/ScopeFilter";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
@@ -17,7 +18,7 @@ import {
   RefreshCw,
   Search,
   X,
-} from "lucide-react";
+} from "../../lib/icons";
 import { request, post } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
 import { useDraftStore } from "../../lib/drafts";
@@ -365,6 +366,7 @@ export default function KnowledgePage() {
   }
   return (
     <div className="knowledge-page">
+      <ScopeFilter single />
       <div className="page-heading">
         <div>
           <h1>知识与 Runbook</h1>

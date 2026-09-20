@@ -220,6 +220,16 @@ S['Environment']['properties'].update({'configuration':ref('EnvironmentConfigura
 S['Application']['properties'].pop('capabilities',None)
 P['/environments/{id}']['patch']['description']+=' Configuration is catalog metadata, not applied infrastructure state. configuration_revision is independently checked when configuration is submitted; metadata-only changes do not redirect approved bindings.'
 
-spec={'openapi':'3.1.0','info':{'title':'AIOps Canvas Backend API','version':'0.5.0','description':'Single-workspace multi-application SRE API. All business history is server authoritative; application authorization is enforced beyond minimum workspace role.','license':{'name':'Apache-2.0','identifier':'Apache-2.0'}},'servers':[{'url':'/api/v1'}],'security':[{'sessionCookie':[]}],'paths':P,'components':{'schemas':S,'securitySchemes':{'sessionCookie':{'type':'apiKey','in':'cookie','name':'aiops_session'},'alertSourceToken':{'type':'http','scheme':'bearer'}}}}
+# WAN-88: page-local multi-application scope, bounded telemetry batches and audit search.
+for path in ['/applications','/investigations','/incidents','/dashboard']:
+    for name in ['applications','environments']:
+        P[path]['get'].setdefault('parameters',[]).append({'name':name,'in':'query','schema':string(),'description':'Comma-separated explicit authorized IDs; empty means all authorized scope. Legacy singular filters remain supported.'})
+for mode,response_type in [('metrics','MetricEvidence'),('logs','LogEvidence')]:
+    route('post',f'/observability/{mode}/batch',f'Query authorized {mode} targets independently',body=obj({'targets':{'type':'array','minItems':1,'maxItems':20,'items':obj(fieldnames('application_id environment_id query_id'),['application_id','environment_id'])},'start':string(format='date-time'),'end':string(format='date-time'),'step_seconds':integer(),'limit':integer()},['targets']),response=obj({'items':arr(obj({**fieldnames('application_id environment_id query_id'),'binding_revision':integer(),'result':ref(response_type),'error':obj(fieldnames('code message'))})),'partial':boolean}),desc='Pre-authorizes all targets before querying; max 4 concurrent, bounded duration and payload per target; errors stay per target. No raw query language accepted.')
+P['/audit']['get']['parameters']=[{'name':name,'in':'query','schema':integer(minimum=1,maximum=250) if name=='limit' else string()} for name in ['q','actor_id','application_id','action','outcome','from','to','cursor','limit']]
+P['/audit']['get']['description']+=' Server-side keyword/filter search before stable id cursor pagination; no client-only 250-row search.'
+P['/audit']['get']['responses']['200']['content']['application/json']['schema']['properties']['next_cursor']=string()
+
+spec={'openapi':'3.1.0','info':{'title':'AIOps Canvas Backend API','version':'0.6.0','description':'Single-workspace multi-application SRE API. All business history is server authoritative; application authorization is enforced beyond minimum workspace role.','license':{'name':'Apache-2.0','identifier':'Apache-2.0'}},'servers':[{'url':'/api/v1'}],'security':[{'sessionCookie':[]}],'paths':P,'components':{'schemas':S,'securitySchemes':{'sessionCookie':{'type':'apiKey','in':'cookie','name':'aiops_session'},'alertSourceToken':{'type':'http','scheme':'bearer'}}}}
 Path('internal/apicontract/openapi.json').write_text(json.dumps(spec,ensure_ascii=False,indent=2)+'\n')
 print(f'Generated {len(P)} paths, {sum(len(x) for x in P.values())} operations, {len(S)} schemas.')

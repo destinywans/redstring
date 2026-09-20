@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Search, Upload, Users } from "lucide-react";
+import { Plus, Search, Upload, Users } from "../../lib/icons";
 import { request, post, patch } from "../../lib/api";
 import type { User } from "../../lib/types";
 import { useWorkspace } from "../../lib/workspace";

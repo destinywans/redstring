@@ -1,15 +1,16 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, NavLink, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
   ArrowRight,
   Bell,
   RefreshCw,
   Search,
-} from "lucide-react";
+} from "../../lib/icons";
 import { request, post } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
+import ScopeFilter, { usePageScope } from "../../components/ScopeFilter";
 import { ErrorNotice, Modal } from "../../components/ui";
 import { IncidentEvidence } from "../workspace/AutomationEvidence";
 import {
@@ -50,32 +51,22 @@ const severityName = (value: string) =>
   ({ critical: "严重", warning: "警告", info: "提示" })[value] ?? value;
 
 export default function AlertsPage({ mode = "incidents" }: { mode?: Mode }) {
-  const {
-    preview,
-    user,
-    application,
-    environment,
-    applications,
-    notify,
-    setInvestigationId,
-    setScope,
-  } = useWorkspace();
+  const { preview, user, applications, notify, setInvestigationId, setScope } =
+    useWorkspace();
   const qc = useQueryClient(),
     navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const all = params.get("scope") === "all",
-    selectedId = params.get("incident") ?? "";
+  const scope = usePageScope();
+  const selectedId = params.get("incident") ?? "";
   const [text, setText] = useState(""),
     [severity, setSeverity] = useState(""),
     [state, setState] = useState("all"),
     [busy, setBusy] = useState("");
-  const query = new URLSearchParams();
-  if (!all && application) query.set("application_id", application.id);
-  if (!all && environment) query.set("environment_id", environment.id);
+  const query = new URLSearchParams(scope.query);
   const incidents = useQuery({
     queryKey: ["incidents", "workspace", query.toString(), preview],
     queryFn: () => request<{ items: Incident[] }>(`/incidents?${query}`),
-    enabled: !preview && mode !== "sources" && (all || !!application),
+    enabled: !preview && mode !== "sources",
   });
   const notifications = useQuery({
     queryKey: ["notifications", preview],
@@ -122,11 +113,6 @@ export default function AlertsPage({ mode = "incidents" }: { mode?: Mode }) {
     if (id) next.set("incident", id);
     else next.delete("incident");
     setParams(next);
-  }
-  function tabURL(path: string) {
-    const next = new URLSearchParams(params);
-    next.delete("incident");
-    return `${path}?${next}`;
   }
   function scopeLabel(i: { application_id: string; environment_id: string }) {
     const a = applications.find((v) => v.id === i.application_id);
@@ -233,7 +219,7 @@ export default function AlertsPage({ mode = "incidents" }: { mode?: Mode }) {
           onClick={() => {
             if (mode === "sources") void catalog.refetch();
             else {
-              if (all || application) void incidents.refetch();
+              void incidents.refetch();
               void notifications.refetch();
               if (selectedId) {
                 void detail.refetch();
@@ -246,15 +232,7 @@ export default function AlertsPage({ mode = "incidents" }: { mode?: Mode }) {
           刷新
         </button>
       </header>
-      <nav className="alerts-tabs" aria-label="告警与事件页面">
-        <NavLink end to={tabURL("/alerts")}>
-          告警列表
-        </NavLink>
-        <NavLink to={tabURL("/incidents")}>事件中心</NavLink>
-        {user.role === "admin" && (
-          <NavLink to={tabURL("/alerts/sources")}>来源与通知</NavLink>
-        )}
-      </nav>
+      {mode !== "sources" && <ScopeFilter />}
       {preview && (
         <p className="management-notice">
           设计预览未连接告警源，不展示虚构告警或投递成功记录。
@@ -365,20 +343,6 @@ export default function AlertsPage({ mode = "incidents" }: { mode?: Mode }) {
             </label>
             <select
               className="field"
-              aria-label="查看范围"
-              value={all ? "all" : "current"}
-              onChange={(e) => {
-                const next = new URLSearchParams(params);
-                next.set("scope", e.target.value);
-                next.delete("incident");
-                setParams(next);
-              }}
-            >
-              <option value="current">当前应用 / 环境</option>
-              <option value="all">所有授权应用</option>
-            </select>
-            <select
-              className="field"
               aria-label="告警级别"
               value={severity}
               onChange={(e) => setSeverity(e.target.value)}
@@ -404,11 +368,6 @@ export default function AlertsPage({ mode = "incidents" }: { mode?: Mode }) {
               <option value="mine">由我处理</option>
             </select>
           </div>
-          {!all && !application && (
-            <p className="management-notice">
-              请先选择应用，或切换到所有授权应用。
-            </p>
-          )}
           {incidents.error && <ErrorNotice error={incidents.error} />}
           <p className="muted">
             {mode === "alerts"
@@ -458,7 +417,7 @@ export default function AlertsPage({ mode = "incidents" }: { mode?: Mode }) {
             </table>
             {!filtered.length && !incidents.error && (
               <p className="management-empty">
-                {incidents.isPending && !preview && (all || application)
+                {incidents.isPending && !preview
                   ? "正在读取…"
                   : "没有符合筛选的记录；这不代表所有服务都健康。"}
               </p>

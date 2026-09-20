@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { RefreshCw, Server } from "lucide-react";
+import { RefreshCw, Server } from "../../lib/icons";
 import { request } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
 import { ErrorNotice } from "../../components/ui";

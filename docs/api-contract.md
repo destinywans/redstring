@@ -88,3 +88,11 @@
 ## 0.5.0：观测与告警读取
 
 新增脱敏管理员 `/operations/catalog` 和按应用授权的 `/incidents/{id}/events`；遥测 metadata 即使无配置也返回空能力，有配置返回真实限制；metrics/logs POST 明确是 viewer + 应用 view 的只读例外。其余写入权限不变。完整字段、页面映射与历史证据边界见 [SRE 观测工作区](observability-workspace.md)。生成契约不等于校验，本轮未验证。
+
+## WAN-88 页面范围、批量观测与审计
+
+页面 URL 支持 `applications`/`environments` 逗号分隔的多个 ID；列表 API 同名参数，与既有 `application_id`/`environment_id` 单选兼容。无范围为全部授权，显式非法空值拒绝。对调查与执行仍使用冻结单目标。
+
+`POST /observability/metrics/batch` / `logs/batch` 接收 `targets:[{application_id,environment_id,query_id?}]` 与公共 start/end/step_seconds/limit；指标 query_id 必须是登记值。先检查全部目标权限再调用来源；最多20目标、4并发、45秒、每项256KiB。响应 items 保持输入次序，每项 result 或 error，含绑定版本，partial 明确部分失败。前端未登记目标单独提示，合法来源仍展示。
+
+`GET /audit` 接收 q/actor_id/application_id/action/outcome/from/to/cursor/limit，管理员限定。服务端按 ID 倒序游标分页，items + next_cursor；无参数兼容250条，时间区间左闭右开。操作者姓名与原ID并存；success过滤包含历史succeeded，不改变原始记录。

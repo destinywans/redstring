@@ -13,7 +13,7 @@ import {
   RefreshCw,
   ShieldCheck,
   TriangleAlert,
-} from "lucide-react";
+} from "../../lib/icons";
 import {
   CardHeading,
   CardTools,

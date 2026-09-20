@@ -4,13 +4,12 @@ import { request, post, patch, put } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
 import type { Team, User } from "../../lib/types";
 import { ErrorNotice, Modal } from "../../components/ui";
-import { timeLabel } from "./operations";
 import AutomationPanel from "./AutomationPanel";
 import "./workspace.css";
 export default function GovernancePanel({
   tab,
 }: {
-  tab: "teams" | "audit" | "automation";
+  tab: "teams" | "automation";
 }) {
   const { preview, notify } = useWorkspace(),
     qc = useQueryClient();
@@ -32,24 +31,6 @@ export default function GovernancePanel({
     queryFn: () =>
       request<{ items: string[] }>(`/teams/${selected!.id}/members`),
     enabled: !!selected && !preview,
-  });
-  const audit = useQuery({
-    queryKey: ["audit"],
-    queryFn: () =>
-      request<{
-        items: {
-          id: string;
-          actor_id: string;
-          actor_kind: string;
-          application_id: string;
-          action: string;
-          target: string;
-          outcome: string;
-          created_at: string;
-          changes: Record<string, unknown>;
-        }[];
-      }>("/audit"),
-    enabled: !preview && tab === "audit",
   });
   async function save(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -74,58 +55,6 @@ export default function GovernancePanel({
       <section className="card management-card">
         <h2>工作区默认自动化策略</h2>
         <AutomationPanel environmentId="workspace" />
-      </section>
-    );
-  if (tab === "audit")
-    return (
-      <section className="card management-card">
-        <h2>管理审计</h2>
-        <p>账号、权限、应用绑定、策略及知识发布的管理变更记录。</p>
-        {audit.error && <ErrorNotice error={audit.error} />}
-        <div className="management-table-wrap">
-          <table className="management-table">
-            <thead>
-              <tr>
-                <th>时间</th>
-                <th>操作者</th>
-                <th>动作 / 对象</th>
-                <th>结果</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(audit.data?.items ?? []).map((a) => (
-                <tr key={a.id}>
-                  <td>{timeLabel(a.created_at)}</td>
-                  <td>
-                    {a.actor_id || "系统"}
-                    <small>{a.actor_kind}</small>
-                  </td>
-                  <td>
-                    {a.action}
-                    <small>{a.target}</small>
-                    {a.changes && (
-                      <details>
-                        <summary>变更字段</summary>
-                        {Object.entries(a.changes).map(([k, v]) => (
-                          <div key={k}>
-                            <strong>{k}</strong>：
-                            {typeof v === "object"
-                              ? JSON.stringify(v)
-                              : String(v)}
-                          </div>
-                        ))}
-                      </details>
-                    )}
-                  </td>
-                  <td>{a.outcome}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!audit.data?.items?.length && (
-            <p className="management-empty">暂无审计记录</p>
-          )}
-        </div>
       </section>
     );
   return (

@@ -9,7 +9,7 @@ import {
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Box, Plus, Settings, ArrowRight, Archive, Layers } from "lucide-react";
+import { Box, Plus, Settings, ArrowRight, Archive, Layers } from "../../lib/icons";
 import { request, post, patch, put } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
 import type {

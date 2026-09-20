@@ -1,15 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries } from "@tanstack/react-query";
 import { Link, useLocation } from "react-router-dom";
-import {
-  Activity,
-  RefreshCw,
-  Search,
-  ArrowUpRight,
-  FileText,
-} from "lucide-react";
-import { ApiError, request } from "../../lib/api";
+import { request } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
+import ScopeFilter, { usePageScope } from "../../components/ScopeFilter";
 import { ErrorNotice } from "../../components/ui";
 import ObservationResults from "./ObservationResults";
 import TransferDialog from "./TransferDialog";
@@ -23,48 +17,37 @@ import {
 import "../workspace/workspace.css";
 import "./observability.css";
 
-type Registration = {
-  metric_query_ids: string[];
-  logs_configured: boolean;
-  configured?: boolean;
-  limits?: {
-    max_window_seconds: number;
-    max_lookback_seconds: number;
-    min_step_seconds: number;
-    max_samples_per_series: number;
-    max_log_entries: number;
-  } | null;
-};
-type Deployment = {
-  deployment: string;
-  namespace: string;
-  ready_replicas: number;
-  replicas: number;
-  captured_at: string;
-  images: { name: string; image: string }[];
+type Registration = { metric_query_ids: string[]; logs_configured: boolean };
+type BatchItem = {
+  application_id: string;
+  environment_id: string;
+  query_id?: string;
+  binding_revision: number;
+  result?: TelemetryData;
+  error?: { code: string; message: string };
 };
 function localDate(value: Date) {
-  const shifted = new Date(
-    value.getTime() - value.getTimezoneOffset() * 60_000,
-  );
-  return shifted.toISOString().slice(0, 16);
+  return new Date(value.getTime() - value.getTimezoneOffset() * 60_000)
+    .toISOString()
+    .slice(0, 16);
 }
-
 export default function ObservabilityPage({ mode }: { mode: Mode }) {
-  const { application, environment, user, preview } = useWorkspace();
-  const location = useLocation();
-  const incident = new URLSearchParams(location.search).get("incident");
-  const [queryID, setQueryID] = useState("");
-  const [range, setRange] = useState("30");
-  const [logLimit, setLogLimit] = useState(100);
+  const { user, preview } = useWorkspace(),
+    scope = usePageScope(),
+    location = useLocation();
+  const [page, setPage] = useState(0),
+    [queryId, setQueryId] = useState(""),
+    [range, setRange] = useState("30"),
+    [limit, setLimit] = useState(100);
   const [start, setStart] = useState(() =>
-    localDate(new Date(Date.now() - 30 * 60_000)),
-  );
-  const [end, setEnd] = useState(() => localDate(new Date()));
-  const [result, setResult] = useState<QuerySnapshot | null>(null);
-  const [error, setError] = useState<unknown>(null);
-  const [busy, setBusy] = useState(false);
-  const [transfer, setTransfer] = useState<Transfer | null>(null);
+      localDate(new Date(Date.now() - 1800000)),
+    ),
+    [end, setEnd] = useState(() => localDate(new Date()));
+  const [results, setResults] = useState<QuerySnapshot[]>([]),
+    [failures, setFailures] = useState<BatchItem[]>([]),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState<unknown>(null),
+    [transfer, setTransfer] = useState<Transfer | null>(null);
   const [created, setCreated] = useState<
     {
       id: string;
@@ -73,47 +56,45 @@ export default function ObservabilityPage({ mode }: { mode: Mode }) {
       environmentId: string;
     }[]
   >([]);
-  const generation = useRef(0),
-    controller = useRef<AbortController | null>(null);
-  const registration = useQuery({
-    queryKey: ["telemetry", application?.id, environment?.id, preview],
-    queryFn: () =>
-      request<Registration>(
-        `/applications/${application!.id}/telemetry?environment_id=${encodeURIComponent(environment!.id)}`,
-      ),
-    enabled: !!application && !!environment && !preview,
-    retry: false,
+  const controller = useRef<AbortController | null>(null),
+    generation = useRef(0);
+  const pageIndex = Math.min(
+    page,
+    Math.max(0, Math.ceil(scope.targets.length / 20) - 1),
+  );
+  const targets = scope.targets.slice(pageIndex * 20, pageIndex * 20 + 20);
+  const registrations = useQueries({
+    queries: targets.map(({ app, env }) => ({
+      queryKey: ["telemetry", app.id, env.id, preview],
+      queryFn: () =>
+        request<Registration>(
+          `/applications/${app.id}/telemetry?environment_id=${env.id}`,
+        ),
+      enabled: !preview,
+      retry: false,
+    })),
   });
-  const deployment = useQuery({
-    queryKey: ["deployment", application?.id, environment?.id, preview],
-    queryFn: () =>
-      request<Deployment>(
-        `/applications/${application!.id}/deployment?environment_id=${encodeURIComponent(environment!.id)}`,
-      ),
-    enabled: !!application && !!environment && !preview,
-    retry: false,
-  });
-  const selectedQuery = registration.data?.metric_query_ids.includes(queryID)
-    ? queryID
-    : (registration.data?.metric_query_ids[0] ?? "");
+  const queryIds = [
+    ...new Set(registrations.flatMap((q) => q.data?.metric_query_ids ?? [])),
+  ].sort();
   const signature = JSON.stringify([
-    application?.id,
-    environment?.id,
-    environment?.binding_revision,
+    scope.query,
+    pageIndex,
+    targets.map((t) => [t.env.id, t.env.binding_revision]),
     mode,
-    mode === "metrics" ? selectedQuery : "",
+    queryId,
     range,
-    range === "custom" ? start : "",
-    range === "custom" ? end : "",
-    mode === "logs" ? logLimit : "",
+    range === "custom" ? [start, end] : null,
+    limit,
   ]);
-  const currentSignature = useRef(signature);
-  currentSignature.current = signature;
+  const signatureRef = useRef(signature);
+  signatureRef.current = signature;
   useEffect(() => {
     generation.current++;
     controller.current?.abort();
     setBusy(false);
     setError(null);
+    setFailures([]);
   }, [signature]);
   useEffect(
     () => () => {
@@ -122,370 +103,350 @@ export default function ObservabilityPage({ mode }: { mode: Mode }) {
     },
     [],
   );
-  const currentResult = result?.signature === signature;
-  const configured =
-    mode === "metrics" ? !!selectedQuery : !!registration.data?.logs_configured;
-  const noSource =
-    registration.error instanceof ApiError && registration.error.status === 404;
+  const current =
+    results.length > 0 && results.every((r) => r.signature === signature);
+  const canTransfer =
+    current && !busy && !error && !preview && user.role !== "viewer";
   async function query() {
-    if (!application || !environment || preview || !configured) return;
-    const requestSignature = signature,
-      sequence = ++generation.current;
+    const seq = ++generation.current,
+      savedSignature = signature;
     controller.current?.abort();
     const abort = new AbortController();
     controller.current = abort;
     setBusy(true);
     setError(null);
     try {
-      const to = range === "custom" ? new Date(end) : new Date();
-      const from =
-        range === "custom"
-          ? new Date(start)
-          : new Date(to.getTime() - Number(range) * 60_000);
+      const to = range === "custom" ? new Date(end) : new Date(),
+        from =
+          range === "custom"
+            ? new Date(start)
+            : new Date(to.getTime() - Number(range) * 60000);
       if (
-        !Number.isFinite(to.getTime()) ||
         !Number.isFinite(from.getTime()) ||
+        !Number.isFinite(to.getTime()) ||
         from >= to ||
         to.getTime() > Date.now() + 5000
       )
-        throw new Error("请选择有效的起止时间：开始早于结束，结束不能在未来。");
-      const seconds = (to.getTime() - from.getTime()) / 1000,
-        limits = registration.data?.limits;
-      if (limits && seconds > limits.max_window_seconds)
-        throw new Error(
-          `当前数据源单次最多查询 ${limits.max_window_seconds / 60} 分钟，请缩短时间范围。`,
-        );
-      if (
-        limits &&
-        from.getTime() < Date.now() - limits.max_lookback_seconds * 1000
-      )
-        throw new Error(
-          "开始时间超出当前数据源允许的历史范围，请选择更近的时间。",
-        );
-      const step = limits
-        ? Math.max(
-            limits.min_step_seconds,
-            Math.ceil(seconds / Math.max(1, limits.max_samples_per_series - 1)),
-          )
-        : undefined;
+        throw new Error("请选择有效的起止时间，结束不能在未来。");
       const window = { start: from.toISOString(), end: to.toISOString() };
-      const data = await request<TelemetryData>(
-        `/applications/${application.id}/${mode}`,
-        {
-          method: "POST",
-          signal: abort.signal,
-          body: JSON.stringify({
-            environment_id: environment.id,
-            ...window,
-            ...(mode === "metrics"
-              ? {
-                  query_id: selectedQuery,
-                  ...(step ? { step_seconds: step } : {}),
-                }
-              : {
-                  limit: Math.min(
-                    Math.max(1, logLimit),
-                    limits?.max_log_entries ?? logLimit,
-                  ),
-                }),
-          }),
-        },
-      );
-      if (
-        sequence !== generation.current ||
-        requestSignature !== currentSignature.current
-      )
+      const requested = targets.map(({ app, env }, index) => ({
+        application_id: app.id,
+        environment_id: env.id,
+        ...(mode === "metrics"
+          ? {
+              query_id:
+                queryId || registrations[index].data?.metric_query_ids[0] || "",
+            }
+          : {}),
+      }));
+      const valid = requested.filter((t) => mode !== "metrics" || t.query_id);
+      const unavailable: BatchItem[] = requested
+        .filter((t) => mode === "metrics" && !t.query_id)
+        .map((t) => ({
+          ...t,
+          binding_revision: 0,
+          error: {
+            code: "unregistered",
+            message: "未登记指标或无法读取查询配置，请检查数据源。",
+          },
+        }));
+      const batch = valid.length
+        ? await request<{ items: BatchItem[]; partial: boolean }>(
+            `/observability/${mode}/batch`,
+            {
+              method: "POST",
+              signal: abort.signal,
+              body: JSON.stringify({
+                targets: valid,
+                ...window,
+                ...(mode === "logs" ? { limit } : { step_seconds: 30 }),
+              }),
+            },
+          )
+        : { items: [], partial: true };
+      batch.items.push(...unavailable);
+      if (seq !== generation.current || savedSignature !== signatureRef.current)
         return;
-      setResult({
-        id: crypto.randomUUID(),
-        signature: requestSignature,
-        mode,
-        applicationId: application.id,
-        applicationName: application.name,
-        environmentId: environment.id,
-        environmentName: environment.name,
-        queryId: mode === "metrics" ? selectedQuery : "registered-loki-scope",
-        requestedWindow: window,
-        receivedAt: new Date().toISOString(),
-        data,
-      });
+      setFailures(batch.items.filter((i) => i.error));
+      setResults(
+        batch.items
+          .filter((i) => i.result)
+          .map((i) => {
+            const target = targets.find((t) => t.env.id === i.environment_id)!;
+            return {
+              id: crypto.randomUUID(),
+              signature: savedSignature,
+              mode,
+              applicationId: i.application_id,
+              applicationName: target.app.name,
+              environmentId: i.environment_id,
+              environmentName: target.env.name,
+              queryId:
+                i.query_id ??
+                (mode === "metrics" ? queryId : "registered-loki-scope"),
+              requestedWindow: window,
+              receivedAt: new Date().toISOString(),
+              data: i.result!,
+            };
+          }),
+      );
     } catch (e) {
-      if (
-        sequence === generation.current &&
-        requestSignature === currentSignature.current &&
-        !abort.signal.aborted
-      )
-        setError(e);
+      if (seq === generation.current && !abort.signal.aborted) setError(e);
     } finally {
-      if (
-        sequence === generation.current &&
-        requestSignature === currentSignature.current
-      )
-        setBusy(false);
+      if (seq === generation.current) setBusy(false);
     }
   }
+  const mergedLogs = results
+    .flatMap((snapshot) =>
+      (snapshot.data.entries ?? []).map((entry, index) => ({
+        entry,
+        index,
+        snapshot,
+      })),
+    )
+    .sort((a, b) =>
+      String(b.entry.timestamp).localeCompare(String(a.entry.timestamp)),
+    );
   return (
     <div className="management-page observability-page">
       <header className="management-heading">
         <div>
           <span className="eyebrow">OBSERVABILITY</span>
           <h1>{mode === "metrics" ? "指标工作台" : "日志工作台"}</h1>
-          <p>直接查看应用运行数据，发现异常后将精确快照带入调查。</p>
+          <p>跨应用查看运行数据，将选中的证据带入具体调查。</p>
         </div>
         <Link className="btn" to="/integrations">
           管理数据源
-          <ArrowUpRight size={15} />
         </Link>
       </header>
-      {incident && (
-        <p className="observation-incident-context">
-          从告警入口打开 ·{" "}
-          <Link to={`/incidents?incident=${encodeURIComponent(incident)}`}>
-            返回对应告警
+      <ScopeFilter />
+      {new URLSearchParams(location.search).get("incident") && (
+        <p className="muted">
+          从告警进入 ·{" "}
+          <Link
+            to={`/incidents?incident=${new URLSearchParams(location.search).get("incident")}`}
+          >
+            返回告警
           </Link>
-          <span className="muted"> · 当前查询时间由下方时间范围决定</span>
         </p>
       )}
-      <nav className="observation-tabs" aria-label="可观测性分类">
-        <Link
-          className={mode === "metrics" ? "active" : ""}
-          to={{ pathname: "/observability/metrics", search: location.search }}
-        >
-          <Activity size={16} />
-          指标
-        </Link>
-        <Link
-          className={mode === "logs" ? "active" : ""}
-          to={{ pathname: "/observability/logs", search: location.search }}
-        >
-          <FileText size={16} />
-          日志
-        </Link>
-        <Link
-          to={{ pathname: "/observability/traces", search: location.search }}
-        >
-          调用链
-        </Link>
-        <Link
-          to={{ pathname: "/observability/topology", search: location.search }}
-        >
-          拓扑
-        </Link>
-      </nav>
       <section className="card management-card observation-query">
-        <div className="observation-scope">
-          <strong>{application?.name ?? "尚未选择应用"}</strong>
-          <span className="badge">{environment?.name ?? "尚未选择环境"}</span>
-          <span className="muted">在顶部切换应用与环境</span>
-        </div>
-        {preview && (
-          <p className="management-notice">
-            设计预览未连接真实数据源，此页面不生成示例遥测。
-          </p>
-        )}
-        {!application || !environment ? (
-          <p className="management-notice">
-            先在顶部选择可访问的应用和环境，再查询运行数据。
-          </p>
-        ) : (
-          <>
-            {registration.isPending && !preview && (
-              <p className="muted">正在读取数据源配置…</p>
-            )}
-            {noSource ? (
-              <p className="management-notice">
-                尚未接入遥测服务，请管理员在集成中配置真实数据源。
-              </p>
-            ) : registration.error ? (
-              <ErrorNotice error={registration.error} />
-            ) : (
-              !preview &&
-              registration.data &&
-              !configured && (
-                <p className="management-notice">
-                  当前环境未登记{mode === "metrics" ? "指标查询" : "日志范围"}
-                  ，接入后即可查看。
-                </p>
-              )
-            )}
-            <div className="observation-query-controls">
-              {mode === "metrics" ? (
-                <label>
-                  已登记的指标
-                  <select
-                    className="field"
-                    value={selectedQuery}
-                    onChange={(e) => setQueryID(e.target.value)}
-                    disabled={!configured || preview}
-                  >
-                    {!selectedQuery && <option value="">没有可用查询</option>}
-                    {registration.data?.metric_query_ids.map((id) => (
-                      <option key={id} value={id}>
-                        {id}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : (
-                <label>
-                  日志来源
-                  <div className="field observation-readonly">
-                    Loki · 当前环境已登记的标签范围
-                  </div>
-                </label>
-              )}
-              <label>
-                时间范围
-                <select
-                  className="field"
-                  value={range}
-                  onChange={(e) => setRange(e.target.value)}
-                >
-                  {[15, 30, 60].map((minutes) => (
-                    <option
-                      key={minutes}
-                      value={minutes}
-                      disabled={
-                        !!registration.data?.limits &&
-                        minutes * 60 >
-                          registration.data.limits.max_window_seconds
-                      }
-                    >
-                      {minutes === 60 ? "最近 1 小时" : `最近 ${minutes} 分钟`}
-                    </option>
-                  ))}
-                  <option value="custom">自定义起止</option>
-                </select>
-              </label>
-              {mode === "logs" && (
-                <label>
-                  最多返回条数
-                  <input
-                    className="field"
-                    type="number"
-                    min={1}
-                    max={registration.data?.limits?.max_log_entries}
-                    value={Math.min(
-                      logLimit,
-                      registration.data?.limits?.max_log_entries ?? logLimit,
-                    )}
-                    onChange={(e) =>
-                      setLogLimit(Math.max(1, Number(e.target.value) || 1))
-                    }
-                  />
-                </label>
-              )}
-              <button
-                className="btn btn-primary"
-                disabled={
-                  busy || preview || !configured || !registration.isSuccess
-                }
-                onClick={() => void query()}
+        <div className="observation-query-controls">
+          {mode === "metrics" && (
+            <label>
+              已登记的指标
+              <select
+                className="field"
+                value={queryId}
+                onChange={(e) => setQueryId(e.target.value)}
               >
-                {busy ? (
-                  <RefreshCw size={16} className="observation-loading" />
-                ) : result ? (
-                  <RefreshCw size={16} />
-                ) : (
-                  <Search size={16} />
-                )}
-                {busy
-                  ? "读取中…"
-                  : result && currentResult
-                    ? "刷新结果"
-                    : "查询"}
-              </button>
-            </div>
-            {range === "custom" && (
-              <div className="observation-custom-range">
-                <label>
-                  开始时间（本地）
-                  <input
-                    className="field"
-                    type="datetime-local"
-                    value={start}
-                    onChange={(e) => setStart(e.target.value)}
-                  />
-                </label>
-                <label>
-                  结束时间（本地）
-                  <input
-                    className="field"
-                    type="datetime-local"
-                    value={end}
-                    onChange={(e) => setEnd(e.target.value)}
-                  />
-                </label>
-              </div>
-            )}
-            <p className="muted observation-help">
-              查询受已登记范围和服务端返回上限约束；调整时间后点击查询，不会自动轮询。
-              {registration.data?.limits && (
-                <>
-                  {" "}
-                  单次窗口最多{" "}
-                  {registration.data.limits.max_window_seconds / 60} 分钟，
-                  {mode === "metrics"
-                    ? `采样步长至少 ${registration.data.limits.min_step_seconds} 秒，每条序列最多 ${registration.data.limits.max_samples_per_series} 个采样点。`
-                    : `最多 ${registration.data.limits.max_log_entries} 条日志。`}
-                </>
-              )}
-            </p>
-          </>
+                <option value="">每个环境的默认指标</option>
+                {queryIds.map((id) => (
+                  <option key={id}>{id}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label>
+            时间范围
+            <select
+              className="field"
+              value={range}
+              onChange={(e) => setRange(e.target.value)}
+            >
+              <option value="15">最近 15 分钟</option>
+              <option value="30">最近 30 分钟</option>
+              <option value="60">最近 1 小时</option>
+              <option value="custom">自定义起止</option>
+            </select>
+          </label>
+          {mode === "logs" && (
+            <label>
+              每个环境最多条数
+              <input
+                className="field"
+                type="number"
+                min="1"
+                max="500"
+                value={limit}
+                onChange={(e) =>
+                  setLimit(
+                    Math.max(1, Math.min(500, Number(e.target.value) || 1)),
+                  )
+                }
+              />
+            </label>
+          )}
+          <button
+            className="btn btn-primary"
+            disabled={
+              busy ||
+              preview ||
+              !targets.length ||
+              (mode === "metrics" && registrations.some((r) => r.isPending))
+            }
+            onClick={() => void query()}
+          >
+            {busy ? "正在查询…" : "查询运行数据"}
+          </button>
+          {busy && (
+            <button
+              className="btn"
+              onClick={() => {
+                generation.current++;
+                controller.current?.abort();
+                setBusy(false);
+              }}
+            >
+              取消查询
+            </button>
+          )}
+        </div>
+        {range === "custom" && (
+          <div className="observation-custom-range">
+            <label>
+              开始时间
+              <input
+                className="field"
+                type="datetime-local"
+                value={start}
+                onChange={(e) => setStart(e.target.value)}
+              />
+            </label>
+            <label>
+              结束时间
+              <input
+                className="field"
+                type="datetime-local"
+                value={end}
+                onChange={(e) => setEnd(e.target.value)}
+              />
+            </label>
+          </div>
+        )}
+        <p className="muted">
+          只查询已登记的数据源。各环境分别应用权限、时间窗口与返回上限；未配置或失败会单独列出。
+        </p>
+        {scope.targets.length > 20 && (
+          <div className="management-actions">
+            <button
+              className="btn"
+              disabled={pageIndex === 0}
+              onClick={() => setPage(pageIndex - 1)}
+            >
+              上一组
+            </button>
+            <span>
+              环境 {pageIndex * 20 + 1}–
+              {Math.min((pageIndex + 1) * 20, scope.targets.length)} /{" "}
+              {scope.targets.length}
+            </span>
+            <button
+              className="btn"
+              disabled={(pageIndex + 1) * 20 >= scope.targets.length}
+              onClick={() => setPage(pageIndex + 1)}
+            >
+              下一组
+            </button>
+          </div>
+        )}
+        {preview && (
+          <p className="management-notice">设计预览没有连接数据源。</p>
         )}
       </section>
-      {created.length > 0 && (
+      {!!error && <ErrorNotice error={error} />}
+      {!!results.length && !current && (
+        <p className="management-notice">
+          筛选条件已变化。下方保留原查询快照，请重新查询后再调查。
+        </p>
+      )}
+      {failures.map((f) => (
+        <p className="management-notice" key={f.environment_id}>
+          {targets.find((t) => t.env.id === f.environment_id)?.app.name ??
+            f.application_id}{" "}
+          ·{" "}
+          {targets.find((t) => t.env.id === f.environment_id)?.env.name ??
+            f.environment_id}
+          ：{f.error?.message}
+        </p>
+      ))}
+      {mode === "logs" && mergedLogs.length > 0 && (
         <section className="card management-card">
-          <h2>本页已创建的调查</h2>
-          <p className="muted">固定快照失败时继续使用原调查，避免重复创建。</p>
-          {created.map((inv) => (
-            <Link
-              className="observation-created"
-              key={inv.id}
-              to={`/investigations/${encodeURIComponent(inv.id)}?application=${encodeURIComponent(inv.applicationId)}&environment=${encodeURIComponent(inv.environmentId)}`}
-            >
-              {inv.title}
-              <ArrowUpRight size={14} />
-            </Link>
-          ))}
+          <h2>跨应用日志时间线</h2>
+          <p className="muted">
+            仅合并本次返回的日志，最新优先；各数据源可能截断。
+          </p>
+          <div className="management-table-wrap">
+            <table className="management-table">
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>应用 / 环境</th>
+                  <th>日志</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mergedLogs.map(({ entry, index, snapshot }) => (
+                  <tr key={`${snapshot.id}-${index}`}>
+                    <td>{timeLabel(entry.timestamp)}</td>
+                    <td>
+                      {snapshot.applicationName}
+                      <small>
+                        {snapshot.environmentName} ·{" "}
+                        {snapshot.data.source?.provider}
+                      </small>
+                    </td>
+                    <td
+                      style={{
+                        whiteSpace: "pre-wrap",
+                        overflowWrap: "anywhere",
+                      }}
+                    >
+                      {entry.line}
+                    </td>
+                    <td>
+                      <button
+                        className="btn"
+                        disabled={!canTransfer}
+                        onClick={() =>
+                          setTransfer({
+                            snapshot,
+                            selection: { kind: "log_entry", index },
+                          })
+                        }
+                      >
+                        调查此条
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
-      {!!error && (
-        <section className="card management-card">
-          <ErrorNotice error={error} />
-          {result && (
-            <p className="muted">
-              查询失败，保留下方上次成功结果；它不是本次请求的新数据。
-            </p>
-          )}
-        </section>
-      )}
-      {result ? (
+      {results.map((snapshot) => (
         <section
           className="card management-card observation-results"
-          aria-busy={busy}
+          key={snapshot.id}
         >
           <div className="management-heading">
             <div>
-              <h2>{result.mode === "metrics" ? "指标结果" : "日志结果"}</h2>
+              <h2>
+                {snapshot.applicationName}{" "}
+                <span className="badge">{snapshot.environmentName}</span>
+              </h2>
               <p>
-                {result.applicationName} / {result.environmentName} ·{" "}
-                {timeLabel(result.requestedWindow.start)} —{" "}
-                {timeLabel(result.requestedWindow.end)}
+                {snapshot.queryId} · {timeLabel(snapshot.receivedAt)}
               </p>
             </div>
             <button
               className="btn"
-              disabled={
-                !currentResult ||
-                busy ||
-                !!error ||
-                user.role === "viewer" ||
-                preview
-              }
+              disabled={!canTransfer}
               onClick={() =>
                 setTransfer({
-                  snapshot: result,
+                  snapshot,
                   selection: { kind: "returned_result" },
                 })
               }
@@ -493,87 +454,41 @@ export default function ObservabilityPage({ mode }: { mode: Mode }) {
               带入调查
             </button>
           </div>
-          {!currentResult && (
-            <p className="management-notice">
-              应用、环境、查询或时间条件已变化。下方保留原查询快照，请重新查询后再带入调查。
-            </p>
-          )}
-          {user.role === "viewer" && (
-            <p className="muted">
-              只读成员可查看运行数据；创建调查与固定证据需操作权限。
-            </p>
-          )}
           <ObservationResults
-            snapshot={result}
-            canTransfer={
-              currentResult &&
-              !busy &&
-              !error &&
-              user.role !== "viewer" &&
-              !preview
-            }
-            onTransfer={(selection) =>
-              setTransfer({ snapshot: result, selection })
-            }
+            snapshot={snapshot}
+            canTransfer={canTransfer}
+            onTransfer={(selection) => setTransfer({ snapshot, selection })}
           />
         </section>
-      ) : (
+      ))}
+      {!results.length && !busy && !failures.length && (
         <section className="card management-card observation-empty">
-          <Activity size={28} />
           <h2>从一个时间窗口开始</h2>
-          <p>
-            选择已登记的数据源并查询。没有数据或尚未查询，都不代表应用健康。
-          </p>
+          <p>选择应用范围并查询。没有数据不代表服务健康。</p>
         </section>
       )}
-      {application && environment && !preview && (
-        <section className="card management-card observation-deployment">
-          <h2>当前 Kubernetes 工作负载</h2>
-          {deployment.isPending ? (
-            <p className="muted">正在读取登记的工作负载…</p>
-          ) : deployment.error ? (
-            <p className="muted">
-              工作负载未登记或当前不可读取；不影响独立遥测查询。
+      {!!created.length && (
+        <section className="card management-card">
+          <h2>本页已创建的调查</h2>
+          {created.map((i) => (
+            <p key={i.id}>
+              <Link to={`/investigations/${i.id}`}>{i.title}</Link>
             </p>
-          ) : deployment.data ? (
-            <>
-              <p>
-                <strong>
-                  {deployment.data.namespace} / {deployment.data.deployment}
-                </strong>{" "}
-                · Ready {deployment.data.ready_replicas}/
-                {deployment.data.replicas} · 读取于{" "}
-                {timeLabel(deployment.data.captured_at)}
-              </p>
-              <p className="muted">
-                {deployment.data.images
-                  .map((image) => `${image.name}: ${image.image}`)
-                  .join(" · ")}
-              </p>
-              <small className="muted">
-                这是当前工作负载快照，与上方指标或日志时间窗口独立；Ready
-                数量不等于业务恢复结论。
-              </small>
-            </>
-          ) : null}
+          ))}
         </section>
       )}
-      <TransferDialog
-        transfer={transfer}
-        onClose={() => setTransfer(null)}
-        isCurrent={
-          !!transfer &&
-          transfer.snapshot.signature === signature &&
-          result?.id === transfer.snapshot.id &&
-          !busy &&
-          !error
-        }
-        onCreated={(inv) =>
-          setCreated((rows) =>
-            rows.some((row) => row.id === inv.id) ? rows : [...rows, inv],
-          )
-        }
-      />
+      {transfer && (
+        <TransferDialog
+          isCurrent={canTransfer}
+          transfer={transfer}
+          onClose={() => setTransfer(null)}
+          onCreated={(i) =>
+            setCreated((prev) =>
+              prev.some((v) => v.id === i.id) ? prev : [...prev, i],
+            )
+          }
+        />
+      )}
     </div>
   );
 }

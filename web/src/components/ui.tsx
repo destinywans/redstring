@@ -1,7 +1,7 @@
 import type { ReactNode, ButtonHTMLAttributes } from "react";
 import { useRef, useId } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Pin, Minus, MoreHorizontal } from "lucide-react";
+import { X, Pin, Minus, MoreHorizontal } from "../lib/icons";
 import { cva } from "class-variance-authority";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";

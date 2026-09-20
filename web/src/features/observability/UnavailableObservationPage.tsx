@@ -1,5 +1,6 @@
+import ScopeFilter from "../../components/ScopeFilter";
 import { Link, useLocation } from "react-router-dom";
-import { Network, Workflow } from "lucide-react";
+import { Network, Workflow } from "../../lib/icons";
 import { useWorkspace } from "../../lib/workspace";
 import "../workspace/workspace.css";
 import "./observability.css";
@@ -18,33 +19,12 @@ export default function UnavailableObservationPage({
           <span className="eyebrow">OBSERVABILITY</span>
           <h1>{traces ? "调用链" : "服务拓扑"}</h1>
           <p>
-            {application?.name ?? "未选择应用"} /{" "}
-            {environment?.name ?? "未选择环境"}
+            {application?.name ?? "全部授权应用"} /{" "}
+            {environment?.name ?? "全部环境"}
           </p>
         </div>
       </header>
-      <nav className="observation-tabs" aria-label="可观测性分类">
-        <Link
-          to={{ pathname: "/observability/metrics", search: location.search }}
-        >
-          指标
-        </Link>
-        <Link to={{ pathname: "/observability/logs", search: location.search }}>
-          日志
-        </Link>
-        <Link
-          className={traces ? "active" : ""}
-          to={{ pathname: "/observability/traces", search: location.search }}
-        >
-          调用链
-        </Link>
-        <Link
-          className={!traces ? "active" : ""}
-          to={{ pathname: "/observability/topology", search: location.search }}
-        >
-          拓扑
-        </Link>
-      </nav>
+      <ScopeFilter />
       <section className="card management-card observation-empty">
         {traces ? <Workflow size={30} /> : <Network size={30} />}
         <span className="badge">尚未接入</span>

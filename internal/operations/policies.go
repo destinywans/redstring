@@ -117,7 +117,7 @@ func (s *Service) AutomationRuns(ctx context.Context, u core.User, env string) (
 	if e != nil {
 		return nil, e
 	}
-	rows, e := s.DB.Query(ctx, "SELECT r.id,r.environment_id,r.kind,r.status,r.incident_id,r.investigation_id,r.run_id,r.error,r.created_at,r.finished_at,r.result FROM ops_automation_runs r JOIN application_environments e ON e.id=r.environment_id WHERE e.application_id=ANY($1::text[]) AND ($2='' OR r.environment_id=$2) ORDER BY r.created_at DESC LIMIT 200", ids, env)
+	rows, e := s.DB.Query(ctx, "SELECT r.id,r.environment_id,r.kind,r.status,r.incident_id,r.investigation_id,r.run_id,r.error,r.created_at,r.finished_at,r.result FROM ops_automation_runs r JOIN application_environments e ON e.id=r.environment_id WHERE e.application_id=ANY($1::text[]) AND ($2='' OR r.environment_id=$2) AND (cardinality($3::text[])=0 OR e.application_id=ANY($3::text[])) AND (cardinality($4::text[])=0 OR r.environment_id=ANY($4::text[])) ORDER BY r.created_at DESC LIMIT 200", ids, env, readScopeArrays(ctx).ApplicationIDs, readScopeArrays(ctx).EnvironmentIDs)
 	if e != nil {
 		return nil, e
 	}

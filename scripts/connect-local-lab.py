@@ -162,7 +162,7 @@ def seed(_args):
         if app is None:
             app = api.call('POST', '/applications', {
                 'key': key, 'name': 'Lima 实验主机' if is_vm else role.replace('-api', '').title() + ' API · 实验',
-                'description': '真实 Linux guest 指标；独立 aiops-test-vm' if is_vm else '本地真实订单/结算/消息链路，业务输入为合成数据。依赖 MySQL、Redis、Kafka；非生产。',
+                'description': '本机实验模拟生产；真实 Linux guest 指标；独立 aiops-test-vm' if is_vm else '本机实验模拟生产；真实订单/结算/消息链路，业务输入为合成数据。依赖 MySQL、Redis、Kafka；非生产。',
                 'environment': 'lab', 'owner_team_id': team['id'], 'maintainer_id': user['id'],
                 'tags': ['local-lab', 'virtual-machine' if is_vm else 'synthetic-business-data'],
                 'profile': {'business_unit': 'AIOps 实验', 'service_type': 'virtual-machine' if is_vm else 'API',
@@ -184,7 +184,7 @@ def seed(_args):
                 raise RuntimeError(f'{key} already exists with changed state/bindings; review it in the UI instead of overwriting it')
             bindings[role] = {'application_id': app['id'], 'environment_id': env['id'], 'name': app['name']}
             continue
-        expected = {'key': env['key'], 'name': '本地实验', 'archived': False,
+        expected = {'key': env['key'], 'name': '生产环境', 'archived': False,
                     'binding_revision': env['binding_revision'], 'configuration_revision': env['configuration_revision'],
                     'bindings': resource_bindings, 'configuration': env.get('configuration') or {}}
         if not is_vm:

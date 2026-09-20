@@ -52,7 +52,7 @@ func (s *Service) Incidents(ctx context.Context, u core.User, app, env string) (
 	if e != nil {
 		return nil, e
 	}
-	rows, e := s.DB.Query(ctx, "SELECT "+incidentColumns+" FROM ops_incidents WHERE (application_id=ANY($1::text[]) OR ($2 AND application_id='')) AND ($3='' OR application_id=$3) AND ($4='' OR environment_id=$4) ORDER BY updated_at DESC LIMIT 200", ids, u.Role == "admin", app, env)
+	rows, e := s.DB.Query(ctx, "SELECT "+incidentColumns+" FROM ops_incidents WHERE (application_id=ANY($1::text[]) OR ($2 AND application_id='')) AND ($3='' OR application_id=$3) AND ($4='' OR environment_id=$4) AND (cardinality($5::text[])=0 OR application_id=ANY($5::text[])) AND (cardinality($6::text[])=0 OR environment_id=ANY($6::text[])) ORDER BY updated_at DESC LIMIT 200", ids, u.Role == "admin", app, env, readScopeArrays(ctx).ApplicationIDs, readScopeArrays(ctx).EnvironmentIDs)
 	if e != nil {
 		return nil, e
 	}

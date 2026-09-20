@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, Upload } from "lucide-react";
+import { Download, Upload } from "../../lib/icons";
 import { post } from "../../lib/api";
 import { Modal, ErrorNotice } from "../../components/ui";
 import { useWorkspace } from "../../lib/workspace";

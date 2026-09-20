@@ -195,6 +195,11 @@ func (s *Server) routes() {
 		WriteJSON(w, 200, map[string]any{"items": items})
 	})
 	s.Register("GET /api/v1/applications", "viewer", func(w http.ResponseWriter, r *http.Request) {
+		scope, scopeErr := ParseReadScope(r.URL.Query())
+		if scopeErr != nil {
+			fail(w, scopeErr)
+			return
+		}
 		v, e := s.Store.Applications(r.Context())
 		if e != nil {
 			fail(w, e)
@@ -212,7 +217,7 @@ func (s *Server) routes() {
 			}
 			filtered := v[:0]
 			for _, a := range v {
-				if allowed[a.ID] {
+				if allowed[a.ID] && scopeApplicationMatches(scope, a) {
 					filtered = append(filtered, a)
 				}
 			}
@@ -240,6 +245,11 @@ func (s *Server) routes() {
 		WriteJSON(w, 201, a)
 	})
 	s.Register("GET /api/v1/investigations", "viewer", func(w http.ResponseWriter, r *http.Request) {
+		scope, scopeErr := ParseReadScope(r.URL.Query())
+		if scopeErr != nil {
+			fail(w, scopeErr)
+			return
+		}
 		v, e := s.Store.Investigations(r.Context())
 		if e != nil {
 			fail(w, e)
@@ -257,7 +267,7 @@ func (s *Server) routes() {
 			}
 			filtered := v[:0]
 			for _, a := range v {
-				if allowed[a.ApplicationID] {
+				if allowed[a.ApplicationID] && scope.Matches(a.ApplicationID, a.EnvironmentID) {
 					filtered = append(filtered, a)
 				}
 			}

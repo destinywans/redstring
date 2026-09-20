@@ -11,7 +11,7 @@ import {
   Users,
   UsersRound,
   Workflow,
-} from "lucide-react";
+} from "../../lib/icons";
 import { useWorkspace } from "../../lib/workspace";
 import GovernancePanel from "../workspace/GovernancePanel";
 import "./platform.css";
@@ -156,26 +156,7 @@ export default function PlatformPage({
         </div>
         <Building2 size={26} />
       </header>
-      <nav className="platform-tabs" aria-label="平台设置页面">
-        <Link
-          to="/platform/settings"
-          aria-current={tab === "overview" ? "page" : undefined}
-        >
-          设置总览
-        </Link>
-        <Link
-          to="/platform/roles"
-          aria-current={tab === "roles" ? "page" : undefined}
-        >
-          角色与权限
-        </Link>
-        <Link
-          to="/settings"
-          aria-current={tab === "automation" ? "page" : undefined}
-        >
-          自动化策略
-        </Link>
-      </nav>
+
       {tab === "overview" && (
         <>
           <section className="card platform-workspace">

@@ -11,7 +11,7 @@ import {
   ShieldCheck,
   Tags,
   Target,
-} from "lucide-react";
+} from "../../lib/icons";
 import {
   CardHeading,
   CardTools,

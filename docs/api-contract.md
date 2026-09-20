@@ -1,6 +1,6 @@
 # 后端 API 契约
 
-状态：2026-09-19 后端源码基线，最新改动按用户要求未测试。机器契约见 internal/apicontract/openapi.json（0.2.0）。API 前缀 `/api/v1`，JSON 使用 snake_case。时间为 RFC3339，标识为不透明字符串。错误格式 `{error:{code,message}}`；HTTP 401/403/404/409/422/503 分别表达认证、权限、不存在、冲突、输入、依赖故障。
+状态：2026-09-20 多应用 SRE 工作区，机器契约见 internal/apicontract/openapi.json（0.3.0）。已做受影响模块与隔离环境检查，未做全量或真实集群验收。API 前缀 `/api/v1`，JSON 使用 snake_case。时间为 RFC3339，标识为不透明字符串。错误格式 `{error:{code,message}}`；HTTP 401/403/404/409/422/503 分别表达认证、权限、不存在、冲突、输入、依赖故障。
 
 ## 身份和配置
 
@@ -12,7 +12,7 @@
 ### Web 工作区补充契约（2026-09-20）
 
 - `GET /integrations` → `{items:[{id,name,kind,provider,configured,status,application_ids,capabilities,model?}],configuration_mode:"server_managed"}`。首版列出 Kubernetes、Prometheus、Loki 和 Embedding；`status` 为 `configured_unverified` 或 `not_configured`。配置存在不代表连接健康；前端不得显示为已验证连接。返回值不包含服务 URL、凭据或凭据文件路径。配置修改仍通过服务端部署配置完成，没有保存凭据的 Web API。
-- `GET /applications/{id}/deployment` → `{application_id,namespace,deployment,uid,template_digest,images:[{name,image}],replicas,ready_replicas,updated_replicas,generation,observed_generation,revisions:[{revision,digest,images}],captured_at}`。只读取已登记应用对应的 Deployment；当前执行连接器只登记 `demo`。未登记返回 404，读取失败返回 503。不会返回完整 Pod 模板或环境变量。图表必须根据实际数据或显示缺少数据，不能由副本数推导服务健康。
+- `GET /applications/{id}/deployment` → `{application_id,namespace,deployment,uid,template_digest,images:[{name,image}],replicas,ready_replicas,updated_replicas,generation,observed_generation,revisions:[{revision,digest,images}],captured_at}`。只读取已登记应用对应的 Deployment；通过服务端注册与应用环境绑定选择连接器；旧 `demo` 配置保留兼容。未登记返回 404，读取失败返回 503。不会返回完整 Pod 模板或环境变量。图表必须根据实际数据或显示缺少数据，不能由副本数推导服务健康。
 - `GET /action-plans/{id}/execution` → `Execution`，尚无执行时 404。用于页面刷新后恢复执行视图，查看者也可使用；不会批准、入队或重复执行动作。
 - 上述三个入口最低角色均为 `viewer`；所有写操作继续沿用服务端权限和同源校验。
 - 设置 `AIOPS_WEB_DIR` 后，Go 从该构建目录托管 Vite 产物，支持浏览器历史路由。API、健康和 OpenAPI 路径独立路由；缺失资源返回 404，不返回 SPA HTML。HTML 不缓存，构建资源可长期缓存。目录必须含 `index.html`，部署时不得指向仓库根目录或凭据目录。
@@ -49,7 +49,7 @@
 首条切片必须使用真实 PG 和显式模型；模型不可用时报告失败，不返回示例答案。前端仅渲染后端真实状态，未经接入的功能不伪造成功。知识、审批、执行具体字段以机器契约为准。
 
 
-## 完整后端工作流（0.2.0，新代码未测试）
+## 后端工作流（原 0.2.0 流程，受下述 0.3.0 约束补充）
 
 1. admin 创建／修改账号；role/password/disabled 变化撤销 Session。前端不得仅凭隐藏按钮实现权限。
 2. operator 在应用下创建调查、启动 Run、派生分支；SSE 驱动视图，历史读取以后端提交为准。
@@ -60,3 +60,16 @@
 7. 经验先 POST `/investigations/{id}/knowledge-drafts`，引用本调查证据；草稿不可检索。关闭后 POST `/knowledge-drafts/{id}/confirm` 由操作员确认，幂等产生知识文档；失败索引使用原文 reindex。
 
 前端设计尚可变化；这份契约规定数据和行为，不规定卡片颜色、位置或页面结构。错误提示、空态和确认视图后续依据这些状态设计。
+
+
+## 0.3.0 多应用工作区
+
+- 应用登记、编辑、归档/恢复；环境绑定、团队成员、显式应用授权及审计见 [平台契约](platform-contract.md)。`capabilities` 是当前用户可用操作，不是客户端授权依据；归档保留历史。
+- 调查创建接受 `environment_id`。多环境必须明确选择；取证、固定快照、动作与后台任务都绑定环境。手动指标/日志结果通过 `POST /investigations/{id}/evidence` 固定为历史快照，不冒充当前指标。
+- `GET /runs/{id}/context` 返回实际 Attempt 的输入清单、摘要来源与预算；无已准备输入返回 404。原消息不被摘要覆盖，详见 [上下文预算](context-budget.md)。
+- Runbook 导入先成为 draft，`status` 表达索引状态，`lifecycle` 表达 draft/review/published/archived。编辑产生不可变版本，检索先按应用权限、发布状态和环境过滤；详见 [知识治理契约](knowledge-governance-contract.md)。
+- 首页 `GET /dashboard` 汇总异常、审批、执行、本人待办、自动任务与通知失败。数据源 `configured_unverified` 不表示健康。
+- Alertmanager 源认证、异常认领/复用调查、通知出站和独立自动初查/巡查策略见 [运行契约](operations-contract.md)。默认不启动后台模型调用；恢复告警、结束调查、验证业务恢复是不同状态。
+- 回滚绑定 `environment_id/connector_id/binding_revision/configuration_digest`，环境或注册变化使旧计划失效。普通应用必须使用真实请求/错误计数、源新鲜度与探针，演示 `/stats` 不能成为通用恢复依据。
+
+机器契约当前为 68 路径、82 操作、40 个 Schema。静态路由匹配不等于所有响应与真实集成已验收。

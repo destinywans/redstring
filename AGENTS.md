@@ -11,3 +11,5 @@
 - `.env`、`.local/`、IDE 配置、运行会话和集群凭据不提交；配置示例只放占位符。
 - Web 代码在 `web/`；使用 `pnpm --dir web build` 检查受影响前端。Go 仅运行变更模块的具体检查；`make test`、`make verify` 和真实演示不作为本轮默认动作。
 - 首次导入为现有后端源码基线；之后独立需求优先使用 `codex/<issue-id>-<topic>`。源码未验证、已提交、已推送和已发布分别记录。
+
+- 2026-09-20 批准多应用 SRE 工作区扩展（WAN-74～79）：应用/环境/团队 ACL、告警首页、默认关闭的有界自动初查/巡查、Runbook 治理与上下文预算；见 `docs/plans/2026-09-20-sre-workspace.md`。CI/CD、完整观测平台与多租户仍不在首版范围。具体配置契约见 `docs/README.md`。

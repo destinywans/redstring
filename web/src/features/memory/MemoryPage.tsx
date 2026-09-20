@@ -9,9 +9,14 @@ import {
 import ReactMarkdown from "react-markdown";
 import { request, put, post } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
-import ScopeFilter, { usePageScope } from "../../components/ScopeFilter";
+import { usePageScope } from "../../components/ScopeFilter";
+import {
+  FilterBar,
+  FilterSearch,
+  FilterSelect,
+} from "../../components/filters/FilterBar";
 import { Button, ErrorNotice, Modal } from "../../components/ui";
-import { BookOpen, GitBranch, Search } from "../../lib/icons";
+import { BookOpen, GitBranch, X } from "../../lib/icons";
 import type { KnowledgeMetadata } from "../knowledge/KnowledgeGovernance";
 import "../workspace/workspace.css";
 import "./memory.css";
@@ -57,7 +62,7 @@ const lifecycle = (s: string) =>
   })[s] ?? s;
 export default function MemoryPage() {
   const { preview, user, applications, notify } = useWorkspace(),
-    scope = usePageScope(),
+    scope = usePageScope({ globalEnvironmentOnly: true }),
     client = useQueryClient();
   const [params, setParams] = useSearchParams(),
     [q, setQ] = useState(params.get("q") ?? ""),
@@ -68,8 +73,39 @@ export default function MemoryPage() {
     [revision, setRevision] = useState<number | null>(null);
   const mode = params.get("type") === "contexts" ? "contexts" : "documents",
     id = params.get("item") ?? "";
+  const memoryTabsRef = useRef<HTMLDivElement>(null);
+  const committedQuery = params.get("q") ?? "";
+  useEffect(() => setQ(committedQuery), [committedQuery]);
+  // The global environment is now the only read scope for this page. Remove
+  // legacy page overrides from shared URLs so they cannot remain invisible.
+  useEffect(() => {
+    if (
+      !["environment", "environments", "environment_filter", "scope"].some(
+        (key) => params.has(key),
+      )
+    )
+      return;
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (next.get("scope") === "all") {
+          next.delete("application");
+          next.delete("applications");
+        }
+        for (const key of [
+          "environment",
+          "environments",
+          "environment_filter",
+          "scope",
+        ])
+          next.delete(key);
+        return next;
+      },
+      { replace: true },
+    );
+  }, [params, setParams]);
   const filters = new URLSearchParams(scope.query);
-  for (const k of ["q", "kind", "lifecycle"])
+  for (const k of mode === "documents" ? ["q", "kind", "lifecycle"] : ["q"])
     if (params.get(k)) filters.set(k, params.get(k)!);
   const list = useInfiniteQuery({
     queryKey: ["memory", mode, filters.toString()],
@@ -197,11 +233,70 @@ export default function MemoryPage() {
       : undefined;
   function update(key: string, value: string) {
     setParams((p) => {
-      value ? p.set(key, value) : p.delete(key);
-      p.delete("item");
-      return p;
+      const next = new URLSearchParams(p);
+      value ? next.set(key, value) : next.delete(key);
+      next.delete("item");
+      if (key === "type" && value === "contexts") {
+        next.delete("kind");
+        next.delete("lifecycle");
+      }
+      return next;
     });
     setRevision(null);
+  }
+  const appliedFilters = [
+    ...(committedQuery
+      ? [
+          {
+            key: "q",
+            label: `关键词：${committedQuery}`,
+            remove: () => update("q", ""),
+          },
+        ]
+      : []),
+    ...scope.applicationIds.map((appId) => ({
+      key: `application:${appId}`,
+      label: `应用：${applications.find((app) => app.id === appId)?.name ?? "不可用应用"}`,
+      remove: () =>
+        scope.update(
+          scope.applicationIds.filter((value) => value !== appId),
+          [],
+        ),
+    })),
+    ...(mode === "documents" && params.get("kind")
+      ? [
+          {
+            key: "kind",
+            label: `类型：${params.get("kind") === "experience" ? "调查经验" : params.get("kind") === "runbook" ? "Runbook" : params.get("kind")}`,
+            remove: () => update("kind", ""),
+          },
+        ]
+      : []),
+    ...(mode === "documents" && params.get("lifecycle")
+      ? [
+          {
+            key: "lifecycle",
+            label: `状态：${lifecycle(params.get("lifecycle")!)}`,
+            remove: () => update("lifecycle", ""),
+          },
+        ]
+      : []),
+  ];
+  function clearFilters() {
+    setQ("");
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      for (const key of [
+        "q",
+        "kind",
+        "lifecycle",
+        "application",
+        "applications",
+        "item",
+      ])
+        next.delete(key);
+      return next;
+    });
   }
   const canWrite =
     !!detail.data &&
@@ -222,73 +317,145 @@ export default function MemoryPage() {
           维护 Runbook 与经验 <BookOpen size={16} />
         </Link>
       </header>
-      <ScopeFilter />
-      <div className="memory-filters">
-        <div className="memory-switch">
-          <Button
-            variant={mode === "documents" ? "default" : "outline"}
-            onClick={() => update("type", "documents")}
-          >
-            长期知识与经验
-          </Button>
-          <Button
-            variant={mode === "contexts" ? "default" : "outline"}
-            onClick={() => update("type", "contexts")}
-          >
-            会话上下文
-          </Button>
-        </div>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            update("q", q);
-          }}
+      <div
+        ref={memoryTabsRef}
+        className="memory-switch"
+        role="tablist"
+        aria-label="记忆分类"
+        onKeyDown={(event) => {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
+            return;
+          const tabs = Array.from(
+            memoryTabsRef.current?.querySelectorAll<HTMLButtonElement>(
+              '[role="tab"]',
+            ) ?? [],
+          );
+          const current = tabs.indexOf(
+            document.activeElement as HTMLButtonElement,
+          );
+          if (current < 0 || !tabs.length) return;
+          event.preventDefault();
+          const next =
+            event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? tabs.length - 1
+                : (current +
+                    (event.key === "ArrowRight" ? 1 : -1) +
+                    tabs.length) %
+                  tabs.length;
+          tabs[next].focus();
+          update("type", next === 0 ? "documents" : "contexts");
+        }}
+      >
+        <button
+          type="button"
+          role="tab"
+          id="memory-documents-tab"
+          aria-controls="memory-results"
+          aria-selected={mode === "documents"}
+          tabIndex={mode === "documents" ? 0 : -1}
+          onClick={() => update("type", "documents")}
         >
-          <label className="sr-only" htmlFor="memory-search">
-            搜索记忆
-          </label>
-          <Search size={16} />
-          <input
-            className="field"
-            id="memory-search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="标题、内容或来源"
-            maxLength={200}
-          />
-          <Button variant="outline">搜索</Button>
-        </form>
+          长期知识与经验
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="memory-contexts-tab"
+          aria-controls="memory-results"
+          aria-selected={mode === "contexts"}
+          tabIndex={mode === "contexts" ? 0 : -1}
+          onClick={() => update("type", "contexts")}
+        >
+          会话上下文
+        </button>
+      </div>
+      <FilterBar label="记忆搜索与筛选">
+        <FilterSearch
+          value={q}
+          onChange={setQ}
+          onSubmit={() => update("q", q.trim())}
+          label="搜索记忆"
+          placeholder="搜索标题、内容或来源"
+        />
+        <FilterSelect
+          id="memory-applications"
+          label="应用"
+          multiple
+          searchable
+          values={scope.applicationIds}
+          options={applications
+            .filter((app) => !app.archived)
+            .map((app) => ({ value: app.id, label: app.name }))}
+          onChange={(values) => scope.update(values, [])}
+        />
         {mode === "documents" && (
           <>
-            <select
-              className="field"
-              aria-label="记忆类型"
-              value={params.get("kind") ?? ""}
-              onChange={(e) => update("kind", e.target.value)}
-            >
-              <option value="">全部类型</option>
-              <option value="experience">调查经验</option>
-              <option value="runbook">Runbook 与知识</option>
-            </select>
-            <select
-              className="field"
-              aria-label="记忆状态"
-              value={params.get("lifecycle") ?? ""}
-              onChange={(e) => update("lifecycle", e.target.value)}
-            >
-              <option value="">全部状态</option>
-              {["draft", "review", "published", "archived"].map((s) => (
-                <option key={s} value={s}>
-                  {lifecycle(s)}
-                </option>
-              ))}
-            </select>
+            <FilterSelect
+              id="memory-kind"
+              label="类型"
+              values={params.get("kind") ? [params.get("kind")!] : []}
+              options={[
+                { value: "experience", label: "调查经验" },
+                { value: "runbook", label: "Runbook" },
+              ]}
+              onChange={(values) => update("kind", values[0] ?? "")}
+            />
+            <FilterSelect
+              id="memory-lifecycle"
+              label="状态"
+              values={params.get("lifecycle") ? [params.get("lifecycle")!] : []}
+              options={["draft", "review", "published", "archived"].map(
+                (value) => ({ value, label: lifecycle(value) }),
+              )}
+              onChange={(values) => update("lifecycle", values[0] ?? "")}
+            />
           </>
         )}
+      </FilterBar>
+      <div className="memory-filter-summary" aria-label="已选筛选条件">
+        <div className="memory-filter-chips">
+          {appliedFilters.map((filter) => (
+            <button
+              key={filter.key}
+              className="filter-chip"
+              type="button"
+              onClick={filter.remove}
+              title={filter.label}
+              aria-label={`移除${filter.label}`}
+            >
+              <span>{filter.label}</span>
+              <X size={13} />
+            </button>
+          ))}
+          {!!appliedFilters.length && (
+            <button
+              type="button"
+              className="filter-clear"
+              onClick={clearFilters}
+            >
+              清除筛选
+            </button>
+          )}
+        </div>
+        <span className="memory-result-count" aria-live="polite">
+          {list.isFetching
+            ? "正在更新…"
+            : `已加载 ${rows.length} 条${list.hasNextPage ? " · 还有更多" : ""}`}
+        </span>
       </div>
       {preview && <p className="management-notice">预览模式未读取实际记忆。</p>}
       {list.error && <ErrorNotice error={list.error} />}
-      <div className="memory-columns">
+      <div
+        className="memory-columns"
+        id="memory-results"
+        role="tabpanel"
+        tabIndex={0}
+        aria-labelledby={
+          mode === "documents" ? "memory-documents-tab" : "memory-contexts-tab"
+        }
+      >
         <section className="card memory-list">
           {!rows.length ? (
             <p className="management-empty">

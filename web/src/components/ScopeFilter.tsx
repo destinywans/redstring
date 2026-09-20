@@ -7,7 +7,7 @@ const ids = (p: URLSearchParams, many: string, one: string) =>
   [
     ...new Set((p.get(many) ?? p.get(one) ?? "").split(",").filter(Boolean)),
   ].sort();
-export function usePageScope() {
+export function usePageScope({ globalEnvironmentOnly = false } = {}) {
   const { applications } = useWorkspace();
   const globalEnvironment = useEnvironmentScope();
   const [params, setParams] = useSearchParams();
@@ -16,11 +16,14 @@ export function usePageScope() {
       ? []
       : ids(params, "applications", "application");
   const allPageEnvironments =
-    params.get("scope") === "all" || params.get("environment_filter") === "all";
+    !globalEnvironmentOnly &&
+    (params.get("scope") === "all" ||
+      params.get("environment_filter") === "all");
   const explicitEnvironment =
-    allPageEnvironments ||
-    params.has("environments") ||
-    params.has("environment");
+    !globalEnvironmentOnly &&
+    (allPageEnvironments ||
+      params.has("environments") ||
+      params.has("environment"));
   const requestedEnvironmentIds = allPageEnvironments
     ? []
     : explicitEnvironment

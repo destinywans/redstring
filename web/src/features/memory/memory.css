@@ -1,23 +1,73 @@
-.memory-filters {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin: 20px 0;
-}
 .memory-switch {
   display: flex;
-  gap: 8px;
+  gap: 24px;
+  border-bottom: 1px solid var(--border);
+  margin: 20px 0 16px;
 }
-.memory-filters form {
+.memory-switch > button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  padding: 10px 0 12px;
+  margin-bottom: -1px;
+  white-space: nowrap;
+}
+.memory-switch > button[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+.memory-filter-summary {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  min-width: 200px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin: 12px 0 16px;
+  min-height: 24px;
 }
-.memory-filters form input {
-  width: 100%;
+.memory-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.memory-result-count {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  padding: 3px 0;
+}
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 260px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 6px;
+  font-size: 12px;
+  padding: 3px 8px;
+}
+.filter-chip > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.filter-clear {
+  border: 0;
+  padding: 3px 6px;
+  font-size: 12px;
+  background: transparent;
+  color: var(--muted);
+}
+.filter-clear:hover {
+  color: var(--accent);
 }
 .memory-columns {
   display: grid;
@@ -39,10 +89,10 @@
   cursor: pointer;
 }
 .memory-list > button:hover {
-  background: var(--surface-hover);
+  background: color-mix(in srgb, var(--accent) 5%, var(--panel));
 }
 .memory-list > button.active {
-  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
   box-shadow: inset 3px 0 var(--accent);
 }
 .memory-title {
@@ -186,9 +236,4 @@
   .memory-facts {
     grid-template-columns: 90px minmax(0, 1fr);
   }
-}
-
-.memory-filters > select.field {
-  width: auto;
-  min-width: 110px;
 }

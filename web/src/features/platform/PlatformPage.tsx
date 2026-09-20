@@ -1,16 +1,12 @@
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
-  BookOpen,
   Building2,
   Layers,
-  Plug,
-  ScrollText,
   Settings,
   ShieldCheck,
   Users,
   UsersRound,
-  Workflow,
 } from "../../lib/icons";
 import { useWorkspace } from "../../lib/workspace";
 import GovernancePanel from "../workspace/GovernancePanel";
@@ -36,30 +32,7 @@ const destinations = [
     description: "在应用的环境与权限中管理用户或团队的只读、操作授权。",
     icon: Layers,
   },
-  {
-    path: "/audit",
-    title: "审计记录",
-    description: "追踪账号、应用、权限和自动化策略的管理变更。",
-    icon: ScrollText,
-  },
-  {
-    path: "/settings",
-    title: "自动化策略",
-    description: "管理默认初查、巡查与经验草稿策略，以及执行预算。",
-    icon: Workflow,
-  },
-  {
-    path: "/knowledge",
-    title: "知识与手册",
-    description: "维护 Runbook 模板、版本、审核发布与调查经验。",
-    icon: BookOpen,
-  },
-  {
-    path: "/integrations",
-    title: "模型与连接器",
-    description: "查看模型接入、Embedding 与外部数据源的连接能力。",
-    icon: Plug,
-  },
+
   {
     path: "/platform/roles",
     title: "角色与资源范围",
@@ -133,23 +106,25 @@ export default function PlatformPage({
       </div>
     );
   const heading = {
-    overview: "平台设置",
+    overview: "设置",
     roles: "角色与资源范围",
-    automation: "自动化策略",
+    automation: "自动化任务",
   }[tab];
   return (
     <div className="platform-page">
       <header className="platform-heading">
         <div>
-          <span className="eyebrow">PLATFORM ADMINISTRATION</span>
+          <span className="eyebrow">
+            {tab === "automation" ? "AGENT AUTOMATION" : "SETTINGS"}
+          </span>
           <h1>{heading}</h1>
           <p>
             {
               {
-                overview:
-                  "集中查看工作区治理入口，成员、团队与审计保持各自独立页面。",
+                overview: "管理成员、团队和资源访问权限。",
                 roles: "工作区角色决定能力上限，应用授权决定可访问的资源范围。",
-                automation: "管理默认自动化策略，应用环境可以分别覆盖。",
+                automation:
+                  "配置自动初查、主动巡检与执行预算，查看最近运行记录。",
               }[tab]
             }
           </p>

@@ -1,5 +1,14 @@
 # AIOps Canvas 检查点
 
+## 当前状态 · CP-012 · 2026-09-20 · 导航与用户设置调整
+
+- 用户验收要求精简侧栏，AI调查改 Agent，知识独立；平台设置移入用户菜单，自动化归Agent、审计独立。已实现并更新18081前端，无后端重启或实验执行。详细变更见 docs/releases/2026-09-20-navigation-feedback.md。
+- 本轮仅受影响前端构建及菜单/路由浏览器检查，不恢复CP-011暂停的交付验收。Agent能力与服务端权限未扩大，历史URL保留。
+- 分支 codex/wan-87-delivery-workspace；基于afb704d，提交仅含导航和相关文案，最终远端SHA维护在WAN-87。既有未提交delivery/deployment、主接线和未完成功能继续留在工作区。
+- 当前预览通过私有web快照构建，隐藏未完成的delivery evidence/reconcile入口，保留在途源文件；下一次直接构建整个working tree前仍需注意CP-011边界。
+- 下一步：用户刷新页面继续验收，优先按反馈迭代，不自动启动大规模测试。
+
+
 ## 当前状态 · CP-010 · 2026-09-20 · 交付扩展阶段 A
 
 - 用户批准 WAN-87～92 完整分阶段计划；详见 docs/plans/2026-09-20-delivery-workspace.md。基线未合并 WAN-86 d7ba116，分支 codex/wan-87-delivery-workspace。

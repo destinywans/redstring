@@ -20,7 +20,6 @@ import {
   Bell,
   Sun,
   Moon,
-  LogOut,
   ArrowRight,
   Command,
   X,
@@ -32,7 +31,6 @@ import {
   ChartNoAxesCombined,
   Menu,
   ChevronRight,
-  Building2,
 } from "./lib/icons";
 import { ApiError, post, request } from "./lib/api";
 import type {
@@ -45,8 +43,13 @@ import type {
 import { WorkspaceContext } from "./lib/workspace";
 import { useWorkspaceSelection } from "./lib/selection";
 import { useTheme } from "./lib/theme";
-import { navigation, isNavigationCurrent } from "./lib/navigation";
+import {
+  navigation,
+  settingsNavigation,
+  isNavigationCurrent,
+} from "./lib/navigation";
 import { Modal, ErrorNotice } from "./components/ui";
+import AccountMenu from "./components/AccountMenu";
 const DashboardPage = lazy(() => import("./features/workspace/DashboardPage"));
 const ApplicationsPage = lazy(
   () => import("./features/workspace/ApplicationsPage"),
@@ -72,6 +75,10 @@ const InfrastructurePage = lazy(
   () => import("./features/infrastructure/InfrastructurePage"),
 );
 const PlatformPage = lazy(() => import("./features/platform/PlatformPage"));
+const ExtensionsPage = lazy(
+  () => import("./features/aiextensions/ExtensionsPage"),
+);
+const MemoryPage = lazy(() => import("./features/memory/MemoryPage"));
 const AlertsPage = lazy(() => import("./features/alerts/AlertsPage"));
 const previewApp: Application = {
   id: "preview-checkout",
@@ -111,7 +118,7 @@ export default function App() {
   const sidebarRef = useRef<HTMLElement>(null);
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const mainRef = useRef<HTMLElement>(null);
-  const currentSection = navigation.find((section) =>
+  const currentSection = [...navigation, settingsNavigation].find((section) =>
     section.children.some((item) =>
       isNavigationCurrent(item.to, location.pathname, location.search),
     ),
@@ -300,10 +307,18 @@ export default function App() {
         onLogin={() => client.invalidateQueries({ queryKey: ["auth"] })}
       />
     );
-  const sections = navigation.filter(
-    (section) => !section.admin || user.role === "admin",
-  );
-  const nav = sections.flatMap((section) =>
+  const sections = navigation
+    .filter((section) => !section.admin || user.role === "admin")
+    .map((section) => ({
+      ...section,
+      children: section.children.filter(
+        (item) => !item.admin || user.role === "admin",
+      ),
+    }));
+  const nav = [
+    ...sections,
+    ...(user.role === "admin" ? [settingsNavigation] : []),
+  ].flatMap((section) =>
     section.children.map((item) => ({ ...item, icon: section.icon })),
   );
   const routeLink = (to: string) => {
@@ -375,102 +390,94 @@ export default function App() {
               <X size={20} />
             </button>
           </div>
-          <div className="sidebar-workspace">
-            <Building2 size={20} />
-            <span>
-              <small>工作空间</small>
-              <strong>AIOps 工作区</strong>
-            </span>
-          </div>
           <div className="sidebar-scroll">
-            {["工作空间", "运行与保障", "平台管理"].map((group) => (
-              <section className="sidebar-group" key={group}>
-                <h2>{group}</h2>
-                <nav aria-label={`${group}导航`}>
-                  {sections
-                    .filter((section) => section.group === group)
-                    .map((section) => (
-                      <div
-                        key={section.id}
-                        className={`nav-section ${currentSection?.id === section.id ? "is-current" : ""}`}
-                      >
-                        <button
-                          className="nav-parent"
-                          aria-expanded={!!expanded[section.id]}
-                          aria-controls={`nav-${section.id}`}
-                          onClick={() =>
-                            setExpanded((value) => ({
-                              ...value,
-                              [section.id]: !value[section.id],
-                            }))
-                          }
-                        >
-                          <section.icon size={18} />
-                          <span>{section.label}</span>
-                          <ChevronRight size={12} className="nav-chevron" />
-                        </button>
-                        <div
-                          className="nav-children"
-                          id={`nav-${section.id}`}
-                          hidden={!expanded[section.id]}
-                        >
-                          {section.children.map((item) => {
-                            const active = isNavigationCurrent(
-                              item.to,
-                              location.pathname,
-                              location.search,
-                            );
-                            return (
-                              <NavLink
-                                key={item.to}
-                                to={routeLink(item.to)}
-                                className={`nav-child ${active ? "active" : ""}`}
-                                aria-current={active ? "page" : false}
-                                onClick={() => {
-                                  if (narrow) {
-                                    setMenuOpen(false);
-                                    requestAnimationFrame(() =>
-                                      mainRef.current?.focus(),
-                                    );
-                                  }
-                                }}
-                              >
-                                {item.label}
-                              </NavLink>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))}
-                </nav>
-              </section>
-            ))}
+            <nav className="sidebar-nav" aria-label="主要导航">
+              {sections.map((section) =>
+                section.direct ? (
+                  <NavLink
+                    key={section.id}
+                    to={routeLink(section.children[0].to)}
+                    className={`nav-parent nav-direct ${currentSection?.id === section.id ? "is-current" : ""}`}
+                    onClick={() => {
+                      if (narrow) {
+                        setMenuOpen(false);
+                        requestAnimationFrame(() => mainRef.current?.focus());
+                      }
+                    }}
+                  >
+                    <section.icon size={18} />
+                    <span>{section.label}</span>
+                  </NavLink>
+                ) : (
+                  <div
+                    key={section.id}
+                    className={`nav-section ${currentSection?.id === section.id ? "is-current" : ""}`}
+                  >
+                    <button
+                      className="nav-parent"
+                      aria-expanded={!!expanded[section.id]}
+                      aria-controls={`nav-${section.id}`}
+                      onClick={() =>
+                        setExpanded((value) => ({
+                          ...value,
+                          [section.id]: !value[section.id],
+                        }))
+                      }
+                    >
+                      <section.icon size={18} />
+                      <span>{section.label}</span>
+                      <ChevronRight size={12} className="nav-chevron" />
+                    </button>
+                    <div
+                      className="nav-children"
+                      id={`nav-${section.id}`}
+                      hidden={!expanded[section.id]}
+                    >
+                      {section.children.map((item) => {
+                        const active = isNavigationCurrent(
+                          item.to,
+                          location.pathname,
+                          location.search,
+                        );
+                        return (
+                          <NavLink
+                            key={item.to}
+                            to={routeLink(item.to)}
+                            className={`nav-child ${active ? "active" : ""}`}
+                            aria-current={active ? "page" : false}
+                            onClick={() => {
+                              if (narrow) {
+                                setMenuOpen(false);
+                                requestAnimationFrame(() =>
+                                  mainRef.current?.focus(),
+                                );
+                              }
+                            }}
+                          >
+                            {item.label}
+                          </NavLink>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ),
+              )}
+            </nav>
           </div>
-          <div className="sidebar-account">
-            <span className="avatar" aria-hidden="true">
-              {user.name.slice(0, 1).toUpperCase()}
-            </span>
-            <span>
-              <strong>{user.name}</strong>
-              <small>
-                {user.role === "admin"
-                  ? "管理员"
-                  : user.role === "operator"
-                    ? "操作员"
-                    : "只读成员"}
-              </small>
-            </span>
-            <button
-              className="icon-button"
-              title={preview ? "返回登录" : "退出登录"}
-              aria-label={preview ? "返回登录" : "退出登录"}
-              onClick={() =>
-                preview ? window.location.assign("/") : void logout()
+          <AccountMenu
+            user={user}
+            preview={preview}
+            settingsURL={routeLink("/platform/settings")}
+            onNavigate={() => {
+              if (narrow) {
+                setMenuOpen(false);
+                requestAnimationFrame(() => mainRef.current?.focus());
               }
-            >
-              <LogOut size={18} />
-            </button>
-          </div>
+            }}
+            onLogout={() =>
+              preview ? window.location.assign("/") : void logout()
+            }
+          />
         </aside>
         <header className="topbar" inert={narrow && menuOpen}>
           <button
@@ -484,15 +491,14 @@ export default function App() {
             <Menu size={21} />
           </button>
           <div className="workspace-breadcrumb">
-            <span>工作空间</span>
-            <ChevronRight size={11} />
             <span>{currentSection?.label ?? "工作区"}</span>
-            {currentDestination && (
-              <>
-                <ChevronRight size={11} />
-                <strong>{currentDestination.label}</strong>
-              </>
-            )}
+            {currentDestination &&
+              currentDestination.label !== currentSection?.label && (
+                <>
+                  <ChevronRight size={11} />
+                  <strong>{currentDestination.label}</strong>
+                </>
+              )}
           </div>
           <button
             className="global-search"
@@ -533,6 +539,21 @@ export default function App() {
           className="workspace-main"
           inert={narrow && menuOpen}
         >
+          {currentSection?.id === settingsNavigation.id &&
+            user.role === "admin" && (
+              <nav className="settings-section-nav" aria-label="设置导航">
+                {settingsNavigation.children.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={routeLink(item.to)}
+                    end
+                    className={({ isActive }) => (isActive ? "active" : "")}
+                  >
+                    {item.label}
+                  </NavLink>
+                ))}
+              </nav>
+            )}
           {apps.error && <ErrorNotice error={apps.error} />}
           {models.error && <ErrorNotice error={models.error} />}
           <Suspense
@@ -570,6 +591,8 @@ export default function App() {
                 path="/investigations/:id"
                 element={<InvestigationPage />}
               />
+              <Route path="/ai-extensions/*" element={<ExtensionsPage />} />
+              <Route path="/memory" element={<MemoryPage />} />
               <Route path="/knowledge" element={<KnowledgePage />} />
               <Route path="/integrations" element={<SettingsPage />} />
               <Route path="/members" element={<MembersPage />} />
@@ -618,7 +641,7 @@ export default function App() {
         <label className="search-input">
           <Search size={18} />
           <input
-            placeholder="输入页面或调查名称…"
+            placeholder="输入页面或会话名称…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />

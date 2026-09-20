@@ -1326,7 +1326,7 @@ function InvestigationWorkspace() {
       <header className="inv-page-header">
         <div>
           <div className="inv-title-row">
-            <h1>{inv?.title || "调查工作区"}</h1>
+            <h1>{inv?.title || "会话与画布"}</h1>
             {inv && (
               <span className="badge">
                 {inv.status === "closed" ? "已关闭" : "调查中"}
@@ -1356,7 +1356,7 @@ function InvestigationWorkspace() {
         </div>
         <div className="inv-header-actions">
           <select
-            aria-label="选择调查"
+            aria-label="选择会话"
             value={id || ""}
             onChange={(e) => {
               workspace.setInvestigationId(e.target.value);
@@ -1366,7 +1366,7 @@ function InvestigationWorkspace() {
             }}
             disabled={preview}
           >
-            <option value="">选择调查</option>
+            <option value="">选择会话</option>
             {preview ? (
               <option value="preview-investigation">发布异常调查</option>
             ) : (
@@ -1387,7 +1387,7 @@ function InvestigationWorkspace() {
             onClick={() => setCreateOpen(true)}
           >
             <Plus size={15} />
-            新调查
+            新建会话
           </button>
           {inv && (
             <Link className="btn" to={`/actions${preview ? "?preview=1" : ""}`}>
@@ -1402,7 +1402,7 @@ function InvestigationWorkspace() {
       <Modal
         open={createOpen}
         onOpenChange={setCreateOpen}
-        title="创建调查"
+        title="新建会话"
         description={`应用：${application?.name || "尚未选择"}`}
       >
         <form
@@ -1426,7 +1426,7 @@ function InvestigationWorkspace() {
             className="btn btn-primary"
             disabled={creating || !title.trim()}
           >
-            {creating ? "创建中…" : "开始调查"}
+            {creating ? "创建中…" : "开始会话"}
           </button>
         </form>
       </Modal>
@@ -1434,12 +1434,12 @@ function InvestigationWorkspace() {
         <div className="inv-no-investigation">
           <GitBranch size={38} />
           <h2>
-            {query.isLoading ? "正在加载调查…" : "从一个问题，开始一张画布"}
+            {query.isLoading ? "正在加载会话…" : "从一个问题，开始一张画布"}
           </h2>
           <p>
             {query.error
               ? errorText(query.error)
-              : "选择应用，创建调查。AI 的回答、证据和分支会保存在同一工作区。"}
+              : "选择应用，开始会话。AI 的回答、证据和分支会保存在同一画布。"}
           </p>
           <button
             className="btn btn-primary"
@@ -1447,7 +1447,7 @@ function InvestigationWorkspace() {
             onClick={() => setCreateOpen(true)}
           >
             <Plus size={16} />
-            创建调查
+            新建会话
           </button>
         </div>
       ) : (

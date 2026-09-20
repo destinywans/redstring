@@ -5,6 +5,8 @@ import {
   Activity,
   Bell,
   Bot,
+  BookOpen,
+  ScrollText,
   Plug,
   Settings,
   type IconComponent,
@@ -12,32 +14,29 @@ import {
 
 export type NavigationSection = {
   id: string;
-  group: string;
   label: string;
   icon: IconComponent;
   admin?: boolean;
-  children: { to: string; label: string }[];
+  direct?: boolean;
+  children: { to: string; label: string; admin?: boolean }[];
 };
 
 /** Only real destinations belong here. Detail tabs stay with their object. */
 export const navigation: NavigationSection[] = [
   {
     id: "overview",
-    group: "工作空间",
     label: "工作台",
     icon: Home,
     children: [{ to: "/", label: "运行总览" }],
   },
   {
     id: "applications",
-    group: "工作空间",
     label: "应用中心",
     icon: Box,
     children: [{ to: "/applications", label: "全部应用" }],
   },
   {
     id: "infrastructure",
-    group: "运行与保障",
     label: "基础设施",
     icon: Server,
     children: [
@@ -56,7 +55,6 @@ export const navigation: NavigationSection[] = [
   },
   {
     id: "observability",
-    group: "运行与保障",
     label: "可观测性",
     icon: Activity,
     children: [
@@ -68,7 +66,6 @@ export const navigation: NavigationSection[] = [
   },
   {
     id: "incidents",
-    group: "运行与保障",
     label: "告警与事件",
     icon: Bell,
     children: [
@@ -79,37 +76,55 @@ export const navigation: NavigationSection[] = [
   },
   {
     id: "agents",
-    group: "运行与保障",
-    label: "AI 调查",
+    label: "Agent",
     icon: Bot,
     children: [
-      { to: "/investigations", label: "调查任务" },
-      { to: "/knowledge", label: "知识与 Runbook" },
+      { to: "/investigations", label: "会话与画布" },
+      { to: "/memory", label: "记忆与上下文" },
+      { to: "/ai-extensions/skills", label: "Skills" },
+      { to: "/ai-extensions/prompts", label: "Prompt 模板" },
+      { to: "/settings", label: "自动化任务", admin: true },
     ],
+  },
+  {
+    id: "knowledge",
+    label: "知识库",
+    icon: BookOpen,
+    children: [{ to: "/knowledge", label: "知识与 Runbook" }],
   },
   {
     id: "integrations",
-    group: "平台管理",
     label: "集成中心",
     icon: Plug,
-    children: [{ to: "/integrations?tab=tools", label: "连接器" }, { to: "/integrations?tab=models", label: "模型服务" }, { to: "/integrations?tab=knowledge", label: "Embedding 与检索" }],
-  },
-  {
-    id: "settings",
-    group: "平台管理",
-    label: "平台设置",
-    icon: Settings,
-    admin: true,
     children: [
-      { to: "/platform/settings", label: "平台概览" },
-      { to: "/members", label: "成员管理" },
-      { to: "/teams", label: "团队管理" },
-      { to: "/platform/roles", label: "角色与资源范围" },
-      { to: "/settings", label: "自动化策略" },
-      { to: "/audit", label: "审计日志" },
+      { to: "/integrations?tab=tools", label: "连接器" },
+      { to: "/ai-extensions/mcp", label: "MCP 服务" },
+      { to: "/integrations?tab=models", label: "模型服务" },
+      { to: "/integrations?tab=knowledge", label: "Embedding 与检索" },
     ],
   },
+  {
+    id: "audit",
+    label: "审计日志",
+    icon: ScrollText,
+    admin: true,
+    direct: true,
+    children: [{ to: "/audit", label: "审计日志" }],
+  },
 ];
+
+export const settingsNavigation: NavigationSection = {
+  id: "account-settings",
+  label: "设置",
+  icon: Settings,
+  admin: true,
+  children: [
+    { to: "/platform/settings", label: "平台概览" },
+    { to: "/members", label: "成员管理" },
+    { to: "/teams", label: "团队管理" },
+    { to: "/platform/roles", label: "角色与资源范围" },
+  ],
+};
 
 export function isNavigationCurrent(
   to: string,
@@ -133,6 +148,7 @@ export function isNavigationCurrent(
   const params = new URLSearchParams(search);
   return Array.from(target.searchParams).every(
     ([key, value]) =>
-      (params.get(key) ?? (key === "view" ? "summary" : key === "tab" ? "tools" : "")) === value,
+      (params.get(key) ??
+        (key === "view" ? "summary" : key === "tab" ? "tools" : "")) === value,
   );
 }

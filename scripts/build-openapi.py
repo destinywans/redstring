@@ -146,6 +146,7 @@ route('get','/connector-registrations','Read safe server-managed binding options
 for path in ['/applications/{id}/deployment','/applications/{id}/telemetry']: query_env(path,'get')
 for path in ['/applications/{id}/metrics','/applications/{id}/logs']:
     P[path]['post']['requestBody']['content']['application/json']['schema']['properties']['environment_id']=string()
+route('post','/investigations/{id}/evidence','Pin historical query snapshot','operator',obj(fieldnames('branch_id environment_id kind title source content'),['branch_id','environment_id','kind','title','content']),ref('Evidence'),201,desc='Human-pinned, not a fresh measurement. Source/time/query remain in immutable content. Same environment and idle branch required.')
 S['ContextManifest']=obj({**fieldnames('run_id attempt_id model_id estimation summary'),'context_revision':integer(),'input_budget':integer(),'estimated_tokens':integer(),'summary_calls':integer(),'summary_source_ids':arr(string()),'recent_message_ids':arr(string()),'evidence_ids':arr(string()),'messages':arr(obj(fieldnames('role content'))),'created_at':string(format='date-time')})
 route('get','/runs/{id}/context','Read actual prepared attempt input',response=ref('ContextManifest'),desc='Derived summary does not replace raw history; estimates are conservative UTF-8 byte bounds, not exact provider token usage. 404 means no prepared context yet.')
 S['KnowledgeMetadata']=obj({**fieldnames('maintainer_id team_id origin actor_id generation_run_id generation_model visibility'),**{k:arr(string()) for k in ['evidence_ids','environment_ids','resource_categories','tags','shared_application_ids']}})
@@ -165,6 +166,27 @@ route('get','/knowledge/{id}/revisions','List readable immutable document revisi
 route('get','/knowledge/{id}/revisions/{version}','Read a cited immutable version',response=ref('Document'))
 route('get','/knowledge/{id}/export','Export authorized source revisions and metadata',response=obj({'format':string(),'document_id':string(),'exported_at':string(format='date-time'),'document':ref('Document'),'revisions':arr(ref('Document'))}))
 route('post','/investigations/{id}/knowledge-drafts/generate','Generate experience draft after verified closure','operator',response=ref('KnowledgeDraft'),desc='Uses bounded configured model with committed evidence; human review and publication remain required.')
+S['Incident']=obj({**fieldnames('id source_id application_id environment_id fingerprint title severity status alert_status assignee_id investigation_id summary'),'suspected':boolean,'starts_at':string(format='date-time'),'ends_at':{'type':['string','null'],'format':'date-time'},'updated_at':string(format='date-time')})
+S['Policy']=obj({**fieldnames('environment_id model_id actor_id'),**{k:boolean for k in ['auto_initial','patrol','generate_experience_draft','inherit']},**{k:integer() for k in ['interval_minutes','max_rounds','max_tool_calls','timeout_seconds','daily_budget','version']}})
+S['AutomationRun']=obj({**fieldnames('id environment_id kind status incident_id investigation_id run_id error'),'created_at':string(format='date-time'),'finished_at':{'type':['string','null'],'format':'date-time'}})
+S['AutomationRun']['properties']['result']={'type':'object','additionalProperties':True}
+S['Notification']=obj({**fieldnames('id incident_id application_id environment_id channel status last_error'),'attempts':integer(),'next_attempt_at':string(format='date-time'),'created_at':string(format='date-time')})
+S['Todo']=obj({**fieldnames('id application_id environment_id investigation_id title status kind'),'updated_at':string(format='date-time')})
+route('get','/incidents','List authorized incoming abnormalities',response=listed('Incident'))
+for name in ['application_id','environment_id']: P['/incidents']['get'].setdefault('parameters',[]).append({'name':name,'in':'query','schema':string()})
+route('get','/incidents/{id}','Read authorized incident',response=ref('Incident'))
+route('post','/incidents/{id}/claim','Claim or release incident','operator',obj(fieldnames('assignee_id'),['assignee_id']),ref('Incident'))
+route('post','/incidents/{id}/investigation','Create or reuse incident investigation','operator',obj(fieldnames('model_id')),ref('Incident'),desc='Omit model_id for manual investigation without a model call.')
+route('get','/notifications','Read scoped delivery status',response=listed('Notification'))
+route('get','/automation/policies/{id}','Read effective environment policy',response=ref('Policy'),desc='Use workspace for administrator-only defaults. Background model calls default off.')
+route('put','/automation/policies/{id}','Set versioned automation policy','admin',obj({**S['Policy']['properties'],'expected_version':integer()},['expected_version']),ref('Policy'))
+route('get','/automation/runs','Read scoped bounded background tasks',response=listed('AutomationRun'))
+query_env('/automation/runs','get')
+route('post','/automation/runs/{id}/cancel','Cancel background work','operator',response=obj({'cancelled':boolean}))
+route('get','/dashboard','Read workspace attention and derived todos',response=obj({'incidents':arr(ref('Incident')),'pending_approvals':arr(ref('Todo')),'executions':arr(ref('Todo')),'my_items':arr(ref('Todo')),'automation_runs':arr(ref('AutomationRun')),'notification_failures':arr(ref('Notification')),'data_sources':arr(ref('Integration'))}))
+route('post','/webhooks/alertmanager/{source}','Accept authenticated Alertmanager envelope','public',{'type':'object','additionalProperties':True},obj({'accepted':integer()}),202,desc='Requires dedicated Bearer source token; server-side mappings bind scope. Deduplicates source/fingerprint/startsAt, late firing cannot undo resolved state.')
+P['/webhooks/alertmanager/{source}']['post']['security']=[{'alertSourceToken':[]}]
+
 spec={'openapi':'3.1.0','info':{'title':'AIOps Canvas Backend API','version':'0.3.0','description':'Single-workspace multi-application SRE API. All business history is server authoritative; application authorization is enforced beyond minimum workspace role.','license':{'name':'Apache-2.0','identifier':'Apache-2.0'}},'servers':[{'url':'/api/v1'}],'security':[{'sessionCookie':[]}],'paths':P,'components':{'schemas':S,'securitySchemes':{'sessionCookie':{'type':'apiKey','in':'cookie','name':'aiops_session'},'alertSourceToken':{'type':'http','scheme':'bearer'}}}}
 Path('internal/apicontract/openapi.json').write_text(json.dumps(spec,ensure_ascii=False,indent=2)+'\n')
 print(f'Generated {len(P)} paths, {sum(len(x) for x in P.values())} operations, {len(S)} schemas.')

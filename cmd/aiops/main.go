@@ -119,7 +119,12 @@ func run() error {
 	entry := httpapi.NewIntegration("embedding", "Knowledge embedding", "embedding", embedding.Provider, true, nil, []string{"knowledge.embed"})
 	entry.Model = embedding.Model
 	api.Integrations = append(api.Integrations, entry)
-	api.ConfigureContextBudget(worker, s)
+	ops, e := configureOperations(ctx, s, api, worker, know)
+	if e != nil {
+		return e
+	}
+	opsDone := make(chan struct{})
+	go func() { defer close(opsDone); ops.Run(ctx) }()
 	go func() { defer close(actionDone); acts.Run(ctx) }()
 	workerDone := make(chan struct{})
 	go func() { defer close(workerDone); worker.Run(ctx) }()
@@ -156,6 +161,7 @@ func run() error {
 	cancel()
 	<-workerDone
 	<-actionDone
+	<-opsDone
 	if errors.Is(e, http.ErrServerClosed) {
 		return nil
 	}

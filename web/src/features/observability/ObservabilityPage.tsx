@@ -450,7 +450,7 @@ export default function ObservabilityPage({ mode }: { mode: Mode }) {
           ))}
         </section>
       )}
-      {error && (
+      {!!error && (
         <section className="card management-card">
           <ErrorNotice error={error} />
           {result && (

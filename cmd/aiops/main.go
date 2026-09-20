@@ -110,11 +110,7 @@ func run() error {
 		return e
 	}
 	registerPlatformDeployment(api, registry)
-	apps := []string{}
-	if connector != nil {
-		apps = append(apps, "demo")
-	}
-	api.Integrations = append(api.Integrations, httpapi.NewIntegration("kubernetes", "Kubernetes", "connector", "kubernetes", connector != nil, apps, []string{"deployment.read", "rollback.propose", "rollback.execute_after_approval"}))
+	registerKubernetesIntegrations(api, registry)
 	embedding := embedder.Descriptor()
 	entry := httpapi.NewIntegration("embedding", "Knowledge embedding", "embedding", embedding.Provider, true, nil, []string{"knowledge.embed"})
 	entry.Model = embedding.Model

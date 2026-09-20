@@ -86,6 +86,14 @@ const providerKey = (value: string) =>
     : value.toLowerCase().includes("ollama")
       ? "ollama"
       : "openai";
+const capabilityLabels: Record<string, string> = {
+  "deployment.read": "读取 Deployment",
+  "metrics.read": "查询指标",
+  "logs.read": "检索日志",
+  "rollback.propose": "提出回滚方案",
+  "rollback.execute_after_approval": "审批后执行回滚",
+  "recovery.verify": "验证恢复结果",
+};
 const providerLabels = {
   openai: "OpenAI 兼容服务",
   claude: "Claude",
@@ -165,9 +173,13 @@ export default function SettingsPage() {
     useWorkspace();
   const qc = useQueryClient();
   const [tab, setTab] = useState("models");
-  const [provider, setProvider] = useState<"openai" | "claude" | "ollama">(
-    "openai",
-  );
+  const [chosenProvider, setProvider] = useState<
+    "openai" | "claude" | "ollama" | null
+  >(null);
+  const initialModel = models.find((model) => model.available) ?? models[0];
+  const provider =
+    chosenProvider ??
+    (initialModel ? providerKey(initialModel.provider) : "openai");
   const [selectedModel, setSelectedModel] = useState("");
   const [branchId, setBranchId] = useState("");
   const [config, setConfig] = useState<string | null>(null);
@@ -487,10 +499,10 @@ export default function SettingsPage() {
                     {connectors.map((i) => (
                       <tr key={i.id}>
                         <td>
-                          <div className={`settings-tool-name ${i.id}`}>
-                            {i.id === "kubernetes" ? (
+                          <div className={`settings-tool-name ${i.provider}`}>
+                            {i.provider === "kubernetes" ? (
                               <Network size={25} />
-                            ) : i.id === "prometheus" ? (
+                            ) : i.provider === "prometheus" ? (
                               <Flame size={25} />
                             ) : (
                               <Layers size={25} />
@@ -520,16 +532,25 @@ export default function SettingsPage() {
                           </span>
                         </td>
                         <td className="muted">
-                          {i.id === "kubernetes"
-                            ? "集群与资源信息，用于故障分析与审批后恢复"
-                            : i.id === "prometheus"
-                              ? "指标数据采集与登记查询"
-                              : "限定范围内的日志检索与上下文分析"}
+                          {i.capabilities?.length
+                            ? i.capabilities
+                                .map(
+                                  (capability) =>
+                                    capabilityLabels[capability] ?? capability,
+                                )
+                                .join(" · ")
+                            : i.provider === "kubernetes"
+                              ? "登记的 Kubernetes 资源信息，具体能力以服务端授权为准"
+                              : i.provider === "prometheus"
+                                ? "指标数据采集与登记查询"
+                                : i.provider === "loki"
+                                  ? "限定范围内的日志检索与上下文分析"
+                                  : "能力以服务端登记信息为准"}
                         </td>
                         <td>
                           <button
                             className="btn"
-                            onClick={() => setConfig(i.id)}
+                            onClick={() => setConfig(i.provider)}
                           >
                             配置
                           </button>
@@ -640,7 +661,6 @@ export default function SettingsPage() {
           )}
         </SettingsModal>
       )}
-
     </div>
   );
 }

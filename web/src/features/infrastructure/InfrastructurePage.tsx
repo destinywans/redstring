@@ -14,6 +14,7 @@ import { request } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
 import { ErrorNotice } from "../../components/ui";
 import "./infrastructure.css";
+import HostMetrics from "./HostMetrics";
 
 type DeploymentSnapshot = {
   application_id: string;
@@ -148,7 +149,9 @@ export default function InfrastructurePage() {
             onClick={() => selectView(id)}
           >
             {label}
-            {id !== "summary" && id !== "workloads" && <small>待接入</small>}
+            {id !== "summary" && id !== "workloads" && id !== "hosts" && (
+              <small>待接入</small>
+            )}
           </button>
         ))}
       </nav>
@@ -418,6 +421,8 @@ export default function InfrastructurePage() {
             )}
           </section>
         </>
+      ) : view === "hosts" ? (
+        <HostMetrics />
       ) : (
         <section className="card infra-empty infra-planned">
           <div className="infra-planned-icon">

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/wans/aiops-canvas/internal/connectors"
+	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/store"
@@ -30,20 +31,17 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
 	if e != nil {
 		return e
 	}
-	metricApps, logApps := []string{}, []string{}
+	metrics := httpapi.NewIntegration("prometheus", "Prometheus", "connector", "prometheus", config.Prometheus.URL != "", nil, []string{"metrics.read"})
+	logs := httpapi.NewIntegration("loki", "Loki", "connector", "loki", config.Loki.URL != "", nil, []string{"logs.read"})
 	for id, registration := range config.Applications {
 		if config.Prometheus.URL != "" && len(registration.PrometheusQueries) > 0 {
-			metricApps = append(metricApps, id)
+			metrics.RegisteredBindings = append(metrics.RegisteredBindings, core.Binding{Kind: "prometheus", ConnectorID: "prometheus", Resource: id})
 		}
 		if config.Loki.URL != "" && len(registration.LokiLabels) > 0 {
-			logApps = append(logApps, id)
+			logs.RegisteredBindings = append(logs.RegisteredBindings, core.Binding{Kind: "loki", ConnectorID: "loki", Resource: id})
 		}
 	}
-	sort.Strings(metricApps)
-	sort.Strings(logApps)
-	api.Integrations = append(api.Integrations,
-		httpapi.NewIntegration("prometheus", "Prometheus", "connector", "prometheus", config.Prometheus.URL != "", metricApps, []string{"metrics.read"}),
-		httpapi.NewIntegration("loki", "Loki", "connector", "loki", config.Loki.URL != "", logApps, []string{"logs.read"}))
+	api.Integrations = append(api.Integrations, metrics, logs)
 	client, e := connectors.NewTelemetry(config)
 	if e != nil {
 		return e
@@ -82,14 +80,7 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
 			}})
 		}
 		if config.Loki.URL != "" && len(logRegistration.LokiLabels) > 0 {
-			tools = append(tools, inference.EvidenceTool{Name: "query_logs", Description: "Read at most 100 application-scoped Loki log entries over a recent time window bounded by server limits. Query text cannot change the registered log scope.", Read: func(ctx context.Context, _ string) (inference.Evidence, error) {
-				result, e := client.QueryLogs(ctx, logScope, connectors.TimeWindow{}, 0)
-				if e != nil {
-					return inference.Evidence{}, e
-				}
-				b, e := json.Marshal(result)
-				return inference.Evidence{Kind: "logs", Title: "Loki application logs", Content: string(b), Source: result.Source.URL}, e
-			}})
+			tools = append(tools, logEvidenceTool(client, logScope))
 		}
 		return tools, nil
 	}
@@ -140,6 +131,19 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
 		httpapi.WriteJSON(w, 200, result)
 	})
 	return nil
+}
+
+// The model receives a small bounded sample. Interactive log browsing retains
+// its independently configured limits and all returned evidence is persisted.
+func logEvidenceTool(client *connectors.Telemetry, scope string) inference.EvidenceTool {
+	return inference.EvidenceTool{Name: "query_logs", Description: "Read a bounded sample of at most 10 application-scoped Loki log entries (or the lower server limit) over a recent time window. Results may omit other entries; do not infer overall health from this small sample. Query text cannot change the registered log scope.", Read: func(ctx context.Context, _ string) (inference.Evidence, error) {
+		result, err := client.QueryLogs(ctx, scope, connectors.TimeWindow{}, min(10, client.Limits().MaxLogEntries))
+		if err != nil {
+			return inference.Evidence{}, err
+		}
+		raw, err := json.Marshal(result)
+		return inference.Evidence{Kind: "logs", Title: "Loki application log sample", Content: string(raw), Source: result.Source.URL}, err
+	}}
 }
 
 // Registration metadata is available even when no telemetry connector is

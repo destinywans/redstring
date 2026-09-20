@@ -313,7 +313,7 @@ export default function TransferDialog({
           {destination !== "new" && detail.error && (
             <ErrorNotice error={detail.error} />
           )}
-          {error && <ErrorNotice error={error} />}
+          {!!error && <ErrorNotice error={error} />}
           {(created || destination !== "new" || saved) && (
             <button
               className="btn"

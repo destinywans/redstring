@@ -4,7 +4,7 @@
 
 可自托管的 AI 运维画布：围绕发布异常，把分支调查、证据、Runbook、人工批准与恢复验证放进同一个 Web 工作区。MVP 聚焦可复现的 SRE 闭环，便于展示工程实现、撰写博客与项目介绍；CI/CD 和完整运维平台留待后续迭代。
 
-**当前为 Web 工作区集成版本，等待产品验收。** 八张设计参考对应的页面与核心交互已有可运行实现，前后端通过 REST + SSE 对接。本轮完成前端构建、Go 构建、限定测试与契约检查，并在独立 PG 数据库验证登录、创建调查、草稿保存和刷新恢复；本轮未验证真实模型或 Kubernetes 回滚，不代表完整 MVP 已验收。尚未完全复刻的交互与视觉差异见 [设计检查](design-qa.md)。
+**当前为已接入本地实验数据的 Web 工作区，等待用户产品验收。** 在隔离数据库中完成最新迁移，接入三个实验应用、Kubernetes Deployment、Prometheus、Loki、Lima 主机、Ollama 和 BGE-m3。真实模型取证、分支继承与继续对话、指标固定到画布、知识索引检索、Alertmanager 接收均有运行证据；本轮未做 Kubernetes 写恢复或完整故障演练，不代表完整 MVP 已验收。当前入口与检查边界见 [本地产品体验](docs/releases/2026-09-20-lab-integration.md)，视觉差异见 [设计检查](design-qa.md)。
 
 React · TypeScript · Vite · React Flow · assistant-ui · Go 1.27.1 · Google ADK Go 2.4.0 · PostgreSQL 17 + pgvector 0.8.6 · Apache-2.0
 
@@ -50,7 +50,7 @@ API 前缀 `/api/v1`；契约入口 `/openapi.json`，健康入口 `/healthz`。
 
 ## 工作区与契约
 
-[Web 使用与架构说明](docs/web-workspace.md) 记录八个设计场景、运行方式及真实／预览边界；[OpenAPI 3.1](internal/apicontract/openapi.json) 和 [API 语义](docs/api-contract.md) 规定 47 项操作。
+[Web 使用与架构说明](docs/web-workspace.md) 记录八个设计场景、运行方式及真实／预览边界；[OpenAPI 3.1](internal/apicontract/openapi.json) 和 [API 语义](docs/api-contract.md) 规定当前 88 项操作。
 
 - 画布调查：节点对话、分支快照继承、独立演进、显式同步和合并；过期合并返回 409。
 - 证据与知识：查看来源和时间范围；Runbook 检索及调查经验草稿。经验需符合关闭条件后人工确认才能进入知识库。
@@ -62,14 +62,14 @@ API 前缀 `/api/v1`；契约入口 `/openapi.json`，健康入口 `/healthz`。
 
 ## 验证与部署边界
 
-本轮已记录的限定检查：
+WAN-86 已记录的限定检查：
 
 - `pnpm --dir web build`、Go 应用构建通过。
-- `internal/webui` 与 `cmd/aiops` 的三个定向测试通过，覆盖静态托管隔离和 Deployment 镜像摘要不泄露环境变量。
-- 契约引用与 47 个已实现操作匹配。
-- 独立数据库 `aiops_ui_review_20260920` 上完成 UI 登录、创建调查、草稿保存和刷新恢复。
+- 随机 PG schema 中的成员、IAM 导入、应用资料、权限与 SSE 测试通过；遥测协议与集成绑定权限测试通过。
+- 契约引用与 88 个已实现操作匹配。
+- 隔离库 `aiops_workspace_review_20260920`：真实数据查询、模型三工具取证及分支上下文、BGE-m3 混合检索、Alertmanager firing/resolved 接收通过；浏览器确认真实图表、日志、主机指标与管理页面。详细证据见上述体验记录。
 
-本轮没有运行全量测试、全量 race/vet、真实模型调用、Kubernetes 回滚、完整故障演练或 Docker 镜像构建。旧真实恢复证据仅对应历史源码，见 [检查点](CHECKPOINT.md)。页面能构建或预览不等于完整业务链路验收通过。
+本轮没有运行全量测试、全量 race/vet、Kubernetes 回滚、完整故障演练或新版 Docker 镜像构建。旧真实恢复证据仅对应历史源码，见 [检查点](CHECKPOINT.md)。页面能构建或预览不等于完整业务链路验收通过。
 
 Compose 的应用 profile 用于交付 Go 服务和 Web 产物，以下是运行方式，**不是本轮已验证的容器交付证据**：
 
@@ -79,7 +79,7 @@ docker compose --profile app up -d --build
 
 数据保存在独立 volume，`docker compose down` 默认保留；不要随意加 `-v`。服务器部署需配置 HTTPS 反向代理、实际 `AIOPS_PUBLIC_ORIGIN` 与 `AIOPS_SECURE_COOKIES=true`。模型和集群凭据保留在服务端；本地默认端口仅映射回环。
 
-真实演示仅使用独立的 `aiops-canvas-demo`，见 [演示说明](docs/demo.md)，不得修改现有练习集群。恢复动作限已登记 Deployment 的 Pod 模板／镜像回滚，默认持续观察至少 **180 秒**，验证收敛、健康探针与真实业务流量。演示计数器适配器目前限单副本；不能用“命令成功”代替业务恢复。
+恢复演示使用独立的 `aiops-canvas-demo`，见 [演示说明](docs/demo.md)；最新只读产品联调使用用户授权新建的 `aiops-test` 及 `aiops-test-vm`，代码位于相邻 `aiops-test` 目录。不得修改其他练习集群。恢复动作限已登记 Deployment 的 Pod 模板／镜像回滚，默认持续观察至少 **180 秒**，验证收敛、健康探针与真实业务流量。演示计数器适配器目前限单副本；不能用“命令成功”代替业务恢复。
 
 ## 资料与后续范围
 

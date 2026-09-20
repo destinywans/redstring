@@ -60,7 +60,7 @@ func TestTelemetryLokiEscapesAndEnforcesExactScope(t *testing.T) {
 	var query string
 	tm, w := telemetryFixture(t, func(w http.ResponseWriter, r *http.Request) {
 		query = r.URL.Query().Get("query")
-		if r.URL.Path != "/loki/api/v1/query_range" || r.URL.Query().Get("direction") != "forward" {
+		if r.URL.Path != "/loki/api/v1/query_range" || r.URL.Query().Get("direction") != "backward" {
 			t.Errorf("invalid Loki request: %s", r.URL)
 		}
 		fmt.Fprint(w, `{"status":"success","data":{"resultType":"streams","result":[]}}`)
@@ -73,6 +73,24 @@ func TestTelemetryLokiEscapesAndEnforcesExactScope(t *testing.T) {
 	}
 	if query != `{application="demo\"} |= \"escape",namespace="aiops-demo"}` || !out.Empty {
 		t.Fatalf("unsafe selector %q", query)
+	}
+}
+func TestTelemetryLokiLatestSampleIsDisplayedChronologically(t *testing.T) {
+	var latest, previous time.Time
+	tm, window := telemetryFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("direction") != "backward" || r.URL.Query().Get("limit") != "2" {
+			t.Errorf("expected latest bounded sample: %s", r.URL.RawQuery)
+		}
+		// Loki returns the newest entries first, possibly across separate streams.
+		fmt.Fprintf(w, `{"status":"success","data":{"resultType":"streams","result":[{"stream":{"application":"demo","namespace":"aiops-demo","pod":"newer"},"values":[["%d","latest"]]},{"stream":{"application":"demo","namespace":"aiops-demo","pod":"older"},"values":[["%d","previous"]]}]}}`, latest.UnixNano(), previous.UnixNano())
+	})
+	latest, previous = window.End.Add(-time.Second), window.End.Add(-2*time.Second)
+	out, err := tm.QueryLogs(context.Background(), "demo", window, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Entries) != 2 || out.Entries[0].Line != "previous" || out.Entries[1].Line != "latest" || !out.LimitReached || out.Empty {
+		t.Fatalf("latest sample not preserved in chronological order: %+v", out)
 	}
 }
 func TestTelemetryRejectsBadWindowBeforeNetwork(t *testing.T) {

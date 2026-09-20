@@ -239,3 +239,64 @@ button.infra-summary {
     align-items: flex-start;
   }
 }
+.infra-host {
+  border-top: 1px solid var(--border);
+  margin-top: 20px;
+  padding-top: 4px;
+}
+.infra-host-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.infra-host-heading h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow-wrap: anywhere;
+}
+.infra-host-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.infra-host-metric {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 15px;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+.infra-host-metric > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.infra-host-metric strong {
+  display: block;
+  font-size: 16px;
+  font-weight: 550;
+}
+.infra-host-metric small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.infra-host-unavailable {
+  color: var(--muted);
+}
+@media (max-width: 1000px) {
+  .infra-host-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .infra-host-grid {
+    grid-template-columns: 1fr;
+  }
+}

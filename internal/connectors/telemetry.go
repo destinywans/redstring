@@ -450,7 +450,9 @@ func (t *Telemetry) QueryLogs(ctx context.Context, appID string, w TimeWindow, l
 	if limit < 1 || limit > t.config.MaxLogEntries {
 		return out, failure(s, "scope", "log limit exceeds configured maximum", nil)
 	}
-	params := url.Values{"query": {s.Query}, "start": {strconv.FormatInt(s.Window.Start.UnixNano(), 10)}, "end": {strconv.FormatInt(s.Window.End.UnixNano(), 10)}, "limit": {strconv.Itoa(limit)}, "direction": {"forward"}}
+	// Select the most recent bounded sample, then sort it chronologically below
+	// so readers can follow the selected events without receiving stale head entries.
+	params := url.Values{"query": {s.Query}, "start": {strconv.FormatInt(s.Window.Start.UnixNano(), 10)}, "end": {strconv.FormatInt(s.Window.End.UnixNano(), 10)}, "limit": {strconv.Itoa(limit)}, "direction": {"backward"}}
 	b, e := t.loki.get(ctx, "/loki/api/v1/query_range", params, s)
 	if e != nil {
 		return out, e

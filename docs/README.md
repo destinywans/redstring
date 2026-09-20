@@ -2,6 +2,8 @@
 
 需求、取舍和任务状态以 [Linear 项目](https://linear.app/wansss/project/aiops-canvas-3c9fce50a53b) 为主。这里维护随代码版本变化的契约与运行说明。
 
+- [本地实验数据与产品体验 · WAN-86](releases/2026-09-20-lab-integration.md)：当前入口、数据范围、启动方式、实测结果和未覆盖项。
+
 - [Web 工作区与对接](web-workspace.md)：八个设计场景、开发入口、预览隔离、当前验证边界。
 - [SRE 观测工作区](observability-workspace.md)：基础设施、指标日志、告警事件与平台设置，以及当前适配边界。
 - [成员管理与企业目录导入](member-management.md)。

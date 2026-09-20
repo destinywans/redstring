@@ -158,33 +158,10 @@ func (s *Server) modelExists(id string) bool {
 }
 func (s *Server) routes() {
 	s.Register("GET /api/v1/integrations", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		items := s.Integrations
-		if items == nil {
-			items = []Integration{}
-		}
-		{
-			ids, e := s.VisibleApplicationIDs(r.Context(), CurrentUser(r))
-			if e != nil {
-				fail(w, e)
-				return
-			}
-			allowed := map[string]bool{}
-			for _, id := range ids {
-				allowed[id] = true
-			}
-			filtered := make([]Integration, 0, len(items))
-			for _, item := range items {
-				item.ApplicationIDs = append([]string{}, item.ApplicationIDs...)
-				visible := item.ApplicationIDs[:0]
-				for _, id := range item.ApplicationIDs {
-					if allowed[id] {
-						visible = append(visible, id)
-					}
-				}
-				item.ApplicationIDs = visible
-				filtered = append(filtered, item)
-			}
-			items = filtered
+		items, err := s.visibleIntegrations(r.Context(), CurrentUser(r))
+		if err != nil {
+			fail(w, err)
+			return
 		}
 		WriteJSON(w, 200, map[string]any{"items": items, "configuration_mode": "server_managed"})
 	})

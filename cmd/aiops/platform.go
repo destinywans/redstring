@@ -12,6 +12,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 	"net/http"
 	"os"
+	"sort"
 )
 
 type registeredKubernetes struct {
@@ -26,6 +27,27 @@ type registeredKubernetes struct {
 type platformRegistry struct {
 	store      *store.Store
 	kubernetes map[string]registeredKubernetes
+}
+
+func registerKubernetesIntegrations(api *httpapi.Server, registry *platformRegistry) {
+	ids := make([]string, 0, len(registry.kubernetes))
+	for id := range registry.kubernetes {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	if len(ids) == 0 {
+		api.Integrations = append(api.Integrations, httpapi.NewIntegration("kubernetes", "Kubernetes", "connector", "kubernetes", false, nil, []string{"deployment.read"}))
+	}
+	for _, id := range ids {
+		registration := registry.kubernetes[id]
+		capabilities := []string{"deployment.read"}
+		if registration.recovery != nil {
+			capabilities = append(capabilities, "rollback.propose", "rollback.execute_after_approval")
+		}
+		entry := httpapi.NewIntegration(id, "Kubernetes · "+id, "connector", "kubernetes", true, nil, capabilities)
+		entry.RegisteredBindings = []core.Binding{{Kind: "kubernetes", ConnectorID: id, Resource: "deployment"}}
+		api.Integrations = append(api.Integrations, entry)
+	}
 }
 
 func configurePlatform(ctx context.Context, s *store.Store, api *httpapi.Server, acts *actions.Service, worker *httpapi.Worker, legacy *connectors.Kubernetes, legacyConfig connectors.Config) (*platformRegistry, error) {

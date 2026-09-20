@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/store"
 	"net/http"
@@ -130,6 +131,16 @@ func TestHTTPRolesCSRFAndDurableReplay(t *testing.T) {
 		t.Fatal(e)
 	}
 	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated || app.ID == "" {
+		t.Fatalf("create application returned %d", resp.StatusCode)
+	}
+	viewerUser, e := api.Store.Session(context.Background(), viewer.Value)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = api.Store.(*store.Store).SetGrants(context.Background(), app.ID, []core.Grant{{SubjectType: "user", SubjectID: viewerUser.ID, Permission: "view"}}); e != nil {
+		t.Fatal(e)
+	}
 	inv, e := api.Store.CreateInvestigation(context.Background(), app.ID, "test")
 	if e != nil {
 		t.Fatal(e)
@@ -141,6 +152,9 @@ func TestHTTPRolesCSRFAndDurableReplay(t *testing.T) {
 		t.Fatal("save layout")
 	}
 	resp = call(t, server, "GET", path, "", viewer)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("authorized viewer layout returned %d", resp.StatusCode)
+	}
 	var layout map[string]map[string]any
 	if e = json.NewDecoder(resp.Body).Decode(&layout); e != nil {
 		t.Fatal(e)
@@ -162,6 +176,9 @@ func TestHTTPRolesCSRFAndDurableReplay(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("authorized viewer event stream returned %d", resp.StatusCode)
+	}
 	scanner := bufio.NewScanner(resp.Body)
 	found := false
 	for scanner.Scan() {
@@ -223,10 +240,11 @@ func TestSSEStopsAfterSessionRevocation(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = api.Store.(*store.Store).DB.Exec(ctx, "INSERT INTO applications(id,name) VALUES('app','Test')"); e != nil {
+	app, e := api.Store.RegisterApplication(ctx, core.Application{Name: "Test", Key: "test", Environment: "lab"})
+	if e != nil {
 		t.Fatal(e)
 	}
-	inv, e := api.Store.CreateInvestigation(ctx, "app", "revoke")
+	inv, e := api.Store.CreateInvestigation(ctx, app.ID, "revoke")
 	if e != nil {
 		t.Fatal(e)
 	}

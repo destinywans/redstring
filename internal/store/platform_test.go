@@ -150,6 +150,11 @@ func TestPlatformFoundationPostgres(t *testing.T) {
 	stale := env
 	env.Name = "Staging updated"
 	env, e = s.SaveEnvironment(ctx, env)
+	if e != nil || env.BindingRevision != 1 {
+		t.Fatalf("display name must not invalidate the binding: %+v %v", env, e)
+	}
+	env.Key = "staging-updated"
+	env, e = s.SaveEnvironment(ctx, env)
 	if e != nil || env.BindingRevision != 2 {
 		t.Fatalf("binding revision: %+v %v", env, e)
 	}

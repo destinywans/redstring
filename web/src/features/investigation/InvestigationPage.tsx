@@ -1,4 +1,5 @@
 import ContextInspector from "./ContextInspector";
+import EvidenceTelemetry from "./EvidenceTelemetry";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Link,
@@ -393,7 +394,7 @@ function EvidenceCard({
               {data.preview ? (
                 <MetricChart kind="wait" />
               ) : (
-                <pre>{data.evidence.content}</pre>
+                <EvidenceTelemetry kind={data.evidence.kind} content={data.evidence.content} />
               )}
               <footer>{data.evidence.source}</footer>
             </>

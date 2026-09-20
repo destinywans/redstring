@@ -1904,3 +1904,8 @@
     height: calc(100dvh - 58px);
   }
 }
+.inv-evidence-telemetry { max-height: 440px; overflow: auto; margin-top: 12px; }
+.inv-evidence-snapshot-note { color: var(--muted); font-size: 11px; line-height: 1.6; }
+.inv-evidence-telemetry details { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 12px; font-size: 12px; }
+.inv-evidence-telemetry summary { cursor: pointer; }
+.inv-evidence-telemetry .telemetry-series { min-width: 0; }

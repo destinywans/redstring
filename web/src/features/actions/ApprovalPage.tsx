@@ -1,3 +1,4 @@
+import SelectField from "../../components/SelectField";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -200,7 +201,7 @@ export default function ApprovalPage() {
         <div className="action-selector card">
           <label>
             关联调查
-            <select
+            <SelectField
               className="field"
               value={detailInvId || ""}
               onChange={(e) => chooseInvestigation(e.target.value)}
@@ -212,12 +213,12 @@ export default function ApprovalPage() {
                   {item.status === "closed" ? " · 已关闭" : ""}
                 </option>
               ))}
-            </select>
+            </SelectField>
           </label>
           {!!plans.data?.items?.length && (
             <label>
               操作提案
-              <select
+              <SelectField
                 className="field"
                 value={plan?.id || ""}
                 onChange={(e) =>
@@ -230,14 +231,14 @@ export default function ApprovalPage() {
                     {decisionLabel[item.decision]}
                   </option>
                 ))}
-              </select>
+              </SelectField>
             </label>
           )}
           {canWrite && detailInvId && scopeOpen && (
             <label>
               新建提案
               <div className="action-inline">
-                <select
+                <SelectField
                   className="field"
                   aria-label="回滚目标版本"
                   value={revision}
@@ -250,7 +251,7 @@ export default function ApprovalPage() {
                       {item.images.map((x) => x.image).join(", ")}
                     </option>
                   ))}
-                </select>
+                </SelectField>
                 <button
                   className="btn"
                   disabled={!revision || mutation.isPending}

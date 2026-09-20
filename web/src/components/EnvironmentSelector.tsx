@@ -1,4 +1,6 @@
+import SelectField from "./SelectField";
 import { useLocation } from "react-router-dom";
+import { ChevronDown } from "../lib/icons";
 import { useEnvironmentScope } from "../lib/environmentScope";
 import "./environment.css";
 
@@ -16,12 +18,11 @@ export default function EnvironmentSelector() {
     location.pathname === "/actions" ||
     location.pathname === "/recovery";
   return (
-    <div className="sidebar-environment">
-      <label htmlFor="global-environment">环境</label>
-      <div className="sidebar-environment-field">
-        <span className="environment-scope-dot" aria-hidden="true" />
-        <select
+    <div className="header-environment">
+      <div className="header-environment-field">
+        <SelectField
           id="global-environment"
+          aria-label="选择全局环境"
           aria-describedby="global-environment-help"
           value={scope.key}
           disabled={scope.loading}
@@ -36,9 +37,10 @@ export default function EnvironmentSelector() {
               {option.label}
             </option>
           ))}
-        </select>
+        </SelectField>
+        <ChevronDown size={12} aria-hidden="true" />
       </div>
-      <small id="global-environment-help">
+      <span className="header-environment-help" id="global-environment-help">
         {scope.loading
           ? "正在加载环境…"
           : fixed
@@ -46,7 +48,7 @@ export default function EnvironmentSelector() {
             : explicit
               ? "当前页面优先使用指定范围"
               : "当前查看范围"}
-      </small>
+      </span>
     </div>
   );
 }

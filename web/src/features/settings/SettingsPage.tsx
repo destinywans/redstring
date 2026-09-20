@@ -1,3 +1,4 @@
+import SelectField from "../../components/SelectField";
 import { useSearchParams } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -310,7 +311,7 @@ export default function SettingsPage() {
                 <div className="settings-model-config">
                   <label>
                     模型
-                    <select
+                    <SelectField
                       className="field"
                       value={currentModel?.id ?? ""}
                       onChange={(e) => setSelectedModel(e.target.value)}
@@ -323,7 +324,7 @@ export default function SettingsPage() {
                           {m.name}
                         </option>
                       ))}
-                    </select>
+                    </SelectField>
                   </label>
                   <p className="settings-inline-note">
                     <Info size={14} />
@@ -368,7 +369,7 @@ export default function SettingsPage() {
                       <summary>应用到调查分支</summary>
                       <label>
                         应用到调查分支
-                        <select
+                        <SelectField
                           className="field"
                           value={branch?.id ?? ""}
                           onChange={(e) => setBranchId(e.target.value)}
@@ -382,7 +383,7 @@ export default function SettingsPage() {
                               </option>
                             ))
                           )}
-                        </select>
+                        </SelectField>
                       </label>
                       <button
                         className="btn btn-primary"

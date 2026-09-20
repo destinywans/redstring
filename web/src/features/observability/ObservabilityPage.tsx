@@ -4,6 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 import { request } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
 import ScopeFilter, { usePageScope } from "../../components/ScopeFilter";
+import { FilterBar, FilterSelect } from "../../components/filters/FilterBar";
 import { ErrorNotice } from "../../components/ui";
 import ObservationResults from "./ObservationResults";
 import TransferDialog from "./TransferDialog";
@@ -232,75 +233,72 @@ export default function ObservabilityPage({ mode }: { mode: Mode }) {
       )}
       <section className="card management-card observation-query">
         <div className="observation-query-controls">
-          {mode === "metrics" && (
-            <label>
-              已登记的指标
-              <select
-                className="field"
-                value={queryId}
-                onChange={(e) => setQueryId(e.target.value)}
-              >
-                <option value="">每个环境的默认指标</option>
-                {queryIds.map((id) => (
-                  <option key={id}>{id}</option>
-                ))}
-              </select>
-            </label>
-          )}
-          <label>
-            时间范围
-            <select
-              className="field"
-              value={range}
-              onChange={(e) => setRange(e.target.value)}
-            >
-              <option value="15">最近 15 分钟</option>
-              <option value="30">最近 30 分钟</option>
-              <option value="60">最近 1 小时</option>
-              <option value="custom">自定义起止</option>
-            </select>
-          </label>
-          {mode === "logs" && (
-            <label>
-              每个环境最多条数
-              <input
-                className="field"
-                type="number"
-                min="1"
-                max="500"
-                value={limit}
-                onChange={(e) =>
-                  setLimit(
-                    Math.max(1, Math.min(500, Number(e.target.value) || 1)),
-                  )
-                }
+          <FilterBar label="观测查询范围">
+            {mode === "metrics" && (
+              <FilterSelect
+                id="observation-metric"
+                label="指标"
+                emptyLabel="每个环境的默认指标"
+                searchable
+                values={queryId ? [queryId] : []}
+                onChange={(values) => setQueryId(values[0] ?? "")}
+                options={queryIds.map((id) => ({ value: id, label: id }))}
               />
-            </label>
-          )}
-          <button
-            className="btn btn-primary"
-            disabled={
-              busy ||
-              preview ||
-              !targets.length ||
-              (mode === "metrics" && registrations.some((r) => r.isPending))
-            }
-            onClick={() => void query()}
-          >
-            {busy ? "正在查询…" : "查询运行数据"}
-          </button>
-          {busy && (
+            )}
+            <FilterSelect
+              id="observation-time-range"
+              label="时间范围"
+              emptyLabel="最近 30 分钟"
+              values={range === "30" ? [] : [range]}
+              onChange={(values) => setRange(values[0] ?? "30")}
+              options={[
+                { value: "15", label: "最近 15 分钟" },
+                { value: "60", label: "最近 1 小时" },
+                { value: "custom", label: "自定义起止" },
+              ]}
+            />
+            {mode === "logs" && (
+              <label>
+                每个环境最多条数
+                <input
+                  className="field"
+                  type="number"
+                  min="1"
+                  max="500"
+                  value={limit}
+                  onChange={(e) =>
+                    setLimit(
+                      Math.max(1, Math.min(500, Number(e.target.value) || 1)),
+                    )
+                  }
+                />
+              </label>
+            )}
             <button
-              className="btn"
-              onClick={() => {
-                generation.current++;
-                controller.current?.abort();
-                setBusy(false);
-              }}
+              className="btn btn-primary"
+              disabled={
+                busy ||
+                preview ||
+                !targets.length ||
+                (mode === "metrics" && registrations.some((r) => r.isPending))
+              }
+              onClick={() => void query()}
             >
-              取消查询
+              {busy ? "正在查询…" : "查询运行数据"}
             </button>
-          )}
+            {busy && (
+              <button
+                className="btn"
+                onClick={() => {
+                  generation.current++;
+                  controller.current?.abort();
+                  setBusy(false);
+                }}
+              >
+                取消查询
+              </button>
+            )}
+          </FilterBar>
         </div>
         {range === "custom" && (
           <div className="observation-custom-range">

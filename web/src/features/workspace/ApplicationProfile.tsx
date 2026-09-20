@@ -23,7 +23,7 @@ const profileFields: {
   },
   {
     key: "lifecycle",
-    label: "生命周期",
+    label: "维护阶段",
     placeholder: "开发中 / 维护中 / 待下线",
   },
   { key: "criticality", label: "业务等级", placeholder: "核心 / 重要 / 普通" },
@@ -216,9 +216,11 @@ function SafeLink({ value }: { value?: string }) {
 export function ApplicationDetails({
   application,
   environment,
+  hideEnvironment = false,
 }: {
   application: Application;
   environment?: Environment;
+  hideEnvironment?: boolean;
 }) {
   return (
     <section className="catalog-details card">
@@ -280,25 +282,29 @@ export function ApplicationDetails({
           </dd>
         </div>
       </dl>
-      <h3>{environment?.name || "环境"} · 配置资料</h3>
-      <p className="management-notice">
-        登记值不代表实时状态，修改不会下发外部系统。实际状态请结合指标与取证查看。
-      </p>
-      {environment ? (
-        <dl className="catalog-info-grid">
-          {configFields.map(({ key, label, unit }) => (
-            <div key={key}>
-              <dt>{label}</dt>
-              <dd>
-                {environment.configuration?.[key] == null
-                  ? "未登记"
-                  : `${environment.configuration[key]} ${unit}`}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      ) : (
-        <p className="muted">选择环境后查看配置。</p>
+      {!hideEnvironment && (
+        <>
+          <h3>{environment?.name || "环境"} · 配置资料</h3>
+          <p className="management-notice">
+            登记值不代表实时状态，修改不会下发外部系统。实际状态请结合指标与取证查看。
+          </p>
+          {environment ? (
+            <dl className="catalog-info-grid">
+              {configFields.map(({ key, label, unit }) => (
+                <div key={key}>
+                  <dt>{label}</dt>
+                  <dd>
+                    {environment.configuration?.[key] == null
+                      ? "未登记"
+                      : `${environment.configuration[key]} ${unit}`}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <p className="muted">选择环境后查看配置。</p>
+          )}
+        </>
       )}
     </section>
   );

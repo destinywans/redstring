@@ -1,3 +1,4 @@
+import SelectField from "../../components/SelectField";
 import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -11,7 +12,6 @@ import {
   Info,
   MessageSquare,
   Search,
-  Send,
 } from "../../lib/icons";
 import { ApiError, post, request } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
@@ -20,6 +20,7 @@ import { ErrorNotice, Modal } from "../../components/ui";
 import type { Investigation, Items } from "../../lib/types";
 import { type Dashboard, type Todo, statusName, timeLabel } from "./operations";
 import HomeDrawer, { type HomeItem } from "./homeDrawer";
+import HomeComposer, { type HomeComposerHandle } from "./HomeComposer";
 import "./home.css";
 
 const empty: Dashboard = {
@@ -71,8 +72,16 @@ export default function DashboardPage() {
   const [drawer, setDrawer] = useState<DrawerKind | null>(null);
   const [pinned, setPinned] = useState(false);
   const [drawerKind, setDrawerKind] = useState<DrawerKind>("sessions");
-  const composer = useRef<HTMLTextAreaElement>(null);
-  const pendingMessage = useRef<{ content: string; id: string } | null>(null);
+  const composer = useRef<HomeComposerHandle>(null);
+  const sending = useRef(false);
+  const pendingMessage = useRef<{
+    content: string;
+    modelId: string;
+    id: string;
+    title: string;
+    applicationId: string;
+    environmentId: string;
+  } | null>(null);
   const q = useQuery({
     queryKey: ["dashboard", preview, scope.query],
     queryFn: () => request<Dashboard>(`/dashboard?${scope.query}`),
@@ -219,8 +228,18 @@ export default function DashboardPage() {
     composer.current?.focus();
   };
   const begin = async () => {
-    if (!draft.trim() || busy || readOnly || creationUncertain) return;
-    if (!effectiveModel) {
+    if (
+      !draft.trim() ||
+      busy ||
+      sending.current ||
+      readOnly ||
+      creationUncertain
+    )
+      return;
+    if (
+      !created &&
+      !availableModels.some((model) => model.id === effectiveModel)
+    ) {
       setSendError("请先在集成中心配置可用的模型服务。");
       return;
     }
@@ -228,21 +247,39 @@ export default function DashboardPage() {
       setConfirmScope(true);
       return;
     }
+    sending.current = true;
     setBusy(true);
     setSendError("");
     let investigation = created;
     try {
+      // Freeze the entire first-message payload before creating the session.
+      // An uncertain send retries the identical content, model and request ID.
+      if (!pendingMessage.current) {
+        if (!selectedTarget || !composer.current)
+          throw new Error("请确认本次工作的应用与环境。");
+        const content = await composer.current.prepareContent();
+        pendingMessage.current = {
+          content,
+          modelId: effectiveModel,
+          id: crypto.randomUUID(),
+          title: draft.trim().slice(0, 100),
+          applicationId: selectedTarget.app.id,
+          environmentId: selectedTarget.env.id,
+        };
+      }
+      const payload = pendingMessage.current;
       if (!investigation && selectedTarget) {
         try {
           investigation = await post<Investigation>("/investigations", {
-            application_id: selectedTarget.app.id,
-            environment_id: selectedTarget.env.id,
-            title: draft.trim().slice(0, 100),
+            application_id: payload.applicationId,
+            environment_id: payload.environmentId,
+            title: payload.title,
           });
           setCreated(investigation);
         } catch (error) {
           if (!(error instanceof ApiError) || error.status >= 500)
             setCreationUncertain(true);
+          else pendingMessage.current = null;
           throw error;
         }
       }
@@ -252,13 +289,10 @@ export default function DashboardPage() {
         throw new Error(
           "会话已建立，但未返回主分支。请打开该会话继续，输入内容仍为你保留。",
         );
-      const content = draft.trim();
-      if (!pendingMessage.current || pendingMessage.current.content !== content)
-        pendingMessage.current = { content, id: crypto.randomUUID() };
       await post(`/branches/${root.id}/messages`, {
-        content,
-        model_id: effectiveModel,
-        client_request_id: pendingMessage.current.id,
+        content: payload.content,
+        model_id: payload.modelId,
+        client_request_id: payload.id,
       });
       workspace.setScope(
         investigation.application_id,
@@ -271,6 +305,7 @@ export default function DashboardPage() {
     } catch (error) {
       setSendError(errorMessage(error));
     } finally {
+      sending.current = false;
       setBusy(false);
     }
   };
@@ -288,89 +323,41 @@ export default function DashboardPage() {
           <h1 id="home-title">今天想完成什么？</h1>
           <p>从一个问题开始，让 Agent 连接数据、整理证据、推进工作。</p>
         </header>
-        <form
-          className="home-composer"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void begin();
+        <HomeComposer
+          ref={composer}
+          draft={draft}
+          onDraft={setDraft}
+          applicationId={applicationId}
+          onApplication={(id) => {
+            setApplicationId(id);
+            setEnvironmentId("");
           }}
-        >
-          <textarea
-            ref={composer}
-            aria-label="描述你的工作"
-            value={draft}
-            disabled={busy || creationUncertain || !!created}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="描述问题、查询指标，或安排一项运维任务…"
-            onKeyDown={(event) => {
-              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                event.preventDefault();
-                void begin();
-              }
-            }}
-          />
-          <div className="home-composer-toolbar">
-            <div className="home-composer-options">
-              <select
-                aria-label="会话应用范围"
-                value={applicationId}
-                disabled={busy || !!created}
-                onChange={(event) => {
-                  setApplicationId(event.target.value);
-                  setEnvironmentId("");
-                }}
-              >
-                <option value="">全部授权应用</option>
-                {applicationId && !selectedApp && (
-                  <option value={applicationId} disabled>
-                    {appName(applicationId)} · 当前范围不可用
-                  </option>
-                )}
-                {eligibleApps.map((app) => (
-                  <option key={app.id} value={app.id}>
-                    {app.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label="会话模型"
-                value={modelId}
-                disabled={busy || !!created}
-                onChange={(event) => setModelId(event.target.value)}
-              >
-                <option value="">
-                  {availableModels.length ? "默认模型" : "暂无可用模型"}
-                </option>
-                {availableModels.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button
-              className="home-start-button"
-              type="submit"
-              disabled={
-                busy ||
-                readOnly ||
-                scope.empty ||
-                !draft.trim() ||
-                creationUncertain
-              }
-            >
-              {busy ? "正在开启…" : created ? "重试发送" : "开始工作"}
-              <Send size={19} />
-            </button>
-          </div>
-        </form>
+          targetApplicationId={selectedTarget?.app.id || selectedApp?.id || ""}
+          environmentId={selectedTarget?.env.id || ""}
+          applications={eligibleApps}
+          models={availableModels}
+          modelId={modelId}
+          onModel={setModelId}
+          disabled={busy || readOnly || creationUncertain || !!created}
+          sendDisabled={
+            busy ||
+            readOnly ||
+            scope.empty ||
+            !draft.trim() ||
+            creationUncertain
+          }
+          busy={busy}
+          retry={!!created}
+          preview={preview}
+          onSend={() => void begin()}
+        />
         <p className="home-composer-hint">
           {readOnly
             ? preview
               ? "设计预览 · 未连接真实数据与模型。"
               : "当前为只读权限，可查看已有会话与资料。"
             : scope.empty
-              ? "当前环境没有可用应用，请先调整左上角的环境范围。"
+              ? "当前环境没有可用应用，请先调整右上角的环境范围。"
               : applicationId && !selectedApp
                 ? "已选应用在当前环境中不可用，请重新选择应用或调整环境。"
                 : "目标不明确时，会先请你确认应用与环境；变更操作仍需明确审批。"}
@@ -592,7 +579,7 @@ export default function DashboardPage() {
         <div className="home-target-fields">
           <label>
             应用
-            <select
+            <SelectField
               value={applicationId}
               disabled={busy || !!created}
               onChange={(event) => {
@@ -611,11 +598,11 @@ export default function DashboardPage() {
                   {app.name}
                 </option>
               ))}
-            </select>
+            </SelectField>
           </label>
           <label>
             环境
-            <select
+            <SelectField
               value={selectedTarget?.env.id || ""}
               disabled={busy || !!created || !selectedApp}
               onChange={(event) => setEnvironmentId(event.target.value)}
@@ -628,7 +615,7 @@ export default function DashboardPage() {
                     {target.env.name}
                   </option>
                 ))}
-            </select>
+            </SelectField>
           </label>
           {sendError && (
             <p role="alert" className="home-send-error">
@@ -640,7 +627,7 @@ export default function DashboardPage() {
             disabled={busy || !selectedTarget || creationUncertain}
             onClick={() => void begin()}
           >
-            {busy ? "正在开启…" : "确认并开始工作"}
+            {busy ? "正在开启…" : "确认并发送"}
           </button>
         </div>
       </Modal>

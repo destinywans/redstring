@@ -208,8 +208,8 @@ button.infra-summary {
   color: var(--muted);
   font-size: 12px;
 }
-.infra-catalog header .field {
-  max-width: 300px;
+.infra-catalog > .filter-bar {
+  margin: 16px 0;
 }
 @media (max-width: 850px) {
   .infra-page {

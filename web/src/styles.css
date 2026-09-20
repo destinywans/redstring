@@ -21,11 +21,11 @@
   --warning: #98620d;
   --shadow: 0 2px 4px #25385804, 0 8px 26px #24395a05;
   --radius: 10px;
-  --font-size: 13px;
+  --font-size: 14px;
   --theme-duration: 850ms;
   --theme-easing: cubic-bezier(0.4, 0, 0.2, 1);
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: 14px;
+  line-height: 1.5;
   color-scheme: light;
   -webkit-font-smoothing: antialiased;
 }
@@ -86,7 +86,7 @@ p {
   margin: 0;
 }
 h1 {
-  font-size: 26px;
+  font-size: 24px;
   line-height: 1.35;
   font-weight: 600;
   letter-spacing: -0.6px;
@@ -94,11 +94,11 @@ h1 {
 h2 {
   font-size: 14px;
   line-height: 1.5;
-  font-weight: 650;
+  font-weight: 600;
 }
 h3 {
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 600;
 }
 p {
   line-height: 1.75;
@@ -163,7 +163,7 @@ textarea::placeholder {
   gap: 11px;
   color: var(--text);
   font-size: 23px;
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: -0.7px;
   white-space: nowrap;
 }

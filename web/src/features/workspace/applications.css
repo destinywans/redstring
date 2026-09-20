@@ -1,0 +1,277 @@
+.management-page.applications-page {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 28px 28px 40px;
+}
+.applications-page .filter-bar {
+  gap: 8px;
+}
+.applications-page .filter-search {
+  flex: 1 1 300px;
+}
+.application-filter-summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 8px 0;
+}
+.application-filter-summary > span {
+  margin-right: 4px;
+}
+.application-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+}
+.application-filter-chip:hover {
+  border-color: var(--accent);
+}
+.application-list-table {
+  min-width: 720px;
+}
+.application-list-table th,
+.application-list-table td {
+  padding: 16px 18px;
+  vertical-align: middle;
+}
+.application-list-table th {
+  height: 46px;
+  background: var(--panel-soft);
+}
+.application-list-table th:first-child {
+  width: 44%;
+}
+.application-list-table td:first-child {
+  max-width: 480px;
+}
+.application-list-table td:nth-child(2),
+.application-list-table td:nth-child(3) {
+  min-width: 125px;
+}
+.application-list-table td:last-child {
+  width: 52px;
+}
+.application-list-table tbody tr:hover {
+  background: var(--panel-soft);
+}
+.application-name-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  background: none;
+  border: 0;
+  color: var(--text);
+  padding: 0;
+  max-width: 100%;
+}
+.application-name-link:hover strong {
+  color: var(--accent);
+}
+.application-name-link strong {
+  font-size: 14px;
+  font-weight: 550;
+}
+.application-name-link small {
+  font-size: 12px;
+  margin-top: 4px;
+}
+.application-symbol {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 10px;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+.application-list-table .application-description {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  max-width: 420px;
+  margin: 8px 0 0 50px;
+}
+.application-archived {
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.applications-page .management-empty {
+  padding: 44px 24px;
+}
+.applications-page .management-empty > svg {
+  margin: 0 auto 12px;
+  color: var(--muted);
+}
+.applications-page .management-empty h2 {
+  font-size: 16px;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.applications-page .management-empty .btn {
+  margin-top: 14px;
+}
+.application-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgb(8 12 20 / 25%);
+  z-index: 110;
+  animation: application-overlay-in 160ms ease-out;
+}
+.application-drawer {
+  position: fixed;
+  inset: 12px 12px 12px auto;
+  width: min(780px, calc(100vw - 24px));
+  z-index: 111;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: -12px 0 48px rgb(0 0 0 / 16%);
+  animation: application-drawer-in 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.application-drawer[data-state="closed"] {
+  animation: application-drawer-out 180ms ease-in;
+}
+.application-drawer-overlay[data-state="closed"] {
+  animation: application-overlay-out 180ms ease-in;
+}
+.application-drawer-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.application-drawer-header h2 {
+  margin: 0;
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.application-drawer-body {
+  padding: 20px 24px 28px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  flex: 1;
+  min-height: 0;
+}
+.application-drawer .management-form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.application-drawer .catalog-info-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.application-drawer .management-tabs {
+  display: flex;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+.application-drawer .management-tabs button {
+  flex-shrink: 0;
+}
+.application-drawer .field {
+  padding: 10px 12px;
+}
+.application-drawer select.field {
+  padding-right: 32px;
+}
+.application-drawer .management-row {
+  flex-wrap: wrap;
+}
+.application-drawer .management-form footer {
+  position: sticky;
+  bottom: -28px;
+  padding: 16px 0;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  z-index: 1;
+}
+.application-detail-summary {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  margin: 20px 0;
+}
+.application-detail-summary p {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+@keyframes application-drawer-in {
+  from {
+    transform: translateX(32px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+@keyframes application-drawer-out {
+  to {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+@keyframes application-overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes application-overlay-out {
+  to {
+    opacity: 0;
+  }
+}
+@media (max-width: 700px) {
+  .management-page.applications-page {
+    padding: 20px 16px 32px;
+  }
+  .applications-page .management-heading {
+    align-items: flex-start;
+  }
+  .application-drawer {
+    inset: 6px;
+    width: auto;
+    border-radius: 10px;
+  }
+  .application-drawer-header {
+    padding: 16px;
+  }
+  .application-drawer-body {
+    padding: 16px;
+  }
+  .application-drawer .management-form-grid,
+  .application-drawer .catalog-info-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .application-drawer,
+  .application-drawer-overlay {
+    animation: none !important;
+  }
+}

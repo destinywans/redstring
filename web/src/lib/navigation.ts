@@ -1,5 +1,6 @@
 import {
   Home,
+  GitBranch,
   Box,
   Server,
   Activity,
@@ -46,7 +47,17 @@ export const navigation: NavigationSection[] = [
     id: "applications",
     label: "应用中心",
     icon: Box,
-    children: [{ to: "/applications", label: "全部应用" }],
+    children: [
+      { to: "/applications", label: "全部应用" },
+      { to: "/applications?view=mine", label: "我负责的应用" },
+    ],
+  },
+  {
+    id: "delivery",
+    label: "交付中心",
+    icon: GitBranch,
+    direct: true,
+    children: [{ to: "/delivery", label: "交付中心" }],
   },
   {
     id: "infrastructure",
@@ -137,13 +148,20 @@ export function isNavigationCurrent(
     target.pathname === "/applications" &&
     pathname.startsWith("/applications/")
   )
-    return true;
+    return !target.searchParams.has("view");
+  if (target.pathname === "/applications" && pathname === "/applications") {
+    const requested =
+      new URLSearchParams(search).get("view") === "mine" ? "mine" : "all";
+    return (target.searchParams.get("view") ?? "all") === requested;
+  }
   if (
     target.pathname === "/investigations" &&
     (pathname.startsWith("/investigations/") ||
       pathname === "/actions" ||
       pathname === "/recovery")
   )
+    return true;
+  if (target.pathname === "/delivery" && pathname.startsWith("/delivery/"))
     return true;
   if (target.pathname !== pathname) return false;
   const params = new URLSearchParams(search);

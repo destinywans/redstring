@@ -1,3 +1,4 @@
+import SelectField from "../../components/SelectField";
 import ScopeFilter from "../../components/ScopeFilter";
 import ContextInspector from "./ContextInspector";
 import EvidenceTelemetry from "./EvidenceTelemetry";
@@ -1355,7 +1356,7 @@ function InvestigationWorkspace() {
           </p>
         </div>
         <div className="inv-header-actions">
-          <select
+          <SelectField
             aria-label="选择会话"
             value={id || ""}
             onChange={(e) => {
@@ -1380,7 +1381,7 @@ function InvestigationWorkspace() {
                   </option>
                 ))
             )}
-          </select>
+          </SelectField>
           <button
             className="btn"
             disabled={readOnly || preview || !application || !environment}
@@ -1851,7 +1852,7 @@ function InvestigationWorkspace() {
                           }}
                         />
                         <div>
-                          <select
+                          <SelectField
                             aria-label="下一轮使用的模型"
                             value={
                               branch.model_id ||
@@ -1878,7 +1879,7 @@ function InvestigationWorkspace() {
                                 {m.name || m.id}
                               </option>
                             ))}
-                          </select>
+                          </SelectField>
                           <button
                             className="icon-button"
                             type="submit"
@@ -2416,7 +2417,7 @@ function InvestigationWorkspace() {
                 <div className="inv-merge-selectors">
                   <label>
                     来源调查（子调查）
-                    <select
+                    <SelectField
                       className="field"
                       value={mergeSource}
                       onChange={(e) => {
@@ -2429,12 +2430,12 @@ function InvestigationWorkspace() {
                           {b.title} · v{b.revision}
                         </option>
                       ))}
-                    </select>
+                    </SelectField>
                   </label>
                   <ArrowRight size={24} />
                   <label>
                     目标调查
-                    <select
+                    <SelectField
                       className="field"
                       value={mergeTarget}
                       onChange={(e) => {
@@ -2450,7 +2451,7 @@ function InvestigationWorkspace() {
                             {b.title} · v{b.revision}
                           </option>
                         ))}
-                    </select>
+                    </SelectField>
                   </label>
                 </div>
                 {!mergePreview ? (

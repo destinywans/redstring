@@ -8,6 +8,7 @@ export function useWorkspaceSelection(
   _ready: boolean,
   preview: boolean,
   fixedScope?: { applicationId: string; environmentId: string },
+  globalEnvironmentKey = "",
 ) {
   const location = useLocation(),
     navigate = useNavigate();
@@ -21,7 +22,15 @@ export function useWorkspaceSelection(
     application?.environments?.filter(
       (e) => !e.archived || e.id === environmentId,
     ) ?? [];
-  const environment = environments.find((e) => e.id === environmentId) ?? null;
+  const scopedEnvironments = globalEnvironmentKey
+    ? environments.filter(e => (e.key || `id:${e.id}`) === globalEnvironmentKey)
+    : environments;
+  // An explicit object target must never change when a viewing scope changes.
+  const environment = fixedScope || environmentId
+    ? environments.find(e => e.id === environmentId) ?? null
+    : globalEnvironmentKey
+      ? scopedEnvironments.length === 1 ? scopedEnvironments[0] : null
+      : environments.find(e => e.id === environmentId) ?? (environments.length === 1 ? environments[0] : null);
   const setScope = useCallback(
     (app: string, env: string) => {
       if (fixedScope) return;

@@ -1,3 +1,4 @@
+import SelectField from "../../components/SelectField";
 import ScopeFilter from "../../components/ScopeFilter";
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
@@ -758,7 +759,7 @@ export default function OverviewPage() {
         )}
         <label>
           时间窗口
-          <select
+          <SelectField
             className="field"
             value={windowMinutes}
             onChange={(e) => setWindowMinutes(Number(e.target.value))}
@@ -767,12 +768,12 @@ export default function OverviewPage() {
             <option value={30}>最近 30 分钟</option>
             <option value={60}>最近 1 小时</option>
             <option value={180}>最近 3 小时</option>
-          </select>
+          </SelectField>
         </label>
         {tool === "metrics" && (
           <label>
             已登记查询
-            <select
+            <SelectField
               className="field"
               value={queryID || telemetry.data?.metric_query_ids[0] || ""}
               onChange={(e) => setQueryID(e.target.value)}
@@ -784,7 +785,7 @@ export default function OverviewPage() {
                   <option key={x}>{x}</option>
                 ))
               )}
-            </select>
+            </SelectField>
           </label>
         )}
         <button
@@ -811,7 +812,7 @@ export default function OverviewPage() {
             <div className="management-form">
               <label>
                 当前应用与环境的调查
-                <select
+                <SelectField
                   className="field"
                   value={pinInvestigation}
                   onChange={(e) => {
@@ -827,11 +828,11 @@ export default function OverviewPage() {
                         {i.title}
                       </option>
                     ))}
-                </select>
+                </SelectField>
               </label>
               <label>
                 证据所属分支
-                <select
+                <SelectField
                   className="field"
                   value={pinBranch}
                   onChange={(e) => setPinBranch(e.target.value)}
@@ -842,7 +843,7 @@ export default function OverviewPage() {
                       {b.title}
                     </option>
                   ))}
-                </select>
+                </SelectField>
               </label>
               {pinDetail.error && <ErrorNotice error={pinDetail.error} />}
               <button

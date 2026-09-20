@@ -1,3 +1,4 @@
+import SelectField from "../../components/SelectField";
 import { useState } from "react";
 import TelemetryResult from "../overview/TelemetryResult";
 import { type QuerySnapshot, type Selection, timeLabel } from "./types";
@@ -165,7 +166,7 @@ export default function ObservationResults({
             </label>
             <label>
               级别
-              <select
+              <SelectField
                 className="field"
                 value={level}
                 onChange={(e) => setLevel(e.target.value)}
@@ -184,7 +185,7 @@ export default function ObservationResults({
                     {value === "unknown" ? "未标明" : value.toUpperCase()}
                   </option>
                 ))}
-              </select>
+              </SelectField>
             </label>
           </div>
           <p className="muted observation-help">

@@ -1,13 +1,14 @@
 import { useSearchParams } from "react-router-dom";
 import { useWorkspace } from "../lib/workspace";
 import { useEnvironmentScope } from "../lib/environmentScope";
+import { FilterBar, FilterSelect } from "./filters/FilterBar";
 import "./scope.css";
 
 const ids = (p: URLSearchParams, many: string, one: string) =>
   [
     ...new Set((p.get(many) ?? p.get(one) ?? "").split(",").filter(Boolean)),
   ].sort();
-export function usePageScope({ globalEnvironmentOnly = false } = {}) {
+export function usePageScope({ globalEnvironmentOnly = true } = {}) {
   const { applications } = useWorkspace();
   const globalEnvironment = useEnvironmentScope();
   const [params, setParams] = useSearchParams();
@@ -15,23 +16,17 @@ export function usePageScope({ globalEnvironmentOnly = false } = {}) {
     params.get("scope") === "all"
       ? []
       : ids(params, "applications", "application");
-  const allPageEnvironments =
-    !globalEnvironmentOnly &&
-    (params.get("scope") === "all" ||
-      params.get("environment_filter") === "all");
-  const explicitEnvironment =
-    !globalEnvironmentOnly &&
-    (allPageEnvironments ||
-      params.has("environments") ||
-      params.has("environment"));
-  const requestedEnvironmentIds = allPageEnvironments
-    ? []
-    : explicitEnvironment
-      ? ids(params, "environments", "environment")
-      : globalEnvironment.environmentIds;
-  const environmentRestricted = explicitEnvironment
-    ? !allPageEnvironments
-    : !!globalEnvironment.key;
+  // List filters have one environment authority: the header. Legacy object
+  // targets are resolved separately by useWorkspaceSelection / fixed sessions.
+  const allPageEnvironments = params.get("scope") === "all" || params.get("environment_filter") === "all";
+  const explicitEnvironment = !allPageEnvironments && (params.has("environments") || params.has("environment"));
+  const legacyEnvironmentIds = ids(params, "environments", "environment");
+  const requestedEnvironmentIds = globalEnvironmentOnly
+    ? globalEnvironment.environmentIds
+    : explicitEnvironment ? legacyEnvironmentIds : allPageEnvironments ? [] : globalEnvironment.environmentIds;
+  const environmentRestricted = globalEnvironmentOnly
+    ? !!globalEnvironment.key
+    : explicitEnvironment || (!allPageEnvironments && !!globalEnvironment.key);
   const environmentIds =
     environmentRestricted && !requestedEnvironmentIds.length
       ? ["__no_authorized_environment__"]
@@ -100,132 +95,56 @@ export function usePageScope({ globalEnvironmentOnly = false } = {}) {
 export default function ScopeFilter({ single = false }: { single?: boolean }) {
   const { applications } = useWorkspace();
   const scope = usePageScope();
-  const [params] = useSearchParams();
   const available = applications.filter((a) => !a.archived);
   if (single) {
     const app = available.find((a) => a.id === scope.applicationIds[0]);
     return (
       <div className="page-scope">
-        <label>
-          应用
-          <select
-            className="field"
-            value={app?.id ?? ""}
-            onChange={(e) =>
-              scope.update(e.target.value ? [e.target.value] : [], [])
-            }
-          >
-            <option value="">选择应用</option>
-            {available.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          环境
-          <select
-            className="field"
-            disabled={!app}
-            value={ids(params, "environments", "environment")[0] ?? ""}
-            onChange={(e) =>
-              scope.update(
-                app ? [app.id] : [],
-                e.target.value ? [e.target.value] : [],
-              )
-            }
-          >
-            <option value="">选择环境</option>
-            {app?.environments
-              ?.filter((e) => !e.archived)
-              .map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.name}
-                </option>
-              ))}
-          </select>
-        </label>
+        <FilterBar label="操作目标">
+          <FilterSelect
+            id="target-application"
+            label="应用"
+            emptyLabel="选择应用"
+            searchable
+            options={available.map((a) => ({ value: a.id, label: a.name }))}
+            values={app ? [app.id] : []}
+            onChange={(values) => scope.update(values, [])}
+          />
+          {app && !scope.targets.some(target => target.app.id === app.id) && (
+            <span className="scope-summary">当前全局环境下没有此应用的资源</span>
+          )}
+        </FilterBar>
       </div>
     );
   }
   return (
-    <div className="page-scope" aria-label="当前页面范围">
-      <details className="scope-menu">
-        <summary>
-          {scope.applicationIds.length
-            ? `已选 ${scope.applicationIds.length} 个应用`
-            : "全部授权应用"}
-        </summary>
-        <div className="scope-options">
-          <button className="btn" onClick={() => scope.update([], [])}>
-            查看全部
-          </button>
-          {available.map((a) => (
-            <label key={a.id}>
-              <input
-                type="checkbox"
-                checked={scope.applicationIds.includes(a.id)}
-                onChange={(e) => {
-                  const next = e.target.checked
-                    ? [...scope.applicationIds, a.id]
-                    : scope.applicationIds.filter((id) => id !== a.id);
-                  scope.update(next, []);
-                }}
-              />
-              {a.name}
-            </label>
-          ))}
-        </div>
-      </details>
-      <details className="scope-menu">
-        <summary>
+    <div className="page-scope">
+      <FilterBar label="当前页面应用范围">
+        <FilterSelect
+          id="scope-applications"
+          label="应用"
+          multiple
+          searchable
+          emptyLabel="全部授权应用"
+          options={available.map((a) => ({ value: a.id, label: a.name }))}
+          values={scope.applicationIds}
+          onChange={(values) => scope.update(values, [])}
+        />
+        <span className="scope-summary" role="status">
           {scope.empty && scope.environmentRestricted
             ? "当前范围无可用环境"
-            : scope.environmentIds.length
-              ? `已选 ${scope.environmentIds.length} 个环境`
-              : scope.environmentRestricted
-                ? scope.globalEnvironmentLabel
-                : "全部环境"}
-        </summary>
-        <div className="scope-options">
+            : `${scope.apps.length} 个应用 · ${scope.targets.length} 个环境`}
+        </span>
+        {scope.applicationIds.length > 0 && (
           <button
-            className="btn"
-            onClick={() => scope.update(scope.applicationIds, [], true)}
+            className="filter-text-button"
+            type="button"
+            onClick={() => scope.update([], [])}
           >
-            查看全部环境
+            清除应用筛选
           </button>
-          {scope.apps.flatMap((app) =>
-            (app.environments ?? [])
-              .filter((e) => !e.archived)
-              .map((env) => (
-                <label key={env.id}>
-                  <input
-                    type="checkbox"
-                    checked={scope.environmentIds.includes(env.id)}
-                    onChange={(e) =>
-                      scope.update(
-                        scope.applicationIds,
-                        e.target.checked
-                          ? [...scope.environmentIds, env.id]
-                          : scope.environmentIds.filter((id) => id !== env.id),
-                      )
-                    }
-                  />
-                  {app.name} · {env.name}
-                </label>
-              )),
-          )}
-        </div>
-      </details>
-      <span className="muted">
-        {scope.apps.length} 个应用 · {scope.targets.length} 个环境
-      </span>
-      {(scope.applicationIds.length > 0 || scope.environmentIds.length > 0) && (
-        <button className="btn btn-ghost" onClick={() => scope.update([], [])}>
-          清除范围
-        </button>
-      )}
+        )}
+      </FilterBar>
     </div>
   );
 }

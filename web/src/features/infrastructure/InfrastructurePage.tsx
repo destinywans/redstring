@@ -12,6 +12,7 @@ import {
 } from "../../lib/icons";
 import { request } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
+import { FilterBar, FilterSearch } from "../../components/filters/FilterBar";
 import { ErrorNotice } from "../../components/ui";
 import "./infrastructure.css";
 import ScopeFilter, { usePageScope } from "../../components/ScopeFilter";
@@ -80,6 +81,7 @@ export default function InfrastructurePage() {
     ? requested
     : "summary";
   const [search, setSearch] = useState("");
+  const [searchDraft, setSearchDraft] = useState("");
   const scope = usePageScope();
   const inventory = scope.apps.flatMap((app) =>
     (app.environments ?? [])
@@ -98,7 +100,11 @@ export default function InfrastructurePage() {
   const selectedBinding = environment?.bindings?.find(
     (binding) => binding.kind === "kubernetes",
   );
+  const selectedInScope = scope.targets.some(
+    ({ app, env }) => app.id === application?.id && env.id === environment?.id,
+  );
   const readable =
+    selectedInScope &&
     !preview &&
     !!application &&
     !application.archived &&
@@ -181,7 +187,7 @@ export default function InfrastructurePage() {
       )}
       {view === "summary" || view === "workloads" ? (
         <>
-          {application && environment ? (
+          {application && environment && selectedInScope ? (
             <section className="card infra-snapshot">
               <header>
                 <div>
@@ -352,14 +358,16 @@ export default function InfrastructurePage() {
                 <h2>已登记的 Kubernetes 资源范围</h2>
                 <p>选择一个环境读取它绑定的 Deployment；不扫描未登记资源。</p>
               </div>
-              <input
-                className="field"
-                aria-label="搜索登记资源"
-                placeholder="搜索应用或环境…"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
             </header>
+            <FilterBar label="登记资源筛选">
+              <FilterSearch
+                label="搜索登记资源"
+                placeholder="搜索应用或环境…"
+                value={searchDraft}
+                onChange={setSearchDraft}
+                onSubmit={() => setSearch(searchDraft)}
+              />
+            </FilterBar>
             <div className="infra-table-scroll">
               <table className="infra-table">
                 <thead>

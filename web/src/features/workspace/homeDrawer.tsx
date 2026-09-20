@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Link } from "react-router-dom";
-import { ArrowRight, Pin, Search, X } from "../../lib/icons";
+import { ArrowRight, Pin, X } from "../../lib/icons";
+import {
+  FilterBar,
+  FilterSearch,
+  FilterSelect,
+} from "../../components/filters/FilterBar";
 import { timeLabel } from "./operations";
 
 export type HomeItem = {
@@ -47,7 +52,7 @@ export default function HomeDrawer({
     }
   }, [open, title]);
   const previousFocus = useRef<HTMLElement | null>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
+  const searchRef = useRef<HTMLDivElement>(null);
   const statuses = Array.from(
     new Map(items.map((item) => [item.status, item.statusLabel])).entries(),
   );
@@ -84,7 +89,9 @@ export default function HomeDrawer({
               !document.activeElement.closest(".home-drawer")
             )
               previousFocus.current = document.activeElement as HTMLElement;
-            searchRef.current?.focus();
+            searchRef.current
+              ?.querySelector<HTMLInputElement>('input[type="search"]')
+              ?.focus();
           }}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
@@ -115,39 +122,43 @@ export default function HomeDrawer({
           <Dialog.Description className="home-drawer-description">
             {description}
           </Dialog.Description>
-          <div className="home-drawer-filters">
-            <label className="home-drawer-search">
-              <Search size={20} />
-              <input
-                ref={searchRef}
+          <div className="home-drawer-filters" ref={searchRef}>
+            <FilterBar label="侧边卡片搜索与筛选">
+              <FilterSearch
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={setSearch}
+                onSubmit={() => setSearch(search.trim())}
                 placeholder="搜索标题、应用或资源"
-                aria-label="搜索侧边卡片"
+                label="搜索侧边卡片"
               />
-            </label>
-            <div className="home-drawer-selects">
-              <select
-                value={status}
-                onChange={(event) => setStatus(event.target.value)}
-                aria-label="卡片状态筛选"
-              >
-                <option value="">全部状态</option>
-                {statuses.map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={order}
-                onChange={(event) => setOrder(event.target.value)}
-                aria-label="卡片排序"
-              >
-                <option value="newest">最近更新</option>
-                <option value="oldest">最早更新</option>
-              </select>
-            </div>
+              <FilterSelect
+                id="home-drawer-status"
+                label="状态"
+                options={statuses.map(([value, label]) => ({ value, label }))}
+                values={status ? [status] : []}
+                onChange={(values) => setStatus(values[0] ?? "")}
+              />
+              <FilterSelect
+                id="home-drawer-sort"
+                label="排序"
+                options={[{ value: "oldest", label: "最早更新" }]}
+                emptyLabel="最近更新"
+                values={order === "newest" ? [] : [order]}
+                onChange={(values) => setOrder(values[0] ?? "newest")}
+              />
+              {(search || status || order !== "newest") && (
+                <button
+                  className="filter-button"
+                  onClick={() => {
+                    setSearch("");
+                    setStatus("");
+                    setOrder("newest");
+                  }}
+                >
+                  清除筛选
+                </button>
+              )}
+            </FilterBar>
           </div>
           <div className="home-drawer-scroll">
             {visible.length ? (

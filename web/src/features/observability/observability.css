@@ -31,21 +31,21 @@
   margin-bottom: 18px;
 }
 .observation-query-controls {
-  display: flex;
-  gap: 12px;
-  align-items: end;
-  flex-wrap: wrap;
+  min-width: 0;
 }
-.observation-query-controls label:first-child {
-  flex: 1;
-  min-width: 220px;
+.observation-query-controls .filter-bar {
+  align-items: end;
+}
+.observation-query-controls input[type="number"] {
+  width: 140px;
+  min-height: 36px;
 }
 .observation-query-controls label,
 .observation-custom-range label,
 .observation-log-filters label {
   display: grid;
   gap: 6px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .observation-readonly {
@@ -223,8 +223,8 @@
   }
 }
 @media (max-width: 600px) {
-  .observation-query-controls > label,
-  .observation-query-controls > button {
+  .observation-query-controls .filter-bar > label,
+  .observation-query-controls .filter-bar > .btn {
     width: 100%;
   }
   .observation-custom-range,

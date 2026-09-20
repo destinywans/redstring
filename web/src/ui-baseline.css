@@ -1,0 +1,162 @@
+/* Product-wide reading and control scale. Page layouts may vary; these do not. */
+:root {
+  --type-page: 24px;
+  --type-section: 16px;
+  --type-body: 14px;
+  --type-meta: 12px;
+  --control-height: 36px;
+  --control-radius: 8px;
+  --space-page: 28px;
+}
+body {
+  font-size: var(--type-body);
+}
+.app-shell .page-heading h1,
+.app-shell .management-page h1,
+.app-shell .extensions-page h1,
+.app-shell .memory-page h1,
+.app-shell .members-page h1 {
+  font-size: var(--type-page);
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.4px;
+}
+.app-shell .page-heading {
+  margin-bottom: 24px;
+}
+.app-shell .page-heading p,
+.app-shell .management-header p {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.app-shell h2,
+.app-shell h3,
+.dialog-content h2 {
+  font-weight: 600;
+}
+.app-shell .card h2,
+.app-shell .management-card h2 {
+  font-size: var(--type-section);
+}
+.app-shell .btn,
+.dialog-content .btn {
+  min-height: var(--control-height);
+  border-radius: var(--control-radius);
+  font-size: var(--type-body);
+  line-height: 20px;
+  padding: 7px 12px;
+  font-weight: 500;
+}
+.app-shell .btn-small {
+  min-height: 30px;
+  font-size: var(--type-meta);
+  padding: 4px 9px;
+}
+.app-shell .btn > svg,
+.dialog-content .btn > svg {
+  width: 16px;
+  height: 16px;
+}
+.app-shell .icon-button > svg {
+  width: 18px;
+  height: 18px;
+}
+.app-shell input.field,
+.dialog-content input.field {
+  min-height: var(--control-height);
+  padding: 7px 12px;
+  border-radius: var(--control-radius);
+  font-size: var(--type-body);
+  line-height: 20px;
+}
+.app-shell textarea.field,
+.dialog-content textarea.field {
+  padding: 10px 12px;
+  border-radius: var(--control-radius);
+  font-size: var(--type-body);
+  line-height: 1.65;
+}
+.app-shell input[type="checkbox"],
+.app-shell input[type="radio"],
+.dialog-content input[type="checkbox"],
+.dialog-content input[type="radio"] {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.app-shell table {
+  font-size: var(--type-body);
+  line-height: 1.5;
+}
+.app-shell th {
+  font-size: var(--type-meta);
+  font-weight: 500;
+  color: var(--muted);
+}
+.app-shell .badge {
+  font-size: var(--type-meta);
+  font-weight: 500;
+}
+.app-shell .management-page,
+.app-shell .members-page,
+.app-shell .settings-page,
+.app-shell .extensions-page,
+.app-shell .memory-page {
+  width: 100%;
+  max-width: none;
+  margin-inline: 0;
+  padding: var(--space-page);
+}
+.app-shell .management-page .management-page {
+  padding: 0;
+}
+.app-shell :is(.management-header, .page-heading, .workspace-heading) {
+  min-width: 0;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.app-shell :is(.management-header, .page-heading) > div {
+  min-width: 0;
+}
+.app-shell .muted {
+  line-height: 1.6;
+}
+.app-shell .sidebar-nav .nav-child {
+  line-height: 1.45;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+}
+.app-shell .sidebar-nav .nav-child[hidden] {
+  display: none;
+}
+.header-environment .select-field {
+  width: auto;
+}
+.header-environment .select-field-trigger {
+  border: 0;
+  background: transparent;
+  min-height: 34px;
+  padding: 5px 8px;
+  color: var(--muted);
+  gap: 7px;
+  font-size: 13px;
+}
+.header-environment .select-field-trigger:hover,
+.header-environment .select-field-trigger[data-state="open"] {
+  color: var(--text);
+  background: var(--panel-soft);
+}
+.header-environment-field > svg {
+  display: none;
+}
+@media (max-width: 760px) {
+  :root {
+    --space-page: 16px;
+    --type-page: 22px;
+  }
+  .app-shell .page-heading {
+    margin-bottom: 18px;
+  }
+}

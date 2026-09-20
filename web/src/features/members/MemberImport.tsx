@@ -1,3 +1,4 @@
+import SelectField from "../../components/SelectField";
 import { useState } from "react";
 import { Download, Upload } from "../../lib/icons";
 import { post } from "../../lib/api";
@@ -113,7 +114,7 @@ function ImportForm({ onClose, onImported }: { onClose: () => void; onImported: 
     <div className="members-actions"><button className="btn" onClick={() => downloadTemplate("csv")}><Download size={15} />CSV 模板</button><button className="btn" onClick={() => downloadTemplate("json")}><Download size={15} />JSON 模板</button></div>
     <label>IAM 来源名称<input className="field" value={source} disabled={busy} maxLength={100} placeholder="例如 company-iam" onChange={e => {setSource(e.target.value);resetPreview();}} /></label>
     <p className="muted">同一来源请始终使用相同名称；external_id 是 IAM 中稳定的成员编号。重新导入只更新同来源、同编号的成员资料，不接管已有本地账号。</p>
-    <div className="member-form-grid"><label>文件格式<select className="field" value={format} disabled={busy} onChange={e => {setFormat(e.target.value as "csv" | "json");resetPreview();}}><option value="csv">CSV</option><option value="json">JSON 数组</option></select></label><label>选择文件<input className="field" type="file" accept=".csv,.json,text/csv,application/json" disabled={busy} onChange={async e => {const file = e.target.files?.[0];if (!file) return;resetPreview();try {if (file.size > 2_000_000) throw new Error("文件超过 2 MB，请拆分后导入。");const value = await file.text();setFormat(file.name.toLowerCase().endsWith(".json") ? "json" : "csv");setText(value);} catch (error) {setError(error);}}} /></label></div>
+    <div className="member-form-grid"><label>文件格式<SelectField className="field" value={format} disabled={busy} onChange={e => {setFormat(e.target.value as "csv" | "json");resetPreview();}}><option value="csv">CSV</option><option value="json">JSON 数组</option></SelectField></label><label>选择文件<input className="field" type="file" accept=".csv,.json,text/csv,application/json" disabled={busy} onChange={async e => {const file = e.target.files?.[0];if (!file) return;resetPreview();try {if (file.size > 2_000_000) throw new Error("文件超过 2 MB，请拆分后导入。");const value = await file.text();setFormat(file.name.toLowerCase().endsWith(".json") ? "json" : "csv");setText(value);} catch (error) {setError(error);}}} /></label></div>
     <label>成员数据<textarea className="field member-import-text" rows={7} value={text} disabled={busy} placeholder="选择文件，或直接粘贴 CSV / JSON 内容" onChange={e => {setText(e.target.value);resetPreview();}} /></label>
     <p className="muted">必填：external_id、email、name；可选：department、job_title。每次最多 200 位成员。新账号默认为只读且停用，管理员需设置本地密码后再启用。</p>
     {!!error && <ErrorNotice error={error} />}

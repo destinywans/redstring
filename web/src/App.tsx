@@ -84,6 +84,9 @@ const ExtensionsPage = lazy(
   () => import("./features/aiextensions/ExtensionsPage"),
 );
 const MemoryPage = lazy(() => import("./features/memory/MemoryPage"));
+const DeliveryPausedPage = lazy(
+  () => import("./features/delivery/DeliveryPausedPage"),
+);
 const AlertsPage = lazy(() => import("./features/alerts/AlertsPage"));
 const previewApp: Application = {
   id: "preview-checkout",
@@ -195,6 +198,7 @@ export default function App() {
           environmentId: scopeInvestigation.data.environment_id ?? "",
         }
       : undefined,
+    environmentScope.key,
   );
   function notify(
     message: string,
@@ -404,7 +408,6 @@ export default function App() {
                 <X size={20} />
               </button>
             </div>
-            <EnvironmentSelector />
             <div className="sidebar-scroll">
               <nav className="sidebar-nav" aria-label="主要导航">
                 {sections.map((section) =>
@@ -459,7 +462,7 @@ export default function App() {
                             <NavLink
                               key={item.to}
                               to={routeLink(item.to)}
-                              className={`nav-child ${active ? "active" : ""}`}
+                              className={() => `nav-child ${active ? "active" : ""}`}
                               aria-current={active ? "page" : false}
                               onClick={() => {
                                 if (narrow) {
@@ -516,6 +519,7 @@ export default function App() {
                   </>
                 )}
             </div>
+            <EnvironmentSelector />
             <button
               className="global-search"
               aria-label="搜索工作区"
@@ -617,6 +621,7 @@ export default function App() {
                 />
                 <Route path="/ai-extensions/*" element={<ExtensionsPage />} />
                 <Route path="/memory" element={<MemoryPage />} />
+                <Route path="/delivery/*" element={<DeliveryPausedPage />} />
                 <Route path="/knowledge" element={<KnowledgePage />} />
                 <Route path="/integrations" element={<SettingsPage />} />
                 <Route path="/members" element={<MembersPage />} />

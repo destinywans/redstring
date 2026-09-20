@@ -39,9 +39,6 @@
 .alert-filters {
   margin: 16px 0;
 }
-.alert-filters .field {
-  min-width: 140px;
-}
 .alert-title {
   display: flex;
   align-items: center;
@@ -105,8 +102,5 @@
   }
   .alert-details {
     grid-template-columns: 1fr;
-  }
-  .alert-filters > * {
-    width: 100%;
   }
 }

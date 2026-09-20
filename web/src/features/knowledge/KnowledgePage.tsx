@@ -1,3 +1,4 @@
+import SelectField from "../../components/SelectField";
 import ScopeFilter from "../../components/ScopeFilter";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -12,11 +13,9 @@ import {
   FileText,
   Folder,
   Info,
-  LoaderCircle,
   Plus,
   Quote,
   RefreshCw,
-  Search,
   X,
 } from "../../lib/icons";
 import { request, post } from "../../lib/api";
@@ -30,6 +29,7 @@ import {
   type KnowledgeHit,
   type KnowledgeDraft,
 } from "./fixtures";
+import { FilterBar, FilterSearch } from "../../components/filters/FilterBar";
 import "./knowledge.css";
 import KnowledgeGovernance, {
   TemplateFields,
@@ -176,9 +176,8 @@ export default function KnowledgePage() {
     : [{ name: application?.name ?? "应用知识", items: documents }];
   const error = (e: unknown) =>
     notify(e instanceof Error ? e.message : "操作失败，请稍后重试", "error");
-  async function search(e: FormEvent) {
-    e.preventDefault();
-    if (!query.trim() || !application) return;
+  async function search() {
+    if (searching || !query.trim() || !application) return;
     setSearching(true);
     try {
       const result = preview
@@ -406,15 +405,25 @@ export default function KnowledgePage() {
           </header>
           {!libraryCollapsed && (
             <>
-              <label className="knowledge-search">
-                <Search size={16} />
-                <input
-                  aria-label="搜索文档"
-                  placeholder="搜索文档…"
-                  value={filter}
-                  onChange={(e) => setFilter(e.target.value)}
-                />
-              </label>
+              <div className="knowledge-filter-toolbar">
+                <FilterBar label="Runbook 文档搜索">
+                  <FilterSearch
+                    value={filter}
+                    onChange={setFilter}
+                    onSubmit={() => setFilter(filter.trim())}
+                    label="搜索文档"
+                    placeholder="搜索文档名称"
+                  />
+                  {filter && (
+                    <button
+                      className="filter-button"
+                      onClick={() => setFilter("")}
+                    >
+                      清除
+                    </button>
+                  )}
+                </FilterBar>
+              </div>
               {docs.isLoading && <p className="muted">加载知识库…</p>}
               {docs.isError && (
                 <p className="knowledge-error" role="alert">
@@ -565,26 +574,39 @@ export default function KnowledgePage() {
             </header>
             {!relatedCollapsed && (
               <>
-                <form className="knowledge-search" onSubmit={search}>
-                  <Search size={16} />
-                  <input
-                    aria-label="检索相关经验"
-                    placeholder="描述问题并按 Enter 检索…"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                  />
-                  <button
-                    aria-label="开始检索"
-                    className="icon-button"
-                    disabled={searching || !query.trim()}
-                  >
-                    {searching ? (
-                      <LoaderCircle size={16} className="spin" />
-                    ) : (
-                      <ArrowRight size={16} />
+                <fieldset
+                  className="knowledge-filter-toolbar"
+                  disabled={searching}
+                >
+                  <FilterBar label="检索相关经验">
+                    <FilterSearch
+                      value={query}
+                      onChange={setQuery}
+                      onSubmit={() => void search()}
+                      label="检索相关经验"
+                      placeholder="描述问题并检索"
+                    />
+                    {(query || hits) && (
+                      <button
+                        type="button"
+                        className="filter-button"
+                        onClick={() => {
+                          setQuery("");
+                          setHits(null);
+                          setHitDetail(null);
+                          setRetrievalNotice("");
+                        }}
+                      >
+                        清除
+                      </button>
                     )}
-                  </button>
-                </form>
+                  </FilterBar>
+                </fieldset>
+                {searching && (
+                  <p className="knowledge-search-status" role="status">
+                    正在检索相关经验…
+                  </p>
+                )}
                 {retrievalNotice && (
                   <p className="management-notice">{retrievalNotice}</p>
                 )}
@@ -861,7 +883,7 @@ export default function KnowledgePage() {
           {!preview && investigation.data?.branches && (
             <label className="knowledge-form">
               调查分支
-              <select
+              <SelectField
                 className="field"
                 value={citationBranch || investigation.data.branches[0]?.id}
                 onChange={(e) => setCitationBranch(e.target.value)}
@@ -871,7 +893,7 @@ export default function KnowledgePage() {
                     {b.title}
                   </option>
                 ))}
-              </select>
+              </SelectField>
             </label>
           )}
           <p className="muted">此操作不会启动模型，也不会直接执行 Runbook。</p>

@@ -11,6 +11,11 @@ import {
 import { request, post } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
 import ScopeFilter, { usePageScope } from "../../components/ScopeFilter";
+import {
+  FilterBar,
+  FilterSearch,
+  FilterSelect,
+} from "../../components/filters/FilterBar";
 import { ErrorNotice, Modal } from "../../components/ui";
 import { IncidentEvidence } from "../workspace/AutomationEvidence";
 import {
@@ -59,6 +64,7 @@ export default function AlertsPage({ mode = "incidents" }: { mode?: Mode }) {
   const scope = usePageScope();
   const selectedId = params.get("incident") ?? "";
   const [text, setText] = useState(""),
+    [searchDraft, setSearchDraft] = useState(""),
     [severity, setSeverity] = useState(""),
     [state, setState] = useState("all"),
     [busy, setBusy] = useState("");
@@ -124,6 +130,8 @@ export default function AlertsPage({ mode = "incidents" }: { mode?: Mode }) {
       environment: i.environment_id,
       incident: i.id,
     });
+    if (params.has("environment_scope"))
+      next.set("environment_scope", params.get("environment_scope")!);
     if (preview) next.set("preview", "1");
     return `/observability/${kind}?${next}`;
   }
@@ -331,42 +339,40 @@ export default function AlertsPage({ mode = "incidents" }: { mode?: Mode }) {
               <small>认领不会自动执行恢复</small>
             </section>
           </div>
-          <div className="management-actions alert-filters">
-            <label>
-              <input
-                aria-label="搜索告警或事件"
-                className="field"
-                value={text}
-                onChange={(e) => setText(e.target.value)}
+          <div className="alert-filters">
+            <FilterBar label="告警与事件筛选">
+              <FilterSearch
+                label="搜索告警或事件"
+                value={searchDraft}
+                onChange={setSearchDraft}
+                onSubmit={() => setText(searchDraft)}
                 placeholder="搜索标题、摘要、来源…"
               />
-            </label>
-            <select
-              className="field"
-              aria-label="告警级别"
-              value={severity}
-              onChange={(e) => setSeverity(e.target.value)}
-            >
-              <option value="">全部级别</option>
-              {[...new Set(rows.map((i) => i.severity))].sort().map((s) => (
-                <option value={s} key={s}>
-                  {severityName(s)}
-                </option>
-              ))}
-            </select>
-            <select
-              className="field"
-              aria-label="处理状态"
-              value={state}
-              onChange={(e) => setState(e.target.value)}
-            >
-              <option value="all">全部状态</option>
-              <option value="firing">告警触发中</option>
-              <option value="resolved">告警已恢复</option>
-              <option value="open">事件待处理</option>
-              <option value="investigating">调查中</option>
-              <option value="mine">由我处理</option>
-            </select>
+              <FilterSelect
+                id="alert-severity"
+                label="级别"
+                emptyLabel="全部级别"
+                values={severity ? [severity] : []}
+                onChange={(values) => setSeverity(values[0] ?? "")}
+                options={[...new Set(rows.map((i) => i.severity))]
+                  .sort()
+                  .map((s) => ({ value: s, label: severityName(s) }))}
+              />
+              <FilterSelect
+                id="alert-status"
+                label="状态"
+                emptyLabel="全部状态"
+                values={state === "all" ? [] : [state]}
+                onChange={(values) => setState(values[0] ?? "all")}
+                options={[
+                  { value: "firing", label: "告警触发中" },
+                  { value: "resolved", label: "告警已恢复" },
+                  { value: "open", label: "事件待处理" },
+                  { value: "investigating", label: "调查中" },
+                  { value: "mine", label: "由我处理" },
+                ]}
+              />
+            </FilterBar>
           </div>
           {incidents.error && <ErrorNotice error={incidents.error} />}
           <p className="muted">

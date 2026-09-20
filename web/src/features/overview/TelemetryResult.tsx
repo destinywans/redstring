@@ -1,3 +1,4 @@
+import SelectField from "../../components/SelectField";
 import { useState } from "react";
 import { MetricChart } from "../../components/MetricChart";
 import "../workspace/workspace.css";
@@ -95,7 +96,7 @@ export default function TelemetryResult({
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
             />
-            <select
+            <SelectField
               className="field"
               aria-label="日志级别"
               value={level}
@@ -106,7 +107,7 @@ export default function TelemetryResult({
               <option value="warn">WARN</option>
               <option value="info">INFO</option>
               <option value="debug">DEBUG</option>
-            </select>
+            </SelectField>
           </div>
           <small className="muted">
             当前结果 {entries.length} / {result.entries.length}{" "}

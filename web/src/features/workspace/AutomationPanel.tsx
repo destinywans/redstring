@@ -1,3 +1,4 @@
+import SelectField from "../../components/SelectField";
 import { AutomationResult } from "./AutomationEvidence";
 import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -89,7 +90,7 @@ export default function AutomationPanel({
                 ))}
               <label>
                 后台调查模型
-                <select
+                <SelectField
                   className="field"
                   value={p.model_id}
                   required={p.auto_initial || p.patrol}
@@ -101,7 +102,7 @@ export default function AutomationPanel({
                       {m.name}
                     </option>
                   ))}
-                </select>
+                </SelectField>
               </label>
               <div className="management-form-grid">
                 {[

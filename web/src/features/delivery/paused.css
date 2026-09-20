@@ -1,0 +1,37 @@
+.delivery-paused {
+  display: flex;
+  min-height: min(620px, calc(100dvh - 100px));
+  padding: 64px 24px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  text-align: center;
+}
+.delivery-paused-icon {
+  display: grid;
+  width: 56px;
+  height: 56px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  color: var(--accent);
+  background: var(--panel);
+}
+.delivery-paused-status {
+  color: var(--muted);
+  font-size: 12px;
+}
+.delivery-paused h1 {
+  color: var(--text);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.6px;
+}
+.delivery-paused p {
+  max-width: 400px;
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.8;
+}

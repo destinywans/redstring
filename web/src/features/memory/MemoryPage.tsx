@@ -1,3 +1,4 @@
+import SelectField from "../../components/SelectField";
 import { useState, useEffect, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
@@ -528,7 +529,7 @@ export default function MemoryPage() {
             <>
               <header className="memory-detail-heading">
                 <h2>{d?.title ?? ctx?.title ?? "上下文记录"}</h2>
-                <select
+                <SelectField
                   className="field"
                   aria-label="历史版本"
                   value={
@@ -552,7 +553,7 @@ export default function MemoryPage() {
                       {new Date(v.created_at).toLocaleDateString()}
                     </option>
                   ))}
-                </select>
+                </SelectField>
               </header>
               {history.error && <ErrorNotice error={history.error} />}
               {mode === "documents" ? (

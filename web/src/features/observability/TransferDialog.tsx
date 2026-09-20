@@ -1,3 +1,4 @@
+import SelectField from "../../components/SelectField";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
@@ -259,7 +260,7 @@ export default function TransferDialog({
           ) : (
             <label>
               目标调查
-              <select
+              <SelectField
                 className="field"
                 value={destination}
                 disabled={busy || !!uncertain}
@@ -275,7 +276,7 @@ export default function TransferDialog({
                     {inv.title}
                   </option>
                 ))}
-              </select>
+              </SelectField>
             </label>
           )}
           {destination === "new" ? (
@@ -294,7 +295,7 @@ export default function TransferDialog({
           ) : (
             <label>
               目标分支
-              <select
+              <SelectField
                 className="field"
                 value={selectedBranch}
                 disabled={busy || !!uncertain || !branches.length}
@@ -306,7 +307,7 @@ export default function TransferDialog({
                     {value.title}
                   </option>
                 ))}
-              </select>
+              </SelectField>
             </label>
           )}
           {investigations.error && <ErrorNotice error={investigations.error} />}

@@ -1,3 +1,4 @@
+import SelectField from "../../components/SelectField";
 import { memberLabel } from "../../lib/members";
 import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -47,7 +48,7 @@ export function MetadataFields({ metadata }: { metadata?: KnowledgeMetadata }) {
         <label>
           维护人
           {user.role === "admin" ? (
-            <select
+            <SelectField
               className="field"
               name="maintainer_id"
               required
@@ -61,7 +62,7 @@ export function MetadataFields({ metadata }: { metadata?: KnowledgeMetadata }) {
                     {u.name}
                   </option>
                 ))}
-            </select>
+            </SelectField>
           ) : (
             <input
               name="maintainer_id"
@@ -73,7 +74,7 @@ export function MetadataFields({ metadata }: { metadata?: KnowledgeMetadata }) {
         </label>
         <label>
           所属团队
-          <select
+          <SelectField
             name="team_id"
             className="field"
             defaultValue={metadata?.team_id || application?.owner_team_id || ""}
@@ -90,7 +91,7 @@ export function MetadataFields({ metadata }: { metadata?: KnowledgeMetadata }) {
                   {metadata?.team_id || application?.owner_team_id}
                 </option>
               )}
-          </select>
+          </SelectField>
         </label>
       </div>
       <label>
@@ -127,7 +128,7 @@ export function MetadataFields({ metadata }: { metadata?: KnowledgeMetadata }) {
       </fieldset>
       <label>
         共享范围
-        <select
+        <SelectField
           className="field"
           name="visibility"
           defaultValue={metadata?.visibility || "application"}
@@ -136,7 +137,7 @@ export function MetadataFields({ metadata }: { metadata?: KnowledgeMetadata }) {
           {user.role === "admin" && (
             <option value="workspace">工作区公开（管理员发布）</option>
           )}
-        </select>
+        </SelectField>
       </label>
       <fieldset>
         <legend>明确共享给其他应用</legend>
@@ -196,7 +197,7 @@ export function TemplateFields() {
       {q.error && <ErrorNotice error={q.error} />}
       <label>
         创建方式
-        <select
+        <SelectField
           className="field"
           value={template}
           onChange={(e) => {
@@ -215,7 +216,7 @@ export function TemplateFields() {
                 {t.title}
               </option>
             ))}
-        </select>
+        </SelectField>
       </label>
       <label>
         正文（Markdown）

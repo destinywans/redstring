@@ -1,54 +1,74 @@
-.sidebar-environment {
-  display: grid;
-  gap: 6px;
-  margin: 0 10px 24px;
+.header-environment-help {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.header-environment {
+  flex: 0 1 auto;
   min-width: 0;
+  margin-left: auto;
 }
-.sidebar-environment > label {
-  color: var(--muted);
-  font-size: 12px;
-}
-.sidebar-environment-field {
+.header-environment-field {
   position: relative;
-  min-width: 0;
+  max-width: 180px;
 }
-.sidebar-environment select {
+.header-environment-field select {
   display: block;
-  width: 100%;
+  width: auto;
+  max-width: 180px;
   min-width: 0;
-  height: 36px;
-  padding: 0 26px 0 29px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--panel);
-  color: var(--text);
+  height: 34px;
+  padding: 0 23px 0 8px;
+  appearance: none;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
   text-overflow: ellipsis;
   cursor: pointer;
 }
-.sidebar-environment select:focus-visible {
+.header-environment-field select:hover {
+  color: var(--text);
+  background: var(--panel);
+}
+.header-environment-field select:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-.sidebar-environment select:disabled {
+.header-environment-field select:disabled {
   cursor: wait;
   opacity: 0.65;
 }
-.environment-scope-dot {
+.header-environment-field > svg {
   position: absolute;
-  left: 11px;
-  top: 14px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
+  right: 7px;
+  top: 11px;
+  color: var(--muted);
   pointer-events: none;
 }
-.sidebar-environment > small {
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.5;
+.app-shell > .topbar > .global-search {
+  margin-left: 0;
+}
+@media (max-width: 760px) {
+  .header-environment-field,
+  .header-environment-field select {
+    max-width: 112px;
+  }
+  .header-environment-field select {
+    font-size: 12px;
+  }
+  .app-shell > .topbar .workspace-breadcrumb {
+    flex: 0 1 auto;
+  }
 }
 
 /* Shell typography follows the approved workbench without changing page content. */

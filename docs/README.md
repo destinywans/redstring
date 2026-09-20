@@ -1,0 +1,10 @@
+# 项目文档
+
+需求、取舍和任务状态以 [Linear 项目](https://linear.app/wansss/project/aiops-canvas-3c9fce50a53b) 为主。这里维护随代码版本变化的契约与运行说明。
+
+- [Web 工作区与对接](web-workspace.md)：八个设计场景、开发入口、预览隔离、当前验证边界。
+- [架构](architecture.md)、[API 语义](api-contract.md)、[OpenAPI](../internal/apicontract/openapi.json)。
+- [视觉与交互检查](../design-qa.md)：概念图映射、已检查行为及差异。
+- [历史后端交接](backend-handoff.md)、[演示环境](demo.md)。
+- [实施计划](../PLAN.md)、[可恢复检查点](../CHECKPOINT.md)、[领域术语](../CONTEXT.md)。
+- [原始研究报告](research/)：保留原文；其中的旧建议不覆盖后续已确认决定。

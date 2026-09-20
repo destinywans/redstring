@@ -23,6 +23,8 @@ services:
       AIOPS_ADDR: 0.0.0.0:8080
       AIOPS_ADMIN_EMAIL: ${AIOPS_ADMIN_EMAIL:-admin@localhost}
       AIOPS_ADMIN_PASSWORD: ${AIOPS_ADMIN_PASSWORD:?Run scripts/dev-init.sh first}
+      AIOPS_PUBLIC_ORIGIN: ${AIOPS_PUBLIC_ORIGIN:-}
+      AIOPS_SECURE_COOKIES: ${AIOPS_SECURE_COOKIES:-false}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3.6:latest}
       OLLAMA_BASE_URL: http://host.docker.internal:11434/v1
       EMBEDDING_PROVIDER: ollama

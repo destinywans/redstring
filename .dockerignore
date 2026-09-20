@@ -4,4 +4,8 @@
 bin
 docs/research
 node_modules
+.pnpm-store
+web/node_modules
+web/dist
+web/tsconfig.tsbuildinfo
 .idea

@@ -7,6 +7,8 @@ coverage.out
 *.test
 .DS_Store
 node_modules/
+.pnpm-store/
+*.tsbuildinfo
 dist/
 __pycache__/
 *.pyc

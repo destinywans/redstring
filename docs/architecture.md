@@ -1,10 +1,11 @@
-# 后端实施架构
+# AIOps Canvas 实施架构
 
-状态：2026-09-19 后端源码基线，前端暂缓。用户要求暂不测试，最新代码未编译、未执行新迁移或运行验收；历史证据见 CHECKPOINT.md。
+状态：2026-09-20 Web 工作区与 Go 服务已连接，完成本轮限定构建、契约和浏览器检查。当前完整版本尚未经过真实模型与 Kubernetes 恢复验收；证据边界见 CHECKPOINT.md 和 [Web 交接](web-workspace.md)。本轮用户授权前后端并行，取代此前前端暂停决定，仍不开展大面积测试。
 
 ```mermaid
 flowchart LR
-  Client[未来 Web / API 客户端] -->|REST + durable SSE| API[Go HTTP API]
+  Client[React / Vite Web 工作区] -->|REST + durable SSE| API[Go HTTP API]
+  API --> Static[Go 同源静态资源与 SPA 路由]
   API --> Identity[身份与服务端权限]
   API --> Context[调查 / 分支 / 上下文]
   API --> Knowledge[Runbook / 检索]
@@ -31,7 +32,15 @@ flowchart LR
 
 API 统一前缀 `/api/v1`，JSON snake_case；OpenAPI 与示例随代码版本维护。节点对话和侧边栏对话读取同一 Branch；换模型只影响下一轮。前端只将持久事件当正式历史，断线按序号补读并去重。卡片隐藏不发取消请求。
 
-业务内容多人共享；布局、草稿按当前用户隔离。暂不加入实时协同拖拽。前端模块以后通过公共 API 与类型接入，不读取 PG、ADK 对象或进程内状态。
+业务内容多人共享；布局、草稿按当前用户隔离。暂不加入实时协同拖拽。前端模块通过公共 API 与类型接入，不读取 PG、ADK 对象或进程内状态。
+
+## Web 模块与状态
+
+`web/src/features` 按应用概览、调查、知识、设置、动作分组；路由懒加载。共享 API 请求、错误处理、工作区选择与基础组件位于 `lib`、`components`。React Flow 管理可拖动节点与连线，assistant-ui 外部状态接口展示分支对话，TanStack Query 缓存后端资源，Zustand 传递待发送草稿和 Runbook 引用。节点与侧栏读取同一分支/草稿；布局请求按用户保存并串行提交，卡片状态与推理生命周期分离。
+
+开发时 Vite 代理 API/SSE 到 Go；部署时 Go 从 `AIOPS_WEB_DIR` 提供构建资源。API、缺失资源与 SPA fallback 分开处理，静态文件边界由 `os.Root` 约束。配置清单仅返回脱敏状态；模型、集群、遥测地址和凭据仍由服务端管理。
+
+`?preview=1` 是明确标记的视觉预览入口，数据来自独立 fixtures，不向后端提交模型、审批或执行请求。正式会话通过 Cookie 认证，401 失效时回到登录；前端隐藏按钮不替代后端权限检查。
 
 ## 首发部署
 
@@ -62,4 +71,4 @@ API 统一前缀 `/api/v1`，JSON snake_case；OpenAPI 与示例随代码版本�
 
 结案与新推理、新执行入队在调查行锁下协调。结案要求同调查最新动作成功，且无活跃 Run 或 Execution；报告保存提案、批准、恢复结果及证据快照。关闭后的调查拒绝新增上下文和动作，已有幂等请求仍返回原资源。经验先保存为不参与检索的草稿，经操作员在结案后确认，产生唯一知识源；索引失败保留原文供重建。
 
-以上为最新源码设计，尚未进行并发或运行验证。对接入口和明确未完成事项见 [后端交接](backend-handoff.md)。
+以上为最新源码设计。当前仅进行了改动范围内验证，没有完成并发故障、全模型协议或真实恢复矩阵。历史后端边界见 [后端交接](backend-handoff.md)，本轮界面与接口交接见 [Web 工作区](web-workspace.md)。

@@ -1,0 +1,615 @@
+.settings-page {
+  max-width: 1510px;
+  padding: 26px 42px 40px;
+  margin: auto;
+}
+.settings-page .page-heading {
+  margin-bottom: 16px;
+}
+.settings-page h1 {
+  font-size: 23px;
+  margin: 0;
+}
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+.settings-tabs button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  padding: 13px 18px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  cursor: pointer;
+}
+.settings-tabs button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.settings-model-grid {
+  display: grid;
+  grid-template-columns: minmax(530px, 1.55fr) minmax(320px, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.settings-page .card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: none;
+}
+.settings-model-card,
+.settings-embedding-card {
+  padding: 18px 20px;
+}
+.settings-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.settings-card-heading h2 {
+  font-size: 17px;
+  font-weight: 650;
+  margin: 0 0 4px;
+}
+.settings-card-heading p {
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+}
+.settings-model-body {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(235px, 1.25fr);
+  gap: 22px;
+  margin-top: 15px;
+}
+.settings-providers {
+  padding-right: 20px;
+  border-right: 1px solid var(--border);
+}
+.settings-providers > button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-height: 47px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  margin-bottom: 9px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+}
+.settings-providers > button.selected {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
+}
+.settings-providers strong {
+  font-size: 14px;
+  text-align: left;
+}
+.settings-radio {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border: 1.5px solid var(--muted);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.selected .settings-radio {
+  border-color: var(--accent);
+}
+.settings-radio > span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.settings-ai-mark {
+  font-size: 23px;
+  font-weight: 800;
+  width: 25px;
+}
+.settings-provider-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 22px;
+}
+.settings-model-config {
+  min-width: 0;
+}
+.settings-model-config label,
+.settings-embedding-body label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  margin-bottom: 11px;
+}
+.settings-model-config .field,
+.settings-embedding-body .field {
+  width: 100%;
+  font-size: 13px;
+  box-sizing: border-box;
+  min-height: 33px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.settings-readonly {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text);
+  background: var(--panel);
+}
+.settings-readonly svg {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.settings-inline-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
+  margin: 10px 0;
+}
+.settings-inline-note svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.settings-model-config hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 14px 0 10px;
+}
+.settings-model-config h3 {
+  font-size: 12px;
+  margin: 0 0 10px;
+}
+.settings-config-status {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.settings-config-status .btn {
+  padding: 6px 17px;
+  color: var(--accent);
+  border-color: var(--accent);
+  font-size: 12px;
+}
+.settings-configured {
+  color: var(--success);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.settings-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 3px;
+}
+.settings-configured .settings-status-dot {
+  margin-right: 0;
+}
+.settings-branch-model {
+  border-top: 1px solid var(--border);
+  margin-top: 14px;
+  padding-top: 12px;
+}
+.settings-branch-model .btn {
+  font-size: 11px;
+}
+.settings-branch-model p {
+  font-size: 10px;
+  margin-bottom: 0;
+  overflow-wrap: anywhere;
+}
+.settings-embedding-body {
+  padding-top: 22px;
+}
+.settings-embedding-body label {
+  margin-bottom: 20px;
+}
+.settings-embedding-selected {
+  border-color: var(--accent) !important;
+}
+.settings-embedding-selected svg {
+  color: var(--accent);
+}
+.settings-embedding-menu {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 5px;
+  box-shadow: 0 8px 15px #20253b0c;
+  margin-top: -17px;
+  margin-bottom: 22px;
+  font-size: 12px;
+}
+.settings-embedding-menu > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--accent-soft);
+  padding: 8px 10px;
+  color: var(--accent);
+  border-radius: 5px;
+  font-weight: 550;
+}
+.settings-embedding-menu p {
+  padding: 0 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.settings-embedding-body > .btn {
+  font-size: 11px;
+}
+.settings-connectors {
+  padding: 18px 20px 8px;
+  position: relative;
+  margin-bottom: 16px;
+}
+.settings-connectors .settings-card-heading {
+  padding-right: 125px;
+}
+.settings-add-connector {
+  position: absolute;
+  right: 60px;
+  top: 16px;
+}
+.settings-add-connector .btn {
+  font-size: 11px;
+  padding: 7px 14px;
+}
+.settings-table-scroll {
+  overflow-x: auto;
+}
+.settings-page table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: 14px;
+  text-align: left;
+}
+.settings-page th {
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 9px 12px;
+  background: var(--bg);
+  white-space: nowrap;
+}
+.settings-page td {
+  padding: 11px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.settings-page td > .btn {
+  padding: 5px 18px;
+  font-size: 11px;
+}
+.settings-tool-name {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 130px;
+}
+.settings-tool-name strong {
+  font-size: 14px;
+}
+.settings-tool-name.kubernetes svg {
+  color: #3678f4;
+}
+.settings-tool-name.prometheus svg {
+  color: #ed5938;
+}
+.settings-tool-name.loki svg {
+  color: #e3a221;
+}
+.settings-scope {
+  display: inline-block;
+  border: 1px solid var(--border);
+  padding: 5px 10px;
+  border-radius: 5px;
+  min-width: 90px;
+  white-space: nowrap;
+}
+.settings-knowledge {
+  padding: 0 20px;
+}
+.settings-knowledge-heading {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 12px;
+  background: none;
+  color: var(--text);
+  border: 0;
+  padding: 16px 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.settings-knowledge-heading strong {
+  font-size: 15px;
+  font-weight: 550;
+}
+.settings-knowledge-heading > svg:first-child {
+  color: var(--muted);
+}
+.settings-knowledge-heading > svg:last-child {
+  margin-left: auto;
+  color: var(--muted);
+}
+.settings-knowledge-heading .badge {
+  font-size: 10px;
+}
+.settings-knowledge-body {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 25px;
+  border-top: 1px solid var(--border);
+  padding: 18px 0;
+}
+.settings-knowledge-body h3 {
+  font-size: 13px;
+  margin: 0 0 7px;
+}
+.settings-knowledge-body p {
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--muted);
+  margin: 0;
+}
+.settings-knowledge-body .btn {
+  margin-top: 12px;
+  font-size: 11px;
+}
+.settings-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 16px 0;
+  padding: 12px;
+  background: var(--accent-soft);
+  border-radius: 7px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.settings-notice svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.settings-error {
+  color: var(--danger);
+  font-size: 13px;
+}
+.settings-modal {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 24px;
+  width: min(620px, calc(100vw - 36px));
+  max-height: 85vh;
+  overflow: auto;
+  box-shadow: 0 24px 80px #10162b30;
+}
+.settings-modal::backdrop {
+  background: #10182a66;
+  backdrop-filter: blur(3px);
+}
+.settings-modal header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.settings-modal h2 {
+  margin: 0;
+  font-size: 19px;
+}
+.settings-modal > p {
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--muted);
+}
+.settings-modal pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.settings-connection-choices {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+.settings-members {
+  padding: 22px;
+}
+.settings-role-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin: 22px 0;
+}
+.settings-role-cards > div {
+  padding: 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.settings-role-cards svg {
+  color: var(--accent);
+  vertical-align: middle;
+  margin-right: 9px;
+}
+.settings-role-cards strong {
+  font-size: 13px;
+}
+.settings-role-cards p {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.7;
+  margin-bottom: 0;
+}
+.settings-user-form {
+  display: grid;
+  gap: 14px;
+}
+.settings-user-form label {
+  display: grid;
+  gap: 7px;
+  font-size: 13px;
+}
+.settings-user-form .settings-checkbox {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.settings-page button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+@media (max-width: 1200px) {
+  .settings-page {
+    padding: 24px;
+  }
+  .settings-model-grid {
+    grid-template-columns: minmax(450px, 1.4fr) minmax(270px, 1fr);
+  }
+  .settings-model-body {
+    gap: 14px;
+    grid-template-columns: 180px minmax(210px, 1fr);
+  }
+  .settings-providers {
+    padding-right: 12px;
+  }
+  .settings-model-card,
+  .settings-embedding-card {
+    padding: 17px;
+  }
+  .settings-providers > button {
+    gap: 8px;
+  }
+  .settings-providers strong {
+    font-size: 13px;
+  }
+}
+@media (max-width: 1050px) {
+  .settings-model-grid {
+    grid-template-columns: 1fr;
+  }
+  .settings-model-body {
+    grid-template-columns: 1fr 1.4fr;
+  }
+  .settings-embedding-body {
+    padding-top: 15px;
+  }
+  .settings-embedding-menu {
+    max-width: 100%;
+  }
+  .settings-connectors .settings-card-heading {
+    padding-right: 0;
+  }
+  .settings-add-connector {
+    position: static;
+    margin-top: 12px;
+  }
+  .settings-knowledge-body {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 620px) {
+  .settings-page {
+    padding: 18px 12px;
+  }
+  .settings-tabs {
+    overflow-x: auto;
+  }
+  .settings-tabs button {
+    white-space: nowrap;
+    padding: 11px 12px;
+  }
+  .settings-model-body {
+    grid-template-columns: 1fr;
+  }
+  .settings-providers {
+    border-right: 0;
+    padding-right: 0;
+  }
+  .settings-providers > button {
+    width: 100%;
+  }
+  .settings-provider-note {
+    margin-top: 10px;
+    margin-bottom: 8px;
+  }
+  .settings-role-cards {
+    grid-template-columns: 1fr;
+  }
+  .settings-knowledge-heading {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .settings-knowledge-heading strong {
+    font-size: 13px;
+  }
+  .settings-page h1 {
+    font-size: 21px;
+  }
+  .settings-page .page-heading {
+    flex-wrap: wrap;
+  }
+  .settings-connectors {
+    padding: 16px 12px;
+  }
+  .settings-members {
+    padding: 16px;
+  }
+}
+.settings-branch-model summary {
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 12px;
+}
+.settings-branch-model[open] summary {
+  margin-bottom: 12px;
+}
+.settings-model-config label {
+  margin-bottom: 9px;
+}
+.settings-page {
+  padding-top: 20px;
+}
+.settings-embedding-body > .settings-inline-note {
+  max-width: 400px;
+}

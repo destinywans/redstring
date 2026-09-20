@@ -91,7 +91,7 @@ export const navigation: NavigationSection[] = [
     id: "knowledge",
     label: "知识库",
     icon: BookOpen,
-    children: [{ to: "/knowledge", label: "知识与 Runbook" }],
+    children: [{ to: "/knowledge", label: "Runbook" }],
   },
   {
     id: "integrations",

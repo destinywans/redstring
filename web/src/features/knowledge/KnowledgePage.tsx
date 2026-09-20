@@ -369,7 +369,7 @@ export default function KnowledgePage() {
       <ScopeFilter single />
       <div className="page-heading">
         <div>
-          <h1>知识与 Runbook</h1>
+          <h1>Runbook</h1>
           <p className="muted">沉淀运维经验，支持 AIOps 的分析与决策</p>
         </div>
         {preview && <span className="badge">演示资料</span>}

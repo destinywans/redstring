@@ -1,5 +1,12 @@
 # AIOps Canvas 检查点
 
+## 当前状态 · CP-016 · 2026-09-21 · 资源中心导航
+
+- [WAN-99](https://linear.app/wansss/issue/WAN-99)：应用中心改资源中心；移除我负责入口与隐式过滤，旧链接保留环境/显式条件；观测菜单改调用拓扑，当前仍未接入真实调用数据。
+- [WAN-98](https://linear.app/wansss/issue/WAN-98)：用户确认轻量 CMDB 与 PG；资源目录/资源关系后续再接真实数据，不增加空菜单或恢复 CI/CD。见 [决策及检查](docs/decisions/0011-resource-center-and-topology.md)。
+- 分支 `codex/wan-99-resource-navigation`，依赖未合并 `808d689`。受影响前端构建与设计预览菜单/旧链接局部检查通过，18081 静态资源已更新；未迁移、重启后端或做全量测试。提交/推送回读记录在 WAN-99，待用户体验。
+- 既有暂停 delivery/deployment 与文档改动保留，不纳入本次提交。下一步继续用户页面反馈；轻量资源数据模型另行拆实施切片。
+
 ## 当前状态 · CP-015 · 2026-09-20 · 全站 UI 反馈整合
 
 - 需求 WAN-96/95/81/93：全站搜索与排版、唯一菜单高亮、右上全局环境、应用右抽屉与“我负责”、首页上下文输入、通用 Skills/Prompt。设计与定向证据见 [本轮记录](docs/releases/2026-09-20-platform-ui-feedback.md)、[规范](docs/design/search-filters.md)、[范围契约](docs/ai-extension-scopes.md)。

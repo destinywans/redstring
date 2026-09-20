@@ -45,12 +45,9 @@ export const navigation: NavigationSection[] = [
   },
   {
     id: "applications",
-    label: "应用中心",
+    label: "资源中心",
     icon: Box,
-    children: [
-      { to: "/applications", label: "全部应用" },
-      { to: "/applications?view=mine", label: "我负责的应用" },
-    ],
+    children: [{ to: "/applications", label: "全部应用" }],
   },
   {
     id: "delivery",
@@ -85,7 +82,7 @@ export const navigation: NavigationSection[] = [
       { to: "/observability/metrics", label: "指标监控" },
       { to: "/observability/logs", label: "日志检索" },
       { to: "/observability/traces", label: "链路追踪" },
-      { to: "/observability/topology", label: "服务拓扑" },
+      { to: "/observability/topology", label: "调用拓扑" },
     ],
   },
   {
@@ -146,14 +143,9 @@ export function isNavigationCurrent(
   const target = new URL(to, "http://workspace.local");
   if (
     target.pathname === "/applications" &&
-    pathname.startsWith("/applications/")
+    (pathname === "/applications" || pathname.startsWith("/applications/"))
   )
     return !target.searchParams.has("view");
-  if (target.pathname === "/applications" && pathname === "/applications") {
-    const requested =
-      new URLSearchParams(search).get("view") === "mine" ? "mine" : "all";
-    return (target.searchParams.get("view") ?? "all") === requested;
-  }
   if (
     target.pathname === "/investigations" &&
     (pathname.startsWith("/investigations/") ||

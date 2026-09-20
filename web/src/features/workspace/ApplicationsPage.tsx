@@ -36,7 +36,6 @@ export default function ApplicationsPage() {
   const qc = useQueryClient();
   const environmentScope = useEnvironmentScope();
   const [params, setParams] = useSearchParams();
-  const mine = params.get("view") === "mine";
   const query = params.get("q") ?? "";
   const teamFilter = params.get("team") ?? "";
   const ownerFilter = params.get("owner") ?? "";
@@ -47,6 +46,12 @@ export default function ApplicationsPage() {
   const [filter, setFilter] = useState(query);
   const [busy, setBusy] = useState(false);
   useEffect(() => setFilter(query), [query]);
+  useEffect(() => {
+    if (params.get("view") !== "mine") return;
+    const next = new URLSearchParams(params);
+    next.delete("view");
+    setParams(next, { replace: true });
+  }, [params, setParams]);
   function updateFilter(key: string, value: string) {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value);
@@ -63,13 +68,11 @@ export default function ApplicationsPage() {
   // A global scope with no matching applications must remain empty, never widen.
   const scopedApplications = applications.filter(
     (app) =>
-      (!mine || app.maintainer_id === user.id) &&
-      (!environmentScope.key ||
-        app.environments?.some(
-          (env) =>
-            !env.archived &&
-            (env.key || `id:${env.id}`) === environmentScope.key,
-        )),
+      !environmentScope.key ||
+      app.environments?.some(
+        (env) =>
+          !env.archived && (env.key || `id:${env.id}`) === environmentScope.key,
+      ),
   );
   const teamOptions = Array.from(
     new Map(
@@ -192,12 +195,8 @@ export default function ApplicationsPage() {
       <header className="management-heading">
         <div>
           <span className="eyebrow">APPLICATION CATALOG</span>
-          <h1>{mine ? "我负责的应用" : "全部应用"}</h1>
-          <p>
-            {mine
-              ? "查看由你负责的应用、配置与访问权限。"
-              : "集中管理应用、负责人和所属团队。"}
-          </p>
+          <h1>全部应用</h1>
+          <p>集中管理应用、负责人和所属团队。</p>
         </div>
         {user.role === "admin" && (
           <button
@@ -357,7 +356,7 @@ export default function ApplicationsPage() {
         {!filtered.length && (
           <div className="management-empty">
             <Box size={28} />
-            <h2>{mine ? "暂无你负责的应用" : "没有匹配的应用"}</h2>
+            <h2>没有匹配的应用</h2>
             <p>
               {activeFilters.length
                 ? "调整筛选条件，或重置后查看当前范围内的应用。"

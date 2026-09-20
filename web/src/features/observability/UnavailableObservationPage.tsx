@@ -17,7 +17,7 @@ export default function UnavailableObservationPage({
       <header className="management-heading">
         <div>
           <span className="eyebrow">OBSERVABILITY</span>
-          <h1>{traces ? "调用链" : "服务拓扑"}</h1>
+          <h1>{traces ? "调用链" : "调用拓扑"}</h1>
           <p>
             {application?.name ?? "全部授权应用"} /{" "}
             {environment?.name ?? "全部环境"}
@@ -28,12 +28,17 @@ export default function UnavailableObservationPage({
       <section className="card management-card observation-empty">
         {traces ? <Workflow size={30} /> : <Network size={30} />}
         <span className="badge">尚未接入</span>
-        <h2>{traces ? "调用链查询尚未开放" : "服务依赖图尚未开放"}</h2>
+        <h2>{traces ? "调用链查询尚未开放" : "调用拓扑尚未接入"}</h2>
         <p>
           {traces
             ? "此功能需要接入真实 Trace 数据源及应用关联。当前工作区不会把日志或示例数据展示为调用链。"
-            : "此功能需要可追溯的服务调用关系或基础设施关系数据。当前尚无此数据，不推断或展示虚构拓扑。"}
+            : "查看指定时间段内实际观测到的服务调用、请求量、错误率与延迟。需要先接入真实调用数据，并关联应用与资源。"}
         </p>
+        {!traces && (
+          <p>
+            资源关系描述部署、归属与依赖；调用拓扑用于分析运行期间的请求流量。
+          </p>
+        )}
         <div className="management-actions">
           <Link
             className="btn"

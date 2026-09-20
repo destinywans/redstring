@@ -28,6 +28,8 @@ import {
   Users,
   UsersRound,
   ScrollText,
+  Server,
+  ChartNoAxesCombined,
 } from "lucide-react";
 import { ApiError, post, request } from "./lib/api";
 import type {
@@ -55,6 +57,17 @@ const MembersPage = lazy(() => import("./features/members/MembersPage"));
 const GovernancePage = lazy(() => import("./features/members/GovernancePage"));
 const ApprovalPage = lazy(() => import("./features/actions/ApprovalPage"));
 const RecoveryPage = lazy(() => import("./features/actions/RecoveryPage"));
+const ObservabilityPage = lazy(
+  () => import("./features/observability/ObservabilityPage"),
+);
+const UnavailableObservationPage = lazy(
+  () => import("./features/observability/UnavailableObservationPage"),
+);
+const InfrastructurePage = lazy(
+  () => import("./features/infrastructure/InfrastructurePage"),
+);
+const PlatformPage = lazy(() => import("./features/platform/PlatformPage"));
+const AlertsPage = lazy(() => import("./features/alerts/AlertsPage"));
 const previewApp: Application = {
   id: "preview-checkout",
   name: "结算服务",
@@ -229,15 +242,19 @@ export default function App() {
   const nav = [
     { to: "/", icon: LayoutGrid, label: "工作台" },
     { to: "/applications", icon: Activity, label: "应用" },
-    { to: "/incidents", icon: Bell, label: "异常" },
+    { to: "/infrastructure", icon: Server, label: "基础设施" },
+    { to: "/observability/metrics", icon: ChartNoAxesCombined, label: "观测" },
+    { to: "/incidents", icon: Bell, label: "告警事件" },
     { to: "/investigations", icon: Search, label: "调查" },
     { to: "/knowledge", icon: BookOpen, label: "知识" },
     { to: "/integrations", icon: Plug, label: "集成" },
-    ...(user.role === "admin" ? [
-      { to: "/members", icon: Users, label: "成员" },
-      { to: "/teams", icon: UsersRound, label: "团队" },
-      { to: "/audit", icon: ScrollText, label: "审计" },
-    ] : []),
+    ...(user.role === "admin"
+      ? [
+          { to: "/members", icon: Users, label: "成员" },
+          { to: "/teams", icon: UsersRound, label: "团队" },
+          { to: "/audit", icon: ScrollText, label: "审计" },
+        ]
+      : []),
   ];
   return (
     <WorkspaceContext.Provider
@@ -375,17 +392,24 @@ export default function App() {
               to={to}
               end={to === "/"}
               className={({ isActive }) =>
-                `nav-item ${isActive ? "active" : ""}`
+                `nav-item ${isActive || (to.startsWith("/observability") && location.pathname.startsWith("/observability/")) || (to === "/incidents" && location.pathname.startsWith("/alerts")) ? "active" : ""}`
               }
             >
               <Icon size={21} />
               <span>{label}</span>
             </NavLink>
           ))}
-          {user.role === "admin" && <NavLink to="/settings" className="nav-item nav-settings">
-            <Settings size={21} />
-            <span>设置</span>
-          </NavLink>}
+          {user.role === "admin" && (
+            <NavLink
+              to="/platform/settings"
+              className={({ isActive }) =>
+                `nav-item nav-settings ${isActive || location.pathname.startsWith("/platform/") || location.pathname === "/settings" ? "active" : ""}`
+              }
+            >
+              <Settings size={21} />
+              <span>平台设置</span>
+            </NavLink>
+          )}
         </aside>
         <main id="main" className="workspace-main">
           {apps.error && <ErrorNotice error={apps.error} />}
@@ -398,6 +422,28 @@ export default function App() {
               <Route path="/applications" element={<ApplicationsPage />} />
               <Route path="/applications/detail" element={<Overview />} />
               <Route path="/incidents" element={<IncidentsPage />} />
+              <Route path="/alerts" element={<AlertsPage mode="alerts" />} />
+              <Route
+                path="/alerts/sources"
+                element={<AlertsPage mode="sources" />}
+              />
+              <Route path="/infrastructure" element={<InfrastructurePage />} />
+              <Route
+                path="/observability/metrics"
+                element={<ObservabilityPage mode="metrics" />}
+              />
+              <Route
+                path="/observability/logs"
+                element={<ObservabilityPage mode="logs" />}
+              />
+              <Route
+                path="/observability/traces"
+                element={<UnavailableObservationPage kind="traces" />}
+              />
+              <Route
+                path="/observability/topology"
+                element={<UnavailableObservationPage kind="topology" />}
+              />
               <Route path="/investigations/*" element={<InvestigationPage />} />
               <Route
                 path="/investigations/:id"
@@ -408,7 +454,15 @@ export default function App() {
               <Route path="/members" element={<MembersPage />} />
               <Route path="/teams" element={<GovernancePage tab="teams" />} />
               <Route path="/audit" element={<GovernancePage tab="audit" />} />
-              <Route path="/settings" element={<GovernancePage tab="automation" />} />
+              <Route path="/platform/settings" element={<PlatformPage />} />
+              <Route
+                path="/platform/roles"
+                element={<PlatformPage tab="roles" />}
+              />
+              <Route
+                path="/settings"
+                element={<PlatformPage tab="automation" />}
+              />
               <Route path="/actions" element={<ApprovalPage />} />
               <Route path="/recovery" element={<RecoveryPage />} />
               <Route

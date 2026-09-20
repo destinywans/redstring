@@ -1,0 +1,241 @@
+.infra-page {
+  max-width: 1500px;
+  margin: 0 auto;
+  padding: 28px 32px 56px;
+}
+.infra-heading,
+.infra-snapshot > header,
+.infra-catalog > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+}
+.infra-heading {
+  margin-bottom: 22px;
+}
+.infra-heading h1 {
+  margin: 0;
+  font-size: 24px;
+  letter-spacing: -0.6px;
+}
+.infra-heading p,
+.infra-snapshot header p,
+.infra-catalog header p {
+  margin: 5px 0 0;
+  color: var(--muted);
+}
+.infra-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 22px;
+}
+.infra-categories button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--muted);
+  background: var(--panel);
+  cursor: pointer;
+}
+.infra-categories button.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.infra-categories small {
+  font-size: 10px;
+}
+.infra-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.infra-summary {
+  text-align: left;
+  padding: 20px;
+  display: grid;
+  gap: 8px;
+  color: var(--text);
+}
+.infra-summary > svg {
+  color: var(--accent);
+}
+button.infra-summary {
+  cursor: pointer;
+}
+.infra-summary strong {
+  font-size: 27px;
+  font-weight: 600;
+}
+.infra-summary span {
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+.infra-scope-note {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 14px 0;
+  line-height: 1.7;
+}
+.infra-snapshot,
+.infra-catalog {
+  padding: 22px;
+  margin: 20px 0;
+}
+.infra-snapshot h2,
+.infra-catalog h2 {
+  font-size: 16px;
+  margin: 0;
+}
+.infra-snapshot h3 {
+  margin: 20px 0 8px;
+  font-size: 14px;
+}
+.infra-snapshot-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  margin: 20px 0 16px;
+  flex-wrap: wrap;
+}
+.infra-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+.infra-facts dt {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.infra-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+.infra-table-scroll {
+  overflow-x: auto;
+}
+.infra-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+.infra-table th,
+.infra-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 12px;
+  vertical-align: top;
+}
+.infra-table th {
+  color: var(--muted);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.infra-table code {
+  overflow-wrap: anywhere;
+}
+.infra-table small {
+  color: var(--muted);
+  display: block;
+}
+.infra-connector {
+  display: block;
+}
+.infra-revisions {
+  margin: 18px 0;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+  font-size: 13px;
+}
+.infra-revisions summary {
+  cursor: pointer;
+}
+.infra-revisions article {
+  border-bottom: 1px solid var(--border);
+  padding: 12px 0;
+}
+.infra-revisions article > code {
+  display: block;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  margin: 5px 0;
+}
+.infra-revisions li {
+  overflow-wrap: anywhere;
+}
+.infra-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.infra-empty {
+  padding: 30px 18px;
+  color: var(--muted);
+}
+.infra-empty h2,
+.infra-empty h3 {
+  color: var(--text);
+}
+.infra-empty p {
+  max-width: 700px;
+  line-height: 1.8;
+}
+.infra-planned {
+  margin-top: 20px;
+  padding: 30px;
+}
+.infra-planned-icon {
+  margin-bottom: 15px;
+  color: var(--accent);
+}
+.infra-query-error {
+  margin-top: 16px;
+}
+.infra-query-error > p {
+  color: var(--muted);
+  font-size: 12px;
+}
+.infra-catalog header .field {
+  max-width: 300px;
+}
+@media (max-width: 850px) {
+  .infra-page {
+    padding: 22px 18px;
+  }
+  .infra-summary-grid {
+    grid-template-columns: 1fr;
+  }
+  .infra-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .infra-heading,
+  .infra-catalog > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+@media (max-width: 520px) {
+  .infra-facts {
+    grid-template-columns: 1fr;
+  }
+  .infra-snapshot,
+  .infra-catalog {
+    padding: 16px;
+  }
+  .infra-snapshot > header {
+    align-items: flex-start;
+  }
+}

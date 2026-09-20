@@ -3,6 +3,7 @@
 需求、取舍和任务状态以 [Linear 项目](https://linear.app/wansss/project/aiops-canvas-3c9fce50a53b) 为主。这里维护随代码版本变化的契约与运行说明。
 
 - [Web 工作区与对接](web-workspace.md)：八个设计场景、开发入口、预览隔离、当前验证边界。
+- [SRE 观测工作区](observability-workspace.md)：基础设施、指标日志、告警事件与平台设置，以及当前适配边界。
 - [成员管理与企业目录导入](member-management.md)。
 - [多应用与权限](platform-contract.md)、[告警与自动化](operations-contract.md)、[Runbook 治理](knowledge-governance-contract.md)、[上下文预算](context-budget.md)。
 - [本轮已批准实施范围](plans/2026-09-20-sre-workspace.md)。

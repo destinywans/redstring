@@ -1,0 +1,234 @@
+.platform-page {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 28px 32px 56px;
+}
+.platform-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: center;
+  margin-bottom: 22px;
+}
+.platform-heading > svg {
+  color: var(--muted);
+}
+.platform-heading h1 {
+  font-size: 24px;
+  letter-spacing: -0.6px;
+  margin: 0;
+}
+.platform-heading p {
+  color: var(--muted);
+  margin: 5px 0 0;
+}
+.platform-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 22px;
+}
+.platform-tabs a {
+  padding: 9px 0 12px;
+  color: var(--muted);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+}
+.platform-tabs a[aria-current="page"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.platform-workspace {
+  padding: 22px;
+  margin-bottom: 22px;
+}
+.platform-section-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+}
+.platform-section-title h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 16px;
+  margin: 0;
+}
+.platform-workspace dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
+  margin: 22px 0 16px;
+}
+.platform-workspace dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+.platform-workspace dd {
+  margin: 4px 0 0;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+.platform-workspace > p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+  margin-bottom: 0;
+}
+.platform-entry-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.platform-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 22px;
+  text-decoration: none;
+  color: var(--text);
+}
+.platform-entry:hover {
+  border-color: var(--accent);
+}
+.platform-entry h2 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+.platform-entry p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.platform-entry > svg {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--muted);
+}
+.platform-entry-icon {
+  color: var(--accent);
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  display: flex;
+}
+.platform-boundary {
+  margin-top: 22px;
+  padding: 22px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.platform-boundary > svg {
+  color: var(--accent);
+  flex: 0 0 auto;
+  margin-top: 3px;
+}
+.platform-boundary h2 {
+  font-size: 15px;
+  margin: 0 0 6px;
+}
+.platform-boundary p {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 7px 0;
+  line-height: 1.8;
+}
+.platform-role-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 22px;
+}
+.platform-role {
+  padding: 22px;
+}
+.platform-role > svg {
+  color: var(--accent);
+}
+.platform-role h2 {
+  font-size: 16px;
+  margin: 12px 0 2px;
+}
+.platform-role code {
+  font-size: 12px;
+  color: var(--muted);
+}
+.platform-role p {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 0;
+}
+.platform-matrix {
+  padding: 22px;
+}
+.platform-table-scroll {
+  overflow-x: auto;
+  margin-top: 15px;
+}
+.platform-matrix table {
+  border-collapse: collapse;
+  width: 100%;
+  text-align: left;
+  font-size: 13px;
+  min-width: 700px;
+}
+.platform-matrix th,
+.platform-matrix td {
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  line-height: 1.8;
+}
+.platform-matrix th {
+  font-weight: 500;
+}
+.platform-matrix thead th {
+  color: var(--muted);
+}
+.platform-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.platform-empty {
+  padding: 32px;
+}
+.platform-empty > svg {
+  color: var(--muted);
+}
+.platform-empty h1 {
+  font-size: 21px;
+}
+.platform-empty p {
+  color: var(--muted);
+}
+@media (max-width: 850px) {
+  .platform-page {
+    padding: 22px 18px;
+  }
+  .platform-workspace dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .platform-role-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 620px) {
+  .platform-entry-grid {
+    grid-template-columns: 1fr;
+  }
+  .platform-workspace,
+  .platform-entry,
+  .platform-matrix,
+  .platform-boundary {
+    padding: 17px;
+  }
+  .platform-workspace dl {
+    grid-template-columns: 1fr;
+  }
+}

@@ -10,18 +10,51 @@ type User struct {
 	Disabled bool   `json:"disabled"`
 }
 type Application struct {
-	ID            string        `json:"id"`
-	Name          string        `json:"name"`
-	Description   string        `json:"description"`
-	Environment   string        `json:"environment"`
-	Key           string        `json:"key"`
-	OwnerTeamID   string        `json:"owner_team_id"`
-	MaintainerID  string        `json:"maintainer_id"`
-	Tags          []string      `json:"tags"`
-	RepositoryURL string        `json:"repository_url"`
-	RunbookURL    string        `json:"runbook_url"`
-	Archived      bool          `json:"archived"`
-	Environments  []Environment `json:"environments"`
+	ID             string             `json:"id"`
+	Name           string             `json:"name"`
+	Description    string             `json:"description"`
+	Environment    string             `json:"environment"`
+	Key            string             `json:"key"`
+	OwnerTeamID    string             `json:"owner_team_id"`
+	MaintainerID   string             `json:"maintainer_id"`
+	Tags           []string           `json:"tags"`
+	RepositoryURL  string             `json:"repository_url"`
+	RunbookURL     string             `json:"runbook_url"`
+	Archived       bool               `json:"archived"`
+	Environments   []Environment      `json:"environments"`
+	Profile        ApplicationProfile `json:"profile"`
+	MaintainerName string             `json:"maintainer_name"`
+	OwnerTeamName  string             `json:"owner_team_name"`
+}
+
+// ApplicationProfile is catalog metadata, never an executable delivery definition.
+type ApplicationProfile struct {
+	BusinessUnit     string `json:"business_unit"`
+	ServiceType      string `json:"service_type"`
+	Lifecycle        string `json:"lifecycle"`
+	Criticality      string `json:"criticality"`
+	Language         string `json:"language"`
+	Framework        string `json:"framework"`
+	DefaultBranch    string `json:"default_branch"`
+	BuildCommand     string `json:"build_command"`
+	ImageRepository  string `json:"image_repository"`
+	DocumentationURL string `json:"documentation_url"`
+}
+
+// EnvironmentConfiguration records intended settings. No connector applies these values.
+// Nil fields distinguish unregistered settings from an explicit zero.
+type EnvironmentConfiguration struct {
+	Replicas              *int `json:"replicas"`
+	CPURequestMillicores  *int `json:"cpu_request_millicores"`
+	CPULimitMillicores    *int `json:"cpu_limit_millicores"`
+	MemoryRequestMiB      *int `json:"memory_request_mib"`
+	MemoryLimitMiB        *int `json:"memory_limit_mib"`
+	Port                  *int `json:"port"`
+	ConnectionPoolMax     *int `json:"connection_pool_max"`
+	RequestTimeoutMS      *int `json:"request_timeout_ms"`
+	RateLimitRPS          *int `json:"rate_limit_rps"`
+	Retries               *int `json:"retries"`
+	CircuitBreakerPercent *int `json:"circuit_breaker_percent"`
 }
 type Message struct {
 	ID          string    `json:"id"`
@@ -127,14 +160,16 @@ type MergeOptions struct {
 
 // Environment keeps resource bindings separate from application ownership.
 type Environment struct {
-	ID              string    `json:"id"`
-	ApplicationID   string    `json:"application_id"`
-	Key             string    `json:"key"`
-	Name            string    `json:"name"`
-	Archived        bool      `json:"archived"`
-	BindingRevision int64     `json:"binding_revision"`
-	Bindings        []Binding `json:"bindings"`
-	Capabilities    []string  `json:"capabilities"`
+	ID                    string                    `json:"id"`
+	ApplicationID         string                    `json:"application_id"`
+	Key                   string                    `json:"key"`
+	Name                  string                    `json:"name"`
+	Archived              bool                      `json:"archived"`
+	BindingRevision       int64                     `json:"binding_revision"`
+	Bindings              []Binding                 `json:"bindings"`
+	Capabilities          []string                  `json:"capabilities"`
+	Configuration         *EnvironmentConfiguration `json:"configuration"`
+	ConfigurationRevision int64                     `json:"configuration_revision"`
 }
 type Binding struct {
 	Kind        string `json:"kind"`

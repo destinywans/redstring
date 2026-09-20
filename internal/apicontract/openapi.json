@@ -1096,6 +1096,9 @@
                     "items": {
                       "type": "string"
                     }
+                  },
+                  "profile": {
+                    "$ref": "#/components/schemas/ApplicationProfile"
                   }
                 },
                 "additionalProperties": false,
@@ -5776,6 +5779,9 @@
                     "items": {
                       "type": "string"
                     }
+                  },
+                  "profile": {
+                    "$ref": "#/components/schemas/ApplicationProfile"
                   }
                 },
                 "additionalProperties": false
@@ -6119,7 +6125,7 @@
       "patch": {
         "summary": "Update environment with binding revision",
         "operationId": "patch_environments_id",
-        "description": "Minimum role: admin. Full environment update; binding_revision is optimistic concurrency token. Secrets stay in server registration.",
+        "description": "Minimum role: admin. Full environment update; binding_revision is optimistic concurrency token. Secrets stay in server registration. Configuration is catalog metadata, not applied infrastructure state. configuration_revision is independently checked when configuration is submitted; metadata-only changes do not redirect approved bindings.",
         "responses": {
           "200": {
             "description": "Success",
@@ -9685,12 +9691,6 @@
               "type": "string"
             }
           },
-          "capabilities": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
           "archived": {
             "type": "boolean"
           },
@@ -9699,6 +9699,17 @@
             "items": {
               "$ref": "#/components/schemas/Environment"
             }
+          },
+          "profile": {
+            "$ref": "#/components/schemas/ApplicationProfile"
+          },
+          "maintainer_name": {
+            "type": "string",
+            "readOnly": true
+          },
+          "owner_team_name": {
+            "type": "string",
+            "readOnly": true
           }
         },
         "additionalProperties": false,
@@ -10785,6 +10796,18 @@
             "items": {
               "$ref": "#/components/schemas/Binding"
             }
+          },
+          "configuration": {
+            "$ref": "#/components/schemas/EnvironmentConfiguration"
+          },
+          "configuration_revision": {
+            "type": "integer"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "additionalProperties": false
@@ -11283,6 +11306,136 @@
               },
               "additionalProperties": false
             }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApplicationProfile": {
+        "type": "object",
+        "properties": {
+          "business_unit": {
+            "type": "string"
+          },
+          "service_type": {
+            "type": "string"
+          },
+          "lifecycle": {
+            "type": "string"
+          },
+          "criticality": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "framework": {
+            "type": "string"
+          },
+          "default_branch": {
+            "type": "string"
+          },
+          "build_command": {
+            "type": "string"
+          },
+          "image_repository": {
+            "type": "string"
+          },
+          "documentation_url": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "EnvironmentConfiguration": {
+        "type": "object",
+        "properties": {
+          "replicas": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "cpu_request_millicores": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "cpu_limit_millicores": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "memory_request_mib": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1048576
+          },
+          "memory_limit_mib": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 1048576
+          },
+          "port": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "connection_pool_max": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "request_timeout_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 3600000
+          },
+          "rate_limit_rps": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100000000
+          },
+          "retries": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          },
+          "circuit_breaker_percent": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100
           }
         },
         "additionalProperties": false

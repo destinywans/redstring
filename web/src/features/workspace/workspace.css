@@ -265,3 +265,138 @@
   max-height: 360px;
   overflow: auto;
 }
+
+/* Application catalog: registered metadata is visually separate from live signals. */
+.catalog-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.catalog-toolbar .field {
+  width: auto;
+  min-width: 120px;
+}
+.catalog-toolbar .catalog-search {
+  flex: 1 1 300px;
+}
+.catalog-table-wrap {
+  overflow-x: auto;
+}
+.catalog-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+.catalog-table th {
+  color: var(--muted);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.catalog-table th,
+.catalog-table td {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.catalog-table td:first-child {
+  min-width: 230px;
+  max-width: 340px;
+}
+.catalog-table small {
+  display: block;
+  color: var(--muted);
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+.catalog-table p {
+  color: var(--muted);
+  margin: 8px 0;
+}
+.catalog-app-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.catalog-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 200px;
+}
+.catalog-table-footer {
+  padding: 14px 16px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.catalog-fieldset {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin: 8px 0;
+  min-width: 0;
+}
+.catalog-fieldset legend {
+  padding: 0 6px;
+  font-weight: 600;
+}
+.catalog-fieldset .muted {
+  margin-bottom: 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.catalog-details {
+  padding: 20px;
+  margin: 0 0 20px;
+}
+.catalog-details header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.catalog-details h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.catalog-details h3 {
+  font-size: 14px;
+  margin: 22px 0 10px;
+}
+.catalog-info-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px 24px;
+  margin: 18px 0 0;
+}
+.catalog-info-grid dt {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 5px;
+}
+.catalog-info-grid dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.catalog-info-grid a {
+  color: var(--accent);
+}
+@media (max-width: 1000px) {
+  .catalog-info-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .catalog-info-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .catalog-toolbar .field {
+    flex: 1 1 140px;
+  }
+  .catalog-details {
+    padding: 16px;
+  }
+}

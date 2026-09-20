@@ -79,7 +79,7 @@ func (s *Server) platformRoutes() {
 		}
 		for k := range patch {
 			switch k {
-			case "name", "description", "key", "owner_team_id", "maintainer_id", "tags", "repository_url", "runbook_url":
+			case "name", "description", "key", "owner_team_id", "maintainer_id", "tags", "repository_url", "runbook_url", "profile":
 			default:
 				Error(w, 422, "invalid_field", "Unsupported application field")
 				return

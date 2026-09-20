@@ -202,6 +202,17 @@ S['MemberImportPreview']=obj({'fingerprint':string(),'can_import':boolean,'items
 member_import_fields={'source':string(pattern='^[A-Za-z0-9._-]{1,100}$'),'rows':{'type':'array','items':ref('MemberImportRow'),'minItems':1,'maxItems':200}}
 route('post','/users/import/preview','Preview enterprise directory import','admin',obj(member_import_fields,['source','rows']),ref('MemberImportPreview'),desc='Administrator-supplied exported directory data; no remote IAM requests or SSO. Email collisions do not take over local identities.')
 route('post','/users/import','Confirm unchanged directory import','admin',obj({**member_import_fields,'fingerprint':string()},['source','rows','fingerprint']),obj({'created':integer(),'updated':integer()}),desc='Recomputes preview and commits atomically. New entries are disabled viewers without a usable password; current roles and app grants are not imported.')
+S['ApplicationProfile']=obj(fieldnames('business_unit service_type lifecycle criticality language framework default_branch build_command image_repository documentation_url'))
+S['Application']['properties'].update({'profile':ref('ApplicationProfile'),'maintainer_name':string(readOnly=True),'owner_team_name':string(readOnly=True)})
+for path,method in [('/applications','post'),('/applications/{id}','patch')]:
+    P[path][method]['requestBody']['content']['application/json']['schema']['properties']['profile']=ref('ApplicationProfile')
+configuration_limits={'replicas':(0,10000),'cpu_request_millicores':(0,1000000),'cpu_limit_millicores':(1,1000000),'memory_request_mib':(0,1048576),'memory_limit_mib':(1,1048576),'port':(1,65535),'connection_pool_max':(1,1000000),'request_timeout_ms':(1,3600000),'rate_limit_rps':(0,100000000),'retries':(0,100),'circuit_breaker_percent':(0,100)}
+S['EnvironmentConfiguration']=obj({k:{'type':['integer','null'],'minimum':bounds[0],'maximum':bounds[1]} for k,bounds in configuration_limits.items()})
+S['Environment']['properties'].update({'configuration':ref('EnvironmentConfiguration'),'configuration_revision':integer(),'capabilities':arr(string())})
+# Capabilities describe a registered environment, not application catalog metadata.
+S['Application']['properties'].pop('capabilities',None)
+P['/environments/{id}']['patch']['description']+=' Configuration is catalog metadata, not applied infrastructure state. configuration_revision is independently checked when configuration is submitted; metadata-only changes do not redirect approved bindings.'
+
 spec={'openapi':'3.1.0','info':{'title':'AIOps Canvas Backend API','version':'0.4.0','description':'Single-workspace multi-application SRE API. All business history is server authoritative; application authorization is enforced beyond minimum workspace role.','license':{'name':'Apache-2.0','identifier':'Apache-2.0'}},'servers':[{'url':'/api/v1'}],'security':[{'sessionCookie':[]}],'paths':P,'components':{'schemas':S,'securitySchemes':{'sessionCookie':{'type':'apiKey','in':'cookie','name':'aiops_session'},'alertSourceToken':{'type':'http','scheme':'bearer'}}}}
 Path('internal/apicontract/openapi.json').write_text(json.dumps(spec,ensure_ascii=False,indent=2)+'\n')
 print(f'Generated {len(P)} paths, {sum(len(x) for x in P.values())} operations, {len(S)} schemas.')

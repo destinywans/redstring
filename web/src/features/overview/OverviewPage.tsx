@@ -35,6 +35,8 @@ import {
 import { MetricChart, incidentPoints } from "../../components/MetricChart";
 import { useDraftStore } from "../../lib/drafts";
 import "./overview.css";
+import { ApplicationDetails } from "../workspace/ApplicationProfile";
+import "../workspace/workspace.css";
 import TelemetryResult, { type TelemetryResultData } from "./TelemetryResult";
 type Deployment = {
   deployment: string;
@@ -328,6 +330,10 @@ export default function OverviewPage() {
           </div>
         </div>
       </div>
+      <ApplicationDetails
+        application={application}
+        environment={environment ?? undefined}
+      />
       <div className="overview-top">
         <section
           className={`card incident-card ${pinned.includes("incident") ? "card-is-pinned" : ""}`}

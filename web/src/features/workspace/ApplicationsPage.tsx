@@ -1,4 +1,11 @@
 import { memberLabel } from "../../lib/members";
+import {
+  ProfileFields,
+  ConfigurationFields,
+  readProfile,
+  readConfiguration,
+  ApplicationDetails,
+} from "./ApplicationProfile";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -29,6 +36,12 @@ export default function ApplicationsPage() {
   const [editing, setEditing] = useState<Application | null | undefined>(),
     [managing, setManaging] = useState<Application | null>(null),
     [filter, setFilter] = useState(""),
+    [teamFilter, setTeamFilter] = useState(""),
+    [ownerFilter, setOwnerFilter] = useState(""),
+    [environmentFilter, setEnvironmentFilter] = useState(""),
+    [languageFilter, setLanguageFilter] = useState(""),
+    [archiveFilter, setArchiveFilter] = useState("active"),
+    [sort, setSort] = useState("name"),
     [busy, setBusy] = useState(false);
   const teams = useQuery({
     queryKey: ["teams"],
@@ -48,6 +61,7 @@ export default function ApplicationsPage() {
     }
     const f = new FormData(e.currentTarget),
       body = {
+        profile: readProfile(f),
         name: f.get("name"),
         key: f.get("key"),
         description: f.get("description"),
@@ -73,6 +87,29 @@ export default function ApplicationsPage() {
       setBusy(false);
     }
   }
+  const filtered = applications
+    .filter(
+      (a) =>
+        `${a.name} ${a.key ?? ""} ${a.description} ${a.maintainer_name ?? ""} ${a.tags?.join(" ") ?? ""}`
+          .toLowerCase()
+          .includes(filter.trim().toLowerCase()) &&
+        (!teamFilter || a.owner_team_id === teamFilter) &&
+        (!ownerFilter || a.maintainer_id === ownerFilter) &&
+        (!environmentFilter ||
+          a.environments?.some(
+            (e) => e.key === environmentFilter && !e.archived,
+          )) &&
+        (!languageFilter || a.profile?.language === languageFilter) &&
+        (archiveFilter === "all" ||
+          (archiveFilter === "archived" ? a.archived : !a.archived)),
+    )
+    .sort((a, b) =>
+      sort === "owner"
+        ? (a.maintainer_name ?? "").localeCompare(b.maintainer_name ?? "", "zh")
+        : sort === "key"
+          ? (a.key ?? "").localeCompare(b.key ?? "")
+          : a.name.localeCompare(b.name, "zh"),
+    );
   return (
     <div className="management-page">
       <header className="management-heading">
@@ -88,77 +125,240 @@ export default function ApplicationsPage() {
           </button>
         )}
       </header>
-      <input
-        className="field"
-        aria-label="搜索应用"
-        placeholder="搜索名称、标签或说明…"
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-      />
-      <div className="management-grid management-section">
-        {applications
-          .filter((a) =>
-            `${a.name} ${a.description} ${a.tags?.join(" ")}`
-              .toLowerCase()
-              .includes(filter.toLowerCase()),
-          )
-          .map((a) => (
-            <article className="card management-card" key={a.id}>
-              <h2>
-                <Box size={19} />
-                {a.name}
-                {a.archived && <span className="badge">已归档</span>}
-              </h2>
-              <p>{a.description || "尚未填写应用说明"}</p>
-              <div className="management-meta">
-                <span className="badge">
-                  <Layers size={12} />{" "}
-                  {a.environments?.filter((e) => !e.archived).length ?? 0}{" "}
-                  个环境
-                </span>
-                {a.tags?.map((t) => (
-                  <span className="badge" key={t}>
-                    {t}
-                  </span>
-                ))}
-              </div>
-              <small className="muted">
-                维护人：
-                {memberLabel(
-                  a.maintainer_id,
-                  user,
-                  user.role === "admin" ? (users.data?.items ?? []) : [],
-                )}
-              </small>
-              <div className="management-actions management-section">
-                <button
-                  className="btn btn-primary"
-                  onClick={() => {
-                    setApplication(a.id);
-                    setEnvironment("");
-                    navigate("/applications/detail");
-                  }}
-                >
-                  打开应用 <ArrowRight size={14} />
-                </button>
-                <button className="btn" onClick={() => setManaging(a)}>
-                  <Settings size={14} />
-                  环境与权限
-                </button>
-                {user.role === "admin" && (
-                  <button className="btn" onClick={() => setEditing(a)}>
-                    编辑
-                  </button>
-                )}
-              </div>
-            </article>
+      <div className="catalog-toolbar">
+        <input
+          className="field catalog-search"
+          aria-label="搜索应用"
+          placeholder="搜索应用名称、标识、负责人或标签…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+        <select
+          className="field"
+          aria-label="团队筛选"
+          value={teamFilter}
+          onChange={(e) => setTeamFilter(e.target.value)}
+        >
+          <option value="">全部团队</option>
+          {Array.from(
+            new Map(
+              applications
+                .filter((a) => a.owner_team_id)
+                .map(
+                  (a) =>
+                    [
+                      a.owner_team_id!,
+                      a.owner_team_name || "团队不可用",
+                    ] as const,
+                ),
+            ),
+          ).map(([id, name]) => (
+            <option key={id} value={id}>
+              {name}
+            </option>
           ))}
+        </select>
+        <select
+          className="field"
+          aria-label="负责人筛选"
+          value={ownerFilter}
+          onChange={(e) => setOwnerFilter(e.target.value)}
+        >
+          <option value="">全部负责人</option>
+          {Array.from(
+            new Map(
+              applications
+                .filter((a) => a.maintainer_id)
+                .map(
+                  (a) =>
+                    [
+                      a.maintainer_id!,
+                      a.maintainer_name || "成员不可用",
+                    ] as const,
+                ),
+            ),
+          ).map(([id, name]) => (
+            <option key={id} value={id}>
+              {name}
+            </option>
+          ))}
+        </select>
+        <select
+          className="field"
+          aria-label="环境筛选"
+          value={environmentFilter}
+          onChange={(e) => setEnvironmentFilter(e.target.value)}
+        >
+          <option value="">全部环境</option>
+          {Array.from(
+            new Set(
+              applications.flatMap(
+                (a) =>
+                  a.environments
+                    ?.filter((e) => !e.archived)
+                    .map((e) => e.key) ?? [],
+              ),
+            ),
+          )
+            .sort()
+            .map((key) => (
+              <option key={key}>{key}</option>
+            ))}
+        </select>
+        <select
+          className="field"
+          aria-label="开发语言筛选"
+          value={languageFilter}
+          onChange={(e) => setLanguageFilter(e.target.value)}
+        >
+          <option value="">全部语言</option>
+          {Array.from(
+            new Set(
+              applications
+                .map((a) => a.profile?.language)
+                .filter((v): v is string => !!v),
+            ),
+          )
+            .sort()
+            .map((value) => (
+              <option key={value}>{value}</option>
+            ))}
+        </select>
+        <select
+          className="field"
+          aria-label="归档筛选"
+          value={archiveFilter}
+          onChange={(e) => setArchiveFilter(e.target.value)}
+        >
+          <option value="active">使用中</option>
+          <option value="archived">已归档</option>
+          <option value="all">全部应用</option>
+        </select>
+        <select
+          className="field"
+          aria-label="应用排序"
+          value={sort}
+          onChange={(e) => setSort(e.target.value)}
+        >
+          <option value="name">按名称排序</option>
+          <option value="key">按标识排序</option>
+          <option value="owner">按负责人排序</option>
+        </select>
+        <button
+          className="btn"
+          onClick={() => {
+            setFilter("");
+            setTeamFilter("");
+            setOwnerFilter("");
+            setEnvironmentFilter("");
+            setLanguageFilter("");
+            setArchiveFilter("active");
+            setSort("name");
+          }}
+        >
+          重置
+        </button>
       </div>
-      {!applications.length && (
-        <p className="management-empty">
-          还没有可访问的应用。管理员可以登记应用并授予访问权限。
-        </p>
-      )}
+      <div className="catalog-table-wrap card management-section">
+        <table className="catalog-table">
+          <thead>
+            <tr>
+              <th>应用</th>
+              <th>负责人 / 团队</th>
+              <th>开发信息</th>
+              <th>环境</th>
+              <th>生命周期</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((a) => (
+              <tr key={a.id}>
+                <td>
+                  <strong className="catalog-app-name">
+                    <Box size={17} />
+                    {a.name}
+                  </strong>
+                  <small>{a.key || a.id}</small>
+                  <p>{a.description || "尚未填写应用说明"}</p>
+                  <div className="management-meta">
+                    {a.tags?.map((t) => (
+                      <span className="badge" key={t}>
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                </td>
+                <td>
+                  {a.maintainer_name ||
+                    memberLabel(a.maintainer_id, user, users.data?.items ?? [])}
+                  <small>{a.owner_team_name || "团队待指定"}</small>
+                </td>
+                <td>
+                  {a.profile?.language || "语言未登记"}
+                  <small>{a.profile?.framework || "框架未登记"}</small>
+                </td>
+                <td>
+                  <div className="management-meta">
+                    {a.environments
+                      ?.filter((e) => !e.archived)
+                      .map((e) => (
+                        <span className="badge" key={e.id}>
+                          <Layers size={12} />
+                          {e.name}
+                        </span>
+                      ))}
+                  </div>
+                  {!a.environments?.some((e) => !e.archived) && (
+                    <span className="muted">暂无环境</span>
+                  )}
+                </td>
+                <td>
+                  <span className="badge">
+                    {a.archived ? "已归档" : a.profile?.lifecycle || "未登记"}
+                  </span>
+                  <small>{a.profile?.criticality || "等级未登记"}</small>
+                </td>
+                <td>
+                  <div className="catalog-row-actions">
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => {
+                        setApplication(a.id);
+                        setEnvironment("");
+                        navigate("/applications/detail");
+                      }}
+                    >
+                      详情
+                      <ArrowRight size={14} />
+                    </button>
+                    <button className="btn" onClick={() => setManaging(a)}>
+                      <Settings size={14} />
+                      环境与权限
+                    </button>
+                    {user.role === "admin" && (
+                      <button className="btn" onClick={() => setEditing(a)}>
+                        编辑
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!filtered.length && (
+          <p className="management-empty">
+            {applications.length
+              ? "没有匹配的应用，请调整筛选条件。"
+              : "还没有可访问的应用。管理员可以登记应用并授予访问权限。"}
+          </p>
+        )}
+        <footer className="catalog-table-footer">
+          显示 {filtered.length} / {applications.length} 个可访问应用 ·
+          目录信息不代表实时健康状态
+        </footer>
+      </div>
       <Modal
         open={editing !== undefined}
         onOpenChange={(v) => !v && setEditing(undefined)}
@@ -184,6 +384,7 @@ export default function ApplicationsPage() {
                 defaultValue={editing?.key}
                 required
                 pattern="[a-zA-Z0-9_-]+"
+                maxLength={120}
                 placeholder="checkout-api"
               />
             </label>
@@ -195,6 +396,7 @@ export default function ApplicationsPage() {
               name="description"
               defaultValue={editing?.description}
               rows={3}
+              maxLength={8000}
             />
           </label>
           <div className="management-form-grid">
@@ -206,6 +408,14 @@ export default function ApplicationsPage() {
                 defaultValue={editing?.owner_team_id}
               >
                 <option value="">待指定</option>
+                {editing?.owner_team_id &&
+                  !teams.data?.items.some(
+                    (t) => t.id === editing.owner_team_id,
+                  ) && (
+                    <option value={editing.owner_team_id}>
+                      {editing.owner_team_name || "原所属团队"}
+                    </option>
+                  )}
                 {(teams.data?.items ?? []).map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.name}
@@ -214,16 +424,25 @@ export default function ApplicationsPage() {
               </select>
             </label>
             <label>
-              维护人
+              主负责人
               <select
                 className="field"
                 name="maintainer_id"
                 defaultValue={editing?.maintainer_id}
               >
                 <option value="">待指定</option>
+                {editing?.maintainer_id &&
+                  !users.data?.items.some(
+                    (t) => t.id === editing.maintainer_id,
+                  ) && (
+                    <option value={editing.maintainer_id}>
+                      {editing.maintainer_name || "原负责人"}
+                    </option>
+                  )}
                 {(users.data?.items ?? []).map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.name}
+                    {t.disabled ? "（已停用）" : ""}
                   </option>
                 ))}
               </select>
@@ -255,6 +474,7 @@ export default function ApplicationsPage() {
               defaultValue={editing?.runbook_url}
             />
           </label>
+          <ProfileFields profile={editing?.profile} />
           <footer>
             <button className="btn btn-primary" disabled={busy}>
               {busy ? "保存中…" : "保存应用"}
@@ -353,6 +573,12 @@ function ApplicationManagement({
               <button className="btn" onClick={() => setEnv(null)}>
                 ← 返回环境列表
               </button>
+              <ApplicationDetails
+                application={application}
+                environment={
+                  application.environments?.find((e) => e.id === env.id) ?? env
+                }
+              />
               <h3 className="management-section">{env.name} · 自动化</h3>
               <AutomationPanel environmentId={env.id} />
             </>
@@ -372,11 +598,11 @@ function ApplicationManagement({
                   </div>
                   {user.role === "admin" && (
                     <button className="btn" onClick={() => setEditEnv(e)}>
-                      编辑绑定
+                      配置与绑定
                     </button>
                   )}
                   <button className="btn" onClick={() => setEnv(e)}>
-                    自动化
+                    详情与自动化
                   </button>
                 </div>
               ))}
@@ -556,6 +782,8 @@ function EnvironmentForm({
             name: f.get("name"),
             archived: f.get("archived") === "on",
             binding_revision: environment?.binding_revision ?? 0,
+            configuration_revision: environment?.configuration_revision ?? 0,
+            configuration: readConfiguration(f),
             bindings,
           };
           if (environment) await patch(`/environments/${environment.id}`, body);
@@ -578,6 +806,8 @@ function EnvironmentForm({
             defaultValue={environment?.key}
             required
             placeholder="production"
+            pattern="[a-zA-Z0-9_-]+"
+            maxLength={120}
           />
         </label>
         <label>
@@ -588,6 +818,7 @@ function EnvironmentForm({
             defaultValue={environment?.name}
             required
             placeholder="生产"
+            maxLength={120}
           />
         </label>
       </div>
@@ -601,6 +832,8 @@ function EnvironmentForm({
           归档此环境
         </label>
       )}
+      <ConfigurationFields configuration={environment?.configuration} />
+      <h3>连接器绑定</h3>
       <p className="muted">
         选择服务器登记的连接器。资源范围由服务端校验；修改绑定可能使旧操作提案失效。
       </p>

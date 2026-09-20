@@ -90,14 +90,17 @@ func (s *Store) VisibleApplicationIDs(ctx context.Context, u core.User) ([]strin
 	return v, rows.Err()
 }
 
-const appColumns = "id,name,description,environment,key,COALESCE(owner_team_id,''),COALESCE(maintainer_id,''),tags,repository_url,runbook_url,archived"
+const appColumns = "id,name,description,environment,key,COALESCE(owner_team_id,''),COALESCE(maintainer_id,''),tags,repository_url,runbook_url,archived,profile,COALESCE((SELECT name FROM users WHERE users.id=applications.maintainer_id),''),COALESCE((SELECT name FROM teams WHERE teams.id=applications.owner_team_id),'')"
 
 func scanApplication(row pgx.Row) (core.Application, error) {
 	var a core.Application
-	var tags []byte
-	e := row.Scan(&a.ID, &a.Name, &a.Description, &a.Environment, &a.Key, &a.OwnerTeamID, &a.MaintainerID, &tags, &a.RepositoryURL, &a.RunbookURL, &a.Archived)
+	var tags, profile []byte
+	e := row.Scan(&a.ID, &a.Name, &a.Description, &a.Environment, &a.Key, &a.OwnerTeamID, &a.MaintainerID, &tags, &a.RepositoryURL, &a.RunbookURL, &a.Archived, &profile, &a.MaintainerName, &a.OwnerTeamName)
 	if e == nil {
 		e = json.Unmarshal(tags, &a.Tags)
+		if e == nil {
+			e = json.Unmarshal(profile, &a.Profile)
+		}
 	}
 	return a, ClassifyError(e)
 }
@@ -109,13 +112,14 @@ func (s *Store) Application(ctx context.Context, id string) (core.Application, e
 	return a, e
 }
 func (s *Store) UpdateApplication(ctx context.Context, a core.Application) (core.Application, error) {
-	if strings.TrimSpace(a.Name) == "" || strings.TrimSpace(a.Key) == "" {
-		return a, ErrInvalidReference
+	if err := ValidateApplication(a); err != nil {
+		return a, err
 	}
 	if a.Tags == nil {
 		a.Tags = []string{}
 	}
 	tags, _ := json.Marshal(a.Tags)
+	profile, _ := json.Marshal(a.Profile)
 	tx, e := s.DB.Begin(ctx)
 	if e != nil {
 		return a, e
@@ -125,14 +129,14 @@ func (s *Store) UpdateApplication(ctx context.Context, a core.Application) (core
 	if err != nil {
 		return a, err
 	}
-	tag, e := tx.Exec(ctx, `UPDATE applications SET name=$2,description=$3,key=$4,owner_team_id=NULLIF($5,''),maintainer_id=NULLIF($6,''),tags=$7,repository_url=$8,runbook_url=$9,archived=$10 WHERE id=$1`, a.ID, a.Name, a.Description, a.Key, a.OwnerTeamID, a.MaintainerID, tags, a.RepositoryURL, a.RunbookURL, a.Archived)
+	tag, e := tx.Exec(ctx, `UPDATE applications SET name=$2,description=$3,key=$4,owner_team_id=NULLIF($5,''),maintainer_id=NULLIF($6,''),tags=$7,repository_url=$8,runbook_url=$9,archived=$10,profile=$11 WHERE id=$1`, a.ID, a.Name, a.Description, a.Key, a.OwnerTeamID, a.MaintainerID, tags, a.RepositoryURL, a.RunbookURL, a.Archived, profile)
 	if e != nil {
 		return a, ClassifyError(e)
 	}
 	if tag.RowsAffected() != 1 {
 		return a, ErrNotFound
 	}
-	if e = auditTx(ctx, tx, a.ID, "application.updated", a.ID, map[string]any{"before": map[string]any{"name": previous.Name, "key": previous.Key, "archived": previous.Archived, "owner_team_id": previous.OwnerTeamID, "maintainer_id": previous.MaintainerID, "tags": previous.Tags}, "after": map[string]any{"name": a.Name, "key": a.Key, "archived": a.Archived, "owner_team_id": a.OwnerTeamID, "maintainer_id": a.MaintainerID, "tags": a.Tags}, "description_changed": previous.Description != a.Description, "repository_url_changed": previous.RepositoryURL != a.RepositoryURL, "runbook_url_changed": previous.RunbookURL != a.RunbookURL}); e != nil {
+	if e = auditTx(ctx, tx, a.ID, "application.updated", a.ID, map[string]any{"before": map[string]any{"name": previous.Name, "key": previous.Key, "archived": previous.Archived, "owner_team_id": previous.OwnerTeamID, "maintainer_id": previous.MaintainerID, "tags": previous.Tags, "profile": previous.Profile}, "after": map[string]any{"name": a.Name, "key": a.Key, "archived": a.Archived, "owner_team_id": a.OwnerTeamID, "maintainer_id": a.MaintainerID, "tags": a.Tags, "profile": a.Profile}, "description_changed": previous.Description != a.Description, "repository_url_changed": previous.RepositoryURL != a.RepositoryURL, "runbook_url_changed": previous.RunbookURL != a.RunbookURL}); e != nil {
 		return a, e
 	}
 	if e = tx.Commit(ctx); e != nil {
@@ -141,7 +145,7 @@ func (s *Store) UpdateApplication(ctx context.Context, a core.Application) (core
 	return s.Application(ctx, a.ID)
 }
 func (s *Store) Environments(ctx context.Context, app string) ([]core.Environment, error) {
-	rows, e := s.DB.Query(ctx, "SELECT id,application_id,key,name,archived,binding_revision,bindings FROM application_environments WHERE application_id=$1 ORDER BY key", app)
+	rows, e := s.DB.Query(ctx, "SELECT id,application_id,key,name,archived,binding_revision,bindings,configuration,configuration_revision FROM application_environments WHERE application_id=$1 ORDER BY key", app)
 	if e != nil {
 		return nil, e
 	}
@@ -149,11 +153,14 @@ func (s *Store) Environments(ctx context.Context, app string) ([]core.Environmen
 	out := []core.Environment{}
 	for rows.Next() {
 		var v core.Environment
-		var raw []byte
-		if e = rows.Scan(&v.ID, &v.ApplicationID, &v.Key, &v.Name, &v.Archived, &v.BindingRevision, &raw); e != nil {
+		var raw, config []byte
+		if e = rows.Scan(&v.ID, &v.ApplicationID, &v.Key, &v.Name, &v.Archived, &v.BindingRevision, &raw, &config, &v.ConfigurationRevision); e != nil {
 			return nil, e
 		}
 		if e = json.Unmarshal(raw, &v.Bindings); e != nil {
+			return nil, e
+		}
+		if e = json.Unmarshal(config, &v.Configuration); e != nil {
 			return nil, e
 		}
 		out = append(out, v)
@@ -161,13 +168,18 @@ func (s *Store) Environments(ctx context.Context, app string) ([]core.Environmen
 	return out, rows.Err()
 }
 func (s *Store) SaveEnvironment(ctx context.Context, v core.Environment) (core.Environment, error) {
-	if strings.TrimSpace(v.Key) == "" || strings.TrimSpace(v.Name) == "" {
+	if !catalogKey.MatchString(v.Key) || strings.TrimSpace(v.Name) == "" || len(v.Name) > 240 {
 		return v, ErrInvalidReference
+	}
+	if err := validateConfiguration(v.Configuration); err != nil {
+		return v, err
 	}
 	if v.Bindings == nil {
 		v.Bindings = []core.Binding{}
 	}
 	raw, _ := json.Marshal(v.Bindings)
+	var previousConfiguration core.EnvironmentConfiguration
+	config, _ := json.Marshal(v.Configuration)
 	tx, e := s.DB.Begin(ctx)
 	if e != nil {
 		return v, e
@@ -176,9 +188,33 @@ func (s *Store) SaveEnvironment(ctx context.Context, v core.Environment) (core.E
 	if v.ID == "" {
 		v.ID = ID()
 		v.BindingRevision = 1
-		_, e = tx.Exec(ctx, "INSERT INTO application_environments(id,application_id,key,name,archived,bindings) VALUES($1,$2,$3,$4,$5,$6)", v.ID, v.ApplicationID, v.Key, v.Name, v.Archived, raw)
+		v.ConfigurationRevision = 1
+		if v.Configuration == nil {
+			v.Configuration = &core.EnvironmentConfiguration{}
+			config, _ = json.Marshal(v.Configuration)
+		}
+		_, e = tx.Exec(ctx, "INSERT INTO application_environments(id,application_id,key,name,archived,bindings,configuration) VALUES($1,$2,$3,$4,$5,$6,$7)", v.ID, v.ApplicationID, v.Key, v.Name, v.Archived, raw, config)
 	} else {
-		e = tx.QueryRow(ctx, `UPDATE application_environments SET key=$2,name=$3,archived=$4,bindings=$5,binding_revision=binding_revision+1 WHERE id=$1 AND application_id=$6 AND binding_revision=$7 RETURNING binding_revision`, v.ID, v.Key, v.Name, v.Archived, raw, v.ApplicationID, v.BindingRevision).Scan(&v.BindingRevision)
+		var oldConfig []byte
+		var oldConfigRevision int64
+		e = tx.QueryRow(ctx, "SELECT configuration,configuration_revision FROM application_environments WHERE id=$1 AND application_id=$2 FOR UPDATE", v.ID, v.ApplicationID).Scan(&oldConfig, &oldConfigRevision)
+		if e != nil {
+			return v, ClassifyError(e)
+		}
+		if e = json.Unmarshal(oldConfig, &previousConfiguration); e != nil {
+			return v, e
+		}
+		if v.Configuration == nil {
+			v.Configuration = &previousConfiguration
+			v.ConfigurationRevision = oldConfigRevision
+			config = oldConfig
+		} else if v.ConfigurationRevision != oldConfigRevision {
+			return v, ErrConflict
+		}
+		e = tx.QueryRow(ctx, `UPDATE application_environments SET key=$2,name=$3,archived=$4,bindings=$5,
+   binding_revision=binding_revision+CASE WHEN key IS DISTINCT FROM $2 OR archived IS DISTINCT FROM $4 OR bindings IS DISTINCT FROM $5::jsonb THEN 1 ELSE 0 END,
+   configuration=$8,configuration_revision=configuration_revision+CASE WHEN configuration IS DISTINCT FROM $8::jsonb THEN 1 ELSE 0 END
+   WHERE id=$1 AND application_id=$6 AND binding_revision=$7 RETURNING binding_revision,configuration_revision`, v.ID, v.Key, v.Name, v.Archived, raw, v.ApplicationID, v.BindingRevision, config).Scan(&v.BindingRevision, &v.ConfigurationRevision)
 		if errors.Is(e, pgx.ErrNoRows) {
 			return v, ErrConflict
 		}
@@ -186,7 +222,7 @@ func (s *Store) SaveEnvironment(ctx context.Context, v core.Environment) (core.E
 	if e != nil {
 		return v, ClassifyError(e)
 	}
-	if e = auditTx(ctx, tx, v.ApplicationID, "environment.updated", v.ID, map[string]any{"binding_revision": v.BindingRevision, "archived": v.Archived, "key": v.Key, "name": v.Name, "bindings": v.Bindings}); e != nil {
+	if e = auditTx(ctx, tx, v.ApplicationID, "environment.updated", v.ID, map[string]any{"binding_revision": v.BindingRevision, "archived": v.Archived, "key": v.Key, "name": v.Name, "bindings": v.Bindings, "configuration_revision": v.ConfigurationRevision, "configuration_before": previousConfiguration, "configuration_after": v.Configuration}); e != nil {
 		return v, e
 	}
 	return v, tx.Commit(ctx)

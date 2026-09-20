@@ -51,13 +51,17 @@ func (s *Store) RegisterApplication(ctx context.Context, a core.Application) (co
 	if a.Tags == nil {
 		a.Tags = []string{}
 	}
+	if e := ValidateApplication(a); e != nil {
+		return a, e
+	}
+	profile, _ := json.Marshal(a.Profile)
 	tags, _ := json.Marshal(a.Tags)
 	tx, e := s.DB.Begin(ctx)
 	if e != nil {
 		return a, e
 	}
 	defer tx.Rollback(ctx)
-	_, e = tx.Exec(ctx, "INSERT INTO applications(id,name,description,environment,key,owner_team_id,maintainer_id,tags,repository_url,runbook_url) VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),$8,$9,$10)", a.ID, a.Name, a.Description, a.Environment, a.Key, a.OwnerTeamID, a.MaintainerID, tags, a.RepositoryURL, a.RunbookURL)
+	_, e = tx.Exec(ctx, "INSERT INTO applications(id,name,description,environment,key,owner_team_id,maintainer_id,tags,repository_url,runbook_url,profile) VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),$8,$9,$10,$11)", a.ID, a.Name, a.Description, a.Environment, a.Key, a.OwnerTeamID, a.MaintainerID, tags, a.RepositoryURL, a.RunbookURL, profile)
 	if e != nil {
 		return a, ClassifyError(e)
 	}

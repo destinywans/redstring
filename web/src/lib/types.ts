@@ -5,6 +5,31 @@ export type User = {
   role: "admin" | "operator" | "viewer";
   disabled?: boolean;
 };
+export type ApplicationProfile = {
+  business_unit?: string;
+  service_type?: string;
+  lifecycle?: string;
+  criticality?: string;
+  language?: string;
+  framework?: string;
+  default_branch?: string;
+  build_command?: string;
+  image_repository?: string;
+  documentation_url?: string;
+};
+export type EnvironmentConfiguration = {
+  replicas?: number | null;
+  cpu_request_millicores?: number | null;
+  cpu_limit_millicores?: number | null;
+  memory_request_mib?: number | null;
+  memory_limit_mib?: number | null;
+  port?: number | null;
+  connection_pool_max?: number | null;
+  request_timeout_ms?: number | null;
+  rate_limit_rps?: number | null;
+  retries?: number | null;
+  circuit_breaker_percent?: number | null;
+};
 export type Application = {
   id: string;
   name: string;
@@ -18,6 +43,9 @@ export type Application = {
   runbook_url?: string;
   archived?: boolean;
   environments?: Environment[];
+  profile?: ApplicationProfile;
+  maintainer_name?: string;
+  owner_team_name?: string;
 };
 export type Model = {
   id: string;
@@ -130,6 +158,8 @@ export type Environment = {
   name: string;
   archived: boolean;
   binding_revision: number;
+  configuration?: EnvironmentConfiguration;
+  configuration_revision?: number;
   bindings: { kind: string; connector_id: string; resource: string }[];
 };
 export type Team = { id: string; name: string; description: string };

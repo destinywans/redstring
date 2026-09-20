@@ -1,0 +1,202 @@
+.extensions-scope,
+.extensions-toolbar,
+.extensions-actions,
+.extension-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.extension-setup-note {
+  padding: 14px 18px;
+  margin-bottom: 18px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.extensions-scope {
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.extensions-scope label {
+  display: grid;
+  gap: 6px;
+  min-width: 230px;
+}
+.extensions-toolbar {
+  justify-content: space-between;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.extensions-toolbar > .field {
+  max-width: 300px;
+}
+.extensions-actions {
+  flex-wrap: wrap;
+}
+.extensions-grid {
+  display: grid;
+  grid-template-columns: minmax(270px, 0.8fr) minmax(0, 1.7fr);
+  gap: 20px;
+  align-items: start;
+}
+.extensions-list {
+  overflow: hidden;
+}
+.extension-row {
+  display: flex;
+  width: 100%;
+  gap: 12px;
+  padding: 18px;
+  align-items: center;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.extension-row:last-child {
+  border-bottom: 0;
+}
+.extension-row:hover,
+.extension-row.selected {
+  background: var(--panel-soft);
+}
+.extension-row.selected {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 var(--accent);
+}
+.extension-icon {
+  color: var(--accent);
+  display: flex;
+}
+.extension-row-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+.extension-row-main strong {
+  overflow-wrap: anywhere;
+  font-weight: 500;
+}
+.extension-row-main > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.extension-detail {
+  padding: 24px;
+  min-height: 380px;
+}
+.extension-meta {
+  justify-content: space-between;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  color: var(--muted);
+}
+.extension-meta label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.extension-meta select {
+  width: auto;
+}
+.extension-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+  font: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 18px;
+  border-radius: 8px;
+  margin: 16px 0;
+}
+.extension-hash,
+.extension-endpoint {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.extension-binding {
+  margin: 14px 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.extension-binding p {
+  margin: 8px 0;
+}
+.extension-binding pre,
+.extension-form pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 10px 0;
+  max-height: 320px;
+  overflow: auto;
+}
+.extension-examples {
+  margin-top: 30px;
+}
+.extension-examples > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+.extension-examples button {
+  padding: 20px;
+  text-align: left;
+}
+.extension-examples p {
+  color: var(--muted);
+  margin: 10px 0 16px;
+  line-height: 1.7;
+}
+.extension-examples span {
+  color: var(--accent);
+}
+.extension-form {
+  display: grid;
+  gap: 15px;
+}
+.extension-form > label:not(.extension-check) {
+  display: grid;
+  gap: 7px;
+}
+.extension-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  line-height: 1.6;
+}
+.extension-check input {
+  margin-top: 4px;
+}
+.extension-form textarea {
+  resize: vertical;
+}
+.extension-form .code-field {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+.extension-choice-list {
+  display: grid;
+  gap: 10px;
+  max-height: 230px;
+  overflow: auto;
+}
+.extension-compose-preview {
+  max-height: 280px;
+  overflow: auto;
+  margin: 0;
+}
+.extension-form details {
+  color: var(--muted);
+  font-size: 13px;
+}
+@media (max-width: 850px) {
+  .extensions-grid {
+    grid-template-columns: 1fr;
+  }
+  .extension-detail {
+    padding: 18px;
+  }
+}

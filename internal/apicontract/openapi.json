@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "AIOps Canvas Backend API",
-    "version": "0.2.1",
-    "description": "Single-workspace backend contract. All business history is server authoritative.",
+    "version": "0.3.0",
+    "description": "Single-workspace multi-application SRE API. All business history is server authoritative; application authorization is enforced beyond minimum workspace role.",
     "license": {
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
@@ -2650,9 +2650,9 @@
         ]
       },
       "post": {
-        "summary": "Import Runbook and build index",
+        "summary": "Create reviewable Runbook draft",
         "operationId": "post_knowledge",
-        "description": "Minimum role: operator. Empty application_id means workspace-global. Embedding failure preserves original and reports failed index status; use reindex to recover.",
+        "description": "Operator with application permission; workspace sharing requires administrator. Draft creation never publishes knowledge or grants access.",
         "responses": {
           "200": {
             "description": "Success",
@@ -2753,8 +2753,10 @@
                     "type": "string"
                   },
                   "version": {
-                    "type": "integer",
-                    "minimum": 1
+                    "type": "integer"
+                  },
+                  "metadata": {
+                    "$ref": "#/components/schemas/KnowledgeMetadata"
                   }
                 },
                 "additionalProperties": false,
@@ -2863,6 +2865,134 @@
             }
           }
         ]
+      },
+      "put": {
+        "summary": "Save immutable Runbook revision",
+        "operationId": "put_knowledge_id",
+        "description": "Minimum role: operator. ",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Document"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "knowledge"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expected_version": {
+                    "type": "integer"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "body": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  },
+                  "metadata": {
+                    "$ref": "#/components/schemas/KnowledgeMetadata"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "expected_version",
+                  "title",
+                  "body"
+                ]
+              }
+            }
+          }
+        }
       }
     },
     "/knowledge/{id}/reindex": {
@@ -2966,7 +3096,7 @@
       "post": {
         "summary": "Search application and global knowledge",
         "operationId": "post_knowledge_search",
-        "description": "Minimum role: viewer. Filters scope, provider, model and dimensions before scoring. Citations include document version, chunk and generation.",
+        "description": "Filter current ACL, publication state and environment before keyword/vector fusion. Embedding failure returns explicitly marked keyword fallback.",
         "responses": {
           "200": {
             "description": "Success",
@@ -2980,6 +3110,12 @@
                       "items": {
                         "$ref": "#/components/schemas/KnowledgeHit"
                       }
+                    },
+                    "mode": {
+                      "type": "string"
+                    },
+                    "degraded": {
+                      "type": "boolean"
                     },
                     "embedding": {
                       "type": "object",
@@ -3085,6 +3221,9 @@
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 20
+                  },
+                  "environment_id": {
+                    "type": "string"
                   }
                 },
                 "additionalProperties": false,
@@ -6847,6 +6986,670 @@
           }
         ]
       }
+    },
+    "/knowledge/templates": {
+      "get": {
+        "summary": "List editable Runbook templates",
+        "operationId": "get_knowledge_templates",
+        "description": "Minimum role: viewer. ",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "body": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "knowledge"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      }
+    },
+    "/knowledge/{id}/transition": {
+      "post": {
+        "summary": "Review, publish or archive knowledge",
+        "operationId": "post_knowledge_id_transition",
+        "description": "Minimum role: operator. ",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Document"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "knowledge"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expected_version": {
+                    "type": "integer"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "draft",
+                      "review",
+                      "published",
+                      "archived"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "expected_version",
+                  "state"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/knowledge/{id}/revisions": {
+      "get": {
+        "summary": "List readable immutable document revisions",
+        "operationId": "get_knowledge_id_revisions",
+        "description": "Minimum role: viewer. ",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Document"
+                      }
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "knowledge"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/knowledge/{id}/revisions/{version}": {
+      "get": {
+        "summary": "Read a cited immutable version",
+        "operationId": "get_knowledge_id_revisions_version",
+        "description": "Minimum role: viewer. ",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Document"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "knowledge"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/knowledge/{id}/export": {
+      "get": {
+        "summary": "Export authorized source revisions and metadata",
+        "operationId": "get_knowledge_id_export",
+        "description": "Minimum role: viewer. ",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "format": {
+                      "type": "string"
+                    },
+                    "document_id": {
+                      "type": "string"
+                    },
+                    "exported_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "document": {
+                      "$ref": "#/components/schemas/Document"
+                    },
+                    "revisions": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Document"
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "knowledge"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/investigations/{id}/knowledge-drafts/generate": {
+      "post": {
+        "summary": "Generate experience draft after verified closure",
+        "operationId": "post_investigations_id_knowledge_drafts_generate",
+        "description": "Minimum role: operator. Uses bounded configured model with committed evidence; human review and publication remain required.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDraft"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "investigations"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -6944,6 +7747,12 @@
               "type": "string"
             }
           },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "archived": {
             "type": "boolean"
           },
@@ -6985,12 +7794,6 @@
           },
           "streaming": {
             "type": "boolean"
-          },
-          "context_window": {
-            "type": "integer"
-          },
-          "input_budget": {
-            "type": "integer"
           }
         },
         "additionalProperties": false
@@ -7481,6 +8284,22 @@
             "items": {
               "type": "string"
             }
+          },
+          "lifecycle": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "review",
+              "published",
+              "archived"
+            ]
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/KnowledgeMetadata"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "additionalProperties": false
@@ -7513,6 +8332,12 @@
             "type": "integer"
           },
           "similarity": {
+            "type": "number"
+          },
+          "retrieval": {
+            "type": "string"
+          },
+          "score": {
             "type": "number"
           }
         },
@@ -7553,16 +8378,13 @@
             "type": "integer",
             "minimum": 180
           },
-          "application_id": {
-            "type": "string"
-          },
           "environment_id": {
             "type": "string"
           },
           "connector_id": {
             "type": "string"
           },
-          "binding_digest": {
+          "configuration_digest": {
             "type": "string"
           },
           "binding_revision": {
@@ -7779,6 +8601,15 @@
           "confirmed_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "generation_run_id": {
+            "type": "string"
+          },
+          "generation_model": {
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -8056,6 +8887,63 @@
           "subject_id",
           "permission"
         ]
+      },
+      "KnowledgeMetadata": {
+        "type": "object",
+        "properties": {
+          "maintainer_id": {
+            "type": "string"
+          },
+          "team_id": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string"
+          },
+          "actor_id": {
+            "type": "string"
+          },
+          "generation_run_id": {
+            "type": "string"
+          },
+          "generation_model": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string"
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "environment_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "resource_categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "shared_application_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
       }
     },
     "securitySchemes": {
@@ -8063,6 +8951,10 @@
         "type": "apiKey",
         "in": "cookie",
         "name": "aiops_session"
+      },
+      "alertSourceToken": {
+        "type": "http",
+        "scheme": "bearer"
       }
     }
   }

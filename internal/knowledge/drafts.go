@@ -10,6 +10,9 @@ import (
 // Draft is not a searchable source. Only explicit confirmation of a closed
 // investigation creates the immutable version referenced by DocumentID.
 type Draft struct {
+	Origin          string     `json:"origin"`
+	GenerationRunID string     `json:"generation_run_id,omitempty"`
+	GenerationModel string     `json:"generation_model,omitempty"`
 	ID              string     `json:"id"`
 	InvestigationID string     `json:"investigation_id"`
 	ApplicationID   string     `json:"application_id"`
@@ -38,6 +41,9 @@ type DraftRepository interface {
 }
 
 func (s *Service) CreateDraft(ctx context.Context, inv string, in DraftInput, user string) (Draft, error) {
+	if err := s.authorizeDraft(ctx, "investigation", inv, "operate"); err != nil {
+		return Draft{}, err
+	}
 	in.Title = strings.TrimSpace(in.Title)
 	in.Body = strings.TrimSpace(in.Body)
 	if in.Title == "" || in.Body == "" || len(in.Title) > 200 || len(in.Body) > 128*1024 || len(in.EvidenceIDs) < 1 || len(in.EvidenceIDs) > 100 {
@@ -53,9 +59,15 @@ func (s *Service) CreateDraft(ctx context.Context, inv string, in DraftInput, us
 	return s.Repository.CreateDraft(ctx, inv, in, user)
 }
 func (s *Service) Drafts(ctx context.Context, inv string) ([]Draft, error) {
+	if err := s.authorizeDraft(ctx, "investigation", inv, "view"); err != nil {
+		return nil, err
+	}
 	return s.Repository.ListDrafts(ctx, inv)
 }
 func (s *Service) ConfirmDraft(ctx context.Context, id, user string) (Document, error) {
+	if err := s.authorizeDraft(ctx, "draft", id, "operate"); err != nil {
+		return Document{}, err
+	}
 	document, created, err := s.Repository.ConfirmDraft(ctx, id, user)
 	if err != nil {
 		return Document{}, err
@@ -69,3 +81,20 @@ func (s *Service) ConfirmDraft(ctx context.Context, id, user string) (Document, 
 }
 
 var _ DraftRepository = (*PGRepository)(nil)
+
+func (s *Service) authorizeDraft(ctx context.Context, kind, id, permission string) error {
+	r, ok := s.Repository.(interface {
+		DraftApplication(context.Context, string, string) (string, error)
+	})
+	if !ok {
+		if s.Authorize != nil {
+			return ErrForbidden
+		}
+		return nil
+	}
+	app, err := r.DraftApplication(ctx, kind, id)
+	if err != nil {
+		return err
+	}
+	return s.authorize(ctx, app, permission)
+}

@@ -18,6 +18,8 @@ import (
 var ErrInvalid = errors.New("invalid knowledge input")
 
 type Document struct {
+	Lifecycle         string    `json:"lifecycle"`
+	Metadata          Metadata  `json:"metadata"`
 	InvestigationID   string    `json:"investigation_id,omitempty"`
 	EvidenceIDs       []string  `json:"evidence_ids,omitempty"`
 	ID                string    `json:"id"`
@@ -85,9 +87,14 @@ type IndexedChunk struct {
 	Vector  []float32
 }
 type Service struct {
-	Repository Repository
-	Embedding  inference.Embedder
-	Vectors    VectorIndex
+	VisibleApplications   func(context.Context, string) ([]string, error)
+	ExperienceGenerator   ExperienceGenerator
+	AutoExperienceEnabled func(context.Context, string) bool
+	Authorize             func(context.Context, string, string, string) error
+	ValidateEnvironment   func(context.Context, string, string) error
+	Repository            Repository
+	Embedding             inference.Embedder
+	Vectors               VectorIndex
 }
 
 func NewWithRepository(repo Repository, e inference.Embedder, index VectorIndex) *Service {
@@ -95,20 +102,70 @@ func NewWithRepository(repo Repository, e inference.Embedder, index VectorIndex)
 }
 func (s *Service) Migrate(ctx context.Context) error { return s.Repository.Migrate(ctx) }
 func (s *Service) Get(ctx context.Context, id string) (Document, error) {
-	return s.Repository.Get(ctx, id)
+	d, err := s.Repository.Get(ctx, id)
+	if err == nil {
+		err = s.access(ctx, d, "view")
+	}
+	return d, err
 }
 func (s *Service) List(ctx context.Context, app string) ([]Document, error) {
-	return s.Repository.List(ctx, app)
+	if app != "" {
+		if err := s.authorize(ctx, app, "view"); err != nil {
+			return nil, err
+		}
+	}
+	var ds []Document
+	var err error
+	if app == "" && s.VisibleApplications != nil {
+		ids, e := s.VisibleApplications(ctx, PrincipalFromContext(ctx).ID)
+		if e != nil {
+			return nil, e
+		}
+		if repo, ok := s.Repository.(interface {
+			ListVisible(context.Context, []string) ([]Document, error)
+		}); ok {
+			ds, err = repo.ListVisible(ctx, ids)
+		} else {
+			ds, err = s.Repository.List(ctx, app)
+		}
+	} else {
+		ds, err = s.Repository.List(ctx, app)
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := []Document{}
+	for _, d := range ds {
+		if s.access(ctx, d, "view") == nil {
+			out = append(out, d)
+		}
+	}
+	return out, nil
 }
 func (s *Service) Import(ctx context.Context, d Document, user string) (Document, error) {
+	if err := s.authorize(ctx, d.ApplicationID, "operate"); err != nil {
+		return d, err
+	}
+	d.Metadata.Origin = "human"
+	d.Metadata.ActorID = user
+	d.Metadata.GenerationRunID = ""
+	d.Metadata.GenerationModel = ""
+	d.Metadata.EvidenceIDs = nil
+	if d.ApplicationID == "" && d.Metadata.Visibility == "" {
+		d.Metadata.Visibility = "workspace"
+	}
+	var err error
+	d.Metadata, err = s.normalizeMetadata(ctx, d.ApplicationID, user, d.Metadata)
+	if err != nil {
+		return d, err
+	}
+	d.Lifecycle = "draft"
 	d.Title = strings.TrimSpace(d.Title)
 	d.Body = strings.TrimSpace(d.Body)
 	if d.Title == "" || d.Body == "" || len(d.Title) > 200 || len(d.Body) > 128*1024 || len(d.Source) > 2048 {
 		return d, fmt.Errorf("%w: title and body are required; body limit 128 KiB", ErrInvalid)
 	}
-	if d.Version < 1 {
-		d.Version = 1
-	}
+	d.Version = 1
 	d.ID = store.ID()
 	d.ContentHash = store.Hash(d.Body)
 	if d.ApplicationID != "" {
@@ -140,8 +197,21 @@ func (s *Service) Index(ctx context.Context, id string) (retErr error) {
 	if e != nil {
 		return e
 	}
+	if err := s.access(ctx, d, "operate"); err != nil {
+		return err
+	}
+	if s.Embedding == nil {
+		return errors.New("embedding unavailable")
+	}
 	desc := s.Embedding.Descriptor()
-	gen, e := s.Repository.ReserveGeneration(ctx, id, desc)
+	var gen int64
+	if r, ok := s.Repository.(interface {
+		ReserveRevisionGeneration(context.Context, string, int, inference.EmbeddingDescriptor) (int64, error)
+	}); ok {
+		gen, e = r.ReserveRevisionGeneration(ctx, id, d.Version, desc)
+	} else {
+		gen, e = s.Repository.ReserveGeneration(ctx, id, desc)
+	}
 	if e != nil {
 		return e
 	}
@@ -182,7 +252,7 @@ func (s *Service) Index(ctx context.Context, id string) (retErr error) {
 	return s.Repository.PublishGeneration(ctx, snapshot)
 }
 
-func (s *Service) Search(ctx context.Context, app, query string, limit int) ([]Hit, error) {
+func (s *Service) vectorSearch(ctx context.Context, app, query string, limit int) ([]Hit, error) {
 	if app == "" || strings.TrimSpace(query) == "" || len(query) > 8000 {
 		return nil, fmt.Errorf("%w: application_id and a query up to 8000 bytes are required", ErrInvalid)
 	}
@@ -206,14 +276,33 @@ func (s *Service) Search(ctx context.Context, app, query string, limit int) ([]H
 	return s.Vectors.Search(ctx, app, s.Embedding.Descriptor(), vs[0], limit)
 }
 
+// Keep Markdown sections intact when possible; split oversized sections on rune
+// boundaries with overlap. A heading remains attached to its first paragraph.
 func chunkText(s string) []string {
-	r := []rune(s)
+	sections := []string{}
+	var current strings.Builder
+	for _, line := range strings.Split(s, "\n") {
+		if strings.HasPrefix(line, "#") && current.Len() > 0 {
+			sections = append(sections, strings.TrimSpace(current.String()))
+			current.Reset()
+		}
+		if current.Len() > 0 {
+			current.WriteByte('\n')
+		}
+		current.WriteString(line)
+	}
+	if current.Len() > 0 {
+		sections = append(sections, strings.TrimSpace(current.String()))
+	}
 	out := []string{}
-	for start := 0; start < len(r); start += 900 {
-		end := min(start+1100, len(r))
-		out = append(out, string(r[start:end]))
-		if end == len(r) {
-			break
+	for _, section := range sections {
+		r := []rune(section)
+		for start := 0; start < len(r); start += 900 {
+			end := min(start+1100, len(r))
+			out = append(out, string(r[start:end]))
+			if end == len(r) {
+				break
+			}
 		}
 	}
 	return out
@@ -238,11 +327,11 @@ func vector(v []float32) (string, error) {
 }
 func (s *Service) EvidenceTool(app string) inference.EvidenceTool {
 	return inference.EvidenceTool{Name: "search_runbooks", Description: "Search confirmed runbooks for this registered application. Returned passages are references, not current live evidence.", Read: func(ctx context.Context, q string) (inference.Evidence, error) {
-		hits, e := s.Search(ctx, app, q, 5)
+		result, e := s.SearchScoped(ctx, app, store.EnvironmentID(ctx), q, 5)
 		if e != nil {
 			return inference.Evidence{}, e
 		}
-		b, e := json.Marshal(hits)
-		return inference.Evidence{Kind: "runbook", Title: fmt.Sprintf("Runbook search (%d passages)", len(hits)), Content: string(b), Source: "knowledge://search"}, e
+		b, e := json.Marshal(result)
+		return inference.Evidence{Kind: "runbook", Title: fmt.Sprintf("Runbook search (%d passages)", len(result.Items)), Content: string(b), Source: "knowledge://search"}, e
 	}}
 }

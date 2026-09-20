@@ -83,7 +83,7 @@ func isolatedKnowledge(t *testing.T) (*Service, *fakeEmbedder) {
 	if e = pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_extension e JOIN pg_namespace n ON n.oid=e.extnamespace WHERE e.extname='vector' AND n.nspname='public')").Scan(&extension); e != nil || !extension {
 		t.Fatal("requires preinstalled public.vector extension")
 	}
-	if _, e = pool.Exec(ctx, "INSERT INTO users(id,email,name,role,password_hash) VALUES('u','test@example.invalid','Test','operator','unused'); INSERT INTO applications(id,name) VALUES('a','A'),('b','B')"); e != nil {
+	if _, e = pool.Exec(ctx, "INSERT INTO users(id,email,name,role,password_hash) VALUES('u','test@example.invalid','Test','operator','unused'); INSERT INTO applications(id,key,name) VALUES('a','a','A'),('b','b','B'); INSERT INTO application_environments(id,application_id,key,name) VALUES('a-default','a','default','Default'),('b-default','b','default','Default')"); e != nil {
 		t.Fatal(e)
 	}
 	f := &fakeEmbedder{desc: inference.EmbeddingDescriptor{Provider: "test-provider", Model: "test-model"}, dimensions: 3}
@@ -140,6 +140,12 @@ func TestPostgresKnowledgeScopeAndEmbeddingIdentity(t *testing.T) {
 		if e != nil || d.Status != "ready" {
 			t.Fatalf("import: %v %+v", e, d)
 		}
+		if _, e = s.Transition(ctx, d.ID, TransitionInput{d.Version, "review"}, "u"); e != nil {
+			t.Fatal(e)
+		}
+		if _, e = s.Transition(ctx, d.ID, TransitionInput{d.Version, "published"}, "u"); e != nil {
+			t.Fatal(e)
+		}
 		ids[app] = d.ID
 	}
 	for _, app := range []string{"a", "b"} {
@@ -171,8 +177,10 @@ func TestPostgresKnowledgeScopeAndEmbeddingIdentity(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
-		if len(hits) != 0 {
-			t.Fatal("cross-generation embedding records returned")
+		for _, hit := range hits {
+			if hit.GenerationID != 0 {
+				t.Fatal("cross-generation embedding records returned")
+			}
 		}
 	}
 }

@@ -10,11 +10,11 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
-const selectDraft = `SELECT d.id,d.investigation_id,d.application_id,d.title,d.body,d.evidence_ids,d.created_by,d.created_at,COALESCE(d.confirmed_by,''),d.confirmed_at,COALESCE(d.document_id,'') FROM knowledge_drafts d `
+const selectDraft = `SELECT d.id,d.investigation_id,d.application_id,d.title,d.body,d.evidence_ids,d.created_by,d.created_at,COALESCE(d.confirmed_by,''),d.confirmed_at,COALESCE(d.document_id,''),d.origin,d.generation_run_id,d.generation_model FROM knowledge_drafts d `
 
 func scanDraft(row pgx.Row) (Draft, error) {
 	var d Draft
-	e := row.Scan(&d.ID, &d.InvestigationID, &d.ApplicationID, &d.Title, &d.Body, &d.EvidenceIDs, &d.CreatedBy, &d.CreatedAt, &d.ConfirmedBy, &d.ConfirmedAt, &d.DocumentID)
+	e := row.Scan(&d.ID, &d.InvestigationID, &d.ApplicationID, &d.Title, &d.Body, &d.EvidenceIDs, &d.CreatedBy, &d.CreatedAt, &d.ConfirmedBy, &d.ConfirmedAt, &d.DocumentID, &d.Origin, &d.GenerationRunID, &d.GenerationModel)
 	if errors.Is(e, pgx.ErrNoRows) {
 		e = store.ErrNotFound
 	}
@@ -131,8 +131,27 @@ func (s *PGRepository) ConfirmDraft(ctx context.Context, id, user string) (strin
 		return "", false, e
 	}
 	source := "investigation://" + inv + "/knowledge-drafts/" + id
-	if _, e = tx.Exec(ctx, "INSERT INTO knowledge_documents(id,application_id,title,body,source,version,content_hash,created_by,investigation_id,evidence_ids) VALUES($1,$2,$3,$4,$5,1,$6,$7,$8,$9)", document, d.ApplicationID, d.Title, d.Body, source, store.Hash(d.Body), user, inv, ids); e != nil {
+	meta := Metadata{MaintainerID: user, Origin: d.Origin, ActorID: d.CreatedBy, GenerationRunID: d.GenerationRunID, GenerationModel: d.GenerationModel, EvidenceIDs: d.EvidenceIDs, Visibility: "application"}
+	var environment string
+	if err := tx.QueryRow(ctx, "SELECT coalesce(environment_id,'') FROM investigations WHERE id=$1", inv).Scan(&environment); err != nil {
+		return "", false, err
+	}
+	if environment != "" {
+		meta.EnvironmentIDs = []string{environment}
+	}
+	metaJSON, _ := json.Marshal(meta)
+	if _, e = tx.Exec(ctx, "INSERT INTO knowledge_documents(id,application_id,title,body,source,version,content_hash,created_by,investigation_id,evidence_ids,lifecycle,metadata) VALUES($1,$2,$3,$4,$5,1,$6,$7,$8,$9,'published',$10)", document, d.ApplicationID, d.Title, d.Body, source, store.Hash(d.Body), d.CreatedBy, inv, ids, metaJSON); e != nil {
 		return "", false, e
+	}
+	doc, err := scanDoc(tx.QueryRow(ctx, selectDoc+" WHERE d.id=$1", document))
+	if err != nil {
+		return "", false, err
+	}
+	if err = saveRevision(ctx, tx, doc, user); err != nil {
+		return "", false, err
+	}
+	if err = knowledgeAudit(ctx, tx, doc, user, "knowledge.experience_published"); err != nil {
+		return "", false, err
 	}
 	if _, e = tx.Exec(ctx, "UPDATE knowledge_drafts SET document_id=$2,confirmed_by=$3,confirmed_at=now() WHERE id=$1", id, document, user); e != nil {
 		return "", false, e
@@ -141,4 +160,17 @@ func (s *PGRepository) ConfirmDraft(ctx context.Context, id, user string) (strin
 		return "", false, e
 	}
 	return document, true, tx.Commit(ctx)
+}
+
+func (s *PGRepository) DraftApplication(ctx context.Context, kind, id string) (string, error) {
+	query := "SELECT application_id FROM investigations WHERE id=$1"
+	if kind == "draft" {
+		query = "SELECT application_id FROM knowledge_drafts WHERE id=$1"
+	}
+	var app string
+	err := s.DB.QueryRow(ctx, query, id).Scan(&app)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = store.ErrNotFound
+	}
+	return app, err
 }

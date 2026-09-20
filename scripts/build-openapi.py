@@ -118,14 +118,13 @@ def body_at(path,method,schema): P[path][method]['requestBody']={'required':True
 def query_env(path,method): P[path][method].setdefault('parameters',[]).append({'name':'environment_id','in':'query','schema':string()})
 S['Binding']=obj(fieldnames('kind connector_id resource'),['kind','connector_id','resource'])
 S['Environment']=obj({**fieldnames('id application_id key name'),'archived':boolean,'binding_revision':integer(),'bindings':arr(ref('Binding'))})
-S['Application']['properties'].update({**fieldnames('key owner_team_id maintainer_id repository_url runbook_url'),'tags':arr(string()),'archived':boolean,'environments':arr(ref('Environment'))})
+S['Application']['properties'].update({**fieldnames('key owner_team_id maintainer_id repository_url runbook_url'),'tags':arr(string()),'capabilities':arr(string()),'archived':boolean,'environments':arr(ref('Environment'))})
 S['Team']=obj(fieldnames('id name description'))
 S['Grant']=obj({'subject_type':string(enum=['user','team']),'subject_id':string(),'permission':string(enum=['view','operate'])},['subject_type','subject_id','permission'])
-S['Model']['properties'].update({'context_window':integer(),'input_budget':integer()})
 S['Investigation']['properties']['environment_id']=string()
 S['DeploymentSnapshot']['properties'].update({**fieldnames('environment_id connector_id'),'binding_revision':integer()})
-S['RollbackProposal']['properties'].update({**fieldnames('application_id environment_id connector_id binding_digest'),'binding_revision':integer()})
-app_fields={k:v for k,v in S['Application']['properties'].items() if k not in ['id','archived','environments']}
+S['RollbackProposal']['properties'].update({**fieldnames('environment_id connector_id configuration_digest'),'binding_revision':integer()})
+app_fields={k:v for k,v in S['Application']['properties'].items() if k not in ['id','archived','environments','capabilities']}
 body_at('/applications','post',obj(app_fields,['name']))
 body_at('/investigations','post',obj(fieldnames('application_id environment_id title'),['application_id','title']))
 route('get','/applications/{id}','Read authorized application',response=ref('Application'))
@@ -146,6 +145,23 @@ route('get','/connector-registrations','Read safe server-managed binding options
 for path in ['/applications/{id}/deployment','/applications/{id}/telemetry']: query_env(path,'get')
 for path in ['/applications/{id}/metrics','/applications/{id}/logs']:
     P[path]['post']['requestBody']['content']['application/json']['schema']['properties']['environment_id']=string()
-spec={'openapi':'3.1.0','info':{'title':'AIOps Canvas Backend API','version':'0.2.1','description':'Single-workspace backend contract. All business history is server authoritative.','license':{'name':'Apache-2.0','identifier':'Apache-2.0'}},'servers':[{'url':'/api/v1'}],'security':[{'sessionCookie':[]}],'paths':P,'components':{'schemas':S,'securitySchemes':{'sessionCookie':{'type':'apiKey','in':'cookie','name':'aiops_session'}}}}
+S['KnowledgeMetadata']=obj({**fieldnames('maintainer_id team_id origin actor_id generation_run_id generation_model visibility'),**{k:arr(string()) for k in ['evidence_ids','environment_ids','resource_categories','tags','shared_application_ids']}})
+S['Document']['properties'].update({'lifecycle':string(enum=['draft','review','published','archived']),'metadata':ref('KnowledgeMetadata'),'updated_at':string(format='date-time')})
+S['KnowledgeHit']['properties'].update({'retrieval':string(),'score':{'type':'number'}})
+S['KnowledgeDraft']['properties'].update(fieldnames('origin generation_run_id generation_model'))
+body_at('/knowledge','post',obj({**fieldnames('application_id title body source'),'version':integer(),'metadata':ref('KnowledgeMetadata')},['title','body']))
+P['/knowledge']['post']['summary']='Create reviewable Runbook draft'
+P['/knowledge']['post']['description']='Operator with application permission; workspace sharing requires administrator. Draft creation never publishes knowledge or grants access.'
+P['/knowledge/search']['post']['requestBody']['content']['application/json']['schema']['properties']['environment_id']=string()
+P['/knowledge/search']['post']['responses']['200']['content']['application/json']['schema']=obj({'items':arr(ref('KnowledgeHit')),'mode':string(),'degraded':boolean,'embedding':obj(fieldnames('provider model'))})
+P['/knowledge/search']['post']['description']='Filter current ACL, publication state and environment before keyword/vector fusion. Embedding failure returns explicitly marked keyword fallback.'
+route('get','/knowledge/templates','List editable Runbook templates',response=obj({'items':arr(obj(fieldnames('id title body')))}))
+route('put','/knowledge/{id}','Save immutable Runbook revision','operator',obj({'expected_version':integer(),**fieldnames('title body source'),'metadata':ref('KnowledgeMetadata')},['expected_version','title','body']),ref('Document'))
+route('post','/knowledge/{id}/transition','Review, publish or archive knowledge','operator',obj({'expected_version':integer(),'state':string(enum=['draft','review','published','archived'])},['expected_version','state']),ref('Document'))
+route('get','/knowledge/{id}/revisions','List readable immutable document revisions',response=listed('Document'))
+route('get','/knowledge/{id}/revisions/{version}','Read a cited immutable version',response=ref('Document'))
+route('get','/knowledge/{id}/export','Export authorized source revisions and metadata',response=obj({'format':string(),'document_id':string(),'exported_at':string(format='date-time'),'document':ref('Document'),'revisions':arr(ref('Document'))}))
+route('post','/investigations/{id}/knowledge-drafts/generate','Generate experience draft after verified closure','operator',response=ref('KnowledgeDraft'),desc='Uses bounded configured model with committed evidence; human review and publication remain required.')
+spec={'openapi':'3.1.0','info':{'title':'AIOps Canvas Backend API','version':'0.3.0','description':'Single-workspace multi-application SRE API. All business history is server authoritative; application authorization is enforced beyond minimum workspace role.','license':{'name':'Apache-2.0','identifier':'Apache-2.0'}},'servers':[{'url':'/api/v1'}],'security':[{'sessionCookie':[]}],'paths':P,'components':{'schemas':S,'securitySchemes':{'sessionCookie':{'type':'apiKey','in':'cookie','name':'aiops_session'},'alertSourceToken':{'type':'http','scheme':'bearer'}}}}
 Path('internal/apicontract/openapi.json').write_text(json.dumps(spec,ensure_ascii=False,indent=2)+'\n')
 print(f'Generated {len(P)} paths, {sum(len(x) for x in P.values())} operations, {len(S)} schemas.')

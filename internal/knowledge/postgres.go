@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -14,7 +15,10 @@ import (
 // A future PG+Qdrant implementation must stage vectors under the reserved ID,
 // confirm their availability, then CAS the active generation; it cannot copy this
 // transaction assumption across databases.
-type PGRepository struct{ DB *pgxpool.Pool }
+type PGRepository struct {
+	DB            *pgxpool.Pool
+	ValidateScope func(context.Context, string, Metadata) error
+}
 
 var _ Repository = (*PGRepository)(nil)
 
@@ -41,14 +45,17 @@ func (s *PGRepository) Migrate(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
+	if _, e = tx.Exec(ctx, governanceMigration); e != nil {
+		return e
+	}
 	return tx.Commit(ctx)
 }
 
-const selectDoc = `SELECT d.id,COALESCE(d.application_id,''),d.title,d.body,d.source,d.version,d.content_hash,d.created_at,COALESCE(g.id,0),COALESCE(g.provider,''),COALESCE(g.model,''),COALESCE(g.dimensions,0),COALESCE(g.status,'unindexed'),COALESCE(g.error,''),COALESCE(d.investigation_id,''),d.evidence_ids FROM knowledge_documents d LEFT JOIN LATERAL (SELECT * FROM knowledge_generations WHERE document_id=d.id ORDER BY id DESC LIMIT 1) g ON true `
+const selectDoc = `SELECT d.id,COALESCE(d.application_id,''),d.title,d.body,d.source,d.version,d.content_hash,d.created_at,COALESCE(g.id,0),COALESCE(g.provider,''),COALESCE(g.model,''),COALESCE(g.dimensions,0),COALESCE(g.status,'unindexed'),COALESCE(g.error,''),COALESCE(d.investigation_id,''),d.evidence_ids,d.lifecycle,d.metadata FROM knowledge_documents d LEFT JOIN LATERAL (SELECT * FROM knowledge_generations WHERE document_id=d.id AND document_version=d.version ORDER BY id DESC LIMIT 1) g ON true `
 
 func scanDoc(row pgx.Row) (Document, error) {
 	var d Document
-	e := row.Scan(&d.ID, &d.ApplicationID, &d.Title, &d.Body, &d.Source, &d.Version, &d.ContentHash, &d.CreatedAt, &d.GenerationID, &d.EmbeddingProvider, &d.EmbeddingModel, &d.Dimensions, &d.Status, &d.Error, &d.InvestigationID, &d.EvidenceIDs)
+	e := row.Scan(&d.ID, &d.ApplicationID, &d.Title, &d.Body, &d.Source, &d.Version, &d.ContentHash, &d.CreatedAt, &d.GenerationID, &d.EmbeddingProvider, &d.EmbeddingModel, &d.Dimensions, &d.Status, &d.Error, &d.InvestigationID, &d.EvidenceIDs, &d.Lifecycle, &d.Metadata)
 	if errors.Is(e, pgx.ErrNoRows) {
 		e = store.ErrNotFound
 	}
@@ -58,7 +65,7 @@ func (s *PGRepository) Get(ctx context.Context, id string) (Document, error) {
 	return scanDoc(s.DB.QueryRow(ctx, selectDoc+" WHERE d.id=$1", id))
 }
 func (s *PGRepository) List(ctx context.Context, app string) ([]Document, error) {
-	rows, e := s.DB.Query(ctx, selectDoc+" WHERE ($1='' OR d.application_id=$1 OR d.application_id IS NULL) ORDER BY d.created_at DESC LIMIT 200", app)
+	rows, e := s.DB.Query(ctx, selectDoc+" WHERE ($1='' OR d.application_id=$1 OR d.metadata->>'visibility'='workspace' OR COALESCE(d.metadata->'shared_application_ids','[]'::jsonb) ? $1) ORDER BY d.created_at DESC LIMIT 200", app)
 	if e != nil {
 		return nil, e
 	}
@@ -80,12 +87,30 @@ func (s *PGRepository) ApplicationExists(ctx context.Context, app string) (bool,
 	return exists, e
 }
 func (s *PGRepository) SaveSource(ctx context.Context, d Document, user string) error {
-	_, e := s.DB.Exec(ctx, "INSERT INTO knowledge_documents(id,application_id,title,body,source,version,content_hash,created_by) VALUES($1,NULLIF($2,''),$3,$4,$5,$6,$7,$8)", d.ID, d.ApplicationID, d.Title, d.Body, d.Source, d.Version, d.ContentHash, user)
-	return e
+	tx, e := s.DB.Begin(ctx)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback(ctx)
+	meta, e := json.Marshal(d.Metadata)
+	if e != nil {
+		return e
+	}
+	e = tx.QueryRow(ctx, "INSERT INTO knowledge_documents(id,application_id,title,body,source,version,content_hash,created_by,lifecycle,metadata) VALUES($1,NULLIF($2,''),$3,$4,$5,$6,$7,$8,$9,$10) RETURNING created_at", d.ID, d.ApplicationID, d.Title, d.Body, d.Source, d.Version, d.ContentHash, user, d.Lifecycle, meta).Scan(&d.CreatedAt)
+	if e != nil {
+		return e
+	}
+	if e = saveRevision(ctx, tx, d, user); e != nil {
+		return e
+	}
+	if e = knowledgeAudit(ctx, tx, d, user, "knowledge.created"); e != nil {
+		return e
+	}
+	return tx.Commit(ctx)
 }
 func (s *PGRepository) ReserveGeneration(ctx context.Context, id string, desc inference.EmbeddingDescriptor) (int64, error) {
 	var gen int64
-	e := s.DB.QueryRow(ctx, "INSERT INTO knowledge_generations(document_id,provider,model,status) VALUES($1,$2,$3,'building') RETURNING id", id, desc.Provider, desc.Model).Scan(&gen)
+	e := s.DB.QueryRow(ctx, "INSERT INTO knowledge_generations(document_id,provider,model,status,document_version) SELECT id,$2,$3,'building',version FROM knowledge_documents WHERE id=$1 RETURNING id", id, desc.Provider, desc.Model).Scan(&gen)
 	return gen, e
 }
 func (s *PGRepository) FailGeneration(ctx context.Context, gen int64, message string) error {
@@ -126,7 +151,7 @@ func (s *PGRepository) PublishGeneration(ctx context.Context, snapshot Generatio
 		return e
 	}
 	// A slow older rebuild cannot replace the result of a newer successful one.
-	if _, e = tx.Exec(ctx, "UPDATE knowledge_documents SET active_generation=$2 WHERE id=$1 AND (active_generation IS NULL OR active_generation<$2)", snapshot.DocumentID, snapshot.ID); e != nil {
+	if _, e = tx.Exec(ctx, "UPDATE knowledge_documents SET active_generation=$2 WHERE id=$1 AND version=(SELECT document_version FROM knowledge_generations WHERE id=$2) AND (active_generation IS NULL OR active_generation<$2)", snapshot.DocumentID, snapshot.ID); e != nil {
 		return e
 	}
 	return tx.Commit(ctx)
@@ -135,13 +160,16 @@ func (s *PGRepository) PublishGeneration(ctx context.Context, snapshot Generatio
 type PGVector struct{ DB *pgxpool.Pool }
 
 func (p PGVector) Search(ctx context.Context, app string, desc inference.EmbeddingDescriptor, v []float32, limit int) ([]Hit, error) {
+	return p.SearchScoped(ctx, app, "", desc, v, limit)
+}
+func (p PGVector) SearchScoped(ctx context.Context, app, environment string, desc inference.EmbeddingDescriptor, v []float32, limit int) ([]Hit, error) {
 	encoded, e := vector(v)
 	if e != nil {
 		return nil, e
 	}
 	// Exact cosine search is intentional for MVP corpus sizes. Do not claim a
 	// million-vector latency budget until a workload-specific ANN benchmark exists.
-	rows, e := p.DB.Query(ctx, `WITH eligible AS MATERIALIZED (SELECT d.id,COALESCE(d.application_id,'') application_id,d.title,d.source,d.version,c.ordinal,c.content,c.embedding,g.id generation_id FROM knowledge_documents d JOIN knowledge_generations g ON g.id=d.active_generation JOIN knowledge_chunks c ON c.generation_id=g.id WHERE (d.application_id=$1 OR d.application_id IS NULL) AND g.status='ready' AND g.provider=$2 AND g.model=$3 AND g.dimensions=$4) SELECT id,application_id,title,source,version,ordinal,content,1-(embedding <=> $5::vector),generation_id FROM eligible ORDER BY embedding <=> $5::vector,id,ordinal LIMIT $6`, app, desc.Provider, desc.Model, len(v), encoded, limit)
+	rows, e := p.DB.Query(ctx, `WITH eligible AS MATERIALIZED (SELECT d.id,COALESCE(d.application_id,'') application_id,d.title,d.source,d.version,c.ordinal,c.content,c.embedding,g.id generation_id FROM knowledge_documents d JOIN knowledge_generations g ON g.id=d.active_generation JOIN knowledge_chunks c ON c.generation_id=g.id WHERE (d.application_id=$1 OR d.metadata->>'visibility'='workspace' OR COALESCE(d.metadata->'shared_application_ids','[]'::jsonb) ? $1) AND d.lifecycle='published' AND g.document_version=d.version AND g.status='ready' AND g.provider=$2 AND g.model=$3 AND g.dimensions=$4 AND ($7='' OR COALESCE(d.metadata->'environment_ids','[]'::jsonb)='[]'::jsonb OR d.metadata->'environment_ids' ? $7)) SELECT id,application_id,title,source,version,ordinal,content,1-(embedding <=> $5::vector),generation_id FROM eligible ORDER BY embedding <=> $5::vector,id,ordinal LIMIT $6`, app, desc.Provider, desc.Model, len(v), encoded, limit, environment)
 	if e != nil {
 		return nil, e
 	}

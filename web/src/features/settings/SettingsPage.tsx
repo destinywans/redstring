@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "react-router-dom";
 import {
   Bot,
   Check,
@@ -16,19 +15,14 @@ import {
   Network,
   Plus,
   Server,
-  Shield,
-  SlidersHorizontal,
   Sparkles,
   Terminal,
-  UserPlus,
-  Users,
   X,
 } from "lucide-react";
-import { request, post, patch } from "../../lib/api";
+import { request, patch } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
-import type { User, Investigation, Model } from "../../lib/types";
+import type { Investigation, Model } from "../../lib/types";
 import "./settings.css";
-import GovernancePanel from "../workspace/GovernancePanel";
 
 type Integration = {
   id: string;
@@ -169,7 +163,6 @@ function SettingsModal({
 export default function SettingsPage() {
   const { preview, models, user, application, investigationId, notify } =
     useWorkspace();
-  const location = useLocation();
   const qc = useQueryClient();
   const [tab, setTab] = useState("models");
   const [provider, setProvider] = useState<"openai" | "claude" | "ollama">(
@@ -182,7 +175,6 @@ export default function SettingsPage() {
     knowledge: true,
   });
   const [busy, setBusy] = useState(false);
-  const [userModal, setUserModal] = useState<User | "new" | null>(null);
   const integrations = useQuery({
     queryKey: ["integrations", preview],
     queryFn: async () =>
@@ -194,12 +186,6 @@ export default function SettingsPage() {
     queryKey: ["investigation", investigationId, preview],
     enabled: !!investigationId && !preview,
     queryFn: () => request<Investigation>(`/investigations/${investigationId}`),
-  });
-  const users = useQuery({
-    queryKey: ["users", preview],
-    enabled: user.role === "admin" && tab === "members",
-    queryFn: async () =>
-      preview ? { items: [user] } : request<{ items: User[] | null }>("/users"),
   });
   const embedding = integrations.data?.items.find((i) => i.id === "embedding");
   const connectors = (integrations.data?.items ?? []).filter(
@@ -214,11 +200,6 @@ export default function SettingsPage() {
     investigation.data?.branches?.find((b) => b.id === branchId) ??
     investigation.data?.branches?.[0];
   const canWrite = user.role !== "viewer";
-  useEffect(() => {
-    if (location.pathname === "/settings" && user.role === "admin")
-      setTab("members");
-    else setTab("models");
-  }, [location.pathname, user.role]);
   useEffect(() => {
     if (!visibleModels.some((m) => m.id === selectedModel))
       setSelectedModel(visibleModels[0]?.id ?? "");
@@ -247,39 +228,6 @@ export default function SettingsPage() {
       setBusy(false);
     }
   }
-  async function saveUser(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (preview) {
-      notify("演示模式不会更改账号", "info");
-      return;
-    }
-    const f = new FormData(e.currentTarget);
-    setBusy(true);
-    try {
-      if (userModal === "new") {
-        await post("/users", {
-          email: f.get("email"),
-          name: f.get("name"),
-          password: f.get("password"),
-          role: f.get("role"),
-        });
-      } else if (userModal) {
-        await patch(`/users/${userModal.id}`, {
-          name: f.get("name"),
-          role: f.get("role"),
-          disabled: f.get("disabled") === "on",
-          ...(f.get("password") ? { password: f.get("password") } : {}),
-        });
-      }
-      await qc.invalidateQueries({ queryKey: ["users"] });
-      setUserModal(null);
-      notify("账号已保存", "success");
-    } catch (e) {
-      error(e);
-    } finally {
-      setBusy(false);
-    }
-  }
   const cardHeading = (title: string, key: string, subtitle?: string) => (
     <header className="settings-card-heading">
       <div>
@@ -298,7 +246,7 @@ export default function SettingsPage() {
   return (
     <div className="settings-page">
       <div className="page-heading">
-        <h1>{tab === "members" ? "工作区设置" : "模型与集成"}</h1>
+        <h1>模型与集成</h1>
         {preview && <span className="badge">演示配置 · 未验证真实连接</span>}
       </div>
       <nav className="settings-tabs" aria-label="设置分类">
@@ -306,14 +254,6 @@ export default function SettingsPage() {
           { id: "models", label: "模型服务" },
           { id: "tools", label: "工具连接" },
           { id: "knowledge", label: "知识检索" },
-          ...(user.role === "admin"
-            ? [
-                { id: "members", label: "成员与权限" },
-                { id: "teams", label: "团队" },
-                { id: "audit", label: "审计" },
-                { id: "automation", label: "自动化默认值" },
-              ]
-            : []),
         ].map((t) => (
           <button
             key={t.id}
@@ -333,9 +273,6 @@ export default function SettingsPage() {
             重试
           </button>
         </div>
-      )}
-      {(["teams", "audit", "automation"] as const).map((k) =>
-        tab === k ? <GovernancePanel key={k} tab={k} /> : null,
       )}
       {tab === "models" && (
         <div className="settings-model-grid">
@@ -658,82 +595,6 @@ export default function SettingsPage() {
           )}
         </section>
       )}
-      {tab === "members" && (
-        <section className="card settings-members">
-          <header className="settings-card-heading">
-            <div>
-              <h2>成员与权限</h2>
-              <p className="muted">单工作区账号；权限检查在服务端执行</p>
-            </div>
-            <button
-              className="btn btn-primary"
-              onClick={() => setUserModal("new")}
-            >
-              <UserPlus size={16} />
-              添加成员
-            </button>
-          </header>
-          <div className="settings-role-cards">
-            <div>
-              <Shield size={20} />
-              <strong>管理员</strong>
-              <p>管理账号、集成，并执行调查与审批。</p>
-            </div>
-            <div>
-              <SlidersHorizontal size={20} />
-              <strong>操作员</strong>
-              <p>调查取证、提出方案，并明确批准执行。</p>
-            </div>
-            <div>
-              <Users size={20} />
-              <strong>只读</strong>
-              <p>查看已有调查、证据、知识与执行记录。</p>
-            </div>
-          </div>
-          {users.isError && (
-            <p role="alert" className="settings-error">
-              成员读取失败。
-              <button className="btn" onClick={() => users.refetch()}>
-                重试
-              </button>
-            </p>
-          )}
-          <div className="settings-table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>成员</th>
-                  <th>邮箱</th>
-                  <th>角色</th>
-                  <th>状态</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.data?.items?.map((u) => (
-                  <tr key={u.id}>
-                    <td>{u.name}</td>
-                    <td>{u.email}</td>
-                    <td>
-                      {u.role === "admin"
-                        ? "管理员"
-                        : u.role === "operator"
-                          ? "操作员"
-                          : "只读"}
-                    </td>
-                    <td>{u.disabled ? "已停用" : "启用"}</td>
-                    <td>
-                      <button className="btn" onClick={() => setUserModal(u)}>
-                        编辑
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
       {config && (
         <SettingsModal
           title={
@@ -779,71 +640,7 @@ export default function SettingsPage() {
           )}
         </SettingsModal>
       )}
-      {userModal && (
-        <SettingsModal
-          title={userModal === "new" ? "添加成员" : "编辑成员"}
-          onClose={() => setUserModal(null)}
-        >
-          <form className="settings-user-form" onSubmit={saveUser}>
-            <label>
-              姓名
-              <input
-                className="field"
-                name="name"
-                required
-                defaultValue={userModal === "new" ? "" : userModal.name}
-              />
-            </label>
-            <label>
-              邮箱
-              <input
-                className="field"
-                name="email"
-                type="email"
-                required
-                disabled={userModal !== "new"}
-                defaultValue={userModal === "new" ? "" : userModal.email}
-              />
-            </label>
-            <label>
-              角色
-              <select
-                className="field"
-                name="role"
-                defaultValue={userModal === "new" ? "viewer" : userModal.role}
-              >
-                <option value="viewer">只读</option>
-                <option value="operator">操作员</option>
-                <option value="admin">管理员</option>
-              </select>
-            </label>
-            <label>
-              {userModal === "new" ? "初始密码" : "新密码（留空不修改）"}
-              <input
-                className="field"
-                name="password"
-                type="password"
-                autoComplete="new-password"
-                required={userModal === "new"}
-                minLength={12}
-              />
-            </label>
-            {userModal !== "new" && (
-              <label className="settings-checkbox">
-                <input
-                  name="disabled"
-                  type="checkbox"
-                  defaultChecked={userModal.disabled}
-                />
-                停用此成员
-              </label>
-            )}
-            <button className="btn btn-primary" disabled={busy}>
-              {busy ? "保存中…" : "保存成员"}
-            </button>
-          </form>
-        </SettingsModal>
-      )}
+
     </div>
   );
 }

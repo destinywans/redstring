@@ -187,6 +187,21 @@ route('get','/dashboard','Read workspace attention and derived todos',response=o
 route('post','/webhooks/alertmanager/{source}','Accept authenticated Alertmanager envelope','public',{'type':'object','additionalProperties':True},obj({'accepted':integer()}),202,desc='Requires dedicated Bearer source token; server-side mappings bind scope. Deduplicates source/fingerprint/startsAt, late firing cannot undo resolved state.')
 P['/webhooks/alertmanager/{source}']['post']['security']=[{'alertSourceToken':[]}]
 
-spec={'openapi':'3.1.0','info':{'title':'AIOps Canvas Backend API','version':'0.3.0','description':'Single-workspace multi-application SRE API. All business history is server authoritative; application authorization is enforced beyond minimum workspace role.','license':{'name':'Apache-2.0','identifier':'Apache-2.0'}},'servers':[{'url':'/api/v1'}],'security':[{'sessionCookie':[]}],'paths':P,'components':{'schemas':S,'securitySchemes':{'sessionCookie':{'type':'apiKey','in':'cookie','name':'aiops_session'},'alertSourceToken':{'type':'http','scheme':'bearer'}}}}
+# Member administration and richer catalog (WAN-80 / WAN-81).
+S['Member']=obj({**S['User']['properties'],**fieldnames('department job_title source external_id'),'deleted_at':{'type':['string','null'],'format':'date-time'}})
+P['/users']['get']['responses']['200']['content']['application/json']['schema']=listed('Member')
+P['/users']['get']['parameters']=[{'name':'include_deleted','in':'query','schema':boolean}]
+for path,method in [('/users','post'),('/users/{id}','patch')]:
+    P[path][method]['requestBody']['content']['application/json']['schema']['properties'].update(fieldnames('department job_title'))
+    P[path][method]['responses']['201' if method=='post' else '200']['content']['application/json']['schema']=obj({'user':ref('Member')})
+P['/users/{id}']['patch']['requestBody']['content']['application/json']['schema']['properties']['email']=string(format='email')
+route('get','/users/{id}','Read member details','admin',response=obj({'user':ref('Member')}))
+route('delete','/users/{id}','Remove member while retaining historical identity','admin',status=204,desc='Soft-delete and disable account, revoke sessions. Last enabled administrator is protected. No destructive deletion of investigation or audit history.')
+S['MemberImportRow']=obj(fieldnames('external_id email name department job_title'),['external_id','email','name'])
+S['MemberImportPreview']=obj({'fingerprint':string(),'can_import':boolean,'items':arr(obj({'external_id':string(),'email':string(),'action':string(enum=['create','update','conflict']),'reason':string()}))})
+member_import_fields={'source':string(pattern='^[A-Za-z0-9._-]{1,100}$'),'rows':{'type':'array','items':ref('MemberImportRow'),'minItems':1,'maxItems':200}}
+route('post','/users/import/preview','Preview enterprise directory import','admin',obj(member_import_fields,['source','rows']),ref('MemberImportPreview'),desc='Administrator-supplied exported directory data; no remote IAM requests or SSO. Email collisions do not take over local identities.')
+route('post','/users/import','Confirm unchanged directory import','admin',obj({**member_import_fields,'fingerprint':string()},['source','rows','fingerprint']),obj({'created':integer(),'updated':integer()}),desc='Recomputes preview and commits atomically. New entries are disabled viewers without a usable password; current roles and app grants are not imported.')
+spec={'openapi':'3.1.0','info':{'title':'AIOps Canvas Backend API','version':'0.4.0','description':'Single-workspace multi-application SRE API. All business history is server authoritative; application authorization is enforced beyond minimum workspace role.','license':{'name':'Apache-2.0','identifier':'Apache-2.0'}},'servers':[{'url':'/api/v1'}],'security':[{'sessionCookie':[]}],'paths':P,'components':{'schemas':S,'securitySchemes':{'sessionCookie':{'type':'apiKey','in':'cookie','name':'aiops_session'},'alertSourceToken':{'type':'http','scheme':'bearer'}}}}
 Path('internal/apicontract/openapi.json').write_text(json.dumps(spec,ensure_ascii=False,indent=2)+'\n')
 print(f'Generated {len(P)} paths, {sum(len(x) for x in P.values())} operations, {len(S)} schemas.')

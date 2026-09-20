@@ -7,7 +7,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/wans/aiops-canvas/internal/core"
-	"strings"
 )
 
 // ClassifyError translates adapter errors to backend-independent repository errors.
@@ -27,38 +26,19 @@ func (s *Store) Logout(ctx context.Context, token string) error {
 	return e
 }
 func (s *Store) Users(ctx context.Context) ([]core.User, error) {
-	rows, e := s.DB.Query(ctx, "SELECT id,email,name,role,disabled FROM users ORDER BY email")
-	if e != nil {
-		return nil, e
+	members, err := s.Members(ctx, false)
+	if err != nil {
+		return nil, err
 	}
-	defer rows.Close()
-	out := []core.User{}
-	for rows.Next() {
-		var u core.User
-		if e = rows.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.Disabled); e != nil {
-			return nil, e
-		}
-		out = append(out, u)
+	out := make([]core.User, 0, len(members))
+	for _, member := range members {
+		out = append(out, member.User)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 func (s *Store) CreateUser(ctx context.Context, u core.User, password string) (core.User, error) {
-	u.ID = ID()
-	u.Email = strings.ToLower(u.Email)
-	u.Disabled = false
-	tx, e := s.DB.Begin(ctx)
-	if e != nil {
-		return u, e
-	}
-	defer tx.Rollback(ctx)
-	_, e = tx.Exec(ctx, "INSERT INTO users(id,email,name,role,password_hash) VALUES($1,$2,$3,$4,$5)", u.ID, u.Email, u.Name, u.Role, PasswordHash(password))
-	if e != nil {
-		return u, ClassifyError(e)
-	}
-	if e = auditTx(ctx, tx, "", "account.created", u.ID, map[string]string{"role": u.Role}); e != nil {
-		return u, e
-	}
-	return u, tx.Commit(ctx)
+	member, err := s.CreateMember(ctx, MemberCreate{Email: u.Email, Name: u.Name, Role: u.Role, Password: password})
+	return member.User, err
 }
 func (s *Store) RegisterApplication(ctx context.Context, a core.Application) (core.Application, error) {
 	a.ID = ID()
@@ -118,53 +98,6 @@ func (s *Store) SaveLayout(ctx context.Context, user, inv string, b json.RawMess
 	return ClassifyError(e)
 }
 func (s *Store) UpdateAccount(ctx context.Context, id string, v AccountUpdate) (core.User, error) {
-	tx, e := s.DB.Begin(ctx)
-	if e != nil {
-		return core.User{}, e
-	}
-	defer tx.Rollback(ctx)
-	if _, e = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(752018992)"); e != nil {
-		return core.User{}, e
-	}
-	var u core.User
-	e = tx.QueryRow(ctx, "SELECT id,email,name,role,disabled FROM users WHERE id=$1 FOR UPDATE", id).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.Disabled)
-	if e != nil {
-		return u, ClassifyError(e)
-	}
-	oldRole, wasDisabled := u.Role, u.Disabled
-	if v.Name != nil {
-		u.Name = *v.Name
-	}
-	if v.Role != nil {
-		u.Role = *v.Role
-	}
-	if v.Disabled != nil {
-		u.Disabled = *v.Disabled
-	}
-	if oldRole == "admin" && !wasDisabled && (u.Role != "admin" || u.Disabled) {
-		var others int
-		if e = tx.QueryRow(ctx, "SELECT count(*) FROM users WHERE role='admin' AND NOT disabled AND id<>$1", u.ID).Scan(&others); e != nil {
-			return u, e
-		}
-		if others == 0 {
-			return u, ErrLastAdmin
-		}
-	}
-	if _, e = tx.Exec(ctx, "UPDATE users SET name=$2,role=$3,disabled=$4 WHERE id=$1", u.ID, u.Name, u.Role, u.Disabled); e != nil {
-		return u, ClassifyError(e)
-	}
-	if v.Password != nil {
-		if _, e = tx.Exec(ctx, "UPDATE users SET password_hash=$2 WHERE id=$1", u.ID, PasswordHash(*v.Password)); e != nil {
-			return u, e
-		}
-	}
-	if v.Password != nil || v.Role != nil || v.Disabled != nil {
-		if _, e = tx.Exec(ctx, "DELETE FROM sessions WHERE user_id=$1", u.ID); e != nil {
-			return u, e
-		}
-	}
-	if e = auditTx(ctx, tx, "", "account.updated", u.ID, map[string]any{"role": u.Role, "disabled": u.Disabled, "password_changed": v.Password != nil}); e != nil {
-		return u, e
-	}
-	return u, tx.Commit(ctx)
+	member, err := s.UpdateMember(ctx, id, MemberUpdate{AccountUpdate: v})
+	return member.User, err
 }

@@ -2,13 +2,10 @@ package httpapi
 
 import (
 	"encoding/json"
-	"errors"
 
-	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/store"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -57,33 +54,32 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, 200, map[string]any{"user": u})
 }
 func (s *Server) users(w http.ResponseWriter, r *http.Request) {
-	out, e := s.Store.Users(r.Context())
-	if e != nil {
-		fail(w, e)
+	repo, ok := s.memberRepository(w)
+	if !ok {
 		return
 	}
-	WriteJSON(w, 200, map[string]any{"items": out})
+	items, err := repo.Members(r.Context(), r.URL.Query().Get("include_deleted") == "true")
+	if err != nil {
+		memberError(w, err)
+		return
+	}
+	WriteJSON(w, 200, map[string]any{"items": items})
 }
 func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
-	var v struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-		Name     string `json:"name"`
-		Role     string `json:"role"`
+	repo, ok := s.memberRepository(w)
+	if !ok {
+		return
 	}
+	var v store.MemberCreate
 	if !Decode(w, r, &v) {
 		return
 	}
-	if !strings.Contains(v.Email, "@") || len(v.Email) > 320 || len(v.Password) < 12 || len(v.Password) > 1024 || rank(v.Role) == 0 || strings.TrimSpace(v.Name) == "" {
-		Error(w, 422, "invalid_user", "Email, name, role and password of 12–1024 bytes required")
+	member, err := repo.CreateMember(r.Context(), v)
+	if err != nil {
+		memberError(w, err)
 		return
 	}
-	u, e := s.Store.CreateUser(r.Context(), core.User{Email: v.Email, Name: v.Name, Role: v.Role}, v.Password)
-	if e != nil {
-		fail(w, e)
-		return
-	}
-	WriteJSON(w, 201, map[string]any{"user": u})
+	WriteJSON(w, 201, map[string]any{"user": member})
 }
 func (s *Server) getLayout(w http.ResponseWriter, r *http.Request) {
 	b, e := s.Store.Layout(r.Context(), CurrentUser(r).ID, r.PathValue("id"))
@@ -112,22 +108,18 @@ func (s *Server) putLayout(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, 200, v)
 }
 func (s *Server) patchUser(w http.ResponseWriter, r *http.Request) {
-	var v store.AccountUpdate
+	repo, ok := s.memberRepository(w)
+	if !ok {
+		return
+	}
+	var v store.MemberUpdate
 	if !Decode(w, r, &v) {
 		return
 	}
-	if (v.Name != nil && strings.TrimSpace(*v.Name) == "") || (v.Role != nil && rank(*v.Role) == 0) || (v.Password != nil && (len(*v.Password) < 12 || len(*v.Password) > 1024)) {
-		Error(w, 422, "invalid_user", "Invalid account update")
+	member, err := repo.UpdateMember(r.Context(), r.PathValue("id"), v)
+	if err != nil {
+		memberError(w, err)
 		return
 	}
-	u, e := s.Store.UpdateAccount(r.Context(), r.PathValue("id"), v)
-	if errors.Is(e, store.ErrLastAdmin) {
-		Error(w, 409, "last_admin", "At least one enabled administrator is required")
-		return
-	}
-	if e != nil {
-		fail(w, e)
-		return
-	}
-	WriteJSON(w, 200, map[string]any{"user": u})
+	WriteJSON(w, 200, map[string]any{"user": member})
 }

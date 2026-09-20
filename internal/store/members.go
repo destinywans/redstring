@@ -1,0 +1,401 @@
+package store
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/mail"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/wans/aiops-canvas/internal/core"
+)
+
+var ErrMemberInvalid = errors.New("invalid member data")
+var ErrMemberPreviewStale = errors.New("member import preview is stale")
+var ErrMemberImportConflict = errors.New("member import contains conflicts")
+
+type Member struct {
+	core.User
+	Department string     `json:"department"`
+	JobTitle   string     `json:"job_title"`
+	Source     string     `json:"source"`
+	ExternalID string     `json:"external_id"`
+	DeletedAt  *time.Time `json:"deleted_at"`
+}
+type MemberCreate struct {
+	Email      string `json:"email"`
+	Name       string `json:"name"`
+	Role       string `json:"role"`
+	Password   string `json:"password"`
+	Department string `json:"department"`
+	JobTitle   string `json:"job_title"`
+}
+type MemberUpdate struct {
+	AccountUpdate
+	Email      *string `json:"email"`
+	Department *string `json:"department"`
+	JobTitle   *string `json:"job_title"`
+}
+type MemberImportRow struct {
+	ExternalID string `json:"external_id"`
+	Email      string `json:"email"`
+	Name       string `json:"name"`
+	Department string `json:"department"`
+	JobTitle   string `json:"job_title"`
+}
+type MemberImportRequest struct {
+	Source      string            `json:"source"`
+	Rows        []MemberImportRow `json:"rows"`
+	Fingerprint string            `json:"fingerprint,omitempty"`
+}
+type MemberImportItem struct {
+	ExternalID string `json:"external_id"`
+	Email      string `json:"email"`
+	Action     string `json:"action"`
+	Reason     string `json:"reason,omitempty"`
+}
+type MemberImportPreview struct {
+	Fingerprint string             `json:"fingerprint"`
+	Items       []MemberImportItem `json:"items"`
+	CanImport   bool               `json:"can_import"`
+}
+type MemberImportResult struct {
+	Created int `json:"created"`
+	Updated int `json:"updated"`
+}
+type MemberRepository interface {
+	Members(context.Context, bool) ([]Member, error)
+	Member(context.Context, string) (Member, error)
+	CreateMember(context.Context, MemberCreate) (Member, error)
+	UpdateMember(context.Context, string, MemberUpdate) (Member, error)
+	DeleteMember(context.Context, string) error
+	PreviewMemberImport(context.Context, MemberImportRequest) (MemberImportPreview, error)
+	ImportMembers(context.Context, MemberImportRequest) (MemberImportResult, error)
+}
+
+const memberColumns = "id,email,name,role,disabled,department,job_title,source,external_id,deleted_at"
+
+func scanMember(row pgx.Row) (Member, error) {
+	var m Member
+	e := row.Scan(&m.ID, &m.Email, &m.Name, &m.Role, &m.Disabled, &m.Department, &m.JobTitle, &m.Source, &m.ExternalID, &m.DeletedAt)
+	return m, ClassifyError(e)
+}
+func (s *Store) Members(ctx context.Context, includeDeleted bool) ([]Member, error) {
+	rows, e := s.DB.Query(ctx, "SELECT "+memberColumns+" FROM users WHERE ($1 OR deleted_at IS NULL) ORDER BY email", includeDeleted)
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	out := []Member{}
+	for rows.Next() {
+		m, e := scanMember(rows)
+		if e != nil {
+			return nil, e
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+func (s *Store) Member(ctx context.Context, id string) (Member, error) {
+	return scanMember(s.DB.QueryRow(ctx, "SELECT "+memberColumns+" FROM users WHERE id=$1", id))
+}
+func validMember(email, name, department, job string) bool {
+	a, e := mail.ParseAddress(email)
+	return e == nil && a.Address == email && len(email) <= 320 && strings.Contains(email, "@") && strings.TrimSpace(name) != "" && len(name) <= 200 && len(department) <= 200 && len(job) <= 200
+}
+func validRole(role string) bool { return role == "admin" || role == "operator" || role == "viewer" }
+
+// All account mutations share the last-administrator lock, including directory imports.
+func lockMembers(ctx context.Context, tx pgx.Tx) error {
+	_, e := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(752018992)")
+	return e
+}
+func (s *Store) CreateMember(ctx context.Context, v MemberCreate) (Member, error) {
+	v.Email = strings.ToLower(strings.TrimSpace(v.Email))
+	v.Name = strings.TrimSpace(v.Name)
+	if !validMember(v.Email, v.Name, v.Department, v.JobTitle) || !validRole(v.Role) || len(v.Password) < 12 || len(v.Password) > 1024 {
+		return Member{}, ErrMemberInvalid
+	}
+	tx, e := s.DB.Begin(ctx)
+	if e != nil {
+		return Member{}, e
+	}
+	defer tx.Rollback(ctx)
+	if e = lockMembers(ctx, tx); e != nil {
+		return Member{}, e
+	}
+	id := ID()
+	_, e = tx.Exec(ctx, "INSERT INTO users(id,email,name,role,password_hash,department,job_title) VALUES($1,$2,$3,$4,$5,$6,$7)", id, v.Email, v.Name, v.Role, PasswordHash(v.Password), v.Department, v.JobTitle)
+	if e != nil {
+		return Member{}, ClassifyError(e)
+	}
+	if e = auditTx(ctx, tx, "", "account.created", id, map[string]string{"role": v.Role, "source": "local"}); e != nil {
+		return Member{}, e
+	}
+	m, e := scanMember(tx.QueryRow(ctx, "SELECT "+memberColumns+" FROM users WHERE id=$1", id))
+	if e != nil {
+		return m, e
+	}
+	return m, tx.Commit(ctx)
+}
+func (s *Store) UpdateMember(ctx context.Context, id string, v MemberUpdate) (Member, error) {
+	tx, e := s.DB.Begin(ctx)
+	if e != nil {
+		return Member{}, e
+	}
+	defer tx.Rollback(ctx)
+	if e = lockMembers(ctx, tx); e != nil {
+		return Member{}, e
+	}
+	m, e := scanMember(tx.QueryRow(ctx, "SELECT "+memberColumns+" FROM users WHERE id=$1 AND deleted_at IS NULL FOR UPDATE", id))
+	if e != nil {
+		return m, e
+	}
+	oldRole, oldDisabled := m.Role, m.Disabled
+	if v.Email != nil && m.Source != "local" && strings.ToLower(strings.TrimSpace(*v.Email)) != m.Email {
+		return m, fmt.Errorf("%w: imported member emails must be changed through a directory import", ErrMemberInvalid)
+	}
+	if v.Name != nil {
+		m.Name = strings.TrimSpace(*v.Name)
+	}
+	if v.Email != nil {
+		m.Email = strings.ToLower(strings.TrimSpace(*v.Email))
+	}
+	if v.Role != nil {
+		m.Role = *v.Role
+	}
+	if v.Disabled != nil {
+		m.Disabled = *v.Disabled
+	}
+	if v.Department != nil {
+		m.Department = *v.Department
+	}
+	if v.JobTitle != nil {
+		m.JobTitle = *v.JobTitle
+	}
+	if !validMember(m.Email, m.Name, m.Department, m.JobTitle) || !validRole(m.Role) || (v.Password != nil && (len(*v.Password) < 12 || len(*v.Password) > 1024)) {
+		return m, ErrMemberInvalid
+	}
+	if oldRole == "admin" && !oldDisabled && (m.Role != "admin" || m.Disabled) {
+		if e = protectLastAdmin(ctx, tx, id); e != nil {
+			return m, e
+		}
+	}
+	var passwordHash string
+	if e = tx.QueryRow(ctx, "SELECT password_hash FROM users WHERE id=$1", id).Scan(&passwordHash); e != nil {
+		return m, e
+	}
+	if v.Password != nil {
+		passwordHash = PasswordHash(*v.Password)
+	}
+	if !m.Disabled && passwordHash == "" {
+		return m, fmt.Errorf("%w: set a password before enabling this member", ErrMemberInvalid)
+	}
+	_, e = tx.Exec(ctx, "UPDATE users SET email=$2,name=$3,role=$4,disabled=$5,department=$6,job_title=$7,password_hash=$8 WHERE id=$1", id, m.Email, m.Name, m.Role, m.Disabled, m.Department, m.JobTitle, passwordHash)
+	if e != nil {
+		return m, ClassifyError(e)
+	}
+	if v.Password != nil || v.Role != nil || v.Disabled != nil || v.Email != nil {
+		if _, e = tx.Exec(ctx, "DELETE FROM sessions WHERE user_id=$1", id); e != nil {
+			return m, e
+		}
+	}
+	if e = auditTx(ctx, tx, "", "account.updated", id, map[string]any{"role": m.Role, "disabled": m.Disabled, "password_changed": v.Password != nil, "profile_changed": v.Name != nil || v.Email != nil || v.Department != nil || v.JobTitle != nil}); e != nil {
+		return m, e
+	}
+	return m, tx.Commit(ctx)
+}
+func protectLastAdmin(ctx context.Context, tx pgx.Tx, id string) error {
+	var n int
+	e := tx.QueryRow(ctx, "SELECT count(*) FROM users WHERE role='admin' AND NOT disabled AND deleted_at IS NULL AND id<>$1", id).Scan(&n)
+	if e != nil {
+		return e
+	}
+	if n == 0 {
+		return ErrLastAdmin
+	}
+	return nil
+}
+func (s *Store) DeleteMember(ctx context.Context, id string) error {
+	tx, e := s.DB.Begin(ctx)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback(ctx)
+	if e = lockMembers(ctx, tx); e != nil {
+		return e
+	}
+	m, e := scanMember(tx.QueryRow(ctx, "SELECT "+memberColumns+" FROM users WHERE id=$1 FOR UPDATE", id))
+	if e != nil {
+		return e
+	}
+	if m.DeletedAt != nil {
+		return nil
+	}
+	if m.Role == "admin" && !m.Disabled {
+		if e = protectLastAdmin(ctx, tx, id); e != nil {
+			return e
+		}
+	}
+	if _, e = tx.Exec(ctx, "UPDATE users SET disabled=true,deleted_at=now(),password_hash='' WHERE id=$1", id); e != nil {
+		return e
+	}
+	if _, e = tx.Exec(ctx, "DELETE FROM sessions WHERE user_id=$1", id); e != nil {
+		return e
+	}
+	if e = auditTx(ctx, tx, "", "account.deleted", id, map[string]string{"source": m.Source}); e != nil {
+		return e
+	}
+	return tx.Commit(ctx)
+}
+
+func normalizeImport(v MemberImportRequest) (MemberImportRequest, error) {
+	v.Source = strings.TrimSpace(v.Source)
+	if v.Source == "" || strings.EqualFold(v.Source, "local") || len(v.Source) > 100 || len(v.Rows) == 0 || len(v.Rows) > 200 {
+		return v, ErrMemberInvalid
+	}
+	for _, c := range v.Source {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.') {
+			return v, ErrMemberInvalid
+		}
+	}
+	for i := range v.Rows {
+		r := &v.Rows[i]
+		r.Email = strings.ToLower(strings.TrimSpace(r.Email))
+		r.Name = strings.TrimSpace(r.Name)
+		r.ExternalID = strings.TrimSpace(r.ExternalID)
+		if r.ExternalID == "" || len(r.ExternalID) > 200 || !validMember(r.Email, r.Name, r.Department, r.JobTitle) {
+			return v, fmt.Errorf("%w: row %d", ErrMemberInvalid, i+1)
+		}
+	}
+	return v, nil
+}
+
+// Fingerprints include normalized input and the directory snapshot. Confirmation
+// re-evaluates under the same lock as CRUD, so a reviewed import cannot race an edit.
+func previewMembers(ctx context.Context, tx pgx.Tx, v MemberImportRequest) (MemberImportPreview, error) {
+	rows, e := tx.Query(ctx, "SELECT "+memberColumns+" FROM users ORDER BY id")
+	if e != nil {
+		return MemberImportPreview{}, e
+	}
+	all := []Member{}
+	byExternal := map[string]Member{}
+	byEmail := map[string]Member{}
+	for rows.Next() {
+		m, e := scanMember(rows)
+		if e != nil {
+			rows.Close()
+			return MemberImportPreview{}, e
+		}
+		all = append(all, m)
+		byEmail[m.Email] = m
+		if m.Source == v.Source {
+			byExternal[m.ExternalID] = m
+		}
+	}
+	e = rows.Err()
+	rows.Close()
+	if e != nil {
+		return MemberImportPreview{}, e
+	}
+	input := v
+	input.Fingerprint = ""
+	b, _ := json.Marshal(struct {
+		Input     MemberImportRequest
+		Directory []Member
+	}{input, all})
+	digest := sha256.Sum256(b)
+	out := MemberImportPreview{Fingerprint: hex.EncodeToString(digest[:]), Items: []MemberImportItem{}, CanImport: true}
+	ids, emails := map[string]int{}, map[string]int{}
+	for _, r := range v.Rows {
+		ids[r.ExternalID]++
+		emails[r.Email]++
+	}
+	for _, r := range v.Rows {
+		item := MemberImportItem{ExternalID: r.ExternalID, Email: r.Email, Action: "create"}
+		m, exists := byExternal[r.ExternalID]
+		if exists {
+			item.Action = "update"
+		}
+		switch {
+		case ids[r.ExternalID] > 1 || emails[r.Email] > 1:
+			item.Reason = "Duplicate external identity or email in import"
+		case exists && m.DeletedAt != nil:
+			item.Reason = "External identity belongs to a deleted member"
+		default:
+			if owner, ok := byEmail[r.Email]; ok && (!exists || owner.ID != m.ID) {
+				item.Reason = "Email belongs to another identity; automatic takeover is forbidden"
+			}
+		}
+		if item.Reason != "" {
+			item.Action = "conflict"
+			out.CanImport = false
+		}
+		out.Items = append(out.Items, item)
+	}
+	return out, nil
+}
+func (s *Store) PreviewMemberImport(ctx context.Context, v MemberImportRequest) (MemberImportPreview, error) {
+	v, e := normalizeImport(v)
+	if e != nil {
+		return MemberImportPreview{}, e
+	}
+	tx, e := s.DB.Begin(ctx)
+	if e != nil {
+		return MemberImportPreview{}, e
+	}
+	defer tx.Rollback(ctx)
+	if e = lockMembers(ctx, tx); e != nil {
+		return MemberImportPreview{}, e
+	}
+	return previewMembers(ctx, tx, v)
+}
+func (s *Store) ImportMembers(ctx context.Context, v MemberImportRequest) (MemberImportResult, error) {
+	out := MemberImportResult{}
+	v, e := normalizeImport(v)
+	if e != nil {
+		return out, e
+	}
+	tx, e := s.DB.Begin(ctx)
+	if e != nil {
+		return out, e
+	}
+	defer tx.Rollback(ctx)
+	if e = lockMembers(ctx, tx); e != nil {
+		return out, e
+	}
+	p, e := previewMembers(ctx, tx, v)
+	if e != nil {
+		return out, e
+	}
+	if v.Fingerprint == "" || v.Fingerprint != p.Fingerprint {
+		return out, ErrMemberPreviewStale
+	}
+	if !p.CanImport {
+		return out, ErrMemberImportConflict
+	}
+	for i, r := range v.Rows {
+		if p.Items[i].Action == "create" {
+			_, e = tx.Exec(ctx, "INSERT INTO users(id,email,name,role,password_hash,disabled,department,job_title,source,external_id) VALUES($1,$2,$3,'viewer','',true,$4,$5,$6,$7)", ID(), r.Email, r.Name, r.Department, r.JobTitle, v.Source, r.ExternalID)
+			out.Created++
+		} else {
+			_, e = tx.Exec(ctx, "UPDATE users SET email=$3,name=$4,department=$5,job_title=$6 WHERE source=$1 AND external_id=$2 AND deleted_at IS NULL", v.Source, r.ExternalID, r.Email, r.Name, r.Department, r.JobTitle)
+			out.Updated++
+			if e == nil {
+				_, e = tx.Exec(ctx, "DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE source=$1 AND external_id=$2)", v.Source, r.ExternalID)
+			}
+		}
+		if e != nil {
+			return MemberImportResult{}, ClassifyError(e)
+		}
+	}
+	if e = auditTx(ctx, tx, "", "account.directory_imported", v.Source, map[string]any{"source": v.Source, "created": out.Created, "updated": out.Updated, "fingerprint": p.Fingerprint}); e != nil {
+		return MemberImportResult{}, e
+	}
+	return out, tx.Commit(ctx)
+}

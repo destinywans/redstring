@@ -430,6 +430,10 @@ func (s *Server) routes() {
 	s.Register("GET /api/v1/users", "admin", s.users)
 	s.Register("POST /api/v1/users", "admin", s.createUser)
 	s.Register("PATCH /api/v1/users/{id}", "admin", s.patchUser)
+	s.Register("GET /api/v1/users/{id}", "admin", s.GetMember)
+	s.Register("DELETE /api/v1/users/{id}", "admin", s.DeleteMember)
+	s.Register("POST /api/v1/users/import/preview", "admin", s.PreviewMemberImport)
+	s.Register("POST /api/v1/users/import", "admin", s.ImportMembers)
 }
 func (s *Server) message(w http.ResponseWriter, r *http.Request) {
 	var v struct {

@@ -257,6 +257,10 @@ textarea::placeholder {
   border-radius: 4px;
 }
 .nav-rail {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
   display: flex;
   align-items: center;
   flex-direction: column;
@@ -267,6 +271,7 @@ textarea::placeholder {
   z-index: 20;
 }
 .nav-item {
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   align-items: center;

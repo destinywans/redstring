@@ -25,6 +25,9 @@ import {
   Command,
   X,
   FlaskConical,
+  Users,
+  UsersRound,
+  ScrollText,
 } from "lucide-react";
 import { ApiError, post, request } from "./lib/api";
 import type {
@@ -48,6 +51,8 @@ const InvestigationPage = lazy(
 );
 const KnowledgePage = lazy(() => import("./features/knowledge/KnowledgePage"));
 const SettingsPage = lazy(() => import("./features/settings/SettingsPage"));
+const MembersPage = lazy(() => import("./features/members/MembersPage"));
+const GovernancePage = lazy(() => import("./features/members/GovernancePage"));
 const ApprovalPage = lazy(() => import("./features/actions/ApprovalPage"));
 const RecoveryPage = lazy(() => import("./features/actions/RecoveryPage"));
 const previewApp: Application = {
@@ -228,6 +233,11 @@ export default function App() {
     { to: "/investigations", icon: Search, label: "调查" },
     { to: "/knowledge", icon: BookOpen, label: "知识" },
     { to: "/integrations", icon: Plug, label: "集成" },
+    ...(user.role === "admin" ? [
+      { to: "/members", icon: Users, label: "成员" },
+      { to: "/teams", icon: UsersRound, label: "团队" },
+      { to: "/audit", icon: ScrollText, label: "审计" },
+    ] : []),
   ];
   return (
     <WorkspaceContext.Provider
@@ -372,10 +382,10 @@ export default function App() {
               <span>{label}</span>
             </NavLink>
           ))}
-          <NavLink to="/settings" className="nav-item nav-settings">
+          {user.role === "admin" && <NavLink to="/settings" className="nav-item nav-settings">
             <Settings size={21} />
             <span>设置</span>
-          </NavLink>
+          </NavLink>}
         </aside>
         <main id="main" className="workspace-main">
           {apps.error && <ErrorNotice error={apps.error} />}
@@ -395,7 +405,10 @@ export default function App() {
               />
               <Route path="/knowledge" element={<KnowledgePage />} />
               <Route path="/integrations" element={<SettingsPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/members" element={<MembersPage />} />
+              <Route path="/teams" element={<GovernancePage tab="teams" />} />
+              <Route path="/audit" element={<GovernancePage tab="audit" />} />
+              <Route path="/settings" element={<GovernancePage tab="automation" />} />
               <Route path="/actions" element={<ApprovalPage />} />
               <Route path="/recovery" element={<RecoveryPage />} />
               <Route

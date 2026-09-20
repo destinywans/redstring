@@ -20,6 +20,7 @@ import (
 func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
 	path := os.Getenv("AIOPS_TELEMETRY_CONFIG")
 	if path == "" {
+		registerTelemetryMetadata(api, connectors.TelemetryConfig{}, nil)
 		api.Integrations = append(api.Integrations,
 			httpapi.NewIntegration("prometheus", "Prometheus", "connector", "prometheus", false, nil, []string{"metrics.read"}),
 			httpapi.NewIntegration("loki", "Loki", "connector", "loki", false, nil, []string{"logs.read"}))
@@ -92,19 +93,8 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
 		}
 		return tools, nil
 	}
-	api.Register("GET /api/v1/applications/{id}/telemetry", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		metricScope, _ := telemetryScope(r.Context(), api, r.PathValue("id"), r.URL.Query().Get("environment_id"), "prometheus")
-		logScope, _ := telemetryScope(r.Context(), api, r.PathValue("id"), r.URL.Query().Get("environment_id"), "loki")
-		a := config.Applications[metricScope]
-		logs := config.Applications[logScope]
-		ids := []string{}
-		for id := range a.PrometheusQueries {
-			ids = append(ids, id)
-		}
-		sort.Strings(ids)
-		httpapi.WriteJSON(w, 200, map[string]any{"metric_query_ids": ids, "logs_configured": config.Loki.URL != "" && len(logs.LokiLabels) > 0})
-	})
-	api.Register("POST /api/v1/applications/{id}/metrics", "operator", func(w http.ResponseWriter, r *http.Request) {
+	registerTelemetryMetadata(api, config, client)
+	api.Register("POST /api/v1/applications/{id}/metrics", "viewer", func(w http.ResponseWriter, r *http.Request) {
 		var v struct {
 			EnvironmentID string    `json:"environment_id"`
 			QueryID       string    `json:"query_id"`
@@ -127,7 +117,7 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
 		}
 		httpapi.WriteJSON(w, 200, result)
 	})
-	api.Register("POST /api/v1/applications/{id}/logs", "operator", func(w http.ResponseWriter, r *http.Request) {
+	api.Register("POST /api/v1/applications/{id}/logs", "viewer", func(w http.ResponseWriter, r *http.Request) {
 		var v struct {
 			EnvironmentID string    `json:"environment_id"`
 			Start         time.Time `json:"start"`
@@ -150,6 +140,43 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
 		httpapi.WriteJSON(w, 200, result)
 	})
 	return nil
+}
+
+// Registration metadata is available even when no telemetry connector is
+// configured. A missing binding is an empty capability; an invalid environment
+// or denied application remains an error, never an apparently healthy result.
+func registerTelemetryMetadata(api *httpapi.Server, config connectors.TelemetryConfig, client *connectors.Telemetry) {
+	api.Register("GET /api/v1/applications/{id}/telemetry", "viewer", func(w http.ResponseWriter, r *http.Request) {
+		app, envID := r.PathValue("id"), r.URL.Query().Get("environment_id")
+		scopes := map[string]string{"prometheus": app, "loki": app}
+		if repository, ok := api.Store.(*store.Store); ok {
+			env, err := repository.ResolveEnvironment(r.Context(), app, envID)
+			if err != nil {
+				httpapi.AuthorizationError(w, err)
+				return
+			}
+			scopes = map[string]string{}
+			for _, binding := range env.Bindings {
+				if binding.Kind == "prometheus" || binding.Kind == "loki" {
+					scopes[binding.Kind] = binding.Resource
+				}
+			}
+		}
+		ids := []string{}
+		if config.Prometheus.URL != "" {
+			for id := range config.Applications[scopes["prometheus"]].PrometheusQueries {
+				ids = append(ids, id)
+			}
+		}
+		sort.Strings(ids)
+		logsConfigured := config.Loki.URL != "" && len(config.Applications[scopes["loki"]].LokiLabels) > 0
+		var limits *connectors.TelemetryLimits
+		if client != nil {
+			value := client.Limits()
+			limits = &value
+		}
+		httpapi.WriteJSON(w, 200, map[string]any{"metric_query_ids": ids, "logs_configured": logsConfigured, "configured": len(ids) > 0 || logsConfigured, "limits": limits})
+	})
 }
 func telemetryError(w http.ResponseWriter, e error) {
 	var te *connectors.TelemetryError

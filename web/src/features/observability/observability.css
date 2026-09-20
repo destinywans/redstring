@@ -1,0 +1,254 @@
+.observability-page {
+  display: grid;
+  gap: 18px;
+}
+.observation-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+}
+.observation-tabs a {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px;
+  border-radius: 7px;
+  color: var(--muted);
+}
+.observation-tabs a:hover,
+.observation-tabs a.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.observation-scope {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.observation-query-controls {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+.observation-query-controls label:first-child {
+  flex: 1;
+  min-width: 220px;
+}
+.observation-query-controls label,
+.observation-custom-range label,
+.observation-log-filters label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.observation-readonly {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  color: var(--text);
+}
+.observation-custom-range {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 280px));
+  gap: 12px;
+  margin-top: 14px;
+}
+.observation-help {
+  font-size: 12px;
+  margin: 14px 0 0;
+  line-height: 1.8;
+}
+.observation-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  padding: 44px 24px;
+  color: var(--muted);
+}
+.observation-empty h2 {
+  color: var(--text);
+  margin: 0;
+}
+.observation-empty p {
+  max-width: 620px;
+}
+.observation-data {
+  display: grid;
+  gap: 16px;
+}
+.observation-provenance {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 22px;
+  padding: 16px;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 0;
+}
+.observation-provenance dt {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+.observation-provenance dd {
+  margin: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.observation-expression pre {
+  overflow: auto;
+  font-size: 12px;
+  background: var(--panel-soft);
+  padding: 12px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.observation-series-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.observation-series {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 16px;
+}
+.observation-series-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.observation-series h3 {
+  font-size: 13px;
+  margin: 0;
+}
+.observation-sample-table {
+  max-height: 240px;
+  overflow: auto;
+  margin-top: 10px;
+}
+.observation-series small {
+  overflow-wrap: anywhere;
+}
+.observation-log-filters {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) 160px;
+  gap: 12px;
+}
+.observation-log-list {
+  display: grid;
+  gap: 10px;
+}
+.observation-log-list article {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  min-width: 0;
+}
+.observation-log-list header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.observation-log-list header > button {
+  margin-left: auto;
+}
+.observation-log-list pre {
+  font-size: 12px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 12px 0;
+}
+.observation-log-list details,
+.observation-series details,
+.observation-expression {
+  font-size: 12px;
+  color: var(--muted);
+}
+.observation-log-list details dl {
+  display: grid;
+  gap: 5px;
+}
+.observation-log-list details dl > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.observation-log-list details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+.observation-created {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  color: var(--accent);
+}
+.observation-transfer p {
+  margin: 0;
+  line-height: 1.8;
+}
+.observation-deployment p {
+  overflow-wrap: anywhere;
+}
+.observation-loading {
+  animation: observation-spin 1s linear infinite;
+}
+@keyframes observation-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (max-width: 1050px) {
+  .observation-series-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  .observation-query-controls > label,
+  .observation-query-controls > button {
+    width: 100%;
+  }
+  .observation-custom-range,
+  .observation-provenance,
+  .observation-log-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .observation-log-list header > button {
+    margin-left: 0;
+  }
+  .observation-results > .management-heading {
+    align-items: flex-start;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .observation-loading {
+    animation: none;
+  }
+}
+.observation-incident-context {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.observation-incident-context a {
+  color: var(--accent);
+}

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "AIOps Canvas Backend API",
-    "version": "0.4.0",
+    "version": "0.5.0",
     "description": "Single-workspace multi-application SRE API. All business history is server authoritative; application authorization is enforced beyond minimum workspace role.",
     "license": {
       "name": "Apache-2.0",
@@ -5190,7 +5190,7 @@
       "get": {
         "summary": "List configured telemetry queries",
         "operationId": "get_applications_id_telemetry",
-        "description": "Minimum role: viewer. Routes are available when AIOPS_TELEMETRY_CONFIG is configured; no credentials are returned.",
+        "description": "Minimum role: viewer. Always registered. Requires application view and a valid environment; unavailable configuration returns empty capabilities and null limits. Active limits are normalized from the configured adapter; no credentials are returned.",
         "responses": {
           "200": {
             "description": "Success",
@@ -5207,6 +5207,19 @@
                     },
                     "logs_configured": {
                       "type": "boolean"
+                    },
+                    "configured": {
+                      "type": "boolean"
+                    },
+                    "limits": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/TelemetryLimits"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "additionalProperties": false
@@ -5306,7 +5319,7 @@
       "post": {
         "summary": "Query registered application metrics",
         "operationId": "post_applications_id_metrics",
-        "description": "Minimum role: operator. Server-registered query IDs only, no arbitrary PromQL. Defaults up to last15m and 15s, constrained by registered window/sample limits; explicit time and response limits enforced. Empty is not healthy proof.",
+        "description": "Minimum role: viewer. Read-only POST requires application view permission. Server-registered query IDs only, no arbitrary PromQL. Defaults up to last15m and 15s, constrained by registered window/sample limits; explicit time and response limits enforced. Empty is not healthy proof.",
         "responses": {
           "200": {
             "description": "Success",
@@ -5436,7 +5449,7 @@
       "post": {
         "summary": "Query scoped application logs",
         "operationId": "post_applications_id_logs",
-        "description": "Minimum role: operator. Registered exact Loki labels; cannot override LogQL/endpoint/scope. Default last15m/100 lines; empty is not healthy proof.",
+        "description": "Minimum role: viewer. Read-only POST requires application view permission. Registered exact Loki labels; cannot override LogQL/endpoint/scope. Default last15m/100 lines; empty is not healthy proof.",
         "responses": {
           "200": {
             "description": "Success",
@@ -10709,6 +10722,9 @@
               },
               "additionalProperties": false
             }
+          },
+          "limit_reached": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -10746,6 +10762,32 @@
               },
               "additionalProperties": false
             }
+          }
+        },
+        "additionalProperties": false
+      },
+      "TelemetryLimits": {
+        "type": "object",
+        "properties": {
+          "max_window_seconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "max_lookback_seconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "min_step_seconds": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "max_samples_per_series": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "max_log_entries": {
+            "type": "integer",
+            "minimum": 1
           }
         },
         "additionalProperties": false

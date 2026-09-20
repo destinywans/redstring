@@ -48,6 +48,11 @@ func (s *Server) authorizeRoute(r *http.Request) error {
 	if r.Method != "GET" && r.Method != "HEAD" {
 		permission = "operate"
 	}
+	// These POST endpoints only execute registered, bounded read queries. Their
+	// JSON bodies do not grant write authority; viewers retain application ACLs.
+	if r.Method == "POST" && kind == "applications" && len(path) == 5 && (path[4] == "metrics" || path[4] == "logs") {
+		permission = "view"
+	}
 	if strings.HasSuffix(r.URL.Path, "/layout") || (CurrentUser(r).Role == "admin" && (kind == "applications" || kind == "environments")) {
 		permission = "view"
 	}

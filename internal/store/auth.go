@@ -66,18 +66,28 @@ func (s *Store) Session(ctx context.Context, token string) (core.User, error) {
 	return u, e
 }
 func (s *Store) Applications(ctx context.Context) ([]core.Application, error) {
-	rows, e := s.DB.Query(ctx, "SELECT id,name,description,environment FROM applications ORDER BY name")
+	rows, e := s.DB.Query(ctx, "SELECT "+appColumns+" FROM applications ORDER BY name")
 	if e != nil {
 		return nil, e
 	}
-	defer rows.Close()
 	out := []core.Application{}
 	for rows.Next() {
-		var a core.Application
-		if e = rows.Scan(&a.ID, &a.Name, &a.Description, &a.Environment); e != nil {
-			return nil, e
+		a, err := scanApplication(rows)
+		if err != nil {
+			rows.Close()
+			return nil, err
 		}
 		out = append(out, a)
 	}
-	return out, rows.Err()
+	rows.Close()
+	if e = rows.Err(); e != nil {
+		return nil, e
+	}
+	for i := range out {
+		out[i].Environments, e = s.Environments(ctx, out[i].ID)
+		if e != nil {
+			return nil, e
+		}
+	}
+	return out, nil
 }

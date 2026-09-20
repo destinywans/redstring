@@ -272,3 +272,9 @@ func (s *PostgresRepository) Transition(ctx context.Context, c Lease, status, me
 	}
 	return tx.Commit(ctx)
 }
+
+func (s *PostgresRepository) ExecutionActor(ctx context.Context, id string) (string, error) {
+	var actor string
+	e := s.DB.QueryRow(ctx, "SELECT created_by FROM executions WHERE id=$1", id).Scan(&actor)
+	return actor, e
+}

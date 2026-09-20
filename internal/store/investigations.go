@@ -9,13 +9,17 @@ import (
 )
 
 func (s *Store) CreateInvestigation(ctx context.Context, app, title string) (core.Investigation, error) {
+	env, e := s.ResolveEnvironment(ctx, app, EnvironmentID(ctx))
+	if e != nil {
+		return core.Investigation{}, e
+	}
 	tx, e := s.DB.Begin(ctx)
 	if e != nil {
 		return core.Investigation{}, e
 	}
 	defer tx.Rollback(ctx)
 	id, bid := ID(), ID()
-	_, e = tx.Exec(ctx, "INSERT INTO investigations(id,application_id,title) VALUES($1,$2,$3)", id, app, title)
+	_, e = tx.Exec(ctx, "INSERT INTO investigations(id,application_id,title,environment_id) VALUES($1,$2,$3,$4)", id, app, title, env.ID)
 	if e != nil {
 		return core.Investigation{}, e
 	}
@@ -36,7 +40,7 @@ func (s *Store) CreateInvestigation(ctx context.Context, app, title string) (cor
 	return s.Investigation(ctx, id)
 }
 func (s *Store) Investigations(ctx context.Context) ([]core.Investigation, error) {
-	rows, e := s.DB.Query(ctx, "SELECT id,application_id,title,status,created_at,updated_at FROM investigations ORDER BY updated_at DESC")
+	rows, e := s.DB.Query(ctx, "SELECT id,application_id,COALESCE(environment_id,''),title,status,created_at,updated_at FROM investigations ORDER BY updated_at DESC")
 	if e != nil {
 		return nil, e
 	}
@@ -44,7 +48,7 @@ func (s *Store) Investigations(ctx context.Context) ([]core.Investigation, error
 	out := []core.Investigation{}
 	for rows.Next() {
 		var v core.Investigation
-		if e = rows.Scan(&v.ID, &v.ApplicationID, &v.Title, &v.Status, &v.CreatedAt, &v.UpdatedAt); e != nil {
+		if e = rows.Scan(&v.ID, &v.ApplicationID, &v.EnvironmentID, &v.Title, &v.Status, &v.CreatedAt, &v.UpdatedAt); e != nil {
 			return nil, e
 		}
 		out = append(out, v)
@@ -58,7 +62,7 @@ func (s *Store) Investigation(ctx context.Context, id string) (core.Investigatio
 	}
 	defer tx.Rollback(ctx)
 	v := core.Investigation{Branches: []core.Branch{}, Evidence: []core.Evidence{}, Runs: []core.Run{}}
-	e = tx.QueryRow(ctx, "SELECT id,application_id,title,status,created_at,updated_at FROM investigations WHERE id=$1", id).Scan(&v.ID, &v.ApplicationID, &v.Title, &v.Status, &v.CreatedAt, &v.UpdatedAt)
+	e = tx.QueryRow(ctx, "SELECT id,application_id,COALESCE(environment_id,''),title,status,created_at,updated_at FROM investigations WHERE id=$1", id).Scan(&v.ID, &v.ApplicationID, &v.EnvironmentID, &v.Title, &v.Status, &v.CreatedAt, &v.UpdatedAt)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return v, ErrNotFound
 	}

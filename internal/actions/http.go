@@ -59,6 +59,8 @@ func (s *Service) Register(api *httpapi.Server) {
 func respond(w http.ResponseWriter, v any, e error) {
 	if e != nil {
 		switch {
+		case errors.Is(e, store.ErrForbidden):
+			httpapi.Error(w, 403, "forbidden", "Application operation permission required")
 		case errors.Is(e, ErrInvalid):
 			httpapi.Error(w, 422, "invalid_input", "Required digest, reason, execution or summary is invalid.")
 		case errors.Is(e, store.ErrConflict):

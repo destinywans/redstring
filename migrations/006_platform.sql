@@ -1,0 +1,14 @@
+CREATE TABLE teams(id text PRIMARY KEY,name text NOT NULL UNIQUE,description text NOT NULL DEFAULT '');
+CREATE TABLE team_members(team_id text NOT NULL REFERENCES teams(id),user_id text NOT NULL REFERENCES users(id),PRIMARY KEY(team_id,user_id));
+ALTER TABLE applications ADD COLUMN key text NOT NULL DEFAULT '', ADD COLUMN owner_team_id text REFERENCES teams(id), ADD COLUMN maintainer_id text REFERENCES users(id), ADD COLUMN tags jsonb NOT NULL DEFAULT '[]', ADD COLUMN repository_url text NOT NULL DEFAULT '', ADD COLUMN runbook_url text NOT NULL DEFAULT '', ADD COLUMN archived boolean NOT NULL DEFAULT false;
+UPDATE applications SET key=id;
+CREATE UNIQUE INDEX application_key_unique ON applications(key);
+CREATE TABLE application_environments(id text PRIMARY KEY,application_id text NOT NULL REFERENCES applications(id),key text NOT NULL,name text NOT NULL,archived boolean NOT NULL DEFAULT false,binding_revision bigint NOT NULL DEFAULT 1,bindings jsonb NOT NULL DEFAULT '[]',UNIQUE(application_id,key),UNIQUE(id,application_id));
+INSERT INTO application_environments(id,application_id,key,name) SELECT id||'-default',id,COALESCE(NULLIF(environment,''),'default'),COALESCE(NULLIF(environment,''),'Default') FROM applications;
+ALTER TABLE investigations ADD COLUMN environment_id text;
+UPDATE investigations SET environment_id=application_id||'-default';
+ALTER TABLE investigations ADD CONSTRAINT investigation_environment FOREIGN KEY(environment_id,application_id) REFERENCES application_environments(id,application_id);
+ALTER TABLE runs ADD COLUMN actor_id text NOT NULL DEFAULT '';
+CREATE TABLE application_grants(application_id text NOT NULL REFERENCES applications(id),subject_type text NOT NULL CHECK(subject_type IN ('user','team')),subject_id text NOT NULL,permission text NOT NULL CHECK(permission IN ('view','operate')),PRIMARY KEY(application_id,subject_type,subject_id));
+CREATE TABLE management_audit(id bigserial PRIMARY KEY,actor_id text NOT NULL,actor_kind text NOT NULL DEFAULT 'user',application_id text NOT NULL DEFAULT '',action text NOT NULL,target text NOT NULL,outcome text NOT NULL,changes jsonb NOT NULL DEFAULT '{}',created_at timestamptz NOT NULL DEFAULT now());
+CREATE INDEX audit_application ON management_audit(application_id,id DESC);

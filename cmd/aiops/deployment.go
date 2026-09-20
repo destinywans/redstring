@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 )
 
@@ -29,12 +28,15 @@ func templateImages(raw json.RawMessage) []containerImage {
 	return template.Spec.Containers
 }
 
-func registerDeployment(api *httpapi.Server, connector *connectors.Kubernetes, config connectors.Config) {
+func registerPlatformDeployment(api *httpapi.Server, registry *platformRegistry) {
 	api.Register("GET /api/v1/applications/{id}/deployment", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		if connector == nil || r.PathValue("id") != "demo" {
+		env, registration, err := registry.resolve(r.Context(), r.PathValue("id"), r.URL.Query().Get("environment_id"))
+		if err != nil {
 			httpapi.Error(w, 404, "not_configured", "No Deployment registered for this application")
 			return
 		}
+		connector, config := registration.connector, registration.Config
+		_ = env
 		snapshot, err := connector.Snapshot(r.Context())
 		if err != nil {
 			httpapi.Error(w, 503, "deployment_unavailable", "Registered Deployment snapshot unavailable")
@@ -64,6 +66,6 @@ func registerDeployment(api *httpapi.Server, connector *connectors.Kubernetes, c
 			ObservedGeneration int64            `json:"observed_generation"`
 			Revisions          []revision       `json:"revisions"`
 			CapturedAt         time.Time        `json:"captured_at"`
-		}{"demo", config.Namespace, config.Deployment, d.Metadata.UID, snapshot.TemplateDigest, templateImages(d.Spec.Template), d.Spec.Replicas, d.Status.ReadyReplicas, d.Status.UpdatedReplicas, d.Metadata.Generation, d.Status.ObservedGeneration, revisions, snapshot.CapturedAt})
+		}{r.PathValue("id"), config.Namespace, config.Deployment, d.Metadata.UID, snapshot.TemplateDigest, templateImages(d.Spec.Template), d.Spec.Replicas, d.Status.ReadyReplicas, d.Status.UpdatedReplicas, d.Metadata.Generation, d.Status.ObservedGeneration, revisions, snapshot.CapturedAt})
 	})
 }

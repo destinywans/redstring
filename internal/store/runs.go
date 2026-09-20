@@ -68,7 +68,7 @@ func (s *Store) Enqueue(ctx context.Context, bid, content, model, request string
 	if e != nil {
 		return core.Run{}, e
 	}
-	r, e := runRow(tx.QueryRow(ctx, "INSERT INTO runs(id,branch_id,request_id,request_hash,status,model_id,input,context_revision,input_evidence) VALUES($1,$2,$3,$4,'queued',$5,$6,$7,$8) RETURNING "+runColumns, ID(), bid, request, hash, model, input, b.Revision, frozenJSON))
+	r, e := runRow(tx.QueryRow(ctx, "INSERT INTO runs(id,branch_id,request_id,request_hash,status,model_id,input,context_revision,input_evidence,actor_id) VALUES($1,$2,$3,$4,'queued',$5,$6,$7,$8,$9) RETURNING "+runColumns, ID(), bid, request, hash, model, input, b.Revision, frozenJSON, Principal(ctx).ID))
 	if e != nil {
 		return r, e
 	}
@@ -84,6 +84,8 @@ type Claim struct {
 	Messages        []core.Message
 	InvestigationID string
 	ApplicationID   string
+	EnvironmentID   string
+	ActorID         string
 	ContextRevision int64
 	FrozenEvidence  []core.Evidence
 }
@@ -96,7 +98,7 @@ func (s *Store) Claim(ctx context.Context) (Claim, error) {
 	defer tx.Rollback(ctx)
 	var c Claim
 	var raw, frozenRaw []byte
-	e = tx.QueryRow(ctx, "SELECT id,branch_id,status,model_id,attempt,error,created_at,input,context_revision,input_evidence FROM runs WHERE (status='queued' OR (status='running' AND lease_until<now())) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1").Scan(&c.Run.ID, &c.Run.BranchID, &c.Run.Status, &c.Run.ModelID, &c.Run.Attempt, &c.Run.Error, &c.Run.CreatedAt, &raw, &c.ContextRevision, &frozenRaw)
+	e = tx.QueryRow(ctx, "SELECT id,branch_id,status,model_id,attempt,error,created_at,input,context_revision,input_evidence,actor_id FROM runs WHERE (status='queued' OR (status='running' AND lease_until<now())) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1").Scan(&c.Run.ID, &c.Run.BranchID, &c.Run.Status, &c.Run.ModelID, &c.Run.Attempt, &c.Run.Error, &c.Run.CreatedAt, &raw, &c.ContextRevision, &frozenRaw, &c.ActorID)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return c, ErrNoWork
 	}
@@ -143,7 +145,7 @@ func (s *Store) Claim(ctx context.Context) (Claim, error) {
 	if e != nil {
 		return c, e
 	}
-	e = tx.QueryRow(ctx, "SELECT b.investigation_id,i.application_id FROM branches b JOIN investigations i ON i.id=b.investigation_id WHERE b.id=$1", c.Run.BranchID).Scan(&c.InvestigationID, &c.ApplicationID)
+	e = tx.QueryRow(ctx, "SELECT b.investigation_id,i.application_id,COALESCE(i.environment_id,'') FROM branches b JOIN investigations i ON i.id=b.investigation_id WHERE b.id=$1", c.Run.BranchID).Scan(&c.InvestigationID, &c.ApplicationID, &c.EnvironmentID)
 	if e != nil {
 		return c, e
 	}

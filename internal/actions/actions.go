@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/wans/aiops-canvas/internal/connectors"
+	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/store"
 	"log/slog"
 	"time"
@@ -76,22 +77,38 @@ type Service struct {
 	Repository    Repository
 	Connector     Connector
 	ApplicationID string
+	Resolve       func(context.Context, string, *connectors.RollbackPlan) (Connector, error)
 }
 
-func NewWithRepository(r Repository, c Connector, app string) *Service { return &Service{r, c, app} }
-func (s *Service) Migrate(ctx context.Context) error                   { return s.Repository.Migrate(ctx) }
+func NewWithRepository(r Repository, c Connector, app string) *Service {
+	return &Service{Repository: r, Connector: c, ApplicationID: app}
+}
+func (s *Service) Migrate(ctx context.Context) error { return s.Repository.Migrate(ctx) }
 func (s *Service) Create(ctx context.Context, inv, revision, user string) (Plan, error) {
 	app, e := s.Repository.Application(ctx, inv)
 	if e != nil {
 		return Plan{}, e
 	}
-	if s.Connector == nil || app != s.ApplicationID {
+	connector := s.Connector
+	stamp := connectors.RollbackPlan{}
+	if s.Resolve != nil {
+		connector, e = s.Resolve(ctx, inv, &stamp)
+		if e != nil {
+			return Plan{}, e
+		}
+	}
+	if connector == nil || (s.Resolve == nil && app != s.ApplicationID) {
 		return Plan{}, errors.New("no action connector registered for this application")
 	}
-	p, e := s.Connector.ProposeRollback(ctx, revision)
+	p, e := connector.ProposeRollback(ctx, revision)
 	if e != nil {
 		return Plan{}, e
 	}
+	p.EnvironmentID = stamp.EnvironmentID
+	p.ConnectorID = stamp.ConnectorID
+	p.BindingRevision = stamp.BindingRevision
+	p.ConfigurationDigest = stamp.ConfigurationDigest
+	connectors.SealPlan(&p)
 	return s.Repository.CreatePlan(ctx, inv, p, user)
 }
 func (s *Service) Plan(ctx context.Context, id string) (Plan, error) {
@@ -101,9 +118,30 @@ func (s *Service) Plans(ctx context.Context, inv string) ([]Plan, error) {
 	return s.Repository.Plans(ctx, inv)
 }
 func (s *Service) Approve(ctx context.Context, id, digest, user string) (Plan, error) {
+	if s.Resolve != nil {
+		p, e := s.Plan(ctx, id)
+		if e != nil {
+			return Plan{}, e
+		}
+		if _, e = s.Resolve(ctx, p.InvestigationID, &p.Proposal); e != nil {
+			return Plan{}, e
+		}
+	}
 	return s.Repository.Approve(ctx, id, digest, user)
 }
 func (s *Service) Enqueue(ctx context.Context, id, user string) (Execution, error) {
+	if s.Resolve != nil {
+		p, e := s.Plan(ctx, id)
+		if e != nil {
+			return Execution{}, e
+		}
+		if p.Proposal.EnvironmentID == "" {
+			return Execution{}, store.ErrConflict
+		}
+		if _, e = s.Resolve(ctx, p.InvestigationID, &p.Proposal); e != nil {
+			return Execution{}, e
+		}
+	}
 	return s.Repository.Enqueue(ctx, id, user)
 }
 func (s *Service) Execution(ctx context.Context, id string) (Execution, error) {
@@ -117,7 +155,7 @@ func (s *Service) Run(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
-		if s.Connector != nil {
+		if s.Connector != nil || s.Resolve != nil {
 			c, e := s.claim(ctx)
 			if e == nil {
 				s.perform(ctx, c)
@@ -165,6 +203,33 @@ func (s *Service) perform(parent context.Context, c claim) {
 		if e := s.transition(cleanup, c, state, msg, result); e != nil && !errors.Is(e, store.ErrLease) {
 			slog.Error("action transition failed", "error", e)
 		}
+	}
+	if s.Resolve != nil {
+		local := *s
+		resolveCtx := store.WithPrincipal(ctx, core.User{ID: p.ApprovedBy})
+		if p.Proposal.EnvironmentID == "" {
+			finish("needs_attention", "Legacy plan has no immutable environment binding; create a new proposal.", nil)
+			return
+		}
+		if actors, ok := s.Repository.(interface {
+			ExecutionActor(context.Context, string) (string, error)
+		}); ok {
+			actor, e := actors.ExecutionActor(ctx, c.ID)
+			if e != nil {
+				finish("needs_attention", "Execution principal could not be verified.", nil)
+				return
+			}
+			if _, e = s.Resolve(store.WithPrincipal(ctx, core.User{ID: actor}), p.InvestigationID, &p.Proposal); e != nil {
+				finish("needs_attention", "Execution requester permission or target binding changed.", nil)
+				return
+			}
+		}
+		local.Connector, e = s.Resolve(resolveCtx, p.InvestigationID, &p.Proposal)
+		if e != nil {
+			finish("needs_attention", "Application permission or connector binding changed; review before retry.", nil)
+			return
+		}
+		s = &local
 	}
 	if c.Attempt > 3 {
 		finish("needs_attention", "Recovery attempts exhausted; inspect actual target before a new plan.", nil)

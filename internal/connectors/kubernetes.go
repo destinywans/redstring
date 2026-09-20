@@ -93,6 +93,10 @@ type RollbackPlan struct {
 	TargetRevision         string          `json:"target_revision"`
 	ObservationSeconds     int             `json:"observation_seconds"`
 	Digest                 string          `json:"digest"`
+	EnvironmentID          string          `json:"environment_id,omitempty"`
+	ConnectorID            string          `json:"connector_id,omitempty"`
+	BindingRevision        int64           `json:"binding_revision,omitempty"`
+	ConfigurationDigest    string          `json:"configuration_digest,omitempty"`
 }
 type ExecutionResult struct {
 	State       string `json:"state"`
@@ -125,12 +129,12 @@ func New(c Config) (*Kubernetes, error) {
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
 		return nil, errors.New("Kubernetes API must be an HTTPS URL without credentials")
 	}
-	for _, n := range []string{c.Namespace, c.Deployment, c.Service} {
+	for _, n := range []string{c.Namespace, c.Deployment} {
 		if !namePattern.MatchString(n) {
 			return nil, errors.New("invalid registered Kubernetes resource name")
 		}
 	}
-	if c.Port < 1 || c.Port > 65535 {
+	if c.Service != "" && (!namePattern.MatchString(c.Service) || c.Port < 1 || c.Port > 65535) {
 		return nil, errors.New("invalid service port")
 	}
 	pem, err := os.ReadFile(c.CAFile)
@@ -214,6 +218,7 @@ func digest(v any) string {
 }
 
 // Canonicalize nested templates so PostgreSQL jsonb key order does not invalidate plans.
+func SealPlan(p *RollbackPlan)         { p.Digest = ""; p.Digest = planDigest(*p) }
 func planDigest(p RollbackPlan) string { b, _ := json.Marshal(p); return templateDigest(b) }
 func templateDigest(t json.RawMessage) string {
 	var v any

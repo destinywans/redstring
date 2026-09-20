@@ -112,6 +112,40 @@ route('get','/applications/{id}/telemetry','List configured telemetry queries',r
 route('post','/applications/{id}/metrics','Query registered application metrics','operator',obj({'query_id':string(),'start':string(format='date-time'),'end':string(format='date-time'),'step_seconds':integer()},['query_id']),ref('MetricEvidence'),desc='Server-registered query IDs only, no arbitrary PromQL. Defaults up to last15m and 15s, constrained by registered window/sample limits; explicit time and response limits enforced. Empty is not healthy proof.')
 route('post','/applications/{id}/logs','Query scoped application logs','operator',obj({'start':string(format='date-time'),'end':string(format='date-time'),'limit':integer()}),ref('LogEvidence'),desc='Registered exact Loki labels; cannot override LogQL/endpoint/scope. Default last15m/100 lines; empty is not healthy proof.')
 
-spec={'openapi':'3.1.0','info':{'title':'AIOps Canvas Backend API','version':'0.2.0','description':'Single-workspace backend contract. Frontend implementation is deferred. All business history is server authoritative.','license':{'name':'Apache-2.0','identifier':'Apache-2.0'}},'servers':[{'url':'/api/v1'}],'security':[{'sessionCookie':[]}],'paths':P,'components':{'schemas':S,'securitySchemes':{'sessionCookie':{'type':'apiKey','in':'cookie','name':'aiops_session'}}}}
+# Approved multi-application SRE workspace contract (WAN-74 through WAN-79).
+boolean={'type':'boolean'}
+def body_at(path,method,schema): P[path][method]['requestBody']={'required':True,'content':{'application/json':{'schema':schema}}}
+def query_env(path,method): P[path][method].setdefault('parameters',[]).append({'name':'environment_id','in':'query','schema':string()})
+S['Binding']=obj(fieldnames('kind connector_id resource'),['kind','connector_id','resource'])
+S['Environment']=obj({**fieldnames('id application_id key name'),'archived':boolean,'binding_revision':integer(),'bindings':arr(ref('Binding'))})
+S['Application']['properties'].update({**fieldnames('key owner_team_id maintainer_id repository_url runbook_url'),'tags':arr(string()),'archived':boolean,'environments':arr(ref('Environment'))})
+S['Team']=obj(fieldnames('id name description'))
+S['Grant']=obj({'subject_type':string(enum=['user','team']),'subject_id':string(),'permission':string(enum=['view','operate'])},['subject_type','subject_id','permission'])
+S['Model']['properties'].update({'context_window':integer(),'input_budget':integer()})
+S['Investigation']['properties']['environment_id']=string()
+S['DeploymentSnapshot']['properties'].update({**fieldnames('environment_id connector_id'),'binding_revision':integer()})
+S['RollbackProposal']['properties'].update({**fieldnames('application_id environment_id connector_id binding_digest'),'binding_revision':integer()})
+app_fields={k:v for k,v in S['Application']['properties'].items() if k not in ['id','archived','environments']}
+body_at('/applications','post',obj(app_fields,['name']))
+body_at('/investigations','post',obj(fieldnames('application_id environment_id title'),['application_id','title']))
+route('get','/applications/{id}','Read authorized application',response=ref('Application'))
+route('patch','/applications/{id}','Update application metadata','admin',obj({k:v for k,v in app_fields.items() if k!='environment'}),ref('Application'))
+route('post','/applications/{id}/archive','Archive or restore without deleting history','admin',obj({'archived':boolean},['archived']),ref('Application'))
+route('get','/applications/{id}/environments','List application environments',response=listed('Environment'))
+route('post','/applications/{id}/environments','Create registered environment','admin',ref('Environment'),ref('Environment'))
+route('patch','/environments/{id}','Update environment with binding revision','admin',ref('Environment'),ref('Environment'),desc='Full environment update; binding_revision is optimistic concurrency token. Secrets stay in server registration.')
+route('get','/teams','List teams','admin',response=listed('Team'))
+route('post','/teams','Create team','admin',ref('Team'),ref('Team'))
+route('patch','/teams/{id}','Update team','admin',ref('Team'),ref('Team'))
+route('get','/teams/{id}/members','Read team member IDs','admin',response=obj({'items':arr(string())}))
+route('put','/teams/{id}/members','Replace team members','admin',obj({'user_ids':arr(string())},['user_ids']),obj({'items':arr(string())}))
+route('get','/applications/{id}/grants','Read explicit application grants','admin',response=listed('Grant'))
+route('put','/applications/{id}/grants','Replace application grants','admin',listed('Grant'),listed('Grant'),desc='Workspace role caps grants; owner fields do not confer permissions.')
+route('get','/audit','Read sanitized management audit','admin',response=obj({'items':arr({'type':'object','additionalProperties':True})}))
+route('get','/connector-registrations','Read safe server-managed binding options','admin',response=obj({'items':arr(obj(fieldnames('id name kind resource')))}))
+for path in ['/applications/{id}/deployment','/applications/{id}/telemetry']: query_env(path,'get')
+for path in ['/applications/{id}/metrics','/applications/{id}/logs']:
+    P[path]['post']['requestBody']['content']['application/json']['schema']['properties']['environment_id']=string()
+spec={'openapi':'3.1.0','info':{'title':'AIOps Canvas Backend API','version':'0.2.1','description':'Single-workspace backend contract. All business history is server authoritative.','license':{'name':'Apache-2.0','identifier':'Apache-2.0'}},'servers':[{'url':'/api/v1'}],'security':[{'sessionCookie':[]}],'paths':P,'components':{'schemas':S,'securitySchemes':{'sessionCookie':{'type':'apiKey','in':'cookie','name':'aiops_session'}}}}
 Path('internal/apicontract/openapi.json').write_text(json.dumps(spec,ensure_ascii=False,indent=2)+'\n')
 print(f'Generated {len(P)} paths, {sum(len(x) for x in P.values())} operations, {len(S)} schemas.')

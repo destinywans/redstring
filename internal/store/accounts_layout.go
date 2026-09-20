@@ -46,13 +46,52 @@ func (s *Store) CreateUser(ctx context.Context, u core.User, password string) (c
 	u.ID = ID()
 	u.Email = strings.ToLower(u.Email)
 	u.Disabled = false
-	_, e := s.DB.Exec(ctx, "INSERT INTO users(id,email,name,role,password_hash) VALUES($1,$2,$3,$4,$5)", u.ID, u.Email, u.Name, u.Role, PasswordHash(password))
-	return u, ClassifyError(e)
+	tx, e := s.DB.Begin(ctx)
+	if e != nil {
+		return u, e
+	}
+	defer tx.Rollback(ctx)
+	_, e = tx.Exec(ctx, "INSERT INTO users(id,email,name,role,password_hash) VALUES($1,$2,$3,$4,$5)", u.ID, u.Email, u.Name, u.Role, PasswordHash(password))
+	if e != nil {
+		return u, ClassifyError(e)
+	}
+	if e = auditTx(ctx, tx, "", "account.created", u.ID, map[string]string{"role": u.Role}); e != nil {
+		return u, e
+	}
+	return u, tx.Commit(ctx)
 }
 func (s *Store) RegisterApplication(ctx context.Context, a core.Application) (core.Application, error) {
 	a.ID = ID()
-	_, e := s.DB.Exec(ctx, "INSERT INTO applications(id,name,description,environment) VALUES($1,$2,$3,$4)", a.ID, a.Name, a.Description, a.Environment)
-	return a, ClassifyError(e)
+	if a.Key == "" {
+		a.Key = a.ID
+	}
+	if a.Environment == "" {
+		a.Environment = "development"
+	}
+	if a.Tags == nil {
+		a.Tags = []string{}
+	}
+	tags, _ := json.Marshal(a.Tags)
+	tx, e := s.DB.Begin(ctx)
+	if e != nil {
+		return a, e
+	}
+	defer tx.Rollback(ctx)
+	_, e = tx.Exec(ctx, "INSERT INTO applications(id,name,description,environment,key,owner_team_id,maintainer_id,tags,repository_url,runbook_url) VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),$8,$9,$10)", a.ID, a.Name, a.Description, a.Environment, a.Key, a.OwnerTeamID, a.MaintainerID, tags, a.RepositoryURL, a.RunbookURL)
+	if e != nil {
+		return a, ClassifyError(e)
+	}
+	_, e = tx.Exec(ctx, "INSERT INTO application_environments(id,application_id,key,name) VALUES($1,$2,$3,$3)", a.ID+"-default", a.ID, a.Environment)
+	if e != nil {
+		return a, e
+	}
+	if e = auditTx(ctx, tx, a.ID, "application.created", a.ID, map[string]string{"key": a.Key}); e != nil {
+		return a, e
+	}
+	if e = tx.Commit(ctx); e != nil {
+		return a, e
+	}
+	return s.Application(ctx, a.ID)
 }
 func (s *Store) InvestigationExists(ctx context.Context, id string) (bool, error) {
 	var exists bool
@@ -123,6 +162,9 @@ func (s *Store) UpdateAccount(ctx context.Context, id string, v AccountUpdate) (
 		if _, e = tx.Exec(ctx, "DELETE FROM sessions WHERE user_id=$1", u.ID); e != nil {
 			return u, e
 		}
+	}
+	if e = auditTx(ctx, tx, "", "account.updated", u.ID, map[string]any{"role": u.Role, "disabled": u.Disabled, "password_changed": v.Password != nil}); e != nil {
+		return u, e
 	}
 	return u, tx.Commit(ctx)
 }

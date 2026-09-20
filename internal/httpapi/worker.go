@@ -20,6 +20,7 @@ type Worker struct {
 	Tools          func(context.Context, string) ([]inference.EvidenceTool, error)
 	Concurrency    int
 	AttemptTimeout time.Duration
+	Prepare        func(context.Context, store.Claim, *inference.Request) error
 }
 
 func NewWorker(s store.RunRepository, r inference.Runner) *Worker {
@@ -57,6 +58,18 @@ func (w *Worker) Run(ctx context.Context) {
 func (w *Worker) execute(parent context.Context, c store.Claim) {
 	ctx, cancel := context.WithTimeout(parent, w.AttemptTimeout)
 	defer cancel()
+	ctx = store.WithEnvironment(ctx, c.EnvironmentID)
+	ctx = store.WithPrincipal(ctx, core.User{ID: c.ActorID})
+	var actorErr error
+	if users, ok := w.Store.(interface {
+		ActiveUser(context.Context, string) (core.User, error)
+	}); ok {
+		var u core.User
+		u, actorErr = users.ActiveUser(ctx, c.ActorID)
+		if actorErr == nil {
+			ctx = store.WithPrincipal(ctx, u)
+		}
+	}
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
@@ -76,6 +89,9 @@ func (w *Worker) execute(parent context.Context, c store.Claim) {
 	}()
 	req := inference.Request{RunID: c.Run.ID, AttemptID: c.Token, BranchID: c.Run.BranchID, ModelID: c.Run.ModelID}
 	retryEvidence, runErr := w.Store.RetryEvidence(ctx, c)
+	if actorErr != nil {
+		runErr = actorErr
+	}
 	if runErr == nil && (len(c.FrozenEvidence) > 0 || len(retryEvidence) > 0) {
 		envelope := struct {
 			ContextRevision int64           `json:"context_revision"`
@@ -94,6 +110,21 @@ func (w *Worker) execute(parent context.Context, c store.Claim) {
 	}
 	if w.Tools != nil && runErr == nil {
 		req.Tools, runErr = w.Tools(ctx, c.ApplicationID)
+	}
+	if p, ok := w.Store.(store.PlatformRepository); ok && runErr == nil {
+		runErr = p.AuthorizeApplication(ctx, store.Principal(ctx), c.ApplicationID, "operate")
+		for i := range req.Tools {
+			read := req.Tools[i].Read
+			req.Tools[i].Read = func(ctx context.Context, q string) (inference.Evidence, error) {
+				if e := p.AuthorizeApplication(ctx, store.Principal(ctx), c.ApplicationID, "operate"); e != nil {
+					return inference.Evidence{}, e
+				}
+				return read(ctx, q)
+			}
+		}
+	}
+	if w.Prepare != nil && runErr == nil {
+		runErr = w.Prepare(ctx, c, &req)
 	}
 	var mu sync.Mutex
 	var pending strings.Builder
@@ -142,6 +173,9 @@ func (w *Worker) execute(parent context.Context, c store.Claim) {
 	}
 	commitCtx, done := context.WithTimeout(context.Background(), 10*time.Second)
 	defer done()
+	if p, ok := w.Store.(store.PlatformRepository); ok && runErr == nil {
+		runErr = p.AuthorizeApplication(commitCtx, core.User{ID: c.ActorID}, c.ApplicationID, "operate")
+	}
 	if e := w.Store.Finish(commitCtx, c, output, runErr); e != nil && !errors.Is(e, store.ErrLease) {
 		slog.Error("finish attempt", "run_id", c.Run.ID, "error", e)
 	}

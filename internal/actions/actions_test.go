@@ -93,7 +93,7 @@ func isolatedActions(t *testing.T, maxConns int32) (*Service, *fakeConnector, st
 	if e = st.Migrate(ctx); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = pool.Exec(ctx, "INSERT INTO users(id,email,name,role,password_hash) VALUES('u','test@example.invalid','Test','operator','unused'); INSERT INTO applications(id,name) VALUES('app','Test')"); e != nil {
+	if _, e = pool.Exec(ctx, "INSERT INTO users(id,email,name,role,password_hash) VALUES('u','test@example.invalid','Test','operator','unused'); INSERT INTO applications(id,key,name) VALUES('app','app','Test'); INSERT INTO application_environments(id,application_id,key,name) VALUES('app-default','app','test','Test')"); e != nil {
 		t.Fatal(e)
 	}
 	inv, e := st.CreateInvestigation(ctx, "app", "Test rollback")

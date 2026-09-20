@@ -26,19 +26,22 @@ func CurrentUser(r *http.Request) core.User {
 }
 
 type Server struct {
-	Store         store.Repository
-	Runtime       inference.Runner
-	mux           *http.ServeMux
-	SecureCookies bool
-	AllowedOrigin string
-	Integrations  []Integration
-	loginMu       sync.Mutex
-	loginAttempts map[string][]time.Time
+	Store                   store.Repository
+	Runtime                 inference.Runner
+	mux                     *http.ServeMux
+	SecureCookies           bool
+	AllowedOrigin           string
+	Integrations            []Integration
+	ValidateBindings        func([]core.Binding) error
+	EnvironmentCapabilities func(core.Environment) []string
+	loginMu                 sync.Mutex
+	loginAttempts           map[string][]time.Time
 }
 
 func New(s store.Repository, r inference.Runner) *Server {
 	x := &Server{Store: s, Runtime: r, mux: http.NewServeMux(), loginAttempts: map[string][]time.Time{}}
 	x.routes()
+	x.platformRoutes()
 	return x
 }
 func WriteJSON(w http.ResponseWriter, status int, v any) {
@@ -68,6 +71,8 @@ func Decode(w http.ResponseWriter, r *http.Request, v any) bool {
 func fail(w http.ResponseWriter, e error) {
 	e = store.ClassifyError(e)
 	switch {
+	case errors.Is(e, store.ErrForbidden):
+		Error(w, 403, "forbidden", "Application permission required")
 	case errors.Is(e, store.ErrNotFound):
 		Error(w, 404, "not_found", "Not found")
 	case errors.Is(e, store.ErrConflict):
@@ -108,7 +113,13 @@ func (s *Server) Register(pattern, minRole string, h http.HandlerFunc) {
 			Error(w, 403, "forbidden", "Insufficient permission")
 			return
 		}
-		h(w, r.WithContext(context.WithValue(r.Context(), userKey{}, u)))
+		ctx := store.WithPrincipal(context.WithValue(r.Context(), userKey{}, u), u)
+		r = r.WithContext(ctx)
+		if e := s.authorizeRoute(r); e != nil {
+			AuthorizationError(w, e)
+			return
+		}
+		h(w, r)
 	})
 }
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -151,6 +162,30 @@ func (s *Server) routes() {
 		if items == nil {
 			items = []Integration{}
 		}
+		{
+			ids, e := s.VisibleApplicationIDs(r.Context(), CurrentUser(r))
+			if e != nil {
+				fail(w, e)
+				return
+			}
+			allowed := map[string]bool{}
+			for _, id := range ids {
+				allowed[id] = true
+			}
+			filtered := make([]Integration, 0, len(items))
+			for _, item := range items {
+				item.ApplicationIDs = append([]string{}, item.ApplicationIDs...)
+				visible := item.ApplicationIDs[:0]
+				for _, id := range item.ApplicationIDs {
+					if allowed[id] {
+						visible = append(visible, id)
+					}
+				}
+				item.ApplicationIDs = visible
+				filtered = append(filtered, item)
+			}
+			items = filtered
+		}
 		WriteJSON(w, 200, map[string]any{"items": items, "configuration_mode": "server_managed"})
 	})
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -188,6 +223,27 @@ func (s *Server) routes() {
 			fail(w, e)
 			return
 		}
+		{
+			ids, err := s.VisibleApplicationIDs(r.Context(), CurrentUser(r))
+			if err != nil {
+				fail(w, err)
+				return
+			}
+			allowed := map[string]bool{}
+			for _, id := range ids {
+				allowed[id] = true
+			}
+			filtered := v[:0]
+			for _, a := range v {
+				if allowed[a.ID] {
+					filtered = append(filtered, a)
+				}
+			}
+			v = filtered
+		}
+		for i := range v {
+			s.enrichApplication(&v[i])
+		}
 		WriteJSON(w, 200, map[string]any{"items": v})
 	})
 	s.Register("POST /api/v1/applications", "admin", func(w http.ResponseWriter, r *http.Request) {
@@ -212,11 +268,30 @@ func (s *Server) routes() {
 			fail(w, e)
 			return
 		}
+		{
+			ids, err := s.VisibleApplicationIDs(r.Context(), CurrentUser(r))
+			if err != nil {
+				fail(w, err)
+				return
+			}
+			allowed := map[string]bool{}
+			for _, id := range ids {
+				allowed[id] = true
+			}
+			filtered := v[:0]
+			for _, a := range v {
+				if allowed[a.ApplicationID] {
+					filtered = append(filtered, a)
+				}
+			}
+			v = filtered
+		}
 		WriteJSON(w, 200, map[string]any{"items": v})
 	})
 	s.Register("POST /api/v1/investigations", "operator", func(w http.ResponseWriter, r *http.Request) {
 		var v struct {
 			ApplicationID string `json:"application_id"`
+			EnvironmentID string `json:"environment_id"`
 			Title         string `json:"title"`
 		}
 		if !Decode(w, r, &v) {
@@ -226,7 +301,11 @@ func (s *Server) routes() {
 			Error(w, 422, "invalid_title", "Title must be 1–300 bytes")
 			return
 		}
-		x, e := s.Store.CreateInvestigation(r.Context(), v.ApplicationID, v.Title)
+		if e := s.AuthorizeApplication(r.Context(), CurrentUser(r), v.ApplicationID, "operate"); e != nil {
+			AuthorizationError(w, e)
+			return
+		}
+		x, e := s.Store.CreateInvestigation(store.WithEnvironment(r.Context(), v.EnvironmentID), v.ApplicationID, v.Title)
 		if e != nil {
 			fail(w, e)
 			return
@@ -419,6 +498,9 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, err := s.Store.Session(r.Context(), cookie.Value); err != nil {
+			return
+		}
+		if e := s.authorizeRoute(r); e != nil {
 			return
 		}
 		items, e := s.Store.Events(r.Context(), id, after)

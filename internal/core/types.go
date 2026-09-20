@@ -10,10 +10,18 @@ type User struct {
 	Disabled bool   `json:"disabled"`
 }
 type Application struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Environment string `json:"environment"`
+	ID            string        `json:"id"`
+	Name          string        `json:"name"`
+	Description   string        `json:"description"`
+	Environment   string        `json:"environment"`
+	Key           string        `json:"key"`
+	OwnerTeamID   string        `json:"owner_team_id"`
+	MaintainerID  string        `json:"maintainer_id"`
+	Tags          []string      `json:"tags"`
+	RepositoryURL string        `json:"repository_url"`
+	RunbookURL    string        `json:"runbook_url"`
+	Archived      bool          `json:"archived"`
+	Environments  []Environment `json:"environments"`
 }
 type Message struct {
 	ID          string    `json:"id"`
@@ -58,6 +66,7 @@ type Run struct {
 type Investigation struct {
 	ID            string     `json:"id"`
 	ApplicationID string     `json:"application_id"`
+	EnvironmentID string     `json:"environment_id"`
 	Title         string     `json:"title"`
 	Status        string     `json:"status"`
 	CreatedAt     time.Time  `json:"created_at"`
@@ -114,4 +123,31 @@ type MergeConflict struct {
 type MergeOptions struct {
 	MessageIDs []string `json:"message_ids,omitempty"`
 	Mode       string   `json:"mode,omitempty"`
+}
+
+// Environment keeps resource bindings separate from application ownership.
+type Environment struct {
+	ID              string    `json:"id"`
+	ApplicationID   string    `json:"application_id"`
+	Key             string    `json:"key"`
+	Name            string    `json:"name"`
+	Archived        bool      `json:"archived"`
+	BindingRevision int64     `json:"binding_revision"`
+	Bindings        []Binding `json:"bindings"`
+	Capabilities    []string  `json:"capabilities"`
+}
+type Binding struct {
+	Kind        string `json:"kind"`
+	ConnectorID string `json:"connector_id"`
+	Resource    string `json:"resource"`
+}
+type Team struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+type Grant struct {
+	SubjectType string `json:"subject_type"`
+	SubjectID   string `json:"subject_id"`
+	Permission  string `json:"permission"`
 }

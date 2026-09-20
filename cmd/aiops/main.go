@@ -44,7 +44,10 @@ func run() error {
 	if e = s.Bootstrap(ctx, os.Getenv("AIOPS_ADMIN_EMAIL"), os.Getenv("AIOPS_ADMIN_PASSWORD")); e != nil {
 		return e
 	}
-	if _, e = s.DB.Exec(ctx, "INSERT INTO applications(id,name,description,environment) VALUES('demo','Demo Application','Registered demo environment','demo') ON CONFLICT(id) DO NOTHING"); e != nil {
+	if _, e = s.DB.Exec(ctx, "INSERT INTO applications(id,name,description,environment,key) VALUES('demo','Demo Application','Registered demo environment','demo','demo') ON CONFLICT(id) DO NOTHING"); e != nil {
+		return e
+	}
+	if _, e = s.DB.Exec(ctx, "INSERT INTO application_environments(id,application_id,key,name) VALUES('demo-default','demo','demo','Demo') ON CONFLICT(id) DO NOTHING"); e != nil {
 		return e
 	}
 	runtime, e := inference.NewFromEnv()
@@ -83,7 +86,7 @@ func run() error {
 	}
 	acts.Register(api)
 	actionDone := make(chan struct{})
-	go func() { defer close(actionDone); acts.Run(ctx) }()
+
 	worker := httpapi.NewWorker(s, runtime)
 	worker.Tools = func(ctx context.Context, app string) ([]inference.EvidenceTool, error) {
 		tools := []inference.EvidenceTool{know.EvidenceTool(app)}
@@ -102,7 +105,11 @@ func run() error {
 	if e = configureTelemetry(api, worker); e != nil {
 		return e
 	}
-	registerDeployment(api, connector, connectorConfig)
+	registry, e := configurePlatform(ctx, s, api, acts, worker, connector, connectorConfig)
+	if e != nil {
+		return e
+	}
+	registerPlatformDeployment(api, registry)
 	apps := []string{}
 	if connector != nil {
 		apps = append(apps, "demo")
@@ -112,6 +119,7 @@ func run() error {
 	entry := httpapi.NewIntegration("embedding", "Knowledge embedding", "embedding", embedding.Provider, true, nil, []string{"knowledge.embed"})
 	entry.Model = embedding.Model
 	api.Integrations = append(api.Integrations, entry)
+	go func() { defer close(actionDone); acts.Run(ctx) }()
 	workerDone := make(chan struct{})
 	go func() { defer close(workerDone); worker.Run(ctx) }()
 	addr := os.Getenv("AIOPS_ADDR")

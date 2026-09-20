@@ -13,6 +13,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
+	"github.com/wans/aiops-canvas/internal/store"
 )
 
 // Telemetry registration is operator configuration, never model-supplied URLs or queries.
@@ -56,10 +57,10 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
 				return nil, err
 			}
 		}
-		registration, ok := config.Applications[app]
-		if !ok {
-			return tools, nil
-		}
+		metricScope, _ := telemetryScope(ctx, api, app, store.EnvironmentID(ctx), "prometheus")
+		logScope, _ := telemetryScope(ctx, api, app, store.EnvironmentID(ctx), "loki")
+		registration := config.Applications[metricScope]
+		logRegistration := config.Applications[logScope]
 		ids := make([]string, 0, len(registration.PrometheusQueries))
 		for id := range registration.PrometheusQueries {
 			ids = append(ids, id)
@@ -71,7 +72,7 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
 				if id == "" {
 					id = ids[0]
 				}
-				result, e := client.QueryMetrics(ctx, app, id, connectors.TimeWindow{})
+				result, e := client.QueryMetrics(ctx, metricScope, id, connectors.TimeWindow{})
 				if e != nil {
 					return inference.Evidence{}, e
 				}
@@ -79,9 +80,9 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
 				return inference.Evidence{Kind: "metrics", Title: "Prometheus: " + id, Content: string(b), Source: result.Source.URL}, e
 			}})
 		}
-		if config.Loki.URL != "" && len(registration.LokiLabels) > 0 {
+		if config.Loki.URL != "" && len(logRegistration.LokiLabels) > 0 {
 			tools = append(tools, inference.EvidenceTool{Name: "query_logs", Description: "Read at most 100 application-scoped Loki log entries over a recent time window bounded by server limits. Query text cannot change the registered log scope.", Read: func(ctx context.Context, _ string) (inference.Evidence, error) {
-				result, e := client.QueryLogs(ctx, app, connectors.TimeWindow{}, 0)
+				result, e := client.QueryLogs(ctx, logScope, connectors.TimeWindow{}, 0)
 				if e != nil {
 					return inference.Evidence{}, e
 				}
@@ -92,29 +93,34 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
 		return tools, nil
 	}
 	api.Register("GET /api/v1/applications/{id}/telemetry", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		a, ok := config.Applications[r.PathValue("id")]
-		if !ok {
-			httpapi.Error(w, 404, "not_configured", "No telemetry registration for this application")
-			return
-		}
+		metricScope, _ := telemetryScope(r.Context(), api, r.PathValue("id"), r.URL.Query().Get("environment_id"), "prometheus")
+		logScope, _ := telemetryScope(r.Context(), api, r.PathValue("id"), r.URL.Query().Get("environment_id"), "loki")
+		a := config.Applications[metricScope]
+		logs := config.Applications[logScope]
 		ids := []string{}
 		for id := range a.PrometheusQueries {
 			ids = append(ids, id)
 		}
 		sort.Strings(ids)
-		httpapi.WriteJSON(w, 200, map[string]any{"metric_query_ids": ids, "logs_configured": config.Loki.URL != "" && len(a.LokiLabels) > 0})
+		httpapi.WriteJSON(w, 200, map[string]any{"metric_query_ids": ids, "logs_configured": config.Loki.URL != "" && len(logs.LokiLabels) > 0})
 	})
 	api.Register("POST /api/v1/applications/{id}/metrics", "operator", func(w http.ResponseWriter, r *http.Request) {
 		var v struct {
-			QueryID     string    `json:"query_id"`
-			Start       time.Time `json:"start"`
-			End         time.Time `json:"end"`
-			StepSeconds int       `json:"step_seconds"`
+			EnvironmentID string    `json:"environment_id"`
+			QueryID       string    `json:"query_id"`
+			Start         time.Time `json:"start"`
+			End           time.Time `json:"end"`
+			StepSeconds   int       `json:"step_seconds"`
 		}
 		if !httpapi.Decode(w, r, &v) {
 			return
 		}
-		result, e := client.QueryMetrics(r.Context(), r.PathValue("id"), v.QueryID, connectors.TimeWindow{Start: v.Start, End: v.End, StepSeconds: v.StepSeconds})
+		scope, e := telemetryScope(r.Context(), api, r.PathValue("id"), v.EnvironmentID, "prometheus")
+		if e != nil {
+			httpapi.AuthorizationError(w, e)
+			return
+		}
+		result, e := client.QueryMetrics(r.Context(), scope, v.QueryID, connectors.TimeWindow{Start: v.Start, End: v.End, StepSeconds: v.StepSeconds})
 		if e != nil {
 			telemetryError(w, e)
 			return
@@ -123,14 +129,20 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
 	})
 	api.Register("POST /api/v1/applications/{id}/logs", "operator", func(w http.ResponseWriter, r *http.Request) {
 		var v struct {
-			Start time.Time `json:"start"`
-			End   time.Time `json:"end"`
-			Limit int       `json:"limit"`
+			EnvironmentID string    `json:"environment_id"`
+			Start         time.Time `json:"start"`
+			End           time.Time `json:"end"`
+			Limit         int       `json:"limit"`
 		}
 		if !httpapi.Decode(w, r, &v) {
 			return
 		}
-		result, e := client.QueryLogs(r.Context(), r.PathValue("id"), connectors.TimeWindow{Start: v.Start, End: v.End}, v.Limit)
+		scope, e := telemetryScope(r.Context(), api, r.PathValue("id"), v.EnvironmentID, "loki")
+		if e != nil {
+			httpapi.AuthorizationError(w, e)
+			return
+		}
+		result, e := client.QueryLogs(r.Context(), scope, connectors.TimeWindow{Start: v.Start, End: v.End}, v.Limit)
 		if e != nil {
 			telemetryError(w, e)
 			return
@@ -146,4 +158,21 @@ func telemetryError(w http.ResponseWriter, e error) {
 		return
 	}
 	httpapi.Error(w, 503, "telemetry_unavailable", "Telemetry query failed; check registration, time window and provider availability.")
+}
+
+func telemetryScope(ctx context.Context, api *httpapi.Server, app, envID, kind string) (string, error) {
+	s, ok := api.Store.(*store.Store)
+	if !ok {
+		return app, nil
+	}
+	env, e := s.ResolveEnvironment(ctx, app, envID)
+	if e != nil {
+		return "", e
+	}
+	for _, b := range env.Bindings {
+		if (kind == "" && (b.Kind == "prometheus" || b.Kind == "loki")) || b.Kind == kind {
+			return b.Resource, nil
+		}
+	}
+	return "", store.ErrNotFound
 }

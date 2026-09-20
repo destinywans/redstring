@@ -11,6 +11,13 @@ import (
 )
 
 func (s *Service) Register() {
+	s.API.Register("GET /api/v1/operations/catalog", "admin", func(w http.ResponseWriter, r *http.Request) {
+		httpapi.WriteJSON(w, 200, s.Catalog())
+	})
+	s.API.Register("GET /api/v1/incidents/{id}/events", "viewer", func(w http.ResponseWriter, r *http.Request) {
+		v, e := s.IncidentEvents(r.Context(), httpapi.CurrentUser(r), r.PathValue("id"))
+		respond(w, v, e)
+	})
 	s.API.RegisterPublic("POST /api/v1/webhooks/alertmanager/{source}", s.webhook)
 	s.API.Register("GET /api/v1/incidents", "viewer", func(w http.ResponseWriter, r *http.Request) {
 		v, e := s.Incidents(r.Context(), httpapi.CurrentUser(r), r.URL.Query().Get("application_id"), r.URL.Query().Get("environment_id"))

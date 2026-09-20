@@ -176,6 +176,12 @@ S['Todo']=obj({**fieldnames('id application_id environment_id investigation_id t
 route('get','/incidents','List authorized incoming abnormalities',response=listed('Incident'))
 for name in ['application_id','environment_id']: P['/incidents']['get'].setdefault('parameters',[]).append({'name':name,'in':'query','schema':string()})
 route('get','/incidents/{id}','Read authorized incident',response=ref('Incident'))
+S['AlertReceipt']=obj({'id':integer(format='int64'),'status':string(enum=['firing','resolved']),'received_at':string(format='date-time')},['id','status','received_at'])
+S['AlertMapping']=obj({'labels':{'type':'object','additionalProperties':string()},**fieldnames('application_id environment_id')},['labels','application_id','environment_id'])
+S['OperationsCatalog']=obj({'sources':arr(obj({'id':string(),'type':string(enum=['alertmanager']),'state':string(enum=['configured_unverified']),'mappings':arr(ref('AlertMapping'))})), 'channels':arr(obj({'id':string(),'type':string(enum=['feishu']),'state':string(enum=['configured_unverified']),'scope':obj(fieldnames('application_id environment_id'))}))},['sources','channels'])
+route('get','/operations/catalog','Read sanitized alert sources and notification mappings','admin',response=ref('OperationsCatalog'),desc='Server-managed registration metadata only, not health. No credential contents, paths, webhook addresses or tokens.')
+route('get','/incidents/{id}/events','Read authorized alert receipt history',response=obj({'kind':string(enum=['alert_receipts']),'items':arr(ref('AlertReceipt')),'limit':integer(enum=[100]),'truncated':boolean},['kind','items','limit','truncated']),desc='Latest 100 accepted alert occurrences, ordered by received_at then id descending. Deduplicated receipt history, not action audit or effective alert-state history. Application view ACL; unmapped incidents admin only.')
+
 route('post','/incidents/{id}/claim','Claim or release incident','operator',obj(fieldnames('assignee_id'),['assignee_id']),ref('Incident'))
 route('post','/incidents/{id}/investigation','Create or reuse incident investigation','operator',obj(fieldnames('model_id')),ref('Incident'),desc='Omit model_id for manual investigation without a model call.')
 route('get','/notifications','Read scoped delivery status',response=listed('Notification'))

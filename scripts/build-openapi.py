@@ -121,6 +121,7 @@ S['Environment']=obj({**fieldnames('id application_id key name'),'archived':bool
 S['Application']['properties'].update({**fieldnames('key owner_team_id maintainer_id repository_url runbook_url'),'tags':arr(string()),'capabilities':arr(string()),'archived':boolean,'environments':arr(ref('Environment'))})
 S['Team']=obj(fieldnames('id name description'))
 S['Grant']=obj({'subject_type':string(enum=['user','team']),'subject_id':string(),'permission':string(enum=['view','operate'])},['subject_type','subject_id','permission'])
+S['Model']['properties'].update({'context_window':integer(),'input_budget':integer()})
 S['Investigation']['properties']['environment_id']=string()
 S['DeploymentSnapshot']['properties'].update({**fieldnames('environment_id connector_id'),'binding_revision':integer()})
 S['RollbackProposal']['properties'].update({**fieldnames('environment_id connector_id configuration_digest'),'binding_revision':integer()})
@@ -145,6 +146,8 @@ route('get','/connector-registrations','Read safe server-managed binding options
 for path in ['/applications/{id}/deployment','/applications/{id}/telemetry']: query_env(path,'get')
 for path in ['/applications/{id}/metrics','/applications/{id}/logs']:
     P[path]['post']['requestBody']['content']['application/json']['schema']['properties']['environment_id']=string()
+S['ContextManifest']=obj({**fieldnames('run_id attempt_id model_id estimation summary'),'context_revision':integer(),'input_budget':integer(),'estimated_tokens':integer(),'summary_calls':integer(),'summary_source_ids':arr(string()),'recent_message_ids':arr(string()),'evidence_ids':arr(string()),'messages':arr(obj(fieldnames('role content'))),'created_at':string(format='date-time')})
+route('get','/runs/{id}/context','Read actual prepared attempt input',response=ref('ContextManifest'),desc='Derived summary does not replace raw history; estimates are conservative UTF-8 byte bounds, not exact provider token usage. 404 means no prepared context yet.')
 S['KnowledgeMetadata']=obj({**fieldnames('maintainer_id team_id origin actor_id generation_run_id generation_model visibility'),**{k:arr(string()) for k in ['evidence_ids','environment_ids','resource_categories','tags','shared_application_ids']}})
 S['Document']['properties'].update({'lifecycle':string(enum=['draft','review','published','archived']),'metadata':ref('KnowledgeMetadata'),'updated_at':string(format='date-time')})
 S['KnowledgeHit']['properties'].update({'retrieval':string(),'score':{'type':'number'}})

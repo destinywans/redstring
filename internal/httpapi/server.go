@@ -213,7 +213,7 @@ func (s *Server) routes() {
 	s.Register("GET /api/v1/models", "viewer", func(w http.ResponseWriter, r *http.Request) {
 		items := []map[string]any{}
 		for _, m := range s.Runtime.Models() {
-			items = append(items, map[string]any{"id": m.ID, "name": m.Name, "provider": m.Provider, "available": true, "availability": "configured_unverified", "tools": m.Tools, "streaming": m.Streaming})
+			items = append(items, map[string]any{"id": m.ID, "name": m.Name, "provider": m.Provider, "available": true, "availability": "configured_unverified", "tools": m.Tools, "streaming": m.Streaming, "context_window": m.ContextWindow, "input_budget": m.InputBudget})
 		}
 		WriteJSON(w, 200, map[string]any{"items": items})
 	})

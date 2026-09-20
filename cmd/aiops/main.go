@@ -119,6 +119,7 @@ func run() error {
 	entry := httpapi.NewIntegration("embedding", "Knowledge embedding", "embedding", embedding.Provider, true, nil, []string{"knowledge.embed"})
 	entry.Model = embedding.Model
 	api.Integrations = append(api.Integrations, entry)
+	api.ConfigureContextBudget(worker, s)
 	go func() { defer close(actionDone); acts.Run(ctx) }()
 	workerDone := make(chan struct{})
 	go func() { defer close(workerDone); worker.Run(ctx) }()

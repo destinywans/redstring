@@ -39,6 +39,17 @@ func (p *providerModel) GenerateContent(ctx context.Context, req *model.LLMReque
 			yield(nil, err)
 			return
 		}
+		if p.provider.InputBudget > 0 {
+			encoded, e := json.Marshal(body)
+			if e != nil {
+				yield(nil, e)
+				return
+			}
+			if EstimateTokens(string(encoded)) > p.provider.InputBudget {
+				yield(nil, errors.New("model input budget exhausted; context or tool result is too large"))
+				return
+			}
+		}
 		resp, err := post(ctx, p.client, p.provider, path, body)
 		if err != nil {
 			yield(nil, err)

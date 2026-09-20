@@ -6987,6 +6987,103 @@
         ]
       }
     },
+    "/runs/{id}/context": {
+      "get": {
+        "summary": "Read actual prepared attempt input",
+        "operationId": "get_runs_id_context",
+        "description": "Minimum role: viewer. Derived summary does not replace raw history; estimates are conservative UTF-8 byte bounds, not exact provider token usage. 404 means no prepared context yet.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextManifest"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "runs"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/knowledge/templates": {
       "get": {
         "summary": "List editable Runbook templates",
@@ -7794,6 +7891,12 @@
           },
           "streaming": {
             "type": "boolean"
+          },
+          "context_window": {
+            "type": "integer"
+          },
+          "input_budget": {
+            "type": "integer"
           }
         },
         "additionalProperties": false
@@ -8887,6 +8990,76 @@
           "subject_id",
           "permission"
         ]
+      },
+      "ContextManifest": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string"
+          },
+          "attempt_id": {
+            "type": "string"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "estimation": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "context_revision": {
+            "type": "integer"
+          },
+          "input_budget": {
+            "type": "integer"
+          },
+          "estimated_tokens": {
+            "type": "integer"
+          },
+          "summary_calls": {
+            "type": "integer"
+          },
+          "summary_source_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "recent_message_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "role": {
+                  "type": "string"
+                },
+                "content": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
       },
       "KnowledgeMetadata": {
         "type": "object",

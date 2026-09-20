@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,11 +28,13 @@ type Message struct {
 	Content string `json:"content"`
 }
 type Model struct {
-	ID        string `json:"id"`
-	Provider  string `json:"provider"`
-	Name      string `json:"name"`
-	Tools     bool   `json:"tools"`
-	Streaming bool   `json:"streaming"`
+	ID            string `json:"id"`
+	Provider      string `json:"provider"`
+	Name          string `json:"name"`
+	Tools         bool   `json:"tools"`
+	Streaming     bool   `json:"streaming"`
+	ContextWindow int    `json:"context_window"`
+	InputBudget   int    `json:"input_budget"`
 }
 type Evidence struct {
 	Kind    string `json:"kind"`
@@ -55,12 +58,18 @@ type Request struct {
 	RunID, AttemptID, BranchID, ModelID string
 	Messages                            []Message
 	Tools                               []EvidenceTool
+	MaxCalls, MaxToolCalls              int
+	TimeoutSeconds                      int
+	Deadline                            time.Time
 }
 type Runner interface {
 	Models() []Model
 	Run(context.Context, Request, func(Event) error) (string, error)
 }
-type Provider struct{ ID, Kind, Model, BaseURL, APIKey string }
+type Provider struct {
+	ID, Kind, Model, BaseURL, APIKey string
+	ContextWindow, InputBudget       int
+}
 type Config struct {
 	Providers  []Provider
 	HTTPClient *http.Client
@@ -83,7 +92,17 @@ func New(cfg Config) (*Runtime, error) {
 		return nil, errors.New("invalid inference limits")
 	}
 	seen := map[string]bool{}
-	for _, p := range cfg.Providers {
+	for i := range cfg.Providers {
+		p := &cfg.Providers[i]
+		if p.ContextWindow == 0 {
+			p.ContextWindow = 32768
+		}
+		if p.InputBudget == 0 {
+			p.InputBudget = p.ContextWindow - 4096
+		}
+		if p.ContextWindow < 8192 || p.InputBudget < 2048 || p.InputBudget > p.ContextWindow-4096 {
+			return nil, errors.New("invalid model context budget; reserve 4096 output tokens")
+		}
 		u, e := url.Parse(p.BaseURL)
 		if e != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" {
 			return nil, fmt.Errorf("invalid endpoint for model %s", p.ID)
@@ -114,7 +133,20 @@ func NewFromEnv() (Runner, error) {
 			if b == "" {
 				b = v.base
 			}
-			ps = append(ps, Provider{ID: v.kind + ":" + m, Kind: v.kind, Model: m, BaseURL: strings.TrimRight(b, "/"), APIKey: os.Getenv(v.prefix + "_API_KEY")})
+			window, input := 0, 0
+			for _, pair := range []struct {
+				key   string
+				value *int
+			}{{"_CONTEXT_WINDOW", &window}, {"_INPUT_BUDGET", &input}} {
+				if raw := os.Getenv(v.prefix + pair.key); raw != "" {
+					n, e := strconv.Atoi(raw)
+					if e != nil {
+						return nil, fmt.Errorf("invalid %s%s", v.prefix, pair.key)
+					}
+					*pair.value = n
+				}
+			}
+			ps = append(ps, Provider{ID: v.kind + ":" + m, Kind: v.kind, Model: m, BaseURL: strings.TrimRight(b, "/"), APIKey: os.Getenv(v.prefix + "_API_KEY"), ContextWindow: window, InputBudget: input})
 		}
 	}
 	return New(Config{Providers: ps})
@@ -122,7 +154,7 @@ func NewFromEnv() (Runner, error) {
 func (r *Runtime) Models() []Model {
 	ms := make([]Model, 0, len(r.cfg.Providers))
 	for _, p := range r.cfg.Providers {
-		ms = append(ms, Model{ID: p.ID, Name: p.Model, Provider: p.Kind, Tools: true, Streaming: true})
+		ms = append(ms, Model{ID: p.ID, Name: p.Model, Provider: p.Kind, Tools: true, Streaming: true, ContextWindow: p.ContextWindow, InputBudget: p.InputBudget})
 	}
 	return ms
 }
@@ -153,7 +185,14 @@ func (r *Runtime) Run(ctx context.Context, req Request, emit func(Event) error) 
 	if total > 2<<20 {
 		return "", errors.New("frozen context exceeds 2 MiB")
 	}
-	ctx, cancel := context.WithTimeout(ctx, r.cfg.Timeout)
+	timeout := r.cfg.Timeout
+	if req.TimeoutSeconds > 0 && time.Duration(req.TimeoutSeconds)*time.Second < timeout {
+		timeout = time.Duration(req.TimeoutSeconds) * time.Second
+	}
+	if !req.Deadline.IsZero() && time.Until(req.Deadline) < timeout {
+		timeout = time.Until(req.Deadline)
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var mu sync.Mutex
 	var persistErr error
@@ -170,7 +209,14 @@ func (r *Runtime) Run(ctx context.Context, req Request, emit func(Event) error) 
 		}
 		return nil
 	}
-	model := &providerModel{provider: p, client: r.cfg.HTTPClient, history: append([]Message(nil), req.Messages[:len(req.Messages)-1]...), maxCalls: r.cfg.MaxCalls}
+	maxCalls, maxTools := r.cfg.MaxCalls, 32
+	if req.MaxCalls > 0 && req.MaxCalls < maxCalls {
+		maxCalls = req.MaxCalls
+	}
+	if req.MaxToolCalls > 0 && req.MaxToolCalls < maxTools {
+		maxTools = req.MaxToolCalls
+	}
+	model := &providerModel{provider: p, client: r.cfg.HTTPClient, history: append([]Message(nil), req.Messages[:len(req.Messages)-1]...), maxCalls: maxCalls}
 	if len(req.Tools) > 16 {
 		return "", errors.New("too many evidence tools")
 	}
@@ -187,7 +233,7 @@ func (r *Runtime) Run(ctx context.Context, req Request, emit func(Event) error) 
 		}) (Evidence, error) {
 			mu.Lock()
 			toolCalls++
-			overBudget := toolCalls > 32
+			overBudget := toolCalls > maxTools
 			mu.Unlock()
 			if overBudget {
 				cancel()

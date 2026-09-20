@@ -50,6 +50,11 @@ import {
 } from "./lib/navigation";
 import { Modal, ErrorNotice } from "./components/ui";
 import AccountMenu from "./components/AccountMenu";
+import EnvironmentSelector from "./components/EnvironmentSelector";
+import {
+  EnvironmentScopeContext,
+  useEnvironmentScopeState,
+} from "./lib/environmentScope";
 const DashboardPage = lazy(() => import("./features/workspace/DashboardPage"));
 const ApplicationsPage = lazy(
   () => import("./features/workspace/ApplicationsPage"),
@@ -168,6 +173,11 @@ export default function App() {
     enabled: !!user && !preview && !!scopeInvestigationId,
   });
   const applications = preview ? [previewApp] : (apps.data?.items ?? []);
+  const environmentScope = useEnvironmentScopeState(
+    user?.id,
+    applications,
+    preview || apps.isSuccess,
+  );
   const {
     application,
     environments,
@@ -207,7 +217,11 @@ export default function App() {
     return () => query.removeEventListener("change", sync);
   }, []);
   useEffect(() => {
-    if (currentSection)
+    if (
+      currentSection &&
+      currentSection.id !== "agents" &&
+      !currentSection.direct
+    )
       setExpanded((value) => ({ ...value, [currentSection.id]: true }));
   }, [currentSection?.id]);
   useEffect(() => {
@@ -220,7 +234,7 @@ export default function App() {
     const focusable = () =>
       Array.from(
         sidebar?.querySelectorAll<HTMLElement>(
-          "button:not([disabled]),a[href]",
+          "button:not([disabled]),a[href],select:not([disabled])",
         ) ?? [],
       ).filter((element) => element.getClientRects().length > 0);
     focusable()[0]?.focus();
@@ -322,8 +336,9 @@ export default function App() {
     section.children.map((item) => ({ ...item, icon: section.icon })),
   );
   const routeLink = (to: string) => {
-    if (!preview) return to;
-    const url = new URL(to, window.location.origin);
+    const scoped = environmentScope.withScope(to);
+    if (!preview) return scoped;
+    const url = new URL(scoped, window.location.origin);
     url.searchParams.set("preview", "1");
     return `${url.pathname}${url.search}`;
   };
@@ -348,330 +363,346 @@ export default function App() {
         notify,
       }}
     >
-      <div className="app-shell">
-        <a className="skip-link" href="#main">
-          跳到主要内容
-        </a>
-        {narrow && menuOpen && (
-          <button
-            className="sidebar-overlay"
-            aria-label="关闭导航"
-            tabIndex={-1}
-            onClick={closeMenu}
-          />
-        )}
-        <aside
-          ref={sidebarRef}
-          id="workspace-navigation"
-          className={`workspace-sidebar ${menuOpen ? "open" : ""}`}
-          inert={narrow && !menuOpen}
-          role={narrow && menuOpen ? "dialog" : undefined}
-          aria-modal={narrow && menuOpen ? true : undefined}
-          aria-label="工作区导航"
-        >
-          <div className="sidebar-brand-row">
-            <NavLink
-              to={routeLink("/")}
-              className="brand"
-              aria-label="AIOps 首页"
-            >
-              <span className="brand-symbol">
-                <Activity size={29} />
-              </span>
-              <span>
-                AIOps<small>AI 运维工作区</small>
-              </span>
-            </NavLink>
+      <EnvironmentScopeContext.Provider value={environmentScope}>
+        <div className="app-shell">
+          <a className="skip-link" href="#main">
+            跳到主要内容
+          </a>
+          {narrow && menuOpen && (
             <button
-              className="icon-button mobile-nav-close"
+              className="sidebar-overlay"
               aria-label="关闭导航"
+              tabIndex={-1}
               onClick={closeMenu}
-            >
-              <X size={20} />
-            </button>
-          </div>
-          <div className="sidebar-scroll">
-            <nav className="sidebar-nav" aria-label="主要导航">
-              {sections.map((section) =>
-                section.direct ? (
-                  <NavLink
-                    key={section.id}
-                    to={routeLink(section.children[0].to)}
-                    className={`nav-parent nav-direct ${currentSection?.id === section.id ? "is-current" : ""}`}
-                    onClick={() => {
-                      if (narrow) {
-                        setMenuOpen(false);
-                        requestAnimationFrame(() => mainRef.current?.focus());
-                      }
-                    }}
-                  >
-                    <section.icon size={18} />
-                    <span>{section.label}</span>
-                  </NavLink>
-                ) : (
-                  <div
-                    key={section.id}
-                    className={`nav-section ${currentSection?.id === section.id ? "is-current" : ""}`}
-                  >
-                    <button
-                      className="nav-parent"
-                      aria-expanded={!!expanded[section.id]}
-                      aria-controls={`nav-${section.id}`}
-                      onClick={() =>
-                        setExpanded((value) => ({
-                          ...value,
-                          [section.id]: !value[section.id],
-                        }))
-                      }
+            />
+          )}
+          <aside
+            ref={sidebarRef}
+            id="workspace-navigation"
+            className={`workspace-sidebar ${menuOpen ? "open" : ""}`}
+            inert={narrow && !menuOpen}
+            role={narrow && menuOpen ? "dialog" : undefined}
+            aria-modal={narrow && menuOpen ? true : undefined}
+            aria-label="工作区导航"
+          >
+            <div className="sidebar-brand-row">
+              <NavLink
+                to={routeLink("/")}
+                className="brand"
+                aria-label="AIOps 首页"
+              >
+                <span className="brand-symbol">
+                  <Activity size={29} />
+                </span>
+                <span>AIOps</span>
+              </NavLink>
+              <button
+                className="icon-button mobile-nav-close"
+                aria-label="关闭导航"
+                onClick={closeMenu}
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <EnvironmentSelector />
+            <div className="sidebar-scroll">
+              <nav className="sidebar-nav" aria-label="主要导航">
+                {sections.map((section) =>
+                  section.direct ? (
+                    <NavLink
+                      key={section.id}
+                      to={routeLink(section.children[0].to)}
+                      end
+                      className={`nav-parent nav-direct ${currentSection?.id === section.id ? "is-current" : ""}`}
+                      onClick={() => {
+                        if (narrow) {
+                          setMenuOpen(false);
+                          requestAnimationFrame(() => mainRef.current?.focus());
+                        }
+                      }}
                     >
                       <section.icon size={18} />
                       <span>{section.label}</span>
-                      <ChevronRight size={12} className="nav-chevron" />
-                    </button>
+                    </NavLink>
+                  ) : (
                     <div
-                      className="nav-children"
-                      id={`nav-${section.id}`}
-                      hidden={!expanded[section.id]}
+                      key={section.id}
+                      className={`nav-section ${currentSection?.id === section.id ? "is-current" : ""}`}
                     >
-                      {section.children.map((item) => {
-                        const active = isNavigationCurrent(
-                          item.to,
-                          location.pathname,
-                          location.search,
-                        );
-                        return (
-                          <NavLink
-                            key={item.to}
-                            to={routeLink(item.to)}
-                            className={`nav-child ${active ? "active" : ""}`}
-                            aria-current={active ? "page" : false}
-                            onClick={() => {
-                              if (narrow) {
-                                setMenuOpen(false);
-                                requestAnimationFrame(() =>
-                                  mainRef.current?.focus(),
-                                );
-                              }
-                            }}
-                          >
-                            {item.label}
-                          </NavLink>
-                        );
-                      })}
+                      <button
+                        className="nav-parent"
+                        aria-expanded={!!expanded[section.id]}
+                        aria-controls={`nav-${section.id}`}
+                        onClick={() =>
+                          setExpanded((value) => ({
+                            ...value,
+                            [section.id]: !value[section.id],
+                          }))
+                        }
+                      >
+                        <section.icon size={18} />
+                        <span>{section.label}</span>
+                        <ChevronRight size={12} className="nav-chevron" />
+                      </button>
+                      <div
+                        className="nav-children"
+                        id={`nav-${section.id}`}
+                        hidden={!expanded[section.id]}
+                      >
+                        {section.children.map((item) => {
+                          const active = isNavigationCurrent(
+                            item.to,
+                            location.pathname,
+                            location.search,
+                          );
+                          return (
+                            <NavLink
+                              key={item.to}
+                              to={routeLink(item.to)}
+                              className={`nav-child ${active ? "active" : ""}`}
+                              aria-current={active ? "page" : false}
+                              onClick={() => {
+                                if (narrow) {
+                                  setMenuOpen(false);
+                                  requestAnimationFrame(() =>
+                                    mainRef.current?.focus(),
+                                  );
+                                }
+                              }}
+                            >
+                              {item.label}
+                            </NavLink>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ),
-              )}
-            </nav>
-          </div>
-          <AccountMenu
-            user={user}
-            preview={preview}
-            settingsURL={routeLink("/platform/settings")}
-            onNavigate={() => {
-              if (narrow) {
-                setMenuOpen(false);
-                requestAnimationFrame(() => mainRef.current?.focus());
-              }
-            }}
-            onLogout={() =>
-              preview ? window.location.assign("/") : void logout()
-            }
-          />
-        </aside>
-        <header className="topbar" inert={narrow && menuOpen}>
-          <button
-            ref={menuTrigger}
-            className="icon-button mobile-nav-trigger"
-            aria-label="打开导航"
-            aria-expanded={menuOpen}
-            aria-controls="workspace-navigation"
-            onClick={() => setMenuOpen(true)}
-          >
-            <Menu size={21} />
-          </button>
-          <div className="workspace-breadcrumb">
-            <span>{currentSection?.label ?? "工作区"}</span>
-            {currentDestination &&
-              currentDestination.label !== currentSection?.label && (
-                <>
-                  <ChevronRight size={11} />
-                  <strong>{currentDestination.label}</strong>
-                </>
-              )}
-          </div>
-          <button
-            className="global-search"
-            aria-label="搜索工作区"
-            title="搜索工作区 · ⌘ K / Ctrl K"
-            onClick={(event) => {
-              event.currentTarget.focus();
-              setSearchOpen(true);
-            }}
-          >
-            <Search size={17} />
-            <span>搜索</span>
-            <kbd>⌘ K</kbd>
-          </button>
-          {preview && (
-            <span
-              className="preview-label"
-              title="示例数据，仅用于查看设计，不连接任何系统"
-            >
-              <FlaskConical size={12} />
-              设计预览
-            </span>
-          )}
-          <button
-            className="icon-button theme-toggle"
-            aria-label={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
-            title={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
-            onClick={toggleTheme}
-          >
-            <Sun className="sun" size={19} />
-            <Moon className="moon" size={19} />
-          </button>
-        </header>
-        <main
-          id="main"
-          ref={mainRef}
-          tabIndex={-1}
-          className="workspace-main"
-          inert={narrow && menuOpen}
-        >
-          {currentSection?.id === settingsNavigation.id &&
-            user.role === "admin" && (
-              <nav className="settings-section-nav" aria-label="设置导航">
-                {settingsNavigation.children.map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={routeLink(item.to)}
-                    end
-                    className={({ isActive }) => (isActive ? "active" : "")}
-                  >
-                    {item.label}
-                  </NavLink>
-                ))}
+                  ),
+                )}
               </nav>
-            )}
-          {apps.error && <ErrorNotice error={apps.error} />}
-          {models.error && <ErrorNotice error={models.error} />}
-          <Suspense
-            fallback={<div className="page-loading">正在加载工作区…</div>}
-          >
-            <Routes>
-              <Route path="/" element={<DashboardPage />} />
-              <Route path="/applications" element={<ApplicationsPage />} />
-              <Route path="/applications/detail" element={<Overview />} />
-              <Route path="/incidents" element={<IncidentsPage />} />
-              <Route path="/alerts" element={<AlertsPage mode="alerts" />} />
-              <Route
-                path="/alerts/sources"
-                element={<AlertsPage mode="sources" />}
-              />
-              <Route path="/infrastructure" element={<InfrastructurePage />} />
-              <Route
-                path="/observability/metrics"
-                element={<ObservabilityPage mode="metrics" />}
-              />
-              <Route
-                path="/observability/logs"
-                element={<ObservabilityPage mode="logs" />}
-              />
-              <Route
-                path="/observability/traces"
-                element={<UnavailableObservationPage kind="traces" />}
-              />
-              <Route
-                path="/observability/topology"
-                element={<UnavailableObservationPage kind="topology" />}
-              />
-              <Route path="/investigations/*" element={<InvestigationPage />} />
-              <Route
-                path="/investigations/:id"
-                element={<InvestigationPage />}
-              />
-              <Route path="/ai-extensions/*" element={<ExtensionsPage />} />
-              <Route path="/memory" element={<MemoryPage />} />
-              <Route path="/knowledge" element={<KnowledgePage />} />
-              <Route path="/integrations" element={<SettingsPage />} />
-              <Route path="/members" element={<MembersPage />} />
-              <Route path="/teams" element={<GovernancePage tab="teams" />} />
-              <Route path="/audit" element={<GovernancePage tab="audit" />} />
-              <Route path="/platform/settings" element={<PlatformPage />} />
-              <Route
-                path="/platform/roles"
-                element={<PlatformPage tab="roles" />}
-              />
-              <Route
-                path="/settings"
-                element={<PlatformPage tab="automation" />}
-              />
-              <Route path="/actions" element={<ApprovalPage />} />
-              <Route path="/recovery" element={<RecoveryPage />} />
-              <Route
-                path="*"
-                element={
-                  <div className="empty-state">
-                    <h2>没有找到这个页面</h2>
-                    <NavLink to="/">返回工作区</NavLink>
-                  </div>
+            </div>
+            <AccountMenu
+              user={user}
+              preview={preview}
+              settingsURL={routeLink("/platform/settings")}
+              onNavigate={() => {
+                if (narrow) {
+                  setMenuOpen(false);
+                  requestAnimationFrame(() => mainRef.current?.focus());
                 }
-              />
-            </Routes>
-          </Suspense>
-        </main>
-      </div>
-      {toast && (
-        <div
-          className={`toast ${toast.kind}`}
-          role={toast.kind === "error" ? "alert" : "status"}
-        >
-          {toast.message}
-          <button
-            className="icon-button"
-            aria-label="关闭通知"
-            onClick={() => setToast(null)}
-          >
-            <X size={16} />
-          </button>
-        </div>
-      )}
-      <Modal open={searchOpen} onOpenChange={setSearchOpen} title="搜索工作区">
-        <label className="search-input">
-          <Search size={18} />
-          <input
-            placeholder="输入页面或会话名称…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </label>
-        <div className="command-list">
-          {[
-            ...nav,
-            ...(investigations.data?.items ?? []).map((x) => ({
-              to: `/investigations/${x.id}`,
-              icon: Search,
-              label: x.title,
-            })),
-          ]
-            .filter((x) => x.label.toLowerCase().includes(search.toLowerCase()))
-            .map((x) => (
-              <button
-                key={x.to}
-                onClick={() => {
-                  navigate(routeLink(x.to));
-                  setSearchOpen(false);
-                  setSearch("");
-                }}
+              }}
+              onLogout={() =>
+                preview ? window.location.assign("/") : void logout()
+              }
+            />
+          </aside>
+          <header className="topbar" inert={narrow && menuOpen}>
+            <button
+              ref={menuTrigger}
+              className="icon-button mobile-nav-trigger"
+              aria-label="打开导航"
+              aria-expanded={menuOpen}
+              aria-controls="workspace-navigation"
+              onClick={() => setMenuOpen(true)}
+            >
+              <Menu size={21} />
+            </button>
+            <div className="workspace-breadcrumb">
+              <span>{currentSection?.label ?? "工作区"}</span>
+              {currentDestination &&
+                currentDestination.label !== currentSection?.label && (
+                  <>
+                    <ChevronRight size={11} />
+                    <strong>{currentDestination.label}</strong>
+                  </>
+                )}
+            </div>
+            <button
+              className="global-search"
+              aria-label="搜索工作区"
+              title="搜索工作区 · ⌘ K / Ctrl K"
+              onClick={(event) => {
+                event.currentTarget.focus();
+                setSearchOpen(true);
+              }}
+            >
+              <Search size={17} />
+              <span>搜索</span>
+              <kbd>⌘ K</kbd>
+            </button>
+            {preview && (
+              <span
+                className="preview-label"
+                title="示例数据，仅用于查看设计，不连接任何系统"
               >
-                <x.icon size={18} />
-                {x.label}
-                <ArrowRight size={15} />
-              </button>
-            ))}
+                <FlaskConical size={12} />
+                设计预览
+              </span>
+            )}
+            <button
+              className="icon-button theme-toggle"
+              aria-label={
+                theme === "dark" ? "切换到浅色主题" : "切换到深色主题"
+              }
+              title={theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}
+              onClick={toggleTheme}
+            >
+              <Sun className="sun" size={19} />
+              <Moon className="moon" size={19} />
+            </button>
+          </header>
+          <main
+            id="main"
+            ref={mainRef}
+            tabIndex={-1}
+            className="workspace-main"
+            inert={narrow && menuOpen}
+          >
+            {currentSection?.id === settingsNavigation.id &&
+              user.role === "admin" && (
+                <nav className="settings-section-nav" aria-label="设置导航">
+                  {settingsNavigation.children.map((item) => (
+                    <NavLink
+                      key={item.to}
+                      to={routeLink(item.to)}
+                      end
+                      className={({ isActive }) => (isActive ? "active" : "")}
+                    >
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </nav>
+              )}
+            {apps.error && <ErrorNotice error={apps.error} />}
+            {models.error && <ErrorNotice error={models.error} />}
+            <Suspense
+              fallback={<div className="page-loading">正在加载工作区…</div>}
+            >
+              <Routes>
+                <Route path="/" element={<DashboardPage />} />
+                <Route path="/applications" element={<ApplicationsPage />} />
+                <Route path="/applications/detail" element={<Overview />} />
+                <Route path="/incidents" element={<IncidentsPage />} />
+                <Route path="/alerts" element={<AlertsPage mode="alerts" />} />
+                <Route
+                  path="/alerts/sources"
+                  element={<AlertsPage mode="sources" />}
+                />
+                <Route
+                  path="/infrastructure"
+                  element={<InfrastructurePage />}
+                />
+                <Route
+                  path="/observability/metrics"
+                  element={<ObservabilityPage mode="metrics" />}
+                />
+                <Route
+                  path="/observability/logs"
+                  element={<ObservabilityPage mode="logs" />}
+                />
+                <Route
+                  path="/observability/traces"
+                  element={<UnavailableObservationPage kind="traces" />}
+                />
+                <Route
+                  path="/observability/topology"
+                  element={<UnavailableObservationPage kind="topology" />}
+                />
+                <Route
+                  path="/investigations/*"
+                  element={<InvestigationPage />}
+                />
+                <Route
+                  path="/investigations/:id"
+                  element={<InvestigationPage />}
+                />
+                <Route path="/ai-extensions/*" element={<ExtensionsPage />} />
+                <Route path="/memory" element={<MemoryPage />} />
+                <Route path="/knowledge" element={<KnowledgePage />} />
+                <Route path="/integrations" element={<SettingsPage />} />
+                <Route path="/members" element={<MembersPage />} />
+                <Route path="/teams" element={<GovernancePage tab="teams" />} />
+                <Route path="/audit" element={<GovernancePage tab="audit" />} />
+                <Route path="/platform/settings" element={<PlatformPage />} />
+                <Route
+                  path="/platform/roles"
+                  element={<PlatformPage tab="roles" />}
+                />
+                <Route
+                  path="/settings"
+                  element={<PlatformPage tab="automation" />}
+                />
+                <Route path="/actions" element={<ApprovalPage />} />
+                <Route path="/recovery" element={<RecoveryPage />} />
+                <Route
+                  path="*"
+                  element={
+                    <div className="empty-state">
+                      <h2>没有找到这个页面</h2>
+                      <NavLink to="/">返回工作区</NavLink>
+                    </div>
+                  }
+                />
+              </Routes>
+            </Suspense>
+          </main>
         </div>
-      </Modal>
+        {toast && (
+          <div
+            className={`toast ${toast.kind}`}
+            role={toast.kind === "error" ? "alert" : "status"}
+          >
+            {toast.message}
+            <button
+              className="icon-button"
+              aria-label="关闭通知"
+              onClick={() => setToast(null)}
+            >
+              <X size={16} />
+            </button>
+          </div>
+        )}
+        <Modal
+          open={searchOpen}
+          onOpenChange={setSearchOpen}
+          title="搜索工作区"
+        >
+          <label className="search-input">
+            <Search size={18} />
+            <input
+              placeholder="输入页面或会话名称…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </label>
+          <div className="command-list">
+            {[
+              ...nav,
+              ...(investigations.data?.items ?? []).map((x) => ({
+                to: `/investigations/${x.id}`,
+                icon: Search,
+                label: x.title,
+              })),
+            ]
+              .filter((x) =>
+                x.label.toLowerCase().includes(search.toLowerCase()),
+              )
+              .map((x) => (
+                <button
+                  key={x.to}
+                  onClick={() => {
+                    navigate(routeLink(x.to));
+                    setSearchOpen(false);
+                    setSearch("");
+                  }}
+                >
+                  <x.icon size={18} />
+                  {x.label}
+                  <ArrowRight size={15} />
+                </button>
+              ))}
+          </div>
+        </Modal>
+      </EnvironmentScopeContext.Provider>
     </WorkspaceContext.Provider>
   );
 }

@@ -1,5 +1,6 @@
 import { useSearchParams } from "react-router-dom";
 import { useWorkspace } from "../lib/workspace";
+import { useEnvironmentScope } from "../lib/environmentScope";
 import "./scope.css";
 
 const ids = (p: URLSearchParams, many: string, one: string) =>
@@ -8,15 +9,30 @@ const ids = (p: URLSearchParams, many: string, one: string) =>
   ].sort();
 export function usePageScope() {
   const { applications } = useWorkspace();
+  const globalEnvironment = useEnvironmentScope();
   const [params, setParams] = useSearchParams();
   const applicationIds =
     params.get("scope") === "all"
       ? []
       : ids(params, "applications", "application");
+  const allPageEnvironments =
+    params.get("scope") === "all" || params.get("environment_filter") === "all";
+  const explicitEnvironment =
+    allPageEnvironments ||
+    params.has("environments") ||
+    params.has("environment");
+  const requestedEnvironmentIds = allPageEnvironments
+    ? []
+    : explicitEnvironment
+      ? ids(params, "environments", "environment")
+      : globalEnvironment.environmentIds;
+  const environmentRestricted = explicitEnvironment
+    ? !allPageEnvironments
+    : !!globalEnvironment.key;
   const environmentIds =
-    params.get("scope") === "all"
-      ? []
-      : ids(params, "environments", "environment");
+    environmentRestricted && !requestedEnvironmentIds.length
+      ? ["__no_authorized_environment__"]
+      : requestedEnvironmentIds;
   const apps = applications.filter(
     (a) =>
       !a.archived && (!applicationIds.length || applicationIds.includes(a.id)),
@@ -26,16 +42,24 @@ export function usePageScope() {
       .filter(
         (env) =>
           !env.archived &&
-          (!environmentIds.length || environmentIds.includes(env.id)),
+          (!environmentRestricted || environmentIds.includes(env.id)),
       )
       .map((env) => ({ app, env })),
   );
+  const empty = targets.length === 0;
   const query = new URLSearchParams();
   if (applicationIds.length)
     query.set("applications", applicationIds.join(","));
-  if (environmentIds.length)
-    query.set("environments", environmentIds.join(","));
-  const update = (apps: string[], envs: string[]) => {
+  // Never serialize a restricted empty scope as no filter: existing list APIs
+  // interpret an absent environment filter as all authorized environments.
+  if (environmentRestricted)
+    query.set(
+      "environments",
+      environmentIds.length
+        ? environmentIds.join(",")
+        : "__no_authorized_environment__",
+    );
+  const update = (apps: string[], envs: string[], allEnvironments = false) => {
     const next = new URLSearchParams(params);
     for (const k of [
       "application",
@@ -44,6 +68,7 @@ export function usePageScope() {
       "environments",
       "scope",
       "incident",
+      "environment_filter",
     ])
       next.delete(k);
     const put = (values: string[], one: string, many: string) => {
@@ -53,11 +78,15 @@ export function usePageScope() {
     };
     put(apps, "application", "applications");
     put(envs, "environment", "environments");
+    if (allEnvironments) next.set("environment_filter", "all");
     setParams(next);
   };
   return {
     applicationIds,
     environmentIds,
+    empty,
+    environmentRestricted,
+    globalEnvironmentLabel: globalEnvironment.label,
     apps,
     targets,
     query: query.toString(),
@@ -68,6 +97,7 @@ export function usePageScope() {
 export default function ScopeFilter({ single = false }: { single?: boolean }) {
   const { applications } = useWorkspace();
   const scope = usePageScope();
+  const [params] = useSearchParams();
   const available = applications.filter((a) => !a.archived);
   if (single) {
     const app = available.find((a) => a.id === scope.applicationIds[0]);
@@ -95,7 +125,7 @@ export default function ScopeFilter({ single = false }: { single?: boolean }) {
           <select
             className="field"
             disabled={!app}
-            value={scope.environmentIds[0] ?? ""}
+            value={ids(params, "environments", "environment")[0] ?? ""}
             onChange={(e) =>
               scope.update(
                 app ? [app.id] : [],
@@ -147,14 +177,18 @@ export default function ScopeFilter({ single = false }: { single?: boolean }) {
       </details>
       <details className="scope-menu">
         <summary>
-          {scope.environmentIds.length
-            ? `已选 ${scope.environmentIds.length} 个环境`
-            : "全部环境"}
+          {scope.empty && scope.environmentRestricted
+            ? "当前范围无可用环境"
+            : scope.environmentIds.length
+              ? `已选 ${scope.environmentIds.length} 个环境`
+              : scope.environmentRestricted
+                ? scope.globalEnvironmentLabel
+                : "全部环境"}
         </summary>
         <div className="scope-options">
           <button
             className="btn"
-            onClick={() => scope.update(scope.applicationIds, [])}
+            onClick={() => scope.update(scope.applicationIds, [], true)}
           >
             查看全部环境
           </button>

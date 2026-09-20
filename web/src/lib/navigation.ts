@@ -27,7 +27,20 @@ export const navigation: NavigationSection[] = [
     id: "overview",
     label: "工作台",
     icon: Home,
-    children: [{ to: "/", label: "运行总览" }],
+    direct: true,
+    children: [{ to: "/", label: "工作台" }],
+  },
+  {
+    id: "agents",
+    label: "Agent",
+    icon: Bot,
+    children: [
+      { to: "/investigations", label: "会话与画布" },
+      { to: "/memory", label: "记忆与上下文" },
+      { to: "/ai-extensions/skills", label: "Skills" },
+      { to: "/ai-extensions/prompts", label: "Prompt 模板" },
+      { to: "/settings", label: "自动化任务", admin: true },
+    ],
   },
   {
     id: "applications",
@@ -72,18 +85,6 @@ export const navigation: NavigationSection[] = [
       { to: "/incidents", label: "事件中心" },
       { to: "/alerts", label: "告警列表" },
       { to: "/alerts/sources", label: "告警来源" },
-    ],
-  },
-  {
-    id: "agents",
-    label: "Agent",
-    icon: Bot,
-    children: [
-      { to: "/investigations", label: "会话与画布" },
-      { to: "/memory", label: "记忆与上下文" },
-      { to: "/ai-extensions/skills", label: "Skills" },
-      { to: "/ai-extensions/prompts", label: "Prompt 模板" },
-      { to: "/settings", label: "自动化任务", admin: true },
     ],
   },
   {

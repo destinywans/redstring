@@ -71,17 +71,19 @@ export function MetricChart({
               borderRadius: 8,
             }}
           />
-          <ReferenceLine
-            x={marker}
-            stroke="var(--accent)"
-            strokeDasharray="4 3"
-            label={{
-              value: recovery ? "恢复配置" : "发布 v2.8.1",
-              fill: "var(--accent)",
-              fontSize: 11,
-              position: "insideTopLeft",
-            }}
-          />
+          {marker && (
+            <ReferenceLine
+              x={marker}
+              stroke="var(--accent)"
+              strokeDasharray="4 3"
+              label={{
+                value: recovery ? "恢复配置" : "发布 v2.8.1",
+                fill: "var(--accent)",
+                fontSize: 11,
+                position: "insideTopLeft",
+              }}
+            />
+          )}
           {recovery && (
             <ReferenceArea
               x1="14:20"

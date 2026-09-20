@@ -30,6 +30,10 @@ import {
   type KnowledgeDraft,
 } from "./fixtures";
 import "./knowledge.css";
+import KnowledgeGovernance, {
+  TemplateFields,
+  metadataFromForm,
+} from "./KnowledgeGovernance";
 
 function KnowledgeModal({
   title,
@@ -72,7 +76,7 @@ const statusLabel = (s: string) =>
           ? "待索引"
           : s;
 export default function KnowledgePage() {
-  const { preview, application, investigationId, user, notify } =
+  const { preview, application, environment, investigationId, user, notify } =
     useWorkspace();
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -83,6 +87,7 @@ export default function KnowledgePage() {
     preview ? previewHits : null,
   );
   const [searching, setSearching] = useState(false);
+  const [retrievalNotice, setRetrievalNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [modal, setModal] = useState<
     "import" | "draft" | "citation" | "new-draft" | null
@@ -141,7 +146,7 @@ export default function KnowledgePage() {
     setHits(preview ? previewHits : null);
     setHitDetail(null);
     setModal(null);
-  }, [application?.id, preview]);
+  }, [application?.id, environment?.id, preview]);
   useEffect(() => {
     setCitationBranch("");
   }, [investigationId]);
@@ -150,7 +155,11 @@ export default function KnowledgePage() {
     ? documents.find((d) => d.id === selectedId)
     : detail.data?.id === selectedId &&
         (!detail.data.application_id ||
-          detail.data.application_id === application?.id)
+          detail.data.application_id === application?.id ||
+          detail.data.metadata?.visibility === "workspace" ||
+          detail.data.metadata?.shared_application_ids?.includes(
+            application?.id ?? "",
+          ))
       ? detail.data
       : documents.find((d) => d.id === selectedId);
   const canWrite = user.role !== "viewer";
@@ -179,12 +188,25 @@ export default function KnowledgePage() {
                 query.includes("连接"),
             ),
           }
-        : await post<{ items: KnowledgeHit[] | null }>("/knowledge/search", {
+        : await post<{
+            items: KnowledgeHit[] | null;
+            mode?: string;
+            degraded?: boolean;
+            reason?: string;
+          }>("/knowledge/search", {
             application_id: application.id,
+            environment_id: environment?.id,
             query,
             limit: 5,
           });
       setHits(result.items ?? []);
+      setRetrievalNotice(
+        "degraded" in result && result.degraded
+          ? `向量检索暂不可用，已使用关键词召回。${result.reason || ""}`
+          : "mode" in result && result.mode === "hybrid"
+            ? "关键词与语义融合召回"
+            : "",
+      );
     } catch (e) {
       error(e);
     } finally {
@@ -227,6 +249,7 @@ export default function KnowledgePage() {
         body: data.get("body"),
         source: data.get("source"),
         version: 1,
+        metadata: metadataFromForm(data),
       });
       await qc.invalidateQueries({ queryKey: ["knowledge"] });
       setSelectedId(d.id);
@@ -310,7 +333,11 @@ export default function KnowledgePage() {
       (!investigation.data ||
         investigation.data.application_id !== application?.id ||
         (selected.application_id &&
-          selected.application_id !== investigation.data.application_id))
+          selected.application_id !== investigation.data.application_id &&
+          selected.metadata?.visibility !== "workspace" &&
+          !selected.metadata?.shared_application_ids?.includes(
+            investigation.data.application_id,
+          )))
     ) {
       notify("知识与当前调查不属于同一应用，请重新选择调查。", "error");
       return;
@@ -439,8 +466,10 @@ export default function KnowledgePage() {
                       v{selected.version} · {statusLabel(selected.status)}
                     </span>
                     <span className="badge">{application?.name ?? "应用"}</span>
-                    {application?.environment && (
-                      <span className="badge">{application.environment}</span>
+                    {(environment?.name || application?.environment) && (
+                      <span className="badge">
+                        {environment?.name || application?.environment}
+                      </span>
                     )}
                   </div>
                 </div>
@@ -453,6 +482,7 @@ export default function KnowledgePage() {
                   引用到当前调查
                 </button>
               </div>
+              <KnowledgeGovernance document={selected} canWrite={canWrite} />
               <p className="knowledge-meta">
                 来源 {selected.source || "手动导入"}{" "}
                 <span>版本 v{selected.version}</span>
@@ -553,6 +583,9 @@ export default function KnowledgePage() {
                     )}
                   </button>
                 </form>
+                {retrievalNotice && (
+                  <p className="management-notice">{retrievalNotice}</p>
+                )}
                 <div className="knowledge-results">
                   {hits?.map((h) => (
                     <button
@@ -572,8 +605,7 @@ export default function KnowledgePage() {
                       <p>{h.content}</p>
                       <footer>
                         <span>
-                          v{h.version} · 相似度 {Math.round(h.similarity * 100)}
-                          %
+                          v{h.version} · 检索得分 {h.similarity.toFixed(3)}
                         </span>
                         <span>
                           查看引用 <ArrowRight size={13} />
@@ -623,6 +655,36 @@ export default function KnowledgePage() {
             </header>
             {!draftCollapsed && (
               <>
+                {canWrite &&
+                  !preview &&
+                  investigation.data?.status === "closed" && (
+                    <button
+                      className="btn"
+                      disabled={busy}
+                      onClick={async () => {
+                        setBusy(true);
+                        try {
+                          await post(
+                            `/investigations/${investigationId}/knowledge-drafts/generate`,
+                            {},
+                          );
+                          await qc.invalidateQueries({
+                            queryKey: ["knowledge-drafts"],
+                          });
+                          notify(
+                            "经验草稿已生成，请检查事实和来源后确认",
+                            "success",
+                          );
+                        } catch (e) {
+                          error(e);
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      {busy ? "正在生成…" : "让 AI 生成经验草稿"}
+                    </button>
+                  )}
                 {drafts.isError && (
                   <p className="knowledge-error">草稿读取失败。</p>
                 )}
@@ -670,10 +732,10 @@ export default function KnowledgePage() {
         </span>
       </div>
       {modal === "import" && (
-        <KnowledgeModal title="导入 Runbook" onClose={() => setModal(null)}>
+        <KnowledgeModal title="新建 Runbook" onClose={() => setModal(null)}>
           <form onSubmit={importDocument} className="knowledge-form">
             <p className="muted">
-              保存原文并建立知识索引。索引失败不会丢失文档。
+              选择模板或从空白开始。保存后由维护人审阅发布，才会用于知识检索。
             </p>
             <label>
               标题
@@ -688,10 +750,7 @@ export default function KnowledgePage() {
                 maxLength={2048}
               />
             </label>
-            <label>
-              正文（Markdown）
-              <textarea className="field" name="body" required rows={12} />
-            </label>
+            <TemplateFields />
             <footer>
               <button
                 type="button"
@@ -704,7 +763,7 @@ export default function KnowledgePage() {
                 className="btn btn-primary"
                 disabled={busy || !application}
               >
-                {busy ? "保存中…" : "保存并建立索引"}
+                {busy ? "保存中…" : "保存草稿"}
               </button>
             </footer>
           </form>
@@ -787,7 +846,7 @@ export default function KnowledgePage() {
             }
           >
             <Check size={16} />
-            {selectedDraft.document_id ? "已确认发布" : "确认沉淀为知识"}
+            {selectedDraft.document_id ? "已确认发布" : "审核并发布"}
           </button>
         </KnowledgeModal>
       )}

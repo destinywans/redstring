@@ -10,6 +10,14 @@ export type Application = {
   name: string;
   description: string;
   environment: string;
+  key?: string;
+  owner_team_id?: string;
+  maintainer_id?: string;
+  tags?: string[];
+  repository_url?: string;
+  runbook_url?: string;
+  archived?: boolean;
+  environments?: Environment[];
 };
 export type Model = {
   id: string;
@@ -63,6 +71,7 @@ export type Run = {
 export type Investigation = {
   id: string;
   application_id: string;
+  environment_id?: string;
   title: string;
   status: string;
   created_at: string;
@@ -113,3 +122,19 @@ export type Event = {
   created_at: string;
 };
 export type Items<T> = { items: T[] | null };
+
+export type Environment = {
+  id: string;
+  application_id: string;
+  key: string;
+  name: string;
+  archived: boolean;
+  binding_revision: number;
+  bindings: { kind: string; connector_id: string; resource: string }[];
+};
+export type Team = { id: string; name: string; description: string };
+export type Grant = {
+  subject_type: "user" | "team";
+  subject_id: string;
+  permission: "view" | "operate";
+};

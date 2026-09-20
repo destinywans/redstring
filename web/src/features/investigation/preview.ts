@@ -42,6 +42,7 @@ export interface CanvasRun {
 export interface CanvasInvestigation {
   id: string;
   application_id: string;
+  environment_id?: string;
   title: string;
   status: string;
   created_at: string;

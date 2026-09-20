@@ -28,6 +28,7 @@ import { request, post, patch } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
 import type { User, Investigation, Model } from "../../lib/types";
 import "./settings.css";
+import GovernancePanel from "../workspace/GovernancePanel";
 
 type Integration = {
   id: string;
@@ -306,7 +307,12 @@ export default function SettingsPage() {
           { id: "tools", label: "工具连接" },
           { id: "knowledge", label: "知识检索" },
           ...(user.role === "admin"
-            ? [{ id: "members", label: "成员与权限" }]
+            ? [
+                { id: "members", label: "成员与权限" },
+                { id: "teams", label: "团队" },
+                { id: "audit", label: "审计" },
+                { id: "automation", label: "自动化默认值" },
+              ]
             : []),
         ].map((t) => (
           <button
@@ -327,6 +333,9 @@ export default function SettingsPage() {
             重试
           </button>
         </div>
+      )}
+      {(["teams", "audit", "automation"] as const).map((k) =>
+        tab === k ? <GovernancePanel key={k} tab={k} /> : null,
       )}
       {tab === "models" && (
         <div className="settings-model-grid">

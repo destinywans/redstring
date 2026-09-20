@@ -1,3 +1,4 @@
+import type { KnowledgeMetadata } from "./KnowledgeGovernance";
 export type KnowledgeDocument = {
   id: string;
   application_id: string;
@@ -10,6 +11,8 @@ export type KnowledgeDocument = {
   error?: string;
   created_at: string;
   generation_id: number;
+  lifecycle?: string;
+  metadata?: KnowledgeMetadata;
   embedding_provider?: string;
   embedding_model?: string;
   dimensions?: number;

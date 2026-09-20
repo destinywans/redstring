@@ -35,7 +35,13 @@ import type {
   Investigation,
 } from "./lib/types";
 import { WorkspaceContext } from "./lib/workspace";
+import { useWorkspaceSelection } from "./lib/selection";
 import { Modal, ErrorNotice } from "./components/ui";
+const DashboardPage = lazy(() => import("./features/workspace/DashboardPage"));
+const ApplicationsPage = lazy(
+  () => import("./features/workspace/ApplicationsPage"),
+);
+const IncidentsPage = lazy(() => import("./features/workspace/IncidentsPage"));
 const Overview = lazy(() => import("./features/overview/OverviewPage"));
 const InvestigationPage = lazy(
   () => import("./features/investigation/InvestigationPage"),
@@ -67,7 +73,6 @@ export default function App() {
   const [preview] = useState(
     () => new URLSearchParams(window.location.search).get("preview") === "1",
   );
-  const [applicationId, setApplicationId] = useState("");
   const [investigationId, setInvestigationId] = useState<string | null>(() =>
     new URLSearchParams(window.location.search).get("investigation"),
   );
@@ -107,9 +112,36 @@ export default function App() {
     queryFn: () => request<Items<Investigation>>("/investigations"),
     enabled: !!user && !preview,
   });
+  const scopeInvestigationId = location.pathname.startsWith("/investigations")
+    ? location.pathname.match(/^\/investigations\/([^/]+)/)?.[1] ||
+      investigationId
+    : null;
+  // Same key as the canvas: one authorized request supplies its immutable scope.
+  const scopeInvestigation = useQuery({
+    queryKey: ["investigation", scopeInvestigationId],
+    queryFn: () =>
+      request<Investigation>(`/investigations/${scopeInvestigationId}`),
+    enabled: !!user && !preview && !!scopeInvestigationId,
+  });
   const applications = preview ? [previewApp] : (apps.data?.items ?? []);
-  const application =
-    applications.find((x) => x.id === applicationId) ?? applications[0] ?? null;
+  const {
+    application,
+    environments,
+    environment,
+    setApplication: setApplicationId,
+    setEnvironment: setEnvironmentId,
+    setScope,
+  } = useWorkspaceSelection(
+    applications,
+    !!user && (preview || apps.isSuccess),
+    preview,
+    scopeInvestigation.data
+      ? {
+          applicationId: scopeInvestigation.data.application_id,
+          environmentId: scopeInvestigation.data.environment_id ?? "",
+        }
+      : undefined,
+  );
   function notify(
     message: string,
     kind: "error" | "success" | "info" = "info",
@@ -133,13 +165,6 @@ export default function App() {
     return () => query.removeEventListener("change", apply);
   }, [theme]);
   useEffect(() => {
-    if (preview && !new URLSearchParams(location.search).has("preview")) {
-      const q = new URLSearchParams(location.search);
-      q.set("preview", "1");
-      navigate({ ...location, search: q.toString() }, { replace: true });
-    }
-  }, [location, navigate, preview]);
-  useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
@@ -149,6 +174,26 @@ export default function App() {
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, []);
+  useEffect(() => {
+    if (!user || location.pathname !== "/") return;
+    const params = new URLSearchParams(location.search);
+    const inv = params.get("investigation");
+    if (inv) {
+      navigate(
+        {
+          pathname: `/investigations/${encodeURIComponent(inv)}`,
+          search: location.search,
+        },
+        { replace: true },
+      );
+      return;
+    }
+    if (params.get("incident"))
+      navigate(
+        { pathname: "/incidents", search: location.search },
+        { replace: true },
+      );
+  }, [user?.id, location.pathname, location.search, navigate]);
   async function logout() {
     try {
       await post("/auth/logout");
@@ -177,7 +222,9 @@ export default function App() {
       />
     );
   const nav = [
-    { to: "/", icon: LayoutGrid, label: "应用" },
+    { to: "/", icon: LayoutGrid, label: "工作台" },
+    { to: "/applications", icon: Activity, label: "应用" },
+    { to: "/incidents", icon: Bell, label: "异常" },
     { to: "/investigations", icon: Search, label: "调查" },
     { to: "/knowledge", icon: BookOpen, label: "知识" },
     { to: "/integrations", icon: Plug, label: "集成" },
@@ -190,6 +237,9 @@ export default function App() {
         applications,
         application,
         setApplication: setApplicationId,
+        environment,
+        setEnvironment: setEnvironmentId,
+        setScope,
         models: preview ? previewModels : (models.data?.items ?? []),
         investigationId,
         setInvestigationId,
@@ -219,10 +269,12 @@ export default function App() {
               value={application?.id ?? ""}
               onChange={(e) => {
                 setApplicationId(e.target.value);
+                setEnvironmentId("");
                 setInvestigationId(null);
-                navigate("/");
+                navigate("/applications/detail");
               }}
             >
+              {!application && <option value="">应用范围不可用</option>}
               {applications.map((x) => (
                 <option key={x.id} value={x.id}>
                   {preview ? "checkout-api" : x.name}
@@ -230,11 +282,37 @@ export default function App() {
               ))}
             </select>
           </label>
-          <span className="environment">
-            <i />
-            {application?.environment ?? "未选择"}
-            <ChevronDown size={13} />
-          </span>
+          <label className="environment">
+            <select
+              aria-label="选择环境"
+              disabled={!!scopeInvestigationId && !preview}
+              title={
+                scopeInvestigationId
+                  ? "当前调查范围固定；如需其他环境，请从应用页面新建调查"
+                  : "选择环境"
+              }
+              value={environment?.id ?? ""}
+              onChange={(e) => {
+                setEnvironmentId(e.target.value);
+                setInvestigationId(null);
+              }}
+            >
+              {environments.length ? (
+                <>
+                  {!environment && <option value="">调查环境不可用</option>}
+                  {environments.map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {e.name}
+                    </option>
+                  ))}
+                </>
+              ) : (
+                <option value="">
+                  {preview ? "生产（示例）" : "尚无环境"}
+                </option>
+              )}
+            </select>
+          </label>
           <button
             className="global-search"
             onClick={(event) => {
@@ -306,7 +384,10 @@ export default function App() {
             fallback={<div className="page-loading">正在加载工作区…</div>}
           >
             <Routes>
-              <Route path="/" element={<Overview />} />
+              <Route path="/" element={<DashboardPage />} />
+              <Route path="/applications" element={<ApplicationsPage />} />
+              <Route path="/applications/detail" element={<Overview />} />
+              <Route path="/incidents" element={<IncidentsPage />} />
               <Route path="/investigations/*" element={<InvestigationPage />} />
               <Route
                 path="/investigations/:id"

@@ -40,7 +40,14 @@ export default function RecoveryPage() {
   const { preview, user, notify } = useWorkspace();
   const [search] = useSearchParams();
   const cache = useQueryClient();
-  const planId = search.get("plan");
+  const executionID = search.get("execution");
+  const directExecution = useQuery({
+    queryKey: ["actions", "execution-id", executionID],
+    queryFn: () => request<Execution>(`/executions/${executionID}`),
+    enabled: !preview && !!executionID,
+    refetchInterval: 3000,
+  });
+  const planId = search.get("plan") || directExecution.data?.plan_id;
   const [dialog, setDialog] = useState<"raw" | "close" | "report" | null>(null);
   const [summary, setSummary] = useState("");
   const [ack, setAck] = useState(false);
@@ -55,7 +62,7 @@ export default function RecoveryPage() {
   const executionQuery = useQuery({
     queryKey: ["actions", "execution", planId],
     queryFn: () => optional<Execution>(`/action-plans/${planId}/execution`),
-    enabled: !preview && !!planId,
+    enabled: !preview && !!planId && !executionID,
     refetchInterval: (q) =>
       q.state.data &&
       ["succeeded", "failed", "needs_attention"].includes(q.state.data.status)
@@ -70,7 +77,9 @@ export default function RecoveryPage() {
         approved_by: "预览操作者",
       }
     : planQuery.data;
-  const execution = preview ? previewExecution : executionQuery.data;
+  const execution = preview
+    ? previewExecution
+    : (directExecution.data ?? executionQuery.data);
   const invId = plan?.investigation_id;
   const investigation = useQuery({
     queryKey: ["actions", "investigation", invId],

@@ -88,9 +88,11 @@ export default function ApprovalPage() {
   const effectiveInv = plan?.investigation_id || invId;
   const appId = inv.data?.application_id || application?.id;
   const deployment = useQuery({
-    queryKey: ["actions", "deployment", appId],
+    queryKey: ["actions", "deployment", appId, inv.data?.environment_id],
     queryFn: () =>
-      optional<DeploymentSnapshot>(`/applications/${appId}/deployment`),
+      optional<DeploymentSnapshot>(
+        `/applications/${appId}/deployment?environment_id=${encodeURIComponent(inv.data?.environment_id ?? "")}`,
+      ),
     enabled: !preview && !!appId,
   });
   const execution = useQuery({

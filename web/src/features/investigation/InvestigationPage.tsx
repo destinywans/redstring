@@ -1,3 +1,4 @@
+import ContextInspector from "./ContextInspector";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Link,
@@ -545,7 +546,7 @@ export default function InvestigationPage() {
 }
 function InvestigationWorkspace() {
   const workspace = useWorkspace();
-  const { preview, user, application, models, notify } = workspace;
+  const { preview, user, application, environment, models, notify } = workspace;
   const params = useParams();
   const navigate = useNavigate();
   const [search, setSearch] = useSearchParams();
@@ -578,6 +579,20 @@ function InvestigationWorkspace() {
     enabled: !preview,
   });
   const inv = preview ? demo : query.data;
+  const investigationApplication = workspace.applications.find(
+    (a) => a.id === inv?.application_id,
+  );
+  const investigationEnvironment = investigationApplication?.environments?.find(
+    (e) => e.id === inv?.environment_id,
+  );
+  const actualApplicationName = inv
+    ? investigationApplication?.name || inv.application_id
+    : application?.name || "选择应用";
+  const actualEnvironmentName = inv
+    ? preview
+      ? "生产（示例）"
+      : investigationEnvironment?.name || inv.environment_id || "历史环境未记录"
+    : environment?.name || "尚未选择环境";
   const [layout, setLayout] = useState<Layout>({});
   const [layoutReady, setLayoutReady] = useState(false);
   const [layoutDirty, setLayoutDirty] = useState(false);
@@ -675,10 +690,6 @@ function InvestigationWorkspace() {
     if (!id) return;
     workspace.setInvestigationId(id);
   }, [id, workspace.setInvestigationId]);
-  useEffect(() => {
-    if (inv?.application_id && application?.id !== inv.application_id)
-      workspace.setApplication(inv.application_id);
-  }, [inv?.application_id, application?.id]);
   useEffect(() => {
     let cancelled = false;
     setLayoutReady(false);
@@ -1186,6 +1197,7 @@ function InvestigationWorkspace() {
     try {
       const v = await post<CanvasInvestigation>("/investigations", {
         application_id: application.id,
+        environment_id: environment?.id,
         title: title.trim(),
       });
       workspace.setInvestigationId(v.id);
@@ -1317,7 +1329,11 @@ function InvestigationWorkspace() {
             )}
           </div>
           <p>
-            {application?.name || "选择应用"} <span>·</span>{" "}
+            {actualApplicationName} <span>·</span>{" "}
+            <span title={inv ? "当前调查固定的应用环境" : undefined}>
+              {actualEnvironmentName}
+            </span>{" "}
+            <span>·</span>{" "}
             {inv
               ? new Date(inv.created_at).toLocaleString("zh-CN")
               : "从问题出发，让证据连接成答案"}{" "}
@@ -1890,6 +1906,7 @@ function InvestigationWorkspace() {
                           <span>
                             {r.status} · {r.model_id}
                           </span>
+                          <ContextInspector runId={r.id} />
                           {r.error && <p className="inv-error">{r.error}</p>}
                           {activeRun(r.status) && !readOnly && (
                             <button
@@ -2013,9 +2030,7 @@ function InvestigationWorkspace() {
                       <X size={15} />
                     </button>
                   </header>
-                  <p className="muted">
-                    · {application?.name || "checkout-api"}
-                  </p>
+                  <p className="muted">· {actualApplicationName}</p>
                   {evidenceHidden.includes("configuration") ? (
                     <button
                       className="btn"
@@ -2170,7 +2185,7 @@ function InvestigationWorkspace() {
                     {!evidenceHidden.includes("metrics") && (
                       <>
                         <p className="muted">
-                          · {application?.name || "checkout-api"} ·{" "}
+                          · {actualApplicationName} ·{" "}
                           {preview
                             ? "核心指标对比 · 示例数据"
                             : "已提交的指标证据"}
@@ -2302,7 +2317,7 @@ function InvestigationWorkspace() {
                                     : "INFO"}
                               </b>
                             </span>
-                            <span>{application?.name || "checkout-api"}</span>
+                            <span>{actualApplicationName}</span>
                             <code>{preview ? line.slice(15) : line}</code>
                           </div>
                         )),

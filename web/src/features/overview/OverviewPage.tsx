@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -35,6 +35,7 @@ import {
 import { MetricChart, incidentPoints } from "../../components/MetricChart";
 import { useDraftStore } from "../../lib/drafts";
 import "./overview.css";
+import TelemetryResult, { type TelemetryResultData } from "./TelemetryResult";
 type Deployment = {
   deployment: string;
   namespace: string;
@@ -54,6 +55,7 @@ export default function OverviewPage() {
     preview,
     user,
     application,
+    environment,
     models,
     investigationId,
     setInvestigationId,
@@ -68,22 +70,29 @@ export default function OverviewPage() {
     [contextOpen, setContextOpen] = useState(false),
     [tool, setTool] = useState<"metrics" | "logs" | null>(null),
     [queryID, setQueryID] = useState(""),
-    [result, setResult] = useState<unknown>(null),
+    [result, setResult] = useState<TelemetryResultData | null>(null),
+    [windowMinutes, setWindowMinutes] = useState(30),
+    [pinInvestigation, setPinInvestigation] = useState(""),
+    [pinBranch, setPinBranch] = useState(""),
+    [pinBusy, setPinBusy] = useState(false),
     [queryError, setQueryError] = useState<unknown>(null),
     [queryBusy, setQueryBusy] = useState(false);
+  const queryGeneration = useRef(0);
   const investigations = useQuery({
     queryKey: ["investigations", preview],
     queryFn: () => request<Items<Investigation>>("/investigations"),
     enabled: !preview,
   });
   const deployment = useQuery({
-    queryKey: ["deployment", application?.id, preview],
+    queryKey: ["deployment", application?.id, environment?.id, preview],
     queryFn: () =>
-      request<Deployment>(`/applications/${application!.id}/deployment`),
+      request<Deployment>(
+        `/applications/${application!.id}/deployment?environment_id=${encodeURIComponent(environment?.id ?? "")}`,
+      ),
     enabled: !!application && !preview,
   });
   const knowledge = useQuery({
-    queryKey: ["knowledge", application?.id, preview],
+    queryKey: ["knowledge", application?.id, environment?.id, preview],
     queryFn: () =>
       request<Items<Knowledge>>(
         `/knowledge?application_id=${encodeURIComponent(application!.id)}`,
@@ -91,15 +100,32 @@ export default function OverviewPage() {
     enabled: !!application && !preview,
   });
   const telemetry = useQuery({
-    queryKey: ["telemetry", application?.id, preview],
+    queryKey: ["telemetry", application?.id, environment?.id, preview],
     queryFn: () =>
       request<{ metric_query_ids: string[]; logs_configured: boolean }>(
-        `/applications/${application!.id}/telemetry`,
+        `/applications/${application!.id}/telemetry?environment_id=${encodeURIComponent(environment?.id ?? "")}`,
       ),
     enabled: !!application && !preview && !!tool,
   });
+  useEffect(() => {
+    queryGeneration.current++;
+    setQueryBusy(false);
+    setResult(null);
+    setQueryError(null);
+    setQueryID("");
+    setPinInvestigation("");
+    setPinBranch("");
+  }, [application?.id, environment?.id]);
+  const pinDetail = useQuery({
+    queryKey: ["pin-investigation", pinInvestigation],
+    queryFn: () =>
+      request<Investigation>(`/investigations/${pinInvestigation}`),
+    enabled: !!pinInvestigation && !preview,
+  });
   const active = (investigations.data?.items ?? []).filter(
-    (x) => x.application_id === application?.id,
+    (x) =>
+      x.application_id === application?.id &&
+      (!environment || x.environment_id === environment.id),
   );
   const latest = active[0];
   function toggle(
@@ -131,6 +157,7 @@ export default function OverviewPage() {
       const content = input.trim();
       const inv = await post<Investigation>("/investigations", {
         application_id: application.id,
+        environment_id: environment?.id,
         title: content.slice(0, 100) || `${application.name} · 运行状态调查`,
       });
       setInvestigationId(inv.id);
@@ -174,21 +201,44 @@ export default function OverviewPage() {
       setResult(
         tool === "metrics"
           ? {
-              source: "设计示例",
-              query: "http_5xx_rate",
-              points: incidentPoints.slice(-8),
+              source: {
+                provider: "设计示例",
+                query: "http_5xx_rate",
+                captured_at: new Date().toISOString(),
+              },
+              series: [
+                {
+                  labels: { service: "checkout-api", data: "示例" },
+                  samples: incidentPoints.slice(-8).map((p, i) => ({
+                    timestamp: Date.now() / 1000 - (8 - i) * 60,
+                    value: String(p.value),
+                  })),
+                },
+              ],
             }
           : {
-              source: "设计示例",
+              source: {
+                provider: "设计示例",
+                captured_at: new Date().toISOString(),
+              },
               entries: [
-                "14:05:21 ERROR connection timeout after 30000ms",
-                "14:05:24 WARN upstream service unavailable",
+                {
+                  timestamp: new Date().toISOString(),
+                  line: "ERROR connection timeout after 30000ms",
+                  labels: { level: "error" },
+                },
+                {
+                  timestamp: new Date().toISOString(),
+                  line: "WARN upstream service unavailable",
+                  labels: { level: "warn" },
+                },
               ],
             },
       );
       return;
     }
     if (!application) return;
+    const generation = ++queryGeneration.current;
     setQueryBusy(true);
     setQueryError(null);
     try {
@@ -196,11 +246,20 @@ export default function OverviewPage() {
         tool === "metrics"
           ? { query_id: queryID || telemetry.data?.metric_query_ids[0] }
           : {};
-      setResult(await post(`/applications/${application.id}/${tool}`, body));
+      const response = await post<TelemetryResultData>(
+        `/applications/${application.id}/${tool}`,
+        {
+          ...body,
+          environment_id: environment?.id,
+          start: new Date(Date.now() - windowMinutes * 60000).toISOString(),
+          end: new Date().toISOString(),
+        },
+      );
+      if (generation === queryGeneration.current) setResult(response);
     } catch (e) {
-      setQueryError(e);
+      if (generation === queryGeneration.current) setQueryError(e);
     } finally {
-      setQueryBusy(false);
+      if (generation === queryGeneration.current) setQueryBusy(false);
     }
   }
   if (!application)
@@ -208,7 +267,7 @@ export default function OverviewPage() {
       <div className="empty-state">
         <Box size={30} />
         <h2>还没有可用应用</h2>
-        <p>请由管理员在服务端登记应用及连接器。</p>
+        <p>请由管理员在应用目录登记应用与环境，并绑定连接器。</p>
       </div>
     );
   const docs = preview
@@ -240,7 +299,7 @@ export default function OverviewPage() {
           <div className="overview-title">
             <h1>{application.name}</h1>
             <span className="service-id">
-              {preview ? "checkout-api" : application.id}
+              {preview ? "checkout-api" : application.key || application.id}
             </span>
             <span className={`badge ${preview ? "badge-warning" : ""}`}>
               {preview ? "需要关注" : "运行状态待确认"}
@@ -255,7 +314,7 @@ export default function OverviewPage() {
           </div>
           <div>
             <span>环境</span>
-            <strong>{application.environment}</strong>
+            <strong>{environment?.name || application.environment}</strong>
           </div>
           <div>
             <span>当前角色</span>
@@ -615,7 +674,8 @@ export default function OverviewPage() {
             <dl>
               <dt>应用范围</dt>
               <dd>
-                {application.id} · {application.environment}
+                {application.key || application.id} ·{" "}
+                {environment?.name || application.environment}
               </dd>
               <dt>Deployment</dt>
               <dd>
@@ -687,6 +747,19 @@ export default function OverviewPage() {
         ) : (
           <p className="muted">数据范围由管理员登记，空数据不代表健康。</p>
         )}
+        <label>
+          时间窗口
+          <select
+            className="field"
+            value={windowMinutes}
+            onChange={(e) => setWindowMinutes(Number(e.target.value))}
+          >
+            <option value={15}>最近 15 分钟</option>
+            <option value={30}>最近 30 分钟</option>
+            <option value={60}>最近 1 小时</option>
+            <option value={180}>最近 3 小时</option>
+          </select>
+        </label>
         {tool === "metrics" && (
           <label>
             已登记查询
@@ -719,9 +792,83 @@ export default function OverviewPage() {
           {queryBusy ? "正在读取…" : "查询最近数据"}
         </button>
         {!!queryError && <ErrorNotice error={queryError} />}
-        <pre className="query-result">
-          {result ? JSON.stringify(result, null, 2) : "查询结果将在这里展示"}
-        </pre>
+        <TelemetryResult result={result} />
+        {result && !preview && user.role !== "viewer" && (
+          <section className="management-section">
+            <h3>固定为调查证据</h3>
+            <p className="muted">
+              保存这次查询的快照与采集时间，标记为人工固定；不会重新查询数据源。
+            </p>
+            <div className="management-form">
+              <label>
+                当前应用与环境的调查
+                <select
+                  className="field"
+                  value={pinInvestigation}
+                  onChange={(e) => {
+                    setPinInvestigation(e.target.value);
+                    setPinBranch("");
+                  }}
+                >
+                  <option value="">选择调查</option>
+                  {active
+                    .filter((i) => i.status !== "closed")
+                    .map((i) => (
+                      <option key={i.id} value={i.id}>
+                        {i.title}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label>
+                证据所属分支
+                <select
+                  className="field"
+                  value={pinBranch}
+                  onChange={(e) => setPinBranch(e.target.value)}
+                >
+                  <option value="">选择分支</option>
+                  {pinDetail.data?.branches?.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {pinDetail.error && <ErrorNotice error={pinDetail.error} />}
+              <button
+                className="btn"
+                disabled={!pinBranch || pinBusy}
+                onClick={async () => {
+                  setPinBusy(true);
+                  try {
+                    await post(`/investigations/${pinInvestigation}/evidence`, {
+                      branch_id: pinBranch,
+                      environment_id: environment?.id,
+                      kind: tool,
+                      title:
+                        tool === "metrics"
+                          ? `指标快照 · ${result.source?.query_id || queryID}`
+                          : "日志快照",
+                      source: result.source?.provider || "telemetry",
+                      content: JSON.stringify(result),
+                    });
+                    await client.invalidateQueries({
+                      queryKey: ["investigation", pinInvestigation],
+                    });
+                    notify("查询快照已固定为证据", "success");
+                  } catch (e) {
+                    notify(String(e), "error");
+                  } finally {
+                    setPinBusy(false);
+                  }
+                }}
+              >
+                {pinBusy ? "正在保存…" : "固定快照"}
+              </button>
+            </div>
+          </section>
+        )}
       </Modal>
     </div>
   );

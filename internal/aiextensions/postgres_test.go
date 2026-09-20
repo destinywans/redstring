@@ -62,6 +62,26 @@ func TestPostgresVersionCASAuditAndReload(t *testing.T) {
 	}
 	s.Authorize = base.AuthorizeApplication
 	ctx = store.WithPrincipal(ctx, core.User{ID: "user", Role: "admin"})
+	general, e := s.Save(ctx, Record{Kind: "skill", Title: "Workspace skill", Body: "general instructions", Maintainer: "owner", Enabled: true})
+	if e != nil {
+		t.Fatal("save workspace record", e)
+	}
+	general.Body = "revised instructions"
+	general, e = s.Save(ctx, general)
+	if e != nil || general.Version != 2 {
+		t.Fatal("update workspace record", e)
+	}
+	workspaceItems, e := s.ListWorkspace(ctx, "skill")
+	if e != nil || len(workspaceItems) != 1 || workspaceItems[0].ID != general.ID {
+		t.Fatal("list workspace records", e)
+	}
+	appItems, e := s.List(ctx, "app-a", "skill")
+	if e != nil || len(appItems) != 0 {
+		t.Fatal("workspace records leaked into application list", e)
+	}
+	if _, e = db.Exec(ctx, `INSERT INTO ai_extensions(id,kind,version,record) VALUES('invalid-general-mcp','mcp',1,'{}')`); e == nil {
+		t.Fatal("database allowed workspace MCP")
+	}
 	old, e := s.Save(ctx, Record{ApplicationID: "app-a", Kind: "prompt", Title: "Version test", Body: "first", Maintainer: "owner", Enabled: true})
 	if e != nil {
 		t.Fatal(e)

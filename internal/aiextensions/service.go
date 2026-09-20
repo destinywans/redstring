@@ -19,12 +19,23 @@ func (s *Service) List(ctx context.Context, app, kind string) ([]Record, error) 
 	}
 	return s.Repository.List(ctx, app, kind)
 }
+
+// ListWorkspace is explicit; legacy List(app, kind) remains app-only.
+func (s *Service) ListWorkspace(ctx context.Context, kind string) ([]Record, error) {
+	if kind != "skill" && kind != "prompt" {
+		return nil, ErrInvalid
+	}
+	if err := s.authorizeRecord(ctx, Record{Kind: kind}, "view"); err != nil {
+		return nil, err
+	}
+	return s.Repository.List(ctx, "", kind)
+}
 func (s *Service) Get(ctx context.Context, id string, version int) (Record, error) {
 	r, e := s.Repository.Get(ctx, id, 0)
 	if e != nil {
 		return r, e
 	}
-	if e = s.authorize(ctx, r.ApplicationID, "view"); e != nil {
+	if e = s.authorizeRecord(ctx, r, "view"); e != nil {
 		return Record{}, e
 	}
 	if r.Kind == "mcp" && store.Principal(ctx).Role != "admin" {
@@ -39,7 +50,7 @@ func (s *Service) Save(ctx context.Context, r Record) (Record, error) {
 	if e := validate(r); e != nil {
 		return Record{}, e
 	}
-	if e := s.authorize(ctx, r.ApplicationID, "operate"); e != nil {
+	if e := s.authorizeRecord(ctx, r, "operate"); e != nil {
 		return Record{}, e
 	}
 	if store.Principal(ctx).Role == "viewer" || (r.Kind == "mcp" && store.Principal(ctx).Role != "admin") {
@@ -124,7 +135,7 @@ func (s *Service) Compose(ctx context.Context, in Composition) (Composed, error)
 		if e != nil {
 			return Composed{}, e
 		}
-		if current.ApplicationID != in.ApplicationID || !current.Enabled || current.Kind == "mcp" {
+		if (current.ApplicationID != "" && current.ApplicationID != in.ApplicationID) || !current.Enabled || (current.Kind != "skill" && current.Kind != "prompt") {
 			return Composed{}, store.ErrForbidden
 		}
 		r, e := s.Repository.Get(ctx, ref.ID, ref.Version)

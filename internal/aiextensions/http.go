@@ -18,8 +18,28 @@ func (s *Service) Register(api *httpapi.Server) {
 	})
 	api.Register("GET /api/v1/ai-extensions/examples", "viewer", func(w http.ResponseWriter, r *http.Request) { respond(w, map[string]any{"items": Examples()}, nil) })
 	api.Register("GET /api/v1/ai-extensions", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		v, e := s.List(r.Context(), r.URL.Query().Get("application_id"), r.URL.Query().Get("kind"))
-		respond(w, map[string]any{"items": v}, e)
+		var v []Record
+		var e error
+		switch r.URL.Query().Get("scope") {
+		case "", "application":
+			v, e = s.List(r.Context(), r.URL.Query().Get("application_id"), r.URL.Query().Get("kind"))
+		case "workspace":
+			if r.URL.Query().Get("application_id") != "" {
+				e = ErrInvalid
+			} else {
+				v, e = s.ListWorkspace(r.Context(), r.URL.Query().Get("kind"))
+			}
+		default:
+			e = ErrInvalid
+		}
+		canWrite := false
+		if e == nil && store.Principal(r.Context()).Role != "viewer" {
+			canWrite = s.authorizeRecord(r.Context(), Record{ApplicationID: r.URL.Query().Get("application_id"), Kind: r.URL.Query().Get("kind")}, "operate") == nil
+			if r.URL.Query().Get("kind") == "mcp" && store.Principal(r.Context()).Role != "admin" {
+				canWrite = false
+			}
+		}
+		respond(w, map[string]any{"items": v, "can_write": canWrite}, e)
 	})
 	api.Register("GET /api/v1/ai-extensions/{id}", "viewer", func(w http.ResponseWriter, r *http.Request) {
 		version := 0

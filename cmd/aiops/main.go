@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"github.com/wans/aiops-canvas/internal/actions"
+	"github.com/wans/aiops-canvas/internal/aiextensions"
 	"github.com/wans/aiops-canvas/internal/apicontract"
 	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/knowledge"
+	"github.com/wans/aiops-canvas/internal/memoryview"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/webui"
 	"log/slog"
@@ -66,6 +68,7 @@ func run() error {
 		return e
 	}
 	know.Register(api)
+	(&memoryview.Service{Store: s, Knowledge: know}).Register(api)
 	var connector *connectors.Kubernetes
 	var actionConnector actions.Connector
 	var connectorConfig connectors.Config
@@ -118,6 +121,26 @@ func run() error {
 	ops, e := configureOperations(ctx, s, api, worker, know)
 	if e != nil {
 		return e
+	}
+	extensions := aiextensions.New(s.DB, os.Getenv("AIOPS_MCP_CREDENTIAL_ROOT"))
+	if e = extensions.Migrate(ctx); e != nil {
+		return e
+	}
+	extensions.Register(api)
+	previousTools := worker.Tools
+	worker.Tools = func(ctx context.Context, app string) ([]inference.EvidenceTool, error) {
+		base, e := previousTools(ctx, app)
+		if e != nil {
+			return nil, e
+		}
+		extra, e := extensions.Tools(ctx, app)
+		if e != nil {
+			return nil, e
+		}
+		if len(base)+len(extra) > 16 {
+			return nil, fmt.Errorf("configured tools exceed the per-attempt limit")
+		}
+		return append(base, extra...), nil
 	}
 	opsDone := make(chan struct{})
 	go func() { defer close(opsDone); ops.Run(ctx) }()

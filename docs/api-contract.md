@@ -96,3 +96,14 @@
 `POST /observability/metrics/batch` / `logs/batch` 接收 `targets:[{application_id,environment_id,query_id?}]` 与公共 start/end/step_seconds/limit；指标 query_id 必须是登记值。先检查全部目标权限再调用来源；最多20目标、4并发、45秒、每项256KiB。响应 items 保持输入次序，每项 result 或 error，含绑定版本，partial 明确部分失败。前端未登记目标单独提示，合法来源仍展示。
 
 `GET /audit` 接收 q/actor_id/application_id/action/outcome/from/to/cursor/limit，管理员限定。服务端按 ID 倒序游标分页，items + next_cursor；无参数兼容250条，时间区间左闭右开。操作者姓名与原ID并存；success过滤包含历史succeeded，不改变原始记录。
+
+
+## 记忆与 AI 扩展（WAN-93/94）
+
+`/memory/documents` 和 `/memory/contexts` 展示真实持久来源，按应用与环境过滤，使用稳定 ID 游标每页 50 条。上下文详情复用 `/branches/{id}/revisions/{revision}`；文档详情/修订/归档复用 `/knowledge` 的版本与权限控制。`/memory/documents/{id}/references` 只返回近期已记录的精确检索命中，不将其计作模型采纳率或完整调用次数。
+
+`/ai-extensions` 保存应用内 MCP、Skill 与 Prompt 的版本。MCP 仅管理员登记，凭据为服务器私有文件引用。工具发现不等于允许调用：执行仍检查只读声明、明确允许列表、固定参数、应用权限及当前配置。`compose` 产生含 ID、版本、内容摘要的草稿，用户发送后才通过既有会话接口持久化，不改变系统提示或直接执行写动作。
+
+## WAN-93 通用 Skills / Prompt
+
+`GET /ai-extensions?scope=workspace&kind=skill|prompt` 返回工作区通用记录；原 application_id 查询保持应用专用语义，列表额外返回 `can_write`。通用记录 application_id 为空字符串，全体登录成员可读、仅管理员维护；MCP始终绑定应用。组合草稿仍要求授权的具体应用目标，可引用通用和同应用版本。详见 [范围契约](ai-extension-scopes.md)。

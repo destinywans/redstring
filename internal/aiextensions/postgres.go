@@ -26,16 +26,22 @@ func (p *PGRepository) Migrate(ctx context.Context) error {
 	if _, e = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(752018993)`); e != nil {
 		return e
 	}
-	_, e = tx.Exec(ctx, `CREATE TABLE IF NOT EXISTS ai_extensions(id text PRIMARY KEY,application_id text NOT NULL REFERENCES applications(id),kind text NOT NULL CHECK(kind IN ('mcp','skill','prompt')),version integer NOT NULL,record jsonb NOT NULL,updated_at timestamptz NOT NULL DEFAULT now());
+	_, e = tx.Exec(ctx, `CREATE TABLE IF NOT EXISTS ai_extensions(id text PRIMARY KEY,application_id text REFERENCES applications(id),kind text NOT NULL CHECK(kind IN ('mcp','skill','prompt')),version integer NOT NULL,record jsonb NOT NULL,updated_at timestamptz NOT NULL DEFAULT now());
  CREATE INDEX IF NOT EXISTS ai_extensions_scope ON ai_extensions(application_id,kind);
- CREATE TABLE IF NOT EXISTS ai_extension_revisions(id text NOT NULL REFERENCES ai_extensions(id),version integer NOT NULL,record jsonb NOT NULL,created_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(id,version));`)
+ CREATE TABLE IF NOT EXISTS ai_extension_revisions(id text NOT NULL REFERENCES ai_extensions(id),version integer NOT NULL,record jsonb NOT NULL,created_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(id,version));
+ ALTER TABLE ai_extensions ALTER COLUMN application_id DROP NOT NULL;
+ DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='ai_extensions'::regclass AND conname='ai_extensions_workspace_scope') THEN
+ ALTER TABLE ai_extensions ADD CONSTRAINT ai_extensions_workspace_scope CHECK (application_id IS NOT NULL OR kind IN ('skill','prompt'));
+ END IF;
+ END $$;`)
 	if e != nil {
 		return e
 	}
 	return tx.Commit(ctx)
 }
 func (p *PGRepository) List(ctx context.Context, app, kind string) ([]Record, error) {
-	rows, e := p.DB.Query(ctx, "SELECT record FROM ai_extensions WHERE application_id=$1 AND kind=$2 ORDER BY updated_at DESC LIMIT 200", app, kind)
+	rows, e := p.DB.Query(ctx, "SELECT record FROM ai_extensions WHERE application_id IS NOT DISTINCT FROM NULLIF($1, '') AND kind=$2 ORDER BY updated_at DESC LIMIT 200", app, kind)
 	if e != nil {
 		return nil, e
 	}
@@ -86,10 +92,10 @@ func (p *PGRepository) Save(ctx context.Context, r Record, expected int) (Record
 		return Record{}, e
 	}
 	if expected == 0 {
-		_, e = tx.Exec(ctx, "INSERT INTO ai_extensions(id,application_id,kind,version,record) VALUES($1,$2,$3,$4,$5)", r.ID, r.ApplicationID, r.Kind, r.Version, raw)
+		_, e = tx.Exec(ctx, "INSERT INTO ai_extensions(id,application_id,kind,version,record) VALUES($1,NULLIF($2, ''),$3,$4,$5)", r.ID, r.ApplicationID, r.Kind, r.Version, raw)
 	} else {
 		var n int
-		e = tx.QueryRow(ctx, "UPDATE ai_extensions SET version=$2,record=$3,updated_at=now() WHERE id=$1 AND version=$4 AND application_id=$5 AND kind=$6 RETURNING version", r.ID, r.Version, raw, expected, r.ApplicationID, r.Kind).Scan(&n)
+		e = tx.QueryRow(ctx, "UPDATE ai_extensions SET version=$2,record=$3,updated_at=now() WHERE id=$1 AND version=$4 AND application_id IS NOT DISTINCT FROM NULLIF($5, '') AND kind=$6 RETURNING version", r.ID, r.Version, raw, expected, r.ApplicationID, r.Kind).Scan(&n)
 		if errors.Is(e, pgx.ErrNoRows) {
 			return Record{}, store.ErrConflict
 		}

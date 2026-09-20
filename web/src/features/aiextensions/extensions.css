@@ -200,3 +200,149 @@
     padding: 18px;
   }
 }
+
+/* Shared filter controls stay in their own row; labels never overlap inputs. */
+.page.extensions-page {
+  width: 100%;
+  max-width: none;
+  padding: 28px;
+}
+.extensions-page .page-heading {
+  margin-bottom: 24px;
+}
+.extensions-page .page-heading h1 {
+  font-size: 24px;
+}
+.extensions-page .page-heading p {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.extensions-toolbar {
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 0;
+}
+.extensions-toolbar > .filter-bar {
+  flex: 1 1 600px;
+  min-width: 0;
+}
+.extensions-toolbar .filter-search {
+  flex: 1 1 240px;
+}
+.extensions-toolbar > .extensions-actions {
+  min-height: 38px;
+}
+.extensions-filter-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-height: 46px;
+  padding: 8px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.extensions-scope {
+  align-items: center;
+  gap: 14px;
+}
+.extensions-scope .filter-bar {
+  flex: 0 1 auto;
+}
+.extension-copy-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+.extension-row {
+  min-height: 84px;
+  font-size: 14px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  background: var(--panel);
+}
+.extension-row-main > span {
+  font-size: 12px;
+  line-height: 1.6;
+}
+.extension-detail .card-heading {
+  align-items: flex-start;
+  gap: 14px;
+}
+.extension-detail h2 {
+  font-size: 17px;
+  line-height: 1.5;
+}
+.extension-meta {
+  font-size: 13px;
+}
+.extension-meta select {
+  min-width: 112px;
+  height: 36px;
+  padding: 0 32px 0 12px;
+}
+.extension-body {
+  font-size: 14px;
+  line-height: 1.85;
+}
+.extension-examples h2 {
+  font-size: 17px;
+  margin-bottom: 6px;
+}
+.extension-examples strong {
+  font-size: 14px;
+}
+.extension-examples p {
+  font-size: 13px;
+}
+.extension-fixed-scope {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  padding: 14px;
+  background: var(--panel-soft);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.extension-fixed-scope > span {
+  color: var(--muted);
+}
+.extension-fixed-scope > small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+}
+.extension-create-scope {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.extension-create-scope label {
+  display: grid;
+  gap: 7px;
+  font-size: 13px;
+}
+.extension-form select.field {
+  min-height: 38px;
+  padding: 8px 32px 8px 12px;
+}
+.extension-form .field {
+  font-size: 14px;
+}
+@media (max-width: 700px) {
+  .page.extensions-page {
+    padding: 20px 16px;
+  }
+  .extensions-toolbar > .extensions-actions {
+    width: 100%;
+  }
+  .extension-create-scope {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .extension-row {
+    padding: 16px;
+  }
+}

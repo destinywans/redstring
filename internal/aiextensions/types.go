@@ -79,8 +79,24 @@ func (s *Service) authorize(ctx context.Context, app, permission string) error {
 	}
 	return s.Authorize(ctx, store.Principal(ctx), app, permission)
 }
+
+// Workspace instructions are readable by members but maintained only by admins.
+// This must not replace authorize: composing and tool calls require an app target.
+func (s *Service) authorizeRecord(ctx context.Context, r Record, permission string) error {
+	if r.ApplicationID != "" {
+		return s.authorize(ctx, r.ApplicationID, permission)
+	}
+	user := store.Principal(ctx)
+	if user.ID == "" || (user.Role != "admin" && user.Role != "operator" && user.Role != "viewer") || (r.Kind != "skill" && r.Kind != "prompt") {
+		return store.ErrForbidden
+	}
+	if permission != "view" && user.Role != "admin" {
+		return store.ErrForbidden
+	}
+	return nil
+}
 func validate(r Record) error {
-	if r.ApplicationID == "" || strings.TrimSpace(r.Title) == "" || len(r.Title) > 160 || strings.TrimSpace(r.Maintainer) == "" || len(r.Maintainer) > 160 || len(r.Body) > 24000 || len(r.RequiredTools) > 16 {
+	if strings.TrimSpace(r.Title) == "" || len(r.Title) > 160 || strings.TrimSpace(r.Maintainer) == "" || len(r.Maintainer) > 160 || len(r.Body) > 24000 || len(r.RequiredTools) > 16 {
 		return ErrInvalid
 	}
 	for _, t := range r.RequiredTools {
@@ -94,7 +110,7 @@ func validate(r Record) error {
 		}
 		return nil
 	}
-	if r.Kind != "mcp" || r.MCP == nil || len(r.MCP.Bindings) > 8 {
+	if r.Kind != "mcp" || r.ApplicationID == "" || r.MCP == nil || len(r.MCP.Bindings) > 8 {
 		return ErrInvalid
 	}
 	c := r.MCP

@@ -195,6 +195,12 @@ func (s *PostgresRepository) Enqueue(ctx context.Context, id, user string) (Exec
 	}
 	return s.Execution(ctx, eid)
 }
+func (s *PostgresRepository) ExecutionForPlan(ctx context.Context, id string) (Execution, error) {
+	var x Execution
+	e := s.DB.QueryRow(ctx, "SELECT id,plan_id,status,attempt,error,result,created_at,updated_at FROM executions WHERE plan_id=$1", id).Scan(&x.ID, &x.PlanID, &x.Status, &x.Attempt, &x.Error, &x.Result, &x.CreatedAt, &x.UpdatedAt)
+	return x, e
+}
+
 func (s *PostgresRepository) Execution(ctx context.Context, id string) (Execution, error) {
 	var x Execution
 	e := s.DB.QueryRow(ctx, "SELECT id,plan_id,status,attempt,error,result,created_at,updated_at FROM executions WHERE id=$1", id).Scan(&x.ID, &x.PlanID, &x.Status, &x.Attempt, &x.Error, &x.Result, &x.CreatedAt, &x.UpdatedAt)

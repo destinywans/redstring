@@ -33,6 +33,10 @@ func (s *Service) Register(api *httpapi.Server) {
 		p, e := s.Plan(r.Context(), r.PathValue("id"))
 		respond(w, p, e)
 	})
+	api.Register("GET /api/v1/action-plans/{id}/execution", "viewer", func(w http.ResponseWriter, r *http.Request) {
+		x, e := s.Repository.ExecutionForPlan(r.Context(), r.PathValue("id"))
+		respond(w, x, e)
+	})
 	api.Register("POST /api/v1/action-plans/{id}/approve", "operator", func(w http.ResponseWriter, r *http.Request) {
 		var v struct {
 			Digest string `json:"digest"`

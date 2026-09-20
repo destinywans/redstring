@@ -19,12 +19,29 @@ import (
 func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
 	path := os.Getenv("AIOPS_TELEMETRY_CONFIG")
 	if path == "" {
+		api.Integrations = append(api.Integrations,
+			httpapi.NewIntegration("prometheus", "Prometheus", "connector", "prometheus", false, nil, []string{"metrics.read"}),
+			httpapi.NewIntegration("loki", "Loki", "connector", "loki", false, nil, []string{"logs.read"}))
 		return nil
 	}
 	config, e := connectors.LoadTelemetryConfig(path)
 	if e != nil {
 		return e
 	}
+	metricApps, logApps := []string{}, []string{}
+	for id, registration := range config.Applications {
+		if config.Prometheus.URL != "" && len(registration.PrometheusQueries) > 0 {
+			metricApps = append(metricApps, id)
+		}
+		if config.Loki.URL != "" && len(registration.LokiLabels) > 0 {
+			logApps = append(logApps, id)
+		}
+	}
+	sort.Strings(metricApps)
+	sort.Strings(logApps)
+	api.Integrations = append(api.Integrations,
+		httpapi.NewIntegration("prometheus", "Prometheus", "connector", "prometheus", config.Prometheus.URL != "", metricApps, []string{"metrics.read"}),
+		httpapi.NewIntegration("loki", "Loki", "connector", "loki", config.Loki.URL != "", logApps, []string{"logs.read"}))
 	client, e := connectors.NewTelemetry(config)
 	if e != nil {
 		return e

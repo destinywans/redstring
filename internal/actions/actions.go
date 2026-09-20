@@ -63,6 +63,7 @@ type Repository interface {
 	Report(context.Context, string) (Report, error)
 	Enqueue(context.Context, string, string) (Execution, error)
 	Execution(context.Context, string) (Execution, error)
+	ExecutionForPlan(context.Context, string) (Execution, error)
 	Claim(context.Context) (Lease, error)
 	Transition(context.Context, Lease, string, string, any) error
 	Renew(context.Context, Lease) error

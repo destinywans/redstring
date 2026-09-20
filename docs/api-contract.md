@@ -9,6 +9,17 @@
 - `GET /applications` → `{items:[{id,name,description,environment}]}`。
 - `GET /models` → `{items:[{id,name,provider,available}]}`。不可配置的模型不伪装成可用。
 
+### Web 工作区补充契约（2026-09-20）
+
+- `GET /integrations` → `{items:[{id,name,kind,provider,configured,status,application_ids,capabilities,model?}],configuration_mode:"server_managed"}`。首版列出 Kubernetes、Prometheus、Loki 和 Embedding；`status` 为 `configured_unverified` 或 `not_configured`。配置存在不代表连接健康；前端不得显示为已验证连接。返回值不包含服务 URL、凭据或凭据文件路径。配置修改仍通过服务端部署配置完成，没有保存凭据的 Web API。
+- `GET /applications/{id}/deployment` → `{application_id,namespace,deployment,uid,template_digest,images:[{name,image}],replicas,ready_replicas,updated_replicas,generation,observed_generation,revisions:[{revision,digest,images}],captured_at}`。只读取已登记应用对应的 Deployment；当前执行连接器只登记 `demo`。未登记返回 404，读取失败返回 503。不会返回完整 Pod 模板或环境变量。图表必须根据实际数据或显示缺少数据，不能由副本数推导服务健康。
+- `GET /action-plans/{id}/execution` → `Execution`，尚无执行时 404。用于页面刷新后恢复执行视图，查看者也可使用；不会批准、入队或重复执行动作。
+- 上述三个入口最低角色均为 `viewer`；所有写操作继续沿用服务端权限和同源校验。
+- 设置 `AIOPS_WEB_DIR` 后，Go 从该构建目录托管 Vite 产物，支持浏览器历史路由。API、健康和 OpenAPI 路径独立路由；缺失资源返回 404，不返回 SPA HTML。HTML 不缓存，构建资源可长期缓存。目录必须含 `index.html`，部署时不得指向仓库根目录或凭据目录。
+- Vite 开发代理应转发 `/api`、`/healthz` 和 `/openapi.json`，同时将 Go 的 `AIOPS_PUBLIC_ORIGIN` 设置为浏览器实际访问的 Vite Origin；生产同源部署按实际 HTTPS Origin 配置。不放宽 CSRF 检查来适配开发环境。
+
+本次限定检查已覆盖 SPA 路由、资源缺失、目录/隐藏文件/外部符号链接隔离、HEAD、缓存与安全头，以及 Deployment 镜像信息投影不含环境变量；机器契约的 47 个路由匹配。未启动数据库、模型或集群进行这三个新接口的集成验证。
+
 ## 调查、分支、上下文
 
 - `GET /investigations` → `{items:[{id,application_id,title,status,created_at,updated_at}]}`。

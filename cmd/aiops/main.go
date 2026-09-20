@@ -12,6 +12,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/knowledge"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/webui"
 	"log/slog"
 	"net/http"
 	"os"
@@ -101,6 +102,16 @@ func run() error {
 	if e = configureTelemetry(api, worker); e != nil {
 		return e
 	}
+	registerDeployment(api, connector, connectorConfig)
+	apps := []string{}
+	if connector != nil {
+		apps = append(apps, "demo")
+	}
+	api.Integrations = append(api.Integrations, httpapi.NewIntegration("kubernetes", "Kubernetes", "connector", "kubernetes", connector != nil, apps, []string{"deployment.read", "rollback.propose", "rollback.execute_after_approval"}))
+	embedding := embedder.Descriptor()
+	entry := httpapi.NewIntegration("embedding", "Knowledge embedding", "embedding", embedding.Provider, true, nil, []string{"knowledge.embed"})
+	entry.Model = embedding.Model
+	api.Integrations = append(api.Integrations, entry)
 	workerDone := make(chan struct{})
 	go func() { defer close(workerDone); worker.Run(ctx) }()
 	addr := os.Getenv("AIOPS_ADDR")
@@ -109,7 +120,19 @@ func run() error {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /openapi.json", apicontract.ServeHTTP)
-	mux.Handle("/", api)
+	mux.Handle("/api/", api)
+	mux.Handle("/api", api)
+	mux.Handle("/healthz", api)
+	if directory := os.Getenv("AIOPS_WEB_DIR"); directory != "" {
+		workspace, err := webui.New(directory)
+		if err != nil {
+			return err
+		}
+		defer workspace.Close()
+		mux.Handle("/", workspace)
+	} else {
+		mux.Handle("/", api)
+	}
 	server := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	errC := make(chan error, 1)
 	go func() { slog.Info("AIOps API listening", "address", addr); errC <- server.ListenAndServe() }()

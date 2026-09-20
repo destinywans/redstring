@@ -31,6 +31,7 @@ type Server struct {
 	mux           *http.ServeMux
 	SecureCookies bool
 	AllowedOrigin string
+	Integrations  []Integration
 	loginMu       sync.Mutex
 	loginAttempts map[string][]time.Time
 }
@@ -145,6 +146,13 @@ func (s *Server) modelExists(id string) bool {
 	return false
 }
 func (s *Server) routes() {
+	s.Register("GET /api/v1/integrations", "viewer", func(w http.ResponseWriter, r *http.Request) {
+		items := s.Integrations
+		if items == nil {
+			items = []Integration{}
+		}
+		WriteJSON(w, 200, map[string]any{"items": items, "configuration_mode": "server_managed"})
+	})
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()

@@ -111,3 +111,7 @@
 ## 资源目录与资源关系（WAN-101）
 
 新增 `GET/POST /resources`、`GET /resources/{id}` 与 `GET /resource-relations`。资源、关联应用和静态关系在 PostgreSQL 保存；查询复用应用授权，按全局环境 key 过滤。共享资源仅返回调用者可见应用关系，图的两端必须均可见。示例记录明确 `is_mock` 和独立来源，不能当实时健康；录入元数据不会创建基础设施。完整类型、过滤/分页与有界关系查询见 [资源契约](resources-api.md)。
+
+## 独立设置工作区 · WAN-103
+
+平台资料和组织目录新增 `/api/v1/settings`，见 [设置契约](settings-api.md)。平台资料保存携带 revision；团队负责人必须为未删除团队成员；目录仅管理员可读。部门资料不改变应用授权，Mock 成员有数据库禁登录约束。

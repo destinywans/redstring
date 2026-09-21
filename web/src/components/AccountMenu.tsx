@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ChevronDown, LogOut, Settings } from "../lib/icons";
+import { ChevronUp, LogOut, Settings, Info } from "../lib/icons";
 import type { User } from "../lib/types";
 
 export default function AccountMenu({
@@ -9,12 +9,14 @@ export default function AccountMenu({
   preview,
   onNavigate,
   onLogout,
+  onHelp,
 }: {
   user: User;
   settingsURL: string;
   preview: boolean;
   onNavigate: () => void;
   onLogout: () => void;
+  onHelp: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null),
@@ -61,7 +63,7 @@ export default function AccountMenu({
                 : "只读成员"}
           </small>
         </span>
-        <ChevronDown size={14} />
+        <ChevronUp size={14} />
       </button>
       {open && (
         <div
@@ -120,6 +122,17 @@ export default function AccountMenu({
               设置
             </Link>
           )}
+          <button
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              trigger.current?.focus();
+              onHelp();
+            }}
+          >
+            <Info size={17} />
+            帮助与支持
+          </button>
           <button
             role="menuitem"
             onClick={() => {

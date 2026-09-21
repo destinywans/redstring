@@ -134,7 +134,7 @@ export const settingsNavigation: NavigationSection = {
   children: [
     { to: "/platform/settings", label: "平台概览" },
     { to: "/members", label: "成员管理" },
-    { to: "/teams", label: "团队管理" },
+    { to: "/teams", label: "部门与团队" },
     { to: "/platform/roles", label: "角色与资源范围" },
   ],
 };

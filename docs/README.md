@@ -19,3 +19,5 @@
 - [历史后端交接](backend-handoff.md)、[演示环境](demo.md)。
 - [实施计划](../PLAN.md)、[可恢复检查点](../CHECKPOINT.md)、[领域术语](../CONTEXT.md)。
 - [原始研究报告](research/)：保留原文；其中的旧建议不覆盖后续已确认决定。
+
+- [独立设置工作区](settings-api.md)、[设置页面交付记录](releases/2026-09-21-settings-workspace.md)：平台资料、组织目录、固定角色和示例数据。

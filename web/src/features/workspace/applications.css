@@ -1,321 +1,276 @@
-.management-page.applications-page {
-  width: 100%;
-  max-width: none;
-  margin: 0;
-  padding: 28px 28px 40px;
-}
-.applications-page .filter-bar {
-  gap: 8px;
+/* Approved application-list sample; deliberately scoped until visual acceptance. */
+.applications-page .ui-filter-group {
+  display: block;
   margin-bottom: 16px;
 }
-.applications-page .filter-search {
-  flex: 1 1 300px;
-}
-.applications-page .filter-select-trigger {
-  min-width: 90px;
+.application-toolbar {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
+  gap: 16px;
+}
+.application-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  max-width: 520px;
+  min-width: 180px;
+  color: var(--muted);
+}
+.application-search > svg {
+  position: absolute;
+  left: 11px;
+  pointer-events: none;
+}
+.application-search .ui-input {
+  padding-left: 36px;
+  padding-right: 34px;
+  background: var(--panel);
+}
+.application-search .ui-input::-webkit-search-cancel-button {
+  appearance: none;
+}
+.application-search-clear {
+  position: absolute;
+  right: 5px;
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+.application-search-clear:hover {
+  background: var(--panel-soft);
+  color: var(--text);
+}
+.application-toolbar-filters {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.application-toolbar-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--border);
 }
 .application-advanced-toggle {
   position: relative;
-  width: 36px;
-  padding: 0;
+  color: var(--muted);
 }
 .application-advanced-toggle[data-active] {
-  color: var(--accent);
-  border-color: var(--accent);
   background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  color: var(--accent);
 }
 .application-filter-dot {
   position: absolute;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--accent);
   top: 5px;
   right: 5px;
+  width: 5px;
+  height: 5px;
+  background: var(--accent);
+  border-radius: 50%;
 }
 .application-advanced-filters {
-  margin: -4px 0 16px;
-  padding: 12px 16px 16px;
+  padding: 14px 16px;
+  margin-top: 12px;
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--panel);
 }
 .application-advanced-heading {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
-  font-size: var(--type-caption);
+  margin-bottom: 10px;
   color: var(--muted);
+  font-size: 13px;
 }
 .application-advanced-heading strong {
-  font-weight: var(--weight-regular);
-}
-.application-advanced-filters .filter-bar {
-  margin-bottom: 0;
+  font-weight: 500;
 }
 .application-filter-summary {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
-  color: var(--muted);
-  font-size: var(--type-caption);
-  margin: -4px 0 12px;
+  margin: -4px 0 14px;
 }
 .application-filter-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
+  gap: 7px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--panel);
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 13px;
   color: var(--text);
-  font-size: var(--type-caption);
+  background: var(--panel);
+  cursor: pointer;
 }
 .application-filter-chip:hover {
   border-color: var(--accent);
 }
-.application-list-table {
-  min-width: 840px;
+.applications-page .application-list-table {
+  width: 100%;
+  min-width: 720px;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 14px;
 }
-.application-list-table th,
-.application-list-table td {
-  padding: 13px 18px;
-  vertical-align: middle;
+.applications-page .application-list-table th {
+  padding: 12px 18px;
+  height: 43px;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
 }
-.application-list-table th {
-  height: 46px;
-  background: var(--panel-soft);
-  font-weight: var(--weight-medium);
+.applications-page .application-list-table td {
+  padding: 11px 18px;
+  height: 58px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 400;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
 }
-.application-list-table th:first-child {
+.applications-page .application-list-table th:first-child {
   width: 32%;
 }
-.application-list-table td:first-child {
-  max-width: 480px;
+.applications-page .application-list-table th:nth-child(2) {
+  width: 20%;
 }
-.application-list-table td:nth-child(2),
-.application-list-table td:nth-child(3) {
-  min-width: 125px;
+.applications-page .application-list-table th:nth-child(3) {
+  width: 19%;
 }
-.application-list-table td:nth-child(4) {
-  min-width: 90px;
+.applications-page .application-list-table th:nth-child(4) {
+  width: 11%;
 }
-.application-list-table td:nth-child(5) {
-  min-width: 175px;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
+.applications-page .application-list-table th:last-child {
+  width: 18%;
 }
-.application-list-table tbody tr:hover {
-  background: var(--panel-soft);
+.applications-page .application-list-table tr:last-child td {
+  border-bottom: 0;
+}
+.applications-page .application-list-table tbody tr:hover {
+  background: color-mix(in srgb, var(--panel-soft) 55%, transparent);
+}
+.applications-page .application-list-table td.muted {
+  color: var(--muted);
 }
 .application-name-link {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 12px;
-  text-align: left;
-  background: none;
-  border: 0;
-  color: var(--text);
-  padding: 0;
+  gap: 10px;
   max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+}
+.application-name-link > span:last-child {
+  min-width: 0;
+}
+.application-name-link strong {
+  display: inline;
+  font-size: 14px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
 }
 .application-name-link:hover strong {
   color: var(--accent);
 }
 .application-name-link:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 4px;
-  border-radius: 6px;
-}
-.application-name-link strong {
-  font-size: var(--type-body);
-  font-weight: var(--weight-regular);
+  outline-offset: 5px;
+  border-radius: 3px;
 }
 .application-symbol {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  border-radius: 10px;
   color: var(--muted);
-  flex: 0 0 auto;
+  background: var(--panel-soft);
+  border-radius: 7px;
 }
 .application-archived {
   margin-left: 8px;
-  font-size: var(--type-caption);
   color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
 }
-.applications-page .management-empty {
-  padding: 44px 24px;
+.applications-page .list-pagination {
+  min-height: 62px;
+  padding: 12px 16px;
+  gap: 12px;
+  font-size: 13px;
 }
-.applications-page .management-empty > svg {
-  margin: 0 auto 12px;
-  color: var(--muted);
+.applications-page .list-pagination-size .ui-select-trigger {
+  position: relative;
+  width: 66px;
+  min-height: 32px;
+  height: 32px;
+  padding: 0 18px 0 4px;
 }
-.applications-page .management-empty h2 {
-  font-size: var(--type-section);
-  color: var(--text);
-  margin-bottom: 8px;
+.applications-page .list-pagination-size .ui-select-trigger > span:first-child {
+  width: 100%;
+  text-align: center;
 }
-.applications-page .management-empty .btn {
-  margin-top: 14px;
-}
-.application-drawer-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgb(8 12 20 / 25%);
-  z-index: 110;
-  animation: application-overlay-in 160ms ease-out;
-}
-.application-drawer {
-  position: fixed;
-  inset: 12px 12px 12px auto;
-  width: min(780px, calc(100vw - 24px));
-  z-index: 111;
+.applications-page .list-pagination-size .ui-select-trigger > svg {
+  position: absolute;
   display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--panel);
-  color: var(--text);
-  box-shadow: -12px 0 48px rgb(0 0 0 / 16%);
-  animation: application-drawer-in 260ms cubic-bezier(0.16, 1, 0.3, 1);
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
 }
-.application-drawer[data-state="closed"] {
-  animation: application-drawer-out 180ms ease-in;
+.applications-page .list-pagination-input {
+  height: 32px;
+  border-radius: 6px;
 }
-.application-drawer-overlay[data-state="closed"] {
-  animation: application-overlay-out 180ms ease-in;
+.applications-page .list-pagination-button {
+  width: 32px;
+  height: 32px;
 }
-.application-drawer-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 20px;
-  align-items: center;
-  padding: 20px 24px;
-  border-bottom: 1px solid var(--border);
-  flex: 0 0 auto;
-}
-.application-drawer-header h2 {
-  margin: 0;
-  font-size: var(--type-section);
-  overflow-wrap: anywhere;
-}
-.application-drawer-body {
-  padding: 20px 24px 28px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  flex: 1;
-  min-height: 0;
-}
-.application-drawer .management-form-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.application-drawer .catalog-info-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.application-drawer .management-tabs {
-  display: flex;
-  overflow-x: auto;
-  flex-wrap: nowrap;
-  gap: 8px;
-}
-.application-drawer .management-tabs button {
-  flex-shrink: 0;
-  font-weight: var(--weight-regular);
-}
-.application-drawer .field {
-  padding: 10px 12px;
-  font-weight: var(--weight-regular);
-}
-.application-drawer select.field {
-  padding-right: 32px;
-  font-weight: var(--weight-regular);
-}
-.application-drawer .management-row {
-  flex-wrap: wrap;
-}
-.application-drawer .management-form footer {
-  position: sticky;
-  bottom: -28px;
-  padding: 16px 0;
-  background: var(--panel);
-  border-top: 1px solid var(--border);
-  z-index: 1;
-}
-.application-detail-summary {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 14px;
-  margin: 20px 0;
-}
-.application-detail-summary p {
-  font-size: var(--type-small);
-  line-height: var(--leading-body);
-  color: var(--muted);
-  overflow-wrap: anywhere;
-  font-weight: var(--weight-regular);
-}
-@keyframes application-drawer-in {
-  from {
-    transform: translateX(32px);
-    opacity: 0;
+@media (max-width: 1050px) {
+  .application-toolbar {
+    flex-wrap: wrap;
+    gap: 10px;
   }
-  to {
-    transform: translateX(0);
-    opacity: 1;
+  .application-search {
+    flex-basis: 100%;
+    max-width: none;
+  }
+  .application-toolbar-filters {
+    justify-content: flex-start;
   }
 }
-@keyframes application-drawer-out {
-  to {
-    transform: translateX(24px);
-    opacity: 0;
+@media (max-width: 600px) {
+  .application-toolbar-filters {
+    gap: 6px;
   }
-}
-@keyframes application-overlay-in {
-  from {
-    opacity: 0;
+  .application-toolbar-divider {
+    display: none;
   }
-}
-@keyframes application-overlay-out {
-  to {
-    opacity: 0;
-  }
-}
-@media (max-width: 700px) {
-  .management-page.applications-page {
-    padding: 20px 16px 32px;
-  }
-  .applications-page .management-heading {
-    align-items: flex-start;
-  }
-  .application-drawer {
-    inset: 6px;
-    width: auto;
-    border-radius: 10px;
-  }
-  .application-drawer-header {
-    padding: 16px;
-  }
-  .application-drawer-body {
-    padding: 16px;
-  }
-  .application-drawer .management-form-grid,
-  .application-drawer .catalog-info-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .application-drawer,
-  .application-drawer-overlay {
-    animation: none !important;
+  .applications-page .list-pagination {
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px;
   }
 }

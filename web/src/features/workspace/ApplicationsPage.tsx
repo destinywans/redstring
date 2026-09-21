@@ -1,21 +1,25 @@
 import Pagination from "../../components/Pagination";
-import SelectField from "../../components/SelectField";
+import { Select } from "../../components/ui/select";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import {
+  FilterGroup,
+  FilterPicker,
+} from "../../components/patterns/FilterPicker";
+import { ListPage, ListPanel } from "../../components/patterns/ListPage";
+import DiscardDialog from "../../components/patterns/DiscardDialog";
+import ApplicationForm from "./ApplicationForm";
 import { memberLabel } from "../../lib/members";
-import { ProfileFields, readProfile } from "./ApplicationProfile";
+import { readProfile } from "./ApplicationProfile";
 import { useEffect, useRef, useState } from "react";
 import { useNavigationType, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Box, Plus, X, SlidersHorizontal } from "../../lib/icons";
+import { Box, Plus, X, SlidersHorizontal, Search } from "../../lib/icons";
 import { request, post, patch } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
 import type { Application, Team, User } from "../../lib/types";
 import ApplicationDrawer from "./ApplicationDrawer";
 import ApplicationManager from "./ApplicationManager";
-import {
-  FilterBar,
-  FilterSearch,
-  FilterSelect,
-} from "../../components/filters/FilterBar";
 import { useEnvironmentScope } from "../../lib/environmentScope";
 import "./workspace.css";
 import "./applications.css";
@@ -34,6 +38,25 @@ export default function ApplicationsPage() {
   const [managing, setManaging] = useState<Application | null>(null);
   const [filter, setFilter] = useState(query);
   const [busy, setBusy] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const cardTrigger = useRef<HTMLButtonElement | null>(null);
+  function restoreCardFocus() {
+    requestAnimationFrame(() => cardTrigger.current?.focus());
+  }
+  function closeDetails() {
+    setManaging(null);
+    restoreCardFocus();
+  }
+  function closeEditor() {
+    if (busy) return;
+    if (dirty) setDiscardOpen(true);
+    else {
+      setEditing(undefined);
+      restoreCardFocus();
+    }
+  }
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const sizeParam = Number(params.get("page_size") ?? 10);
   const pageSize = [5, 10, 20, 50].includes(sizeParam) ? sizeParam : 10;
@@ -127,14 +150,17 @@ export default function ApplicationsPage() {
           .filter(Boolean),
       };
     setBusy(true);
+    setSaveError("");
     try {
       if (editing) await patch(`/applications/${editing.id}`, body);
       else await post("/applications", body);
       await qc.invalidateQueries({ queryKey: ["applications"] });
       setEditing(undefined);
+      restoreCardFocus();
+      setDirty(false);
       notify("应用信息已保存", "success");
     } catch (e) {
-      notify(String(e), "error");
+      setSaveError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -200,126 +226,150 @@ export default function ApplicationsPage() {
       : []),
   ];
   return (
-    <div className="management-page applications-page">
-      <header className="management-heading">
-        <div>
-          <h1>全部应用</h1>
-          <p>应用资料、责任归属与关联资源。</p>
-        </div>
-        {user.role === "admin" && (
-          <button
-            className="btn btn-primary"
-            onClick={() => {
+    <ListPage
+      className="applications-page"
+      title="全部应用"
+      description="应用资料、责任归属与关联资源。"
+      actions={
+        user.role === "admin" && (
+          <Button
+            onClick={(event) => {
+              cardTrigger.current = event.currentTarget;
               setManaging(null);
+              setSaveError("");
+              setDirty(false);
               setEditing(null);
             }}
           >
             <Plus size={16} />
             新建应用
-          </button>
-        )}
-      </header>
-      <FilterBar label="应用搜索与筛选">
-        <FilterSearch
-          value={filter}
-          onChange={(value) => {
-            setFilter(value);
-            updateFilter("q", value, true);
-          }}
-          onSubmit={() => updateFilter("q", filter.trim())}
-          showSubmit={false}
-          label="搜索应用"
-          placeholder="搜索应用名称、标识、负责人或标签"
-        />
-        <FilterSelect
-          id="application-team"
-          label="部门"
-          showLabel={false}
-          options={teamOptions}
-          values={teamFilters}
-          onChange={(v) => updateFilter("team", v)}
-          emptyLabel="部门"
-          multiple
-          popoverWidth={256}
-          searchable
-        />
-        <FilterSelect
-          id="application-owner"
-          label="负责人"
-          showLabel={false}
-          options={ownerOptions}
-          values={ownerFilters}
-          onChange={(v) => updateFilter("owner", v)}
-          emptyLabel="负责人"
-          multiple
-          popoverWidth={256}
-          searchable
-        />
-        <FilterSelect
-          id="application-sort"
-          label="排序"
-          showLabel={false}
-          options={[
-            { value: "name", label: "按名称" },
-            { value: "owner", label: "按负责人" },
-          ]}
-          values={sort === "key" ? [] : [sort]}
-          emptyLabel="默认顺序"
-          popoverWidth={200}
-          onChange={(v) => updateFilter("sort", v[0] ?? "")}
-        />
-        <button
-          type="button"
-          className="filter-button application-advanced-toggle"
-          title="高级检索"
-          aria-label="高级检索"
-          aria-expanded={advancedOpen}
-          aria-controls="application-advanced-filters"
-          data-active={advancedOpen || archiveFilter !== "all" || undefined}
-          onClick={() => setAdvancedOpen((v) => !v)}
+          </Button>
+        )
+      }
+    >
+      <FilterGroup>
+        <div
+          className="application-toolbar"
+          role="group"
+          aria-label="应用搜索与筛选"
         >
-          <SlidersHorizontal size={18} />
-          {archiveFilter !== "all" && (
-            <span className="application-filter-dot" />
-          )}
-        </button>
-      </FilterBar>
-      {advancedOpen && (
-        <section
-          id="application-advanced-filters"
-          className="application-advanced-filters"
-          aria-label="高级检索条件"
-        >
-          <div className="application-advanced-heading">
-            <strong>高级检索</strong>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="收起高级检索"
-              onClick={() => setAdvancedOpen(false)}
-            >
-              <X size={15} />
-            </button>
+          <div
+            className="application-search"
+            role="search"
+            aria-label="搜索应用"
+          >
+            <Search size={16} aria-hidden="true" />
+            <Input
+              type="search"
+              value={filter}
+              aria-label="搜索应用"
+              placeholder="搜索应用标识、名称或标签…"
+              onChange={(e) => {
+                setFilter(e.target.value);
+                updateFilter("q", e.target.value, true);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") updateFilter("q", filter.trim());
+              }}
+            />
+            {filter && (
+              <button
+                type="button"
+                className="application-search-clear"
+                aria-label="清除搜索"
+                onClick={() => {
+                  setFilter("");
+                  updateFilter("q", "", true);
+                }}
+              >
+                <X size={14} />
+              </button>
+            )}
           </div>
-          <FilterBar label="高级应用筛选">
-            <FilterSelect
+          <div className="application-toolbar-filters">
+            <FilterPicker
+              id="application-team"
+              label="部门"
+              options={teamOptions}
+              value={teamFilters}
+              onChange={(v) => updateFilter("team", v)}
+              multiple
+              searchable
+              width={240}
+            />
+            <FilterPicker
+              id="application-owner"
+              label="负责人"
+              options={ownerOptions}
+              value={ownerFilters}
+              onChange={(v) => updateFilter("owner", v)}
+              multiple
+              searchable
+              width={240}
+            />
+            <span className="application-toolbar-divider" aria-hidden="true" />
+            <FilterPicker
+              id="application-sort"
+              label="排序"
+              placeholder="默认顺序"
+              options={[
+                { value: "key", label: "默认顺序" },
+                { value: "name", label: "按名称排序" },
+                { value: "owner", label: "按负责人排序" },
+              ]}
+              value={[sort]}
+              width={184}
+              onChange={(v) => updateFilter("sort", v[0] ?? "")}
+            />
+            <Button
+              variant="outline"
+              size="icon"
+              className="application-advanced-toggle"
+              title="高级检索"
+              aria-label="高级检索"
+              aria-expanded={advancedOpen}
+              aria-controls="application-advanced-filters"
+              data-active={advancedOpen || archiveFilter !== "all" || undefined}
+              onClick={() => setAdvancedOpen((v) => !v)}
+            >
+              <SlidersHorizontal size={16} />
+              {archiveFilter !== "all" && (
+                <span className="application-filter-dot" />
+              )}
+            </Button>
+          </div>
+        </div>
+        {advancedOpen && (
+          <section
+            id="application-advanced-filters"
+            className="application-advanced-filters"
+            aria-label="高级检索条件"
+          >
+            <div className="application-advanced-heading">
+              <strong>高级检索</strong>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="收起高级检索"
+                onClick={() => setAdvancedOpen(false)}
+              >
+                <X size={15} />
+              </button>
+            </div>
+            <FilterPicker
               id="application-archive"
               label="状态"
-              showLabel={false}
-              emptyLabel="状态"
-              includeEmptyOption={false}
-              clearable
-              popoverWidth={200}
+              width={184}
               options={[
                 { value: "active", label: "使用中" },
                 { value: "archived", label: "已归档" },
               ]}
-              values={archiveFilter === "all" ? [] : [archiveFilter]}
+              value={archiveFilter === "all" ? [] : [archiveFilter]}
               onChange={(v) => updateFilter("archived", v[0] ?? "")}
             />
-          </FilterBar>
-        </section>
-      )}
+          </section>
+        )}
+      </FilterGroup>
       {activeFilters.length > 0 && (
         <div className="application-filter-summary">
           {activeFilters.map((f) => (
@@ -341,59 +391,68 @@ export default function ApplicationsPage() {
             </button>
           ))}
           {activeFilters.length > 0 && (
-            <button className="btn btn-ghost" onClick={resetFilters}>
-              重置筛选
-            </button>
+            <Button variant="ghost" size="sm" onClick={resetFilters}>
+              清除筛选
+            </Button>
           )}
         </div>
       )}
-      <div className="catalog-table-wrap card">
-        <table className="catalog-table application-list-table">
-          <thead>
-            <tr>
-              <th>应用</th>
-              <th>负责人</th>
-              <th>部门</th>
-              <th>版本</th>
-              <th>最近更新时间</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paged.map((a) => (
-              <tr key={a.id}>
-                <td>
-                  <button
-                    className="application-name-link"
-                    onClick={() => setManaging(a)}
-                  >
-                    <span className="application-symbol">
-                      <Box size={21} />
-                    </span>
-                    <span>
-                      <strong>{a.key || a.id}</strong>
-                      {a.archived && (
-                        <span className="application-archived">已归档</span>
-                      )}
-                    </span>
-                  </button>
-                </td>
-                <td>
-                  {a.maintainer_name ||
-                    memberLabel(a.maintainer_id, user, users.data?.items ?? [])}
-                </td>
-                <td>{a.owner_team_name || "待指定"}</td>
-                {/* The catalog does not yet expose release versions or profile
-                    timestamps. Never substitute configuration revisions or now. */}
-                <td className="muted" title="尚未接入应用版本">
-                  —
-                </td>
-                <td className="muted" title="尚未接入应用资料更新时间">
-                  —
-                </td>
+      <ListPanel>
+        <div className="ui-list-scroll">
+          <table className="catalog-table application-list-table">
+            <thead>
+              <tr>
+                <th>应用</th>
+                <th>负责人</th>
+                <th>部门</th>
+                <th>版本</th>
+                <th>最近更新时间</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {paged.map((a) => (
+                <tr key={a.id}>
+                  <td>
+                    <button
+                      className="application-name-link"
+                      onClick={(event) => {
+                        cardTrigger.current = event.currentTarget;
+                        setManaging(a);
+                      }}
+                    >
+                      <span className="application-symbol">
+                        <Box size={18} />
+                      </span>
+                      <span>
+                        <strong>{a.key || a.id}</strong>
+                        {a.archived && (
+                          <span className="application-archived">已归档</span>
+                        )}
+                      </span>
+                    </button>
+                  </td>
+                  <td>
+                    {a.maintainer_name ||
+                      memberLabel(
+                        a.maintainer_id,
+                        user,
+                        users.data?.items ?? [],
+                      )}
+                  </td>
+                  <td>{a.owner_team_name || "待指定"}</td>
+                  {/* The catalog does not yet expose release versions or profile
+                    timestamps. Never substitute configuration revisions or now. */}
+                  <td className="muted" title="尚未接入应用版本">
+                    —
+                  </td>
+                  <td className="muted" title="尚未接入应用资料更新时间">
+                    —
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         {!filtered.length && (
           <div className="management-empty">
             <Box size={28} />
@@ -413,6 +472,20 @@ export default function ApplicationsPage() {
           </div>
         )}
         <Pagination
+          pageSizeControl={
+            <Select
+              aria-label="每页条数"
+              required
+              value={String(pageSize)}
+              options={[5, 10, 20, 50].map((n) => ({
+                value: String(n),
+                label: String(n),
+              }))}
+              onValueChange={(v) => {
+                if (v) updateFilter("page_size", v);
+              }}
+            />
+          }
           ariaLabel="应用列表分页"
           total={filtered.length}
           page={page}
@@ -421,147 +494,34 @@ export default function ApplicationsPage() {
           onPageChange={(next) => updateFilter("page", String(next))}
           onPageSizeChange={(size) => updateFilter("page_size", String(size))}
         />
-      </div>
+      </ListPanel>
       <ApplicationDrawer
         open={editing !== undefined}
-        onOpenChange={(v) => !v && !busy && setEditing(undefined)}
-        title={editing ? `编辑 ${editing.name}` : "新建应用"}
+        onOpenChange={(v) => !v && closeEditor()}
+        title={editing ? "编辑应用" : "新建应用"}
+        description={
+          editing ? editing.key || editing.name : "完善应用资料，建立责任归属。"
+        }
       >
-        <form
+        <ApplicationForm
           key={editing?.id ?? "new"}
-          className="management-form"
+          application={editing}
+          teams={teams.data?.items ?? []}
+          users={users.data?.items ?? []}
+          currentUser={user}
+          busy={busy}
           onSubmit={save}
-        >
-          <div className="management-form-grid">
-            <label>
-              应用名称
-              <input
-                className="field"
-                name="name"
-                defaultValue={editing?.name}
-                required
-                maxLength={120}
-              />
-            </label>
-            <label>
-              稳定标识
-              <input
-                className="field"
-                name="key"
-                defaultValue={editing?.key}
-                required
-                pattern="[a-zA-Z0-9_-]+"
-                maxLength={120}
-                placeholder="checkout-api"
-              />
-            </label>
-          </div>
-          <label>
-            说明
-            <textarea
-              className="field"
-              name="description"
-              defaultValue={editing?.description}
-              rows={3}
-              maxLength={8000}
-            />
-          </label>
-          <div className="management-form-grid">
-            <label>
-              所属部门
-              <SelectField
-                className="field"
-                name="owner_team_id"
-                defaultValue={editing?.owner_team_id}
-              >
-                <option value="">待指定</option>
-                {editing?.owner_team_id &&
-                  !teams.data?.items.some(
-                    (t) => t.id === editing.owner_team_id,
-                  ) && (
-                    <option value={editing.owner_team_id}>
-                      {editing.owner_team_name || "原所属部门"}
-                    </option>
-                  )}
-                {(teams.data?.items ?? []).map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </SelectField>
-            </label>
-            <label>
-              主负责人
-              <SelectField
-                className="field"
-                name="maintainer_id"
-                defaultValue={editing?.maintainer_id}
-              >
-                <option value="">待指定</option>
-                {editing?.maintainer_id &&
-                  !users.data?.items.some(
-                    (t) => t.id === editing.maintainer_id,
-                  ) && (
-                    <option value={editing.maintainer_id}>
-                      {editing.maintainer_name || "原负责人"}
-                    </option>
-                  )}
-                {(users.data?.items ?? []).map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                    {t.disabled ? "（已停用）" : ""}
-                  </option>
-                ))}
-              </SelectField>
-            </label>
-          </div>
-          <label>
-            标签（逗号分隔）
-            <input
-              className="field"
-              name="tags"
-              defaultValue={editing?.tags?.join(", ")}
-            />
-          </label>
-          <label>
-            代码仓库链接
-            <input
-              className="field"
-              name="repository_url"
-              type="url"
-              defaultValue={editing?.repository_url}
-            />
-          </label>
-          <label>
-            运维文档链接
-            <input
-              className="field"
-              name="runbook_url"
-              type="url"
-              defaultValue={editing?.runbook_url}
-            />
-          </label>
-          <ProfileFields profile={editing?.profile} />
-          <footer>
-            <button
-              type="button"
-              className="btn"
-              disabled={busy}
-              onClick={() => setEditing(undefined)}
-            >
-              取消
-            </button>
-            <button className="btn btn-primary" disabled={busy}>
-              {busy ? "保存中…" : "保存应用"}
-            </button>
-          </footer>
-        </form>
+          onCancel={closeEditor}
+          error={saveError}
+          onDirtyChange={setDirty}
+        />
       </ApplicationDrawer>
       {managing && (
         <ApplicationDrawer
           open
-          onOpenChange={(v) => !v && setManaging(null)}
-          title={managing.key || managing.id}
+          onOpenChange={(v) => !v && closeDetails()}
+          title="概览"
+          description={managing.key || managing.id}
           variant="details"
         >
           <ApplicationManager
@@ -571,8 +531,10 @@ export default function ApplicationsPage() {
             }
             teams={teams.data?.items ?? []}
             users={users.data?.items ?? []}
-            onClose={() => setManaging(null)}
+            onClose={closeDetails}
             onEdit={() => {
+              setDirty(false);
+              setSaveError("");
               setEditing(
                 applications.find((a) => a.id === managing.id) ?? managing,
               );
@@ -581,6 +543,17 @@ export default function ApplicationsPage() {
           />
         </ApplicationDrawer>
       )}
-    </div>
+      <DiscardDialog
+        open={discardOpen}
+        onOpenChange={setDiscardOpen}
+        onDiscard={() => {
+          setDiscardOpen(false);
+          setEditing(undefined);
+          restoreCardFocus();
+          setDirty(false);
+          setSaveError("");
+        }}
+      />
+    </ListPage>
   );
 }

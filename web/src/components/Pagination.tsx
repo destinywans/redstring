@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "../lib/icons";
 import { FilterSelect } from "./filters/FilterBar";
 import "./pagination.css";
@@ -16,6 +16,8 @@ export type PaginationProps = {
   hasNext?: boolean;
   totalLabel?: string;
   ariaLabel?: string;
+  /** Optional surface control; count, paging and cursor semantics remain shared. */
+  pageSizeControl?: ReactNode;
 };
 
 const positiveInteger = (value: number, fallback: number) =>
@@ -33,6 +35,7 @@ export function Pagination({
   hasNext,
   totalLabel,
   ariaLabel = "列表分页",
+  pageSizeControl,
 }: PaginationProps) {
   const id = useId();
   const size = positiveInteger(pageSize, 20);
@@ -64,23 +67,25 @@ export function Pagination({
       </span>
       <fieldset className="list-pagination-size" disabled={loading}>
         <span>每页</span>
-        <FilterSelect
-          id={`pagination-size-${id}`}
-          label="每页条数"
-          values={[String(size)]}
-          options={sizes.map((value) => ({
-            value: String(value),
-            label: String(value),
-          }))}
-          onChange={(values) => {
-            const next = Number(values[0]);
-            if (!loading && sizes.includes(next) && next !== size)
-              onPageSizeChange(next);
-          }}
-          includeEmptyOption={false}
-          showLabel={false}
-          popoverWidth={120}
-        />
+        {pageSizeControl ?? (
+          <FilterSelect
+            id={`pagination-size-${id}`}
+            label="每页条数"
+            values={[String(size)]}
+            options={sizes.map((value) => ({
+              value: String(value),
+              label: String(value),
+            }))}
+            onChange={(values) => {
+              const next = Number(values[0]);
+              if (!loading && sizes.includes(next) && next !== size)
+                onPageSizeChange(next);
+            }}
+            includeEmptyOption={false}
+            showLabel={false}
+            popoverWidth={120}
+          />
+        )}
         <span>条</span>
       </fieldset>
       <span className="list-pagination-separator" aria-hidden="true">

@@ -57,6 +57,9 @@ import {
   EnvironmentScopeContext,
   useEnvironmentScopeState,
 } from "./lib/environmentScope";
+const ComponentSamplePage = lazy(
+  () => import("./features/design-review/ComponentSamplePage"),
+);
 const DashboardPage = lazy(() => import("./features/workspace/DashboardPage"));
 const ApplicationsPage = lazy(
   () => import("./features/workspace/ApplicationsPage"),
@@ -619,6 +622,10 @@ export default function App() {
                 <Routes>
                   <Route path="/" element={<DashboardPage />} />
                   <Route path="/applications" element={<ApplicationsPage />} />
+                  <Route
+                    path="/design-review/components"
+                    element={<ComponentSamplePage />}
+                  />
                   <Route path="/applications/detail" element={<Overview />} />
                   <Route
                     path="/resources/catalog"

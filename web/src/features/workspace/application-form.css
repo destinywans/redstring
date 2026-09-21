@@ -1,0 +1,154 @@
+.application-sheet--form .ui-sheet-body {
+  padding: 0;
+  overflow: hidden;
+}
+.application-form {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 400;
+}
+.application-form-content {
+  flex: 1;
+  min-height: 0;
+  padding: 24px 28px 32px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.application-form-intro {
+  margin: 0 0 25px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+.application-form-intro > span {
+  display: block;
+  margin-top: 3px;
+  font-size: 13px;
+}
+.application-form-section {
+  margin: 0 0 25px;
+}
+.application-form-section + .application-form-section {
+  border-top: 1px solid var(--border);
+  padding-top: 23px;
+}
+.application-form-section h3 {
+  margin: 0 0 17px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.application-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 20px;
+}
+.application-form-grid label {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: start;
+  gap: 7px 4px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 400;
+}
+.application-form-grid label > :is(input, textarea, button) {
+  width: 100%;
+}
+.application-form-grid label > span {
+  color: var(--muted);
+}
+.application-form-grid label > small,
+.application-form-hint {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+  font-weight: 400;
+}
+.application-form-grid label > small {
+  flex-basis: 100%;
+}
+.application-form-wide {
+  grid-column: 1 / -1;
+}
+.application-form-more {
+  border-top: 1px solid var(--border);
+}
+.application-form-more > summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 0;
+  cursor: pointer;
+  list-style: none;
+  font-size: 15px;
+  font-weight: 600;
+}
+.application-form-more > summary::-webkit-details-marker {
+  display: none;
+}
+.application-form-more > summary small {
+  margin-left: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+.application-form-more > summary svg {
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: transform 160ms ease;
+}
+.application-form-more[open] > summary svg {
+  transform: rotate(180deg);
+}
+.application-form-more > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+.application-form-hint {
+  margin: 18px 0 0;
+}
+.application-form-footer {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 28px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+.application-form-error {
+  margin: 0 0 20px;
+  padding: 12px 14px;
+  border: 1px solid var(--danger, #bd4040);
+  border-radius: 7px;
+  color: var(--danger, #bd4040);
+  line-height: 1.6;
+}
+@media (max-width: 640px) {
+  .application-form-content {
+    padding: 20px;
+  }
+  .application-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .application-form-footer {
+    padding: 14px 20px;
+  }
+  .application-form-more > summary small {
+    display: block;
+    margin: 4px 0 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .application-form-more > summary svg {
+    transition: none;
+  }
+}

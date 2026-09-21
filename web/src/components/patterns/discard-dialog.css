@@ -1,0 +1,40 @@
+.ui-discard-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  background: #11182745;
+}
+.ui-discard-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1310;
+  width: min(420px, calc(100vw - 32px));
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 20px 70px #0002;
+  color: var(--text);
+  font-family: var(--font-ui);
+  outline: none;
+}
+.ui-discard-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 600;
+}
+.ui-discard-dialog p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.7;
+}
+.ui-discard-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 24px;
+}

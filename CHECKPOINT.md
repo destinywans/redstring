@@ -1,5 +1,13 @@
 # AIOps Canvas 检查点
 
+## CP-030 · 2026-09-21 应用列表组件样板
+
+- WAN-96，分支 `codex/wan-96-application-ui-sample`，依赖已推送未合并 `78a3b85`；只实施用户批准的应用样板，不自动迁移全站。
+- 本地源码组件层（Radix/cmdk、shadcn 组合方式）及应用列表/筛选/分页/浮层新建编辑完成；MiSans/Phosphor/原 API 保留。组件状态页 `/design-review/components` 不保存样例数据。
+- 前端构建、定向浏览器筛选/跳页/空态/浅深色/浮层/脏值保护检查完成；本机18081已更新，图库保留。没有真实应用保存、DB变更、后端重启或全仓测试；完整响应式/辅助设备未验。
+- 原暂停 delivery/deployment 与相应未提交配置/文档仍保留，不纳入提交；提交推送回读在 Linear。参见 `docs/releases/2026-09-21-application-ui-sample.md`。
+- 下一步：用户查看应用样板与组件状态，待视觉/交互确认后另行决定推广范围；当前 In Review。
+
 ## CP-029 · 2026-09-21 RBAC 关联管理与直接跳页
 
 - WAN-105 / WAN-96，分支 `codex/wan-105-rbac-associations`，依赖已推送未合并 `ff81ef8`。按两张设计图实现覆盖式宽幅关联面板、角色/权限 CRUD、服务端筛选分页及跨页增删，支持单部门直接/继承角色与实际资源授权。

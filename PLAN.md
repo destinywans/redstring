@@ -1,5 +1,7 @@
 # AIOps Canvas 实施计划
 
+**2026-09-21 应用组件样板（WAN-96）：** 用户认可研究建议并批准先做“全部应用＋筛选／分页＋应用侧卡片”样板。已接入本地 shadcn 组合方式、Radix/cmdk 与独立组件状态页，保留原字体、API、权限和数据；样板待体验后再决定其他页面迁移。见 [样板契约](docs/design/application-ui-sample.md) 与 [限定交付记录](docs/releases/2026-09-21-application-ui-sample.md)。CI/CD 和审计分页不在范围。
+
 **2026-09-21 RBAC 宽幅关联（WAN-105）与跳页（WAN-96）：** 用户已批准两张宽幅关联设计实施。角色/权限 CRUD、单部门与直接/继承角色、精确资源权限和独立调查/审批/执行已接通 PG；本机 6 角色 / 17 权限可体验。通用分页居中并支持直接页码跳转，审计保留。见 [契约](docs/rbac-api.md)、[设计](docs/design/rbac/README.md) 和 [限定验证/交付记录](docs/releases/2026-09-21-rbac-associations.md)。CI/CD 仍暂停，待用户产品验收。
 
 **2026-09-21 列表分页（WAN-96）：** 当前业务列表统一右下总数、每页条数、页码与翻页图标，复用共享组件；记忆补齐按权限过滤的total。用户明确审计分页特殊，保留原方式并后续单独设计，本轮撤回审计相关改动。限定验证与本机更新完成，等待体验。见[规范](docs/design/pagination.md)、[交付](docs/releases/2026-09-21-unified-pagination.md)。

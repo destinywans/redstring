@@ -33,6 +33,7 @@ import {
 } from "../../lib/icons";
 import { ErrorNotice } from "../../components/ui";
 import SelectField from "../../components/SelectField";
+import { Button } from "../../components/ui/button";
 import { ConfigurationFields, readConfiguration } from "./ApplicationProfile";
 import AutomationPanel from "./AutomationPanel";
 import type { Incident } from "./operations";
@@ -105,7 +106,7 @@ function SafeLink({ value }: { value?: string }) {
       rel="noopener noreferrer"
     >
       {value}
-      <ArrowUpRight size={14} />
+      <ArrowUpRight size={16} />
     </a>
   );
 }
@@ -205,7 +206,7 @@ export default function ApplicationManager({
   const shortcuts = (
     <div className="app-detail-shortcuts">
       <Link to={href("/resources/relations")} onClick={onClose}>
-        <Network size={20} />
+        <Network size={18} />
         <span>
           <strong>资源关系</strong>
           <small>查看登记的归属和依赖 · 待接入</small>
@@ -213,7 +214,7 @@ export default function ApplicationManager({
         <ArrowUpRight size={16} />
       </Link>
       <Link to={href("/observability/topology")} onClick={onClose}>
-        <GitBranch size={20} />
+        <GitBranch size={18} />
         <span>
           <strong>调用拓扑</strong>
           <small>查看观测到的服务调用关系 · 待接入</small>
@@ -266,7 +267,7 @@ export default function ApplicationManager({
               buttons[next]?.click();
             }}
           >
-            <Icon size={17} />
+            <Icon size={18} />
             {title}
           </button>
         ))}
@@ -281,16 +282,27 @@ export default function ApplicationManager({
       >
         <header className="app-detail-heading">
           <div>
-            <h2>{sections.find((s) => s.id === tab)?.title}</h2>
+            <h2>
+              {tab === "overview"
+                ? application.key || application.id
+                : sections.find((s) => s.id === tab)?.title}
+            </h2>
             <p>
-              {application.name}
-              {application.archived ? " · 已归档" : ""}
+              <span>{application.name}</span>
+              {tab !== "overview" && (
+                <span className="app-detail-context-key">
+                  {application.key || application.id}
+                </span>
+              )}
+              {application.archived && (
+                <span className="app-detail-pill">已归档</span>
+              )}
             </p>
           </div>
           {admin && tab === "overview" && (
-            <button className="btn" onClick={onEdit}>
+            <Button variant="outline" onClick={onEdit}>
               编辑资料
-            </button>
+            </Button>
           )}
         </header>
         {tab === "overview" && (
@@ -307,7 +319,7 @@ export default function ApplicationManager({
                 ))}
               </div>
             )}
-            <Section title="基础信息与责任归属" icon={<Users size={17} />}>
+            <Section title="基础信息与责任归属" icon={<Users size={18} />}>
               <dl className="app-detail-grid">
                 <Field label="应用标识">
                   <span>{application.key || application.id}</span>
@@ -315,9 +327,6 @@ export default function ApplicationManager({
                 <Field label="负责人">
                   {application.maintainer_name ||
                     (application.maintainer_id ? "成员不可用" : "待指定")}
-                </Field>
-                <Field label="所属部门">
-                  <span className="app-detail-missing">尚未接入部门资料</span>
                 </Field>
                 <Field label="所属部门">
                   {application.owner_team_name ||
@@ -334,7 +343,33 @@ export default function ApplicationManager({
                 </Field>
               </dl>
             </Section>
-            <Section title="开发信息" icon={<Code2 size={17} />}>
+            <Section
+              title="运行资源"
+              icon={<Layers size={18} />}
+              aside={<span className="app-detail-pill">登记信息</span>}
+            >
+              <p className="app-detail-note">
+                当前范围内的连接器绑定与配置资料，不代表实时运行状态。
+              </p>
+              {registrations.error && (
+                <p className="app-detail-note">
+                  连接器详情暂不可用，以下保留已登记的绑定信息。
+                </p>
+              )}
+              <RuntimeResources
+                environments={environments}
+                registrations={registrations.data?.items ?? []}
+              />
+              <Link
+                className="app-detail-inline-link"
+                to={href("/infrastructure?view=workloads")}
+                onClick={onClose}
+              >
+                查看运行资源
+                <ArrowUpRight size={16} />
+              </Link>
+            </Section>
+            <Section title="开发信息" icon={<Code2 size={18} />}>
               <dl className="app-detail-grid">
                 <Field label="开发语言">{application.profile?.language}</Field>
                 <Field label="开发框架">{application.profile?.framework}</Field>
@@ -361,41 +396,10 @@ export default function ApplicationManager({
                 )}
               </dl>
             </Section>
-            <Section
-              title="运行资源"
-              icon={<Layers size={17} />}
-              aside={<span className="app-detail-pill">登记信息</span>}
-            >
-              <p className="app-detail-note">
-                当前范围内的连接器绑定与配置资料，不代表实时运行状态。
-              </p>
-              {registrations.error && (
-                <p className="app-detail-note">
-                  连接器详情暂不可用，以下保留已登记的绑定信息。
-                </p>
-              )}
-              <RuntimeResources
-                environments={environments}
-                registrations={registrations.data?.items ?? []}
-              />
-              <Link
-                className="app-detail-inline-link"
-                to={href("/infrastructure?view=workloads")}
-                onClick={onClose}
-              >
-                查看运行资源
-                <ArrowUpRight size={14} />
-              </Link>
-            </Section>
-            <Section title="最近一次发布" icon={<History size={17} />}>
-              <div className="app-detail-inline-empty">
-                <Info size={17} />
-                <div>
-                  <strong>发布记录尚未接入</strong>
-                  <p>接入发布来源后可查看版本、操作者和时间。</p>
-                </div>
-              </div>
-            </Section>
+            <p className="app-detail-release-note">
+              <Info size={16} />
+              发布记录尚未接入。
+            </p>
             {admin && (
               <details className="app-detail-maintenance">
                 <summary>更多管理操作</summary>
@@ -436,7 +440,7 @@ export default function ApplicationManager({
                     className="btn"
                     onClick={() => setArchiveConfirm(true)}
                   >
-                    <Archive size={15} />
+                    <Archive size={16} />
                     {application.archived ? "恢复应用" : "归档应用"}
                   </button>
                 )}
@@ -463,7 +467,7 @@ export default function ApplicationManager({
                   className="btn app-detail-back"
                   onClick={() => setEnv(null)}
                 >
-                  <ChevronLeft size={15} />
+                  <ChevronLeft size={16} />
                   返回环境列表
                 </button>
                 <Section
@@ -502,7 +506,7 @@ export default function ApplicationManager({
                   {environments.map((item) => (
                     <article key={item.id}>
                       <div className="app-environment-icon">
-                        <Layers size={20} />
+                        <Layers size={18} />
                       </div>
                       <div className="app-environment-main">
                         <strong>{item.name}</strong>
@@ -536,7 +540,7 @@ export default function ApplicationManager({
                 )}
                 {admin && (
                   <button className="btn" onClick={() => setEditEnv(null)}>
-                    <Plus size={15} />
+                    <Plus size={16} />
                     添加环境
                   </button>
                 )}

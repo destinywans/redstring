@@ -22,14 +22,14 @@ const destinations = [
   },
   {
     path: "/teams",
-    title: "团队管理",
+    title: "部门管理",
     description: "组织成员与维护责任，应用访问范围通过单独授权决定。",
     icon: UsersRound,
   },
   {
     path: "/applications",
     title: "应用权限",
-    description: "在应用的环境与权限中管理用户或团队的只读、操作授权。",
+    description: "在应用的环境与权限中管理用户或部门的只读、操作授权。",
     icon: Layers,
   },
 
@@ -66,7 +66,7 @@ const matrix = [
     viewer: "不可操作",
   },
   {
-    capability: "维护成员、团队和应用授权",
+    capability: "维护成员、部门和应用授权",
     admin: "允许",
     operator: "不允许",
     viewer: "不允许",
@@ -121,7 +121,7 @@ export default function PlatformPage({
           <p>
             {
               {
-                overview: "管理成员、团队和资源访问权限。",
+                overview: "管理成员、部门和资源访问权限。",
                 roles: "工作区角色决定能力上限，应用授权决定可访问的资源范围。",
                 automation:
                   "配置自动初查、主动巡检与执行预算，查看最近运行记录。",
@@ -186,7 +186,7 @@ export default function PlatformPage({
             <div>
               <h2>身份、归属与授权分别维护</h2>
               <p>
-                导入成员不会自动连接企业单点登录。成为应用负责人或加入团队也不会自动获得应用权限，仍需配置明确的应用授权。
+                导入成员不会自动连接企业单点登录。成为应用负责人或加入部门也不会自动获得应用权限，仍需配置明确的应用授权。
               </p>
             </div>
           </section>
@@ -199,7 +199,7 @@ export default function PlatformPage({
               {
                 id: "admin",
                 name: "管理员",
-                text: "维护工作区成员、团队、集成与资源授权，并查看全部应用。",
+                text: "维护工作区成员、部门、集成与资源授权，并查看全部应用。",
               },
               {
                 id: "operator",
@@ -254,7 +254,7 @@ export default function PlatformPage({
               <h2>应用授权不是新的角色</h2>
               <p>
                 <code>view</code> 允许查看，<code>operate</code>{" "}
-                允许操作，但不能超越工作区角色上限。用户授权或所属团队授权任一满足即可。归档应用保留历史查看，不接受新的操作。
+                允许操作，但不能超越工作区角色上限。用户授权或所属部门授权任一满足即可。归档应用保留历史查看，不接受新的操作。
               </p>
               <p>
                 人工批准与模型推理分开管理；允许有权限的操作者显式批准本人提出的计划。执行前仍会重新核对目标与绑定。

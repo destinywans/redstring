@@ -1,12 +1,6 @@
 import { useState, type FormEvent } from "react";
-import {
-  Box,
-  Plus,
-  Users,
-  Building2,
-  MoreHorizontal,
-} from "../../../lib/icons";
-import { post, patch, put, request } from "../../../lib/api";
+import { Box, Plus } from "../../../lib/icons";
+import { post, patch, put } from "../../../lib/api";
 import { useWorkspace } from "../../../lib/workspace";
 import { ErrorNotice } from "../../../components/ui";
 import SelectField from "../../../components/SelectField";
@@ -20,7 +14,6 @@ import {
   DirectoryNotice,
   DirectoryState,
   DrawerFooter,
-  MockNotice,
   Pagination,
   dateLabel,
   useDirectory,
@@ -38,10 +31,8 @@ function TeamsDirectory() {
   const directory = useDirectory(),
     refresh = useRefreshDirectory();
   const [search, setSearch] = useState(""),
-    [department, setDepartment] = useState(""),
     [owner, setOwner] = useState(""),
-    [application, setApplication] = useState(""),
-    [size, setSize] = useState("");
+    [application, setApplication] = useState("");
   const [editing, setEditing] = useState<DirectoryTeam | "new" | null>(null),
     [selectedId, setSelectedId] = useState<string | null>(null),
     [tab, setTab] = useState("overview");
@@ -54,24 +45,13 @@ function TeamsDirectory() {
     selected = teams.find((t) => t.id === selectedId);
   const rows = teams.filter(
     (t) =>
-      (!department ||
-        (department === "__none"
-          ? !t.department
-          : t.department === department)) &&
       (!owner || t.owner_id === owner) &&
       (!application || t.applications?.some((a) => a.id === application)) &&
-      (!size ||
-        (size === "small"
-          ? (t.member_ids?.length ?? 0) < 5
-          : (t.member_ids?.length ?? 0) >= 5)) &&
       `${t.name} ${t.description} ${t.owner_name ?? ""}`
         .toLowerCase()
         .includes(search.trim().toLowerCase()),
   );
-  const pagination = usePages(
-    rows,
-    [search, department, owner, application, size].join("|"),
-  );
+  const pagination = usePages(rows, [search, owner, application].join("|"));
   const close = () => {
     if (!busy) {
       setEditing(null);
@@ -119,14 +99,14 @@ function TeamsDirectory() {
       }
       await patch(`/settings/teams/${savedId}/profile`, {
         owner_id: ownerId,
-        department: String(f.get("department") || "").trim(),
+        department: editing === "new" ? "" : editing.department || "",
       });
       await refresh();
       setEditing(null);
-      notify("团队已保存", "success");
+      notify("部门已保存", "success");
     } catch (e) {
       if (savedId && baseSaved) {
-        await refresh();
+        // Keep the created ID even if refreshing fails, so retry cannot create a duplicate.
         setEditing({
           ...(editing === "new"
             ? { id: savedId, member_ids: savedMemberIds }
@@ -134,11 +114,11 @@ function TeamsDirectory() {
           ...body,
           id: savedId,
           owner_id: ownerId,
-          department: String(f.get("department") || ""),
+          department: editing === "new" ? "" : editing.department || "",
         });
         setError(
           new Error(
-            `团队名称与描述已保存；负责人或部门尚未完成：${e instanceof Error ? e.message : String(e)}。请重试保存；如负责人未加入团队，请先在团队详情添加成员。`,
+            `部门名称与描述已保存；负责人尚未保存：${e instanceof Error ? e.message : String(e)}。请重试保存；如负责人未加入部门，请先在部门详情添加成员。`,
           ),
         );
       } else setError(e);
@@ -153,7 +133,7 @@ function TeamsDirectory() {
     const ids = f.getAll("member").map(String);
     // Disabled members remain selected until explicitly removed; the owner must stay.
     if (selected.owner_id && !ids.includes(selected.owner_id)) {
-      setError(new Error("请先更换团队负责人，再将其移出团队。"));
+      setError(new Error("请先更换部门负责人，再将其移出部门。"));
       return;
     }
     setBusy(true);
@@ -161,7 +141,7 @@ function TeamsDirectory() {
     try {
       await put(`/teams/${selected.id}/members`, { user_ids: ids });
       await refresh();
-      notify("团队成员已保存", "success");
+      notify("部门成员已保存", "success");
     } catch (e) {
       setError(e);
     } finally {
@@ -174,8 +154,8 @@ function TeamsDirectory() {
   return (
     <div className="directory-page">
       <DirectoryHeader
-        title="部门与团队"
-        description="管理组织归属、团队成员与应用权限，协同使用平台资源"
+        title="部门管理"
+        description="管理部门资料、负责人、成员与关联应用"
         actions={
           <button
             className="btn btn-primary"
@@ -183,176 +163,112 @@ function TeamsDirectory() {
             onClick={() => openEdit("new")}
           >
             <Plus size={16} />
-            新建团队
+            新建部门
           </button>
         }
       />
-      <MockNotice data={data} />
-      <div className="directory-team-layout">
-        <aside
-          className="directory-card directory-departments"
-          aria-label="部门目录"
-        >
-          <h2>部门目录</h2>
-          <button
-            className="directory-department"
-            aria-pressed={!department}
-            onClick={() => setDepartment("")}
-          >
-            <Users size={16} />
-            <span>所有团队</span>
-            <small>{teams.length}</small>
-          </button>
-          {(data?.departments ?? []).map((d) => (
-            <button
-              key={d.name}
-              className="directory-department"
-              aria-pressed={department === d.name}
-              onClick={() => setDepartment(d.name)}
-              title={`${d.member_count} 位成员 · ${d.team_count} 个团队`}
-            >
-              <Building2 size={15} />
-              <span>{d.name}</span>
-              <small>{d.team_count}</small>
-            </button>
-          ))}
-          <button
-            className="directory-department"
-            aria-pressed={department === "__none"}
-            onClick={() => setDepartment("__none")}
-          >
-            <Building2 size={15} />
-            <span>未分配部门</span>
-            <small>{teams.filter((t) => !t.department).length}</small>
-          </button>
-          <p>部门来自成员与团队档案。编辑档案即可维护归属。</p>
-        </aside>
-        <section className="directory-card">
-          <div className="directory-card-toolbar">
-            <FilterBar label="团队搜索与筛选">
-              <FilterSearch
-                value={search}
-                onChange={setSearch}
-                onSubmit={() => setSearch(search.trim())}
-                showSubmit={false}
-                placeholder="搜索团队名称、负责人或描述"
-                label="搜索团队"
-              />
-              <DirectoryFilter
-                label="负责人"
-                value={owner}
-                onChange={setOwner}
-                options={members
-                  .filter((m) => teams.some((t) => t.owner_id === m.id))
-                  .map((m) => ({ value: m.id, label: m.name }))}
-              />
-              <DirectoryFilter
-                label="关联应用"
-                value={application}
-                onChange={setApplication}
-                options={(data?.applications ?? []).map((a) => ({
-                  value: a.id,
-                  label: a.name,
-                }))}
-              />
-              <DirectoryFilter
-                label="成员数"
-                value={size}
-                onChange={setSize}
-                options={[
-                  { value: "small", label: "少于 5 人" },
-                  { value: "large", label: "5 人及以上" },
-                ]}
-              />
-            </FilterBar>
-          </div>
-          <DirectoryState
-            loading={directory.isPending && !preview}
-            error={directory.error}
-            retry={directory.refetch}
-          />
-          {!directory.isPending && !directory.error && (
-            <>
-              <div className="directory-table-wrap">
-                <table className="directory-table">
-                  <thead>
-                    <tr>
-                      <th>团队名称</th>
-                      <th>负责人</th>
-                      <th>成员数</th>
-                      <th>关联应用</th>
-                      <th>描述</th>
-                      <th>更新时间</th>
-                      <th>操作</th>
+      <section className="directory-card">
+        <div className="directory-card-toolbar">
+          <FilterBar label="部门搜索与筛选">
+            <FilterSearch
+              value={search}
+              onChange={setSearch}
+              onSubmit={() => setSearch(search.trim())}
+              showSubmit={false}
+              placeholder="搜索部门名称、负责人或描述"
+              label="搜索部门"
+            />
+            <DirectoryFilter
+              label="负责人"
+              value={owner}
+              onChange={setOwner}
+              options={members
+                .filter((m) => teams.some((t) => t.owner_id === m.id))
+                .map((m) => ({ value: m.id, label: m.name }))}
+            />
+            <DirectoryFilter
+              label="关联应用"
+              value={application}
+              onChange={setApplication}
+              options={(data?.applications ?? []).map((a) => ({
+                value: a.id,
+                label: a.name,
+              }))}
+            />
+          </FilterBar>
+        </div>
+        <DirectoryState
+          loading={directory.isPending && !preview}
+          error={directory.error}
+          retry={directory.refetch}
+        />
+        {!directory.isPending && !directory.error && (
+          <>
+            <div className="directory-table-wrap">
+              <table className="directory-table">
+                <thead>
+                  <tr>
+                    <th>部门名称</th>
+                    <th>负责人</th>
+                    <th>成员数</th>
+                    <th>关联应用</th>
+                    <th>描述</th>
+                    <th>更新时间</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagination.rows.map((t) => (
+                    <tr key={t.id} data-selected={selectedId === t.id}>
+                      <td>
+                        <button
+                          className="directory-name"
+                          onClick={() => openDetail(t.id)}
+                        >
+                          {t.name}
+                        </button>
+                      </td>
+                      <td>
+                        {t.owner_name ? (
+                          <div className="directory-person">
+                            <Avatar name={t.owner_name} />
+                            <span>{t.owner_name}</span>
+                          </div>
+                        ) : (
+                          "待指定"
+                        )}
+                      </td>
+                      <td>{t.member_ids?.length ?? 0}</td>
+                      <td>{t.applications?.length ?? 0} 个应用</td>
+                      <td className="directory-description">
+                        {t.description || "暂无描述"}
+                      </td>
+                      <td>{dateLabel(t.updated_at)}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {pagination.rows.map((t) => (
-                      <tr key={t.id} data-selected={selectedId === t.id}>
-                        <td>
-                          <button
-                            className="directory-name"
-                            onClick={() => openDetail(t.id)}
-                          >
-                            {t.name}
-                          </button>
-                          <small className="directory-cell-secondary">
-                            {t.department || "未分配部门"}
-                            {t.is_mock ? " · 示例" : ""}
-                          </small>
-                        </td>
-                        <td>
-                          {t.owner_name ? (
-                            <div className="directory-person">
-                              <Avatar name={t.owner_name} />
-                              <span>{t.owner_name}</span>
-                            </div>
-                          ) : (
-                            "待指定"
-                          )}
-                        </td>
-                        <td>{t.member_ids?.length ?? 0}</td>
-                        <td>{t.applications?.length ?? 0} 个应用</td>
-                        <td className="directory-description">
-                          {t.description || "暂无描述"}
-                        </td>
-                        <td>{dateLabel(t.updated_at)}</td>
-                        <td>
-                          <button
-                            className="icon-button"
-                            aria-label={`查看 ${t.name}`}
-                            onClick={() => openDetail(t.id)}
-                          >
-                            <MoreHorizontal size={20} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <DirectoryState
-                loading={false}
-                error={null}
-                empty={!rows.length}
-                retry={directory.refetch}
-              />
-              <Pagination
-                count={rows.length}
-                page={pagination.page}
-                pages={pagination.pages}
-                onChange={pagination.setPage}
-              />
-            </>
-          )}
-          {preview && (
-            <DirectoryNotice>设置目录需连接真实服务后读取。</DirectoryNotice>
-          )}
-        </section>
-      </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <DirectoryState
+              loading={false}
+              error={null}
+              empty={!rows.length}
+              retry={directory.refetch}
+            />
+            <Pagination
+              count={rows.length}
+              page={pagination.page}
+              pages={pagination.pages}
+              onChange={pagination.setPage}
+            />
+          </>
+        )}
+        {preview && (
+          <DirectoryNotice>设置目录需连接真实服务后读取。</DirectoryNotice>
+        )}
+      </section>
       {editing && (
         <DirectoryDrawer
-          title={editing === "new" ? "新建团队" : "编辑团队"}
+          title={editing === "new" ? "新建部门" : "编辑部门"}
           onClose={close}
         >
           <form
@@ -362,7 +278,7 @@ function TeamsDirectory() {
           >
             {!!error && <ErrorNotice error={error} />}
             <label>
-              团队名称
+              部门名称
               <input
                 className="field"
                 name="name"
@@ -370,27 +286,6 @@ function TeamsDirectory() {
                 maxLength={200}
                 defaultValue={editing === "new" ? "" : editing.name}
               />
-            </label>
-            <label>
-              部门
-              <input
-                className="field"
-                name="department"
-                maxLength={200}
-                list="team-department-names"
-                defaultValue={
-                  editing === "new"
-                    ? department === "__none"
-                      ? ""
-                      : department
-                    : editing.department
-                }
-              />
-              <datalist id="team-department-names">
-                {data?.departments.map((d) => (
-                  <option key={d.name} value={d.name} />
-                ))}
-              </datalist>
             </label>
             <label>
               负责人
@@ -419,8 +314,8 @@ function TeamsDirectory() {
             </label>
             <DirectoryNotice>
               {editing === "new"
-                ? "选择的负责人将同时加入新团队。团队成员与应用访问授权可在创建后继续维护。"
-                : "负责人需为本团队成员。先在成员列表中添加人员，再选择负责人；归属部门和负责人不会自动授予应用权限。"}
+                ? "选择的负责人将同时加入新部门。部门成员与应用访问授权可在创建后继续维护。"
+                : "负责人需为本部门成员。先在成员列表中添加人员，再选择负责人；指定负责人不会自动授予应用权限。"}
             </DirectoryNotice>
             <DrawerFooter busy={busy} onClose={close} />
           </form>
@@ -429,10 +324,10 @@ function TeamsDirectory() {
       {selected && (
         <DirectoryDrawer
           title={selected.name}
-          subtitle={selected.description || "团队资料与授权应用"}
+          subtitle={selected.description || "部门资料与授权应用"}
           onClose={close}
         >
-          <div className="directory-tabs" role="group" aria-label="团队详情">
+          <div className="directory-tabs" role="group" aria-label="部门详情">
             <button
               className={tab === "overview" ? "active" : ""}
               aria-pressed={tab === "overview"}
@@ -469,8 +364,7 @@ function TeamsDirectory() {
             <>
               <dl className="directory-details">
                 {[
-                  ["团队名称", selected.name],
-                  ["部门", selected.department || "未分配"],
+                  ["部门名称", selected.name],
                   ["负责人", selected.owner_name || "待指定"],
                   ["创建时间", dateLabel(selected.created_at)],
                   ["更新时间", dateLabel(selected.updated_at)],
@@ -483,7 +377,7 @@ function TeamsDirectory() {
                 ))}
               </dl>
               <button className="btn" onClick={() => openEdit(selected)}>
-                编辑团队
+                编辑部门
               </button>
               <h3>成员（{selected.member_ids?.length ?? 0}）</h3>
               <div className="directory-avatar-list">
@@ -506,7 +400,7 @@ function TeamsDirectory() {
               key={`${selected.id}-${directory.dataUpdatedAt}`}
             >
               <DirectoryNotice>
-                加入团队后可继承团队的应用授权。平台角色仍决定成员的操作上限。
+                加入部门后可继承部门的应用授权。平台角色仍决定成员的操作上限。
               </DirectoryNotice>
               <div>
                 {members.map((m) => (
@@ -523,11 +417,7 @@ function TeamsDirectory() {
                       {m.id === selected.owner_id && " · 负责人"}
                       <small>
                         {m.email}
-                        {m.is_mock
-                          ? " · 示例账号"
-                          : m.disabled
-                            ? " · 已停用"
-                            : ""}
+                        {m.disabled ? " · 已停用" : ""}
                       </small>
                     </span>
                   </label>
@@ -541,7 +431,7 @@ function TeamsDirectory() {
               <TeamApplications team={selected} />
               <h3>访问范围</h3>
               <DirectoryNotice>
-                归属应用用于标记责任；明确的团队授权才决定访问范围。在角色与资源范围页维护应用授权。
+                归属应用用于标记责任；明确的部门授权才决定访问范围。在角色与资源范围页维护应用授权。
               </DirectoryNotice>
             </>
           )}

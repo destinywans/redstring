@@ -216,7 +216,7 @@ export default function ResourceDrawer({
                           )),
                         ],
                         ["负责人", resource.owner_name || "待指定"],
-                        ["部门 / 团队", resource.team_name || "待指定"],
+                        ["部门", resource.team_name || "待指定"],
                       ]}
                     />
                   </section>

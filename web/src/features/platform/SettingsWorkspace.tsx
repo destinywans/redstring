@@ -33,7 +33,7 @@ const Roles = lazy(() =>
 const destinations = [
   { to: "/platform/settings", label: "平台概览", icon: LayoutGrid },
   { to: "/members", label: "成员管理", icon: Users },
-  { to: "/teams", label: "部门与团队", icon: Building2 },
+  { to: "/teams", label: "部门管理", icon: Building2 },
   { to: "/platform/roles", label: "角色与资源范围", icon: ShieldCheck },
 ];
 

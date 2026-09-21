@@ -121,7 +121,7 @@ export default function ResourceCatalogPage() {
             })),
           },
           { key: "owner_id", label: "负责人", options: facets?.owners },
-          { key: "team_id", label: "团队", options: facets?.teams },
+          { key: "team_id", label: "部门", options: facets?.teams },
         ].map((field) => (
           <FilterSelect
             key={field.key}
@@ -180,7 +180,7 @@ export default function ResourceCatalogPage() {
                   <tr>
                     <th>资源名称 / 类型</th>
                     <th>关联应用</th>
-                    <th>负责人 / 团队</th>
+                    <th>负责人 / 部门</th>
                     <th>数据来源</th>
                     <th>
                       <button
@@ -236,7 +236,7 @@ export default function ResourceCatalogPage() {
                       </td>
                       <td>
                         <span>{resource.owner_name || "待指定"}</span>
-                        <small>{resource.team_name || "团队待指定"}</small>
+                        <small>{resource.team_name || "部门待指定"}</small>
                       </td>
                       <td>
                         <span

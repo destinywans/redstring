@@ -258,7 +258,7 @@ function Overview({
   }
   basic.push(
     ["负责人", r.owner_name || "—"],
-    ["所属团队", r.team_name || "—"],
+    ["所属部门", r.team_name || "—"],
     ["创建时间", moment(r.created_at)],
     ["最近采集", moment(r.observed_at)],
   );

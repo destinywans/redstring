@@ -770,7 +770,7 @@ export default function KnowledgePage() {
               <input
                 className="field"
                 name="source"
-                placeholder="文档链接或运维团队"
+                placeholder="文档链接或运维部门"
                 maxLength={2048}
               />
             </label>

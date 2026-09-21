@@ -23,7 +23,6 @@ import {
   DirectoryNotice,
   DirectoryState,
   DrawerFooter,
-  MockNotice,
   Pagination,
   RoleBadge,
   useDirectory,
@@ -165,9 +164,8 @@ function RolesDirectory() {
     <div className="directory-page">
       <DirectoryHeader
         title="角色与资源范围"
-        description="管理平台角色的权限范围，以及成员或团队在具体应用中的资源授权。"
+        description="管理平台角色的权限范围，以及成员或部门在具体应用中的资源授权。"
       />
-      <MockNotice data={data} />
       <DirectoryState
         loading={directory.isPending && !preview}
         error={directory.error}
@@ -227,7 +225,7 @@ function RolesDirectory() {
         <div className="directory-section-heading">
           <div>
             <h2>应用资源授权</h2>
-            <p>授权仅对所选应用生效，成员可同时继承所在团队的授权。</p>
+            <p>授权仅对所选应用生效，成员可同时继承所在部门的授权。</p>
           </div>
           <button
             className="btn btn-primary"
@@ -245,7 +243,7 @@ function RolesDirectory() {
               onChange={setSearch}
               onSubmit={() => setSearch(search.trim())}
               showSubmit={false}
-              placeholder="搜索成员或团队、应用名称"
+              placeholder="搜索成员或部门、应用名称"
               label="搜索授权"
             />
             <DirectoryFilter
@@ -269,7 +267,7 @@ function RolesDirectory() {
               onChange={setSubjectType}
               options={[
                 { value: "user", label: "成员" },
-                { value: "team", label: "团队" },
+                { value: "team", label: "部门" },
               ]}
             />
           </FilterBar>
@@ -311,7 +309,7 @@ function RolesDirectory() {
                       </button>
                     </div>
                   </td>
-                  <td>{g.subject_type === "team" ? "团队" : "成员"}</td>
+                  <td>{g.subject_type === "team" ? "部门" : "成员"}</td>
                   <td>
                     <div className="directory-application-item">
                       <Box size={18} />
@@ -388,24 +386,23 @@ function RolesDirectory() {
                 }}
               >
                 <Users size={16} />
-                团队
+                部门
               </button>
             </div>
             <SelectField
               className="field"
-              aria-label={kind === "user" ? "选择成员" : "选择团队"}
+              aria-label={kind === "user" ? "选择成员" : "选择部门"}
               required
               disabled={editing !== "new"}
               value={subjectId}
               onChange={(e) => setSubjectId(e.target.value)}
             >
               <option value="">
-                {kind === "user" ? "搜索并选择成员" : "搜索并选择团队"}
+                {kind === "user" ? "搜索并选择成员" : "搜索并选择部门"}
               </option>
               {(kind === "user" ? members : teams).map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name}
-                  {m.is_mock ? " · 示例" : ""}
                 </option>
               ))}
             </SelectField>
@@ -489,7 +486,7 @@ function RolesDirectory() {
             </div>
           </dl>
           <DirectoryNotice>
-            移除后该条直接授权失效。成员若仍从其他团队继承授权，或为平台管理员，仍可能访问此应用。
+            移除后该条直接授权失效。成员若仍从其他部门继承授权，或为平台管理员，仍可能访问此应用。
           </DirectoryNotice>
           <div className="directory-form-footer">
             <button

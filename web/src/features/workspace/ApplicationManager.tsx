@@ -318,9 +318,9 @@ export default function ApplicationManager({
                 <Field label="所属部门">
                   <span className="app-detail-missing">尚未接入部门资料</span>
                 </Field>
-                <Field label="所属团队">
+                <Field label="所属部门">
                   {application.owner_team_name ||
-                    (application.owner_team_id ? "团队不可用" : "待指定")}
+                    (application.owner_team_id ? "部门不可用" : "待指定")}
                 </Field>
                 <Field label="业务归属">
                   {application.profile?.business_unit}
@@ -583,7 +583,7 @@ export default function ApplicationManager({
                 <p className="app-detail-note">正在加载应用授权…</p>
               )}
               <p className="management-notice">
-                团队归属不会自动授予访问权限。操作权限受成员的工作区角色限制。
+                部门归属不会自动授予访问权限。操作权限受成员的工作区角色限制。
               </p>
               {(grants.data?.items ?? []).map((g, i) => (
                 <div
@@ -597,7 +597,7 @@ export default function ApplicationManager({
                       )?.name ?? g.subject_id}
                     </strong>
                     <small>
-                      {g.subject_type === "team" ? "团队" : "成员"} ·{" "}
+                      {g.subject_type === "team" ? "部门" : "成员"} ·{" "}
                       {g.permission === "operate" ? "可操作" : "只读"}
                     </small>
                   </div>
@@ -646,10 +646,10 @@ export default function ApplicationManager({
                 <label>
                   授权对象
                   <SelectField name="subject" className="field" required>
-                    <option value="">选择团队或成员</option>
+                    <option value="">选择部门或成员</option>
                     {teams.map((t) => (
                       <option key={t.id} value={`team:${t.id}`}>
-                        团队 · {t.name}
+                        部门 · {t.name}
                       </option>
                     ))}
                     {users.map((t) => (
@@ -822,7 +822,7 @@ const changeFieldNames: Record<string, string> = {
   name: "应用名称",
   key: "唯一标识",
   archived: "归档状态",
-  owner_team_id: "所属团队",
+  owner_team_id: "所属部门",
   maintainer_id: "负责人",
   tags: "标签",
   profile: "应用资料",

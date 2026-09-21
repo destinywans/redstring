@@ -470,7 +470,7 @@ export default function OverviewPage() {
           {!folded.includes("assistant") && (
             <>
               <p className="muted">
-                基于可观测性数据和团队知识，协助你快速定位和解决问题
+                基于可观测性数据和部门知识，协助你快速定位和解决问题
               </p>
               <form
                 onSubmit={(e) => {

@@ -1,6 +1,16 @@
 # 独立设置工作区契约
 
-设置承载平台资料、成员、部门 / 团队和角色 / 应用范围。目录来自 PostgreSQL；Mock 的来源标记保留到 API 和页面。内置角色及应用 grants 是实际权限来源，部门和团队负责人只是组织资料，不赋予额外权限。全局环境筛选不改变平台身份目录。
+设置承载平台资料、成员、部门和角色 / 应用范围。目录来自 PostgreSQL；内置角色及应用 grants 是实际权限来源，部门负责人只是组织资料，不赋予额外权限。全局环境筛选不改变平台身份目录。
+
+## 2026-09-21 部门产品语义修订（WAN-103）
+
+用户确认产品只有部门，成员与部门页面不展示 Mock/示例标签或说明。部门列表直接展示名称、负责人、成员数、关联应用、描述和更新时间，无目录侧栏、成员数筛选、操作列或删除入口；名称打开覆盖式详情，新建与编辑沿用现有接口。
+
+成员归属以 `members.team_ids -> teams` 的成员关系为准，页面展示“部门”；修改归属在部门成员卡片完成，成员表单不再编辑旧自由文本 `users.department`。`teams`、`team_members`、`subject_type=team` 等稳定内部字段保留兼容，其产品含义统一为部门。旧 `users.department`、`settings_team_profiles.department` 和聚合 `departments` 仅保留兼容资料，不再作为第二套组织目录。IAM 导入仍沿用原接口，不声称已自动把外部自由文本同步为组织成员关系。
+
+API 的 `is_mock/source/mock_notice` 与数据库禁止示例登录约束保留；隐藏来源文案不启用账号或改变授权。页面显示真实“已停用”状态。`normalize-settings-departments.py` 仅修正明确标记的三条种子记录的原始名称和描述，逐字段精确匹配，人工修改保留；支持 dry-run，重复运行无变更。其他资源页的示意数据标记不受此调整影响。
+
+以下兼容 API 的团队术语对应上述部门；历史种子机制不变。
 
 ## 注册与迁移
 
@@ -29,7 +39,7 @@ PATCH 接受 `{name?,description?,timezone?,language?,revision}`。名称去前�
 - `members`：原 Member 字段 + `is_mock`、`team_ids`、可空 `created_at`。原字段为 id/email/name/role/disabled/department/job_title/source/external_id/deleted_at；不含密码。包含已软删除记录供只读筛选；角色和部门统计排除已删除成员。created_at 仅来自该用户的 account.created 审计；namespaced Mock 成员使用首次 settings.demo.seeded 审计时间。批量导入仅有总数审计、无法对应个体时保持 null，不推测日期。
 - `teams`：id/name/description + owner_id/owner_name/department/is_mock/created_at/updated_at/member_ids/applications。无扩展资料时负责人 / 部门为空，时间为 null。时间是扩展资料时间，不假称团队所有属性的最近修改时间。
 - 团队 `applications` 项为 `{id,name,key,permission,relationship}`。relationship 为 `owner` / `grant` / `owner_and_grant`；只有 ownership 时 permission 为空，因为应用归属不是授权。
-- `roles`：固定 admin/operator/viewer；`{id,name,description,member_count,permissions:{view,investigate,approve,execute,manage},scope}`。成员计数包含未删除的禁用 Mock（页面应保留标记），不是可登录人数。operator 的 approve/execute 为 true，仍受应用 operate 与执行审批校验；viewer 不因 operate grant 越过平台上限。
+- `roles`：固定 admin/operator/viewer；`{id,name,description,member_count,permissions:{view,investigate,approve,execute,manage},scope}`。成员计数包含未删除的禁用 Mock（页面显示已停用状态），不是可登录人数。operator 的 approve/execute 为 true，仍受应用 operate 与执行审批校验；viewer 不因 operate grant 越过平台上限。
 - `departments`：按现有成员 / 团队文本聚合 `{name,member_count,team_count}`；无独立组织树、层级 ACL 或部门 CRUD。
 - `applications`：`[{id,name,key}]`；`grants`：`[{application_id,subject_type,subject_id,permission}]`；`mock_notice` 提示来源与限制。
 

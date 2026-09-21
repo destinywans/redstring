@@ -73,7 +73,7 @@ export function MetadataFields({ metadata }: { metadata?: KnowledgeMetadata }) {
           )}
         </label>
         <label>
-          所属团队
+          所属部门
           <SelectField
             name="team_id"
             className="field"

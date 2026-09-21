@@ -25,9 +25,9 @@ MEMBERS = [
  ('sun', '孙琪', '平台工程部', '产品经理', 'viewer'),
 ]
 TEAMS = [
- ('commerce', '交易平台团队 · Mock', '平台工程部', 'lin', ['lin', 'chen', 'wang', 'sun'], '负责交易平台应用建设与运维的示例团队。'),
- ('infrastructure', '基础设施团队 · Mock', '基础设施部', 'su', ['su', 'liu', 'lin'], '负责集群、基础组件与平台基础设施的示例团队。'),
- ('data', '数据团队 · Mock', '数据平台部', 'zhou', ['zhou', 'zhao', 'chen'], '负责数据平台与数据服务建设治理的示例团队。'),
+ ('commerce', '平台工程部', '平台工程部', 'lin', ['lin', 'chen', 'wang', 'sun'], '负责交易平台应用建设与运维。'),
+ ('infrastructure', '基础设施部', '基础设施部', 'su', ['su', 'liu', 'lin'], '负责集群、基础组件与平台基础设施。'),
+ ('data', '数据平台部', '数据平台部', 'zhou', ['zhou', 'zhao', 'chen'], '负责数据平台与数据服务建设治理。'),
 ]
 
 def literal(value):

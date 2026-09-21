@@ -43,7 +43,7 @@ export default function GovernancePanel({
       else await post("/teams", body);
       await qc.invalidateQueries({ queryKey: ["teams"] });
       setEditing(undefined);
-      notify("团队已保存", "success");
+      notify("部门已保存", "success");
     } catch (e) {
       notify(String(e), "error");
     } finally {
@@ -61,11 +61,11 @@ export default function GovernancePanel({
     <section className="card management-card">
       <div className="management-heading">
         <div>
-          <h2>团队</h2>
-          <p>团队组织成员；应用访问在应用权限中明确授予。</p>
+          <h2>部门</h2>
+          <p>部门组织成员；应用访问在应用权限中明确授予。</p>
         </div>
         <button className="btn btn-primary" onClick={() => setEditing(null)}>
-          创建团队
+          创建部门
         </button>
       </div>
       {teams.error && <ErrorNotice error={teams.error} />}{" "}
@@ -85,17 +85,17 @@ export default function GovernancePanel({
       ))}
       {!teams.data?.items?.length && (
         <p className="management-empty">
-          创建第一个团队，将应用与维护责任关联起来。
+          创建第一个部门，将应用与维护责任关联起来。
         </p>
       )}
       <Modal
         open={editing !== undefined}
         onOpenChange={(v) => !v && setEditing(undefined)}
-        title={editing ? "编辑团队" : "创建团队"}
+        title={editing ? "编辑部门" : "创建部门"}
       >
         <form className="management-form" onSubmit={save}>
           <label>
-            团队名称
+            部门名称
             <input
               name="name"
               className="field"
@@ -113,7 +113,7 @@ export default function GovernancePanel({
           </label>
           <footer>
             <button className="btn btn-primary" disabled={busy}>
-              保存团队
+              保存部门
             </button>
           </footer>
         </form>
@@ -139,7 +139,7 @@ export default function GovernancePanel({
                 });
                 await members.refetch();
                 setSelected(null);
-                notify("团队成员已更新", "success");
+                notify("部门成员已更新", "success");
               } catch (e) {
                 notify(String(e), "error");
               } finally {

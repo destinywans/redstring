@@ -86,7 +86,7 @@ export default function ApplicationsPage() {
     new Map(
       scopedApplications
         .filter((a) => a.owner_team_id)
-        .map((a) => [a.owner_team_id!, a.owner_team_name || "团队不可用"]),
+        .map((a) => [a.owner_team_id!, a.owner_team_name || "部门不可用"]),
     ),
   ).map(([value, label]) => ({ value, label }));
   const ownerOptions = Array.from(
@@ -189,7 +189,7 @@ export default function ApplicationsPage() {
     ...teamFilters.map((id) => ({
       key: "team",
       value: id,
-      label: `团队：${teamOptions.find((o) => o.value === id)?.label ?? "当前团队不可用"}`,
+      label: `部门：${teamOptions.find((o) => o.value === id)?.label ?? "当前部门不可用"}`,
     })),
     ...ownerFilters.map((id) => ({
       key: "owner",
@@ -239,12 +239,12 @@ export default function ApplicationsPage() {
         />
         <FilterSelect
           id="application-team"
-          label="团队"
+          label="部门"
           showLabel={false}
           options={teamOptions}
           values={teamFilters}
           onChange={(v) => updateFilter("team", v)}
-          emptyLabel="团队"
+          emptyLabel="部门"
           multiple
           popoverWidth={256}
           searchable
@@ -359,7 +359,7 @@ export default function ApplicationsPage() {
             <tr>
               <th>应用</th>
               <th>负责人</th>
-              <th>部门 / 团队</th>
+              <th>部门</th>
               <th>版本</th>
               <th>最近更新时间</th>
             </tr>
@@ -504,7 +504,7 @@ export default function ApplicationsPage() {
           </label>
           <div className="management-form-grid">
             <label>
-              所属团队
+              所属部门
               <SelectField
                 className="field"
                 name="owner_team_id"
@@ -516,7 +516,7 @@ export default function ApplicationsPage() {
                     (t) => t.id === editing.owner_team_id,
                   ) && (
                     <option value={editing.owner_team_id}>
-                      {editing.owner_team_name || "原所属团队"}
+                      {editing.owner_team_name || "原所属部门"}
                     </option>
                   )}
                 {(teams.data?.items ?? []).map((t) => (

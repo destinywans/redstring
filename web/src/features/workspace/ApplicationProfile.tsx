@@ -241,10 +241,10 @@ export function ApplicationDetails({
           </dd>
         </div>
         <div>
-          <dt>所属团队</dt>
+          <dt>所属部门</dt>
           <dd>
             {application.owner_team_name ||
-              (application.owner_team_id ? "团队不可用" : "待指定")}
+              (application.owner_team_id ? "部门不可用" : "待指定")}
           </dd>
         </div>
         {profileFields

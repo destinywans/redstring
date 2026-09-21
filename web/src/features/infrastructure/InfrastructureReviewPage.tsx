@@ -139,7 +139,7 @@ const definitions: Record<string, Definition> = {
       col("cpu_quota", "CPU 配额"),
       col("memory_quota", "内存配额"),
       col("pods_count", "Pod 数"),
-      col("team", "所属团队"),
+      col("team", "所属部门"),
       col("created_at", "创建时间"),
     ],
   },
@@ -213,7 +213,7 @@ const filterLabels: Record<string, string> = {
   workload_type: "类型",
   workload: "工作负载",
   severity: "事件类型",
-  team: "所属团队",
+  team: "所属部门",
   service_type: "类型",
   storage_class: "存储类",
 };

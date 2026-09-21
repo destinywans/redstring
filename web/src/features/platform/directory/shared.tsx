@@ -150,14 +150,6 @@ export function DirectoryNotice({ children }: { children: ReactNode }) {
     </div>
   );
 }
-export function MockNotice({ data }: { data?: Directory }) {
-  return data?.mock_notice ? (
-    <p className="directory-source">
-      <Info size={14} />
-      {data.mock_notice}
-    </p>
-  ) : null;
-}
 export function Avatar({ name }: { name: string }) {
   return (
     <span className="directory-avatar" aria-hidden="true">

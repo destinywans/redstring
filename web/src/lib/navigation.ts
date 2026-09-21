@@ -47,7 +47,11 @@ export const navigation: NavigationSection[] = [
     id: "applications",
     label: "资源中心",
     icon: Box,
-    children: [{ to: "/applications", label: "全部应用" }],
+    children: [
+      { to: "/applications", label: "全部应用" },
+      { to: "/resources/catalog", label: "资源目录" },
+      { to: "/resources/relations", label: "资源关系" },
+    ],
   },
   {
     id: "delivery",

@@ -59,6 +59,9 @@ const DashboardPage = lazy(() => import("./features/workspace/DashboardPage"));
 const ApplicationsPage = lazy(
   () => import("./features/workspace/ApplicationsPage"),
 );
+const ResourcePendingPage = lazy(
+  () => import("./features/resources/ResourcePendingPage"),
+);
 const IncidentsPage = lazy(() => import("./features/workspace/IncidentsPage"));
 const Overview = lazy(() => import("./features/overview/OverviewPage"));
 const InvestigationPage = lazy(
@@ -585,6 +588,14 @@ export default function App() {
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/applications" element={<ApplicationsPage />} />
                 <Route path="/applications/detail" element={<Overview />} />
+                <Route
+                  path="/resources/catalog"
+                  element={<ResourcePendingPage kind="catalog" />}
+                />
+                <Route
+                  path="/resources/relations"
+                  element={<ResourcePendingPage kind="relations" />}
+                />
                 <Route path="/incidents" element={<IncidentsPage />} />
                 <Route path="/alerts" element={<AlertsPage mode="alerts" />} />
                 <Route

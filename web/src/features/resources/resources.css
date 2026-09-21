@@ -1,0 +1,52 @@
+.resource-pending {
+  width: 100%;
+  padding: var(--space-page, 28px);
+}
+.resource-pending-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.resource-pending-status {
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.resource-pending-purpose {
+  margin-top: 12px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+.resource-pending-notice {
+  margin-top: 32px;
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.resource-pending-notice h2 {
+  font-size: 16px;
+}
+.resource-pending-notice p {
+  max-width: 620px;
+  margin-top: 10px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+.resource-pending-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+@media (max-width: 600px) {
+  .resource-pending {
+    padding: 24px 16px;
+  }
+  .resource-pending-notice {
+    padding: 20px;
+  }
+}

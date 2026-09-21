@@ -203,7 +203,9 @@ func configurePlatform(ctx context.Context, s *store.Store, api *httpapi.Server,
 		if e := s.DB.QueryRow(ctx, "SELECT application_id,COALESCE(environment_id,'') FROM investigations WHERE id=$1", inv).Scan(&app, &env); e != nil {
 			return nil, e
 		}
-		if e := s.AuthorizeApplication(ctx, store.Principal(ctx), app, "operate"); e != nil {
+		// The action service checks investigate/approve/execute independently.
+		// Resolution additionally requires visibility of the exact bound application.
+		if e := s.AuthorizeApplication(ctx, store.Principal(ctx), app, "view"); e != nil {
 			return nil, e
 		}
 		v, reg, e := registry.resolve(ctx, app, env)

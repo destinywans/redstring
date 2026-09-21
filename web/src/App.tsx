@@ -41,6 +41,7 @@ import type {
   Investigation,
 } from "./lib/types";
 import { WorkspaceContext } from "./lib/workspace";
+import { useRbacAccess, isRbacPath } from "./features/platform/rbac/access";
 import { useWorkspaceSelection } from "./lib/selection";
 import { useTheme } from "./lib/theme";
 import {
@@ -168,6 +169,7 @@ export default function App() {
         role: "admin" as const,
       }
     : auth.data?.user;
+  const rbacAccess = useRbacAccess(user, preview);
   const profile = useQuery({
     queryKey: ["profile", user?.id],
     queryFn: () => request<{ user: { avatar_url?: string } }>("/profile"),
@@ -362,7 +364,10 @@ export default function App() {
     {
       ...settingsNavigation,
       children: settingsNavigation.children.filter(
-        (item) => !item.admin || user.role === "admin",
+        (item) =>
+          !item.admin ||
+          user.role === "admin" ||
+          (isRbacPath(item.to) && rbacAccess.canManage("rbac")),
       ),
     },
   ].flatMap((section) =>

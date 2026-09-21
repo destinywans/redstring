@@ -46,14 +46,22 @@ func (s *Server) authorizeRoute(r *http.Request) error {
 	}
 	permission := "view"
 	if r.Method != "GET" && r.Method != "HEAD" {
-		permission = "operate"
+		permission = "investigate"
+	}
+	if r.Method != "GET" && r.Method != "HEAD" && kind == "action-plans" && len(path) > 4 {
+		switch path[4] {
+		case "approve", "reject", "revoke":
+			permission = "approve"
+		case "execute":
+			permission = "execute"
+		}
 	}
 	// These POST endpoints only execute registered, bounded read queries. Their
 	// JSON bodies do not grant write authority; viewers retain application ACLs.
 	if r.Method == "POST" && kind == "applications" && len(path) == 5 && (path[4] == "metrics" || path[4] == "logs") {
 		permission = "view"
 	}
-	if strings.HasSuffix(r.URL.Path, "/layout") || (CurrentUser(r).Role == "admin" && (kind == "applications" || kind == "environments")) {
+	if strings.HasSuffix(r.URL.Path, "/layout") || ((kind == "applications" || kind == "environments") && r.Method != "GET") {
 		permission = "view"
 	}
 	return p.AuthorizeApplication(r.Context(), CurrentUser(r), app, permission)

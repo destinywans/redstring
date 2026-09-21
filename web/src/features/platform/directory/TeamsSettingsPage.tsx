@@ -404,7 +404,7 @@ function TeamsDirectory() {
               key={`${selected.id}-${directory.dataUpdatedAt}`}
             >
               <DirectoryNotice>
-                加入部门后可继承部门的应用授权。平台角色仍决定成员的操作上限。
+                每位成员最多归属一个部门。加入后继承该部门的角色与应用授权；其他部门成员需先在成员管理中变更归属。
               </DirectoryNotice>
               <div>
                 {members.map((m) => (
@@ -414,6 +414,10 @@ function TeamsDirectory() {
                       name="member"
                       value={m.id}
                       defaultChecked={selected.member_ids?.includes(m.id)}
+                      disabled={
+                        !selected.member_ids?.includes(m.id) &&
+                        !!m.team_ids?.some((id) => id !== selected.id)
+                      }
                     />
                     <Avatar name={m.name} />
                     <span>
@@ -422,6 +426,10 @@ function TeamsDirectory() {
                       <small>
                         {m.email}
                         {m.disabled ? " · 已停用" : ""}
+                        {!selected.member_ids?.includes(m.id) &&
+                        m.team_ids?.some((id) => id !== selected.id)
+                          ? " · 已归属其他部门"
+                          : ""}
                       </small>
                     </span>
                   </label>
@@ -435,7 +443,7 @@ function TeamsDirectory() {
               <TeamApplications team={selected} />
               <h3>访问范围</h3>
               <DirectoryNotice>
-                归属应用用于标记责任；明确的部门授权才决定访问范围。在角色与资源范围页维护应用授权。
+                归属应用用于标记责任；角色管理的“部门”页签维护部门角色。已有应用兼容授权继续生效。
               </DirectoryNotice>
             </>
           )}

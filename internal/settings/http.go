@@ -40,7 +40,7 @@ func (s *Service) Register(api *httpapi.Server) {
 		if version == "" {
 			version = "development (unversioned)"
 		}
-		httpapi.WriteJSON(w, 200, map[string]any{"workspace": workspace, "version": version, "integrations": integrations, "can_manage": httpapi.CurrentUser(r).Role == "admin", "capabilities": map[string]bool{"custom_roles": false, "resource_acl": false, "team_owners": true}})
+		httpapi.WriteJSON(w, 200, map[string]any{"workspace": workspace, "version": version, "integrations": integrations, "can_manage": s.Store.AuthorizeCapability(r.Context(), httpapi.CurrentUser(r), "manage", "management", "settings") == nil, "capabilities": map[string]bool{"custom_roles": true, "resource_acl": true, "team_owners": true}})
 	})
 	api.Register("PATCH /api/v1/settings/overview", "admin", func(w http.ResponseWriter, r *http.Request) {
 		var p WorkspacePatch

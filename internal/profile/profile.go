@@ -41,7 +41,14 @@ type Application struct {
 	Name       string `json:"name"`
 	Permission string `json:"permission"`
 }
+type EffectiveRole struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Source       string `json:"source"`
+	DepartmentID string `json:"department_id,omitempty"`
+}
 type Profile struct {
+	Roles             []EffectiveRole `json:"roles"`
 	User              User            `json:"user"`
 	Departments       []Department    `json:"departments"`
 	Permissions       map[string]bool `json:"permissions"`
@@ -105,23 +112,42 @@ func (s *Service) Get(ctx context.Context) (Profile, error) {
 	if e != nil {
 		return v, e
 	}
+
 	for i := range v.Applications {
-		e = s.Store.AuthorizeApplication(ctx, principal, v.Applications[i].ID, "operate")
-		if e == nil {
+		if s.Store.AuthorizeApplication(ctx, principal, v.Applications[i].ID, "investigate") == nil {
 			v.Applications[i].Permission = "operate"
-			v.Permissions["investigate"] = true
-			v.Permissions["approve"] = true
-			v.Permissions["execute"] = true
-		} else if !errors.Is(e, store.ErrForbidden) {
+		}
+	}
+	for _, action := range []string{"view", "investigate", "approve", "execute"} {
+		for _, app := range v.Applications {
+			if s.Store.AuthorizeApplication(ctx, principal, app.ID, action) == nil {
+				v.Permissions[action] = true
+			}
+		}
+	}
+	var manage bool
+	if e = s.Store.DB.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM rbac_effective_permissions WHERE user_id=$1 AND action='manage' AND resource_id IS NOT NULL)", id).Scan(&manage); e != nil {
+		return v, e
+	}
+	v.Permissions["manage"] = manage
+	v.Roles = []EffectiveRole{}
+	rows, e = s.Store.DB.Query(ctx, `SELECT r.id,r.name,'direct','' FROM rbac_roles r JOIN rbac_user_roles ur ON ur.role_id=r.id WHERE ur.user_id=$1 UNION ALL SELECT r.id,r.name,'department',u.department_id FROM rbac_roles r JOIN rbac_department_roles dr ON dr.role_id=r.id JOIN users u ON u.department_id=dr.department_id WHERE u.id=$1 ORDER BY 2,3`, id)
+	if e != nil {
+		return v, e
+	}
+	for rows.Next() {
+		var role EffectiveRole
+		if e = rows.Scan(&role.ID, &role.Name, &role.Source, &role.DepartmentID); e != nil {
+			rows.Close()
 			return v, e
 		}
+		v.Roles = append(v.Roles, role)
 	}
-	v.Permissions["view"] = len(v.Applications) > 0
-	if v.User.Role == "admin" {
-		for k := range v.Permissions {
-			v.Permissions[k] = true
-		}
+	rows.Close()
+	if e = rows.Err(); e != nil {
+		return v, e
 	}
+
 	return v, nil
 }
 

@@ -74,6 +74,7 @@ var ErrNoWork = errors.New("no eligible execution")
 
 type claim = Lease
 type Service struct {
+	Authorize     func(context.Context, string, string, string) error
 	Repository    Repository
 	Connector     Connector
 	ApplicationID string
@@ -85,6 +86,11 @@ func NewWithRepository(r Repository, c Connector, app string) *Service {
 }
 func (s *Service) Migrate(ctx context.Context) error { return s.Repository.Migrate(ctx) }
 func (s *Service) Create(ctx context.Context, inv, revision, user string) (Plan, error) {
+	if s.Authorize != nil {
+		if e := s.Authorize(ctx, user, inv, "investigate"); e != nil {
+			return Plan{}, e
+		}
+	}
 	app, e := s.Repository.Application(ctx, inv)
 	if e != nil {
 		return Plan{}, e
@@ -118,6 +124,15 @@ func (s *Service) Plans(ctx context.Context, inv string) ([]Plan, error) {
 	return s.Repository.Plans(ctx, inv)
 }
 func (s *Service) Approve(ctx context.Context, id, digest, user string) (Plan, error) {
+	if s.Authorize != nil {
+		p, e := s.Plan(ctx, id)
+		if e != nil {
+			return Plan{}, e
+		}
+		if e = s.Authorize(ctx, user, p.InvestigationID, "approve"); e != nil {
+			return Plan{}, e
+		}
+	}
 	if s.Resolve != nil {
 		p, e := s.Plan(ctx, id)
 		if e != nil {
@@ -130,6 +145,15 @@ func (s *Service) Approve(ctx context.Context, id, digest, user string) (Plan, e
 	return s.Repository.Approve(ctx, id, digest, user)
 }
 func (s *Service) Enqueue(ctx context.Context, id, user string) (Execution, error) {
+	if s.Authorize != nil {
+		p, e := s.Plan(ctx, id)
+		if e != nil {
+			return Execution{}, e
+		}
+		if e = s.Authorize(ctx, user, p.InvestigationID, "execute"); e != nil {
+			return Execution{}, e
+		}
+	}
 	if s.Resolve != nil {
 		p, e := s.Plan(ctx, id)
 		if e != nil {
@@ -202,6 +226,24 @@ func (s *Service) perform(parent context.Context, c claim) {
 		defer stop()
 		if e := s.transition(cleanup, c, state, msg, result); e != nil && !errors.Is(e, store.ErrLease) {
 			slog.Error("action transition failed", "error", e)
+		}
+	}
+	if s.Authorize != nil {
+		if e = s.Authorize(ctx, p.ApprovedBy, p.InvestigationID, "approve"); e != nil {
+			finish("needs_attention", "Approval principal no longer has approve permission.", nil)
+			return
+		}
+		actors, ok := s.Repository.(interface {
+			ExecutionActor(context.Context, string) (string, error)
+		})
+		if !ok {
+			finish("needs_attention", "Execution principal could not be verified.", nil)
+			return
+		}
+		actor, err := actors.ExecutionActor(ctx, c.ID)
+		if err != nil || s.Authorize(ctx, actor, p.InvestigationID, "execute") != nil {
+			finish("needs_attention", "Execution principal no longer has execute permission.", nil)
+			return
 		}
 	}
 	if s.Resolve != nil {

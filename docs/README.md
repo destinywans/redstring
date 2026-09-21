@@ -1,5 +1,7 @@
 # 项目文档
 
+- [RBAC 角色权限契约](rbac-api.md)、[宽幅关联设计](design/rbac/README.md)、[本轮实施记录](releases/2026-09-21-rbac-associations.md)：真实角色权限、单部门归属与直接跳页。
+
 - [统一列表分页规范](design/pagination.md)、[本轮分页交付](releases/2026-09-21-unified-pagination.md)：审计按用户要求暂不调整。
 
 - [个人资料与密码接口](profile-api.md)

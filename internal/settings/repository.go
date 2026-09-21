@@ -129,7 +129,29 @@ func (s *Service) UpdateTeamProfile(ctx context.Context, id string, p TeamProfil
 }
 
 func (s *Service) Directory(ctx context.Context) (Directory, error) {
-	d := Directory{Members: []Member{}, Teams: []Team{}, Roles: Roles(), Departments: []Department{}, Applications: []Application{}, Grants: []Grant{}, MockNotice: "Mock 为示例成员与团队，示例成员无法登录。"}
+	d := Directory{Members: []Member{}, Teams: []Team{}, Roles: []Role{}, Departments: []Department{}, Applications: []Application{}, Grants: []Grant{}, MockNotice: "Mock 为示例成员与团队，示例成员无法登录。"}
+	roleRows, err := s.Store.DB.Query(ctx, `SELECT r.id,r.name,r.description,COALESCE((SELECT jsonb_object_agg(p.action,true) FROM rbac_role_permissions rp JOIN rbac_permissions p ON p.id=rp.permission_id WHERE rp.role_id=r.id),'{}'),(SELECT count(*) FROM rbac_user_roles ur JOIN users u ON u.id=ur.user_id WHERE ur.role_id=r.id AND u.deleted_at IS NULL) FROM rbac_roles r ORDER BY r.name,r.id`)
+	if err != nil {
+		return d, err
+	}
+	for roleRows.Next() {
+		var role Role
+		var raw []byte
+		if err = roleRows.Scan(&role.ID, &role.Name, &role.Description, &raw, &role.MemberCount); err != nil {
+			roleRows.Close()
+			return d, err
+		}
+		if err = json.Unmarshal(raw, &role.Permissions); err != nil {
+			roleRows.Close()
+			return d, err
+		}
+		role.Scope = "以权限关联的对象范围为准"
+		d.Roles = append(d.Roles, role)
+	}
+	roleRows.Close()
+	if err = roleRows.Err(); err != nil {
+		return d, err
+	}
 	members, e := s.Store.Members(ctx, true)
 	if e != nil {
 		return d, e
@@ -282,11 +304,7 @@ func (s *Service) Directory(ctx context.Context) (Directory, error) {
 		if m.Department != "" {
 			department(m.Department).MemberCount++
 		}
-		for i := range d.Roles {
-			if d.Roles[i].ID == m.Role {
-				d.Roles[i].MemberCount++
-			}
-		}
+
 	}
 	for _, t := range d.Teams {
 		if t.Department != "" {

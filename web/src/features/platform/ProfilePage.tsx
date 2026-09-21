@@ -17,6 +17,12 @@ type Profile = {
     role: string;
   };
   departments: { id: string; name: string }[];
+  roles?: {
+    id: string;
+    name: string;
+    source: "direct" | "department";
+    department_id?: string;
+  }[];
   permissions: {
     view: boolean;
     investigate: boolean;
@@ -298,6 +304,27 @@ export function ProfilePage() {
         aria-labelledby="profile-access-heading"
       >
         <h2 id="profile-access-heading">访问权限</h2>
+        <h3>角色关联</h3>
+        {data.roles?.length ? (
+          <div className="profile-permissions">
+            {data.roles.map((role) => (
+              <span
+                key={`${role.id}-${role.source}-${role.department_id || ""}`}
+                data-enabled
+              >
+                {role.name}
+                <span>
+                  {role.source === "direct"
+                    ? "直接关联"
+                    : `部门继承 · ${data.departments.find((department) => department.id === role.department_id)?.name || "所属部门"}`}
+                </span>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="profile-hint">暂无自定义角色关联。</p>
+        )}
+        <h3>账户基础能力</h3>
         <div className="profile-permissions">
           {Object.entries(permissionLabels).map(([key, label]) => (
             <span
@@ -338,7 +365,14 @@ export function ProfilePage() {
                 ))}
               </tbody>
             </table>
-            <Pagination page={applicationPages.page} pageSize={applicationPages.pageSize} total={applicationPages.total} onPageChange={applicationPages.setPage} onPageSizeChange={applicationPages.setPageSize} ariaLabel="个人授权应用分页" />
+            <Pagination
+              page={applicationPages.page}
+              pageSize={applicationPages.pageSize}
+              total={applicationPages.total}
+              onPageChange={applicationPages.setPage}
+              onPageSizeChange={applicationPages.setPageSize}
+              ariaLabel="个人授权应用分页"
+            />
           </div>
         ) : (
           <p className="profile-hint">暂无授权应用</p>

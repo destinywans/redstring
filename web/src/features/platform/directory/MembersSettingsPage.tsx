@@ -1,5 +1,6 @@
 import Pagination, { useListPagination } from "../../../components/Pagination";
 import { useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { Plus, Upload } from "../../../lib/icons";
 import { post, patch } from "../../../lib/api";
 import { useWorkspace } from "../../../lib/workspace";
@@ -96,8 +97,27 @@ function MembersDirectory() {
     setBusy(true);
     setError(null);
     try {
-      if (editing === "new") await post("/users", body);
-      else await patch(`/users/${editing.id}`, body);
+      let member = editing === "new" ? null : editing;
+      if (!member) {
+        const created = await post<{ user: DirectoryMember }>("/users", body);
+        member = created.user;
+        // Retain the new identity if the subsequent department update fails.
+        setEditing(member);
+      } else await patch(`/users/${member.id}`, body);
+      const nextDepartment = String(f.get("department_id") || "");
+      if (nextDepartment !== (member.team_ids?.[0] || "")) {
+        try {
+          await patch(
+            `/rbac/users/${encodeURIComponent(member.id)}/department`,
+            { department_id: nextDepartment || null },
+          );
+        } catch (departmentError) {
+          await refresh();
+          throw new Error(
+            `成员基本资料已保存，部门归属尚未更新：${departmentError instanceof Error ? departmentError.message : String(departmentError)}`,
+          );
+        }
+      }
       await refresh();
       setEditing(null);
       notify("成员信息已保存", "success");
@@ -317,7 +337,7 @@ function MembersDirectory() {
               />
             </label>
             <label>
-              角色
+              账户基础角色
               <SelectField
                 className="field"
                 name="role"
@@ -339,15 +359,26 @@ function MembersDirectory() {
               </SelectField>
             </label>
             <div className="directory-form-row">
-              <div className="directory-form-field">
-                <span>部门</span>
-                <p>
-                  {editing === "new" ? "未分配部门" : departmentNames(editing)}
-                </p>
+              <label>
+                部门
+                <SelectField
+                  className="field"
+                  name="department_id"
+                  defaultValue={
+                    editing === "new" ? "" : editing.team_ids?.[0] || ""
+                  }
+                >
+                  <option value="">未分配部门</option>
+                  {teams.map((team) => (
+                    <option key={team.id} value={team.id}>
+                      {team.name}
+                    </option>
+                  ))}
+                </SelectField>
                 <small className="muted">
-                  在部门管理的成员卡片中维护归属。
+                  每位成员最多归属一个部门，更换后继承新部门的角色。
                 </small>
-              </div>
+              </label>
               <label>
                 职位
                 <input
@@ -372,7 +403,7 @@ function MembersDirectory() {
               </label>
             )}
             <DirectoryNotice>
-              平台角色决定操作上限，应用访问由成员或所属部门的授权决定。
+              账户基础角色保留原有兼容授权。自定义角色可直接关联成员，或通过唯一所属部门继承。
             </DirectoryNotice>
             {editing !== "new" && lastAdmin(editing) && (
               <p className="directory-source">
@@ -394,6 +425,10 @@ function MembersDirectory() {
           onClose={close}
         >
           {!!error && <ErrorNotice error={error} />}
+          <DirectoryNotice>
+            在角色管理的“用户”页签维护直接角色；“部门”页签维护继承角色。
+            <Link to="/platform/roles">前往角色管理</Link>
+          </DirectoryNotice>
           <dl className="directory-details">
             {[
               ["姓名", detail.name],

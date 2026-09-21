@@ -135,7 +135,8 @@ export const settingsNavigation: NavigationSection = {
     { to: "/platform/settings", label: "平台概览", admin: true },
     { to: "/members", label: "成员管理", admin: true },
     { to: "/teams", label: "部门管理", admin: true },
-    { to: "/platform/roles", label: "角色与资源范围", admin: true },
+    { to: "/platform/roles", label: "角色管理", admin: true },
+    { to: "/platform/permissions", label: "权限管理", admin: true },
   ],
 };
 

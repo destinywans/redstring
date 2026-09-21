@@ -120,6 +120,7 @@ func integer(q url.Values, key string, fallback, min, max int) (int, bool) {
 	return n, e == nil && n >= min && n <= max
 }
 func (s *Service) Register(api *httpapi.Server) {
+	s.registerMutations(api)
 	load := func(w http.ResponseWriter, r *http.Request) ([]Resource, bool) {
 		u := httpapi.CurrentUser(r)
 		ids, e := api.VisibleApplicationIDs(r.Context(), u)

@@ -129,6 +129,11 @@ func (s *Store) CreateMember(ctx context.Context, v MemberCreate) (Member, error
 	if e = lockMembers(ctx, tx); e != nil {
 		return Member{}, e
 	}
+	if v.Role != "viewer" {
+		if e = authorizeIdentityGrant(ctx, tx); e != nil {
+			return Member{}, e
+		}
+	}
 	id := ID()
 	_, e = tx.Exec(ctx, "INSERT INTO users(id,email,name,role,password_hash,department,job_title) VALUES($1,$2,$3,$4,$5,$6,$7)", id, v.Email, v.Name, v.Role, PasswordHash(v.Password), v.Department, v.JobTitle)
 	if e != nil {
@@ -157,6 +162,23 @@ func (s *Store) UpdateMember(ctx context.Context, id string, v MemberUpdate) (Me
 		return m, e
 	}
 	oldRole, oldDisabled := m.Role, m.Disabled
+	if v.Role != nil && *v.Role != m.Role {
+		if e = authorizeIdentityGrant(ctx, tx); e != nil {
+			return m, e
+		}
+	}
+	if v.Password != nil || v.Email != nil || v.Disabled != nil {
+		var protected bool
+		if e = privilegedIdentity(ctx, tx, id).Scan(&protected); e != nil {
+			return m, e
+		}
+		if protected {
+			if e = authorizeIdentityGrant(ctx, tx); e != nil {
+				return m, e
+			}
+		}
+	}
+
 	if v.Email != nil && m.Source != "local" && strings.ToLower(strings.TrimSpace(*v.Email)) != m.Email {
 		return m, fmt.Errorf("%w: imported member emails must be changed through a directory import", ErrMemberInvalid)
 	}
@@ -233,6 +255,15 @@ func (s *Store) DeleteMember(ctx context.Context, id string) error {
 	m, e := scanMember(tx.QueryRow(ctx, "SELECT "+memberColumns+" FROM users WHERE id=$1 FOR UPDATE", id))
 	if e != nil {
 		return e
+	}
+	var protected bool
+	if e = privilegedIdentity(ctx, tx, id).Scan(&protected); e != nil {
+		return e
+	}
+	if protected {
+		if e = authorizeIdentityGrant(ctx, tx); e != nil {
+			return e
+		}
 	}
 	if m.DeletedAt != nil {
 		return nil
@@ -398,4 +429,21 @@ func (s *Store) ImportMembers(ctx context.Context, v MemberImportRequest) (Membe
 		return MemberImportResult{}, e
 	}
 	return out, tx.Commit(ctx)
+}
+
+// Account administration does not implicitly grant the right to change access
+// or take over a privileged identity by replacing its credentials.
+func authorizeIdentityGrant(ctx context.Context, tx pgx.Tx) error {
+	var allowed bool
+	e := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rbac_effective_permissions WHERE user_id=$1 AND action='manage' AND scope_type='management' AND resource_id='rbac')`, Principal(ctx).ID).Scan(&allowed)
+	if e != nil {
+		return e
+	}
+	if !allowed {
+		return ErrForbidden
+	}
+	return nil
+}
+func privilegedIdentity(ctx context.Context, tx pgx.Tx, id string) pgx.Row {
+	return tx.QueryRow(ctx, `SELECT role<>'viewer' OR EXISTS(SELECT 1 FROM rbac_user_roles WHERE user_id=$1 AND role_id<>'viewer') OR EXISTS(SELECT 1 FROM rbac_department_roles WHERE department_id=users.department_id) FROM users WHERE id=$1`, id)
 }

@@ -1,7 +1,9 @@
 package actions
 
 import (
+	"context"
 	"errors"
+	"github.com/wans/aiops-canvas/internal/core"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -10,6 +12,13 @@ import (
 )
 
 func (s *Service) Register(api *httpapi.Server) {
+	s.Authorize = func(ctx context.Context, user, inv, action string) error {
+		app, e := s.Repository.Application(ctx, inv)
+		if e != nil {
+			return e
+		}
+		return api.AuthorizeApplication(ctx, core.User{ID: user}, app, action)
+	}
 	s.registerReview(api)
 	api.Register("GET /api/v1/investigations/{id}/action-plans", "viewer", func(w http.ResponseWriter, r *http.Request) {
 		p, e := s.Plans(r.Context(), r.PathValue("id"))

@@ -48,46 +48,37 @@ type PlatformRepository interface {
 }
 
 func (s *Store) AuthorizeApplication(ctx context.Context, u core.User, app, permission string) error {
-	if u.ID == "" {
-		return ErrForbidden
-	}
-	var role string
-	var disabled, archived bool
-	e := s.DB.QueryRow(ctx, "SELECT u.role,u.disabled,a.archived FROM users u CROSS JOIN applications a WHERE u.id=$1 AND a.id=$2", u.ID, app).Scan(&role, &disabled, &archived)
-	if e != nil {
-		return ClassifyError(e)
-	}
-	if disabled || (permission == "operate" && (role == "viewer" || archived)) {
-		return ErrForbidden
-	}
-	if role == "admin" {
-		return nil
-	}
-	var allowed bool
-	e = s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM application_grants g WHERE application_id=$1 AND ($3='view' OR permission='operate') AND ((subject_type='user' AND subject_id=$2) OR (subject_type='team' AND subject_id IN (SELECT team_id FROM team_members WHERE user_id=$2))))`, app, u.ID, permission).Scan(&allowed)
-	if e != nil {
-		return e
-	}
-	if !allowed {
-		return ErrForbidden
-	}
-	return nil
+	return s.authorizeApplicationRBAC(ctx, u, app, permission)
 }
+
 func (s *Store) VisibleApplicationIDs(ctx context.Context, u core.User) ([]string, error) {
-	rows, e := s.DB.Query(ctx, `SELECT a.id FROM applications a JOIN users u ON u.id=$1 AND NOT u.disabled WHERE u.role='admin' OR EXISTS(SELECT 1 FROM application_grants g WHERE g.application_id=a.id AND ((g.subject_type='user' AND g.subject_id=u.id) OR (g.subject_type='team' AND g.subject_id IN (SELECT team_id FROM team_members WHERE user_id=u.id)))) ORDER BY a.id`, u.ID)
+	rows, e := s.DB.Query(ctx, "SELECT id FROM applications ORDER BY id")
 	if e != nil {
 		return nil, e
 	}
-	defer rows.Close()
-	v := []string{}
+	ids := []string{}
 	for rows.Next() {
 		var id string
 		if e = rows.Scan(&id); e != nil {
+			rows.Close()
 			return nil, e
 		}
-		v = append(v, id)
+		ids = append(ids, id)
 	}
-	return v, rows.Err()
+	rows.Close()
+	if e = rows.Err(); e != nil {
+		return nil, e
+	}
+	out := []string{}
+	for _, id := range ids {
+		e = s.AuthorizeApplication(ctx, u, id, "view")
+		if e == nil {
+			out = append(out, id)
+		} else if !errors.Is(e, ErrForbidden) {
+			return nil, e
+		}
+	}
+	return out, nil
 }
 
 const appColumns = "id,name,description,environment,key,COALESCE(owner_team_id,''),COALESCE(maintainer_id,''),tags,repository_url,runbook_url,archived,profile,COALESCE((SELECT name FROM users WHERE users.id=applications.maintainer_id),''),COALESCE((SELECT name FROM teams WHERE teams.id=applications.owner_team_id),'')"
@@ -319,6 +310,20 @@ func (s *Store) SetTeamMembers(ctx context.Context, id string, ids []string) err
 		return e
 	}
 	defer tx.Rollback(ctx)
+	// Serialize membership changes with role-to-department grants. Checking only
+	// the destination would miss a transfer away from a privileged department.
+	if _, e = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(752018995)"); e != nil {
+		return e
+	}
+	var grantsAccess bool
+	if e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rbac_department_roles WHERE department_id=$1 OR department_id IN (SELECT team_id FROM team_members WHERE user_id=ANY($2::text[])))`, id, ids).Scan(&grantsAccess); e != nil {
+		return e
+	}
+	if grantsAccess {
+		if e = authorizeIdentityGrant(ctx, tx); e != nil {
+			return e
+		}
+	}
 	var found string
 	if e = tx.QueryRow(ctx, "SELECT id FROM teams WHERE id=$1 FOR UPDATE", id).Scan(&found); e != nil {
 		return ClassifyError(e)

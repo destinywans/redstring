@@ -35,7 +35,8 @@ func (s *Service) visible(ctx context.Context, apps []string, admin bool, scope 
  WHERE EXISTS(SELECT 1 FROM cmdb_resource_applications l JOIN application_environments e ON e.id=l.environment_id
  WHERE l.resource_id=r.id AND l.application_id=ANY($1::text[]) AND ($3='' OR e.key=$3))
  OR ($2 AND $3='' AND NOT EXISTS(SELECT 1 FROM cmdb_resource_applications l WHERE l.resource_id=r.id))
- ORDER BY r.name,r.id LIMIT 10001`, apps, admin, scope)
+ OR ($3='' AND EXISTS(SELECT 1 FROM rbac_effective_permissions p WHERE p.user_id=$4 AND p.action='view' AND p.scope_type='resource' AND p.resource_id=r.id))
+ ORDER BY r.name,r.id LIMIT 10001`, apps, admin, scope, store.Principal(ctx).ID)
 	if err != nil {
 		return nil, err
 	}

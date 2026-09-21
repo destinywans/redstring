@@ -14,6 +14,7 @@ import {
 } from "../../lib/icons";
 import { useWorkspace } from "../../lib/workspace";
 import "./settings-workspace.css";
+import { useRbacAccess, isRbacPath } from "./rbac/access";
 
 const Profile = lazy(() =>
   import("./ProfilePage").then((module) => ({ default: module.ProfilePage })),
@@ -34,12 +35,18 @@ const Roles = lazy(() =>
     default: module.RolesSettingsPage,
   })),
 );
+const Permissions = lazy(() =>
+  import("./directory/PermissionsSettingsPage").then((module) => ({
+    default: module.PermissionsSettingsPage,
+  })),
+);
 const destinations = [
   { to: "/profile", label: "个人资料", icon: User },
   { to: "/platform/settings", label: "平台概览", icon: LayoutGrid },
   { to: "/members", label: "成员管理", icon: Users },
   { to: "/teams", label: "部门管理", icon: Building2 },
-  { to: "/platform/roles", label: "角色与资源范围", icon: ShieldCheck },
+  { to: "/platform/roles", label: "角色管理", icon: ShieldCheck },
+  { to: "/platform/permissions", label: "权限管理", icon: ShieldCheck },
 ];
 
 export default function SettingsWorkspace({
@@ -57,7 +64,8 @@ export default function SettingsWorkspace({
   onToggleTheme: () => void;
   onHelp: () => void;
 }) {
-  const { user } = useWorkspace();
+  const { user, preview } = useWorkspace();
+  const access = useRbacAccess(user, preview);
   const location = useLocation();
   const destination = destinations.find(
     (item) => item.to === location.pathname,
@@ -83,7 +91,12 @@ export default function SettingsWorkspace({
         </div>
         <nav aria-label="设置页面">
           {destinations
-            .filter((item) => item.to === "/profile" || user.role === "admin")
+            .filter(
+              (item) =>
+                item.to === "/profile" ||
+                user.role === "admin" ||
+                (isRbacPath(item.to) && access.canManage("rbac")),
+            )
             .map((item) => (
               <NavLink
                 key={item.to}
@@ -131,10 +144,16 @@ export default function SettingsWorkspace({
           </button>
         </header>
         <main id="settings-main" tabIndex={-1} className="settings-content">
-          {user.role !== "admin" && location.pathname !== "/profile" ? (
+          {user.role !== "admin" &&
+          location.pathname !== "/profile" &&
+          !(isRbacPath(location.pathname) && access.canManage("rbac")) ? (
             <div className="settings-denied">
               <ShieldCheck size={32} />
-              <h1>需要管理员权限</h1>
+              <h1>
+                {access.isPending
+                  ? "正在核对管理权限…"
+                  : "需要此页面的管理权限"}
+              </h1>
               <p>平台设置包含账号与权限资料，请联系管理员。</p>
               <NavLink className="btn" to={homeURL}>
                 返回工作台
@@ -150,6 +169,7 @@ export default function SettingsWorkspace({
                 <Route path="/members" element={<Members />} />
                 <Route path="/teams" element={<Teams />} />
                 <Route path="/platform/roles" element={<Roles />} />
+                <Route path="/platform/permissions" element={<Permissions />} />
               </Routes>
             </Suspense>
           )}

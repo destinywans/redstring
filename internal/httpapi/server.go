@@ -109,7 +109,7 @@ func (s *Server) Register(pattern, minRole string, h http.HandlerFunc) {
 			Error(w, 401, "unauthorized", "Session expired")
 			return
 		}
-		if rank(u.Role) < rank(minRole) {
+		if e := s.authorizeRole(r, u, minRole); e != nil {
 			Error(w, 403, "forbidden", "Insufficient permission")
 			return
 		}

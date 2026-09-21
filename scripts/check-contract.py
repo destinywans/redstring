@@ -24,7 +24,7 @@ for path,methods in spec['paths'].items():
         ids.add(op['operationId'])
         assert 'responses' in op and 'description' in op
 actual=set()
-for directory in ('httpapi','actions','knowledge','operations','memoryview','aiextensions','resources','settings','profile'):
+for directory in ('httpapi','actions','knowledge','operations','memoryview','aiextensions','resources','settings','profile','rbac'):
     for f in (root/'internal'/directory).glob('*.go'):
         if f.name.endswith('_test.go'):continue
         actual.update(re.findall(r'"(GET|POST|PUT|PATCH|DELETE) (/api/v1/[^\"]+)"',f.read_text()))

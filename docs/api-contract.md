@@ -1,5 +1,9 @@
 # 后端 API 契约
 
+## 记忆列表分页（WAN-96）
+
+`GET /memory/documents`、`GET /memory/contexts` 增加 `limit`（1～50，默认50）及响应 `total`。total复用候选页的权限和查询条件，游标不影响计数；一个响应内使用只读一致性快照，跨请求仍允许数据变化。审计保持原契约，不纳入本轮。见[分页规则](design/pagination.md)。
+
 ## 个人资料（WAN-104）
 
 `GET/PATCH /profile` 与 `POST /profile/password` 只操作当前身份，头像、账号资料和实际权限见 [详细契约](profile-api.md)。013迁移保存手机号/头像；改密校验旧密码并撤销本人全部会话。

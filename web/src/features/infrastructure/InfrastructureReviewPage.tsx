@@ -1,10 +1,9 @@
+import Pagination from "../../components/Pagination";
 import { Fragment, useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
-  ArrowLeft,
-  ArrowRight,
   Box,
   Database,
   Layers,
@@ -363,7 +362,10 @@ export default function InfrastructureReviewPage() {
         Number(b.kind === "deployment") - Number(a.kind === "deployment") ||
         a.name.localeCompare(b.name),
     );
-  const pageSize = 10;
+  const requestedPageSize = Number(params.get("page_size") ?? 10);
+  const pageSize = [10, 20, 50].includes(requestedPageSize)
+    ? requestedPageSize
+    : 10;
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const requestedPage = Number(params.get("page"));
   const page = Math.min(
@@ -654,28 +656,22 @@ export default function InfrastructureReviewPage() {
                 : "当前范围没有匹配资源"}
           </div>
         )}
-        <footer className="infra-pagination">
-          <span>共 {filtered.length} 条</span>
-          <button
-            className="icon-button"
-            aria-label="上一页"
-            disabled={page === 1}
-            onClick={() => update("page", String(page - 1))}
-          >
-            <ArrowLeft size={15} />
-          </button>
-          <span>
-            第 {page} / {totalPages} 页
-          </span>
-          <button
-            className="icon-button"
-            aria-label="下一页"
-            disabled={page === totalPages}
-            onClick={() => update("page", String(page + 1))}
-          >
-            <ArrowRight size={15} />
-          </button>
-        </footer>
+        <Pagination
+          ariaLabel="基础设施资源分页"
+          total={inventory.data ? filtered.length : undefined}
+          totalLabel={
+            inventory.isLoading
+              ? "正在加载…"
+              : inventory.error
+                ? "记录暂不可用"
+                : undefined
+          }
+          page={page}
+          pageSize={pageSize}
+          loading={inventory.isFetching}
+          onPageChange={(next) => update("page", String(next))}
+          onPageSizeChange={(size) => update("page_size", String(size))}
+        />
       </section>
       <footer className="infra-review-footnote">
         示例状态用于界面验收，不代表实际基础设施健康。

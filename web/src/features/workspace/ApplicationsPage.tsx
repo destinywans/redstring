@@ -1,17 +1,11 @@
+import Pagination from "../../components/Pagination";
 import SelectField from "../../components/SelectField";
 import { memberLabel } from "../../lib/members";
 import { ProfileFields, readProfile } from "./ApplicationProfile";
 import { useEffect, useRef, useState } from "react";
 import { useNavigationType, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Box,
-  Plus,
-  X,
-  ChevronLeft,
-  ChevronRight,
-  SlidersHorizontal,
-} from "../../lib/icons";
+import { Box, Plus, X, SlidersHorizontal } from "../../lib/icons";
 import { request, post, patch } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
 import type { Application, Team, User } from "../../lib/types";
@@ -418,45 +412,15 @@ export default function ApplicationsPage() {
             )}
           </div>
         )}
-        <footer className="catalog-table-footer application-pagination">
-          <span aria-live="polite">共 {filtered.length} 条</span>
-          <FilterSelect
-            id="application-page-size"
-            label="每页条数"
-            showLabel={false}
-            includeEmptyOption={false}
-            popoverWidth={160}
-            options={[5, 10, 20, 50].map((size) => ({
-              value: String(size),
-              label: `${size} 条 / 页`,
-            }))}
-            values={[String(pageSize)]}
-            onChange={(values) => updateFilter("page_size", values[0] ?? "10")}
-          />
-          <nav aria-label="应用列表分页">
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="上一页"
-              disabled={page <= 1}
-              onClick={() => updateFilter("page", String(page - 1))}
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <span aria-live="polite">
-              第 {page} / {totalPages} 页
-            </span>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="下一页"
-              disabled={page >= totalPages}
-              onClick={() => updateFilter("page", String(page + 1))}
-            >
-              <ChevronRight size={16} />
-            </button>
-          </nav>
-        </footer>
+        <Pagination
+          ariaLabel="应用列表分页"
+          total={filtered.length}
+          page={page}
+          pageSize={pageSize}
+          pageSizeOptions={[5, 10, 20, 50]}
+          onPageChange={(next) => updateFilter("page", String(next))}
+          onPageSizeChange={(size) => updateFilter("page_size", String(size))}
+        />
       </div>
       <ApplicationDrawer
         open={editing !== undefined}

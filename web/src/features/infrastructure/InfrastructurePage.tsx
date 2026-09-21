@@ -1,3 +1,4 @@
+import Pagination, { useListPagination } from "../../components/Pagination";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
@@ -128,6 +129,13 @@ export default function InfrastructurePage() {
       .toLowerCase()
       .includes(search.trim().toLowerCase()),
   );
+  const registrationPages = useListPagination(
+    rows,
+    `${scope.query}:${search}:${view}`,
+  );
+  const snapshotKey = `${application?.id}:${environment?.id}:${data?.captured_at ?? ""}`;
+  const imagePages = useListPagination(data?.images ?? [], snapshotKey);
+  const revisionPages = useListPagination(data?.revisions ?? [], snapshotKey);
   function selectView(next: string) {
     const nextParams = new URLSearchParams(params);
     if (next === "summary") nextParams.delete("view");
@@ -296,7 +304,7 @@ export default function InfrastructurePage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {data.images.map((image) => (
+                        {imagePages.items.map((image) => (
                           <tr key={image.name}>
                             <td>{image.name}</td>
                             <td>
@@ -312,13 +320,23 @@ export default function InfrastructurePage() {
                       </p>
                     )}
                   </div>
+                  <Pagination
+                    ariaLabel="容器镜像分页"
+                    page={imagePages.page}
+                    pageSize={imagePages.pageSize}
+                    total={imagePages.total}
+                    totalLabel={`本次快照 ${imagePages.total} 条`}
+                    loading={snapshot.isFetching}
+                    onPageChange={imagePages.setPage}
+                    onPageSizeChange={imagePages.setPageSize}
+                  />
                   <details className="infra-revisions">
                     <summary>历史模板版本 · {data.revisions.length} 项</summary>
                     <p className="infra-scope-note">
                       来自关联 ReplicaSet
                       的模板记录，不表示镜像可用或已批准回滚。
                     </p>
-                    {data.revisions.map((revision, index) => (
+                    {revisionPages.items.map((revision, index) => (
                       <article
                         key={`${revision.revision}-${revision.digest}-${index}`}
                       >
@@ -336,6 +354,16 @@ export default function InfrastructurePage() {
                       </article>
                     ))}
                     {!data.revisions.length && <p>暂无历史模板记录。</p>}
+                    <Pagination
+                      ariaLabel="历史模板记录分页"
+                      page={revisionPages.page}
+                      pageSize={revisionPages.pageSize}
+                      total={revisionPages.total}
+                      totalLabel={`已返回 ${revisionPages.total} 条`}
+                      loading={snapshot.isFetching}
+                      onPageChange={revisionPages.setPage}
+                      onPageSizeChange={revisionPages.setPageSize}
+                    />
                   </details>
                   <div className="infra-actions">
                     <Link
@@ -379,7 +407,7 @@ export default function InfrastructurePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map(({ app, env }) => (
+                  {registrationPages.items.map(({ app, env }) => (
                     <tr key={env.id}>
                       <td>
                         <strong>{app.name}</strong>
@@ -423,6 +451,15 @@ export default function InfrastructurePage() {
                 </tbody>
               </table>
             </div>
+            <Pagination
+              ariaLabel="登记资源列表分页"
+              page={registrationPages.page}
+              pageSize={registrationPages.pageSize}
+              total={registrationPages.total}
+              totalLabel={`已登记 ${registrationPages.total} 条`}
+              onPageChange={registrationPages.setPage}
+              onPageSizeChange={registrationPages.setPageSize}
+            />
             {!rows.length && (
               <p className="infra-scope-note">
                 {registered.length

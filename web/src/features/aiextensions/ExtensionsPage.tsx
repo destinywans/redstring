@@ -1,3 +1,4 @@
+import Pagination, { useListPagination } from "../../components/Pagination";
 import SelectField from "../../components/SelectField";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -260,6 +261,10 @@ function ExtensionWorkspace({ app, kind }: { app: string; kind: Kind }) {
           (scopeFilter !== "application" || !!r.application_id) &&
           (!app || r.application_id === app))),
   );
+  const pagination = useListPagination(
+    items,
+    JSON.stringify([kind, app, scopeFilter, committedSearch]),
+  );
   async function discover() {
     if (!selected) return;
     setBusy(true);
@@ -406,7 +411,7 @@ function ExtensionWorkspace({ app, kind }: { app: string; kind: Kind }) {
               </p>
             </div>
           ) : (
-            items.map((r) => (
+            pagination.items.map((r) => (
               <button
                 className={`extension-row ${selected?.id === r.id ? "selected" : ""}`}
                 key={r.id}
@@ -442,6 +447,15 @@ function ExtensionWorkspace({ app, kind }: { app: string; kind: Kind }) {
               </button>
             ))
           )}
+          <Pagination
+            page={pagination.page}
+            pageSize={pagination.pageSize}
+            total={pagination.total}
+            onPageChange={pagination.setPage}
+            onPageSizeChange={pagination.setPageSize}
+            totalLabel={`本次结果共 ${pagination.total} 条`}
+            loading={list.isPending}
+          />
         </section>
         <section className="card extension-detail" aria-label="扩展详情">
           {!selected ? (

@@ -1,3 +1,4 @@
+import Pagination, { useListPagination } from "../../components/Pagination";
 import SelectField from "../../components/SelectField";
 import { AutomationResult } from "./AutomationEvidence";
 import { useState, useEffect } from "react";
@@ -32,6 +33,7 @@ export default function AutomationPanel({
       ),
     enabled: !preview,
   });
+  const pagination = useListPagination(runs.data?.items ?? [], environmentId);
   const [p, setP] = useState<Policy | null>(null),
     [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -170,7 +172,7 @@ export default function AutomationPanel({
       <h3>最近自动化任务</h3>
       {runs.error && <ErrorNotice error={runs.error} />}
       <div>
-        {(runs.data?.items ?? []).map((r) => (
+        {pagination.items.map((r) => (
           <div className="management-row" key={r.id}>
             <div className="grow">
               <strong>{r.kind === "patrol" ? "主动巡检" : "告警初查"}</strong>
@@ -201,6 +203,15 @@ export default function AutomationPanel({
           </div>
         ))}
       </div>
+      <Pagination
+        page={pagination.page}
+        pageSize={pagination.pageSize}
+        total={pagination.total}
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+        totalLabel={`本次任务结果共 ${pagination.total} 条`}
+        loading={runs.isFetching}
+      />
     </section>
   );
 }

@@ -156,7 +156,8 @@
   padding: 0;
   border: 0;
   color: var(--text);
-  font: var(--weight-regular) var(--type-small) / var(--leading-ui) var(--font-ui);
+  font: var(--weight-regular) var(--type-small) / var(--leading-ui)
+    var(--font-ui);
   cursor: pointer;
   max-width: 100%;
 }
@@ -218,33 +219,9 @@
   border: 0;
   background: transparent;
   color: inherit;
-  font: var(--weight-regular) var(--type-small) / var(--leading-ui) var(--font-ui);
+  font: var(--weight-regular) var(--type-small) / var(--leading-ui)
+    var(--font-ui);
   cursor: pointer;
-}
-.resource-pagination {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  padding: 14px 18px;
-  border-top: 1px solid var(--border);
-  font-size: var(--type-caption);
-  color: var(--muted);
-  margin-top: auto;
-}
-.resource-pagination .icon-button {
-  width: 30px;
-  height: 30px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-.resource-pagination .icon-button:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-.resource-pagination .filter-select-trigger {
-  height: 30px;
-  font-size: var(--type-small);
 }
 .resource-empty {
   padding: 56px 24px;
@@ -466,7 +443,8 @@
   color: var(--accent);
   background: none;
   cursor: pointer;
-  font: var(--weight-medium) var(--type-small) / var(--leading-ui) var(--font-ui);
+  font: var(--weight-medium) var(--type-small) / var(--leading-ui)
+    var(--font-ui);
   text-align: left;
 }
 .resource-timeline {
@@ -712,10 +690,6 @@
   .resource-tabs {
     padding: 0 18px;
     gap: 20px;
-  }
-  .resource-pagination {
-    flex-wrap: wrap;
-    gap: 9px;
   }
   .resource-facts > div {
     grid-template-columns: 85px minmax(0, 1fr);

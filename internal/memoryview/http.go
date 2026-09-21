@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/knowledge"
 	"github.com/wans/aiops-canvas/internal/store"
@@ -35,6 +37,11 @@ type ContextSummary struct {
 
 func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/memory/documents", "viewer", func(w http.ResponseWriter, r *http.Request) {
+		limit, e := pageLimit(r)
+		if e != nil {
+			fail(w, e)
+			return
+		}
 		scope, e := httpapi.ParseReadScope(r.URL.Query())
 		if e != nil {
 			fail(w, e)
@@ -54,7 +61,21 @@ func (s *Service) Register(api *httpapi.Server) {
 		}
 		// Apply access, applicability and search before the page boundary. The
 		// knowledge overview's bounded List is not a pageable source of truth.
-		rows, e := s.Store.DB.Query(r.Context(), documentIDsSQL, apps, scope.ApplicationIDs, scope.EnvironmentIDs, q, kind, r.URL.Query().Get("lifecycle"), cursor)
+		args := []any{apps, scope.ApplicationIDs, scope.EnvironmentIDs, q, kind, r.URL.Query().Get("lifecycle")}
+		// Keep totals and candidates on the same database snapshot. Document
+		// content is still projected through Knowledge.Get with a fresh ACL check.
+		tx, e := s.Store.DB.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+		if e != nil {
+			fail(w, e)
+			return
+		}
+		defer tx.Rollback(r.Context())
+		var total int64
+		if e = tx.QueryRow(r.Context(), "SELECT count(*) FROM ("+documentFilteredSQL+") matching", args...).Scan(&total); e != nil {
+			fail(w, e)
+			return
+		}
+		rows, e := tx.Query(r.Context(), documentIDsSQL, append(args, cursor, limit+1)...)
 		if e != nil {
 			fail(w, e)
 			return
@@ -75,9 +96,10 @@ func (s *Service) Register(api *httpapi.Server) {
 			fail(w, e)
 			return
 		}
+		_ = tx.Rollback(r.Context())
 		next := ""
-		if len(ids) > 50 {
-			ids = ids[:50]
+		if len(ids) > limit {
+			ids = ids[:limit]
 			next = ids[len(ids)-1]
 		}
 		items := []knowledge.Document{}
@@ -95,9 +117,14 @@ func (s *Service) Register(api *httpapi.Server) {
 			d.Body = ""
 			items = append(items, d)
 		}
-		httpapi.WriteJSON(w, 200, map[string]any{"items": items, "next_cursor": next})
+		httpapi.WriteJSON(w, 200, map[string]any{"items": items, "next_cursor": next, "total": total})
 	})
 	api.Register("GET /api/v1/memory/contexts", "viewer", func(w http.ResponseWriter, r *http.Request) {
+		limit, e := pageLimit(r)
+		if e != nil {
+			fail(w, e)
+			return
+		}
 		scope, e := httpapi.ParseReadScope(r.URL.Query())
 		if e != nil {
 			fail(w, e)
@@ -114,7 +141,21 @@ func (s *Service) Register(api *httpapi.Server) {
 			fail(w, store.ErrInvalidReference)
 			return
 		}
-		rows, e := s.Store.DB.Query(r.Context(), `SELECT b.id,b.title,b.investigation_id,i.title,i.application_id,coalesce(i.environment_id,''),coalesce(b.parent_id,''),b.model_id,b.revision,jsonb_array_length(c.messages),c.created_at,c.provenance FROM branches b JOIN investigations i ON i.id=b.investigation_id JOIN context_revisions c ON c.branch_id=b.id AND c.revision=b.revision WHERE i.application_id=ANY($1::text[]) AND (cardinality($2::text[])=0 OR i.application_id=ANY($2::text[])) AND (cardinality($3::text[])=0 OR i.environment_id=ANY($3::text[])) AND ($4='' OR position(lower($4) in lower(b.title||' '||i.title))>0) AND ($5='' OR b.id<$5) ORDER BY b.id DESC LIMIT 51`, apps, scope.ApplicationIDs, scope.EnvironmentIDs, q, cursor)
+		args := []any{apps, scope.ApplicationIDs, scope.EnvironmentIDs, q}
+		// Keep totals and candidates on the same database snapshot. Document
+		// content is still projected through Knowledge.Get with a fresh ACL check.
+		tx, e := s.Store.DB.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+		if e != nil {
+			fail(w, e)
+			return
+		}
+		defer tx.Rollback(r.Context())
+		var total int64
+		if e = tx.QueryRow(r.Context(), "SELECT count(*)"+contextFilteredSQL, args...).Scan(&total); e != nil {
+			fail(w, e)
+			return
+		}
+		rows, e := tx.Query(r.Context(), `SELECT b.id,b.title,b.investigation_id,i.title,i.application_id,coalesce(i.environment_id,''),coalesce(b.parent_id,''),b.model_id,b.revision,jsonb_array_length(c.messages),c.created_at,c.provenance`+contextFilteredSQL+` AND ($5='' OR b.id<$5) ORDER BY b.id DESC LIMIT $6`, append(args, cursor, limit+1)...)
 		if e != nil {
 			fail(w, e)
 			return
@@ -134,11 +175,11 @@ func (s *Service) Register(api *httpapi.Server) {
 			return
 		}
 		next := ""
-		if len(items) > 50 {
-			items = items[:50]
+		if len(items) > limit {
+			items = items[:limit]
 			next = items[len(items)-1].ID
 		}
-		httpapi.WriteJSON(w, 200, map[string]any{"items": items, "next_cursor": next})
+		httpapi.WriteJSON(w, 200, map[string]any{"items": items, "next_cursor": next, "total": total})
 	})
 	api.Register("GET /api/v1/memory/documents/{id}/references", "viewer", func(w http.ResponseWriter, r *http.Request) {
 		d, e := s.Knowledge.Get(r.Context(), r.PathValue("id"))
@@ -189,7 +230,7 @@ func (s *Service) Register(api *httpapi.Server) {
 // Scope is applicability, not a substitute for the actor's application ACL.
 // An unrestricted environment list on a document means all environments of its
 // applicable applications, rather than all environments in the workspace.
-const documentIDsSQL = `
+const documentFilteredSQL = `
 WITH selected AS (
  SELECT ARRAY(SELECT unnest($2::text[]) INTERSECT SELECT unnest($1::text[])) AS apps
 )
@@ -212,9 +253,25 @@ AND (COALESCE(cardinality($3::text[]),0)=0 OR EXISTS (
 AND ($4='' OR position($4 in lower(d.title||' '||d.body||' '||d.source))>0)
 AND ($5<>'experience' OR d.investigation_id IS NOT NULL)
 AND ($5<>'runbook' OR d.investigation_id IS NULL)
-AND ($6='' OR d.lifecycle=$6)
-AND ($7='' OR d.id<$7)
-ORDER BY d.id DESC LIMIT 51`
+AND ($6='' OR d.lifecycle=$6)`
+const documentIDsSQL = documentFilteredSQL + `
+AND ($7='' OR d.id<$7) ORDER BY d.id DESC LIMIT $8`
+const contextFilteredSQL = ` FROM branches b JOIN investigations i ON i.id=b.investigation_id JOIN context_revisions c ON c.branch_id=b.id AND c.revision=b.revision WHERE i.application_id=ANY($1::text[]) AND (cardinality($2::text[])=0 OR i.application_id=ANY($2::text[])) AND (cardinality($3::text[])=0 OR i.environment_id=ANY($3::text[])) AND ($4='' OR position(lower($4) in lower(b.title||' '||i.title))>0)`
+
+func pageLimit(r *http.Request) (int, error) {
+	raw, exists := r.URL.Query()["limit"]
+	if !exists {
+		return 50, nil
+	}
+	if len(raw) != 1 {
+		return 0, store.ErrInvalidReference
+	}
+	limit, e := strconv.Atoi(raw[0])
+	if e != nil || limit < 1 || limit > 50 {
+		return 0, store.ErrInvalidReference
+	}
+	return limit, nil
+}
 
 func fail(w http.ResponseWriter, e error) {
 	status := 503

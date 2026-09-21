@@ -1,3 +1,4 @@
+import Pagination, { useListPagination } from "../../components/Pagination";
 import SelectField from "../../components/SelectField";
 import ScopeFilter from "../../components/ScopeFilter";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -174,6 +175,22 @@ export default function KnowledgePage() {
         { name: "Kubernetes", items: documents.slice(6) },
       ]
     : [{ name: application?.name ?? "应用知识", items: documents }];
+  const documentPages = useListPagination(
+    groups.flatMap((g) => g.items).filter((d) => d.title.includes(filter)),
+    JSON.stringify([application?.id, preview, filter]),
+  );
+  const hitPages = useListPagination(
+    hits ?? [],
+    JSON.stringify([
+      application?.id,
+      query,
+      hits?.map((h) => `${h.document_id}-${h.chunk}`),
+    ]),
+  );
+  const draftPages = useListPagination(
+    drafts.data?.items ?? [],
+    investigationId || "",
+  );
   const error = (e: unknown) =>
     notify(e instanceof Error ? e.message : "操作失败，请稍后重试", "error");
   async function search() {
@@ -433,29 +450,45 @@ export default function KnowledgePage() {
                   </button>
                 </p>
               )}
-              {groups.map((g) => (
-                <details key={g.name} open className="knowledge-tree">
-                  <summary>
-                    <Folder size={17} />
-                    {g.name}
-                  </summary>
-                  {g.items
-                    .filter((d) => d.title.includes(filter))
-                    .map((d) => (
-                      <button
-                        key={d.id}
-                        className={selectedId === d.id ? "selected" : ""}
-                        onClick={() => {
-                          setSelectedId(d.id);
-                          setHitDetail(null);
-                        }}
-                      >
-                        <FileText size={17} />
-                        <span>{d.title}</span>
-                      </button>
-                    ))}
-                </details>
-              ))}
+              {groups
+                .filter((g) =>
+                  g.items.some((d) =>
+                    documentPages.items.some((item) => item.id === d.id),
+                  ),
+                )
+                .map((g) => (
+                  <details key={g.name} open className="knowledge-tree">
+                    <summary>
+                      <Folder size={17} />
+                      {g.name}
+                    </summary>
+                    {g.items
+                      .filter((d) =>
+                        documentPages.items.some((item) => item.id === d.id),
+                      )
+                      .map((d) => (
+                        <button
+                          key={d.id}
+                          className={selectedId === d.id ? "selected" : ""}
+                          onClick={() => {
+                            setSelectedId(d.id);
+                            setHitDetail(null);
+                          }}
+                        >
+                          <FileText size={17} />
+                          <span>{d.title}</span>
+                        </button>
+                      ))}
+                  </details>
+                ))}
+              <Pagination
+                page={documentPages.page}
+                pageSize={documentPages.pageSize}
+                total={documentPages.total}
+                onPageChange={documentPages.setPage}
+                onPageSizeChange={documentPages.setPageSize}
+                totalLabel={`本次结果共 ${documentPages.total} 条`}
+              />
               {!docs.isLoading && !documents.length && (
                 <p className="muted knowledge-empty">
                   还没有 Runbook。导入一份操作手册开始积累。
@@ -611,7 +644,7 @@ export default function KnowledgePage() {
                   <p className="management-notice">{retrievalNotice}</p>
                 )}
                 <div className="knowledge-results">
-                  {hits?.map((h) => (
+                  {hitPages.items.map((h) => (
                     <button
                       className="knowledge-result"
                       key={`${h.document_id}-${h.chunk}`}
@@ -637,6 +670,16 @@ export default function KnowledgePage() {
                       </footer>
                     </button>
                   ))}
+                  {hits !== null && (
+                    <Pagination
+                      page={hitPages.page}
+                      pageSize={hitPages.pageSize}
+                      total={hitPages.total}
+                      onPageChange={hitPages.setPage}
+                      onPageSizeChange={hitPages.setPageSize}
+                      totalLabel={`本次结果共 ${hitPages.total} 条`}
+                    />
+                  )}
                   {hits?.length === 0 && (
                     <p className="muted">没有找到相关资料。尝试调整关键词。</p>
                   )}
@@ -712,7 +755,7 @@ export default function KnowledgePage() {
                 {drafts.isError && (
                   <p className="knowledge-error">草稿读取失败。</p>
                 )}
-                {(drafts.data?.items ?? []).map((d) => (
+                {draftPages.items.map((d) => (
                   <button
                     className="knowledge-result"
                     key={d.id}
@@ -736,6 +779,14 @@ export default function KnowledgePage() {
                     </footer>
                   </button>
                 ))}
+                <Pagination
+                  page={draftPages.page}
+                  pageSize={draftPages.pageSize}
+                  total={draftPages.total}
+                  onPageChange={draftPages.setPage}
+                  onPageSizeChange={draftPages.setPageSize}
+                  totalLabel={`本次草稿结果共 ${draftPages.total} 条`}
+                />
                 {!drafts.data?.items?.length && (
                   <p className="muted knowledge-empty">
                     {investigationId

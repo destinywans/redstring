@@ -1,3 +1,4 @@
+import Pagination, { useListPagination } from "../../../components/Pagination";
 import { useState, type FormEvent } from "react";
 import { Plus, Upload } from "../../../lib/icons";
 import { post, patch } from "../../../lib/api";
@@ -16,12 +17,10 @@ import {
   DirectoryNotice,
   DirectoryState,
   DrawerFooter,
-  Pagination,
   RoleBadge,
   dateLabel,
   roleLabels,
   useDirectory,
-  usePages,
   useRefreshDirectory,
   type DirectoryMember,
 } from "./shared";
@@ -59,7 +58,7 @@ function MembersDirectory() {
         .toLowerCase()
         .includes(search.trim().toLowerCase()),
   );
-  const pagination = usePages(
+  const pagination = useListPagination(
     rows,
     [search, role, department, status].join("|"),
   );
@@ -214,7 +213,7 @@ function MembersDirectory() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pagination.rows.map((m) => (
+                  {pagination.items.map((m) => (
                     <tr key={m.id}>
                       <td>
                         <div className="directory-person">
@@ -266,10 +265,12 @@ function MembersDirectory() {
               retry={directory.refetch}
             />
             <Pagination
-              count={rows.length}
+              total={pagination.total}
               page={pagination.page}
-              pages={pagination.pages}
-              onChange={pagination.setPage}
+              pageSize={pagination.pageSize}
+              loading={directory.isFetching}
+              onPageSizeChange={pagination.setPageSize}
+              onPageChange={pagination.setPage}
             />
           </>
         )}

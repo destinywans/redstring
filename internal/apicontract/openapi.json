@@ -10332,7 +10332,7 @@
       "get": {
         "summary": "Browse authorized documents with a stable ID cursor",
         "operationId": "get_memory_documents",
-        "description": "Minimum role: viewer. 50 items per page. Context snapshots are read-only. Document mutations use the existing versioned knowledge API and application permission checks.",
+        "description": "Minimum role: viewer. Page size is configurable from 1 to 50 (default 50). Total and candidates share the same permission/filter predicates and a read-only snapshot within each response. Document content is reauthorized before projection; concurrent revocation can omit a candidate. A cursor is authoritative for whether more candidates remain. Context snapshots are read-only. Document mutations use the existing versioned knowledge API and application permission checks.",
         "responses": {
           "200": {
             "description": "Success",
@@ -10349,6 +10349,10 @@
                     },
                     "next_cursor": {
                       "type": "string"
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": 0
                     }
                   },
                   "additionalProperties": false
@@ -10467,6 +10471,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 50
+            }
           }
         ]
       }
@@ -10475,7 +10489,7 @@
       "get": {
         "summary": "Browse authorized contexts with a stable ID cursor",
         "operationId": "get_memory_contexts",
-        "description": "Minimum role: viewer. 50 items per page. Context snapshots are read-only. Document mutations use the existing versioned knowledge API and application permission checks.",
+        "description": "Minimum role: viewer. Page size is configurable from 1 to 50 (default 50). Total and candidates share the same permission/filter predicates and a read-only snapshot within each response. Document content is reauthorized before projection; concurrent revocation can omit a candidate. A cursor is authoritative for whether more candidates remain. Context snapshots are read-only. Document mutations use the existing versioned knowledge API and application permission checks.",
         "responses": {
           "200": {
             "description": "Success",
@@ -10492,6 +10506,10 @@
                     },
                     "next_cursor": {
                       "type": "string"
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": 0
                     }
                   },
                   "additionalProperties": false
@@ -10609,6 +10627,16 @@
             "in": "query",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 50
             }
           }
         ]

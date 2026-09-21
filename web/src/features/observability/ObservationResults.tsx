@@ -1,3 +1,4 @@
+import Pagination, { useListPagination } from "../../components/Pagination";
 import SelectField from "../../components/SelectField";
 import { useState } from "react";
 import TelemetryResult from "../overview/TelemetryResult";
@@ -41,6 +42,10 @@ export default function ObservationResults({
         entry.line.toLowerCase().includes(filter.toLowerCase()) &&
         (level === "all" || entry.severity.value === level),
     );
+  const logPages = useListPagination(
+    entries,
+    `${snapshot.id}:${filter}:${level}`,
+  );
   const count =
     snapshot.mode === "metrics"
       ? (result.series?.length ?? 0)
@@ -190,11 +195,10 @@ export default function ObservationResults({
           </div>
           <p className="muted observation-help">
             筛选仅作用于本次已返回的 {result.entries?.length ?? 0}{" "}
-            条日志，当前显示 {entries.length}{" "}
-            条。顶部“带入调查”固定本次返回结果，行内按钮仅固定选中日志。
+            条日志。顶部“带入调查”固定本次返回结果，行内按钮仅固定选中日志。
           </p>
           <div className="observation-log-list">
-            {entries.map((entry) => (
+            {logPages.items.map((entry) => (
               <article key={`${snapshot.id}-${entry.index}`}>
                 <header>
                   <time>{timeLabel(entry.timestamp)}</time>
@@ -227,6 +231,15 @@ export default function ObservationResults({
               </article>
             ))}
           </div>
+          <Pagination
+            ariaLabel="日志结果分页"
+            page={logPages.page}
+            pageSize={logPages.pageSize}
+            total={logPages.total}
+            totalLabel={`已返回中匹配 ${logPages.total} 条`}
+            onPageChange={logPages.setPage}
+            onPageSizeChange={logPages.setPageSize}
+          />
           {!entries.length && !!count && (
             <p className="management-empty">
               没有匹配当前文本与级别筛选的日志。

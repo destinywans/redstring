@@ -1,3 +1,4 @@
+import Pagination, { useListPagination } from "../../../components/Pagination";
 import { useState, type FormEvent } from "react";
 import { Box, Plus } from "../../../lib/icons";
 import { post, patch, put } from "../../../lib/api";
@@ -14,10 +15,8 @@ import {
   DirectoryNotice,
   DirectoryState,
   DrawerFooter,
-  Pagination,
   dateLabel,
   useDirectory,
-  usePages,
   useRefreshDirectory,
   type DirectoryTeam,
 } from "./shared";
@@ -51,7 +50,10 @@ function TeamsDirectory() {
         .toLowerCase()
         .includes(search.trim().toLowerCase()),
   );
-  const pagination = usePages(rows, [search, owner, application].join("|"));
+  const pagination = useListPagination(
+    rows,
+    [search, owner, application].join("|"),
+  );
   const close = () => {
     if (!busy) {
       setEditing(null);
@@ -217,7 +219,7 @@ function TeamsDirectory() {
                   </tr>
                 </thead>
                 <tbody>
-                  {pagination.rows.map((t) => (
+                  {pagination.items.map((t) => (
                     <tr key={t.id} data-selected={selectedId === t.id}>
                       <td>
                         <button
@@ -255,10 +257,12 @@ function TeamsDirectory() {
               retry={directory.refetch}
             />
             <Pagination
-              count={rows.length}
+              total={pagination.total}
               page={pagination.page}
-              pages={pagination.pages}
-              onChange={pagination.setPage}
+              pageSize={pagination.pageSize}
+              loading={directory.isFetching}
+              onPageSizeChange={pagination.setPageSize}
+              onPageChange={pagination.setPage}
             />
           </>
         )}

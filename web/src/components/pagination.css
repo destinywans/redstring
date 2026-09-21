@@ -1,0 +1,85 @@
+.list-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  width: 100%;
+  min-height: 64px;
+  padding: 13px 16px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+.list-pagination-total,
+.list-pagination-page {
+  white-space: nowrap;
+}
+.list-pagination-separator {
+  color: var(--muted);
+}
+.list-pagination-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font: inherit;
+}
+.list-pagination-size .filter-select-trigger {
+  min-width: 64px;
+  width: auto;
+  height: 36px;
+  padding: 0 10px;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.list-pagination-size .filter-select-trigger svg {
+  width: 16px;
+  height: 16px;
+}
+.list-pagination-size:disabled .filter-select-trigger {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.list-pagination-buttons {
+  display: inline-flex;
+  gap: 6px;
+}
+.list-pagination-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+.list-pagination-button:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.list-pagination-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.list-pagination-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+@media (max-width: 640px) {
+  .list-pagination {
+    gap: 8px;
+    padding: 12px;
+  }
+}

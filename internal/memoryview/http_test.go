@@ -110,6 +110,7 @@ func TestMemoryScopePaginationAndReadOnly(t *testing.T) {
 	fetch := func(method, path, cookie string) (int, struct {
 		Items []ContextSummary `json:"items"`
 		Next  string           `json:"next_cursor"`
+		Total int64            `json:"total"`
 	}) {
 		t.Helper()
 		req, _ := http.NewRequest(method, server.URL+path, nil)
@@ -122,12 +123,13 @@ func TestMemoryScopePaginationAndReadOnly(t *testing.T) {
 		var page struct {
 			Items []ContextSummary `json:"items"`
 			Next  string           `json:"next_cursor"`
+			Total int64            `json:"total"`
 		}
 		_ = json.NewDecoder(res.Body).Decode(&page)
 		return res.StatusCode, page
 	}
 	status, p1 := fetch("GET", "/api/v1/memory/contexts", viewerToken)
-	if status != 200 || len(p1.Items) != 50 || p1.Next == "" {
+	if status != 200 || len(p1.Items) != 50 || p1.Next == "" || p1.Total != 52 {
 		t.Fatal("page one or ACL incorrect", status, len(p1.Items))
 	}
 	for _, c := range p1.Items {
@@ -136,11 +138,21 @@ func TestMemoryScopePaginationAndReadOnly(t *testing.T) {
 		}
 	}
 	status, p2 := fetch("GET", "/api/v1/memory/contexts?cursor="+p1.Next, viewerToken)
-	if status != 200 || len(p2.Items) != 2 || p2.Next != "" {
+	if status != 200 || len(p2.Items) != 2 || p2.Next != "" || p2.Total != 52 {
 		t.Fatal("stable page two incorrect")
 	}
+	status, short := fetch("GET", "/api/v1/memory/contexts?limit=10", viewerToken)
+	if status != 200 || len(short.Items) != 10 || short.Total != 52 || short.Next == "" {
+		t.Fatal("context limit/total incorrect")
+	}
+	for _, limit := range []string{"0", "51", "bad", "10&limit=20"} {
+		status, _ = fetch("GET", "/api/v1/memory/contexts?limit="+limit, viewerToken)
+		if status != 422 {
+			t.Fatal("invalid context limit accepted")
+		}
+	}
 	status, hidden := fetch("GET", "/api/v1/memory/contexts?applications=hidden", viewerToken)
-	if status != 200 || len(hidden.Items) != 0 {
+	if status != 200 || len(hidden.Items) != 0 || hidden.Total != 0 {
 		t.Fatal("explicit hidden filter widened scope")
 	}
 	status, _ = fetch("GET", "/api/v1/branches/hidden-branch/revisions/0", viewerToken)
@@ -175,22 +187,41 @@ func TestMemoryScopePaginationAndReadOnly(t *testing.T) {
 	fetchDocs := func(query string) struct {
 		Items []knowledge.Document `json:"items"`
 		Next  string               `json:"next_cursor"`
-	} { t.Helper(); req, _ := http.NewRequest("GET", server.URL+"/api/v1/memory/documents?"+query, nil); req.AddCookie(&http.Cookie{Name: "aiops_session", Value: viewerToken}); res, err := server.Client().Do(req); if err != nil {
-		t.Fatal(err)
-	}; defer res.Body.Close(); var page struct {
-		Items []knowledge.Document `json:"items"`
-		Next  string               `json:"next_cursor"`
-	}; if res.StatusCode != 200 {
-		t.Fatalf("documents status %d", res.StatusCode)
-	}; if err = json.NewDecoder(res.Body).Decode(&page); err != nil {
-		t.Fatal(err)
-	}; return page }
+		Total int64                `json:"total"`
+	} {
+		t.Helper()
+		req, _ := http.NewRequest("GET", server.URL+"/api/v1/memory/documents?"+query, nil)
+		req.AddCookie(&http.Cookie{Name: "aiops_session", Value: viewerToken})
+		res, err := server.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		var page struct {
+			Items []knowledge.Document `json:"items"`
+			Next  string               `json:"next_cursor"`
+			Total int64                `json:"total"`
+		}
+		if res.StatusCode != 200 {
+			t.Fatalf("documents status %d", res.StatusCode)
+		}
+		if err = json.NewDecoder(res.Body).Decode(&page); err != nil {
+			t.Fatal(err)
+		}
+		return page
+	}
+	if short := fetchDocs("applications=allowed&q=batch&kind=runbook&lifecycle=published&limit=10"); len(short.Items) != 10 || short.Total != 260 || short.Next == "" {
+		t.Fatal("document limit/total incorrect")
+	}
 	seen := map[string]bool{}
 	cursor := ""
 	pages := 0
 	for {
 		page := fetchDocs("applications=allowed&q=batch&kind=runbook&lifecycle=published&cursor=" + cursor)
 		pages++
+		if page.Total != 260 {
+			t.Fatalf("document total included other scope or cursor: %d", page.Total)
+		}
 		if pages > 6 {
 			t.Fatal("pagination did not terminate")
 		}
@@ -210,13 +241,13 @@ func TestMemoryScopePaginationAndReadOnly(t *testing.T) {
 	if len(seen) != 260 || pages != 6 {
 		t.Fatalf("lost older memory: %d docs in %d pages", len(seen), pages)
 	}
-	if page := fetchDocs("applications=allowed&q=batch-unknown"); len(page.Items) != 0 {
+	if page := fetchDocs("applications=allowed&q=batch-unknown"); len(page.Items) != 0 || page.Total != 0 {
 		t.Fatal("search ignored")
 	}
-	if page := fetchDocs("applications=allowed&q=batch&lifecycle=archived"); len(page.Items) != 0 {
+	if page := fetchDocs("applications=allowed&q=batch&lifecycle=archived"); len(page.Items) != 0 || page.Total != 0 {
 		t.Fatal("lifecycle ignored")
 	}
-	if page := fetchDocs("applications=allowed&q=batch&kind=experience"); len(page.Items) != 0 {
+	if page := fetchDocs("applications=allowed&q=batch&kind=experience"); len(page.Items) != 0 || page.Total != 0 {
 		t.Fatal("kind ignored")
 	}
 	fixtures := []struct{ id, app, meta string }{

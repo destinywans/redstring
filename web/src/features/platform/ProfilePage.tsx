@@ -2,6 +2,7 @@ import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, patch, post, request } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
+import Pagination, { useListPagination } from "../../components/Pagination";
 import { Upload } from "../../lib/icons";
 import { ErrorNotice } from "../../components/ui";
 import "./profile.css";
@@ -72,6 +73,7 @@ export function ProfilePage() {
   const [passwordBusy, setPasswordBusy] = useState(false);
   const [passwordError, setPasswordError] = useState<unknown>(null);
   const data = profile.data;
+  const applicationPages = useListPagination(data?.applications ?? [], user.id);
 
   async function chooseAvatar(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -324,7 +326,7 @@ export function ProfilePage() {
                 </tr>
               </thead>
               <tbody>
-                {data.applications.map((application) => (
+                {applicationPages.items.map((application) => (
                   <tr key={application.id}>
                     <td>{application.key || application.name}</td>
                     <td>
@@ -336,6 +338,7 @@ export function ProfilePage() {
                 ))}
               </tbody>
             </table>
+            <Pagination page={applicationPages.page} pageSize={applicationPages.pageSize} total={applicationPages.total} onPageChange={applicationPages.setPage} onPageSizeChange={applicationPages.setPageSize} ariaLabel="个人授权应用分页" />
           </div>
         ) : (
           <p className="profile-hint">暂无授权应用</p>

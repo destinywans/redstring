@@ -1,4 +1,4 @@
-import { useState } from "react";
+import Pagination, { useListPagination } from "../../components/Pagination";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import type { Application, Environment } from "../../lib/types";
@@ -79,19 +79,19 @@ export default function ResourceSnapshots({
   targets: Target[];
   hosts?: boolean;
 }) {
-  const workspace = useWorkspace(),
-    [page, setPage] = useState(0);
+  const workspace = useWorkspace();
   const selected = targets.filter(
     (t) => !hosts || t.env.bindings?.some((b) => b.kind === "prometheus"),
   );
-  const current = Math.min(
-    page,
-    Math.max(0, Math.ceil(selected.length / 4) - 1),
+  const pagination = useListPagination(
+    selected,
+    JSON.stringify([hosts, selected.map((t) => t.env.id)]),
+    4,
   );
   return (
     <>
       <div className="management-grid">
-        {selected.slice(current * 4, current * 4 + 4).map((t) =>
+        {pagination.items.map((t) =>
           hosts ? (
             <WorkspaceContext.Provider
               key={t.env.id}
@@ -112,28 +112,15 @@ export default function ResourceSnapshots({
       {!selected.length && (
         <p className="management-notice">当前范围没有登记此类资源。</p>
       )}
-      {selected.length > 4 && (
-        <div className="page-scope">
-          <button
-            className="btn"
-            disabled={!current}
-            onClick={() => setPage(current - 1)}
-          >
-            上一组
-          </button>
-          <span>
-            {current * 4 + 1}–{Math.min(current * 4 + 4, selected.length)} /{" "}
-            {selected.length}
-          </span>
-          <button
-            className="btn"
-            disabled={(current + 1) * 4 >= selected.length}
-            onClick={() => setPage(current + 1)}
-          >
-            下一组
-          </button>
-        </div>
-      )}
+      <Pagination
+        page={pagination.page}
+        pageSize={pagination.pageSize}
+        total={pagination.total}
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+        totalLabel={`范围内共 ${pagination.total} 个目标`}
+        pageSizeOptions={[4, 10, 20]}
+      />
     </>
   );
 }

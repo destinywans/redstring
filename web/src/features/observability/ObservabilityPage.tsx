@@ -1,3 +1,4 @@
+import Pagination, { useListPagination } from "../../components/Pagination";
 import { useEffect, useRef, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { Link, useLocation } from "react-router-dom";
@@ -36,8 +37,7 @@ export default function ObservabilityPage({ mode }: { mode: Mode }) {
   const { user, preview } = useWorkspace(),
     scope = usePageScope(),
     location = useLocation();
-  const [page, setPage] = useState(0),
-    [queryId, setQueryId] = useState(""),
+  const [queryId, setQueryId] = useState(""),
     [range, setRange] = useState("30"),
     [limit, setLimit] = useState(100);
   const [start, setStart] = useState(() =>
@@ -59,11 +59,11 @@ export default function ObservabilityPage({ mode }: { mode: Mode }) {
   >([]);
   const controller = useRef<AbortController | null>(null),
     generation = useRef(0);
-  const pageIndex = Math.min(
-    page,
-    Math.max(0, Math.ceil(scope.targets.length / 20) - 1),
+  const targetPages = useListPagination(
+    scope.targets,
+    JSON.stringify([scope.query, mode]),
   );
-  const targets = scope.targets.slice(pageIndex * 20, pageIndex * 20 + 20);
+  const targets = targetPages.items;
   const registrations = useQueries({
     queries: targets.map(({ app, env }) => ({
       queryKey: ["telemetry", app.id, env.id, preview],
@@ -80,7 +80,8 @@ export default function ObservabilityPage({ mode }: { mode: Mode }) {
   ].sort();
   const signature = JSON.stringify([
     scope.query,
-    pageIndex,
+    targetPages.page,
+    targetPages.pageSize,
     targets.map((t) => [t.env.id, t.env.binding_revision]),
     mode,
     queryId,
@@ -208,6 +209,10 @@ export default function ObservabilityPage({ mode }: { mode: Mode }) {
     .sort((a, b) =>
       String(b.entry.timestamp).localeCompare(String(a.entry.timestamp)),
     );
+  const logPages = useListPagination(
+    mergedLogs,
+    JSON.stringify([signature, results.map((r) => r.id)]),
+  );
   return (
     <div className="management-page observability-page">
       <header className="management-heading">
@@ -325,29 +330,15 @@ export default function ObservabilityPage({ mode }: { mode: Mode }) {
         <p className="muted">
           只查询已登记的数据源。各环境分别应用权限、时间窗口与返回上限；未配置或失败会单独列出。
         </p>
-        {scope.targets.length > 20 && (
-          <div className="management-actions">
-            <button
-              className="btn"
-              disabled={pageIndex === 0}
-              onClick={() => setPage(pageIndex - 1)}
-            >
-              上一组
-            </button>
-            <span>
-              环境 {pageIndex * 20 + 1}–
-              {Math.min((pageIndex + 1) * 20, scope.targets.length)} /{" "}
-              {scope.targets.length}
-            </span>
-            <button
-              className="btn"
-              disabled={(pageIndex + 1) * 20 >= scope.targets.length}
-              onClick={() => setPage(pageIndex + 1)}
-            >
-              下一组
-            </button>
-          </div>
-        )}
+        <Pagination
+          page={targetPages.page}
+          pageSize={targetPages.pageSize}
+          total={targetPages.total}
+          onPageChange={targetPages.setPage}
+          onPageSizeChange={targetPages.setPageSize}
+          totalLabel={`范围内共 ${targetPages.total} 个目标`}
+          pageSizeOptions={[10, 20]}
+        />
         {preview && (
           <p className="management-notice">设计预览没有连接数据源。</p>
         )}
@@ -385,7 +376,7 @@ export default function ObservabilityPage({ mode }: { mode: Mode }) {
                 </tr>
               </thead>
               <tbody>
-                {mergedLogs.map(({ entry, index, snapshot }) => (
+                {logPages.items.map(({ entry, index, snapshot }) => (
                   <tr key={`${snapshot.id}-${index}`}>
                     <td>{timeLabel(entry.timestamp)}</td>
                     <td>
@@ -422,6 +413,14 @@ export default function ObservabilityPage({ mode }: { mode: Mode }) {
               </tbody>
             </table>
           </div>
+          <Pagination
+            page={logPages.page}
+            pageSize={logPages.pageSize}
+            total={logPages.total}
+            onPageChange={logPages.setPage}
+            onPageSizeChange={logPages.setPageSize}
+            totalLabel={`本次日志结果共 ${logPages.total} 条`}
+          />
         </section>
       )}
       {results.map((snapshot) => (

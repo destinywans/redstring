@@ -1,3 +1,4 @@
+import Pagination, { useListPagination } from "../../components/Pagination";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -113,6 +114,12 @@ export default function AlertsPage({ mode = "incidents" }: { mode?: Mode }) {
             ? i.alert_status === state
             : i.status === state)),
   );
+  const pagination = useListPagination(
+    filtered,
+    JSON.stringify([mode, severity, text, state, scope.query]),
+  );
+  const sourcePages = useListPagination(catalog.data?.sources ?? [], mode);
+  const channelPages = useListPagination(catalog.data?.channels ?? [], mode);
   const active = rows.filter((i) => i.alert_status === "firing").length;
   function select(id: string) {
     const next = new URLSearchParams(params);
@@ -257,7 +264,7 @@ export default function AlertsPage({ mode = "incidents" }: { mode?: Mode }) {
             </p>
             <section className="card management-card">
               <h2>告警来源</h2>
-              {(catalog.data?.sources ?? []).map((s) => (
+              {sourcePages.items.map((s) => (
                 <article className="alert-source" key={s.id}>
                   <div className="management-heading">
                     <strong>{s.id}</strong>
@@ -289,10 +296,18 @@ export default function AlertsPage({ mode = "incidents" }: { mode?: Mode }) {
                     : "尚未登记告警来源"}
                 </p>
               )}
+              <Pagination
+                page={sourcePages.page}
+                pageSize={sourcePages.pageSize}
+                total={sourcePages.total}
+                onPageChange={sourcePages.setPage}
+                onPageSizeChange={sourcePages.setPageSize}
+                totalLabel={`本次来源结果共 ${sourcePages.total} 条`}
+              />
             </section>
             <section className="card management-card">
               <h2>通知渠道</h2>
-              {(catalog.data?.channels ?? []).map((c) => (
+              {channelPages.items.map((c) => (
                 <article className="management-row" key={c.id}>
                   <Bell size={17} />
                   <div className="grow">
@@ -311,6 +326,14 @@ export default function AlertsPage({ mode = "incidents" }: { mode?: Mode }) {
               {catalog.isPending && !preview && (
                 <p className="management-empty">正在读取通知渠道…</p>
               )}
+              <Pagination
+                page={channelPages.page}
+                pageSize={channelPages.pageSize}
+                total={channelPages.total}
+                onPageChange={channelPages.setPage}
+                onPageSizeChange={channelPages.setPageSize}
+                totalLabel={`本次渠道结果共 ${channelPages.total} 条`}
+              />
               <p className="muted">渠道凭据留在服务器，不在浏览器展示。</p>
             </section>
             <Link className="btn" to="/integrations">
@@ -393,7 +416,7 @@ export default function AlertsPage({ mode = "incidents" }: { mode?: Mode }) {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((i) => (
+                {pagination.items.map((i) => (
                   <tr key={i.id}>
                     <td>
                       <button
@@ -429,6 +452,15 @@ export default function AlertsPage({ mode = "incidents" }: { mode?: Mode }) {
               </p>
             )}
           </div>
+          <Pagination
+            page={pagination.page}
+            pageSize={pagination.pageSize}
+            total={pagination.total}
+            onPageChange={pagination.setPage}
+            onPageSizeChange={pagination.setPageSize}
+            totalLabel={`本次结果共 ${pagination.total} 条`}
+            loading={incidents.isFetching}
+          />
           <Modal
             open={!!selectedId}
             onOpenChange={(open) => !open && select("")}

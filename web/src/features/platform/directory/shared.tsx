@@ -1,9 +1,9 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { request } from "../../../lib/api";
 import type { User, Grant } from "../../../lib/types";
 import { useWorkspace } from "../../../lib/workspace";
-import { ChevronLeft, ChevronRight, Info } from "../../../lib/icons";
+import { Info } from "../../../lib/icons";
 import { ErrorNotice } from "../../../components/ui";
 import {
   FilterSelect,
@@ -189,59 +189,6 @@ export function DirectoryFilter({
       clearable
       searchable={options.length > 7}
     />
-  );
-}
-export function usePages<T>(items: T[], resetKey: string, size = 10) {
-  const [state, setState] = useState({ key: resetKey, page: 1 });
-  const pages = Math.max(1, Math.ceil(items.length / size));
-  const page = state.key === resetKey ? Math.min(state.page, pages) : 1;
-  return {
-    page,
-    pages,
-    rows: items.slice((page - 1) * size, page * size),
-    setPage: (next: number) =>
-      setState({ key: resetKey, page: Math.max(1, Math.min(next, pages)) }),
-  };
-}
-export function Pagination({
-  count,
-  page,
-  pages,
-  onChange,
-}: {
-  count: number;
-  page: number;
-  pages: number;
-  onChange: (page: number) => void;
-}) {
-  return (
-    <footer className="directory-pagination">
-      <span>共 {count} 条</span>
-      <div>
-        <button
-          className="icon-button"
-          aria-label="上一页"
-          disabled={page <= 1}
-          onClick={() => onChange(page - 1)}
-        >
-          <ChevronLeft size={16} />
-        </button>
-        <span
-          className="directory-current-page"
-          aria-label={`第 ${page} 页，共 ${pages} 页`}
-        >
-          {page}
-        </span>
-        <button
-          className="icon-button"
-          aria-label="下一页"
-          disabled={page >= pages}
-          onClick={() => onChange(page + 1)}
-        >
-          <ChevronRight size={16} />
-        </button>
-      </div>
-    </footer>
   );
 }
 export function DirectoryDrawer({

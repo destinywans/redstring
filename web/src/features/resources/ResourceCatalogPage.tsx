@@ -1,3 +1,4 @@
+import Pagination from "../../components/Pagination";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -10,7 +11,7 @@ import SelectField from "../../components/SelectField";
 import { post, request } from "../../lib/api";
 import { useEnvironmentScope } from "../../lib/environmentScope";
 import { useWorkspace } from "../../lib/workspace";
-import { ChevronLeft, ChevronRight, Plus, X } from "../../lib/icons";
+import { Plus, X } from "../../lib/icons";
 import ResourceDrawer, {
   ResourceIcon,
   ResourceOverlay,
@@ -75,7 +76,6 @@ export default function ResourceCatalogPage() {
   const page = resources.data?.page ?? 1;
   const pageSize = resources.data?.page_size ?? 10;
   const total = resources.data?.total ?? 0;
-  const pages = Math.max(1, Math.ceil(total / pageSize));
   return (
     <section className="resource-page">
       <header className="resource-page-heading">
@@ -258,42 +258,15 @@ export default function ResourceCatalogPage() {
                 </div>
               )}
             </div>
-            <footer className="resource-pagination">
-              <span>共 {total} 条</span>
-              <FilterSelect
-                id="resource-page-size"
-                label="每页条数"
-                emptyLabel="每页 10 条"
-                values={[String(pageSize)]}
-                options={[10, 20, 50].map((value) => ({
-                  value: String(value),
-                  label: `每页 ${value} 条`,
-                }))}
-                onChange={(values) => change("page_size", values)}
-                includeEmptyOption={false}
-                showLabel={false}
-                popoverWidth={152}
-              />
-              <button
-                className="icon-button"
-                aria-label="上一页资源"
-                disabled={page <= 1}
-                onClick={() => change("page", [String(page - 1)])}
-              >
-                <ChevronLeft size={16} />
-              </button>
-              <span>
-                第 {page} / {pages} 页
-              </span>
-              <button
-                className="icon-button"
-                aria-label="下一页资源"
-                disabled={page >= pages}
-                onClick={() => change("page", [String(page + 1)])}
-              >
-                <ChevronRight size={16} />
-              </button>
-            </footer>
+            <Pagination
+              ariaLabel="资源目录分页"
+              total={total}
+              page={page}
+              pageSize={pageSize}
+              loading={resources.isFetching}
+              onPageChange={(next) => change("page", [String(next)])}
+              onPageSizeChange={(size) => change("page_size", [String(size)])}
+            />
           </>
         )}
       </div>

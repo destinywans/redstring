@@ -1,3 +1,4 @@
+import Pagination, { useListPagination } from "../../../components/Pagination";
 import { useState, type FormEvent } from "react";
 import {
   Box,
@@ -23,10 +24,8 @@ import {
   DirectoryNotice,
   DirectoryState,
   DrawerFooter,
-  Pagination,
   RoleBadge,
   useDirectory,
-  usePages,
   useRefreshDirectory,
   type DirectoryRole,
 } from "./shared";
@@ -81,7 +80,7 @@ function RolesDirectory() {
         .toLowerCase()
         .includes(search.trim().toLowerCase()),
   );
-  const pagination = usePages(
+  const pagination = useListPagination(
     rows,
     [search, permission, application, subjectType].join("|"),
   );
@@ -285,7 +284,7 @@ function RolesDirectory() {
               </tr>
             </thead>
             <tbody>
-              {pagination.rows.map((g) => (
+              {pagination.items.map((g) => (
                 <tr
                   key={`${g.application_id}-${g.subject_type}-${g.subject_id}`}
                 >
@@ -349,10 +348,19 @@ function RolesDirectory() {
           />
         )}
         <Pagination
-          count={rows.length}
+          total={directory.data ? pagination.total : undefined}
+          totalLabel={
+            directory.isPending
+              ? "正在加载…"
+              : directory.error
+                ? "记录暂不可用"
+                : undefined
+          }
           page={pagination.page}
-          pages={pagination.pages}
-          onChange={pagination.setPage}
+          pageSize={pagination.pageSize}
+          loading={directory.isFetching}
+          onPageSizeChange={pagination.setPageSize}
+          onPageChange={pagination.setPage}
         />
       </section>
       {editing && (

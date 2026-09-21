@@ -1,3 +1,4 @@
+import Pagination, { useListPagination } from "../../components/Pagination";
 import { useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Link } from "react-router-dom";
@@ -70,6 +71,10 @@ export default function HomeDrawer({
         (Date.parse(a.updatedAt || "") || 0),
     );
   if (order === "oldest") visible.reverse();
+  const pagination = useListPagination(
+    visible,
+    JSON.stringify([search, status, order, open, title]),
+  );
   return (
     <Dialog.Root
       open={open}
@@ -162,7 +167,7 @@ export default function HomeDrawer({
           </div>
           <div className="home-drawer-scroll">
             {visible.length ? (
-              visible.map((item) => (
+              pagination.items.map((item) => (
                 <article className="home-drawer-item" key={item.id}>
                   <div className="home-drawer-item-title">
                     <h3>{item.title}</h3>
@@ -188,9 +193,14 @@ export default function HomeDrawer({
             )}
             {children}
           </div>
-          <footer className="home-drawer-footer">
-            显示 {visible.length} / {items.length} 条已加载记录
-          </footer>
+          <Pagination
+            page={pagination.page}
+            pageSize={pagination.pageSize}
+            total={pagination.total}
+            onPageChange={pagination.setPage}
+            onPageSizeChange={pagination.setPageSize}
+            totalLabel={`已加载结果共 ${pagination.total} 条`}
+          />
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

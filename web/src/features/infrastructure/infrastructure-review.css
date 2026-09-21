@@ -276,22 +276,6 @@
   background: var(--danger);
   font-weight: var(--weight-regular);
 }
-.infra-pagination {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 11px;
-  padding: 13px 18px;
-  border-top: 1px solid var(--border);
-  font-size: var(--type-caption);
-  color: var(--muted);
-}
-.infra-pagination .icon-button {
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
 .infra-empty {
   padding: 55px 20px;
   text-align: center;
@@ -619,7 +603,8 @@
 .infra-config-code,
 .infra-message,
 .infra-detail-records pre {
-  font: var(--weight-regular) var(--type-small) / var(--leading-body) var(--font-mono);
+  font: var(--weight-regular) var(--type-small) / var(--leading-body)
+    var(--font-mono);
   background: var(--panel-soft);
   border-radius: 7px;
   padding: 13px;
@@ -737,8 +722,8 @@
   }
   .infra-review-heading p {
     font-size: var(--type-caption);
-  font-weight: var(--weight-regular);
-}
+    font-weight: var(--weight-regular);
+  }
   .infra-overview-stats {
     gap: 8px;
   }
@@ -748,12 +733,12 @@
   }
   .infra-overview-stats article small {
     display: none;
-  font-weight: var(--weight-regular);
-}
+    font-weight: var(--weight-regular);
+  }
   .infra-overview-stats article strong {
     font-size: var(--type-metric);
-  font-weight: var(--weight-medium);
-}
+    font-weight: var(--weight-medium);
+  }
   .infra-review .filter-search {
     flex-basis: 100%;
   }

@@ -131,48 +131,6 @@
   outline-offset: 4px;
   border-radius: 6px;
 }
-.application-pagination {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 20px;
-  min-height: 58px;
-}
-.application-pagination nav {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.application-pagination .filter-select-trigger {
-  height: 28px;
-  min-width: 96px;
-  font-size: var(--type-small);
-  border-radius: 6px;
-}
-@media (max-width: 600px) {
-  .application-pagination {
-    flex-wrap: wrap;
-    gap: 10px;
-  }
-  .application-pagination .filter-select-trigger {
-    flex: 0 0 auto;
-  }
-}
-.application-pagination nav > span {
-  min-width: 70px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-.application-pagination .icon-button {
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-.application-pagination .icon-button:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
 .application-name-link strong {
   font-size: var(--type-body);
   font-weight: var(--weight-regular);

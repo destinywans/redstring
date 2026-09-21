@@ -1,5 +1,7 @@
 # 项目文档
 
+- [统一列表分页规范](design/pagination.md)、[本轮分页交付](releases/2026-09-21-unified-pagination.md)：审计按用户要求暂不调整。
+
 - [个人资料与密码接口](profile-api.md)
 
 - [全平台字体规范](design/typography.md)、[MiSans 字体交付记录](releases/2026-09-21-unified-typography.md)。

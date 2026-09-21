@@ -1,3 +1,4 @@
+import Pagination, { useListPagination } from "../../components/Pagination";
 import SelectField from "../../components/SelectField";
 import { useSearchParams } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
@@ -175,7 +176,9 @@ export default function SettingsPage() {
     useWorkspace();
   const qc = useQueryClient();
   const [params] = useSearchParams();
-  const tab = ["models", "knowledge", "tools"].includes(params.get("tab") ?? "") ? params.get("tab")! : "tools";
+  const tab = ["models", "knowledge", "tools"].includes(params.get("tab") ?? "")
+    ? params.get("tab")!
+    : "tools";
   const [chosenProvider, setProvider] = useState<
     "openai" | "claude" | "ollama" | null
   >(null);
@@ -206,6 +209,7 @@ export default function SettingsPage() {
   const connectors = (integrations.data?.items ?? []).filter(
     (i) => i.id !== "embedding",
   );
+  const connectorPages = useListPagination(connectors, `${preview}:${tab}`);
   const visibleModels = models.filter(
     (m) => providerKey(m.provider) === provider,
   );
@@ -483,7 +487,7 @@ export default function SettingsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {connectors.map((i) => (
+                    {connectorPages.items.map((i) => (
                       <tr key={i.id}>
                         <td>
                           <div className={`settings-tool-name ${i.provider}`}>
@@ -547,6 +551,22 @@ export default function SettingsPage() {
                   </tbody>
                 </table>
               </div>
+              <Pagination
+                ariaLabel="连接器列表分页"
+                page={connectorPages.page}
+                pageSize={connectorPages.pageSize}
+                total={integrations.data ? connectorPages.total : undefined}
+                totalLabel={
+                  integrations.isPending
+                    ? "正在加载…"
+                    : integrations.error
+                      ? "记录暂不可用"
+                      : `已加载 ${connectorPages.total} 条`
+                }
+                loading={integrations.isFetching}
+                onPageChange={connectorPages.setPage}
+                onPageSizeChange={connectorPages.setPageSize}
+              />
               {integrations.isLoading && (
                 <p className="muted">读取登记的连接配置…</p>
               )}

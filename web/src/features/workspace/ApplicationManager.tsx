@@ -1,3 +1,4 @@
+import Pagination, { useListPagination } from "../../components/Pagination";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -984,6 +985,10 @@ function ApplicationActivity({
       ]),
     ).values(),
   ];
+  const eventPages = useListPagination(
+    events.data?.items ?? [],
+    `${application.id}:${incidentParams}`,
+  );
   return (
     <>
       <div className="app-activity-tabs" role="group" aria-label="活动类型">
@@ -1100,7 +1105,7 @@ function ApplicationActivity({
             <p className="app-detail-note">正在加载告警事件…</p>
           )}
           <div className="app-event-list">
-            {(events.data?.items ?? []).map((event) => {
+            {eventPages.items.map((event) => {
               const params = new URLSearchParams({
                 application: application.id,
                 incident: event.id,
@@ -1127,6 +1132,16 @@ function ApplicationActivity({
               );
             })}
           </div>
+          <Pagination
+            page={eventPages.page}
+            pageSize={eventPages.pageSize}
+            total={eventPages.total}
+            onPageChange={eventPages.setPage}
+            onPageSizeChange={eventPages.setPageSize}
+            loading={events.isFetching}
+            totalLabel={`本次结果共 ${eventPages.total} 条`}
+            ariaLabel="应用告警事件分页"
+          />
           {!events.isLoading &&
             !events.error &&
             !events.data?.items?.length && (

@@ -1,3 +1,4 @@
+import Pagination from "../../components/Pagination";
 import SelectField from "../../components/SelectField";
 import { useState, useEffect, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -53,7 +54,7 @@ type Context = {
   created_at: string;
   provenance: Record<string, unknown>;
 };
-type Items<T> = { items: T[]; next_cursor?: string };
+type Items<T> = { items: T[]; next_cursor?: string; total?: number };
 const lifecycle = (s: string) =>
   ({
     draft: "草稿",
@@ -108,12 +109,15 @@ export default function MemoryPage() {
   const filters = new URLSearchParams(scope.query);
   for (const k of mode === "documents" ? ["q", "kind", "lifecycle"] : ["q"])
     if (params.get(k)) filters.set(k, params.get(k)!);
+  const [pageSize, setPageSize] = useState(20);
+  const [position, setPosition] = useState({ key: "", page: 1 });
+  const pagingKey = `${mode}:${filters.toString()}:${pageSize}`;
   const list = useInfiniteQuery({
-    queryKey: ["memory", mode, filters.toString()],
+    queryKey: ["memory", mode, filters.toString(), pageSize],
     initialPageParam: "",
     queryFn: ({ pageParam }) =>
       request<Items<Doc | Context>>(
-        `/memory/${mode}?${filters}&cursor=${encodeURIComponent(pageParam)}`,
+        `/memory/${mode}?${filters}&limit=${pageSize}&cursor=${encodeURIComponent(pageParam)}`,
       ),
     getNextPageParam: (p) => p.next_cursor || undefined,
     enabled: !preview,
@@ -227,7 +231,40 @@ export default function MemoryPage() {
       void client.invalidateQueries({ queryKey: ["memory"] });
     },
   });
-  const rows = list.data?.pages.flatMap((p) => p.items) ?? [];
+  const total = list.data?.pages[0]?.total;
+  const requestedPage = position.key === pagingKey ? position.page : 1;
+  const maximumPage =
+    typeof total === "number" && Number.isFinite(total)
+      ? Math.max(1, Math.ceil(total / pageSize))
+      : Infinity;
+  // Commit resets, including a refresh that removed the current cursor page.
+  // Returning to an earlier filter must not revive its old page position.
+  const pageUnavailable =
+    requestedPage > 1 &&
+    list.isSuccess &&
+    (!list.data.pages[requestedPage - 1] ||
+      (!list.data.pages[requestedPage - 1].items.length &&
+        !list.data.pages[requestedPage - 1].next_cursor));
+  const page =
+    requestedPage > maximumPage || pageUnavailable ? 1 : requestedPage;
+  if (position.key !== pagingKey || position.page !== page)
+    setPosition({ key: pagingKey, page: page });
+  const currentPage = list.data?.pages[page - 1];
+  const rows = currentPage?.items ?? [];
+  async function changePage(next: number) {
+    if (list.isFetching || next < 1) return;
+    if (next > (list.data?.pages.length ?? 0)) {
+      if (!currentPage?.next_cursor) return;
+      const result = await list.fetchNextPage();
+      if (result.isError || !result.data?.pages[next - 1]) return;
+    }
+    setPosition({ key: pagingKey, page: next });
+    setParams((current) => {
+      const params = new URLSearchParams(current);
+      params.delete("item");
+      return params;
+    });
+  }
   const ctx =
     mode === "contexts"
       ? (rows.find((r) => r.id === id) as Context | undefined)
@@ -440,11 +477,6 @@ export default function MemoryPage() {
             </button>
           )}
         </div>
-        <span className="memory-result-count" aria-live="polite">
-          {list.isFetching
-            ? "正在更新…"
-            : `已加载 ${rows.length} 条${list.hasNextPage ? " · 还有更多" : ""}`}
-        </span>
       </div>
       {preview && <p className="management-notice">预览模式未读取实际记忆。</p>}
       {list.error && <ErrorNotice error={list.error} />}
@@ -510,15 +542,19 @@ export default function MemoryPage() {
               );
             })
           )}
-          {list.hasNextPage && (
-            <Button
-              variant="ghost"
-              disabled={list.isFetchingNextPage}
-              onClick={() => void list.fetchNextPage()}
-            >
-              加载更多
-            </Button>
-          )}
+          <Pagination
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            hasNext={!!currentPage?.next_cursor}
+            loading={list.isFetching}
+            onPageChange={(next) => void changePage(next)}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPosition({ key: "", page: 1 });
+            }}
+            ariaLabel="记忆列表分页"
+          />
         </section>
         <section className="card memory-detail">
           {!id ? (

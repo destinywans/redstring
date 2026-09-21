@@ -96,6 +96,10 @@ func (s *Service) userDepartment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(ctx)
+	if e = lockAuthority(ctx, tx); e != nil {
+		respond(w, nil, e)
+		return
+	}
 	var found string
 	if e = tx.QueryRow(ctx, "SELECT id FROM users WHERE id=$1 AND deleted_at IS NULL AND source<>'settings_demo' FOR UPDATE", r.PathValue("id")).Scan(&found); e != nil {
 		respond(w, nil, store.ClassifyError(e))
@@ -110,6 +114,9 @@ func (s *Service) userDepartment(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, e = tx.Exec(ctx, "DELETE FROM team_members WHERE user_id=$1", found); e == nil && in.DepartmentID != nil && *in.DepartmentID != "" {
 		_, e = tx.Exec(ctx, "INSERT INTO team_members(user_id,team_id) VALUES($1,$2)", found, *in.DepartmentID)
+	}
+	if e == nil {
+		e = store.ProtectLastRBACManager(ctx, tx)
 	}
 	if e == nil {
 		e = audit(ctx, tx, "rbac.user.department", found, in)

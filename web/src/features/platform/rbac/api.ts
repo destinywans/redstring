@@ -21,6 +21,8 @@ export type Candidate = {
   description?: string;
   selected: boolean;
   inherited?: boolean;
+  locked?: boolean;
+  lock_reason?: string;
   is_mock?: boolean;
   source_departments?: string[];
   action?: string;
@@ -80,6 +82,13 @@ export const getPage = <T>(
   signal?: AbortSignal,
 ) => request<Page<T>>(`${path}?${queryString(values)}`, { signal });
 export function rbacError(error: unknown) {
+  if (error instanceof ApiError && error.code === "role_name_conflict")
+    return new Error("角色名称已存在，请使用其他名称。");
+  if (
+    error instanceof ApiError &&
+    ["legacy_role_membership", "last_rbac_manager"].includes(error.code)
+  )
+    return new Error(error.message);
   if (error instanceof ApiError && error.status === 409)
     return new Error(
       `保存未完成：${error.message}。当前修改已保留；如数据版本已变化，请重新加载后核对关联。`,

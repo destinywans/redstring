@@ -219,7 +219,7 @@ func (s *Server) platformRoutes() {
 			return
 		}
 		if e := p.SetTeamMembers(r.Context(), r.PathValue("id"), v.IDs); e != nil {
-			fail(w, e)
+			memberError(w, e)
 			return
 		}
 		WriteJSON(w, 200, map[string]any{"items": v.IDs})

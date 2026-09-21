@@ -2,8 +2,26 @@ package store
 
 import (
 	"context"
+	"errors"
+
+	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
 )
+
+var ErrLastRBACManager = errors.New("at least one active RBAC manager required")
+
+// Callers serialize account and department changes with the same advisory locks
+// as RBAC writes. Legacy account roles alone do not imply effective management.
+func ProtectLastRBACManager(ctx context.Context, tx pgx.Tx) error {
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rbac_effective_permissions p JOIN users u ON u.id=p.user_id WHERE p.action='manage' AND p.scope_type='management' AND p.resource_id='rbac' AND u.password_hash<>'')`).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return ErrLastRBACManager
+	}
+	return nil
+}
 
 // AuthorizeCapability evaluates persisted action/scope grants. Each action is
 // independent: manage, investigate, approve and execute never imply each other.

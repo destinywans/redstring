@@ -16,6 +16,8 @@ func (s *Server) memberRepository(w http.ResponseWriter) (store.MemberRepository
 }
 func memberError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, store.ErrLastRBACManager):
+		Error(w, 409, "last_rbac_manager", "请至少保留一位启用且具有角色与权限管理权限的成员。")
 	case errors.Is(err, store.ErrLastAdmin):
 		Error(w, 409, "last_admin", "At least one enabled administrator is required")
 	case errors.Is(err, store.ErrMemberInvalid):

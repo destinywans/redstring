@@ -5,11 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/wans/aiops-canvas/internal/store"
 	"strings"
+	"unicode/utf8"
 )
 
 var ErrProtected = errors.New("protected built-in or dependent record")
+var ErrRoleNameConflict = errors.New("role name already exists")
+var ErrLegacyMembership = errors.New("base role membership is maintained by member management")
+var ErrLastManager = store.ErrLastRBACManager
 
 const roleSelect = `SELECT r.id,r.name,r.description,r.builtin,r.revision,(SELECT count(*) FROM rbac_role_permissions WHERE role_id=r.id),(SELECT count(*) FROM rbac_user_roles WHERE role_id=r.id),(SELECT count(*) FROM rbac_department_roles WHERE role_id=r.id) FROM rbac_roles r`
 const permissionSelect = `SELECT p.id,p.name,p.description,p.action,p.scope_type,p.builtin,p.revision,(SELECT count(*) FROM rbac_permission_resources WHERE permission_id=p.id) FROM rbac_permissions p`
@@ -31,7 +36,7 @@ func (s *Service) Permission(ctx context.Context, id string) (Permission, error)
 	return scanPermission(s.Store.DB.QueryRow(ctx, permissionSelect+" WHERE p.id=$1", id))
 }
 func validName(n, d string) bool {
-	return strings.TrimSpace(n) != "" && len(n) <= 200 && len(d) <= 2000
+	return strings.TrimSpace(n) != "" && utf8.RuneCountInString(n) <= 200 && utf8.RuneCountInString(d) <= 2000
 }
 func validPermission(p Permission) bool {
 	for _, a := range Actions {
@@ -50,13 +55,16 @@ func audit(ctx context.Context, tx pgx.Tx, action, id string, value any) error {
 	return e
 }
 func lock(ctx context.Context, tx pgx.Tx, table, id string, revision int64) error {
+	return lockRecord(ctx, tx, table, id, revision, false)
+}
+func lockRecord(ctx context.Context, tx pgx.Tx, table, id string, revision int64, allowBuiltin bool) error {
 	var rev int64
 	var protected bool
 	e := tx.QueryRow(ctx, "SELECT revision,builtin FROM "+table+" WHERE id=$1 FOR UPDATE", id).Scan(&rev, &protected)
 	if e != nil {
 		return store.ClassifyError(e)
 	}
-	if protected {
+	if protected && !allowBuiltin {
 		return ErrProtected
 	}
 	if rev != revision {
@@ -64,6 +72,26 @@ func lock(ctx context.Context, tx pgx.Tx, table, id string, revision int64) erro
 	}
 	return nil
 }
+
+// Account mutations and department membership writes use these same locks.
+// Recheck the caller after acquiring them, so queued writes cannot use a grant
+// revoked while the HTTP request was waiting.
+func lockAuthority(ctx context.Context, tx pgx.Tx) error {
+	for _, key := range []int64{752018992, 752018995} {
+		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", key); err != nil {
+			return err
+		}
+	}
+	var allowed bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rbac_effective_permissions WHERE user_id=$1 AND action='manage' AND scope_type='management' AND resource_id='rbac')`, store.Principal(ctx).ID).Scan(&allowed); err != nil {
+		return err
+	}
+	if !allowed {
+		return store.ErrForbidden
+	}
+	return nil
+}
+
 func (s *Service) SaveRole(ctx context.Context, v Role) (Role, error) {
 	if !validName(v.Name, v.Description) {
 		return v, store.ErrInvalidReference
@@ -83,6 +111,10 @@ func (s *Service) SaveRole(ctx context.Context, v Role) (Role, error) {
 		_, e = tx.Exec(ctx, "UPDATE rbac_roles SET name=$2,description=$3,revision=revision+1 WHERE id=$1", v.ID, strings.TrimSpace(v.Name), v.Description)
 	}
 	if e != nil {
+		var pe *pgconn.PgError
+		if errors.As(e, &pe) && pe.Code == "23505" && pe.ConstraintName == "rbac_roles_name_key" {
+			return v, ErrRoleNameConflict
+		}
 		return v, store.ClassifyError(e)
 	}
 	if e = audit(ctx, tx, "rbac.role.saved", v.ID, v); e != nil {
@@ -186,18 +218,31 @@ func (s *Service) SaveAssociations(ctx context.Context, id string, in Associatio
 		return Role{}, e
 	}
 	defer tx.Rollback(ctx)
-	// Shared with department membership writes so a concurrent role grant cannot
-	// race an unprivileged membership authorization check.
-	if _, e = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(752018995)"); e != nil {
+	if e = lockAuthority(ctx, tx); e != nil {
 		return Role{}, e
 	}
-	if e = lock(ctx, tx, "rbac_roles", id, in.Revision); e != nil {
+	if e = lockRecord(ctx, tx, "rbac_roles", id, in.Revision, true); e != nil {
 		return Role{}, e
+	}
+	var lockedMembership bool
+	if e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rbac_user_roles WHERE role_id=$1 AND user_id=ANY($2::text[]) AND origin='legacy')`, id, in.Users.Remove).Scan(&lockedMembership); e != nil {
+		return Role{}, e
+	}
+	if lockedMembership {
+		return Role{}, ErrLegacyMembership
+	}
+	var builtin bool
+	if e = tx.QueryRow(ctx, "SELECT builtin FROM rbac_roles WHERE id=$1", id).Scan(&builtin); e != nil {
+		return Role{}, e
+	}
+	permissionCondition := "scope_type<>'legacy_application'"
+	if builtin {
+		permissionCondition = "true"
 	}
 	for _, item := range []struct {
 		delta                            Delta
 		table, column, source, condition string
-	}{{in.Permissions, "rbac_role_permissions", "permission_id", "rbac_permissions", "scope_type<>'legacy_application'"}, {in.Users, "rbac_user_roles", "user_id", "users", "deleted_at IS NULL AND source<>'settings_demo'"}, {in.Departments, "rbac_department_roles", "department_id", "teams", "true"}} {
+	}{{in.Permissions, "rbac_role_permissions", "permission_id", "rbac_permissions", permissionCondition}, {in.Users, "rbac_user_roles", "user_id", "users", "deleted_at IS NULL AND source<>'settings_demo'"}, {in.Departments, "rbac_department_roles", "department_id", "teams", "true"}} {
 
 		for _, target := range item.delta.Add {
 			var exists bool
@@ -231,6 +276,9 @@ func (s *Service) SaveAssociations(ctx context.Context, id string, in Associatio
 			}
 		}
 	}
+	if e = store.ProtectLastRBACManager(ctx, tx); e != nil {
+		return Role{}, e
+	}
 	if _, e = tx.Exec(ctx, "UPDATE rbac_roles SET revision=revision+1 WHERE id=$1", id); e != nil {
 		return Role{}, e
 	}
@@ -251,6 +299,9 @@ func (s *Service) SaveResources(ctx context.Context, id string, in ResourceDelta
 		return Permission{}, e
 	}
 	defer tx.Rollback(ctx)
+	if e = lockAuthority(ctx, tx); e != nil {
+		return Permission{}, e
+	}
 	if _, e = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(752018994)"); e != nil {
 		return Permission{}, e
 	}
@@ -304,6 +355,9 @@ func (s *Service) SaveResources(ctx context.Context, id string, in ResourceDelta
 		if _, e = tx.Exec(ctx, "INSERT INTO rbac_permission_resources VALUES($1,$2) ON CONFLICT DO NOTHING", id, target); e != nil {
 			return Permission{}, e
 		}
+	}
+	if e = store.ProtectLastRBACManager(ctx, tx); e != nil {
+		return Permission{}, e
 	}
 	if _, e = tx.Exec(ctx, "UPDATE rbac_permissions SET revision=revision+1 WHERE id=$1", id); e != nil {
 		return Permission{}, e

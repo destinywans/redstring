@@ -123,7 +123,8 @@ export function AssociationManager({
     queryFn: ({ signal }) => getPage<Candidate>(path, params, signal),
   });
   const rows = candidates.data?.items ?? [];
-  const editable = (_row: Candidate) => !object.builtin;
+  const readOnly = kind === "permissions" && object.builtin;
+  const editable = (row: Candidate) => !readOnly && !row.locked;
   const editableRows = rows.filter(editable);
   const checkedCount = editableRows.filter((row) =>
     selectedCandidate(row, delta),
@@ -163,7 +164,7 @@ export function AssociationManager({
             : "未关联";
   }
   async function save() {
-    if (busy || object.builtin || !pending) return;
+    if (busy || readOnly || !pending) return;
     setBusy(true);
     setError(null);
     try {
@@ -189,7 +190,9 @@ export function AssociationManager({
     <RbacOverlay
       wide
       title={kind === "roles" ? "管理角色关联" : "管理资源关联"}
-      subtitle={`${object.name} · ${object.id}`}
+      subtitle={
+        kind === "roles" ? object.name : `${object.name} · ${object.id}`
+      }
       dirty={pending > 0}
       busy={busy}
       onClose={onClose}
@@ -239,9 +242,9 @@ export function AssociationManager({
             </div>
           )}
           <div className="rbac-association-body">
-            {(object.builtin || tab === "users") && (
+            {(readOnly || tab === "users") && (
               <p className="rbac-hint">
-                {object.builtin
+                {readOnly
                   ? "系统内置定义只读。可创建自定义角色和权限按需授权。"
                   : "勾选仅管理直接授权；部门继承在独立列只读展示，可在部门页签管理。"}
               </p>
@@ -458,6 +461,7 @@ export function AssociationManager({
                             aria-label={`关联 ${row.name}`}
                             checked={selectedCandidate(row, delta)}
                             disabled={busy || !editable(row)}
+                            title={row.lock_reason}
                             onChange={(event) =>
                               toggle(row, event.target.checked)
                             }
@@ -469,6 +473,11 @@ export function AssociationManager({
                             <span className="rbac-mock-label">Mock</span>
                           )}
                           <small className="rbac-id">{row.id}</small>
+                          {row.locked && (
+                            <small className="rbac-lock-reason">
+                              {row.lock_reason}
+                            </small>
+                          )}
                         </td>
                         {tab === "permissions" ? (
                           <>
@@ -562,7 +571,7 @@ export function AssociationManager({
               </button>
               <button
                 className="btn btn-primary"
-                disabled={busy || !pending || object.builtin}
+                disabled={busy || !pending || readOnly}
                 onClick={() => void save()}
               >
                 {busy

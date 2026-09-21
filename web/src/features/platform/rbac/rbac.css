@@ -167,7 +167,10 @@
   color: var(--muted);
   font-size: 13px;
   margin-top: 5px;
-  max-width: 390px;
+  max-width: min(390px, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .rbac-action {
   display: inline-flex;
@@ -263,9 +266,31 @@
   overflow: auto;
   flex: 1;
 }
-.rbac-card-body textarea {
-  resize: vertical;
-  min-height: 88px;
+.rbac-card-body.directory-form textarea.field {
+  resize: none;
+  height: 120px;
+  min-height: 120px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+.rbac-character-count {
+  text-align: right;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+.rbac-field-hint,
+.rbac-lock-reason {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+.rbac-field-hint {
+  margin-top: -10px;
+}
+.rbac-lock-reason {
+  display: block;
+  margin-top: 5px;
 }
 .rbac-card-body h3 {
   font-size: 15px;
@@ -321,22 +346,11 @@
 .rbac-card-footer .directory-danger {
   margin-right: auto;
 }
-.rbac-unsaved,
 .rbac-delete-confirm {
   background: var(--panel-soft);
   padding: 14px 22px;
   border: 1px solid var(--border);
   font-size: 14px;
-}
-.rbac-unsaved {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  flex-shrink: 0;
-}
-.rbac-unsaved span {
-  flex: 1;
 }
 .rbac-delete-confirm .btn + .btn {
   margin-left: 10px;

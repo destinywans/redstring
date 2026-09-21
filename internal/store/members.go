@@ -112,8 +112,12 @@ func validRole(role string) bool { return role == "admin" || role == "operator" 
 
 // All account mutations share the last-administrator lock, including directory imports.
 func lockMembers(ctx context.Context, tx pgx.Tx) error {
-	_, e := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(752018992)")
-	return e
+	for _, key := range []int64{752018992, 752018995} {
+		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", key); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 func (s *Store) CreateMember(ctx context.Context, v MemberCreate) (Member, error) {
 	v.Email = strings.ToLower(strings.TrimSpace(v.Email))
@@ -129,7 +133,11 @@ func (s *Store) CreateMember(ctx context.Context, v MemberCreate) (Member, error
 	if e = lockMembers(ctx, tx); e != nil {
 		return Member{}, e
 	}
-	if v.Role != "viewer" {
+	var grantsPrivilegedRole bool
+	if e = tx.QueryRow(ctx, `SELECT $1<>'viewer' OR EXISTS(SELECT 1 FROM rbac_role_permissions rp JOIN rbac_permissions p ON p.id=rp.permission_id WHERE rp.role_id=$1 AND NOT (p.action='view' AND p.scope_type='legacy_application'))`, v.Role).Scan(&grantsPrivilegedRole); e != nil {
+		return Member{}, e
+	}
+	if grantsPrivilegedRole {
 		if e = authorizeIdentityGrant(ctx, tx); e != nil {
 			return Member{}, e
 		}
@@ -227,6 +235,11 @@ func (s *Store) UpdateMember(ctx context.Context, id string, v MemberUpdate) (Me
 			return m, e
 		}
 	}
+	if v.Role != nil || v.Disabled != nil {
+		if e = ProtectLastRBACManager(ctx, tx); e != nil {
+			return m, e
+		}
+	}
 	if e = auditTx(ctx, tx, "", "account.updated", id, map[string]any{"role": m.Role, "disabled": m.Disabled, "password_changed": v.Password != nil, "profile_changed": v.Name != nil || v.Email != nil || v.Department != nil || v.JobTitle != nil}); e != nil {
 		return m, e
 	}
@@ -277,6 +290,9 @@ func (s *Store) DeleteMember(ctx context.Context, id string) error {
 		return e
 	}
 	if _, e = tx.Exec(ctx, "DELETE FROM sessions WHERE user_id=$1", id); e != nil {
+		return e
+	}
+	if e = ProtectLastRBACManager(ctx, tx); e != nil {
 		return e
 	}
 	if e = auditTx(ctx, tx, "", "account.deleted", id, map[string]string{"source": m.Source}); e != nil {
@@ -445,5 +461,7 @@ func authorizeIdentityGrant(ctx context.Context, tx pgx.Tx) error {
 	return nil
 }
 func privilegedIdentity(ctx context.Context, tx pgx.Tx, id string) pgx.Row {
-	return tx.QueryRow(ctx, `SELECT role<>'viewer' OR EXISTS(SELECT 1 FROM rbac_user_roles WHERE user_id=$1 AND role_id<>'viewer') OR EXISTS(SELECT 1 FROM rbac_department_roles WHERE department_id=users.department_id) FROM users WHERE id=$1`, id)
+	// Include additional grants even for disabled accounts. Built-in viewer is now
+	// editable and cannot be assumed to remain read-only when protecting credentials.
+	return tx.QueryRow(ctx, `SELECT role<>'viewer' OR EXISTS(SELECT 1 FROM rbac_user_roles WHERE user_id=$1 AND role_id<>'viewer') OR EXISTS(SELECT 1 FROM rbac_department_roles WHERE department_id=users.department_id) OR EXISTS(SELECT 1 FROM rbac_role_permissions rp JOIN rbac_permissions p ON p.id=rp.permission_id WHERE NOT (p.action='view' AND p.scope_type='legacy_application') AND (rp.role_id=users.role OR rp.role_id IN (SELECT role_id FROM rbac_user_roles WHERE user_id=$1))) FROM users WHERE id=$1`, id)
 }

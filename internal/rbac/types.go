@@ -44,6 +44,8 @@ type Candidate struct {
 	Name              string   `json:"name"`
 	Description       string   `json:"description"`
 	Selected          bool     `json:"selected"`
+	Locked            bool     `json:"locked"`
+	LockReason        string   `json:"lock_reason,omitempty"`
 	Inherited         bool     `json:"inherited"`
 	SourceDepartments []string `json:"source_departments"`
 	Email             string   `json:"email,omitempty"`

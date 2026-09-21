@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import DiscardDialog from "../../../components/patterns/DiscardDialog";
 import { Sheet } from "../../../components/ui/sheet";
 export function RbacOverlay({
   title,
@@ -37,17 +38,11 @@ export function RbacOverlay({
       closeDisabled={busy}
       closeLabel="关闭"
     >
-      {confirmClose && (
-        <div className="rbac-unsaved" role="alert">
-          <span>有尚未保存的修改，关闭后将丢失。</span>
-          <button className="btn" onClick={() => setConfirmClose(false)}>
-            继续编辑
-          </button>
-          <button className="btn directory-danger" onClick={onClose}>
-            放弃修改并关闭
-          </button>
-        </div>
-      )}
+      <DiscardDialog
+        open={confirmClose}
+        onOpenChange={setConfirmClose}
+        onDiscard={onClose}
+      />
       {typeof children === "function" ? children(close) : children}
     </Sheet>
   );

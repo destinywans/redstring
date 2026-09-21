@@ -156,7 +156,7 @@ func TestRBACPostgresBoundaries(t *testing.T) {
 	if e = s.Delete(ctx, "roles", role.ID, role.Revision); !errors.Is(e, ErrProtected) {
 		t.Fatal("dependent role deleted", e)
 	}
-	if _, e = s.SaveAssociations(ctx, "admin", Associations{Revision: 1, Users: Delta{Remove: []string{"a"}}}); !errors.Is(e, ErrProtected) {
+	if _, e = s.SaveAssociations(ctx, "admin", Associations{Revision: 1, Users: Delta{Remove: []string{"a"}}}); !errors.Is(e, ErrLegacyMembership) {
 		t.Fatal("legacy admin removed", e)
 	}
 	if e = s.Delete(ctx, "permissions", p.ID, p.Revision); !errors.Is(e, ErrProtected) {

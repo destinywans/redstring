@@ -336,6 +336,9 @@ func (s *Store) SetTeamMembers(ctx context.Context, id string, ids []string) err
 			return ClassifyError(e)
 		}
 	}
+	if e = ProtectLastRBACManager(ctx, tx); e != nil {
+		return e
+	}
 	if e = auditTx(ctx, tx, "", "team.members.updated", id, map[string]any{"user_ids": ids}); e != nil {
 		return e
 	}

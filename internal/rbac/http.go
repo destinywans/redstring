@@ -16,6 +16,12 @@ func respond(w http.ResponseWriter, v any, e error) {
 		return
 	}
 	switch {
+	case errors.Is(e, ErrRoleNameConflict):
+		httpapi.Error(w, 409, "role_name_conflict", "角色名称已存在，请使用其他名称。")
+	case errors.Is(e, ErrLegacyMembership):
+		httpapi.Error(w, 409, "legacy_role_membership", "此用户的基础角色由成员管理维护，请在成员管理中调整。")
+	case errors.Is(e, ErrLastManager):
+		httpapi.Error(w, 409, "last_rbac_manager", "请至少保留一位启用且具有角色与权限管理权限的成员。")
 	case errors.Is(e, ErrProtected):
 		httpapi.Error(w, 409, "rbac_protected", "Built-in or referenced record is protected; remove dependencies first")
 	case errors.Is(e, store.ErrConflict):
@@ -265,7 +271,7 @@ func (s *Service) candidates(w http.ResponseWriter, r *http.Request) {
 		rev = v.Revision
 		switch kind {
 		case "permissions":
-			source = `SELECT p.id,p.name,p.description,EXISTS(SELECT 1 FROM rbac_role_permissions x WHERE x.role_id=$1 AND x.permission_id=p.id) selected,false inherited,'[]'::jsonb source_departments,'' email,p.action,p.scope_type,'' kind,'' application_id,'' application_name,'' environment,'' department_id,'' department_name,(SELECT count(*) FROM rbac_permission_resources WHERE permission_id=p.id) resource_count FROM rbac_permissions p WHERE (p.scope_type<>'legacy_application' OR EXISTS(SELECT 1 FROM rbac_role_permissions x WHERE x.role_id=$1 AND x.permission_id=p.id))`
+			source = `SELECT p.id,p.name,p.description,EXISTS(SELECT 1 FROM rbac_role_permissions x WHERE x.role_id=$1 AND x.permission_id=p.id) selected,false inherited,'[]'::jsonb source_departments,'' email,p.action,p.scope_type,'' kind,'' application_id,'' application_name,'' environment,'' department_id,'' department_name,(SELECT count(*) FROM rbac_permission_resources WHERE permission_id=p.id) resource_count FROM rbac_permissions p WHERE (p.scope_type<>'legacy_application' OR EXISTS(SELECT 1 FROM rbac_roles r WHERE r.id=$1 AND r.builtin) OR EXISTS(SELECT 1 FROM rbac_role_permissions x WHERE x.role_id=$1 AND x.permission_id=p.id))`
 		case "users":
 			source = `SELECT u.id,u.name,CASE WHEN u.deleted_at IS NULL THEN '' ELSE '已删除账户，仅可移除已有授权' END description,EXISTS(SELECT 1 FROM rbac_user_roles x WHERE x.role_id=$1 AND x.user_id=u.id) selected,EXISTS(SELECT 1 FROM rbac_department_roles x WHERE x.role_id=$1 AND x.department_id=u.department_id) inherited,COALESCE((SELECT jsonb_agg(t.name) FROM teams t JOIN rbac_department_roles d ON d.department_id=t.id WHERE d.role_id=$1 AND t.id=u.department_id),'[]') source_departments,u.email,'' action,'' scope_type,'' kind,'' application_id,'' application_name,'' environment,COALESCE(u.department_id,'') department_id,COALESCE(t.name,'') department_name,0 resource_count FROM users u LEFT JOIN teams t ON t.id=u.department_id WHERE (u.deleted_at IS NULL OR EXISTS(SELECT 1 FROM rbac_user_roles x WHERE x.role_id=$1 AND x.user_id=u.id)) AND u.source<>'settings_demo'`
 		case "departments":
@@ -322,7 +328,11 @@ func (s *Service) candidates(w http.ResponseWriter, r *http.Request) {
 		page = last
 	}
 	args = append(args, size, (page-1)*size)
-	rows, e := s.Store.DB.Query(r.Context(), cte+` SELECT id,name,description,selected,inherited,source_departments,email,action,scope_type,kind,application_id,application_name,environment,department_id,department_name,resource_count,COALESCE((SELECT is_mock FROM cmdb_resources WHERE id=candidates.id),false) FROM candidates`+filter+` ORDER BY name,id LIMIT $11 OFFSET $12`, args...)
+	locked := "false"
+	if kind == "users" {
+		locked = "EXISTS(SELECT 1 FROM rbac_user_roles x WHERE x.role_id=$1 AND x.user_id=candidates.id AND x.origin='legacy')"
+	}
+	rows, e := s.Store.DB.Query(r.Context(), cte+` SELECT id,name,description,selected,inherited,source_departments,email,action,scope_type,kind,application_id,application_name,environment,department_id,department_name,resource_count,COALESCE((SELECT is_mock FROM cmdb_resources WHERE id=candidates.id),false),`+locked+` FROM candidates`+filter+` ORDER BY name,id LIMIT $11 OFFSET $12`, args...)
 	if e != nil {
 		respond(w, nil, e)
 		return
@@ -332,9 +342,12 @@ func (s *Service) candidates(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var v Candidate
 		var raw []byte
-		if e = rows.Scan(&v.ID, &v.Name, &v.Description, &v.Selected, &v.Inherited, &raw, &v.Email, &v.Action, &v.ScopeType, &v.Kind, &v.ApplicationID, &v.ApplicationName, &v.Environment, &v.DepartmentID, &v.DepartmentName, &v.ResourceCount, &v.IsMock); e != nil {
+		if e = rows.Scan(&v.ID, &v.Name, &v.Description, &v.Selected, &v.Inherited, &raw, &v.Email, &v.Action, &v.ScopeType, &v.Kind, &v.ApplicationID, &v.ApplicationName, &v.Environment, &v.DepartmentID, &v.DepartmentName, &v.ResourceCount, &v.IsMock, &v.Locked); e != nil {
 			respond(w, nil, e)
 			return
+		}
+		if v.Locked {
+			v.LockReason = "此用户的基础角色由成员管理维护，请在成员管理中调整。"
 		}
 		if e = json.Unmarshal(raw, &v.SourceDepartments); e != nil {
 			respond(w, nil, e)

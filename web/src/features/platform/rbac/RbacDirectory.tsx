@@ -100,7 +100,11 @@ function RbacList({ kind }: { kind: RbacKind }) {
               onSubmit={() => setQ(q.trim())}
               showSubmit={false}
               label={`搜索${label}`}
-              placeholder={`搜索${label}名称、标识或描述`}
+              placeholder={
+                kind === "roles"
+                  ? "搜索角色名称或描述"
+                  : "搜索权限名称、标识或描述"
+              }
             />
             {kind === "permissions" && (
               <>
@@ -139,7 +143,7 @@ function RbacList({ kind }: { kind: RbacKind }) {
                 {kind === "roles" ? (
                   <>
                     <th>权限</th>
-                    <th>直接用户</th>
+                    <th>用户</th>
                     <th>部门</th>
                   </>
                 ) : (
@@ -149,8 +153,12 @@ function RbacList({ kind }: { kind: RbacKind }) {
                     <th>关联范围</th>
                   </>
                 )}
-                <th>来源</th>
-                <th>操作</th>
+                {kind === "permissions" && (
+                  <>
+                    <th>来源</th>
+                    <th>操作</th>
+                  </>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -161,12 +169,17 @@ function RbacList({ kind }: { kind: RbacKind }) {
                       className="directory-name"
                       onClick={() => setSelected(item)}
                     >
-                      <ShieldCheck size={18} />
+                      {kind === "permissions" && <ShieldCheck size={18} />}
                       {item.name}
                     </button>
-                    <small className="rbac-id">{item.id}</small>
+                    {kind === "permissions" && (
+                      <small className="rbac-id">{item.id}</small>
+                    )}
                     {item.description && (
-                      <small className="rbac-description">
+                      <small
+                        className="rbac-description"
+                        title={item.description}
+                      >
                         {item.description}
                       </small>
                     )}
@@ -194,32 +207,36 @@ function RbacList({ kind }: { kind: RbacKind }) {
                       </td>
                     </>
                   )}
-                  <td>
-                    <span className="rbac-origin">
-                      {item.builtin ? "系统内置" : "自定义"}
-                    </span>
-                  </td>
-                  <td>
-                    <div className="rbac-row-actions">
-                      <button
-                        className="rbac-link"
-                        onClick={() =>
-                          item.scope_type === "legacy_application"
-                            ? setSelected(item)
-                            : setAssociation(item)
-                        }
-                      >
-                        {item.builtin ? "查看关联" : "管理关联"}
-                      </button>
-                      <button
-                        className="icon-button"
-                        aria-label={`查看 ${item.name} 详情`}
-                        onClick={() => setSelected(item)}
-                      >
-                        <MoreHorizontal size={19} />
-                      </button>
-                    </div>
-                  </td>
+                  {kind === "permissions" && (
+                    <>
+                      <td>
+                        <span className="rbac-origin">
+                          {item.builtin ? "系统内置" : "自定义"}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="rbac-row-actions">
+                          <button
+                            className="rbac-link"
+                            onClick={() =>
+                              item.scope_type === "legacy_application"
+                                ? setSelected(item)
+                                : setAssociation(item)
+                            }
+                          >
+                            {item.builtin ? "查看关联" : "管理关联"}
+                          </button>
+                          <button
+                            className="icon-button"
+                            aria-label={`查看 ${item.name} 详情`}
+                            onClick={() => setSelected(item)}
+                          >
+                            <MoreHorizontal size={19} />
+                          </button>
+                        </div>
+                      </td>
+                    </>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -377,7 +394,7 @@ function ObjectCard({
   return (
     <RbacOverlay
       title={fresh ? `创建${label}` : `${label}详情`}
-      subtitle={initial?.id}
+      subtitle={kind === "permissions" ? initial?.id : undefined}
       dirty={dirty}
       busy={busy}
       onClose={onClose}
@@ -395,17 +412,25 @@ function ObjectCard({
             disabled={busy || initial?.builtin}
           />
         </label>
+        {kind === "roles" && !initial?.builtin && (
+          <small className="rbac-field-hint">角色名称在平台内唯一。</small>
+        )}
         <label>
           描述
           <textarea
             className="field"
+            aria-label="描述"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
             maxLength={2000}
             disabled={busy || initial?.builtin}
             placeholder={`描述这个${label}的用途`}
+            aria-describedby="rbac-description-count"
           />
+          <span id="rbac-description-count" className="rbac-character-count">
+            {description.length} / 2000
+          </span>
         </label>
         {kind === "permissions" && (
           <>
@@ -456,7 +481,7 @@ function ObjectCard({
                   <strong>{initial.permission_count ?? 0}</strong>权限
                 </span>
                 <span>
-                  <strong>{initial.user_count ?? 0}</strong>直接用户
+                  <strong>{initial.user_count ?? 0}</strong>用户
                 </span>
                 <span>
                   <strong>{initial.department_count ?? 0}</strong>部门
@@ -480,7 +505,7 @@ function ObjectCard({
               disabled={busy || dirty || scope === "legacy_application"}
               onClick={() => onAssociations(initial)}
             >
-              {initial.builtin ? "查看关联" : "管理关联"}
+              {kind === "roles" || !initial.builtin ? "管理关联" : "查看关联"}
             </button>
             {dirty && <small>请先保存基本信息，再管理关联。</small>}
           </section>
@@ -491,7 +516,7 @@ function ObjectCard({
               : "当前为未保存的权限草稿。创建后保存基本信息，再选择资源并保存关联；未关联任何范围前不会授予访问。"}
           </DirectoryNotice>
         )}
-        {initial?.builtin && (
+        {initial?.builtin && kind === "permissions" && (
           <DirectoryNotice>
             系统内置定义只读；账户基础角色在成员管理中维护。
           </DirectoryNotice>

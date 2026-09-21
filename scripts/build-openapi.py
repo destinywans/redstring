@@ -248,6 +248,8 @@ route('post','/ai-extensions/compose','Compose explicit version-bound skill and 
 route('post','/ai-extensions/{id}/discover','Discover tools from administrator registered MCP service','admin',response=obj({'items':arr(obj({'name':string(),'description':string(),'read_only_hint':boolean,'input_schema':{'type':'object','additionalProperties':True}}))}))
 route('post','/ai-extensions/{id}/test','Invoke only the registered fixed-argument read-only tool binding','admin',obj({'binding':string()},['binding']),ref('Evidence'),desc='Read-only hint is insufficient alone: explicit administrator allowlist, immutable binding version and application ACL are checked.')
 
+exec(Path('scripts/resources-openapi.py').read_text())
+
 spec={'openapi':'3.1.0','info':{'title':'AIOps Canvas Backend API','version':'0.7.0','description':'Single-workspace multi-application SRE API. All business history is server authoritative; application authorization is enforced beyond minimum workspace role.','license':{'name':'Apache-2.0','identifier':'Apache-2.0'}},'servers':[{'url':'/api/v1'}],'security':[{'sessionCookie':[]}],'paths':P,'components':{'schemas':S,'securitySchemes':{'sessionCookie':{'type':'apiKey','in':'cookie','name':'aiops_session'},'alertSourceToken':{'type':'http','scheme':'bearer'}}}}
 Path('internal/apicontract/openapi.json').write_text(json.dumps(spec,ensure_ascii=False,indent=2)+'\n')
 print(f'Generated {len(P)} paths, {sum(len(x) for x in P.values())} operations, {len(S)} schemas.')

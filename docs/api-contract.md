@@ -107,3 +107,7 @@
 ## WAN-93 通用 Skills / Prompt
 
 `GET /ai-extensions?scope=workspace&kind=skill|prompt` 返回工作区通用记录；原 application_id 查询保持应用专用语义，列表额外返回 `can_write`。通用记录 application_id 为空字符串，全体登录成员可读、仅管理员维护；MCP始终绑定应用。组合草稿仍要求授权的具体应用目标，可引用通用和同应用版本。详见 [范围契约](ai-extension-scopes.md)。
+
+## 资源目录与资源关系（WAN-101）
+
+新增 `GET/POST /resources`、`GET /resources/{id}` 与 `GET /resource-relations`。资源、关联应用和静态关系在 PostgreSQL 保存；查询复用应用授权，按全局环境 key 过滤。共享资源仅返回调用者可见应用关系，图的两端必须均可见。示例记录明确 `is_mock` 和独立来源，不能当实时健康；录入元数据不会创建基础设施。完整类型、过滤/分页与有界关系查询见 [资源契约](resources-api.md)。

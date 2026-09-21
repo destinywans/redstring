@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown, ChevronUp } from "../../lib/icons";
 import { cn } from "../../lib/utils";
@@ -38,6 +38,7 @@ export function Select({
   className,
 }: SelectProps) {
   const uniqueId = useId();
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const [internalValue, setInternalValue] = useState(defaultValue);
   const selected = value ?? internalValue;
   // Radix reserves the empty string for the placeholder. A private menu value
@@ -59,6 +60,7 @@ export function Select({
       disabled={disabled}
     >
       <SelectPrimitive.Trigger
+        ref={triggerRef}
         id={id}
         aria-label={ariaLabel}
         className={cn("ui-select-trigger", className)}
@@ -68,7 +70,9 @@ export function Select({
           <ChevronDown size={15} />
         </SelectPrimitive.Icon>
       </SelectPrimitive.Trigger>
-      <SelectPrimitive.Portal>
+      <SelectPrimitive.Portal
+        container={triggerRef.current?.closest("dialog") ?? undefined}
+      >
         <SelectPrimitive.Content
           className="ui-select-content"
           position="popper"

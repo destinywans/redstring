@@ -15,6 +15,10 @@ export interface SheetProps {
   size?: "form" | "detail" | "wide";
   className?: string;
   closeLabel?: string;
+  closeDisabled?: boolean;
+  icon?: ReactNode;
+  /** Structured bodies keep their own tabs, scroll area, and action footer. */
+  bodyLayout?: "scroll" | "structured";
 }
 
 export function Sheet({
@@ -27,11 +31,19 @@ export function Sheet({
   size = "form",
   className,
   closeLabel = "关闭卡片",
+  closeDisabled = false,
+  icon,
+  bodyLayout = "scroll",
 }: SheetProps) {
   const previousFocus = useRef<HTMLElement | null>(null);
   const descriptionId = useId();
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+    <Dialog.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (next || !closeDisabled) onOpenChange(next);
+      }}
+    >
       <Dialog.Portal>
         <Dialog.Overlay className="ui-sheet-overlay" />
         <Dialog.Content
@@ -46,11 +58,16 @@ export function Sheet({
           onCloseAutoFocus={(event) => {
             if (previousFocus.current?.isConnected) {
               event.preventDefault();
-              previousFocus.current.focus();
+              previousFocus.current.focus({ preventScroll: true });
             }
           }}
         >
           <header className="ui-sheet-header">
+            {icon && (
+              <span className="ui-sheet-header-icon" aria-hidden="true">
+                {icon}
+              </span>
+            )}
             <div className="ui-sheet-heading">
               <Dialog.Title className="ui-sheet-title">{title}</Dialog.Title>
               {description && (
@@ -63,12 +80,24 @@ export function Sheet({
               )}
             </div>
             <Dialog.Close asChild>
-              <Button variant="ghost" size="icon" aria-label={closeLabel}>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={closeLabel}
+                disabled={closeDisabled}
+              >
                 <X size={18} />
               </Button>
             </Dialog.Close>
           </header>
-          <div className="ui-sheet-body">{children}</div>
+          <div
+            className={cn(
+              "ui-sheet-body",
+              bodyLayout === "structured" && "ui-sheet-body--structured",
+            )}
+          >
+            {children}
+          </div>
           {footer && <footer className="ui-sheet-footer">{footer}</footer>}
         </Dialog.Content>
       </Dialog.Portal>

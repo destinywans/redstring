@@ -1,6 +1,5 @@
-import { useRef, useState, type ReactNode } from "react";
-import * as Dialog from "@radix-ui/react-dialog";
-import { X } from "../../../lib/icons";
+import { useState, type ReactNode } from "react";
+import { Sheet } from "../../../components/ui/sheet";
 export function RbacOverlay({
   title,
   subtitle,
@@ -19,66 +18,37 @@ export function RbacOverlay({
   children: ReactNode | ((requestClose: () => void) => ReactNode);
 }) {
   const [confirmClose, setConfirmClose] = useState(false);
-  const previousFocus = useRef<HTMLElement | null>(null);
   const close = () => {
     if (busy) return;
     if (dirty) setConfirmClose(true);
     else onClose();
   };
   return (
-    <Dialog.Root
+    <Sheet
       open
       onOpenChange={(open) => {
         if (!open) close();
       }}
+      title={title}
+      description={subtitle}
+      size={wide ? "wide" : "form"}
+      className={`rbac-overlay ${wide ? "rbac-overlay--wide" : "rbac-overlay--card"}`}
+      bodyLayout="structured"
+      closeDisabled={busy}
+      closeLabel="关闭"
     >
-      <Dialog.Portal>
-        <Dialog.Overlay className="rbac-shade" />
-        <Dialog.Content
-          className={`rbac-overlay ${wide ? "rbac-overlay--wide" : "rbac-overlay--card"}`}
-          aria-describedby={undefined}
-          onOpenAutoFocus={() => {
-            previousFocus.current =
-              document.activeElement instanceof HTMLElement
-                ? document.activeElement
-                : null;
-          }}
-          onCloseAutoFocus={(event) => {
-            if (previousFocus.current?.isConnected) {
-              event.preventDefault();
-              previousFocus.current.focus();
-            }
-          }}
-        >
-          <header className="rbac-overlay-heading">
-            <div>
-              <Dialog.Title>{title}</Dialog.Title>
-              {subtitle && <p>{subtitle}</p>}
-            </div>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="关闭"
-              disabled={busy}
-              onClick={close}
-            >
-              <X size={20} />
-            </button>
-          </header>
-          {confirmClose && (
-            <div className="rbac-unsaved" role="alert">
-              <span>有尚未保存的修改，关闭后将丢失。</span>
-              <button className="btn" onClick={() => setConfirmClose(false)}>
-                继续编辑
-              </button>
-              <button className="btn directory-danger" onClick={onClose}>
-                放弃修改并关闭
-              </button>
-            </div>
-          )}
-          {typeof children === "function" ? children(close) : children}
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+      {confirmClose && (
+        <div className="rbac-unsaved" role="alert">
+          <span>有尚未保存的修改，关闭后将丢失。</span>
+          <button className="btn" onClick={() => setConfirmClose(false)}>
+            继续编辑
+          </button>
+          <button className="btn directory-danger" onClick={onClose}>
+            放弃修改并关闭
+          </button>
+        </div>
+      )}
+      {typeof children === "function" ? children(close) : children}
+    </Sheet>
   );
 }

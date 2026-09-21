@@ -1,3 +1,4 @@
+import { PageHeader } from "../../components/patterns/ListPage";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -241,15 +242,15 @@ export default function ResourceRelationsPage() {
   ];
   return (
     <section className="resource-page resource-relations-page">
-      <header className="resource-page-heading">
-        <div>
-          <h1>资源关系</h1>
-          <p>查看部署、归属与依赖，理解应用和资源之间的关联。</p>
-        </div>
-        {graph.data?.nodes.some((node) => node.is_mock) && (
-          <span className="resource-source is-mock">包含示例数据</span>
-        )}
-      </header>
+      <PageHeader
+        title="资源关系"
+        description="查看部署、归属与依赖，理解应用和资源之间的关联。"
+        actions={
+          graph.data?.nodes.some((node) => node.is_mock) && (
+            <span className="resource-source is-mock">包含示例数据</span>
+          )
+        }
+      />
       <FilterBar label="资源关系搜索与筛选">
         <FilterSearch
           label="搜索关系资源"

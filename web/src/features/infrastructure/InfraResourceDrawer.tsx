@@ -1,7 +1,7 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import * as Dialog from "@radix-ui/react-dialog";
-import { Box, Database, Network, Server, X, ArrowRight } from "../../lib/icons";
+import { Sheet } from "../../components/ui/sheet";
+import { Box, Database, Network, Server, ArrowRight } from "../../lib/icons";
 import { request } from "../../lib/api";
 import { ErrorNotice } from "../../components/ui";
 import {
@@ -710,49 +710,25 @@ export default function InfraResourceDrawer({
   onClose: () => void;
   onSelect: (id: string) => void;
 }) {
-  const previousFocus = useRef<HTMLElement | null>(null);
   return (
-    <Dialog.Root
+    <Sheet
       open={Boolean(resourceId)}
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
+      title="资源详情"
+      className="infra-resource-drawer"
+      bodyLayout="structured"
+      closeLabel="关闭资源卡片"
     >
-      <Dialog.Portal>
-        <Dialog.Overlay className="infra-drawer-overlay" />
-        <Dialog.Content
-          className="infra-resource-drawer"
-          aria-describedby={undefined}
-          onOpenAutoFocus={() => {
-            previousFocus.current =
-              document.activeElement instanceof HTMLElement
-                ? document.activeElement
-                : null;
-          }}
-          onCloseAutoFocus={(event) => {
-            if (previousFocus.current?.isConnected) {
-              event.preventDefault();
-              previousFocus.current.focus();
-            }
-          }}
-        >
-          <Dialog.Title className="sr-only">资源详情</Dialog.Title>
-          <Dialog.Close
-            className="infra-drawer-close icon-button"
-            aria-label="关闭资源卡片"
-          >
-            <X size={20} />
-          </Dialog.Close>
-          {resourceId && (
-            <DrawerContent
-              key={`${resourceId}-${scope}`}
-              resourceId={resourceId}
-              scope={scope}
-              onSelect={onSelect}
-            />
-          )}
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+      {resourceId && (
+        <DrawerContent
+          key={`${resourceId}-${scope}`}
+          resourceId={resourceId}
+          scope={scope}
+          onSelect={onSelect}
+        />
+      )}
+    </Sheet>
   );
 }

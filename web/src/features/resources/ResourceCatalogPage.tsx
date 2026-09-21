@@ -1,3 +1,4 @@
+import { PageHeader } from "../../components/patterns/ListPage";
 import Pagination from "../../components/Pagination";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -78,17 +79,17 @@ export default function ResourceCatalogPage() {
   const total = resources.data?.total ?? 0;
   return (
     <section className="resource-page">
-      <header className="resource-page-heading">
-        <div>
-          <h1>资源目录</h1>
-          <p>管理应用与基础设施资源，查看归属、来源和关联信息。</p>
-        </div>
-        {user.role === "admin" && (
-          <button className="btn primary" onClick={() => setCreating(true)}>
-            <Plus size={16} /> 添加资源
-          </button>
-        )}
-      </header>
+      <PageHeader
+        title="资源目录"
+        description="管理应用与基础设施资源，查看归属、来源和关联信息。"
+        actions={
+          user.role === "admin" && (
+            <button className="btn primary" onClick={() => setCreating(true)}>
+              <Plus size={16} /> 添加资源
+            </button>
+          )
+        }
+      />
       <FilterBar label="资源搜索与筛选">
         <FilterSearch
           value={params.get("q") ?? ""}

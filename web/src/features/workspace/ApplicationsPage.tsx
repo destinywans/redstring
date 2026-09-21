@@ -1,5 +1,4 @@
 import Pagination from "../../components/Pagination";
-import { Select } from "../../components/ui/select";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import {
@@ -472,20 +471,6 @@ export default function ApplicationsPage() {
           </div>
         )}
         <Pagination
-          pageSizeControl={
-            <Select
-              aria-label="每页条数"
-              required
-              value={String(pageSize)}
-              options={[5, 10, 20, 50].map((n) => ({
-                value: String(n),
-                label: String(n),
-              }))}
-              onValueChange={(v) => {
-                if (v) updateFilter("page_size", v);
-              }}
-            />
-          }
           ariaLabel="应用列表分页"
           total={filtered.length}
           page={page}

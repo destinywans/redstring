@@ -243,61 +243,6 @@
   font-size: var(--type-caption);
   line-height: var(--leading-body);
 }
-.resource-overlay-shade {
-  position: fixed;
-  inset: 0;
-  z-index: 110;
-  background: rgb(10 15 25 / 0.12);
-  animation: resource-shade-in 0.18s ease-out;
-}
-.resource-overlay {
-  position: fixed;
-  top: 12px;
-  bottom: 12px;
-  right: 12px;
-  z-index: 111;
-  width: min(510px, calc(100vw - 24px));
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  background: var(--panel);
-  color: var(--text);
-  box-shadow: -12px 0 48px rgb(0 0 0 / 0.14);
-  outline: none;
-  animation: resource-card-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.resource-overlay-header {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  padding: 24px 24px 20px;
-}
-.resource-overlay-header > div {
-  min-width: 0;
-  flex: 1;
-}
-.resource-overlay-header h2 {
-  margin: 0;
-  font-size: var(--type-section);
-  line-height: var(--leading-heading);
-  font-weight: var(--weight-semibold);
-  letter-spacing: -0.02em;
-  overflow-wrap: anywhere;
-}
-.resource-overlay-header p {
-  color: var(--muted);
-  margin: 5px 0 0;
-  font-size: var(--type-caption);
-  line-height: var(--leading-ui);
-  overflow-wrap: anywhere;
-  font-weight: var(--weight-regular);
-}
-.resource-close {
-  align-self: flex-start;
-  flex: none;
-}
 .resource-tabs {
   display: flex;
   padding: 0 24px;
@@ -323,7 +268,7 @@
   font-weight: var(--weight-medium);
 }
 .resource-overlay-body {
-  padding: 0 24px 28px;
+  padding: 20px 24px 24px;
   min-height: 0;
   overflow: auto;
   flex: 1;
@@ -629,24 +574,6 @@
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
-@keyframes resource-card-in {
-  from {
-    opacity: 0;
-    transform: translateX(35px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
-}
-@keyframes resource-shade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
 @media (max-width: 900px) {
   .resource-page {
     padding: 24px 18px;
@@ -673,16 +600,6 @@
   .resource-page .filter-search {
     flex-basis: 100%;
   }
-  .resource-overlay {
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: 100vw;
-    border-radius: 0;
-  }
-  .resource-overlay-header {
-    padding: 20px 18px;
-  }
   .resource-overlay-body {
     padding-left: 18px;
     padding-right: 18px;
@@ -701,11 +618,18 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .resource-overlay,
-  .resource-overlay-shade {
-    animation: none;
-  }
   .resource-table tbody tr {
     transition: none;
   }
+}
+
+/* Legacy content keeps its form ownership inside the shared sheet shell. */
+.resource-overlay .settings-editor {
+  min-height: 0;
+}
+.resource-overlay .settings-editor > footer {
+  position: sticky;
+  bottom: -26px;
+  background: var(--panel);
+  padding-bottom: 20px;
 }

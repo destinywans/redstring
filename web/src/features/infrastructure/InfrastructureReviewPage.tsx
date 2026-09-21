@@ -1,3 +1,4 @@
+import { PageHeader } from "../../components/patterns/ListPage";
 import Pagination from "../../components/Pagination";
 import { Fragment, useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -422,26 +423,28 @@ export default function InfrastructureReviewPage() {
           : Box;
   return (
     <section className="infra-review" aria-label={def.title}>
-      <header className="infra-review-heading">
-        <div>
-          <h1>{def.title}</h1>
-          <p>{def.description}</p>
-        </div>
-        <div className="infra-review-actions">
-          <span className="infra-review-source">
-            {rows.some((r) => r.is_mock) ? "含示例数据 · 只读预览" : "资源目录"}
-            {latest && <small>最近采样 {moment(latest)}</small>}
-          </span>
-          <button
-            className="button"
-            onClick={() => void inventory.refetch()}
-            disabled={inventory.isFetching}
-          >
-            <RefreshCw size={16} />
-            刷新
-          </button>
-        </div>
-      </header>
+      <PageHeader
+        title={def.title}
+        description={def.description}
+        actions={
+          <div className="infra-review-actions">
+            <span className="infra-review-source">
+              {rows.some((r) => r.is_mock)
+                ? "含示例数据 · 只读预览"
+                : "资源目录"}
+              {latest && <small>最近采样 {moment(latest)}</small>}
+            </span>
+            <button
+              className="button"
+              onClick={() => void inventory.refetch()}
+              disabled={inventory.isFetching}
+            >
+              <RefreshCw size={16} />
+              刷新
+            </button>
+          </div>
+        }
+      />
       {inventory.error && <ErrorNotice error={inventory.error} />}
       {view === "summary" && (
         <section className="infra-overview-stats" aria-label="资源统计">

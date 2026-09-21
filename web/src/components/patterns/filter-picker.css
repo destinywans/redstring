@@ -1,0 +1,14 @@
+.ui-filter-content {
+  max-width: calc(100vw - 24px);
+}
+.ui-filter-option-description {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--type-caption, 13px);
+  font-weight: 400;
+  line-height: 1.5;
+}
+.ui-filter-trigger[aria-invalid="true"] {
+  border-color: var(--danger);
+}

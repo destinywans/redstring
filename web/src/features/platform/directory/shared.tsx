@@ -1,3 +1,4 @@
+import { PageHeader } from "../../../components/patterns/ListPage";
 import type { ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { request } from "../../../lib/api";
@@ -133,13 +134,7 @@ export function DirectoryHeader({
   actions?: ReactNode;
 }) {
   return (
-    <header className="directory-heading">
-      <div>
-        <h1>{title}</h1>
-        <p>{description}</p>
-      </div>
-      {actions && <div className="directory-actions">{actions}</div>}
-    </header>
+    <PageHeader title={title} description={description} actions={actions} />
   );
 }
 export function DirectoryNotice({ children }: { children: ReactNode }) {

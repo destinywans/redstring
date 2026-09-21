@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import * as Dialog from "@radix-ui/react-dialog";
+import { useEffect, useState, type ReactNode } from "react";
+import { Sheet } from "../../components/ui/sheet";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
@@ -7,7 +7,6 @@ import {
   Database,
   Network,
   Server,
-  X,
   ExternalLink,
   History,
 } from "../../lib/icons";
@@ -52,53 +51,24 @@ export function ResourceOverlay({
   subtitle?: string;
   icon?: ReactNode;
 }) {
-  const previousFocus = useRef<HTMLElement | null>(null);
   return (
-    <Dialog.Root
+    <Sheet
       open
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
+      title={title}
+      description={subtitle}
+      icon={icon}
+      className="resource-overlay"
+      bodyLayout="structured"
+      closeLabel="关闭资源卡片"
     >
-      <Dialog.Portal>
-        <Dialog.Overlay className="resource-overlay-shade" />
-        <Dialog.Content
-          className="resource-overlay"
-          aria-describedby={undefined}
-          onOpenAutoFocus={() => {
-            previousFocus.current =
-              document.activeElement instanceof HTMLElement
-                ? document.activeElement
-                : null;
-          }}
-          onCloseAutoFocus={(event) => {
-            if (previousFocus.current?.isConnected) {
-              event.preventDefault();
-              previousFocus.current.focus({ preventScroll: true });
-            }
-          }}
-        >
-          <header className="resource-overlay-header">
-            {icon && (
-              <span className="resource-icon resource-icon--large">{icon}</span>
-            )}
-            <div>
-              <Dialog.Title>{title}</Dialog.Title>
-              {subtitle && <p>{subtitle}</p>}
-            </div>
-            <Dialog.Close
-              className="resource-close icon-button"
-              aria-label="关闭资源卡片"
-            >
-              <X size={19} />
-            </Dialog.Close>
-          </header>
-          {children}
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+      {children}
+    </Sheet>
   );
 }
+
 export function ResourceFacts({ items }: { items: [string, ReactNode][] }) {
   return (
     <dl className="resource-facts">

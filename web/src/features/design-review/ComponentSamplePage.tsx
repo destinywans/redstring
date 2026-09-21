@@ -1,3 +1,4 @@
+import Pagination from "../../components/Pagination";
 import { useState } from "react";
 import { Button } from "../../components/ui/button";
 import { Input, Textarea } from "../../components/ui/input";
@@ -53,6 +54,8 @@ const samples = [
 ];
 
 export default function ComponentSamplePage() {
+  const [samplePage, setSamplePage] = useState(1);
+  const [samplePageSize, setSamplePageSize] = useState(10);
   const [query, setQuery] = useState("");
   const [department, setDepartment] = useState<string[]>([]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -87,6 +90,29 @@ export default function ComponentSamplePage() {
         <span className="component-sample-demo-label">仅本页预览</span>
       </header>
 
+      <section
+        className="component-sample-card"
+        aria-label="分页样板"
+        style={{ marginBottom: 20 }}
+      >
+        <div className="component-sample-section-heading">
+          <div>
+            <h2>分页</h2>
+            <p>100 条样例：可体验首尾页、省略号、每页条数与直接跳页。</p>
+          </div>
+        </div>
+        <Pagination
+          ariaLabel="分页样板"
+          total={100}
+          page={samplePage}
+          pageSize={samplePageSize}
+          onPageChange={setSamplePage}
+          onPageSizeChange={(size) => {
+            setSamplePageSize(size);
+            setSamplePage(1);
+          }}
+        />
+      </section>
       <section
         className="component-sample-card"
         aria-labelledby="component-sample-filter-heading"

@@ -1,22 +1,14 @@
+import type { ReactNode } from "react";
+import { Search } from "../../lib/icons";
 import {
-  createContext,
-  useContext,
-  useId,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type ReactNode,
-} from "react";
-import * as Popover from "@radix-ui/react-popover";
-import { Check, ChevronDown, Search } from "../../lib/icons";
+  FilterGroup,
+  FilterPicker,
+  type FilterOption,
+} from "../patterns/FilterPicker";
+import { Button } from "../ui/button";
 import "./filters.css";
 
-const FilterContext = createContext<{
-  openId: string | null;
-  setOpenId: (id: string | null) => void;
-} | null>(null);
-
-/** Keep one floating filter open within each toolbar. */
+/** Existing page contracts now share the sample's menu and focus behavior. */
 export function FilterBar({
   children,
   label = "搜索与筛选",
@@ -24,16 +16,14 @@ export function FilterBar({
   children: ReactNode;
   label?: string;
 }) {
-  const [openId, setOpenId] = useState<string | null>(null);
   return (
-    <FilterContext.Provider value={{ openId, setOpenId }}>
-      <div className="filter-bar" role="group" aria-label={label}>
-        {children}
-      </div>
-    </FilterContext.Provider>
+    <FilterGroup className="filter-bar" role="group" aria-label={label}>
+      {children}
+    </FilterGroup>
   );
 }
 
+/** Draft changes and committed queries remain separate for server-backed searches. */
 export function FilterSearch({
   value,
   onChange,
@@ -41,7 +31,7 @@ export function FilterSearch({
   placeholder = "搜索名称或关键词",
   label = "搜索",
   maxLength = 200,
-  showSubmit = true,
+  showSubmit = false,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -67,26 +57,23 @@ export function FilterSearch({
           type="search"
           maxLength={maxLength}
           aria-label={label}
+          title="输入关键词，按回车搜索"
+          enterKeyHint="search"
           value={value}
           onChange={(event) => onChange(event.target.value)}
           placeholder={placeholder}
         />
       </div>
       {showSubmit && (
-        <button type="submit" className="filter-button">
+        <Button type="submit" variant="outline">
           搜索
-        </button>
+        </Button>
       )}
     </form>
   );
 }
 
-export type FilterOption = {
-  value: string;
-  label: string;
-  description?: string;
-  disabled?: boolean;
-};
+export type { FilterOption } from "../patterns/FilterPicker";
 
 export function FilterSelect({
   id,
@@ -96,8 +83,7 @@ export function FilterSelect({
   onChange,
   multiple = false,
   searchable = false,
-  emptyLabel = "全部",
-  showLabel = true,
+  emptyLabel,
   includeEmptyOption = true,
   clearable = false,
   popoverWidth,
@@ -110,284 +96,32 @@ export function FilterSelect({
   multiple?: boolean;
   searchable?: boolean;
   emptyLabel?: string;
+  /** Retained for source compatibility; triggers display one concise label. */
   showLabel?: boolean;
   includeEmptyOption?: boolean;
   clearable?: boolean;
   popoverWidth?: number;
 }) {
-  const group = useContext(FilterContext);
-  const instanceId = useId();
-  const openKey = `${id}-${instanceId}`;
-  const [localOpen, setLocalOpen] = useState(false);
-  const open = group ? group.openId === openKey : localOpen;
-  const [query, setQuery] = useState("");
-  const [draft, setDraft] = useState<string[]>([]);
-  const searchRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const listId = `filter-options-${instanceId}`;
-  const selected = multiple ? draft : values;
-  const candidates =
-    multiple || !includeEmptyOption
-      ? options
-      : [{ value: "", label: emptyLabel }, ...options.filter((o) => o.value)];
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  const visible = candidates.filter((option) =>
-    `${option.label} ${option.description ?? ""}`
-      .toLocaleLowerCase()
-      .includes(normalizedQuery),
-  );
-  const summary = !values.length
-    ? emptyLabel
-    : values.length === 1
-      ? (options.find((option) => option.value === values[0])?.label ??
-        "已选 1 项")
-      : `${showLabel ? "已选" : label} ${values.length} 项`;
-
-  function changeOpen(next: boolean) {
-    if (next) {
-      setQuery("");
-      setDraft([...values]);
-    }
-    if (group) {
-      // An old popover's dismissal must not close the newly opened filter.
-      if (next) group.setOpenId(openKey);
-      else if (group.openId === openKey) group.setOpenId(null);
-    } else setLocalOpen(next);
-  }
-
-  function choose(option: FilterOption) {
-    if (option.disabled) return;
-    if (multiple) {
-      setDraft((current) =>
-        current.includes(option.value)
-          ? current.filter((value) => value !== option.value)
-          : [...current, option.value],
-      );
-    } else {
-      onChange(
-        clearable && values.includes(option.value)
-          ? []
-          : option.value
-            ? [option.value]
-            : [],
-      );
-      changeOpen(false);
-    }
-  }
-
-  function focusOption(position: "first" | "last" | "selected") {
-    const items = listRef.current?.querySelectorAll<HTMLElement>(
-      '[role="option"]:not([aria-disabled="true"])',
-    );
-    if (!items?.length) return;
-    const target =
-      position === "last"
-        ? items[items.length - 1]
-        : position === "selected"
-          ? (Array.from(items).find(
-              (item) => item.getAttribute("aria-selected") === "true",
-            ) ?? items[0])
-          : items[0];
-    target.focus();
-  }
-
-  function navigateOptions(event: KeyboardEvent<HTMLDivElement>) {
-    const items = Array.from(
-      listRef.current?.querySelectorAll<HTMLElement>(
-        '[role="option"]:not([aria-disabled="true"])',
-      ) ?? [],
-    );
-    if (!items.length) return;
-    const current = items.indexOf(document.activeElement as HTMLElement);
-    let next: number;
-    switch (event.key) {
-      case "ArrowDown":
-        next = (current + 1) % items.length;
-        break;
-      case "ArrowUp":
-        next = (current - 1 + items.length) % items.length;
-        break;
-      case "Home":
-        next = 0;
-        break;
-      case "End":
-        next = items.length - 1;
-        break;
-      default:
-        return;
-    }
-    event.preventDefault();
-    items[next].focus();
-  }
-
+  // Empty ordinary filters are identified by their field names. Explicit scope
+  // and business defaults (e.g. 全部授权应用 / 最近 30 分钟) retain their meaning.
+  const placeholder =
+    !emptyLabel || emptyLabel === "全部" || emptyLabel === `全部${label}`
+      ? label
+      : emptyLabel;
   return (
-    <Popover.Root open={open} onOpenChange={changeOpen}>
-      <Popover.Trigger asChild>
-        <button
-          ref={triggerRef}
-          type="button"
-          className="filter-select-trigger"
-          aria-label={label === summary ? label : `${label} · ${summary}`}
-          title={label === summary ? label : `${label} · ${summary}`}
-          data-active={values.length > 0 || undefined}
-          onKeyDown={(event) => {
-            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-              event.preventDefault();
-              changeOpen(true);
-            }
-          }}
-        >
-          {showLabel && (
-            <>
-              <span className="filter-trigger-label">{label}</span>
-              <span className="filter-trigger-separator" aria-hidden="true">
-                ·
-              </span>
-            </>
-          )}
-          <span className="filter-trigger-value">{summary}</span>
-          <ChevronDown size={14} aria-hidden="true" />
-        </button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content
-          className="filter-popover"
-          style={popoverWidth ? { width: popoverWidth } : undefined}
-          align="start"
-          sideOffset={6}
-          collisionPadding={12}
-          aria-label={`筛选${label}`}
-          onOpenAutoFocus={(event) => {
-            event.preventDefault();
-            if (searchable) searchRef.current?.focus();
-            else focusOption("selected");
-          }}
-          onCloseAutoFocus={(event) => {
-            // Preserve an intentional click on another control; restore focus for
-            // keyboard dismissal and explicit Cancel/Apply through Radix's default.
-            if (group?.openId && group.openId !== openKey)
-              event.preventDefault();
-          }}
-        >
-          {!showLabel && <div className="filter-popover-title">{label}</div>}
-          {searchable && (
-            <div className="filter-option-search">
-              <Search size={16} aria-hidden="true" />
-              <input
-                ref={searchRef}
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                aria-label={`搜索${label}选项`}
-                placeholder={`搜索${label}`}
-                aria-controls={listId}
-                onKeyDown={(event) => {
-                  if (event.key === "ArrowDown") {
-                    event.preventDefault();
-                    focusOption("first");
-                  }
-                }}
-              />
-            </div>
-          )}
-          <div
-            ref={listRef}
-            id={listId}
-            role="listbox"
-            aria-label={label}
-            aria-multiselectable={multiple || undefined}
-            className="filter-options"
-            onKeyDown={navigateOptions}
-          >
-            {visible.map((option) => {
-              const checked = option.value
-                ? selected.includes(option.value)
-                : selected.length === 0;
-              return (
-                <div
-                  key={option.value}
-                  role="option"
-                  aria-selected={checked}
-                  aria-disabled={option.disabled || undefined}
-                  tabIndex={option.disabled ? -1 : 0}
-                  className="filter-option"
-                  title={[option.label, option.description]
-                    .filter(Boolean)
-                    .join(" · ")}
-                  onClick={() => choose(option)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      choose(option);
-                    }
-                  }}
-                >
-                  <span
-                    className={`filter-option-mark ${multiple ? "is-multiple" : ""}`}
-                    aria-hidden="true"
-                  >
-                    {checked && <Check size={13} weight="bold" />}
-                  </span>
-                  <span className="filter-option-copy">
-                    <span>{option.label}</span>
-                    {option.description && <small>{option.description}</small>}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-          {!visible.length && (
-            <div className="filter-empty" role="status">
-              没有匹配的{label}
-            </div>
-          )}
-          {!multiple && clearable && values.length > 0 && (
-            <div className="filter-popover-footer">
-              <button
-                type="button"
-                className="filter-text-button"
-                onClick={() => {
-                  onChange([]);
-                  changeOpen(false);
-                }}
-              >
-                清除筛选
-              </button>
-            </div>
-          )}
-          {multiple && (
-            <div className="filter-popover-footer">
-              <button
-                type="button"
-                className="filter-text-button"
-                onClick={() => setDraft([])}
-              >
-                清空选择
-              </button>
-              <div className="filter-footer-actions">
-                <button
-                  type="button"
-                  className="filter-button"
-                  onClick={() => changeOpen(false)}
-                >
-                  取消
-                </button>
-                <button
-                  type="button"
-                  className="filter-button filter-apply"
-                  onClick={() => {
-                    onChange(draft);
-                    changeOpen(false);
-                  }}
-                >
-                  应用
-                </button>
-              </div>
-            </div>
-          )}
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+    <FilterPicker
+      id={id}
+      label={label}
+      options={options.filter((option) => option.value !== "")}
+      value={values.filter(Boolean)}
+      onChange={onChange}
+      multiple={multiple}
+      searchable={searchable}
+      emptyLabel={placeholder}
+      clearable={multiple || clearable || includeEmptyOption}
+      toggleSingle={clearable}
+      width={popoverWidth}
+      className="filter-select-trigger"
+    />
   );
 }

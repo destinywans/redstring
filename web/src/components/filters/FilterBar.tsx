@@ -98,6 +98,9 @@ export function FilterSelect({
   searchable = false,
   emptyLabel = "全部",
   showLabel = true,
+  includeEmptyOption = true,
+  clearable = false,
+  popoverWidth,
 }: {
   id: string;
   label: string;
@@ -108,6 +111,9 @@ export function FilterSelect({
   searchable?: boolean;
   emptyLabel?: string;
   showLabel?: boolean;
+  includeEmptyOption?: boolean;
+  clearable?: boolean;
+  popoverWidth?: number;
 }) {
   const group = useContext(FilterContext);
   const instanceId = useId();
@@ -121,9 +127,10 @@ export function FilterSelect({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listId = `filter-options-${instanceId}`;
   const selected = multiple ? draft : values;
-  const candidates = multiple
-    ? options
-    : [{ value: "", label: emptyLabel }, ...options.filter((o) => o.value)];
+  const candidates =
+    multiple || !includeEmptyOption
+      ? options
+      : [{ value: "", label: emptyLabel }, ...options.filter((o) => o.value)];
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const visible = candidates.filter((option) =>
     `${option.label} ${option.description ?? ""}`
@@ -135,7 +142,7 @@ export function FilterSelect({
     : values.length === 1
       ? (options.find((option) => option.value === values[0])?.label ??
         "已选 1 项")
-      : `已选 ${values.length} 项`;
+      : `${showLabel ? "已选" : label} ${values.length} 项`;
 
   function changeOpen(next: boolean) {
     if (next) {
@@ -158,7 +165,13 @@ export function FilterSelect({
           : [...current, option.value],
       );
     } else {
-      onChange(option.value ? [option.value] : []);
+      onChange(
+        clearable && values.includes(option.value)
+          ? []
+          : option.value
+            ? [option.value]
+            : [],
+      );
       changeOpen(false);
     }
   }
@@ -215,8 +228,8 @@ export function FilterSelect({
           ref={triggerRef}
           type="button"
           className="filter-select-trigger"
-          aria-label={`${label} · ${summary}`}
-          title={`${label} · ${summary}`}
+          aria-label={label === summary ? label : `${label} · ${summary}`}
+          title={label === summary ? label : `${label} · ${summary}`}
           data-active={values.length > 0 || undefined}
           onKeyDown={(event) => {
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -240,6 +253,7 @@ export function FilterSelect({
       <Popover.Portal>
         <Popover.Content
           className="filter-popover"
+          style={popoverWidth ? { width: popoverWidth } : undefined}
           align="start"
           sideOffset={6}
           collisionPadding={12}
@@ -326,6 +340,20 @@ export function FilterSelect({
           {!visible.length && (
             <div className="filter-empty" role="status">
               没有匹配的{label}
+            </div>
+          )}
+          {!multiple && clearable && values.length > 0 && (
+            <div className="filter-popover-footer">
+              <button
+                type="button"
+                className="filter-text-button"
+                onClick={() => {
+                  onChange([]);
+                  changeOpen(false);
+                }}
+              >
+                清除筛选
+              </button>
             </div>
           )}
           {multiple && (

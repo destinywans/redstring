@@ -12,8 +12,48 @@
   flex: 1 1 300px;
 }
 .applications-page .filter-select-trigger {
-  min-width: 108px;
+  min-width: 90px;
   justify-content: space-between;
+}
+.application-advanced-toggle {
+  position: relative;
+  width: 36px;
+  padding: 0;
+}
+.application-advanced-toggle[data-active] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.application-filter-dot {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  top: 5px;
+  right: 5px;
+}
+.application-advanced-filters {
+  margin: -4px 0 16px;
+  padding: 12px 16px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.application-advanced-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.application-advanced-heading strong {
+  font-weight: 500;
+}
+.application-advanced-filters .filter-bar {
+  margin-bottom: 0;
 }
 .application-filter-summary {
   display: flex;
@@ -68,9 +108,6 @@
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.application-list-table td:last-child {
-  width: 52px;
-}
 .application-list-table tbody tr:hover {
   background: var(--panel-soft);
 }
@@ -87,6 +124,53 @@
 }
 .application-name-link:hover strong {
   color: var(--accent);
+}
+.application-name-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+.application-pagination {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 20px;
+  min-height: 58px;
+}
+.application-pagination nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.application-pagination .filter-select-trigger {
+  height: 28px;
+  min-width: 96px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+@media (max-width: 600px) {
+  .application-pagination {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .application-pagination .filter-select-trigger {
+    flex: 0 0 auto;
+  }
+}
+.application-pagination nav > span {
+  min-width: 70px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.application-pagination .icon-button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.application-pagination .icon-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 .application-name-link strong {
   font-size: 14px;

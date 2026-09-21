@@ -82,4 +82,5 @@ export { ListIcon as Menu } from "@phosphor-icons/react/dist/csr/List";
 export { HouseIcon as Home } from "@phosphor-icons/react/dist/csr/House";
 export { RocketLaunchIcon as Rocket } from "@phosphor-icons/react/dist/csr/RocketLaunch";
 export { CaretLeftIcon as ChevronLeft } from "@phosphor-icons/react/dist/csr/CaretLeft";
+export { SlidersHorizontalIcon as SlidersHorizontal } from "@phosphor-icons/react/dist/csr/SlidersHorizontal";
 export type { Icon as IconComponent } from "@phosphor-icons/react";

@@ -8,11 +8,13 @@ export default function ApplicationDrawer({
   onOpenChange,
   title,
   children,
+  variant = "form",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   children: ReactNode;
+  variant?: "form" | "details";
 }) {
   const previousFocus = useRef<HTMLElement | null>(null);
   return (
@@ -20,7 +22,7 @@ export default function ApplicationDrawer({
       <Dialog.Portal>
         <Dialog.Overlay className="application-drawer-overlay" />
         <Dialog.Content
-          className="application-drawer"
+          className={`application-drawer${variant === "details" ? " application-drawer--details" : ""}`}
           aria-describedby={undefined}
           onOpenAutoFocus={() => {
             previousFocus.current =

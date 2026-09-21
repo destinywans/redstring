@@ -87,7 +87,7 @@
 }
 .app-shell > .topbar .workspace-breadcrumb > strong,
 .app-shell > .topbar .workspace-breadcrumb > span:only-child {
-  font-size: 18px;
+  font-size: inherit;
   font-weight: 600;
   color: var(--text);
   overflow: hidden;
@@ -96,7 +96,7 @@
 @media (max-width: 760px) {
   .app-shell > .topbar .workspace-breadcrumb > strong,
   .app-shell > .topbar .workspace-breadcrumb > span:only-child {
-    font-size: 16px;
+    font-size: inherit;
   }
   .app-shell > .topbar .workspace-breadcrumb > span:only-child {
     display: inline;

@@ -147,6 +147,12 @@
   flex: 0 0 auto;
   margin-bottom: 6px;
 }
+.filter-popover-title {
+  padding: 4px 8px 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
 .filter-options {
   min-height: 0;
   max-height: 280px;

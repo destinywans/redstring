@@ -39,8 +39,8 @@ export default function ApplicationsPage() {
   const query = params.get("q") ?? "";
   const teamFilter = params.get("team") ?? "";
   const ownerFilter = params.get("owner") ?? "";
-  const archiveFilter = params.get("archived") ?? "active";
-  const sort = params.get("sort") ?? "name";
+  const archiveFilter = params.get("archived") ?? "all";
+  const sort = params.get("sort") ?? "key";
   const [editing, setEditing] = useState<Application | null | undefined>();
   const [managing, setManaging] = useState<Application | null>(null);
   const [filter, setFilter] = useState(query);
@@ -52,11 +52,11 @@ export default function ApplicationsPage() {
     next.delete("view");
     setParams(next, { replace: true });
   }, [params, setParams]);
-  function updateFilter(key: string, value: string) {
+  function updateFilter(key: string, value: string, replace = false) {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value);
     else next.delete(key);
-    setParams(next);
+    setParams(next, { replace });
   }
   function resetFilters() {
     const next = new URLSearchParams(params);
@@ -173,19 +173,19 @@ export default function ApplicationsPage() {
           },
         ]
       : []),
-    ...(archiveFilter !== "active"
+    ...(archiveFilter !== "all"
       ? [
           {
             key: "archived",
-            label: archiveFilter === "archived" ? "已归档" : "包含归档应用",
+            label: archiveFilter === "archived" ? "已归档" : "使用中",
           },
         ]
       : []),
-    ...(sort !== "name"
+    ...(sort !== "key"
       ? [
           {
             key: "sort",
-            label: sort === "owner" ? "按负责人排序" : "按标识排序",
+            label: sort === "owner" ? "按负责人排序" : "按名称排序",
           },
         ]
       : []),
@@ -194,9 +194,8 @@ export default function ApplicationsPage() {
     <div className="management-page applications-page">
       <header className="management-heading">
         <div>
-          <span className="eyebrow">APPLICATION CATALOG</span>
           <h1>全部应用</h1>
-          <p>集中管理应用、负责人和所属团队。</p>
+          <p>应用资料、责任归属与关联资源。</p>
         </div>
         {user.role === "admin" && (
           <button
@@ -214,14 +213,19 @@ export default function ApplicationsPage() {
       <FilterBar label="应用搜索与筛选">
         <FilterSearch
           value={filter}
-          onChange={setFilter}
+          onChange={(value) => {
+            setFilter(value);
+            updateFilter("q", value, true);
+          }}
           onSubmit={() => updateFilter("q", filter.trim())}
+          showSubmit={false}
           label="搜索应用"
           placeholder="搜索应用名称、标识、负责人或标签"
         />
         <FilterSelect
           id="application-team"
           label="团队"
+          showLabel={false}
           options={teamOptions}
           values={teamFilter ? [teamFilter] : []}
           onChange={(v) => updateFilter("team", v[0] ?? "")}
@@ -230,6 +234,7 @@ export default function ApplicationsPage() {
         <FilterSelect
           id="application-owner"
           label="负责人"
+          showLabel={false}
           options={ownerOptions}
           values={ownerFilter ? [ownerFilter] : []}
           onChange={(v) => updateFilter("owner", v[0] ?? "")}
@@ -238,47 +243,47 @@ export default function ApplicationsPage() {
         <FilterSelect
           id="application-archive"
           label="状态"
+          showLabel={false}
           options={[
+            { value: "active", label: "使用中" },
             { value: "archived", label: "已归档" },
-            { value: "all", label: "全部" },
           ]}
-          values={archiveFilter === "active" ? [] : [archiveFilter]}
-          emptyLabel="使用中"
+          values={archiveFilter === "all" ? [] : [archiveFilter]}
           onChange={(v) => updateFilter("archived", v[0] ?? "")}
         />
         <FilterSelect
           id="application-sort"
           label="排序"
+          showLabel={false}
           options={[
-            { value: "key", label: "按标识" },
+            { value: "name", label: "按名称" },
             { value: "owner", label: "按负责人" },
           ]}
-          values={sort === "name" ? [] : [sort]}
-          emptyLabel="按名称"
+          values={sort === "key" ? [] : [sort]}
+          emptyLabel="按标识"
           onChange={(v) => updateFilter("sort", v[0] ?? "")}
         />
       </FilterBar>
-      <div className="application-filter-summary" aria-live="polite">
-        <span>
-          {environmentScope.loading ? "正在加载…" : `${filtered.length} 个应用`}
-        </span>
-        {activeFilters.map((f) => (
-          <button
-            key={f.key}
-            className="application-filter-chip"
-            onClick={() => updateFilter(f.key, "")}
-            aria-label={`移除${f.label}`}
-          >
-            {f.label}
-            <X size={12} />
-          </button>
-        ))}
-        {activeFilters.length > 0 && (
-          <button className="btn btn-ghost" onClick={resetFilters}>
-            重置筛选
-          </button>
-        )}
-      </div>
+      {activeFilters.length > 0 && (
+        <div className="application-filter-summary">
+          {activeFilters.map((f) => (
+            <button
+              key={f.key}
+              className="application-filter-chip"
+              onClick={() => updateFilter(f.key, "")}
+              aria-label={`移除${f.label}`}
+            >
+              {f.label}
+              <X size={12} />
+            </button>
+          ))}
+          {activeFilters.length > 0 && (
+            <button className="btn btn-ghost" onClick={resetFilters}>
+              重置筛选
+            </button>
+          )}
+        </div>
+      )}
       <div className="catalog-table-wrap card">
         <table className="catalog-table application-list-table">
           <thead>
@@ -286,7 +291,8 @@ export default function ApplicationsPage() {
               <th>应用</th>
               <th>负责人</th>
               <th>部门 / 团队</th>
-              <th>环境</th>
+              <th>版本</th>
+              <th>最近更新时间</th>
               <th aria-label="操作" />
             </tr>
           </thead>
@@ -302,48 +308,30 @@ export default function ApplicationsPage() {
                       <Box size={21} />
                     </span>
                     <span>
-                      <strong>{a.name}</strong>
-                      <small>
-                        {a.key || a.id}
-                        {a.archived && (
-                          <span className="application-archived">已归档</span>
-                        )}
-                      </small>
+                      <strong>{a.key || a.id}</strong>
+                      {a.archived && (
+                        <span className="application-archived">已归档</span>
+                      )}
                     </span>
                   </button>
-                  <p className="application-description" title={a.description}>
-                    {a.description || "暂无应用说明"}
-                  </p>
                 </td>
                 <td>
                   {a.maintainer_name ||
                     memberLabel(a.maintainer_id, user, users.data?.items ?? [])}
                 </td>
                 <td>{a.owner_team_name || "待指定"}</td>
-                <td>
-                  <div className="management-meta">
-                    {a.environments
-                      ?.filter(
-                        (e) =>
-                          !e.archived &&
-                          (!environmentScope.key ||
-                            (e.key || `id:${e.id}`) === environmentScope.key),
-                      )
-                      .map((e) => (
-                        <span className="badge" key={e.id}>
-                          <Layers size={12} />
-                          {e.name}
-                        </span>
-                      ))}
-                  </div>
-                  {!a.environments?.some((e) => !e.archived) && (
-                    <span className="muted">暂无环境</span>
-                  )}
+                {/* The catalog does not yet expose release versions or profile
+                    timestamps. Never substitute configuration revisions or now. */}
+                <td className="muted" title="尚未接入应用版本">
+                  —
+                </td>
+                <td className="muted" title="尚未接入应用资料更新时间">
+                  —
                 </td>
                 <td>
                   <button
                     className="icon-button application-open"
-                    aria-label={`查看 ${a.name}`}
+                    aria-label={`查看 ${a.key || a.id}`}
                     onClick={() => setManaging(a)}
                   >
                     <ArrowRight size={17} />
@@ -371,7 +359,7 @@ export default function ApplicationsPage() {
             )}
           </div>
         )}
-        <footer className="catalog-table-footer">
+        <footer className="catalog-table-footer" aria-live="polite">
           显示 {filtered.length} / {scopedApplications.length} 个可访问应用
         </footer>
       </div>

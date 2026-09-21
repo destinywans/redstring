@@ -6,22 +6,23 @@
 }
 .applications-page .filter-bar {
   gap: 8px;
+  margin-bottom: 16px;
 }
 .applications-page .filter-search {
   flex: 1 1 300px;
 }
+.applications-page .filter-select-trigger {
+  min-width: 108px;
+  justify-content: space-between;
+}
 .application-filter-summary {
-  min-height: 44px;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
   color: var(--muted);
   font-size: 12px;
-  padding: 8px 0;
-}
-.application-filter-summary > span {
-  margin-right: 4px;
+  margin: -4px 0 12px;
 }
 .application-filter-chip {
   display: inline-flex;
@@ -38,11 +39,11 @@
   border-color: var(--accent);
 }
 .application-list-table {
-  min-width: 720px;
+  min-width: 840px;
 }
 .application-list-table th,
 .application-list-table td {
-  padding: 16px 18px;
+  padding: 13px 18px;
   vertical-align: middle;
 }
 .application-list-table th {
@@ -50,7 +51,7 @@
   background: var(--panel-soft);
 }
 .application-list-table th:first-child {
-  width: 44%;
+  width: 32%;
 }
 .application-list-table td:first-child {
   max-width: 480px;
@@ -58,6 +59,14 @@
 .application-list-table td:nth-child(2),
 .application-list-table td:nth-child(3) {
   min-width: 125px;
+}
+.application-list-table td:nth-child(4) {
+  min-width: 90px;
+}
+.application-list-table td:nth-child(5) {
+  min-width: 175px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .application-list-table td:last-child {
   width: 52px;
@@ -83,10 +92,6 @@
   font-size: 14px;
   font-weight: 550;
 }
-.application-name-link small {
-  font-size: 12px;
-  margin-top: 4px;
-}
 .application-symbol {
   display: grid;
   place-items: center;
@@ -97,14 +102,6 @@
   border-radius: 10px;
   color: var(--muted);
   flex: 0 0 auto;
-}
-.application-list-table .application-description {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 12px;
-  max-width: 420px;
-  margin: 8px 0 0 50px;
 }
 .application-archived {
   margin-left: 8px;

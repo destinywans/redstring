@@ -41,6 +41,7 @@ export function FilterSearch({
   placeholder = "搜索名称或关键词",
   label = "搜索",
   maxLength = 200,
+  showSubmit = true,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -48,6 +49,7 @@ export function FilterSearch({
   placeholder?: string;
   label?: string;
   maxLength?: number;
+  showSubmit?: boolean;
 }) {
   return (
     <form
@@ -70,9 +72,11 @@ export function FilterSearch({
           placeholder={placeholder}
         />
       </div>
-      <button type="submit" className="filter-button">
-        搜索
-      </button>
+      {showSubmit && (
+        <button type="submit" className="filter-button">
+          搜索
+        </button>
+      )}
     </form>
   );
 }
@@ -93,6 +97,7 @@ export function FilterSelect({
   multiple = false,
   searchable = false,
   emptyLabel = "全部",
+  showLabel = true,
 }: {
   id: string;
   label: string;
@@ -102,6 +107,7 @@ export function FilterSelect({
   multiple?: boolean;
   searchable?: boolean;
   emptyLabel?: string;
+  showLabel?: boolean;
 }) {
   const group = useContext(FilterContext);
   const instanceId = useId();
@@ -219,10 +225,14 @@ export function FilterSelect({
             }
           }}
         >
-          <span className="filter-trigger-label">{label}</span>
-          <span className="filter-trigger-separator" aria-hidden="true">
-            ·
-          </span>
+          {showLabel && (
+            <>
+              <span className="filter-trigger-label">{label}</span>
+              <span className="filter-trigger-separator" aria-hidden="true">
+                ·
+              </span>
+            </>
+          )}
           <span className="filter-trigger-value">{summary}</span>
           <ChevronDown size={14} aria-hidden="true" />
         </button>
@@ -246,6 +256,7 @@ export function FilterSelect({
               event.preventDefault();
           }}
         >
+          {!showLabel && <div className="filter-popover-title">{label}</div>}
           {searchable && (
             <div className="filter-option-search">
               <Search size={16} aria-hidden="true" />

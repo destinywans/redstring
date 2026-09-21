@@ -5,7 +5,7 @@
 }
 .overview-title .service-id {
   color: var(--muted);
-  font-size: 17px;
+  font-size: var(--type-body);
 }
 .overview-heading {
   margin-bottom: 24px;
@@ -20,17 +20,17 @@
   gap: 4px;
   padding: 0 24px;
   border-left: 1px solid var(--border);
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .app-facts > div:first-child {
   border: 0;
 }
 .app-facts span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 .app-facts strong {
-  font-weight: 500;
+  font-weight: var(--weight-regular);
 }
 .overview-top {
   display: grid;
@@ -56,15 +56,16 @@
   flex-shrink: 0;
 }
 .incident-header h2 {
-  font-size: 23px;
+  font-size: var(--type-page);
   display: flex;
   align-items: center;
   gap: 12px;
 }
 .incident-header p {
-  font-size: 13px;
+  font-size: var(--type-small);
   color: var(--muted);
   margin-top: 4px;
+  font-weight: var(--weight-regular);
 }
 .incident-header .card-tools {
   margin-left: auto;
@@ -76,7 +77,7 @@
   margin-top: 18px;
 }
 .incident-chart h3 {
-  font-size: 12px;
+  font-size: var(--type-caption);
   margin: 0 0 8px;
 }
 .incident-stats {
@@ -95,8 +96,9 @@
   gap: 10px;
 }
 .rate-comparison strong {
-  font-size: 28px;
-  letter-spacing: -0.6px;
+  font-size: var(--type-metric);
+  letter-spacing: 0;
+  font-weight: var(--weight-medium);
 }
 .rate-comparison svg {
   color: var(--muted);
@@ -104,16 +106,16 @@
 .rate-captions {
   display: flex;
   justify-content: space-between;
-  font-size: 11px;
+  font-size: var(--type-caption);
   color: var(--muted);
   width: 100%;
   margin-bottom: 17px;
 }
 .incident-stats > .muted {
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .incident-stats h2 {
-  font-size: 21px;
+  font-size: var(--type-section);
 }
 .incident-stats .btn {
   margin-top: 22px;
@@ -124,8 +126,9 @@
   margin-bottom: 8px;
 }
 .assistant-card > p {
-  font-size: 12px;
+  font-size: var(--type-caption);
   margin-left: 40px;
+  font-weight: var(--weight-regular);
 }
 .accent-icon {
   color: var(--accent);
@@ -149,7 +152,8 @@
   height: 48px;
   padding: 5px;
   background: transparent;
-  font-size: 13px;
+  font-size: var(--type-small);
+  font-weight: var(--weight-regular);
 }
 .overview-composer .btn {
   padding: 8px;
@@ -169,7 +173,7 @@
   border-radius: 7px;
   padding: 7px 10px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--type-small);
 }
 .suggestion-list .selected {
   color: var(--accent);
@@ -187,7 +191,7 @@
   min-height: 255px;
 }
 .overview-bottom h2 {
-  font-size: 17px;
+  font-size: var(--type-section);
 }
 .overview-bottom .card-heading {
   margin-bottom: 0;
@@ -205,7 +209,7 @@
   background: none;
   border: 0;
   color: var(--accent);
-  font-size: 11px;
+  font-size: var(--type-caption);
   padding: 0;
 }
 .table-scroll {
@@ -214,13 +218,13 @@
 .release-table {
   border-collapse: collapse;
   width: 100%;
-  font-size: 11px;
+  font-size: var(--type-caption);
   text-align: left;
   white-space: nowrap;
 }
 .release-table th {
   padding: 8px 6px;
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   background: var(--panel-soft);
   color: var(--muted);
 }
@@ -262,7 +266,7 @@
   padding: 12px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  font-size: 11px;
+  font-size: var(--type-caption);
   min-width: 100px;
 }
 .dependency-node span {
@@ -271,7 +275,8 @@
 }
 .dependency-node small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-regular);
 }
 .dependency-node.selected {
   background: var(--accent-soft);
@@ -310,16 +315,17 @@
   color: var(--accent);
 }
 .runbook-row strong {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--type-small);
+  font-weight: var(--weight-regular);
 }
 .runbook-row p {
-  font-size: 11px;
+  font-size: var(--type-caption);
   color: var(--muted);
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
+  font-weight: var(--weight-regular);
 }
 .app-context {
   margin-top: 20px;
@@ -332,8 +338,9 @@
   border: 0;
   background: none;
   padding: 12px 18px;
-  font-size: 13px;
+  font-size: var(--type-small);
   text-align: left;
+  font-weight: var(--weight-regular);
 }
 .app-context > button svg:last-child {
   margin-left: auto;
@@ -346,14 +353,16 @@
 .app-context dl {
   display: grid;
   grid-template-columns: 100px 1fr;
-  font-size: 12px;
+  font-size: var(--type-caption);
   gap: 8px;
 }
 .app-context dt {
   color: var(--muted);
+  font-weight: var(--weight-regular);
 }
 .app-context dd {
   margin: 0;
+  font-weight: var(--weight-regular);
 }
 .recent-investigations {
   min-height: 200px;
@@ -372,6 +381,7 @@
   background: var(--panel-soft);
   border-radius: 7px;
   width: 100%;
+  font-weight: var(--weight-regular);
 }
 .recent-investigations > button > span:nth-child(2) {
   display: flex;
@@ -380,24 +390,27 @@
   min-width: 0;
 }
 .recent-investigations strong {
-  font-size: 12px;
+  font-size: var(--type-caption);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: var(--weight-regular);
 }
 .recent-investigations small {
-  font-size: 10px;
+  font-size: var(--type-caption);
   color: var(--muted);
+  font-weight: var(--weight-regular);
 }
 .investigation-count {
-  font-size: 45px;
-  line-height: 1.5;
+  font-size: var(--type-hero);
+  line-height: var(--leading-heading);
   margin: 5px 0 10px;
+  font-weight: var(--weight-medium);
 }
 .inline-empty {
   color: var(--muted);
   padding: 23px 0;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .query-result {
   background: var(--panel-soft);
@@ -423,20 +436,22 @@
     padding: 22px;
   }
   .incident-header h2 {
-    font-size: 27px;
+    font-size: var(--type-metric);
   }
   .assistant-card > p {
-    font-size: 13px;
-  }
+    font-size: var(--type-small);
+  font-weight: var(--weight-regular);
+}
   .suggestion-list button {
-    font-size: 12px;
+    font-size: var(--type-small);
   }
   .release-table {
-    font-size: 12px;
+    font-size: var(--type-caption);
   }
   .runbook-row strong {
-    font-size: 14px;
-  }
+    font-size: var(--type-body);
+  font-weight: var(--weight-regular);
+}
 }
 @media (max-width: 1250px) {
   .app-facts > div {
@@ -450,10 +465,11 @@
     gap: 12px;
   }
   .rate-comparison strong {
-    font-size: 22px;
-  }
+    font-size: var(--type-metric);
+  font-weight: var(--weight-medium);
+}
   .incident-header h2 {
-    font-size: 20px;
+    font-size: var(--type-section);
   }
   .overview-bottom {
     grid-template-columns: 1.2fr 1fr;
@@ -462,7 +478,7 @@
     display: none;
   }
   .overview-title .service-id {
-    font-size: 13px;
+    font-size: var(--type-body);
   }
   .app-facts > div:first-child {
     display: none;
@@ -515,62 +531,70 @@
     margin-bottom: 0;
   }
   .incident-header h2 {
-    font-size: 18px;
+    font-size: var(--type-section);
     flex-wrap: wrap;
     gap: 5px;
   }
   .incident-header p {
-    font-size: 11px;
-  }
+    font-size: var(--type-caption);
+  font-weight: var(--weight-regular);
+}
   .incident-header .card-tools {
     display: none;
   }
   .overview-title .badge {
-    font-size: 10px;
+    font-size: var(--type-caption);
   }
   .assistant-card > p {
     margin-left: 0;
-  }
+  font-weight: var(--weight-regular);
+}
   .overview-heading h1 {
-    font-size: 23px;
+    font-size: var(--type-page);
   }
 }
 @media (min-width: 1251px) {
   .release-table {
-    font-size: 13px;
+    font-size: var(--type-small);
   }
   .runbook-row strong {
-    font-size: 15px;
-  }
+    font-size: var(--type-body);
+  font-weight: var(--weight-regular);
+}
   .runbook-row p {
-    font-size: 13px;
-  }
+    font-size: var(--type-small);
+  font-weight: var(--weight-regular);
+}
   .dependency-node {
-    font-size: 13px;
+    font-size: var(--type-small);
     min-width: 122px;
   }
   .dependency-node small {
-    font-size: 12px;
-  }
+    font-size: var(--type-caption);
+  font-weight: var(--weight-regular);
+}
   .suggestion-list button {
-    font-size: 13px;
+    font-size: var(--type-small);
   }
   .assistant-card > p {
-    font-size: 13px;
-  }
+    font-size: var(--type-small);
+  font-weight: var(--weight-regular);
+}
   .incident-header p {
-    font-size: 14px;
-  }
+    font-size: var(--type-body);
+  font-weight: var(--weight-regular);
+}
   .rate-captions {
-    font-size: 12px;
+    font-size: var(--type-caption);
   }
   .app-facts span {
-    font-size: 12px;
+    font-size: var(--type-caption);
   }
   .app-facts strong {
-    font-size: 14px;
-  }
+    font-size: var(--type-body);
+  font-weight: var(--weight-regular);
+}
   .overview-top .card-heading h2 {
-    font-size: 21px;
+    font-size: var(--type-section);
   }
 }

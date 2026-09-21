@@ -7,11 +7,12 @@
   margin: 0 0 22px 6px;
 }
 .knowledge-page .page-heading h1 {
-  font-size: 25px;
+  font-size: var(--type-page);
   margin: 0 0 5px;
 }
 .knowledge-page .page-heading p {
   margin: 0;
+  font-weight: var(--weight-regular);
 }
 .knowledge-grid {
   display: grid;
@@ -46,7 +47,7 @@
 }
 .knowledge-library h2,
 .knowledge-related h2 {
-  font-size: 15px;
+  font-size: var(--type-body);
   margin: 0;
   display: flex;
   align-items: center;
@@ -69,8 +70,8 @@
   color: var(--text);
   width: 100%;
   min-width: 0;
-  font: inherit;
-  font-size: 14px;
+  font: var(--weight-regular) var(--type-small) / var(--leading-ui) var(--font-ui);
+  font-size: var(--type-small);
 }
 .knowledge-search:focus-within {
   outline: 2px solid var(--accent);
@@ -88,10 +89,10 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  font-size: 14px;
+  font-size: var(--type-body);
   cursor: pointer;
   padding: 5px 2px;
-  font-weight: 550;
+  font-weight: var(--weight-regular);
 }
 .knowledge-tree summary:before {
   content: "⌄";
@@ -113,8 +114,8 @@
   background: none;
   color: var(--text);
   text-align: left;
-  font: inherit;
-  font-size: 14px;
+  font: var(--weight-regular) var(--type-small) / var(--leading-ui) var(--font-ui);
+  font-size: var(--type-small);
   cursor: pointer;
 }
 .knowledge-tree > button:hover {
@@ -123,7 +124,7 @@
 .knowledge-tree > button.selected {
   color: var(--accent);
   background: var(--accent-soft);
-  font-weight: 550;
+  font-weight: var(--weight-medium);
 }
 .knowledge-tree > button svg {
   flex-shrink: 0;
@@ -143,13 +144,13 @@
   gap: 12px;
 }
 .knowledge-document-top h2 {
-  font-size: 23px;
+  font-size: var(--type-page);
   margin: 0 0 12px;
-  font-weight: 650;
-  letter-spacing: -0.5px;
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.02em;
 }
 .knowledge-document-top .btn {
-  font-size: 12px;
+  font-size: var(--type-small);
   flex-shrink: 0;
   margin-top: 24px;
 }
@@ -163,7 +164,7 @@
   gap: 12px;
   flex-wrap: wrap;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-caption);
   margin: 14px 0 18px;
 }
 .knowledge-meta > span {
@@ -171,14 +172,14 @@
   padding-left: 12px;
 }
 .knowledge-markdown {
-  font-size: 15px;
-  line-height: 1.7;
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
   color: var(--text);
   overflow-wrap: anywhere;
 }
 .knowledge-markdown h2 {
-  font-size: 18px;
-  line-height: 1.5;
+  font-size: var(--type-section);
+  line-height: var(--leading-heading);
   margin: 20px 0 9px;
   padding-top: 12px;
   border-top: 1px solid var(--border);
@@ -189,21 +190,22 @@
   margin-top: 0;
 }
 .knowledge-markdown h3 {
-  font-size: 15px;
-  line-height: 1.5;
+  font-size: var(--type-body);
+  line-height: var(--leading-heading);
   margin: 13px 0 4px;
 }
 .knowledge-markdown p {
   margin: 5px 0 11px;
   color: var(--muted);
+  font-weight: var(--weight-regular);
 }
 .knowledge-markdown pre {
   background: var(--bg);
   border-radius: 7px;
   padding: 12px;
   white-space: pre-wrap;
-  font-size: 12px;
-  line-height: 1.7;
+  font-size: var(--type-small);
+  line-height: var(--leading-body);
 }
 .knowledge-markdown ul {
   padding-left: 22px;
@@ -223,7 +225,7 @@
   border-top: 1px solid var(--border);
   margin-top: 22px;
   padding-top: 12px;
-  font-size: 11px;
+  font-size: var(--type-caption);
   color: var(--muted);
 }
 .knowledge-related {
@@ -241,7 +243,7 @@
 .knowledge-result {
   display: block;
   text-align: left;
-  font: inherit;
+  font: var(--weight-regular) var(--type-small) / var(--leading-ui) var(--font-ui);
   color: var(--text);
   padding: 12px;
   width: 100%;
@@ -260,11 +262,12 @@
   align-items: start;
 }
 .knowledge-result strong {
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--type-body);
+  line-height: var(--leading-ui);
+  font-weight: var(--weight-regular);
 }
 .knowledge-result .badge {
-  font-size: 11px;
+  font-size: var(--type-caption);
   flex-shrink: 0;
   max-width: 100px;
   overflow: hidden;
@@ -272,21 +275,22 @@
   white-space: nowrap;
 }
 .knowledge-result p {
-  font-size: 13px;
-  line-height: 1.65;
+  font-size: var(--type-small);
+  line-height: var(--leading-body);
   color: var(--muted);
   margin: 8px 0;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  font-weight: var(--weight-regular);
 }
 .knowledge-result footer {
   display: flex;
   justify-content: space-between;
   gap: 8px;
   align-items: center;
-  font-size: 11px;
+  font-size: var(--type-caption);
   color: var(--muted);
 }
 .knowledge-result footer > span:last-child {
@@ -306,8 +310,8 @@
   margin-top: 8px;
 }
 .knowledge-empty {
-  font-size: 13px;
-  line-height: 1.7;
+  font-size: var(--type-small);
+  line-height: var(--leading-body);
   padding: 8px;
 }
 .knowledge-citations {
@@ -316,7 +320,7 @@
   align-items: center;
   gap: 10px;
   padding: 16px 20px;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .knowledge-citations > span {
   margin-left: auto;
@@ -328,8 +332,8 @@
   background: var(--accent-soft);
   padding: 12px;
   border-radius: 8px;
-  font-size: 13px;
-  line-height: 1.7;
+  font-size: var(--type-small);
+  line-height: var(--leading-body);
   margin: 16px 0;
 }
 .knowledge-notice svg {
@@ -340,9 +344,9 @@
   color: #a66b10;
 }
 .knowledge-error {
-  font-size: 13px;
+  font-size: var(--type-small);
   color: var(--danger);
-  line-height: 1.6;
+  line-height: var(--leading-body);
 }
 .knowledge-modal {
   border: 1px solid var(--border);
@@ -367,12 +371,13 @@
   margin-bottom: 18px;
 }
 .knowledge-modal h2 {
-  font-size: 19px;
+  font-size: var(--type-section);
   margin: 0;
 }
 .knowledge-modal > p {
-  font-size: 14px;
-  line-height: 1.7;
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
+  font-weight: var(--weight-regular);
 }
 .knowledge-form {
   display: grid;
@@ -381,16 +386,19 @@
 .knowledge-form label {
   display: grid;
   gap: 7px;
-  font-size: 13px;
+  font-size: var(--type-small);
+  font-weight: var(--weight-regular);
 }
 .knowledge-form input,
 .knowledge-form textarea,
 .knowledge-form select {
   width: 100%;
   box-sizing: border-box;
+  font-weight: var(--weight-regular);
 }
 .knowledge-form textarea {
   resize: vertical;
+  font-weight: var(--weight-regular);
 }
 .knowledge-form footer {
   display: flex;
@@ -418,7 +426,7 @@
     min-height: 752px;
   }
   .knowledge-markdown {
-    font-size: 15px;
+    font-size: var(--type-body);
   }
 }
 @media (max-width: 1280px) {
@@ -476,10 +484,10 @@
     margin-left: 0;
   }
   .knowledge-page .page-heading h1 {
-    font-size: 22px;
+    font-size: var(--type-page);
   }
   .knowledge-document-top h2 {
-    font-size: 21px;
+    font-size: var(--type-section);
   }
 }
 .knowledge-evidence-choices {
@@ -488,18 +496,20 @@
   padding: 14px;
   max-height: 220px;
   overflow: auto;
-  font-size: 13px;
+  font-size: var(--type-small);
 }
 .knowledge-evidence-choices label {
   display: flex;
   align-items: center;
   gap: 9px;
   margin: 8px 0;
-  line-height: 1.5;
+  line-height: var(--leading-ui);
+  font-weight: var(--weight-regular);
 }
 .knowledge-evidence-choices input {
   width: auto;
   accent-color: var(--accent);
+  font-weight: var(--weight-regular);
 }
 
 .knowledge-filter-toolbar {
@@ -521,5 +531,5 @@
 .knowledge-search-status {
   padding: 0 16px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--type-small);
 }

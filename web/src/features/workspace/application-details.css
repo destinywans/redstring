@@ -6,9 +6,9 @@
   min-height: 68px;
 }
 .application-drawer--details .application-drawer-header h2 {
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.2px;
+  font-size: var(--type-section);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.02em;
 }
 .application-drawer--details .application-drawer-body {
   padding: 0;
@@ -40,8 +40,8 @@
   background: transparent;
   color: var(--muted);
   text-align: left;
-  font-size: 13px;
-  font-weight: 450;
+  font-size: var(--type-small);
+  font-weight: var(--weight-regular);
   white-space: nowrap;
 }
 .application-detail-nav button:hover {
@@ -51,7 +51,7 @@
 .application-detail-nav button[aria-selected="true"] {
   color: var(--accent);
   background: var(--accent-soft);
-  font-weight: 550;
+  font-weight: var(--weight-medium);
 }
 .application-detail-nav button svg {
   flex: 0 0 auto;
@@ -80,24 +80,25 @@
 }
 .app-detail-heading h2 {
   margin: 0;
-  font-size: 19px;
-  line-height: 1.4;
-  font-weight: 600;
-  letter-spacing: -0.2px;
+  font-size: var(--type-section);
+  line-height: var(--leading-heading);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.02em;
 }
 .app-detail-heading p {
   color: var(--muted);
   margin: 5px 0 0;
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--type-caption);
+  line-height: var(--leading-body);
   overflow-wrap: anywhere;
+  font-weight: var(--weight-regular);
 }
 .app-detail-heading > .btn {
   flex-shrink: 0;
 }
 .app-detail-description {
-  font-size: 13px;
-  line-height: 1.75;
+  font-size: var(--type-small);
+  line-height: var(--leading-body);
   color: var(--muted);
   margin: 0 0 12px;
   overflow-wrap: anywhere;
@@ -114,7 +115,7 @@
   background: var(--panel-soft);
   border: 1px solid var(--border);
   border-radius: 5px;
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 .app-detail-section {
   padding: 22px 0;
@@ -132,9 +133,9 @@
   align-items: center;
   gap: 8px;
   margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.5;
+  font-size: var(--type-body);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-heading);
 }
 .app-detail-section h3 svg {
   color: var(--muted);
@@ -155,20 +156,22 @@
 }
 .app-detail-field dt {
   color: var(--muted);
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--type-caption);
+  line-height: var(--leading-ui);
   margin-bottom: 5px;
+  font-weight: var(--weight-regular);
 }
 .app-detail-field dd {
   margin: 0;
   color: var(--text);
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: var(--type-small);
+  line-height: var(--leading-body);
   overflow-wrap: anywhere;
+  font-weight: var(--weight-regular);
 }
 .app-detail-field code {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--type-small);
 }
 .app-detail-missing {
   color: var(--muted);
@@ -189,8 +192,8 @@
 }
 .app-detail-note {
   color: var(--muted);
-  font-size: 12px;
-  line-height: 1.7;
+  font-size: var(--type-caption);
+  line-height: var(--leading-body);
   margin: 0 0 16px;
 }
 .app-detail-pill {
@@ -200,10 +203,10 @@
   border-radius: 5px;
   background: var(--panel-soft);
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 450;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-regular);
   white-space: nowrap;
-  line-height: 1.5;
+  line-height: var(--leading-ui);
 }
 .app-detail-pill--success {
   color: var(--success, #16805b);
@@ -228,8 +231,8 @@
   margin-bottom: 14px;
 }
 .app-resource-row strong {
-  font-size: 13px;
-  font-weight: 550;
+  font-size: var(--type-small);
+  font-weight: var(--weight-regular);
   overflow-wrap: anywhere;
 }
 .app-detail-inline-link {
@@ -239,7 +242,7 @@
   margin-top: 14px;
   color: var(--accent);
   text-decoration: none;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .app-detail-inline-link:hover {
   text-decoration: underline;
@@ -258,29 +261,32 @@
   margin-top: 2px;
 }
 .app-detail-inline-empty strong {
-  font-size: 13px;
+  font-size: var(--type-small);
   color: var(--text);
-  font-weight: 500;
+  font-weight: var(--weight-regular);
 }
 .app-detail-inline-empty p {
   margin: 5px 0 0;
-  font-size: 12px;
-  line-height: 1.65;
+  font-size: var(--type-caption);
+  line-height: var(--leading-body);
+  font-weight: var(--weight-regular);
 }
 .app-detail-maintenance {
   border-top: 1px solid var(--border);
   padding-top: 18px;
   margin-top: 4px;
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--muted);
 }
 .app-detail-maintenance summary {
   cursor: pointer;
   width: fit-content;
+  font-weight: var(--weight-regular);
 }
 .app-detail-maintenance p {
   margin: 14px 0;
-  line-height: 1.6;
+  line-height: var(--leading-body);
+  font-weight: var(--weight-regular);
 }
 .app-detail-confirm {
   display: flex;
@@ -316,14 +322,15 @@
   flex: 1;
 }
 .app-environment-main strong {
-  font-size: 13px;
-  font-weight: 550;
+  font-size: var(--type-small);
+  font-weight: var(--weight-regular);
 }
 .app-environment-main small {
   display: block;
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--muted);
   margin-top: 5px;
+  font-weight: var(--weight-regular);
 }
 .app-detail-empty {
   display: flex;
@@ -342,16 +349,17 @@
   margin-bottom: 5px;
 }
 .app-detail-empty h3 {
-  font-size: 14px;
+  font-size: var(--type-body);
   margin: 0;
-  font-weight: 550;
+  font-weight: var(--weight-semibold);
 }
 .app-detail-empty p {
-  font-size: 12px;
-  line-height: 1.7;
+  font-size: var(--type-caption);
+  line-height: var(--leading-body);
   color: var(--muted);
   margin: 0;
   max-width: 360px;
+  font-weight: var(--weight-regular);
 }
 .app-relation-grid {
   display: grid;
@@ -368,15 +376,16 @@
   color: var(--muted);
 }
 .app-relation-grid h3 {
-  font-size: 14px;
+  font-size: var(--type-body);
   margin: 12px 0 8px;
-  font-weight: 550;
+  font-weight: var(--weight-semibold);
 }
 .app-relation-grid p {
   color: var(--muted);
-  font-size: 12px;
-  line-height: 1.7;
+  font-size: var(--type-caption);
+  line-height: var(--leading-body);
   margin: 12px 0 0;
+  font-weight: var(--weight-regular);
 }
 .app-detail-shortcuts {
   display: grid;
@@ -405,15 +414,16 @@
   margin-left: auto;
 }
 .app-detail-shortcuts strong {
-  font-size: 13px;
-  font-weight: 550;
+  font-size: var(--type-small);
+  font-weight: var(--weight-regular);
 }
 .app-detail-shortcuts small {
   display: block;
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--type-caption);
+  line-height: var(--leading-body);
   color: var(--muted);
   margin-top: 5px;
+  font-weight: var(--weight-regular);
 }
 .app-activity-tabs {
   display: flex;
@@ -431,12 +441,14 @@
   background: transparent;
   border: 0;
   border-radius: 5px;
-  font-size: 12px;
+  font-size: var(--type-small);
+  font-weight: var(--weight-regular);
 }
 .app-activity-tabs button[aria-pressed="true"] {
   background: var(--panel);
   color: var(--accent);
   box-shadow: 0 1px 3px rgb(0 0 0 / 7%);
+  font-weight: var(--weight-medium);
 }
 .app-activity-timeline {
   margin: 0 0 20px;
@@ -468,22 +480,23 @@
   align-items: flex-start;
   cursor: pointer;
   list-style: none;
+  font-weight: var(--weight-regular);
 }
 .app-activity-timeline summary::-webkit-details-marker {
   display: none;
 }
 .app-activity-timeline summary strong {
-  font-size: 13px;
-  font-weight: 550;
+  font-size: var(--type-small);
+  font-weight: var(--weight-regular);
 }
 .app-activity-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 12px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-caption);
   margin-top: 6px;
-  line-height: 1.7;
+  line-height: var(--leading-body);
 }
 .app-activity-timeline details[open] {
   padding-bottom: 16px;
@@ -494,8 +507,8 @@
 .app-activity-changes {
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 11px;
-  line-height: 1.7;
+  font-size: var(--type-caption);
+  line-height: var(--leading-body);
   margin: 14px 0 0;
   padding: 14px;
   border-radius: 7px;
@@ -522,14 +535,15 @@
   border-color: var(--accent);
 }
 .app-event-list strong {
-  font-size: 13px;
-  font-weight: 550;
+  font-size: var(--type-small);
+  font-weight: var(--weight-regular);
 }
 .app-event-list small {
   display: block;
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--muted);
   margin-top: 6px;
+  font-weight: var(--weight-regular);
 }
 .application-detail-content .management-form {
   padding: 0;
@@ -544,14 +558,16 @@
   padding: 14px 0;
 }
 .application-detail-content .management-row strong {
-  font-size: 13px;
+  font-size: var(--type-small);
+  font-weight: var(--weight-regular);
 }
 .application-detail-content .management-row small {
-  font-size: 12px;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-regular);
 }
 .application-detail-content .management-notice {
-  font-size: 12px;
-  line-height: 1.7;
+  font-size: var(--type-caption);
+  line-height: var(--leading-body);
 }
 .application-detail-content .catalog-fieldset {
   margin: 18px 0;
@@ -566,8 +582,9 @@
   .application-detail-nav button {
     padding: 9px;
     gap: 7px;
-    font-size: 12px;
-  }
+    font-size: var(--type-small);
+  font-weight: var(--weight-regular);
+}
   .application-detail-content {
     padding: 24px 22px 28px;
   }
@@ -597,7 +614,8 @@
   .application-detail-nav button {
     flex: 0 0 auto;
     min-height: 36px;
-  }
+  font-weight: var(--weight-regular);
+}
   .application-detail-content {
     flex: 1;
     padding: 21px 18px 24px;
@@ -612,7 +630,7 @@
     flex-wrap: wrap;
   }
   .app-detail-heading h2 {
-    font-size: 18px;
+    font-size: var(--type-section);
   }
   .application-detail-content .management-form footer {
     bottom: -24px;
@@ -639,28 +657,29 @@
   padding: 10px 12px;
   text-align: left;
   vertical-align: top;
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--type-caption);
+  line-height: var(--leading-body);
   border: 1px solid var(--border);
   overflow-wrap: anywhere;
 }
 .app-change-table thead th {
   background: var(--panel-soft);
   color: var(--muted);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 .app-change-table tbody th {
-  font-weight: 450;
+  font-weight: var(--weight-regular);
 }
 .app-change-table tbody td:last-child {
   background: var(--accent-soft);
 }
 .app-change-original {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .app-change-original > summary {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-caption);
   cursor: pointer;
+  font-weight: var(--weight-regular);
 }

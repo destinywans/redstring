@@ -4,7 +4,7 @@
   grid-template-columns: 236px minmax(0, 1fr);
   color: var(--text);
   background: var(--bg);
-  font-size: 14px;
+  font-size: var(--type-body);
 }
 .settings-sidebar {
   height: 100dvh;
@@ -21,7 +21,7 @@
   align-items: center;
   gap: 9px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--type-small);
   padding: 8px 12px;
   border-radius: 7px;
 }
@@ -46,14 +46,14 @@
   border-radius: 11px;
 }
 .settings-workspace-identity strong {
-  font-size: 16px;
-  font-weight: 650;
+  font-size: var(--type-body);
+  font-weight: var(--weight-semibold);
 }
 .settings-workspace-identity small {
   display: block;
   margin-top: 2px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .settings-sidebar nav {
   display: grid;
@@ -66,13 +66,15 @@
   padding: 11px 12px;
   color: var(--muted);
   border-radius: 7px;
-  font-weight: 500;
+  font-weight: var(--weight-regular);
+  font-size: var(--type-small);
 }
 .settings-sidebar nav > a:hover {
   background: var(--panel-soft);
   color: var(--text);
 }
 .settings-sidebar nav > a.active {
+  font-weight: var(--weight-medium);
   color: var(--accent);
   background: var(--accent-soft);
 }
@@ -90,7 +92,7 @@
   padding: 10px 12px;
   border-radius: 7px;
   width: 100%;
-  font-size: 13px;
+  font-size: var(--type-small);
 }
 .settings-sidebar-footer > button:hover {
   background: var(--panel-soft);
@@ -104,13 +106,13 @@
   padding: 18px 12px 4px;
 }
 .settings-viewer strong {
-  font-size: 12px;
-  font-weight: 550;
+  font-size: var(--type-small);
+  font-weight: var(--weight-regular);
 }
 .settings-viewer small {
   display: block;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .settings-body {
   min-width: 0;
@@ -123,11 +125,11 @@
   padding: 0 32px;
   border-bottom: 1px solid var(--border);
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--type-small);
 }
 .settings-topbar strong {
   font-size: inherit;
-  font-weight: 550;
+  font-weight: var(--weight-medium);
   color: var(--text);
 }
 .settings-topbar .theme-toggle {
@@ -141,20 +143,21 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
-  max-width: 1180px;
+  width: 100%;
+  min-width: 0;
 }
 .settings-page-heading {
   padding: 4px 0 6px;
 }
 .settings-page-heading h1 {
-  font-size: 24px;
-  line-height: 1.35;
-  font-weight: 650;
-  letter-spacing: -0.035em;
+  font-size: var(--type-page);
+  line-height: var(--leading-heading);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.02em;
 }
 .settings-page-heading p {
   margin-top: 7px;
-  font-size: 14px;
+  font-size: var(--type-body);
   color: var(--muted);
 }
 .settings-overview-card {
@@ -171,14 +174,14 @@
   margin-bottom: 22px;
 }
 .settings-overview-card h2 {
-  font-size: 17px;
-  font-weight: 600;
+  font-size: var(--type-section);
+  font-weight: var(--weight-semibold);
 }
 .settings-overview-card .btn {
   height: 34px;
   min-height: 34px;
   padding: 0 12px;
-  font-size: 13px;
+  font-size: var(--type-small);
 }
 .settings-facts {
   display: grid;
@@ -197,16 +200,16 @@
 .settings-facts dd {
   margin: 0;
   overflow-wrap: anywhere;
-  line-height: 1.65;
+  line-height: var(--leading-body);
 }
 .settings-name {
-  font-weight: 550;
+  font-weight: var(--weight-regular);
 }
 .settings-subtle-badge {
   padding: 3px 8px;
   background: var(--panel-soft);
   border-radius: 5px;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .settings-owner {
   display: flex;
@@ -221,14 +224,11 @@
   color: var(--accent);
   background: var(--accent-soft);
   border-radius: 50%;
-  font-weight: 600;
-}
-.settings-owner strong {
-  font-weight: 500;
+  font-weight: var(--weight-semibold);
 }
 .settings-owner small {
   display: block;
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--muted);
 }
 .settings-fact-divider {
@@ -246,7 +246,7 @@
 }
 .settings-helper {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .settings-integrations {
   display: grid;
@@ -275,9 +275,6 @@
   border-radius: 8px;
   color: var(--accent);
 }
-.settings-integration-row strong {
-  font-weight: 500;
-}
 .settings-integration-count {
   color: var(--muted);
 }
@@ -285,7 +282,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--type-small);
 }
 .settings-editor {
   padding: 26px;
@@ -299,12 +296,12 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: var(--type-small);
+  font-weight: var(--weight-regular);
 }
 .settings-editor small {
-  font-size: 12px;
-  font-weight: 400;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-regular);
   color: var(--muted);
 }
 .settings-editor input.field {
@@ -313,8 +310,8 @@
 .settings-editor textarea {
   resize: vertical;
   min-height: 110px;
-  line-height: 1.7;
-  font-weight: 400;
+  line-height: var(--leading-body);
+  font-weight: var(--weight-regular);
 }
 .settings-character-count {
   text-align: right;
@@ -325,7 +322,7 @@
   display: flex;
   gap: 8px;
   align-items: flex-start;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .settings-editor-note svg {
   margin-top: 3px;
@@ -360,12 +357,12 @@
   flex: 1;
 }
 .settings-help-links strong {
-  font-weight: 550;
-  font-size: 14px;
+  font-weight: var(--weight-semibold);
+  font-size: var(--type-body);
 }
 .settings-help-links small {
   display: block;
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--muted);
   margin-top: 4px;
 }
@@ -427,7 +424,7 @@
   }
   .settings-sidebar nav > a {
     white-space: nowrap;
-    font-size: 13px;
+    font-size: var(--type-small);
     padding: 9px 10px;
   }
   .settings-sidebar nav > a svg {
@@ -454,7 +451,7 @@
   .settings-integration-count {
     grid-column: 2;
     grid-row: auto;
-    font-size: 12px;
+    font-size: var(--type-caption);
   }
   .settings-integration-row > a {
     grid-column: 3;

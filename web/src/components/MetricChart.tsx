@@ -51,14 +51,14 @@ export function MetricChart({
           />
           <XAxis
             dataKey="time"
-            tick={{ fill: "var(--muted)", fontSize: 11 }}
+            tick={{ fill: "var(--muted)", fontSize: "var(--type-caption)" }}
             axisLine={false}
             tickLine={false}
-            minTickGap={35}
+            minTickGap={44}
           />
           <YAxis
-            width={40}
-            tick={{ fill: "var(--muted)", fontSize: 11 }}
+            width={52}
+            tick={{ fill: "var(--muted)", fontSize: "var(--type-caption)" }}
             axisLine={false}
             tickLine={false}
             tickFormatter={(v) => `${v}${unit}`}
@@ -79,7 +79,7 @@ export function MetricChart({
               label={{
                 value: recovery ? "恢复配置" : "发布 v2.8.1",
                 fill: "var(--accent)",
-                fontSize: 11,
+                fontSize: "var(--type-caption)",
                 position: "insideTopLeft",
               }}
             />

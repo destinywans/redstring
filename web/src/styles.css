@@ -1,8 +1,7 @@
 @import "tailwindcss";
 :root {
-  font-family:
-    -apple-system, BlinkMacSystemFont, Inter, "Segoe UI", "PingFang SC",
-    "Microsoft YaHei", sans-serif;
+  font-family: var(--font-ui);
+  font-weight: var(--weight-regular);
   color: var(--text);
   background: var(--bg);
   font-synthesis: none;
@@ -12,8 +11,8 @@
   --raised: #f0f2f6;
   --sidebar: #f1f3f7;
   --border: #dce1e8;
-  --text: #202734;
-  --muted: #626d7f;
+  --text: #242d3c;
+  --muted: #596579;
   --accent: #6552cb;
   --accent-soft: #eeebfa;
   --success: #187656;
@@ -21,11 +20,11 @@
   --warning: #98620d;
   --shadow: 0 2px 4px #25385804, 0 8px 26px #24395a05;
   --radius: 10px;
-  --font-size: 14px;
+  --font-size: var(--type-body);
   --theme-duration: 850ms;
   --theme-easing: cubic-bezier(0.4, 0, 0.2, 1);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
   color-scheme: light;
   -webkit-font-smoothing: antialiased;
 }
@@ -38,7 +37,7 @@
   --sidebar: #08090b;
   --border: #2b2e36;
   --text: #ebedf3;
-  --muted: #989daa;
+  --muted: #adb5c4;
   --accent: #918aff;
   --accent-soft: #252434;
   --success: #72c8a6;
@@ -51,6 +50,8 @@
 }
 body {
   margin: 0;
+  font-family: var(--font-ui);
+  font-weight: var(--weight-regular);
 }
 button,
 input,
@@ -66,7 +67,13 @@ select {
   -webkit-tap-highlight-color: transparent;
 }
 button {
+  font-weight: var(--weight-regular);
   cursor: pointer;
+}
+input,
+select,
+textarea {
+  font-weight: var(--weight-regular);
 }
 button:disabled {
   cursor: not-allowed;
@@ -86,30 +93,38 @@ p {
   margin: 0;
 }
 h1 {
-  font-size: 24px;
+  font-size: var(--type-page);
   line-height: 1.35;
-  font-weight: 600;
-  letter-spacing: -0.6px;
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.02em;
 }
 h2 {
-  font-size: 14px;
+  font-size: var(--type-section);
   line-height: 1.5;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 h3 {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--type-body);
+  font-weight: var(--weight-semibold);
 }
 p {
-  line-height: 1.75;
+  line-height: var(--leading-body);
+}
+strong,
+b {
+  font-weight: var(--weight-medium);
+}
+small {
+  font-size: var(--type-caption);
 }
 svg {
   flex-shrink: 0;
 }
 pre,
 code {
-  font-family: "SFMono-Regular", Consolas, monospace;
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--type-small);
+  font-weight: var(--weight-regular);
 }
 pre {
   white-space: pre-wrap;
@@ -137,6 +152,7 @@ select {
 input::placeholder,
 textarea::placeholder {
   color: var(--muted);
+  opacity: 1;
 }
 .app-shell {
   height: 100dvh;
@@ -162,17 +178,17 @@ textarea::placeholder {
   align-items: center;
   gap: 11px;
   color: var(--text);
-  font-size: 23px;
-  font-weight: 600;
-  letter-spacing: -0.7px;
+  font-size: var(--type-page);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.02em;
   white-space: nowrap;
 }
 .brand small {
   display: block;
-  font-size: 11px;
+  font-size: var(--type-caption);
   line-height: 1.6;
   letter-spacing: 0.04em;
-  font-weight: 400;
+  font-weight: var(--weight-regular);
   color: var(--muted);
 }
 .brand-symbol {
@@ -212,6 +228,7 @@ textarea::placeholder {
   gap: 3px;
 }
 .nav-parent {
+  font-weight: var(--weight-regular);
   width: 100%;
   min-height: 38px;
   display: flex;
@@ -222,7 +239,7 @@ textarea::placeholder {
   padding: 8px 11px;
   background: transparent;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--type-small);
   text-align: left;
 }
 .nav-parent > span {
@@ -234,7 +251,7 @@ textarea::placeholder {
 }
 .is-current > .nav-parent {
   color: var(--text);
-  font-weight: 550;
+  font-weight: var(--weight-medium);
 }
 .nav-chevron {
   transition: transform 180ms ease;
@@ -260,7 +277,7 @@ textarea::placeholder {
   padding: 6px 10px;
   color: var(--muted);
   border-radius: 5px;
-  font-size: 12px;
+  font-size: var(--type-small);
   position: relative;
 }
 .nav-child:hover {
@@ -270,7 +287,7 @@ textarea::placeholder {
 .nav-child.active {
   background: color-mix(in srgb, var(--accent) 13%, transparent);
   color: var(--accent);
-  font-weight: 550;
+  font-weight: var(--weight-medium);
 }
 .nav-child.active:before {
   content: "";
@@ -336,7 +353,7 @@ textarea::placeholder {
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--type-small);
   text-align: left;
   text-decoration: none;
   cursor: pointer;
@@ -365,7 +382,7 @@ textarea::placeholder {
   border-radius: 6px;
   color: var(--muted);
   text-decoration: none;
-  font-size: 13px;
+  font-size: var(--type-small);
 }
 .settings-section-nav a:hover {
   background: var(--panel-soft);
@@ -382,8 +399,8 @@ textarea::placeholder {
 }
 .sidebar-account strong {
   display: block;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--type-small);
+  font-weight: var(--weight-regular);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -391,7 +408,7 @@ textarea::placeholder {
 .sidebar-account small {
   display: block;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 .avatar {
   display: inline-flex;
@@ -404,8 +421,8 @@ textarea::placeholder {
   color: var(--accent);
   width: 30px;
   height: 30px;
-  font-size: 12px;
-  font-weight: 550;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-medium);
 }
 .workspace-breadcrumb {
   display: flex;
@@ -415,10 +432,10 @@ textarea::placeholder {
   overflow: hidden;
   color: var(--muted);
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--type-small);
 }
 .workspace-breadcrumb strong {
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -438,15 +455,17 @@ textarea::placeholder {
   color: var(--muted);
   padding: 0 10px;
   text-align: left;
-  font-size: 12px;
+  font-size: var(--type-small);
 }
 .global-search kbd {
   margin-left: auto;
   white-space: nowrap;
-  font: 10px inherit;
+  font-family: var(--font-ui);
+  font-size: var(--type-caption);
+  font-weight: var(--weight-medium);
 }
 .preview-label {
-  font-size: 10px;
+  font-size: var(--type-caption);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -569,8 +588,8 @@ textarea::placeholder {
   justify-content: center;
   gap: 8px;
   color: var(--text);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--type-small);
+  font-weight: var(--weight-medium);
   line-height: 1.5;
   white-space: nowrap;
 }
@@ -598,7 +617,7 @@ textarea::placeholder {
 .btn-small {
   min-height: 28px;
   padding: 4px 8px;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .badge {
   display: inline-flex;
@@ -608,7 +627,7 @@ textarea::placeholder {
   border-radius: 5px;
   background: var(--accent-soft);
   color: var(--accent);
-  font-size: 11px;
+  font-size: var(--type-caption);
   line-height: 1.6;
   white-space: nowrap;
 }
@@ -652,7 +671,7 @@ textarea::placeholder {
   background: color-mix(in srgb, var(--danger) 7%, var(--panel));
   color: var(--danger);
   border-radius: 7px;
-  font-size: 13px;
+  font-size: var(--type-small);
   overflow-wrap: anywhere;
 }
 .page-loading {
@@ -683,7 +702,7 @@ textarea::placeholder {
   border-radius: 10px;
   background: var(--panel);
   box-shadow: 0 8px 40px #1a203525;
-  font-size: 13px;
+  font-size: var(--type-small);
 }
 .toast.error {
   border-color: var(--danger);
@@ -806,7 +825,7 @@ textarea::placeholder {
   border: 0;
   background: transparent;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--type-caption);
   border-radius: 9px;
 }
 .floating-toolbar .active,
@@ -823,7 +842,7 @@ textarea::placeholder {
 }
 .metric-chart {
   min-width: 0;
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 .login-page {
   min-height: 100dvh;
@@ -839,14 +858,14 @@ textarea::placeholder {
   margin-bottom: 70px;
 }
 .login-intro h1 {
-  font-size: 42px;
+  font-size: var(--type-hero);
   line-height: 1.5;
-  letter-spacing: -1px;
+  letter-spacing: -0.02em;
   margin-bottom: 20px;
 }
 .login-intro > p {
   color: var(--muted);
-  font-size: 16px;
+  font-size: var(--type-section);
 }
 .login-form {
   max-width: 410px;
@@ -854,21 +873,21 @@ textarea::placeholder {
   padding: 32px;
 }
 .eyebrow {
-  font-size: 10px;
+  font-size: var(--type-caption);
   letter-spacing: 1.7px;
   color: var(--muted);
 }
 .login-form h2 {
-  font-size: 25px;
+  font-size: var(--type-page);
   margin: 12px 0 8px;
 }
 .login-form > p {
-  font-size: 13px;
+  font-size: var(--type-small);
   margin-bottom: 26px;
 }
 .login-form label {
   display: block;
-  font-size: 13px;
+  font-size: var(--type-small);
   margin: 20px 0 0;
 }
 .login-form .field {
@@ -887,14 +906,14 @@ textarea::placeholder {
   justify-content: center;
   gap: 7px;
   margin-top: 23px;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .preview-link span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 .login-help {
-  font-size: 11px !important;
+  font-size: var(--type-caption) !important;
   text-align: center;
   color: var(--muted);
   margin: 24px 0 0 !important;
@@ -912,11 +931,11 @@ textarea::placeholder {
   align-items: flex-start;
   gap: 8px;
   padding: 16px;
-  font-size: 12px;
+  font-size: var(--type-caption);
   min-width: 115px;
 }
 .login-graph .card small {
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 .login-graph .accent {
   border-color: var(--accent);
@@ -947,7 +966,7 @@ textarea::placeholder {
     padding: 22px 20px 96px;
   }
   .preview-label {
-    font-size: 9px;
+    font-size: var(--type-caption);
   }
   .global-search {
     min-width: 120px;
@@ -957,7 +976,7 @@ textarea::placeholder {
     gap: 4vw;
   }
   .login-intro h1 {
-    font-size: 34px;
+    font-size: var(--type-hero);
   }
   .login-graph .card {
     min-width: 95px;
@@ -974,7 +993,7 @@ textarea::placeholder {
     padding: 0 10px;
   }
   .brand {
-    font-size: 18px;
+    font-size: var(--type-section);
   }
   .brand-symbol,
   .environment,
@@ -985,7 +1004,7 @@ textarea::placeholder {
   }
   .app-switch select {
     max-width: 115px;
-    font-size: 12px;
+    font-size: var(--type-caption);
   }
   .global-search {
     width: 30px;
@@ -1000,7 +1019,7 @@ textarea::placeholder {
   .nav-item {
     width: 46px;
     min-height: 58px;
-    font-size: 10px;
+    font-size: var(--type-caption);
   }
   .nav-item.active:before {
     left: -3px;
@@ -1013,10 +1032,10 @@ textarea::placeholder {
     gap: 12px;
   }
   .page-heading h1 {
-    font-size: 22px;
+    font-size: var(--type-page);
   }
   .page-heading p {
-    font-size: 12px;
+    font-size: var(--type-caption);
   }
   .floating-toolbar {
     left: calc(50% + 27px);
@@ -1037,7 +1056,7 @@ textarea::placeholder {
     margin-bottom: 22px;
   }
   .login-intro h1 {
-    font-size: 28px;
+    font-size: var(--type-metric);
   }
   .login-intro > p,
   .login-graph {
@@ -1164,7 +1183,7 @@ body,
     display: inline-flex;
   }
   .workspace-sidebar .brand {
-    font-size: 23px;
+    font-size: var(--type-page);
   }
   .workspace-breadcrumb {
     gap: 7px;

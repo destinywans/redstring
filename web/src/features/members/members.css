@@ -22,9 +22,10 @@
 .members-search > input {
   padding-left: 36px;
   width: 100%;
+  font-weight: var(--weight-regular);
 }
 .members-count {
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--muted);
   margin: 16px 0;
 }
@@ -37,7 +38,7 @@
   border: 0;
   padding: 0;
   color: var(--text);
-  font-weight: 600;
+  font-weight: var(--weight-regular);
   cursor: pointer;
 }
 .member-name:hover {
@@ -73,7 +74,8 @@
 .member-form p,
 .member-import p {
   margin: 0;
-  line-height: 1.7;
+  line-height: var(--leading-body);
+  font-weight: var(--weight-regular);
 }
 .member-details {
   display: grid;
@@ -83,18 +85,21 @@
 }
 .member-details dt {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-caption);
   margin-bottom: 6px;
+  font-weight: var(--weight-regular);
 }
 .member-details dd {
   margin: 0;
   overflow-wrap: anywhere;
+  font-weight: var(--weight-regular);
 }
 .member-import-text {
-  font-family: var(--font-mono, monospace);
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--type-small);
   resize: vertical;
   min-height: 140px;
+  font-weight: var(--weight-regular);
 }
 .member-import-preview {
   display: grid;
@@ -118,6 +123,7 @@
 }
 .members-page .management-table small {
   overflow-wrap: anywhere;
+  font-weight: var(--weight-regular);
 }
 @media (max-width: 1000px) {
   .members-filters {

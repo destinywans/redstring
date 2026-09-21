@@ -35,8 +35,8 @@
   border-radius: 8px;
   background: var(--panel);
   color: var(--text);
-  font-size: 14px;
-  font-weight: 400;
+  font-size: var(--type-small);
+  font-weight: var(--weight-regular);
   line-height: 20px;
   text-align: left;
 }
@@ -64,6 +64,7 @@
   border-color: var(--danger);
 }
 .select-field-popover {
+  font-weight: var(--weight-regular);
   z-index: 180;
   width: max(240px, var(--radix-popover-trigger-width));
   max-width: calc(100vw - 24px);
@@ -75,7 +76,7 @@
   color: var(--text);
   background: var(--panel);
   box-shadow: 0 12px 36px #0002;
-  font-size: 14px;
+  font-size: var(--type-small);
   line-height: 20px;
 }
 .select-field-options {
@@ -110,7 +111,7 @@
 }
 .select-field-option small {
   display: block;
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--muted);
 }
 .select-field-search {
@@ -127,7 +128,7 @@
   border: 0;
   background: transparent;
   padding: 5px 0;
-  font-size: 14px;
+  font-size: var(--type-small);
 }
 .select-field-empty {
   padding: 16px;
@@ -137,6 +138,6 @@
   position: absolute;
   top: 100%;
   left: 0;
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--danger);
 }

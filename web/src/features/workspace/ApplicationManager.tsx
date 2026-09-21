@@ -309,7 +309,7 @@ export default function ApplicationManager({
             <Section title="基础信息与责任归属" icon={<Users size={17} />}>
               <dl className="app-detail-grid">
                 <Field label="应用标识">
-                  <code>{application.key || application.id}</code>
+                  <span>{application.key || application.id}</span>
                 </Field>
                 <Field label="负责人">
                   {application.maintainer_name ||

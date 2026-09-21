@@ -46,11 +46,11 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--muted);
 }
 .application-advanced-heading strong {
-  font-weight: 500;
+  font-weight: var(--weight-regular);
 }
 .application-advanced-filters .filter-bar {
   margin-bottom: 0;
@@ -61,7 +61,7 @@
   flex-wrap: wrap;
   gap: 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-caption);
   margin: -4px 0 12px;
 }
 .application-filter-chip {
@@ -73,7 +73,7 @@
   border-radius: 6px;
   background: var(--panel);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .application-filter-chip:hover {
   border-color: var(--accent);
@@ -89,6 +89,7 @@
 .application-list-table th {
   height: 46px;
   background: var(--panel-soft);
+  font-weight: var(--weight-medium);
 }
 .application-list-table th:first-child {
   width: 32%;
@@ -145,7 +146,7 @@
 .application-pagination .filter-select-trigger {
   height: 28px;
   min-width: 96px;
-  font-size: 12px;
+  font-size: var(--type-small);
   border-radius: 6px;
 }
 @media (max-width: 600px) {
@@ -173,8 +174,8 @@
   cursor: not-allowed;
 }
 .application-name-link strong {
-  font-size: 14px;
-  font-weight: 550;
+  font-size: var(--type-body);
+  font-weight: var(--weight-regular);
 }
 .application-symbol {
   display: grid;
@@ -189,7 +190,7 @@
 }
 .application-archived {
   margin-left: 8px;
-  font-size: 11px;
+  font-size: var(--type-caption);
   color: var(--muted);
 }
 .applications-page .management-empty {
@@ -200,7 +201,7 @@
   color: var(--muted);
 }
 .applications-page .management-empty h2 {
-  font-size: 16px;
+  font-size: var(--type-section);
   color: var(--text);
   margin-bottom: 8px;
 }
@@ -246,7 +247,7 @@
 }
 .application-drawer-header h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--type-section);
   overflow-wrap: anywhere;
 }
 .application-drawer-body {
@@ -270,12 +271,15 @@
 }
 .application-drawer .management-tabs button {
   flex-shrink: 0;
+  font-weight: var(--weight-regular);
 }
 .application-drawer .field {
   padding: 10px 12px;
+  font-weight: var(--weight-regular);
 }
 .application-drawer select.field {
   padding-right: 32px;
+  font-weight: var(--weight-regular);
 }
 .application-drawer .management-row {
   flex-wrap: wrap;
@@ -296,10 +300,11 @@
   margin: 20px 0;
 }
 .application-detail-summary p {
-  font-size: 13px;
-  line-height: 1.7;
+  font-size: var(--type-small);
+  line-height: var(--leading-body);
   color: var(--muted);
   overflow-wrap: anywhere;
+  font-weight: var(--weight-regular);
 }
 @keyframes application-drawer-in {
   from {

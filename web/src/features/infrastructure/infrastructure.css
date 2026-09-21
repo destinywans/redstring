@@ -16,14 +16,15 @@
 }
 .infra-heading h1 {
   margin: 0;
-  font-size: 24px;
-  letter-spacing: -0.6px;
+  font-size: var(--type-page);
+  letter-spacing: -0.02em;
 }
 .infra-heading p,
 .infra-snapshot header p,
 .infra-catalog header p {
   margin: 5px 0 0;
   color: var(--muted);
+  font-weight: var(--weight-regular);
 }
 .infra-categories {
   display: flex;
@@ -41,14 +42,17 @@
   color: var(--muted);
   background: var(--panel);
   cursor: pointer;
+  font-weight: var(--weight-regular);
 }
 .infra-categories button.active {
   color: var(--accent);
   border-color: var(--accent);
   background: var(--accent-soft);
+  font-weight: var(--weight-medium);
 }
 .infra-categories small {
-  font-size: 10px;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-regular);
 }
 .infra-summary-grid {
   display: grid;
@@ -67,23 +71,24 @@
 }
 button.infra-summary {
   cursor: pointer;
+  font-weight: var(--weight-regular);
 }
 .infra-summary strong {
-  font-size: 27px;
-  font-weight: 600;
+  font-size: var(--type-metric);
+  font-weight: var(--weight-medium);
 }
 .infra-summary span {
   color: var(--muted);
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 13px;
+  font-size: var(--type-small);
 }
 .infra-scope-note {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-caption);
   margin: 14px 0;
-  line-height: 1.7;
+  line-height: var(--leading-body);
 }
 .infra-snapshot,
 .infra-catalog {
@@ -92,19 +97,19 @@ button.infra-summary {
 }
 .infra-snapshot h2,
 .infra-catalog h2 {
-  font-size: 16px;
+  font-size: var(--type-section);
   margin: 0;
 }
 .infra-snapshot h3 {
   margin: 20px 0 8px;
-  font-size: 14px;
+  font-size: var(--type-body);
 }
 .infra-snapshot-label {
   display: flex;
   align-items: center;
   gap: 10px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-small);
   margin: 20px 0 16px;
   flex-wrap: wrap;
 }
@@ -114,14 +119,16 @@ button.infra-summary {
   gap: 20px;
 }
 .infra-facts dt {
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--muted);
   margin-bottom: 4px;
+  font-weight: var(--weight-regular);
 }
 .infra-facts dd {
   margin: 0;
   overflow-wrap: anywhere;
-  font-size: 14px;
+  font-size: var(--type-body);
+  font-weight: var(--weight-regular);
 }
 .infra-table-scroll {
   overflow-x: auto;
@@ -130,7 +137,7 @@ button.infra-summary {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
-  font-size: 13px;
+  font-size: var(--type-small);
 }
 .infra-table th,
 .infra-table td {
@@ -140,7 +147,7 @@ button.infra-summary {
 }
 .infra-table th {
   color: var(--muted);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   white-space: nowrap;
 }
 .infra-table code {
@@ -149,6 +156,7 @@ button.infra-summary {
 .infra-table small {
   color: var(--muted);
   display: block;
+  font-weight: var(--weight-regular);
 }
 .infra-connector {
   display: block;
@@ -157,10 +165,11 @@ button.infra-summary {
   margin: 18px 0;
   border-top: 1px solid var(--border);
   padding-top: 14px;
-  font-size: 13px;
+  font-size: var(--type-small);
 }
 .infra-revisions summary {
   cursor: pointer;
+  font-weight: var(--weight-regular);
 }
 .infra-revisions article {
   border-bottom: 1px solid var(--border);
@@ -191,7 +200,8 @@ button.infra-summary {
 }
 .infra-empty p {
   max-width: 700px;
-  line-height: 1.8;
+  line-height: var(--leading-body);
+  font-weight: var(--weight-regular);
 }
 .infra-planned {
   margin-top: 20px;
@@ -206,7 +216,8 @@ button.infra-summary {
 }
 .infra-query-error > p {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-regular);
 }
 .infra-catalog > .filter-bar {
   margin: 16px 0;
@@ -274,18 +285,19 @@ button.infra-summary {
 }
 .infra-host-metric > span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .infra-host-metric strong {
   display: block;
-  font-size: 16px;
-  font-weight: 550;
+  font-size: var(--type-body);
+  font-weight: var(--weight-medium);
 }
 .infra-host-metric small {
   display: block;
   color: var(--muted);
-  font-size: 11px;
-  line-height: 1.6;
+  font-size: var(--type-caption);
+  line-height: var(--leading-body);
+  font-weight: var(--weight-regular);
 }
 .infra-host-unavailable {
   color: var(--muted);

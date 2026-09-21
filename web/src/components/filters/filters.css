@@ -1,4 +1,5 @@
 .filter-bar {
+  font-weight: var(--weight-regular);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -6,7 +7,7 @@
   min-width: 0;
   width: 100%;
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--type-small);
 }
 .filter-bar > * {
   min-width: 0;
@@ -53,7 +54,7 @@
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--type-small);
   line-height: 20px;
 }
 .filter-search-field input::placeholder,
@@ -81,13 +82,14 @@
   background: var(--panel);
   color: var(--text);
   font: inherit;
-  font-size: 14px;
-  font-weight: 400;
+  font-size: var(--type-small);
+  font-weight: var(--weight-medium);
   line-height: 20px;
   white-space: nowrap;
   cursor: pointer;
 }
 .filter-select-trigger {
+  font-weight: var(--weight-regular);
   justify-content: flex-start;
   max-width: min(320px, 100%);
   text-align: left;
@@ -124,6 +126,7 @@
   outline-offset: 2px;
 }
 .filter-popover {
+  font-weight: var(--weight-regular);
   z-index: 160;
   display: flex;
   flex-direction: column;
@@ -138,7 +141,7 @@
   background: var(--panel);
   color: var(--text);
   box-shadow: 0 8px 24px rgb(0 0 0 / 14%);
-  font-size: 14px;
+  font-size: var(--type-small);
   line-height: 20px;
   transform-origin: var(--radix-popover-content-transform-origin);
   animation: filter-open 140ms ease-out;
@@ -150,8 +153,8 @@
 .filter-popover-title {
   padding: 4px 8px 8px;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-medium);
 }
 .filter-options {
   min-height: 0;
@@ -215,7 +218,7 @@
 }
 .filter-option-copy > small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-caption);
   line-height: 18px;
 }
 .filter-empty {

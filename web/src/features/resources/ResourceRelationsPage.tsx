@@ -216,7 +216,7 @@ export default function ResourceRelationsPage() {
           strokeWidth: selection?.id === edge.id ? 2 : 1.4,
           strokeDasharray: edge.provenance === "declared" ? "6 5" : undefined,
         },
-        labelStyle: { fill: "var(--muted)", fontSize: 12 },
+        labelStyle: { fill: "var(--muted)", fontSize: "var(--type-caption)" },
         labelBgStyle: { fill: "var(--panel)" },
         markerEnd: {
           type: MarkerType.ArrowClosed,

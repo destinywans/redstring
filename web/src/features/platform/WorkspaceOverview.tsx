@@ -134,7 +134,7 @@ export default function WorkspaceOverview() {
                       {(workspace.owner_name || "?").slice(0, 1)}
                     </span>
                     <div>
-                      <strong>{workspace.owner_name || "未指定"}</strong>
+                      <span>{workspace.owner_name || "未指定"}</span>
                       <small>平台管理员</small>
                     </div>
                   </div>
@@ -186,7 +186,7 @@ export default function WorkspaceOverview() {
                     <span className="settings-integration-icon">
                       <spec.icon size={21} />
                     </span>
-                    <strong>{spec.label}</strong>
+                    <span>{spec.label}</span>
                     <span className="settings-integration-count">
                       {item.state === "unavailable"
                         ? "暂未接入"

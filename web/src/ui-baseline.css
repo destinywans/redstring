@@ -1,9 +1,5 @@
 /* Product-wide reading and control scale. Page layouts may vary; these do not. */
 :root {
-  --type-page: 24px;
-  --type-section: 16px;
-  --type-body: 14px;
-  --type-meta: 12px;
   --control-height: 36px;
   --control-radius: 8px;
   --space-page: 28px;
@@ -17,22 +13,22 @@ body {
 .app-shell .memory-page h1,
 .app-shell .members-page h1 {
   font-size: var(--type-page);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   line-height: 1.4;
-  letter-spacing: -0.4px;
+  letter-spacing: -0.02em;
 }
 .app-shell .page-heading {
   margin-bottom: 24px;
 }
 .app-shell .page-heading p,
 .app-shell .management-header p {
-  font-size: 13px;
+  font-size: var(--type-small);
   line-height: 1.6;
 }
 .app-shell h2,
 .app-shell h3,
 .dialog-content h2 {
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 .app-shell .card h2,
 .app-shell .management-card h2 {
@@ -42,14 +38,14 @@ body {
 .dialog-content .btn {
   min-height: var(--control-height);
   border-radius: var(--control-radius);
-  font-size: var(--type-body);
-  line-height: 20px;
+  font-size: var(--type-small);
+  line-height: var(--leading-ui);
   padding: 7px 12px;
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 .app-shell .btn-small {
   min-height: 30px;
-  font-size: var(--type-meta);
+  font-size: var(--type-small);
   padding: 4px 9px;
 }
 .app-shell .btn > svg,
@@ -63,14 +59,16 @@ body {
 }
 .app-shell input.field,
 .dialog-content input.field {
+  font-weight: var(--weight-regular);
   min-height: var(--control-height);
   padding: 7px 12px;
   border-radius: var(--control-radius);
-  font-size: var(--type-body);
-  line-height: 20px;
+  font-size: var(--type-small);
+  line-height: var(--leading-ui);
 }
 .app-shell textarea.field,
 .dialog-content textarea.field {
+  font-weight: var(--weight-regular);
   padding: 10px 12px;
   border-radius: var(--control-radius);
   font-size: var(--type-body);
@@ -90,13 +88,13 @@ body {
   line-height: 1.5;
 }
 .app-shell th {
-  font-size: var(--type-meta);
-  font-weight: 500;
+  font-size: var(--type-small);
+  font-weight: var(--weight-medium);
   color: var(--muted);
 }
 .app-shell .badge {
   font-size: var(--type-meta);
-  font-weight: 500;
+  font-weight: var(--weight-regular);
 }
 .app-shell .management-page,
 .app-shell .members-page,
@@ -141,7 +139,7 @@ body {
   padding: 5px 8px;
   color: var(--muted);
   gap: 7px;
-  font-size: 13px;
+  font-size: var(--type-small);
 }
 .header-environment .select-field-trigger:hover,
 .header-environment .select-field-trigger[data-state="open"] {
@@ -154,7 +152,6 @@ body {
 @media (max-width: 760px) {
   :root {
     --space-page: 16px;
-    --type-page: 22px;
   }
   .app-shell .page-heading {
     margin-bottom: 18px;

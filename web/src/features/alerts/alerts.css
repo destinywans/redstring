@@ -28,8 +28,8 @@
   gap: 8px;
 }
 .alert-summary strong {
-  font-size: 28px;
-  font-weight: 600;
+  font-size: var(--type-metric);
+  font-weight: var(--weight-medium);
   font-variant-numeric: tabular-nums;
 }
 .alert-summary small,
@@ -46,7 +46,7 @@
   padding: 4px 0;
   text-align: left;
   color: var(--text);
-  font-weight: 600;
+  font-weight: var(--weight-regular);
   max-width: 360px;
   overflow-wrap: anywhere;
 }
@@ -76,11 +76,13 @@
 }
 .alert-details dt {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-regular);
 }
 .alert-details dd {
   margin: 4px 0 0;
   overflow-wrap: anywhere;
+  font-weight: var(--weight-regular);
 }
 .alert-timeline {
   list-style: none;

@@ -4,7 +4,7 @@
 }
 .scope-summary {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--type-small);
   line-height: 20px;
   overflow-wrap: anywhere;
 }

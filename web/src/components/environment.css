@@ -32,7 +32,7 @@
   box-shadow: none;
   color: var(--muted);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--type-small);
   text-overflow: ellipsis;
   cursor: pointer;
 }
@@ -64,7 +64,7 @@
     max-width: 112px;
   }
   .header-environment-field select {
-    font-size: 12px;
+    font-size: var(--type-caption);
   }
   .app-shell > .topbar .workspace-breadcrumb {
     flex: 0 1 auto;
@@ -74,7 +74,7 @@
 /* Shell typography follows the approved workbench without changing page content. */
 .workspace-sidebar .sidebar-nav .nav-parent {
   min-height: 46px;
-  font-size: 15px;
+  font-size: var(--type-small);
   line-height: 1.45;
 }
 .workspace-sidebar .sidebar-nav .nav-parent > svg:first-child {
@@ -83,12 +83,12 @@
   flex-shrink: 0;
 }
 .workspace-sidebar .sidebar-nav .nav-child {
-  font-size: 13px;
+  font-size: var(--type-small);
 }
 .app-shell > .topbar .workspace-breadcrumb > strong,
 .app-shell > .topbar .workspace-breadcrumb > span:only-child {
   font-size: inherit;
-  font-weight: 600;
+  font-weight: var(--weight-medium);
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;

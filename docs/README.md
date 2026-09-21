@@ -1,5 +1,7 @@
 # 项目文档
 
+- [全平台字体规范](design/typography.md)、[MiSans 字体交付记录](releases/2026-09-21-unified-typography.md)。
+
 - [全站38张设计图与离线图库](design/platform-2026-09-21/README.md)：WAN-100，全部子菜单、工作台、交付暂停入口与审计；待用户设计评审，非已实现能力。
 
 需求、取舍和任务状态以 [Linear 项目](https://linear.app/wansss/project/aiops-canvas-3c9fce50a53b) 为主。这里维护随代码版本变化的契约与运行说明。

@@ -716,6 +716,12 @@ export default function App() {
               <ArrowRight size={16} />
             </a>
           </div>
+          <p className="font-attribution">
+            字体：MiSans · 小米
+            <a href="/fonts/MiSans-LICENSE.pdf" target="_blank" rel="noreferrer">
+              字体许可
+            </a>
+          </p>
         </Modal>
         {toast && (
           <div

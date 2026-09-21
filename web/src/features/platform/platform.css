@@ -14,8 +14,8 @@
   color: var(--muted);
 }
 .platform-heading h1 {
-  font-size: 24px;
-  letter-spacing: -0.6px;
+  font-size: var(--type-page);
+  letter-spacing: -0.02em;
   margin: 0;
 }
 .platform-heading p {
@@ -53,7 +53,7 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  font-size: 16px;
+  font-size: var(--type-section);
   margin: 0;
 }
 .platform-workspace dl {
@@ -64,17 +64,17 @@
 }
 .platform-workspace dt {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .platform-workspace dd {
   margin: 4px 0 0;
-  font-size: 16px;
+  font-size: var(--type-body);
   overflow-wrap: anywhere;
 }
 .platform-workspace > p {
   color: var(--muted);
-  font-size: 12px;
-  line-height: 1.8;
+  font-size: var(--type-caption);
+  line-height: var(--leading-body);
   margin-bottom: 0;
 }
 .platform-entry-grid {
@@ -95,13 +95,13 @@
 }
 .platform-entry h2 {
   margin: 0 0 6px;
-  font-size: 15px;
+  font-size: var(--type-body);
 }
 .platform-entry p {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--type-small);
   color: var(--muted);
-  line-height: 1.7;
+  line-height: var(--leading-body);
 }
 .platform-entry > svg {
   flex: 0 0 auto;
@@ -128,14 +128,14 @@
   margin-top: 3px;
 }
 .platform-boundary h2 {
-  font-size: 15px;
+  font-size: var(--type-body);
   margin: 0 0 6px;
 }
 .platform-boundary p {
-  font-size: 13px;
+  font-size: var(--type-small);
   color: var(--muted);
   margin: 7px 0;
-  line-height: 1.8;
+  line-height: var(--leading-body);
 }
 .platform-role-grid {
   display: grid;
@@ -150,15 +150,16 @@
   color: var(--accent);
 }
 .platform-role h2 {
-  font-size: 16px;
+  font-size: var(--type-section);
   margin: 12px 0 2px;
 }
 .platform-role code {
-  font-size: 12px;
+  font-family: var(--font-ui);
+  font-size: var(--type-small);
   color: var(--muted);
 }
 .platform-role p {
-  font-size: 13px;
+  font-size: var(--type-small);
   color: var(--muted);
   margin-bottom: 0;
 }
@@ -173,7 +174,7 @@
   border-collapse: collapse;
   width: 100%;
   text-align: left;
-  font-size: 13px;
+  font-size: var(--type-small);
   min-width: 700px;
 }
 .platform-matrix th,
@@ -181,10 +182,10 @@
   padding: 14px 12px;
   border-bottom: 1px solid var(--border);
   vertical-align: top;
-  line-height: 1.8;
+  line-height: var(--leading-body);
 }
 .platform-matrix th {
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 .platform-matrix thead th {
   color: var(--muted);
@@ -202,7 +203,7 @@
   color: var(--muted);
 }
 .platform-empty h1 {
-  font-size: 21px;
+  font-size: var(--type-page);
 }
 .platform-empty p {
   color: var(--muted);

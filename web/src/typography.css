@@ -1,0 +1,54 @@
+/* Shared by the application, standalone settings, portals, charts and canvas.
+   Font faces are self-hosted; feature styles consume roles, not new type scales. */
+@font-face {
+  font-family: "MiSans";
+  src: url("./assets/fonts/MiSansVF.woff2") format("woff2");
+  font-weight: 150 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --font-ui: "MiSans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", "MiSans", monospace;
+  --type-caption: 13px;
+  --type-meta: var(--type-caption);
+  --type-small: 14px;
+  --type-body: 15px;
+  --type-section: 18px;
+  --type-lead: 18px;
+  --type-page: 24px;
+  --type-metric: 28px;
+  --type-hero: 36px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --leading-body: 1.65;
+  --leading-ui: 1.45;
+  --leading-heading: 1.35;
+}
+
+/* SVG text must follow the same family as HTML, including lazy-loaded charts. */
+svg text,
+.react-flow__edge-text,
+.recharts-tooltip-wrapper {
+  font-family: var(--font-ui);
+  font-weight: var(--weight-regular);
+}
+
+@media (max-width: 760px) {
+  :root {
+    --type-hero: 28px;
+  }
+}
+
+.font-attribution {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 20px;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-regular);
+  color: var(--muted);
+}

@@ -20,18 +20,18 @@
 }
 .delivery-paused-status {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .delivery-paused h1 {
   color: var(--text);
-  font-size: 26px;
-  font-weight: 600;
-  letter-spacing: -0.6px;
+  font-size: var(--type-page);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.02em;
 }
 .delivery-paused p {
   max-width: 400px;
   margin: 0 0 12px;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--type-body);
   line-height: 1.8;
 }

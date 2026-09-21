@@ -9,15 +9,16 @@
   border-bottom: 2px solid transparent;
   background: transparent;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--type-small);
   padding: 10px 0 12px;
   margin-bottom: -1px;
   white-space: nowrap;
+  font-weight: var(--weight-regular);
 }
 .memory-switch > button[aria-selected="true"] {
   border-bottom-color: var(--accent);
   color: var(--text);
-  font-weight: 600;
+  font-weight: var(--weight-medium);
 }
 .memory-filter-summary {
   display: flex;
@@ -38,7 +39,7 @@
 .memory-result-count {
   margin-left: auto;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-caption);
   white-space: nowrap;
   padding: 3px 0;
 }
@@ -51,7 +52,7 @@
   background: var(--panel);
   color: var(--text);
   border-radius: 6px;
-  font-size: 12px;
+  font-size: var(--type-caption);
   padding: 3px 8px;
 }
 .filter-chip > span {
@@ -62,7 +63,7 @@
 .filter-clear {
   border: 0;
   padding: 3px 6px;
-  font-size: 12px;
+  font-size: var(--type-caption);
   background: transparent;
   color: var(--muted);
 }
@@ -87,6 +88,7 @@
   color: var(--text);
   text-align: left;
   cursor: pointer;
+  font-weight: var(--weight-regular);
 }
 .memory-list > button:hover {
   background: color-mix(in srgb, var(--accent) 5%, var(--panel));
@@ -94,6 +96,7 @@
 .memory-list > button.active {
   background: color-mix(in srgb, var(--accent) 8%, var(--panel));
   box-shadow: inset 3px 0 var(--accent);
+  font-weight: var(--weight-medium);
 }
 .memory-title {
   display: flex;
@@ -108,11 +111,13 @@
 .memory-list small,
 .memory-list p {
   color: var(--muted);
-  font-size: 11px;
-  line-height: 1.7;
+  font-size: var(--type-caption);
+  line-height: var(--leading-body);
+  font-weight: var(--weight-regular);
 }
 .memory-list p {
   margin-bottom: 0;
+  font-weight: var(--weight-regular);
 }
 .memory-detail {
   padding: 25px;
@@ -125,7 +130,7 @@
   align-items: center;
 }
 .memory-detail h2 {
-  font-size: 18px;
+  font-size: var(--type-section);
 }
 .memory-detail-heading h2 {
   flex: 1;
@@ -134,38 +139,41 @@
 .memory-detail-heading select.field {
   width: auto;
   max-width: 65%;
+  font-weight: var(--weight-regular);
 }
 .memory-detail h3 {
-  font-size: 14px;
+  font-size: var(--type-body);
   margin-top: 28px;
 }
 .memory-facts {
   display: grid;
   grid-template-columns: 110px minmax(0, 1fr);
   gap: 12px;
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--type-caption);
+  line-height: var(--leading-body);
   padding: 18px 0;
   border-bottom: 1px solid var(--border);
 }
 .memory-facts dt {
   color: var(--muted);
+  font-weight: var(--weight-regular);
 }
 .memory-facts dd {
   margin: 0;
   overflow-wrap: anywhere;
+  font-weight: var(--weight-regular);
 }
 .memory-content {
-  font-size: 13px;
-  line-height: 1.9;
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
   margin: 24px 0;
   overflow-wrap: anywhere;
 }
 .memory-content h1 {
-  font-size: 21px;
+  font-size: var(--type-page);
 }
 .memory-content h2 {
-  font-size: 17px;
+  font-size: var(--type-section);
 }
 .memory-content pre,
 .memory-message pre {
@@ -188,35 +196,39 @@
   display: block;
   color: var(--muted);
   margin-top: 7px;
-  font-size: 11px;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-regular);
 }
 .memory-message {
   padding: 18px 0;
   border-bottom: 1px solid var(--border);
-  font-size: 13px;
-  line-height: 1.8;
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
   overflow-wrap: anywhere;
 }
 .memory-message > small {
   color: var(--accent);
+  font-weight: var(--weight-regular);
 }
 .memory-detail > details {
-  font-size: 12px;
+  font-size: var(--type-caption);
   padding: 14px 0;
 }
 .memory-detail > details pre {
   overflow: auto;
   max-width: 100%;
-  font-size: 11px;
+  font-size: var(--type-small);
 }
 .memory-page .dialog-content label {
   display: flex;
   flex-direction: column;
   gap: 7px;
   margin-bottom: 15px;
+  font-weight: var(--weight-regular);
 }
 .memory-page .dialog-content textarea {
   width: 100%;
+  font-weight: var(--weight-regular);
 }
 @media (max-width: 1100px) {
   .memory-columns {

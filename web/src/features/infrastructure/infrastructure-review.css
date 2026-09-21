@@ -12,15 +12,16 @@
   margin-bottom: 24px;
 }
 .infra-review-heading h1 {
-  font-size: 25px;
-  line-height: 1.3;
-  font-weight: 650;
-  letter-spacing: -0.6px;
+  font-size: var(--type-page);
+  line-height: var(--leading-heading);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.02em;
 }
 .infra-review-heading p {
-  font-size: 13px;
+  font-size: var(--type-small);
   color: var(--muted);
   margin-top: 7px;
+  font-weight: var(--weight-regular);
 }
 .infra-review-actions {
   display: flex;
@@ -30,18 +31,19 @@
 .infra-review-source {
   text-align: right;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--type-caption);
 }
 .infra-review-source small {
   display: block;
-  font-size: 11px;
+  font-size: var(--type-caption);
   margin-top: 3px;
+  font-weight: var(--weight-regular);
 }
 .infra-review-actions .button {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 12px;
+  font-size: var(--type-small);
   padding: 8px 13px;
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -63,7 +65,7 @@
   color: var(--accent);
   background: transparent;
   border: 0;
-  font-size: 12px;
+  font-size: var(--type-caption);
   padding: 7px;
 }
 .infra-overview-stats {
@@ -87,19 +89,20 @@
   gap: 2px;
 }
 .infra-overview-stats article span {
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--muted);
 }
 .infra-overview-stats article strong {
-  font-size: 28px;
-  line-height: 1.3;
-  font-weight: 650;
+  font-size: var(--type-metric);
+  line-height: var(--leading-heading);
+  font-weight: var(--weight-medium);
   font-variant-numeric: tabular-nums;
 }
 .infra-overview-stats article small {
-  font-size: 11px;
+  font-size: var(--type-caption);
   color: var(--muted);
   margin-top: 5px;
+  font-weight: var(--weight-regular);
 }
 .infra-stat-icon {
   display: grid;
@@ -128,13 +131,13 @@
 .infra-review-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--type-caption);
   white-space: nowrap;
 }
 .infra-review-table th {
   text-align: left;
-  font-size: 11px;
-  font-weight: 500;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-medium);
   color: var(--muted);
   background: color-mix(in srgb, var(--panel-soft) 62%, var(--panel));
   padding: 12px 15px;
@@ -170,8 +173,8 @@
   color: var(--text);
 }
 .infra-resource-name strong {
-  font-weight: 550;
-  font-size: 12px;
+  font-weight: var(--weight-regular);
+  font-size: var(--type-body);
 }
 .infra-resource-name > span:last-child {
   display: flex;
@@ -179,8 +182,9 @@
   gap: 3px;
 }
 .infra-resource-name small {
-  font-size: 11px;
+  font-size: var(--type-caption);
   color: var(--muted);
+  font-weight: var(--weight-regular);
 }
 .infra-resource-name:hover strong {
   color: var(--accent);
@@ -216,7 +220,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: var(--type-caption);
   white-space: nowrap;
 }
 .infra-status i {
@@ -248,7 +252,7 @@
   flex-direction: column;
   gap: 4px;
   width: 56px;
-  font-size: 11px;
+  font-size: var(--type-caption);
   font-variant-numeric: tabular-nums;
 }
 .infra-usage > i {
@@ -262,12 +266,15 @@
   background: var(--success);
   height: 100%;
   border-radius: 4px;
+  font-weight: var(--weight-regular);
 }
 .infra-usage.is-medium b {
   background: var(--warning);
+  font-weight: var(--weight-regular);
 }
 .infra-usage.is-high b {
   background: var(--danger);
+  font-weight: var(--weight-regular);
 }
 .infra-pagination {
   display: flex;
@@ -276,7 +283,7 @@
   gap: 11px;
   padding: 13px 18px;
   border-top: 1px solid var(--border);
-  font-size: 11px;
+  font-size: var(--type-caption);
   color: var(--muted);
 }
 .infra-pagination .icon-button {
@@ -289,14 +296,14 @@
   padding: 55px 20px;
   text-align: center;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--type-small);
 }
 .infra-review-footnote {
   display: flex;
   justify-content: space-between;
   gap: 15px;
   margin-top: 13px;
-  font-size: 11px;
+  font-size: var(--type-caption);
   color: var(--muted);
 }
 .infra-kind-tabs {
@@ -313,16 +320,17 @@
   border-bottom: 2px solid transparent;
   border-radius: 0;
   background: transparent;
-  font-size: 12px;
+  font-size: var(--type-small);
   padding: 10px 15px;
   color: var(--muted);
 }
 .infra-kind-tabs button[aria-current="page"] {
   color: var(--accent);
   border-bottom-color: var(--accent);
+  font-weight: var(--weight-medium);
 }
 .infra-kind-tabs span {
-  font-size: 10px;
+  font-size: var(--type-small);
   background: var(--panel-soft);
   border-radius: 10px;
   padding: 1px 5px;
@@ -370,10 +378,10 @@
   border-radius: 10px;
 }
 .infra-drawer-identity h2 {
-  font-size: 18px;
-  font-weight: 620;
+  font-size: var(--type-section);
+  font-weight: var(--weight-semibold);
   word-break: break-word;
-  line-height: 1.35;
+  line-height: var(--leading-heading);
 }
 .infra-drawer-identity p {
   display: flex;
@@ -381,14 +389,15 @@
   align-items: center;
   margin-top: 7px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-regular);
 }
 .infra-detail-provenance {
   display: flex;
   align-items: center;
   gap: 9px;
   color: var(--accent);
-  font-size: 10px;
+  font-size: var(--type-caption);
   padding: 0 25px 15px;
 }
 .infra-detail-provenance > span {
@@ -409,13 +418,13 @@
   border-radius: 0;
   padding: 12px 11px;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--type-small);
   color: var(--muted);
 }
 .infra-drawer-tabs button[aria-selected="true"] {
   color: var(--accent);
   border-bottom-color: var(--accent);
-  font-weight: 550;
+  font-weight: var(--weight-medium);
 }
 .infra-drawer-content {
   padding: 4px 25px 28px;
@@ -425,7 +434,7 @@
 }
 .infra-detail-description {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-caption);
   padding-top: 20px;
 }
 .infra-detail-section {
@@ -436,8 +445,8 @@
   border-bottom: 0;
 }
 .infra-detail-section h3 {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--type-small);
+  font-weight: var(--weight-semibold);
   margin: 0 0 15px;
 }
 .infra-detail-info {
@@ -451,19 +460,21 @@
   grid-template-columns: 115px minmax(0, 1fr);
   gap: 15px;
   align-items: start;
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: var(--type-caption);
+  line-height: var(--leading-body);
 }
 .infra-detail-info dt {
   color: var(--muted);
+  font-weight: var(--weight-regular);
 }
 .infra-detail-info dd {
   margin: 0;
   overflow-wrap: anywhere;
+  font-weight: var(--weight-regular);
 }
 .infra-detail-empty {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--type-caption);
   padding: 17px 0;
 }
 .infra-cluster-counts {
@@ -484,14 +495,14 @@
 }
 .infra-cluster-counts span {
   display: block;
-  font-size: 11px;
+  font-size: var(--type-caption);
   color: var(--muted);
 }
 .infra-cluster-counts strong {
-  font-size: 25px;
-  font-weight: 600;
+  font-size: var(--type-metric);
+  font-weight: var(--weight-medium);
   display: block;
-  line-height: 1.4;
+  line-height: var(--leading-heading);
   margin-top: 3px;
 }
 .infra-chart {
@@ -506,11 +517,12 @@
   justify-content: space-between;
   gap: 8px;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--type-caption);
   margin-bottom: 12px;
 }
 .infra-chart > div strong {
-  font-size: 13px;
+  font-size: var(--type-small);
+  font-weight: var(--weight-regular);
 }
 .infra-chart svg {
   width: 100%;
@@ -526,7 +538,7 @@
   display: flex;
   justify-content: space-between;
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--type-caption);
   margin-top: 7px;
 }
 .infra-middleware-stats {
@@ -544,14 +556,14 @@
 }
 .infra-middleware-stats span {
   display: block;
-  font-size: 11px;
+  font-size: var(--type-caption);
   color: var(--muted);
 }
 .infra-middleware-stats strong {
   display: block;
-  font-size: 22px;
-  line-height: 1.8;
-  font-weight: 600;
+  font-size: var(--type-metric);
+  line-height: var(--leading-heading);
+  font-weight: var(--weight-medium);
   font-variant-numeric: tabular-nums;
 }
 .infra-related-list {
@@ -569,6 +581,7 @@
   border-radius: 8px;
   color: var(--accent);
   text-align: left;
+  font-weight: var(--weight-regular);
 }
 .infra-related-list button:hover {
   background: var(--accent-soft);
@@ -581,14 +594,15 @@
   gap: 3px;
 }
 .infra-related-list strong {
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--text);
-  font-weight: 500;
+  font-weight: var(--weight-regular);
   overflow-wrap: anywhere;
 }
 .infra-related-list small {
-  font-size: 10px;
+  font-size: var(--type-caption);
   color: var(--muted);
+  font-weight: var(--weight-regular);
 }
 .infra-detail-tags {
   display: flex;
@@ -596,7 +610,7 @@
   gap: 7px;
 }
 .infra-detail-tags span {
-  font-size: 11px;
+  font-size: var(--type-caption);
   border-radius: 5px;
   padding: 3px 7px;
   background: var(--panel-soft);
@@ -605,11 +619,7 @@
 .infra-config-code,
 .infra-message,
 .infra-detail-records pre {
-  font:
-    11px/1.7 ui-monospace,
-    SFMono-Regular,
-    Consolas,
-    monospace;
+  font: var(--weight-regular) var(--type-small) / var(--leading-body) var(--font-mono);
   background: var(--panel-soft);
   border-radius: 7px;
   padding: 13px;
@@ -630,23 +640,25 @@
   border-radius: 7px;
 }
 .infra-detail-records strong {
-  font-size: 12px;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-regular);
 }
 .infra-detail-records article > span {
   float: right;
-  font-size: 10px;
+  font-size: var(--type-caption);
   color: var(--muted);
 }
 .infra-detail-records p {
-  font-size: 11px;
+  font-size: var(--type-caption);
   color: var(--muted);
   margin-top: 5px;
-  line-height: 1.65;
+  line-height: var(--leading-body);
+  font-weight: var(--weight-regular);
 }
 .infra-detail-records pre {
   padding: 6px 0;
   margin: 7px 0 0;
-  font-size: 10px;
+  font-size: var(--type-small);
 }
 .infra-detail-timeline {
   display: flex;
@@ -666,18 +678,19 @@
   background: var(--accent);
 }
 .infra-detail-timeline strong {
-  font-size: 12px;
-  font-weight: 550;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-regular);
 }
 .infra-detail-timeline time {
   margin-left: 12px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--type-caption);
 }
 .infra-detail-timeline p {
-  font-size: 11px;
+  font-size: var(--type-caption);
   color: var(--muted);
   margin-top: 4px;
+  font-weight: var(--weight-regular);
 }
 @keyframes infra-drawer-in {
   from {
@@ -720,11 +733,12 @@
     gap: 10px;
   }
   .infra-review-heading h1 {
-    font-size: 22px;
+    font-size: var(--type-page);
   }
   .infra-review-heading p {
-    font-size: 12px;
-  }
+    font-size: var(--type-caption);
+  font-weight: var(--weight-regular);
+}
   .infra-overview-stats {
     gap: 8px;
   }
@@ -734,10 +748,12 @@
   }
   .infra-overview-stats article small {
     display: none;
-  }
+  font-weight: var(--weight-regular);
+}
   .infra-overview-stats article strong {
-    font-size: 24px;
-  }
+    font-size: var(--type-metric);
+  font-weight: var(--weight-medium);
+}
   .infra-review .filter-search {
     flex-basis: 100%;
   }
@@ -768,8 +784,8 @@
 .infra-review-table .infra-group-row th {
   background: color-mix(in srgb, var(--panel-soft) 45%, var(--panel));
   color: var(--text);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-medium);
   padding: 10px 19px;
   border-top: 1px solid var(--border);
 }
@@ -797,24 +813,25 @@
   gap: 8px;
 }
 .infra-container-title strong {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-regular);
 }
 .infra-container-title svg {
   color: var(--accent);
 }
 .infra-container-image {
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 11px;
-  line-height: 1.7;
+  font-family: var(--font-ui);
+  font-size: var(--type-small);
+  line-height: var(--leading-body);
 }
 .infra-container-configuration {
   margin: 16px 0;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .infra-container-configuration summary {
   cursor: pointer;
   color: var(--muted);
+  font-weight: var(--weight-regular);
 }
 .infra-review .infra-inventory-card,
 .infra-review .infra-table-scroll {

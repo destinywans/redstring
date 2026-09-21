@@ -443,19 +443,19 @@ function MetricChart({ kind }: { kind: "errors" | "wait" }) {
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
           <XAxis
             dataKey="time"
-            minTickGap={36}
-            tick={{ fontSize: 10 }}
+            minTickGap={44}
+            tick={{ fontSize: "var(--type-caption)", fill: "var(--muted)" }}
             axisLine={false}
             tickLine={false}
           />
           <YAxis
-            width={42}
+            width={52}
             unit={kind === "errors" ? "%" : "ms"}
-            tick={{ fontSize: 10 }}
+            tick={{ fontSize: "var(--type-caption)", fill: "var(--muted)" }}
             axisLine={false}
             tickLine={false}
           />
-          <Tooltip />
+          <Tooltip contentStyle={{ background: "var(--panel)", color: "var(--text)", border: "1px solid var(--border)", fontSize: "var(--type-small)" }} />
           <ReferenceLine
             x="14:02"
             stroke="#7754f5"
@@ -463,7 +463,7 @@ function MetricChart({ kind }: { kind: "errors" | "wait" }) {
             label={{
               value: "14:03",
               position: "insideTopRight",
-              fontSize: 10,
+              fontSize: "var(--type-caption)",
               fill: "#7754f5",
             }}
           />

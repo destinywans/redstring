@@ -39,14 +39,16 @@
 .observation-query-controls input[type="number"] {
   width: 140px;
   min-height: 36px;
+  font-weight: var(--weight-regular);
 }
 .observation-query-controls label,
 .observation-custom-range label,
 .observation-log-filters label {
   display: grid;
   gap: 6px;
-  font-size: 13px;
+  font-size: var(--type-small);
   color: var(--muted);
+  font-weight: var(--weight-regular);
 }
 .observation-readonly {
   min-height: 40px;
@@ -61,9 +63,10 @@
   margin-top: 14px;
 }
 .observation-help {
-  font-size: 12px;
+  font-size: var(--type-caption);
   margin: 14px 0 0;
-  line-height: 1.8;
+  line-height: var(--leading-body);
+  font-weight: var(--weight-regular);
 }
 .observation-empty {
   display: flex;
@@ -80,6 +83,7 @@
 }
 .observation-empty p {
   max-width: 620px;
+  font-weight: var(--weight-regular);
 }
 .observation-data {
   display: grid;
@@ -96,18 +100,20 @@
   margin: 0;
 }
 .observation-provenance dt {
-  font-size: 11px;
+  font-size: var(--type-caption);
   color: var(--muted);
   margin-bottom: 5px;
+  font-weight: var(--weight-regular);
 }
 .observation-provenance dd {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--type-caption);
   overflow-wrap: anywhere;
+  font-weight: var(--weight-regular);
 }
 .observation-expression pre {
   overflow: auto;
-  font-size: 12px;
+  font-size: var(--type-small);
   background: var(--panel-soft);
   padding: 12px;
   border-radius: 6px;
@@ -132,7 +138,7 @@
   gap: 8px;
 }
 .observation-series h3 {
-  font-size: 13px;
+  font-size: var(--type-small);
   margin: 0;
 }
 .observation-sample-table {
@@ -142,6 +148,7 @@
 }
 .observation-series small {
   overflow-wrap: anywhere;
+  font-weight: var(--weight-regular);
 }
 .observation-log-filters {
   display: grid;
@@ -163,14 +170,14 @@
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  font-size: 12px;
+  font-size: var(--type-caption);
 }
 .observation-log-list header > button {
   margin-left: auto;
 }
 .observation-log-list pre {
-  font-size: 12px;
-  line-height: 1.8;
+  font-size: var(--type-small);
+  line-height: var(--leading-body);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   margin: 12px 0;
@@ -178,7 +185,7 @@
 .observation-log-list details,
 .observation-series details,
 .observation-expression {
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--muted);
 }
 .observation-log-list details dl {
@@ -194,6 +201,7 @@
   margin: 0;
   overflow-wrap: anywhere;
   color: var(--text);
+  font-weight: var(--weight-regular);
 }
 .observation-created {
   display: flex;
@@ -204,10 +212,12 @@
 }
 .observation-transfer p {
   margin: 0;
-  line-height: 1.8;
+  line-height: var(--leading-body);
+  font-weight: var(--weight-regular);
 }
 .observation-deployment p {
   overflow-wrap: anywhere;
+  font-weight: var(--weight-regular);
 }
 .observation-loading {
   animation: observation-spin 1s linear infinite;
@@ -246,7 +256,7 @@
 }
 .observation-incident-context {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--type-caption);
   color: var(--muted);
 }
 .observation-incident-context a {

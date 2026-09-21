@@ -15,7 +15,7 @@
   border-radius: 8px;
   background: var(--panel);
   padding: 0 12px;
-  font-size: 14px;
+  font-size: var(--type-small);
   color: var(--muted);
 }
 .date-range-filter label > span {

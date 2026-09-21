@@ -58,6 +58,7 @@
 .management-form label {
   display: grid;
   gap: 5px;
+  font-size: var(--type-small);
   font-weight: var(--weight-regular);
 }
 .management-form .checkbox-label {
@@ -160,6 +161,9 @@
 .management-row > .grow {
   flex: 1;
   min-width: 0;
+}
+.management-row > .grow > strong {
+  font-weight: var(--weight-regular);
 }
 .management-row small {
   color: var(--muted);

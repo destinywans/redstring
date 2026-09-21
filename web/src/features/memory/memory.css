@@ -104,6 +104,9 @@
   align-items: center;
   margin-bottom: 9px;
 }
+.memory-title strong {
+  font-weight: inherit;
+}
 .memory-title svg {
   flex-shrink: 0;
   color: var(--accent);

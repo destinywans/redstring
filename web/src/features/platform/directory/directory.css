@@ -278,6 +278,7 @@
 }
 .directory-form input.field {
   height: 36px;
+  font-size: var(--type-small);
 }
 .directory-form textarea.field {
   min-height: 96px;

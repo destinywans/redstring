@@ -57,6 +57,9 @@
   padding: 16px 0;
   border-bottom: 1px solid var(--border);
 }
+.alert-source .management-heading > strong {
+  font-weight: var(--weight-regular);
+}
 .alert-mapping {
   display: flex;
   flex-direction: column;

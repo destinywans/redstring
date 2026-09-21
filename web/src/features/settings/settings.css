@@ -99,7 +99,7 @@
 .settings-providers strong {
   font-size: var(--type-body);
   text-align: left;
-  font-weight: var(--weight-regular);
+  font-weight: inherit;
 }
 .settings-radio {
   display: flex;
@@ -539,7 +539,7 @@
 }
   .settings-providers strong {
     font-size: var(--type-small);
-  font-weight: var(--weight-regular);
+  font-weight: inherit;
 }
 }
 @media (max-width: 1050px) {

@@ -123,6 +123,9 @@
   border: 1px solid var(--border);
   border-radius: 8px;
 }
+.extension-binding > strong {
+  font-weight: var(--weight-regular);
+}
 .extension-binding p {
   margin: 8px 0;
   font-weight: var(--weight-regular);
@@ -163,6 +166,10 @@
 .extension-form {
   display: grid;
   gap: 15px;
+}
+.extension-form label {
+  font-size: var(--type-small);
+  font-weight: var(--weight-regular);
 }
 .extension-form > label:not(.extension-check) {
   display: grid;

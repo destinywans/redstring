@@ -36,6 +36,13 @@ svg text,
   font-weight: var(--weight-regular);
 }
 
+/* Keep vendor attribution readable in every canvas, including resource maps. */
+.react-flow .react-flow__attribution {
+  font-family: var(--font-ui);
+  font-size: var(--type-caption);
+  font-weight: var(--weight-regular);
+}
+
 @media (max-width: 760px) {
   :root {
     --type-hero: 28px;

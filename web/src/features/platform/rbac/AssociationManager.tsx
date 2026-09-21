@@ -390,7 +390,7 @@ export function AssociationManager({
               className="rbac-table-scroll"
               aria-busy={candidates.isFetching}
             >
-              <table className="directory-table rbac-association-table">
+              <table className="directory-table rbac-association-table ui-data-table">
                 <thead>
                   <tr>
                     <th className="rbac-check-col">

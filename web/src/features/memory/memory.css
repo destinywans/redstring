@@ -222,14 +222,13 @@
   max-width: 100%;
   font-size: var(--type-small);
 }
-.memory-page .dialog-content label {
+.memory-editor-fields > label {
   display: flex;
   flex-direction: column;
   gap: 7px;
-  margin-bottom: 15px;
   font-weight: var(--weight-regular);
 }
-.memory-page .dialog-content textarea {
+.memory-editor-fields textarea {
   width: 100%;
   font-weight: var(--weight-regular);
 }
@@ -251,4 +250,16 @@
   .memory-facts {
     grid-template-columns: 90px minmax(0, 1fr);
   }
+}
+
+.memory-editor-fields {
+  display: grid;
+  gap: 20px;
+}
+.memory-editor-fields > p {
+  font-size: var(--type-small);
+  line-height: var(--leading-body);
+}
+.memory-page .ui-list-page-header {
+  flex-wrap: wrap;
 }

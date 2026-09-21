@@ -1,3 +1,5 @@
+import { PageHeader } from "../../components/patterns/ListPage";
+import { Sheet } from "../../components/ui/sheet";
 import Pagination from "../../components/Pagination";
 import SelectField from "../../components/SelectField";
 import { useState, useEffect, useRef } from "react";
@@ -358,18 +360,15 @@ export default function MemoryPage() {
     revision === null;
   return (
     <div className="management-page memory-page">
-      <header className="management-heading">
-        <div>
-          <span className="eyebrow">MEMORY</span>
-          <h1>记忆与上下文</h1>
-          <p>
-            查看已保存的知识、调查分支和引用来源。模型切换继续使用这些持久记录。
-          </p>
-        </div>
-        <Link className="btn" to="/knowledge">
-          维护 Runbook 与经验 <BookOpen size={16} />
-        </Link>
-      </header>
+      <PageHeader
+        title="记忆与上下文"
+        description="查看已保存的知识、调查分支和引用来源。模型切换继续使用这些持久记录。"
+        actions={
+          <Link className="btn" to="/knowledge">
+            维护 Runbook 与经验 <BookOpen size={16} />
+          </Link>
+        }
+      />
       <div
         ref={memoryTabsRef}
         className="memory-switch"
@@ -770,43 +769,49 @@ export default function MemoryPage() {
           )}
         </section>
       </div>
-      <Modal
+      <Sheet
         open={!!editBase}
         onOpenChange={(v) => {
           if (!v && !save.isPending) setEditBase(null);
         }}
+        className="memory-editor-sheet"
+        closeDisabled={save.isPending}
         title="修订记忆"
         description="保留旧版本。保存后成为草稿，审阅发布后才参与知识召回。"
+        footer={
+          <Button
+            disabled={save.isPending || !title.trim() || !body.trim()}
+            onClick={() => save.mutate()}
+          >
+            保存草稿版本
+          </Button>
+        }
       >
-        <label>
-          标题
-          <input
-            className="field"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-        </label>
-        <label>
-          内容
-          <textarea
-            className="field"
-            rows={14}
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-          />
-        </label>
-        <p className="muted">
-          基于 v{editBase?.version}{" "}
-          修订。若版本冲突，请保留草稿并关闭窗口，重新查看最新内容后再修订。
-        </p>
-        {save.error && <ErrorNotice error={save.error} />}
-        <Button
-          disabled={save.isPending || !title.trim() || !body.trim()}
-          onClick={() => save.mutate()}
-        >
-          保存草稿版本
-        </Button>
-      </Modal>
+        <div className="memory-editor-fields">
+          <label>
+            标题
+            <input
+              className="field"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </label>
+          <label>
+            内容
+            <textarea
+              className="field"
+              rows={14}
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+            />
+          </label>
+          <p className="muted">
+            基于 v{editBase?.version}{" "}
+            修订。若版本冲突，请保留草稿并关闭窗口，重新查看最新内容后再修订。
+          </p>
+          {save.error && <ErrorNotice error={save.error} />}
+        </div>
+      </Sheet>
       <Modal
         open={!!archiveBase}
         onOpenChange={(v) => {

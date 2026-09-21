@@ -2,24 +2,32 @@ import type { ReactNode, ButtonHTMLAttributes } from "react";
 import { useRef, useId } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X, Pin, Minus, MoreHorizontal } from "../lib/icons";
-import { cva } from "class-variance-authority";
+import { Button as SharedButton } from "./ui/button";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 export const cn = (...values: Parameters<typeof clsx>) => twMerge(clsx(values));
-const variants = cva("btn", {
-  variants: {
-    variant: { default: "btn-primary", outline: "", ghost: "btn-ghost" },
-  },
-  defaultVariants: { variant: "default" },
-});
 export function Button({
   variant = "default",
   className,
+  type = "submit",
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "default" | "outline" | "ghost";
 }) {
-  return <button className={cn(variants({ variant }), className)} {...props} />;
+  // Legacy forms rely on the native submit default; visual behavior is shared.
+  return (
+    <SharedButton
+      variant={variant}
+      type={type}
+      className={cn(
+        "btn",
+        variant === "default" && "btn-primary",
+        variant === "ghost" && "btn-ghost",
+        className,
+      )}
+      {...props}
+    />
+  );
 }
 export function Modal({
   open,
@@ -63,7 +71,7 @@ export function Modal({
           onCloseAutoFocus={(event) => {
             if (previousFocus.current?.isConnected) {
               event.preventDefault();
-              previousFocus.current.focus();
+              previousFocus.current.focus({ preventScroll: true });
             }
           }}
         >

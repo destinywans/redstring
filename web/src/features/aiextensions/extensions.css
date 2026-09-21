@@ -105,7 +105,8 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: var(--leading-body);
-  font: var(--weight-regular) var(--type-body) / var(--leading-body) var(--font-ui);
+  font: var(--weight-regular) var(--type-body) / var(--leading-body)
+    var(--font-ui);
   background: var(--bg);
   border: 1px solid var(--border);
   padding: 18px;
@@ -224,18 +225,6 @@
   max-width: none;
   padding: 28px;
 }
-.extensions-page .page-heading {
-  margin-bottom: 24px;
-}
-.extensions-page .page-heading h1 {
-  font-size: var(--type-page);
-}
-.extensions-page .page-heading p {
-  margin-top: 6px;
-  color: var(--muted);
-  font-size: var(--type-body);
-  font-weight: var(--weight-regular);
-}
 .extensions-toolbar {
   align-items: flex-start;
   gap: 12px;
@@ -353,10 +342,6 @@
   padding: 8px 32px 8px 12px;
   font-weight: var(--weight-regular);
 }
-.extension-form .field {
-  font-size: var(--type-body);
-  font-weight: var(--weight-regular);
-}
 @media (max-width: 700px) {
   .page.extensions-page {
     padding: 20px 16px;
@@ -370,4 +355,11 @@
   .extension-row {
     padding: 16px;
   }
+}
+
+.extension-editor-sheet .extension-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-height: 100%;
 }

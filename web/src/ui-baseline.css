@@ -7,15 +7,11 @@
 body {
   font-size: var(--type-body);
 }
-.app-shell .page-heading h1,
-.app-shell .management-page h1,
-.app-shell .extensions-page h1,
-.app-shell .memory-page h1,
-.app-shell .members-page h1 {
-  font-size: var(--type-page);
+.app-shell .page-heading h1 {
+  font-size: 22px;
   font-weight: var(--weight-semibold);
-  line-height: 1.4;
-  letter-spacing: -0.02em;
+  line-height: 1.45;
+  letter-spacing: -0.025em;
 }
 .app-shell .page-heading {
   margin-bottom: 24px;
@@ -34,20 +30,6 @@ body {
 .app-shell .management-card h2 {
   font-size: var(--type-section);
 }
-.app-shell .btn,
-.dialog-content .btn {
-  min-height: var(--control-height);
-  border-radius: var(--control-radius);
-  font-size: var(--type-small);
-  line-height: var(--leading-ui);
-  padding: 7px 12px;
-  font-weight: var(--weight-medium);
-}
-.app-shell .btn-small {
-  min-height: 30px;
-  font-size: var(--type-small);
-  padding: 4px 9px;
-}
 .app-shell .btn > svg,
 .dialog-content .btn > svg {
   width: 16px;
@@ -57,27 +39,12 @@ body {
   width: 18px;
   height: 18px;
 }
-.app-shell input.field,
-.dialog-content input.field {
-  font-weight: var(--weight-regular);
-  min-height: var(--control-height);
-  padding: 7px 12px;
-  border-radius: var(--control-radius);
-  font-size: var(--type-small);
-  line-height: var(--leading-ui);
-}
-.app-shell textarea.field,
-.dialog-content textarea.field {
-  font-weight: var(--weight-regular);
-  padding: 10px 12px;
-  border-radius: var(--control-radius);
-  font-size: var(--type-body);
-  line-height: 1.65;
-}
 .app-shell input[type="checkbox"],
 .app-shell input[type="radio"],
 .dialog-content input[type="checkbox"],
-.dialog-content input[type="radio"] {
+.dialog-content input[type="radio"],
+.ui-sheet input[type="checkbox"],
+.ui-sheet input[type="radio"] {
   accent-color: var(--accent);
   width: 16px;
   height: 16px;
@@ -156,4 +123,25 @@ body {
   .app-shell .page-heading {
     margin-bottom: 18px;
   }
+}
+
+/* Interaction feedback stays fast even while surfaces interpolate a theme. */
+:is(
+  button,
+  a,
+  summary,
+  input,
+  textarea,
+  select,
+  [role="tab"],
+  [role="option"]
+) {
+  transition:
+    background-color var(--interaction-duration) ease-out,
+    color var(--interaction-duration) ease-out;
+}
+:is(button, a, summary)[aria-selected="true"],
+:is(button, a)[aria-current],
+:is(button, a)[data-state="active"] {
+  transition: none;
 }

@@ -1,3 +1,4 @@
+import { PageHeader } from "../../components/patterns/ListPage";
 import Pagination, { useListPagination } from "../../components/Pagination";
 import SelectField from "../../components/SelectField";
 import { useSearchParams } from "react-router-dom";
@@ -264,10 +265,12 @@ export default function SettingsPage() {
   );
   return (
     <div className="settings-page">
-      <div className="page-heading">
-        <h1>模型与集成</h1>
-        {preview && <span className="badge">演示配置 · 未验证真实连接</span>}
-      </div>
+      <PageHeader
+        title="模型与集成"
+        actions={
+          preview && <span className="badge">演示配置 · 未验证真实连接</span>
+        }
+      />
       {integrations.isError && (
         <div className="settings-notice settings-error" role="alert">
           <Info size={17} />
@@ -476,7 +479,7 @@ export default function SettingsPage() {
                 </button>
               </div>
               <div className="settings-table-scroll">
-                <table>
+                <table className="ui-data-table">
                   <thead>
                     <tr>
                       <th>工具</th>

@@ -9,6 +9,12 @@
   justify-content: space-between;
   gap: 24px;
   margin-bottom: 24px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.ui-list-page-header > div:first-child {
+  flex: 1 1 240px;
+  min-width: 0;
 }
 .ui-list-page-header h1 {
   margin: 0;
@@ -29,6 +35,7 @@
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 .ui-list-panel {
   overflow: hidden;
@@ -38,6 +45,61 @@
 }
 .ui-list-scroll {
   overflow-x: auto;
+}
+/* Business tables opt in; markdown, charts and permission matrices retain their
+   own semantics. Column widths remain owned by each page. */
+:is(.app-shell, .settings-workspace, .ui-sheet, .dialog-content)
+  table.ui-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: left;
+}
+.ui-data-table > thead > tr > th {
+  height: 42px;
+  padding: 10px 18px;
+  border-top: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  vertical-align: middle;
+}
+.ui-data-table > tbody > tr > td {
+  height: 58px;
+  padding: 11px 18px;
+  border-top: 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 400;
+  vertical-align: middle;
+}
+.ui-data-table > tbody > tr:last-child > td {
+  border-bottom: 0;
+}
+.ui-data-table > tbody > tr {
+  transition: background-color 80ms ease-out;
+}
+.ui-data-table > tbody > tr:hover {
+  background: color-mix(in srgb, var(--panel-soft) 55%, transparent);
+}
+.ui-data-table > tbody > tr:is(.selected, [data-selected="true"]) {
+  background: var(--accent-soft);
+  transition: none;
+}
+.ui-data-table > tbody > tr > td.muted {
+  color: var(--muted);
+}
+.ui-data-table small {
+  font-size: 13px;
+  font-weight: 400;
+}
+.ui-data-table strong {
+  font-weight: 500;
 }
 @media (max-width: 700px) {
   .ui-list-page {

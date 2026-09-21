@@ -213,7 +213,7 @@
 .application-archived {
   margin-left: 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 400;
 }
 @media (max-width: 1050px) {

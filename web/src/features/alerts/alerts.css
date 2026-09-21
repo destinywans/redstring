@@ -109,3 +109,17 @@
     grid-template-columns: 1fr;
   }
 }
+
+.alert-detail-sheet .ui-sheet-body > h3 {
+  margin: 24px 0 10px;
+  font-size: var(--type-section);
+  font-weight: var(--weight-medium);
+}
+.alert-detail-sheet .ui-sheet-body > h3:first-child {
+  margin-top: 0;
+}
+.alert-detail-sheet .ui-sheet-body > p {
+  margin: 8px 0 16px;
+  color: var(--muted);
+  line-height: var(--leading-body);
+}

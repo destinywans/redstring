@@ -1,3 +1,4 @@
+import { PageHeader } from "../../components/patterns/ListPage";
 import SelectField from "../../components/SelectField";
 import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -154,31 +155,30 @@ function MemberDirectory() {
   }
   return (
     <div className="management-page members-page">
-      <header className="management-heading">
-        <div>
-          <span className="eyebrow">WORKSPACE DIRECTORY</span>
-          <h1>成员管理</h1>
-          <p>维护平台账号、部门和角色，或从企业 IAM 导入成员目录。</p>
-        </div>
-        <div className="members-actions">
-          <button
-            className="btn"
-            disabled={preview}
-            onClick={() => setImportOpen(true)}
-          >
-            <Upload size={16} />
-            导入 IAM 成员
-          </button>
-          <button
-            className="btn btn-primary"
-            disabled={preview}
-            onClick={() => openEdit("new")}
-          >
-            <Plus size={16} />
-            添加成员
-          </button>
-        </div>
-      </header>
+      <PageHeader
+        title="成员管理"
+        description="维护平台账号、部门和角色，或从企业 IAM 导入成员目录。"
+        actions={
+          <div className="members-actions">
+            <button
+              className="btn"
+              disabled={preview}
+              onClick={() => setImportOpen(true)}
+            >
+              <Upload size={16} />
+              导入 IAM 成员
+            </button>
+            <button
+              className="btn btn-primary"
+              disabled={preview}
+              onClick={() => openEdit("new")}
+            >
+              <Plus size={16} />
+              添加成员
+            </button>
+          </div>
+        }
+      />
       <section className="card management-card">
         <FilterBar label="成员搜索与筛选">
           <FilterSearch
@@ -244,7 +244,7 @@ function MemberDirectory() {
           <p className="management-empty">正在读取成员目录…</p>
         ) : (
           <div className="management-table-wrap">
-            <table className="management-table">
+            <table className="management-table ui-data-table">
               <thead>
                 <tr>
                   <th>成员</th>

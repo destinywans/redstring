@@ -1,9 +1,8 @@
 .infra-page {
-  max-width: 1500px;
-  margin: 0 auto;
-  padding: 28px 32px 56px;
+  width: 100%;
+  min-width: 0;
+  padding: 28px;
 }
-.infra-heading,
 .infra-snapshot > header,
 .infra-catalog > header {
   display: flex;
@@ -11,15 +10,6 @@
   align-items: center;
   gap: 18px;
 }
-.infra-heading {
-  margin-bottom: 22px;
-}
-.infra-heading h1 {
-  margin: 0;
-  font-size: var(--type-page);
-  letter-spacing: -0.02em;
-}
-.infra-heading p,
 .infra-snapshot header p,
 .infra-catalog header p {
   margin: 5px 0 0;
@@ -224,7 +214,7 @@ button.infra-summary {
 }
 @media (max-width: 850px) {
   .infra-page {
-    padding: 22px 18px;
+    padding: 20px 16px;
   }
   .infra-summary-grid {
     grid-template-columns: 1fr;
@@ -232,7 +222,6 @@ button.infra-summary {
   .infra-facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .infra-heading,
   .infra-catalog > header {
     align-items: flex-start;
     flex-direction: column;

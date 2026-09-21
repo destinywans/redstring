@@ -136,7 +136,7 @@
   margin-left: auto;
 }
 .settings-content {
-  padding: 30px 32px 48px;
+  padding: 28px 28px 48px;
   outline: none;
 }
 .settings-overview-page {
@@ -146,20 +146,10 @@
   width: 100%;
   min-width: 0;
 }
-.settings-page-heading {
-  padding: 4px 0 6px;
+.settings-overview-page > .ui-list-page-header {
+  margin-bottom: 0;
 }
-.settings-page-heading h1 {
-  font-size: var(--type-page);
-  line-height: var(--leading-heading);
-  font-weight: var(--weight-semibold);
-  letter-spacing: -0.02em;
-}
-.settings-page-heading p {
-  margin-top: 7px;
-  font-size: var(--type-body);
-  color: var(--muted);
-}
+
 .settings-overview-card {
   background: var(--panel);
   border: 1px solid var(--border);

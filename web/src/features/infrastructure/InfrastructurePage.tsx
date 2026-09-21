@@ -1,3 +1,4 @@
+import { PageHeader } from "../../components/patterns/ListPage";
 import Pagination, { useListPagination } from "../../components/Pagination";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -150,17 +151,15 @@ export default function InfrastructurePage() {
   }
   return (
     <div className="infra-page">
-      <header className="infra-heading">
-        <div>
-          <span className="eyebrow">INFRASTRUCTURE</span>
-          <h1>基础设施</h1>
-          <p>从已授权应用的登记资源进入，查看真实工作负载快照。</p>
-        </div>
-        <Link className="btn" to={scopeLink("/applications")}>
-          管理应用绑定
-          <ArrowRight size={15} />
-        </Link>
-      </header>
+      <PageHeader
+        title="基础设施"
+        description="从已授权应用的登记资源进入，查看真实工作负载快照。"
+        actions={
+          <Link className="btn" to={scopeLink("/applications")}>
+            管理应用绑定 <ArrowRight size={15} />
+          </Link>
+        }
+      />
       <ScopeFilter />
       {view === "summary" && (
         <>
@@ -296,7 +295,7 @@ export default function InfrastructurePage() {
                   </p>
                   <h3>容器镜像</h3>
                   <div className="infra-table-scroll">
-                    <table className="infra-table">
+                    <table className="infra-table ui-data-table">
                       <thead>
                         <tr>
                           <th>容器</th>
@@ -397,7 +396,7 @@ export default function InfrastructurePage() {
               />
             </FilterBar>
             <div className="infra-table-scroll">
-              <table className="infra-table">
+              <table className="infra-table ui-data-table">
                 <thead>
                   <tr>
                     <th>应用</th>

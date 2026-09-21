@@ -222,7 +222,7 @@ function MembersDirectory() {
         {!directory.isPending && !directory.error && (
           <>
             <div className="directory-table-wrap">
-              <table className="directory-table">
+              <table className="directory-table ui-data-table">
                 <thead>
                   <tr>
                     <th>成员</th>

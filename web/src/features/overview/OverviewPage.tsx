@@ -533,7 +533,7 @@ export default function OverviewPage() {
                 </button>
               </div>
               <div className="table-scroll">
-                <table className="release-table">
+                <table className="release-table ui-data-table">
                   <thead>
                     <tr>
                       <th>版本</th>

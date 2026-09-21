@@ -207,7 +207,7 @@ function TeamsDirectory() {
         {!directory.isPending && !directory.error && (
           <>
             <div className="directory-table-wrap">
-              <table className="directory-table">
+              <table className="directory-table ui-data-table">
                 <thead>
                   <tr>
                     <th>部门名称</th>

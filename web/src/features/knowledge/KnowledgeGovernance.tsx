@@ -1,6 +1,7 @@
+import { Sheet } from "../../components/ui/sheet";
 import SelectField from "../../components/SelectField";
 import { memberLabel } from "../../lib/members";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useId } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { request, post, put } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
@@ -240,6 +241,7 @@ export default function KnowledgeGovernance({
   document: KnowledgeDocument;
   canWrite: boolean;
 }) {
+  const revisionFormId = useId();
   const { preview, user, notify } = useWorkspace(),
     qc = useQueryClient();
   const users = useQuery({
@@ -423,12 +425,26 @@ export default function KnowledgeGovernance({
       {d.lifecycle !== "published" && (
         <small className="muted">只有已发布的修订可以进入知识召回。</small>
       )}
-      <Modal
+      <Sheet
         open={edit}
         onOpenChange={setEdit}
+        closeDisabled={busy}
+        className="knowledge-editor-sheet"
+        footer={
+          <>
+            <button
+              type="submit"
+              form={revisionFormId}
+              className="btn btn-primary"
+              disabled={busy}
+            >
+              保存为新草稿
+            </button>
+          </>
+        }
         title="编辑 Runbook · 创建新修订"
       >
-        <form className="management-form" onSubmit={save}>
+        <form id={revisionFormId} className="management-form" onSubmit={save}>
           <p className="muted">
             以 v{d.version} 为基础保存；原修订与历史引用保持不变。
           </p>
@@ -456,13 +472,8 @@ export default function KnowledgeGovernance({
             />
           </label>
           <MetadataFields metadata={d.metadata} />
-          <footer>
-            <button className="btn btn-primary" disabled={busy}>
-              保存为新草稿
-            </button>
-          </footer>
         </form>
-      </Modal>
+      </Sheet>
       <Modal open={history} onOpenChange={setHistory} title="修订历史">
         {revisions.error && <ErrorNotice error={revisions.error} />}
         <div className="management-actions">

@@ -507,7 +507,7 @@ export default function DashboardPage() {
         </header>
         {sessionsQuery.error && <ErrorNotice error={sessionsQuery.error} />}
         <div className="home-session-scroll">
-          <table className="home-session-table">
+          <table className="home-session-table ui-data-table">
             <thead>
               <tr>
                 <th>会话</th>

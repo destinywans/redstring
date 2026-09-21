@@ -1,6 +1,8 @@
+import { PageHeader } from "../../components/patterns/ListPage";
+import { Sheet } from "../../components/ui/sheet";
 import Pagination, { useListPagination } from "../../components/Pagination";
 import SelectField from "../../components/SelectField";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookOpen, FileText, Plug, Plus, Sparkles } from "../../lib/icons";
@@ -100,16 +102,14 @@ export default function ExtensionsPage() {
   const selected = applications.find((a) => a.id === app && !a.archived);
   return (
     <div className="page extensions-page">
-      <div className="page-heading">
-        <div>
-          <h1>{labels[kind]}</h1>
-          <p>
-            {kind === "mcp"
-              ? "登记受限只读工具，将外部观测带入调查。"
-              : "把经过维护的调查方法与问题模板，带入每一轮对话。"}
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title={labels[kind]}
+        description={
+          kind === "mcp"
+            ? "登记受限只读工具，将外部观测带入调查。"
+            : "把经过维护的调查方法与问题模板，带入每一轮对话。"
+        }
+      />
       {kind === "mcp" && (
         <div className="extensions-scope">
           <FilterBar label="MCP 适用应用">
@@ -680,6 +680,7 @@ function Editor({
   onClose: () => void;
   onSaved: (r: Extension) => void;
 }) {
+  const editorFormId = useId();
   const { user, applications } = useWorkspace();
   const [scopeMode, setScopeMode] = useState(
     initial.application_id || initial.kind === "mcp" || user.role !== "admin"
@@ -716,8 +717,32 @@ function Editor({
     }
   }
   return (
-    <Modal
+    <Sheet
       open
+      closeDisabled={busy}
+      className="extension-editor-sheet"
+      footer={
+        <div className="extensions-actions">
+          <button
+            type="button"
+            className="btn"
+            disabled={busy}
+            onClick={onClose}
+          >
+            取消
+          </button>
+          <button
+            type="submit"
+            form={editorFormId}
+            className="btn btn-primary"
+            disabled={
+              busy || (scopeMode === "application" && !value.application_id)
+            }
+          >
+            {busy ? "保存中…" : "保存版本"}
+          </button>
+        </div>
+      }
       onOpenChange={(v) => {
         if (!v && !busy) onClose();
       }}
@@ -729,6 +754,7 @@ function Editor({
       }
     >
       <form
+        id={editorFormId}
         className="extension-form"
         onSubmit={(e) => {
           e.preventDefault();
@@ -929,26 +955,8 @@ function Editor({
           </>
         )}
         {!!error && <ErrorNotice error={error} />}
-        <div className="extensions-actions">
-          <button
-            type="button"
-            className="btn"
-            disabled={busy}
-            onClick={onClose}
-          >
-            取消
-          </button>
-          <button
-            className="btn btn-primary"
-            disabled={
-              busy || (scopeMode === "application" && !value.application_id)
-            }
-          >
-            {busy ? "保存中…" : "保存版本"}
-          </button>
-        </div>
       </form>
-    </Modal>
+    </Sheet>
   );
 }
 

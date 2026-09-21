@@ -1,3 +1,4 @@
+import { PageHeader } from "../../components/patterns/ListPage";
 import SelectField from "../../components/SelectField";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -182,21 +183,23 @@ export default function ApprovalPage() {
         <span>›</span>
         <strong>回滚审批</strong>
       </div>
-      <div className="page-heading action-title">
-        <h1>回滚审批</h1>
-        {plan && (
-          <span
-            className={`badge action-decision ${approved ? "badge-success" : ""}`}
-          >
-            {decisionLabel[plan.decision]}
-          </span>
-        )}
-      </div>
-      <p className="action-subtitle">
-        {preview
-          ? "checkout-api 在 14:03 发布 v2.8.1 后，5xx 从 0.2% 上升至 8.4%。初步判断与数据库连接池配置有关。"
-          : inv.data?.title || "审查准确的目标、变更与恢复条件，再批准操作。"}
-      </p>
+      <PageHeader
+        title="回滚审批"
+        description={
+          preview
+            ? "checkout-api 在 14:03 发布 v2.8.1 后，5xx 从 0.2% 上升至 8.4%。初步判断与数据库连接池配置有关。"
+            : inv.data?.title || "审查准确的目标、变更与恢复条件，再批准操作。"
+        }
+        actions={
+          plan && (
+            <span
+              className={`badge action-decision ${approved ? "badge-success" : ""}`}
+            >
+              {decisionLabel[plan.decision]}
+            </span>
+          )
+        }
+      />
       {!preview && (
         <div className="action-selector card">
           <label>

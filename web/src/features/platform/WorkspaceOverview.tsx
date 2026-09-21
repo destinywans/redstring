@@ -1,3 +1,4 @@
+import { PageHeader } from "../../components/patterns/ListPage";
 import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
@@ -81,10 +82,10 @@ export default function WorkspaceOverview() {
     workspace = data?.workspace;
   return (
     <section className="settings-overview-page">
-      <header className="settings-page-heading">
-        <h1>平台概览</h1>
-        <p>管理平台的基本信息、成员、部门与资源范围。</p>
-      </header>
+      <PageHeader
+        title="平台概览"
+        description="管理平台的基本信息、成员、部门与资源范围。"
+      />
       {query.error && (
         <div>
           <ErrorNotice error={query.error} />

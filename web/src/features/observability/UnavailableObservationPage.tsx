@@ -1,3 +1,4 @@
+import { PageHeader } from "../../components/patterns/ListPage";
 import ScopeFilter from "../../components/ScopeFilter";
 import { Link, useLocation } from "react-router-dom";
 import { Network, Workflow } from "../../lib/icons";
@@ -14,16 +15,10 @@ export default function UnavailableObservationPage({
   const location = useLocation();
   return (
     <div className="management-page observability-page">
-      <header className="management-heading">
-        <div>
-          <span className="eyebrow">OBSERVABILITY</span>
-          <h1>{traces ? "调用链" : "调用拓扑"}</h1>
-          <p>
-            {application?.name ?? "全部授权应用"} /{" "}
-            {environment?.name ?? "全部环境"}
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        title={traces ? "调用链" : "调用拓扑"}
+        description={`${application?.name ?? "全部授权应用"} / ${environment?.name ?? "全部环境"}`}
+      />
       <ScopeFilter />
       <section className="card management-card observation-empty">
         {traces ? <Workflow size={30} /> : <Network size={30} />}

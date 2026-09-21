@@ -1,3 +1,4 @@
+import { PageHeader } from "../../components/patterns/ListPage";
 import Pagination, { useListPagination } from "../../components/Pagination";
 import { useEffect, useRef, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
@@ -215,16 +216,15 @@ export default function ObservabilityPage({ mode }: { mode: Mode }) {
   );
   return (
     <div className="management-page observability-page">
-      <header className="management-heading">
-        <div>
-          <span className="eyebrow">OBSERVABILITY</span>
-          <h1>{mode === "metrics" ? "指标工作台" : "日志工作台"}</h1>
-          <p>跨应用查看运行数据，将选中的证据带入具体调查。</p>
-        </div>
-        <Link className="btn" to="/integrations">
-          管理数据源
-        </Link>
-      </header>
+      <PageHeader
+        title={mode === "metrics" ? "指标工作台" : "日志工作台"}
+        description="跨应用查看运行数据，将选中的证据带入具体调查。"
+        actions={
+          <Link className="btn" to="/integrations">
+            管理数据源
+          </Link>
+        }
+      />
       <ScopeFilter />
       {new URLSearchParams(location.search).get("incident") && (
         <p className="muted">
@@ -366,7 +366,7 @@ export default function ObservabilityPage({ mode }: { mode: Mode }) {
             仅合并本次返回的日志，最新优先；各数据源可能截断。
           </p>
           <div className="management-table-wrap">
-            <table className="management-table">
+            <table className="management-table ui-data-table">
               <thead>
                 <tr>
                   <th>时间</th>

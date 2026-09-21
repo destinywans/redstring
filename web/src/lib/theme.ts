@@ -21,6 +21,7 @@ export function useTheme() {
   );
   useEffect(() => {
     const media = matchMedia("(prefers-color-scheme: dark)");
+    let transitionTimer: ReturnType<typeof setTimeout> | undefined;
     const apply = () => {
       const next =
         preference === "system"
@@ -28,7 +29,19 @@ export function useTheme() {
             ? "dark"
             : "light"
           : preference;
-      document.documentElement.dataset.theme = next;
+      const root = document.documentElement;
+      if (root.dataset.theme !== next) {
+        clearTimeout(transitionTimer);
+        if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          root.dataset.themeChanging = "true";
+          transitionTimer = setTimeout(() => {
+            delete root.dataset.themeChanging;
+          }, 850);
+        } else {
+          delete root.dataset.themeChanging;
+        }
+      }
+      root.dataset.theme = next;
       document
         .querySelector('meta[name="theme-color"]')
         ?.setAttribute("content", next === "dark" ? "#030405" : "#f7f8fa");
@@ -36,7 +49,11 @@ export function useTheme() {
     };
     apply();
     media.addEventListener("change", apply);
-    return () => media.removeEventListener("change", apply);
+    return () => {
+      media.removeEventListener("change", apply);
+      clearTimeout(transitionTimer);
+      delete document.documentElement.dataset.themeChanging;
+    };
   }, [preference]);
   useEffect(() => {
     const sync = () => setPreference(readPreference());

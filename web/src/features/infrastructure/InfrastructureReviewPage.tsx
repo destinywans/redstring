@@ -560,7 +560,9 @@ export default function InfrastructureReviewPage() {
       )}
       <section className="infra-inventory-card">
         <div className="infra-table-scroll">
-          <table className={`infra-review-table infra-review-table--${view}`}>
+          <table
+            className={`infra-review-table infra-review-table--${view} ui-data-table`}
+          >
             <thead>
               <tr>
                 <th>

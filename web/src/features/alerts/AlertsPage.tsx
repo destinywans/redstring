@@ -1,3 +1,5 @@
+import { Sheet } from "../../components/ui/sheet";
+import { PageHeader } from "../../components/patterns/ListPage";
 import Pagination, { useListPagination } from "../../components/Pagination";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -17,7 +19,7 @@ import {
   FilterSearch,
   FilterSelect,
 } from "../../components/filters/FilterBar";
-import { ErrorNotice, Modal } from "../../components/ui";
+import { ErrorNotice } from "../../components/ui";
 import { IncidentEvidence } from "../workspace/AutomationEvidence";
 import {
   type Incident,
@@ -222,31 +224,30 @@ export default function AlertsPage({ mode = "incidents" }: { mode?: Mode }) {
   const current = detail.data;
   return (
     <div className="management-page alerts-page">
-      <header className="management-heading">
-        <div>
-          <span className="eyebrow">ALERTS & INCIDENTS</span>
-          <h1>{titles[mode]}</h1>
-          <p>先查看告警和观测数据，需要时再把证据带入调查。</p>
-        </div>
-        <button
-          className="btn"
-          disabled={preview || (mode === "sources" && user.role !== "admin")}
-          onClick={() => {
-            if (mode === "sources") void catalog.refetch();
-            else {
-              void incidents.refetch();
-              void notifications.refetch();
-              if (selectedId) {
-                void detail.refetch();
-                void receipts.refetch();
+      <PageHeader
+        title={titles[mode]}
+        description="先查看告警和观测数据，需要时再把证据带入调查。"
+        actions={
+          <button
+            className="btn"
+            disabled={preview || (mode === "sources" && user.role !== "admin")}
+            onClick={() => {
+              if (mode === "sources") void catalog.refetch();
+              else {
+                void incidents.refetch();
+                void notifications.refetch();
+                if (selectedId) {
+                  void detail.refetch();
+                  void receipts.refetch();
+                }
               }
-            }
-          }}
-        >
-          <RefreshCw size={15} />
-          刷新
-        </button>
-      </header>
+            }}
+          >
+            <RefreshCw size={15} />
+            刷新
+          </button>
+        }
+      />
       {mode !== "sources" && <ScopeFilter />}
       {preview && (
         <p className="management-notice">
@@ -405,7 +406,7 @@ export default function AlertsPage({ mode = "incidents" }: { mode?: Mode }) {
             告警已恢复不等于调查已结案。
           </p>
           <div className="card management-table-wrap">
-            <table className="management-table">
+            <table className="management-table ui-data-table">
               <thead>
                 <tr>
                   <th>告警 / 事件</th>
@@ -461,10 +462,12 @@ export default function AlertsPage({ mode = "incidents" }: { mode?: Mode }) {
             totalLabel={`本次结果共 ${pagination.total} 条`}
             loading={incidents.isFetching}
           />
-          <Modal
+          <Sheet
             open={!!selectedId}
             onOpenChange={(open) => !open && select("")}
             title="告警与事件详情"
+            className="alert-detail-sheet"
+            size="detail"
           >
             {detail.error && <ErrorNotice error={detail.error} />}
             {detail.isPending && !preview && <p>正在读取事件…</p>}
@@ -568,7 +571,7 @@ export default function AlertsPage({ mode = "incidents" }: { mode?: Mode }) {
                   )}
               </>
             )}
-          </Modal>
+          </Sheet>
         </>
       )}
     </div>

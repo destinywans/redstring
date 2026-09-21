@@ -363,7 +363,7 @@ function ImportForm({
             项冲突
           </p>
           <div className="management-table-wrap">
-            <table className="management-table">
+            <table className="management-table ui-data-table">
               <thead>
                 <tr>
                   <th>外部标识 / 邮箱</th>

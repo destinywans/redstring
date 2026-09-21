@@ -176,7 +176,7 @@ export default function ResourceCatalogPage() {
         ) : (
           <>
             <div className="resource-table-scroll">
-              <table className="resource-table">
+              <table className="resource-table ui-data-table">
                 <thead>
                   <tr>
                     <th>资源名称 / 类型</th>

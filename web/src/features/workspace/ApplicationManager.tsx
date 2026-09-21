@@ -893,7 +893,7 @@ function AuditChanges({ changes }: { changes: Record<string, unknown> }) {
   return (
     <div className="app-change-details">
       {rows.length > 0 && (
-        <table className="app-change-table">
+        <table className="app-change-table ui-data-table">
           <thead>
             <tr>
               <th>变更字段</th>

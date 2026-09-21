@@ -132,7 +132,7 @@ function RbacList({ kind }: { kind: RbacKind }) {
           </FilterBar>
         </div>
         <div className="directory-table-wrap">
-          <table className="directory-table rbac-list-table">
+          <table className="directory-table rbac-list-table ui-data-table">
             <thead>
               <tr>
                 <th>{label}名称</th>

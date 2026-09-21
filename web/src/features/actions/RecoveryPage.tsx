@@ -1,3 +1,4 @@
+import { PageHeader } from "../../components/patterns/ListPage";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
@@ -147,20 +148,22 @@ export default function RecoveryPage() {
   return (
     <div className="action-page recovery-page">
       {!preview && (
-        <div className="recovery-page-heading">
-          <h1>执行与恢复观测</h1>
-          <button
-            className="btn"
-            onClick={() => {
-              void planQuery.refetch();
-              void executionQuery.refetch();
-            }}
-            disabled={!planId || executionQuery.isFetching}
-          >
-            <RefreshCw size={15} />
-            刷新
-          </button>
-        </div>
+        <PageHeader
+          title="执行与恢复观测"
+          actions={
+            <button
+              className="btn"
+              onClick={() => {
+                void planQuery.refetch();
+                void executionQuery.refetch();
+              }}
+              disabled={!planId || executionQuery.isFetching}
+            >
+              <RefreshCw size={15} />
+              刷新
+            </button>
+          }
+        />
       )}
       {[
         planQuery.error,

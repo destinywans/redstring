@@ -1,7 +1,7 @@
+import { PageHeader } from "../../components/patterns/ListPage";
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
-  Building2,
   Layers,
   Settings,
   ShieldCheck,
@@ -112,25 +112,16 @@ export default function PlatformPage({
   }[tab];
   return (
     <div className="platform-page">
-      <header className="platform-heading">
-        <div>
-          <span className="eyebrow">
-            {tab === "automation" ? "AGENT AUTOMATION" : "SETTINGS"}
-          </span>
-          <h1>{heading}</h1>
-          <p>
-            {
-              {
-                overview: "管理成员、部门和资源访问权限。",
-                roles: "工作区角色决定能力上限，应用授权决定可访问的资源范围。",
-                automation:
-                  "配置自动初查、主动巡检与执行预算，查看最近运行记录。",
-              }[tab]
-            }
-          </p>
-        </div>
-        <Building2 size={26} />
-      </header>
+      <PageHeader
+        title={heading}
+        description={
+          {
+            overview: "管理成员、部门和资源访问权限。",
+            roles: "工作区角色决定能力上限，应用授权决定可访问的资源范围。",
+            automation: "配置自动初查、主动巡检与执行预算，查看最近运行记录。",
+          }[tab]
+        }
+      />
 
       {tab === "overview" && (
         <>
@@ -226,7 +217,7 @@ export default function PlatformPage({
               <span className="badge">当前预设角色</span>
             </div>
             <div className="platform-table-scroll">
-              <table>
+              <table className="ui-data-table">
                 <thead>
                   <tr>
                     <th>能力</th>

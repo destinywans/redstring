@@ -132,7 +132,7 @@ export default function ObservationResults({
               <details>
                 <summary>采样值（{series.samples.length} 个）</summary>
                 <div className="management-table-wrap observation-sample-table">
-                  <table className="management-table">
+                  <table className="management-table ui-data-table">
                     <thead>
                       <tr>
                         <th>时间</th>

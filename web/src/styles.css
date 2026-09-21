@@ -22,11 +22,16 @@
   --radius: 10px;
   --font-size: var(--type-body);
   --theme-duration: 850ms;
+  --palette-duration: 0ms;
+  --interaction-duration: 80ms;
   --theme-easing: cubic-bezier(0.4, 0, 0.2, 1);
   font-size: var(--type-body);
   line-height: var(--leading-body);
   color-scheme: light;
   -webkit-font-smoothing: antialiased;
+}
+:root[data-theme-changing="true"] {
+  --palette-duration: var(--theme-duration);
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -539,7 +544,7 @@ textarea::placeholder {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  box-shadow: none;
   min-width: 0;
 }
 .card-heading {
@@ -577,48 +582,6 @@ textarea::placeholder {
   background: var(--accent-soft);
   color: var(--accent);
 }
-.btn {
-  border: 1px solid var(--border);
-  padding: 8px 14px;
-  min-height: 36px;
-  border-radius: 7px;
-  background: var(--panel);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: var(--text);
-  font-size: var(--type-small);
-  font-weight: var(--weight-medium);
-  line-height: 1.5;
-  white-space: nowrap;
-}
-.btn:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-  background: var(--panel-soft);
-}
-.btn-primary {
-  background: var(--accent);
-  border-color: transparent;
-  color: white;
-  box-shadow:
-    inset 0 1px 1px #ffffff26,
-    0 2px 4px #6543d818;
-}
-.btn-primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 88%, white);
-  border-color: transparent;
-}
-.btn-ghost {
-  border-color: transparent;
-  background: transparent;
-  color: var(--muted);
-}
-.btn-small {
-  min-height: 28px;
-  padding: 4px 8px;
-  font-size: var(--type-caption);
-}
 .badge {
   display: inline-flex;
   align-items: center;
@@ -646,9 +609,9 @@ textarea::placeholder {
 .field {
   width: 100%;
   border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 9px 11px;
-  min-height: 38px;
+  border-radius: 8px;
+  padding: 7px 11px;
+  min-height: 36px;
 }
 .muted {
   color: var(--muted);
@@ -715,7 +678,7 @@ textarea::placeholder {
   inset: 0;
   background: #10182955;
   backdrop-filter: blur(3px);
-  z-index: 80;
+  z-index: 1300;
 }
 .dialog-content {
   position: fixed;
@@ -728,11 +691,13 @@ textarea::placeholder {
   padding: 26px;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 13px;
-  box-shadow: 0 24px 100px #0003;
-  z-index: 90;
+  border-radius: 12px;
+  box-shadow: 0 20px 70px #0002;
+  z-index: 1310;
 }
 .dialog-content h2 {
+  font-size: 20px;
+  font-weight: 600;
   margin-bottom: 20px;
 }
 .dialog-content label {
@@ -1127,10 +1092,10 @@ body,
   .search-input
 ) {
   transition:
-    background-color var(--theme-duration) var(--theme-easing),
-    border-color var(--theme-duration) var(--theme-easing),
-    color var(--theme-duration) var(--theme-easing),
-    box-shadow var(--theme-duration) var(--theme-easing);
+    background-color var(--palette-duration) var(--theme-easing),
+    border-color var(--palette-duration) var(--theme-easing),
+    color var(--palette-duration) var(--theme-easing),
+    box-shadow var(--palette-duration) var(--theme-easing);
 }
 :where(
   .recharts-cartesian-grid line,
@@ -1140,8 +1105,8 @@ body,
   .react-flow__edge-path
 ) {
   transition:
-    stroke var(--theme-duration) var(--theme-easing),
-    fill var(--theme-duration) var(--theme-easing);
+    stroke var(--palette-duration) var(--theme-easing),
+    fill var(--palette-duration) var(--theme-easing);
 }
 .workspace-main:focus {
   outline: none;
@@ -1167,9 +1132,9 @@ body,
     transition:
       transform 200ms ease,
       visibility 200ms,
-      background-color var(--theme-duration) var(--theme-easing),
-      border-color var(--theme-duration) var(--theme-easing),
-      color var(--theme-duration) var(--theme-easing);
+      background-color var(--palette-duration) var(--theme-easing),
+      border-color var(--palette-duration) var(--theme-easing),
+      color var(--palette-duration) var(--theme-easing);
   }
   .workspace-sidebar.open {
     transform: translateX(0);

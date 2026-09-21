@@ -1,3 +1,4 @@
+import { PageHeader } from "../../components/patterns/ListPage";
 import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, patch, post, request } from "../../lib/api";
@@ -171,8 +172,7 @@ export function ProfilePage() {
   if (preview)
     return (
       <div className="profile-page">
-        <h1>个人资料</h1>
-        <p>登录后查看和管理个人资料。</p>
+        <PageHeader title="个人资料" description="登录后查看和管理个人资料。" />
       </div>
     );
   if (profile.isPending)
@@ -195,10 +195,10 @@ export function ProfilePage() {
   const avatar = avatarDraft ?? data.user.avatar_url;
   return (
     <div className="profile-page">
-      <header className="profile-heading">
-        <h1>个人资料</h1>
-        <p>管理头像与账户安全，查看你的部门和访问权限。</p>
-      </header>
+      <PageHeader
+        title="个人资料"
+        description="管理头像与账户安全，查看你的部门和访问权限。"
+      />
       <section className="profile-card" aria-labelledby="profile-basic-heading">
         <h2 id="profile-basic-heading">基本资料</h2>
         <div className="profile-avatar-row">
@@ -345,7 +345,7 @@ export function ProfilePage() {
         <h3>授权应用</h3>
         {data.applications?.length ? (
           <div className="profile-table-wrap">
-            <table className="profile-table">
+            <table className="profile-table ui-data-table">
               <thead>
                 <tr>
                   <th>应用</th>

@@ -1,8 +1,11 @@
 /* Local, composable primitives. Existing product colors and MiSans remain the
    source of truth, including portals rendered outside the application shell. */
 .ui-button,
+.btn,
 .ui-input,
+input.field,
 .ui-textarea,
+textarea.field,
 .ui-select-trigger,
 .ui-select-content,
 .ui-sheet,
@@ -14,32 +17,37 @@
   font-weight: 400;
   box-sizing: border-box;
 }
-.ui-button {
+.ui-button,
+.btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
   flex-shrink: 0;
   height: 36px;
+  min-height: 36px;
   padding: 0 12px;
-  border: 1px solid transparent;
+  border: 1px solid var(--border);
+  background: var(--panel);
   border-radius: 8px;
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
   transition:
-    background-color 120ms ease,
-    border-color 120ms ease,
-    color 120ms ease;
+    background-color 80ms ease-out,
+    border-color 80ms ease-out,
+    color 80ms ease-out;
 }
-.ui-button-primary {
+.ui-button-primary,
+.btn-primary,
+.btn.primary {
   background: var(--accent);
   color: #fff;
 }
-:root[data-theme="dark"] .ui-button-primary {
+:root[data-theme="dark"] :is(.ui-button-primary, .btn-primary, .btn.primary) {
   color: #151323;
 }
-.ui-button-primary:hover:not(:disabled) {
+:is(.ui-button-primary, .btn-primary, .btn.primary):hover:not(:disabled) {
   background: color-mix(in srgb, var(--accent) 88%, #000);
 }
 .ui-button-outline {
@@ -47,10 +55,13 @@
   border-color: var(--border);
 }
 .ui-button-outline:hover:not(:disabled),
-.ui-button-ghost:hover:not(:disabled) {
+.ui-button-ghost:hover:not(:disabled),
+.btn:not(.btn-primary):not(.primary):hover:not(:disabled) {
   background: var(--panel-soft, var(--bg));
 }
-.ui-button-ghost {
+.ui-button-ghost,
+.btn-ghost {
+  border-color: transparent;
   background: transparent;
 }
 .ui-button-destructive {
@@ -60,8 +71,10 @@
 .ui-button-destructive:hover:not(:disabled) {
   background: color-mix(in srgb, var(--danger) 88%, #000);
 }
-.ui-button-sm {
+.ui-button-sm,
+.btn-small {
   height: 32px;
+  min-height: 32px;
   padding-inline: 10px;
   font-size: var(--type-caption, 13px);
 }
@@ -70,6 +83,9 @@
   padding: 0;
 }
 .ui-button:disabled,
+.btn:disabled,
+input.field:disabled,
+textarea.field:disabled,
 .ui-input:disabled,
 .ui-textarea:disabled,
 .ui-select-trigger:disabled {
@@ -77,6 +93,9 @@
   cursor: not-allowed;
 }
 .ui-button:focus-visible,
+.btn:focus-visible,
+input.field:focus-visible,
+textarea.field:focus-visible,
 .ui-input:focus-visible,
 .ui-textarea:focus-visible,
 .ui-select-trigger:focus-visible {
@@ -85,7 +104,9 @@
   box-shadow: none;
 }
 .ui-input,
+input.field,
 .ui-textarea,
+textarea.field,
 .ui-select-trigger {
   width: 100%;
   min-width: 0;
@@ -95,10 +116,11 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   transition:
-    border-color 120ms ease,
-    background-color 120ms ease;
+    border-color 80ms ease-out,
+    background-color 80ms ease-out;
 }
-.ui-input {
+.ui-input,
+input.field {
   height: 36px;
 }
 .ui-input::placeholder,
@@ -110,7 +132,8 @@
 .ui-textarea[aria-invalid="true"] {
   border-color: var(--danger);
 }
-.ui-textarea {
+.ui-textarea,
+textarea.field {
   min-height: 100px;
   resize: vertical;
   line-height: 1.6;
@@ -135,7 +158,7 @@
 }
 .ui-select-content,
 .ui-filter-content {
-  z-index: 1220;
+  z-index: 1320;
   overflow: hidden;
   background: var(--panel);
   border: 1px solid var(--border);
@@ -165,8 +188,8 @@
   cursor: pointer;
   font-weight: 400;
   transition:
-    background-color 120ms ease,
-    color 120ms ease;
+    background-color 80ms ease-out,
+    color 80ms ease-out;
 }
 .ui-select-item[data-highlighted] {
   background: var(--panel-soft, var(--bg));
@@ -366,8 +389,8 @@
   cursor: pointer;
   user-select: none;
   transition:
-    background-color 120ms ease,
-    color 120ms ease;
+    background-color 80ms ease-out,
+    color 80ms ease-out;
 }
 .ui-filter-item[data-selected="true"] {
   background: var(--panel-soft, var(--bg));

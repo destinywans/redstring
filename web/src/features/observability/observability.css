@@ -2,6 +2,9 @@
   display: grid;
   gap: 18px;
 }
+.observability-page > .ui-list-page-header {
+  margin-bottom: 6px;
+}
 .observation-tabs {
   display: flex;
   align-items: center;

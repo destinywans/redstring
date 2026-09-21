@@ -3,25 +3,6 @@
   margin: 0 auto;
   padding: 28px 32px 56px;
 }
-.platform-heading {
-  display: flex;
-  justify-content: space-between;
-  gap: 20px;
-  align-items: center;
-  margin-bottom: 22px;
-}
-.platform-heading > svg {
-  color: var(--muted);
-}
-.platform-heading h1 {
-  font-size: var(--type-page);
-  letter-spacing: -0.02em;
-  margin: 0;
-}
-.platform-heading p {
-  color: var(--muted);
-  margin: 5px 0 0;
-}
 .platform-tabs {
   display: flex;
   flex-wrap: wrap;

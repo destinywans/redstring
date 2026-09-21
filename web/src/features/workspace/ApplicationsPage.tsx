@@ -398,7 +398,7 @@ export default function ApplicationsPage() {
       )}
       <ListPanel>
         <div className="ui-list-scroll">
-          <table className="catalog-table application-list-table">
+          <table className="catalog-table application-list-table ui-data-table">
             <thead>
               <tr>
                 <th>应用</th>

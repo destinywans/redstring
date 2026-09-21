@@ -13,7 +13,8 @@
 .inv-workspace input,
 .inv-workspace select,
 .inv-workspace textarea {
-  font: var(--weight-regular) var(--type-small) / var(--leading-ui) var(--font-ui);
+  font: var(--weight-regular) var(--type-small) / var(--leading-ui)
+    var(--font-ui);
 }
 .inv-workspace button {
   cursor: pointer;
@@ -35,7 +36,7 @@
   align-items: center;
 }
 .inv-title-row h1 {
-  font-size: var(--type-page);
+  font-size: 22px;
   letter-spacing: -0.02em;
   margin: 0;
   font-weight: var(--weight-semibold);
@@ -43,7 +44,7 @@
 .inv-page-header p {
   color: var(--muted);
   margin: 9px 0 0;
-  font-size: var(--type-caption);
+  font-size: var(--type-small);
   font-weight: var(--weight-regular);
 }
 .inv-page-header p > span {
@@ -1500,8 +1501,8 @@
   }
   .inv-header-actions select {
     max-width: 120px;
-  font-weight: var(--weight-regular);
-}
+    font-weight: var(--weight-regular);
+  }
   .inv-header-actions .btn {
     font-size: var(--type-small);
     padding: 7px;
@@ -1655,8 +1656,8 @@
   }
   .inv-header-actions select {
     max-width: 180px;
-  font-weight: var(--weight-regular);
-}
+    font-weight: var(--weight-regular);
+  }
   .inv-merge-selectors {
     grid-template-columns: 1fr;
   }
@@ -1683,16 +1684,16 @@
   }
   .inv-page-header p {
     font-size: var(--type-caption);
-  font-weight: var(--weight-regular);
-}
+    font-weight: var(--weight-regular);
+  }
   .inv-view-tabs {
     gap: 0;
   }
   .inv-view-tabs button {
     font-size: var(--type-small);
     padding: 7px 9px;
-  font-weight: var(--weight-regular);
-}
+    font-weight: var(--weight-regular);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .inv-workspace * {
@@ -1967,10 +1968,26 @@
     height: calc(100dvh - 58px);
   }
 }
-.inv-evidence-telemetry { max-height: 440px; overflow: auto; margin-top: 12px; }
-.inv-evidence-snapshot-note { color: var(--muted); font-size: var(--type-caption); line-height: var(--leading-body); }
-.inv-evidence-telemetry details { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 12px; font-size: var(--type-caption); }
-.inv-evidence-telemetry summary { cursor: pointer;
+.inv-evidence-telemetry {
+  max-height: 440px;
+  overflow: auto;
+  margin-top: 12px;
+}
+.inv-evidence-snapshot-note {
+  color: var(--muted);
+  font-size: var(--type-caption);
+  line-height: var(--leading-body);
+}
+.inv-evidence-telemetry details {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 12px;
+  font-size: var(--type-caption);
+}
+.inv-evidence-telemetry summary {
+  cursor: pointer;
   font-weight: var(--weight-regular);
 }
-.inv-evidence-telemetry .telemetry-series { min-width: 0; }
+.inv-evidence-telemetry .telemetry-series {
+  min-width: 0;
+}

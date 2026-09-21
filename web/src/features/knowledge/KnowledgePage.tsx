@@ -1,7 +1,9 @@
+import { PageHeader } from "../../components/patterns/ListPage";
+import { Sheet } from "../../components/ui/sheet";
 import Pagination, { useListPagination } from "../../components/Pagination";
 import SelectField from "../../components/SelectField";
 import ScopeFilter from "../../components/ScopeFilter";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
@@ -78,6 +80,8 @@ const statusLabel = (s: string) =>
           ? "待索引"
           : s;
 export default function KnowledgePage() {
+  const importFormId = useId();
+  const draftFormId = useId();
   const { preview, application, environment, investigationId, user, notify } =
     useWorkspace();
   const qc = useQueryClient();
@@ -382,14 +386,12 @@ export default function KnowledgePage() {
   }
   return (
     <div className="knowledge-page">
+      <PageHeader
+        title="Runbook"
+        description="沉淀运维经验，支持 AIOps 的分析与决策"
+        actions={preview ? <span className="badge">演示资料</span> : undefined}
+      />
       <ScopeFilter single />
-      <div className="page-heading">
-        <div>
-          <h1>Runbook</h1>
-          <p className="muted">沉淀运维经验，支持 AIOps 的分析与决策</p>
-        </div>
-        {preview && <span className="badge">演示资料</span>}
-      </div>
       <div
         className={`knowledge-grid ${libraryCollapsed ? "library-is-collapsed" : ""}`}
       >
@@ -807,8 +809,40 @@ export default function KnowledgePage() {
         </span>
       </div>
       {modal === "import" && (
-        <KnowledgeModal title="新建 Runbook" onClose={() => setModal(null)}>
-          <form onSubmit={importDocument} className="knowledge-form">
+        <Sheet
+          open
+          title="新建 Runbook"
+          className="knowledge-editor-sheet"
+          footer={
+            <>
+              <button
+                type="button"
+                className="btn"
+                disabled={busy}
+                onClick={() => setModal(null)}
+              >
+                取消
+              </button>
+              <button
+                type="submit"
+                form={importFormId}
+                className="btn btn-primary"
+                disabled={busy || !application}
+              >
+                {busy ? "保存中…" : "保存草稿"}
+              </button>
+            </>
+          }
+          closeDisabled={busy}
+          onOpenChange={(open) => {
+            if (!open && !busy) setModal(null);
+          }}
+        >
+          <form
+            id={importFormId}
+            onSubmit={importDocument}
+            className="knowledge-form"
+          >
             <p className="muted">
               选择模板或从空白开始。保存后由维护人审阅发布，才会用于知识检索。
             </p>
@@ -826,27 +860,46 @@ export default function KnowledgePage() {
               />
             </label>
             <TemplateFields />
-            <footer>
+          </form>
+        </Sheet>
+      )}
+      {modal === "new-draft" && (
+        <Sheet
+          open
+          title="创建经验草稿"
+          className="knowledge-editor-sheet"
+          footer={
+            <>
               <button
                 type="button"
                 className="btn"
+                disabled={busy}
                 onClick={() => setModal(null)}
               >
                 取消
               </button>
               <button
+                type="submit"
+                form={draftFormId}
                 className="btn btn-primary"
-                disabled={busy || !application}
+                disabled={
+                  busy || (!preview && !investigation.data?.evidence?.length)
+                }
               >
-                {busy ? "保存中…" : "保存草稿"}
+                保存草稿
               </button>
-            </footer>
-          </form>
-        </KnowledgeModal>
-      )}
-      {modal === "new-draft" && (
-        <KnowledgeModal title="创建经验草稿" onClose={() => setModal(null)}>
-          <form className="knowledge-form" onSubmit={createDraft}>
+            </>
+          }
+          closeDisabled={busy}
+          onOpenChange={(open) => {
+            if (!open && !busy) setModal(null);
+          }}
+        >
+          <form
+            id={draftFormId}
+            className="knowledge-form"
+            onSubmit={createDraft}
+          >
             <p className="muted">
               保留真实调查证据与经验原文；草稿不会自动进入知识检索。
             </p>
@@ -875,25 +928,8 @@ export default function KnowledgePage() {
                 </p>
               )}
             </fieldset>
-            <footer>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => setModal(null)}
-              >
-                取消
-              </button>
-              <button
-                className="btn btn-primary"
-                disabled={
-                  busy || (!preview && !investigation.data?.evidence?.length)
-                }
-              >
-                保存草稿
-              </button>
-            </footer>
           </form>
-        </KnowledgeModal>
+        </Sheet>
       )}
       {modal === "draft" && selectedDraft && (
         <KnowledgeModal

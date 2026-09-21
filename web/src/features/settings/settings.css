@@ -3,13 +3,6 @@
   padding: 26px 42px 40px;
   margin: auto;
 }
-.settings-page .page-heading {
-  margin-bottom: 16px;
-}
-.settings-page h1 {
-  font-size: var(--type-page);
-  margin: 0;
-}
 .settings-tabs {
   display: flex;
   gap: 4px;
@@ -22,7 +15,8 @@
   background: none;
   color: var(--muted);
   padding: 13px 18px;
-  font: var(--weight-regular) var(--type-small) / var(--leading-ui) var(--font-ui);
+  font: var(--weight-regular) var(--type-small) / var(--leading-ui)
+    var(--font-ui);
   font-size: var(--type-small);
   font-weight: var(--weight-regular);
   cursor: pointer;
@@ -359,7 +353,8 @@
   color: var(--text);
   border: 0;
   padding: 16px 0;
-  font: var(--weight-regular) var(--type-small) / var(--leading-ui) var(--font-ui);
+  font: var(--weight-regular) var(--type-small) / var(--leading-ui)
+    var(--font-ui);
   text-align: left;
   cursor: pointer;
 }
@@ -535,12 +530,12 @@
   }
   .settings-providers > button {
     gap: 8px;
-  font-weight: var(--weight-regular);
-}
+    font-weight: var(--weight-regular);
+  }
   .settings-providers strong {
     font-size: var(--type-small);
-  font-weight: inherit;
-}
+    font-weight: inherit;
+  }
 }
 @media (max-width: 1050px) {
   .settings-model-grid {
@@ -576,8 +571,8 @@
   .settings-tabs button {
     white-space: nowrap;
     padding: 11px 12px;
-  font-weight: var(--weight-regular);
-}
+    font-weight: var(--weight-regular);
+  }
   .settings-model-body {
     grid-template-columns: 1fr;
   }
@@ -587,8 +582,8 @@
   }
   .settings-providers > button {
     width: 100%;
-  font-weight: var(--weight-regular);
-}
+    font-weight: var(--weight-regular);
+  }
   .settings-provider-note {
     margin-top: 10px;
     margin-bottom: 8px;
@@ -599,17 +594,11 @@
   .settings-knowledge-heading {
     gap: 8px;
     flex-wrap: wrap;
-  font-weight: var(--weight-regular);
-}
+    font-weight: var(--weight-regular);
+  }
   .settings-knowledge-heading strong {
     font-size: var(--type-small);
-  font-weight: var(--weight-regular);
-}
-  .settings-page h1 {
-    font-size: var(--type-page);
-  }
-  .settings-page .page-heading {
-    flex-wrap: wrap;
+    font-weight: var(--weight-regular);
   }
   .settings-connectors {
     padding: 16px 12px;

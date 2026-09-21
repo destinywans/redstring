@@ -15,15 +15,12 @@ type Role struct {
 	DepartmentCount int    `json:"department_count"`
 }
 type Permission struct {
-	ID                string `json:"id"`
-	Name              string `json:"name"`
-	Description       string `json:"description"`
-	Action            string `json:"action"`
-	ScopeType         string `json:"scope_type"`
-	Builtin           bool   `json:"builtin"`
-	Revision          int64  `json:"revision"`
-	ResourceCount     int    `json:"resource_count"`
-	ResourceScopeMode string `json:"resource_scope_mode"`
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	Builtin       bool   `json:"builtin"`
+	Revision      int64  `json:"revision"`
+	ResourceCount int    `json:"resource_count"`
 }
 type Delta struct {
 	Add    []string `json:"add"`
@@ -35,9 +32,18 @@ type Associations struct {
 	Users       Delta `json:"users"`
 	Departments Delta `json:"departments"`
 }
+type ResourceTarget struct {
+	ResourceID string `json:"resource_id"`
+	ScopeType  string `json:"scope_type"`
+}
+type ResourceBinding struct {
+	ResourceTarget
+	Actions []string `json:"actions"`
+}
 type ResourceDelta struct {
-	Revision int64 `json:"revision"`
-	Delta
+	Revision int64             `json:"revision"`
+	Upsert   []ResourceBinding `json:"upsert"`
+	Remove   []ResourceTarget  `json:"remove"`
 }
 type Candidate struct {
 	IsMock            bool     `json:"is_mock"`
@@ -63,7 +69,5 @@ type Candidate struct {
 
 var ManagementObjects = []map[string]string{{"id": "rbac", "name": "角色与权限"}, {"id": "users", "name": "成员账户"}, {"id": "teams", "name": "部门"}, {"id": "settings", "name": "平台设置"}, {"id": "applications", "name": "应用目录"}, {"id": "resources", "name": "资源登记"}, {"id": "audit", "name": "审计记录"}}
 
-// Actions is the public creation catalog. Existing records retain their precise
-// runtime action rather than being relabeled as one of these four operations.
-var Actions = []map[string]string{{"id": "view", "name": "查看", "scope_type": "resource"}, {"id": "update", "name": "变更", "scope_type": "resource"}, {"id": "approve", "name": "审批", "scope_type": "application"}, {"id": "delete", "name": "删除", "scope_type": "resource"}}
-var ExistingActions = append(append([]map[string]string{}, Actions...), []map[string]string{{"id": "investigate", "name": "调查", "scope_type": "application"}, {"id": "execute", "name": "执行", "scope_type": "application"}, {"id": "manage", "name": "管理", "scope_type": "management"}}...)
+// Actions is the public resource-binding operation catalog.
+var Actions = []map[string]string{{"id": "view", "name": "查看"}, {"id": "update", "name": "变更"}, {"id": "approve", "name": "审批"}, {"id": "delete", "name": "删除"}}

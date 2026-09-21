@@ -24,8 +24,6 @@ func respond(w http.ResponseWriter, v any, e error) {
 		httpapi.Error(w, 409, "legacy_role_membership", "此用户的基础角色由成员管理维护，请在成员管理中调整。")
 	case errors.Is(e, ErrLastManager):
 		httpapi.Error(w, 409, "last_rbac_manager", "请至少保留一位启用且具有角色与权限管理权限的成员。")
-	case errors.Is(e, ErrProtected):
-		httpapi.Error(w, 409, "rbac_protected", "Built-in or referenced record is protected; remove dependencies first")
 	case errors.Is(e, store.ErrConflict):
 		httpapi.Error(w, 409, "revision_conflict", "Changed by another editor; reload before saving")
 	case errors.Is(e, store.ErrInvalidReference):
@@ -150,10 +148,6 @@ func (s *Service) Register(api *httpapi.Server) {
 					return
 				}
 				v.ID = r.PathValue("id")
-				if v.ID == "" && !creatablePermission(v) {
-					respond(w, nil, store.ErrInvalidReference)
-					return
-				}
 				v, e := s.SavePermission(r.Context(), v)
 				respond(w, v, e)
 			}
@@ -179,7 +173,8 @@ func (s *Service) Register(api *httpapi.Server) {
 		out, e := s.SaveAssociations(r.Context(), r.PathValue("id"), v)
 		respond(w, out, e)
 	})
-	register("GET /api/v1/rbac/permissions/{id}/resources", s.candidates)
+	register("GET /api/v1/rbac/permissions/{id}/resources", s.resourceTree)
+	register("GET /api/v1/rbac/permissions/{id}/resource-tree", s.resourceTree)
 	register("PUT /api/v1/rbac/permissions/{id}/resources", func(w http.ResponseWriter, r *http.Request) {
 		var v ResourceDelta
 		if !httpapi.Decode(w, r, &v) {
@@ -206,7 +201,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request, kind string) {
 	selectSQL := roleSelect
 	if kind == "permissions" {
 		from = "rbac_permissions p"
-		filter = ` WHERE (p.id ILIKE $1 OR p.name ILIKE $1 OR p.description ILIKE $1) AND ($2='' OR p.action=$2) AND ($3='' OR p.scope_type=$3) AND ($4='' OR p.builtin::text=$4)`
+		filter = ` WHERE (p.id ILIKE $1 OR p.name ILIKE $1 OR p.description ILIKE $1) AND (($2='' AND $3='') OR EXISTS(SELECT 1 FROM rbac_permission_resources x WHERE x.permission_id=p.id AND ($2='' OR x.action=$2) AND ($3='' OR x.scope_type=$3))) AND ($4='' OR p.builtin::text=$4)`
 		selectSQL = permissionSelect
 	}
 	var total int
@@ -277,7 +272,7 @@ func (s *Service) candidates(w http.ResponseWriter, r *http.Request) {
 		rev = v.Revision
 		switch kind {
 		case "permissions":
-			source = `SELECT p.id,p.name,p.description,EXISTS(SELECT 1 FROM rbac_role_permissions x WHERE x.role_id=$1 AND x.permission_id=p.id) selected,false inherited,'[]'::jsonb source_departments,'' email,p.action,p.scope_type,'' kind,'' application_id,'' application_name,'' environment,'' department_id,'' department_name,` + permissionResourceCount + ` resource_count FROM rbac_permissions p WHERE (p.scope_type<>'legacy_application' OR EXISTS(SELECT 1 FROM rbac_roles r WHERE r.id=$1 AND r.builtin) OR EXISTS(SELECT 1 FROM rbac_role_permissions x WHERE x.role_id=$1 AND x.permission_id=p.id))`
+			source = `SELECT p.id,p.name,p.description,EXISTS(SELECT 1 FROM rbac_role_permissions x WHERE x.role_id=$1 AND x.permission_id=p.id) selected,false inherited,'[]'::jsonb source_departments,'' email,'' action,'' scope_type,'' kind,'' application_id,'' application_name,'' environment,'' department_id,'' department_name,` + permissionResourceCount + ` resource_count FROM rbac_permissions p`
 		case "users":
 			source = `SELECT u.id,u.name,CASE WHEN u.deleted_at IS NULL THEN '' ELSE '已删除账户，仅可移除已有授权' END description,EXISTS(SELECT 1 FROM rbac_user_roles x WHERE x.role_id=$1 AND x.user_id=u.id) selected,EXISTS(SELECT 1 FROM rbac_department_roles x WHERE x.role_id=$1 AND x.department_id=u.department_id) inherited,COALESCE((SELECT jsonb_agg(t.name) FROM teams t JOIN rbac_department_roles d ON d.department_id=t.id WHERE d.role_id=$1 AND t.id=u.department_id),'[]') source_departments,u.email,'' action,'' scope_type,'' kind,'' application_id,'' application_name,'' environment,COALESCE(u.department_id,'') department_id,COALESCE(t.name,'') department_name,0 resource_count FROM users u LEFT JOIN teams t ON t.id=u.department_id WHERE (u.deleted_at IS NULL OR EXISTS(SELECT 1 FROM rbac_user_roles x WHERE x.role_id=$1 AND x.user_id=u.id)) AND u.source<>'settings_demo'`
 		case "departments":
@@ -287,29 +282,8 @@ func (s *Service) candidates(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		v, err := s.Permission(r.Context(), id)
-		if err != nil {
-			respond(w, nil, err)
-			return
-		}
-		rev = v.Revision
-		selection := `EXISTS(SELECT 1 FROM rbac_permission_resources x WHERE x.permission_id=$1 AND x.resource_id=c.id)`
-		if v.ScopeType == "legacy_application" && v.ResourceScopeMode == "legacy_acl" {
-			selection = `EXISTS(SELECT 1 FROM rbac_permissions p WHERE p.id=$1 AND p.resource_scope_mode='legacy_acl') OR ` + selection
-		}
-		var catalog string
-		switch v.ScopeType {
-		case "resource":
-			catalog = `SELECT r.id,r.name,r.description||' '||r.external_id||' '||COALESCE(r.attributes->>'ip','') description,r.kind,COALESCE((SELECT min(application_id) FROM cmdb_resource_applications WHERE resource_id=r.id),'') application_id,COALESCE((SELECT string_agg(DISTINCT a.name,', ') FROM cmdb_resource_applications l JOIN applications a ON a.id=l.application_id WHERE l.resource_id=r.id),'') application_name,COALESCE((SELECT string_agg(DISTINCT e.name,', ') FROM cmdb_resource_applications l JOIN application_environments e ON e.id=l.environment_id WHERE l.resource_id=r.id),'') environment,COALESCE(r.owner_team_id,'') department_id,COALESCE(t.name,'') department_name FROM cmdb_resources r LEFT JOIN teams t ON t.id=r.owner_team_id`
-		case "application", "legacy_application":
-			catalog = `SELECT id,name,description,'application' kind,id application_id,name application_name,'' environment,COALESCE(owner_team_id,'') department_id,'' department_name FROM applications`
-		case "management":
-			b, _ := json.Marshal(ManagementObjects)
-			catalog = `SELECT id,name,'' description,'management' kind,'' application_id,'' application_name,'' environment,'' department_id,'' department_name FROM jsonb_to_recordset('` + strings.ReplaceAll(string(b), "'", "''") + `'::jsonb) AS x(id text,name text)`
-		default:
-			catalog = `SELECT '' id,'' name,'' description,'' kind,'' application_id,'' application_name,'' environment,'' department_id,'' department_name WHERE false`
-		}
-		source = `SELECT c.id,c.name,c.description,` + selection + ` selected,false inherited,'[]'::jsonb source_departments,'' email,'' action,'' scope_type,c.kind,c.application_id,c.application_name,c.environment,c.department_id,c.department_name,0 resource_count FROM (` + catalog + `) c`
+		s.resourceTree(w, r)
+		return
 	}
 	q := r.URL.Query()
 	selected := q.Get("selected")

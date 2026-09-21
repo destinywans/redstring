@@ -1,77 +1,99 @@
-# 角色、权限与唯一部门（WAN-105）
+# 角色、权限与资源操作（WAN-105）
 
-## 授权模型
+## 当前授权模型
 
-`rbac_roles`、`rbac_permissions` 及三类关联表是实际 PostgreSQL 授权来源。有效权限为用户直接角色与唯一部门继承角色的并集。每条权限的动作与 scope_type 创建后固定，关联的目标 ID 可通过有版本的增删修改。
+角色关联权限、用户和部门。成员至多属于一个部门，有效权限为直接角色及该部门角色的并集。
 
-| 动作 | 范围 | 实际检查位置 |
+权限是只有唯一名称和描述的集合，本身没有操作或资源类型。实际授权来自中间表 `rbac_permission_resources(permission_id,scope_type,resource_id,action)`；同一资源可以关联多个操作，未关联任何资源的权限不会产生任何能力。内部稳定 ID 用于外键与 API，列表不展示编码。
+
+| 关联操作 | 可新建范围 | 实际检查 |
 | --- | --- | --- |
-| view | resource | 资源目录单个资源、列表与关系图 |
-| update / delete | resource | 修改目录资料 / 删除人工登记目录资源；不会操作集群 |
-| investigate | application | 调查与分支操作；调查 worker 开始、工具执行与结果提交重新检查 |
-| approve | application | 动作批准、拒绝、撤销；动作执行前重新检查批准者 |
-| execute | application | 已批准动作入队；执行前重新检查请求者 |
-| manage | management | rbac、users、teams、settings、applications、resources、audit 各自独立对象 |
+| 查看 view | resource、application | 资源目录查看、应用上下文读取 |
+| 变更 update | resource | 修改资源目录资料 |
+| 审批 approve | application | 动作提案的实际批准、拒绝、撤销检查 |
+| 删除 delete | resource | 删除允许手动管理的目录资源，不直接删除集群资源 |
 
-调查、审批、执行可读取所在应用上下文，但三种写能力互不提升。`manage:resources` 只管理资源登记入口，不代替某条资源的 update/delete。`manage:users` 不能单独变更平台角色、创建高权限身份或替换高权限身份凭据；这些操作额外需要 `manage:rbac`。`manage:teams` 更改已关联角色的部门成员（包括加入、移出及从已有角色部门转移）同样额外需要 `manage:rbac`，并与部门角色授予串行化检查。固定管理员的授权通过真实权限关联保留，最后启用管理员保护继续生效。
+应用在资源树中单独分组，审批绑定应用 ID，并由现有 `AuthorizeApplication(app,"approve")` 读取。普通资源节点不提供不可执行的审批选项。历史 investigate、execute、manage 及 legacy_application 动作保留为旧关联数据，不重命名、不合并为新动作，也不进入新授权操作选项。保留审批、执行分离以及明确批准和独立执行器约束。
 
-其他尚未接入细粒度 RBAC 的旧模块仍执行原有身份边界，不因自定义角色提升用户的 `users.role`。暂停的 delivery/deployment 不属于本轮新增管理对象。
+自定义角色不会修改 `users.role`。删除初始化的基础角色后，旧模块不再继承该角色的隐式身份能力；显式 RBAC 授权仍按实际关联判断。CI/CD 继续暂停。
 
-动作的精确批准摘要、冻结绑定、目标状态和执行器校验继续保留。动作服务 `Register` 绑定独立动作授权钩子；connector resolver 仅做应用可读与绑定校验，不再把 approve/execute 合并为 investigate。
+## 迁移与兼容边界
 
-## 一次性迁移与兼容
+- `014_rbac.sql` 建立角色、权限、关联与单部门模型。历史多部门收敛前，已有应用 ACL 折算保留；基础角色的 `origin=legacy` 用户关联继续由账户触发器维护。
+- `015_rbac_permission_scope.sql` 是此前的权限级应用范围设计，保留为历史迁移，不重写已有迁移。
+- `016_rbac_resource_actions.sql` 将旧权限操作、范围迁入每条资源关联，删除权限表的 action、scope_type、resource_scope_mode 三列。未编辑的 legacy_acl 先冻结为迁移时已有应用 ID；显式范围保持原目标。既有当前应用访问继续与原成员应用 ACL 相交，不扩大权限；迁移后新应用不再自动进入旧兼容权限。
+- 有效权限视图改为资源关联 INNER JOIN：没有关联的命名权限没有操作。历史管理/调查/执行操作仍保留在原资源目标上。
+- schema_migrations 保证每个迁移只执行一次，重启不覆盖之后的关联调整。运行库迁移是否执行由发布环节单独记录。
 
-`014_rbac.sql` 在现有 Store.Migrate 事务执行，无运行时重复 Seed。
+## 权限与角色 API
 
-- 沿用产品现有 `teams` 作为部门，`team_members(user_id)` 唯一约束确保每人至多一个部门。`users.department_id` 随成员关系触发器同步；旧 `users.department` 文字仅用于首次迁移择优，不另建平行部门体系。
-- 历史多部门：优先保留名字与 `users.department` 完全匹配的现有部门，其余按稳定 ID 选首个。删除其他部门关系前，将它们已有应用 ACL 折算为该用户直接授权；viewer 的 operate 上限保持 view。迁移审计记录保留/移除部门。没有新角色的虚构继承。
-- admin/operator/viewer 作为受保护兼容角色，operator/viewer 仍依赖既有应用 ACL，不自动获得新应用权限。账户创建、角色变更和软删除通过触发器同步固定 legacy 关联，不覆盖自定义关联。示例身份 `settings_demo` 不获分配、不进入有效权限视图。
-- 三个可编辑业务角色“资源只读”“应用诊断”“变更审批”，关联迁移时实际目录/未归档应用的显式快照，均不分配给任何用户或部门。Mock 目录对象可以关联，仍带 `is_mock`；这不代表有真实生产基础设施授权。
-- 内置资源权限绑定迁移时存在的对象，不随未来资源自动扩大。管理对象枚举仅列已接入的对象。
+主入口 `/api/v1/rbac`。管理接口要求 `manage:management:rbac`；`GET /me` 只读取本人管理对象。`GET /catalog` 的 actions 为四个 `{id,name}`，不含 scope_type。
 
-## API 与分页编辑
+`GET/POST /roles|permissions`、`GET/PATCH/DELETE /roles|permissions/{id}`。列表维持 `{items,total,page,page_size}`；名称首尾空格清理，数据库唯一约束处理并发重名，分别返回 `409 role_name_conflict` 或 `409 permission_name_conflict`。名称最多 200 字符，描述最多 2000 字符。更新/删除必须提交 revision，版本冲突返回 409。
 
-主入口 `/api/v1/rbac`。管理接口需要 manage/management/rbac；`GET /me` 仅返回当前用户的 `management_objects`，供入口显示。`GET /catalog` 返回固定动作、管理对象及应用/部门筛选元数据。
-
-新建权限仅提供查看（view/resource）、变更（update/resource）、审批（approve/application）、删除（delete/resource）四项，POST 同样拒绝其他操作。历史 investigate、execute、manage 权限及其执行边界继续保留，不因新建入口精简而删除或重解释；内部维护和既有记录仍使用原动作。
-
-角色与权限分别支持 `GET/POST /roles|permissions`、`GET/PATCH/DELETE /roles|permissions/{id}`。列表支持 `q,page,page_size`（默认 1/10，最大 100）、权限 action/scope_type、builtin。返回 `{items,total,page,page_size}`。更新/删除带 revision；冲突 409。内置记录的基本资料及删除仍受保护；内置角色的权限、用户和部门关联可管理。角色有任何权限/用户/部门关联时不可删除；被角色引用的权限不可删除。
-
-角色名称清理首尾空格后由已有数据库唯一约束检查，创建及改名重复时返回 `409 role_name_conflict`。名称最多 200 个字符，描述最多 2000 个字符（按 Unicode 字符计数）。内部稳定 ID 继续用于外键、关联和 API，不要求用户输入，也不作为角色列表的副标题展示。
-
-权限名称同样由现有唯一约束校验，创建及改名重复返回 `409 permission_name_conflict`。权限内部 ID 继续用于关联，列表不展示编码。所有权限（包括内置权限）都可管理关联目标，内置权限的基本资料和删除边界保持原约束。
-
-候选接口：
-
-- `GET /roles/{id}/associations/{permissions|users|departments}`
-- `GET /permissions/{id}/resources`
-
-候选分页还返回 `revision`，支持 selected=all|yes|no，action/scope_type/kind/application_id/department_id。`add_ids/remove_ids` 支持逗号或重复 query 参数，用于服务端按未保存草稿筛选“已选”；响应 `selected` 始终是已保存的直接关联。继承源在 `inherited/source_departments` 单独显示。软删除用户的已有关联仍可见并可移除。
-
-用户候选增加 `locked` 与可选 `lock_reason`。仅 `rbac_user_roles.origin='legacy'` 的基础角色关联锁定，必须从成员管理变更，直接删除返回 `409 legacy_role_membership`；普通直接关联和部门关联仍可增删。此限制不会把整个内置角色变成只读，也不会自动降级账户或改写旧模块身份。兼容应用权限仅供内置角色关联，可移除和重新添加；自定义角色继续使用明确资源/应用范围的权限。
-
-`PUT /roles/{id}/associations` 一次提交：
+新建/修改权限只接受基本信息：
 
 ```json
-{"revision":2,"permissions":{"add":["p"],"remove":[]},"users":{"add":["u"],"remove":[]},"departments":{"add":[],"remove":["d"]}}
+{"name":"应用运维","description":"用于指定应用与资源的日常操作","revision":2}
 ```
 
-三个标签页在同一事务、同一角色版本中保存并审计。`PUT /permissions/{id}/resources` 使用 `{revision,add,remove}`。新增目标必须存在；移除按现存关联校验，允许清理已失效目标。重复/冲突增删、未知新增 ID 会拒绝整笔事务。界面不能用当前页替换全部关系。
+Permission 返回 `{id,name,description,builtin,revision,resource_count}`，resource_count 为不同 `(scope_type,resource_id)` 数量，多动作不会重复计数。旧 action/scope_type 请求字段被 JSON 校验拒绝。目录仍可兼容 action/scope_type 查询参数，其匹配来自实际资源关联，界面不再显示权限级操作筛选。
 
-`015_rbac_permission_scope.sql` 增加 `resource_scope_mode`（`explicit | legacy_acl`）：普通权限默认 explicit，旧兼容应用权限初始化为 legacy_acl，不修改任何旧应用 ACL。尚未编辑的兼容权限继续按原 ACL 工作，其当前应用候选全部选中，resource_count 为当前应用数量。第一次保存关联时在同一事务把当前应用候选冻结为显式 ID，应用 add/remove 后切换 explicit；之后实际访问始终为显式应用与用户原 ACL 的交集。清空显式关联表示无应用，不能退回无限制；新增应用也不自动扩入已冻结范围。权限详情、目录计数与角色关联中的计数使用同一规则。迁移由既有 schema_migrations 控制仅执行一次，重启不会重置已管理范围。
+初始化角色与权限同样允许编辑和删除，builtin 只记录初始化来源，不再限制操作。删除在事务内解除中间表关联，不删除关联另一侧的用户、部门、角色、权限或资源；删除权限同时递增引用角色的 revision。删除前重查实际管理权限，删除后检查至少保留一个有效管理者，失败整笔回滚。界面使用居中确认弹窗，明确关联授权将解除。
 
-关联及权限资源保存事务与账户/部门成员写入使用相同 advisory lock，获得锁后重新检查操作者的 `manage:management:rbac`。提交前检查仍有启用、未删除、非示例且具备登录凭据的有效 RBAC 管理者；撤销最后管理者返回 `409 last_rbac_manager`，整笔关联变更及版本更新回滚。成员禁用/删除/基础角色变更、部门成员移除和迁移复用同一有效管理者检查，避免把管理权移交自定义角色后绕过原固定管理员保护。
+初始化记录只在版本迁移中播种，不会在重启时复活。`017_rbac_editable_defaults.sql` 调整账户基础角色同步：只关联仍存在的基础角色，创建或显式改为已删除基础角色返回 `409 base_role_unavailable`；已有账户资料仍可更新。具体运行迁移状态见本轮交付记录。
 
-基础角色现在可变更权限，`viewer` 字符串本身不再意味着低权限。仅保留原 `view:legacy_application` 兼容只读权限（或无权限）的 viewer 可由成员管理员直接创建；若 viewer 被授予其他显式资源或管理等权限，创建此身份额外要求 `manage:rbac`。修改此类账户的密码、邮箱、启用状态或删除账户同样检查真实及潜在角色授权，禁用账户也不会绕过身份保护。
+## 资源选择树
 
-资源删除与权限资源关联变更共享事务 advisory lock。资源删除同时移除精确 resource scope 关联并增加受影响权限版本，避免并发重新挂入失效资源。
+`GET /permissions/{id}/resource-tree?q=&kind=&limit=50&offset=0`。旧 `GET /permissions/{id}/resources` 暂作同形状别名，不再返回旧分页 Candidate 结构。
 
-`GET/POST /departments` 与 `PATCH /departments/{id}` 操作同一 teams 部门；`PATCH /users/{id}/department {department_id:null|string}` 明确迁移/清除该用户唯一部门，不偷偷变更其他部门成员。个人 `/profile` 返回至多一条 departments、实际有效角色 `roles[{id,name,source,department_id?}]` 与动作摘要。
+```json
+{
+  "revision":3,
+  "groups":[{
+    "kind":"resource:host","label":"主机","total":75,"offset":0,"has_more":true,
+    "items":[{
+      "id":"host-1","name":"主机一","scope_type":"resource","kind":"host",
+      "description":"","is_mock":false,"missing":false,
+      "assigned_actions":["view","update"],"available_actions":["view","update","delete"]
+    }]
+  }]
+}
+```
 
-## 验证边界
+kind 分组键为 `resource:<实际资源类型>`、`application`、`legacy_application`、`management`。叶子 kind 保留实际类型供图标显示，唯一标识由 scope_type 与 id 组成。无 kind 时返回各组前 limit 条，指定 kind + offset 可在该组加载更多；limit 1–100，offset 非负。检索匹配资源名称或 ID。
 
-`internal/rbac/postgres_test.go::TestRBACPostgresBoundaries` 在随机 schema 执行历史迁移与实际 PostgreSQL 授权/分页/原子更新检查，结束删除该 schema；不会迁移运行库或发出集群操作。测试包括用户管理越权、失效用户关联清理、资源删除与失效资源关联清理。运行库迁移、浏览器产品验收和 Git 交付由父任务独立记录。
+界面默认折叠到资源类型，检索时展开匹配结果，不提供页码或跨页保留选择。应用资料与应用访问/审批分别标明，避免不同授权目标出现同名分组。
 
-`role_refinement_test.go` 定向覆盖 Unicode 字符限制、重复名称、内置角色关联增删、基础关联锁定、管理权限交接后的最后管理者保护，以及扩权 viewer 的身份创建/凭据修改边界；同样只在新建随机 schema 中写入并清理。
+资源目录及应用是可新增目标；历史应用/管理对象仅显示此权限已有关联。失效目标仍作为 missing 叶子显示，允许移除，不能新增操作。assigned_actions 是服务端保存的完整动作；available_actions 是允许新选的操作。未展示、未加载资源不属于本次修改集合，不能拿当前树替换全部关联。
 
-`permission_refinement_test.go` 覆盖四项新建契约、权限重名、内置资源及管理目标编辑、legacy 候选与计数、显式应用与旧 ACL 交集、清空/重加/未来应用隔离、版本冲突和迁移重复执行不覆盖配置。运行库是否执行 015 迁移必须由发布环节单独验证。
+## 按资源保存动作
+
+`PUT /permissions/{id}/resources`：
+
+```json
+{
+  "revision":3,
+  "upsert":[
+    {"resource_id":"host-1","scope_type":"resource","actions":["view","update"]},
+    {"resource_id":"app-1","scope_type":"application","actions":["view","approve"]}
+  ],
+  "remove":[{"resource_id":"host-2","scope_type":"resource"}]
+}
+```
+
+upsert 替换明确指定资源的完整动作集；其他资源完全保留。前端增删当前勾选动作时需合并保存该叶子的其他动作。每条 upsert 必须至少一个动作，不允许重复动作、重复目标、同一目标同时 upsert/remove、未知新目标或不兼容的新操作；任一失败整笔回滚。历史操作仅允许同权限、同 scope、同资源已经存在者原样保留，不能通过请求凭空新增历史能力。remove 移除该资源全部动作，也允许清理失效目标。
+
+## 角色关联与保护
+
+`GET /roles/{id}/associations/{permissions|users|departments}` 保留原分页及草稿过滤。`PUT /roles/{id}/associations` 提交 `{revision,permissions:{add,remove},users:{add,remove},departments:{add,remove}}`，三个页签同事务保存。角色可以关联所有命名权限；实际授权始终来自权限内已保存资源动作。
+
+仅用户 `origin=legacy` 基础角色关联返回 `locked=true` 与 lock_reason，由成员管理调整，直接删除返回 `409 legacy_role_membership`。普通用户和部门关联可管理，整个角色不会因此变成只读。
+
+关联、资源授权保存与账户/部门成员写入共享 advisory lock；拿锁后重查操作者管理能力。提交前保留至少一个启用、未删除、非示例且有登录凭据的有效 RBAC 管理者，否则 `409 last_rbac_manager`，包括成员禁用/删除/角色变更和部门成员移出迁移。资源删除与关联编辑共享资源锁，删除时仅移除 scope_type=resource 的匹配关联并增加权限版本，不误删同 ID 的应用/管理对象关联。
+
+viewer 基础角色可配置，不能按字符串假定只读。创建或修改具有额外资源授权的 viewer 身份、密码、邮箱、启用状态需要额外 manage:rbac；禁用账户也按潜在关联权限保护。`manage:users` 不能单独复制高权限身份。默认仅原兼容只读权限的 viewer 保持原成员管理行为。
+
+## 验证
+
+`internal/rbac` 的定向 PostgreSQL 测试在随机 schema 中运行迁移、实际权限检查、资源多动作、空权限、审批与执行隔离、未知/重复/冲突输入、未加载关联保留、历史动作边界、树检索与加载更多，以及最后管理者和成员身份保护；结束仅删除该测试 schema。没有集群操作。运行库迁移、服务更新和浏览器验收由父任务另行验证。

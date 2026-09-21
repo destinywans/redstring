@@ -56,11 +56,11 @@ func (s *Service) SavePolicy(ctx context.Context, u core.User, p Policy, expecte
 		if !s.modelExists(p.ModelID) || p.ActorID == "" {
 			return p, store.ErrInvalidReference
 		}
-		var active bool
-		if e := s.DB.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND NOT disabled AND role IN('admin','operator'))", p.ActorID).Scan(&active); e != nil {
+		actor, e := (&store.Store{DB: s.DB}).ActiveUser(ctx, p.ActorID)
+		if e != nil {
 			return p, e
 		}
-		if !active {
+		if actor.Role != "admin" && actor.Role != "operator" {
 			return p, store.ErrInvalidReference
 		}
 		if p.EnvironmentID != "workspace" {

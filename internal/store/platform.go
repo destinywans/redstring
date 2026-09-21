@@ -435,6 +435,6 @@ func (s *Store) AuditEntries(ctx context.Context) ([]map[string]any, error) {
 
 func (s *Store) ActiveUser(ctx context.Context, id string) (core.User, error) {
 	var u core.User
-	e := s.DB.QueryRow(ctx, "SELECT id,email,name,role,disabled FROM users WHERE id=$1 AND NOT disabled", id).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.Disabled)
+	e := s.DB.QueryRow(ctx, "SELECT u.id,u.email,u.name,"+sessionLegacyRole+",u.disabled FROM users u WHERE u.id=$1 AND NOT u.disabled", id).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.Disabled)
 	return u, ClassifyError(e)
 }

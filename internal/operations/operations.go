@@ -163,8 +163,7 @@ type Notification struct {
 }
 
 func (s *Service) actor(ctx context.Context, id, app string) (core.User, error) {
-	var u core.User
-	e := s.DB.QueryRow(ctx, "SELECT id,email,name,role,disabled FROM users WHERE id=$1 AND NOT disabled", id).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.Disabled)
+	u, e := (&store.Store{DB: s.DB}).ActiveUser(ctx, id)
 	if e != nil {
 		return u, store.ErrNotFound
 	}

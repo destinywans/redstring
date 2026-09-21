@@ -71,9 +71,7 @@ func TestRoleRefinementPostgres(t *testing.T) {
 	if err = st.AuthorizeCapability(ctx, core.User{ID: "v"}, "manage", "management", "rbac"); !errors.Is(err, store.ErrForbidden) {
 		t.Fatalf("revocation: %v", err)
 	}
-	if _, err = s.SaveAssociations(ctx, role.ID, Associations{Revision: role.Revision, Permissions: Delta{Add: []string{"legacy-execute"}}}); !errors.Is(err, store.ErrInvalidReference) {
-		t.Fatalf("custom role acquired compatibility permission: %v", err)
-	}
+
 	if _, err = s.SaveAssociations(ctx, admin.ID, Associations{Revision: admin.Revision, Users: Delta{Remove: []string{"a"}}}); !errors.Is(err, ErrLegacyMembership) {
 		t.Fatalf("legacy identity changed: %v", err)
 	}
@@ -87,8 +85,8 @@ func TestRoleRefinementPostgres(t *testing.T) {
 	if err = st.AuthorizeCapability(ctx, core.User{ID: "a"}, "manage", "management", "rbac"); err != nil {
 		t.Fatal("rejected change did not roll back", err)
 	}
-	if _, err = s.SaveRole(ctx, admin); !errors.Is(err, ErrProtected) {
-		t.Fatalf("builtin metadata changed: %v", err)
+	if admin, err = s.SaveRole(ctx, admin); err != nil {
+		t.Fatalf("initialized role metadata cannot edit: %v", err)
 	}
 	if _, err = s.SaveAssociations(store.WithPrincipal(context.Background(), core.User{ID: "v"}), role.ID, Associations{Revision: role.Revision}); !errors.Is(err, store.ErrForbidden) {
 		t.Fatalf("transaction accepted revoked caller: %v", err)
@@ -125,11 +123,7 @@ func TestRoleRefinementPostgres(t *testing.T) {
 	// This path was unreachable while all built-in role associations were fixed.
 	// Transfer RBAC management to a custom role, then verify account, department,
 	// role and permission revocation cannot strand the workspace.
-	management, err := s.SavePermission(ctx, Permission{Name: "Custom RBAC manager", Action: "manage", ScopeType: "management"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	management, err = s.SaveResources(ctx, management.ID, ResourceDelta{Revision: management.Revision, Delta: Delta{Add: []string{"rbac"}}})
+	management, err := s.Permission(ctx, "manage-rbac")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +143,7 @@ func TestRoleRefinementPostgres(t *testing.T) {
 	if _, err = st.UpdateMember(vctx, "v", store.MemberUpdate{AccountUpdate: store.AccountUpdate{Disabled: &disabled}}); !errors.Is(err, store.ErrLastRBACManager) {
 		t.Fatalf("disabled last custom manager: %v", err)
 	}
-	if _, err = s.SaveResources(vctx, management.ID, ResourceDelta{Revision: management.Revision, Delta: Delta{Remove: []string{"rbac"}}}); !errors.Is(err, ErrLastManager) {
+	if _, err = s.SaveResources(vctx, management.ID, ResourceDelta{Revision: management.Revision, Remove: []ResourceTarget{{ScopeType: "management", ResourceID: "rbac"}}}); !errors.Is(err, ErrLastManager) {
 		t.Fatalf("removed final management scope: %v", err)
 	}
 	if _, err = s.SaveAssociations(ctx, admin.ID, Associations{Revision: admin.Revision}); !errors.Is(err, store.ErrForbidden) {

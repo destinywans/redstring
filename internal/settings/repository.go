@@ -130,7 +130,7 @@ func (s *Service) UpdateTeamProfile(ctx context.Context, id string, p TeamProfil
 
 func (s *Service) Directory(ctx context.Context) (Directory, error) {
 	d := Directory{Members: []Member{}, Teams: []Team{}, Roles: []Role{}, Departments: []Department{}, Applications: []Application{}, Grants: []Grant{}, MockNotice: "Mock 为示例成员与团队，示例成员无法登录。"}
-	roleRows, err := s.Store.DB.Query(ctx, `SELECT r.id,r.name,r.description,COALESCE((SELECT jsonb_object_agg(p.action,true) FROM rbac_role_permissions rp JOIN rbac_permissions p ON p.id=rp.permission_id WHERE rp.role_id=r.id),'{}'),(SELECT count(*) FROM rbac_user_roles ur JOIN users u ON u.id=ur.user_id WHERE ur.role_id=r.id AND u.deleted_at IS NULL) FROM rbac_roles r ORDER BY r.name,r.id`)
+	roleRows, err := s.Store.DB.Query(ctx, `SELECT r.id,r.name,r.description,COALESCE((SELECT jsonb_object_agg(p.action,true) FROM rbac_role_permissions rp JOIN rbac_permission_resources p ON p.permission_id=rp.permission_id WHERE rp.role_id=r.id),'{}'),(SELECT count(*) FROM rbac_user_roles ur JOIN users u ON u.id=ur.user_id WHERE ur.role_id=r.id AND u.deleted_at IS NULL) FROM rbac_roles r ORDER BY r.name,r.id`)
 	if err != nil {
 		return d, err
 	}

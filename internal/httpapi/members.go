@@ -16,6 +16,8 @@ func (s *Server) memberRepository(w http.ResponseWriter) (store.MemberRepository
 }
 func memberError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, store.ErrBaseRoleUnavailable):
+		Error(w, 409, "base_role_unavailable", "该基础角色已删除，请选择仍存在的基础角色；现有账户可通过角色关联获得授权。")
 	case errors.Is(err, store.ErrLastRBACManager):
 		Error(w, 409, "last_rbac_manager", "请至少保留一位启用且具有角色与权限管理权限的成员。")
 	case errors.Is(err, store.ErrLastAdmin):

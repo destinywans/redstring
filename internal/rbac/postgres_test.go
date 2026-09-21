@@ -110,11 +110,11 @@ func TestRBACPostgresBoundaries(t *testing.T) {
 	if e := st.AuthorizeCapability(ctx, core.User{ID: "later"}, "manage", "management", "rbac"); e != nil {
 		t.Fatal("post-migration bootstrap not granted", e)
 	}
-	p, e := s.SavePermission(ctx, Permission{Name: "Only execute app2", Action: "execute", ScopeType: "application"})
+	p, e := s.SavePermission(ctx, Permission{Name: "Only execute app2"})
 	if e != nil {
 		t.Fatal(e)
 	}
-	p, e = s.SaveResources(ctx, p.ID, ResourceDelta{Revision: p.Revision, Delta: Delta{Add: []string{"app2"}}})
+	_, e = st.DB.Exec(ctx, "INSERT INTO rbac_permission_resources(permission_id,scope_type,resource_id,action) VALUES($1,'application','app2','execute')", p.ID)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -153,24 +153,24 @@ func TestRBACPostgresBoundaries(t *testing.T) {
 	if e = st.AuthorizeApplication(ctx, core.User{ID: "v"}, "app2", "execute"); !errors.Is(e, store.ErrForbidden) {
 		t.Fatal("partial delta committed", e)
 	}
-	if e = s.Delete(ctx, "roles", role.ID, role.Revision); !errors.Is(e, ErrProtected) {
+	if e = s.Delete(ctx, "roles", role.ID, role.Revision-1); !errors.Is(e, store.ErrConflict) {
 		t.Fatal("dependent role deleted", e)
 	}
 	if _, e = s.SaveAssociations(ctx, "admin", Associations{Revision: 1, Users: Delta{Remove: []string{"a"}}}); !errors.Is(e, ErrLegacyMembership) {
 		t.Fatal("legacy admin removed", e)
 	}
-	if e = s.Delete(ctx, "permissions", p.ID, p.Revision); !errors.Is(e, ErrProtected) {
+	if e = s.Delete(ctx, "permissions", p.ID, p.Revision-1); !errors.Is(e, store.ErrConflict) {
 		t.Fatal("referenced permission deleted", e)
 	}
-	rp, e := s.SavePermission(ctx, Permission{Name: "Only one resource", Action: "view", ScopeType: "resource"})
+	rp, e := s.SavePermission(ctx, Permission{Name: "Only one resource"})
 	if e != nil {
 		t.Fatal(e)
 	}
-	rp, e = s.SaveResources(ctx, rp.ID, ResourceDelta{Revision: rp.Revision, Delta: Delta{Add: []string{"r1"}}})
+	rp, e = s.SaveResources(ctx, rp.ID, ResourceDelta{Revision: rp.Revision, Upsert: []ResourceBinding{{ResourceTarget: ResourceTarget{ScopeType: "resource", ResourceID: "r1"}, Actions: []string{"view"}}}})
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = s.SaveResources(ctx, rp.ID, ResourceDelta{Revision: rp.Revision, Delta: Delta{Add: []string{"r2", "unknown"}}}); !errors.Is(e, store.ErrInvalidReference) {
+	if _, e = s.SaveResources(ctx, rp.ID, ResourceDelta{Revision: rp.Revision, Upsert: []ResourceBinding{{ResourceTarget: ResourceTarget{ScopeType: "resource", ResourceID: "r2"}, Actions: []string{"view"}}, {ResourceTarget: ResourceTarget{ScopeType: "resource", ResourceID: "unknown"}, Actions: []string{"view"}}}}); !errors.Is(e, store.ErrInvalidReference) {
 		t.Fatal("unknown resource", e)
 	}
 	if e = st.DB.QueryRow(ctx, "SELECT count(*) FROM rbac_permission_resources WHERE permission_id=$1", rp.ID).Scan(&count); e != nil || count != 1 {
@@ -280,13 +280,13 @@ func TestRBACPostgresBoundaries(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = s.SaveResources(ctx, rp.ID, ResourceDelta{Revision: rp.Revision, Delta: Delta{Add: []string{"r1"}}}); !errors.Is(e, store.ErrInvalidReference) {
+	if _, e = s.SaveResources(ctx, rp.ID, ResourceDelta{Revision: rp.Revision, Upsert: []ResourceBinding{{ResourceTarget: ResourceTarget{ScopeType: "resource", ResourceID: "r1"}, Actions: []string{"view"}}}}); !errors.Is(e, store.ErrInvalidReference) {
 		t.Fatal("deleted resource can be rebound", e)
 	}
-	if _, e = st.DB.Exec(ctx, "INSERT INTO rbac_permission_resources VALUES($1,'old-orphan')", rp.ID); e != nil {
+	if _, e = st.DB.Exec(ctx, "INSERT INTO rbac_permission_resources(permission_id,scope_type,resource_id,action) VALUES($1,'resource','old-orphan','view')", rp.ID); e != nil {
 		t.Fatal(e)
 	}
-	if _, e = s.SaveResources(ctx, rp.ID, ResourceDelta{Revision: rp.Revision, Delta: Delta{Remove: []string{"old-orphan"}}}); e != nil {
+	if _, e = s.SaveResources(ctx, rp.ID, ResourceDelta{Revision: rp.Revision, Remove: []ResourceTarget{{ScopeType: "resource", ResourceID: "old-orphan"}}}); e != nil {
 		t.Fatal("stale binding cannot be removed", e)
 	}
 	get("/api/v1/rbac/me")

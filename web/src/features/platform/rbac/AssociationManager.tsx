@@ -3,16 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 import Pagination from "../../../components/Pagination";
 import { ErrorNotice } from "../../../components/ui";
 import { FilterBar, FilterSearch } from "../../../components/filters/FilterBar";
-import { put, request } from "../../../lib/api";
+import { put } from "../../../lib/api";
 import { DirectoryFilter, DirectoryState } from "../directory/shared";
 import { RbacOverlay } from "./RbacOverlay";
-import { resourceKinds } from "../../resources/types";
+import { PermissionResourceTree } from "./PermissionResourceTree";
 import {
-  actionNames,
   emptyDeltas,
   getPage,
   rbacError,
-  selectableActions,
   selectedCandidate,
   updateDelta,
   type Candidate,
@@ -27,53 +25,29 @@ const labels: Record<RelationKind, string> = {
   departments: "部门",
   resources: "资源",
 };
-const kindLabels: Record<string, string> = {
-  ...resourceKinds,
-  application: "应用",
-  deployment: "工作负载",
-  workload: "工作负载",
-  pod: "Pod",
-  host: "主机",
-  node: "节点",
-  cluster: "集群",
-  mysql: "数据库",
-  postgresql: "数据库",
-  redis: "中间件",
-  kafka: "中间件",
-  management: "管理对象",
-};
-export function AssociationManager({
-  object,
-  kind,
-  onClose,
-  onSaved,
-  onReload,
-}: {
+type AssociationProps = {
   object: RbacObject;
   kind: RbacKind;
   onClose: () => void;
   onSaved: (value: RbacObject) => void;
   onReload: () => Promise<void>;
-}) {
-  const catalog = useQuery({
-    queryKey: ["rbac-catalog"],
-    queryFn: ({ signal }) =>
-      request<{
-        actions: { id: string; name: string; scope_type: string }[];
-        applications: { id: string; name: string }[];
-        departments: { id: string; name: string }[];
-      }>("/rbac/catalog", { signal }),
-    enabled: kind === "permissions",
-  });
-  const [tab, setTab] = useState<RelationKind>(
-    kind === "roles" ? "permissions" : "resources",
+};
+export function AssociationManager(props: AssociationProps) {
+  return props.kind === "permissions" ? (
+    <PermissionResourceTree {...props} />
+  ) : (
+    <RoleAssociationManager {...props} />
   );
+}
+function RoleAssociationManager({
+  object,
+  onClose,
+  onSaved,
+  onReload,
+}: AssociationProps) {
+  const [tab, setTab] = useState<RelationKind>("permissions");
   const [deltas, setDeltas] = useState(emptyDeltas);
   const [q, setQ] = useState("");
-  const [action, setAction] = useState("");
-  const [resourceKind, setResourceKind] = useState("");
-  const [app, setApp] = useState("");
-  const [department, setDepartment] = useState("");
   const [state, setState] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -103,16 +77,12 @@ export function AssociationManager({
     0,
     counts[tab] + delta.add.length - delta.remove.length,
   );
-  const path = `/rbac/${kind}/${encodeURIComponent(object.id)}/${tab === "resources" ? "resources" : `associations/${tab}`}`;
+  const path = `/rbac/roles/${encodeURIComponent(object.id)}/associations/${tab}`;
   const params = {
     q,
     page,
     page_size: pageSize,
     selected: onlySelected ? "yes" : state || "all",
-    action,
-    kind: resourceKind,
-    application_id: app,
-    department_id: department,
     add_ids: onlySelected || state ? delta.add.join(",") : undefined,
     remove_ids: onlySelected || state ? delta.remove.join(",") : undefined,
   };
@@ -144,7 +114,6 @@ export function AssociationManager({
     setTab(next);
     setPage(1);
     setQ("");
-    setAction("");
     setState("");
     setOnlySelected(false);
   }
@@ -165,15 +134,13 @@ export function AssociationManager({
     setError(null);
     try {
       const updated = await put<RbacObject>(
-        `/rbac/${kind}/${encodeURIComponent(object.id)}/${kind === "roles" ? "associations" : "resources"}`,
-        kind === "roles"
-          ? {
-              revision,
-              permissions: deltas.permissions,
-              users: deltas.users,
-              departments: deltas.departments,
-            }
-          : { revision, ...deltas.resources },
+        `/rbac/roles/${encodeURIComponent(object.id)}/associations`,
+        {
+          revision,
+          permissions: deltas.permissions,
+          users: deltas.users,
+          departments: deltas.departments,
+        },
       );
       onSaved(updated);
     } catch (e) {
@@ -185,7 +152,7 @@ export function AssociationManager({
   return (
     <RbacOverlay
       wide
-      title={kind === "roles" ? "管理角色关联" : "管理资源关联"}
+      title="管理角色关联"
       subtitle={object.name}
       dirty={pending > 0}
       busy={busy}
@@ -193,57 +160,33 @@ export function AssociationManager({
     >
       {(requestClose) => (
         <>
-          {kind === "roles" ? (
-            <div className="rbac-tabs" role="tablist" aria-label="角色关联类型">
-              {(["permissions", "users", "departments"] as RelationKind[]).map(
-                (item) => (
-                  <button
-                    key={item}
-                    role="tab"
-                    aria-selected={tab === item}
-                    onClick={() => changeTab(item)}
-                  >
-                    {labels[item]}{" "}
-                    <span>
-                      {Math.max(
-                        0,
-                        counts[item] +
-                          deltas[item].add.length -
-                          deltas[item].remove.length,
-                      )}
-                    </span>
-                  </button>
-                ),
-              )}
-            </div>
-          ) : (
-            <div className="rbac-permission-context">
-              <span className="rbac-action" data-action={object.action}>
-                {actionNames[object.action ?? ""] ?? object.action}
-              </span>
-              <span>
-                {object.scope_type === "legacy_application"
-                  ? "应用授权仍按成员原有范围生效；这里可进一步限定应用。"
-                  : `仅对明确勾选的${object.scope_type === "application" ? "应用" : object.scope_type === "management" ? "管理对象" : "资源"}生效。`}
-              </span>
-            </div>
-          )}
+          <div className="rbac-tabs" role="tablist" aria-label="角色关联类型">
+            {(["permissions", "users", "departments"] as RelationKind[]).map(
+              (item) => (
+                <button
+                  key={item}
+                  role="tab"
+                  aria-selected={tab === item}
+                  onClick={() => changeTab(item)}
+                >
+                  {labels[item]}{" "}
+                  <span>
+                    {Math.max(
+                      0,
+                      counts[item] +
+                        deltas[item].add.length -
+                        deltas[item].remove.length,
+                    )}
+                  </span>
+                </button>
+              ),
+            )}
+          </div>
           <div className="rbac-association-body">
             {tab === "users" && (
               <p className="rbac-hint">
                 勾选仅管理直接授权；部门继承在独立列只读展示，可在部门页签管理。
               </p>
-            )}
-            {kind === "permissions" && catalog.error && (
-              <div>
-                <ErrorNotice error={catalog.error} />
-                <button
-                  className="rbac-link"
-                  onClick={() => void catalog.refetch()}
-                >
-                  重试筛选选项
-                </button>
-              </div>
             )}
             {!!error && (
               <div>
@@ -291,53 +234,8 @@ export function AssociationManager({
                 onSubmit={() => setQ(q.trim())}
                 showSubmit={false}
                 label={`搜索${labels[tab]}`}
-                placeholder={
-                  tab === "resources"
-                    ? "搜索资源名称、唯一标识或地址"
-                    : `搜索${labels[tab]}名称${tab === "permissions" ? "或描述" : "或标识"}`
-                }
+                placeholder={`搜索${labels[tab]}名称${tab === "permissions" ? "或描述" : "或标识"}`}
               />
-              {tab === "permissions" && (
-                <DirectoryFilter
-                  label="操作"
-                  value={action}
-                  onChange={filter(setAction)}
-                  options={selectableActions.map((value) => ({
-                    value,
-                    label: actionNames[value],
-                  }))}
-                />
-              )}
-              {tab === "resources" && (
-                <>
-                  <DirectoryFilter
-                    label="资源类型"
-                    value={resourceKind}
-                    onChange={filter(setResourceKind)}
-                    options={Object.entries(kindLabels).map(
-                      ([value, label]) => ({ value, label }),
-                    )}
-                  />
-                  <DirectoryFilter
-                    label="所属应用"
-                    value={app}
-                    onChange={filter(setApp)}
-                    options={(catalog.data?.applications ?? []).map((a) => ({
-                      value: a.id,
-                      label: a.name,
-                    }))}
-                  />
-                  <DirectoryFilter
-                    label="部门"
-                    value={department}
-                    onChange={filter(setDepartment)}
-                    options={(catalog.data?.departments ?? []).map((t) => ({
-                      value: t.id,
-                      label: t.name,
-                    }))}
-                  />
-                </>
-              )}
               <DirectoryFilter
                 label="关联状态"
                 value={state}
@@ -362,7 +260,6 @@ export function AssociationManager({
               >
                 {onlySelected ? "查看全部" : `查看已选（${count}）`}
               </button>
-              <span>跨页保留选择</span>
               {pending > 0 && <span>有未保存的修改</span>}
             </div>
             <div
@@ -400,19 +297,10 @@ export function AssociationManager({
                         仅选本页
                       </label>
                     </th>
-                    <th>
-                      {tab === "resources" ? "资源标识" : `${labels[tab]}名称`}
-                    </th>
+                    <th>{`${labels[tab]}名称`}</th>
                     {tab === "permissions" ? (
                       <>
-                        <th>操作</th>
                         <th>资源范围</th>
-                      </>
-                    ) : tab === "resources" ? (
-                      <>
-                        <th>类型</th>
-                        <th>所属应用 / 环境</th>
-                        <th>所属部门</th>
                       </>
                     ) : tab === "users" ? (
                       <>
@@ -458,30 +346,7 @@ export function AssociationManager({
                         </td>
                         {tab === "permissions" ? (
                           <>
-                            <td>
-                              <span
-                                className="rbac-action"
-                                data-action={row.action}
-                              >
-                                {actionNames[row.action ?? ""] ??
-                                  row.action ??
-                                  "—"}
-                              </span>
-                            </td>
                             <td>{row.resource_count ?? 0} 项</td>
-                          </>
-                        ) : tab === "resources" ? (
-                          <>
-                            <td>
-                              {kindLabels[row.kind ?? ""] ?? row.kind ?? "—"}
-                            </td>
-                            <td>
-                              {row.application_name ||
-                                row.application_id ||
-                                "—"}{" "}
-                              · {row.environment || "—"}
-                            </td>
-                            <td>{row.department_name || "—"}</td>
                           </>
                         ) : tab === "users" ? (
                           <>
@@ -542,11 +407,7 @@ export function AssociationManager({
                 disabled={busy || !pending}
                 onClick={() => void save()}
               >
-                {busy
-                  ? "保存中…"
-                  : kind === "roles"
-                    ? "保存全部关联"
-                    : "保存资源关联"}
+                {busy ? "保存中…" : "保存全部关联"}
               </button>
             </div>
           </footer>

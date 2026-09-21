@@ -415,7 +415,7 @@
       "post": {
         "summary": "Create workspace user",
         "operationId": "post_users",
-        "description": "Minimum role: admin. ",
+        "description": "Minimum role: admin.  Creating an account or explicitly changing to a deleted initialization base role returns 409 base_role_unavailable. Existing account metadata edits do not recreate deleted roles.",
         "responses": {
           "201": {
             "description": "Success",
@@ -550,7 +550,7 @@
       "patch": {
         "summary": "Update account and revoke sessions",
         "operationId": "patch_users_id",
-        "description": "Minimum role: admin. Role/password/disabled changes revoke existing sessions; last active administrator cannot be removed.",
+        "description": "Minimum role: admin. Role/password/disabled changes revoke existing sessions; last active administrator cannot be removed. Creating an account or explicitly changing to a deleted initialization base role returns 409 base_role_unavailable. Existing account metadata edits do not recreate deleted roles.",
         "responses": {
           "200": {
             "description": "Success",
@@ -13726,7 +13726,7 @@
       "patch": {
         "summary": "Update roles",
         "operationId": "patch_rbac_roles_id",
-        "description": "Minimum role: viewer. Built-in records are protected. Permission action and scope_type are immutable after creation. Revision conflicts return 409.",
+        "description": "Minimum role: viewer. Initialization-provided roles and permissions are editable like custom records. Permissions have no intrinsic operations or targets; resource bindings carry operations. Revision conflicts return 409.",
         "responses": {
           "200": {
             "description": "Success",
@@ -13850,9 +13850,9 @@
         }
       },
       "delete": {
-        "summary": "Delete unreferenced roles",
+        "summary": "Delete roles",
         "operationId": "delete_rbac_roles_id",
-        "description": "Minimum role: viewer. Built-ins and dependencies return 409. Roles must have no permissions/users/departments. Referenced permissions cannot be deleted.",
+        "description": "Minimum role: viewer. Initialization-provided records are deletable. Deletion atomically removes associations without deleting related users, departments, roles, permissions or resources. Referencing roles receive a new revision when a permission is deleted. Authorization is rechecked and the last enabled RBAC manager is protected with 409 last_rbac_manager.",
         "responses": {
           "200": {
             "description": "Success",
@@ -14227,29 +14227,11 @@
                   "description": {
                     "type": "string",
                     "maxLength": 2000
-                  },
-                  "action": {
-                    "type": "string",
-                    "enum": [
-                      "view",
-                      "update",
-                      "approve",
-                      "delete"
-                    ]
-                  },
-                  "scope_type": {
-                    "type": "string",
-                    "enum": [
-                      "resource",
-                      "application"
-                    ]
                   }
                 },
                 "additionalProperties": false,
                 "required": [
-                  "name",
-                  "action",
-                  "scope_type"
+                  "name"
                 ]
               }
             }
@@ -14356,7 +14338,7 @@
       "patch": {
         "summary": "Update permissions",
         "operationId": "patch_rbac_permissions_id",
-        "description": "Minimum role: viewer. Built-in records are protected. Permission action and scope_type are immutable after creation. Revision conflicts return 409.",
+        "description": "Minimum role: viewer. Initialization-provided roles and permissions are editable like custom records. Permissions have no intrinsic operations or targets; resource bindings carry operations. Revision conflicts return 409.",
         "responses": {
           "200": {
             "description": "Success",
@@ -14464,26 +14446,6 @@
                     "type": "string",
                     "maxLength": 2000
                   },
-                  "action": {
-                    "type": "string",
-                    "enum": [
-                      "view",
-                      "update",
-                      "delete",
-                      "investigate",
-                      "approve",
-                      "execute",
-                      "manage"
-                    ]
-                  },
-                  "scope_type": {
-                    "type": "string",
-                    "enum": [
-                      "resource",
-                      "application",
-                      "management"
-                    ]
-                  },
                   "revision": {
                     "type": "integer",
                     "minimum": 1
@@ -14492,9 +14454,7 @@
                 "additionalProperties": false,
                 "required": [
                   "name",
-                  "revision",
-                  "action",
-                  "scope_type"
+                  "revision"
                 ]
               }
             }
@@ -14502,9 +14462,9 @@
         }
       },
       "delete": {
-        "summary": "Delete unreferenced permissions",
+        "summary": "Delete permissions",
         "operationId": "delete_rbac_permissions_id",
-        "description": "Minimum role: viewer. Built-ins and dependencies return 409. Roles must have no permissions/users/departments. Referenced permissions cannot be deleted.",
+        "description": "Minimum role: viewer. Initialization-provided records are deletable. Deletion atomically removes associations without deleting related users, departments, roles, permissions or resources. Referencing roles receive a new revision when a permission is deleted. Authorization is rechecked and the last enabled RBAC manager is protected with 409 last_rbac_manager.",
         "responses": {
           "200": {
             "description": "Success",
@@ -14718,7 +14678,7 @@
       "get": {
         "summary": "Read selectable permission actions and filter metadata",
         "operationId": "get_rbac_catalog",
-        "description": "Minimum role: viewer. New permissions offer view, update, approve and delete. Existing investigate, execute and manage permissions remain readable and retain their runtime meaning.",
+        "description": "Minimum role: viewer. Resource associations offer view, update, approve and delete, subject to each target available_actions. An empty permission has no operations or grants. Existing historical binding actions retain their runtime meaning.",
         "responses": {
           "200": {
             "description": "Success",
@@ -14737,16 +14697,12 @@
                           },
                           "name": {
                             "type": "string"
-                          },
-                          "scope_type": {
-                            "type": "string"
                           }
                         },
                         "additionalProperties": false,
                         "required": [
                           "id",
-                          "name",
-                          "scope_type"
+                          "name"
                         ]
                       }
                     },
@@ -15118,358 +15074,11 @@
         ]
       }
     },
-    "/rbac/permissions/{id}/resources": {
-      "get": {
-        "summary": "Search association candidates",
-        "operationId": "get_rbac_permissions_id_resources",
-        "description": "Minimum role: viewer. Server count/search/filters precede LIMIT. selected is stored direct association. selected=yes/no filters projected direct selection including add_ids/remove_ids (comma-separated or repeated), leaving inherited source read-only. Mock resources retain is_mock; mock identities are excluded. User candidates with locked=true are account-managed base memberships; lock_reason explains how to change them.",
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "items": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/RBACCandidate"
-                      }
-                    },
-                    "total": {
-                      "type": "integer",
-                      "minimum": 0
-                    },
-                    "page": {
-                      "type": "integer",
-                      "minimum": 1
-                    },
-                    "page_size": {
-                      "type": "integer",
-                      "minimum": 1,
-                      "maximum": 100
-                    },
-                    "revision": {
-                      "type": "integer",
-                      "minimum": 1
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "items",
-                    "total",
-                    "page",
-                    "page_size",
-                    "revision"
-                  ]
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentication required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden or cross-origin request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict or stale version",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Invalid input",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Dependency unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "rbac"
-        ],
-        "security": [
-          {
-            "sessionCookie": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "q",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "page",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 1000000,
-              "default": 1
-            }
-          },
-          {
-            "name": "page_size",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 100,
-              "default": 10
-            }
-          },
-          {
-            "name": "selected",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "action",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "scope_type",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "kind",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "type",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "application_id",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "department_id",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "add_ids",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "remove_ids",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ]
-      },
-      "put": {
-        "summary": "Atomically apply explicit scope targets",
-        "operationId": "put_rbac_permissions_id_resources",
-        "description": "Minimum role: viewer. Built-in and custom permissions can manage associations. Targets must exist in the permission scope type; unknown IDs reject the entire delta. A legacy_acl permission freezes the current application candidates on first save and applies the delta, then uses explicit mode; effective access is still intersected with each member original application ACL. Authorization is rechecked and the last enabled RBAC manager is protected. Stale revisions return 409.",
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RBACPermission"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentication required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden or cross-origin request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict or stale version",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Invalid input",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Dependency unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "rbac"
-        ],
-        "security": [
-          {
-            "sessionCookie": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "revision": {
-                    "type": "integer",
-                    "minimum": 1
-                  },
-                  "add": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "remove": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "revision"
-                ]
-              }
-            }
-          }
-        }
-      }
-    },
     "/rbac/roles/{id}/associations": {
       "put": {
         "summary": "Atomically apply permission, user and department deltas",
         "operationId": "put_rbac_roles_id_associations",
-        "description": "Minimum role: viewer. All three tabs commit together, with audit, including built-in roles. Account-managed base user memberships are locked and return 409 legacy_role_membership. Legacy application permissions can only bind to built-in roles. Unknown IDs and conflicting add/remove are rejected. Authorization is rechecked in the transaction; at least one enabled RBAC manager must remain, otherwise 409 last_rbac_manager. A stale revision returns 409; no partial replacement from visible pages.",
+        "description": "Minimum role: viewer. All three tabs commit together, with audit, including built-in roles. Account-managed base user memberships are locked and return 409 legacy_role_membership. Unknown IDs and conflicting add/remove are rejected. Authorization is rechecked in the transaction; at least one enabled RBAC manager must remain, otherwise 409 last_rbac_manager. A stale revision returns 409; no partial replacement from visible pages.",
         "responses": {
           "200": {
             "description": "Success",
@@ -15579,6 +15188,393 @@
                   },
                   "departments": {
                     "$ref": "#/components/schemas/RBACDelta"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "revision"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rbac/permissions/{id}/resource-tree": {
+      "get": {
+        "summary": "Search resources grouped by type",
+        "operationId": "get_rbac_permissions_id_resource_tree",
+        "description": "Minimum role: viewer. Groups contain concrete resource leaves and their assigned/available operations. Search and expand/load-more do not grant access. Scope type and resource ID together identify each target; legacy application and management groups expose only existing historical bindings.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RBACResourceTree"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "rbac"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ]
+      }
+    },
+    "/rbac/permissions/{id}/resources": {
+      "get": {
+        "summary": "Resource tree compatibility alias",
+        "operationId": "get_rbac_permissions_id_resources",
+        "description": "Minimum role: viewer. Alias of resource-tree, returns groups instead of the former paginated candidate table.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RBACResourceTree"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "rbac"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ]
+      },
+      "put": {
+        "summary": "Atomically edit resource operation bindings",
+        "operationId": "put_rbac_permissions_id_resources",
+        "description": "Minimum role: viewer. Each upsert replaces operations only for the supplied concrete scope/resource pair. Remove deletes that pair. Unmentioned targets are unchanged. New actions must belong to available_actions; historical actions can only be retained from an existing binding. No bindings means no operations or authorization. Built-in permissions can manage bindings. Authorization, revision and last enabled RBAC manager checks apply atomically. Legacy application bindings remain intersected with the member original application ACL.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RBACPermission"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "rbac"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "upsert": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/RBACResourceBinding"
+                    }
+                  },
+                  "remove": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/RBACResourceTarget"
+                    }
                   }
                 },
                 "additionalProperties": false,
@@ -19224,12 +19220,6 @@
           "description": {
             "type": "string"
           },
-          "action": {
-            "type": "string"
-          },
-          "scope_type": {
-            "type": "string"
-          },
           "builtin": {
             "type": "boolean"
           },
@@ -19240,14 +19230,6 @@
           "resource_count": {
             "type": "integer",
             "minimum": 0
-          },
-          "resource_scope_mode": {
-            "type": "string",
-            "enum": [
-              "explicit",
-              "legacy_acl"
-            ],
-            "description": "Legacy ACL mode preserves the original per-member application ACL; saving associations freezes explicit application targets that further restrict that ACL."
           }
         },
         "additionalProperties": false,
@@ -19255,12 +19237,9 @@
           "id",
           "name",
           "description",
-          "action",
-          "scope_type",
           "builtin",
           "revision",
-          "resource_count",
-          "resource_scope_mode"
+          "resource_count"
         ]
       },
       "RBACDelta": {
@@ -19356,6 +19335,152 @@
           "is_mock",
           "source_departments",
           "resource_count"
+        ]
+      },
+      "RBACResourceTarget": {
+        "type": "object",
+        "properties": {
+          "resource_id": {
+            "type": "string"
+          },
+          "scope_type": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "resource_id",
+          "scope_type"
+        ]
+      },
+      "RBACResourceBinding": {
+        "type": "object",
+        "properties": {
+          "resource_id": {
+            "type": "string"
+          },
+          "scope_type": {
+            "type": "string"
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "resource_id",
+          "scope_type",
+          "actions"
+        ]
+      },
+      "RBACResourceTreeItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scope_type": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "assigned_actions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "available_actions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "is_mock": {
+            "type": "boolean"
+          },
+          "missing": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "scope_type",
+          "kind",
+          "description",
+          "assigned_actions",
+          "available_actions",
+          "is_mock",
+          "missing"
+        ]
+      },
+      "RBACResourceTreeGroup": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RBACResourceTreeItem"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "label",
+          "total",
+          "offset",
+          "has_more",
+          "items"
+        ]
+      },
+      "RBACResourceTree": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RBACResourceTreeGroup"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "groups"
         ]
       }
     },

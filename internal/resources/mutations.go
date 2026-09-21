@@ -61,9 +61,9 @@ func (s *Service) registerMutations(api *httpapi.Server) {
 					httpapi.Error(w, 409, "resource_managed", "Only manually registered resources can be deleted")
 					return
 				}
-				_, e = tx.Exec(ctx, `UPDATE rbac_permissions SET revision=revision+1 WHERE scope_type='resource' AND id IN (SELECT permission_id FROM rbac_permission_resources WHERE resource_id=$1)`, r.PathValue("id"))
+				_, e = tx.Exec(ctx, `UPDATE rbac_permissions SET revision=revision+1 WHERE id IN (SELECT permission_id FROM rbac_permission_resources WHERE scope_type='resource' AND resource_id=$1)`, r.PathValue("id"))
 				if e == nil {
-					_, e = tx.Exec(ctx, `DELETE FROM rbac_permission_resources x USING rbac_permissions p WHERE p.id=x.permission_id AND p.scope_type='resource' AND x.resource_id=$1`, r.PathValue("id"))
+					_, e = tx.Exec(ctx, `DELETE FROM rbac_permission_resources WHERE scope_type='resource' AND resource_id=$1`, r.PathValue("id"))
 				}
 				if e == nil {
 					_, e = tx.Exec(ctx, "DELETE FROM cmdb_resources WHERE id=$1", r.PathValue("id"))

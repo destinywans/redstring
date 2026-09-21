@@ -49,6 +49,11 @@ func (s *Store) Bootstrap(ctx context.Context, email, password string) error {
 	_, e := s.DB.Exec(ctx, "INSERT INTO users(id,email,name,role,password_hash) VALUES($1,$2,'Administrator','admin',$3) ON CONFLICT(email) DO NOTHING", ID(), strings.ToLower(email), PasswordHash(password))
 	return e
 }
+
+// Legacy-only modules use this rank. A deleted base role cannot retain implicit
+// admin/operator privileges; explicit RBAC grants continue to be checked separately.
+const sessionLegacyRole = `CASE WHEN EXISTS(SELECT 1 FROM rbac_user_roles ur WHERE ur.user_id=u.id AND ur.role_id=u.role) THEN u.role ELSE 'viewer' END`
+
 func (s *Store) Login(ctx context.Context, email, password string) (core.User, string, error) {
 	var u core.User
 	var hash string
@@ -59,7 +64,7 @@ func (s *Store) Login(ctx context.Context, email, password string) (core.User, s
 	defer tx.Rollback(ctx)
 	// Serialize login with password changes: a revoked password cannot create
 	// a session after the password-changing transaction has invalidated sessions.
-	e = tx.QueryRow(ctx, "SELECT id,email,name,role,password_hash FROM users WHERE email=$1 AND NOT disabled FOR UPDATE", strings.ToLower(email)).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &hash)
+	e = tx.QueryRow(ctx, "SELECT u.id,u.email,u.name,"+sessionLegacyRole+",u.password_hash FROM users u WHERE u.email=$1 AND NOT u.disabled FOR UPDATE OF u", strings.ToLower(email)).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &hash)
 	if e != nil || !CheckPassword(password, hash) {
 		return u, "", ErrNotFound
 	}
@@ -74,7 +79,7 @@ func (s *Store) Login(ctx context.Context, email, password string) (core.User, s
 }
 func (s *Store) Session(ctx context.Context, token string) (core.User, error) {
 	var u core.User
-	e := s.DB.QueryRow(ctx, "SELECT u.id,u.email,u.name,u.role FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND NOT u.disabled", Hash(token)).Scan(&u.ID, &u.Email, &u.Name, &u.Role)
+	e := s.DB.QueryRow(ctx, "SELECT u.id,u.email,u.name,"+sessionLegacyRole+" FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND NOT u.disabled", Hash(token)).Scan(&u.ID, &u.Email, &u.Name, &u.Role)
 	return u, e
 }
 func (s *Store) Applications(ctx context.Context) ([]core.Application, error) {

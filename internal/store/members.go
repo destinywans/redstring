@@ -134,7 +134,10 @@ func (s *Store) CreateMember(ctx context.Context, v MemberCreate) (Member, error
 		return Member{}, e
 	}
 	var grantsPrivilegedRole bool
-	if e = tx.QueryRow(ctx, `SELECT $1<>'viewer' OR EXISTS(SELECT 1 FROM rbac_role_permissions rp JOIN rbac_permissions p ON p.id=rp.permission_id WHERE rp.role_id=$1 AND NOT (p.action='view' AND p.scope_type='legacy_application'))`, v.Role).Scan(&grantsPrivilegedRole); e != nil {
+	if e = requireBaseRole(ctx, tx, v.Role); e != nil {
+		return Member{}, e
+	}
+	if e = tx.QueryRow(ctx, `SELECT $1<>'viewer' OR EXISTS(SELECT 1 FROM rbac_role_permissions rp JOIN rbac_permission_resources p ON p.permission_id=rp.permission_id WHERE rp.role_id=$1 AND NOT (p.action='view' AND p.scope_type='legacy_application'))`, v.Role).Scan(&grantsPrivilegedRole); e != nil {
 		return Member{}, e
 	}
 	if grantsPrivilegedRole {
@@ -170,6 +173,11 @@ func (s *Store) UpdateMember(ctx context.Context, id string, v MemberUpdate) (Me
 		return m, e
 	}
 	oldRole, oldDisabled := m.Role, m.Disabled
+	if v.Role != nil {
+		if e = requireBaseRole(ctx, tx, *v.Role); e != nil {
+			return m, e
+		}
+	}
 	if v.Role != nil && *v.Role != m.Role {
 		if e = authorizeIdentityGrant(ctx, tx); e != nil {
 			return m, e
@@ -463,5 +471,5 @@ func authorizeIdentityGrant(ctx context.Context, tx pgx.Tx) error {
 func privilegedIdentity(ctx context.Context, tx pgx.Tx, id string) pgx.Row {
 	// Include additional grants even for disabled accounts. Built-in viewer is now
 	// editable and cannot be assumed to remain read-only when protecting credentials.
-	return tx.QueryRow(ctx, `SELECT role<>'viewer' OR EXISTS(SELECT 1 FROM rbac_user_roles WHERE user_id=$1 AND role_id<>'viewer') OR EXISTS(SELECT 1 FROM rbac_department_roles WHERE department_id=users.department_id) OR EXISTS(SELECT 1 FROM rbac_role_permissions rp JOIN rbac_permissions p ON p.id=rp.permission_id WHERE NOT (p.action='view' AND p.scope_type='legacy_application') AND (rp.role_id=users.role OR rp.role_id IN (SELECT role_id FROM rbac_user_roles WHERE user_id=$1))) FROM users WHERE id=$1`, id)
+	return tx.QueryRow(ctx, `SELECT role<>'viewer' OR EXISTS(SELECT 1 FROM rbac_user_roles WHERE user_id=$1 AND role_id<>'viewer') OR EXISTS(SELECT 1 FROM rbac_department_roles WHERE department_id=users.department_id) OR EXISTS(SELECT 1 FROM rbac_role_permissions rp JOIN rbac_permission_resources p ON p.permission_id=rp.permission_id WHERE NOT (p.action='view' AND p.scope_type='legacy_application') AND (rp.role_id=users.role OR rp.role_id IN (SELECT role_id FROM rbac_user_roles WHERE user_id=$1))) FROM users WHERE id=$1`, id)
 }

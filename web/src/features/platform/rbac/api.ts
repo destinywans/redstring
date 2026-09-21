@@ -8,13 +8,10 @@ export type RbacObject = {
   description: string;
   builtin: boolean;
   revision: number;
-  action?: string;
-  scope_type?: string;
   permission_count?: number;
   user_count?: number;
   department_count?: number;
   resource_count?: number;
-  resource_scope_mode?: "explicit" | "legacy_acl";
 };
 export type Candidate = {
   id: string;
@@ -26,8 +23,6 @@ export type Candidate = {
   lock_reason?: string;
   is_mock?: boolean;
   source_departments?: string[];
-  action?: string;
-  scope_type?: string;
   resource_count?: number;
   email?: string;
   kind?: string;

@@ -279,6 +279,51 @@ textarea.field {
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
+/* Closing remains discoverable before hover; retain each overlay's button size. */
+.ui-sheet .ui-overlay-close,
+.dialog-content .ui-overlay-close {
+  box-sizing: border-box;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--muted) 30%, var(--border));
+  border-radius: 7px;
+  background: var(--panel-soft, var(--bg));
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    background-color 60ms ease-out,
+    border-color 60ms ease-out,
+    color 60ms ease-out;
+}
+.ui-sheet .ui-overlay-close:hover:not(:disabled),
+.dialog-content .ui-overlay-close:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.ui-sheet .ui-overlay-close:active:not(:disabled),
+.dialog-content .ui-overlay-close:active:not(:disabled) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel));
+  color: var(--accent);
+  transition: none;
+}
+.ui-sheet .ui-overlay-close:focus-visible,
+.dialog-content .ui-overlay-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  box-shadow: none;
+}
+.ui-sheet .ui-overlay-close:disabled,
+.dialog-content .ui-overlay-close:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-sheet .ui-overlay-close,
+  .dialog-content .ui-overlay-close {
+    transition: none;
+  }
+}
 .ui-sheet-body {
   flex: 1 1 auto;
   min-height: 0;

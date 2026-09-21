@@ -81,8 +81,12 @@ export function Modal({
               {description}
             </Dialog.Description>
           )}
-          <Dialog.Close className="icon-button dialog-close" aria-label="关闭">
-            <X size={18} />
+          <Dialog.Close
+            className="icon-button dialog-close ui-overlay-close"
+            aria-label="关闭"
+            title="关闭"
+          >
+            <X size={18} aria-hidden="true" />
           </Dialog.Close>
           {children}
         </Dialog.Content>

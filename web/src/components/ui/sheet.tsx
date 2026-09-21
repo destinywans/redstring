@@ -83,10 +83,12 @@ export function Sheet({
               <Button
                 variant="ghost"
                 size="icon"
+                className="ui-overlay-close"
                 aria-label={closeLabel}
+                title={closeLabel}
                 disabled={closeDisabled}
               >
-                <X size={18} />
+                <X size={18} aria-hidden="true" />
               </Button>
             </Dialog.Close>
           </header>

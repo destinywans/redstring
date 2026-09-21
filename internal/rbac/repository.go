@@ -13,11 +13,13 @@ import (
 
 var ErrProtected = errors.New("protected built-in or dependent record")
 var ErrRoleNameConflict = errors.New("role name already exists")
+var ErrPermissionNameConflict = errors.New("permission name already exists")
 var ErrLegacyMembership = errors.New("base role membership is maintained by member management")
 var ErrLastManager = store.ErrLastRBACManager
 
 const roleSelect = `SELECT r.id,r.name,r.description,r.builtin,r.revision,(SELECT count(*) FROM rbac_role_permissions WHERE role_id=r.id),(SELECT count(*) FROM rbac_user_roles WHERE role_id=r.id),(SELECT count(*) FROM rbac_department_roles WHERE role_id=r.id) FROM rbac_roles r`
-const permissionSelect = `SELECT p.id,p.name,p.description,p.action,p.scope_type,p.builtin,p.revision,(SELECT count(*) FROM rbac_permission_resources WHERE permission_id=p.id) FROM rbac_permissions p`
+const permissionResourceCount = `CASE WHEN p.scope_type='legacy_application' AND p.resource_scope_mode='legacy_acl' THEN (SELECT count(*) FROM applications) ELSE (SELECT count(*) FROM rbac_permission_resources WHERE permission_id=p.id) END`
+const permissionSelect = `SELECT p.id,p.name,p.description,p.action,p.scope_type,p.builtin,p.revision,` + permissionResourceCount + `,p.resource_scope_mode FROM rbac_permissions p`
 
 func scanRole(row pgx.Row) (Role, error) {
 	var v Role
@@ -26,7 +28,7 @@ func scanRole(row pgx.Row) (Role, error) {
 }
 func scanPermission(row pgx.Row) (Permission, error) {
 	var v Permission
-	e := row.Scan(&v.ID, &v.Name, &v.Description, &v.Action, &v.ScopeType, &v.Builtin, &v.Revision, &v.ResourceCount)
+	e := row.Scan(&v.ID, &v.Name, &v.Description, &v.Action, &v.ScopeType, &v.Builtin, &v.Revision, &v.ResourceCount, &v.ResourceScopeMode)
 	return v, store.ClassifyError(e)
 }
 func (s *Service) Role(ctx context.Context, id string) (Role, error) {
@@ -39,8 +41,16 @@ func validName(n, d string) bool {
 	return strings.TrimSpace(n) != "" && utf8.RuneCountInString(n) <= 200 && utf8.RuneCountInString(d) <= 2000
 }
 func validPermission(p Permission) bool {
-	for _, a := range Actions {
+	for _, a := range ExistingActions {
 		if a["id"] == p.Action && a["scope_type"] == p.ScopeType {
+			return validName(p.Name, p.Description)
+		}
+	}
+	return false
+}
+func creatablePermission(p Permission) bool {
+	for _, action := range Actions {
+		if action["id"] == p.Action && action["scope_type"] == p.ScopeType {
 			return validName(p.Name, p.Description)
 		}
 	}
@@ -152,6 +162,10 @@ func (s *Service) SavePermission(ctx context.Context, v Permission) (Permission,
 		_, e = tx.Exec(ctx, "UPDATE rbac_permissions SET name=$2,description=$3,revision=revision+1 WHERE id=$1", v.ID, strings.TrimSpace(v.Name), v.Description)
 	}
 	if e != nil {
+		var pe *pgconn.PgError
+		if errors.As(e, &pe) && pe.Code == "23505" && pe.ConstraintName == "rbac_permissions_name_key" {
+			return v, ErrPermissionNameConflict
+		}
 		return v, store.ClassifyError(e)
 	}
 	if e = audit(ctx, tx, "rbac.permission.saved", v.ID, v); e != nil {
@@ -305,12 +319,22 @@ func (s *Service) SaveResources(ctx context.Context, id string, in ResourceDelta
 	if _, e = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(752018994)"); e != nil {
 		return Permission{}, e
 	}
-	if e = lock(ctx, tx, "rbac_permissions", id, in.Revision); e != nil {
+	if e = lockRecord(ctx, tx, "rbac_permissions", id, in.Revision, true); e != nil {
 		return Permission{}, e
 	}
-	var scope string
-	if e = tx.QueryRow(ctx, "SELECT scope_type FROM rbac_permissions WHERE id=$1", id).Scan(&scope); e != nil {
+	var scope, mode string
+	if e = tx.QueryRow(ctx, "SELECT scope_type,resource_scope_mode FROM rbac_permissions WHERE id=$1", id).Scan(&scope, &mode); e != nil {
 		return Permission{}, e
+	}
+	if scope == "legacy_application" && mode == "legacy_acl" {
+		// The first explicit edit freezes the displayed application candidates.
+		// Evaluation still intersects these IDs with each member's original ACL.
+		if _, e = tx.Exec(ctx, "INSERT INTO rbac_permission_resources(permission_id,resource_id) SELECT $1,id FROM applications ON CONFLICT DO NOTHING", id); e != nil {
+			return Permission{}, e
+		}
+		if _, e = tx.Exec(ctx, "UPDATE rbac_permissions SET resource_scope_mode='explicit' WHERE id=$1", id); e != nil {
+			return Permission{}, e
+		}
 	}
 	for _, list := range [][]string{in.Add} {
 		for _, target := range list {

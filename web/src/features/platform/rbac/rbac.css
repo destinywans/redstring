@@ -297,8 +297,7 @@
   font-weight: 600;
   margin: 0 0 16px;
 }
-.rbac-card-associations,
-.rbac-scope-summary {
+.rbac-card-associations {
   padding: 18px;
   background: var(--panel-soft);
   border: 1px solid var(--border);
@@ -308,19 +307,6 @@
   display: block;
   margin-top: 10px;
   color: var(--muted);
-}
-.rbac-scope-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.rbac-scope-summary span,
-.rbac-scope-summary small {
-  font-size: 13px;
-  color: var(--muted);
-}
-.rbac-scope-summary strong {
-  font-weight: 400;
 }
 .rbac-summary-counts {
   display: flex;
@@ -346,24 +332,11 @@
 .rbac-card-footer .directory-danger {
   margin-right: auto;
 }
-.rbac-delete-confirm {
-  background: var(--panel-soft);
-  padding: 14px 22px;
-  border: 1px solid var(--border);
-  font-size: 14px;
-}
-.rbac-delete-confirm .btn + .btn {
-  margin-left: 10px;
-}
 .rbac-row-actions {
   display: flex;
   align-items: center;
   gap: 14px;
   white-space: nowrap;
-}
-.rbac-origin {
-  font-size: 13px;
-  color: var(--muted);
 }
 .rbac-list-table .directory-name {
   display: flex;

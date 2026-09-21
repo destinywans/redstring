@@ -14,6 +14,7 @@ export type RbacObject = {
   user_count?: number;
   department_count?: number;
   resource_count?: number;
+  resource_scope_mode?: "explicit" | "legacy_acl";
 };
 export type Candidate = {
   id: string;
@@ -54,13 +55,19 @@ export const emptyDeltas = (): Deltas => ({
 });
 export const actionNames: Record<string, string> = {
   view: "查看",
-  update: "更改",
+  update: "变更",
   delete: "删除",
   investigate: "调查",
   approve: "审批",
   execute: "执行",
   manage: "管理",
 };
+export const selectableActions = [
+  "view",
+  "update",
+  "approve",
+  "delete",
+] as const;
 export const scopeNames: Record<string, string> = {
   resource: "资源操作",
   application: "平台能力 · 应用范围",
@@ -84,6 +91,8 @@ export const getPage = <T>(
 export function rbacError(error: unknown) {
   if (error instanceof ApiError && error.code === "role_name_conflict")
     return new Error("角色名称已存在，请使用其他名称。");
+  if (error instanceof ApiError && error.code === "permission_name_conflict")
+    return new Error("权限名称已存在，请使用其他名称。");
   if (
     error instanceof ApiError &&
     ["legacy_role_membership", "last_rbac_manager"].includes(error.code)

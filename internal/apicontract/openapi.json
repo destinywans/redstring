@@ -14221,7 +14221,8 @@
                   "name": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 200
+                    "maxLength": 200,
+                    "description": "Unique permission name after trimming outer whitespace. Duplicate names return 409 permission_name_conflict. Internal stable IDs are not user-entered identifiers."
                   },
                   "description": {
                     "type": "string",
@@ -14232,19 +14233,15 @@
                     "enum": [
                       "view",
                       "update",
-                      "delete",
-                      "investigate",
                       "approve",
-                      "execute",
-                      "manage"
+                      "delete"
                     ]
                   },
                   "scope_type": {
                     "type": "string",
                     "enum": [
                       "resource",
-                      "application",
-                      "management"
+                      "application"
                     ]
                   }
                 },
@@ -14460,7 +14457,8 @@
                   "name": {
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 200
+                    "maxLength": 200,
+                    "description": "Unique permission name after trimming outer whitespace. Duplicate names return 409 permission_name_conflict. Internal stable IDs are not user-entered identifiers."
                   },
                   "description": {
                     "type": "string",
@@ -14718,9 +14716,9 @@
     },
     "/rbac/catalog": {
       "get": {
-        "summary": "Read fixed supported actions and filter metadata",
+        "summary": "Read selectable permission actions and filter metadata",
         "operationId": "get_rbac_catalog",
-        "description": "Minimum role: viewer. ",
+        "description": "Minimum role: viewer. New permissions offer view, update, approve and delete. Existing investigate, execute and manage permissions remain readable and retain their runtime meaning.",
         "responses": {
           "200": {
             "description": "Success",
@@ -15342,7 +15340,7 @@
       "put": {
         "summary": "Atomically apply explicit scope targets",
         "operationId": "put_rbac_permissions_id_resources",
-        "description": "Minimum role: viewer. Targets must exist in the permission scope type. Unknown IDs reject the entire delta. Built-ins protected; stale revision returns 409.",
+        "description": "Minimum role: viewer. Built-in and custom permissions can manage associations. Targets must exist in the permission scope type; unknown IDs reject the entire delta. A legacy_acl permission freezes the current application candidates on first save and applies the delta, then uses explicit mode; effective access is still intersected with each member original application ACL. Authorization is rechecked and the last enabled RBAC manager is protected. Stale revisions return 409.",
         "responses": {
           "200": {
             "description": "Success",
@@ -19242,6 +19240,14 @@
           "resource_count": {
             "type": "integer",
             "minimum": 0
+          },
+          "resource_scope_mode": {
+            "type": "string",
+            "enum": [
+              "explicit",
+              "legacy_acl"
+            ],
+            "description": "Legacy ACL mode preserves the original per-member application ACL; saving associations freezes explicit application targets that further restrict that ACL."
           }
         },
         "additionalProperties": false,
@@ -19253,7 +19259,8 @@
           "scope_type",
           "builtin",
           "revision",
-          "resource_count"
+          "resource_count",
+          "resource_scope_mode"
         ]
       },
       "RBACDelta": {

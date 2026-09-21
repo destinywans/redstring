@@ -15,14 +15,15 @@ type Role struct {
 	DepartmentCount int    `json:"department_count"`
 }
 type Permission struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	Action        string `json:"action"`
-	ScopeType     string `json:"scope_type"`
-	Builtin       bool   `json:"builtin"`
-	Revision      int64  `json:"revision"`
-	ResourceCount int    `json:"resource_count"`
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	Description       string `json:"description"`
+	Action            string `json:"action"`
+	ScopeType         string `json:"scope_type"`
+	Builtin           bool   `json:"builtin"`
+	Revision          int64  `json:"revision"`
+	ResourceCount     int    `json:"resource_count"`
+	ResourceScopeMode string `json:"resource_scope_mode"`
 }
 type Delta struct {
 	Add    []string `json:"add"`
@@ -61,4 +62,8 @@ type Candidate struct {
 }
 
 var ManagementObjects = []map[string]string{{"id": "rbac", "name": "角色与权限"}, {"id": "users", "name": "成员账户"}, {"id": "teams", "name": "部门"}, {"id": "settings", "name": "平台设置"}, {"id": "applications", "name": "应用目录"}, {"id": "resources", "name": "资源登记"}, {"id": "audit", "name": "审计记录"}}
-var Actions = []map[string]string{{"id": "view", "name": "查看资源", "scope_type": "resource"}, {"id": "update", "name": "修改资源资料", "scope_type": "resource"}, {"id": "delete", "name": "删除人工资源", "scope_type": "resource"}, {"id": "investigate", "name": "调查", "scope_type": "application"}, {"id": "approve", "name": "审批", "scope_type": "application"}, {"id": "execute", "name": "执行已批准动作", "scope_type": "application"}, {"id": "manage", "name": "管理指定对象", "scope_type": "management"}}
+
+// Actions is the public creation catalog. Existing records retain their precise
+// runtime action rather than being relabeled as one of these four operations.
+var Actions = []map[string]string{{"id": "view", "name": "查看", "scope_type": "resource"}, {"id": "update", "name": "变更", "scope_type": "resource"}, {"id": "approve", "name": "审批", "scope_type": "application"}, {"id": "delete", "name": "删除", "scope_type": "resource"}}
+var ExistingActions = append(append([]map[string]string{}, Actions...), []map[string]string{{"id": "investigate", "name": "调查", "scope_type": "application"}, {"id": "execute", "name": "执行", "scope_type": "application"}, {"id": "manage", "name": "管理", "scope_type": "management"}}...)

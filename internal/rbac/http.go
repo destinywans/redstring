@@ -18,6 +18,8 @@ func respond(w http.ResponseWriter, v any, e error) {
 	switch {
 	case errors.Is(e, ErrRoleNameConflict):
 		httpapi.Error(w, 409, "role_name_conflict", "角色名称已存在，请使用其他名称。")
+	case errors.Is(e, ErrPermissionNameConflict):
+		httpapi.Error(w, 409, "permission_name_conflict", "权限名称已存在，请使用其他名称。")
 	case errors.Is(e, ErrLegacyMembership):
 		httpapi.Error(w, 409, "legacy_role_membership", "此用户的基础角色由成员管理维护，请在成员管理中调整。")
 	case errors.Is(e, ErrLastManager):
@@ -148,6 +150,10 @@ func (s *Service) Register(api *httpapi.Server) {
 					return
 				}
 				v.ID = r.PathValue("id")
+				if v.ID == "" && !creatablePermission(v) {
+					respond(w, nil, store.ErrInvalidReference)
+					return
+				}
 				v, e := s.SavePermission(r.Context(), v)
 				respond(w, v, e)
 			}
@@ -271,7 +277,7 @@ func (s *Service) candidates(w http.ResponseWriter, r *http.Request) {
 		rev = v.Revision
 		switch kind {
 		case "permissions":
-			source = `SELECT p.id,p.name,p.description,EXISTS(SELECT 1 FROM rbac_role_permissions x WHERE x.role_id=$1 AND x.permission_id=p.id) selected,false inherited,'[]'::jsonb source_departments,'' email,p.action,p.scope_type,'' kind,'' application_id,'' application_name,'' environment,'' department_id,'' department_name,(SELECT count(*) FROM rbac_permission_resources WHERE permission_id=p.id) resource_count FROM rbac_permissions p WHERE (p.scope_type<>'legacy_application' OR EXISTS(SELECT 1 FROM rbac_roles r WHERE r.id=$1 AND r.builtin) OR EXISTS(SELECT 1 FROM rbac_role_permissions x WHERE x.role_id=$1 AND x.permission_id=p.id))`
+			source = `SELECT p.id,p.name,p.description,EXISTS(SELECT 1 FROM rbac_role_permissions x WHERE x.role_id=$1 AND x.permission_id=p.id) selected,false inherited,'[]'::jsonb source_departments,'' email,p.action,p.scope_type,'' kind,'' application_id,'' application_name,'' environment,'' department_id,'' department_name,` + permissionResourceCount + ` resource_count FROM rbac_permissions p WHERE (p.scope_type<>'legacy_application' OR EXISTS(SELECT 1 FROM rbac_roles r WHERE r.id=$1 AND r.builtin) OR EXISTS(SELECT 1 FROM rbac_role_permissions x WHERE x.role_id=$1 AND x.permission_id=p.id))`
 		case "users":
 			source = `SELECT u.id,u.name,CASE WHEN u.deleted_at IS NULL THEN '' ELSE '已删除账户，仅可移除已有授权' END description,EXISTS(SELECT 1 FROM rbac_user_roles x WHERE x.role_id=$1 AND x.user_id=u.id) selected,EXISTS(SELECT 1 FROM rbac_department_roles x WHERE x.role_id=$1 AND x.department_id=u.department_id) inherited,COALESCE((SELECT jsonb_agg(t.name) FROM teams t JOIN rbac_department_roles d ON d.department_id=t.id WHERE d.role_id=$1 AND t.id=u.department_id),'[]') source_departments,u.email,'' action,'' scope_type,'' kind,'' application_id,'' application_name,'' environment,COALESCE(u.department_id,'') department_id,COALESCE(t.name,'') department_name,0 resource_count FROM users u LEFT JOIN teams t ON t.id=u.department_id WHERE (u.deleted_at IS NULL OR EXISTS(SELECT 1 FROM rbac_user_roles x WHERE x.role_id=$1 AND x.user_id=u.id)) AND u.source<>'settings_demo'`
 		case "departments":
@@ -288,11 +294,14 @@ func (s *Service) candidates(w http.ResponseWriter, r *http.Request) {
 		}
 		rev = v.Revision
 		selection := `EXISTS(SELECT 1 FROM rbac_permission_resources x WHERE x.permission_id=$1 AND x.resource_id=c.id)`
+		if v.ScopeType == "legacy_application" && v.ResourceScopeMode == "legacy_acl" {
+			selection = `EXISTS(SELECT 1 FROM rbac_permissions p WHERE p.id=$1 AND p.resource_scope_mode='legacy_acl') OR ` + selection
+		}
 		var catalog string
 		switch v.ScopeType {
 		case "resource":
 			catalog = `SELECT r.id,r.name,r.description||' '||r.external_id||' '||COALESCE(r.attributes->>'ip','') description,r.kind,COALESCE((SELECT min(application_id) FROM cmdb_resource_applications WHERE resource_id=r.id),'') application_id,COALESCE((SELECT string_agg(DISTINCT a.name,', ') FROM cmdb_resource_applications l JOIN applications a ON a.id=l.application_id WHERE l.resource_id=r.id),'') application_name,COALESCE((SELECT string_agg(DISTINCT e.name,', ') FROM cmdb_resource_applications l JOIN application_environments e ON e.id=l.environment_id WHERE l.resource_id=r.id),'') environment,COALESCE(r.owner_team_id,'') department_id,COALESCE(t.name,'') department_name FROM cmdb_resources r LEFT JOIN teams t ON t.id=r.owner_team_id`
-		case "application":
+		case "application", "legacy_application":
 			catalog = `SELECT id,name,description,'application' kind,id application_id,name application_name,'' environment,COALESCE(owner_team_id,'') department_id,'' department_name FROM applications`
 		case "management":
 			b, _ := json.Marshal(ManagementObjects)

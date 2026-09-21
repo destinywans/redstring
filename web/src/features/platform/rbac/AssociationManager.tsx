@@ -12,7 +12,7 @@ import {
   emptyDeltas,
   getPage,
   rbacError,
-  scopeNames,
+  selectableActions,
   selectedCandidate,
   updateDelta,
   type Candidate,
@@ -70,7 +70,6 @@ export function AssociationManager({
   );
   const [deltas, setDeltas] = useState(emptyDeltas);
   const [q, setQ] = useState("");
-  const [scope, setScope] = useState("");
   const [action, setAction] = useState("");
   const [resourceKind, setResourceKind] = useState("");
   const [app, setApp] = useState("");
@@ -110,7 +109,6 @@ export function AssociationManager({
     page,
     page_size: pageSize,
     selected: onlySelected ? "yes" : state || "all",
-    scope_type: scope,
     action,
     kind: resourceKind,
     application_id: app,
@@ -123,8 +121,7 @@ export function AssociationManager({
     queryFn: ({ signal }) => getPage<Candidate>(path, params, signal),
   });
   const rows = candidates.data?.items ?? [];
-  const readOnly = kind === "permissions" && object.builtin;
-  const editable = (row: Candidate) => !readOnly && !row.locked;
+  const editable = (row: Candidate) => !row.locked;
   const editableRows = rows.filter(editable);
   const checkedCount = editableRows.filter((row) =>
     selectedCandidate(row, delta),
@@ -147,7 +144,6 @@ export function AssociationManager({
     setTab(next);
     setPage(1);
     setQ("");
-    setScope("");
     setAction("");
     setState("");
     setOnlySelected(false);
@@ -164,7 +160,7 @@ export function AssociationManager({
             : "未关联";
   }
   async function save() {
-    if (busy || readOnly || !pending) return;
+    if (busy || !pending) return;
     setBusy(true);
     setError(null);
     try {
@@ -190,9 +186,7 @@ export function AssociationManager({
     <RbacOverlay
       wide
       title={kind === "roles" ? "管理角色关联" : "管理资源关联"}
-      subtitle={
-        kind === "roles" ? object.name : `${object.name} · ${object.id}`
-      }
+      subtitle={object.name}
       dirty={pending > 0}
       busy={busy}
       onClose={onClose}
@@ -228,25 +222,16 @@ export function AssociationManager({
                 {actionNames[object.action ?? ""] ?? object.action}
               </span>
               <span>
-                {scopeNames[object.scope_type ?? ""] ?? object.scope_type}
-              </span>
-              <span>
-                仅对明确勾选的
-                {object.scope_type === "application"
-                  ? "应用"
-                  : object.scope_type === "management"
-                    ? "管理对象"
-                    : "资源"}
-                生效。
+                {object.scope_type === "legacy_application"
+                  ? "应用授权仍按成员原有范围生效；这里可进一步限定应用。"
+                  : `仅对明确勾选的${object.scope_type === "application" ? "应用" : object.scope_type === "management" ? "管理对象" : "资源"}生效。`}
               </span>
             </div>
           )}
           <div className="rbac-association-body">
-            {(readOnly || tab === "users") && (
+            {tab === "users" && (
               <p className="rbac-hint">
-                {readOnly
-                  ? "系统内置定义只读。可创建自定义角色和权限按需授权。"
-                  : "勾选仅管理直接授权；部门继承在独立列只读展示，可在部门页签管理。"}
+                勾选仅管理直接授权；部门继承在独立列只读展示，可在部门页签管理。
               </p>
             )}
             {kind === "permissions" && catalog.error && (
@@ -309,28 +294,19 @@ export function AssociationManager({
                 placeholder={
                   tab === "resources"
                     ? "搜索资源名称、唯一标识或地址"
-                    : `搜索${labels[tab]}名称或标识`
+                    : `搜索${labels[tab]}名称${tab === "permissions" ? "或描述" : "或标识"}`
                 }
               />
               {tab === "permissions" && (
-                <>
-                  <DirectoryFilter
-                    label="权限类别"
-                    value={scope}
-                    onChange={filter(setScope)}
-                    options={Object.entries(scopeNames).map(
-                      ([value, label]) => ({ value, label }),
-                    )}
-                  />
-                  <DirectoryFilter
-                    label="操作"
-                    value={action}
-                    onChange={filter(setAction)}
-                    options={Object.entries(actionNames).map(
-                      ([value, label]) => ({ value, label }),
-                    )}
-                  />
-                </>
+                <DirectoryFilter
+                  label="操作"
+                  value={action}
+                  onChange={filter(setAction)}
+                  options={selectableActions.map((value) => ({
+                    value,
+                    label: actionNames[value],
+                  }))}
+                />
               )}
               {tab === "resources" && (
                 <>
@@ -429,7 +405,6 @@ export function AssociationManager({
                     </th>
                     {tab === "permissions" ? (
                       <>
-                        <th>类别</th>
                         <th>操作</th>
                         <th>资源范围</th>
                       </>
@@ -472,7 +447,9 @@ export function AssociationManager({
                           {row.is_mock && (
                             <span className="rbac-mock-label">Mock</span>
                           )}
-                          <small className="rbac-id">{row.id}</small>
+                          {tab !== "permissions" && (
+                            <small className="rbac-id">{row.id}</small>
+                          )}
                           {row.locked && (
                             <small className="rbac-lock-reason">
                               {row.lock_reason}
@@ -481,11 +458,6 @@ export function AssociationManager({
                         </td>
                         {tab === "permissions" ? (
                           <>
-                            <td>
-                              {scopeNames[row.scope_type ?? ""] ??
-                                row.scope_type ??
-                                "—"}
-                            </td>
                             <td>
                               <span
                                 className="rbac-action"
@@ -496,11 +468,7 @@ export function AssociationManager({
                                   "—"}
                               </span>
                             </td>
-                            <td>
-                              {row.scope_type === "legacy_application"
-                                ? "沿用应用授权"
-                                : `${row.resource_count ?? 0} 项明确范围`}
-                            </td>
+                            <td>{row.resource_count ?? 0} 项</td>
                           </>
                         ) : tab === "resources" ? (
                           <>
@@ -571,7 +539,7 @@ export function AssociationManager({
               </button>
               <button
                 className="btn btn-primary"
-                disabled={busy || !pending || readOnly}
+                disabled={busy || !pending}
                 onClick={() => void save()}
               >
                 {busy

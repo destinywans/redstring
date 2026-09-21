@@ -2,7 +2,8 @@ import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { post, patch, request } from "../../../lib/api";
 import { useWorkspace } from "../../../lib/workspace";
-import { Plus, ShieldCheck, MoreHorizontal } from "../../../lib/icons";
+import { Plus } from "../../../lib/icons";
+import ConfirmDialog from "../../../components/patterns/ConfirmDialog";
 import Pagination from "../../../components/Pagination";
 import SelectField from "../../../components/SelectField";
 import { ErrorNotice } from "../../../components/ui";
@@ -20,7 +21,7 @@ import {
   actionNames,
   getPage,
   rbacError,
-  scopeNames,
+  selectableActions,
   type RbacKind,
   type RbacObject,
 } from "./api";
@@ -48,14 +49,13 @@ function RbacList({ kind }: { kind: RbacKind }) {
   const qc = useQueryClient();
   const { notify } = useWorkspace();
   const [q, setQ] = useState("");
-  const [scope, setScope] = useState("");
   const [action, setAction] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [selected, setSelected] = useState<RbacObject | "new" | null>(null);
   const [association, setAssociation] = useState<RbacObject | null>(null);
   const label = kind === "roles" ? "角色" : "权限";
-  const params = { q, scope_type: scope, action, page, page_size: pageSize };
+  const params = { q, action, page, page_size: pageSize };
   const list = useQuery({
     queryKey: ["rbac", kind, params],
     queryFn: ({ signal }) =>
@@ -76,7 +76,7 @@ function RbacList({ kind }: { kind: RbacKind }) {
         description={
           kind === "roles"
             ? "通过权限、用户和部门关联，定义清晰的职责与访问范围。"
-            : "定义资源操作与平台能力，并明确每项权限的生效范围。"
+            : "管理权限及其关联范围。"
         }
         actions={
           <button
@@ -101,37 +101,22 @@ function RbacList({ kind }: { kind: RbacKind }) {
               showSubmit={false}
               label={`搜索${label}`}
               placeholder={
-                kind === "roles"
-                  ? "搜索角色名称或描述"
-                  : "搜索权限名称、标识或描述"
+                kind === "roles" ? "搜索角色名称或描述" : "搜索权限名称或描述"
               }
             />
             {kind === "permissions" && (
-              <>
-                <DirectoryFilter
-                  label="权限类别"
-                  value={scope}
-                  onChange={(value) => {
-                    setScope(value);
-                    setPage(1);
-                  }}
-                  options={Object.entries(scopeNames).map(([value, label]) => ({
-                    value,
-                    label,
-                  }))}
-                />
-                <DirectoryFilter
-                  label="操作"
-                  value={action}
-                  onChange={(value) => {
-                    setAction(value);
-                    setPage(1);
-                  }}
-                  options={Object.entries(actionNames).map(
-                    ([value, label]) => ({ value, label }),
-                  )}
-                />
-              </>
+              <DirectoryFilter
+                label="操作"
+                value={action}
+                onChange={(value) => {
+                  setAction(value);
+                  setPage(1);
+                }}
+                options={selectableActions.map((value) => ({
+                  value,
+                  label: actionNames[value],
+                }))}
+              />
             )}
           </FilterBar>
         </div>
@@ -148,15 +133,13 @@ function RbacList({ kind }: { kind: RbacKind }) {
                   </>
                 ) : (
                   <>
-                    <th>类别</th>
                     <th>操作</th>
                     <th>关联范围</th>
                   </>
                 )}
                 {kind === "permissions" && (
                   <>
-                    <th>来源</th>
-                    <th>操作</th>
+                    <th aria-label="关联管理" />
                   </>
                 )}
               </tr>
@@ -169,12 +152,8 @@ function RbacList({ kind }: { kind: RbacKind }) {
                       className="directory-name"
                       onClick={() => setSelected(item)}
                     >
-                      {kind === "permissions" && <ShieldCheck size={18} />}
                       {item.name}
                     </button>
-                    {kind === "permissions" && (
-                      <small className="rbac-id">{item.id}</small>
-                    )}
                     {item.description && (
                       <small
                         className="rbac-description"
@@ -193,45 +172,22 @@ function RbacList({ kind }: { kind: RbacKind }) {
                   ) : (
                     <>
                       <td>
-                        {scopeNames[item.scope_type ?? ""] ?? item.scope_type}
-                      </td>
-                      <td>
                         <span className="rbac-action" data-action={item.action}>
                           {actionNames[item.action ?? ""] ?? item.action}
                         </span>
                       </td>
-                      <td>
-                        {item.scope_type === "legacy_application"
-                          ? "沿用应用授权"
-                          : `${item.resource_count ?? 0} 项`}
-                      </td>
+                      <td>{item.resource_count ?? 0} 项</td>
                     </>
                   )}
                   {kind === "permissions" && (
                     <>
                       <td>
-                        <span className="rbac-origin">
-                          {item.builtin ? "系统内置" : "自定义"}
-                        </span>
-                      </td>
-                      <td>
                         <div className="rbac-row-actions">
                           <button
                             className="rbac-link"
-                            onClick={() =>
-                              item.scope_type === "legacy_application"
-                                ? setSelected(item)
-                                : setAssociation(item)
-                            }
+                            onClick={() => setAssociation(item)}
                           >
-                            {item.builtin ? "查看关联" : "管理关联"}
-                          </button>
-                          <button
-                            className="icon-button"
-                            aria-label={`查看 ${item.name} 详情`}
-                            onClick={() => setSelected(item)}
-                          >
-                            <MoreHorizontal size={19} />
+                            管理关联
                           </button>
                         </div>
                       </td>
@@ -387,6 +343,7 @@ function ObjectCard({
       onDeleted();
     } catch (e) {
       setError(rbacError(e));
+      setDeleting(false);
     } finally {
       setBusy(false);
     }
@@ -394,7 +351,6 @@ function ObjectCard({
   return (
     <RbacOverlay
       title={fresh ? `创建${label}` : `${label}详情`}
-      subtitle={kind === "permissions" ? initial?.id : undefined}
       dirty={dirty}
       busy={busy}
       onClose={onClose}
@@ -412,8 +368,8 @@ function ObjectCard({
             disabled={busy || initial?.builtin}
           />
         </label>
-        {kind === "roles" && !initial?.builtin && (
-          <small className="rbac-field-hint">角色名称在平台内唯一。</small>
+        {!initial?.builtin && (
+          <small className="rbac-field-hint">{label}名称在平台内唯一。</small>
         )}
         <label>
           描述
@@ -443,11 +399,15 @@ function ObjectCard({
                 disabled={busy || !!initial}
                 required
               >
-                {(catalog.data?.actions ?? []).map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name || actionNames[item.id] || item.id}
-                  </option>
-                ))}
+                {(catalog.data?.actions ?? [])
+                  .filter((item) =>
+                    selectableActions.some((value) => value === item.id),
+                  )
+                  .map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {actionNames[item.id] || item.name}
+                    </option>
+                  ))}
                 {initial &&
                   !catalog.data?.actions.some((item) => item.id === action) && (
                     <option value={action}>
@@ -457,19 +417,6 @@ function ObjectCard({
               </SelectField>
             </label>
             {catalog.error && <ErrorNotice error={catalog.error} />}
-            <div className="rbac-scope-summary">
-              <span>权限类别</span>
-              <strong>{scopeNames[scope] ?? scope}</strong>
-              <small>
-                {scope === "resource"
-                  ? "查看、更改和删除分别授权，仅对明确选择的资源生效。"
-                  : scope === "application"
-                    ? "调查、审批和执行能力按明确选择的应用生效。"
-                    : scope === "management"
-                      ? "管理能力按明确选择的管理对象生效。"
-                      : "内置兼容授权保持原有生效范围。"}
-              </small>
-            </div>
           </>
         )}
         {initial ? (
@@ -487,12 +434,10 @@ function ObjectCard({
                   <strong>{initial.department_count ?? 0}</strong>部门
                 </span>
               </div>
-            ) : scope === "legacy_application" ? (
-              <p>根据账户基础角色与已有应用授权生效。</p>
             ) : (
               <p>
                 已关联 <strong>{initial.resource_count ?? 0}</strong> 项
-                {scope === "application"
+                {["application", "legacy_application"].includes(scope)
                   ? "应用"
                   : scope === "management"
                     ? "管理对象"
@@ -502,10 +447,10 @@ function ObjectCard({
             <button
               type="button"
               className="btn"
-              disabled={busy || dirty || scope === "legacy_application"}
+              disabled={busy || dirty}
               onClick={() => onAssociations(initial)}
             >
-              {kind === "roles" || !initial.builtin ? "管理关联" : "查看关联"}
+              管理关联
             </button>
             {dirty && <small>请先保存基本信息，再管理关联。</small>}
           </section>
@@ -513,37 +458,18 @@ function ObjectCard({
           <DirectoryNotice>
             {kind === "roles"
               ? "创建后进入关联管理，可分别选择权限、用户和部门。"
-              : "当前为未保存的权限草稿。创建后保存基本信息，再选择资源并保存关联；未关联任何范围前不会授予访问。"}
+              : "创建后可选择并保存关联范围。"}
           </DirectoryNotice>
         )}
-        {initial?.builtin && kind === "permissions" && (
-          <DirectoryNotice>
-            系统内置定义只读；账户基础角色在成员管理中维护。
-          </DirectoryNotice>
-        )}
-        {deleting && (
-          <div className="rbac-delete-confirm" role="alert">
-            <p>
-              确认删除「{name}」？存在关联时服务端会阻止删除，请先移除关联。
-            </p>
-            <button
-              type="button"
-              className="btn"
-              disabled={busy}
-              onClick={() => setDeleting(false)}
-            >
-              保留
-            </button>
-            <button
-              type="button"
-              className="btn directory-danger"
-              disabled={busy}
-              onClick={() => void remove()}
-            >
-              确认删除
-            </button>
-          </div>
-        )}
+        <ConfirmDialog
+          open={deleting}
+          onOpenChange={setDeleting}
+          title={`删除${label}？`}
+          description={`确定删除「${initial?.name ?? name}」？删除后无法恢复，请先解除已有的关联。`}
+          confirmLabel={`删除${label}`}
+          onConfirm={() => void remove()}
+          busy={busy}
+        />
         {!initial?.builtin && (
           <footer className="rbac-card-footer">
             {initial && (

@@ -1,0 +1,268 @@
+[
+  {
+    "id": "home",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1201162,
+    "sha256": "e903e6a5e7672f3da4b5fa04d3f7df082e983b56f2fbfaebe7699a24adc11e6c"
+  },
+  {
+    "id": "agent-sessions",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1377375,
+    "sha256": "24098a20f7e58c9eedf9f8b88df357d0eec82635531d8ef8cb994632004f24b9"
+  },
+  {
+    "id": "agent-memory",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1320240,
+    "sha256": "bae13e9637cf1eb2a34ae63e24f03b112ef747e9f68a9096dce23551f7a8aba9"
+  },
+  {
+    "id": "agent-skills",
+    "width": 1485,
+    "height": 1059,
+    "bytes": 1135880,
+    "sha256": "863dd68dc686b1598dd5002afa6c9311de77ef456a302ca32498e75a3b4215a8"
+  },
+  {
+    "id": "agent-prompts",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1308553,
+    "sha256": "1e5e1112f4e2d8a6557fd9c9c6cd7d8f404218d5db376a940470f1e1629fbd72"
+  },
+  {
+    "id": "agent-tasks",
+    "width": 1486,
+    "height": 1058,
+    "bytes": 1445578,
+    "sha256": "94f577ebc48c26b795abfdc1f2ef0c1b4f99d96333f6e0c46a0b5065614a625e"
+  },
+  {
+    "id": "resources-applications",
+    "width": 1585,
+    "height": 992,
+    "bytes": 1108971,
+    "sha256": "52b4075127865ced818aa6e5f1d6f35299d8a67a9db1dc3568a2b3120e088899"
+  },
+  {
+    "id": "resources-catalog",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1155303,
+    "sha256": "a913e8d2bd9f49440bb98ed13b46f3d557cbbc9b42cb5c65fe8c1f1c69bd8fa9"
+  },
+  {
+    "id": "resources-relations",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1287716,
+    "sha256": "6b67e37dba6f9b37488fa138fb024be9ddecbee74a100a5a87a8ad2d2d127c26"
+  },
+  {
+    "id": "delivery-paused",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1234981,
+    "sha256": "53406bec56309e2dffca51a8a09d32b53c58e3e53a0be5057efd5ad16f1f0f7b"
+  },
+  {
+    "id": "infra-overview",
+    "width": 1586,
+    "height": 992,
+    "bytes": 1277694,
+    "sha256": "67c5fa44322cd8ac67a5b71d938e86acbc664aed3cd1c6f38abd5ec2e4b64305"
+  },
+  {
+    "id": "infra-clusters",
+    "width": 1585,
+    "height": 992,
+    "bytes": 1169204,
+    "sha256": "a93f5786c3e08e3f15b94e9389f38e3820cdac87c8cfcff13c7b88795eacd374"
+  },
+  {
+    "id": "infra-nodes",
+    "width": 1585,
+    "height": 992,
+    "bytes": 1371433,
+    "sha256": "de34efd059904f32e183ded963b77521f88d8dab3b3ea9c4d5a8e788bd68da6b"
+  },
+  {
+    "id": "infra-workloads",
+    "width": 1585,
+    "height": 992,
+    "bytes": 1393718,
+    "sha256": "2310e742e914f1914462bf684daaaf7af347710b96a7fcbf3fd27f440f955fbe"
+  },
+  {
+    "id": "infra-pods",
+    "width": 1585,
+    "height": 992,
+    "bytes": 1359123,
+    "sha256": "b2c2b5762b9b8eb10bc713e5e0f793435a7234fb0811faf4110be14d2e3f71cf"
+  },
+  {
+    "id": "infra-events",
+    "width": 1586,
+    "height": 992,
+    "bytes": 1334384,
+    "sha256": "412297a584c65434b757f07ed81c468272a05c0a02afcc618deee19ba2625099"
+  },
+  {
+    "id": "infra-namespaces",
+    "width": 1586,
+    "height": 992,
+    "bytes": 1219617,
+    "sha256": "23ccbdac50bb29ad75efa2c357f7f81ec25193fbd31ba42fddd7fbe9a43e7dc5"
+  },
+  {
+    "id": "infra-hosts",
+    "width": 1585,
+    "height": 992,
+    "bytes": 1315395,
+    "sha256": "d17e47626579a494714dc77f7127d11bb22e122f69f18b3d32f6f6b3df27223e"
+  },
+  {
+    "id": "infra-network",
+    "width": 1586,
+    "height": 992,
+    "bytes": 1208501,
+    "sha256": "e6c5e4296092740c0d9a0354e0d36cdf8fc3a08d06a63274b6def06421a80854"
+  },
+  {
+    "id": "infra-storage",
+    "width": 1585,
+    "height": 992,
+    "bytes": 1196839,
+    "sha256": "13be4aa729b578c64e3fd38d605917c68dd4e50bff58bb6623e2ef93e82c325b"
+  },
+  {
+    "id": "infra-middleware",
+    "width": 1585,
+    "height": 992,
+    "bytes": 1277286,
+    "sha256": "80f754e0a5309120283c2c06b55bced1fba33ffd47c2a6616130b075063e010f"
+  },
+  {
+    "id": "observ-metrics",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1275444,
+    "sha256": "60eaebf78036fd90b386a23dcbaa18909ae61392ed41cf706ddc71b0aedc5b01"
+  },
+  {
+    "id": "observ-logs",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1369283,
+    "sha256": "e233179ac0c865e4a73ce9587750e4762e439ad67e152592d6c9ae78a86eaaae"
+  },
+  {
+    "id": "observ-traces",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1253421,
+    "sha256": "019f391baa18cbc6767edad70a113c1fe56abbb84a452acde685dd0515be02d1"
+  },
+  {
+    "id": "observ-topology",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1207653,
+    "sha256": "151ef10f0f2ddc27b79b455a874c66e260b2acee82a789998f26231b8e3d23a6"
+  },
+  {
+    "id": "incidents",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1343869,
+    "sha256": "155789b8924ea8cb24ed4d107db8eeecbd85b59e88b35ffccc943a04ce6e3938"
+  },
+  {
+    "id": "alerts",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1215155,
+    "sha256": "afd7a25f475f305266278decd56944279c72c64a077857114a14cdcbc0f5781a"
+  },
+  {
+    "id": "alert-sources",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1143336,
+    "sha256": "36e034f292566e3eee74bcd2d2641cf241ac1e1552fed586dc81c887d7911a49"
+  },
+  {
+    "id": "knowledge-runbooks",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1191808,
+    "sha256": "99e476424a3bb5a3daa6510210cb86acc533be329011799df4ba037899d559e8"
+  },
+  {
+    "id": "integrations-connectors",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1128504,
+    "sha256": "09b67f51b8cfac845e844999bd5a41becacac0acea3282e687a213fb4827dd0a"
+  },
+  {
+    "id": "integrations-mcp",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1189509,
+    "sha256": "7bf71aa8e0efa8a0e699dbdd39da1538af81b0f78561c0ccb805971024a3fccf"
+  },
+  {
+    "id": "integrations-models",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1114910,
+    "sha256": "3d4b8d4db06658c58885cb5e4aa80a5a055553589680ecf8cb0535bf0d84e4bb"
+  },
+  {
+    "id": "integrations-embedding",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1194427,
+    "sha256": "04a310731cce936f5125961eb8dd9a216c29f60ee0b91d42b74884b203592849"
+  },
+  {
+    "id": "audit",
+    "width": 1586,
+    "height": 992,
+    "bytes": 1340187,
+    "sha256": "65703bbfb3e66e73b3165906f4406af2966d67cead83c2ca8327bd05afe418d0"
+  },
+  {
+    "id": "settings-overview",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1119413,
+    "sha256": "c2765b62306ce4f1895da170fbed489cd1736ddfd4b49bd1ad1e3e2fd8643412"
+  },
+  {
+    "id": "settings-members",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1297091,
+    "sha256": "0c82a27a87e1be7db7f2fed3509a74faecc49513b479c7cbe81fb06c941bdb3d"
+  },
+  {
+    "id": "settings-teams",
+    "width": 1586,
+    "height": 992,
+    "bytes": 1112469,
+    "sha256": "510a0a886d442743ec93d7141a1b1abdb11eca3b5e1bf1dbed54c796b50a4a14"
+  },
+  {
+    "id": "settings-roles",
+    "width": 1487,
+    "height": 1058,
+    "bytes": 1195083,
+    "sha256": "8a4f9d30f21dd9e7717067533cd53e620298409b33553c917c4b55a5020542d0"
+  }
+]

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>AIOps · 全站页面设计评审</title>
+  <link rel="stylesheet" href="gallery.css">
+  <script defer src="gallery.js"></script>
+</head>
+<body>
+  <a href="#pages" class="skip">跳到页面图</a>
+  <header class="masthead">
+    <div><p class="eyebrow">AIOPS / DESIGN REVIEW / 2026.09.21</p><h1>一起把每一页理清楚。</h1><p class="intro">全站 38 张独立概念图。按菜单查看，点开可放大；反馈时说明页面名称和需要调整的位置。</p></div>
+    <span class="review-badge">等待设计评审</span>
+  </header>
+  <div class="toolbar"><label class="search"><span>查找页面</span><input id="search" type="search" placeholder="搜索菜单或页面名称…" autocomplete="off"></label><p id="count" role="status"></p><a href="brief.md">设计说明</a></div>
+  <div class="layout">
+    <nav id="groups" aria-label="设计图分类"></nav>
+    <main id="pages" tabindex="-1"></main>
+  </div>
+  <footer>这些是 ImageGen 视觉与功能提案，图中内容为示例，不代表功能已接入。CI/CD 保持暂停；本次代码只补齐资源目录、资源关系的待接入入口。<a href="review-notes.md">图稿细节与评审边界</a><a href="https://linear.app/wansss/issue/WAN-100" target="_blank" rel="noreferrer">Linear 评审记录 ↗</a></footer>
+  <dialog id="viewer" aria-labelledby="viewer-title">
+    <div class="viewer-head"><div><p id="viewer-group"></p><h2 id="viewer-title"></h2></div><div class="viewer-actions"><span id="position"></span><button id="prev" aria-label="上一张设计图">←</button><button id="next" aria-label="下一张设计图">→</button><a id="original" target="_blank" rel="noreferrer">打开原图 ↗</a><button id="close" aria-label="关闭设计图">关闭 ×</button></div></div>
+    <div class="image-stage"><img id="full-image" alt=""></div>
+    <div class="viewer-foot"><span id="viewer-route"></span><a id="prompt" target="_blank" rel="noreferrer">查看生成说明</a><span>← → 切换 · Esc 关闭</span></div>
+  </dialog>
+</body>
+</html>

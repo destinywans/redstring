@@ -1,0 +1,304 @@
+[
+  {
+    "id": "home",
+    "group": "工作台",
+    "title": "工作台",
+    "route": "/",
+    "prompt": "prompts/home.txt"
+  },
+  {
+    "id": "agent-sessions",
+    "group": "Agent",
+    "title": "会话与画布",
+    "route": "/investigations",
+    "focus": "Main: a real readable conversational thread for Checkout error investigation, message evidence cards and bottom composer; adjacent optional wide canvas open in a split layout illustrating two hypothesis branches and evidence convergence. No application/environment gate on page. Small 对话/画布 view controls. Session rail with3 recent titles. Composer plus button left, model right then send-icon only. No attachments capability promise or 开始工作. Application context appears removable @Checkout chip, snapshot inherited subbranch and selected evidence right details. Show root-question and two evidence nodes, NOT a service resource topology. Avoid crowded DAG, clear connectors.",
+    "prompt": "prompts/agent-sessions.txt"
+  },
+  {
+    "id": "agent-memory",
+    "group": "Agent",
+    "title": "记忆与上下文",
+    "route": "/memory",
+    "focus": "Two tabs 长期记忆 and 会话上下文. Search memories by words + 应用/类型/状态. List title/source/updated/version/owner, one selected verified past incident experience; right details content, source Runbook/incident citations, scope and version history. Historical conversation read-only, long-term archive/edit can be permission-gated. No duplicate environment dropdown, no auto claiming LLM remembers all.",
+    "prompt": "prompts/agent-memory.txt"
+  },
+  {
+    "id": "agent-skills",
+    "group": "Agent",
+    "title": "Skills",
+    "route": "/ai-extensions/skills",
+    "focus": "Skill library as clean list, scopes 通用 and 应用专用 visible without compulsory choose application. Search + scope/status, primary 新建 Skill. Rows 发布异常诊断, Redis 排查, K8s 资源核对 with maintainer/version/作用域. Right selected Skill detail shows purpose, read-only tools, instructions, applicability and version. Selection not auto executes, clear applicability. No massive card wall.",
+    "prompt": "prompts/agent-skills.txt"
+  },
+  {
+    "id": "agent-prompts",
+    "group": "Agent",
+    "title": "Prompt 模板",
+    "route": "/ai-extensions/prompts",
+    "focus": "Prompt list with general/workspace and application-specific scope. Search title + 适用范围/维护人. Primary 新建模板. Selected template API错误率分析 opens right editor with title, scope choice 通用 or 指定应用, text with {{application}} {{time_range}} readable syntax, variables, preview and 保存草稿. No forced application before viewing, no template is executed on save.",
+    "prompt": "prompts/agent-prompts.txt"
+  },
+  {
+    "id": "agent-tasks",
+    "group": "Agent",
+    "title": "自动化任务",
+    "route": "/settings",
+    "focus": "List recurring bounded read-only巡查 tasks with name,target,last run,next run,enabled and outcome. Primary 新建任务. Right selected task detail shows scope applications, cadence 每30分钟, read-only tools 指标/日志, max work limits, latest findings and 手动查看记录. Clear manual approval needed for recovery; no arbitrary automated shell execution.",
+    "prompt": "prompts/agent-tasks-revision.txt"
+  },
+  {
+    "id": "resources-applications",
+    "group": "资源中心",
+    "title": "全部应用",
+    "route": "/applications",
+    "prompt": "prompts/resources-applications.txt"
+  },
+  {
+    "id": "resources-catalog",
+    "group": "资源中心",
+    "title": "资源目录",
+    "route": "/resources/catalog",
+    "focus": "Inventory table, not realtime monitoring. Search resource name/IP/ID + 类型/关联应用/来源. Primary 添加资源. Rows checkout Deployment, redis-checkout, mysql-orders, vm-ops-01, Kafka. Columns resource name/type, associated app, owner/team, data source, updated. Selected Redis opens right details with identity, app bindings, source connector and last observed time, small 相关资源 list. No fake health/CPU charts. Data ownership provenance clear.",
+    "prompt": "prompts/resources-catalog.txt"
+  },
+  {
+    "id": "resources-relations",
+    "group": "资源中心",
+    "title": "资源关系",
+    "route": "/resources/relations",
+    "focus": "CMDB relation graph NOT traffic topology. Main big open canvas few clear nodes: Checkout API application linked to checkout Deployment 部署于, Redis cache 依赖, MySQL orders 依赖; Deployment linked cluster-01 归属于. Different subtle node icons, straight or clean elbow labeled edges, excellent spacing. Search resource and compact 关系类型/1-2跳 toolbar. Selected dependency edge purple opens right card with source,target,type,source 人工登记 or Kubernetes发现,last updated 2026-09-21. No QPS/error/latency. Small legend 声明关系/发现关系, bottom zoom controls. Show 去看调用拓扑 as secondary link, no false real-time claims.",
+    "prompt": "prompts/resources-relations-revision.txt"
+  },
+  {
+    "id": "delivery-paused",
+    "group": "交付中心",
+    "title": "交付中心",
+    "route": "/delivery",
+    "focus": "Beautiful restrained paused entry only, not pipelinebuilder. Header 交付中心, small 暂缓建设 badge and concise text 流程与使用方式确认后再开放. A minimal single clean lineicon center and 返回工作台 link, plenty intentionalwhite but not hugecards. No pipeline templates,builds,runs,deploycontrols,GitLabdata or futureCIfeatures. This screen preserves visible entry and userpause.",
+    "prompt": "prompts/delivery-paused-revision.txt"
+  },
+  {
+    "id": "infra-overview",
+    "group": "基础设施",
+    "title": "资源总览",
+    "route": "/infrastructure?view=summary",
+    "focus": "Operational overview of registered resources: 3 restrained summarycounts 工作负载/主机/需关注, then useful runtime list grouped Kubernetes and VM with actual-looking sample states and last querytime. Selected warning workload side detail shows replicas3/4, recent restart event, viewmetrics/logs and sendAgent. Distinguish registered scope from whole fleet, not whole CMDB inventory or all clusters.",
+    "prompt": "prompts/infra-overview.txt"
+  },
+  {
+    "id": "infra-clusters",
+    "group": "基础设施",
+    "title": "集群",
+    "route": "/infrastructure?view=clusters",
+    "focus": "Clusterlist with names prod-core,edge-cluster, node count,version,readystatus and source. Search+应用/状态, primary 刷新. Right cluster card with capacity CPU/memory simple bars, nodes Ready, workloadcounts, recent event. No complex provisioning/deleting controls.",
+    "prompt": "prompts/infra-clusters.txt"
+  },
+  {
+    "id": "infra-nodes",
+    "group": "基础设施",
+    "title": "节点",
+    "route": "/infrastructure?view=nodes",
+    "focus": "Kubernetes node table search+集群/状态/角色; node name,Ready,CPU%,memory%,pods,version. One node MemoryPressure muted amber, opens right card two modest CPU memory sparklines and recent events; secondary view workloads or Agent. Clear unit alignment and evenrows, not cloudVM conflation.",
+    "prompt": "prompts/infra-nodes.txt"
+  },
+  {
+    "id": "infra-workloads",
+    "group": "基础设施",
+    "title": "工作负载",
+    "route": "/infrastructure?view=workloads",
+    "focus": "Deployment StatefulSet list search+集群/命名空间/类型/状态. Columns workload,application,replicas,image version,updated. Checkout selected 3/4 amber. Right detail overview/config/events tabs, rolloutrevision,image digest abbreviated,replica status,events, view pods and调查; no direct dangerous oneclick rollback outside approval.",
+    "prompt": "prompts/infra-workloads.txt"
+  },
+  {
+    "id": "infra-pods",
+    "group": "基础设施",
+    "title": "Pod 与容器",
+    "route": "/infrastructure?view=pods",
+    "focus": "Pods table namespace/workload/status filters, name,status,ready,restarts,age,node; selected crashloop checkout pod right card with container list, last termination reason, restartcount, short recent log snippet and 查看完整日志. Cohesive densityno hugecards. No unrestricted shell terminal.",
+    "prompt": "prompts/infra-pods.txt"
+  },
+  {
+    "id": "infra-events",
+    "group": "基础设施",
+    "title": "Kubernetes 事件",
+    "route": "/infrastructure?view=events",
+    "focus": "Timestamped Kubernetes event list grouped bydate/namespace; search +cluster/type/time, columns time,Warning/Normal,reason,resource,occurrences. Selected BackOff opens right event context first/lastseen count,source kubelet,resource link, readable message and关联工作负载. No confused incident ownership controls.",
+    "prompt": "prompts/infra-events.txt"
+  },
+  {
+    "id": "infra-namespaces",
+    "group": "基础设施",
+    "title": "命名空间",
+    "route": "/infrastructure?view=namespaces",
+    "focus": "Namespace runtime list with cluster,quota CPU,memory,podusage,associatedteam,age. Selected checkout namespace side card compact resourcequota used/limit bars plus workloads. No big hierarchytree or destructive deletebutton, allscope from top.",
+    "prompt": "prompts/infra-namespaces.txt"
+  },
+  {
+    "id": "infra-hosts",
+    "group": "基础设施",
+    "title": "主机与虚拟机",
+    "route": "/infrastructure?view=hosts",
+    "focus": "Host table name/IP,OS,CPU%,mem%,disk%,uptime,source; query search+应用/状态. Selected vm-ops-01 right card CPU/memorytrends and OS/kernel metadata,last sampling, associated apps and Agent entry. Proper distinctions between freshdata and source missing. No raw secrets or SSH keys.",
+    "prompt": "prompts/infra-hosts.txt"
+  },
+  {
+    "id": "infra-network",
+    "group": "基础设施",
+    "title": "网络",
+    "route": "/infrastructure?view=network",
+    "focus": "Kubernetes Service and Ingress network view with tabs Services/Ingress, search+namespace+type. Table name,associatedworkload,port,address. Selected checkout Service right card ports80->8080,target selector,endpoints3/4 andrelatedIngress. This is configuration and endpoints NOT dynamic service-call graph; no unsupported firewall wizard.",
+    "prompt": "prompts/infra-network.txt"
+  },
+  {
+    "id": "infra-storage",
+    "group": "基础设施",
+    "title": "存储",
+    "route": "/infrastructure?view=storage",
+    "focus": "PVC storage table search+cluster/namespace/status. Name,Bound/Pending,capacity GiB,storageclass,claimingworkload. Right mysql-data claim shows PVC-PV-workload relationship as3compactrows,access mode,mount and data source. No faux real-time disk metrics if not measured, no destructive actions.",
+    "prompt": "prompts/infra-storage.txt"
+  },
+  {
+    "id": "infra-middleware",
+    "group": "基础设施",
+    "title": "中间件与数据库",
+    "route": "/infrastructure?view=middleware",
+    "focus": "Operational list Redis/MySQL/Kafka, tabs 全部 Redis MySQL Kafka andsearch; instances name,type,associatedapps,connectionstate,lastquerytime. Selected Redis rightcard memory/simpletrend,connections,keycount,source,timewindow and links日志/关联资源/Agent. Small connectordataavailability labels, no database administration or arbitrary SQL console.",
+    "prompt": "prompts/infra-middleware.txt"
+  },
+  {
+    "id": "observ-metrics",
+    "group": "可观测性",
+    "title": "指标监控",
+    "route": "/observability/metrics",
+    "focus": "Metrics page compact search+应用/数据源/最近1小时; 2x2 precise charts request rate,error rate,p95 latency,resource saturation with axes units legends and shared timecrosshair. Selected error spike evidence card right with timewindow/query/source/sample value and purple 交给Agent. Overall primaryfeature manual observable query not forcedAI. No environment filter or bigmetricsKPI billboard.",
+    "prompt": "prompts/observ-metrics.txt"
+  },
+  {
+    "id": "observ-logs",
+    "group": "可观测性",
+    "title": "日志检索",
+    "route": "/observability/logs",
+    "focus": "Log exploration wide searchbar with query text, filters应用/级别/来源/time, tiny histogram above log rows. Columns timestamp,level,service,message with severityhighlights. Selected ERROR checkout timeout right details preserves fields, traceid,source,contextlines, 加入会话. Dense readable monospaced logmessage13+, no overlapping popovers,no chat first.",
+    "prompt": "prompts/observ-logs.txt"
+  },
+  {
+    "id": "observ-traces",
+    "group": "可观测性",
+    "title": "链路追踪",
+    "route": "/observability/traces",
+    "focus": "Trace list search traceid/service +status/duration/time; selected checkout errortrace split into waterfalldetail (6spans) withdurationbars, API->checkout->Redis/MySQL, operation,status,duration. Drawer or wide detailcard fromright, obvious exception span. TraceIDs truncated withcopyicon. One precise focus no giant tableandcanvascollage.",
+    "prompt": "prompts/observ-traces.txt"
+  },
+  {
+    "id": "observ-topology",
+    "group": "可观测性",
+    "title": "调用拓扑",
+    "route": "/observability/topology",
+    "focus": "Actual observed-call graph for last15min. 5nodes API Gateway->Checkout->Order->MySQL and Checkout->Redis. Annotatededges req/min,p95ms,error%; Checkout->Redis amber selected rightcard metrics smallline,error5%,lastobserved andsource Trace. Filter applications/time, label 观测调用. No deployment/hostingedges; secondarylink资源关系. Emphasize timewindow no-traffic doesnotprove dependencyabsent. Usercanselectedge送Agent.",
+    "prompt": "prompts/observ-topology.txt"
+  },
+  {
+    "id": "incidents",
+    "group": "告警与事件",
+    "title": "事件中心",
+    "route": "/incidents",
+    "focus": "Incident work queue list, primaryjob claimandcontinue response. Search+级别/负责人/处理状态/time. Rows payment errors,Redis saturation,web latency withapplication,severity,opened,lastupdate,owner. Selectedincident rightcard timeline firing->claimed->AI investigation->pending approval, linked alerts,evidence,owner. Mainbutton 继续处理. Distinguish alertresolved vs incidentclosed, no duplicate countcards.",
+    "prompt": "prompts/incidents.txt"
+  },
+  {
+    "id": "alerts",
+    "group": "告警与事件",
+    "title": "告警列表",
+    "route": "/alerts",
+    "focus": "Alertsignal list search+应用/级别/告警状态/time. Columns alerttitle,severity,source,first/lasttime,associatedincident. Selected higherror signal right details labels,threshold,currentvalue,timewindow,mini chart, source Alertmanager,关联事件 or发起调查. Separate firing/resolved from handlingprogress.",
+    "prompt": "prompts/alerts.txt"
+  },
+  {
+    "id": "alert-sources",
+    "group": "告警与事件",
+    "title": "告警来源",
+    "route": "/alerts/sources",
+    "focus": "Alertsource registry table source name/type/connection/last received/routing app. Primary 添加来源 rightcard configuration Alertmanager webhook endpoint redactedtoken,appmapping,dedup key,notification route. Show subtle read/ingress permissions. No test send externalrealmessages or credentials, no fake integrationcount.",
+    "prompt": "prompts/alert-sources.txt"
+  },
+  {
+    "id": "knowledge-runbooks",
+    "group": "知识库",
+    "title": "Runbook",
+    "route": "/knowledge",
+    "focus": "Clean Runbook knowledge list with search+应用/类别/维护人, primary 新建 Runbook; row titles Redis 内存排查, 发布异常恢复, MySQL连接耗尽. Selected entry right reading/editor card with maintainer, human/Agent draft source, target app/middleware tags, version. Body structured symptoms/preconditions/diagnostic steps/recovery/verification. Show 从模板创建 option small, do not autoexecute instructions. Cite source and status 草稿/已审核.",
+    "prompt": "prompts/knowledge-runbooks.txt"
+  },
+  {
+    "id": "integrations-connectors",
+    "group": "集成中心",
+    "title": "连接器",
+    "route": "/integrations?tab=tools",
+    "focus": "Integrationconnector table with categories 观测/基础设施/通知 andsearch. Prometheus,Loki,Kubernetes,Feishu/Slack connector rows scope,status,lastverified. Selected Prometheus right drawer connectionname,baseURL https://prom.example.invalid,credential reference masked,scope/timeout then 保存配置 and 检查连接. Clearly verified vs configured distinctions, small providericonuniformnotmishmash.",
+    "prompt": "prompts/integrations-connectors.txt"
+  },
+  {
+    "id": "integrations-mcp",
+    "group": "集成中心",
+    "title": "MCP 服务",
+    "route": "/ai-extensions/mcp",
+    "focus": "MCP client services list search+scope/status, primary 添加MCP服务. Selected infrastructure read-only server rightcard name,Streamable HTTP endpoint example.invalid,credentialrefmasked,available tools describe_resource/query_metrics with read-only badges and allowedapplications. Explicit tool authorization section andconnectionstate. No platform MCPserverhosting or arbitrary unapprovedwrites.",
+    "prompt": "prompts/integrations-mcp.txt"
+  },
+  {
+    "id": "integrations-models",
+    "group": "集成中心",
+    "title": "模型服务",
+    "route": "/integrations?tab=models",
+    "focus": "Modelservice providerlist OpenAI/Anthropic/Ollama each connectionstatus and modelcount; primary 添加服务. Right config OpenAI Responses API shows name,baseURL,masked credential,modelnames and capabilitychips 工具调用 流式 推理强度. Modelcapability row supportedlevels低/中/高 onlyforchosen supportedmodel; others label 不支持. No claim allprovidersResponsescompatible, protocol selector genuine distinct Responses/ChatCompletions/Messages per provider, not all simultaneously on screen. Save/checkconnection buttons restrained.",
+    "prompt": "prompts/integrations-models-final.txt"
+  },
+  {
+    "id": "integrations-embedding",
+    "group": "集成中心",
+    "title": "Embedding 与检索",
+    "route": "/integrations?tab=knowledge",
+    "focus": "Configuration view currentembedding Ollama BGE-m3, indexgeneration,vectorsdimension1024, knowledgeitems count, indexing progress andfailed entries. One editable rightdrawer provider/model switch with explicit 重建索引 required, source docs retained. Search indexed Runbooklist, lastprocessed/error state. No vectorDBmigrationoneclick or misleading rawPGperformance.",
+    "prompt": "prompts/integrations-embedding-final.txt"
+  },
+  {
+    "id": "audit",
+    "group": "审计日志",
+    "title": "审计日志",
+    "route": "/audit",
+    "focus": "Timeline grouped 今天 9月21日 / 昨天 9月20日, search+操作者/动作/结果/应用/时间 uniform toolbar. Timeline events update connector,approve recovery,create Runbook with avatar/time/result/object. One expanded event rightside details before/after,requestid,actor,scope,source. Actual result tag not inferred from prose. No massive table, no log rawjson wall, detailed audit timeline with loadmore.",
+    "prompt": "prompts/audit.txt"
+  },
+  {
+    "id": "settings-overview",
+    "group": "设置",
+    "title": "平台概览",
+    "route": "/platform/settings",
+    "focus": "Settings opened from bottom user, not a main sidebar group. Content local tabs 概览 成员 团队 角色与资源范围. Workspace name, deployment selfhosted, owner, integrations summary as compact key-value list, safe preferences fields timezone/language and 保存设置. No tenant/SSO promises or massive metrics dashboard. Main clear administrative profile page.",
+    "prompt": "prompts/settings-overview.txt"
+  },
+  {
+    "id": "settings-members",
+    "group": "设置",
+    "title": "成员管理",
+    "route": "/members",
+    "focus": "Members table search+角色/团队/状态, primary 添加成员, secondary 导入目录. User avatar/name/email(role fictional example.invalid), role admin/operator/viewer, team,status. Right Add Member card with name,email,role,team and 保存. Explain imported directory entries pending activation subtly, no claim live IAM sync/SSO already exists. No passwords or secrets in mock.",
+    "prompt": "prompts/settings-members-revision.txt"
+  },
+  {
+    "id": "settings-teams",
+    "group": "设置",
+    "title": "团队管理",
+    "route": "/teams",
+    "focus": "Teams table Trading platform/Infrastructure/data team, maintainer,members,associated apps. Search and primary 新建团队. Right selected team card shows team owner, member avatars+names, app permissions summary. Organization membership NOT automatically all-resource authorization; labels explicitly 授权应用. No invented full HR orgchart.",
+    "prompt": "prompts/settings-teams.txt"
+  },
+  {
+    "id": "settings-roles",
+    "group": "设置",
+    "title": "角色与资源范围",
+    "route": "/platform/roles",
+    "focus": "Roles and resource scope permissions page. Readable matrix admin/operator/viewer versus 查看/调查/审批/执行/管理, rows grouped with clear concise labels. App resource-scope grants below compactlist, primary 添加授权 opens right drawer choose member/team,applications,role. No excessive arbitrary dynamic permissions designer. Show effective scope and boundary clearly, user permissions not auto inherit shared Redis allapp.",
+    "prompt": "prompts/settings-roles.txt"
+  }
+]

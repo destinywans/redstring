@@ -1,0 +1,86 @@
+[
+  {
+    "id": "agent-sessions",
+    "group": "Agent",
+    "title": "会话与画布",
+    "route": "/investigations",
+    "focus": "Main: a real readable conversational thread for Checkout error investigation, message evidence cards and bottom composer; adjacent optional wide canvas open in a split layout illustrating two hypothesis branches and evidence convergence. No application/environment gate on page. Small 对话/画布 view controls. Session rail with3 recent titles. Composer plus button left, model right then send-icon only. No attachments capability promise or 开始工作. Application context appears removable @Checkout chip, snapshot inherited subbranch and selected evidence right details. Show root-question and two evidence nodes, NOT a service resource topology. Avoid crowded DAG, clear connectors."
+  },
+  {
+    "id": "agent-memory",
+    "group": "Agent",
+    "title": "记忆与上下文",
+    "route": "/memory",
+    "focus": "Two tabs 长期记忆 and 会话上下文. Search memories by words + 应用/类型/状态. List title/source/updated/version/owner, one selected verified past incident experience; right details content, source Runbook/incident citations, scope and version history. Historical conversation read-only, long-term archive/edit can be permission-gated. No duplicate environment dropdown, no auto claiming LLM remembers all."
+  },
+  {
+    "id": "agent-skills",
+    "group": "Agent",
+    "title": "Skills",
+    "route": "/ai-extensions/skills",
+    "focus": "Skill library as clean list, scopes 通用 and 应用专用 visible without compulsory choose application. Search + scope/status, primary 新建 Skill. Rows 发布异常诊断, Redis 排查, K8s 资源核对 with maintainer/version/作用域. Right selected Skill detail shows purpose, read-only tools, instructions, applicability and version. Selection not auto executes, clear applicability. No massive card wall."
+  },
+  {
+    "id": "agent-prompts",
+    "group": "Agent",
+    "title": "Prompt 模板",
+    "route": "/ai-extensions/prompts",
+    "focus": "Prompt list with general/workspace and application-specific scope. Search title + 适用范围/维护人. Primary 新建模板. Selected template API错误率分析 opens right editor with title, scope choice 通用 or 指定应用, text with {{application}} {{time_range}} readable syntax, variables, preview and 保存草稿. No forced application before viewing, no template is executed on save."
+  },
+  {
+    "id": "agent-tasks",
+    "group": "Agent",
+    "title": "自动化任务",
+    "route": "/settings",
+    "focus": "List recurring bounded read-only巡查 tasks with name,target,last run,next run,enabled and outcome. Primary 新建任务. Right selected task detail shows scope applications, cadence 每30分钟, read-only tools 指标/日志, max work limits, latest findings and 手动查看记录. Clear manual approval needed for recovery; no arbitrary automated shell execution."
+  },
+  {
+    "id": "resources-catalog",
+    "group": "资源中心",
+    "title": "资源目录",
+    "route": "/resources/catalog",
+    "focus": "Inventory table, not realtime monitoring. Search resource name/IP/ID + 类型/关联应用/来源. Primary 添加资源. Rows checkout Deployment, redis-checkout, mysql-orders, vm-ops-01, Kafka. Columns resource name/type, associated app, owner/team, data source, updated. Selected Redis opens right details with identity, app bindings, source connector and last observed time, small 相关资源 list. No fake health/CPU charts. Data ownership provenance clear."
+  },
+  {
+    "id": "resources-relations",
+    "group": "资源中心",
+    "title": "资源关系",
+    "route": "/resources/relations",
+    "focus": "CMDB relation graph NOT traffic topology. Main big open canvas few clear nodes: Checkout API application linked to checkout Deployment 部署于, Redis cache 依赖, MySQL orders 依赖; Deployment linked cluster-01 归属于. Different subtle node icons, straight or clean elbow labeled edges, excellent spacing. Search resource and compact 关系类型/1-2跳 toolbar. Selected dependency edge purple opens right card with source,target,type,source 人工登记 or Kubernetes发现,last updated 2026-09-21. No QPS/error/latency. Small legend 声明关系/发现关系, bottom zoom controls. Show 去看调用拓扑 as secondary link, no false real-time claims."
+  },
+  {
+    "id": "knowledge-runbooks",
+    "group": "知识库",
+    "title": "Runbook",
+    "route": "/knowledge",
+    "focus": "Clean Runbook knowledge list with search+应用/类别/维护人, primary 新建 Runbook; row titles Redis 内存排查, 发布异常恢复, MySQL连接耗尽. Selected entry right reading/editor card with maintainer, human/Agent draft source, target app/middleware tags, version. Body structured symptoms/preconditions/diagnostic steps/recovery/verification. Show 从模板创建 option small, do not autoexecute instructions. Cite source and status 草稿/已审核."
+  },
+  {
+    "id": "settings-overview",
+    "group": "设置",
+    "title": "平台概览",
+    "route": "/platform/settings",
+    "focus": "Settings opened from bottom user, not a main sidebar group. Content local tabs 概览 成员 团队 角色与资源范围. Workspace name, deployment selfhosted, owner, integrations summary as compact key-value list, safe preferences fields timezone/language and 保存设置. No tenant/SSO promises or massive metrics dashboard. Main clear administrative profile page."
+  },
+  {
+    "id": "settings-members",
+    "group": "设置",
+    "title": "成员管理",
+    "route": "/members",
+    "focus": "Members table search+角色/团队/状态, primary 添加成员, secondary 导入目录. User avatar/name/email(role fictional example.invalid), role admin/operator/viewer, team,status. Right Add Member card with name,email,role,team and 保存. Explain imported directory entries pending activation subtly, no claim live IAM sync/SSO already exists. No passwords or secrets in mock."
+  },
+  {
+    "id": "settings-teams",
+    "group": "设置",
+    "title": "团队管理",
+    "route": "/teams",
+    "focus": "Teams table Trading platform/Infrastructure/data team, maintainer,members,associated apps. Search and primary 新建团队. Right selected team card shows team owner, member avatars+names, app permissions summary. Organization membership NOT automatically all-resource authorization; labels explicitly 授权应用. No invented full HR orgchart."
+  },
+  {
+    "id": "settings-roles",
+    "group": "设置",
+    "title": "角色与资源范围",
+    "route": "/platform/roles",
+    "focus": "Roles and resource scope permissions page. Readable matrix admin/operator/viewer versus 查看/调查/审批/执行/管理, rows grouped with clear concise labels. App resource-scope grants below compactlist, primary 添加授权 opens right drawer choose member/team,applications,role. No excessive arbitrary dynamic permissions designer. Show effective scope and boundary clearly, user permissions not auto inherit shared Redis allapp."
+  }
+]

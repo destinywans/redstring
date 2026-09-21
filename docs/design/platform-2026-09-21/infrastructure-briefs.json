@@ -1,0 +1,86 @@
+[
+  {
+    "id": "infra-overview",
+    "group": "基础设施",
+    "title": "资源总览",
+    "route": "/infrastructure?view=summary",
+    "focus": "Operational overview of registered resources: 3 restrained summarycounts 工作负载/主机/需关注, then useful runtime list grouped Kubernetes and VM with actual-looking sample states and last querytime. Selected warning workload side detail shows replicas3/4, recent restart event, viewmetrics/logs and sendAgent. Distinguish registered scope from whole fleet, not whole CMDB inventory or all clusters."
+  },
+  {
+    "id": "infra-clusters",
+    "group": "基础设施",
+    "title": "集群",
+    "route": "/infrastructure?view=clusters",
+    "focus": "Clusterlist with names prod-core,edge-cluster, node count,version,readystatus and source. Search+应用/状态, primary 刷新. Right cluster card with capacity CPU/memory simple bars, nodes Ready, workloadcounts, recent event. No complex provisioning/deleting controls."
+  },
+  {
+    "id": "infra-nodes",
+    "group": "基础设施",
+    "title": "节点",
+    "route": "/infrastructure?view=nodes",
+    "focus": "Kubernetes node table search+集群/状态/角色; node name,Ready,CPU%,memory%,pods,version. One node MemoryPressure muted amber, opens right card two modest CPU memory sparklines and recent events; secondary view workloads or Agent. Clear unit alignment and evenrows, not cloudVM conflation."
+  },
+  {
+    "id": "infra-workloads",
+    "group": "基础设施",
+    "title": "工作负载",
+    "route": "/infrastructure?view=workloads",
+    "focus": "Deployment StatefulSet list search+集群/命名空间/类型/状态. Columns workload,application,replicas,image version,updated. Checkout selected 3/4 amber. Right detail overview/config/events tabs, rolloutrevision,image digest abbreviated,replica status,events, view pods and调查; no direct dangerous oneclick rollback outside approval."
+  },
+  {
+    "id": "infra-pods",
+    "group": "基础设施",
+    "title": "Pod 与容器",
+    "route": "/infrastructure?view=pods",
+    "focus": "Pods table namespace/workload/status filters, name,status,ready,restarts,age,node; selected crashloop checkout pod right card with container list, last termination reason, restartcount, short recent log snippet and 查看完整日志. Cohesive densityno hugecards. No unrestricted shell terminal."
+  },
+  {
+    "id": "infra-events",
+    "group": "基础设施",
+    "title": "Kubernetes 事件",
+    "route": "/infrastructure?view=events",
+    "focus": "Timestamped Kubernetes event list grouped bydate/namespace; search +cluster/type/time, columns time,Warning/Normal,reason,resource,occurrences. Selected BackOff opens right event context first/lastseen count,source kubelet,resource link, readable message and关联工作负载. No confused incident ownership controls."
+  },
+  {
+    "id": "infra-namespaces",
+    "group": "基础设施",
+    "title": "命名空间",
+    "route": "/infrastructure?view=namespaces",
+    "focus": "Namespace runtime list with cluster,quota CPU,memory,podusage,associatedteam,age. Selected checkout namespace side card compact resourcequota used/limit bars plus workloads. No big hierarchytree or destructive deletebutton, allscope from top."
+  },
+  {
+    "id": "infra-hosts",
+    "group": "基础设施",
+    "title": "主机与虚拟机",
+    "route": "/infrastructure?view=hosts",
+    "focus": "Host table name/IP,OS,CPU%,mem%,disk%,uptime,source; query search+应用/状态. Selected vm-ops-01 right card CPU/memorytrends and OS/kernel metadata,last sampling, associated apps and Agent entry. Proper distinctions between freshdata and source missing. No raw secrets or SSH keys."
+  },
+  {
+    "id": "infra-network",
+    "group": "基础设施",
+    "title": "网络",
+    "route": "/infrastructure?view=network",
+    "focus": "Kubernetes Service and Ingress network view with tabs Services/Ingress, search+namespace+type. Table name,associatedworkload,port,address. Selected checkout Service right card ports80->8080,target selector,endpoints3/4 andrelatedIngress. This is configuration and endpoints NOT dynamic service-call graph; no unsupported firewall wizard."
+  },
+  {
+    "id": "infra-storage",
+    "group": "基础设施",
+    "title": "存储",
+    "route": "/infrastructure?view=storage",
+    "focus": "PVC storage table search+cluster/namespace/status. Name,Bound/Pending,capacity GiB,storageclass,claimingworkload. Right mysql-data claim shows PVC-PV-workload relationship as3compactrows,access mode,mount and data source. No faux real-time disk metrics if not measured, no destructive actions."
+  },
+  {
+    "id": "infra-middleware",
+    "group": "基础设施",
+    "title": "中间件与数据库",
+    "route": "/infrastructure?view=middleware",
+    "focus": "Operational list Redis/MySQL/Kafka, tabs 全部 Redis MySQL Kafka andsearch; instances name,type,associatedapps,connectionstate,lastquerytime. Selected Redis rightcard memory/simpletrend,connections,keycount,source,timewindow and links日志/关联资源/Agent. Small connectordataavailability labels, no database administration or arbitrary SQL console."
+  },
+  {
+    "id": "audit",
+    "group": "审计日志",
+    "title": "审计日志",
+    "route": "/audit",
+    "focus": "Timeline grouped 今天 9月21日 / 昨天 9月20日, search+操作者/动作/结果/应用/时间 uniform toolbar. Timeline events update connector,approve recovery,create Runbook with avatar/time/result/object. One expanded event rightside details before/after,requestid,actor,scope,source. Actual result tag not inferred from prose. No massive table, no log rawjson wall, detailed audit timeline with loadmore."
+  }
+]

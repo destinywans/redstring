@@ -1,0 +1,86 @@
+[
+  {
+    "id": "observ-metrics",
+    "group": "可观测性",
+    "title": "指标监控",
+    "route": "/observability/metrics",
+    "focus": "Metrics page compact search+应用/数据源/最近1小时; 2x2 precise charts request rate,error rate,p95 latency,resource saturation with axes units legends and shared timecrosshair. Selected error spike evidence card right with timewindow/query/source/sample value and purple 交给Agent. Overall primaryfeature manual observable query not forcedAI. No environment filter or bigmetricsKPI billboard."
+  },
+  {
+    "id": "observ-logs",
+    "group": "可观测性",
+    "title": "日志检索",
+    "route": "/observability/logs",
+    "focus": "Log exploration wide searchbar with query text, filters应用/级别/来源/time, tiny histogram above log rows. Columns timestamp,level,service,message with severityhighlights. Selected ERROR checkout timeout right details preserves fields, traceid,source,contextlines, 加入会话. Dense readable monospaced logmessage13+, no overlapping popovers,no chat first."
+  },
+  {
+    "id": "observ-traces",
+    "group": "可观测性",
+    "title": "链路追踪",
+    "route": "/observability/traces",
+    "focus": "Trace list search traceid/service +status/duration/time; selected checkout errortrace split into waterfalldetail (6spans) withdurationbars, API->checkout->Redis/MySQL, operation,status,duration. Drawer or wide detailcard fromright, obvious exception span. TraceIDs truncated withcopyicon. One precise focus no giant tableandcanvascollage."
+  },
+  {
+    "id": "observ-topology",
+    "group": "可观测性",
+    "title": "调用拓扑",
+    "route": "/observability/topology",
+    "focus": "Actual observed-call graph for last15min. 5nodes API Gateway->Checkout->Order->MySQL and Checkout->Redis. Annotatededges req/min,p95ms,error%; Checkout->Redis amber selected rightcard metrics smallline,error5%,lastobserved andsource Trace. Filter applications/time, label 观测调用. No deployment/hostingedges; secondarylink资源关系. Emphasize timewindow no-traffic doesnotprove dependencyabsent. Usercanselectedge送Agent."
+  },
+  {
+    "id": "incidents",
+    "group": "告警与事件",
+    "title": "事件中心",
+    "route": "/incidents",
+    "focus": "Incident work queue list, primaryjob claimandcontinue response. Search+级别/负责人/处理状态/time. Rows payment errors,Redis saturation,web latency withapplication,severity,opened,lastupdate,owner. Selectedincident rightcard timeline firing->claimed->AI investigation->pending approval, linked alerts,evidence,owner. Mainbutton 继续处理. Distinguish alertresolved vs incidentclosed, no duplicate countcards."
+  },
+  {
+    "id": "alerts",
+    "group": "告警与事件",
+    "title": "告警列表",
+    "route": "/alerts",
+    "focus": "Alertsignal list search+应用/级别/告警状态/time. Columns alerttitle,severity,source,first/lasttime,associatedincident. Selected higherror signal right details labels,threshold,currentvalue,timewindow,mini chart, source Alertmanager,关联事件 or发起调查. Separate firing/resolved from handlingprogress."
+  },
+  {
+    "id": "alert-sources",
+    "group": "告警与事件",
+    "title": "告警来源",
+    "route": "/alerts/sources",
+    "focus": "Alertsource registry table source name/type/connection/last received/routing app. Primary 添加来源 rightcard configuration Alertmanager webhook endpoint redactedtoken,appmapping,dedup key,notification route. Show subtle read/ingress permissions. No test send externalrealmessages or credentials, no fake integrationcount."
+  },
+  {
+    "id": "integrations-connectors",
+    "group": "集成中心",
+    "title": "连接器",
+    "route": "/integrations?tab=tools",
+    "focus": "Integrationconnector table with categories 观测/基础设施/通知 andsearch. Prometheus,Loki,Kubernetes,Feishu/Slack connector rows scope,status,lastverified. Selected Prometheus right drawer connectionname,baseURL https://prom.example.invalid,credential reference masked,scope/timeout then 保存配置 and 检查连接. Clearly verified vs configured distinctions, small providericonuniformnotmishmash."
+  },
+  {
+    "id": "integrations-mcp",
+    "group": "集成中心",
+    "title": "MCP 服务",
+    "route": "/ai-extensions/mcp",
+    "focus": "MCP client services list search+scope/status, primary 添加MCP服务. Selected infrastructure read-only server rightcard name,Streamable HTTP endpoint example.invalid,credentialrefmasked,available tools describe_resource/query_metrics with read-only badges and allowedapplications. Explicit tool authorization section andconnectionstate. No platform MCPserverhosting or arbitrary unapprovedwrites."
+  },
+  {
+    "id": "integrations-models",
+    "group": "集成中心",
+    "title": "模型服务",
+    "route": "/integrations?tab=models",
+    "focus": "Modelservice providerlist OpenAI/Anthropic/Ollama each connectionstatus and modelcount; primary 添加服务. Right config OpenAI Responses API shows name,baseURL,masked credential,modelnames and capabilitychips 工具调用 流式 推理强度. Modelcapability row supportedlevels低/中/高 onlyforchosen supportedmodel; others label 不支持. No claim allprovidersResponsescompatible, protocol selector genuine distinct Responses/ChatCompletions/Messages per provider, not all simultaneously on screen. Save/checkconnection buttons restrained."
+  },
+  {
+    "id": "integrations-embedding",
+    "group": "集成中心",
+    "title": "Embedding 与检索",
+    "route": "/integrations?tab=knowledge",
+    "focus": "Configuration view currentembedding Ollama BGE-m3, indexgeneration,vectorsdimension1024, knowledgeitems count, indexing progress andfailed entries. One editable rightdrawer provider/model switch with explicit 重建索引 required, source docs retained. Search indexed Runbooklist, lastprocessed/error state. No vectorDBmigrationoneclick or misleading rawPGperformance."
+  },
+  {
+    "id": "delivery-paused",
+    "group": "交付中心",
+    "title": "交付中心",
+    "route": "/delivery",
+    "focus": "Beautiful restrained paused entry only, not pipelinebuilder. Header 交付中心, small 暂缓建设 badge and concise text 流程与使用方式确认后再开放. A minimal single clean lineicon center and 返回工作台 link, plenty intentionalwhite but not hugecards. No pipeline templates,builds,runs,deploycontrols,GitLabdata or futureCIfeatures. This screen preserves visible entry and userpause."
+  }
+]

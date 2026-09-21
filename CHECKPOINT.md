@@ -1,5 +1,12 @@
 # AIOps Canvas 检查点
 
+## CP-022 · 2026-09-21 基础设施全组界面
+
+- WAN-102 / codex/wan-102-infrastructure-design，依赖 WAN-101 资源数据层。11 个视图按对应设计图落地，覆盖式右卡片、统一搜索、分类/状态、指标快照与事件内容。
+- 数据全部由 PG 资源 API 返回；Mock 保留标识；原实时入口 mode=live 保留。没有基础设施写动作或恢复 CI/CD。
+- 受影响前端构建和 11 页桌面浏览器检查完成；修正 Ingress 分类、总览分组和容器概览；Pod/Redis 详情、深浅主题、搜索和抽屉不挤压已核对。完整窄屏与真实来源验收未运行。详见 docs/releases/2026-09-21-infrastructure-design-review.md。
+- 本机 18081 已更新；确切提交/推送在 WAN-102，产品待用户体验 In Review。旧 delivery/deployment 未提交代码继续保留，不属于本次交付。
+
 ## CP-021 · 2026-09-21 资源目录与关系数据库接入
 
 - WAN-101 / codex/wan-101-resource-workspace，依赖 WAN-81 已推送的 e713eb1，保留未合并基线。资源 API、应用权限/全局环境、列表筛选分页、关系图与覆盖抽屉已落地。

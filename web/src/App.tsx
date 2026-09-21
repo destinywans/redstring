@@ -85,6 +85,17 @@ const UnavailableObservationPage = lazy(
 const InfrastructurePage = lazy(
   () => import("./features/infrastructure/InfrastructurePage"),
 );
+const InfrastructureReviewPage = lazy(
+  () => import("./features/infrastructure/InfrastructureReviewPage"),
+);
+function InfrastructureRoute() {
+  const location = useLocation();
+  return new URLSearchParams(location.search).get("mode") === "live" ? (
+    <InfrastructurePage />
+  ) : (
+    <InfrastructureReviewPage />
+  );
+}
 const PlatformPage = lazy(() => import("./features/platform/PlatformPage"));
 const ExtensionsPage = lazy(
   () => import("./features/aiextensions/ExtensionsPage"),
@@ -607,7 +618,7 @@ export default function App() {
                 />
                 <Route
                   path="/infrastructure"
-                  element={<InfrastructurePage />}
+                  element={<InfrastructureRoute />}
                 />
                 <Route
                   path="/observability/metrics"

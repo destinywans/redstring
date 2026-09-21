@@ -145,6 +145,26 @@ func TestMemoryScopePaginationAndReadOnly(t *testing.T) {
 	if status != 200 || len(short.Items) != 10 || short.Total != 52 || short.Next == "" {
 		t.Fatal("context limit/total incorrect")
 	}
+	status, jumped := fetch("GET", "/api/v1/memory/contexts?limit=5&page=10", viewerToken)
+	if status != 200 || len(jumped.Items) != 5 || jumped.Total != 52 || jumped.Items[0].ID != "branch-006" || jumped.Next != "branch-002" {
+		t.Fatal("context direct page ten incorrect")
+	}
+	status, last := fetch("GET", "/api/v1/memory/contexts?limit=5&page=11", viewerToken)
+	if status != 200 || len(last.Items) != 2 || last.Total != 52 || last.Next != "" {
+		t.Fatal("context direct last page incorrect")
+	}
+	for _, resource := range []string{"documents", "contexts"} {
+		for _, query := range []string{"page=0", "page=-1", "page=1.5", "page=1000001", "page=bad", "page=", "page=1&page=2", "page=2&cursor=branch-010"} {
+			status, _ = fetch("GET", "/api/v1/memory/"+resource+"?"+query, viewerToken)
+			if status != 422 {
+				t.Fatalf("invalid %s page accepted: %s (%d)", resource, query, status)
+			}
+		}
+		status, empty := fetch("GET", "/api/v1/memory/"+resource+"?applications=hidden&page=10", viewerToken)
+		if status != 200 || len(empty.Items) != 0 || empty.Total != 0 || empty.Next != "" {
+			t.Fatalf("%s page offset widened hidden scope", resource)
+		}
+	}
 	for _, limit := range []string{"0", "51", "bad", "10&limit=20"} {
 		status, _ = fetch("GET", "/api/v1/memory/contexts?limit="+limit, viewerToken)
 		if status != 422 {
@@ -212,6 +232,12 @@ func TestMemoryScopePaginationAndReadOnly(t *testing.T) {
 	}
 	if short := fetchDocs("applications=allowed&q=batch&kind=runbook&lifecycle=published&limit=10"); len(short.Items) != 10 || short.Total != 260 || short.Next == "" {
 		t.Fatal("document limit/total incorrect")
+	}
+	if jumped := fetchDocs("applications=allowed&q=batch&kind=runbook&lifecycle=published&limit=20&page=10"); len(jumped.Items) != 20 || jumped.Total != 260 || jumped.Items[0].ID != "batch-080" || jumped.Next != "batch-061" {
+		t.Fatal("document direct page ten incorrect")
+	}
+	if empty := fetchDocs("applications=allowed&q=batch&kind=runbook&lifecycle=published&limit=20&page=14"); len(empty.Items) != 0 || empty.Total != 260 || empty.Next != "" {
+		t.Fatal("document beyond-last-page response incorrect")
 	}
 	seen := map[string]bool{}
 	cursor := ""

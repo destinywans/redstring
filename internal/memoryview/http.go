@@ -42,6 +42,11 @@ func (s *Service) Register(api *httpapi.Server) {
 			fail(w, e)
 			return
 		}
+		offset, e := pageOffset(r, limit)
+		if e != nil {
+			fail(w, e)
+			return
+		}
 		scope, e := httpapi.ParseReadScope(r.URL.Query())
 		if e != nil {
 			fail(w, e)
@@ -75,7 +80,7 @@ func (s *Service) Register(api *httpapi.Server) {
 			fail(w, e)
 			return
 		}
-		rows, e := tx.Query(r.Context(), documentIDsSQL, append(args, cursor, limit+1)...)
+		rows, e := tx.Query(r.Context(), documentIDsSQL, append(args, cursor, limit+1, offset)...)
 		if e != nil {
 			fail(w, e)
 			return
@@ -125,6 +130,11 @@ func (s *Service) Register(api *httpapi.Server) {
 			fail(w, e)
 			return
 		}
+		offset, e := pageOffset(r, limit)
+		if e != nil {
+			fail(w, e)
+			return
+		}
 		scope, e := httpapi.ParseReadScope(r.URL.Query())
 		if e != nil {
 			fail(w, e)
@@ -155,7 +165,7 @@ func (s *Service) Register(api *httpapi.Server) {
 			fail(w, e)
 			return
 		}
-		rows, e := tx.Query(r.Context(), `SELECT b.id,b.title,b.investigation_id,i.title,i.application_id,coalesce(i.environment_id,''),coalesce(b.parent_id,''),b.model_id,b.revision,jsonb_array_length(c.messages),c.created_at,c.provenance`+contextFilteredSQL+` AND ($5='' OR b.id<$5) ORDER BY b.id DESC LIMIT $6`, append(args, cursor, limit+1)...)
+		rows, e := tx.Query(r.Context(), `SELECT b.id,b.title,b.investigation_id,i.title,i.application_id,coalesce(i.environment_id,''),coalesce(b.parent_id,''),b.model_id,b.revision,jsonb_array_length(c.messages),c.created_at,c.provenance`+contextFilteredSQL+` AND ($5='' OR b.id<$5) ORDER BY b.id DESC LIMIT $6 OFFSET $7`, append(args, cursor, limit+1, offset)...)
 		if e != nil {
 			fail(w, e)
 			return
@@ -255,7 +265,7 @@ AND ($5<>'experience' OR d.investigation_id IS NOT NULL)
 AND ($5<>'runbook' OR d.investigation_id IS NULL)
 AND ($6='' OR d.lifecycle=$6)`
 const documentIDsSQL = documentFilteredSQL + `
-AND ($7='' OR d.id<$7) ORDER BY d.id DESC LIMIT $8`
+AND ($7='' OR d.id<$7) ORDER BY d.id DESC LIMIT $8 OFFSET $9`
 const contextFilteredSQL = ` FROM branches b JOIN investigations i ON i.id=b.investigation_id JOIN context_revisions c ON c.branch_id=b.id AND c.revision=b.revision WHERE i.application_id=ANY($1::text[]) AND (cardinality($2::text[])=0 OR i.application_id=ANY($2::text[])) AND (cardinality($3::text[])=0 OR i.environment_id=ANY($3::text[])) AND ($4='' OR position(lower($4) in lower(b.title||' '||i.title))>0)`
 
 func pageLimit(r *http.Request) (int, error) {
@@ -271,6 +281,23 @@ func pageLimit(r *http.Request) (int, error) {
 		return 0, store.ErrInvalidReference
 	}
 	return limit, nil
+}
+
+// Page mode reads the requested offset directly; omitted page retains cursor
+// semantics. Never combine an offset with a cursor and silently skip records.
+func pageOffset(r *http.Request, limit int) (int64, error) {
+	raw, exists := r.URL.Query()["page"]
+	if !exists {
+		return 0, nil
+	}
+	if len(raw) != 1 || r.URL.Query().Get("cursor") != "" {
+		return 0, store.ErrInvalidReference
+	}
+	page, e := strconv.ParseInt(raw[0], 10, 64)
+	if e != nil || page < 1 || page > 1_000_000 {
+		return 0, store.ErrInvalidReference
+	}
+	return (page - 1) * int64(limit), nil
 }
 
 func fail(w http.ResponseWriter, e error) {

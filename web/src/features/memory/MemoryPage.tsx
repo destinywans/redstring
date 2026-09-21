@@ -2,12 +2,7 @@ import Pagination from "../../components/Pagination";
 import SelectField from "../../components/SelectField";
 import { useState, useEffect, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import {
-  useInfiniteQuery,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import { request, put, post } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
@@ -112,14 +107,24 @@ export default function MemoryPage() {
   const [pageSize, setPageSize] = useState(20);
   const [position, setPosition] = useState({ key: "", page: 1 });
   const pagingKey = `${mode}:${filters.toString()}:${pageSize}`;
-  const list = useInfiniteQuery({
-    queryKey: ["memory", mode, filters.toString(), pageSize],
-    initialPageParam: "",
-    queryFn: ({ pageParam }) =>
+  const requestedPage = position.key === pagingKey ? position.page : 1;
+  const activePagingKey = useRef(pagingKey);
+  activePagingKey.current = pagingKey;
+  const [jumpingKey, setJumpingKey] = useState<string | null>(null);
+  const [jumpError, setJumpError] = useState<{
+    key: string;
+    error: Error;
+  } | null>(null);
+  const listOptions = (page: number) => ({
+    queryKey: ["memory", mode, filters.toString(), pageSize, page],
+    staleTime: 1000,
+    queryFn: () =>
       request<Items<Doc | Context>>(
-        `/memory/${mode}?${filters}&limit=${pageSize}&cursor=${encodeURIComponent(pageParam)}`,
+        `/memory/${mode}?${filters}&limit=${pageSize}&page=${page}`,
       ),
-    getNextPageParam: (p) => p.next_cursor || undefined,
+  });
+  const list = useQuery({
+    ...listOptions(requestedPage),
     enabled: !preview,
   });
   const detail = useQuery({
@@ -231,34 +236,44 @@ export default function MemoryPage() {
       void client.invalidateQueries({ queryKey: ["memory"] });
     },
   });
-  const total = list.data?.pages[0]?.total;
-  const requestedPage = position.key === pagingKey ? position.page : 1;
+  const total = list.data?.total;
   const maximumPage =
     typeof total === "number" && Number.isFinite(total)
       ? Math.max(1, Math.ceil(total / pageSize))
       : Infinity;
-  // Commit resets, including a refresh that removed the current cursor page.
+  // A fresh response can shrink the result set; request its new last page.
   // Returning to an earlier filter must not revive its old page position.
-  const pageUnavailable =
-    requestedPage > 1 &&
-    list.isSuccess &&
-    (!list.data.pages[requestedPage - 1] ||
-      (!list.data.pages[requestedPage - 1].items.length &&
-        !list.data.pages[requestedPage - 1].next_cursor));
-  const page =
-    requestedPage > maximumPage || pageUnavailable ? 1 : requestedPage;
+  const page = Math.min(requestedPage, maximumPage);
   if (position.key !== pagingKey || position.page !== page)
-    setPosition({ key: pagingKey, page: page });
-  const currentPage = list.data?.pages[page - 1];
-  const rows = currentPage?.items ?? [];
+    setPosition({ key: pagingKey, page });
+  const rows = list.data?.items ?? [];
+  const jumping = jumpingKey === pagingKey;
   async function changePage(next: number) {
-    if (list.isFetching || next < 1) return;
-    if (next > (list.data?.pages.length ?? 0)) {
-      if (!currentPage?.next_cursor) return;
-      const result = await list.fetchNextPage();
-      if (result.isError || !result.data?.pages[next - 1]) return;
+    if (
+      list.isFetching ||
+      jumping ||
+      !Number.isSafeInteger(next) ||
+      next < 1 ||
+      next > maximumPage
+    )
+      return;
+    setJumpingKey(pagingKey);
+    setJumpError(null);
+    try {
+      // Fetch only the requested page. Keep the current rows and page when it fails.
+      await client.fetchQuery({ ...listOptions(next), staleTime: 0 });
+      if (activePagingKey.current !== pagingKey) return;
+      setPosition({ key: pagingKey, page: next });
+    } catch (error) {
+      if (activePagingKey.current === pagingKey)
+        setJumpError({
+          key: pagingKey,
+          error: error instanceof Error ? error : new Error(String(error)),
+        });
+      return;
+    } finally {
+      setJumpingKey((key) => (key === pagingKey ? null : key));
     }
-    setPosition({ key: pagingKey, page: next });
     setParams((current) => {
       const params = new URLSearchParams(current);
       params.delete("item");
@@ -480,6 +495,7 @@ export default function MemoryPage() {
       </div>
       {preview && <p className="management-notice">预览模式未读取实际记忆。</p>}
       {list.error && <ErrorNotice error={list.error} />}
+      {jumpError?.key === pagingKey && <ErrorNotice error={jumpError.error} />}
       <div
         className="memory-columns"
         id="memory-results"
@@ -546,8 +562,8 @@ export default function MemoryPage() {
             page={page}
             pageSize={pageSize}
             total={total}
-            hasNext={!!currentPage?.next_cursor}
-            loading={list.isFetching}
+            hasNext={!!list.data?.next_cursor}
+            loading={list.isFetching || jumping}
             onPageChange={(next) => void changePage(next)}
             onPageSizeChange={(size) => {
               setPageSize(size);

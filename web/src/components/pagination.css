@@ -32,17 +32,27 @@
   font: inherit;
 }
 .list-pagination-size .filter-select-trigger {
-  min-width: 64px;
-  width: auto;
+  position: relative;
+  min-width: 72px;
+  width: 72px;
   height: 36px;
   padding: 0 10px;
-  gap: 8px;
+  gap: 4px;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
+}
+.list-pagination-size .filter-trigger-value {
+  flex: 1;
+  text-align: center;
 }
 .list-pagination-size .filter-select-trigger svg {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 16px;
   height: 16px;
+  margin-left: 0;
 }
 .list-pagination-size:disabled .filter-select-trigger {
   opacity: 0.45;
@@ -51,6 +61,26 @@
 .list-pagination-buttons {
   display: inline-flex;
   gap: 6px;
+}
+.list-pagination-input {
+  width: 48px;
+  height: 36px;
+  margin: 0 4px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  text-align: center;
+}
+.list-pagination-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.list-pagination-input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .list-pagination-button {
   display: inline-flex;

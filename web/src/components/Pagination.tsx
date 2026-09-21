@@ -86,8 +86,45 @@ export function Pagination({
       <span className="list-pagination-separator" aria-hidden="true">
         ·
       </span>
-      <span className="list-pagination-page" aria-live="polite">
-        第 {current}
+      <span className="list-pagination-page">
+        第{" "}
+        {pages === undefined ? (
+          current
+        ) : (
+          <input
+            key={`${current}:${pages}`}
+            className="list-pagination-input"
+            type="text"
+            inputMode="numeric"
+            aria-label="跳转页码"
+            title={`输入 1 至 ${pages}，按回车或离开输入框跳转`}
+            defaultValue={current}
+            disabled={loading || pages <= 1}
+            onFocus={(event) => event.currentTarget.select()}
+            onBlur={(event) => {
+              const raw = event.currentTarget.value.trim();
+              const next = /^\d+$/.test(raw) ? Number(raw) : NaN;
+              event.currentTarget.value = String(current);
+              if (
+                !loading &&
+                Number.isSafeInteger(next) &&
+                next >= 1 &&
+                next <= pages &&
+                next !== current
+              )
+                onPageChange(next);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                event.currentTarget.blur();
+              } else if (event.key === "Escape") {
+                event.currentTarget.value = String(current);
+                event.currentTarget.blur();
+              }
+            }}
+          />
+        )}
         {pages === undefined ? "" : ` / ${pages}`} 页
       </span>
       <div className="list-pagination-buttons">

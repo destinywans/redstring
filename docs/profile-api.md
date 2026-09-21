@@ -1,0 +1,33 @@
+# 个人 Profile 接口
+
+WAN-104：所有已登录角色只查看或修改本人，无目标用户 ID 参数。账号名称、邮箱、手机号、角色、部门及权限在这里只读，权限不能通过 Profile 提升。
+
+## 接口
+
+- `GET /api/v1/profile`：`user` 包含 `id/name/email/phone/avatar_url/role`；另含 `departments`、`permissions`、`applications` 和 `can_change_password`。
+- `PATCH /api/v1/profile`：只接受必填 `avatar_data_url`，空串移除。返回更新后的完整 Profile。未知字段、null、缺失字段均 422。
+- `POST /api/v1/profile/password`：接受 `current_password/new_password`，成功 204 并清除 Cookie，要求重新登录。
+
+`phone` 是新增可空、只读资料字段，没有资料时返回 null，不生成手机号。`avatar_url` 是服务端规范化 PNG 的 data URL，未设置返回空串。实际部门来自 `teams` 与 `team_members` 稳定关联。
+
+## 头像
+
+输入只接受严格 base64 的 PNG/JPEG data URL，压缩图像最多 1 MiB；先读取图像配置，确认边长不超过 1024、总像素不超过 1048576，再完整解码。MIME 必须与解码格式相符。重新编码 PNG 去除元数据，输出最大 4 MiB。拒绝 SVG、GIF、损坏图像及超限输入。建议客户端先裁剪/缩小头像。
+
+数据库 `users.avatar_png` 保存规范化字节；接口只返回本人头像，不提供任意用户头像读取端点。审计仅记录是否设置头像，不记录原图、data URL 或密码。
+
+## 权限与账号安全
+
+应用列表通过现有 `VisibleApplicationIDs` 与 `AuthorizeApplication` 查询，包含个人和部门继承授权。只读成员的 operate 授权降为 view，归档应用仅 view；管理员可见全部应用。`permissions` 是当前角色和实际应用范围的能力汇总，不能代替动作执行时的逐目标鉴权、审批和状态校验。
+
+已有有效本地密码哈希的身份允许自行改密，包括管理员设置本地密码并启用的企业目录导入成员。`source` 是目录来源，不代表 SSO 或身份提供商，不能据此禁止改密。没有有效本地密码哈希时 `can_change_password=false`，改密返回 422 `no_local_password`。新密码遵循现有不少于 12 字节规则，并与 HTTP 登录一致限制最多 1024 字节；必须不同于旧密码。现密码同样最多 1024 字节。错误旧密码返回 422 `incorrect_password`，不返回会导致客户端退出的 401。
+
+密码更新在用户行锁下进行，更新密码哈希、删除本人全部 session、写审计在同一事务内提交。其他人的 session 保留。共享登录路径必须在同一用户行锁下校验密码并创建 session，避免旧密码已校验的并发登录在撤销后补建 session；接线方需同步完成此处保护。
+
+迁移为 `migrations/013_profile.sql`，仅增加 `users.phone/avatar_png` 及头像长度约束。测试使用随机 `profile_test_*` schema，不修改现有账号或 public 数据。后端模块接线：`profile.New(db).Register(api)`；契约脚本需要由 `scripts/build-openapi.py` 执行 `profile-openapi.py`。
+
+## 界面入口与交付
+
+独立设置页 `/profile` 对所有已登录用户可见。用户名菜单的“设置”进入个人资料；平台概览、成员、部门和角色管理仍仅管理员可访问。头像保存后同时更新个人资料、设置底栏与主工作台用户菜单。姓名、邮箱、手机号、部门、角色及应用权限只读，手机号为空展示“未设置”。
+
+前端采用已确认 MiSans 角色：正文400、操作500、标题600，支持深浅主题。图片先预览再保存/移除；错误密码和格式错误在表单展示中文提示；密码保存成功退出并重新登录。没有修改既有管理员验收密码。

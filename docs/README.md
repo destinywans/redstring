@@ -1,5 +1,7 @@
 # 项目文档
 
+- [个人资料与密码接口](profile-api.md)
+
 - [全平台字体规范](design/typography.md)、[MiSans 字体交付记录](releases/2026-09-21-unified-typography.md)。
 
 - [全站38张设计图与离线图库](design/platform-2026-09-21/README.md)：WAN-100，全部子菜单、工作台、交付暂停入口与审计；待用户设计评审，非已实现能力。

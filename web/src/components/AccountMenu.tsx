@@ -5,6 +5,7 @@ import type { User } from "../lib/types";
 
 export default function AccountMenu({
   user,
+  avatarURL,
   settingsURL,
   preview,
   onNavigate,
@@ -12,6 +13,7 @@ export default function AccountMenu({
   onHelp,
 }: {
   user: User;
+  avatarURL?: string;
   settingsURL: string;
   preview: boolean;
   onNavigate: () => void;
@@ -51,7 +53,11 @@ export default function AccountMenu({
         }}
       >
         <span className="avatar" aria-hidden="true">
-          {user.name.slice(0, 1).toUpperCase()}
+          {avatarURL ? (
+            <img src={avatarURL} alt="" />
+          ) : (
+            user.name.slice(0, 1).toUpperCase()
+          )}
         </span>
         <span className="account-identity">
           <strong>{user.name}</strong>
@@ -109,7 +115,7 @@ export default function AccountMenu({
             }
           }}
         >
-          {user.role === "admin" && (
+          {
             <Link
               role="menuitem"
               to={settingsURL}
@@ -121,7 +127,7 @@ export default function AccountMenu({
               <Settings size={17} />
               设置
             </Link>
-          )}
+          }
           <button
             role="menuitem"
             onClick={() => {

@@ -12756,6 +12756,305 @@
           }
         }
       }
+    },
+    "/profile": {
+      "get": {
+        "summary": "Read own profile, departments and effective application permissions",
+        "operationId": "get_profile",
+        "description": "Minimum role: viewer. Current authenticated identity only. Departments reuse stable team memberships. Applications include direct and department grants with viewer/archived operate caps. Capability flags summarize effective access; execution still requires approved plans. Phone is nullable and read-only.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalProfile"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "profile"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ]
+      },
+      "patch": {
+        "summary": "Replace or remove own avatar",
+        "operationId": "patch_profile",
+        "description": "Minimum role: viewer. Only avatar_data_url may be changed. Empty string removes avatar. Strict PNG/JPEG base64, input up to 1 MiB, dimensions up to 1024x1024 and 1048576 pixels. Image is decoded and reencoded as PNG, discarding metadata. Canonical stored PNG is bounded to 4 MiB. Avatar content never enters audit records.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalProfile"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "profile"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "avatar_data_url": {
+                    "type": "string",
+                    "maxLength": 1398136
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "avatar_data_url"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/profile/password": {
+      "post": {
+        "summary": "Change own local password and revoke all own sessions",
+        "operationId": "post_profile_password",
+        "description": "Minimum role: viewer. Requires current password and a different new password. Existing local password policy uses 12 bytes minimum and a 1024-byte cap matching HTTP login. Directory source is metadata, not SSO: any active identity with a valid local password hash may change it. No configured local password returns 422 no_local_password. Wrong current password returns 422 incorrect_password, preserving the session. Successful hash update, all-user-session revocation and secret-free audit are transactional; response expires the current cookie. A new login is required.",
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "profile"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "current_password": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  },
+                  "new_password": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "current_password",
+                  "new_password"
+                ]
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -15587,6 +15886,147 @@
           }
         },
         "additionalProperties": false
+      },
+      "PersonalProfileUser": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "avatar_url": {
+            "type": "string"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "operator",
+              "viewer"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "email",
+          "phone",
+          "avatar_url",
+          "role"
+        ]
+      },
+      "PersonalProfile": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/PersonalProfileUser"
+          },
+          "departments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "name"
+              ]
+            }
+          },
+          "permissions": {
+            "type": "object",
+            "properties": {
+              "view": {
+                "type": "boolean"
+              },
+              "investigate": {
+                "type": "boolean"
+              },
+              "approve": {
+                "type": "boolean"
+              },
+              "execute": {
+                "type": "boolean"
+              },
+              "manage": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "view",
+              "investigate",
+              "approve",
+              "execute",
+              "manage"
+            ]
+          },
+          "applications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "permission": {
+                  "type": "string",
+                  "enum": [
+                    "view",
+                    "operate"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "key",
+                "name",
+                "permission"
+              ]
+            }
+          },
+          "can_change_password": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "user",
+          "departments",
+          "permissions",
+          "applications",
+          "can_change_password"
+        ]
       }
     },
     "securitySchemes": {

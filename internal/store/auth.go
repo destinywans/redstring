@@ -52,13 +52,25 @@ func (s *Store) Bootstrap(ctx context.Context, email, password string) error {
 func (s *Store) Login(ctx context.Context, email, password string) (core.User, string, error) {
 	var u core.User
 	var hash string
-	e := s.DB.QueryRow(ctx, "SELECT id,email,name,role,password_hash FROM users WHERE email=$1 AND NOT disabled", strings.ToLower(email)).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &hash)
+	tx, e := s.DB.Begin(ctx)
+	if e != nil {
+		return u, "", e
+	}
+	defer tx.Rollback(ctx)
+	// Serialize login with password changes: a revoked password cannot create
+	// a session after the password-changing transaction has invalidated sessions.
+	e = tx.QueryRow(ctx, "SELECT id,email,name,role,password_hash FROM users WHERE email=$1 AND NOT disabled FOR UPDATE", strings.ToLower(email)).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &hash)
 	if e != nil || !CheckPassword(password, hash) {
 		return u, "", ErrNotFound
 	}
 	token := ID() + ID()
-	_, e = s.DB.Exec(ctx, "INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '12 hours')", Hash(token), u.ID)
-	return u, token, e
+	if _, e = tx.Exec(ctx, "INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '12 hours')", Hash(token), u.ID); e != nil {
+		return u, "", e
+	}
+	if e = tx.Commit(ctx); e != nil {
+		return u, "", e
+	}
+	return u, token, nil
 }
 func (s *Store) Session(ctx context.Context, token string) (core.User, error) {
 	var u core.User

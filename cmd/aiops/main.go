@@ -13,6 +13,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/knowledge"
 	"github.com/wans/aiops-canvas/internal/memoryview"
+	"github.com/wans/aiops-canvas/internal/profile"
 	"github.com/wans/aiops-canvas/internal/resources"
 	"github.com/wans/aiops-canvas/internal/settings"
 	"github.com/wans/aiops-canvas/internal/store"
@@ -73,6 +74,7 @@ func run() error {
 	(&memoryview.Service{Store: s, Knowledge: know}).Register(api)
 	resources.New(s.DB).Register(api)
 	settings.New(s, "dev").Register(api)
+	profile.New(s).Register(api)
 	var connector *connectors.Kubernetes
 	var actionConnector actions.Connector
 	var connectorConfig connectors.Config

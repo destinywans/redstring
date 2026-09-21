@@ -168,6 +168,11 @@ export default function App() {
         role: "admin" as const,
       }
     : auth.data?.user;
+  const profile = useQuery({
+    queryKey: ["profile", user?.id],
+    queryFn: () => request<{ user: { avatar_url?: string } }>("/profile"),
+    enabled: !!user && !preview,
+  });
   const apps = useQuery({
     queryKey: ["applications", preview],
     queryFn: () => request<Items<Application>>("/applications"),
@@ -354,7 +359,12 @@ export default function App() {
     }));
   const nav = [
     ...sections,
-    ...(user.role === "admin" ? [settingsNavigation] : []),
+    {
+      ...settingsNavigation,
+      children: settingsNavigation.children.filter(
+        (item) => !item.admin || user.role === "admin",
+      ),
+    },
   ].flatMap((section) =>
     section.children.map((item) => ({ ...item, icon: section.icon })),
   );
@@ -389,6 +399,7 @@ export default function App() {
       <EnvironmentScopeContext.Provider value={environmentScope}>
         {currentSection?.id === settingsNavigation.id ? (
           <SettingsWorkspace
+            avatarURL={profile.data?.user.avatar_url}
             homeURL={routeLink("/")}
             routeLink={routeLink}
             theme={theme}
@@ -516,9 +527,10 @@ export default function App() {
                 </nav>
               </div>
               <AccountMenu
+                avatarURL={profile.data?.user.avatar_url}
                 user={user}
                 preview={preview}
-                settingsURL={routeLink("/platform/settings")}
+                settingsURL={routeLink("/profile")}
                 onHelp={() => setHelpOpen(true)}
                 onNavigate={() => {
                   if (narrow) {
@@ -718,7 +730,11 @@ export default function App() {
           </div>
           <p className="font-attribution">
             字体：MiSans · 小米
-            <a href="/fonts/MiSans-LICENSE.pdf" target="_blank" rel="noreferrer">
+            <a
+              href="/fonts/MiSans-LICENSE.pdf"
+              target="_blank"
+              rel="noreferrer"
+            >
               字体许可
             </a>
           </p>

@@ -10,10 +10,14 @@ import {
   ShieldCheck,
   Sun,
   Users,
+  User,
 } from "../../lib/icons";
 import { useWorkspace } from "../../lib/workspace";
 import "./settings-workspace.css";
 
+const Profile = lazy(() =>
+  import("./ProfilePage").then((module) => ({ default: module.ProfilePage })),
+);
 const Overview = lazy(() => import("./WorkspaceOverview"));
 const Members = lazy(() =>
   import("./directory/MembersSettingsPage").then((module) => ({
@@ -31,6 +35,7 @@ const Roles = lazy(() =>
   })),
 );
 const destinations = [
+  { to: "/profile", label: "个人资料", icon: User },
   { to: "/platform/settings", label: "平台概览", icon: LayoutGrid },
   { to: "/members", label: "成员管理", icon: Users },
   { to: "/teams", label: "部门管理", icon: Building2 },
@@ -39,12 +44,14 @@ const destinations = [
 
 export default function SettingsWorkspace({
   homeURL,
+  avatarURL,
   routeLink,
   theme,
   onToggleTheme,
   onHelp,
 }: {
   homeURL: string;
+  avatarURL?: string;
   routeLink: (to: string) => string;
   theme: string;
   onToggleTheme: () => void;
@@ -75,17 +82,19 @@ export default function SettingsWorkspace({
           </div>
         </div>
         <nav aria-label="设置页面">
-          {destinations.map((item) => (
-            <NavLink
-              key={item.to}
-              to={routeLink(item.to)}
-              end
-              className={({ isActive }) => (isActive ? "active" : "")}
-            >
-              <item.icon size={18} />
-              {item.label}
-            </NavLink>
-          ))}
+          {destinations
+            .filter((item) => item.to === "/profile" || user.role === "admin")
+            .map((item) => (
+              <NavLink
+                key={item.to}
+                to={routeLink(item.to)}
+                end
+                className={({ isActive }) => (isActive ? "active" : "")}
+              >
+                <item.icon size={18} />
+                {item.label}
+              </NavLink>
+            ))}
         </nav>
         <div className="settings-sidebar-footer">
           <button onClick={onHelp}>
@@ -94,7 +103,11 @@ export default function SettingsWorkspace({
           </button>
           <div className="settings-viewer">
             <span className="avatar">
-              {user.name.slice(0, 1).toUpperCase()}
+              {avatarURL ? (
+                <img src={avatarURL} alt="" />
+              ) : (
+                user.name.slice(0, 1).toUpperCase()
+              )}
             </span>
             <div>
               <strong>{user.name}</strong>
@@ -118,7 +131,7 @@ export default function SettingsWorkspace({
           </button>
         </header>
         <main id="settings-main" tabIndex={-1} className="settings-content">
-          {user.role !== "admin" ? (
+          {user.role !== "admin" && location.pathname !== "/profile" ? (
             <div className="settings-denied">
               <ShieldCheck size={32} />
               <h1>需要管理员权限</h1>
@@ -132,6 +145,7 @@ export default function SettingsWorkspace({
               fallback={<div className="page-loading">正在加载设置…</div>}
             >
               <Routes>
+                <Route path="/profile" element={<Profile />} />
                 <Route path="/platform/settings" element={<Overview />} />
                 <Route path="/members" element={<Members />} />
                 <Route path="/teams" element={<Teams />} />

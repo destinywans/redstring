@@ -130,12 +130,12 @@ export const settingsNavigation: NavigationSection = {
   id: "account-settings",
   label: "设置",
   icon: Settings,
-  admin: true,
   children: [
-    { to: "/platform/settings", label: "平台概览" },
-    { to: "/members", label: "成员管理" },
-    { to: "/teams", label: "部门管理" },
-    { to: "/platform/roles", label: "角色与资源范围" },
+    { to: "/profile", label: "个人资料" },
+    { to: "/platform/settings", label: "平台概览", admin: true },
+    { to: "/members", label: "成员管理", admin: true },
+    { to: "/teams", label: "部门管理", admin: true },
+    { to: "/platform/roles", label: "角色与资源范围", admin: true },
   ],
 };
 

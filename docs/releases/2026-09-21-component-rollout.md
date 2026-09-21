@@ -29,3 +29,9 @@
 - [分页交互样板](http://127.0.0.1:18081/design-review/components)、[资源目录](http://127.0.0.1:18081/resources/catalog?environment_scope=all)、[角色管理](http://127.0.0.1:18081/platform/roles?environment_scope=all)。
 - [分页规范](../design/pagination.md)、[组件方向和授权](../design/application-ui-sample.md)、[搜索筛选规范](../design/search-filters.md)。
 - 原暂停的 delivery/deployment 及相关配置/文档未提交改动继续保留，不属于本轮提交。确切提交、推送回读及 In Review 状态维护在 [WAN-96](https://linear.app/wansss/issue/WAN-96)。合并及产品最终验收尚未进行。
+
+## 同日反馈：页码悬停和选中切换迟缓
+
+用户体验后反馈 2↔3 页码底色与边框切换过慢。本机计算样式确认按钮误用全局主题的 850ms 过渡，阴影实际为 none。共享分页显式改为悬停底色/文字 80ms，当前页、边框和跳页输入焦点即时，保留键盘焦点与减少动效支持。没有改主题动画或数据加载语义；首次请求仍按真实响应呈现结果。
+
+此修订最终前端构建、diff 检查及本机 2→3→2 点击通过；浏览器回读当前页 transition 为 none、其他页为 0.08s，选中边框已落在第 2 页。完成最终界面截图检查，没有新增或运行广泛测试；本机静态资源和图库已更新。

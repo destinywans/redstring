@@ -55,6 +55,7 @@
   color: var(--text);
   font: inherit;
   text-align: center;
+  transition: none;
 }
 .list-pagination-input:focus-visible,
 .list-pagination-button:focus-visible {
@@ -78,6 +79,11 @@
   color: var(--text);
   font: inherit;
   cursor: pointer;
+  box-shadow: none;
+  /* Page feedback must not inherit the slower theme-switch transition. */
+  transition:
+    background-color 80ms ease-out,
+    color 80ms ease-out;
 }
 .list-pagination-button:hover:not(:disabled) {
   background: var(--panel-soft);
@@ -88,6 +94,7 @@
   border-color: var(--accent);
   color: var(--accent);
   font-weight: 500;
+  transition: none;
 }
 .list-pagination-button:disabled {
   opacity: 0.4;

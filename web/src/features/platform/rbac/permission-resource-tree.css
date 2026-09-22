@@ -162,11 +162,7 @@
   line-height: 20px;
   font-weight: 400;
 }
-.permission-resource-incompatible {
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 20px;
-}
+
 .permission-resource-current {
   display: flex;
   flex-wrap: wrap;
@@ -188,10 +184,7 @@
   color: var(--accent, #6550e8);
   background: color-mix(in srgb, var(--accent, #6550e8) 8%, var(--panel));
 }
-.permission-remove-link {
-  margin-left: 8px;
-  white-space: nowrap;
-}
+
 .permission-load-more {
   margin: 8px 0 12px 50px;
 }

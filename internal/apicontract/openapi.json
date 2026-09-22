@@ -13054,9 +13054,9 @@
     },
     "/profile": {
       "get": {
-        "summary": "Read own profile, departments and effective application permissions",
+        "summary": "Read own profile, department, effective resource permissions and related applications",
         "operationId": "get_profile",
-        "description": "Minimum role: viewer. Current authenticated identity only. Departments reuse stable team memberships. Applications include direct and department grants with viewer/archived operate caps. Capability flags summarize effective access; execution still requires approved plans. Phone is nullable and read-only.",
+        "description": "Minimum role: viewer. Current authenticated identity only. Department is the single users.department_id association. Resource capability flags use effective role/department resource bindings; empty permissions grant nothing. Related applications come only from resources with an effective view grant and are not standalone grants. is_platform_admin is derived separately from the effective admin role association. Execution still requires approved plans. Phone is nullable and read-only.",
         "responses": {
           "200": {
             "description": "Success",
@@ -13490,27 +13490,6 @@
               "minimum": 1,
               "maximum": 100,
               "default": 10
-            }
-          },
-          {
-            "name": "action",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "scope_type",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "builtin",
-            "in": "query",
-            "schema": {
-              "type": "string"
             }
           }
         ]
@@ -14103,27 +14082,6 @@
               "maximum": 100,
               "default": 10
             }
-          },
-          {
-            "name": "action",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "scope_type",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "builtin",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
           }
         ]
       },
@@ -14577,9 +14535,9 @@
     },
     "/rbac/me": {
       "get": {
-        "summary": "Read own explicit management scopes",
+        "summary": "Read current platform administration access",
         "operationId": "get_rbac_me",
-        "description": "Minimum role: viewer. Authenticated current identity only. No role promotion; individual routes still enforce their management object.",
+        "description": "Minimum role: viewer. Authenticated current identity only. management_objects is the compatibility response for platform administration navigation. An enabled real user must hold the actual admin role directly or through their department; ordinary resource bindings do not grant platform administration.",
         "responses": {
           "200": {
             "description": "Success",
@@ -14676,9 +14634,9 @@
     },
     "/rbac/catalog": {
       "get": {
-        "summary": "Read selectable permission actions and filter metadata",
+        "summary": "Read resource operations and department filter metadata",
         "operationId": "get_rbac_catalog",
-        "description": "Minimum role: viewer. Resource associations offer view, update, approve and delete, subject to each target available_actions. An empty permission has no operations or grants. Existing historical binding actions retain their runtime meaning.",
+        "description": "Minimum role: viewer. Resource associations offer view, update, approve and delete on every infrastructure resource. Permission definitions have no intrinsic operations or resource scope. An unbound permission grants nothing.",
         "responses": {
           "200": {
             "description": "Success",
@@ -14693,45 +14651,13 @@
                         "type": "object",
                         "properties": {
                           "id": {
-                            "type": "string"
-                          },
-                          "name": {
-                            "type": "string"
-                          }
-                        },
-                        "additionalProperties": false,
-                        "required": [
-                          "id",
-                          "name"
-                        ]
-                      }
-                    },
-                    "management_objects": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "id": {
-                            "type": "string"
-                          },
-                          "name": {
-                            "type": "string"
-                          }
-                        },
-                        "additionalProperties": false,
-                        "required": [
-                          "id",
-                          "name"
-                        ]
-                      }
-                    },
-                    "applications": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "id": {
-                            "type": "string"
+                            "type": "string",
+                            "enum": [
+                              "view",
+                              "update",
+                              "approve",
+                              "delete"
+                            ]
                           },
                           "name": {
                             "type": "string"
@@ -14767,8 +14693,6 @@
                   "additionalProperties": false,
                   "required": [
                     "actions",
-                    "management_objects",
-                    "applications",
                     "departments"
                   ]
                 }
@@ -15016,20 +14940,6 @@
             }
           },
           {
-            "name": "action",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "scope_type",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
             "name": "kind",
             "in": "query",
             "schema": {
@@ -15204,7 +15114,7 @@
       "get": {
         "summary": "Search resources grouped by type",
         "operationId": "get_rbac_permissions_id_resource_tree",
-        "description": "Minimum role: viewer. Groups contain concrete resource leaves and their assigned/available operations. Search and expand/load-more do not grant access. Scope type and resource ID together identify each target; legacy application and management groups expose only existing historical bindings.",
+        "description": "Minimum role: viewer. Groups contain only concrete CMDB infrastructure resources, keyed resource:<kind>. Allowed kinds: cluster, node, deployment, namespace, host, network, storage, redis, mysql, kafka. No application, legacy application or management-object groups. Every leaf supports view/update/approve/delete. scope_type is always resource; assigned_actions reflects stored bindings. Search and group load-more never modify authorization.",
         "responses": {
           "200": {
             "description": "Success",
@@ -15462,7 +15372,7 @@
       "put": {
         "summary": "Atomically edit resource operation bindings",
         "operationId": "put_rbac_permissions_id_resources",
-        "description": "Minimum role: viewer. Each upsert replaces operations only for the supplied concrete scope/resource pair. Remove deletes that pair. Unmentioned targets are unchanged. New actions must belong to available_actions; historical actions can only be retained from an existing binding. No bindings means no operations or authorization. Built-in permissions can manage bindings. Authorization, revision and last enabled RBAC manager checks apply atomically. Legacy application bindings remain intersected with the member original application ACL.",
+        "description": "Minimum role: viewer. Each upsert replaces operations only for the supplied infrastructure resource. scope_type must be resource and actions must contain one or more of view/update/approve/delete. Remove deletes that resource binding; unmentioned targets remain unchanged. Retired scopes and actions are rejected, including when previously stored. Permission definitions carry no operations. Authorization and revision checks are atomic. Platform administration depends on actual admin role membership, not a resource operation. Recovery approval checks exact resolved infrastructure targets rather than an application-level grant.",
         "responses": {
           "200": {
             "description": "Success",
@@ -19071,26 +18981,22 @@
               "view": {
                 "type": "boolean"
               },
-              "investigate": {
+              "update": {
                 "type": "boolean"
               },
               "approve": {
                 "type": "boolean"
               },
-              "execute": {
-                "type": "boolean"
-              },
-              "manage": {
+              "delete": {
                 "type": "boolean"
               }
             },
             "additionalProperties": false,
             "required": [
               "view",
-              "investigate",
+              "update",
               "approve",
-              "execute",
-              "manage"
+              "delete"
             ]
           },
           "applications": {
@@ -19106,23 +19012,18 @@
                 },
                 "name": {
                   "type": "string"
-                },
-                "permission": {
-                  "type": "string",
-                  "enum": [
-                    "view",
-                    "operate"
-                  ]
                 }
               },
               "additionalProperties": false,
               "required": [
                 "id",
                 "key",
-                "name",
-                "permission"
+                "name"
               ]
             }
+          },
+          "is_platform_admin": {
+            "type": "boolean"
           },
           "can_change_password": {
             "type": "boolean"
@@ -19161,6 +19062,7 @@
           "permissions",
           "applications",
           "can_change_password",
+          "is_platform_admin",
           "roles"
         ]
       },
@@ -19275,12 +19177,6 @@
           "email": {
             "type": "string"
           },
-          "action": {
-            "type": "string"
-          },
-          "scope_type": {
-            "type": "string"
-          },
           "kind": {
             "type": "string"
           },
@@ -19344,7 +19240,10 @@
             "type": "string"
           },
           "scope_type": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "resource"
+            ]
           }
         },
         "additionalProperties": false,
@@ -19360,13 +19259,25 @@
             "type": "string"
           },
           "scope_type": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "resource"
+            ]
           },
           "actions": {
             "type": "array",
             "items": {
-              "type": "string"
-            }
+              "type": "string",
+              "enum": [
+                "view",
+                "update",
+                "approve",
+                "delete"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 4,
+            "uniqueItems": true
           }
         },
         "additionalProperties": false,
@@ -19385,25 +19296,40 @@
           "name": {
             "type": "string"
           },
-          "scope_type": {
-            "type": "string"
-          },
           "kind": {
             "type": "string"
           },
           "description": {
             "type": "string"
           },
+          "scope_type": {
+            "type": "string",
+            "enum": [
+              "resource"
+            ]
+          },
           "assigned_actions": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "view",
+                "update",
+                "approve",
+                "delete"
+              ]
             }
           },
           "available_actions": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "view",
+                "update",
+                "approve",
+                "delete"
+              ]
             }
           },
           "is_mock": {

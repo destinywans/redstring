@@ -68,7 +68,7 @@ func lockAuthority(ctx context.Context, tx pgx.Tx) error {
 		}
 	}
 	var allowed bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rbac_effective_permissions WHERE user_id=$1 AND action='manage' AND scope_type='management' AND resource_id='rbac')`, store.Principal(ctx).ID).Scan(&allowed); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rbac_platform_administrators WHERE user_id=$1)`, store.Principal(ctx).ID).Scan(&allowed); err != nil {
 		return err
 	}
 	if !allowed {

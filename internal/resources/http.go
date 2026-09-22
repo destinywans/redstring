@@ -39,6 +39,19 @@ func contains(xs []string, x string) bool {
 	return false
 }
 func accepts(xs []string, x string) bool { return len(xs) == 0 || contains(xs, x) }
+
+// Runtime records remain available in explicit instance/event views and in
+// their owning resource details, but are not entries in the CMDB catalog.
+func inventoryRows(rows []Resource, requestedKinds []string) []Resource {
+	out := make([]Resource, 0, len(rows))
+	for _, row := range rows {
+		if (row.Kind == "pod" || row.Kind == "event") && !contains(requestedKinds, row.Kind) {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
+}
 func appMatches(r Resource, ids []string) bool {
 	if len(ids) == 0 {
 		return true
@@ -147,6 +160,7 @@ func (s *Service) Register(api *httpapi.Server) {
 		if !ok {
 			return
 		}
+		rows = inventoryRows(rows, values(q, "kind"))
 		f := facets(rows)
 		filtered := []Resource{}
 		for _, v := range rows {
@@ -243,6 +257,7 @@ func (s *Service) Register(api *httpapi.Server) {
 		if !ok {
 			return
 		}
+		rows = inventoryRows(rows, nil)
 		edges, e := s.edges(r.Context(), rows)
 		if e != nil {
 			httpapi.AuthorizationError(w, e)

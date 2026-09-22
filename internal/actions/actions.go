@@ -75,12 +75,22 @@ var ErrNoWork = errors.New("no eligible execution")
 type claim = Lease
 type Service struct {
 	Authorize     func(context.Context, string, string, string) error
+	AuthorizePlan func(context.Context, string, Plan, string) error
 	Repository    Repository
 	Connector     Connector
 	ApplicationID string
 	Resolve       func(context.Context, string, *connectors.RollbackPlan) (Connector, error)
 }
 
+func (s *Service) authorizePlan(ctx context.Context, user string, p Plan, action string) error {
+	if s.AuthorizePlan != nil {
+		return s.AuthorizePlan(ctx, user, p, action)
+	}
+	if s.Authorize != nil {
+		return s.Authorize(ctx, user, p.InvestigationID, action)
+	}
+	return nil
+}
 func NewWithRepository(r Repository, c Connector, app string) *Service {
 	return &Service{Repository: r, Connector: c, ApplicationID: app}
 }
@@ -124,12 +134,12 @@ func (s *Service) Plans(ctx context.Context, inv string) ([]Plan, error) {
 	return s.Repository.Plans(ctx, inv)
 }
 func (s *Service) Approve(ctx context.Context, id, digest, user string) (Plan, error) {
-	if s.Authorize != nil {
+	if s.Authorize != nil || s.AuthorizePlan != nil {
 		p, e := s.Plan(ctx, id)
 		if e != nil {
 			return Plan{}, e
 		}
-		if e = s.Authorize(ctx, user, p.InvestigationID, "approve"); e != nil {
+		if e = s.authorizePlan(ctx, user, p, "approve"); e != nil {
 			return Plan{}, e
 		}
 	}
@@ -145,12 +155,12 @@ func (s *Service) Approve(ctx context.Context, id, digest, user string) (Plan, e
 	return s.Repository.Approve(ctx, id, digest, user)
 }
 func (s *Service) Enqueue(ctx context.Context, id, user string) (Execution, error) {
-	if s.Authorize != nil {
+	if s.Authorize != nil || s.AuthorizePlan != nil {
 		p, e := s.Plan(ctx, id)
 		if e != nil {
 			return Execution{}, e
 		}
-		if e = s.Authorize(ctx, user, p.InvestigationID, "execute"); e != nil {
+		if e = s.authorizePlan(ctx, user, p, "execute"); e != nil {
 			return Execution{}, e
 		}
 	}
@@ -228,8 +238,8 @@ func (s *Service) perform(parent context.Context, c claim) {
 			slog.Error("action transition failed", "error", e)
 		}
 	}
-	if s.Authorize != nil {
-		if e = s.Authorize(ctx, p.ApprovedBy, p.InvestigationID, "approve"); e != nil {
+	if s.Authorize != nil || s.AuthorizePlan != nil {
+		if e = s.authorizePlan(ctx, p.ApprovedBy, p, "approve"); e != nil {
 			finish("needs_attention", "Approval principal no longer has approve permission.", nil)
 			return
 		}
@@ -241,7 +251,7 @@ func (s *Service) perform(parent context.Context, c claim) {
 			return
 		}
 		actor, err := actors.ExecutionActor(ctx, c.ID)
-		if err != nil || s.Authorize(ctx, actor, p.InvestigationID, "execute") != nil {
+		if err != nil || s.authorizePlan(ctx, actor, p, "execute") != nil {
 			finish("needs_attention", "Execution principal no longer has execute permission.", nil)
 			return
 		}

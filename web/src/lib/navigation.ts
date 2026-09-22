@@ -69,8 +69,6 @@ export const navigation: NavigationSection[] = [
       ["clusters", "集群"],
       ["nodes", "节点"],
       ["workloads", "工作负载"],
-      ["pods", "Pod 与容器"],
-      ["events", "Kubernetes 事件"],
       ["namespaces", "命名空间"],
       ["hosts", "主机与虚拟机"],
       ["network", "网络"],

@@ -44,8 +44,9 @@ const destinations = [
   ["workloads", "工作负载"],
   ["clusters", "集群"],
   ["nodes", "节点"],
-  ["pods", "Pod 与容器"],
-  ["events", "Kubernetes 事件"],
+  // Retain old runtime URLs; these are no longer standalone asset navigation.
+  ["pods", "运行实例"],
+  ["events", "运行事件"],
   ["namespaces", "命名空间"],
   ["hosts", "主机与虚拟机"],
   ["network", "网络"],

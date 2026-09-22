@@ -52,10 +52,7 @@ export const actionNames: Record<string, string> = {
   view: "查看",
   update: "变更",
   delete: "删除",
-  investigate: "调查",
   approve: "审批",
-  execute: "执行",
-  manage: "管理",
 };
 export const selectableActions = [
   "view",
@@ -63,12 +60,6 @@ export const selectableActions = [
   "approve",
   "delete",
 ] as const;
-export const scopeNames: Record<string, string> = {
-  resource: "资源操作",
-  application: "平台能力 · 应用范围",
-  management: "平台能力 · 管理对象",
-  legacy_application: "兼容应用授权",
-};
 export function queryString(
   values: Record<string, string | number | undefined>,
 ) {

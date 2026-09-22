@@ -50,10 +50,10 @@ func (s *Server) authorizeRoute(r *http.Request) error {
 	}
 	if r.Method != "GET" && r.Method != "HEAD" && kind == "action-plans" && len(path) > 4 {
 		switch path[4] {
-		case "approve", "reject", "revoke":
-			permission = "approve"
-		case "execute":
-			permission = "execute"
+		case "approve", "reject", "revoke", "execute":
+			// The action service authorizes the exact immutable CMDB target.
+			// An application-level grant must not gate or widen that decision.
+			return nil
 		}
 	}
 	// These POST endpoints only execute registered, bounded read queries. Their

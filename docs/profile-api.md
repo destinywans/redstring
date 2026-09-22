@@ -4,11 +4,11 @@ WAN-104：所有已登录角色只查看或修改本人，无目标用户 ID 参
 
 ## 接口
 
-- `GET /api/v1/profile`：`user` 包含 `id/name/email/phone/avatar_url/role`；另含 `departments`、`permissions`、`applications` 和 `can_change_password`。
+- `GET /api/v1/profile`：`user` 包含 `id/name/email/phone/avatar_url/role`；另含 `departments`、`permissions`、`applications`、`is_platform_admin` 和 `can_change_password`。
 - `PATCH /api/v1/profile`：只接受必填 `avatar_data_url`，空串移除。返回更新后的完整 Profile。未知字段、null、缺失字段均 422。
 - `POST /api/v1/profile/password`：接受 `current_password/new_password`，成功 204 并清除 Cookie，要求重新登录。
 
-`phone` 是新增可空、只读资料字段，没有资料时返回 null，不生成手机号。`avatar_url` 是服务端规范化 PNG 的 data URL，未设置返回空串。实际部门来自 `teams` 与 `team_members` 稳定关联。
+`phone` 是新增可空、只读资料字段，没有资料时返回 null，不生成手机号。`avatar_url` 是服务端规范化 PNG 的 data URL，未设置返回空串。实际部门来自 `users.department_id` 对 `teams` 的单部门关联。
 
 ## 头像
 
@@ -18,7 +18,7 @@ WAN-104：所有已登录角色只查看或修改本人，无目标用户 ID 参
 
 ## 权限与账号安全
 
-应用列表通过现有 `VisibleApplicationIDs` 与 `AuthorizeApplication` 查询，包含个人和部门继承授权。只读成员的 operate 授权降为 view，归档应用仅 view；管理员可见全部应用。`permissions` 是当前角色和实际应用范围的能力汇总，不能代替动作执行时的逐目标鉴权、审批和状态校验。
+`permissions` 汇总当前用户直接角色、所属部门角色经过权限资源关联后生效的 `view/update/approve/delete`，来自 `rbac_effective_permissions`；没有关联资源的权限不授予操作。`is_platform_admin` 单独来自 `rbac_platform_administrators`，不再伪造平台管理资源权限。`applications` 仅列出有效查看权限资源通过 `cmdb_resource_applications` 关联的应用，返回 `id/key/name`，不代表独立应用授权。个人页面分别展示资源操作权限、平台管理状态和关联应用；不再展示调查、执行或“可操作应用”。这些汇总不能代替动作执行时的逐目标鉴权、审批和状态校验。
 
 已有有效本地密码哈希的身份允许自行改密，包括管理员设置本地密码并启用的企业目录导入成员。`source` 是目录来源，不代表 SSO 或身份提供商，不能据此禁止改密。没有有效本地密码哈希时 `can_change_password=false`，改密返回 422 `no_local_password`。新密码为 8–128 个 Unicode 字符，必须同时包含大写英文字母、小写英文字母、数字和符号（Unicode 标点或符号），且不同于旧密码；规则不符返回 422 `invalid_password`。字符数按 Unicode 码点计数，前后端一致。旧密码保留现有登录输入上限且不套用新复杂度规则，旧账户不受新规则影响。错误旧密码返回 422 `incorrect_password`，不返回会导致客户端退出的 401。
 
@@ -28,7 +28,7 @@ WAN-104：所有已登录角色只查看或修改本人，无目标用户 ID 参
 
 ## 界面入口与交付
 
-独立设置页 `/profile` 对所有已登录用户可见。用户名菜单的“设置”进入个人资料；平台概览、成员、部门和角色管理仍仅管理员可访问。头像保存后同时更新个人资料、设置底栏与主工作台用户菜单。姓名、邮箱、手机号、部门、角色及应用权限只读，手机号为空展示“未设置”。
+独立设置页 `/profile` 对所有已登录用户可见。用户名菜单的“设置”进入个人资料；平台概览、成员、部门和角色管理仍仅管理员可访问。头像保存后同时更新个人资料、设置底栏与主工作台用户菜单。姓名、邮箱、手机号、部门、角色及资源权限只读，手机号为空展示“未设置”。
 
 前端采用已确认 MiSans 角色：正文400、操作500、标题600，支持深浅主题。图片先预览再保存/移除；错误密码和格式错误在表单展示中文提示；密码保存成功退出并重新登录。没有修改既有管理员验收密码。
 

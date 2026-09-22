@@ -33,12 +33,12 @@ func (s *Service) Decide(ctx context.Context, id, digest, decision, reason, user
 	if (decision != "rejected" && decision != "revoked") || strings.TrimSpace(reason) == "" || len(reason) > 2000 {
 		return Plan{}, ErrInvalid
 	}
-	if s.Authorize != nil {
+	if s.Authorize != nil || s.AuthorizePlan != nil {
 		p, e := s.Plan(ctx, id)
 		if e != nil {
 			return Plan{}, e
 		}
-		if e = s.Authorize(ctx, user, p.InvestigationID, "approve"); e != nil {
+		if e = s.authorizePlan(ctx, user, p, "approve"); e != nil {
 			return Plan{}, e
 		}
 	}

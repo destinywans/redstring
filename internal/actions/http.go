@@ -19,6 +19,23 @@ func (s *Service) Register(api *httpapi.Server) {
 		}
 		return api.AuthorizeApplication(ctx, core.User{ID: user}, app, action)
 	}
+	s.AuthorizePlan = func(ctx context.Context, user string, p Plan, action string) error {
+		checker, ok := api.Store.(interface {
+			AuthorizeRecoveryTarget(context.Context, string, string, string, string, string, string, string, string) error
+		})
+		if !ok {
+			return store.ErrForbidden
+		}
+		app, err := s.Repository.Application(ctx, p.InvestigationID)
+		if err != nil {
+			return err
+		}
+		if action == "execute" {
+			action = "update"
+		}
+		t := p.Proposal
+		return checker.AuthorizeRecoveryTarget(ctx, user, app, t.EnvironmentID, t.ConnectorID, t.Namespace, t.Deployment, t.UID, action)
+	}
 	s.registerReview(api)
 	api.Register("GET /api/v1/investigations/{id}/action-plans", "viewer", func(w http.ResponseWriter, r *http.Request) {
 		p, e := s.Plans(r.Context(), r.PathValue("id"))

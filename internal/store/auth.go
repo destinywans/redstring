@@ -52,7 +52,7 @@ func (s *Store) Bootstrap(ctx context.Context, email, password string) error {
 
 // Legacy-only modules use this rank. A deleted base role cannot retain implicit
 // admin/operator privileges; explicit RBAC grants continue to be checked separately.
-const sessionLegacyRole = `CASE WHEN EXISTS(SELECT 1 FROM rbac_user_roles ur WHERE ur.user_id=u.id AND ur.role_id=u.role) THEN u.role ELSE 'viewer' END`
+const sessionLegacyRole = `CASE WHEN EXISTS(SELECT 1 FROM rbac_platform_administrators a WHERE a.user_id=u.id) THEN 'admin' WHEN EXISTS(SELECT 1 FROM rbac_user_roles ur WHERE ur.user_id=u.id AND ur.role_id=u.role) THEN u.role ELSE 'viewer' END`
 
 func (s *Store) Login(ctx context.Context, email, password string) (core.User, string, error) {
 	var u core.User

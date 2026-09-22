@@ -58,22 +58,13 @@ func paging(r *http.Request) (int, int, error) {
 }
 func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/rbac/me", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		rows, e := s.Store.DB.Query(r.Context(), "SELECT DISTINCT resource_id FROM rbac_effective_permissions WHERE user_id=$1 AND action='manage' AND scope_type='management' AND resource_id IS NOT NULL ORDER BY resource_id", httpapi.CurrentUser(r).ID)
-		if e != nil {
-			respond(w, nil, e)
-			return
-		}
-		defer rows.Close()
 		objects := []string{}
-		for rows.Next() {
-			var target string
-			if e = rows.Scan(&target); e != nil {
-				respond(w, nil, e)
-				return
+		if s.Store.AuthorizeCapability(r.Context(), httpapi.CurrentUser(r), "manage", "management", "rbac") == nil {
+			for _, object := range ManagementObjects {
+				objects = append(objects, object["id"])
 			}
-			objects = append(objects, target)
 		}
-		respond(w, map[string]any{"management_objects": objects}, rows.Err())
+		respond(w, map[string]any{"management_objects": objects}, nil)
 	})
 
 	register := func(pattern string, h http.HandlerFunc) {
@@ -86,8 +77,8 @@ func (s *Service) Register(api *httpapi.Server) {
 		})
 	}
 	register("GET /api/v1/rbac/catalog", func(w http.ResponseWriter, r *http.Request) {
-		options := map[string]any{"actions": Actions, "management_objects": ManagementObjects}
-		for _, kind := range []string{"applications", "teams"} {
+		options := map[string]any{"actions": Actions}
+		for _, kind := range []string{"teams"} {
 			rows, e := s.Store.DB.Query(r.Context(), "SELECT id,name FROM "+kind+" ORDER BY name,id")
 			if e != nil {
 				respond(w, nil, e)

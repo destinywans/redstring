@@ -71,12 +71,9 @@ export type ResourceGraph = {
   truncated: boolean;
 };
 export const resourceKinds: Record<string, string> = {
-  application: "应用",
   cluster: "Kubernetes 集群",
   node: "节点",
   deployment: "Deployment",
-  pod: "Pod",
-  event: "Kubernetes 事件",
   namespace: "命名空间",
   host: "主机 / 虚拟机",
   network: "网络",
@@ -96,7 +93,12 @@ export const relationKinds: Record<string, string> = {
   uses: "使用",
 };
 export function resourceKindLabel(kind: string) {
-  return resourceKinds[kind] ?? kind;
+  const runtimeLabels: Record<string, string> = {
+    application: "应用",
+    pod: "Pod",
+    event: "Kubernetes 事件",
+  };
+  return resourceKinds[kind] ?? runtimeLabels[kind] ?? kind;
 }
 export function sourceLabel(kind: string) {
   return (

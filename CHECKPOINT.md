@@ -1,5 +1,13 @@
 # AIOps Canvas 检查点
 
+## CP-038 · 2026-09-22 · 基础设施授权重建（WAN-105）
+
+- 分支 `codex/wan-105-role-management-refinement`；密码独立提交feb6ab0，本次授权重建另提交。
+- 018已迁移本机review库；显式reset完成4角色/4权限/112操作关联、28CMDB资源；9用户/6部门/7应用/50资源保留，原授权有私有备份。
+- Pod/事件非独立授权，按明确归属展示；工作负载运行实例、详情事件入口已更新。
+- 定向PG/精确审批HTTP、Profile检查及构建契约通过，18081已更新，浏览器核对完成。未全仓测试，暂停CI/CD编辑仍未纳入。
+- 记录：`docs/releases/2026-09-22-infrastructure-rbac-reset.md`。下一步为用户页面体验；默认资源为快照，接入新资源需明确授权。
+
 ## CP-037 · 2026-09-22 · 个人资料密码弹窗（WAN-104）
 
 - 分支 `codex/wan-105-role-management-refinement`，继承89119f0；独立密码提交与同轮RBAC重建分开记录。

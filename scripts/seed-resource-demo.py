@@ -111,13 +111,14 @@ def main():
                 image='registry.example.invalid/review/service:v1.2.0',
                 containers=[{'name':'app','image':'registry.example.invalid/review/service:v1.2.0',
                              'status':'Running','restarts':2 if i==3 else 0,'logs':['[示例] HTTP request completed'] }]) for i in range(10)]
+    events = []
     for i in range(5):
-        add('event-'+str(i), 'event', 'review-event-'+str(i+1), workload_apps[i%4],
+        events.append(add('event-'+str(i), 'event', 'review-event-'+str(i+1), workload_apps[i%4],
             reason=['Scheduled','Pulled','Started','BackOff','ScalingReplicaSet'][i],
             event_type='Warning' if i==3 else 'Normal', severity='warning' if i==3 else 'info',
             status='Warning' if i==3 else 'Normal', count=3 if i==3 else 1,
             message='[示例] '+['Pod 已调度到工作节点','镜像已准备','容器已启动','容器重启退避','工作负载扩容'][i],
-            involved_object='checkout-review-'+str(i), first_seen=(now-dt.timedelta(minutes=30)).isoformat(),last_seen=now.isoformat())
+            involved_object=['checkout','order','message','gateway'][i%4]+'-review-'+str(i), first_seen=(now-dt.timedelta(minutes=30)).isoformat(),last_seen=now.isoformat()))
     namespaces = [add('namespace-'+str(i),'namespace',name,workload_apps[i],namespace=name,workloads_count=4,workload_count=4,pods_count=10,pod_count=10,
                        quota={'cpu':'16','memory':'32Gi','pods':50}, cpu_used=4,cpu_total=16,
                        memory_used=8,memory_total=32,pods_used=10,pods_total=50)
@@ -149,6 +150,11 @@ def main():
     for i in range(2):
         edge(namespaces[i],clusters[cluster_index(apps[workload_apps[i]])],'belongs_to','discovered')
         edge(hosts[i],middleware[i],'depends_on')
+    # Append without changing the stable identifiers of existing demo edges.
+    for i in range(4, len(pods)):
+        edge(pods[i], deployments[i % 4], 'belongs_to', 'discovered')
+    for i, event in enumerate(events):
+        edge(event, pods[i], 'involved_object', 'discovered')
     if args.dry_run:
         print(json.dumps({'source_id':SOURCE,'resources':len(resources),'relations':len(edges),'applications':len(apps),'written':False}))
         return

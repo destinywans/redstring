@@ -197,9 +197,11 @@ function ContainerCards({ value }: { value: unknown }) {
 function Related({
   resources,
   onSelect,
+  empty = "当前没有关联资源",
 }: {
   resources: InfraResource[];
   onSelect: (id: string) => void;
+  empty?: string;
 }) {
   return resources.length ? (
     <div className="infra-related-list">
@@ -218,7 +220,7 @@ function Related({
       ))}
     </div>
   ) : (
-    <p className="infra-detail-empty">当前没有关联资源</p>
+    <p className="infra-detail-empty">{empty}</p>
   );
 }
 function Overview({
@@ -526,6 +528,11 @@ function DrawerContent({
   if (!detail.data)
     return <p className="infra-detail-empty">正在读取资源详情…</p>;
   const { resource: r, related_resources: related, changes } = detail.data;
+  const assets = related.filter(
+    (resource) => !["pod", "event"].includes(resource.kind),
+  );
+  const instances = related.filter((resource) => resource.kind === "pod");
+  const events = related.filter((resource) => resource.kind === "event");
   const Icon =
     r.kind === "host"
       ? Server
@@ -536,6 +543,7 @@ function DrawerContent({
           : Box;
   const tabs = [
     ["overview", "概览"],
+    ...(r.kind === "deployment" ? [["instances", "运行实例"]] : []),
     ["related", "关联资源"],
     ["events", "事件"],
     ["configuration", "配置"],
@@ -606,12 +614,21 @@ function DrawerContent({
         aria-labelledby={`infra-tab-${tab}`}
       >
         {tab === "overview" && (
-          <Overview r={r} related={related} onSelect={onSelect} />
+          <Overview r={r} related={assets} onSelect={onSelect} />
+        )}
+        {tab === "instances" && (
+          <Section title="Pod 与容器">
+            <Related
+              resources={instances}
+              onSelect={onSelect}
+              empty="当前工作负载暂无运行实例"
+            />
+          </Section>
         )}
         {tab === "related" && (
           <>
             <Section title="关联资源">
-              <Related resources={related} onSelect={onSelect} />
+              <Related resources={assets} onSelect={onSelect} />
             </Section>
             <Section title="关联应用">
               <div className="infra-detail-tags">
@@ -628,10 +645,17 @@ function DrawerContent({
         {tab === "events" && (
           <>
             <Section title="运行事件">
-              <Records
-                value={r.attributes.events}
-                empty="当前资源没有事件记录"
-              />
+              {events.length > 0 && (
+                <Related resources={events} onSelect={onSelect} />
+              )}
+              {(!events.length ||
+                (Array.isArray(r.attributes.events) &&
+                  r.attributes.events.length > 0)) && (
+                <Records
+                  value={r.attributes.events}
+                  empty="当前资源没有事件记录"
+                />
+              )}
             </Section>
             <Section title="资源活动">
               <div className="infra-detail-timeline">

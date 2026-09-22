@@ -203,10 +203,13 @@ func configurePlatform(ctx context.Context, s *store.Store, api *httpapi.Server,
 		if e := s.DB.QueryRow(ctx, "SELECT application_id,COALESCE(environment_id,'') FROM investigations WHERE id=$1", inv).Scan(&app, &env); e != nil {
 			return nil, e
 		}
-		// The action service checks investigate/approve/execute independently.
-		// Resolution additionally requires visibility of the exact bound application.
-		if e := s.AuthorizeApplication(ctx, store.Principal(ctx), app, "view"); e != nil {
-			return nil, e
+		// New proposals require the broad read scope. Existing immutable plans
+		// have already passed exact CMDB target approval/update authorization in
+		// the action service, including at execution time.
+		if p.Digest == "" {
+			if e := s.AuthorizeApplication(ctx, store.Principal(ctx), app, "view"); e != nil {
+				return nil, e
+			}
 		}
 		v, reg, e := registry.resolve(ctx, app, env)
 		if e != nil {

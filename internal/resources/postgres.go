@@ -16,7 +16,7 @@ func New(db *pgxpool.Pool) *Service { return &Service{DB: db} }
 
 // visible reads only authorized application links. Shared resources must not expose
 // names or environment IDs belonging to applications outside the user's grants.
-func (s *Service) visible(ctx context.Context, apps []string, admin bool, scope string) ([]Resource, error) {
+func (s *Service) visible(ctx context.Context, apps []string, _ bool, scope string) ([]Resource, error) {
 	if apps == nil {
 		apps = []string{}
 	}
@@ -30,13 +30,11 @@ func (s *Service) visible(ctx context.Context, apps []string, admin bool, scope 
  'environment_id',e.id,'environment_key',e.key,'environment_name',e.name) ORDER BY a.key,e.key)
  FROM cmdb_resource_applications l JOIN applications a ON a.id=l.application_id
  JOIN application_environments e ON e.id=l.environment_id AND e.application_id=a.id
- WHERE l.resource_id=r.id AND a.id=ANY($1::text[]) AND ($3='' OR e.key=$3)), '[]')
+ WHERE l.resource_id=r.id AND a.id=ANY($1::text[]) AND ($2='' OR e.key=$2)), '[]')
  FROM cmdb_resources r LEFT JOIN users u ON u.id=r.owner_user_id LEFT JOIN teams t ON t.id=r.owner_team_id
- WHERE EXISTS(SELECT 1 FROM cmdb_resource_applications l JOIN application_environments e ON e.id=l.environment_id
- WHERE l.resource_id=r.id AND l.application_id=ANY($1::text[]) AND ($3='' OR e.key=$3))
- OR ($2 AND $3='' AND NOT EXISTS(SELECT 1 FROM cmdb_resource_applications l WHERE l.resource_id=r.id))
- OR ($3='' AND EXISTS(SELECT 1 FROM rbac_effective_permissions p WHERE p.user_id=$4 AND p.action='view' AND p.scope_type='resource' AND p.resource_id=r.id))
- ORDER BY r.name,r.id LIMIT 10001`, apps, admin, scope, store.Principal(ctx).ID)
+ WHERE EXISTS(SELECT 1 FROM rbac_viewable_resources p WHERE p.user_id=$3 AND p.resource_id=r.id)
+ AND ($2='' OR EXISTS(SELECT 1 FROM cmdb_resource_applications l JOIN application_environments e ON e.id=l.environment_id WHERE l.resource_id=r.id AND e.key=$2))
+ ORDER BY r.name,r.id LIMIT 10001`, apps, scope, store.Principal(ctx).ID)
 	if err != nil {
 		return nil, err
 	}

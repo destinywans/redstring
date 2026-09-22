@@ -9,14 +9,10 @@ import (
 )
 
 func availableActions(scope string) []string {
-	switch scope {
-	case "resource":
-		return []string{"view", "update", "delete"}
-	case "application":
-		return []string{"view", "approve"}
-	default:
-		return []string{}
+	if scope == "resource" {
+		return []string{"view", "update", "approve", "delete"}
 	}
+	return []string{}
 }
 
 func targetKey(target ResourceTarget) string { return target.ScopeType + ":" + target.ResourceID }
@@ -25,12 +21,7 @@ func validTarget(target ResourceTarget) bool {
 	if strings.TrimSpace(target.ResourceID) == "" {
 		return false
 	}
-	switch target.ScopeType {
-	case "resource", "application", "legacy_application", "management":
-		return true
-	default:
-		return false
-	}
+	return target.ScopeType == "resource"
 }
 
 func validateBindings(in ResourceDelta) error {
@@ -40,7 +31,7 @@ func validateBindings(in ResourceDelta) error {
 	seen := map[string]bool{}
 	for _, binding := range in.Upsert {
 		key := targetKey(binding.ResourceTarget)
-		if !validTarget(binding.ResourceTarget) || seen[key] || len(binding.Actions) == 0 || len(binding.Actions) > 7 {
+		if !validTarget(binding.ResourceTarget) || seen[key] || len(binding.Actions) == 0 || len(binding.Actions) > 4 {
 			return store.ErrInvalidReference
 		}
 		seen[key] = true
@@ -63,20 +54,8 @@ func validateBindings(in ResourceDelta) error {
 }
 
 func targetExists(ctx context.Context, tx pgx.Tx, target ResourceTarget) (bool, error) {
-	if target.ScopeType == "management" {
-		for _, item := range ManagementObjects {
-			if item["id"] == target.ResourceID {
-				return true, nil
-			}
-		}
-		return false, nil
-	}
-	table := "applications"
-	if target.ScopeType == "resource" {
-		table = "cmdb_resources"
-	}
 	var exists bool
-	err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM "+table+" WHERE id=$1)", target.ResourceID).Scan(&exists)
+	err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM cmdb_resources WHERE id=$1 AND rbac_is_infrastructure_kind(kind))", target.ResourceID).Scan(&exists)
 	return exists, err
 }
 
@@ -106,26 +85,9 @@ func (s *Service) SaveResources(ctx context.Context, id string, in ResourceDelta
 		if !exists {
 			return Permission{}, store.ErrInvalidReference
 		}
-		rows, e := tx.Query(ctx, "SELECT action FROM rbac_permission_resources WHERE permission_id=$1 AND scope_type=$2 AND resource_id=$3", id, binding.ScopeType, binding.ResourceID)
-		if e != nil {
-			return Permission{}, e
-		}
 		allowed := map[string]bool{}
 		for _, action := range availableActions(binding.ScopeType) {
 			allowed[action] = true
-		}
-		for rows.Next() {
-			var action string
-			if e = rows.Scan(&action); e != nil {
-				rows.Close()
-				return Permission{}, e
-			}
-			allowed[action] = true
-		}
-		e = rows.Err()
-		rows.Close()
-		if e != nil {
-			return Permission{}, e
 		}
 		for _, action := range binding.Actions {
 			if !allowed[action] {

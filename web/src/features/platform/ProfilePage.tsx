@@ -26,12 +26,12 @@ type Profile = {
   }[];
   permissions: {
     view: boolean;
-    investigate: boolean;
+    update: boolean;
     approve: boolean;
-    execute: boolean;
-    manage: boolean;
+    delete: boolean;
   };
-  applications: { id: string; key: string; name: string; permission: string }[];
+  is_platform_admin: boolean;
+  applications: { id: string; key: string; name: string }[];
   can_change_password: boolean;
 };
 const roles: Record<string, string> = {
@@ -39,17 +39,11 @@ const roles: Record<string, string> = {
   operator: "操作员",
   viewer: "只读成员",
 };
-const applicationPermissions: Record<string, string> = {
-  view: "只读",
-  operate: "可操作",
-  manage: "可管理",
-};
 const permissionLabels: Record<keyof Profile["permissions"], string> = {
   view: "查看资源",
-  investigate: "发起调查",
+  update: "变更资源",
   approve: "审批操作",
-  execute: "执行操作",
-  manage: "平台管理",
+  delete: "删除资源",
 };
 
 function profileError(error: unknown, avatar = false) {
@@ -356,9 +350,9 @@ export function ProfilePage() {
             ))}
           </div>
         ) : (
-          <p className="profile-hint">暂无自定义角色关联。</p>
+          <p className="profile-hint">暂无角色关联。</p>
         )}
-        <h3>账户基础能力</h3>
+        <h3>资源操作权限</h3>
         <div className="profile-permissions">
           {Object.entries(permissionLabels).map(([key, label]) => (
             <span
@@ -376,25 +370,26 @@ export function ProfilePage() {
             </span>
           ))}
         </div>
-        <h3>授权应用</h3>
+        <h3>平台管理</h3>
+        <p className="profile-hint">
+          {data.is_platform_admin
+            ? "可管理平台设置、成员、部门及角色权限。"
+            : "未获得平台管理权限。"}
+        </p>
+        <h3>关联应用</h3>
+        <p className="profile-hint">展示有权查看的资源所关联的应用。</p>
         {data.applications?.length ? (
           <div className="profile-table-wrap">
             <table className="profile-table ui-data-table">
               <thead>
                 <tr>
                   <th>应用</th>
-                  <th>访问权限</th>
                 </tr>
               </thead>
               <tbody>
                 {applicationPages.items.map((application) => (
                   <tr key={application.id}>
                     <td>{application.key || application.name}</td>
-                    <td>
-                      {applicationPermissions[application.permission] ||
-                        application.permission ||
-                        "未指定"}
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -405,11 +400,11 @@ export function ProfilePage() {
               total={applicationPages.total}
               onPageChange={applicationPages.setPage}
               onPageSizeChange={applicationPages.setPageSize}
-              ariaLabel="个人授权应用分页"
+              ariaLabel="个人关联应用分页"
             />
           </div>
         ) : (
-          <p className="profile-hint">暂无授权应用</p>
+          <p className="profile-hint">暂无关联应用</p>
         )}
       </section>
       <Modal

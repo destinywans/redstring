@@ -104,7 +104,7 @@ const definitions: Record<string, Definition> = {
     ],
   },
   pods: {
-    title: "Pod 与容器",
+    title: "运行实例",
     description: "查看 Pod、容器状态与最近的运行记录。",
     kinds: ["pod"],
     filters: ["namespace", "workload", "status", "cluster"],
@@ -117,7 +117,7 @@ const definitions: Record<string, Definition> = {
     ],
   },
   events: {
-    title: "Kubernetes 事件",
+    title: "运行事件",
     description: "按时间查看集群资源事件，定位运行变化与异常信息。",
     kinds: ["event"],
     filters: ["cluster", "severity", "namespace"],
@@ -250,6 +250,7 @@ function field(r: InfraResource, key: string): string {
 async function loadInventory(
   scope: string,
   signal: AbortSignal,
+  runtimeKind: string,
 ): Promise<InfraResource[]> {
   const rows: InfraResource[] = [];
   let page = 1;
@@ -260,8 +261,15 @@ async function loadInventory(
       page_size: "100",
       sort: "name",
     });
+    if (runtimeKind) p.set("kind", runtimeKind);
     const result = await request<InfraList>(`/resources?${p}`, { signal });
-    rows.push(...result.items.filter((r) => r.kind !== "application"));
+    rows.push(
+      ...result.items.filter((r) =>
+        runtimeKind
+          ? r.kind === runtimeKind
+          : !["application", "pod", "event"].includes(r.kind),
+      ),
+    );
     if (result.page * result.page_size >= result.total || !result.items.length)
       break;
     page++;
@@ -276,9 +284,11 @@ export default function InfrastructureReviewPage() {
   const view = params.get("view") ?? "summary";
   const def = definitions[view] ?? definitions.summary;
   const [selected, setSelected] = useState<string | null>(null);
+  const runtimeKind =
+    view === "pods" ? "pod" : view === "events" ? "event" : "";
   const inventory = useQuery({
-    queryKey: ["infrastructure-inventory", scope.key],
-    queryFn: ({ signal }) => loadInventory(scope.key, signal),
+    queryKey: ["infrastructure-inventory", scope.key, runtimeKind],
+    queryFn: ({ signal }) => loadInventory(scope.key, signal, runtimeKind),
   });
   const rows = inventory.data ?? [];
   const applicationId =

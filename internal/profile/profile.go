@@ -11,7 +11,6 @@ import (
 	"image/png"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
@@ -37,10 +36,9 @@ type Department struct {
 	Name string `json:"name"`
 }
 type Application struct {
-	ID         string `json:"id"`
-	Key        string `json:"key"`
-	Name       string `json:"name"`
-	Permission string `json:"permission"`
+	ID   string `json:"id"`
+	Key  string `json:"key"`
+	Name string `json:"name"`
 }
 type EffectiveRole struct {
 	ID           string `json:"id"`
@@ -55,10 +53,11 @@ type Profile struct {
 	Permissions       map[string]bool `json:"permissions"`
 	Applications      []Application   `json:"applications"`
 	CanChangePassword bool            `json:"can_change_password"`
+	IsPlatformAdmin   bool            `json:"is_platform_admin"`
 }
 
 func (s *Service) Get(ctx context.Context) (Profile, error) {
-	v := Profile{Departments: []Department{}, Applications: []Application{}, Permissions: map[string]bool{"view": false, "investigate": false, "approve": false, "execute": false, "manage": false}}
+	v := Profile{Departments: []Department{}, Applications: []Application{}, Permissions: map[string]bool{"view": false, "update": false, "approve": false, "delete": false}}
 	id := store.Principal(ctx).ID
 	if id == "" {
 		return v, store.ErrForbidden
@@ -73,7 +72,7 @@ func (s *Service) Get(ctx context.Context) (Profile, error) {
 	if len(avatar) > 0 {
 		v.User.AvatarURL = "data:image/png;base64," + base64.StdEncoding.EncodeToString(avatar)
 	}
-	rows, e := s.Store.DB.Query(ctx, `SELECT t.id,t.name FROM teams t JOIN team_members m ON m.team_id=t.id WHERE m.user_id=$1 ORDER BY t.name,t.id`, id)
+	rows, e := s.Store.DB.Query(ctx, `SELECT t.id,t.name FROM teams t JOIN users u ON u.department_id=t.id WHERE u.id=$1 ORDER BY t.name,t.id`, id)
 	if e != nil {
 		return v, e
 	}
@@ -90,12 +89,10 @@ func (s *Service) Get(ctx context.Context) (Profile, error) {
 	if e != nil {
 		return v, e
 	}
-	principal := core.User{ID: id, Role: v.User.Role}
-	ids, e := s.Store.VisibleApplicationIDs(ctx, principal)
-	if e != nil {
-		return v, e
-	}
-	rows, e = s.Store.DB.Query(ctx, `SELECT id,key,name FROM applications WHERE id=ANY($1::text[]) ORDER BY key,id`, ids)
+	rows, e = s.Store.DB.Query(ctx, `SELECT DISTINCT a.id,a.key,a.name FROM applications a
+ JOIN cmdb_resource_applications l ON l.application_id=a.id
+ JOIN rbac_effective_permissions p ON p.resource_id=l.resource_id
+ WHERE p.user_id=$1 AND p.action='view' ORDER BY a.key,a.id`, id)
 	if e != nil {
 		return v, e
 	}
@@ -105,7 +102,6 @@ func (s *Service) Get(ctx context.Context) (Profile, error) {
 			rows.Close()
 			return v, e
 		}
-		a.Permission = "view"
 		v.Applications = append(v.Applications, a)
 	}
 	e = rows.Err()
@@ -114,23 +110,16 @@ func (s *Service) Get(ctx context.Context) (Profile, error) {
 		return v, e
 	}
 
-	for i := range v.Applications {
-		if s.Store.AuthorizeApplication(ctx, principal, v.Applications[i].ID, "investigate") == nil {
-			v.Applications[i].Permission = "operate"
+	for _, action := range []string{"view", "update", "approve", "delete"} {
+		var allowed bool
+		if e = s.Store.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rbac_effective_permissions WHERE user_id=$1 AND action=$2)`, id, action).Scan(&allowed); e != nil {
+			return v, e
 		}
+		v.Permissions[action] = allowed
 	}
-	for _, action := range []string{"view", "investigate", "approve", "execute"} {
-		for _, app := range v.Applications {
-			if s.Store.AuthorizeApplication(ctx, principal, app.ID, action) == nil {
-				v.Permissions[action] = true
-			}
-		}
-	}
-	var manage bool
-	if e = s.Store.DB.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM rbac_effective_permissions WHERE user_id=$1 AND action='manage' AND resource_id IS NOT NULL)", id).Scan(&manage); e != nil {
+	if e = s.Store.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rbac_platform_administrators WHERE user_id=$1)`, id).Scan(&v.IsPlatformAdmin); e != nil {
 		return v, e
 	}
-	v.Permissions["manage"] = manage
 	v.Roles = []EffectiveRole{}
 	rows, e = s.Store.DB.Query(ctx, `SELECT r.id,r.name,'direct','' FROM rbac_roles r JOIN rbac_user_roles ur ON ur.role_id=r.id WHERE ur.user_id=$1 UNION ALL SELECT r.id,r.name,'department',u.department_id FROM rbac_roles r JOIN rbac_department_roles dr ON dr.role_id=r.id JOIN users u ON u.department_id=dr.department_id WHERE u.id=$1 ORDER BY 2,3`, id)
 	if e != nil {

@@ -97,7 +97,16 @@ func TestPostgresPersonalProfileIsolation(t *testing.T) {
 	}
 	if _, e = pool.Exec(ctx, `INSERT INTO teams(id,name) VALUES('department','Engineering');INSERT INTO team_members VALUES('department','viewer'),('department','operator');
  INSERT INTO applications(id,key,name,archived) VALUES('visible','visible','Visible',false),('archived','archived','Archived',true),('hidden','hidden','Hidden',false);
- INSERT INTO application_grants VALUES('visible','team','department','operate'),('archived','team','department','operate');`); e != nil {
+ INSERT INTO application_environments(id,application_id,key,name) SELECT id||'-env',id,'test','Test' FROM applications;
+ INSERT INTO cmdb_resources(id,kind,name,source_kind) VALUES('visible-host','host','Visible host','manual'),('archived-host','host','Archived host','manual'),('hidden-host','host','Hidden host','manual');
+ INSERT INTO cmdb_resource_applications(resource_id,application_id,environment_id) VALUES('visible-host','visible','visible-env'),('archived-host','archived','archived-env'),('hidden-host','hidden','hidden-env');
+ INSERT INTO rbac_permission_resources(permission_id,scope_type,resource_id,action)
+ SELECT 'resource-'||action,'resource','visible-host',action FROM unnest(ARRAY['view','update','approve','delete']) action;
+ INSERT INTO rbac_permissions(id,name) VALUES('department-view','Department resource view'),('admin-extra-view','Admin additional resource view'),('empty-permission','Empty permission');
+ INSERT INTO rbac_permission_resources(permission_id,scope_type,resource_id,action) VALUES('department-view','resource','archived-host','view'),('admin-extra-view','resource','archived-host','view'),('admin-extra-view','resource','hidden-host','view');
+ INSERT INTO rbac_roles(id,name) VALUES('department-reader','Department reader');
+ INSERT INTO rbac_role_permissions(role_id,permission_id) VALUES('department-reader','department-view'),('admin','admin-extra-view'),('viewer','empty-permission');
+ INSERT INTO rbac_department_roles(department_id,role_id) VALUES('department','department-reader');`); e != nil {
 		t.Fatal(e)
 	}
 	// Login must wait on the same user-row lock as a password change. An
@@ -170,12 +179,38 @@ func TestPostgresPersonalProfileIsolation(t *testing.T) {
 		if p.User.ID != role || p.User.Phone != nil || len(p.Applications) != expected || !p.CanChangePassword {
 			t.Fatalf("wrong projection %+v", p)
 		}
-		if p.Permissions["manage"] != (role == "admin") || p.Permissions["execute"] != (role != "viewer") {
-			t.Fatal("role capabilities")
+		if len(p.Permissions) != 4 || !p.Permissions["view"] || p.Permissions["update"] != (role != "viewer") || p.Permissions["approve"] != (role == "admin") || p.Permissions["delete"] != (role == "admin") {
+			t.Fatalf("wrong effective resource capabilities: %+v", p.Permissions)
 		}
-		for _, a := range p.Applications {
-			if (role == "viewer" || a.ID == "archived") && a.Permission != "view" {
-				t.Fatal("role/archive cap bypass")
+		if p.IsPlatformAdmin != (role == "admin") {
+			t.Fatal("platform administration must be separate from resource actions")
+		}
+		if role != "admin" {
+			if len(p.Departments) != 1 || p.Departments[0].ID != "department" {
+				t.Fatal("wrong single department")
+			}
+			inherited := false
+			for _, binding := range p.Roles {
+				inherited = inherited || binding.ID == "department-reader" && binding.Source == "department" && binding.DepartmentID == "department"
+			}
+			if !inherited {
+				t.Fatal("department resource role was not shown")
+			}
+			for _, app := range p.Applications {
+				if app.ID == "hidden" {
+					t.Fatal("ungranted resource leaked its related application")
+				}
+			}
+		}
+		var payload struct {
+			Applications []map[string]any `json:"applications"`
+		}
+		if e = json.Unmarshal(w.Body.Bytes(), &payload); e != nil {
+			t.Fatal(e)
+		}
+		for _, app := range payload.Applications {
+			if _, exists := app["permission"]; exists {
+				t.Fatal("related application must not imply an independent grant")
 			}
 		}
 	}

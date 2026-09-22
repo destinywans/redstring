@@ -17,14 +17,11 @@ import "./permission-resource-tree.css";
 type Resource = {
   id: string;
   name: string;
-  scope_type: string;
+  scope_type: "resource";
   kind: string;
   assigned_actions: string[];
-  available_actions: string[];
   description?: string;
-  application_name?: string;
   is_mock?: boolean;
-  missing?: boolean;
 };
 type ResourceGroup = {
   kind: string;
@@ -376,12 +373,6 @@ export function PermissionResourceTree({
                                 actions.some((action) =>
                                   assigned.includes(action),
                                 );
-                              const unavailable = actions.filter(
-                                (action) =>
-                                  !assigned.includes(action) &&
-                                  !row.available_actions.includes(action),
-                              );
-                              const cannotAdd = unavailable.length > 0;
                               return (
                                 <li
                                   key={key}
@@ -392,10 +383,7 @@ export function PermissionResourceTree({
                                       checked={checked}
                                       partial={partial}
                                       disabled={
-                                        busy ||
-                                        stale ||
-                                        !actions.length ||
-                                        cannotAdd
+                                        busy || stale || !actions.length
                                       }
                                       label={`${row.name} · ${actions.map((action) => actionNames[action]).join("、") || "请先选择操作"}`}
                                       onChange={(selected) =>
@@ -422,22 +410,6 @@ export function PermissionResourceTree({
                                       >
                                         {row.name}
                                       </span>
-                                      {row.application_name &&
-                                        row.application_name !== row.name && (
-                                          <span className="permission-resource-caption">
-                                            {row.application_name}
-                                          </span>
-                                        )}
-                                      {cannotAdd && (
-                                        <span className="permission-resource-incompatible">
-                                          不支持
-                                          {unavailable
-                                            .map(
-                                              (action) => actionNames[action],
-                                            )
-                                            .join("、")}
-                                        </span>
-                                      )}
                                     </div>
                                   </label>
                                   <div
@@ -463,26 +435,6 @@ export function PermissionResourceTree({
                                         未保存
                                       </span>
                                     )}
-                                    {(row.scope_type === "management" ||
-                                      row.missing ||
-                                      assigned.some(
-                                        (action) =>
-                                          !selectableActions.some(
-                                            (selectable) =>
-                                              selectable === action,
-                                          ),
-                                      )) &&
-                                      assigned.length > 0 && (
-                                        <button
-                                          className="rbac-link permission-remove-link"
-                                          disabled={busy || stale}
-                                          onClick={() =>
-                                            updateResource(row, [])
-                                          }
-                                        >
-                                          移除关联
-                                        </button>
-                                      )}
                                   </div>
                                 </li>
                               );

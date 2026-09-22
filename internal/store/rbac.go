@@ -26,7 +26,7 @@ func requireBaseRole(ctx context.Context, tx pgx.Tx, role string) error {
 // as RBAC writes. Legacy account roles alone do not imply effective management.
 func ProtectLastRBACManager(ctx context.Context, tx pgx.Tx) error {
 	var exists bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rbac_effective_permissions p JOIN users u ON u.id=p.user_id WHERE p.action='manage' AND p.scope_type='management' AND p.resource_id='rbac' AND u.password_hash<>'')`).Scan(&exists); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rbac_platform_administrators p JOIN users u ON u.id=p.user_id WHERE u.password_hash<>'')`).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
@@ -35,10 +35,20 @@ func ProtectLastRBACManager(ctx context.Context, tx pgx.Tx) error {
 	return nil
 }
 
-// AuthorizeCapability evaluates persisted action/scope grants. Each action is
-// independent: manage, investigate, approve and execute never imply each other.
+// Resource operations are independent persisted bindings. The management call
+// shape remains internal compatibility for the actual platform-admin identity.
 func (s *Store) AuthorizeCapability(ctx context.Context, u core.User, action, scope, id string) error {
 	var allowed bool
+	if action == "manage" && scope == "management" {
+		err := s.DB.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM rbac_platform_administrators WHERE user_id=$1)", u.ID).Scan(&allowed)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return ErrForbidden
+		}
+		return nil
+	}
 	e := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rbac_effective_permissions p WHERE p.user_id=$1 AND p.action=$2 AND p.scope_type=$3 AND p.resource_id=$4)`, u.ID, action, scope, id).Scan(&allowed)
 	if e != nil {
 		return e
@@ -49,29 +59,47 @@ func (s *Store) AuthorizeCapability(ctx context.Context, u core.User, action, sc
 	return nil
 }
 
+// Legacy application-wide reads may reach any linked resource. Fail closed unless
+// every linked infrastructure resource is viewable and at least one exists.
+// Writes and approvals always use the exact target, never application authority.
 func (s *Store) authorizeApplicationRBAC(ctx context.Context, u core.User, app, action string) error {
-	if action == "operate" {
-		action = "investigate"
+	if action != "view" && action != "operate" && action != "investigate" {
+		return ErrForbidden
 	}
-	var exists, archived bool
-	e := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM applications WHERE id=$1),COALESCE((SELECT archived FROM applications WHERE id=$1),false)`, app).Scan(&exists, &archived)
-	if e != nil {
-		return e
+	var exists, allowed bool
+	err := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM applications WHERE id=$2),
+ EXISTS(SELECT 1 FROM cmdb_resource_applications l JOIN cmdb_resources r ON r.id=l.resource_id WHERE l.application_id=$2 AND rbac_is_infrastructure_kind(r.kind))
+ AND NOT EXISTS(SELECT 1 FROM cmdb_resource_applications l JOIN cmdb_resources r ON r.id=l.resource_id
+ WHERE l.application_id=$2 AND rbac_is_infrastructure_kind(r.kind)
+ AND NOT EXISTS(SELECT 1 FROM rbac_effective_permissions p WHERE p.user_id=$1 AND p.action='view' AND p.resource_id=r.id))`, u.ID, app).Scan(&exists, &allowed)
+	if err != nil {
+		return err
 	}
 	if !exists {
 		return ErrNotFound
 	}
-	if archived && action != "view" {
+	if !allowed {
 		return ErrForbidden
 	}
-	var allowed bool
-	e = s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rbac_effective_permissions p JOIN users u ON u.id=p.user_id WHERE p.user_id=$1 AND
- ((p.scope_type='application' AND p.resource_id=$2 AND (p.action=$3 OR ($3='view' AND p.action IN ('investigate','approve','execute')))) OR
- (p.scope_type='legacy_application' AND p.resource_id=$2 AND p.action=$3 AND ((`+sessionLegacyRole+`)='admin' OR EXISTS(SELECT 1 FROM application_grants g WHERE g.application_id=$2 AND ($3='view' OR ((`+sessionLegacyRole+`)<>'viewer' AND g.permission='operate')) AND ((g.subject_type='user' AND g.subject_id=u.id) OR (g.subject_type='team' AND g.subject_id IN (SELECT team_id FROM team_members WHERE user_id=u.id))))))))`, u.ID, app, action).Scan(&allowed)
-	if e != nil {
-		return e
+	return nil
+}
+
+// AuthorizeRecoveryTarget authorizes the immutable connector target, not another
+// resource belonging to the same application. Ambiguous, mock or unregistered
+// targets cannot be approved or executed.
+func (s *Store) AuthorizeRecoveryTarget(ctx context.Context, user, app, environment, connector, namespace, name, uid, action string) error {
+	if (action != "approve" && action != "update") || environment == "" || connector == "" || namespace == "" || name == "" || uid == "" {
+		return ErrForbidden
 	}
-	if !allowed {
+	var count, granted int
+	err := s.DB.QueryRow(ctx, `SELECT count(*),count(*) FILTER(WHERE EXISTS(SELECT 1 FROM rbac_effective_permissions p WHERE p.user_id=$1 AND p.action=$8 AND p.scope_type='resource' AND p.resource_id=r.id))
+ FROM cmdb_resources r WHERE r.kind='deployment' AND NOT r.is_mock AND r.source_id=$4
+ AND r.attributes->>'namespace'=$5 AND r.name=$6 AND (r.external_id=$7 OR r.attributes->>'uid'=$7)
+ AND EXISTS(SELECT 1 FROM cmdb_resource_applications l WHERE l.resource_id=r.id AND l.application_id=$2 AND l.environment_id=$3)`, user, app, environment, connector, namespace, name, uid, action).Scan(&count, &granted)
+	if err != nil {
+		return err
+	}
+	if count != 1 || granted != 1 {
 		return ErrForbidden
 	}
 	return nil

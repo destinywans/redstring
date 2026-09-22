@@ -12,6 +12,9 @@ export type RbacObject = {
   user_count?: number;
   department_count?: number;
   resource_count?: number;
+  actions?: string[];
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 export type Candidate = {
   id: string;

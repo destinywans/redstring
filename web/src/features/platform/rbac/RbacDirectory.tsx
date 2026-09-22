@@ -6,7 +6,12 @@ import { Plus } from "../../../lib/icons";
 import ConfirmDialog from "../../../components/patterns/ConfirmDialog";
 import Pagination from "../../../components/Pagination";
 import { ErrorNotice } from "../../../components/ui";
-import { FilterBar, FilterSearch } from "../../../components/filters/FilterBar";
+import {
+  FilterBar,
+  FilterSearch,
+  FilterSelect,
+} from "../../../components/filters/FilterBar";
+import { resourceKinds, resourceTime } from "../../resources/types";
 import { AdminOnlyNotice } from "../../members/GovernancePage";
 import {
   DirectoryHeader,
@@ -15,7 +20,14 @@ import {
 } from "../directory/shared";
 import { AssociationManager } from "./AssociationManager";
 import { RbacOverlay } from "./RbacOverlay";
-import { getPage, rbacError, type RbacKind, type RbacObject } from "./api";
+import {
+  actionNames,
+  selectableActions,
+  getPage,
+  rbacError,
+  type RbacKind,
+  type RbacObject,
+} from "./api";
 import "./rbac.css";
 import { useRbacAccess } from "./access";
 
@@ -42,10 +54,18 @@ function RbacList({ kind }: { kind: RbacKind }) {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [action, setAction] = useState("");
+  const [resourceKind, setResourceKind] = useState("");
   const [selected, setSelected] = useState<RbacObject | "new" | null>(null);
   const [association, setAssociation] = useState<RbacObject | null>(null);
   const label = kind === "roles" ? "角色" : "权限";
-  const params = { q, page, page_size: pageSize };
+  const params = {
+    q,
+    page,
+    page_size: pageSize,
+    action,
+    resource_kind: resourceKind,
+  };
   const list = useQuery({
     queryKey: ["rbac", kind, params],
     queryFn: ({ signal }) =>
@@ -94,10 +114,46 @@ function RbacList({ kind }: { kind: RbacKind }) {
                 kind === "roles" ? "搜索角色名称或描述" : "搜索权限名称或描述"
               }
             />
+            {kind === "permissions" && (
+              <>
+                <FilterSelect
+                  id="permission-action"
+                  label="操作类型"
+                  options={selectableActions.map((value) => ({
+                    value,
+                    label: actionNames[value],
+                  }))}
+                  values={action ? [action] : []}
+                  onChange={(values) => {
+                    setAction(values[0] ?? "");
+                    setPage(1);
+                  }}
+                  clearable
+                  popoverWidth={168}
+                />
+                <FilterSelect
+                  id="permission-resource-kind"
+                  label="资源类型"
+                  options={Object.entries(resourceKinds).map(
+                    ([value, label]) => ({ value, label }),
+                  )}
+                  values={resourceKind ? [resourceKind] : []}
+                  onChange={(values) => {
+                    setResourceKind(values[0] ?? "");
+                    setPage(1);
+                  }}
+                  searchable
+                  clearable
+                  popoverWidth={216}
+                />
+              </>
+            )}
           </FilterBar>
         </div>
         <div className="directory-table-wrap">
-          <table className="directory-table rbac-list-table ui-data-table">
+          <table
+            className={`directory-table rbac-list-table ui-data-table ${kind === "permissions" ? "rbac-permission-list" : ""}`}
+          >
             <thead>
               <tr>
                 <th>{label}名称</th>
@@ -109,10 +165,13 @@ function RbacList({ kind }: { kind: RbacKind }) {
                   </>
                 ) : (
                   <>
+                    <th>操作类型</th>
                     <th>关联范围</th>
+                    <th>创建时间</th>
+                    <th>更新时间</th>
                   </>
                 )}
-                <th aria-label="关联管理" />
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -142,7 +201,30 @@ function RbacList({ kind }: { kind: RbacKind }) {
                     </>
                   ) : (
                     <>
+                      <td>
+                        {item.actions?.length ? (
+                          <div className="rbac-action-summary">
+                            {item.actions.map((value) => (
+                              <span
+                                key={value}
+                                className="rbac-action"
+                                data-action={value}
+                              >
+                                {actionNames[value] ?? value}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
                       <td>{item.resource_count ?? 0} 项</td>
+                      <td className="rbac-timestamp">
+                        {resourceTime(item.created_at ?? undefined)}
+                      </td>
+                      <td className="rbac-timestamp">
+                        {resourceTime(item.updated_at ?? undefined)}
+                      </td>
                     </>
                   )}
                   <td>

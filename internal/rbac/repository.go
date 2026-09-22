@@ -18,7 +18,11 @@ var ErrLastManager = store.ErrLastRBACManager
 
 const roleSelect = `SELECT r.id,r.name,r.description,r.builtin,r.revision,(SELECT count(*) FROM rbac_role_permissions WHERE role_id=r.id),(SELECT count(*) FROM rbac_user_roles WHERE role_id=r.id),(SELECT count(*) FROM rbac_department_roles WHERE role_id=r.id) FROM rbac_roles r`
 const permissionResourceCount = `(SELECT count(DISTINCT (scope_type,resource_id)) FROM rbac_permission_resources WHERE permission_id=p.id)`
-const permissionSelect = `SELECT p.id,p.name,p.description,p.builtin,p.revision,` + permissionResourceCount + ` FROM rbac_permissions p`
+const permissionActions = `COALESCE((SELECT array_agg(a.action ORDER BY array_position(ARRAY['view','update','approve','delete']::text[],a.action)) FROM
+ (SELECT DISTINCT x.action FROM rbac_permission_resources x JOIN cmdb_resources r ON r.id=x.resource_id
+ WHERE x.permission_id=p.id AND x.scope_type='resource' AND rbac_is_infrastructure_kind(r.kind)
+ AND x.action IN ('view','update','approve','delete')) a),'{}'::text[])`
+const permissionSelect = `SELECT p.id,p.name,p.description,p.builtin,p.revision,` + permissionResourceCount + `,` + permissionActions + `,p.created_at,p.updated_at FROM rbac_permissions p`
 
 func scanRole(row pgx.Row) (Role, error) {
 	var v Role
@@ -27,7 +31,7 @@ func scanRole(row pgx.Row) (Role, error) {
 }
 func scanPermission(row pgx.Row) (Permission, error) {
 	var v Permission
-	e := row.Scan(&v.ID, &v.Name, &v.Description, &v.Builtin, &v.Revision, &v.ResourceCount)
+	e := row.Scan(&v.ID, &v.Name, &v.Description, &v.Builtin, &v.Revision, &v.ResourceCount, &v.Actions, &v.CreatedAt, &v.UpdatedAt)
 	return v, store.ClassifyError(e)
 }
 func (s *Service) Role(ctx context.Context, id string) (Role, error) {

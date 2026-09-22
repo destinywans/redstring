@@ -1,5 +1,12 @@
 # AIOps Canvas 检查点
 
+## CP-041 · 2026-09-22 · 权限列表与拼音搜索
+
+- WAN-96 共享拼音字典/匹配覆盖本地列表与PG搜索；WAN-105 权限操作汇总/时间列及同资源组合筛选。独立提交于 codex/wan-105-role-management-refinement，基于5317bc2。
+- 019/020已随专用review服务启动执行，18081已更新；未清空或改写原角色权限关联，旧时间未知保持null。
+- 前后端构建/类型/契约、helper样例及唯一随机schema PG用例通过（3.992s）；浏览器仅权限页zyck检索到资源查看、总数1并查看排版。未全站测试、未新增真实权限、未检查工作负载。
+- 交付 docs/releases/2026-09-22-pinyin-search.md 和 docs/releases/2026-09-22-permission-directory.md；下一步用户体验。暂停CI/CD原变更保留。
+
 ## CP-040 · 2026-09-22 · 创建流程与关闭反馈
 
 - WAN-105 创建角色/权限后关闭卡片返回列表，由用户点击管理关联；WAN-96 关闭按钮增强三态反馈。两项独立提交于 codex/wan-105-role-management-refinement，基于89735a4。

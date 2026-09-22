@@ -349,6 +349,27 @@
   padding-top: 18px;
   padding-bottom: 18px;
 }
+.rbac-permission-list {
+  min-width: 880px;
+}
+.rbac-permission-list th:first-child {
+  width: 28%;
+}
+.rbac-permission-list .rbac-description {
+  max-width: 260px;
+}
+.rbac-action-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-width: 176px;
+}
+.rbac-timestamp {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--type-small);
+  color: var(--muted);
+}
 .rbac-overlay--wide .list-pagination {
   flex-shrink: 0;
   min-height: 48px;

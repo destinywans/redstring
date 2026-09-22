@@ -13355,7 +13355,7 @@
       "get": {
         "summary": "Search persisted roles",
         "operationId": "get_rbac_roles",
-        "description": "Minimum role: viewer. ",
+        "description": "Text search supports literal Chinese and case-insensitive English, pinyin and initials before server count and pagination.",
         "responses": {
           "200": {
             "description": "Success",
@@ -13946,7 +13946,7 @@
       "get": {
         "summary": "Search persisted permissions",
         "operationId": "get_rbac_permissions",
-        "description": "Minimum role: viewer. ",
+        "description": "Text search supports literal Chinese and case-insensitive English, pinyin and initials before server count and pagination. action and resource_kind must match the same infrastructure resource binding. actions is an aggregate of associated operations, never an intrinsic permission field. Historical timestamps may be null; new definitions and subsequent metadata or resource-association edits record timestamps.",
         "responses": {
           "200": {
             "description": "Success",
@@ -14081,6 +14081,38 @@
               "minimum": 1,
               "maximum": 100,
               "default": 10
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "view",
+                "update",
+                "approve",
+                "delete"
+              ]
+            }
+          },
+          {
+            "name": "resource_kind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "cluster",
+                "node",
+                "deployment",
+                "namespace",
+                "host",
+                "network",
+                "storage",
+                "redis",
+                "mysql",
+                "kafka"
+              ]
             }
           }
         ]
@@ -19132,6 +19164,40 @@
           "resource_count": {
             "type": "integer",
             "minimum": 0
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "view",
+                "update",
+                "approve",
+                "delete"
+              ]
+            }
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -19141,7 +19207,10 @@
           "description",
           "builtin",
           "revision",
-          "resource_count"
+          "resource_count",
+          "actions",
+          "created_at",
+          "updated_at"
         ]
       },
       "RBACDelta": {

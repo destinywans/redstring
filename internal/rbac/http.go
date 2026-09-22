@@ -186,13 +186,23 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request, kind string) {
 		return
 	}
 	q := r.URL.Query()
-	args := []any{strings.TrimSpace(q.Get("q")), q.Get("action"), q.Get("scope_type"), q.Get("builtin")}
+	args := []any{strings.TrimSpace(q.Get("q")), q.Get("builtin")}
 	from := "rbac_roles r"
-	filter := ` WHERE (aiops_search_match(r.id,$1) OR aiops_search_match(r.name,$1) OR aiops_search_match(r.description,$1)) AND ($2='' OR $2 IS NOT NULL) AND ($3='' OR $3 IS NOT NULL) AND ($4='' OR r.builtin::text=$4)`
+	filter := ` WHERE (aiops_search_match(r.id,$1) OR aiops_search_match(r.name,$1) OR aiops_search_match(r.description,$1)) AND ($2='' OR r.builtin::text=$2)`
 	selectSQL := roleSelect
 	if kind == "permissions" {
+		action, resourceKind, scope := q.Get("action"), q.Get("resource_kind"), q.Get("scope_type")
+		if (action != "" && action != "view" && action != "update" && action != "approve" && action != "delete") || (scope != "" && scope != "resource") {
+			respond(w, nil, store.ErrInvalidReference)
+			return
+		}
+		args = append(args, action, resourceKind, scope)
 		from = "rbac_permissions p"
-		filter = ` WHERE (aiops_search_match(p.id,$1) OR aiops_search_match(p.name,$1) OR aiops_search_match(p.description,$1)) AND (($2='' AND $3='') OR EXISTS(SELECT 1 FROM rbac_permission_resources x WHERE x.permission_id=p.id AND ($2='' OR x.action=$2) AND ($3='' OR x.scope_type=$3))) AND ($4='' OR p.builtin::text=$4)`
+		filter = ` WHERE (aiops_search_match(p.id,$1) OR aiops_search_match(p.name,$1) OR aiops_search_match(p.description,$1)) AND ($2='' OR p.builtin::text=$2)
+ AND (($3='' AND $4='' AND $5='') OR EXISTS(
+ SELECT 1 FROM rbac_permission_resources x JOIN cmdb_resources resource ON resource.id=x.resource_id
+ WHERE x.permission_id=p.id AND x.scope_type='resource' AND rbac_is_infrastructure_kind(resource.kind)
+ AND x.action IN ('view','update','approve','delete') AND ($3='' OR x.action=$3) AND ($4='' OR resource.kind=$4) AND ($5='' OR x.scope_type=$5)))`
 		selectSQL = permissionSelect
 	}
 	var total int
@@ -207,8 +217,9 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request, kind string) {
 	if page > last {
 		page = last
 	}
+	limitArg, offsetArg := len(args)+1, len(args)+2
 	args = append(args, size, (page-1)*size)
-	rows, e := s.Store.DB.Query(r.Context(), selectSQL+filter+" ORDER BY name,id LIMIT $5 OFFSET $6", args...)
+	rows, e := s.Store.DB.Query(r.Context(), selectSQL+filter+" ORDER BY name,id LIMIT $"+strconv.Itoa(limitArg)+" OFFSET $"+strconv.Itoa(offsetArg), args...)
 	if e != nil {
 		respond(w, nil, e)
 		return

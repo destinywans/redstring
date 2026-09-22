@@ -1,7 +1,10 @@
 // Package rbac manages persisted authorization records and atomic association deltas.
 package rbac
 
-import "github.com/wans/aiops-canvas/internal/store"
+import (
+	"github.com/wans/aiops-canvas/internal/store"
+	"time"
+)
 
 type Service struct{ Store *store.Store }
 type Role struct {
@@ -15,12 +18,15 @@ type Role struct {
 	DepartmentCount int    `json:"department_count"`
 }
 type Permission struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	Builtin       bool   `json:"builtin"`
-	Revision      int64  `json:"revision"`
-	ResourceCount int    `json:"resource_count"`
+	ID            string     `json:"id"`
+	Name          string     `json:"name"`
+	Description   string     `json:"description"`
+	Builtin       bool       `json:"builtin"`
+	Revision      int64      `json:"revision"`
+	ResourceCount int        `json:"resource_count"`
+	Actions       []string   `json:"actions"`
+	CreatedAt     *time.Time `json:"created_at"`
+	UpdatedAt     *time.Time `json:"updated_at"`
 }
 type Delta struct {
 	Add    []string `json:"add"`

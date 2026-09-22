@@ -3,7 +3,8 @@ rbac_bool = {'type': 'boolean'}
 rbac_action = string(enum=['view','update','approve','delete'])
 rbac_resource_scope = string(enum=['resource'])
 S['RBACRole'] = obj({**fieldnames('id name description'), 'builtin': rbac_bool, 'revision': integer(minimum=1), **{k: integer(minimum=0) for k in ('permission_count','user_count','department_count')}}, ['id','name','description','builtin','revision','permission_count','user_count','department_count'])
-S['RBACPermission'] = obj({**fieldnames('id name description'), 'builtin': rbac_bool, 'revision': integer(minimum=1), 'resource_count': integer(minimum=0)}, ['id','name','description','builtin','revision','resource_count'])
+rbac_optional_time = {'anyOf':[string(format='date-time'),{'type':'null'}]}
+S['RBACPermission'] = obj({**fieldnames('id name description'), 'builtin': rbac_bool, 'revision': integer(minimum=1), 'resource_count': integer(minimum=0), 'actions':arr(rbac_action), 'created_at':rbac_optional_time, 'updated_at':rbac_optional_time}, ['id','name','description','builtin','revision','resource_count','actions','created_at','updated_at'])
 S['RBACDelta'] = obj({'add': arr(string()), 'remove': arr(string())}, [])
 S['RBACCandidate'] = obj({**fieldnames('id name description email kind application_id application_name environment department_id department_name lock_reason'), 'locked': rbac_bool, 'selected': rbac_bool, 'inherited': rbac_bool, 'is_mock': rbac_bool, 'source_departments': arr(string()), 'resource_count': integer(minimum=0)}, ['id','name','description','selected','inherited','is_mock','source_departments','resource_count'])
 rbac_page_params = [ {'name': name, 'in': 'query', 'schema': schema} for name,schema in [('q',string()),('page',integer(minimum=1,maximum=1000000,default=1)),('page_size',integer(minimum=1,maximum=100,default=10))]]
@@ -14,7 +15,11 @@ def rbac_page(item, revision=False):
 for kind,model in [('roles','RBACRole'),('permissions','RBACPermission')]:
     path='/rbac/'+kind
     route('get',path,'Search persisted '+kind,response=rbac_page(ref(model)))
-    P[path]['get']['parameters']=rbac_page_params
+    P[path]['get']['parameters']=list(rbac_page_params)
+    P[path]['get']['description']='Text search supports literal Chinese and case-insensitive English, pinyin and initials before server count and pagination.'
+    if kind=='permissions':
+        P[path]['get']['parameters'] += [{'name':'action','in':'query','schema':rbac_action},{'name':'resource_kind','in':'query','schema':string(enum=['cluster','node','deployment','namespace','host','network','storage','redis','mysql','kafka'])}]
+        P[path]['get']['description'] += ' action and resource_kind must match the same infrastructure resource binding. actions is an aggregate of associated operations, never an intrinsic permission field. Historical timestamps may be null; new definitions and subsequent metadata or resource-association edits record timestamps.'
     fields={'name':string(minLength=1,maxLength=200),'description':string(maxLength=2000)}
     if kind=='roles': fields['name']['description']='Unique role name after trimming outer whitespace. Duplicate names return 409 role_name_conflict. Internal stable IDs are not user-entered identifiers.'
     if kind=='permissions':

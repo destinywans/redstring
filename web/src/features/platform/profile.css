@@ -141,28 +141,63 @@
   border-top: 1px solid var(--border);
   font-weight: var(--weight-regular);
 }
+.profile-password-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 18px;
+  padding-top: 22px;
+  border-top: 1px solid var(--border);
+}
+.profile-password-row h3 {
+  margin: 0;
+  font-weight: var(--weight-medium);
+}
+.profile-password-row .profile-hint {
+  margin-top: 5px;
+}
+.profile-password-row > .btn {
+  flex-shrink: 0;
+}
+.dialog-content:has(.profile-password-form) {
+  width: min(460px, calc(100vw - 32px));
+}
+.dialog-content:has(.profile-password-form) > p {
+  margin: -6px 28px 24px 0;
+  color: var(--muted);
+  font-size: var(--type-small);
+  line-height: var(--leading-body);
+}
 .profile-password-form {
   display: grid;
-  gap: 18px;
+  gap: 20px;
 }
 .profile-password-form > .profile-hint {
   margin-top: 0;
 }
-.profile-password-form label {
+.dialog-content .profile-password-form label {
   display: grid;
   gap: 8px;
+  margin: 0;
   font-size: var(--type-small);
   font-weight: var(--weight-regular);
 }
-.profile-password-form .field {
+.dialog-content .profile-password-form label .field {
   width: 100%;
+  margin: 0;
   font-size: var(--type-small);
   font-weight: var(--weight-regular);
 }
-.profile-password-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
+.profile-password-form label .profile-hint {
+  margin: 0;
+}
+.profile-password-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
 }
 @media (max-width: 650px) {
   .profile-card {
@@ -175,9 +210,5 @@
   .profile-info > div {
     grid-template-columns: 90px minmax(0, 1fr);
     gap: 12px;
-  }
-  .profile-password-grid {
-    grid-template-columns: 1fr;
-    gap: 18px;
   }
 }

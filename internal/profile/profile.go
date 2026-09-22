@@ -17,6 +17,7 @@ import (
 
 var ErrInvalid = errors.New("invalid personal profile")
 var ErrPassword = errors.New("current password is incorrect")
+var ErrPasswordRequirements = errors.New("new password does not meet requirements")
 var ErrNoPassword = errors.New("no local password is configured")
 
 type Service struct{ Store *store.Store }
@@ -218,8 +219,11 @@ func (s *Service) SetAvatar(ctx context.Context, value string) (Profile, error) 
 	return s.Get(ctx)
 }
 func (s *Service) ChangePassword(ctx context.Context, current, next string) error {
-	if current == "" || len(current) > 1024 || len(next) < 12 || len(next) > 1024 || current == next {
+	if current == "" || len(current) > 1024 || current == next {
 		return ErrInvalid
+	}
+	if !validNewPassword(next) {
+		return ErrPasswordRequirements
 	}
 	id := store.Principal(ctx).ID
 	if id == "" {

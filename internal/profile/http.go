@@ -15,6 +15,8 @@ func respond(w http.ResponseWriter, v any, e error) {
 	switch {
 	case errors.Is(e, ErrInvalid):
 		httpapi.Error(w, 422, "invalid_profile", "Check avatar format or password requirements")
+	case errors.Is(e, ErrPasswordRequirements):
+		httpapi.Error(w, 422, "invalid_password", "New password must be 8–128 characters and include uppercase and lowercase letters, numbers and symbols")
 	case errors.Is(e, ErrPassword):
 		httpapi.Error(w, 422, "incorrect_password", "Current password is incorrect")
 	case errors.Is(e, ErrNoPassword):

@@ -195,7 +195,7 @@ func TestPostgresPersonalProfileIsolation(t *testing.T) {
 	if w := call("viewer", "PATCH", "/api/v1/profile", `{"avatar_data_url":""}`); w.Code != 200 {
 		t.Fatal("remove avatar failed")
 	}
-	if w := call("viewer", "POST", "/api/v1/profile/password", `{"current_password":"incorrect","new_password":"replacement-password"}`); w.Code != 422 {
+	if w := call("viewer", "POST", "/api/v1/profile/password", `{"current_password":"incorrect","new_password":"Replacement-password1!"}`); w.Code != 422 {
 		t.Fatal("wrong password must not expire client session")
 	}
 	if w := call("viewer", "GET", "/api/v1/profile", ""); w.Code != 200 {
@@ -204,7 +204,7 @@ func TestPostgresPersonalProfileIsolation(t *testing.T) {
 	if _, _, e = db.Login(ctx, "viewer@example.invalid", password); e != nil {
 		t.Fatal(e)
 	}
-	w := call("viewer", "POST", "/api/v1/profile/password", `{"current_password":"original-password-1","new_password":"replacement-password"}`)
+	w := call("viewer", "POST", "/api/v1/profile/password", `{"current_password":"original-password-1","new_password":"Replacement-password1!"}`)
 	if w.Code != 204 {
 		t.Fatalf("change password: %d %s", w.Code, w.Body.String())
 	}
@@ -224,7 +224,7 @@ func TestPostgresPersonalProfileIsolation(t *testing.T) {
 	if _, _, e = db.Login(ctx, "viewer@example.invalid", password); e == nil {
 		t.Fatal("old password valid")
 	}
-	if _, _, e = db.Login(ctx, "viewer@example.invalid", "replacement-password"); e != nil {
+	if _, _, e = db.Login(ctx, "viewer@example.invalid", "Replacement-password1!"); e != nil {
 		t.Fatal(e)
 	}
 	if _, e = pool.Exec(ctx, `UPDATE users SET source='enterprise',external_id='directory-operator' WHERE id='operator'`); e != nil {
@@ -235,39 +235,39 @@ func TestPostgresPersonalProfileIsolation(t *testing.T) {
 	if e = json.Unmarshal(w.Body.Bytes(), &external); e != nil || w.Code != 200 || !external.CanChangePassword {
 		t.Fatal("directory identity with local credentials cannot change password")
 	}
-	if w = call("operator", "POST", "/api/v1/profile/password", `{"current_password":"original-password-1","new_password":"another-password"}`); w.Code != 204 {
+	if w = call("operator", "POST", "/api/v1/profile/password", `{"current_password":"original-password-1","new_password":"Another-password1!"}`); w.Code != 204 {
 		t.Fatal("directory identity could not change its local password")
 	}
 	// Exercise the public HTTP login validator, not just Store.Login, so a
-	// newly accepted password cannot exceed the length the login UI can submit.
+	// new character-based policy produces passwords the existing login can accept.
 	httpLogin := func(secret string) *httptest.ResponseRecorder {
 		body, _ := json.Marshal(map[string]string{"email": "operator@example.invalid", "password": secret})
 		return call("", "POST", "/api/v1/auth/login", string(body))
 	}
-	w = httpLogin("another-password")
+	w = httpLogin("Another-password1!")
 	if w.Code != 200 {
 		t.Fatalf("directory account HTTP login: %d", w.Code)
 	}
 	tokens["operator"] = w.Result().Cookies()[0].Value
 	for _, next := range []string{strings.Repeat("x", 1025), strings.Repeat("界", 342)} {
-		body, _ := json.Marshal(map[string]string{"current_password": "another-password", "new_password": next})
+		body, _ := json.Marshal(map[string]string{"current_password": "Another-password1!", "new_password": next})
 		if w = call("operator", "POST", "/api/v1/profile/password", string(body)); w.Code != 422 {
 			t.Fatal("accepted password beyond HTTP login byte limit")
 		}
 	}
-	maxPassword := strings.Repeat("x", 1024)
-	body, _ := json.Marshal(map[string]string{"current_password": "another-password", "new_password": maxPassword})
+	maxPassword := "Aa1!" + strings.Repeat("界", 124)
+	body, _ := json.Marshal(map[string]string{"current_password": "Another-password1!", "new_password": maxPassword})
 	if w = call("operator", "POST", "/api/v1/profile/password", string(body)); w.Code != 204 {
-		t.Fatal("1024-byte password rejected")
+		t.Fatal("128-character password rejected")
 	}
 	if w = httpLogin(maxPassword); w.Code != 200 {
-		t.Fatalf("1024-byte new password cannot log in: %d", w.Code)
+		t.Fatalf("128-character new password cannot log in: %d", w.Code)
 	}
 	tokens["operator"] = w.Result().Cookies()[0].Value
-	if w = httpLogin(maxPassword + "x"); w.Code != 422 {
+	if w = httpLogin(strings.Repeat("x", 1025)); w.Code != 422 {
 		t.Fatal("HTTP login limit changed unexpectedly")
 	}
-	if w = httpLogin("another-password"); w.Code != 401 {
+	if w = httpLogin("Another-password1!"); w.Code != 401 {
 		t.Fatal("previous directory local password still valid")
 	}
 	if _, e = pool.Exec(ctx, `UPDATE users SET password_hash='' WHERE id='operator'`); e != nil {
@@ -277,7 +277,7 @@ func TestPostgresPersonalProfileIsolation(t *testing.T) {
 	if e = json.Unmarshal(w.Body.Bytes(), &external); e != nil || w.Code != 200 || external.CanChangePassword {
 		t.Fatal("identity with no local hash advertised password changes")
 	}
-	body, _ = json.Marshal(map[string]string{"current_password": maxPassword, "new_password": "replacement-without-hash"})
+	body, _ = json.Marshal(map[string]string{"current_password": maxPassword, "new_password": "Replacement-without-hash1!"})
 	if w = call("operator", "POST", "/api/v1/profile/password", string(body)); w.Code != 422 || !strings.Contains(w.Body.String(), "no_local_password") {
 		t.Fatal("no-hash account changed password")
 	}
@@ -285,7 +285,7 @@ func TestPostgresPersonalProfileIsolation(t *testing.T) {
 	if e = pool.QueryRow(ctx, `SELECT string_agg(changes::text,'') FROM management_audit WHERE action LIKE 'profile.%'`).Scan(&audit); e != nil {
 		t.Fatal(e)
 	}
-	if strings.Contains(audit, "original-password") || strings.Contains(audit, "replacement-password") || strings.Contains(audit, "data:image") {
+	if strings.Contains(audit, "original-password") || strings.Contains(audit, "Replacement-password1!") || strings.Contains(audit, "data:image") {
 		t.Fatal("audit leaked profile secrets")
 	}
 }

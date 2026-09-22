@@ -5,7 +5,7 @@ import { ApiError, patch, post, request } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
 import Pagination, { useListPagination } from "../../components/Pagination";
 import { Upload } from "../../lib/icons";
-import { ErrorNotice } from "../../components/ui";
+import { ErrorNotice, Modal } from "../../components/ui";
 import "./profile.css";
 
 type Profile = {
@@ -55,11 +55,13 @@ const permissionLabels: Record<keyof Profile["permissions"], string> = {
 function profileError(error: unknown, avatar = false) {
   if (!(error instanceof ApiError)) return error;
   const messages: Record<string, string> = {
-    incorrect_password: "当前密码不正确，请重新输入。",
+    incorrect_password: "旧密码不正确，请重新输入。",
+    invalid_password:
+      "新密码需为 8–128 位，包含大写字母、小写字母、数字和符号。",
     no_local_password: "此账户尚未设置本地密码，请联系管理员。",
     invalid_profile: avatar
       ? "图片需为 PNG/JPEG，最大 1 MiB、1024 × 1024 像素。"
-      : "请检查密码长度，新密码不能与当前密码相同。",
+      : "新密码不能与旧密码相同，请重新设置。",
     profile_unavailable: "资料暂时无法保存，请稍后重试。",
   };
   return messages[error.code] ? new Error(messages[error.code]) : error;
@@ -77,6 +79,7 @@ export function ProfilePage() {
   const [avatarError, setAvatarError] = useState<unknown>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [reading, setReading] = useState(false);
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const [passwordBusy, setPasswordBusy] = useState(false);
   const [passwordError, setPasswordError] = useState<unknown>(null);
   const data = profile.data;
@@ -144,15 +147,26 @@ export function ProfilePage() {
     const newPassword = String(values.get("new_password") || "");
     const confirmation = String(values.get("confirm_password") || "");
     setPasswordError(null);
-    const size = new TextEncoder().encode(newPassword).length;
-    if (size < 12 || size > 1024 || newPassword !== confirmation) {
+    const size = Array.from(newPassword).length;
+    if (
+      size < 8 ||
+      size > 128 ||
+      !/[A-Z]/.test(newPassword) ||
+      !/[a-z]/.test(newPassword) ||
+      !/[0-9]/.test(newPassword) ||
+      !/[\p{P}\p{S}]/u.test(newPassword)
+    ) {
       setPasswordError(
-        new Error(
-          size < 12 || size > 1024
-            ? "新密码需为 12–1024 字节（英文字符按 1 字节计算）。"
-            : "两次输入的新密码不一致。",
-        ),
+        new Error("新密码需为 8–128 位，包含大写字母、小写字母、数字和符号。"),
       );
+      return;
+    }
+    if (newPassword !== confirmation) {
+      setPasswordError(new Error("两次输入的新密码不一致。"));
+      return;
+    }
+    if (newPassword === currentPassword) {
+      setPasswordError(new Error("新密码不能与旧密码相同，请重新设置。"));
       return;
     }
     setPasswordBusy(true);
@@ -298,6 +312,26 @@ export function ProfilePage() {
             <dd>{roles[data.user.role] || data.user.role}</dd>
           </div>
         </dl>
+        <div className="profile-password-row">
+          <div>
+            <h3>密码</h3>
+            <p className="profile-hint">
+              {data.can_change_password
+                ? "更改用于登录的密码"
+                : "此账户尚未设置本地密码，请联系管理员。"}
+            </p>
+          </div>
+          <button
+            className="btn"
+            disabled={!data.can_change_password}
+            onClick={() => {
+              setPasswordError(null);
+              setPasswordOpen(true);
+            }}
+          >
+            更改密码
+          </button>
+        </div>
       </section>
       <section
         className="profile-card"
@@ -378,69 +412,81 @@ export function ProfilePage() {
           <p className="profile-hint">暂无授权应用</p>
         )}
       </section>
-      <section
-        className="profile-card"
-        aria-labelledby="profile-password-heading"
+      <Modal
+        open={passwordOpen}
+        onOpenChange={(open) => {
+          if (passwordBusy) return;
+          setPasswordOpen(open);
+          setPasswordError(null);
+        }}
+        title="更改密码"
+        description="设置新密码后，所有设备上的当前账户都将退出登录。"
       >
-        <h2 id="profile-password-heading">修改密码</h2>
-        {data.can_change_password ? (
-          <form className="profile-password-form" onSubmit={changePassword}>
-            <p className="profile-hint">
-              新密码需为 12–1024 字节（英文字符按 1
-              字节计算）。保存后所有设备上的当前账户会话将退出，需要重新登录。
-            </p>
-            {!!passwordError && <ErrorNotice error={passwordError} />}
-            <label>
-              当前密码
-              <input
-                className="field"
-                type="password"
-                name="current_password"
-                autoComplete="current-password"
-                required
-                disabled={passwordBusy}
-              />
-            </label>
-            <div className="profile-password-grid">
-              <label>
-                新密码
-                <input
-                  className="field"
-                  type="password"
-                  name="new_password"
-                  autoComplete="new-password"
-                  maxLength={1024}
-                  required
-                  disabled={passwordBusy}
-                />
-              </label>
-              <label>
-                确认新密码
-                <input
-                  className="field"
-                  type="password"
-                  name="confirm_password"
-                  autoComplete="new-password"
-                  maxLength={1024}
-                  required
-                  disabled={passwordBusy}
-                />
-              </label>
-            </div>
-            <div className="profile-actions">
-              <button
-                className="btn btn-primary"
-                type="submit"
-                disabled={passwordBusy}
-              >
-                {passwordBusy ? "保存中…" : "更新密码"}
-              </button>
-            </div>
-          </form>
-        ) : (
-          <p className="profile-hint">此账户尚未设置本地密码，请联系管理员。</p>
-        )}
-      </section>
+        <form
+          className="profile-password-form"
+          onSubmit={changePassword}
+          aria-busy={passwordBusy}
+        >
+          <label>
+            旧密码
+            <input
+              className="field"
+              type="password"
+              name="current_password"
+              autoComplete="current-password"
+              required
+              disabled={passwordBusy}
+            />
+          </label>
+          <label>
+            新密码
+            <input
+              className="field"
+              type="password"
+              name="new_password"
+              autoComplete="new-password"
+              aria-describedby="profile-password-requirements"
+              required
+              disabled={passwordBusy}
+            />
+            <span className="profile-hint" id="profile-password-requirements">
+              8–128 位，需包含大写字母、小写字母、数字和符号。
+            </span>
+          </label>
+          <label>
+            确认新密码
+            <input
+              className="field"
+              type="password"
+              name="confirm_password"
+              autoComplete="new-password"
+              required
+              disabled={passwordBusy}
+            />
+          </label>
+          {!!passwordError && <ErrorNotice error={passwordError} />}
+          <footer className="profile-password-actions">
+            <button
+              className="btn"
+              type="button"
+              disabled={passwordBusy}
+              onClick={() => {
+                setPasswordOpen(false);
+                setPasswordError(null);
+              }}
+            >
+              取消
+            </button>
+            <button
+              className="btn btn-primary"
+              type="submit"
+              disabled={passwordBusy}
+            >
+              {passwordBusy ? "保存中…" : "保存新密码"}
+            </button>
+          </footer>
+        </form>
+      </Modal>
     </div>
   );
 }

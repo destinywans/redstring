@@ -1,3 +1,4 @@
+import { matchesSearch } from "../../lib/search";
 import { Sheet } from "../../components/ui/sheet";
 import { PageHeader } from "../../components/patterns/ListPage";
 import Pagination, { useListPagination } from "../../components/Pagination";
@@ -106,9 +107,10 @@ export default function AlertsPage({ mode = "incidents" }: { mode?: Mode }) {
     (i) =>
       (!severity || i.severity === severity) &&
       (!text.trim() ||
-        `${i.title} ${i.summary} ${i.source_id} ${i.fingerprint}`
-          .toLowerCase()
-          .includes(text.trim().toLowerCase())) &&
+        matchesSearch(
+          `${i.title} ${i.summary} ${i.source_id} ${i.fingerprint}`,
+          text.trim(),
+        )) &&
       (state === "all" ||
         (state === "mine"
           ? i.assignee_id === user.id

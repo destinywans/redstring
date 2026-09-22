@@ -1,3 +1,4 @@
+import { matchesSearch } from "../../lib/search";
 import Pagination, { useListPagination } from "../../components/Pagination";
 import { useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -61,9 +62,10 @@ export default function HomeDrawer({
     .filter(
       (item) =>
         (!status || item.status === status) &&
-        `${item.title} ${item.resource} ${item.progress}`
-          .toLocaleLowerCase()
-          .includes(search.trim().toLocaleLowerCase()),
+        matchesSearch(
+          `${item.title} ${item.resource} ${item.progress}`,
+          search.trim(),
+        ),
     )
     .sort(
       (a, b) =>

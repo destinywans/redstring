@@ -36,11 +36,11 @@ func (s *Store) SearchAudit(ctx context.Context, f AuditFilter) (AuditPage, erro
 	if f.From != nil && f.To != nil && !f.From.Before(*f.To) {
 		return out, ErrInvalidReference
 	}
-	// Escape SQL LIKE metacharacters: search text is literal, not a wildcard DSL.
-	query := strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(strings.TrimSpace(f.Query))
+	// The shared matcher accepts literal query text, including % and _.
+	query := strings.TrimSpace(f.Query)
 	rows, err := s.DB.Query(ctx, `SELECT a.id,a.actor_id,a.actor_kind,a.application_id,a.action,a.target,a.outcome,a.changes,a.created_at,COALESCE(u.name,'') AS actor_name
  FROM management_audit a LEFT JOIN users u ON u.id=a.actor_id
- WHERE ($1='' OR concat_ws(' ',a.actor_id,u.name,a.application_id,a.action,a.target,a.outcome) ILIKE '%'||$1||'%')
+ WHERE aiops_search_match(concat_ws(' ',a.actor_id,u.name,a.application_id,a.action,a.target,a.outcome),$1)
  AND ($2='' OR a.actor_id=$2) AND ($3='' OR a.application_id=$3) AND ($4='' OR a.action=$4) AND ($5='' OR a.outcome=$5 OR ($5='success' AND a.outcome='succeeded'))
  AND ($6::timestamptz IS NULL OR a.created_at >= $6) AND ($7::timestamptz IS NULL OR a.created_at < $7)
  AND ($8::bigint=0 OR a.id < $8) ORDER BY a.id DESC LIMIT $9`, query, f.ActorID, f.ApplicationID, f.Action, f.Outcome, f.From, f.To, cursor, f.Limit+1)

@@ -260,13 +260,13 @@ AND (COALESCE(cardinality($3::text[]),0)=0 OR EXISTS (
  AND (COALESCE(jsonb_array_length(NULLIF(d.metadata->'environment_ids','null'::jsonb)),0)=0
  OR d.metadata->'environment_ids' ? env.id)
 ))
-AND ($4='' OR position($4 in lower(d.title||' '||d.body||' '||d.source))>0)
+AND aiops_search_match(d.title||' '||d.body||' '||d.source,$4)
 AND ($5<>'experience' OR d.investigation_id IS NOT NULL)
 AND ($5<>'runbook' OR d.investigation_id IS NULL)
 AND ($6='' OR d.lifecycle=$6)`
 const documentIDsSQL = documentFilteredSQL + `
 AND ($7='' OR d.id<$7) ORDER BY d.id DESC LIMIT $8 OFFSET $9`
-const contextFilteredSQL = ` FROM branches b JOIN investigations i ON i.id=b.investigation_id JOIN context_revisions c ON c.branch_id=b.id AND c.revision=b.revision WHERE i.application_id=ANY($1::text[]) AND (cardinality($2::text[])=0 OR i.application_id=ANY($2::text[])) AND (cardinality($3::text[])=0 OR i.environment_id=ANY($3::text[])) AND ($4='' OR position(lower($4) in lower(b.title||' '||i.title))>0)`
+const contextFilteredSQL = ` FROM branches b JOIN investigations i ON i.id=b.investigation_id JOIN context_revisions c ON c.branch_id=b.id AND c.revision=b.revision WHERE i.application_id=ANY($1::text[]) AND (cardinality($2::text[])=0 OR i.application_id=ANY($2::text[])) AND (cardinality($3::text[])=0 OR i.environment_id=ANY($3::text[])) AND aiops_search_match(b.title||' '||i.title,$4)`
 
 func pageLimit(r *http.Request) (int, error) {
 	raw, exists := r.URL.Query()["limit"]

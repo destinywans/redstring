@@ -2,6 +2,7 @@ package resources
 
 import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/searchtext"
 	"github.com/wans/aiops-canvas/internal/store"
 	"net/http"
 	"net/url"
@@ -75,7 +76,7 @@ func matches(r Resource, q url.Values, kindKey string) bool {
 	if ip, ok := r.Attributes["ip"].(string); ok {
 		text += " " + ip
 	}
-	return strings.Contains(strings.ToLower(text), search)
+	return searchtext.Match(text, search)
 }
 func facets(rows []Resource) Facets {
 	groups := make([]map[string]Option, 5)

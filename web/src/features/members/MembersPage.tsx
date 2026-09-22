@@ -1,3 +1,4 @@
+import { matchesSearch } from "../../lib/search";
 import { PageHeader } from "../../components/patterns/ListPage";
 import SelectField from "../../components/SelectField";
 import { useState, type FormEvent } from "react";
@@ -78,9 +79,10 @@ function MemberDirectory() {
             : status === "disabled"
               ? !!m.disabled
               : true)) &&
-      `${m.name} ${m.email} ${m.department ?? ""} ${m.external_id ?? ""}`
-        .toLowerCase()
-        .includes(search.trim().toLowerCase()),
+      matchesSearch(
+        `${m.name} ${m.email} ${m.department ?? ""} ${m.external_id ?? ""}`,
+        search.trim(),
+      ),
   );
   function openEdit(m: Member | "new") {
     setError(null);

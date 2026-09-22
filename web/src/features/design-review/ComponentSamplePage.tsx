@@ -1,3 +1,4 @@
+import { matchesSearch } from "../../lib/search";
 import Pagination from "../../components/Pagination";
 import { useState } from "react";
 import { Button } from "../../components/ui/button";
@@ -64,9 +65,7 @@ export default function ComponentSamplePage() {
   const [sheet, setSheet] = useState<"form" | "detail" | null>(null);
   const visible = samples.filter(
     (sample) =>
-      `${sample.name} ${sample.key}`
-        .toLowerCase()
-        .includes(query.trim().toLowerCase()) &&
+      matchesSearch(`${sample.name} ${sample.key}`, query.trim()) &&
       (!department.length || department.includes(sample.department)) &&
       (!selectedTags.length ||
         selectedTags.some((tag) => sample.tags.includes(tag))),

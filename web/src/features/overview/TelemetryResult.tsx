@@ -1,3 +1,4 @@
+import { matchesSearch } from "../../lib/search";
 import SelectField from "../../components/SelectField";
 import { useState } from "react";
 import { MetricChart } from "../../components/MetricChart";
@@ -34,7 +35,7 @@ export default function TelemetryResult({
     return <p className="management-empty">选择时间范围并读取指标或日志。</p>;
   const entries = (result.entries ?? []).filter(
     (e) =>
-      e.line.toLowerCase().includes(filter.toLowerCase()) &&
+      matchesSearch(e.line, filter) &&
       (level === "all" ||
         `${e.labels?.level ?? ""} ${e.line}`.toLowerCase().includes(level)),
   );

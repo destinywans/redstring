@@ -1,3 +1,4 @@
+import { matchesSearch } from "../../lib/search";
 import { PageHeader } from "../../components/patterns/ListPage";
 import { Sheet } from "../../components/ui/sheet";
 import Pagination, { useListPagination } from "../../components/Pagination";
@@ -180,7 +181,9 @@ export default function KnowledgePage() {
       ]
     : [{ name: application?.name ?? "应用知识", items: documents }];
   const documentPages = useListPagination(
-    groups.flatMap((g) => g.items).filter((d) => d.title.includes(filter)),
+    groups
+      .flatMap((g) => g.items)
+      .filter((d) => matchesSearch(d.title, filter)),
     JSON.stringify([application?.id, preview, filter]),
   );
   const hitPages = useListPagination(
@@ -205,7 +208,7 @@ export default function KnowledgePage() {
         ? {
             items: previewHits.filter(
               (h) =>
-                `${h.title}${h.content}`.includes(query.trim()) ||
+                matchesSearch(`${h.title} ${h.content}`, query) ||
                 query.includes("连接"),
             ),
           }

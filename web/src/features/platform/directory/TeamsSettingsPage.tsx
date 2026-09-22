@@ -1,3 +1,4 @@
+import { matchesSearch } from "../../../lib/search";
 import Pagination, { useListPagination } from "../../../components/Pagination";
 import { useState, type FormEvent } from "react";
 import { Box, Plus } from "../../../lib/icons";
@@ -46,9 +47,10 @@ function TeamsDirectory() {
     (t) =>
       (!owner || t.owner_id === owner) &&
       (!application || t.applications?.some((a) => a.id === application)) &&
-      `${t.name} ${t.description} ${t.owner_name ?? ""}`
-        .toLowerCase()
-        .includes(search.trim().toLowerCase()),
+      matchesSearch(
+        `${t.name} ${t.description} ${t.owner_name ?? ""}`,
+        search.trim(),
+      ),
   );
   const pagination = useListPagination(
     rows,

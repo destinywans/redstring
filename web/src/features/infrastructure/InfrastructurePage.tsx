@@ -1,3 +1,4 @@
+import { matchesSearch } from "../../lib/search";
 import { PageHeader } from "../../components/patterns/ListPage";
 import Pagination, { useListPagination } from "../../components/Pagination";
 import { useState } from "react";
@@ -127,9 +128,10 @@ export default function InfrastructurePage() {
   });
   const data = readable ? snapshot.data : undefined;
   const rows = registered.filter(({ app, env }) =>
-    `${app.name} ${app.key ?? app.id} ${env.name} ${env.key}`
-      .toLowerCase()
-      .includes(search.trim().toLowerCase()),
+    matchesSearch(
+      `${app.name} ${app.key ?? app.id} ${env.name} ${env.key}`,
+      search.trim(),
+    ),
   );
   const registrationPages = useListPagination(
     rows,

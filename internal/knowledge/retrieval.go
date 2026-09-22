@@ -8,6 +8,7 @@ import (
 	"unicode"
 
 	"github.com/wans/aiops-canvas/internal/inference"
+	"github.com/wans/aiops-canvas/internal/searchtext"
 )
 
 type SearchResult struct {
@@ -108,17 +109,17 @@ func keywordScore(query string, terms []string, title, tags, body string) float6
 	body = strings.ToLower(body)
 	score := 0.0
 	for _, term := range terms {
-		if strings.Contains(title, term) {
+		if searchtext.Match(title, term) {
 			score += 6
 		}
-		if strings.Contains(tags, term) {
+		if searchtext.Match(tags, term) {
 			score += 4
 		}
-		if strings.Contains(body, term) {
+		if searchtext.Match(body, term) {
 			score++
 		}
 	}
-	if strings.Contains(body, strings.ToLower(strings.TrimSpace(query))) {
+	if searchtext.Match(body, query) {
 		score += 8
 	}
 	return score

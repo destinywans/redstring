@@ -172,7 +172,7 @@ func (s *PGRepository) ReserveRevisionGeneration(ctx context.Context, id string,
 // bigrams works without requiring an unavailable Chinese text-search extension.
 func (s *PGRepository) KeywordSearch(ctx context.Context, app, environment, query string, limit int) ([]Hit, error) {
 	terms := queryTerms(query)
-	rows, err := s.DB.Query(ctx, `SELECT d.id,coalesce(d.application_id,''),d.title,d.source,d.version,d.body,d.metadata FROM knowledge_documents d WHERE d.lifecycle='published' AND (d.application_id=$1 OR d.metadata->>'visibility'='workspace' OR COALESCE(d.metadata->'shared_application_ids','[]'::jsonb) ? $1) AND ($2='' OR COALESCE(d.metadata->'environment_ids','[]'::jsonb)='[]'::jsonb OR d.metadata->'environment_ids' ? $2) AND EXISTS(SELECT 1 FROM unnest($3::text[]) term WHERE strpos(lower(d.title || ' ' || d.body || ' ' || coalesce(d.metadata->'tags','[]')::text),term)>0) ORDER BY d.id`, app, environment, terms)
+	rows, err := s.DB.Query(ctx, `SELECT d.id,coalesce(d.application_id,''),d.title,d.source,d.version,d.body,d.metadata FROM knowledge_documents d WHERE d.lifecycle='published' AND (d.application_id=$1 OR d.metadata->>'visibility'='workspace' OR COALESCE(d.metadata->'shared_application_ids','[]'::jsonb) ? $1) AND ($2='' OR COALESCE(d.metadata->'environment_ids','[]'::jsonb)='[]'::jsonb OR d.metadata->'environment_ids' ? $2) AND EXISTS(SELECT 1 FROM unnest($3::text[]) term WHERE aiops_search_match(d.title || ' ' || d.body || ' ' || coalesce(d.metadata->'tags','[]')::text,term)) ORDER BY d.id`, app, environment, terms)
 	if err != nil {
 		return nil, err
 	}

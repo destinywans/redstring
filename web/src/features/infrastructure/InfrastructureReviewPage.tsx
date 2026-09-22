@@ -1,3 +1,4 @@
+import { matchesSearch } from "../../lib/search";
 import { PageHeader } from "../../components/patterns/ListPage";
 import Pagination from "../../components/Pagination";
 import { Fragment, useState, useMemo } from "react";
@@ -327,9 +328,10 @@ export default function InfrastructureReviewPage() {
       return false;
     if (
       q &&
-      !`${r.name} ${r.description} ${r.tags.join(" ")} ${JSON.stringify(r.attributes)}`
-        .toLowerCase()
-        .includes(q.toLowerCase())
+      !matchesSearch(
+        `${r.name} ${r.description} ${r.tags.join(" ")} ${JSON.stringify(r.attributes)}`,
+        q,
+      )
     )
       return false;
     return def.filters.every((key) => {

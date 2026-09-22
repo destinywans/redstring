@@ -1,3 +1,4 @@
+import { searchScore } from "../../lib/search";
 import {
   createContext,
   useContext,
@@ -203,6 +204,7 @@ export function FilterPicker({
         >
           <Command
             ref={commandRef}
+            filter={searchScore}
             className="ui-filter-command"
             tabIndex={searchable ? -1 : 0}
             label={`${label}选项`}

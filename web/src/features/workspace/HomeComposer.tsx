@@ -1,3 +1,4 @@
+import { matchesSearch } from "../../lib/search";
 import {
   forwardRef,
   useEffect,
@@ -239,12 +240,7 @@ const HomeComposer = forwardRef<HomeComposerHandle, Props>(
           (category === "skill"
             ? ["skill", "prompt", "action"].includes(item.kind)
             : category === item.kind);
-      return (
-        allowed &&
-        item.label
-          .toLocaleLowerCase()
-          .includes((trigger?.query ?? search).toLocaleLowerCase())
-      );
+      return allowed && matchesSearch(item.label, trigger?.query ?? search);
     });
     const currentIndex = Math.min(active, Math.max(visible.length - 1, 0));
     const detectTrigger = (value: string, caret: number) => {

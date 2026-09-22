@@ -186,13 +186,13 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request, kind string) {
 		return
 	}
 	q := r.URL.Query()
-	args := []any{"%" + strings.TrimSpace(q.Get("q")) + "%", q.Get("action"), q.Get("scope_type"), q.Get("builtin")}
+	args := []any{strings.TrimSpace(q.Get("q")), q.Get("action"), q.Get("scope_type"), q.Get("builtin")}
 	from := "rbac_roles r"
-	filter := ` WHERE (r.id ILIKE $1 OR r.name ILIKE $1 OR r.description ILIKE $1) AND ($2='' OR $2 IS NOT NULL) AND ($3='' OR $3 IS NOT NULL) AND ($4='' OR r.builtin::text=$4)`
+	filter := ` WHERE (aiops_search_match(r.id,$1) OR aiops_search_match(r.name,$1) OR aiops_search_match(r.description,$1)) AND ($2='' OR $2 IS NOT NULL) AND ($3='' OR $3 IS NOT NULL) AND ($4='' OR r.builtin::text=$4)`
 	selectSQL := roleSelect
 	if kind == "permissions" {
 		from = "rbac_permissions p"
-		filter = ` WHERE (p.id ILIKE $1 OR p.name ILIKE $1 OR p.description ILIKE $1) AND (($2='' AND $3='') OR EXISTS(SELECT 1 FROM rbac_permission_resources x WHERE x.permission_id=p.id AND ($2='' OR x.action=$2) AND ($3='' OR x.scope_type=$3))) AND ($4='' OR p.builtin::text=$4)`
+		filter = ` WHERE (aiops_search_match(p.id,$1) OR aiops_search_match(p.name,$1) OR aiops_search_match(p.description,$1)) AND (($2='' AND $3='') OR EXISTS(SELECT 1 FROM rbac_permission_resources x WHERE x.permission_id=p.id AND ($2='' OR x.action=$2) AND ($3='' OR x.scope_type=$3))) AND ($4='' OR p.builtin::text=$4)`
 		selectSQL = permissionSelect
 	}
 	var total int
@@ -282,13 +282,13 @@ func (s *Service) candidates(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, store.ErrInvalidReference)
 		return
 	}
-	args := []any{id, "%" + strings.TrimSpace(q.Get("q")) + "%", selected, q.Get("action"), q.Get("scope_type"), q.Get("kind"), q.Get("application_id"), q.Get("department_id"), splitIDs(r, "add_ids"), splitIDs(r, "remove_ids")}
+	args := []any{id, strings.TrimSpace(q.Get("q")), selected, q.Get("action"), q.Get("scope_type"), q.Get("kind"), q.Get("application_id"), q.Get("department_id"), splitIDs(r, "add_ids"), splitIDs(r, "remove_ids")}
 	if args[5] == "" {
 		args[5] = q.Get("type")
 	}
 	// Draft selection is evaluated before count and LIMIT; hidden pages are never replaced.
 	cte := `WITH raw AS (` + source + `), candidates AS (SELECT *,((selected OR id=ANY($9::text[])) AND NOT id=ANY($10::text[])) draft_selected FROM raw)`
-	filter := ` WHERE (id ILIKE $2 OR name ILIKE $2 OR description ILIKE $2 OR email ILIKE $2) AND ($3 IN ('','all') OR ($3='yes' AND draft_selected) OR ($3='no' AND NOT draft_selected)) AND ($4='' OR action=$4) AND ($5='' OR scope_type=$5) AND ($6='' OR kind=$6) AND ($7='' OR application_id=$7) AND ($8='' OR department_id=$8)`
+	filter := ` WHERE (aiops_search_match(id,$2) OR aiops_search_match(name,$2) OR aiops_search_match(description,$2) OR aiops_search_match(email,$2)) AND ($3 IN ('','all') OR ($3='yes' AND draft_selected) OR ($3='no' AND NOT draft_selected)) AND ($4='' OR action=$4) AND ($5='' OR scope_type=$5) AND ($6='' OR kind=$6) AND ($7='' OR application_id=$7) AND ($8='' OR department_id=$8)`
 	var total int
 	if e = s.Store.DB.QueryRow(r.Context(), cte+" SELECT count(*) FROM candidates"+filter, args...).Scan(&total); e != nil {
 		respond(w, nil, e)

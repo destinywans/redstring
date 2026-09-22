@@ -60,7 +60,7 @@ func (s *Service) resourceTree(w http.ResponseWriter, r *http.Request) {
 	}
 	cte := `WITH catalog AS (
  SELECT r.id,r.name,'resource'::text scope_type,r.kind,r.description,r.is_mock,false missing,'resource:'||r.kind group_key FROM cmdb_resources r WHERE rbac_is_infrastructure_kind(r.kind)
- ), filtered AS (SELECT * FROM catalog WHERE ($2='' OR name ILIKE '%'||$2||'%' OR id ILIKE '%'||$2||'%') AND ($3='' OR group_key=$3) AND $1::text IS NOT NULL)`
+ ), filtered AS (SELECT * FROM catalog WHERE aiops_search_match(concat_ws(' ',name,id,description),$2) AND ($3='' OR group_key=$3) AND $1::text IS NOT NULL)`
 	args := []any{permission.ID, strings.TrimSpace(r.URL.Query().Get("q")), r.URL.Query().Get("kind")}
 	rows, err := s.Store.DB.Query(r.Context(), cte+` SELECT group_key,count(*) FROM filtered GROUP BY group_key ORDER BY group_key`, args...)
 	if err != nil {

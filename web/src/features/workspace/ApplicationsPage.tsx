@@ -1,3 +1,4 @@
+import { matchesSearch } from "../../lib/search";
 import Pagination from "../../components/Pagination";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -167,9 +168,10 @@ export default function ApplicationsPage() {
   const filtered = scopedApplications
     .filter(
       (a) =>
-        `${a.name} ${a.key ?? ""} ${a.description} ${a.maintainer_name ?? ""} ${a.tags?.join(" ") ?? ""}`
-          .toLowerCase()
-          .includes(query.trim().toLowerCase()) &&
+        matchesSearch(
+          `${a.name} ${a.key ?? ""} ${a.description} ${a.maintainer_name ?? ""} ${a.tags?.join(" ") ?? ""}`,
+          query.trim(),
+        ) &&
         (!teamFilters.length || teamFilters.includes(a.owner_team_id ?? "")) &&
         (!ownerFilters.length ||
           ownerFilters.includes(a.maintainer_id ?? "")) &&

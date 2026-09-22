@@ -1,3 +1,4 @@
+import { matchesSearch } from "../../../lib/search";
 import Pagination, { useListPagination } from "../../../components/Pagination";
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
@@ -55,9 +56,10 @@ function MembersDirectory() {
         ? !!m.deleted_at
         : !m.deleted_at &&
           (!status || (status === "disabled" ? m.disabled : !m.disabled))) &&
-      `${m.name} ${m.email} ${(m.team_ids ?? []).map((id) => teams.find((t) => t.id === id)?.name ?? "").join(" ")}`
-        .toLowerCase()
-        .includes(search.trim().toLowerCase()),
+      matchesSearch(
+        `${m.name} ${m.email} ${(m.team_ids ?? []).map((id) => teams.find((t) => t.id === id)?.name ?? "").join(" ")}`,
+        search.trim(),
+      ),
   );
   const pagination = useListPagination(
     rows,

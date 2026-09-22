@@ -13,9 +13,9 @@ func (s *Service) departments(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, e)
 		return
 	}
-	q := "%" + r.URL.Query().Get("q") + "%"
+	q := r.URL.Query().Get("q")
 	var total int
-	e = s.Store.DB.QueryRow(r.Context(), "SELECT count(*) FROM teams WHERE name ILIKE $1", q).Scan(&total)
+	e = s.Store.DB.QueryRow(r.Context(), "SELECT count(*) FROM teams WHERE aiops_search_match(name,$1)", q).Scan(&total)
 	if e != nil {
 		respond(w, nil, e)
 		return
@@ -27,7 +27,7 @@ func (s *Service) departments(w http.ResponseWriter, r *http.Request) {
 	if page > last {
 		page = last
 	}
-	rows, e := s.Store.DB.Query(r.Context(), `SELECT t.id,t.name,t.revision,(SELECT count(*) FROM team_members m WHERE m.team_id=t.id) FROM teams t WHERE t.name ILIKE $1 ORDER BY t.name,t.id LIMIT $2 OFFSET $3`, q, size, (page-1)*size)
+	rows, e := s.Store.DB.Query(r.Context(), `SELECT t.id,t.name,t.revision,(SELECT count(*) FROM team_members m WHERE m.team_id=t.id) FROM teams t WHERE aiops_search_match(t.name,$1) ORDER BY t.name,t.id LIMIT $2 OFFSET $3`, q, size, (page-1)*size)
 	if e != nil {
 		respond(w, nil, e)
 		return

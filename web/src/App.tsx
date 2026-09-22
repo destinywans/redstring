@@ -1,3 +1,4 @@
+import { matchesSearch } from "./lib/search";
 import { useEffect, useState, useRef, lazy, Suspense } from "react";
 import type { FormEvent } from "react";
 import {
@@ -788,9 +789,7 @@ export default function App() {
                 label: x.title,
               })),
             ]
-              .filter((x) =>
-                x.label.toLowerCase().includes(search.toLowerCase()),
-              )
+              .filter((x) => matchesSearch(x.label, search))
               .map((x) => (
                 <button
                   key={x.to}

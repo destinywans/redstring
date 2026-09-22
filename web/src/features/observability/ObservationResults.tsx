@@ -1,3 +1,4 @@
+import { matchesSearch } from "../../lib/search";
 import Pagination, { useListPagination } from "../../components/Pagination";
 import SelectField from "../../components/SelectField";
 import { useState } from "react";
@@ -39,7 +40,7 @@ export default function ObservationResults({
     }))
     .filter(
       (entry) =>
-        entry.line.toLowerCase().includes(filter.toLowerCase()) &&
+        matchesSearch(entry.line, filter) &&
         (level === "all" || entry.severity.value === level),
     );
   const logPages = useListPagination(

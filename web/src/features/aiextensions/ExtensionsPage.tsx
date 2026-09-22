@@ -1,3 +1,4 @@
+import { matchesSearch } from "../../lib/search";
 import { PageHeader } from "../../components/patterns/ListPage";
 import { Sheet } from "../../components/ui/sheet";
 import Pagination, { useListPagination } from "../../components/Pagination";
@@ -253,9 +254,7 @@ function ExtensionWorkspace({ app, kind }: { app: string; kind: Kind }) {
   const displayed = historyVersion > 0 ? history.data : selected;
   const items = (list.data?.items ?? []).filter(
     (r) =>
-      `${r.title} ${r.maintainer}`
-        .toLowerCase()
-        .includes(committedSearch.toLowerCase()) &&
+      matchesSearch(`${r.title} ${r.maintainer}`, committedSearch) &&
       (kind === "mcp" ||
         ((scopeFilter !== "workspace" || !r.application_id) &&
           (scopeFilter !== "application" || !!r.application_id) &&

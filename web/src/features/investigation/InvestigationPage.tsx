@@ -1,3 +1,4 @@
+import { matchesSearch } from "../../lib/search";
 import SelectField from "../../components/SelectField";
 import ScopeFilter from "../../components/ScopeFilter";
 import ContextInspector from "./ContextInspector";
@@ -2091,7 +2092,9 @@ function InvestigationWorkspace() {
                               ["connection_pool.timeout", "30s", "30s"],
                               ["connection_pool.idle", "10s", "10s"],
                             ]
-                              .filter((v) => v[0].includes(evidenceSearch))
+                              .filter((v) =>
+                                matchesSearch(v[0], evidenceSearch),
+                              )
                               .map((v, i) => (
                                 <div key={v[0]}>
                                   <span>{v[0]}</span>
@@ -2118,9 +2121,10 @@ function InvestigationWorkspace() {
                         <div className="inv-evidence-list">
                           {inv.evidence
                             .filter((e) =>
-                              `${e.title} ${e.content}`
-                                .toLowerCase()
-                                .includes(evidenceSearch.toLowerCase()),
+                              matchesSearch(
+                                `${e.title} ${e.content}`,
+                                evidenceSearch,
+                              ),
                             )
                             .map((e) => (
                               <details key={e.id}>

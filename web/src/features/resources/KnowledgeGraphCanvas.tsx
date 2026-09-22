@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ResourceIcon } from "./ResourceDrawer";
 import { Layers, Maximize2, Minus, Plus, Target } from "../../lib/icons";
 import type { KnowledgeEdge, KnowledgeNode } from "./KnowledgeGraph.types";
+import { placeKnowledgeNodes } from "./KnowledgeGraph.layout";
 
 const palette = [
   "#7363cf",
@@ -52,82 +53,6 @@ function groupLabelLine(value: string) {
   return text;
 }
 
-/** A viewport-shaped lattice keeps labels readable. Focused views fill its central rings first;
- * later batches only claim vacant cells around their anchor, never moving an existing node. */
-function placeNodes(
-  nodes: KnowledgeNode[],
-  positions: Map<string, [number, number]>,
-  rootId: string,
-  anchorId: string,
-  width: number,
-  height: number,
-) {
-  const active = new Set(nodes.map((node) => node.id));
-  for (const id of positions.keys()) if (!active.has(id)) positions.delete(id);
-  const columnGap = 180;
-  const rowGap = nodes.some((node) => node.group) ? 126 : 108;
-  if (!positions.size && nodes.length) {
-    let columns = Math.max(
-      1,
-      Math.min(
-        7,
-        Math.round(
-          Math.sqrt(
-            (nodes.length * Math.max(1, width / height) * rowGap) / columnGap,
-          ),
-        ),
-      ),
-    );
-    let rows = Math.ceil(nodes.length / columns);
-    if (rootId) {
-      if (columns % 2 === 0) columns++;
-      rows = Math.ceil(nodes.length / columns);
-      if (rows % 2 === 0) rows++;
-    }
-    const cells: [number, number][] = [];
-    for (let row = 0; row < rows; row++)
-      for (let column = 0; column < columns; column++) {
-        cells.push([
-          (column - (columns - 1) / 2) * columnGap,
-          (row - (rows - 1) / 2) * rowGap,
-        ]);
-      }
-    if (rootId) {
-      positions.set(rootId, [0, 0]);
-      cells.sort(
-        (a, b) =>
-          Math.hypot(a[0] / columnGap, a[1] / rowGap) -
-          Math.hypot(b[0] / columnGap, b[1] / rowGap),
-      );
-    }
-    for (const node of nodes) {
-      if (positions.has(node.id)) continue;
-      let cell = cells.shift()!;
-      if (rootId && cell[0] === 0 && cell[1] === 0) cell = cells.shift()!;
-      positions.set(node.id, cell);
-    }
-    return;
-  }
-  const anchor = positions.get(anchorId) ?? positions.get(rootId) ?? [0, 0];
-  const candidates: [number, number][] = [];
-  for (let ring = 1; ring <= 20; ring++) {
-    for (let y = -ring; y <= ring; y++)
-      for (let x = -ring; x <= ring; x++) {
-        if (Math.max(Math.abs(x), Math.abs(y)) === ring)
-          candidates.push([anchor[0] + x * columnGap, anchor[1] + y * rowGap]);
-      }
-  }
-  for (const node of nodes.filter((node) => !positions.has(node.id))) {
-    const index = candidates.findIndex(([x, y]) =>
-      [...positions.values()].every(
-        ([px, py]) => Math.abs(px - x) >= 170 || Math.abs(py - y) >= rowGap - 8,
-      ),
-    );
-    const point = candidates.splice(Math.max(0, index), 1)[0];
-    positions.set(node.id, point);
-  }
-}
-
 export default function KnowledgeGraphCanvas({
   nodes,
   edges,
@@ -173,6 +98,9 @@ export default function KnowledgeGraphCanvas({
     document.documentElement.classList.contains("dark") ||
       document.documentElement.dataset.theme === "dark",
   );
+  const hoveredNode = useRef("");
+  const hoveredEdge = useRef("");
+  const updateHighlight = useRef<() => void>(() => {});
   const activeKey = useRef("");
   const needsFit = useRef(true);
 
@@ -204,8 +132,10 @@ export default function KnowledgeGraphCanvas({
       zoomRange: [0.25, 2],
       node: {
         type: "circle",
+        style: { opacity: 1 },
         state: {
           selected: {
+            opacity: 1,
             lineWidth: 3,
             stroke: "#7864db",
             halo: true,
@@ -213,13 +143,13 @@ export default function KnowledgeGraphCanvas({
             haloLineWidth: 8,
             haloStrokeOpacity: 0.12,
           },
-          active: { lineWidth: 2.5 },
-          dimmed: { opacity: 0.22 },
+          active: { opacity: 1, lineWidth: 2.5 },
         },
       },
       edge: {
         type: "quadratic",
         style: {
+          opacity: 1,
           endArrow: true,
           endArrowSize: 6,
           lineWidth: 1.2,
@@ -227,8 +157,13 @@ export default function KnowledgeGraphCanvas({
           curveOffset: 14,
         },
         state: {
-          active: { stroke: "#8874d7", lineWidth: 2, label: true },
-          dimmed: { opacity: 0.12 },
+          related: { opacity: 1, stroke: "#8874d7", lineWidth: 1.9 },
+          active: {
+            opacity: 1,
+            stroke: "#7864db",
+            lineWidth: 2.2,
+            label: true,
+          },
         },
       },
       behaviors: ["drag-canvas", "zoom-canvas", "drag-element"],
@@ -253,28 +188,50 @@ export default function KnowledgeGraphCanvas({
     graph.current = instance;
     const idFrom = (event: unknown) =>
       (event as { target?: { id?: string } }).target?.id ?? "";
-    const highlight = (id: string) => {
+    // Emphasize the inspected relationship without washing out the rest of the map.
+    // Read the latest refs when applying state, including after asynchronous redraws.
+    const highlight = () => {
+      if (graph.current !== instance) return;
       const current = callbacks.current;
-      const adjacent = new Set([id]);
-      const connected = current.edges.filter(
-        (edge) => edge.source === id || edge.target === id,
+      const ids = new Set(current.nodes.map((node) => node.id));
+      const focus = ids.has(hoveredNode.current)
+        ? hoveredNode.current
+        : ids.has(current.selectedId)
+          ? current.selectedId
+          : "";
+      const edgeFocus = current.edges.find(
+        (edge) => edge.id === hoveredEdge.current,
       );
-      connected.forEach((edge) => {
-        adjacent.add(edge.source);
-        adjacent.add(edge.target);
+      const adjacent = new Set(focus ? [focus] : []);
+      const connected = new Set<string>();
+      current.edges.forEach((edge) => {
+        if (
+          (focus && (edge.source === focus || edge.target === focus)) ||
+          edge === edgeFocus
+        ) {
+          adjacent.add(edge.source);
+          adjacent.add(edge.target);
+          connected.add(edge.id);
+        }
       });
       const states: Record<string, string[]> = {};
-      for (const node of current.nodes)
+      for (const node of current.nodes) {
         states[node.id] = [
+          adjacent.has(node.id) ? "active" : "",
           node.id === current.selectedId ? "selected" : "",
-          id ? (adjacent.has(node.id) ? "active" : "dimmed") : "",
         ].filter(Boolean);
-      for (const edge of current.edges)
-        states[edge.id] = id
-          ? [connected.includes(edge) ? "active" : "dimmed"]
-          : [];
+      }
+      for (const edge of current.edges) {
+        states[edge.id] =
+          edge === edgeFocus
+            ? ["active"]
+            : connected.has(edge.id)
+              ? ["related"]
+              : [];
+      }
       void instance.setElementState(states, false).catch(() => {});
     };
+    updateHighlight.current = highlight;
     instance.on("node:click", (event) =>
       callbacks.current.onNode(idFrom(event)),
     );
@@ -282,18 +239,29 @@ export default function KnowledgeGraphCanvas({
       callbacks.current.onEdge(idFrom(event)),
     );
     instance.on("canvas:click", () => callbacks.current.onCanvas());
-    instance.on("node:pointerenter", (event) => highlight(idFrom(event)));
-    instance.on("node:pointerleave", () =>
-      highlight(callbacks.current.selectedId),
-    );
-    instance.on("edge:pointerenter", (event) => {
-      const id = idFrom(event);
-      if (id)
-        void instance.setElementState(id, ["active"], false).catch(() => {});
+    instance.on("node:pointerenter", (event) => {
+      hoveredNode.current = idFrom(event);
+      hoveredEdge.current = "";
+      highlight();
     });
-    instance.on("edge:pointerleave", () =>
-      highlight(callbacks.current.selectedId),
-    );
+    instance.on("node:pointerleave", () => {
+      hoveredNode.current = "";
+      highlight();
+    });
+    instance.on("edge:pointerenter", (event) => {
+      hoveredEdge.current = idFrom(event);
+      hoveredNode.current = "";
+      highlight();
+    });
+    instance.on("edge:pointerleave", () => {
+      hoveredEdge.current = "";
+      highlight();
+    });
+    instance.on("canvas:pointerenter", () => {
+      hoveredNode.current = "";
+      hoveredEdge.current = "";
+      highlight();
+    });
     instance.on("aftertransform", () =>
       setZoom(Math.round(instance.getZoom() * 100)),
     );
@@ -314,6 +282,8 @@ export default function KnowledgeGraphCanvas({
         const reset = activeKey.current !== viewKey;
         if (reset) {
           positions.current.clear();
+          hoveredNode.current = "";
+          hoveredEdge.current = "";
           activeKey.current = viewKey;
           needsFit.current = true;
         } else
@@ -321,8 +291,9 @@ export default function KnowledgeGraphCanvas({
             const [x, y] = instance.getElementPosition(node.id);
             positions.current.set(node.id, [x, y]);
           }
-        placeNodes(
+        placeKnowledgeNodes(
           nodes,
+          edges,
           positions.current,
           rootId,
           anchorId,
@@ -349,8 +320,11 @@ export default function KnowledgeGraphCanvas({
               labelOffsetY: 9,
               labelFill: dark ? "#e0e2ee" : "#394253",
               labelFontFamily: "MiSans, sans-serif",
-              labelFontSize: 13,
+              labelFontSize: 14,
               labelFontWeight: 400,
+              labelBackground: true,
+              labelBackgroundFill: dark ? "#252737" : "#ffffff",
+              labelPadding: [2, 3],
               labelMaxWidth: 170,
               labelWordWrap: true,
               labelMaxLines: node.group ? 3 : 2,
@@ -376,9 +350,12 @@ export default function KnowledgeGraphCanvas({
         };
         instance.setData(data);
         await instance.render();
+        updateHighlight.current();
         if (needsFit.current && nodes.length) {
           await instance.fitView({ when: "always", direction: "both" }, false);
-          if (instance.getZoom() < 0.85) await instance.zoomTo(0.85, false);
+          // Keep the complete network visible initially. A forced lower zoom
+          // bound clipped the outer branches of radial layouts.
+          if (instance.getZoom() > 1) await instance.zoomTo(1, false);
           needsFit.current = false;
         }
         if (!cancelled) {
@@ -396,44 +373,7 @@ export default function KnowledgeGraphCanvas({
   }, [nodes, edges, rootId, anchorId, viewKey, dark]);
 
   useEffect(() => {
-    const instance = graph.current;
-    if (!instance) return;
-    void queue.current
-      .then(async () => {
-        if (graph.current !== instance) return;
-        const neighbors = new Set([selectedId]);
-        edges
-          .filter(
-            (edge) => edge.source === selectedId || edge.target === selectedId,
-          )
-          .forEach((edge) => {
-            neighbors.add(edge.source);
-            neighbors.add(edge.target);
-          });
-        const states: Record<string, string[]> = {};
-        nodes.forEach((node) => {
-          states[node.id] = selectedId
-            ? [
-                node.id === selectedId
-                  ? "selected"
-                  : neighbors.has(node.id)
-                    ? "active"
-                    : "dimmed",
-              ]
-            : [];
-        });
-        edges.forEach((edge) => {
-          states[edge.id] = selectedId
-            ? [
-                edge.source === selectedId || edge.target === selectedId
-                  ? "active"
-                  : "dimmed",
-              ]
-            : [];
-        });
-        await instance.setElementState(states, false);
-      })
-      .catch(() => {});
+    void queue.current.then(() => updateHighlight.current()).catch(() => {});
   }, [selectedId, nodes, edges]);
 
   const changeZoom = (amount: number) => {
@@ -510,6 +450,11 @@ export default function KnowledgeGraphCanvas({
         tabIndex={0}
         role="group"
         aria-label="图谱画布，使用方向键选择资源，回车打开，拖动平移或滚轮缩放"
+        onPointerLeave={() => {
+          hoveredNode.current = "";
+          hoveredEdge.current = "";
+          updateHighlight.current();
+        }}
         onKeyDown={(event) => {
           if (!nodes.length) return;
           const index = nodes.findIndex((node) => node.id === selectedId);

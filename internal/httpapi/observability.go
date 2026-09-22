@@ -27,6 +27,8 @@ type ObservationBatchRequest struct {
 	End         time.Time           `json:"end,omitempty"`
 	StepSeconds int                 `json:"step_seconds,omitempty"`
 	Limit       int                 `json:"limit,omitempty"`
+	Provider    string              `json:"provider,omitempty"`
+	Search      string              `json:"search,omitempty"`
 }
 type ObservationError struct {
 	Code    string `json:"code"`
@@ -48,8 +50,8 @@ func (s *Server) RegisterTelemetryBatch(reader TelemetryReader) {
 			if !Decode(w, r, &in) {
 				return
 			}
-			if len(in.Targets) < 1 || len(in.Targets) > 20 || in.Limit < 0 || in.Limit > 1000 || in.StepSeconds < 0 {
-				Error(w, 422, "invalid_batch", "Select 1 to 20 distinct targets and bounded query parameters")
+			if len(in.Targets) < 1 || len(in.Targets) > 20 || in.Limit < 0 || in.Limit > 1000 || in.StepSeconds < 0 || len(in.Search) > 256 || (in.Provider != "" && in.Provider != "loki" && in.Provider != "elasticsearch") || (kind != "logs" && (in.Provider != "" || in.Search != "")) || (kind == "traces" && (len(in.Targets) > 6 || in.Limit > 20)) {
+				Error(w, 422, "invalid_batch", "Select 1 to 20 distinct targets (at most 6 for traces); trace limit is 20 and log search is at most 256 bytes")
 				return
 			}
 			repository, ok := s.Store.(store.PlatformRepository)
@@ -60,7 +62,7 @@ func (s *Server) RegisterTelemetryBatch(reader TelemetryReader) {
 			envs := make([]core.Environment, len(in.Targets))
 			seen := map[ObservationTarget]bool{}
 			for i, t := range in.Targets {
-				if t.ApplicationID == "" || t.EnvironmentID == "" || (kind == "metrics" && t.QueryID == "") || (kind == "logs" && t.QueryID != "") || seen[t] {
+				if t.ApplicationID == "" || t.EnvironmentID == "" || (kind == "metrics" && t.QueryID == "") || (kind != "metrics" && t.QueryID != "") || seen[t] {
 					Error(w, 422, "invalid_batch", "Targets must be distinct and include an application, environment and registered metric query where applicable")
 					return
 				}
@@ -100,6 +102,12 @@ func (s *Server) RegisterTelemetryBatch(reader TelemetryReader) {
 			}
 			ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 			defer cancel()
+			if kind == "traces" {
+				if shared, ok := reader.(sharedTraceReader); ok {
+					s.writeSharedTraceBatch(w, r, ctx, in, envs, shared)
+					return
+				}
+			}
 			items := make([]ObservationBatchItem, len(in.Targets))
 			jobs := make(chan int)
 			var wg sync.WaitGroup
@@ -113,7 +121,19 @@ func (s *Server) RegisterTelemetryBatch(reader TelemetryReader) {
 						item.Error = &ObservationError{Code: "telemetry_unavailable", Message: "Registered provider unavailable; narrow the window or retry"}
 						bindingKind := "prometheus"
 						if kind == "logs" {
-							bindingKind = "loki"
+							bindingKind = in.Provider
+							if bindingKind == "" {
+								bindingKind = "loki"
+								for _, b := range envs[i].Bindings {
+									if b.Kind == "elasticsearch" {
+										bindingKind = "elasticsearch"
+										break
+									}
+								}
+							}
+						}
+						if kind == "traces" {
+							bindingKind = "tempo"
 						}
 						resource := ""
 						for _, b := range envs[i].Bindings {
@@ -147,8 +167,22 @@ func (s *Server) RegisterTelemetryBatch(reader TelemetryReader) {
 						window := connectors.TimeWindow{Start: in.Start, End: in.End, StepSeconds: in.StepSeconds}
 						if kind == "metrics" {
 							value, err = reader.QueryMetrics(ctx, resource, t.QueryID, window)
-						} else {
+						} else if kind == "traces" {
+							if extended, ok := reader.(interface {
+								QueryTraces(context.Context, string, connectors.TimeWindow, int) (connectors.TraceEvidence, error)
+							}); ok {
+								value, err = extended.QueryTraces(ctx, resource, window, in.Limit)
+							} else {
+								err = errors.New("trace reader unavailable")
+							}
+						} else if extended, ok := reader.(interface {
+							QueryLogsSearch(context.Context, string, string, string, connectors.TimeWindow, int) (connectors.LogEvidence, error)
+						}); ok {
+							value, err = extended.QueryLogsSearch(ctx, resource, bindingKind, in.Search, window, in.Limit)
+						} else if bindingKind == "loki" && in.Search == "" {
 							value, err = reader.QueryLogs(ctx, resource, window, in.Limit)
+						} else {
+							err = errors.New("log provider unavailable")
 						}
 						if err == nil {
 							raw, marshalErr := json.Marshal(value)
@@ -193,4 +227,5 @@ func (s *Server) RegisterTelemetryBatch(reader TelemetryReader) {
 	}
 	s.Register("POST /api/v1/observability/metrics/batch", "viewer", handler("metrics"))
 	s.Register("POST /api/v1/observability/logs/batch", "viewer", handler("logs"))
+	s.Register("POST /api/v1/observability/traces/batch", "viewer", handler("traces"))
 }

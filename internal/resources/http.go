@@ -65,6 +65,10 @@ func appMatches(r Resource, ids []string) bool {
 	return false
 }
 func matches(r Resource, q url.Values, kindKey string) bool {
+	// Existing mock rows remain explicitly selectable, but never mix into live defaults.
+	if r.IsMock && !contains(values(q, "source_kind"), "mock") {
+		return false
+	}
 	if !accepts(values(q, kindKey), r.Kind) || !accepts(values(q, "source_kind"), r.SourceKind) || !accepts(values(q, "owner_id"), r.OwnerUserID) || !accepts(values(q, "team_id"), r.OwnerTeamID) || !appMatches(r, values(q, "applications", "application_id", "application")) {
 		return false
 	}
@@ -259,6 +263,13 @@ func (s *Service) Register(api *httpapi.Server) {
 			return
 		}
 		rows = inventoryRows(rows, nil)
+		selectedRows := make([]Resource, 0, len(rows))
+		for _, row := range rows {
+			if !row.IsMock || contains(values(q, "source_kind"), "mock") {
+				selectedRows = append(selectedRows, row)
+			}
+		}
+		rows = selectedRows
 		edges, e := s.edges(r.Context(), rows)
 		if e != nil {
 			httpapi.AuthorizationError(w, e)

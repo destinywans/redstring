@@ -1,5 +1,11 @@
 # 后端 API 契约
 
+## 真实资源与观测（WAN-109 / WAN-110）
+
+资源目录和关系默认排除Mock；显式 `source_kind=mock` 可查看旧示例。资源attributes补充同步状态、最近成功采集及缺失标记，详见 [同步合同](resource-sync.md)。
+
+`GET /applications/{id}/telemetry` 新增 `log_providers` 和 `traces_configured`。`POST /observability/logs/batch` 支持 provider（默认、loki、elasticsearch）和256字节以内的字面文本search，不接受原始查询语句。`POST /observability/traces/batch` 每批最多6个授权应用环境，每个最多搜索20条候选Trace，默认10条；整批最多共享20条不同Trace，45秒总时限，返回已登记service/cluster/namespace匹配的span。调用拓扑仅由授权返回span的父子关系产生，与CMDB资源关系分离。
+
 ## RBAC 与直接跳页（WAN-105 / WAN-96）
 
 角色、权限、关联关系及精确资源范围由 `/rbac/*` 管理，详见 [RBAC 契约](rbac-api.md)。内置兼容角色保留旧应用授权；自定义角色按独立动作与显式范围判断，不能由角色名称提升平台权限。

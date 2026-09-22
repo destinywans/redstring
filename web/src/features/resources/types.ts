@@ -73,7 +73,7 @@ export type ResourceGraph = {
 export const resourceKinds: Record<string, string> = {
   cluster: "Kubernetes 集群",
   node: "节点",
-  deployment: "Deployment",
+  deployment: "工作负载",
   namespace: "命名空间",
   host: "主机 / 虚拟机",
   network: "网络",
@@ -107,6 +107,8 @@ export function sourceLabel(kind: string) {
         mock: "示例数据",
         manual: "人工登记",
         kubernetes: "Kubernetes",
+        docker: "Docker",
+        lima: "Lima",
         redis: "Redis",
         mysql: "MySQL",
         kafka: "Kafka",

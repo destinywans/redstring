@@ -129,16 +129,17 @@ export default function ResourceRelationsPage() {
     params.get("application") ||
     params.get("applications") ||
     "";
-  const defaultScope = `${scope.key}:${appFilter}`;
+  const sourceKind = params.get("source_kind") ?? "";
+  const defaultScope = `${scope.key}:${appFilter}:${sourceKind}`;
   const [defaultRoot, setDefaultRoot] = useState<{
     scope: string;
     id: string;
   } | null>(null);
   const roots = useQuery({
-    queryKey: ["resource-graph-roots", scope.key, appFilter],
+    queryKey: ["resource-graph-roots", scope.key, appFilter, sourceKind],
     queryFn: ({ signal }) =>
       request<ResourceList>(
-        `/resources?kind=application&page_size=100&environment_scope=${encodeURIComponent(scope.key || "all")}${appFilter ? `&applications=${encodeURIComponent(appFilter)}` : ""}`,
+        `/resources?page_size=100&source_kind=${encodeURIComponent(sourceKind)}&environment_scope=${encodeURIComponent(scope.key || "all")}${appFilter ? `&applications=${encodeURIComponent(appFilter)}` : ""}`,
         { signal },
       ),
   });
@@ -154,6 +155,7 @@ export default function ResourceRelationsPage() {
     "depth",
     "kind",
     "resource_kind",
+    "source_kind",
     "application_id",
     "applications",
   ])
@@ -164,6 +166,7 @@ export default function ResourceRelationsPage() {
   if (!query.has("depth")) query.set("depth", "2");
   const graph = useQuery({
     queryKey: ["resource-relations", query.toString()],
+    refetchInterval: 30000,
     queryFn: ({ signal }) =>
       request<ResourceGraph>(`/resource-relations?${query}`, { signal }),
     enabled: !!params.get("root_id") || !roots.isPending,
@@ -183,6 +186,7 @@ export default function ResourceRelationsPage() {
   const change = (key: string, values: string[]) => {
     const next = new URLSearchParams(params);
     next.delete(key);
+    if (key === "source_kind") next.delete("root_id");
     if (key === "root_id") {
       next.delete("q");
       next.delete("resource_kind");
@@ -259,6 +263,12 @@ export default function ResourceRelationsPage() {
           onSubmit={() => {}}
           placeholder="搜索资源名称、标签或关键词"
           showSubmit={false}
+        />
+        <FilterSelect
+          id="relation-source" label="来源" emptyLabel="真实资源"
+          options={[{value:"kubernetes",label:"Kubernetes"},{value:"docker",label:"Docker"},{value:"lima",label:"Lima"},{value:"mock",label:"示例数据"}]}
+          values={sourceKind ? [sourceKind] : []}
+          onChange={(values) => change("source_kind", values)}
         />
         <FilterSelect
           id="relation-root"

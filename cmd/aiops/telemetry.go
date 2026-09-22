@@ -25,7 +25,9 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
 		registerTelemetryMetadata(api, connectors.TelemetryConfig{}, nil)
 		api.Integrations = append(api.Integrations,
 			httpapi.NewIntegration("prometheus", "Prometheus", "connector", "prometheus", false, nil, []string{"metrics.read"}),
-			httpapi.NewIntegration("loki", "Loki", "connector", "loki", false, nil, []string{"logs.read"}))
+			httpapi.NewIntegration("loki", "Loki", "connector", "loki", false, nil, []string{"logs.read"}),
+			httpapi.NewIntegration("elasticsearch", "Elasticsearch", "connector", "elasticsearch", false, nil, []string{"logs.read"}),
+			httpapi.NewIntegration("tempo", "Tempo", "connector", "tempo", false, nil, []string{"traces.read"}))
 		return nil
 	}
 	config, e := connectors.LoadTelemetryConfig(path)
@@ -34,6 +36,8 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
 	}
 	metrics := httpapi.NewIntegration("prometheus", "Prometheus", "connector", "prometheus", config.Prometheus.URL != "", nil, []string{"metrics.read"})
 	logs := httpapi.NewIntegration("loki", "Loki", "connector", "loki", config.Loki.URL != "", nil, []string{"logs.read"})
+	esLogs := httpapi.NewIntegration("elasticsearch", "Elasticsearch", "connector", "elasticsearch", config.Elasticsearch.URL != "", nil, []string{"logs.read"})
+	traces := httpapi.NewIntegration("tempo", "Tempo", "connector", "tempo", config.Tempo.URL != "", nil, []string{"traces.read"})
 	for id, registration := range config.Applications {
 		if config.Prometheus.URL != "" && len(registration.PrometheusQueries) > 0 {
 			metrics.RegisteredBindings = append(metrics.RegisteredBindings, core.Binding{Kind: "prometheus", ConnectorID: "prometheus", Resource: id})
@@ -42,7 +46,15 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
 			logs.RegisteredBindings = append(logs.RegisteredBindings, core.Binding{Kind: "loki", ConnectorID: "loki", Resource: id})
 		}
 	}
-	api.Integrations = append(api.Integrations, metrics, logs)
+	for id := range config.Applications {
+		if telemetryRegistered(config, "elasticsearch", id) {
+			esLogs.RegisteredBindings = append(esLogs.RegisteredBindings, core.Binding{Kind: "elasticsearch", ConnectorID: "elasticsearch", Resource: id})
+		}
+		if telemetryRegistered(config, "tempo", id) {
+			traces.RegisteredBindings = append(traces.RegisteredBindings, core.Binding{Kind: "tempo", ConnectorID: "tempo", Resource: id})
+		}
+	}
+	api.Integrations = append(api.Integrations, metrics, logs, esLogs, traces)
 	client, e := connectors.NewTelemetry(config)
 	if e != nil {
 		return e
@@ -154,7 +166,11 @@ func logEvidenceTool(client *connectors.Telemetry, scope string) inference.Evide
 func registerTelemetryMetadata(api *httpapi.Server, config connectors.TelemetryConfig, client *connectors.Telemetry) {
 	api.Register("GET /api/v1/applications/{id}/telemetry", "viewer", func(w http.ResponseWriter, r *http.Request) {
 		app, envID := r.PathValue("id"), r.URL.Query().Get("environment_id")
-		scopes := map[string]string{"prometheus": app, "loki": app}
+		if err := api.AuthorizeApplication(r.Context(), httpapi.CurrentUser(r), app, "view"); err != nil {
+			httpapi.AuthorizationError(w, err)
+			return
+		}
+		scopes := map[string]string{"prometheus": app, "loki": app, "elasticsearch": app, "tempo": app}
 		if repository, ok := api.Store.(*store.Store); ok {
 			env, err := repository.ResolveEnvironment(r.Context(), app, envID)
 			if err != nil {
@@ -163,7 +179,7 @@ func registerTelemetryMetadata(api *httpapi.Server, config connectors.TelemetryC
 			}
 			scopes = map[string]string{}
 			for _, binding := range env.Bindings {
-				if binding.Kind == "prometheus" || binding.Kind == "loki" {
+				if binding.Kind == "prometheus" || binding.Kind == "loki" || binding.Kind == "elasticsearch" || binding.Kind == "tempo" {
 					scopes[binding.Kind] = binding.Resource
 				}
 			}
@@ -176,12 +192,21 @@ func registerTelemetryMetadata(api *httpapi.Server, config connectors.TelemetryC
 		}
 		sort.Strings(ids)
 		logsConfigured := config.Loki.URL != "" && len(config.Applications[scopes["loki"]].LokiLabels) > 0
+		providers := []string{}
+		if logsConfigured {
+			providers = append(providers, "loki")
+		}
+		if telemetryRegistered(config, "elasticsearch", scopes["elasticsearch"]) {
+			providers = append(providers, "elasticsearch")
+		}
+		tracesConfigured := telemetryRegistered(config, "tempo", scopes["tempo"])
+		logsConfigured = len(providers) > 0
 		var limits *connectors.TelemetryLimits
 		if client != nil {
 			value := client.Limits()
 			limits = &value
 		}
-		httpapi.WriteJSON(w, 200, map[string]any{"metric_query_ids": ids, "logs_configured": logsConfigured, "configured": len(ids) > 0 || logsConfigured, "limits": limits})
+		httpapi.WriteJSON(w, 200, map[string]any{"metric_query_ids": ids, "logs_configured": logsConfigured, "configured": len(ids) > 0 || logsConfigured || tracesConfigured, "log_providers": providers, "traces_configured": tracesConfigured, "limits": limits})
 	})
 }
 func telemetryError(w http.ResponseWriter, e error) {
@@ -208,4 +233,22 @@ func telemetryScope(ctx context.Context, api *httpapi.Server, app, envID, kind s
 		}
 	}
 	return "", store.ErrNotFound
+}
+
+func telemetryRegistered(config connectors.TelemetryConfig, kind, resource string) bool {
+	a, ok := config.Applications[resource]
+	if !ok {
+		return false
+	}
+	switch kind {
+	case "prometheus":
+		return config.Prometheus.URL != "" && len(a.PrometheusQueries) > 0
+	case "loki":
+		return config.Loki.URL != "" && len(a.LokiLabels) > 0
+	case "elasticsearch":
+		return config.Elasticsearch.URL != "" && a.ElasticsearchIndex != "" && len(a.ElasticsearchFilters) > 0
+	case "tempo":
+		return config.Tempo.URL != "" && a.TempoService != "" && len(a.TempoAttributes) > 0
+	}
+	return false
 }

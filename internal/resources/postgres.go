@@ -25,15 +25,17 @@ func (s *Service) visible(ctx context.Context, apps []string, _ bool, scope stri
 	}
 	rows, err := s.DB.Query(ctx, `SELECT r.id,r.kind,r.name,r.description,r.external_id,r.source_kind,r.source_id,
  COALESCE(r.owner_user_id,''),COALESCE(u.name,''),COALESCE(r.owner_team_id,''),COALESCE(t.name,''),
- r.attributes,r.tags,r.is_mock,r.created_at,r.updated_at,r.observed_at,
+ r.attributes || CASE WHEN sync.id IS NULL THEN '{}'::jsonb ELSE jsonb_build_object(
+ 'sync_status',CASE WHEN sync.last_error<>'' THEN 'disconnected' WHEN sync.last_success_at<now()-interval '3 minutes' THEN 'stale' ELSE 'current' END,
+ 'sync_last_success_at',sync.last_success_at,'sync_error',sync.last_error) END,r.tags,r.is_mock,r.created_at,r.updated_at,r.observed_at,
  COALESCE((SELECT jsonb_agg(jsonb_build_object('id',a.id,'key',a.key,'name',a.name,
  'environment_id',e.id,'environment_key',e.key,'environment_name',e.name) ORDER BY a.key,e.key)
  FROM cmdb_resource_applications l JOIN applications a ON a.id=l.application_id
  JOIN application_environments e ON e.id=l.environment_id AND e.application_id=a.id
  WHERE l.resource_id=r.id AND a.id=ANY($1::text[]) AND ($2='' OR e.key=$2)), '[]')
- FROM cmdb_resources r LEFT JOIN users u ON u.id=r.owner_user_id LEFT JOIN teams t ON t.id=r.owner_team_id
+ FROM cmdb_resources r LEFT JOIN cmdb_sync_sources sync ON sync.id=r.source_id AND sync.kind=r.source_kind LEFT JOIN users u ON u.id=r.owner_user_id LEFT JOIN teams t ON t.id=r.owner_team_id
  WHERE EXISTS(SELECT 1 FROM rbac_viewable_resources p WHERE p.user_id=$3 AND p.resource_id=r.id)
- AND ($2='' OR EXISTS(SELECT 1 FROM cmdb_resource_applications l JOIN application_environments e ON e.id=l.environment_id WHERE l.resource_id=r.id AND e.key=$2))
+ AND ($2='' OR r.attributes->>'environment_key'=$2 OR EXISTS(SELECT 1 FROM cmdb_resource_applications l JOIN application_environments e ON e.id=l.environment_id WHERE l.resource_id=r.id AND e.key=$2))
  ORDER BY r.name,r.id LIMIT 10001`, apps, scope, store.Principal(ctx).ID)
 	if err != nil {
 		return nil, err

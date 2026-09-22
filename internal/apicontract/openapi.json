@@ -5256,6 +5256,19 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "log_providers": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "loki",
+                          "elasticsearch"
+                        ]
+                      }
+                    },
+                    "traces_configured": {
+                      "type": "boolean"
                     }
                   },
                   "additionalProperties": false
@@ -10316,6 +10329,18 @@
                   },
                   "limit": {
                     "type": "integer"
+                  },
+                  "provider": {
+                    "type": "string",
+                    "enum": [
+                      "",
+                      "loki",
+                      "elasticsearch"
+                    ]
+                  },
+                  "search": {
+                    "type": "string",
+                    "description": "Literal log text; maximum 256 UTF-8 bytes, no raw query syntax."
                   }
                 },
                 "additionalProperties": false,
@@ -11786,11 +11811,187 @@
         }
       }
     },
+    "/observability/traces/batch": {
+      "post": {
+        "summary": "Query authorized trace spans",
+        "operationId": "post_observability_traces_batch",
+        "description": "Minimum role: viewer. Maximum 6 authorized targets, search up to 20 candidates per target (default 10), share at most 20 distinct traces across the batch, 45-second batch deadline. Only spans matching each registered service, cluster and namespace are returned. Topology is derived from returned trace/span relationships, not CMDB configuration relationships.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "application_id": {
+                            "type": "string"
+                          },
+                          "environment_id": {
+                            "type": "string"
+                          },
+                          "binding_revision": {
+                            "type": "integer"
+                          },
+                          "result": {
+                            "$ref": "#/components/schemas/TraceEvidence"
+                          },
+                          "error": {
+                            "type": "object",
+                            "properties": {
+                              "code": {
+                                "type": "string"
+                              },
+                              "message": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "partial": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "observability"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "targets": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 6,
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "application_id": {
+                          "type": "string"
+                        },
+                        "environment_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "application_id",
+                        "environment_id"
+                      ]
+                    }
+                  },
+                  "start": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "end": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 20
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "targets"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
     "/resources": {
       "get": {
         "summary": "Browse authorized registered resources",
         "operationId": "get_resources",
-        "description": "Minimum role: viewer. PostgreSQL source. Unset filters are unrestricted; repeated values are OR within a field. Facets cover the authorized environment subset. Unknown environment_scope is empty, not all. Shared application links are trimmed to caller access.",
+        "description": "Minimum role: viewer. PostgreSQL source. Unset filters are unrestricted except mock resources are excluded unless source_kind=mock is explicitly selected; repeated values are OR within a field. Facets cover the authorized environment subset. Unknown environment_scope is empty, not all. Shared application links are trimmed to caller access.",
         "responses": {
           "200": {
             "description": "Success",
@@ -12492,7 +12693,7 @@
       "get": {
         "summary": "Read a bounded resource relationship graph",
         "operationId": "get_resource_relations",
-        "description": "Minimum role: viewer. Static declared/discovered relationships, not runtime request traffic. At most 300 nodes and 600 edges, with explicit truncation. Mock records and edges retain their source markers.",
+        "description": "Minimum role: viewer. Static declared/discovered relationships, not runtime request traffic. At most 300 nodes and 600 edges, with explicit truncation. Mock records and edges are excluded by default and retain their source markers when explicitly selected with source_kind=mock.",
         "responses": {
           "200": {
             "description": "Success",
@@ -12618,6 +12819,13 @@
           },
           {
             "name": "environment_scope",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_kind",
             "in": "query",
             "schema": {
               "type": "string"
@@ -18263,6 +18471,61 @@
           "id",
           "version"
         ]
+      },
+      "TraceSpan": {
+        "type": "object",
+        "properties": {
+          "trace_id": {
+            "type": "string"
+          },
+          "span_id": {
+            "type": "string"
+          },
+          "parent_span_id": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "duration_ms": {
+            "type": "number"
+          },
+          "error": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "TraceEvidence": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/TelemetrySource"
+          },
+          "spans": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TraceSpan"
+            }
+          },
+          "trace_count": {
+            "type": "integer"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "limit_reached": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
       },
       "ResourceApplication": {
         "type": "object",

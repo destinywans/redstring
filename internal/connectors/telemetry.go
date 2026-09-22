@@ -1,6 +1,7 @@
 package connectors
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -22,6 +23,8 @@ import (
 // query ID, but cannot change a query expression, endpoint, credential or scope.
 type TelemetryConfig struct {
 	Prometheus          TelemetryEndpoint               `json:"prometheus"`
+	Elasticsearch       TelemetryEndpoint               `json:"elasticsearch"`
+	Tempo               TelemetryEndpoint               `json:"tempo"`
 	Loki                TelemetryEndpoint               `json:"loki"`
 	Applications        map[string]ApplicationTelemetry `json:"applications"`
 	TimeoutSeconds      int                             `json:"timeout_seconds"`
@@ -43,8 +46,13 @@ type TelemetryEndpoint struct {
 type ApplicationTelemetry struct {
 	// Every expression is reviewed and registered for this application by an admin.
 	// Arbitrary PromQL is intentionally absent from the public request interface.
-	PrometheusQueries map[string]string `json:"prometheus_queries"`
-	LokiLabels        map[string]string `json:"loki_labels"`
+	PrometheusQueries     map[string]string `json:"prometheus_queries"`
+	LokiLabels            map[string]string `json:"loki_labels"`
+	ElasticsearchIndex    string            `json:"elasticsearch_index"`
+	ElasticsearchFilters  map[string]string `json:"elasticsearch_filters"`
+	ElasticsearchPrefixes map[string]string `json:"elasticsearch_prefixes"`
+	TempoService          string            `json:"tempo_service"`
+	TempoAttributes       map[string]string `json:"tempo_attributes"`
 }
 type TimeWindow struct {
 	Start       time.Time `json:"start"`
@@ -104,10 +112,12 @@ type telemetryClient struct {
 	client *http.Client
 }
 type Telemetry struct {
-	config     TelemetryConfig
-	prometheus *telemetryClient
-	loki       *telemetryClient
-	now        func() time.Time
+	config        TelemetryConfig
+	prometheus    *telemetryClient
+	loki          *telemetryClient
+	elasticsearch *telemetryClient
+	tempo         *telemetryClient
+	now           func() time.Time
 }
 
 var telemetryLabelName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
@@ -183,7 +193,22 @@ func NewTelemetry(config TelemetryConfig) (*Telemetry, error) {
 			return nil, e
 		}
 	}
-	if t.prometheus == nil && t.loki == nil {
+	if c.Elasticsearch.URL != "" {
+		t.elasticsearch, e = newTelemetryClient(c.Elasticsearch, c.TimeoutSeconds)
+		if e != nil {
+			return nil, e
+		}
+	}
+	if c.Tempo.URL != "" {
+		t.tempo, e = newTelemetryClient(c.Tempo, c.TimeoutSeconds)
+		if e != nil {
+			return nil, e
+		}
+	}
+	if e = validateExtendedTelemetry(c); e != nil {
+		return nil, e
+	}
+	if t.prometheus == nil && t.loki == nil && t.elasticsearch == nil && t.tempo == nil {
 		return nil, errors.New("no telemetry endpoint configured")
 	}
 	return t, nil
@@ -252,11 +277,17 @@ func failure(source *TelemetrySource, kind, message string, cause error) error {
 	return e
 }
 func (c *telemetryClient) get(ctx context.Context, path string, params url.Values, source *TelemetrySource) ([]byte, error) {
-	req, e := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(c.config.URL, "/")+path+"?"+params.Encode(), nil)
+	return c.request(ctx, "GET", path+"?"+params.Encode(), nil, source)
+}
+func (c *telemetryClient) request(ctx context.Context, method, path string, body []byte, source *TelemetrySource) ([]byte, error) {
+	req, e := http.NewRequestWithContext(ctx, method, strings.TrimRight(c.config.URL, "/")+path, bytes.NewReader(body))
 	if e != nil {
 		return nil, failure(source, "configuration", "invalid telemetry request", e)
 	}
 	req.Header.Set("Accept", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if c.config.BearerTokenFile != "" {
 		b, e := os.ReadFile(c.config.BearerTokenFile)
 		if e != nil {
@@ -428,6 +459,9 @@ func lokiSelector(labels map[string]string) string {
 	return "{" + strings.Join(parts, ",") + "}"
 }
 func (t *Telemetry) QueryLogs(ctx context.Context, appID string, w TimeWindow, limit int) (LogEvidence, error) {
+	return t.queryLoki(ctx, appID, w, limit, "")
+}
+func (t *Telemetry) queryLoki(ctx context.Context, appID string, w TimeWindow, limit int, search string) (LogEvidence, error) {
 	out := LogEvidence{Source: TelemetrySource{Provider: "loki", ApplicationID: appID, CapturedAt: t.now().UTC()}, Entries: []LogEntry{}, Empty: true}
 	s := &out.Source
 	if t.loki == nil {
@@ -439,6 +473,9 @@ func (t *Telemetry) QueryLogs(ctx context.Context, appID string, w TimeWindow, l
 		return out, failure(s, "scope", "application has no registered Loki scope", nil)
 	}
 	s.Query = lokiSelector(a.LokiLabels)
+	if search != "" {
+		s.Query += " |= " + strconv.Quote(search)
+	}
 	var e error
 	s.Window, e = t.window(w, false)
 	if e != nil {

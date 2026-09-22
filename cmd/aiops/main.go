@@ -11,6 +11,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
+	"github.com/wans/aiops-canvas/internal/inventory"
 	"github.com/wans/aiops-canvas/internal/knowledge"
 	"github.com/wans/aiops-canvas/internal/memoryview"
 	"github.com/wans/aiops-canvas/internal/profile"
@@ -77,6 +78,18 @@ func run() error {
 	settings.New(s, "dev").Register(api)
 	profile.New(s).Register(api)
 	(&rbac.Service{Store: s}).Register(api)
+	var resourceSyncer *inventory.Syncer
+	if path := os.Getenv("AIOPS_INVENTORY_CONFIG"); path != "" {
+		config, err := inventory.LoadConfig(path)
+		if err != nil {
+			return err
+		}
+		syncer, err := inventory.New(s.DB, config)
+		if err != nil {
+			return err
+		}
+		resourceSyncer = syncer
+	}
 	var connector *connectors.Kubernetes
 	var actionConnector actions.Connector
 	var connectorConfig connectors.Config
@@ -150,6 +163,12 @@ func run() error {
 		}
 		return append(base, extra...), nil
 	}
+	inventoryDone := make(chan struct{})
+	if resourceSyncer != nil {
+		go func() { defer close(inventoryDone); resourceSyncer.Run(ctx) }()
+	} else {
+		close(inventoryDone)
+	}
 	opsDone := make(chan struct{})
 	go func() { defer close(opsDone); ops.Run(ctx) }()
 	go func() { defer close(actionDone); acts.Run(ctx) }()
@@ -189,6 +208,7 @@ func run() error {
 	<-workerDone
 	<-actionDone
 	<-opsDone
+	<-inventoryDone
 	if errors.Is(e, http.ErrServerClosed) {
 		return nil
 	}

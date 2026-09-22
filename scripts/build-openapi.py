@@ -248,6 +248,13 @@ route('post','/ai-extensions/compose','Compose explicit version-bound skill and 
 route('post','/ai-extensions/{id}/discover','Discover tools from administrator registered MCP service','admin',response=obj({'items':arr(obj({'name':string(),'description':string(),'read_only_hint':boolean,'input_schema':{'type':'object','additionalProperties':True}}))}))
 route('post','/ai-extensions/{id}/test','Invoke only the registered fixed-argument read-only tool binding','admin',obj({'binding':string()},['binding']),ref('Evidence'),desc='Read-only hint is insufficient alone: explicit administrator allowlist, immutable binding version and application ACL are checked.')
 
+# WAN-110: bounded provider-aware logs and traces; never accept raw query languages.
+S['TraceSpan']=obj({**fieldnames('trace_id span_id parent_span_id service name'),'start':string(format='date-time'),'duration_ms':{'type':'number'},'error':boolean})
+S['TraceEvidence']=obj({'source':ref('TelemetrySource'),'spans':arr(ref('TraceSpan')),'trace_count':integer(),'empty':boolean,'limit_reached':boolean})
+P['/applications/{id}/telemetry']['get']['responses']['200']['content']['application/json']['schema']['properties'].update({'log_providers':arr(string(enum=['loki','elasticsearch'])),'traces_configured':boolean})
+P['/observability/logs/batch']['post']['requestBody']['content']['application/json']['schema']['properties'].update({'provider':string(enum=['','loki','elasticsearch']),'search':string(description='Literal log text; maximum 256 UTF-8 bytes, no raw query syntax.')})
+route('post','/observability/traces/batch','Query authorized trace spans',body=obj({'targets':{'type':'array','minItems':1,'maxItems':6,'items':obj(fieldnames('application_id environment_id'),['application_id','environment_id'])},'start':string(format='date-time'),'end':string(format='date-time'),'limit':integer(minimum=0,maximum=20)},['targets']),response=obj({'items':arr(obj({**fieldnames('application_id environment_id'),'binding_revision':integer(),'result':ref('TraceEvidence'),'error':obj(fieldnames('code message'))})),'partial':boolean}),desc='Maximum 6 authorized targets, search up to 20 candidates per target (default 10), share at most 20 distinct traces across the batch, 45-second batch deadline. Only spans matching each registered service, cluster and namespace are returned. Topology is derived from returned trace/span relationships, not CMDB configuration relationships.')
+
 exec(Path('scripts/resources-openapi.py').read_text())
 exec(Path('scripts/settings-openapi.py').read_text())
 exec(Path('scripts/profile-openapi.py').read_text())

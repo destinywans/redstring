@@ -85,8 +85,8 @@ const RecoveryPage = lazy(() => import("./features/actions/RecoveryPage"));
 const ObservabilityPage = lazy(
   () => import("./features/observability/ObservabilityPage"),
 );
-const UnavailableObservationPage = lazy(
-  () => import("./features/observability/UnavailableObservationPage"),
+const TraceObservabilityPage = lazy(
+  () => import("./features/observability/TraceObservabilityPage"),
 );
 const InfrastructurePage = lazy(
   () => import("./features/infrastructure/InfrastructurePage"),
@@ -651,19 +651,19 @@ export default function App() {
                   />
                   <Route
                     path="/observability/metrics"
-                    element={<ObservabilityPage mode="metrics" />}
+                    element={<ObservabilityPage key="metrics" mode="metrics" />}
                   />
                   <Route
                     path="/observability/logs"
-                    element={<ObservabilityPage mode="logs" />}
+                    element={<ObservabilityPage key="logs" mode="logs" />}
                   />
                   <Route
                     path="/observability/traces"
-                    element={<UnavailableObservationPage kind="traces" />}
+                    element={<TraceObservabilityPage mode="traces" />}
                   />
                   <Route
                     path="/observability/topology"
-                    element={<UnavailableObservationPage kind="topology" />}
+                    element={<TraceObservabilityPage mode="topology" />}
                   />
                   <Route
                     path="/investigations/*"

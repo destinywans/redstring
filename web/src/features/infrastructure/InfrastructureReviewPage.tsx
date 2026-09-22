@@ -252,6 +252,7 @@ async function loadInventory(
   scope: string,
   signal: AbortSignal,
   runtimeKind: string,
+  sourceKind: string,
 ): Promise<InfraResource[]> {
   const rows: InfraResource[] = [];
   let page = 1;
@@ -262,6 +263,7 @@ async function loadInventory(
       page_size: "100",
       sort: "name",
     });
+    if (sourceKind) p.set("source_kind", sourceKind);
     if (runtimeKind) p.set("kind", runtimeKind);
     const result = await request<InfraList>(`/resources?${p}`, { signal });
     rows.push(
@@ -287,9 +289,11 @@ export default function InfrastructureReviewPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const runtimeKind =
     view === "pods" ? "pod" : view === "events" ? "event" : "";
+  const sourceKind = params.get("source_kind") ?? "";
   const inventory = useQuery({
-    queryKey: ["infrastructure-inventory", scope.key, runtimeKind],
-    queryFn: ({ signal }) => loadInventory(scope.key, signal, runtimeKind),
+    queryKey: ["infrastructure-inventory", scope.key, runtimeKind, sourceKind],
+    queryFn: ({ signal }) => loadInventory(scope.key, signal, runtimeKind, sourceKind),
+    refetchInterval: 30000,
   });
   const rows = inventory.data ?? [];
   const applicationId =
@@ -416,7 +420,7 @@ export default function InfrastructureReviewPage() {
     ["warn", "bad"].includes(tone(attr(r, "status"))),
   );
   const latest = rows
-    .map((r) => r.observed_at ?? r.updated_at)
+    .map((r) => r.observed_at ?? "")
     .sort()
     .at(-1);
   const categories =
@@ -446,6 +450,12 @@ export default function InfrastructureReviewPage() {
                 : "资源目录"}
               {latest && <small>最近采样 {moment(latest)}</small>}
             </span>
+            <FilterSelect
+              id="infrastructure-source" label="来源" emptyLabel="真实资源"
+              options={[{value:"kubernetes",label:"Kubernetes"},{value:"docker",label:"Docker"},{value:"lima",label:"Lima"},{value:"mock",label:"示例数据"}]}
+              values={sourceKind ? [sourceKind] : []}
+              onChange={(values) => update("source_kind", values[0] ?? "")}
+            />
             <button
               className="button"
               onClick={() => void inventory.refetch()}
@@ -465,7 +475,7 @@ export default function InfrastructureReviewPage() {
               label: "工作负载",
               value: rows.filter((r) => r.kind === "deployment").length,
               Icon: Box,
-              detail: "Deployment 与 StatefulSet",
+              detail: "已发现的 Kubernetes 控制器",
             },
             {
               label: "主机",
@@ -477,7 +487,7 @@ export default function InfrastructureReviewPage() {
               label: "需要关注",
               value: attention.length,
               Icon: AlertTriangle,
-              detail: "示例状态中的告警与异常",
+              detail: "采集异常、过期与运行告警",
               warning: true,
             },
             {
@@ -691,7 +701,7 @@ export default function InfrastructureReviewPage() {
         />
       </section>
       <footer className="infra-review-footnote">
-        示例状态用于界面验收，不代表实际基础设施健康。
+        {rows.some((r) => r.is_mock) ? "示例数据不代表实际健康状态。" : "状态来自最近成功采集；失联与过期单独标记，未采集指标显示 —。"}
         <Link
           to={`/infrastructure?view=${encodeURIComponent(view)}&mode=live&environment_scope=${encodeURIComponent(scope.key || "all")}`}
         >

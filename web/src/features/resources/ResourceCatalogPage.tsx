@@ -54,6 +54,7 @@ export default function ResourceCatalogPage() {
     query.set("applications", applicationAlias);
   const resources = useQuery({
     queryKey: ["resources", query.toString()],
+    refetchInterval: 30000,
     queryFn: ({ signal }) =>
       request<ResourceList>(`/resources?${query}`, { signal }),
   });

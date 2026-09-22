@@ -85,7 +85,7 @@ function Sparkline({
           <svg
             viewBox="0 0 360 86"
             role="img"
-            aria-label={`${label}示例趋势，共 ${values.length} 个采样点`}
+            aria-label={`${label}趋势，共 ${values.length} 个采样点`}
             preserveAspectRatio="none"
           >
             <path
@@ -336,6 +336,7 @@ function Overview({
       )}
       {(isCompute || isMiddleware) && (
         <Section title="资源使用率">
+          {!r.is_mock && <p className="infra-cell-muted">{a.metrics_status === "current" ? `Prometheus 最近 15 分钟 · 查询于 ${moment(String(a.metrics_queried_at ?? ""))}` : "当前没有可用的真实指标采样"}</p>}
           <Sparkline
             history={history}
             metric="cpu"
@@ -567,9 +568,12 @@ function DrawerContent({
         </div>
       </div>
       <p className="infra-detail-provenance">
-        {r.is_mock ? "示例数据 · 用于界面验收" : "已登记资源"}
+        {r.is_mock ? "示例数据 · 用于界面验收" : r.observed_at ? `最近采集 ${moment(r.observed_at)}` : "已登记资源 · 尚未采集"}
         <span>{r.is_mock ? "不执行基础设施操作" : r.source_kind}</span>
       </p>
+      {!r.is_mock && r.attributes.sync_status !== undefined && r.attributes.sync_status !== "current" && (
+        <p className="infra-detail-provenance">{attr(r, "status")} · 上次运行状态：{String(r.attributes.status ?? "未知")}，保留最近成功采样。</p>
+      )}
       <div
         className="infra-drawer-tabs"
         role="tablist"

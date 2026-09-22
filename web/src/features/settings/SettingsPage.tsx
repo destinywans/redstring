@@ -641,7 +641,7 @@ export default function SettingsPage() {
                 首版提供以下登记式连接器，由管理员在服务端配置。
               </p>
               <div className="settings-connection-choices">
-                {["kubernetes", "prometheus", "loki"].map((id) => (
+                {["kubernetes", "prometheus", "loki", "elasticsearch", "tempo"].map((id) => (
                   <button
                     className="btn"
                     key={id}

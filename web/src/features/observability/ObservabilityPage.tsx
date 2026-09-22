@@ -20,7 +20,12 @@ import {
 import "../workspace/workspace.css";
 import "./observability.css";
 
-type Registration = { metric_query_ids: string[]; logs_configured: boolean };
+type Registration = {
+  metric_query_ids: string[];
+  logs_configured: boolean;
+  log_providers?: string[];
+  traces_configured?: boolean;
+};
 type BatchItem = {
   application_id: string;
   environment_id: string;
@@ -38,6 +43,8 @@ export default function ObservabilityPage({ mode }: { mode: Mode }) {
   const { user, preview } = useWorkspace(),
     scope = usePageScope(),
     location = useLocation();
+  const [logProvider, setLogProvider] = useState(""),
+    [logSearch, setLogSearch] = useState("");
   const [queryId, setQueryId] = useState(""),
     [range, setRange] = useState("30"),
     [limit, setLimit] = useState(100);
@@ -89,6 +96,8 @@ export default function ObservabilityPage({ mode }: { mode: Mode }) {
     range,
     range === "custom" ? [start, end] : null,
     limit,
+    logProvider,
+    logSearch,
   ]);
   const signatureRef = useRef(signature);
   signatureRef.current = signature;
@@ -162,7 +171,9 @@ export default function ObservabilityPage({ mode }: { mode: Mode }) {
               body: JSON.stringify({
                 targets: valid,
                 ...window,
-                ...(mode === "logs" ? { limit } : { step_seconds: 30 }),
+                ...(mode === "logs"
+                  ? { limit, provider: logProvider, search: logSearch }
+                  : { step_seconds: 30 }),
               }),
             },
           )
@@ -186,7 +197,7 @@ export default function ObservabilityPage({ mode }: { mode: Mode }) {
               environmentName: target.env.name,
               queryId:
                 i.query_id ??
-                (mode === "metrics" ? queryId : "registered-loki-scope"),
+                (mode === "metrics" ? queryId : "registered-log-scope"),
               requestedWindow: window,
               receivedAt: new Date().toISOString(),
               data: i.result!,
@@ -262,6 +273,31 @@ export default function ObservabilityPage({ mode }: { mode: Mode }) {
                 { value: "custom", label: "自定义起止" },
               ]}
             />
+            {mode === "logs" && (
+              <>
+                <FilterSelect
+                  id="log-provider"
+                  label="日志来源"
+                  emptyLabel="环境默认来源"
+                  values={logProvider ? [logProvider] : []}
+                  onChange={(v) => setLogProvider(v[0] ?? "")}
+                  options={[
+                    { value: "elasticsearch", label: "Elasticsearch" },
+                    { value: "loki", label: "Loki" },
+                  ]}
+                />
+                <label>
+                  服务端搜索
+                  <input
+                    className="field"
+                    value={logSearch}
+                    maxLength={128}
+                    placeholder="日志文本或短语"
+                    onChange={(e) => setLogSearch(e.target.value)}
+                  />
+                </label>
+              </>
+            )}
             {mode === "logs" && (
               <label>
                 每个环境最多条数

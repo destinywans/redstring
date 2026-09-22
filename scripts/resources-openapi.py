@@ -34,13 +34,13 @@ resource_query = [{'name': n, 'in': 'query', 'schema': string()} for n in ['q', 
 resource_query += [{'name': n, 'in': 'query', 'schema': arr(string()), 'style': 'form', 'explode': True} for n in ['kind', 'applications', 'source_kind', 'owner_id', 'team_id']]
 resource_query += [{'name': 'page', 'in': 'query', 'schema': integer(minimum=1)}, {'name': 'page_size', 'in': 'query', 'schema': integer(minimum=1, maximum=100)}]
 route('get', '/resources', 'Browse authorized registered resources', response=ref('ResourcePage'), query=resource_query,
-      desc='PostgreSQL source. Unset filters are unrestricted; repeated values are OR within a field. Facets cover the authorized environment subset. Unknown environment_scope is empty, not all. Shared application links are trimmed to caller access.')
+      desc='PostgreSQL source. Unset filters are unrestricted except mock resources are excluded unless source_kind=mock is explicitly selected; repeated values are OR within a field. Facets cover the authorized environment subset. Unknown environment_scope is empty, not all. Shared application links are trimmed to caller access.')
 route('get', '/resources/{id}', 'Read a resource and its visible relationships', response=ref('ResourceDetail'),
       query=[{'name': 'environment_scope', 'in': 'query', 'schema': string()}],
       desc='A resource outside caller access or global environment returns 404; both edge endpoints must be visible.')
 route('get', '/resource-relations', 'Read a bounded resource relationship graph', response=ref('ResourceGraph'),
-      query=[{'name': n, 'in': 'query', 'schema': string()} for n in ['root_id', 'q', 'kind', 'resource_kind', 'application_id', 'application', 'environment_scope']] + [{'name': 'depth', 'in': 'query', 'schema': integer(minimum=1, maximum=3)}],
-      desc='Static declared/discovered relationships, not runtime request traffic. At most 300 nodes and 600 edges, with explicit truncation. Mock records and edges retain their source markers.')
+      query=[{'name': n, 'in': 'query', 'schema': string()} for n in ['root_id', 'q', 'kind', 'resource_kind', 'application_id', 'application', 'environment_scope', 'source_kind']] + [{'name': 'depth', 'in': 'query', 'schema': integer(minimum=1, maximum=3)}],
+      desc='Static declared/discovered relationships, not runtime request traffic. At most 300 nodes and 600 edges, with explicit truncation. Mock records and edges are excluded by default and retain their source markers when explicitly selected with source_kind=mock.')
 route('post', '/resources', 'Register resource metadata', 'admin',
       obj({**fieldnames('name kind description external_id owner_user_id owner_team_id'),
            'applications': arr(obj(fieldnames('id environment_id'), ['id', 'environment_id'])),

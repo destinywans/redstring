@@ -124,6 +124,11 @@ func configurePlatform(ctx context.Context, s *store.Store, api *httpapi.Server,
 		if telemetryConfig.Loki.URL != "" && len(v.LokiLabels) > 0 {
 			legacyBindings[app] = append(legacyBindings[app], core.Binding{Kind: "loki", ConnectorID: "loki", Resource: app})
 		}
+		for _, kind := range []string{"elasticsearch", "tempo"} {
+			if telemetryRegistered(telemetryConfig, kind, app) {
+				legacyBindings[app] = append(legacyBindings[app], core.Binding{Kind: kind, ConnectorID: kind, Resource: app})
+			}
+		}
 	}
 	if legacy != nil {
 		legacyBindings["demo"] = append(legacyBindings["demo"], core.Binding{Kind: "kubernetes", ConnectorID: "demo-kubernetes", Resource: "deployment"})
@@ -152,6 +157,14 @@ func configurePlatform(ctx context.Context, s *store.Store, api *httpapi.Server,
 				if v, ok := telemetryConfig.Applications[b.Resource]; ok && len(v.PrometheusQueries) > 0 && telemetryConfig.Prometheus.URL != "" {
 					caps = append(caps, "metrics.read")
 				}
+			case "elasticsearch":
+				if telemetryRegistered(telemetryConfig, b.Kind, b.Resource) {
+					caps = append(caps, "logs.read")
+				}
+			case "tempo":
+				if telemetryRegistered(telemetryConfig, b.Kind, b.Resource) {
+					caps = append(caps, "traces.read")
+				}
 			case "loki":
 				if v, ok := telemetryConfig.Applications[b.Resource]; ok && len(v.LokiLabels) > 0 && telemetryConfig.Loki.URL != "" {
 					caps = append(caps, "logs.read")
@@ -172,11 +185,11 @@ func configurePlatform(ctx context.Context, s *store.Store, api *httpapi.Server,
 				if _, ok := registry.kubernetes[b.ConnectorID]; !ok || b.Resource != "deployment" {
 					return store.ErrInvalidReference
 				}
-			case "prometheus", "loki":
-				registration, exists := telemetryConfig.Applications[b.Resource]
-				if b.ConnectorID != b.Kind || !exists || (b.Kind == "prometheus" && (telemetryConfig.Prometheus.URL == "" || len(registration.PrometheusQueries) == 0)) || (b.Kind == "loki" && (telemetryConfig.Loki.URL == "" || len(registration.LokiLabels) == 0)) {
+			case "prometheus", "loki", "elasticsearch", "tempo":
+				if b.ConnectorID != b.Kind || !telemetryRegistered(telemetryConfig, b.Kind, b.Resource) {
 					return store.ErrInvalidReference
 				}
+
 			default:
 				return store.ErrInvalidReference
 			}
@@ -195,6 +208,12 @@ func configurePlatform(ctx context.Context, s *store.Store, api *httpapi.Server,
 			if telemetryConfig.Loki.URL != "" && len(v.LokiLabels) > 0 {
 				items = append(items, map[string]any{"id": "loki", "kind": "loki", "resource": resource, "rollback_available": false})
 			}
+			for _, kind := range []string{"elasticsearch", "tempo"} {
+				if telemetryRegistered(telemetryConfig, kind, resource) {
+					items = append(items, map[string]any{"id": kind, "kind": kind, "resource": resource, "rollback_available": false})
+				}
+			}
+
 		}
 		httpapi.WriteJSON(w, 200, map[string]any{"items": items})
 	})

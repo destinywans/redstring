@@ -46,6 +46,11 @@ export type InfraDetail = {
   }[];
 };
 export function attr(r: InfraResource, key: string): string {
+  if (key === "status") {
+    if (r.attributes.inventory_presence === "missing") return "源中已不存在";
+    if (r.attributes.sync_status === "disconnected") return "采集失联";
+    if (r.attributes.sync_status === "stale") return "采样已过期";
+  }
   const value = r.attributes[key];
   return value === undefined || value === null || value === ""
     ? "—"
@@ -88,6 +93,7 @@ export const kindLabels: Record<string, string> = {
   application: "应用",
 };
 export function tone(status: string): "good" | "warn" | "bad" | "unknown" {
+  if (/采集失联|采样已过期|源中已不存在/.test(status)) return "warn";
   if (/crash|failed|error|notready|异常|离线|unhealthy/i.test(status))
     return "bad";
   if (

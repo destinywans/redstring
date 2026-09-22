@@ -265,3 +265,76 @@
 .observation-incident-context a {
   color: var(--accent);
 }
+.trace-service-list,
+.trace-edge-list {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+.trace-service {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: var(--panel-soft);
+}
+.trace-edge {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--panel-soft);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+.trace-edge:hover,
+.trace-edge:focus-visible {
+  border-color: var(--accent);
+}
+.trace-edge > span:last-child {
+  color: var(--muted);
+  font-size: var(--type-small);
+}
+.trace-spans {
+  display: grid;
+  gap: 12px;
+}
+.trace-span {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-width: 0;
+}
+.trace-span header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.trace-span p,
+.trace-span small,
+.trace-id {
+  overflow-wrap: anywhere;
+}
+.trace-span small {
+  color: var(--muted);
+  font-size: var(--type-caption);
+}
+.trace-timing-track {
+  height: 8px;
+  background: var(--panel-soft);
+  margin: 12px 0;
+  overflow: hidden;
+  border-radius: 4px;
+}
+.trace-timing-track span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+}

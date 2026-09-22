@@ -1,5 +1,12 @@
 # AIOps Canvas 检查点
 
+## CP-039 · 2026-09-22 · 头像交互收敛（WAN-104）
+
+- 分支 `codex/wan-105-role-management-refinement`，基于已推送 `dbdd9c5`，头像变更独立提交。
+- 头像本身提供悬浮/键盘入口，点击选图自动缩放压缩保存；移除右侧按钮和常驻技术说明。
+- TypeScript、图片尺寸边界检查及一次 Vite 构建完成，18081 静态页面已更新。遵照用户要求停止扩大检查，未修改真实头像。
+- 交付追加于 `docs/releases/2026-09-22-profile-password-dialog.md`；产品待用户体验，暂停 CI/CD 原改动保持。
+
 ## CP-038 · 2026-09-22 · 基础设施授权重建（WAN-105）
 
 - 分支 `codex/wan-105-role-management-refinement`；密码独立提交feb6ab0，本次授权重建另提交。

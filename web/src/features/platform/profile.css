@@ -34,6 +34,10 @@
   gap: 20px;
 }
 .profile-avatar {
+  position: relative;
+  padding: 0;
+  border: 1px solid var(--border);
+  cursor: pointer;
   width: 72px;
   height: 72px;
   flex-shrink: 0;
@@ -51,8 +55,45 @@
   height: 100%;
   object-fit: cover;
 }
-.profile-avatar-controls {
-  min-width: 0;
+.profile-avatar:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.profile-avatar-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #11182799;
+  color: #fff;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-medium);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.profile-avatar:hover .profile-avatar-overlay,
+.profile-avatar:focus-visible .profile-avatar-overlay,
+.profile-avatar[aria-busy="true"] .profile-avatar-overlay {
+  opacity: 1;
+}
+.profile-avatar:disabled {
+  cursor: wait;
+}
+.profile-avatar-spinner {
+  animation: profile-avatar-spin 800ms linear infinite;
+}
+@keyframes profile-avatar-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .profile-avatar-overlay {
+    transition: none;
+  }
+  .profile-avatar-spinner {
+    animation: none;
+  }
 }
 .profile-file-input {
   display: none;
@@ -66,9 +107,6 @@
 .profile-actions .btn {
   font-size: var(--type-small);
   font-weight: var(--weight-medium);
-}
-.profile-avatar-save {
-  margin-top: 16px;
 }
 .profile-hint {
   font-size: var(--type-caption);

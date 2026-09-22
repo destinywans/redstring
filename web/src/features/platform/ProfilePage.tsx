@@ -4,7 +4,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, patch, post, request } from "../../lib/api";
 import { useWorkspace } from "../../lib/workspace";
 import Pagination, { useListPagination } from "../../components/Pagination";
-import { Upload } from "../../lib/icons";
+import { LoaderCircle } from "../../lib/icons";
+import { prepareAvatar } from "./avatar";
 import { ErrorNotice, Modal } from "../../components/ui";
 import "./profile.css";
 
@@ -54,7 +55,7 @@ function profileError(error: unknown, avatar = false) {
       "新密码需为 8–128 位，包含大写字母、小写字母、数字和符号。",
     no_local_password: "此账户尚未设置本地密码，请联系管理员。",
     invalid_profile: avatar
-      ? "图片需为 PNG/JPEG，最大 1 MiB、1024 × 1024 像素。"
+      ? "这张图片未能保存，请换一张图片重试。"
       : "新密码不能与旧密码相同，请重新设置。",
     profile_unavailable: "资料暂时无法保存，请稍后重试。",
   };
@@ -69,10 +70,9 @@ export function ProfilePage() {
     enabled: !preview,
   });
   const fileInput = useRef<HTMLInputElement>(null);
-  const [avatarDraft, setAvatarDraft] = useState<string | null>(null);
+  const avatarLock = useRef(false);
   const [avatarError, setAvatarError] = useState<unknown>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
-  const [reading, setReading] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [passwordBusy, setPasswordBusy] = useState(false);
   const [passwordError, setPasswordError] = useState<unknown>(null);
@@ -82,52 +82,25 @@ export function ProfilePage() {
   async function chooseAvatar(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (!file) return;
-    setAvatarError(null);
-    if (
-      !["image/png", "image/jpeg"].includes(file.type) ||
-      file.size > 1024 * 1024
-    ) {
-      setAvatarError(new Error("请选择不超过 1 MiB 的 PNG 或 JPEG 图片。"));
-      return;
-    }
-    setReading(true);
-    try {
-      const value = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () =>
-          typeof reader.result === "string"
-            ? resolve(reader.result)
-            : reject(new Error("图片读取失败，请重新选择。"));
-        reader.onerror = () => reject(new Error("图片读取失败，请重新选择。"));
-        reader.readAsDataURL(file);
-      });
-      setAvatarDraft(value);
-    } catch (error) {
-      setAvatarError(profileError(error, true));
-    } finally {
-      setReading(false);
-    }
-  }
-
-  async function saveAvatar() {
-    if (avatarDraft === null || avatarBusy) return;
+    if (!file || avatarLock.current) return;
+    avatarLock.current = true;
     setAvatarBusy(true);
     setAvatarError(null);
     try {
+      const avatarData = await prepareAvatar(file);
       const updated = await patch<Profile>("/profile", {
-        avatar_data_url: avatarDraft,
+        avatar_data_url: avatarData,
       });
       client.setQueryData(["profile", user.id], updated);
-      setAvatarDraft(null);
       await Promise.all([
         client.invalidateQueries({ queryKey: ["profile"] }),
         client.invalidateQueries({ queryKey: ["auth"] }),
       ]);
-      notify("头像已保存", "success");
+      notify("头像已更新", "success");
     } catch (error) {
       setAvatarError(profileError(error, true));
     } finally {
+      avatarLock.current = false;
       setAvatarBusy(false);
     }
   }
@@ -200,7 +173,7 @@ export function ProfilePage() {
         </button>
       </div>
     );
-  const avatar = avatarDraft ?? data.user.avatar_url;
+  const avatar = data.user.avatar_url;
   return (
     <div className="profile-page">
       <PageHeader
@@ -210,76 +183,45 @@ export function ProfilePage() {
       <section className="profile-card" aria-labelledby="profile-basic-heading">
         <h2 id="profile-basic-heading">基本资料</h2>
         <div className="profile-avatar-row">
-          <div className="profile-avatar">
+          <button
+            type="button"
+            className="profile-avatar"
+            aria-label={avatarBusy ? "正在更新头像" : "更换头像"}
+            aria-busy={avatarBusy}
+            disabled={avatarBusy}
+            onClick={() => fileInput.current?.click()}
+          >
             {avatar ? (
-              <img src={avatar} alt="个人头像" />
+              <img src={avatar} alt="" />
             ) : (
-              <span>
+              <span aria-hidden="true">
                 {(data.user.name || data.user.email || "?")
                   .slice(0, 1)
                   .toUpperCase()}
               </span>
             )}
-          </div>
-          <div className="profile-avatar-controls">
-            <div className="profile-actions">
-              <button
-                className="btn"
-                disabled={avatarBusy || reading}
-                onClick={() => fileInput.current?.click()}
-              >
-                <Upload size={16} />
-                更换头像
-              </button>
-              {avatar && (
-                <button
-                  className="btn btn-ghost"
-                  disabled={avatarBusy || reading}
-                  onClick={() => {
-                    setAvatarDraft("");
-                    setAvatarError(null);
-                  }}
-                >
-                  移除头像
-                </button>
+            <span className="profile-avatar-overlay" aria-hidden="true">
+              {avatarBusy ? (
+                <LoaderCircle size={22} className="profile-avatar-spinner" />
+              ) : (
+                "更换头像"
               )}
-            </div>
-            <p className="profile-hint">
-              PNG 或 JPEG，最大 1 MiB、1024 × 1024 像素。
-            </p>
-            <input
-              ref={fileInput}
-              className="profile-file-input"
-              type="file"
-              accept="image/png,image/jpeg"
-              aria-label="选择头像图片"
-              onChange={chooseAvatar}
-              disabled={avatarBusy || reading}
-            />
-          </div>
+            </span>
+          </button>
+          <input
+            ref={fileInput}
+            className="profile-file-input"
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            aria-label="选择头像图片"
+            onChange={chooseAvatar}
+            disabled={avatarBusy}
+          />
+          <span className="sr-only" role="status">
+            {avatarBusy ? "正在处理并保存头像…" : ""}
+          </span>
         </div>
         {!!avatarError && <ErrorNotice error={avatarError} />}
-        {avatarDraft !== null && (
-          <div className="profile-actions profile-avatar-save">
-            <button
-              className="btn btn-primary"
-              disabled={avatarBusy || reading}
-              onClick={saveAvatar}
-            >
-              {avatarBusy ? "保存中…" : "保存头像"}
-            </button>
-            <button
-              className="btn"
-              disabled={avatarBusy}
-              onClick={() => {
-                setAvatarDraft(null);
-                setAvatarError(null);
-              }}
-            >
-              取消
-            </button>
-          </div>
-        )}
         <dl className="profile-info">
           <div>
             <dt>姓名</dt>

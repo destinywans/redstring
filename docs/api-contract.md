@@ -1,5 +1,9 @@
 # 后端 API 契约
 
+## 资源关系知识图谱（WAN-101）
+
+`GET /api/v1/resource-relations` 新增 `mode=overview|neighbors`，支持虚拟分组、中心一层邻居、方向和有界增量分页；无 mode 保留旧结构。`visible_id` 重验授权并补齐已加载节点间的边，`page_node_ids` 区分本页与上下文。类型多选、环境与 RBAC 严格作用于返回节点、边和分组；运行实例默认隐藏，事件排除。`GET /resources` 的 `graph_eligible=true` 将图谱可用性筛选前置到检索分页。详细字段与限制见 [资源 API](resources-api.md)。
+
 ## 基础设施 Dashboard（WAN-112）
 
 新增 `GET /api/v1/resources/overview`，使用既有资源RBAC和全局环境，服务端聚合数量、分布、工作负载类型、集群就绪、采集覆盖及最近15分钟CPU/内存。节点与对应Lima身份去重，容器指标声明容量分母；最新尚未齐全的趋势桶保留null，各点包含参与节点数。无分页；未知环境返回空范围。详见 [Dashboard 合同](infrastructure-dashboard.md) 与 OpenAPI。

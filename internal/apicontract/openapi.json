@@ -12184,6 +12184,20 @@
               "minimum": 1,
               "maximum": 100
             }
+          },
+          {
+            "name": "graph_eligible",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "include_runtime",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
           }
         ]
       },
@@ -12868,16 +12882,23 @@
     },
     "/resource-relations": {
       "get": {
-        "summary": "Read a bounded resource relationship graph",
+        "summary": "Explore authorized resource groups and relationships",
         "operationId": "get_resource_relations",
-        "description": "Minimum role: viewer. Static declared/discovered relationships, not runtime request traffic. At most 300 nodes and 600 edges, with explicit truncation. Mock records and edges are excluded by default and retain their source markers when explicitly selected with source_kind=mock.",
+        "description": "Minimum role: viewer. Static declared/discovered relationships, not runtime request traffic. Without mode returns the legacy bounded graph. mode=overview returns virtual groups and aggregates only real cross-group edges; mode=neighbors returns a root plus one page of adjacent resources, or a page within group_id. Root is retained and totals exclude the root. Filters and group counts respect RBAC and environment. Events are excluded; Pod/container runtime instances require include_runtime=true. Mock data is excluded by default. Explicit remaining counts, offsets and limits avoid presenting partial exploration as a complete graph.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ResourceGraph"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ResourceGraph"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ResourceGraphExploration"
+                    }
+                  ]
                 }
               }
             }
@@ -12960,21 +12981,14 @@
             }
           },
           {
+            "name": "group_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "q",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "kind",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "resource_kind",
             "in": "query",
             "schema": {
               "type": "string"
@@ -13002,10 +13016,110 @@
             }
           },
           {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "resource_kind",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
             "name": "source_kind",
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "applications",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "visible_id",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "overview",
+                "neighbors"
+              ]
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "both",
+                "out",
+                "in"
+              ]
+            }
+          },
+          {
+            "name": "include_runtime",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
             }
           },
           {
@@ -18983,6 +19097,202 @@
           }
         },
         "additionalProperties": false
+      },
+      "ResourceGraphGroup": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "source_kind": {
+            "type": "string"
+          },
+          "cluster": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "virtual": {
+            "type": "boolean",
+            "const": true
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "resource_kinds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResourceOption"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ResourceGraphGroupEdge": {
+        "type": "object",
+        "properties": {
+          "source_group_id": {
+            "type": "string"
+          },
+          "target_group_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "virtual": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ResourceGraphExploration": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "overview",
+              "neighbors"
+            ]
+          },
+          "root_id": {
+            "type": "string"
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Resource"
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResourceRelation"
+            }
+          },
+          "page_node_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "remaining": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "next_offset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResourceGraphGroup"
+            }
+          },
+          "group_edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResourceGraphGroupEdge"
+            }
+          },
+          "facets": {
+            "type": "object",
+            "properties": {
+              "resource_kinds": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ResourceOption"
+                }
+              },
+              "relation_kinds": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ResourceOption"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "resources": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "relationships": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "nodes": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "edges": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "nodes",
+          "edges",
+          "page_node_ids",
+          "truncated",
+          "total",
+          "offset",
+          "limit",
+          "remaining",
+          "next_offset",
+          "groups",
+          "group_edges",
+          "facets",
+          "limits",
+          "warnings"
+        ]
       },
       "InfrastructureMetricPoint": {
         "type": "object",

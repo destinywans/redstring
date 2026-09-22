@@ -1,27 +1,24 @@
-import { PageHeader } from "../../components/patterns/ListPage";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import {
-  ReactFlow,
-  Background,
-  Controls,
-  Handle,
-  Position,
-  MarkerType,
-  type NodeProps,
-  type Node,
-  type Edge,
-} from "@xyflow/react";
-import "@xyflow/react/dist/style.css";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { PageHeader } from "../../components/patterns/ListPage";
 import {
   FilterBar,
   FilterSearch,
   FilterSelect,
 } from "../../components/filters/FilterBar";
-import { request } from "../../lib/api";
+import { ApiError, request } from "../../lib/api";
 import { useEnvironmentScope } from "../../lib/environmentScope";
-import { ExternalLink, Network } from "../../lib/icons";
+import {
+  ArrowLeft,
+  ChevronRight,
+  ExternalLink,
+  Layers,
+  Network,
+  RefreshCw,
+  Search,
+  X,
+} from "../../lib/icons";
 import ResourceDrawer, {
   ResourceFacts,
   ResourceIcon,
@@ -32,385 +29,805 @@ import {
   resourceKindLabel,
   resourceTime,
   type Resource,
-  type ResourceGraph,
   type ResourceList,
   type ResourceRelation,
 } from "./types";
+import KnowledgeGraphCanvas, { knowledgeColor } from "./KnowledgeGraphCanvas";
+import type {
+  KnowledgeGraphResponse,
+  KnowledgeNode,
+  KnowledgeEdge,
+} from "./KnowledgeGraph.types";
 import "./resources.css";
+import "./KnowledgeGraph.css";
 
-type GraphResourceNode = Node<{ resource: Resource }, "resource">;
-function ResourceNode({ data, selected }: NodeProps<GraphResourceNode>) {
+function isRuntime(resource: Resource) {
   return (
-    <div className={`resource-graph-node${selected ? " selected" : ""}`}>
-      <Handle type="target" position={Position.Left} />
-      <span className="resource-icon">
-        <ResourceIcon kind={data.resource.kind} />
-      </span>
-      <span>
-        <strong>{data.resource.name}</strong>
-        <small>{resourceKindLabel(data.resource.kind)}</small>
-      </span>
-      <Handle type="source" position={Position.Right} />
-    </div>
+    resource.kind === "pod" ||
+    resource.kind === "container" ||
+    (resource.kind === "host" &&
+      String(resource.attributes.resource_type ?? "").toLowerCase() ===
+        "container")
   );
 }
-const nodeTypes = { resource: ResourceNode };
-/** Breadth-first columns keep dependencies left-to-right, including cyclic or disconnected data. */
-function graphLayout(
-  graph: ResourceGraph,
-  rootId: string,
-): GraphResourceNode[] {
-  const ids = new Set(graph.nodes.map((node) => node.id));
-  const neighbours = new Map<string, string[]>();
-  const indegree = new Map<string, number>();
-  for (const edge of graph.edges) {
-    if (!ids.has(edge.source_resource_id) || !ids.has(edge.target_resource_id))
-      continue;
-    neighbours.set(edge.source_resource_id, [
-      ...(neighbours.get(edge.source_resource_id) ?? []),
-      edge.target_resource_id,
-    ]);
-    indegree.set(
-      edge.target_resource_id,
-      (indegree.get(edge.target_resource_id) ?? 0) + 1,
-    );
-  }
-  const rank = new Map<string, number>();
-  const roots =
-    rootId && ids.has(rootId)
-      ? [rootId]
-      : graph.nodes
-          .filter(
-            (node) => node.kind === "application" || !indegree.has(node.id),
-          )
-          .map((node) => node.id);
-  const queue = roots.map((id) => ({ id, level: 0 }));
-  while (queue.length) {
-    const item = queue.shift()!;
-    if (rank.has(item.id)) continue;
-    rank.set(item.id, item.level);
-    for (const id of neighbours.get(item.id) ?? [])
-      queue.push({ id, level: item.level + 1 });
-  }
-  for (const resource of graph.nodes)
-    if (!rank.has(resource.id)) rank.set(resource.id, 0);
-  const columns = new Map<number, Resource[]>();
-  for (const resource of graph.nodes) {
-    const level = rank.get(resource.id)!;
-    columns.set(level, [...(columns.get(level) ?? []), resource]);
-  }
-  const maxRows = Math.max(
-    1,
-    ...[...columns.values()].map((column) => column.length),
-  );
-  return [...columns.entries()].flatMap(([level, resources]) =>
-    resources.map((resource, index) => ({
-      id: resource.id,
-      type: "resource" as const,
-      data: { resource },
-      position: {
-        x: level * 310,
-        y: (index + (maxRows - resources.length) / 2) * 125,
-      },
-      ariaLabel: `${resource.name}，${resourceKindLabel(resource.kind)}`,
-    })),
+function searchableResource(resource: Resource, includeRuntime: boolean) {
+  return (
+    !["event", "kubernetes_event"].includes(resource.kind) &&
+    (includeRuntime || !isRuntime(resource))
   );
 }
+const batchSize = 20;
+type Expansion = { pages: KnowledgeGraphResponse[]; anchor: string };
 
 export default function ResourceRelationsPage() {
   const scope = useEnvironmentScope();
+  const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
-  const [selection, setSelection] = useState<{
-    type: "node" | "edge";
-    id: string;
-  } | null>(null);
-  const appFilter =
+  const [search, setSearch] = useState(params.get("q") ?? "");
+  const [queryText, setQueryText] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState("");
+  const [detailId, setDetailId] = useState("");
+  const [edgeId, setEdgeId] = useState("");
+  const [expansions, setExpansions] = useState<Record<string, Expansion>>({});
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [anchorId, setAnchorId] = useState("");
+  const controller = useRef<AbortController | null>(null);
+  const refreshing = useRef(false);
+  const refreshCallback = useRef<() => void>(() => {});
+  const rootId = params.get("root_id") ?? "";
+  const groupId = rootId ? "" : (params.get("group_id") ?? "");
+  const direction = params.get("direction") ?? "both";
+  const includeRuntime = params.get("include_runtime") === "true";
+  const app =
     params.get("application_id") ||
     params.get("application") ||
     params.get("applications") ||
     "";
-  const sourceKind = params.get("source_kind") ?? "";
-  const defaultScope = `${scope.key}:${appFilter}:${sourceKind}`;
-  const [defaultRoot, setDefaultRoot] = useState<{
-    scope: string;
-    id: string;
-  } | null>(null);
-  const roots = useQuery({
-    queryKey: ["resource-graph-roots", scope.key, appFilter, sourceKind],
+  const base = new URLSearchParams({ environment_scope: scope.key || "all" });
+  if (app) base.set("application_id", app);
+  if (includeRuntime) base.set("include_runtime", "true");
+  for (const key of ["source_kind", "resource_kind", "kind"])
+    for (const value of params.getAll(key)) base.append(key, value);
+  const baseKey = base.toString();
+  const viewKey = `${baseKey}:${rootId}:${groupId}:${direction}`;
+  const overview = useQuery({
+    queryKey: ["knowledge-overview", baseKey],
     queryFn: ({ signal }) =>
-      request<ResourceList>(
-        `/resources?page_size=100&source_kind=${encodeURIComponent(sourceKind)}&environment_scope=${encodeURIComponent(scope.key || "all")}${appFilter ? `&applications=${encodeURIComponent(appFilter)}` : ""}`,
+      request<KnowledgeGraphResponse>(
+        `/resource-relations?${baseKey}&mode=overview`,
         { signal },
       ),
+    refetchInterval: false,
+    refetchOnWindowFocus: false,
   });
-  const searching =
-    !!params.get("q") || params.getAll("resource_kind").length > 0;
-  const rootId = searching
-    ? ""
-    : params.get("root_id") ||
-      (defaultRoot?.scope === defaultScope ? defaultRoot.id : "");
-  const query = new URLSearchParams();
-  for (const key of [
-    "q",
-    "depth",
-    "kind",
-    "resource_kind",
-    "source_kind",
-    "application_id",
-    "applications",
-  ])
-    for (const value of params.getAll(key)) query.append(key, value);
-  query.set("environment_scope", scope.key || "all");
-  if (appFilter) query.set("application_id", appFilter);
-  if (rootId) query.set("root_id", rootId);
-  if (!query.has("depth")) query.set("depth", "2");
-  const graph = useQuery({
-    queryKey: ["resource-relations", query.toString()],
-    refetchInterval: 30000,
+  const initialQuery = new URLSearchParams(base);
+  initialQuery.set("mode", "neighbors");
+  initialQuery.set("limit", String(batchSize));
+  if (rootId) initialQuery.set("root_id", rootId);
+  if (groupId) initialQuery.set("group_id", groupId);
+  initialQuery.set("direction", direction);
+  const initialKey = initialQuery.toString();
+  const initial = useQuery({
+    queryKey: ["knowledge-neighbors", initialKey],
     queryFn: ({ signal }) =>
-      request<ResourceGraph>(`/resource-relations?${query}`, { signal }),
-    enabled: !!params.get("root_id") || !roots.isPending,
+      request<KnowledgeGraphResponse>(`/resource-relations?${initialKey}`, {
+        signal,
+      }),
+    enabled: !!(rootId || groupId),
+    refetchInterval: false,
+    refetchOnWindowFocus: false,
   });
+  const dataQuery = rootId || groupId ? initial : overview;
+  const data = dataQuery.data;
   useEffect(() => {
-    if (rootId || searching || !graph.data || params.get("root_id")) return;
-    const outgoing = new Set(
-      graph.data.edges.map((edge) => edge.source_resource_id),
-    );
-    const connectedApplication = graph.data.nodes.find(
-      (node) => node.kind === "application" && outgoing.has(node.id),
-    );
-    if (connectedApplication)
-      setDefaultRoot({ scope: defaultScope, id: connectedApplication.id });
-  }, [graph.data, rootId, searching, params, defaultScope]);
-  useEffect(() => setSelection(null), [scope.key, rootId]);
+    controller.current?.abort();
+    setExpansions({});
+    setSelectedId("");
+    setDetailId("");
+    setEdgeId("");
+    setBusy("");
+    setError("");
+    setAnchorId("");
+    return () => controller.current?.abort();
+  }, [viewKey]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setQueryText(search.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+  const searchQuery = new URLSearchParams(base);
+  searchQuery.delete("kind");
+  searchQuery.delete("resource_kind");
+  const searchKinds = params.getAll("resource_kind");
+  for (const kind of searchKinds.length
+    ? searchKinds
+    : includeRuntime
+      ? (overview.data?.facets.resource_kinds ?? []).map((item) => item.value)
+      : [])
+    searchQuery.append("kind", kind);
+  searchQuery.set("graph_eligible", "true");
+  searchQuery.set("q", queryText);
+  searchQuery.set("page_size", "20");
+  const searchResults = useQuery({
+    queryKey: ["knowledge-resource-search", searchQuery.toString()],
+    queryFn: ({ signal }) =>
+      request<ResourceList>(`/resources?${searchQuery}`, { signal }),
+    enabled: searchOpen && !!queryText,
+  });
   const change = (key: string, values: string[]) => {
     const next = new URLSearchParams(params);
     next.delete(key);
-    if (key === "source_kind") next.delete("root_id");
-    if (key === "root_id") {
-      next.delete("q");
-      next.delete("resource_kind");
+    values.filter(Boolean).forEach((value) => next.append(key, value));
+    if (key !== "direction" && key !== "include_runtime") {
+      next.delete("root_id");
+      next.delete("group_id");
     }
-    for (const value of values) if (value) next.append(key, value);
-    setSelection(null);
-    setParams(next, { replace: key === "q" });
+    if (
+      key === "include_runtime" &&
+      !values.length &&
+      resources.some(
+        (resource) => resource.id === rootId && isRuntime(resource),
+      )
+    )
+      next.delete("root_id");
+    next.delete("q");
+    setParams(next);
   };
-  const nodes = useMemo(
+  const navigate = (id: string, group = false) => {
+    const next = new URLSearchParams(params);
+    next.delete("root_id");
+    next.delete("group_id");
+    next.delete("q");
+    if (id) next.set(group ? "group_id" : "root_id", id);
+    setParams(next);
+    setSearch("");
+    setSearchOpen(false);
+  };
+  const allPages = useMemo(
     () =>
-      graph.data
-        ? graphLayout(graph.data, rootId).map((node) => ({
-            ...node,
-            selected: selection?.type === "node" && selection.id === node.id,
+      [
+        data,
+        ...Object.values(expansions).flatMap((value) => value.pages),
+      ].filter((page): page is KnowledgeGraphResponse => !!page),
+    [data, expansions],
+  );
+  const resources = useMemo(
+    () => [
+      ...new Map(
+        allPages.flatMap((page) => page.nodes).map((node) => [node.id, node]),
+      ).values(),
+    ],
+    [allPages],
+  );
+  const relations = useMemo(() => {
+    const ids = new Set(resources.map((resource) => resource.id));
+    return [
+      ...new Map(
+        allPages
+          .flatMap((page) => page.edges)
+          .filter(
+            (edge) =>
+              ids.has(edge.source_resource_id) &&
+              ids.has(edge.target_resource_id),
+          )
+          .map((edge) => [edge.id, edge]),
+      ).values(),
+    ];
+  }, [allPages, resources]);
+  const groups = overview.data?.groups ?? [];
+  const selected = resources.find((resource) => resource.id === selectedId);
+  const chosenEdge = relations.find((edge) => edge.id === edgeId);
+  const group = groups.find((item) => item.id === groupId);
+  const root = resources.find((item) => item.id === rootId);
+  const isOverview = !rootId && !groupId;
+  const nodes = useMemo<KnowledgeNode[]>(
+    () =>
+      isOverview
+        ? (data?.groups ?? []).map((group) => ({
+            id: group.id,
+            name:
+              group.namespace ||
+              (group.cluster
+                ? "集群资源"
+                : group.source_kind === "docker"
+                  ? "Docker 资源"
+                  : group.source_kind === "lima"
+                    ? "Lima 主机"
+                    : "独立资源"),
+            kind: group.resource_kinds[0]?.value ?? "cluster",
+            subtitle: group.cluster || group.label,
+            group: true,
+            count: group.count,
           }))
-        : [],
-    [graph.data, rootId, selection],
+        : resources.map((resource) => ({
+            id: resource.id,
+            name: resource.name,
+            kind: resource.kind,
+            subtitle: resourceKindLabel(resource.kind),
+          })),
+    [isOverview, data, resources],
   );
-  const edges: Edge[] = useMemo(
+  const edges = useMemo<KnowledgeEdge[]>(
     () =>
-      graph.data?.edges.map((edge) => ({
-        id: edge.id,
-        source: edge.source_resource_id,
-        target: edge.target_resource_id,
-        label: relationKinds[edge.kind] ?? edge.kind,
-        type: "smoothstep",
-        selected: selection?.type === "edge" && selection.id === edge.id,
-        focusable: true,
-        ariaLabel: `关系：${relationKinds[edge.kind] ?? edge.kind}`,
-        style: {
-          stroke: selection?.id === edge.id ? "var(--accent)" : "var(--muted)",
-          strokeWidth: selection?.id === edge.id ? 2 : 1.4,
-          strokeDasharray: edge.provenance === "declared" ? "6 5" : undefined,
-        },
-        labelStyle: { fill: "var(--muted)", fontSize: "var(--type-caption)" },
-        labelBgStyle: { fill: "var(--panel)" },
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          color: selection?.id === edge.id ? "var(--accent)" : "var(--muted)",
-        },
-      })) ?? [],
-    [graph.data, selection],
+      isOverview
+        ? (data?.group_edges ?? []).map((edge, index) => ({
+            id: `aggregate:${index}:${edge.source_group_id}:${edge.target_group_id}:${edge.kind}`,
+            source: edge.source_group_id,
+            target: edge.target_group_id,
+            label: `${relationKinds[edge.kind] ?? edge.kind} · ${edge.count} 条`,
+          }))
+        : relations.map((edge) => ({
+            id: edge.id,
+            source: edge.source_resource_id,
+            target: edge.target_resource_id,
+            label: relationKinds[edge.kind] ?? edge.kind,
+            declared: edge.provenance === "declared",
+          })),
+    [isOverview, data, relations],
   );
-  const chosenEdge =
-    selection?.type === "edge"
-      ? graph.data?.edges.find((edge) => edge.id === selection.id)
-      : undefined;
-  const rootOptions = [
-    ...new Map(
-      [...(roots.data?.items ?? []), ...(graph.data?.nodes ?? [])].map(
-        (resource) => [
-          resource.id,
-          { value: resource.id, label: resource.name },
-        ],
-      ),
-    ).values(),
+  const selectedExpansion =
+    expansions[selectedId === rootId ? "base" : selectedId];
+  const morePage = expansions["base"]?.pages.at(-1) ?? data;
+  const selectedPage =
+    selectedExpansion?.pages.at(-1) ??
+    (selectedId === rootId ? morePage : undefined);
+  const warnings = [
+    ...new Set(allPages.flatMap((page) => page.warnings ?? [])),
   ];
+  const visibleTypes = [
+    ...new Set(nodes.filter((node) => !node.group).map((node) => node.kind)),
+  ];
+
+  const loadMore = async (id: string, basePage = false) => {
+    if (busy) return;
+    if (resources.length >= 300) {
+      setError(
+        "当前视图已展开 300 项资源。请收起部分关联，或将所选资源设为中心继续查看。",
+      );
+      return;
+    }
+    const key = basePage || id === rootId ? "base" : id;
+    const last =
+      expansions[key]?.pages.at(-1) ??
+      (basePage || id === rootId ? data : undefined);
+    if (last && last.next_offset === null) return;
+    const query = new URLSearchParams(baseKey);
+    query.set("mode", "neighbors");
+    if (basePage && groupId) query.set("group_id", groupId);
+    else query.set("root_id", id || rootId);
+    query.set("direction", direction);
+    query.set("limit", String(Math.min(batchSize, 300 - resources.length)));
+    query.set("offset", String(last?.next_offset ?? 0));
+    const visible = resources;
+    for (const resource of [
+      ...new Map(visible.map((item) => [item.id, item])).values(),
+    ])
+      query.append("visible_id", resource.id);
+    const abort = new AbortController();
+    controller.current = abort;
+    setBusy(key);
+    setError("");
+    try {
+      const response = await request<KnowledgeGraphResponse>(
+        `/resource-relations?${query}`,
+        { signal: abort.signal },
+      );
+      if (abort.signal.aborted) return;
+      setAnchorId(id || rootId);
+      // The API returns visible nodes to complete cross-page edges. Keep only this batch's owned nodes so collapse can remove its branch.
+      const existingIds = new Set(resources.map((resource) => resource.id));
+      const batchIds = new Set(
+        response.page_node_ids ??
+          response.nodes
+            .filter((resource) => !existingIds.has(resource.id))
+            .map((resource) => resource.id),
+      );
+      const page = {
+        ...response,
+        nodes: response.nodes.filter(
+          (resource) => batchIds.has(resource.id) || resource.id === id,
+        ),
+      };
+      setExpansions((current) => ({
+        ...current,
+        [key]: { anchor: id, pages: [...(current[key]?.pages ?? []), page] },
+      }));
+    } catch (cause) {
+      if (!abort.signal.aborted)
+        setError(
+          cause instanceof Error ? cause.message : "读取关联失败，请重试",
+        );
+    } finally {
+      if (!abort.signal.aborted) setBusy("");
+    }
+  };
+  const collapse = (id: string) => {
+    setExpansions((current) => {
+      const candidates = { ...current };
+      delete candidates[id === rootId ? "base" : id];
+      const reachable = new Set((data?.nodes ?? []).map((node) => node.id));
+      const keep: Record<string, Expansion> = {};
+      if (candidates.base) {
+        keep.base = candidates.base;
+        candidates.base.pages
+          .flatMap((page) => page.nodes)
+          .forEach((node) => reachable.add(node.id));
+      }
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const [key, expansion] of Object.entries(candidates)) {
+          if (keep[key] || !reachable.has(expansion.anchor)) continue;
+          keep[key] = expansion;
+          expansion.pages
+            .flatMap((page) => page.nodes)
+            .forEach((node) => reachable.add(node.id));
+          changed = true;
+        }
+      }
+      return keep;
+    });
+  };
+  const refreshAll = async () => {
+    if (busy || refreshing.current || dataQuery.isPending) return;
+    refreshing.current = true;
+    const abort = new AbortController();
+    controller.current = abort;
+    setBusy("refresh");
+    setError("");
+    try {
+      if (isOverview) {
+        const fresh = await request<KnowledgeGraphResponse>(
+          `/resource-relations?${baseKey}&mode=overview`,
+          { signal: abort.signal },
+        );
+        if (!abort.signal.aborted)
+          queryClient.setQueryData(["knowledge-overview", baseKey], fresh);
+      } else {
+        const freshBase = await request<KnowledgeGraphResponse>(
+          `/resource-relations?${initialKey}`,
+          { signal: abort.signal },
+        );
+        const visible = new Map(freshBase.nodes.map((node) => [node.id, node]));
+        const freshExpansions: Record<string, Expansion> = {};
+        const pending = new Map(Object.entries(expansions));
+        // Only replay branches reachable through freshly confirmed pages. A removed relation must not resurrect its old branch.
+        while (pending.size) {
+          const entry = [...pending.entries()].find(
+            ([key, expansion]) =>
+              key === "base" || visible.has(expansion.anchor),
+          );
+          if (!entry) break;
+          const [key, expansion] = entry;
+          pending.delete(key);
+          const pages: KnowledgeGraphResponse[] = [];
+          let missingAnchor = false;
+          for (const oldPage of expansion.pages) {
+            const query = new URLSearchParams(baseKey);
+            query.set("mode", "neighbors");
+            if (key === "base" && groupId) query.set("group_id", groupId);
+            else
+              query.set("root_id", key === "base" ? rootId : expansion.anchor);
+            query.set("direction", direction);
+            query.set("offset", String(oldPage.offset));
+            query.set("limit", String(oldPage.limit));
+            for (const id of visible.keys()) query.append("visible_id", id);
+            let response: KnowledgeGraphResponse;
+            try {
+              response = await request<KnowledgeGraphResponse>(
+                `/resource-relations?${query}`,
+                { signal: abort.signal },
+              );
+            } catch (cause) {
+              if (
+                cause instanceof ApiError &&
+                cause.status === 404 &&
+                key !== "base"
+              ) {
+                visible.delete(expansion.anchor);
+                missingAnchor = true;
+                break;
+              }
+              throw cause;
+            }
+            const batchIds = new Set(
+              response.page_node_ids ??
+                response.nodes
+                  .filter((node) => !visible.has(node.id))
+                  .map((node) => node.id),
+            );
+            const owned = response.nodes.filter(
+              (node) => batchIds.has(node.id) || node.id === expansion.anchor,
+            );
+            pages.push({ ...response, nodes: owned });
+            visible.clear();
+            response.nodes.forEach((node) => visible.set(node.id, node));
+          }
+          if (!missingAnchor)
+            freshExpansions[key] = { anchor: expansion.anchor, pages };
+        }
+        if (!abort.signal.aborted) {
+          // Replace every batch together so old expansion snapshots cannot overwrite a refreshed resource.
+          const updated = (page: KnowledgeGraphResponse) => ({
+            ...page,
+            nodes: page.nodes
+              .filter((node) => visible.has(node.id))
+              .map((node) => visible.get(node.id)!),
+          });
+          queryClient.setQueryData(
+            ["knowledge-neighbors", initialKey],
+            updated(freshBase),
+          );
+          if (selectedId && !visible.has(selectedId)) setSelectedId("");
+          setExpansions(
+            Object.fromEntries(
+              Object.entries(freshExpansions).map(([key, expansion]) => [
+                key,
+                { ...expansion, pages: expansion.pages.map(updated) },
+              ]),
+            ),
+          );
+        }
+      }
+    } catch (cause) {
+      if (!abort.signal.aborted)
+        setError(
+          `刷新未完成，正在显示上次读取的图谱。${cause instanceof Error ? cause.message : "请稍后重试"}。资源可能已变更，可返回总览重新定位。`,
+        );
+    } finally {
+      refreshing.current = false;
+      if (!abort.signal.aborted) setBusy("");
+    }
+  };
+  refreshCallback.current = () => {
+    void refreshAll();
+  };
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (!document.hidden) refreshCallback.current();
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const selectNode = (id: string) => {
+    if (isOverview) navigate(id, true);
+    else {
+      setSelectedId(id);
+      setEdgeId("");
+    }
+  };
+
   return (
-    <section className="resource-page resource-relations-page">
+    <section className="resource-page resource-relations-page knowledge-page">
       <PageHeader
         title="资源关系"
-        description="查看部署、归属与依赖，理解应用和资源之间的关联。"
-        actions={
-          graph.data?.nodes.some((node) => node.is_mock) && (
-            <span className="resource-source is-mock">包含示例数据</span>
-          )
-        }
+        description="从资源出发，探索部署、归属与依赖。"
       />
-      <FilterBar label="资源关系搜索与筛选">
-        <FilterSearch
-          label="搜索关系资源"
-          value={params.get("q") ?? ""}
-          onChange={(value) => change("q", value ? [value] : [])}
-          onSubmit={() => {}}
-          placeholder="搜索资源名称、标签或关键词"
-          showSubmit={false}
-        />
-        <FilterSelect
-          id="relation-source" label="来源" emptyLabel="真实资源"
-          options={[{value:"kubernetes",label:"Kubernetes"},{value:"docker",label:"Docker"},{value:"lima",label:"Lima"},{value:"mock",label:"示例数据"}]}
-          values={sourceKind ? [sourceKind] : []}
-          onChange={(values) => change("source_kind", values)}
-        />
-        <FilterSelect
-          id="relation-root"
-          label="中心资源"
-          emptyLabel="中心资源"
-          options={rootOptions}
-          values={rootId ? [rootId] : []}
-          onChange={(values) => change("root_id", values)}
-          searchable
-          showLabel={false}
-          includeEmptyOption={false}
-          popoverWidth={260}
-        />
-        <FilterSelect
-          id="relation-kind"
-          label="关系类型"
-          emptyLabel="关系类型"
-          options={Object.entries(relationKinds).map(([value, label]) => ({
-            value,
-            label,
-          }))}
-          values={params.getAll("kind")}
-          onChange={(values) => change("kind", values)}
-          multiple
-          showLabel={false}
-          popoverWidth={196}
-        />
-        <FilterSelect
-          id="relation-depth"
-          label="关系层级"
-          emptyLabel="2 跳"
-          options={[1, 2, 3].map((value) => ({
-            value: String(value),
-            label: `${value} 跳`,
-          }))}
-          values={[params.get("depth") || "2"]}
-          onChange={(values) => change("depth", values)}
-          showLabel={false}
-          includeEmptyOption={false}
-          popoverWidth={140}
-        />
-        <FilterSelect
-          id="relation-resource-kind"
-          label="资源类型"
-          emptyLabel="资源类型"
-          options={
-            roots.data?.facets.kinds.map((option) => ({
-              ...option,
-              label: resourceKindLabel(option.value),
-            })) ?? []
+      <div className="knowledge-filters">
+        <FilterBar label="资源关系搜索与筛选">
+          <div
+            className="knowledge-search"
+            onFocus={() => setSearchOpen(true)}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget))
+                setSearchOpen(false);
+            }}
+          >
+            <FilterSearch
+              label="搜索关系资源"
+              value={search}
+              onChange={(value) => {
+                setSearch(value);
+                setSearchOpen(true);
+              }}
+              onSubmit={() => {
+                setQueryText(search.trim());
+                setSearchOpen(true);
+              }}
+              placeholder="搜索资源名称、中文或拼音，定位关系"
+            />
+            {searchOpen && search.trim() && (
+              <div
+                className="knowledge-search-results"
+                aria-label="资源搜索结果"
+              >
+                {searchResults.isPending ? (
+                  <p>正在搜索资源…</p>
+                ) : searchResults.isError ? (
+                  <p role="alert">{searchResults.error.message}</p>
+                ) : (
+                  <>
+                    {(searchResults.data?.items ?? [])
+                      .filter((item) =>
+                        searchableResource(item, includeRuntime),
+                      )
+                      .map((item) => (
+                        <button key={item.id} onClick={() => navigate(item.id)}>
+                          <span className="knowledge-search-icon">
+                            <ResourceIcon kind={item.kind} />
+                          </span>
+                          <span>
+                            <span>{item.name}</span>
+                            <small>
+                              {resourceKindLabel(item.kind)}
+                              {item.attributes.cluster
+                                ? ` · ${String(item.attributes.cluster)}`
+                                : ""}
+                              {item.attributes.namespace
+                                ? ` / ${String(item.attributes.namespace)}`
+                                : ""}
+                            </small>
+                          </span>
+                          <ChevronRight size={15} />
+                        </button>
+                      ))}
+                    {!(searchResults.data?.items ?? []).some((item) =>
+                      searchableResource(item, includeRuntime),
+                    ) && <p>没有找到匹配资源，请调整关键词或筛选条件。</p>}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+          <FilterSelect
+            id="knowledge-resource-kind"
+            label="资源类型"
+            options={(overview.data?.facets.resource_kinds ?? []).map(
+              (item) => ({ ...item, label: resourceKindLabel(item.value) }),
+            )}
+            values={params.getAll("resource_kind")}
+            onChange={(values) => change("resource_kind", values)}
+            multiple
+            searchable
+            popoverWidth={220}
+          />
+          <FilterSelect
+            id="knowledge-relation-kind"
+            label="关系类型"
+            options={(overview.data?.facets.relation_kinds ?? []).map(
+              (item) => ({
+                ...item,
+                label: relationKinds[item.value] ?? item.label,
+              }),
+            )}
+            values={params.getAll("kind")}
+            onChange={(values) => change("kind", values)}
+            multiple
+            popoverWidth={200}
+          />
+          {!isOverview && (
+            <FilterSelect
+              id="knowledge-direction"
+              label="关联方向"
+              options={[
+                { value: "both", label: "全部方向" },
+                { value: "out", label: "出向关系" },
+                { value: "in", label: "入向关系" },
+              ]}
+              values={[direction]}
+              onChange={(values) =>
+                change("direction", values.length ? values : ["both"])
+              }
+              includeEmptyOption={false}
+            />
+          )}
+          {
+            <label className="knowledge-runtime-toggle">
+              <input
+                type="checkbox"
+                checked={includeRuntime}
+                onChange={(event) =>
+                  change(
+                    "include_runtime",
+                    event.target.checked ? ["true"] : [],
+                  )
+                }
+              />
+              显示运行实例
+            </label>
           }
-          values={params.getAll("resource_kind")}
-          onChange={(values) => change("resource_kind", values)}
-          multiple
-          showLabel={false}
-          popoverWidth={208}
-        />
-      </FilterBar>
-      <div className="resource-graph-panel">
-        {graph.isPending ? (
-          <div className="resource-empty">正在读取资源关系…</div>
-        ) : graph.isError ? (
-          <div className="resource-error" role="alert">
-            {graph.error.message}
-            <button className="btn" onClick={() => void graph.refetch()}>
+        </FilterBar>
+      </div>
+      <div className="knowledge-workspace">
+        <KnowledgeGraphCanvas
+          nodes={nodes}
+          edges={edges}
+          rootId={rootId}
+          anchorId={anchorId}
+          viewKey={viewKey}
+          selectedId={selectedId}
+          onNode={selectNode}
+          onKeyboardNode={setSelectedId}
+          onEdge={(id) => {
+            if (!isOverview) setEdgeId(id);
+          }}
+          onCanvas={() => setSelectedId("")}
+        >
+          {!isOverview && (
+            <button
+              className="knowledge-icon-button"
+              aria-label="返回分组总览"
+              title="返回分组总览"
+              onClick={() => navigate("")}
+            >
+              <ArrowLeft size={16} />
+            </button>
+          )}
+          <Layers size={17} />
+          <span>
+            {isOverview
+              ? "分组总览"
+              : (root?.name ?? group?.label ?? "资源关联")}
+          </span>
+          <span className="knowledge-context-count">
+            {isOverview
+              ? `${nodes.length} 个分组`
+              : `${resources.length} 项资源 · ${relations.length} 条关系`}
+          </span>
+          <button
+            className="knowledge-icon-button"
+            aria-label="刷新图谱"
+            title="刷新当前资源"
+            disabled={dataQuery.isFetching || !!busy}
+            onClick={() => void refreshAll()}
+          >
+            <RefreshCw
+              size={15}
+              className={
+                dataQuery.isFetching || busy === "refresh"
+                  ? "knowledge-loading"
+                  : ""
+              }
+            />
+          </button>
+        </KnowledgeGraphCanvas>
+        {dataQuery.isPending && (
+          <div className="knowledge-empty">
+            <Network size={28} />
+            <p>正在读取资源关系…</p>
+          </div>
+        )}
+        {dataQuery.isError && (
+          <div className="knowledge-empty" role="alert">
+            <p>{dataQuery.error.message}</p>
+            <button className="btn" onClick={() => void dataQuery.refetch()}>
               重新加载
             </button>
           </div>
-        ) : !nodes.length ? (
-          <div className="resource-empty">
-            当前范围没有匹配的资源关系，请调整筛选条件。
+        )}
+        {!dataQuery.isPending && !dataQuery.isError && !nodes.length && (
+          <div className="knowledge-empty">
+            <Search size={28} />
+            <p>当前范围没有匹配的资源</p>
+            <span>调整资源类型、关系类型或全局环境后再试。</span>
           </div>
-        ) : (
-          <ReactFlow
-            key={query.toString()}
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            onNodesChange={(changes) => {
-              const change = changes.find(
-                (item) => item.type === "select" && item.selected,
-              );
-              if (change && change.type === "select")
-                setSelection({ type: "node", id: change.id });
-            }}
-            onEdgesChange={(changes) => {
-              const change = changes.find(
-                (item) => item.type === "select" && item.selected,
-              );
-              if (change && change.type === "select")
-                setSelection({ type: "edge", id: change.id });
-            }}
-            deleteKeyCode={null}
-            nodesDraggable={false}
-            nodesConnectable={false}
-            edgesReconnectable={false}
-            fitView
-            fitViewOptions={{ padding: 0.22, maxZoom: 1 }}
-            minZoom={0.2}
-            maxZoom={1.7}
-            onNodeClick={(_, node) =>
-              setSelection({ type: "node", id: node.id })
-            }
-            onEdgeClick={(_, edge) =>
-              setSelection({ type: "edge", id: edge.id })
-            }
-            proOptions={{ hideAttribution: false }}
+        )}
+        {selected && (
+          <div
+            className="knowledge-selection"
+            role="region"
+            aria-label="选中资源操作"
           >
-            <Background gap={24} size={0.6} color="var(--border)" />
-            <Controls position="bottom-right" showInteractive={false} />
-          </ReactFlow>
+            <span className="knowledge-selection-icon">
+              <ResourceIcon kind={selected.kind} />
+            </span>
+            <div className="knowledge-selection-name">
+              <strong>{selected.name}</strong>
+              <small>{resourceKindLabel(selected.kind)}</small>
+            </div>
+            <button
+              className="btn"
+              disabled={
+                !!busy ||
+                resources.length >= 300 ||
+                selectedPage?.next_offset === null
+              }
+              onClick={() => void loadMore(selected.id)}
+            >
+              {busy === selected.id
+                ? "读取中…"
+                : selectedPage
+                  ? selectedPage.remaining > 0
+                    ? `继续展开 · ${selectedPage.remaining}`
+                    : "已全部展开"
+                  : "展开关联"}
+            </button>
+            {selectedExpansion && (
+              <button
+                className="btn"
+                onClick={() => collapse(selected.id)}
+                disabled={!!busy}
+              >
+                收起关联
+              </button>
+            )}
+            {selected.id !== rootId && (
+              <button className="btn" onClick={() => navigate(selected.id)}>
+                以此为中心
+              </button>
+            )}
+            <button
+              className="btn primary"
+              onClick={() => setDetailId(selected.id)}
+            >
+              详情
+            </button>
+            <button
+              className="knowledge-icon-button"
+              aria-label="取消选择"
+              onClick={() => setSelectedId("")}
+            >
+              <X size={15} />
+            </button>
+          </div>
         )}
-        <div className="resource-graph-legend">
-          <span>
-            <i className="declared" /> 声明关系
-          </span>
-          <span>
-            <i /> 发现关系
-          </span>
-          <span>
-            <i className="selected" /> 已选中
-          </span>
+        <div className="knowledge-footer">
+          <div className="knowledge-legend">
+            {isOverview ? (
+              <span>
+                <i style={{ background: "#7363cf" }} />
+                资源分组 · 连线汇总实际关系
+              </span>
+            ) : (
+              visibleTypes.slice(0, 6).map((kind) => (
+                <span key={kind}>
+                  <i style={{ background: knowledgeColor(kind) }} />
+                  {resourceKindLabel(kind)}
+                </span>
+              ))
+            )}
+          </div>
+          {!isOverview && morePage && morePage.remaining > 0 ? (
+            <button
+              className="knowledge-more"
+              disabled={!!busy || resources.length >= 300}
+              onClick={() => void loadMore(rootId, true)}
+            >
+              {busy === "base"
+                ? "正在读取…"
+                : `还有 ${morePage.remaining} 项 · 继续展开`}
+            </button>
+          ) : (
+            <span className="knowledge-gesture-hint">
+              {isOverview ? "点击分组展开" : "点击资源查看关联"} · 拖动平移 ·
+              滚轮缩放
+            </span>
+          )}
         </div>
-        {graph.data?.truncated && (
-          <p className="resource-graph-limit">
-            关系较多，已显示部分资源。请选择中心资源或减少层级。
-          </p>
-        )}
       </div>
-      {selection?.type === "node" && (
+      <div className="knowledge-announcement" aria-live="polite">
+        {selected
+          ? `已选中 ${selected.name}，${resourceKindLabel(selected.kind)}`
+          : selectedId
+            ? `已选中分组 ${nodes.find((node) => node.id === selectedId)?.name ?? ""}，按回车展开`
+            : ""}
+      </div>
+      {resources.length >= 300 && (
+        <div className="knowledge-notice" role="status">
+          当前视图已展开 300 项资源，收起部分关联或选择新的中心后可继续探索。
+        </div>
+      )}
+      {(error || warnings.length > 0) && (
+        <div className="knowledge-notice" role={error ? "alert" : "status"}>
+          {error || warnings.join("；")}
+        </div>
+      )}
+      {detailId && (
         <ResourceDrawer
-          resourceId={selection.id}
-          onClose={() => setSelection(null)}
-          onSelect={(id) => setSelection({ type: "node", id })}
+          resourceId={detailId}
+          onClose={() => setDetailId("")}
+          onSelect={setDetailId}
         />
       )}
-      {chosenEdge && graph.data && (
+      {chosenEdge && (
         <RelationDrawer
           edge={chosenEdge}
-          resources={graph.data.nodes}
-          onClose={() => setSelection(null)}
-          onSelect={(id) => setSelection({ type: "node", id })}
+          resources={resources}
+          onClose={() => setEdgeId("")}
+          onSelect={(id) => {
+            setEdgeId("");
+            setDetailId(id);
+          }}
         />
       )}
     </section>

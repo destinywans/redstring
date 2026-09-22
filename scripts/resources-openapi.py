@@ -30,9 +30,32 @@ S['ResourceGraph'] = obj({
     'nodes': arr(ref('Resource')), 'edges': arr(ref('ResourceRelation')),
     'truncated': {'type': 'boolean'},
 })
+S['ResourceGraphGroup'] = obj({
+    **fieldnames('id label source_id source_kind cluster namespace'),
+    'virtual': {'type': 'boolean', 'const': True}, 'count': integer(minimum=0),
+    'resource_kinds': arr(ref('ResourceOption')),
+})
+S['ResourceGraphGroupEdge'] = obj({
+    **fieldnames('source_group_id target_group_id kind'),
+    'count': integer(minimum=1), 'virtual': {'type': 'boolean', 'const': True},
+})
+S['ResourceGraphExploration'] = obj({
+    'mode': string(enum=['overview', 'neighbors']), 'root_id': string(),
+    'nodes': arr(ref('Resource')), 'edges': arr(ref('ResourceRelation')),
+    'page_node_ids': arr(string()),
+    'truncated': {'type': 'boolean'},
+    **{k: integer(minimum=0) for k in ['total', 'offset', 'limit', 'remaining']},
+    'next_offset': {'type': ['integer', 'null'], 'minimum': 0},
+    'groups': arr(ref('ResourceGraphGroup')),
+    'group_edges': arr(ref('ResourceGraphGroupEdge')),
+    'facets': obj({k: arr(ref('ResourceOption')) for k in ['resource_kinds', 'relation_kinds']}),
+    'limits': obj({k: integer(minimum=1) for k in ['resources', 'relationships', 'nodes', 'edges']}),
+    'warnings': arr(string()),
+}, ['mode', 'nodes', 'edges', 'page_node_ids', 'truncated', 'total', 'offset', 'limit', 'remaining', 'next_offset', 'groups', 'group_edges', 'facets', 'limits', 'warnings'])
 resource_query = [{'name': n, 'in': 'query', 'schema': string()} for n in ['q', 'environment_scope', 'application', 'application_id', 'sort']]
 resource_query += [{'name': n, 'in': 'query', 'schema': arr(string()), 'style': 'form', 'explode': True} for n in ['kind', 'applications', 'source_kind', 'owner_id', 'team_id']]
 resource_query += [{'name': 'page', 'in': 'query', 'schema': integer(minimum=1)}, {'name': 'page_size', 'in': 'query', 'schema': integer(minimum=1, maximum=100)}]
+resource_query += [{'name': n, 'in': 'query', 'schema': {'type': 'boolean'}} for n in ['graph_eligible', 'include_runtime']]
 route('get', '/resources', 'Browse authorized registered resources', response=ref('ResourcePage'), query=resource_query,
       desc='PostgreSQL source. Unset filters are unrestricted except mock resources are excluded unless source_kind=mock is explicitly selected; repeated values are OR within a field. Facets cover the authorized environment subset. Unknown environment_scope is empty, not all. Shared application links are trimmed to caller access.')
 
@@ -76,14 +99,21 @@ S['InfrastructureOverview'] = obj({
     }),
 }, ['generated_at', 'window_seconds', 'stats', 'distribution', 'workload_types', 'clusters', 'nodes', 'sources', 'anomalies', 'metrics'])
 route('get', '/resources/overview', 'Read the authorized infrastructure dashboard', response=ref('InfrastructureOverview'),
-      query=[q for q in resource_query if q['name'] not in ('page', 'page_size', 'sort')],
+      query=[q for q in resource_query if q['name'] not in ('page', 'page_size', 'sort', 'graph_eligible', 'include_runtime')],
       desc='Aggregates caller-visible resources under existing RBAC and global environment scope. No global administrator bypass. Runtime Pods and events are separate from inventory totals; missing objects do not count as current resources. Source synchronization and metric freshness are independent of resource readiness. Node and explicitly mapped host metrics are deduplicated; 15-minute time buckets contain null for unavailable observations, never synthetic zero. No credentials or source endpoints are returned.')
 route('get', '/resources/{id}', 'Read a resource and its visible relationships', response=ref('ResourceDetail'),
       query=[{'name': 'environment_scope', 'in': 'query', 'schema': string()}],
       desc='A resource outside caller access or global environment returns 404; both edge endpoints must be visible.')
-route('get', '/resource-relations', 'Read a bounded resource relationship graph', response=ref('ResourceGraph'),
-      query=[{'name': n, 'in': 'query', 'schema': string()} for n in ['root_id', 'q', 'kind', 'resource_kind', 'application_id', 'application', 'environment_scope', 'source_kind']] + [{'name': 'depth', 'in': 'query', 'schema': integer(minimum=1, maximum=3)}],
-      desc='Static declared/discovered relationships, not runtime request traffic. At most 300 nodes and 600 edges, with explicit truncation. Mock records and edges are excluded by default and retain their source markers when explicitly selected with source_kind=mock.')
+route('get', '/resource-relations', 'Explore authorized resource groups and relationships', response={'oneOf': [ref('ResourceGraph'), ref('ResourceGraphExploration')]},
+      query=[{'name': n, 'in': 'query', 'schema': string()} for n in ['root_id', 'group_id', 'q', 'application_id', 'application', 'environment_scope']]
+      + [{'name': n, 'in': 'query', 'schema': arr(string()), 'style': 'form', 'explode': True} for n in ['kind', 'resource_kind', 'source_kind', 'applications', 'visible_id']]
+      + [{'name': 'mode', 'in': 'query', 'schema': string(enum=['overview', 'neighbors'])},
+         {'name': 'direction', 'in': 'query', 'schema': string(enum=['both', 'out', 'in'])},
+         {'name': 'include_runtime', 'in': 'query', 'schema': {'type': 'boolean'}},
+         {'name': 'offset', 'in': 'query', 'schema': integer(minimum=0)},
+         {'name': 'limit', 'in': 'query', 'schema': integer(minimum=1, maximum=100)},
+         {'name': 'depth', 'in': 'query', 'schema': integer(minimum=1, maximum=3)}],
+      desc='Static declared/discovered relationships, not runtime request traffic. Without mode returns the legacy bounded graph. mode=overview returns virtual groups and aggregates only real cross-group edges; mode=neighbors returns a root plus one page of adjacent resources, or a page within group_id. Root is retained and totals exclude the root. Filters and group counts respect RBAC and environment. Events are excluded; Pod/container runtime instances require include_runtime=true. Mock data is excluded by default. Explicit remaining counts, offsets and limits avoid presenting partial exploration as a complete graph.')
 route('post', '/resources', 'Register resource metadata', 'admin',
       obj({**fieldnames('name kind description external_id owner_user_id owner_team_id'),
            'applications': arr(obj(fieldnames('id environment_id'), ['id', 'environment_id'])),

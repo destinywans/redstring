@@ -156,6 +156,11 @@ func (s *Service) Register(api *httpapi.Server) {
 	s.registerOverview(api, load)
 	api.Register("GET /api/v1/resources", "viewer", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
+		graphEligible, includeRuntime, validGraphSearch := graphSearchOptions(q)
+		if !validGraphSearch {
+			httpapi.Error(w, 400, "invalid_query", "graph_eligible 和 include_runtime 仅接受 true 或 false")
+			return
+		}
 		page, ok := integer(q, "page", 1, 1, 1000000)
 		size, ok2 := integer(q, "page_size", 10, 1, 100)
 		if !ok || !ok2 {
@@ -166,7 +171,11 @@ func (s *Service) Register(api *httpapi.Server) {
 		if !ok {
 			return
 		}
-		rows = inventoryRows(rows, values(q, "kind"))
+		if graphEligible {
+			rows = graphEligibleRows(rows, includeRuntime)
+		} else {
+			rows = inventoryRows(rows, values(q, "kind"))
+		}
 		f := facets(rows)
 		filtered := []Resource{}
 		for _, v := range rows {
@@ -251,44 +260,41 @@ func (s *Service) Register(api *httpapi.Server) {
 	})
 	api.Register("GET /api/v1/resource-relations", "viewer", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		if q.Get("depth") == "" && q.Get("hops") != "" {
-			q.Set("depth", q.Get("hops"))
-		}
-		depth, ok := integer(q, "depth", 2, 1, 3)
-		if !ok {
-			httpapi.AuthorizationError(w, store.ErrInvalidReference)
+		options, err := parseGraphOptions(q)
+		if err != nil {
+			if limit, ok := err.(*graphBudgetError); ok {
+				httpapi.Error(w, 400, "graph_limit", limit.Error())
+				return
+			}
+			httpapi.AuthorizationError(w, err)
 			return
 		}
 		rows, ok := load(w, r)
 		if !ok {
 			return
 		}
-		rows = inventoryRows(rows, nil)
-		selectedRows := make([]Resource, 0, len(rows))
-		for _, row := range rows {
-			if !row.IsMock || contains(values(q, "source_kind"), "mock") {
-				selectedRows = append(selectedRows, row)
-			}
-		}
-		rows = selectedRows
-		edges, e := s.edges(r.Context(), rows)
-		if e != nil {
-			httpapi.AuthorizationError(w, e)
+		// Load one authorized/source-scoped edge set for both multi-select facets
+		// and the graph; exploreGraph applies the strict type filters to the graph.
+		rows = graphCandidates(rows, graphFacetQuery(q), options.includeRuntime)
+		edges, err := s.edges(r.Context(), rows)
+		if err != nil {
+			httpapi.AuthorizationError(w, err)
 			return
 		}
-		if id := q.Get("root_id"); id != "" {
-			found := false
-			for _, v := range rows {
-				if v.ID == id {
-					found = true
-				}
-			}
-			if !found {
-				httpapi.AuthorizationError(w, store.ErrNotFound)
+		result, err := exploreGraph(rows, edges, q, options)
+		if err != nil {
+			if limit, ok := err.(*graphBudgetError); ok {
+				httpapi.Error(w, 400, "graph_limit", limit.Error())
 				return
 			}
+			httpapi.AuthorizationError(w, err)
+			return
 		}
-		httpapi.WriteJSON(w, 200, buildGraph(rows, edges, q, depth))
+		if options.mode == "graph" {
+			httpapi.WriteJSON(w, 200, result.Graph)
+		} else {
+			httpapi.WriteJSON(w, 200, result)
+		}
 	})
 	api.Register("POST /api/v1/resources", "admin", func(w http.ResponseWriter, r *http.Request) {
 		var in CreateInput
@@ -319,58 +325,4 @@ func (s *Service) Register(api *httpapi.Server) {
 		}
 		httpapi.AuthorizationError(w, store.ErrNotFound)
 	})
-}
-
-func buildGraph(rows []Resource, edges []Relation, q url.Values, depth int) Graph {
-	out := Graph{Nodes: []Resource{}, Edges: []Relation{}}
-	selected := map[string]bool{}
-	root := q.Get("root_id")
-	for _, v := range rows {
-		if root != "" {
-			if v.ID == root {
-				selected[v.ID] = true
-			}
-		} else if matches(v, q, "resource_kind") {
-			selected[v.ID] = true
-		}
-	}
-	allowed := []Relation{}
-	for _, e := range edges {
-		if accepts(values(q, "kind"), e.Kind) {
-			allowed = append(allowed, e)
-		}
-	}
-	for i := 0; i < depth; i++ {
-		next := map[string]bool{}
-		for _, e := range allowed {
-			if selected[e.SourceResourceID] || selected[e.TargetResourceID] {
-				next[e.SourceResourceID] = true
-				next[e.TargetResourceID] = true
-			}
-		}
-		for id := range next {
-			selected[id] = true
-		}
-	}
-	retained := map[string]bool{}
-	for _, v := range rows {
-		if selected[v.ID] {
-			if len(out.Nodes) >= 300 {
-				out.Truncated = true
-				continue
-			}
-			out.Nodes = append(out.Nodes, v)
-			retained[v.ID] = true
-		}
-	}
-	for _, e := range allowed {
-		if retained[e.SourceResourceID] && retained[e.TargetResourceID] {
-			if len(out.Edges) >= 600 {
-				out.Truncated = true
-				continue
-			}
-			out.Edges = append(out.Edges, e)
-		}
-	}
-	return out
 }

@@ -1,5 +1,7 @@
 # 项目文档
 
+- [资源关系知识图谱合同](plans/2026-09-22-resource-knowledge-graph.md)、[本机交付记录](releases/2026-09-22-resource-knowledge-graph.md)：真实资源分组、局部探索与覆盖详情，WAN-101。
+
 - [基础设施 Dashboard](infrastructure-dashboard.md)、[采集恢复与本机交付记录](releases/2026-09-22-infrastructure-dashboard.md)：图表、数据口径、真实指标和故障恢复。
 
 - [真实资源同步配置](resource-sync.md)、[本机资源与观测接入交付](releases/2026-09-22-live-platform-integration.md)：WAN-109 / WAN-110。

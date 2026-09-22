@@ -1,5 +1,9 @@
 # AIOps Canvas 实施计划
 
+## WAN-101 · 资源关系知识图谱（2026-09-22）
+
+用户确认后已实现 G6 分组总览、局部探索、增量展开/收起、顶部图谱控件与覆盖详情；PG 与真实资源继续复用。本机 18081 已更新，待用户体验。见 [页面合同](docs/plans/2026-09-22-resource-knowledge-graph.md) 与 [交付记录](docs/releases/2026-09-22-resource-knowledge-graph.md)。只做图谱相关定向检查，暂停中的 CI/CD 不纳入。
+
 ## WAN-112 · 资源总览 Dashboard 与采集恢复（2026-09-22）
 
 用户已确认 V2；资源总览图表、节点/主机专题和授权聚合接口已实现，采集失联与既有CPU/内存缺失已修复。本机18081已更新，产品验收待用户。实现口径见 [基础设施 Dashboard](docs/infrastructure-dashboard.md)，实际验证和限制见 [交付记录](docs/releases/2026-09-22-infrastructure-dashboard.md)。不扩展全业务观测大盘、压力测试或暂停中的CI/CD工作。

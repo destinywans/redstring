@@ -112,11 +112,7 @@ function RbacList({ kind }: { kind: RbacKind }) {
                     <th>关联范围</th>
                   </>
                 )}
-                {kind === "permissions" && (
-                  <>
-                    <th aria-label="关联管理" />
-                  </>
-                )}
+                <th aria-label="关联管理" />
               </tr>
             </thead>
             <tbody>
@@ -149,20 +145,16 @@ function RbacList({ kind }: { kind: RbacKind }) {
                       <td>{item.resource_count ?? 0} 项</td>
                     </>
                   )}
-                  {kind === "permissions" && (
-                    <>
-                      <td>
-                        <div className="rbac-row-actions">
-                          <button
-                            className="rbac-link"
-                            onClick={() => setAssociation(item)}
-                          >
-                            管理关联
-                          </button>
-                        </div>
-                      </td>
-                    </>
-                  )}
+                  <td>
+                    <div className="rbac-row-actions">
+                      <button
+                        className="rbac-link"
+                        onClick={() => setAssociation(item)}
+                      >
+                        管理关联
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -193,11 +185,10 @@ function RbacList({ kind }: { kind: RbacKind }) {
           object={selected}
           kind={kind}
           onClose={() => setSelected(null)}
-          onSaved={async (value, openAssociations) => {
-            setSelected(value);
+          onSaved={async (value, created) => {
+            setSelected(created ? null : value);
             await refresh();
-            notify(`${label}已保存`, "success");
-            if (openAssociations) setAssociation(value);
+            notify(`${label}已${created ? "创建" : "保存"}`, "success");
           }}
           onDeleted={async () => {
             setSelected(null);
@@ -242,7 +233,7 @@ function ObjectCard({
   object: RbacObject | "new";
   kind: RbacKind;
   onClose: () => void;
-  onSaved: (value: RbacObject, openAssociations: boolean) => void;
+  onSaved: (value: RbacObject, created: boolean) => void;
   onDeleted: () => void;
   onAssociations: (value: RbacObject) => void;
 }) {
@@ -367,11 +358,7 @@ function ObjectCard({
             {dirty && <small>请先保存基本信息，再管理关联。</small>}
           </section>
         ) : (
-          <DirectoryNotice>
-            {kind === "roles"
-              ? "创建后进入关联管理，可分别选择权限、用户和部门。"
-              : "创建后可在管理关联中选择操作和资源。"}
-          </DirectoryNotice>
+          <DirectoryNotice>创建后可从列表管理关联。</DirectoryNotice>
         )}
         <ConfirmDialog
           open={deleting}
@@ -402,7 +389,7 @@ function ObjectCard({
             type="submit"
             disabled={busy || !name.trim() || (!fresh && !dirty)}
           >
-            {busy ? "保存中…" : fresh ? "创建并管理关联" : "保存基本信息"}
+            {busy ? (fresh ? "创建中…" : "保存中…") : fresh ? "创建" : "保存"}
           </button>
         </footer>
       </form>

@@ -2,17 +2,9 @@ import { matchesSearch } from "../../lib/search";
 import { PageHeader } from "../../components/patterns/ListPage";
 import Pagination from "../../components/Pagination";
 import { Fragment, useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
-import {
-  AlertTriangle,
-  Box,
-  Database,
-  Layers,
-  Network,
-  RefreshCw,
-  Server,
-} from "../../lib/icons";
+import { Box, Database, Network, RefreshCw, Server } from "../../lib/icons";
 import { request } from "../../lib/api";
 import { useEnvironmentScope } from "../../lib/environmentScope";
 import {
@@ -30,11 +22,14 @@ import {
   num,
   kindLabels,
   moment,
-  tone,
+  collectionStatus,
+  currentMetric,
   type InfraResource,
   type InfraList,
 } from "./review-types";
 import "./infrastructure-review.css";
+import OverviewDashboard from "./OverviewDashboard";
+import ComputeOverview from "./ComputeOverview";
 
 type Column = { key: string; label: string };
 type Definition = {
@@ -282,6 +277,17 @@ async function loadInventory(
   return rows;
 }
 export default function InfrastructureReviewPage() {
+  const [params] = useSearchParams();
+  const view = params.get("view") ?? "summary";
+  return view === "summary" || !definitions[view] ? (
+    <OverviewDashboard />
+  ) : (
+    <InfrastructureListPage />
+  );
+}
+
+function InfrastructureListPage() {
+  const queryClient = useQueryClient();
   const scope = useEnvironmentScope();
   const [params, setParams] = useSearchParams();
   const view = params.get("view") ?? "summary";
@@ -292,7 +298,8 @@ export default function InfrastructureReviewPage() {
   const sourceKind = params.get("source_kind") ?? "";
   const inventory = useQuery({
     queryKey: ["infrastructure-inventory", scope.key, runtimeKind, sourceKind],
-    queryFn: ({ signal }) => loadInventory(scope.key, signal, runtimeKind, sourceKind),
+    queryFn: ({ signal }) =>
+      loadInventory(scope.key, signal, runtimeKind, sourceKind),
     refetchInterval: 30000,
   });
   const rows = inventory.data ?? [];
@@ -365,20 +372,6 @@ export default function InfrastructureReviewPage() {
         String(a.attributes.last_seen ?? a.updated_at),
       ),
     );
-  if (view === "summary")
-    filtered.sort(
-      (a, b) =>
-        ["Kubernetes 资源", "主机与虚拟机", "中间件与数据库"].indexOf(
-          groupLabel(a),
-        ) -
-          ["Kubernetes 资源", "主机与虚拟机", "中间件与数据库"].indexOf(
-            groupLabel(b),
-          ) ||
-        Number(["warn", "bad"].includes(tone(attr(b, "status")))) -
-          Number(["warn", "bad"].includes(tone(attr(a, "status")))) ||
-        Number(b.kind === "deployment") - Number(a.kind === "deployment") ||
-        a.name.localeCompare(b.name),
-    );
   const requestedPageSize = Number(params.get("page_size") ?? 10);
   const pageSize = [10, 20, 50].includes(requestedPageSize)
     ? requestedPageSize
@@ -416,9 +409,6 @@ export default function InfrastructureReviewPage() {
       .sort()
       .map((value) => ({ value, label: value }));
   };
-  const attention = rows.filter((r) =>
-    ["warn", "bad"].includes(tone(attr(r, "status"))),
-  );
   const latest = rows
     .map((r) => r.observed_at ?? "")
     .sort()
@@ -451,14 +441,32 @@ export default function InfrastructureReviewPage() {
               {latest && <small>最近采样 {moment(latest)}</small>}
             </span>
             <FilterSelect
-              id="infrastructure-source" label="来源" emptyLabel="真实资源"
-              options={[{value:"kubernetes",label:"Kubernetes"},{value:"docker",label:"Docker"},{value:"lima",label:"Lima"},{value:"mock",label:"示例数据"}]}
+              id="infrastructure-source"
+              label="来源"
+              emptyLabel="真实资源"
+              options={[
+                { value: "kubernetes", label: "Kubernetes" },
+                { value: "docker", label: "Docker" },
+                { value: "lima", label: "Lima" },
+                { value: "mock", label: "示例数据" },
+              ]}
               values={sourceKind ? [sourceKind] : []}
               onChange={(values) => update("source_kind", values[0] ?? "")}
             />
             <button
               className="button"
-              onClick={() => void inventory.refetch()}
+              onClick={() => {
+                void inventory.refetch();
+                if (view === "nodes" || view === "hosts")
+                  void queryClient.invalidateQueries({
+                    queryKey: [
+                      "infrastructure-overview",
+                      scope.key,
+                      sourceKind,
+                      applicationId,
+                    ],
+                  });
+              }}
               disabled={inventory.isFetching}
             >
               <RefreshCw size={16} />
@@ -468,49 +476,14 @@ export default function InfrastructureReviewPage() {
         }
       />
       {inventory.error && <ErrorNotice error={inventory.error} />}
-      {view === "summary" && (
-        <section className="infra-overview-stats" aria-label="资源统计">
-          {[
-            {
-              label: "工作负载",
-              value: rows.filter((r) => r.kind === "deployment").length,
-              Icon: Box,
-              detail: "已发现的 Kubernetes 控制器",
-            },
-            {
-              label: "主机",
-              value: rows.filter((r) => r.kind === "host").length,
-              Icon: Server,
-              detail: "已登记主机与虚拟机",
-            },
-            {
-              label: "需要关注",
-              value: attention.length,
-              Icon: AlertTriangle,
-              detail: "采集异常、过期与运行告警",
-              warning: true,
-            },
-            {
-              label: "集群",
-              value: rows.filter((r) => r.kind === "cluster").length,
-              Icon: Layers,
-              detail: "当前范围纳管集群",
-            },
-          ].map((s) => (
-            <article key={s.label}>
-              <div
-                className={`infra-stat-icon${s.warning ? " is-warning" : ""}`}
-              >
-                <s.Icon size={23} />
-              </div>
-              <div>
-                <span>{s.label}</span>
-                <strong>{inventory.isLoading ? "—" : s.value}</strong>
-                <small>{s.detail}</small>
-              </div>
-            </article>
-          ))}
-        </section>
+      {(view === "nodes" || view === "hosts") && (
+        <ComputeOverview
+          kind={view === "nodes" ? "node" : "host"}
+          scope={scope.key}
+          sourceKind={sourceKind}
+          applicationId={applicationId}
+          onSelect={setSelected}
+        />
       )}
       <FilterBar label={`${def.title}搜索与筛选`}>
         <FilterSearch
@@ -647,9 +620,14 @@ export default function InfrastructureReviewPage() {
                       {def.columns.map((c) => (
                         <td key={c.key}>
                           {c.key === "status" || c.key === "severity" ? (
-                            <ResourceStatus value={field(r, c.key)} />
+                            <span className="infra-resource-state">
+                              <ResourceStatus value={field(r, c.key)} />
+                              {c.key === "status" && collectionStatus(r) && (
+                                <small>{collectionStatus(r)}</small>
+                              )}
+                            </span>
                           ) : c.key.endsWith("_percent") ? (
-                            <UsageMeter value={r.attributes[c.key]} />
+                            <UsageMeter value={currentMetric(r, c.key)} />
                           ) : (
                             <span
                               className={
@@ -701,7 +679,9 @@ export default function InfrastructureReviewPage() {
         />
       </section>
       <footer className="infra-review-footnote">
-        {rows.some((r) => r.is_mock) ? "示例数据不代表实际健康状态。" : "状态来自最近成功采集；失联与过期单独标记，未采集指标显示 —。"}
+        {rows.some((r) => r.is_mock)
+          ? "示例数据不代表实际健康状态。"
+          : "状态来自最近成功采集；失联与过期单独标记，未采集指标显示 —。"}
         <Link
           to={`/infrastructure?view=${encodeURIComponent(view)}&mode=live&environment_scope=${encodeURIComponent(scope.key || "all")}`}
         >

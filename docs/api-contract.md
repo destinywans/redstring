@@ -1,5 +1,9 @@
 # 后端 API 契约
 
+## 基础设施 Dashboard（WAN-112）
+
+新增 `GET /api/v1/resources/overview`，使用既有资源RBAC和全局环境，服务端聚合数量、分布、工作负载类型、集群就绪、采集覆盖及最近15分钟CPU/内存。节点与对应Lima身份去重，容器指标声明容量分母；最新尚未齐全的趋势桶保留null，各点包含参与节点数。无分页；未知环境返回空范围。详见 [Dashboard 合同](infrastructure-dashboard.md) 与 OpenAPI。
+
 ## 真实资源与观测（WAN-109 / WAN-110）
 
 资源目录和关系默认排除Mock；显式 `source_kind=mock` 可查看旧示例。资源attributes补充同步状态、最近成功采集及缺失标记，详见 [同步合同](resource-sync.md)。

@@ -10,6 +10,9 @@ import {
   moment,
   kindLabels,
   tone,
+  collectionStatus,
+  currentMetric,
+  metricStatus,
   type InfraDetail,
   type InfraResource,
 } from "./review-types";
@@ -26,10 +29,8 @@ export function UsageMeter({ value }: { value: unknown }) {
   if (typeof value !== "number" || !Number.isFinite(value))
     return <span className="infra-cell-muted">—</span>;
   return (
-    <span
-      className={`infra-usage ${value >= 85 ? "is-high" : value >= 65 ? "is-medium" : ""}`}
-    >
-      <span>{value}%</span>
+    <span className="infra-usage">
+      <span>{value.toFixed(1)}%</span>
       <i>
         <b style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
       </i>
@@ -67,47 +68,81 @@ function Sparkline({
   label: string;
   value: unknown;
 }) {
-  const points = Array.isArray(history)
-    ? history.filter(
-        (v): v is Record<string, unknown> =>
-          v !== null && typeof v === "object" && typeof v[metric] === "number",
-      )
-    : [];
-  const values = points.map((p) => Number(p[metric]));
+  const points = (Array.isArray(history) ? history : [])
+    .filter(
+      (v): v is Record<string, unknown> =>
+        v !== null &&
+        typeof v === "object" &&
+        Number.isFinite(new Date(String(v.time)).getTime()),
+    )
+    .map((p) => ({
+      time: new Date(String(p.time)).getTime(),
+      value:
+        typeof p[metric] === "number" && Number.isFinite(p[metric])
+          ? (p[metric] as number)
+          : null,
+    }))
+    .sort((a, b) => a.time - b.time);
+  const available = points.filter((point) => point.value !== null);
+  const start = points[0]?.time ?? 0;
+  const duration = Math.max(1, (points.at(-1)?.time ?? start) - start);
+  const segments: string[][] = [];
+  let previousTime: number | null = null;
+  let segment: string[] | undefined;
+  for (const point of points) {
+    if (point.value === null) {
+      segment = undefined;
+      previousTime = null;
+      continue;
+    }
+    if (
+      !segment ||
+      (previousTime !== null && point.time - previousTime > 90000)
+    ) {
+      segment = [];
+      segments.push(segment);
+    }
+    segment.push(
+      `${((point.time - start) / duration) * 360},${81 - Math.min(100, Math.max(0, point.value)) * 0.76}`,
+    );
+    previousTime = point.time;
+  }
   return (
     <div className="infra-chart">
       <div>
         <span>{label}</span>
-        <strong>{typeof value === "number" ? `${value}%` : "—"}</strong>
+        <strong>
+          {typeof value === "number" && Number.isFinite(value)
+            ? `${value.toFixed(1)}%`
+            : "—"}
+        </strong>
       </div>
-      {values.length > 1 ? (
+      {available.length > 1 ? (
         <>
           <svg
             viewBox="0 0 360 86"
             role="img"
-            aria-label={`${label}趋势，共 ${values.length} 个采样点`}
+            aria-label={`${label}趋势，共 ${available.length} 个有效采样点，缺失采样断开显示`}
             preserveAspectRatio="none"
           >
             <path
               d="M 0 5 H 360 M 0 43 H 360 M 0 81 H 360"
               className="infra-chart-grid"
             />
-            <polyline
-              points={values
-                .map(
-                  (v, i) =>
-                    `${(i * 360) / (values.length - 1)},${81 - Math.min(100, Math.max(0, v)) * 0.76}`,
-                )
-                .join(" ")}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              vectorEffect="non-scaling-stroke"
-            />
+            {segments.map((segment, index) => (
+              <polyline
+                key={index}
+                points={segment.join(" ")}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                vectorEffect="non-scaling-stroke"
+              />
+            ))}
           </svg>
           <footer>
-            <span>{moment(String(points[0].time ?? ""))}</span>
-            <span>{moment(String(points.at(-1)?.time ?? ""))}</span>
+            <span>{moment(new Date(points[0].time).toISOString())}</span>
+            <span>{moment(new Date(points.at(-1)!.time).toISOString())}</span>
           </footer>
         </>
       ) : (
@@ -233,6 +268,7 @@ function Overview({
   onSelect: (id: string) => void;
 }) {
   const a = r.attributes;
+  const samplingStatus = metricStatus(r);
   const history = a.history;
   const isCompute = ["cluster", "node", "host"].includes(r.kind);
   const isMiddleware = ["redis", "mysql", "kafka"].includes(r.kind);
@@ -247,6 +283,7 @@ function Overview({
       ["涉及资源", attr(r, "involved_object")],
     );
   else basic.push(["状态", <ResourceStatus value={attr(r, "status")} />]);
+  if (collectionStatus(r)) basic.push(["采集状态", collectionStatus(r)]);
   for (const [key, label] of [
     ["cluster", "集群"],
     ["namespace", "命名空间"],
@@ -290,9 +327,13 @@ function Overview({
             <article key={key}>
               <span>{label}</span>
               <strong>
-                {num(r, key) !== undefined
-                  ? num(r, key)!.toLocaleString() +
-                    (key.endsWith("percent") ? "%" : "")
+                {(key.endsWith("percent")
+                  ? currentMetric(r, key)
+                  : num(r, key)) !== undefined
+                  ? (key.endsWith("percent")
+                      ? currentMetric(r, key)!
+                      : num(r, key)!
+                    ).toLocaleString() + (key.endsWith("percent") ? "%" : "")
                   : "—"}
               </strong>
             </article>
@@ -336,22 +377,35 @@ function Overview({
       )}
       {(isCompute || isMiddleware) && (
         <Section title="资源使用率">
-          {!r.is_mock && <p className="infra-cell-muted">{a.metrics_status === "current" ? `Prometheus 最近 15 分钟 · 查询于 ${moment(String(a.metrics_queried_at ?? ""))}` : "当前没有可用的真实指标采样"}</p>}
+          {!r.is_mock && (
+            <p className="infra-cell-muted">
+              {["current", "partial"].includes(samplingStatus)
+                ? `最近 15 分钟 · ${a.metrics_scope === "container" ? "容器范围（按容器上限）" : "主机 / 节点范围"}${samplingStatus === "partial" ? " · 部分指标缺失" : ""} · 查询于 ${moment(String(a.metrics_queried_at ?? ""))}`
+                : samplingStatus === "stale"
+                  ? "指标已过期，趋势保留最后采样，当前值不再展示"
+                  : "当前没有可用的真实指标采样"}
+            </p>
+          )}
           <Sparkline
             history={history}
             metric="cpu"
             label="CPU 使用率"
-            value={a.cpu_percent}
+            value={currentMetric(r, "cpu_percent")}
           />
           <Sparkline
             history={history}
             metric="memory"
             label="内存使用率"
-            value={a.memory_percent}
+            value={currentMetric(r, "memory_percent")}
           />
           {a.disk_percent !== undefined && (
             <Info
-              rows={[["磁盘使用率", <UsageMeter value={a.disk_percent} />]]}
+              rows={[
+                [
+                  "磁盘使用率",
+                  <UsageMeter value={currentMetric(r, "disk_percent")} />,
+                ],
+              ]}
             />
           )}
         </Section>
@@ -568,11 +622,18 @@ function DrawerContent({
         </div>
       </div>
       <p className="infra-detail-provenance">
-        {r.is_mock ? "示例数据 · 用于界面验收" : r.observed_at ? `最近采集 ${moment(r.observed_at)}` : "已登记资源 · 尚未采集"}
+        {r.is_mock
+          ? "示例数据 · 用于界面验收"
+          : r.observed_at
+            ? `最近采集 ${moment(r.observed_at)}`
+            : "已登记资源 · 尚未采集"}
         <span>{r.is_mock ? "不执行基础设施操作" : r.source_kind}</span>
       </p>
-      {!r.is_mock && r.attributes.sync_status !== undefined && r.attributes.sync_status !== "current" && (
-        <p className="infra-detail-provenance">{attr(r, "status")} · 上次运行状态：{String(r.attributes.status ?? "未知")}，保留最近成功采样。</p>
+      {!r.is_mock && collectionStatus(r) && (
+        <p className="infra-detail-provenance">
+          {collectionStatus(r)} · 上次运行状态：
+          {String(r.attributes.status ?? "未知")}，保留最近成功采样。
+        </p>
       )}
       <div
         className="infra-drawer-tabs"

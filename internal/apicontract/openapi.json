@@ -12338,6 +12338,183 @@
         }
       }
     },
+    "/resources/overview": {
+      "get": {
+        "summary": "Read the authorized infrastructure dashboard",
+        "operationId": "get_resources_overview",
+        "description": "Minimum role: viewer. Aggregates caller-visible resources under existing RBAC and global environment scope. No global administrator bypass. Runtime Pods and events are separate from inventory totals; missing objects do not count as current resources. Source synchronization and metric freshness are independent of resource readiness. Node and explicitly mapped host metrics are deduplicated; 15-minute time buckets contain null for unavailable observations, never synthetic zero. No credentials or source endpoints are returned.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InfrastructureOverview"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "resources"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "environment_scope",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "application",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "application_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "applications",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "source_kind",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "owner_id",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          }
+        ]
+      }
+    },
     "/resources/{id}": {
       "get": {
         "summary": "Read a resource and its visible relationships",
@@ -18806,6 +18983,441 @@
           }
         },
         "additionalProperties": false
+      },
+      "InfrastructureMetricPoint": {
+        "type": "object",
+        "properties": {
+          "time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "cpu": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "memory": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "cpu_samples": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "memory_samples": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "time",
+          "cpu",
+          "memory"
+        ]
+      },
+      "InfrastructureOverviewNode": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "metrics_status": {
+            "type": "string"
+          },
+          "metrics_scope": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "node",
+              "host"
+            ]
+          },
+          "cpu_percent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "memory_percent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "capacity_cpu": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "capacity_memory_bytes": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InfrastructureMetricPoint"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "InfrastructureOverviewCluster": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "sync_status": {
+            "type": "string"
+          },
+          "last_success_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "nodes_total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "nodes_ready": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "nodes_unknown": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "workloads_total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "desired_replicas": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "ready_replicas": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "InfrastructureOverviewSource": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "sync_status": {
+            "type": "string"
+          },
+          "last_success_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "resources_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "metrics_eligible": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "metrics_current": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "InfrastructureComputeGroup": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cpu_covered": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "memory_covered": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "container_scoped": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "capacity_cpu": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "capacity_memory_bytes": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "cpu_percent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "memory_percent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "InfrastructureOverview": {
+        "type": "object",
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "window_seconds": {
+            "type": "integer"
+          },
+          "stats": {
+            "type": "object",
+            "properties": {
+              "resources_total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "clusters_total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "nodes_total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "hosts_total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "workloads_total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "runtime_pods_total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "anomalies_total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "stale_resources_total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "missing_resources_total": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          },
+          "distribution": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "workload_types": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "clusters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InfrastructureOverviewCluster"
+            }
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InfrastructureOverviewNode"
+            }
+          },
+          "nodes_truncated": {
+            "type": "boolean"
+          },
+          "compute_groups": {
+            "type": "object",
+            "properties": {
+              "node": {
+                "$ref": "#/components/schemas/InfrastructureComputeGroup"
+              },
+              "host": {
+                "$ref": "#/components/schemas/InfrastructureComputeGroup"
+              }
+            },
+            "additionalProperties": false
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InfrastructureOverviewSource"
+            }
+          },
+          "anomalies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "anomalies_truncated": {
+            "type": "boolean"
+          },
+          "metrics": {
+            "type": "object",
+            "properties": {
+              "eligible": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "current": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "partial": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "unavailable": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "unsupported": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "stale": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "history": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/InfrastructureMetricPoint"
+                }
+              },
+              "cpu_percent": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "memory_percent": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "generated_at",
+          "window_seconds",
+          "stats",
+          "distribution",
+          "workload_types",
+          "clusters",
+          "nodes",
+          "sources",
+          "anomalies",
+          "metrics"
+        ]
       },
       "SettingsWorkspace": {
         "type": "object",

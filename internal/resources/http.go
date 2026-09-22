@@ -153,6 +153,7 @@ func (s *Service) Register(api *httpapi.Server) {
 		}
 		return rows, true
 	}
+	s.registerOverview(api, load)
 	api.Register("GET /api/v1/resources", "viewer", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		page, ok := integer(q, "page", 1, 1, 1000000)

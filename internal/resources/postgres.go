@@ -26,8 +26,8 @@ func (s *Service) visible(ctx context.Context, apps []string, _ bool, scope stri
 	rows, err := s.DB.Query(ctx, `SELECT r.id,r.kind,r.name,r.description,r.external_id,r.source_kind,r.source_id,
  COALESCE(r.owner_user_id,''),COALESCE(u.name,''),COALESCE(r.owner_team_id,''),COALESCE(t.name,''),
  r.attributes || CASE WHEN sync.id IS NULL THEN '{}'::jsonb ELSE jsonb_build_object(
- 'sync_status',CASE WHEN sync.last_error<>'' THEN 'disconnected' WHEN sync.last_success_at<now()-interval '3 minutes' THEN 'stale' ELSE 'current' END,
- 'sync_last_success_at',sync.last_success_at,'sync_error',sync.last_error) END,r.tags,r.is_mock,r.created_at,r.updated_at,r.observed_at,
+ 'sync_status',CASE WHEN sync.last_error<>'' THEN 'disconnected' WHEN sync.last_success_at IS NULL OR sync.last_success_at<now()-interval '3 minutes' OR sync.last_success_at>now()+interval '1 minute' THEN 'stale' ELSE 'current' END,
+ 'sync_last_success_at',sync.last_success_at,'sync_source_name',sync.name,'sync_error',sync.last_error) END,r.tags,r.is_mock,r.created_at,r.updated_at,r.observed_at,
  COALESCE((SELECT jsonb_agg(jsonb_build_object('id',a.id,'key',a.key,'name',a.name,
  'environment_id',e.id,'environment_key',e.key,'environment_name',e.name) ORDER BY a.key,e.key)
  FROM cmdb_resource_applications l JOIN applications a ON a.id=l.application_id

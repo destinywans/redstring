@@ -211,9 +211,12 @@ func convert(source Source, objects []object, observed time.Time) (Snapshot, err
 			attrs["pods_count"] = count
 		case "Node":
 			record.Kind = "node"
-			attrs["status"] = "NotReady"
-			if condition(status, "Ready") == "True" {
+			attrs["status"] = "Unknown"
+			switch condition(status, "Ready") {
+			case "True":
 				attrs["status"] = "Ready"
+			case "False":
+				attrs["status"] = "NotReady"
 			}
 			info := obj(status["nodeInfo"])
 			attrs["version"] = info["kubeletVersion"]
@@ -251,6 +254,9 @@ func convert(source Source, objects []object, observed time.Time) (Snapshot, err
 		case "Deployment", "StatefulSet", "DaemonSet", "ReplicaSet", "Job", "CronJob":
 			record.Kind = "deployment"
 			attrs["workload_type"] = k
+			if parent := owner(o); parent != "" {
+				attrs["owner_controller_kind"] = str(byUID[parent]["kind"])
+			}
 			attrs["images"] = images(o)
 			attrs["version"] = strings.Join(images(o), ", ")
 			attrs["replicas"] = spec["replicas"]
@@ -271,6 +277,8 @@ func convert(source Source, objects []object, observed time.Time) (Snapshot, err
 				attrs["status"] = "Ready"
 			}
 			if k == "Job" {
+				delete(attrs, "replicas")
+				delete(attrs, "ready_replicas")
 				attrs["status"] = "Running"
 				if condition(status, "Complete") == "True" {
 					attrs["status"] = "Complete"
@@ -280,6 +288,8 @@ func convert(source Source, objects []object, observed time.Time) (Snapshot, err
 				}
 			}
 			if k == "CronJob" {
+				delete(attrs, "replicas")
+				delete(attrs, "ready_replicas")
 				attrs["schedule"] = spec["schedule"]
 				attrs["status"] = "Active"
 				if spec["suspend"] == true {
@@ -292,6 +302,9 @@ func convert(source Source, objects []object, observed time.Time) (Snapshot, err
 		case "Pod":
 			record.Kind = "pod"
 			attrs["status"] = status["phase"]
+			if str(status["phase"]) == "Running" && condition(status, "Ready") == "False" {
+				attrs["status"] = "NotReady"
+			}
 			attrs["node"] = spec["nodeName"]
 			attrs["ip"] = status["podIP"]
 			attrs["images"] = images(o)

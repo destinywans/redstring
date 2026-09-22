@@ -1,5 +1,9 @@
 # AIOps Canvas 实施计划
 
+## WAN-112 · 资源总览 Dashboard 与采集恢复（2026-09-22）
+
+用户已确认 V2；资源总览图表、节点/主机专题和授权聚合接口已实现，采集失联与既有CPU/内存缺失已修复。本机18081已更新，产品验收待用户。实现口径见 [基础设施 Dashboard](docs/infrastructure-dashboard.md)，实际验证和限制见 [交付记录](docs/releases/2026-09-22-infrastructure-dashboard.md)。不扩展全业务观测大盘、压力测试或暂停中的CI/CD工作。
+
 - 2026-09-22 WAN-111：用户改为清空全部示例及停止资源关联；本机 review 库已备份清理，导出器排除明确停止对象，取代旧 Mock 保留决定。实际运行数据与有效身份授权保留，待用户体验；见 `docs/releases/2026-09-22-sample-data-cleanup.md`。
 
 - 2026-09-22 WAN-109 / WAN-110：用户明确跳过专项验收、全部接入现有资源与观测；三个专用集群只读账号已获单独批准。真实CMDB同步、指标日志链路已部署18081，旧kind与旧指标VM停止并保留数据。待用户体验；见 `docs/releases/2026-09-22-live-platform-integration.md`。

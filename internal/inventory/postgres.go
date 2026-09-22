@@ -46,7 +46,7 @@ func SaveSnapshot(ctx context.Context, db *pgxpool.Pool, snapshot Snapshot) erro
 		return fmt.Errorf("valid observation time required")
 	}
 	var newer bool
-	if err = tx.QueryRow(ctx, `SELECT COALESCE(last_success_at >= $2,false) FROM cmdb_sync_sources WHERE id=$1`, snapshot.SourceID, snapshot.ObservedAt).Scan(&newer); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT COALESCE(last_success_at >= $2 AND last_success_at <= now()+interval '1 minute',false) FROM cmdb_sync_sources WHERE id=$1`, snapshot.SourceID, snapshot.ObservedAt).Scan(&newer); err != nil {
 		return err
 	}
 	if newer {

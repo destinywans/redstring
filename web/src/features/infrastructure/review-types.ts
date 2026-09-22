@@ -46,11 +46,6 @@ export type InfraDetail = {
   }[];
 };
 export function attr(r: InfraResource, key: string): string {
-  if (key === "status") {
-    if (r.attributes.inventory_presence === "missing") return "源中已不存在";
-    if (r.attributes.sync_status === "disconnected") return "采集失联";
-    if (r.attributes.sync_status === "stale") return "采样已过期";
-  }
   const value = r.attributes[key];
   return value === undefined || value === null || value === ""
     ? "—"
@@ -59,6 +54,36 @@ export function attr(r: InfraResource, key: string): string {
       : typeof value === "object"
         ? JSON.stringify(value)
         : String(value);
+}
+/** Collection freshness is independent of the resource's last observed state. */
+export function collectionStatus(r: InfraResource): string | undefined {
+  if (r.attributes.inventory_presence === "missing") return "源中已不存在";
+  if (r.attributes.sync_status === "disconnected") return "采集失联";
+  if (r.attributes.sync_status === "stale") return "采样已过期";
+  return undefined;
+}
+export function metricStatus(r: InfraResource): string {
+  const status = String(r.attributes.metrics_status ?? "unavailable");
+  if (!["current", "partial"].includes(status)) return status;
+  const sampled = new Date(
+    String(
+      r.attributes.metrics_observed_at ?? r.attributes.metrics_queried_at ?? "",
+    ),
+  ).getTime();
+  const now = Date.now();
+  return !Number.isFinite(sampled) ||
+    now - sampled > 90000 ||
+    sampled > now + 60000
+    ? "stale"
+    : status;
+}
+export function currentMetric(
+  r: InfraResource,
+  key: string,
+): number | undefined {
+  return ["current", "partial"].includes(metricStatus(r))
+    ? num(r, key)
+    : undefined;
 }
 export function num(r: InfraResource, key: string): number | undefined {
   const v = r.attributes[key];

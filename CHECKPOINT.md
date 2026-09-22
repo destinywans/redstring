@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-040 · 2026-09-22 · 创建流程与关闭反馈
+
+- WAN-105 创建角色/权限后关闭卡片返回列表，由用户点击管理关联；WAN-96 关闭按钮增强三态反馈。两项独立提交于 codex/wan-105-role-management-refinement，基于89735a4。
+- 类型与一次前端构建通过，18081已更新；只查看并关闭权限创建卡片，未写入角色权限、未检查工作负载或数据库。悬浮/按下与创建后体验待用户确认。
+- 交付记录 docs/releases/2026-09-22-rbac-create-flow.md 和 docs/releases/2026-09-22-overlay-close-affordance.md；暂停CI/CD改动保留。
+
 ## CP-039 · 2026-09-22 · 头像交互收敛（WAN-104）
 
 - 分支 `codex/wan-105-role-management-refinement`，基于已推送 `dbdd9c5`，头像变更独立提交。

@@ -13946,7 +13946,7 @@
       "get": {
         "summary": "Search persisted permissions",
         "operationId": "get_rbac_permissions",
-        "description": "Text search supports literal Chinese and case-insensitive English, pinyin and initials before server count and pagination. action and resource_kind must match the same infrastructure resource binding. actions is an aggregate of associated operations, never an intrinsic permission field. Historical timestamps may be null; new definitions and subsequent metadata or resource-association edits record timestamps.",
+        "description": "Text search supports literal Chinese and case-insensitive English, pinyin and initials before server count and pagination. Values within each action/resource_kind filter use OR; the two dimensions use AND on the same infrastructure resource binding, before total counting and pagination. For example action=view,update&resource_kind=host,mysql; action=view&action=update is equivalent. actions is an aggregate of associated operations, never an intrinsic permission field. Historical timestamps may be null; new definitions and subsequent metadata or resource-association edits record timestamps.",
         "responses": {
           "200": {
             "description": "Success",
@@ -14086,33 +14086,45 @@
           {
             "name": "action",
             "in": "query",
+            "style": "form",
+            "explode": false,
+            "description": "Comma-separated values or repeated query parameters are accepted, including a single value. Values are trimmed and deduplicated; an empty set means no filter. Invalid values return 422.",
             "schema": {
-              "type": "string",
-              "enum": [
-                "view",
-                "update",
-                "approve",
-                "delete"
-              ]
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "view",
+                  "update",
+                  "approve",
+                  "delete"
+                ]
+              }
             }
           },
           {
             "name": "resource_kind",
             "in": "query",
+            "style": "form",
+            "explode": false,
+            "description": "Comma-separated values or repeated query parameters are accepted, including a single value. Values are trimmed and deduplicated; an empty set means no filter. Invalid values return 422.",
             "schema": {
-              "type": "string",
-              "enum": [
-                "cluster",
-                "node",
-                "deployment",
-                "namespace",
-                "host",
-                "network",
-                "storage",
-                "redis",
-                "mysql",
-                "kafka"
-              ]
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "cluster",
+                  "node",
+                  "deployment",
+                  "namespace",
+                  "host",
+                  "network",
+                  "storage",
+                  "redis",
+                  "mysql",
+                  "kafka"
+                ]
+              }
             }
           }
         ]

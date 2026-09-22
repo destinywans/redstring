@@ -18,8 +18,12 @@ for kind,model in [('roles','RBACRole'),('permissions','RBACPermission')]:
     P[path]['get']['parameters']=list(rbac_page_params)
     P[path]['get']['description']='Text search supports literal Chinese and case-insensitive English, pinyin and initials before server count and pagination.'
     if kind=='permissions':
-        P[path]['get']['parameters'] += [{'name':'action','in':'query','schema':rbac_action},{'name':'resource_kind','in':'query','schema':string(enum=['cluster','node','deployment','namespace','host','network','storage','redis','mysql','kafka'])}]
-        P[path]['get']['description'] += ' action and resource_kind must match the same infrastructure resource binding. actions is an aggregate of associated operations, never an intrinsic permission field. Historical timestamps may be null; new definitions and subsequent metadata or resource-association edits record timestamps.'
+        P[path]['get']['parameters'] += [
+            {'name':name,'in':'query','style':'form','explode':False,
+             'description':'Comma-separated values or repeated query parameters are accepted, including a single value. Values are trimmed and deduplicated; an empty set means no filter. Invalid values return 422.',
+             'schema':{'type':'array','items':items}}
+            for name,items in [('action',rbac_action),('resource_kind',string(enum=['cluster','node','deployment','namespace','host','network','storage','redis','mysql','kafka']))]]
+        P[path]['get']['description'] += ' Values within each action/resource_kind filter use OR; the two dimensions use AND on the same infrastructure resource binding, before total counting and pagination. For example action=view,update&resource_kind=host,mysql; action=view&action=update is equivalent. actions is an aggregate of associated operations, never an intrinsic permission field. Historical timestamps may be null; new definitions and subsequent metadata or resource-association edits record timestamps.'
     fields={'name':string(minLength=1,maxLength=200),'description':string(maxLength=2000)}
     if kind=='roles': fields['name']['description']='Unique role name after trimming outer whitespace. Duplicate names return 409 role_name_conflict. Internal stable IDs are not user-entered identifiers.'
     if kind=='permissions':

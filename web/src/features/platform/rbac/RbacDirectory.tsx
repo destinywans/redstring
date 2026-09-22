@@ -54,8 +54,10 @@ function RbacList({ kind }: { kind: RbacKind }) {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [action, setAction] = useState("");
-  const [resourceKind, setResourceKind] = useState("");
+  const [actions, setActions] = useState<string[]>([]);
+  const [resourceKindsSelected, setResourceKindsSelected] = useState<string[]>(
+    [],
+  );
   const [selected, setSelected] = useState<RbacObject | "new" | null>(null);
   const [association, setAssociation] = useState<RbacObject | null>(null);
   const label = kind === "roles" ? "角色" : "权限";
@@ -63,22 +65,64 @@ function RbacList({ kind }: { kind: RbacKind }) {
     q,
     page,
     page_size: pageSize,
-    action,
-    resource_kind: resourceKind,
+    action: actions.join(","),
+    resource_kind: resourceKindsSelected.join(","),
   };
   const list = useQuery({
     queryKey: ["rbac", kind, params],
     queryFn: ({ signal }) =>
       getPage<RbacObject>(`/rbac/${kind}`, params, signal),
   });
-  const refresh = () =>
+  const refreshRelated = () =>
     Promise.all([
-      qc.invalidateQueries({ queryKey: ["rbac"] }),
       qc.invalidateQueries({ queryKey: ["rbac-candidates"] }),
       qc.invalidateQueries({ queryKey: ["settings-directory"] }),
       qc.invalidateQueries({ queryKey: ["profile"] }),
       qc.invalidateQueries({ queryKey: ["rbac-me"] }),
     ]);
+  const refresh = () =>
+    Promise.all([
+      qc.invalidateQueries({ queryKey: ["rbac"] }),
+      refreshRelated(),
+    ]);
+  async function handleSaved(value: RbacObject, created: boolean) {
+    if (!created) {
+      setSelected(value);
+      await refresh();
+      notify(`${label}已保存`, "success");
+      return;
+    }
+    // New, unassociated records cannot match an existing action/resource filter.
+    // Cancel pre-create reads and fetch the reset page explicitly, even if cached.
+    await qc.cancelQueries({ queryKey: ["rbac", kind] });
+    await qc.invalidateQueries({ queryKey: ["rbac"], refetchType: "none" });
+    const firstPage = {
+      q: "",
+      page: 1,
+      page_size: pageSize,
+      action: "",
+      resource_kind: "",
+    };
+    setQ("");
+    setActions([]);
+    setResourceKindsSelected([]);
+    setPage(1);
+    try {
+      await qc.fetchQuery({
+        queryKey: ["rbac", kind, firstPage],
+        queryFn: ({ signal }) =>
+          getPage<RbacObject>(`/rbac/${kind}`, firstPage, signal),
+        staleTime: 0,
+      });
+      notify(`${label}已创建`, "success");
+    } catch {
+      // Creation already succeeded: do not keep a submit form that could create twice.
+      notify(`${label}已创建，列表刷新失败，请点击重试。`, "error");
+    } finally {
+      setSelected(null);
+      void refreshRelated();
+    }
+  }
   return (
     <div className="directory-page rbac-page">
       <DirectoryHeader
@@ -123,11 +167,12 @@ function RbacList({ kind }: { kind: RbacKind }) {
                     value,
                     label: actionNames[value],
                   }))}
-                  values={action ? [action] : []}
+                  values={actions}
                   onChange={(values) => {
-                    setAction(values[0] ?? "");
+                    setActions(values);
                     setPage(1);
                   }}
+                  multiple
                   clearable
                   popoverWidth={168}
                 />
@@ -137,11 +182,12 @@ function RbacList({ kind }: { kind: RbacKind }) {
                   options={Object.entries(resourceKinds).map(
                     ([value, label]) => ({ value, label }),
                   )}
-                  values={resourceKind ? [resourceKind] : []}
+                  values={resourceKindsSelected}
                   onChange={(values) => {
-                    setResourceKind(values[0] ?? "");
+                    setResourceKindsSelected(values);
                     setPage(1);
                   }}
+                  multiple
                   searchable
                   clearable
                   popoverWidth={216}
@@ -267,11 +313,7 @@ function RbacList({ kind }: { kind: RbacKind }) {
           object={selected}
           kind={kind}
           onClose={() => setSelected(null)}
-          onSaved={async (value, created) => {
-            setSelected(created ? null : value);
-            await refresh();
-            notify(`${label}已${created ? "创建" : "保存"}`, "success");
-          }}
+          onSaved={handleSaved}
           onDeleted={async () => {
             setSelected(null);
             await refresh();
@@ -315,7 +357,7 @@ function ObjectCard({
   object: RbacObject | "new";
   kind: RbacKind;
   onClose: () => void;
-  onSaved: (value: RbacObject, created: boolean) => void;
+  onSaved: (value: RbacObject, created: boolean) => Promise<void>;
   onDeleted: () => void;
   onAssociations: (value: RbacObject) => void;
 }) {
@@ -347,7 +389,7 @@ function ObjectCard({
             body,
           )
         : await post<RbacObject>(`/rbac/${kind}`, body);
-      onSaved(result, fresh);
+      await onSaved(result, fresh);
     } catch (e) {
       setError(rbacError(e));
     } finally {

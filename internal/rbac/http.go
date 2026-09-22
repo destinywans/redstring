@@ -179,6 +179,34 @@ func (s *Service) Register(api *httpapi.Server) {
 	register("PATCH /api/v1/rbac/departments/{id}", s.saveDepartment)
 	register("PATCH /api/v1/rbac/users/{id}/department", s.userDepartment)
 }
+
+// Accept both form arrays (a,b) and repeated parameters, keeping a bounded
+// vocabulary and an explicit empty slice so SQL cardinality treats it as no filter.
+func permissionFilterValues(r *http.Request, key string, allowed ...string) ([]string, error) {
+	valid := make(map[string]bool, len(allowed))
+	for _, value := range allowed {
+		valid[value] = true
+	}
+	values := []string{}
+	seen := map[string]bool{}
+	for _, raw := range r.URL.Query()[key] {
+		for _, part := range strings.Split(raw, ",") {
+			value := strings.TrimSpace(part)
+			if value == "" {
+				continue
+			}
+			if !valid[value] {
+				return nil, store.ErrInvalidReference
+			}
+			if !seen[value] {
+				values = append(values, value)
+				seen[value] = true
+			}
+		}
+	}
+	return values, nil
+}
+
 func (s *Service) list(w http.ResponseWriter, r *http.Request, kind string) {
 	page, size, e := paging(r)
 	if e != nil {
@@ -191,18 +219,28 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request, kind string) {
 	filter := ` WHERE (aiops_search_match(r.id,$1) OR aiops_search_match(r.name,$1) OR aiops_search_match(r.description,$1)) AND ($2='' OR r.builtin::text=$2)`
 	selectSQL := roleSelect
 	if kind == "permissions" {
-		action, resourceKind, scope := q.Get("action"), q.Get("resource_kind"), q.Get("scope_type")
-		if (action != "" && action != "view" && action != "update" && action != "approve" && action != "delete") || (scope != "" && scope != "resource") {
+		actions, err := permissionFilterValues(r, "action", "view", "update", "approve", "delete")
+		if err != nil {
+			respond(w, nil, err)
+			return
+		}
+		resourceKinds, err := permissionFilterValues(r, "resource_kind", "cluster", "node", "deployment", "namespace", "host", "network", "storage", "redis", "mysql", "kafka")
+		if err != nil {
+			respond(w, nil, err)
+			return
+		}
+		scope := strings.TrimSpace(q.Get("scope_type"))
+		if scope != "" && scope != "resource" {
 			respond(w, nil, store.ErrInvalidReference)
 			return
 		}
-		args = append(args, action, resourceKind, scope)
+		args = append(args, actions, resourceKinds, scope)
 		from = "rbac_permissions p"
 		filter = ` WHERE (aiops_search_match(p.id,$1) OR aiops_search_match(p.name,$1) OR aiops_search_match(p.description,$1)) AND ($2='' OR p.builtin::text=$2)
- AND (($3='' AND $4='' AND $5='') OR EXISTS(
+ AND ((cardinality($3::text[])=0 AND cardinality($4::text[])=0 AND $5='') OR EXISTS(
  SELECT 1 FROM rbac_permission_resources x JOIN cmdb_resources resource ON resource.id=x.resource_id
  WHERE x.permission_id=p.id AND x.scope_type='resource' AND rbac_is_infrastructure_kind(resource.kind)
- AND x.action IN ('view','update','approve','delete') AND ($3='' OR x.action=$3) AND ($4='' OR resource.kind=$4) AND ($5='' OR x.scope_type=$5)))`
+ AND x.action IN ('view','update','approve','delete') AND (cardinality($3::text[])=0 OR x.action=ANY($3::text[])) AND (cardinality($4::text[])=0 OR resource.kind=ANY($4::text[])) AND ($5='' OR x.scope_type=$5)))`
 		selectSQL = permissionSelect
 	}
 	var total int

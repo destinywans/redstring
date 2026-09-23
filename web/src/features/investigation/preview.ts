@@ -1,3 +1,4 @@
+import type { RunStep } from "../conversation/steps";
 // Deliberately isolated design-preview fixtures. Never used by live API queries.
 export interface ChatMessage {
   id: string;
@@ -6,6 +7,7 @@ export interface ChatMessage {
   created_at: string;
   model_id?: string;
   evidence_ids?: string[];
+  run_id?: string;
 }
 export interface CanvasBranch {
   id: string;
@@ -135,11 +137,29 @@ export const previewInvestigation: CanvasInvestigation = {
           "连接池变小可能导致并发请求无法及时获取连接，出现连接等待上升、获取超时，最终引发 5xx 错误。",
         ),
         message("m-db3", "user", "继续检查连接等待"),
-        message(
-          "m-db4",
-          "assistant",
-          "我已查看数据库连接等待时间、活跃连接数和超时错误。示例数据中，14:03 之后连接等待明显上升，与连接池从 200 调整为 50 的变更时间一致。",
-        ),
+        {
+          ...message(
+            "m-db4",
+            "assistant",
+            [
+              "我查看了连接等待、活跃连接数和超时日志。**14:03 之后连接等待明显上升，与连接池从 200 调整为 50 的时间一致。**",
+              "",
+              "| 指标 | 变更前 | 变更后 |",
+              "| --- | --- | --- |",
+              "| 连接等待 P95 | 12 ms | 420 ms |",
+              "| 活跃连接 | 38 / 200 | 50 / 50 |",
+              "| 5xx 比例 | 0.2% | 8.4% |",
+              "",
+              "判断：",
+              "1. 连接池被打满，请求排队获取连接；",
+              "2. 超时后返回 5xx，与告警时间吻合；",
+              "3. 上游与代码变更分支暂未发现异常。",
+              "",
+              "建议回滚 `connection_pool.max` 到 200，并观察 180 秒。",
+            ].join("\n"),
+          ),
+          evidence_ids: ["e-config", "e-metrics", "e-logs"],
+        },
       ],
     },
     {
@@ -217,3 +237,32 @@ export function makePreview(
     ),
   };
 }
+
+// Design-preview agent steps for the database branch's final answer.
+const step = (
+  seq: number,
+  kind: "model" | "tool",
+  name: string,
+  extra: Partial<RunStep>,
+): RunStep => ({
+  id: `preview-step-${seq}`,
+  run_id: "preview-run",
+  attempt_id: "preview-attempt",
+  seq,
+  kind,
+  name,
+  status: "succeeded",
+  started_at: `2026-09-20T14:0${4 + Math.floor(seq / 3)}:${String((seq * 7) % 60).padStart(2, "0")}+08:00`,
+  finished_at: `2026-09-20T14:0${4 + Math.floor(seq / 3)}:${String((seq * 7 + 2) % 60).padStart(2, "0")}+08:00`,
+  ...extra,
+});
+export const previewSteps: Record<string, RunStep[]> = {
+  "m-db4": [
+    step(1, "model", "preview-model", { tool_calls: ["query_metrics", "query_logs"], input_tokens: 1840, output_tokens: 96 }),
+    step(2, "tool", "query_metrics", { input: "db_connection_wait_p95 checkout-api 30m", output: "错误率与连接等待", evidence_id: "e-metrics" }),
+    step(3, "tool", "query_logs", { input: "checkout-api level=error \"connection timeout\"", output: "数据库连接超时日志", evidence_id: "e-logs" }),
+    step(4, "model", "preview-model", { tool_calls: ["search_runbooks"], input_tokens: 3920, output_tokens: 64 }),
+    step(5, "tool", "search_runbooks", { input: "连接池 耗尽 5xx", output: "连接池容量调整 Runbook" }),
+    step(6, "model", "preview-model", { output: "…", input_tokens: 4410, output_tokens: 312 }),
+  ],
+};

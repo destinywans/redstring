@@ -287,14 +287,11 @@
   color: #d14258;
 }
 .inv-node-summary {
-  font-size: var(--type-body);
+  margin: 12px 0 8px;
+  font-size: var(--type-small);
   line-height: var(--leading-body);
-  margin: 15px 0 8px;
-  white-space: pre-wrap;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
+  cursor: auto;
+  user-select: text;
 }
 .inv-card-tools {
   position: absolute;
@@ -640,9 +637,6 @@
   padding: 0;
 }
 .inv-chat-history {
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
   overflow: visible;
 }
 .inv-chat-message {
@@ -855,6 +849,14 @@
 .inv-evidence-list details {
   padding: 12px 0;
   border-bottom: 1px solid var(--border);
+  scroll-margin: 12px;
+  transition: background var(--interaction-duration);
+}
+.inv-evidence-list details.is-focused {
+  margin: 0 -8px;
+  padding-inline: 8px;
+  border-radius: 6px;
+  background: var(--accent-soft);
 }
 .inv-evidence-list summary {
   font-weight: var(--weight-regular);
@@ -1899,10 +1901,7 @@
   font-size: var(--type-section);
 }
 .inv-sidebar .inv-chat-history {
-  gap: 25px;
-}
-.inv-node-summary {
-  font-size: var(--type-body);
+  gap: 20px;
 }
 .inv-canvas-workspace .inv-page-header p {
   max-width: 540px;
@@ -2131,4 +2130,89 @@
 }
 .inv-evidence-telemetry .telemetry-series {
   min-width: 0;
+}
+
+/* Agent tab: state chain, run totals, steps, context and trace. */
+.inv-agent-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  font-size: var(--type-small);
+}
+.inv-agent-panel h3 {
+  margin: 4px 0 -4px;
+  font-size: var(--type-caption);
+  font-weight: var(--weight-medium);
+  color: var(--muted);
+}
+.inv-agent-chain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--type-caption);
+  color: var(--muted);
+}
+.inv-agent-chain span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--panel);
+}
+.inv-agent-chain span + span::before {
+  content: "→";
+  margin: 0 5px 0 -9px;
+  color: var(--muted);
+}
+.inv-agent-chain span:first-child {
+  color: var(--text);
+}
+.inv-agent-run {
+  display: grid;
+  gap: 4px;
+  font-size: var(--type-caption);
+  color: var(--muted);
+}
+.inv-agent-run select {
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+}
+.inv-agent-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.inv-agent-stats > div {
+  padding: 7px 9px;
+}
+.inv-agent-stats > div + div {
+  border-left: 1px solid var(--border);
+}
+.inv-agent-stats dt {
+  color: var(--muted);
+  font-size: var(--type-caption);
+}
+.inv-agent-stats dd {
+  margin: 2px 0 0;
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.inv-agent-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--type-caption);
 }

@@ -2,7 +2,11 @@ import { matchesSearch } from "../../lib/search";
 import SelectField from "../../components/SelectField";
 import ScopeFilter from "../../components/ScopeFilter";
 import ContextInspector from "./ContextInspector";
+import AgentPanel from "./AgentPanel";
 import EvidenceTelemetry from "./EvidenceTelemetry";
+import MessageList, { type ListMessage } from "../conversation/MessageList";
+import RichMessage from "../conversation/RichMessage";
+import { applyStepEvent, type RunStep } from "../conversation/steps";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Link,
@@ -25,13 +29,6 @@ import {
   type ReactFlowInstance,
   type Edge,
 } from "@xyflow/react";
-import {
-  AssistantRuntimeProvider,
-  useExternalStoreRuntime,
-  ThreadPrimitive,
-  MessagePrimitive,
-  type ThreadMessageLike,
-} from "@assistant-ui/react";
 import {
   Activity,
   ArrowLeft,
@@ -82,6 +79,7 @@ import {
   previewInvestigation,
   previewChart,
   makePreview,
+  previewSteps,
   type CanvasInvestigation,
   type CanvasBranch,
   type CanvasEvidence,
@@ -128,6 +126,8 @@ type BranchData = Record<string, unknown> & {
   onSend: () => void;
   onFork: () => void;
   onMerge: () => void;
+  preview: boolean;
+  onCite: (evidenceId: string) => void;
 };
 // Serial writes prevent a slower old layout save from overwriting a newer draft.
 const layoutWrites = new Map<string, Promise<unknown>>();
@@ -225,6 +225,25 @@ function CardTools({
     </div>
   );
 }
+// Canvas cards share the chat renderer: markdown, step summary, citations.
+function NodeMessage({ data, message }: { data: BranchData; message: ChatMessage }) {
+  const citations = (message.evidence_ids ?? []).flatMap((eid) => {
+    const e = data.evidence.find((v) => v.id === eid);
+    return e ? [{ id: e.id, title: e.title }] : [];
+  });
+  return (
+    <RichMessage
+      compact
+      role={message.role === "user" ? "user" : "assistant"}
+      content={message.content}
+      runId={message.run_id}
+      steps={data.preview ? previewSteps[message.id] : undefined}
+      live={!data.preview}
+      citations={citations}
+      onCite={data.onCite}
+    />
+  );
+}
 function BranchCard({ data }: NodeProps<Node<BranchData>>) {
   const { branch, evidence, active, display, busy } = data;
   const last = branch.messages.filter((m) => m.role === "assistant").at(-1);
@@ -271,11 +290,18 @@ function BranchCard({ data }: NodeProps<Node<BranchData>>) {
           </div>
           {display === "expanded" && (
             <>
-              <p className="inv-node-summary">
-                {last?.content ||
-                  branch.messages.at(-1)?.content ||
-                  "开始对话，让 AI 收集证据并建立调查分支。"}
-              </p>
+              {last || branch.messages.length ? (
+                <div className="inv-node-summary nodrag nowheel">
+                  <NodeMessage
+                    data={data}
+                    message={last || branch.messages.at(-1)!}
+                  />
+                </div>
+              ) : (
+                <p className="inv-node-summary">
+                  开始对话，让 AI 收集证据并建立调查分支。
+                </p>
+              )}
               <button
                 className="inv-evidence-link nodrag"
                 onClick={data.onSelect}
@@ -293,7 +319,7 @@ function BranchCard({ data }: NodeProps<Node<BranchData>>) {
                         <div>
                           <b>{m.role === "user" ? "你" : "AI"}</b>
                           <small>{shortTime(m.created_at)}</small>
-                          <p>{m.content}</p>
+                          <NodeMessage data={data} message={m} />
                         </div>
                       </div>
                     ))}
@@ -482,69 +508,6 @@ function MetricChart({ kind }: { kind: "errors" | "wait" }) {
     </div>
   );
 }
-function AssistantMessage() {
-  return (
-    <MessagePrimitive.Root className="inv-chat-message inv-chat-assistant">
-      <span className="inv-avatar">A³</span>
-      <div>
-        <b>AI</b>
-        <MessagePrimitive.Parts />
-      </div>
-    </MessagePrimitive.Root>
-  );
-}
-function UserMessage() {
-  return (
-    <MessagePrimitive.Root className="inv-chat-message">
-      <span className="inv-avatar">
-        <User size={19} />
-      </span>
-      <div>
-        <b>你</b>
-        <MessagePrimitive.Parts />
-      </div>
-    </MessagePrimitive.Root>
-  );
-}
-function ChatHistory({
-  messages,
-  running,
-  onSend,
-}: {
-  messages: ChatMessage[];
-  running: boolean;
-  onSend: (text: string) => Promise<void>;
-}) {
-  const runtime = useExternalStoreRuntime({
-    messages,
-    isRunning: running,
-    convertMessage: (m: ChatMessage): ThreadMessageLike => ({
-      id: m.id,
-      role: m.role === "user" ? "user" : "assistant",
-      content: [{ type: "text", text: m.content }],
-      createdAt: new Date(m.created_at),
-    }),
-    onNew: async (m) => {
-      const text = m.content
-        .filter((p) => p.type === "text")
-        .map((p) => ("text" in p ? p.text : ""))
-        .join("\n");
-      await onSend(text);
-    },
-  });
-  return (
-    <AssistantRuntimeProvider runtime={runtime}>
-      <ThreadPrimitive.Root>
-        <ThreadPrimitive.Viewport className="inv-chat-history">
-          <ThreadPrimitive.Messages
-            components={{ UserMessage, AssistantMessage }}
-          />
-        </ThreadPrimitive.Viewport>
-      </ThreadPrimitive.Root>
-    </AssistantRuntimeProvider>
-  );
-}
-
 export default function InvestigationPage() {
   return (
     <ReactFlowProvider>
@@ -638,6 +601,20 @@ function InvestigationWorkspace() {
   const [historyError, setHistoryError] = useState("");
   const [evidenceSearch, setEvidenceSearch] = useState("");
   const [evidenceHidden, setEvidenceHidden] = useState<string[]>([]);
+  const [focusedEvidence, setFocusedEvidence] = useState("");
+  useEffect(() => {
+    if (!focusedEvidence || sideTab !== "evidence") return;
+    const frame = requestAnimationFrame(() =>
+      document
+        .getElementById(`evidence-${focusedEvidence}`)
+        ?.scrollIntoView({ block: "nearest", behavior: "smooth" }),
+    );
+    const timer = window.setTimeout(() => setFocusedEvidence(""), 2400);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [focusedEvidence, sideTab]);
   const [logsVisible, setLogsVisible] = useState(true);
   const [notesCollapsed, setNotesCollapsed] = useState(true);
   const [contextCollapsed, setContextCollapsed] = useState(true);
@@ -820,6 +797,10 @@ function InvestigationWorkspace() {
         };
         if (evt.seq <= eventSeq.current) return;
         eventSeq.current = evt.seq;
+        if (evt.type === "attempt.step") {
+          applyStepEvent(qc, evt.payload as unknown as RunStep);
+          return;
+        }
         if (evt.type === "attempt.delta" && evt.branch_id) {
           const bid = evt.branch_id;
           setStream((prev) => ({
@@ -1118,6 +1099,11 @@ function InvestigationWorkspace() {
               void send(b.id, layoutRef.current.drafts?.[b.id] || ""),
             onFork: () => openFork(b.id),
             onMerge: () => openMerge(b.id),
+            preview,
+            onCite: (eid: string) => {
+              selectBranch(b.id);
+              openEvidence(eid);
+            },
           },
         };
       });
@@ -1265,7 +1251,28 @@ function InvestigationWorkspace() {
       }}
     />
   );
-  const displayMessages = branch
+  const evidenceById = new Map((inv?.evidence ?? []).map((e) => [e.id, e]));
+  const citationsFor = (m: ListMessage) =>
+    (m.evidence_ids ?? []).flatMap((eid) => {
+      const e = evidenceById.get(eid);
+      return e ? [{ id: e.id, title: e.title, kind: e.kind }] : [];
+    });
+  // Citations jump to the evidence tab and flash the cited item.
+  const openEvidence = (eid: string) => {
+    setSideTab("evidence");
+    setSidebar(true);
+    setFocusedEvidence(eid);
+  };
+  const renderEvidence = (eid: string) => {
+    const e = evidenceById.get(eid);
+    if (!e) return null;
+    return preview && e.kind === "metrics" ? (
+      <MetricChart kind="wait" />
+    ) : (
+      <EvidenceTelemetry kind={e.kind} content={e.content} />
+    );
+  };
+  const displayMessages: ListMessage[] = branch
     ? [
         ...(branch.messages || []),
         ...(stream[branch.id]?.text && branchBusy
@@ -1275,6 +1282,8 @@ function InvestigationWorkspace() {
                 role: "assistant",
                 content: stream[branch.id].text,
                 created_at: new Date().toISOString(),
+                run_id: stream[branch.id].run,
+                streaming: true,
               },
             ]
           : []),
@@ -1720,6 +1729,12 @@ function InvestigationWorkspace() {
                     >
                       上下文
                     </button>
+                    <button
+                      className={sideTab === "agent" ? "active" : ""}
+                      onClick={() => setSideTab("agent")}
+                    >
+                      Agent
+                    </button>
                   </nav>
                   <div className="inv-side-body">
                     {sideTab === "chat" ? (
@@ -1746,11 +1761,17 @@ function InvestigationWorkspace() {
                             </button>
                           )}
                         </div>
-                        <ChatHistory
+                        <MessageList
                           key={branch.id}
+                          className="inv-chat-history"
                           messages={displayMessages}
-                          running={branchBusy}
-                          onSend={(text) => send(branch.id, text)}
+                          live={!preview}
+                          stepsFor={(m) =>
+                            preview ? previewSteps[m.id] : undefined
+                          }
+                          citationsFor={citationsFor}
+                          onCite={openEvidence}
+                          renderEvidence={renderEvidence}
                         />
                         {!displayMessages.length && (
                           <div className="inv-chat-empty">
@@ -1759,12 +1780,34 @@ function InvestigationWorkspace() {
                           </div>
                         )}
                       </>
+                    ) : sideTab === "agent" ? (
+                      <AgentPanel
+                        key={branch.id}
+                        branch={branch}
+                        runs={(inv.runs ?? []).filter(
+                          (r) => r.branch_id === branch.id,
+                        )}
+                        preview={preview}
+                        previewSteps={
+                          branch.id === "database"
+                            ? previewSteps["m-db4"]
+                            : undefined
+                        }
+                        renderEvidence={renderEvidence}
+                      />
                     ) : sideTab === "evidence" ? (
                       <div className="inv-evidence-list">
                         {inv.evidence
                           .filter((e) => e.branch_id === branch.id)
                           .map((e) => (
-                            <details key={e.id} open>
+                            <details
+                              key={e.id}
+                              id={`evidence-${e.id}`}
+                              className={
+                                focusedEvidence === e.id ? "is-focused" : ""
+                              }
+                              open
+                            >
                               <summary>{e.title}</summary>
                               <small>
                                 {e.source} · {shortTime(e.created_at)}

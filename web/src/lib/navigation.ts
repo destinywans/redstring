@@ -1,14 +1,9 @@
 import {
   Home,
-  GitBranch,
   Box,
-  Server,
   Activity,
-  Bell,
   Bot,
   BookOpen,
-  ScrollText,
-  Plug,
   Settings,
   type IconComponent,
 } from "./icons";
@@ -33,19 +28,21 @@ export const navigation: NavigationSection[] = [
   },
   {
     id: "agents",
-    label: "Agent",
+    label: "调查",
     icon: Bot,
     children: [
       { to: "/investigations", label: "会话与画布" },
+      { to: "/actions", label: "待审批操作" },
+      { to: "/recovery", label: "恢复验证" },
       { to: "/memory", label: "记忆与上下文" },
       { to: "/ai-extensions/skills", label: "Skills" },
       { to: "/ai-extensions/prompts", label: "Prompt 模板" },
-      { to: "/settings", label: "自动化任务", admin: true },
+      { to: "/automation", label: "自动化任务", admin: true },
     ],
   },
   {
     id: "applications",
-    label: "资源中心",
+    label: "应用与资源",
     icon: Box,
     children: [
       { to: "/applications", label: "全部应用" },
@@ -54,75 +51,38 @@ export const navigation: NavigationSection[] = [
     ],
   },
   {
-    id: "delivery",
-    label: "交付中心",
-    icon: GitBranch,
-    direct: true,
-    children: [{ to: "/delivery", label: "交付中心" }],
-  },
-  {
-    id: "infrastructure",
-    label: "基础设施",
-    icon: Server,
-    children: [
-      ["summary", "资源总览"],
-      ["clusters", "集群"],
-      ["nodes", "节点"],
-      ["workloads", "工作负载"],
-      ["namespaces", "命名空间"],
-      ["hosts", "主机与虚拟机"],
-      ["network", "网络"],
-      ["storage", "存储"],
-      ["middleware", "中间件与数据库"],
-    ].map(([view, label]) => ({ to: `/infrastructure?view=${view}`, label })),
-  },
-  {
     id: "observability",
-    label: "可观测性",
+    label: "观测与告警",
     icon: Activity,
     children: [
+      { to: "/incidents", label: "事件中心" },
+      { to: "/alerts", label: "告警列表" },
+      { to: "/infrastructure", label: "基础设施" },
       { to: "/observability/metrics", label: "指标监控" },
       { to: "/observability/logs", label: "日志检索" },
       { to: "/observability/traces", label: "链路追踪" },
       { to: "/observability/topology", label: "调用拓扑" },
-    ],
-  },
-  {
-    id: "incidents",
-    label: "告警与事件",
-    icon: Bell,
-    children: [
-      { to: "/incidents", label: "事件中心" },
-      { to: "/alerts", label: "告警列表" },
       { to: "/alerts/sources", label: "告警来源" },
     ],
   },
   {
     id: "knowledge",
-    label: "知识库",
+    label: "知识与集成",
     icon: BookOpen,
-    children: [{ to: "/knowledge", label: "Runbook" }],
-  },
-  {
-    id: "integrations",
-    label: "集成中心",
-    icon: Plug,
     children: [
-      { to: "/integrations?tab=tools", label: "连接器" },
-      { to: "/ai-extensions/mcp", label: "MCP 服务" },
-      { to: "/integrations?tab=models", label: "模型服务" },
-      { to: "/integrations?tab=knowledge", label: "Embedding 与检索" },
+      { to: "/knowledge", label: "Runbook" },
+      { to: "/integrations", label: "集成中心" },
     ],
   },
-  {
-    id: "audit",
-    label: "审计日志",
-    icon: ScrollText,
-    admin: true,
-    direct: true,
-    children: [{ to: "/audit", label: "审计日志" }],
-  },
 ];
+
+/** Integration center tabs; `mcp` is rendered by the AI extensions page. */
+export const integrationTabs = [
+  { id: "tools", to: "/integrations/tools", label: "连接器" },
+  { id: "mcp", to: "/integrations/mcp", label: "MCP 服务" },
+  { id: "models", to: "/integrations/models", label: "模型服务" },
+  { id: "knowledge", to: "/integrations/knowledge", label: "Embedding 与检索" },
+] as const;
 
 export const settingsNavigation: NavigationSection = {
   id: "account-settings",
@@ -135,8 +95,26 @@ export const settingsNavigation: NavigationSection = {
     { to: "/teams", label: "部门管理", admin: true },
     { to: "/platform/roles", label: "角色管理", admin: true },
     { to: "/platform/permissions", label: "权限管理", admin: true },
+    { to: "/audit", label: "审计日志", admin: true },
   ],
 };
+
+/**
+ * Old URLs kept working after the navigation regrouping. Query strings
+ * (preview, environment scope, filters) are carried over by the redirect.
+ */
+export const legacyRedirects: {
+  from: string;
+  to: string | ((params: URLSearchParams) => string);
+}[] = [
+  { from: "/settings", to: "/automation" },
+  { from: "/ai-extensions/mcp", to: "/integrations/mcp" },
+  {
+    from: "/integrations",
+    to: (params) =>
+      `/integrations/${integrationTabs.find((t) => t.id === params.get("tab"))?.id ?? "tools"}`,
+  },
+];
 
 export function isNavigationCurrent(
   to: string,
@@ -151,18 +129,17 @@ export function isNavigationCurrent(
     return !target.searchParams.has("view");
   if (
     target.pathname === "/investigations" &&
-    (pathname.startsWith("/investigations/") ||
-      pathname === "/actions" ||
-      pathname === "/recovery")
+    pathname.startsWith("/investigations/")
   )
     return true;
-  if (target.pathname === "/delivery" && pathname.startsWith("/delivery/"))
+  if (
+    target.pathname === "/integrations" &&
+    pathname.startsWith("/integrations/")
+  )
     return true;
   if (target.pathname !== pathname) return false;
   const params = new URLSearchParams(search);
   return Array.from(target.searchParams).every(
-    ([key, value]) =>
-      (params.get(key) ??
-        (key === "view" ? "summary" : key === "tab" ? "tools" : "")) === value,
+    ([key, value]) => params.get(key) === value,
   );
 }

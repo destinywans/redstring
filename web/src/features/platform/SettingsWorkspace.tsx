@@ -7,6 +7,7 @@ import {
   Info,
   LayoutGrid,
   Moon,
+  ScrollText,
   ShieldCheck,
   Sun,
   Users,
@@ -40,6 +41,7 @@ const Permissions = lazy(() =>
     default: module.PermissionsSettingsPage,
   })),
 );
+const Governance = lazy(() => import("../members/GovernancePage"));
 const destinations = [
   { to: "/profile", label: "个人资料", icon: User },
   { to: "/platform/settings", label: "平台概览", icon: LayoutGrid },
@@ -47,6 +49,7 @@ const destinations = [
   { to: "/teams", label: "部门管理", icon: Building2 },
   { to: "/platform/roles", label: "角色管理", icon: ShieldCheck },
   { to: "/platform/permissions", label: "权限管理", icon: ShieldCheck },
+  { to: "/audit", label: "审计日志", icon: ScrollText },
 ];
 
 export default function SettingsWorkspace({
@@ -170,6 +173,7 @@ export default function SettingsWorkspace({
                 <Route path="/teams" element={<Teams />} />
                 <Route path="/platform/roles" element={<Roles />} />
                 <Route path="/platform/permissions" element={<Permissions />} />
+                <Route path="/audit" element={<Governance tab="audit" />} />
               </Routes>
             </Suspense>
           )}

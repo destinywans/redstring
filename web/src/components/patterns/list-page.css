@@ -113,3 +113,35 @@
     font-size: 20px;
   }
 }
+
+.ui-route-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+.ui-route-tabs a,
+.ui-route-tabs button {
+  flex: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  margin-bottom: -1px;
+  padding: 8px 12px;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-size: var(--type-small);
+  text-decoration: none;
+  transition: color var(--interaction-duration), border-color var(--interaction-duration);
+}
+.ui-route-tabs a:hover,
+.ui-route-tabs button:hover {
+  color: var(--text);
+}
+.ui-route-tabs a.active,
+.ui-route-tabs button.active {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+  font-weight: var(--weight-medium);
+}

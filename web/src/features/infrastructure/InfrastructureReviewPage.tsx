@@ -683,7 +683,7 @@ function InfrastructureListPage() {
           ? "示例数据不代表实际健康状态。"
           : "状态来自最近成功采集；失联与过期单独标记，未采集指标显示 —。"}
         <Link
-          to={`/infrastructure?view=${encodeURIComponent(view)}&mode=live&environment_scope=${encodeURIComponent(scope.key || "all")}`}
+          to={`/infrastructure?view=${encodeURIComponent(view)}&environment_scope=${encodeURIComponent(scope.key || "all")}`}
         >
           打开现有实时查询
         </Link>

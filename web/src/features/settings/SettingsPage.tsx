@@ -1,7 +1,9 @@
 import { PageHeader } from "../../components/patterns/ListPage";
+import { RouteTabs } from "../../components/patterns/RouteTabs";
+import { integrationTabs } from "../../lib/navigation";
 import Pagination, { useListPagination } from "../../components/Pagination";
 import SelectField from "../../components/SelectField";
-import { useSearchParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -176,9 +178,9 @@ export default function SettingsPage() {
   const { preview, models, user, application, investigationId, notify } =
     useWorkspace();
   const qc = useQueryClient();
-  const [params] = useSearchParams();
-  const tab = ["models", "knowledge", "tools"].includes(params.get("tab") ?? "")
-    ? params.get("tab")!
+  const requestedTab = useParams().tab ?? "";
+  const tab = ["models", "knowledge", "tools"].includes(requestedTab)
+    ? requestedTab
     : "tools";
   const [chosenProvider, setProvider] = useState<
     "openai" | "claude" | "ollama" | null
@@ -266,11 +268,12 @@ export default function SettingsPage() {
   return (
     <div className="settings-page">
       <PageHeader
-        title="模型与集成"
+        title="集成中心"
         actions={
           preview && <span className="badge">演示配置 · 未验证真实连接</span>
         }
       />
+      <RouteTabs label="集成类型" tabs={integrationTabs} />
       {integrations.isError && (
         <div className="settings-notice settings-error" role="alert">
           <Info size={17} />

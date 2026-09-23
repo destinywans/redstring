@@ -54,6 +54,7 @@ const destinations = [
   ["storage", "存储"],
   ["middleware", "中间件与数据库"],
 ] as const;
+const legacyViews = new Set<string>(["pods", "events"]);
 const laterDescriptions: Record<string, string> = {
   clusters:
     "集群目录和集群容量需要独立的资源查询接口。当前连接器登记标识不能代替集群标识。",
@@ -163,6 +164,20 @@ export default function InfrastructurePage() {
           </Link>
         }
       />
+      <div className="ui-route-tabs" role="group" aria-label="基础设施视图">
+        {destinations
+          .filter(([id]) => !legacyViews.has(id) || id === view)
+          .map(([id, label]) => (
+            <button
+              key={id}
+              aria-pressed={view === id}
+              className={view === id ? "active" : ""}
+              onClick={() => selectView(id)}
+            >
+              {label}
+            </button>
+          ))}
+      </div>
       <ScopeFilter />
       {view === "summary" && (
         <>

@@ -47,13 +47,13 @@ const integrationKinds: Record<
   string,
   { label: string; icon: IconComponent; to: string }
 > = {
-  model: { label: "模型服务", icon: Bot, to: "/integrations?tab=models" },
-  mcp: { label: "MCP 服务", icon: ShieldCheck, to: "/ai-extensions/mcp" },
-  connector: { label: "连接器", icon: Plug, to: "/integrations?tab=tools" },
+  model: { label: "模型服务", icon: Bot, to: "/integrations/models" },
+  mcp: { label: "MCP 服务", icon: ShieldCheck, to: "/integrations/mcp" },
+  connector: { label: "连接器", icon: Plug, to: "/integrations/tools" },
   embedding: {
     label: "Embedding 与检索",
     icon: Database,
-    to: "/integrations?tab=knowledge",
+    to: "/integrations/knowledge",
   },
 };
 function date(value: string, timezone: string) {

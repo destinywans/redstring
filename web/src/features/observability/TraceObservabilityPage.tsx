@@ -685,7 +685,7 @@ export default function TraceObservabilityPage({
         <div className="card observation-empty">
           <h2>当前范围尚未接入链路数据</h2>
           <p>选择已接入的应用或环境，或在连接器中配置链路来源。</p>
-          <Link className="btn" to="/integrations?tab=tools">
+          <Link className="btn" to="/integrations/tools">
             查看连接器
           </Link>
         </div>

@@ -1,4 +1,6 @@
 import { matchesSearch } from "../../lib/search";
+import { RouteTabs } from "../../components/patterns/RouteTabs";
+import { integrationTabs } from "../../lib/navigation";
 import { PageHeader } from "../../components/patterns/ListPage";
 import { Sheet } from "../../components/ui/sheet";
 import Pagination, { useListPagination } from "../../components/Pagination";
@@ -104,13 +106,16 @@ export default function ExtensionsPage() {
   return (
     <div className="page extensions-page">
       <PageHeader
-        title={labels[kind]}
+        title={kind === "mcp" ? "集成中心" : labels[kind]}
         description={
           kind === "mcp"
             ? "登记受限只读工具，将外部观测带入调查。"
             : "把经过维护的调查方法与问题模板，带入每一轮对话。"
         }
       />
+      {kind === "mcp" && (
+        <RouteTabs label="集成类型" tabs={integrationTabs} />
+      )}
       {kind === "mcp" && (
         <div className="extensions-scope">
           <FilterBar label="MCP 适用应用">

@@ -3,6 +3,7 @@ import { useEffect, useState, useRef, lazy, Suspense } from "react";
 import type { FormEvent } from "react";
 import {
   NavLink,
+  Navigate,
   Route,
   Routes,
   useLocation,
@@ -48,6 +49,7 @@ import { useTheme } from "./lib/theme";
 import {
   navigation,
   settingsNavigation,
+  legacyRedirects,
   isNavigationCurrent,
 } from "./lib/navigation";
 import { Modal, ErrorNotice } from "./components/ui";
@@ -79,7 +81,6 @@ const InvestigationPage = lazy(
 const KnowledgePage = lazy(() => import("./features/knowledge/KnowledgePage"));
 const SettingsPage = lazy(() => import("./features/settings/SettingsPage"));
 
-const GovernancePage = lazy(() => import("./features/members/GovernancePage"));
 const ApprovalPage = lazy(() => import("./features/actions/ApprovalPage"));
 const RecoveryPage = lazy(() => import("./features/actions/RecoveryPage"));
 const ObservabilityPage = lazy(
@@ -94,12 +95,22 @@ const InfrastructurePage = lazy(
 const InfrastructureReviewPage = lazy(
   () => import("./features/infrastructure/InfrastructureReviewPage"),
 );
-function InfrastructureRoute() {
+function LegacyRedirect({
+  to,
+}: {
+  to: string | ((params: URLSearchParams) => string);
+}) {
   const location = useLocation();
-  return new URLSearchParams(location.search).get("mode") === "live" ? (
-    <InfrastructurePage />
-  ) : (
-    <InfrastructureReviewPage />
+  const params = new URLSearchParams(location.search);
+  const pathname = typeof to === "string" ? to : to(params);
+  params.delete("tab");
+  params.delete("mode");
+  const search = params.toString();
+  return (
+    <Navigate
+      replace
+      to={{ pathname, search: search ? `?${search}` : "", hash: location.hash }}
+    />
   );
 }
 const PlatformPage = lazy(() => import("./features/platform/PlatformPage"));
@@ -251,13 +262,14 @@ export default function App() {
     return () => query.removeEventListener("change", sync);
   }, []);
   useEffect(() => {
+    // The canvas keeps its section collapsed; other investigation pages expand it.
     if (
       currentSection &&
-      currentSection.id !== "agents" &&
-      !currentSection.direct
+      !currentSection.direct &&
+      !location.pathname.startsWith("/investigations")
     )
       setExpanded((value) => ({ ...value, [currentSection.id]: true }));
-  }, [currentSection?.id]);
+  }, [currentSection?.id, location.pathname]);
   useEffect(() => {
     setMenuOpen(false);
     document.title = `${currentDestination?.label ?? "工作区"} · AIOps Canvas`;
@@ -647,7 +659,11 @@ export default function App() {
                   />
                   <Route
                     path="/infrastructure"
-                    element={<InfrastructureRoute />}
+                    element={<InfrastructurePage />}
+                  />
+                  <Route
+                    path="/design-review/infrastructure"
+                    element={<InfrastructureReviewPage />}
                   />
                   <Route
                     path="/observability/metrics"
@@ -677,15 +693,25 @@ export default function App() {
                   <Route path="/memory" element={<MemoryPage />} />
                   <Route path="/delivery/*" element={<DeliveryPausedPage />} />
                   <Route path="/knowledge" element={<KnowledgePage />} />
-                  <Route path="/integrations" element={<SettingsPage />} />
                   <Route
-                    path="/audit"
-                    element={<GovernancePage tab="audit" />}
+                    path="/integrations/mcp"
+                    element={<ExtensionsPage />}
                   />
                   <Route
-                    path="/settings"
+                    path="/integrations/:tab"
+                    element={<SettingsPage />}
+                  />
+                  <Route
+                    path="/automation"
                     element={<PlatformPage tab="automation" />}
                   />
+                  {legacyRedirects.map((redirect) => (
+                    <Route
+                      key={redirect.from}
+                      path={redirect.from}
+                      element={<LegacyRedirect to={redirect.to} />}
+                    />
+                  ))}
                   <Route path="/actions" element={<ApprovalPage />} />
                   <Route path="/recovery" element={<RecoveryPage />} />
                   <Route

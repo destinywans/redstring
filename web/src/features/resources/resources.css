@@ -205,10 +205,6 @@
   line-height: var(--leading-ui);
   white-space: nowrap;
 }
-.resource-source.is-mock {
-  color: var(--accent);
-  background: var(--accent-soft);
-}
 .resource-time {
   font-variant-numeric: tabular-nums;
   color: var(--muted);

@@ -1,3 +1,4 @@
+import { StatusBadge } from "../../components/ui/status-badge";
 import { PageHeader } from "../../components/patterns/ListPage";
 import { RouteTabs } from "../../components/patterns/RouteTabs";
 import { integrationTabs } from "../../lib/navigation";
@@ -270,7 +271,9 @@ export default function SettingsPage() {
       <PageHeader
         title="集成中心"
         actions={
-          preview && <span className="badge">演示配置 · 未验证真实连接</span>
+          preview && (
+            <StatusBadge trust="sample" label="演示配置 · 未验证真实连接" />
+          )
         }
       />
       <RouteTabs label="集成类型" tabs={integrationTabs} />

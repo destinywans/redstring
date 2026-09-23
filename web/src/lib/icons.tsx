@@ -84,3 +84,5 @@ export { RocketLaunchIcon as Rocket } from "@phosphor-icons/react/dist/csr/Rocke
 export { CaretLeftIcon as ChevronLeft } from "@phosphor-icons/react/dist/csr/CaretLeft";
 export { SlidersHorizontalIcon as SlidersHorizontal } from "@phosphor-icons/react/dist/csr/SlidersHorizontal";
 export type { Icon as IconComponent } from "@phosphor-icons/react";
+export { QuestionIcon as CircleHelp } from "@phosphor-icons/react/dist/csr/Question";
+export { CircleDashedIcon as CircleDashed } from "@phosphor-icons/react/dist/csr/CircleDashed";

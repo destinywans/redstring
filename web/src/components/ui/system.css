@@ -577,3 +577,39 @@ textarea.field {
   padding: 0;
   overflow: hidden;
 }
+
+.ui-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  font-size: var(--type-caption);
+  line-height: 1.6;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.ui-status-badge.is-live {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 10%, var(--panel));
+}
+.ui-status-badge.is-sample {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  border-style: dashed;
+}
+.ui-status-badge.is-unverified {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, var(--panel));
+}
+.ui-status-badge.is-unknown {
+  color: var(--muted);
+  background: var(--panel-soft);
+  border-color: var(--border);
+}
+.ui-status-badge.is-error {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, var(--panel));
+}

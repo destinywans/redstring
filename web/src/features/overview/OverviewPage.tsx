@@ -1,3 +1,4 @@
+import { StatusBadge } from "../../components/ui/status-badge";
 import SelectField from "../../components/SelectField";
 import ScopeFilter from "../../components/ScopeFilter";
 import { useState, useEffect, useRef } from "react";
@@ -751,7 +752,7 @@ export default function OverviewPage() {
         description="只读取当前应用已登记的数据源。"
       >
         {preview ? (
-          <p className="badge">设计示例 · 不连接外部系统</p>
+          <StatusBadge trust="sample" label="设计示例 · 不连接外部系统" />
         ) : telemetry.error ? (
           <ErrorNotice error={telemetry.error} />
         ) : (

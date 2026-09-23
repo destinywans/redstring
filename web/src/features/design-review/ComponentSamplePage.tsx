@@ -5,6 +5,7 @@ import { Button } from "../../components/ui/button";
 import { Input, Textarea } from "../../components/ui/input";
 import { Select } from "../../components/ui/select";
 import { Sheet } from "../../components/ui/sheet";
+import { StatusBadge } from "../../components/ui/status-badge";
 import {
   FilterGroup,
   FilterPicker,
@@ -88,6 +89,26 @@ export default function ComponentSamplePage() {
         </div>
         <span className="component-sample-demo-label">仅本页预览</span>
       </header>
+
+      <section
+        className="component-sample-card"
+        aria-label="数据可信度样板"
+        style={{ marginBottom: 20 }}
+      >
+        <div className="component-sample-section-heading">
+          <div>
+            <h2>数据可信度</h2>
+            <p>凡是可能混入示例或过期数据的位置，都用同一组标识说明来源。</p>
+          </div>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {(["live", "sample", "unverified", "unknown", "error"] as const).map(
+            (trust) => (
+              <StatusBadge key={trust} trust={trust} />
+            ),
+          )}
+        </div>
+      </section>
 
       <section
         className="component-sample-card"

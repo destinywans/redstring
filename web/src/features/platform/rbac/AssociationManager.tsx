@@ -1,3 +1,4 @@
+import { StatusBadge } from "../../../components/ui/status-badge";
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Pagination from "../../../components/Pagination";
@@ -333,7 +334,10 @@ function RoleAssociationManager({
                         <td>
                           <strong>{row.name}</strong>
                           {row.is_mock && (
-                            <span className="rbac-mock-label">Mock</span>
+                            <StatusBadge
+                              trust="sample"
+                              className="rbac-mock-label"
+                            />
                           )}
                           {tab !== "permissions" && (
                             <small className="rbac-id">{row.id}</small>

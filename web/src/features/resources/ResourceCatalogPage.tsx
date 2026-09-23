@@ -1,3 +1,4 @@
+import { StatusBadge } from "../../components/ui/status-badge";
 import { PageHeader } from "../../components/patterns/ListPage";
 import Pagination from "../../components/Pagination";
 import { useEffect, useState } from "react";
@@ -241,11 +242,13 @@ export default function ResourceCatalogPage() {
                         <small>{resource.team_name || "部门待指定"}</small>
                       </td>
                       <td>
-                        <span
-                          className={`resource-source${resource.is_mock ? " is-mock" : ""}`}
-                        >
-                          {sourceLabel(resource.source_kind)}
-                        </span>
+                        {resource.is_mock ? (
+                          <StatusBadge trust="sample" />
+                        ) : (
+                          <span className="resource-source">
+                            {sourceLabel(resource.source_kind)}
+                          </span>
+                        )}
                       </td>
                       <td className="resource-time">
                         {resourceTime(resource.updated_at)}

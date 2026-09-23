@@ -1,3 +1,4 @@
+import { StatusBadge } from "../../components/ui/status-badge";
 import { matchesSearch } from "../../lib/search";
 import { PageHeader } from "../../components/patterns/ListPage";
 import { Sheet } from "../../components/ui/sheet";
@@ -392,7 +393,9 @@ export default function KnowledgePage() {
       <PageHeader
         title="Runbook"
         description="沉淀运维经验，支持 AIOps 的分析与决策"
-        actions={preview ? <span className="badge">演示资料</span> : undefined}
+        actions={
+          preview ? <StatusBadge trust="sample" label="演示资料" /> : undefined
+        }
       />
       <ScopeFilter single />
       <div

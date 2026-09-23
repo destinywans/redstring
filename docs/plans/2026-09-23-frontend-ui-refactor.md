@@ -9,14 +9,19 @@
 - [x] 从该提交新建分支 `codex/frontend-ui-refactor`。
 - [x] 已清理首次提交失败时残留的 `.git/index.lock` 和临时对象。
 
-## 当前阻塞：构建环境
+## 构建环境（已解决）
 
-- Claude 的云端环境和本机 Linux 沙箱都无法访问 npm registry（403 / 无网络），装不了依赖。
-- 本机 `web/node_modules` 是 macOS 版本（rolldown、lightningcss、tailwind oxide、TypeScript 7 都是 darwin-arm64 原生包），沙箱里跑不了。
-- 可选方案：
-  1. 由用户在 Mac 终端执行 `pnpm --dir web build` / `make web-dev`，把报错贴回来；Claude 负责改代码。
-  2. 为 Claude 会话开放 npm registry 出网，由 Claude 在云端构建并用 Playwright 截取 `?preview=1` 页面。
-  3. 开启电脑操控，由 Claude 在 Mac 终端直接构建。
+- 2026-09-23 在本机 macOS 会话中直接构建，`pnpm --dir web build` 可用；预览用 `.claude/launch.json` 的 `web`（`pnpm --dir web dev`，5173，未提交）+ `?preview=1`。
+- 首次构建失败原因：WAN-110 快照引用的 `observability-workspace.css` 从未落盘，已按现有 token 重建（`4f0c97b`）。
+
+## P1 完成情况（2026-09-23，均已提交未推送，构建通过，浏览器 `?preview=1` 浅/深色核对）
+
+- [x] P1-1/2/3 `116f44c`：一级导航收为 工作台 / 调查 / 应用与资源 / 观测与告警 / 知识与集成（集成中心放入第五组，未另设一组）；交付隐藏；审计进设置工作区。`/settings`→`/automation`；集成统一为 `/integrations/{tools,mcp,models,knowledge}` 共享页签；`?tab=`、`/ai-extensions/mcp` 旧链接带查询串重定向。`/infrastructure` 直接进真实页并补页内视图页签，设计稿移到 `/design-review/infrastructure`。调查分组在画布外会自动展开。
+- [x] P1-6 `f796765`：zustand toast 队列（最多 4 条、同文合并、悬停暂停、错误 10 秒）+ 常驻 `aria-live` 区域。
+- [x] P1-5 `9227242`：`components/ui/status-badge.tsx`（真实 / 示例 / 已配置未验证 / 未知 / 异常），替换资源、RBAC、知识库、集成、概览里的零散 Mock/演示标签；样板见 `/design-review/components`。
+- [x] P1-4 `c26b1cf`：调查页闭环状态条，由真实证据、action-plans、execution 推导；审批/恢复以 `?panel=approval|recovery&plan=` 右侧面板打开（`features/actions/routes.tsx` 适配独立页与嵌入）。
+
+待用户体验后决定是否继续 P2。未做：真实后端联调下的闭环条验证（仅 preview 数据核对）。
 
 ## 待做（按顺序，均只动前端）
 
@@ -50,4 +55,4 @@
 每个 P1 项完成后：前端构建通过，并在 `?preview=1` 下截图浅色 / 深色对比；不跑全仓测试，不写业务数据。
 
 ## 恢复工作时
-重启后在新会话中说「继续 docs/plans/2026-09-23-frontend-ui-refactor.md」，先确认构建方式（见上面的阻塞一节），再从 P1-1 开始。
+重启后在新会话中说「继续 docs/plans/2026-09-23-frontend-ui-refactor.md」；P1 已完成，等用户体验反馈后从 P2-7 开始。

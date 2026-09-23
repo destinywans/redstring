@@ -54,6 +54,8 @@ import {
 } from "./lib/navigation";
 import { Modal, ErrorNotice } from "./components/ui";
 import AccountMenu from "./components/AccountMenu";
+import Toaster from "./components/Toaster";
+import { useToastStore } from "./lib/toast";
 import SettingsWorkspace from "./features/platform/SettingsWorkspace";
 import EnvironmentSelector from "./components/EnvironmentSelector";
 import {
@@ -142,14 +144,12 @@ export default function App() {
   const location = useLocation(),
     navigate = useNavigate(),
     client = useQueryClient();
+  const pushToast = useToastStore((s) => s.push);
   const [preview] = useState(
     () => new URLSearchParams(window.location.search).get("preview") === "1",
   );
   const [investigationId, setInvestigationId] = useState<string | null>(() =>
     new URLSearchParams(window.location.search).get("investigation"),
-  );
-  const [toast, setToast] = useState<{ message: string; kind: string } | null>(
-    null,
   );
   const { theme, toggleTheme } = useTheme();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -245,13 +245,8 @@ export default function App() {
     message: string,
     kind: "error" | "success" | "info" = "info",
   ) {
-    setToast({ message, kind });
+    pushToast(message, kind);
   }
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 6500);
-    return () => clearTimeout(timer);
-  }, [toast]);
   useEffect(() => {
     const query = matchMedia("(max-width: 760px)");
     const sync = () => {
@@ -778,21 +773,7 @@ export default function App() {
             </a>
           </p>
         </Modal>
-        {toast && (
-          <div
-            className={`toast ${toast.kind}`}
-            role={toast.kind === "error" ? "alert" : "status"}
-          >
-            {toast.message}
-            <button
-              className="icon-button"
-              aria-label="关闭通知"
-              onClick={() => setToast(null)}
-            >
-              <X size={16} />
-            </button>
-          </div>
-        )}
+        <Toaster />
         <Modal
           open={searchOpen}
           onOpenChange={setSearchOpen}

@@ -1,5 +1,7 @@
 # 前端与 UI 改造计划及进度 · 2026-09-23
 
+> 2026-09-23：P2/P3 已被 [AI-first 纠偏基线](2026-09-23-ai-first-realignment.md) 取代，本文件仅保留 P1 记录。
+
 分支：`codex/frontend-ui-refactor`（基于 `codex/wan-110-observability-workspace@bfd0e38`）
 范围：**只改前端 `web/`，后端、迁移、OpenAPI 不动。** 目标是做出一版可体验的改造效果，用户看完再决定下一步。
 

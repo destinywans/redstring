@@ -2,7 +2,8 @@ import { PageHeader } from "../../components/patterns/ListPage";
 import SelectField from "../../components/SelectField";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { useActionRoutes } from "./routes";
 import {
   ArrowRight,
   Box,
@@ -42,7 +43,8 @@ export default function ApprovalPage() {
     setInvestigationId,
     notify,
   } = useWorkspace();
-  const [search, setSearch] = useSearchParams();
+  const routes = useActionRoutes();
+  const { params: search, setParams: setSearch } = routes;
   const navigate = useNavigate();
   const cache = useQueryClient();
   const invId = search.get("inv") || investigationId;
@@ -135,7 +137,10 @@ export default function ApprovalPage() {
       void refresh();
       if (action === "execute") {
         navigate(
-          `/recovery?plan=${encodeURIComponent((result as Execution).plan_id)}&inv=${encodeURIComponent(reviewedPlan?.investigation_id || effectiveInv || "")}`,
+          routes.recovery(
+            (result as Execution).plan_id,
+            reviewedPlan?.investigation_id || effectiveInv || "",
+          ),
         );
       } else if (action === "create") {
         setSearch({ inv: detailInvId!, plan: result.id });
@@ -176,48 +181,54 @@ export default function ApprovalPage() {
       "登记应用";
   return (
     <div className="action-page">
-      <div className="action-breadcrumb">
-        <Link to="/investigations">调查</Link>
-        <span>›</span>
-        <span>事件详情</span>
-        <span>›</span>
-        <strong>回滚审批</strong>
-      </div>
-      <PageHeader
-        title="回滚审批"
-        description={
-          preview
-            ? "checkout-api 在 14:03 发布 v2.8.1 后，5xx 从 0.2% 上升至 8.4%。初步判断与数据库连接池配置有关。"
-            : inv.data?.title || "审查准确的目标、变更与恢复条件，再批准操作。"
-        }
-        actions={
-          plan && (
-            <span
-              className={`badge action-decision ${approved ? "badge-success" : ""}`}
-            >
-              {decisionLabel[plan.decision]}
-            </span>
-          )
-        }
-      />
+      {!routes.embedded && (
+        <div className="action-breadcrumb">
+          <Link to="/investigations">调查</Link>
+          <span>›</span>
+          <span>事件详情</span>
+          <span>›</span>
+          <strong>回滚审批</strong>
+        </div>
+      )}
+      {!routes.embedded && (
+        <PageHeader
+          title="回滚审批"
+          description={
+            preview
+              ? "checkout-api 在 14:03 发布 v2.8.1 后，5xx 从 0.2% 上升至 8.4%。初步判断与数据库连接池配置有关。"
+              : inv.data?.title || "审查准确的目标、变更与恢复条件，再批准操作。"
+          }
+          actions={
+            plan && (
+              <span
+                className={`badge action-decision ${approved ? "badge-success" : ""}`}
+              >
+                {decisionLabel[plan.decision]}
+              </span>
+            )
+          }
+        />
+      )}
       {!preview && (
         <div className="action-selector card">
-          <label>
-            关联调查
-            <SelectField
-              className="field"
-              value={detailInvId || ""}
-              onChange={(e) => chooseInvestigation(e.target.value)}
-            >
-              <option value="">选择调查</option>
-              {(investigations.data?.items || []).map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.title}
-                  {item.status === "closed" ? " · 已关闭" : ""}
-                </option>
-              ))}
-            </SelectField>
-          </label>
+          {!routes.embedded && (
+            <label>
+              关联调查
+              <SelectField
+                className="field"
+                value={detailInvId || ""}
+                onChange={(e) => chooseInvestigation(e.target.value)}
+              >
+                <option value="">选择调查</option>
+                {(investigations.data?.items || []).map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.title}
+                    {item.status === "closed" ? " · 已关闭" : ""}
+                  </option>
+                ))}
+              </SelectField>
+            </label>
+          )}
           {!!plans.data?.items?.length && (
             <label>
               操作提案
@@ -517,14 +528,7 @@ export default function ApprovalPage() {
               将 {name} 恢复至版本 {p!.target_revision}，验证窗口{" "}
               {p!.observation_seconds} 秒。
             </p>
-            <Link
-              className="btn"
-              to={
-                effectiveInv
-                  ? `/investigations/${encodeURIComponent(effectiveInv)}`
-                  : "/investigations"
-              }
-            >
+            <Link className="btn" to={routes.investigation(effectiveInv ?? undefined)}>
               返回调查
             </Link>
             {preview ? (
@@ -569,7 +573,7 @@ export default function ApprovalPage() {
                 {execution.data && (
                   <Link
                     className="btn btn-primary"
-                    to={`/recovery?plan=${plan.id}&inv=${effectiveInv}`}
+                    to={routes.recovery(plan.id, effectiveInv || "")}
                   >
                     查看执行
                   </Link>

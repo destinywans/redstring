@@ -90,6 +90,7 @@ import {
 } from "./preview";
 import "@xyflow/react/dist/style.css";
 import "./investigation.css";
+import InvestigationLoop from "./InvestigationLoop";
 
 type Display = "expanded" | "collapsed" | "minimal" | "hidden";
 type Placement = "canvas" | "floating" | "dock";
@@ -1392,13 +1393,25 @@ function InvestigationWorkspace() {
             新建会话
           </button>
           {inv && (
-            <Link className="btn" to={`/actions${preview ? "?preview=1" : ""}`}>
+            <Link
+              className="btn"
+              to={{
+                search: `?${new URLSearchParams({ ...Object.fromEntries(search), panel: "approval" })}`,
+              }}
+            >
               <RotateCcw size={15} />
               恢复提案
             </Link>
           )}
         </div>
       </header>
+      {inv && (
+        <InvestigationLoop
+          inv={inv}
+          preview={preview}
+          onEvidence={() => setView("evidence")}
+        />
+      )}
       {!inv && <ScopeFilter single />}
       {toolbar}
       <Modal

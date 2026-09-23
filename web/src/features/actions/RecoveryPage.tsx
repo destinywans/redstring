@@ -1,7 +1,8 @@
 import { PageHeader } from "../../components/patterns/ListPage";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link } from "react-router-dom";
+import { useActionRoutes } from "./routes";
 import {
   Check,
   CheckCircle2,
@@ -39,7 +40,8 @@ import "./actions.css";
 
 export default function RecoveryPage() {
   const { preview, user, notify } = useWorkspace();
-  const [search] = useSearchParams();
+  const routes = useActionRoutes();
+  const search = routes.params;
   const cache = useQueryClient();
   const executionID = search.get("execution");
   const directExecution = useQuery({
@@ -147,7 +149,7 @@ export default function RecoveryPage() {
   const report = reportQuery.data;
   return (
     <div className="action-page recovery-page">
-      {!preview && (
+      {!preview && !routes.embedded && (
         <PageHeader
           title="执行与恢复观测"
           actions={
@@ -180,9 +182,11 @@ export default function RecoveryPage() {
           <ShieldCheck size={32} />
           <h2>选择需要观测的执行</h2>
           <p>在回滚审批页打开现有执行，或审查并执行已批准的提案。</p>
-          <Link className="btn btn-primary" to="/actions">
-            打开回滚审批
-          </Link>
+          {!routes.embedded && (
+            <Link className="btn btn-primary" to="/actions">
+              打开回滚审批
+            </Link>
+          )}
         </div>
       ) : !plan ? (
         <div className="empty-state">
@@ -521,7 +525,7 @@ export default function RecoveryPage() {
           <div className="recovery-bottom">
             <Link
               className="card recovery-context"
-              to={`/investigations/${encodeURIComponent(plan.investigation_id)}`}
+              to={routes.investigation(plan.investigation_id)}
             >
               <Layers size={20} />
               相关上下文 <span>›</span>
@@ -537,7 +541,7 @@ export default function RecoveryPage() {
               <span className="action-divider-vertical" />
               <Link
                 className="btn"
-                to={`/actions?plan=${plan.id}&inv=${plan.investigation_id}`}
+                to={routes.approval(plan.id, plan.investigation_id)}
               >
                 回滚提案
               </Link>

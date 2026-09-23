@@ -7571,6 +7571,115 @@
         ]
       }
     },
+    "/runs/{id}/steps": {
+      "get": {
+        "summary": "List visible agent steps of a run",
+        "operationId": "get_runs_id_steps",
+        "description": "Minimum role: viewer. Model and read-only tool calls per Attempt, oldest first. Token counts are provider-reported usage and absent when not reported. Live updates arrive as attempt.step events. trace_url_template is an optional external trace UI link containing {trace_id}.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/RunStep"
+                      }
+                    },
+                    "trace_url_template": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "runs"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
     "/knowledge/templates": {
       "get": {
         "summary": "List editable Runbook templates",
@@ -21054,6 +21163,9 @@
           "model_id": {
             "type": "string"
           },
+          "run_id": {
+            "type": "string"
+          },
           "role": {
             "type": "string",
             "enum": [
@@ -25411,6 +25523,87 @@
           "facets",
           "limits",
           "warnings"
+        ]
+      },
+      "RunStep": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "attempt_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "input": {
+            "type": "string"
+          },
+          "output": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "evidence_id": {
+            "type": "string"
+          },
+          "trace_id": {
+            "type": "string"
+          },
+          "seq": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "model",
+              "tool"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "succeeded",
+              "failed"
+            ]
+          },
+          "input_tokens": {
+            "type": "integer"
+          },
+          "output_tokens": {
+            "type": "integer"
+          },
+          "tool_calls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finished_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "run_id",
+          "attempt_id",
+          "seq",
+          "kind",
+          "name",
+          "status",
+          "started_at"
         ]
       }
     },

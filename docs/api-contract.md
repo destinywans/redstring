@@ -146,3 +146,11 @@
 ## 独立设置工作区 · WAN-103
 
 平台资料和组织目录新增 `/api/v1/settings`，见 [设置契约](settings-api.md)。平台资料保存携带 revision；团队负责人必须为未删除团队成员；目录仅管理员可读。部门资料不改变应用授权，Mock 成员有数据库禁登录约束。
+
+## Agent 步骤与 Trace（AI-first 阶段 1）
+
+- `GET /runs/{id}/steps` 返回该 run 各 Attempt 的可见步骤（模型调用、只读工具调用），按开始时间排序；权限同 run 所属调查。工具步骤带输入查询、结果摘要与 `evidence_id`；模型步骤带请求的工具名与 provider 返回的 `input_tokens`/`output_tokens`（provider 未返回则缺省，不做估算）。
+- 执行中每个步骤以 `attempt.step` 事件推送两次（`running`、结束态），同 `id` 覆盖。助手消息新增 `run_id`，用于从消息找到步骤；旧消息没有该字段。
+- `trace_url_template` 来自 `AIOPS_TRACE_UI_URL`（须含 `{trace_id}`，如 Phoenix/Langfuse 的 trace 页面）；未配置为空串，前端不显示外链。
+- Trace 导出：设置 `OTEL_EXPORTER_OTLP_ENDPOINT` 或 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` 后，ADK 的 GenAI span（agent / generate_content / execute_tool）与产品 `aiops.attempt` span 经 OTLP 导出；消息正文默认不上报，需 `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=true`。OpenAI 兼容请求会带 `stream_options.include_usage`。
+- 迁移：`migrations/022_run_steps.sql`，随启动 `Migrate` 执行。

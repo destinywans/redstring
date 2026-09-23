@@ -24,11 +24,32 @@ type providerModel struct {
 	client          *http.Client
 	history         []Message
 	calls, maxCalls int
+	steps           *stepLog
 }
 
 func (p *providerModel) Name() string { return p.provider.Model }
 func (p *providerModel) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
 	return func(yield func(*model.LLMResponse, error) bool) {
+		// The model step closes when its final response arrives, before ADK runs
+		// any requested tool inside yield, so steps stay in causal order.
+		step := p.steps.start(ctx, "model", p.provider.ID, "")
+		done := false
+		finish := func(final *model.LLMResponse, failure error) {
+			if !done {
+				done = true
+				p.steps.finishModel(step, final, failure)
+			}
+		}
+		defer finish(nil, errors.New("model call ended without a response"))
+		inner := yield
+		yield = func(r *model.LLMResponse, e error) bool {
+			if e != nil {
+				finish(nil, e)
+			} else if r != nil && !r.Partial {
+				finish(r, nil)
+			}
+			return inner(r, e)
+		}
 		p.calls++
 		if p.calls > p.maxCalls {
 			yield(nil, errors.New("model call budget exhausted"))
@@ -185,7 +206,7 @@ func (p *providerModel) request(req *model.LLMRequest) (any, string, error) {
 		}
 		msgs = append(msgs, responses...)
 	}
-	b := map[string]any{"model": p.provider.Model, "messages": msgs, "stream": true, "max_tokens": 4096}
+	b := map[string]any{"model": p.provider.Model, "messages": msgs, "stream": true, "max_tokens": 4096, "stream_options": map[string]any{"include_usage": true}}
 	if len(declarations) > 0 {
 		ts := []any{}
 		for _, d := range declarations {
@@ -260,6 +281,7 @@ func parseOpenAI(r io.Reader, yield func(*model.LLMResponse, error) bool) error 
 	var text strings.Builder
 	calls := map[int]*callDelta{}
 	finish := ""
+	var usage *genai.GenerateContentResponseUsageMetadata
 	err := frames(r, func(b []byte) (bool, error) {
 		if string(b) == "[DONE]" {
 			if finish == "" {
@@ -268,7 +290,11 @@ func parseOpenAI(r io.Reader, yield func(*model.LLMResponse, error) bool) error 
 			return false, nil
 		}
 		var chunk struct {
-			Error   json.RawMessage `json:"error"`
+			Error json.RawMessage `json:"error"`
+			Usage *struct {
+				Prompt     int32 `json:"prompt_tokens"`
+				Completion int32 `json:"completion_tokens"`
+			} `json:"usage"`
 			Choices []struct {
 				Delta struct {
 					Content   string      `json:"content"`
@@ -282,6 +308,9 @@ func parseOpenAI(r io.Reader, yield func(*model.LLMResponse, error) bool) error 
 		}
 		if len(chunk.Error) > 0 && string(chunk.Error) != "null" {
 			return false, errors.New("provider returned stream error")
+		}
+		if u := chunk.Usage; u != nil {
+			usage = &genai.GenerateContentResponseUsageMetadata{PromptTokenCount: u.Prompt, CandidatesTokenCount: u.Completion, TotalTokenCount: u.Prompt + u.Completion}
 		}
 		for _, c := range chunk.Choices {
 			if c.Finish != nil {
@@ -332,14 +361,15 @@ func parseOpenAI(r io.Reader, yield func(*model.LLMResponse, error) bool) error 
 		}
 		parts = append(parts, &genai.Part{FunctionCall: &genai.FunctionCall{ID: c.ID, Name: c.Function.Name, Args: args}})
 	}
-	yield(finalResponse(parts), nil)
+	yield(finalResponse(parts, usage), nil)
 	return nil
 }
 func partial(s string) *model.LLMResponse {
 	return &model.LLMResponse{Partial: true, Content: &genai.Content{Role: "model", Parts: []*genai.Part{{Text: s}}}}
 }
-func finalResponse(parts []*genai.Part) *model.LLMResponse {
-	return &model.LLMResponse{Content: &genai.Content{Role: "model", Parts: parts}, TurnComplete: true}
+// Usage is the provider-reported token count, or nil when the provider omits it.
+func finalResponse(parts []*genai.Part, usage *genai.GenerateContentResponseUsageMetadata) *model.LLMResponse {
+	return &model.LLMResponse{Content: &genai.Content{Role: "model", Parts: parts}, TurnComplete: true, UsageMetadata: usage}
 }
 func parseClaude(r io.Reader, yield func(*model.LLMResponse, error) bool) error {
 	type block struct {
@@ -349,10 +379,20 @@ func parseClaude(r io.Reader, yield func(*model.LLMResponse, error) bool) error 
 	}
 	blocks := map[int]*block{}
 	reason := ""
+	var input, output int32
+	reported := false
 	err := frames(r, func(b []byte) (bool, error) {
+		type usage struct {
+			Input  *int32 `json:"input_tokens"`
+			Output *int32 `json:"output_tokens"`
+		}
 		var e struct {
 			Type    string `json:"type"`
 			Index   int    `json:"index"`
+			Message struct {
+				Usage usage `json:"usage"`
+			} `json:"message"`
+			Usage usage `json:"usage"`
 			Content struct {
 				Type, ID, Name, Text string
 				Input                map[string]any
@@ -370,6 +410,13 @@ func parseClaude(r io.Reader, yield func(*model.LLMResponse, error) bool) error 
 		switch e.Type {
 		case "error":
 			return false, errors.New("Claude returned stream error")
+		case "message_start":
+			if u := e.Message.Usage; u.Input != nil {
+				input, reported = *u.Input, true
+				if u.Output != nil {
+					output = *u.Output
+				}
+			}
 		case "content_block_start":
 			blocks[e.Index] = &block{Type: e.Content.Type, ID: e.Content.ID, Name: e.Content.Name, Text: e.Content.Text, Input: e.Content.Input}
 		case "content_block_delta":
@@ -387,6 +434,9 @@ func parseClaude(r io.Reader, yield func(*model.LLMResponse, error) bool) error 
 			}
 		case "message_delta":
 			reason = e.Delta.Stop
+			if e.Usage.Output != nil {
+				output, reported = *e.Usage.Output, true
+			}
 		case "message_stop":
 			return false, nil
 		}
@@ -421,6 +471,10 @@ func parseClaude(r io.Reader, yield func(*model.LLMResponse, error) bool) error 
 			parts = append(parts, &genai.Part{FunctionCall: &genai.FunctionCall{ID: b.ID, Name: b.Name, Args: b.Input}})
 		}
 	}
-	yield(finalResponse(parts), nil)
+	var usage *genai.GenerateContentResponseUsageMetadata
+	if reported {
+		usage = &genai.GenerateContentResponseUsageMetadata{PromptTokenCount: input, CandidatesTokenCount: output, TotalTokenCount: input + output}
+	}
+	yield(finalResponse(parts, usage), nil)
 	return nil
 }

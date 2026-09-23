@@ -28,6 +28,7 @@ func configureOperations(ctx context.Context, db *store.Store, api *httpapi.Serv
 	ops.Register()
 	worker.Prepare = ops.PrepareRun
 	api.ConfigureContextBudget(worker, db)
+	api.ConfigureRunSteps(db, os.Getenv("AIOPS_TRACE_UI_URL"))
 	api.RegisterPinnedEvidence(db)
 	know.AutoExperienceEnabled = func(ctx context.Context, id string) bool {
 		var env string

@@ -63,6 +63,28 @@ type Message struct {
 	CreatedAt   time.Time `json:"created_at"`
 	ModelID     string    `json:"model_id,omitempty"`
 	EvidenceIDs []string  `json:"evidence_ids,omitempty"`
+	RunID       string    `json:"run_id,omitempty"`
+}
+
+// RunStep is one visible model call or read-only tool call inside an Attempt.
+type RunStep struct {
+	ID           string     `json:"id"`
+	RunID        string     `json:"run_id"`
+	AttemptID    string     `json:"attempt_id"`
+	Seq          int        `json:"seq"`
+	Kind         string     `json:"kind"`
+	Name         string     `json:"name"`
+	Status       string     `json:"status"`
+	Input        string     `json:"input,omitempty"`
+	Output       string     `json:"output,omitempty"`
+	Error        string     `json:"error,omitempty"`
+	EvidenceID   string     `json:"evidence_id,omitempty"`
+	InputTokens  *int       `json:"input_tokens,omitempty"`
+	OutputTokens *int       `json:"output_tokens,omitempty"`
+	ToolCalls    []string   `json:"tool_calls,omitempty"`
+	TraceID      string     `json:"trace_id,omitempty"`
+	StartedAt    time.Time  `json:"started_at"`
+	FinishedAt   *time.Time `json:"finished_at,omitempty"`
 }
 type Branch struct {
 	ID                      string    `json:"id"`

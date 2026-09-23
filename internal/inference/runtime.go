@@ -14,6 +14,10 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/agent/llmagent"
 	"google.golang.org/adk/v2/runner"
@@ -46,6 +50,9 @@ type Event struct {
 	Type     string    `json:"type"`
 	Delta    string    `json:"delta,omitempty"`
 	Evidence *Evidence `json:"evidence,omitempty"`
+	// StepID links evidence to the tool step that produced it.
+	StepID string `json:"step_id,omitempty"`
+	Step   *Step  `json:"step,omitempty"`
 }
 
 // Read receives an opaque query, not a target URL. Callers bind the authorized
@@ -159,7 +166,26 @@ func (r *Runtime) Models() []Model {
 	return ms
 }
 
+var tracer = otel.Tracer("github.com/wans/aiops-canvas/internal/inference")
+
+// Run wraps one Attempt in a parent span; ADK nests its GenAI agent, model and
+// tool spans under it, so every step carries the same exportable trace ID.
 func (r *Runtime) Run(ctx context.Context, req Request, emit func(Event) error) (string, error) {
+	ctx, span := tracer.Start(ctx, "aiops.attempt", trace.WithAttributes(
+		attribute.String("aiops.run_id", req.RunID),
+		attribute.String("aiops.attempt_id", req.AttemptID),
+		attribute.String("aiops.branch_id", req.BranchID),
+		attribute.String("gen_ai.request.model", req.ModelID),
+	))
+	defer span.End()
+	out, err := r.run(ctx, req, emit)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+	}
+	return out, err
+}
+func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) (string, error) {
 	if len(req.Messages) == 0 || req.Messages[len(req.Messages)-1].Role != "user" {
 		return "", errors.New("last frozen message must be user")
 	}
@@ -216,7 +242,11 @@ func (r *Runtime) Run(ctx context.Context, req Request, emit func(Event) error) 
 	if req.MaxToolCalls > 0 && req.MaxToolCalls < maxTools {
 		maxTools = req.MaxToolCalls
 	}
-	model := &providerModel{provider: p, client: r.cfg.HTTPClient, history: append([]Message(nil), req.Messages[:len(req.Messages)-1]...), maxCalls: maxCalls}
+	steps := &stepLog{prefix: req.AttemptID, send: send}
+	if steps.prefix == "" {
+		steps.prefix = "attempt"
+	}
+	model := &providerModel{provider: p, client: r.cfg.HTTPClient, history: append([]Message(nil), req.Messages[:len(req.Messages)-1]...), maxCalls: maxCalls, steps: steps}
 	if len(req.Tools) > 16 {
 		return "", errors.New("too many evidence tools")
 	}
@@ -230,7 +260,9 @@ func (r *Runtime) Run(ctx context.Context, req Request, emit func(Event) error) 
 		seen[read.Name] = true
 		t, err := functiontool.New(functiontool.Config{Name: read.Name, Description: read.Description}, func(tc agent.Context, args struct {
 			Query string `json:"query" jsonschema:"Read-only investigation query"`
-		}) (Evidence, error) {
+		}) (ev Evidence, err error) {
+			step := steps.start(tc, "tool", read.Name, args.Query)
+			defer func() { steps.finish(step, ev.Title, err) }()
 			mu.Lock()
 			toolCalls++
 			overBudget := toolCalls > maxTools
@@ -242,14 +274,14 @@ func (r *Runtime) Run(ctx context.Context, req Request, emit func(Event) error) 
 			if len(args.Query) > 8192 {
 				return Evidence{}, errors.New("evidence query exceeds 8 KiB")
 			}
-			ev, err := read.Read(tc, args.Query)
+			ev, err = read.Read(tc, args.Query)
 			if err != nil {
 				return Evidence{}, err
 			}
 			if len(ev.Content) > 256<<10 {
 				return Evidence{}, errors.New("evidence exceeds 256 KiB")
 			}
-			if err = send(Event{Type: "evidence", Evidence: &ev}); err != nil {
+			if err = send(Event{Type: "evidence", Evidence: &ev, StepID: step.ID}); err != nil {
 				return Evidence{}, err
 			}
 			return ev, nil

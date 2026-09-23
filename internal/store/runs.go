@@ -173,25 +173,31 @@ func fence(ctx context.Context, tx pgx.Tx, c Claim) error {
 	return e
 }
 func (s *Store) SaveEvidence(ctx context.Context, c Claim, v core.Evidence) error {
+	_, e := s.SaveEvidenceID(ctx, c, v)
+	return e
+}
+
+// SaveEvidenceID is SaveEvidence returning the new ID, so a tool step can link it.
+func (s *Store) SaveEvidenceID(ctx context.Context, c Claim, v core.Evidence) (string, error) {
 	tx, e := s.DB.Begin(ctx)
 	if e != nil {
-		return e
+		return "", e
 	}
 	defer tx.Rollback(ctx)
 	if e = fence(ctx, tx, c); e != nil {
-		return e
+		return "", e
 	}
 	v.ID = ID()
 	v.BranchID = c.Run.BranchID
 	v.CreatedAt = time.Now().UTC()
 	_, e = tx.Exec(ctx, "INSERT INTO evidence(id,branch_id,run_id,kind,title,content,source) VALUES($1,$2,$3,$4,$5,$6,$7)", v.ID, v.BranchID, c.Run.ID, v.Kind, v.Title, v.Content, v.Source)
 	if e != nil {
-		return e
+		return "", e
 	}
 	if e = event(ctx, tx, c.InvestigationID, c.Run.BranchID, "evidence.created", v); e != nil {
-		return e
+		return "", e
 	}
-	return tx.Commit(ctx)
+	return v.ID, tx.Commit(ctx)
 }
 func (s *Store) Finish(ctx context.Context, c Claim, output string, runErr error) error {
 	tx, e := s.DB.Begin(ctx)
@@ -231,7 +237,7 @@ func (s *Store) Finish(ctx context.Context, c Claim, output string, runErr error
 		if e = rows.Err(); e != nil {
 			return e
 		}
-		b.Messages = append(b.Messages, core.Message{ID: ID(), Role: "assistant", Content: output, CreatedAt: time.Now().UTC(), ModelID: c.Run.ModelID, EvidenceIDs: ids})
+		b.Messages = append(b.Messages, core.Message{ID: ID(), Role: "assistant", Content: output, CreatedAt: time.Now().UTC(), ModelID: c.Run.ModelID, EvidenceIDs: ids, RunID: c.Run.ID})
 		if e = revision(ctx, tx, &b, core.RevisionProvenance{Kind: "assistant"}); e != nil {
 			return e
 		}

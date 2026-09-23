@@ -37,6 +37,11 @@ func main() {
 func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	stopTracing, e := setupTracing(ctx)
+	if e != nil {
+		return e
+	}
+	defer stopTracing()
 	if os.Getenv("DATABASE_URL") == "" {
 		return fmt.Errorf("DATABASE_URL is required")
 	}

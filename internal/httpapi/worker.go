@@ -129,6 +129,8 @@ func (w *Worker) execute(parent context.Context, c store.Claim) {
 	var mu sync.Mutex
 	var pending strings.Builder
 	last := time.Now()
+	recorder, _ := w.Store.(store.StepRecorder)
+	stepEvidence := map[string]string{}
 	flush := func() error {
 		if pending.Len() == 0 {
 			return nil
@@ -146,11 +148,28 @@ func (w *Worker) execute(parent context.Context, c store.Claim) {
 		output, runErr = w.Runtime.Run(ctx, req, func(v inference.Event) error {
 			mu.Lock()
 			defer mu.Unlock()
+			if v.Step != nil {
+				if recorder == nil {
+					return nil
+				}
+				if e := flush(); e != nil {
+					return e
+				}
+				return recorder.RecordStep(ctx, c, runStep(*v.Step, stepEvidence[v.Step.ID]))
+			}
 			if v.Evidence != nil {
 				if e := flush(); e != nil {
 					return e
 				}
-				return w.Store.SaveEvidence(ctx, c, core.Evidence{Kind: v.Evidence.Kind, Title: v.Evidence.Title, Content: v.Evidence.Content, Source: v.Evidence.Source})
+				evidence := core.Evidence{Kind: v.Evidence.Kind, Title: v.Evidence.Title, Content: v.Evidence.Content, Source: v.Evidence.Source}
+				if recorder == nil {
+					return w.Store.SaveEvidence(ctx, c, evidence)
+				}
+				id, e := recorder.SaveEvidenceID(ctx, c, evidence)
+				if e == nil && v.StepID != "" {
+					stepEvidence[v.StepID] = id
+				}
+				return e
 			}
 			if v.Delta != "" {
 				pending.WriteString(v.Delta)
@@ -179,4 +198,12 @@ func (w *Worker) execute(parent context.Context, c store.Claim) {
 	if e := w.Store.Finish(commitCtx, c, output, runErr); e != nil && !errors.Is(e, store.ErrLease) {
 		slog.Error("finish attempt", "run_id", c.Run.ID, "error", e)
 	}
+}
+
+func runStep(v inference.Step, evidenceID string) core.RunStep {
+	step := core.RunStep{ID: v.ID, Seq: v.Seq, Kind: v.Kind, Name: v.Name, Status: v.Status, Input: v.Input, Output: v.Output, Error: v.Error, EvidenceID: evidenceID, ToolCalls: v.ToolCalls, TraceID: v.TraceID, StartedAt: v.StartedAt, FinishedAt: v.FinishedAt}
+	if u := v.Usage; u != nil {
+		step.InputTokens, step.OutputTokens = &u.InputTokens, &u.OutputTokens
+	}
+	return step
 }

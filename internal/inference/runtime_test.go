@@ -82,7 +82,12 @@ func TestEvidencePersistenceFailureStopsModel(t *testing.T) {
 	}))
 	defer s.Close()
 	sentinel := errors.New("commit lost lease")
-	_, err := runtimeFor(t, s, "openai").Run(context.Background(), Request{ModelID: "test", Messages: []Message{{Role: "user", Content: "Check"}}, Tools: []EvidenceTool{{Name: "read_health", Description: "health", Read: func(context.Context, string) (Evidence, error) { return Evidence{Content: "observed"}, nil }}}}, func(e Event) error { return sentinel })
+	_, err := runtimeFor(t, s, "openai").Run(context.Background(), Request{ModelID: "test", Messages: []Message{{Role: "user", Content: "Check"}}, Tools: []EvidenceTool{{Name: "read_health", Description: "health", Read: func(context.Context, string) (Evidence, error) { return Evidence{Content: "observed"}, nil }}}}, func(e Event) error {
+		if e.Evidence != nil {
+			return sentinel
+		}
+		return nil
+	})
 	if !errors.Is(err, sentinel) || calls.Load() != 1 {
 		t.Fatalf("err=%v calls=%d", err, calls.Load())
 	}

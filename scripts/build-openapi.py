@@ -230,6 +230,61 @@ P['/audit']['get']['parameters']=[{'name':name,'in':'query','schema':integer(min
 P['/audit']['get']['description']+=' Server-side keyword/filter search before stable id cursor pagination; no client-only 250-row search.'
 P['/audit']['get']['responses']['200']['content']['application/json']['schema']['properties']['next_cursor']=string()
 
+# WAN-89..94: delivery, release and memory contracts.
+S['DeliveryDependency']=obj({'node_id':string(),'on':string(enum=['succeeded','failed','skipped','finished'])},['node_id'])
+S['DeliveryTask']=obj({**fieldnames('id name kind image join source_node_id target_id approval_node_id deploy_node_id'),'when':obj({'from_node':string(),'output':string(),'operator':string(enum=['eq','ne']),'value':string()},['from_node','output','operator','value']),'depends_on':arr(ref('DeliveryDependency')),'command':arr(string()),'args':arr(string()),'inputs':arr(obj(fieldnames('name value from_node output'))),'outputs':arr(obj(fieldnames('name path'))),'artifact_inputs':arr(obj(fieldnames('name path from_node artifact'))),'artifacts':arr(obj(fieldnames('name path archive'))),'timeout_seconds':integer()},['id','name','kind'])
+S['DeliveryDefinition']=obj({'provider':string(enum=['native','gitlab']),'source_id':string(),'project_id':integer(),'ref':string(),'nodes':arr(ref('DeliveryTask'))},['provider'])
+S['DeliveryPipeline']=obj({**fieldnames('id name application_id environment_id digest created_by created_at'),'version':integer(),'definition':ref('DeliveryDefinition')})
+S['DeliveryProjection']=obj({**fieldnames('status external_status external_id external_uid commit_sha web_url message observed_at'),'nodes':arr(obj({**fieldnames('id name status plan_id execution_id'),'outputs':{'type':'object','additionalProperties':string()}}))})
+S['DeliveryRun']=obj({**fieldnames('id pipeline_id application_id environment_id provider status external_id created_by created_at updated_at'),'version':integer(),'snapshot':ref('DeliveryPipeline'),'projection':ref('DeliveryProjection')})
+S['DeliveryCommand']=obj({**fieldnames('id run_id kind status actor_id error created_at'),'job_id':integer()})
+S['DeliveryLog']=obj({'text':string(),'next_cursor':integer(),'truncated':boolean,'source':string()})
+S['DeliveryEvent']=obj({'sequence':integer(),**fieldnames('run_id type actor_id created_at'),'payload':{'type':'object','additionalProperties':True}})
+S['DeliveryTemplate']=obj({**fieldnames('id name description'),'required_inputs':arr(string()),'definition':ref('DeliveryDefinition')})
+S['DeploymentSource']=obj(fieldnames('run_id node_id application_id environment_id pipeline_digest commit_sha artifact_digest artifact_url'))
+S['DeploymentPlan']=obj({**fieldnames('id digest status target_id target_kind target_config_digest created_by approved_by created_at'),'binding_revision':integer(),'source':ref('DeploymentSource'),'prepared':obj(fieldnames('expected_revision desired_revision remote_config_digest')),'target_details':{'type':'object','additionalProperties':string()}})
+S['DeploymentExecution']=obj({**fieldnames('id plan_id status created_by created_at updated_at'),'cancel_requested':boolean,'result':obj({**fieldnames('status message revision observed_at'),'health_samples':integer()})})
+delivery_scope=[{'name':n,'in':'query','schema':string()} for n in ['applications','environments','application_ids','application_id','environment_id']]
+route('get','/delivery/catalog','Read authorized provider bindings and editable templates',response=obj({'gitlab_sources':arr({'type':'object','additionalProperties':True}),'native_enabled':boolean,'artifact_store_configured':boolean,'native_deployment_enabled':boolean,'templates':arr(ref('DeliveryTemplate'))}))
+route('get','/delivery/pipelines','List authorized immutable pipeline versions',response=listed('DeliveryPipeline'),query=delivery_scope)
+route('get','/delivery/pipelines/{id}','Read latest or selected pipeline version',response=ref('DeliveryPipeline'),query=[{'name':'version','in':'query','schema':integer()}])
+route('get','/delivery/pipelines/{id}/versions','List immutable pipeline version history',response=listed('DeliveryPipeline'))
+pipeline_input=obj({**fieldnames('application_id environment_id name'),'definition':ref('DeliveryDefinition'),'expected_version':integer()},['application_id','environment_id','name','definition'])
+route('post','/delivery/pipelines','Create pipeline definition','operator',pipeline_input,ref('DeliveryPipeline'))
+route('post','/delivery/pipelines/{id}/versions','Create version with optimistic concurrency','operator',pipeline_input,ref('DeliveryPipeline'))
+route('get','/delivery/runs','List authorized run projections',response=listed('DeliveryRun'),query=delivery_scope)
+idempotency=[{'name':'Idempotency-Key','in':'header','required':True,'schema':string()}]
+route('post','/delivery/runs','Persist execution intent then dispatch to engine','operator',obj({'pipeline_id':string(),'version':integer()},['pipeline_id','version']),ref('DeliveryRun'),query=idempotency,desc='Reuse the same key after response loss; unknown external results are reconciled before retry.')
+route('get','/delivery/runs/{id}','Read execution and source identity',response=ref('DeliveryRun'))
+route('get','/delivery/runs/{id}/events','Read persisted run events',response=listed('DeliveryEvent'),query=[{'name':'after','in':'query','schema':integer()}])
+route('get','/delivery/runs/{id}/stream','Resume committed delivery events using SSE',query=[{'name':'after','in':'query','schema':integer()},{'name':'Last-Event-ID','in':'header','schema':string()}],desc='Independent delivery event sequence. Consumers deduplicate and refresh the durable run projection.')
+P['/delivery/runs/{id}/stream']['get']['responses']['200']['content']={'text/event-stream':{'schema':string()}}
+route('get','/delivery/runs/{id}/gates','Read product approval and release identities',response=obj({'items':arr(obj(fieldnames('run_id node_id plan_id execution_id')))}))
+S['DeliveryRetention']=obj({**fieldnames('run_id retain_until reason cleanup_mode reclaim_requested_at'),'held':boolean,'references':integer(),'reclaimable':boolean})
+route('get','/delivery/runs/{id}/retention','Read archive retention and active references',response=ref('DeliveryRetention'))
+route('post','/delivery/runs/{id}/retention','Extend retention or hold a run archive','admin',obj({'held':boolean,'days':integer(minimum=30,maximum=3650),'reason':string()},['held','days','reason']),ref('DeliveryRetention'))
+route('post','/delivery/runs/{id}/reclaim','Record eligible archive reclamation request','admin',response=ref('DeliveryRetention'),desc='Manual processing only. Rejects active references, retention holds, nonterminal states and unexpired records. Does not automatically delete objects.')
+route('get','/delivery/runs/{id}/commands','Read persisted external operation intents',response=listed('DeliveryCommand'))
+route('post','/delivery/runs/{id}/commands','Request cancel retry or allowed manual job','operator',obj({'kind':string(enum=['cancel','retry','play','reconcile']),'job_id':integer()},['kind']),ref('DeliveryCommand'),query=idempotency)
+route('get','/delivery/runs/{id}/logs','Read native task logs from live or archived source',response=ref('DeliveryLog'),query=[{'name':'node_id','in':'query','schema':string()}])
+base='/delivery/gitlab/{source}/projects/{project}'
+for suffix,summary in [('', 'Read linked GitLab project'),('/pipelines','List external pipelines'),('/pipelines/{pipeline}','Read external pipeline'),('/pipelines/{pipeline}/jobs','List jobs without inventing DAG dependencies')]:
+    route('get',base+suffix,summary,response=obj({'items':arr({'type':'object','additionalProperties':True}),'next_page':integer()}) if suffix in ['/pipelines','/pipelines/{pipeline}/jobs'] else {'type':'object','additionalProperties':True},query=[{'name':'page','in':'query','schema':integer(minimum=1)}] if suffix in ['/pipelines','/pipelines/{pipeline}/jobs'] else None)
+route('get',base+'/jobs/{job}/logs','Read bounded GitLab job trace',response=ref('DeliveryLog'),query=[{'name':'cursor','in':'query','schema':integer(minimum=0)}])
+route('post',base+'/pipelines/{pipeline}/import','Associate actual external run without converting CI definition','operator',response=ref('DeliveryRun'))
+route('post','/webhooks/gitlab/{source}','Persist idempotent authenticated external event identity',body={'type':'object','additionalProperties':True},response=obj({'accepted':boolean,'duplicate':boolean,'ignored':boolean}),status=202,desc='Requires X-Gitlab-Token. Only registered projects; webhook status is not trusted, worker fetches engine truth.')
+P['/webhooks/gitlab/{source}']['post']['security']=[{'gitlabWebhookToken':[]}]
+route('get','/deployments/targets','Read authorized registered release targets',response=obj({'items':arr(obj(fieldnames('id name kind application_id environment_id config_digest')))}))
+route('post','/deployments/plans','Prepare verified immutable artifact for a registered target','operator',obj(fieldnames('run_id node_id artifact_digest target_id intent_id'),['run_id','node_id','artifact_digest','target_id']),ref('DeploymentPlan'))
+route('get','/deployments/plans/{id}','Read exact release approval binding',response=ref('DeploymentPlan'))
+route('post','/deployments/plans/{id}/approve','Approve artifact digest and frozen target','operator',obj({'digest':string()},['digest']),ref('DeploymentPlan'))
+route('post','/deployments/plans/{id}/execute','Queue an approved release idempotently','operator',response=ref('DeploymentExecution'))
+route('get','/deployments/executions','List authorized release projections',response=listed('DeploymentExecution'),query=delivery_scope)
+route('get','/deployments/executions/{id}','Read release and business-health result',response=ref('DeploymentExecution'))
+route('post','/deployments/executions/{id}/cancel','Request cancellation without assuming rollback','operator',response=obj({'requested':boolean}))
+route('post','/deployments/executions/{id}/reconcile','Reconcile actual remote result','operator',response=ref('DeploymentExecution'))
+route('post','/deployments/executions/{id}/restore-plan','Propose restoring a prior successful artifact','operator',obj({'intent_id':string()},['intent_id']),ref('DeploymentPlan'))
+route('post','/deployments/executions/{id}/evidence','Pin release evidence into same application and environment','operator',obj(fieldnames('investigation_id branch_id'),['investigation_id','branch_id']),ref('Evidence'))
 S['MemoryContext']=obj({**fieldnames('id title investigation_id investigation_title application_id environment_id parent_id model_id created_at'),'revision':integer(),'message_count':integer(),'provenance':ref('RevisionProvenance')})
 for resource,schema in [('documents','Document'),('contexts','MemoryContext')]:
     route('get','/memory/'+resource,'Browse authorized '+resource+' with a stable ID cursor',response=obj({'items':arr(ref(schema)),'next_cursor':string()}),query=[{'name':n,'in':'query','schema':string()} for n in ['applications','environments','q','kind','lifecycle','cursor']],desc='50 items per page. Context snapshots are read-only. Document mutations use the existing versioned knowledge API and application permission checks.')
@@ -261,6 +316,6 @@ exec(Path('scripts/profile-openapi.py').read_text())
 exec(Path('scripts/pagination-openapi.py').read_text())
 exec(Path('scripts/rbac-openapi.py').read_text())
 
-spec={'openapi':'3.1.0','info':{'title':'AIOps Canvas Backend API','version':'0.7.0','description':'Single-workspace multi-application SRE API. All business history is server authoritative; application authorization is enforced beyond minimum workspace role.','license':{'name':'Apache-2.0','identifier':'Apache-2.0'}},'servers':[{'url':'/api/v1'}],'security':[{'sessionCookie':[]}],'paths':P,'components':{'schemas':S,'securitySchemes':{'sessionCookie':{'type':'apiKey','in':'cookie','name':'aiops_session'},'alertSourceToken':{'type':'http','scheme':'bearer'}}}}
+spec={'openapi':'3.1.0','info':{'title':'AIOps Canvas Backend API','version':'0.7.0','description':'Single-workspace multi-application SRE API. All business history is server authoritative; application authorization is enforced beyond minimum workspace role.','license':{'name':'Apache-2.0','identifier':'Apache-2.0'}},'servers':[{'url':'/api/v1'}],'security':[{'sessionCookie':[]}],'paths':P,'components':{'schemas':S,'securitySchemes':{'sessionCookie':{'type':'apiKey','in':'cookie','name':'aiops_session'},'alertSourceToken':{'type':'http','scheme':'bearer'},'gitlabWebhookToken':{'type':'apiKey','in':'header','name':'X-Gitlab-Token'}}}}
 Path('internal/apicontract/openapi.json').write_text(json.dumps(spec,ensure_ascii=False,indent=2)+'\n')
 print(f'Generated {len(P)} paths, {sum(len(x) for x in P.values())} operations, {len(S)} schemas.')

@@ -22,6 +22,9 @@ type ObservationTarget struct {
 	QueryID       string `json:"query_id,omitempty"`
 }
 type ObservationBatchRequest struct {
+	Level       string              `json:"level,omitempty"`
+	Summary     bool                `json:"summary,omitempty"`
+	TraceID     string              `json:"trace_id,omitempty"`
 	Targets     []ObservationTarget `json:"targets"`
 	Start       time.Time           `json:"start,omitempty"`
 	End         time.Time           `json:"end,omitempty"`
@@ -50,7 +53,7 @@ func (s *Server) RegisterTelemetryBatch(reader TelemetryReader) {
 			if !Decode(w, r, &in) {
 				return
 			}
-			if len(in.Targets) < 1 || len(in.Targets) > 20 || in.Limit < 0 || in.Limit > 1000 || in.StepSeconds < 0 || len(in.Search) > 256 || (in.Provider != "" && in.Provider != "loki" && in.Provider != "elasticsearch") || (kind != "logs" && (in.Provider != "" || in.Search != "")) || (kind == "traces" && (len(in.Targets) > 6 || in.Limit > 20)) {
+			if !connectors.ValidLogLevel(in.Level) || (kind != "logs" && (in.Level != "" || in.Summary)) || (in.TraceID != "" && (kind != "traces" || !connectors.ValidTraceID(in.TraceID))) || len(in.Targets) < 1 || len(in.Targets) > 20 || in.Limit < 0 || in.Limit > 1000 || in.StepSeconds < 0 || len(in.Search) > 256 || (in.Provider != "" && in.Provider != "loki" && in.Provider != "elasticsearch") || (kind != "logs" && (in.Provider != "" || in.Search != "")) || (kind == "traces" && (len(in.Targets) > 6 || in.Limit > 20)) {
 				Error(w, 422, "invalid_batch", "Select 1 to 20 distinct targets (at most 6 for traces); trace limit is 20 and log search is at most 256 bytes")
 				return
 			}
@@ -107,6 +110,10 @@ func (s *Server) RegisterTelemetryBatch(reader TelemetryReader) {
 					s.writeSharedTraceBatch(w, r, ctx, in, envs, shared)
 					return
 				}
+			}
+			if kind == "traces" && in.TraceID != "" {
+				Error(w, 422, "trace_lookup_unavailable", "Exact trace lookup is unavailable")
+				return
 			}
 			items := make([]ObservationBatchItem, len(in.Targets))
 			jobs := make(chan int)
@@ -175,6 +182,12 @@ func (s *Server) RegisterTelemetryBatch(reader TelemetryReader) {
 							} else {
 								err = errors.New("trace reader unavailable")
 							}
+						} else if extended, ok := reader.(interface {
+							QueryLogsOptions(context.Context, string, string, string, string, bool, connectors.TimeWindow, int) (connectors.LogEvidence, error)
+						}); ok {
+							value, err = extended.QueryLogsOptions(ctx, resource, bindingKind, in.Search, in.Level, in.Summary, window, in.Limit)
+						} else if in.Level != "" || in.Summary {
+							err = errors.New("extended log queries unavailable")
 						} else if extended, ok := reader.(interface {
 							QueryLogsSearch(context.Context, string, string, string, connectors.TimeWindow, int) (connectors.LogEvidence, error)
 						}); ok {

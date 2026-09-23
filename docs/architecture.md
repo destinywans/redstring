@@ -1,6 +1,6 @@
 # AIOps Canvas 实施架构
 
-状态：2026-09-20 Web 工作区与 Go 服务已连接，完成本轮限定构建、契约和浏览器检查。当前完整版本尚未经过真实模型与 Kubernetes 恢复验收；证据边界见 CHECKPOINT.md 和 [Web 交接](web-workspace.md)。本轮用户授权前后端并行，取代此前前端暂停决定，仍不开展大面积测试。
+状态：当前代码包含已批准的交付中心、AI 扩展与记忆视图。最新验证以 CHECKPOINT.md 和 docs/releases 的版本记录为准；历史单次测试不代表当前完整 MVP 已验收。限定检查不包含全仓测试或生产环境发布。
 
 ```mermaid
 flowchart LR
@@ -85,3 +85,9 @@ API 统一前缀 `/api/v1`，JSON snake_case；OpenAPI 与示例随代码版本�
 Web 增加工作台首页、应用管理、异常队列和知识治理；原概览作为选中应用的详情。遥测仅查询已注册 API，原始时序/日志仍留在 Prometheus/Loki，固定到调查的只是带查询与时间范围的证据快照。
 
 具体配置与边界：[平台](platform-contract.md)、[运行](operations-contract.md)、[知识](knowledge-governance-contract.md)、[上下文](context-budget.md)。
+
+## 交付与 AI 扩展（WAN-89～94）
+
+`delivery` 持久化定义、运行、外部操作意图与事件，由 Argo／GitLab 调度实际任务；`deployment` 独立冻结批准后的目标和制品，驱动 GitOps 或受限 VM helper。两者通过 ReleaseProvider／VerifiedSource 连接，普通任务没有发布凭据。相同环境的发布串行；超时先核对，流水线结束与业务健康分开记录。
+
+`aiextensions` 保存 MCP 只读配置、Skills 与 Prompt 版本，经现有 EvidenceTool 接口进入调查；`memoryview` 只查询产品已管理的知识与上下文，维护复用既有版本和权限规则。运行配置与明确限制见 [接线说明](delivery-workspace.md)。

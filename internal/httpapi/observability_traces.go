@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/wans/aiops-canvas/internal/connectors"
@@ -40,7 +41,17 @@ func (s *Server) writeSharedTraceBatch(w http.ResponseWriter, r *http.Request, c
 	results := map[string]connectors.TraceEvidence{}
 	var queryErr error
 	if len(selected) > 0 {
-		results, queryErr = reader.QueryTracesBatch(ctx, selected, connectors.TimeWindow{Start: in.Start, End: in.End}, in.Limit)
+		if in.TraceID != "" {
+			if exact, ok := reader.(interface {
+				QueryTracesBatchID(context.Context, []string, connectors.TimeWindow, int, string) (map[string]connectors.TraceEvidence, error)
+			}); ok {
+				results, queryErr = exact.QueryTracesBatchID(ctx, selected, connectors.TimeWindow{Start: in.Start, End: in.End}, in.Limit, in.TraceID)
+			} else {
+				queryErr = errors.New("exact trace lookup unavailable")
+			}
+		} else {
+			results, queryErr = reader.QueryTracesBatch(ctx, selected, connectors.TimeWindow{Start: in.Start, End: in.End}, in.Limit)
+		}
 	}
 	partial := false
 	for i, target := range in.Targets {

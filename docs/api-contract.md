@@ -125,8 +125,11 @@
 
 `GET /audit` 接收 q/actor_id/application_id/action/outcome/from/to/cursor/limit，管理员限定。服务端按 ID 倒序游标分页，items + next_cursor；无参数兼容250条，时间区间左闭右开。操作者姓名与原ID并存；success过滤包含历史succeeded，不改变原始记录。
 
+## 交付与 AI 扩展（WAN-89–94）
 
-## 记忆与 AI 扩展（WAN-93/94）
+`/delivery` 拥有版本化流水线定义与外部执行投影，`/deployments` 拥有实际发布计划、审批、执行和健康证据。GitLab 原生列表返回 `{items,next_page}`；产品列表返回 `{items}`。创建运行和操作必须保留同一个 `Idempotency-Key` 处理响应丢失，不能通过生成新键盲重试。
+
+原生运行的审批/发布节点只由服务端桥接已登记目标，普通构建任务不接收发布凭据。`GET /delivery/runs/{id}/stream` 使用独立持久序号；读取恢复后的运行投影仍是最终状态。GitLab Webhook 仅保存经认证的对象身份，状态由远端核对获得。
 
 `/memory/documents` 和 `/memory/contexts` 展示真实持久来源，按应用与环境过滤，使用稳定 ID 游标每页 50 条。上下文详情复用 `/branches/{id}/revisions/{revision}`；文档详情/修订/归档复用 `/knowledge` 的版本与权限控制。`/memory/documents/{id}/references` 只返回近期已记录的精确检索命中，不将其计作模型采纳率或完整调用次数。
 

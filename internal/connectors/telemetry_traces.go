@@ -94,6 +94,14 @@ func (t *Telemetry) QueryTraces(ctx context.Context, appID string, w TimeWindow,
 // Each trace is fetched once and only explicitly selected registered resources
 // can receive its spans. At most 6 search + 20 detail HTTP requests per batch.
 func (t *Telemetry) QueryTracesBatch(ctx context.Context, appIDs []string, w TimeWindow, limit int) (map[string]TraceEvidence, error) {
+	return t.QueryTracesBatchID(ctx, appIDs, w, limit, "")
+}
+
+func (t *Telemetry) QueryTracesBatchID(ctx context.Context, appIDs []string, w TimeWindow, limit int, traceID string) (map[string]TraceEvidence, error) {
+	if traceID != "" && !ValidTraceID(traceID) {
+		return nil, &TelemetryError{Kind: "scope", Message: "Trace ID must contain 32 hexadecimal characters"}
+	}
+	traceID = strings.ToLower(traceID)
 	results := map[string]TraceEvidence{}
 	if limit == 0 {
 		limit = 10
@@ -139,6 +147,14 @@ func (t *Telemetry) QueryTracesBatch(ctx context.Context, appIDs []string, w Tim
 		s.Query = "{ " + strings.Join(clauses, " && ") + " }"
 		s.URL = strings.TrimRight(t.tempo.config.URL, "/") + "/api/search"
 		s.Warnings = []string{"各选中范围共同发现并共享最多20条Trace；仅返回当前应用与环境授权范围内的span，不代表完整链路或全量流量。"}
+		if traceID != "" {
+			s.Query = "trace_id=" + traceID
+			s.Warnings = []string{"仅返回所选应用与环境范围内、且在所选时间内的Span。"}
+			results[appID] = out
+			candidates[appID] = []string{traceID}
+			order = append(order, appID)
+			continue
+		}
 		params := url.Values{"q": {s.Query}, "start": {strconv.FormatInt(s.Window.Start.Unix(), 10)}, "end": {strconv.FormatInt(s.Window.End.Unix(), 10)}, "limit": {strconv.Itoa(limit)}}
 		raw, err := t.tempo.get(ctx, "/api/search", params, s)
 		if err != nil {
@@ -210,6 +226,9 @@ func (t *Telemetry) QueryTracesBatch(ctx context.Context, appIDs []string, w Tim
 			if decodeErr := json.Unmarshal(raw, &data); decodeErr != nil {
 				err = failure(&source, "protocol", "Invalid Tempo trace response", decodeErr)
 			}
+		}
+		if err != nil && traceID != "" && source.HTTPStatus == 404 {
+			continue
 		}
 		if err != nil {
 			for _, appID := range order {

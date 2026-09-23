@@ -163,6 +163,14 @@ func run() error {
 		}
 		return append(base, extra...), nil
 	}
+	deliveryService, deploymentService, e := configureDelivery(ctx, s, api, acts)
+	if e != nil {
+		return e
+	}
+	deliveryDone := make(chan struct{})
+	deploymentDone := make(chan struct{})
+	go func() { defer close(deliveryDone); deliveryService.Run(ctx) }()
+	go func() { defer close(deploymentDone); deploymentService.Run(ctx) }()
 	inventoryDone := make(chan struct{})
 	if resourceSyncer != nil {
 		go func() { defer close(inventoryDone); resourceSyncer.Run(ctx) }()
@@ -209,6 +217,8 @@ func run() error {
 	<-actionDone
 	<-opsDone
 	<-inventoryDone
+	<-deliveryDone
+	<-deploymentDone
 	if errors.Is(e, http.ErrServerClosed) {
 		return nil
 	}

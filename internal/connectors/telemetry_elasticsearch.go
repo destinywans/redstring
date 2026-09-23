@@ -61,6 +61,9 @@ func sourceField(m map[string]any, key string) string {
 	return s
 }
 func (t *Telemetry) queryElasticsearch(ctx context.Context, appID string, w TimeWindow, limit int, search string) (LogEvidence, error) {
+	return t.queryElasticsearchOptions(ctx, appID, w, limit, search, "", false)
+}
+func (t *Telemetry) queryElasticsearchOptions(ctx context.Context, appID string, w TimeWindow, limit int, search, level string, summary bool) (LogEvidence, error) {
 	out := LogEvidence{Source: TelemetrySource{Provider: "elasticsearch", ApplicationID: appID, CapturedAt: t.now().UTC()}, Entries: []LogEntry{}, Empty: true}
 	s := &out.Source
 	a, ok := t.config.Applications[appID]
@@ -88,11 +91,21 @@ func (t *Telemetry) queryElasticsearch(ctx context.Context, appID string, w Time
 	for k, v := range a.ElasticsearchPrefixes {
 		filters = append(filters, map[string]any{"prefix": map[string]string{k + ".keyword": v}})
 	}
+	if level != "" {
+		filters = append(filters, map[string]any{"term": map[string]string{"aiops_level": level}})
+	}
 	query := map[string]any{"bool": map[string]any{"filter": filters}}
 	if search != "" {
 		query["bool"].(map[string]any)["must"] = []any{map[string]any{"match_phrase": map[string]string{"message": search}}}
 	}
-	body, _ := json.Marshal(map[string]any{"size": limit, "timeout": "10s", "track_total_hits": false, "query": query, "sort": []any{map[string]string{"@timestamp": "desc"}}})
+	request := map[string]any{"size": limit, "timeout": "10s", "track_total_hits": summary, "query": query, "sort": []any{map[string]string{"@timestamp": "desc"}}}
+	if level != "" || summary {
+		request["runtime_mappings"] = elasticsearchLevelRuntime()
+	}
+	if summary {
+		request["aggs"] = elasticsearchLogAggregations(s.Window)
+	}
+	body, _ := json.Marshal(request)
 	s.Query = string(body)
 	path := "/" + url.PathEscape(a.ElasticsearchIndex) + "/_search"
 	s.URL = strings.TrimRight(t.elasticsearch.config.URL, "/") + path
@@ -141,9 +154,20 @@ func (t *Telemetry) queryElasticsearch(ctx context.Context, appID string, w Time
 				labels[k] = v
 			}
 		}
-		out.Entries = append(out.Entries, LogEntry{Timestamp: at, Line: sourceField(hit.Source, "message"), Labels: labels})
+		for _, k := range []string{"trace.id", "trace_id", "level", "severity_text"} {
+			if v := sourceField(hit.Source, k); v != "" {
+				labels[k] = v
+			}
+		}
+		out.Entries = append(out.Entries, enrichLogEntry(LogEntry{Timestamp: at, Line: sourceField(hit.Source, "message"), Labels: labels}))
 	}
 	sort.SliceStable(out.Entries, func(i, j int) bool { return out.Entries[i].Timestamp.Before(out.Entries[j].Timestamp) })
+	if summary {
+		out.Summary, err = decodeElasticsearchSummary(raw, s.Window)
+		if err != nil {
+			out.SummaryError = "日志统计暂不可用，请重试"
+		}
+	}
 	out.Empty = len(out.Entries) == 0
 	out.LimitReached = len(out.Entries) == limit
 	return out, nil

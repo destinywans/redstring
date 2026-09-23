@@ -100,8 +100,22 @@ type LogEntry struct {
 	Timestamp time.Time         `json:"timestamp"`
 	Line      string            `json:"line"`
 	Labels    map[string]string `json:"labels"`
+	Level     string            `json:"level,omitempty"`
+	TraceID   string            `json:"trace_id,omitempty"`
+}
+type LogBucket struct {
+	Timestamp time.Time `json:"timestamp"`
+	Count     int64     `json:"count"`
+}
+type LogSummary struct {
+	Total         int64       `json:"total"`
+	ErrorCount    *int64      `json:"error_count,omitempty"`
+	BucketSeconds int         `json:"bucket_seconds"`
+	Buckets       []LogBucket `json:"buckets"`
 }
 type LogEvidence struct {
+	Summary      *LogSummary     `json:"summary,omitempty"`
+	SummaryError string          `json:"summary_error,omitempty"`
 	Source       TelemetrySource `json:"source"`
 	Entries      []LogEntry      `json:"entries"`
 	Empty        bool            `json:"empty"`
@@ -462,6 +476,9 @@ func (t *Telemetry) QueryLogs(ctx context.Context, appID string, w TimeWindow, l
 	return t.queryLoki(ctx, appID, w, limit, "")
 }
 func (t *Telemetry) queryLoki(ctx context.Context, appID string, w TimeWindow, limit int, search string) (LogEvidence, error) {
+	return t.queryLokiOptions(ctx, appID, w, limit, search, "")
+}
+func (t *Telemetry) queryLokiOptions(ctx context.Context, appID string, w TimeWindow, limit int, search, level string) (LogEvidence, error) {
 	out := LogEvidence{Source: TelemetrySource{Provider: "loki", ApplicationID: appID, CapturedAt: t.now().UTC()}, Entries: []LogEntry{}, Empty: true}
 	s := &out.Source
 	if t.loki == nil {
@@ -475,6 +492,9 @@ func (t *Telemetry) queryLoki(ctx context.Context, appID string, w TimeWindow, l
 	s.Query = lokiSelector(a.LokiLabels)
 	if search != "" {
 		s.Query += " |= " + strconv.Quote(search)
+	}
+	if level != "" {
+		s.Query += lokiLevelFilter(level)
 	}
 	var e error
 	s.Window, e = t.window(w, false)
@@ -529,7 +549,7 @@ func (t *Telemetry) queryLoki(ctx context.Context, appID string, w TimeWindow, l
 			if len(out.Entries) >= limit {
 				return out, failure(s, "limit", "Loki returned more entries than requested", nil)
 			}
-			out.Entries = append(out.Entries, LogEntry{Timestamp: at, Line: pair[1], Labels: stream.Stream})
+			out.Entries = append(out.Entries, enrichLogEntry(LogEntry{Timestamp: at, Line: pair[1], Labels: stream.Stream}))
 		}
 	}
 	sort.SliceStable(out.Entries, func(i, j int) bool { return out.Entries[i].Timestamp.Before(out.Entries[j].Timestamp) })

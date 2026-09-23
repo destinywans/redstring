@@ -21,6 +21,8 @@
 - [全站搜索与排版规范](design/search-filters.md)、[本轮 UI 反馈交付](releases/2026-09-20-platform-ui-feedback.md)。
 - [通用 Skills / Prompt 范围与权限](ai-extension-scopes.md)。
 
+- [交付中心、AI 扩展与记忆接线](delivery-workspace.md)：配置、模块边界、归档与权限。
+- [博客风格与交付分阶段计划](plans/2026-09-20-delivery-workspace.md)、[阶段 A 验证](releases/2026-09-20-delivery-stage-a.md)。
 - [本地实验数据与产品体验 · WAN-86](releases/2026-09-20-lab-integration.md)：当前入口、数据范围、启动方式、实测结果和未覆盖项。
 
 - [Web 工作区与对接](web-workspace.md)：八个设计场景、开发入口、预览隔离、当前验证边界。

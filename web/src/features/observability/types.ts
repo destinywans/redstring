@@ -1,6 +1,9 @@
 import type { TelemetryResultData } from "../overview/TelemetryResult";
 export type Mode = "metrics" | "logs";
-export type TelemetryData = TelemetryResultData & {
+export type TelemetryData = Omit<TelemetryResultData, "entries"> & {
+  entries?: { timestamp: string; line: string; labels: Record<string, string>; level?: string; trace_id?: string }[];
+  summary?: { total: number; error_count?: number; bucket_seconds: number; buckets: { timestamp: string; count: number }[] };
+  summary_error?: string;
   source?: NonNullable<TelemetryResultData["source"]> & {
     url?: string;
     application_id?: string;

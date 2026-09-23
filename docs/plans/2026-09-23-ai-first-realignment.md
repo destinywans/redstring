@@ -1,5 +1,7 @@
 # AI-first 纠偏基线 · 2026-09-23
 
+> **当前状态（2026-09-23）：开发暂停。** 用户要求先评审设计稿，再决定页面与 UI 形式；UI 实现与交付/CI/CD 均暂停。设计稿：https://claude.ai/artifact/EWQ3W2ZnZAxZAbeS4UnG1q （7 个桌面画板，示例数据）。阶段 1 已有提交保留在本地分支，未推送，等评审后再决定保留或调整。
+
 ## Context
 
 用户明确了产品定位：AI-first 的 Ops 平台（SRE / DevOps）。进来就是大聊天框，可下任意指令；核心价值是复杂运维——故障诊断、修复报告、Runbook 维护；要能看到记忆、状态、上下文如何被管理；非 AI 的日常查看（指标/日志/Trace/CMDB）只做轻量浏览，深入分析跳 Grafana/Kibana 等专有平台；平台做"编排集成 + AI 串联"，不做大而全；Agent trace 希望接 Phoenix / Langfuse。

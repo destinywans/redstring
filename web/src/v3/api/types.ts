@@ -327,3 +327,43 @@ export type Execution = {
   observation: { values: number[]; threshold: number; labels: string[]; band: [number, number]; marker: number; checks: { text: string; value: string }[] };
   report: { title: string; severity: Severity; meta: string; summary: string; impact: string; timeline: { time: string; text: string }[]; actions: { text: string; owner: string; due: string; done: boolean }[]; refs: string };
 };
+
+/* ---------------- knowledge & memory ---------------- */
+export type RunbookSummary = { id: string; title: string; tags: string[]; scope: string; owner: string; version: string; status: "published" | "review" | "draft"; refs_30d: number; resolve_rate?: number; last_verified: string; stale: boolean };
+export type RunbookSuggestion = { id: string; icon: string; tone: Tone; title: string; body: string; actions: { label: string; kind: "primary" | "secondary" | "ghost"; href?: string }[] };
+export type RunbookStep = { n: number; kind: "query" | "check" | "action" | "verify"; title: string; body?: string; connectors?: string[]; code?: string; readonly?: boolean; suggestion?: { source: string; minus: string; plus: string } };
+export type Runbook = {
+  id: string;
+  title: string;
+  version: string;
+  base: string;
+  owner: string;
+  scope: string;
+  tags: string[];
+  when: string;
+  steps: RunbookStep[];
+  reviewers: { name: string; state: "pending" | "optional" | "approved" }[];
+  versions: { v: string; who: string; when: string }[];
+  usage: { refs: number; resolve_rate: number; weekly: number[]; highlight: number };
+  incidents: { id: string; title: string }[];
+};
+export type Postmortem = { id: string; title: string; severity: Severity; date: string; duration: string; cause: string; actions: string; status: "draft" | "published" };
+export type PostmortemSummary = {
+  kpis: Kpi[];
+  items: Postmortem[];
+  causes: { label: string; pct: number; color: string }[];
+  impact_by_service: { label: string; value: number }[];
+  followups: { text: string; owner: string; due: string; tone: Tone }[];
+};
+export type MemoryLayer = { id: "working" | "service" | "episodic" | "semantic"; name: string; count: string; desc: string };
+export type MemoryFact = { id: string; fact: string; source: string; confidence: "high" | "medium" | "low"; confirmed: string | null; recalls: number; expires: string };
+export type MemoryView = {
+  layers: MemoryLayer[];
+  services: { id: string; count: number }[];
+  service: string;
+  conflict?: { a: { text: string; source: string }; b: { text: string; source: string } };
+  facts: MemoryFact[];
+  policy: string;
+};
+export type KnowledgeSource = { id: string; brand?: string; name: string; kind: string; sync: string; docs: number; chunks: string; last: string; status: "connected" | "error"; error?: string };
+export type RetrievalHit = { brand?: string; title: string; snippet: string; keyword: number; vector: number; score: number };

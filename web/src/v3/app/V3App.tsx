@@ -24,6 +24,11 @@ const Routing = p(() => import("../features/events/RoutingPage"));
 const Silences = p(() => import("../features/events/SilencesPage"));
 const Review = p(() => import("../features/events/ReviewPage"));
 const Execution = p(() => import("../features/events/ExecutionPage"));
+const Runbooks = p(() => import("../features/knowledge/RunbooksPage"));
+const RunbookEditor = p(() => import("../features/knowledge/RunbookEditorPage"));
+const Postmortems = p(() => import("../features/knowledge/PostmortemsPage"));
+const Memory = p(() => import("../features/knowledge/MemoryPage"));
+const Sources = p(() => import("../features/knowledge/SourcesPage"));
 const Canvas = p(() => import("../features/canvas/CanvasPage"));
 const NewConversation = p(() => import("../features/conversation/ConversationPage"), "NewConversationPage");
 
@@ -67,6 +72,11 @@ export default function V3App() {
           <Route path="silences" element={<Silences />} />
           <Route path="review/:id" element={<Review />} />
           <Route path="executions/:id" element={<Execution />} />
+          <Route path="runbooks" element={<Runbooks />} />
+          <Route path="runbooks/:id" element={<RunbookEditor />} />
+          <Route path="postmortems" element={<Postmortems />} />
+          <Route path="memory" element={<Memory />} />
+          <Route path="knowledge-sources" element={<Sources />} />
           {ROUTES.map(([path, C]) => (
             <Route key={path} path={path} element={<C />} />
           ))}

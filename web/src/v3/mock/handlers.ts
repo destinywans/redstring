@@ -5,3 +5,4 @@ import "./domains/conversations";
 import "./domains/canvas";
 import "./domains/templates";
 import "./domains/events";
+import "./domains/knowledge";

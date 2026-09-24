@@ -1,0 +1,123 @@
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.rb-suggestions {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rb-suggestions li {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.rb-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rb-steps li {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.rb-steps .n {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: 6px;
+  background: var(--sunken);
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.rb-suggest {
+  border: 1px solid var(--accent-line);
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 12.5px;
+}
+.rb-suggest .bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 12px;
+}
+.rb-suggest .del {
+  padding: 4px 10px;
+  background: var(--del);
+  color: var(--danger);
+}
+.rb-suggest .add {
+  padding: 4px 10px;
+  background: var(--add);
+  color: var(--ok);
+}
+.mem-layer {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  padding: 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  text-align: left;
+  transition: border-color 150ms, background 150ms;
+}
+.mem-layer.on {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+.mem-svc {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  font-size: 12.5px;
+  text-align: left;
+}
+.mem-svc:hover {
+  background: var(--hover);
+}
+.mem-svc.on {
+  background: var(--hover);
+  font-weight: 500;
+}
+.mem-conflict {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--warn);
+  background: var(--warn-soft);
+}
+.ret-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+}

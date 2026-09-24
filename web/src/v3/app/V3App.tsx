@@ -65,6 +65,15 @@ export const ROUTES: [string, ComponentType][] = [
   ["integrations/mapping", p(() => import("../features/integrations/MappingPage"))],
   ["integrations/coverage", p(() => import("../features/integrations/CoveragePage"))],
   ["integrations/webhooks", p(() => import("../features/integrations/WebhooksPage"))],
+  ["agents/lifecycle", p(() => import("../features/agents/LifecyclePage"))],
+  ["agents/prompts", p(() => import("../features/agents/PromptsPage"))],
+  ["agents/tools", p(() => import("../features/agents/ToolsPage"))],
+  ["agents/evals", p(() => import("../features/agents/EvalsPage"))],
+  ["agents/evals/:id", p(() => import("../features/agents/EvalCasePage"))],
+  ["agents/runs", p(() => import("../features/agents/RunsPage"))],
+  ["agents/runs/:id", p(() => import("../features/agents/RunDetailPage"))],
+  ["agents/guardrails", p(() => import("../features/agents/GuardrailsPage"))],
+  ["agents/:id", p(() => import("../features/agents/AgentPage"))],
 ];
 
 export default function V3App() {

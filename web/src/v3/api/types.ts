@@ -561,3 +561,86 @@ export type WebhookView = {
   mcp: { enabled: boolean; url: string; tools: string[]; clients: string };
   outbound: { event: string; target: string; brand?: string }[];
 };
+
+/* ---------------- agent console ---------------- */
+export type AgentLevel = "L0" | "L1" | "L2" | "L3";
+export type AgentSummary = { id: string; icon: string; name: string; desc: string; version: string; level: AgentLevel; score: number; runs_7d: string; success: string; avg_tokens: string; status: "stable" | "canary" | "paused" };
+export type Lifecycle = {
+  stages: { id: string; name: string; value: string; sub: string; tone: Tone }[];
+  agents: AgentSummary[];
+  todos: { icon: string; tone: Tone; title: string; body: string; action: string; href: string }[];
+};
+export type AgentVersion = { version: string; status: "canary" | "stable" | "retired"; traffic: string; score: string; success: string; tokens: string; delta?: string; created: string };
+export type AgentDetail = AgentSummary & {
+  owner: string;
+  account: string;
+  summary: string;
+  versions: AgentVersion[];
+  release: { from: string; to: string; current: number; target: number; gates: { label: string; value: string; pass: boolean }[]; tokens: { base: number[]; canary: number[] } };
+  diff: { key: string; before?: string; after: string; added?: boolean }[];
+  config: { icon: string; key: string; value: string }[];
+};
+export type PromptItem = { id: string; kind: "prompt" | "skill"; name: string; version: string; status?: string };
+export type PromptDetail = {
+  id: string;
+  name: string;
+  version: string;
+  status?: string;
+  variables: string[];
+  used_by: string;
+  lines: { text: string; added?: boolean }[];
+  notes: string;
+};
+export type PromptTrial = { version: string; score: string; tokens: string; duration: string; text: string; good: boolean };
+export type ToolRow = { id: string; brand?: string; name: string; kind: "read" | "write"; risk: "low" | "medium" | "high"; approval: string; agents: string; envs: string; calls: string; error: string };
+export type ToolsView = {
+  items: ToolRow[];
+  levels: { code: AgentLevel; name: string; desc: string }[];
+  env_limits: { env: string; max: AgentLevel; note: string }[];
+  rules: string[];
+};
+export type EvalExperiment = {
+  id: string;
+  title: string;
+  dataset: string;
+  meta: string;
+  gate_failed?: string;
+  metrics: { name: string; a: string; b: string; delta: string; gate: string; pass: boolean | null }[];
+  radar: { axes: string[]; a: number[]; b: number[] };
+  cases: { id: string; title: string; expected: string; a: boolean; b: boolean; score: string; duration: string }[];
+  datasets: { name: string; count: number; desc: string; tone: Tone }[];
+  evaluators: { name: string; kind: string }[];
+};
+export type EvalCase = {
+  id: string;
+  title: string;
+  queue: string;
+  alert: { sev: string; title: string; labels: { k: string; v: string }[] };
+  evidence: { brand: string; title: string; sub: string }[];
+  expected: { cause: string; advice: string };
+  output: { version: string; meta: string; tools: string[]; markdown: string };
+  baseline: { version: string; score: string; text: string };
+  auto: { score: string; note: string; rules: string[] };
+};
+export type RunRow = { id: string; agent: string; version: string; trigger: string; scope: string; status: "success" | "failed" | "blocked"; steps: string; tokens: string; duration: string; feedback?: { icon: string; tone: Tone; text: string } };
+export type RunsView = { kpis: Kpi[]; trend: { ok: number[]; failed: number[]; blocked: number[] }; durations: number[]; items: RunRow[]; counts: Record<"all" | "failed" | "blocked" | "negative", number> };
+export type RunDetail = {
+  id: string;
+  chain: { label: string; value: string; icon: string; to?: string }[];
+  stats: { k: string; v: string }[];
+  steps: { id: string; icon: string; name: string; start: number; dur: number; meta: string; kind: "model" | "tool"; call?: string; result?: string[]; connector?: string }[];
+  total: number;
+  context: { name: string; tokens: string; pct: number; color: string }[];
+  budget: string;
+  isolated: string[];
+  memory: { icon: string; name: string; desc: string; hits: { text: string; score?: string }[] }[];
+};
+export type GuardPolicy = { id: string; icon: string; name: string; desc: string; stat: string; enabled: boolean; forced?: boolean };
+export type GuardEvent = { id: string; time: string; agent: string; run: string; rule: string; action: "blocked" | "masked"; detail: string };
+export type GuardrailsView = {
+  policies: GuardPolicy[];
+  trend: number[][];
+  events: GuardEvent[];
+  counts: Record<"all" | "blocked" | "masked", number>;
+  detail: { id: string; title: string; meta: string; source: string; snippet: string; masked: string; verdict: string };
+};

@@ -1,24 +1,4 @@
 /* ---------- shared ---------- */
-.plain-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.plain-list > li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 0;
-  border-bottom: 1px solid var(--border);
-}
-.plain-list > li:last-child {
-  border-bottom: none;
-}
-.plain-list.col > li {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 5px;
-}
 .ai-banner,
 .ai-strip {
   display: flex;

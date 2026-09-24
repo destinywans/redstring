@@ -5,6 +5,7 @@ import { useGet } from "../../api/client";
 import type { MetricsDashboard } from "../../api/types";
 import { AiAvatar, Badge, Bar, Brand, Btn, Card, Chip, Cite, Col, Icon, IconBtn, LabelChip, Legend, Muted, Panel, Row, Segmented, Skeleton, Spacer, Strong, TextLink, cx, type Tone } from "../../ui/core";
 import { KBand } from "../../ui/data";
+import { newConversationUrl } from "../../api/stream";
 import { Composer, NextSteps } from "../../ui/Composer";
 import { Markdown } from "../../ui/Markdown";
 import { toast } from "../../ui/overlays";
@@ -227,7 +228,7 @@ export default function MetricsPage() {
             </Col>
           </Col>
           <div style={{ padding: "0 16px 16px" }}>
-            <Composer rows={1} placeholder={tx("继续追问这些图…", "Ask more about these charts…")} attachments={[{ kind: "view", id: "view", label: tx("当前视图", "Current view") }]} onSend={(t) => nav(`/conversations/new?q=${encodeURIComponent(t)}`)} />
+            <Composer minRows={1} maxRows={6} placeholder={tx("继续追问这些图…", "Ask more about these charts…")} attachments={[{ kind: "view", id: "view", label: tx("当前视图", "Current view") }]} viewAttachment={{ kind: "view", id: "view", label: tx("当前视图", "Current view") }} onSend={(t, att, x) => nav(newConversationUrl(t, att, x))} />
           </div>
         </aside>
       </div>

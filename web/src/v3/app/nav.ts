@@ -8,13 +8,13 @@ export const NAV: NavItem[] = [
   { id: "home", label: l("总览", "Overview"), icon: "home", to: "/", children: [] },
   {
     id: "conv",
-    label: l("对话与调查", "Conversations"),
+    label: l("对话与画布", "Conversations & canvases"),
     icon: "message",
     to: "/conversations",
     children: [
-      { id: "all", label: l("全部对话", "All conversations"), to: "/conversations", match: ["/conversations"] },
-      { id: "canvas", label: l("Canvas 调查", "Canvas investigations"), to: "/canvas/INV-231", match: ["/canvas"] },
-      { id: "templates", label: l("调查模板", "Templates"), to: "/templates" },
+      { id: "all", label: l("对话", "Conversations"), to: "/conversations", match: ["/conversations"] },
+      { id: "canvas", label: l("画布", "Canvases"), to: "/canvases", match: ["/canvases", "/canvas"] },
+      { id: "templates", label: l("模板", "Templates"), to: "/templates" },
     ],
   },
   {

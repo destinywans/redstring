@@ -7,6 +7,7 @@ import { Avatar, Badge, Bar, Btn, Card, Chip, Col, Icon, Mono, Muted, Num, Pills
 import { DataTable, Kpi, KpiRow } from "../../ui/data";
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
+import { NewRunbookDialog } from "./NewRunbookPage";
 import { PageHead } from "../conversation/ConversationsPage";
 import "./knowledge.css";
 
@@ -15,6 +16,7 @@ export default function RunbooksPage() {
   const nav = useNavigate();
   const [tab, setTab] = useState<"all" | "mine" | "review" | "stale">("all");
   const [q, setQ] = useState("");
+  const [start, setStart] = useState<null | "postmortem" | "blank">(null);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const { data, isLoading } = useGet<{ items: RunbookSummary[]; counts: Record<string, number>; kpis: KpiT[]; suggestions: RunbookSuggestion[] }>("/runbooks", { tab, q });
   const ST: Record<RunbookSummary["status"], [Tone, string]> = { published: ["ok", tx("已发布", "Published")], review: ["warn", tx("待复核", "In review")], draft: ["neutral", tx("草稿", "Draft")] };
@@ -24,10 +26,10 @@ export default function RunbooksPage() {
       crumbs={[tx("知识与记忆", "Knowledge"), "Runbook"]}
       actions={
         <>
-          <Btn icon="sparkles" onClick={() => toast(tx("AI 正在从最近 3 份复盘生成 Runbook 草稿…", "AI is drafting runbooks from the last 3 postmortems…"))}>
+          <Btn icon="sparkles" onClick={() => setStart("postmortem")}>
             {tx("从复盘生成", "Generate from postmortems")}
           </Btn>
-          <Btn kind="primary" icon="plus">
+          <Btn kind="primary" icon="plus" onClick={() => setStart("blank")}>
             {tx("新建 Runbook", "New runbook")}
           </Btn>
         </>
@@ -111,6 +113,7 @@ export default function RunbooksPage() {
           </ul>
         </aside>
       </div>
+      {start && <NewRunbookDialog open onClose={() => setStart(null)} initial={start} />}
     </Page>
   );
 }

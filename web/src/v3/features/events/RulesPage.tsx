@@ -46,10 +46,10 @@ export default function RulesPage() {
       crumbs={[tx("事件与告警", "Events"), tx("告警规则", "Alert rules")]}
       actions={
         <>
-          <Btn kind="ghost" icon="download">
+          <Btn kind="ghost" icon="download" to="/alert-rules/new?tab=import">
             {tx("导入 Prometheus 规则", "Import Prometheus rules")}
           </Btn>
-          <Btn kind="primary" icon="plus">
+          <Btn kind="primary" icon="plus" to="/alert-rules/new">
             {tx("新建规则", "New rule")}
           </Btn>
         </>

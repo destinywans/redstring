@@ -62,6 +62,7 @@ export type RecentItem = { id: string; kind: "investigation" | "conversation" | 
 /* ---------------- home ---------------- */
 export type HomeSummary = {
   greeting: { name: string; summary: string };
+  briefing: { summary: string; generated_at: string; citations: { n: number; label: string; href: string }[]; oncall: { name: string; until: string; next: string } };
   suggestions: { id: string; text: string; tone?: Tone; icon: string }[];
   kpis: Kpi[];
   attention: { id: string; severity: Severity; service: string; env: EnvName; symptom: string; meta: string; ai: "done" | "running" | null; owner?: string; href: string }[];
@@ -115,7 +116,8 @@ export type Message = {
   author: string;
   created_at: string;
   parts: Part[];
-  run?: { id: string; agent: string; version: string; model: string; tokens: number; duration_s: number };
+  run?: { id: string; agent: string; version: string; model: string; model_id?: string; reasoning?: string; reasoning_label?: string; brand?: string; tokens: number; duration_s: number };
+  attachments?: Upload[];
   streaming?: boolean;
 };
 export type Artifact = {
@@ -706,3 +708,101 @@ export type AuditView = {
   volume: number[][];
 };
 export type AuditDetail = { id: string; title: string; time: string; actor_kind: AuditEntry["actor"]["kind"]; actor_name: string; actor: { k: string; v: string }[]; links: { k: string; v: string; to: string }[]; payload: string; chain_ok: boolean };
+
+/* ---------------- composer: models, uploads, mention previews, commands (v4) ---------------- */
+export type ReasoningLevel = { id: string; label: string; hint?: string };
+export type ModelInfo = {
+  id: string;
+  name: string;
+  provider: string;
+  brand: string;
+  connector: string;
+  api: "responses" | "chat_completions" | "messages";
+  reasoning: { kind: "levels" | "toggle" | "none"; levels: ReasoningLevel[]; default?: string };
+  tools: boolean;
+  vision: boolean;
+  context_k: number;
+  cost: string;
+  note?: string;
+  available: boolean;
+  unavailable_reason?: string;
+};
+export type ModelCatalog = { items: ModelInfo[]; default: ModelChoice };
+export type ModelChoice = { model: string; reasoning?: string };
+export type UploadKind = "file" | "image" | "link" | "paste";
+export type Upload = { id: string; kind: UploadKind; name: string; size: number; mime: string; url?: string };
+export type MentionPreview = {
+  kind: RefKind;
+  id: string;
+  title: string;
+  subtitle: string;
+  tier?: Tier;
+  status?: Tone;
+  status_label?: string;
+  metrics: { label: string; value: string; tone?: Tone; series: number[] }[];
+  change?: { brand: string; text: string; meta: string };
+  related: { label: string; tone?: Tone }[];
+  href?: string;
+};
+export type CommandItem = {
+  id: string;
+  group: "command" | "skill" | "runbook" | "template";
+  name: string;
+  desc: string;
+  icon: string;
+  badge?: string;
+  creates?: "canvas" | "report" | "proposal";
+  params?: { name: string; example: string; required: boolean }[];
+  usage?: string;
+};
+export type ModelAdminView = {
+  providers: { brand: string; name: string; api: string; models: number; status: "ok" | "unverified" | "error" }[];
+  items: (ModelInfo & { used_by: string; scope: string; status: "ok" | "unverified"; is_default?: boolean })[];
+  detail: { model: string; api_chain: { api: string; note: string }[]; mapping: { level: string; param: string; is_default?: boolean }[]; checks: string[]; roles: string; agents: string; limits: string };
+};
+
+/* ---------------- v4: generic canvases ---------------- */
+export type TileTone = Tone | "t1" | "dev";
+export type CanvasKind = "investigation" | "plan" | "review" | "analysis" | "custom";
+export type CanvasStatus = "draft" | "active" | "waiting_approval" | "done" | "resolved";
+export type CanvasThumb = { nodes: [number, number, number, number, string][]; edges: string[] };
+export type CanvasSummary = {
+  id: string;
+  title: string;
+  kind: CanvasKind;
+  status: CanvasStatus;
+  meta: string;
+  participants: string[];
+  updated_at: string;
+  href: string;
+  investigation_id?: string;
+  services: string[];
+  thumb: CanvasThumb;
+};
+export type CanvasTemplateOption = { id: string; kind: CanvasKind; name: string; desc: string; nodes: string; is_default?: boolean };
+export type CanvasBlock =
+  | { type: "kv"; items: [string, string][] }
+  | { type: "tags"; items: string[] }
+  | { type: "text"; text: string }
+  | { type: "bars"; values: number[]; highlight?: number; color?: string }
+  | { type: "rows"; items: { badge?: string; badge_tone?: Tone; dot?: Tone; text: string; value?: string; state?: string; state_tone?: Tone }[] }
+  | { type: "steps"; items: { text: string; sub: string; state: "done" | "gate" | "todo" }[] }
+  | { type: "callout"; tone: Tone; icon?: string; text: string };
+export type CanvasDocNode = { id: string; x: number; y: number; w: number; icon: string; tone: TileTone; title: string; sub: string; badge?: { text: string; tone: Tone }; blocks: CanvasBlock[] };
+export type CanvasDocEdge = { from: string; to: string; tone?: Tone; dash?: boolean; live?: boolean };
+export type CanvasDocArtifact = { id: string; x: number; y: number; icon?: string; brand?: string; ext?: string; tone?: Tone; title: string; sub: string; href?: string };
+export type CanvasTurn = { id: string; role: "user" | "assistant"; author: string; text: string; model?: string; reasoning_label?: string; brand?: string };
+export type CanvasDoc = {
+  id: string;
+  title: string;
+  kind: CanvasKind;
+  status: CanvasStatus;
+  env?: EnvName;
+  participants: string[];
+  note: string;
+  proposal?: { id: string; href: string };
+  nodes: CanvasDocNode[];
+  edges: CanvasDocEdge[];
+  artifacts: CanvasDocArtifact[];
+  threads: Record<string, { context: string; turns: CanvasTurn[] }>;
+};

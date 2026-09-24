@@ -7,6 +7,8 @@ import { AiAvatar, Avatar, Brand, Btn, Card, Chip, Col, IconBtn, Input, KV, Mono
 import { MenuButton, toast } from "../../ui/overlays";
 import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
+import { useCreateParam } from "../../ui/forms";
+import { NewIncidentDrawer } from "./CreateDrawers";
 import "./events.css";
 
 type Summary = Pick<Incident, "id" | "severity" | "title" | "status" | "duration" | "commander">;
@@ -21,6 +23,7 @@ export default function IncidentsPage() {
   const [notes, setNotes] = useState<{ time: string; text: string }[]>([]);
   const [draft, setDraft] = useState("");
   const [stage, setStage] = useState<number | null>(null);
+  const [creating, setCreating] = useCreateParam("incident");
   const STATUS: Record<Incident["status"], [Tone, string]> = {
     active: ["danger", tx("进行中", "Active")],
     mitigated: ["accent", tx("已缓解", "Mitigated")],
@@ -29,7 +32,8 @@ export default function IncidentsPage() {
   const stages = [tx("发现", "Detected"), tx("确认", "Acknowledged"), tx("缓解", "Mitigated"), tx("解决", "Resolved"), tx("复盘", "Postmortem")];
   const cur = stage ?? inc?.stage ?? 0;
   return (
-    <Page flush crumbs={[tx("事件与告警", "Events"), tx("事件", "Incidents")]} actions={<Btn kind="primary" icon="plus">{tx("新建事件", "New incident")}</Btn>}>
+    <Page flush crumbs={[tx("事件与告警", "Events"), tx("事件", "Incidents")]} actions={<Btn kind="primary" icon="plus" onClick={() => setCreating(true)}>{tx("新建事件", "New incident")}</Btn>}>
+      <NewIncidentDrawer open={creating} onClose={() => setCreating(false)} />
       <div className="v3-split">
         <div className="side" style={{ width: 340 }}>
           <Row gap={8} style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)" }}>
@@ -88,7 +92,7 @@ export default function IncidentsPage() {
                   {tx("通知干系人", "Notify stakeholders")}
                 </Btn>
                 <Btn kind="primary" icon="branch" to="/canvas/INV-231">
-                  {tx("打开 Canvas 调查", "Open canvas")}
+                  {tx("打开调查画布", "Open canvas")}
                 </Btn>
               </Row>
               <Card style={{ padding: "12px 16px" }}>

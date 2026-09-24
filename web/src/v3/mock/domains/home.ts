@@ -6,6 +6,19 @@ import { at } from "../time";
 const hours = Array.from({ length: 24 }, (_, i) => `${String((15 + i) % 24).padStart(2, "0")}:00`);
 
 mock("GET", "/home", () => ({
+  briefing: {
+    summary: l(
+      "checkout-api 在 14:03 发布 v2.8.1 后 5xx 升到 8.4%，AI 已定位到连接池配置变更[1]，回滚提案等你复核[2]。payment-gateway P99 超出 SLO，尚未认领[3]。",
+      "checkout-api 5xx rose to 8.4% after v2.8.1 shipped at 14:03; AI traced it to a pool config change[1] and a rollback awaits your review[2]. payment-gateway P99 is over SLO and unclaimed[3].",
+    ),
+    generated_at: "14:30",
+    citations: [
+      { n: 1, label: l("画布 INV-231", "Canvas INV-231"), href: "/canvas/INV-231" },
+      { n: 2, label: l("提案 PRP-88", "Proposal PRP-88"), href: "/review/PRP-88" },
+      { n: 3, label: l("告警 · payment-gateway", "Alert · payment-gateway"), href: "/alerts" },
+    ],
+    oncall: { name: "王晨", until: "20:00", next: "李明" },
+  },
   greeting: {
     name: "王晨",
     summary: l("2 个服务异常，4 项等待你处理。AI 已完成 checkout-api 的自动初查，并提出了回滚提案。", "2 services are degraded and 4 items need you. AI finished triage on checkout-api and proposed a rollback."),

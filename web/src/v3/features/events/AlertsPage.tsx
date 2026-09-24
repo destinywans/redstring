@@ -58,7 +58,7 @@ export default function AlertsPage() {
           <Btn kind="ghost" icon="sliders" to="/alert-rules">
             {tx("告警规则", "Rules")}
           </Btn>
-          <Btn icon="clock" to="/silences">
+          <Btn icon="clock" to="/silences?new=silence">
             {tx("新建静默", "New silence")}
           </Btn>
         </>

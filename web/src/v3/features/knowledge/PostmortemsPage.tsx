@@ -18,7 +18,7 @@ export default function PostmortemsPage() {
   const { data, isLoading } = useGet<PostmortemSummary>("/postmortems", { tab });
   const rows = (data?.items ?? []).filter((p) => !q || p.title.toLowerCase().includes(q.toLowerCase()));
   return (
-    <Page crumbs={[tx("知识与记忆", "Knowledge"), tx("复盘报告", "Postmortems")]} actions={<Btn kind="primary" icon="plus">{tx("新建复盘", "New postmortem")}</Btn>}>
+    <Page crumbs={[tx("知识与记忆", "Knowledge"), tx("复盘报告", "Postmortems")]} actions={<Btn kind="primary" icon="plus" to="/postmortems/new">{tx("新建复盘", "New postmortem")}</Btn>}>
       <div className="v3-content">
         <PageHead title={tx("复盘报告", "Postmortems")} desc={tx("AI 根据事件时间线和证据起草，负责人确认后发布；改进项会一直跟踪到完成。", "AI drafts from the incident timeline and evidence; the owner publishes; action items are tracked to completion.")} />
         <KpiRow>{data?.kpis.map((k) => <Kpi key={k.id} label={k.label} value={k.value} unit={k.unit} sub={k.sub} tone={k.tone} values={k.series.length ? k.series : undefined} />)}</KpiRow>

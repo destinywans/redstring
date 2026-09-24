@@ -1,0 +1,96 @@
+.cv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 14px;
+}
+.cv-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  color: var(--text);
+}
+.cv-card:hover {
+  border-color: var(--border-strong);
+}
+.cv-thumb {
+  height: 118px;
+  padding: 4px 10px;
+  background-color: var(--bg);
+  background-image: radial-gradient(circle, var(--grid) 1px, transparent 1.3px);
+  background-size: 14px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.cv-card-body {
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.cv-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.cv-kind.plan { background: var(--info-soft); color: var(--info); }
+.cv-kind.review { background: var(--t1-soft); color: var(--t1); }
+.cv-kind.analysis { background: var(--dev-soft); color: var(--dev); }
+.cv-kind.custom { background: var(--sunken); color: var(--muted); }
+
+/* new canvas dialog */
+.ncv { display: flex; margin: -16px; min-height: 0; }
+.ncv-types { width: 232px; flex: none; padding: 12px 10px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; }
+.ncv-label { font-size: 11px; font-weight: 600; color: var(--muted); padding: 2px 4px 4px; }
+.ncv-type {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid transparent; background: transparent; text-align: left; color: var(--text); font-size: 12.5px;
+}
+.ncv-type:hover { background: var(--hover); }
+.ncv-type.on { background: var(--accent-soft); border-color: var(--accent-line); }
+.ncv-main { flex: 1; min-width: 0; padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; }
+.ncv-tpls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.ncv-tpl {
+  display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 9px; text-align: left; color: var(--text);
+  border: 1px solid var(--border); background: var(--panel); font-size: 12.5px;
+}
+.ncv-tpl:hover { border-color: var(--border-strong); }
+.ncv-tpl.on { border-color: var(--accent); background: var(--accent-soft); }
+.ncv-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 760px) {
+  .ncv { flex-direction: column; }
+  .ncv-types { width: auto; border-right: none; border-bottom: 1px solid var(--border); }
+  .ncv-tpls, .ncv-fields { grid-template-columns: 1fr; }
+}
+
+/* generic canvas nodes */
+.dc-node { padding-bottom: 12px; }
+.dc-body { padding: 0 13px; }
+.dc-kv { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.dc-kv > div { display: flex; gap: 8px; }
+.dc-kv > div > span:first-child { width: 36px; flex: none; }
+.dc-step {
+  width: 18px; height: 18px; flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; color: var(--muted); border: 1.5px solid var(--border-strong); box-sizing: border-box;
+}
+.dc-step.done { background: var(--ok); border-color: var(--ok); color: #fff; }
+.dc-step.gate { background: var(--warn-soft); border-color: transparent; color: var(--warn); }
+.dc-callout { display: flex; gap: 6px; align-items: flex-start; padding: 8px 10px; border-radius: 8px; font-size: 11.5px; line-height: 1.5; background: var(--sunken); }
+.dc-callout.warn { background: var(--warn-soft); color: var(--warn); }
+.dc-callout.danger { background: var(--danger-soft); color: var(--danger); }
+.dc-callout.info { background: var(--info-soft); color: var(--info); }
+.dc-callout svg { margin-top: 2px; flex: none; }
+.dc-artifact {
+  position: absolute; width: 148px; height: 52px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 0 10px;
+  background: var(--panel); border: 1px dashed var(--border-strong); border-radius: 9px; color: var(--text);
+}
+.dc-artifact:hover { border-color: var(--accent); }

@@ -75,8 +75,8 @@ export default function ServicesPage() {
       crumbs={[tx("资源与观测", "Resources"), tx("服务目录", "Services")]}
       actions={
         <>
-          <Btn icon="rotate">{tx("从 Kubernetes 同步", "Sync from Kubernetes")}</Btn>
-          <Btn kind="primary" icon="plus">
+          <Btn icon="rotate" to="/services/new">{tx("从 Kubernetes 同步", "Sync from Kubernetes")}</Btn>
+          <Btn kind="primary" icon="plus" to="/services/new">
             {tx("登记服务", "Register service")}
           </Btn>
         </>

@@ -1,9 +1,10 @@
+import { Fragment, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { useGet } from "../../api/client";
 import type { HomeSummary } from "../../api/types";
-import { Avatar, Badge, Btn, Card, CardHead, Chip, Dot, Env, Icon, Muted, Row, Sev, Skeleton, Tier, Tile, TextLink, Legend, Bar, type IconName, type Tone } from "../../ui/core";
-import { KBand } from "../../ui/data";
+import { AiAvatar, Avatar, Badge, Btn, Card, CardHead, Chip, Dot, Env, Icon, Muted, Row, Sev, Skeleton, Sup, Tier, Tile, TextLink, Legend, Bar, type IconName, type Tone } from "../../ui/core";
+import { newConversationUrl } from "../../api/stream";
 import { Composer } from "../../ui/Composer";
 import { MenuButton } from "../../ui/overlays";
 import { Sparkline, StackedBars, Axis } from "../../charts";
@@ -13,6 +14,66 @@ import "./home.css";
 const TODO_TONE = { approval: "accent", report: "info", runbook: "t1", access: "warn" } as const;
 const ACT_ICON: Record<string, IconName> = { ai: "sparkles", change: "branch", alert: "bell", runbook: "book", approval: "shield", system: "cpu" };
 const RECENT_ICON: Record<string, [IconName, Tone]> = { investigation: ["branch", "accent"], conversation: ["message", "neutral"], artifact: ["file", "info"] };
+
+/** Summary text with inline [n] citation markers rendered as links. */
+function Cited({ text, citations, onOpen }: { text: string; citations: HomeSummary["briefing"]["citations"]; onOpen: (href: string) => void }) {
+  return (
+    <>
+      {text.split(/(\[\d+\])/).map((seg, i) => {
+        const m = seg.match(/^\[(\d+)\]$/);
+        const c = m && citations.find((x) => x.n === Number(m[1]));
+        return c ? <Sup key={i} n={c.n} onClick={() => onOpen(c.href)} /> : <Fragment key={i}>{seg}</Fragment>;
+      })}
+    </>
+  );
+}
+
+function Briefing({ data, onOpen }: { data?: HomeSummary; onOpen: (href: string) => void }) {
+  const { tx } = useI18n();
+  const b = data?.briefing;
+  return (
+    <Card className="home-brief anim-rise">
+      <div className="brief-head">
+        <AiAvatar size={22} />
+        <b>{tx("AI 今日简报", "AI briefing")}</b>
+        <span style={{ flexGrow: 1 }} />
+        {b && <Muted size={11.5}>{tx("{t} 生成", "Generated {t}", { t: b.generated_at })}</Muted>}
+      </div>
+      <p className="brief-text">{b ? <Cited text={b.summary} citations={b.citations} onOpen={onOpen} /> : <Skeleton h={48} />}</p>
+      {b && (
+        <Row gap={6} wrap>
+          {b.citations.map((c) => (
+            <button key={c.n} type="button" className="brief-cite" onClick={() => onOpen(c.href)}>
+              <span>{c.n}</span>
+              {c.label}
+            </button>
+          ))}
+        </Row>
+      )}
+      <div className="brief-kpis">
+        {data?.kpis.map((k) => (
+          <div key={k.id} className="brief-kpi">
+            <Muted size={11}>{k.label}</Muted>
+            <b className="tnum" style={{ color: k.tone && k.tone !== "neutral" && k.tone !== "accent" ? `var(--${k.tone})` : undefined }}>
+              {k.value}
+              {k.unit && <small>{k.unit}</small>}
+            </b>
+            {k.delta && <span className="muted tnum" style={{ fontSize: 11, color: k.delta_good === false ? "var(--danger)" : undefined }}>{k.delta}</span>}
+          </div>
+        ))}
+      </div>
+      {b && (
+        <div className="brief-oncall">
+          <Avatar name={b.oncall.name} size={22} />
+          <span className="grow">
+            {tx("值班 {n} · 至 {u}", "On call {n} · until {u}", { n: b.oncall.name, u: b.oncall.until })}
+          </span>
+          <Muted size={11.5}>{tx("下一班 {n}", "Next {n}", { n: b.oncall.next })}</Muted>
+        </div>
+      )}
+    </Card>
+  );
+}
 
 function greetingWord(tx: (a: string, b: string) => string) {
   const h = new Date().getHours();
@@ -25,8 +86,9 @@ function greetingWord(tx: (a: string, b: string) => string) {
 export default function HomePage() {
   const { tx, fmt } = useI18n();
   const nav = useNavigate();
-  const { data, isLoading } = useGet<HomeSummary>("/home");
+  const { data } = useGet<HomeSummary>("/home");
   const ask = (text: string) => nav(`/conversations/new?q=${encodeURIComponent(text)}`);
+  const band = useRef<HTMLElement>(null);
   const labels = [tx("P1", "P1"), "P2", "P3", "P4"];
   return (
     <Page
@@ -49,49 +111,48 @@ export default function HomePage() {
           </Chip>
         </Row>
       }
-      actions={
-        <Badge tone="ok">
-          <Dot tone="ok" size={6} />
-          {tx("值班：王晨 · 至 20:00", "On call: Wang Chen · until 20:00")}
-        </Badge>
-      }
     >
       <div className="v3-content home">
-        <section className="home-hero anim-rise">
-          <div>
-            <h2>
-              {greetingWord(tx)}，{data?.greeting.name ?? "…"}
-            </h2>
-            <p className="muted">{data?.greeting.summary ?? <Skeleton w={420} h={12} style={{ marginTop: 6 }} />}</p>
+        <section className="home-band" ref={band}>
+          <div className="home-hero anim-rise">
+            <div>
+              <h2>
+                {greetingWord(tx)}，{data?.greeting.name ?? "…"}
+              </h2>
+              <p className="muted">{data?.greeting.summary ?? <Skeleton w={420} h={12} style={{ marginTop: 6 }} />}</p>
+            </div>
+            <Composer
+              big
+              minRows={3}
+              spanRef={band}
+              placeholder={tx("问问题、下指令，或描述一个异常。例如：checkout-api 现在的 P99 是多少，周六大促要不要扩容？", "Ask, instruct, or describe an anomaly. e.g. What is checkout-api's P99 now — should we scale for Saturday's sale?")}
+              onSend={(t, att, x) => nav(newConversationUrl(t, att, x))}
+              env={
+                <MenuButton
+                  place="bottom-end"
+                  items={[{ label: tx("生产", "Prod"), active: true }, { label: tx("预发", "Staging") }, { label: tx("全部环境", "All environments") }]}
+                  trigger={({ onClick, ref }) => (
+                    <span ref={ref}>
+                      <Chip caret onClick={onClick}>
+                        <Dot tone="danger" size={6} />
+                        {tx("生产", "Prod")}
+                      </Chip>
+                    </span>
+                  )}
+                />
+              }
+            />
+            <Row gap={8} wrap>
+              {data?.suggestions.map((s) => (
+                <Chip key={s.id} onClick={() => ask(s.text)} icon={s.tone ? undefined : (s.icon as IconName)}>
+                  {s.tone && <Dot tone={s.tone as Tone} size={6} />}
+                  {s.text}
+                </Chip>
+              ))}
+            </Row>
           </div>
-          <Composer
-            big
-            placeholder={tx("问问题、下指令，或描述一个异常。例如：checkout-api 现在的 P99 是多少，周六大促要不要扩容？", "Ask, instruct, or describe an anomaly. e.g. What is checkout-api's P99 now — should we scale for Saturday's sale?")}
-            onSend={(text) => ask(text)}
-            footer={
-              <>
-                <Chip icon="at">{tx("应用或服务", "App or service")}</Chip>
-                <Chip icon="slash">Skills / Runbook</Chip>
-                <Chip caret>{tx("生产", "Prod")}</Chip>
-              </>
-            }
-          />
-          <Row gap={8} wrap>
-            {data?.suggestions.map((s) => (
-              <Chip key={s.id} onClick={() => ask(s.text)} icon={s.tone ? undefined : (s.icon as IconName)}>
-                {s.tone && <Dot tone={s.tone as Tone} size={6} />}
-                {s.text}
-              </Chip>
-            ))}
-          </Row>
+          <Briefing data={data} onOpen={(h) => nav(h)} />
         </section>
-
-        <div className="v3-row stagger" style={{ gap: 12, alignItems: "stretch" }}>
-          {isLoading && Array.from({ length: 5 }, (_, i) => <Skeleton key={i} h={118} style={{ flex: 1, borderRadius: 10 }} />)}
-          {data?.kpis.map((k) => (
-            <KBand key={k.id} label={k.label} value={k.value} unit={k.unit} sub={k.sub} tone={k.tone as Tone} values={k.series} delta={k.delta} deltaGood={k.delta_good} style={{ flex: "1 1 0" }} />
-          ))}
-        </div>
 
         <div className="home-grid">
           <Card className="home-card anim-rise">
@@ -193,9 +254,6 @@ export default function HomePage() {
               </tbody>
             </table>
           </Card>
-        </div>
-
-        <div className="home-grid">
           <Card className="home-card anim-rise">
             <CardHead
               title={tx("告警趋势 · 24 小时", "Alert trend · 24h")}
@@ -226,7 +284,7 @@ export default function HomePage() {
             </ul>
           </Card>
           <Card className="home-card anim-rise">
-            <CardHead title={tx("最近对话与调查", "Recent")} right={<Btn kind="ghost" icon="plus" h={24} to="/conversations/new">{tx("新建", "New")}</Btn>} />
+            <CardHead title={tx("最近对话与画布", "Recent conversations & canvases")} right={<Btn kind="ghost" icon="plus" h={24} to="/conversations/new">{tx("新建", "New")}</Btn>} />
             <ul style={{ padding: "6px 16px 8px" }}>
               {data?.recent.map((r) => (
                 <li key={r.id}>

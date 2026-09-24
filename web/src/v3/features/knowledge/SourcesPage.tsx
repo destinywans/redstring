@@ -25,7 +25,7 @@ export default function SourcesPage() {
   };
   const rows = (data?.items ?? []).filter((s) => (tab === "all" || (tab === "external" ? !!s.brand : !s.brand)) && (!q || s.name.toLowerCase().includes(q.toLowerCase())));
   return (
-    <Page flush crumbs={[tx("知识与记忆", "Knowledge"), tx("知识来源", "Sources")]} actions={<Btn kind="primary" icon="plus">{tx("添加来源", "Add source")}</Btn>}>
+    <Page flush crumbs={[tx("知识与记忆", "Knowledge"), tx("知识来源", "Sources")]} actions={<Btn kind="primary" icon="plus" to="/knowledge-sources/new">{tx("添加来源", "Add source")}</Btn>}>
       <div className="v3-split">
         <div className="main">
           <div className="v3-content">

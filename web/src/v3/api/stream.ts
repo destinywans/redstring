@@ -1,15 +1,34 @@
 import { API_MODE, api } from "./client";
-import type { Message, Part, StreamEvent } from "./types";
+import type { Message, ModelChoice, Part, StreamEvent, Upload } from "./types";
 import { currentLocale } from "../app/preferences";
 import { pick, type L } from "../i18n";
 
+export type SendOptions = { choice?: ModelChoice | null; attachments?: Upload[] };
+
+/** Hands attachments picked on one page (e.g. the home composer) to the conversation that sends them. */
+const pending = new Map<string, Upload[]>();
+export function stashAttachments(files: Upload[]) {
+  if (!files.length) return null;
+  const key = `h${Date.now().toString(36)}`;
+  pending.set(key, files);
+  return key;
+}
+export function takeAttachments(key: string | null) {
+  if (!key) return [];
+  const f = pending.get(key) ?? [];
+  pending.delete(key);
+  return f;
+}
+
 /**
  * Send a user message and stream the assistant reply.
- * Contract: POST /conversations/{id}/messages, then server-sent events on GET /conversations/{id}/events
- * (`message.started`, `part.added`, `text.delta`, `message.completed`).
+ * Contract: POST /conversations/{id}/messages `{ text, model?, reasoning?, attachments? }`, then server-sent events on
+ * GET /conversations/{id}/events (`message.started`, `part.added`, `text.delta`, `message.completed`).
+ * One model per turn: the model/reasoning sent here apply to this turn only; the run in `message.completed` records them.
  */
-export async function sendAndStream(conversationId: string, text: string, onEvent: (e: StreamEvent) => void): Promise<() => void> {
-  const { message } = await api<{ message: Message; reply_id: string }>("POST", `/conversations/${conversationId}/messages`, { body: { text } });
+export async function sendAndStream(conversationId: string, text: string, onEvent: (e: StreamEvent) => void, opts: SendOptions = {}): Promise<() => void> {
+  const body = { text, model: opts.choice?.model, reasoning: opts.choice?.reasoning, attachments: opts.attachments };
+  const { message } = await api<{ message: Message; reply_id: string }>("POST", `/conversations/${conversationId}/messages`, { body });
   onEvent({ type: "message.started", message });
   if (API_MODE === "http") {
     const es = new EventSource(`/api/v1/conversations/${conversationId}/events`);
@@ -20,11 +39,16 @@ export async function sendAndStream(conversationId: string, text: string, onEven
     };
     return () => es.close();
   }
-  return mockStream(text, onEvent);
+  return mockStream(text, onEvent, opts.choice);
 }
 
-async function mockStream(text: string, onEvent: (e: StreamEvent) => void) {
+async function mockStream(text: string, onEvent: (e: StreamEvent) => void, choice?: ModelChoice | null) {
   const { cannedReply } = await import("../mock/domains/conversations");
+  const { MODELS } = await import("../mock/domains/composer");
+  const def = { model: "claude:claude-opus-5-5", reasoning: "high" };
+  const c = choice ?? def;
+  const m = MODELS.find((x) => x.id === c.model) ?? MODELS[0];
+  const lvl = (m.reasoning.levels as { id: string; label: L }[]).find((x) => x.id === c.reasoning);
   const r = cannedReply(text);
   const loc = currentLocale();
   const id = `a-${Date.now()}`;
@@ -54,8 +78,21 @@ async function mockStream(text: string, onEvent: (e: StreamEvent) => void) {
     onEvent({
       type: "message.completed",
       message_id: id,
-      run: { id: `run_${id.slice(-4)}`, agent: loc === "zh-CN" ? "调查助手" : "Investigator", version: "v12", model: loc === "zh-CN" ? "默认模型" : "Default model", tokens: 4800, duration_s: end / 1000 },
+      run: { id: `run_${id.slice(-4)}`, agent: loc === "zh-CN" ? "调查助手" : "Investigator", version: "v12", model: pick(loc, m.name as L), model_id: m.id, reasoning: lvl?.id, reasoning_label: lvl ? (m.reasoning.kind === "toggle" ? `${loc === "zh-CN" ? "思考" : "Thinking"} ${pick(loc, lvl.label)}` : pick(loc, lvl.label)) : undefined, brand: m.brand, tokens: 4800, duration_s: end / 1000 },
     }),
   );
   return () => timers.forEach(clearTimeout);
+}
+
+/** URL that starts a conversation from any composer, carrying the model choice and attachments. */
+export function newConversationUrl(text: string, refs: { kind: string; id: string; label: string }[], x: { files: Upload[]; choice: ModelChoice | null }) {
+  const q = new URLSearchParams({ q: text || refs.map((a) => a.label).join(" ") || x.files.map((f) => f.name).join(" ") });
+  if (refs.length) q.set("context", refs.map((a) => `${a.kind}:${a.id}`).join(","));
+  if (x.choice) {
+    q.set("model", x.choice.model);
+    if (x.choice.reasoning) q.set("reasoning", x.choice.reasoning);
+  }
+  const key = stashAttachments(x.files);
+  if (key) q.set("files", key);
+  return `/conversations/new?${q}`;
 }

@@ -43,7 +43,7 @@ export default function ConversationsPage() {
   const open = (c: ConversationSummary) => nav(c.mode === "canvas" ? `/canvas/${c.id}` : `/conversations/${c.id}`);
   return (
     <Page
-      crumbs={[tx("对话与调查", "Conversations"), tx("全部对话", "All")]}
+      crumbs={[tx("对话与画布", "Conversations & canvases"), tx("全部对话", "All")]}
       actions={
         <>
           <Btn icon="branch" to="/templates">
@@ -56,7 +56,7 @@ export default function ConversationsPage() {
       }
     >
       <div className="v3-content">
-        <PageHead title={tx("全部对话", "All conversations")} desc={tx("手动发起的对话、Canvas 调查、告警自动初查和定时巡检都在这里。", "Manual chats, canvas investigations, alert triage and scheduled checks all live here.")} />
+        <PageHead title={tx("全部对话", "All conversations")} desc={tx("手动发起的对话、画布、告警自动初查和定时巡检都在这里。", "Manual chats, canvas investigations, alert triage and scheduled checks all live here.")} />
         <KpiRow>{data?.stats.map((k) => <Kpi key={k.id} label={k.label} value={k.value} sub={k.sub} tone={k.tone} values={k.series} />)}</KpiRow>
         <Row gap={8} wrap>
           <Pills
@@ -75,12 +75,12 @@ export default function ConversationsPage() {
             items={[
               { label: tx("全部类型", "All types"), active: !mode, onSelect: () => setMode(undefined) },
               { label: tx("对话", "Chat"), active: mode === "chat", onSelect: () => setMode("chat") },
-              { label: "Canvas", active: mode === "canvas", onSelect: () => setMode("canvas") },
+              { label: tx("画布", "Canvas"), active: mode === "canvas", onSelect: () => setMode("canvas") },
             ]}
             trigger={({ onClick, ref }) => (
               <span ref={ref}>
                 <Chip icon="filter" caret active={!!mode} onClick={onClick}>
-                  {mode ? (mode === "chat" ? tx("对话", "Chat") : "Canvas") : tx("类型", "Type")}
+                  {mode ? (mode === "chat" ? tx("对话", "Chat") : tx("画布", "Canvas")) : tx("类型", "Type")}
                 </Chip>
               </span>
             )}
@@ -121,7 +121,7 @@ export default function ConversationsPage() {
                 ),
                 sort: (a, b) => a.title.localeCompare(b.title),
               },
-              { key: "mode", header: tx("类型", "Type"), render: (c) => <Badge tone={c.mode === "canvas" ? "accent" : "neutral"}>{c.mode === "canvas" ? "Canvas" : tx("对话", "Chat")}</Badge> },
+              { key: "mode", header: tx("类型", "Type"), render: (c) => <Badge tone={c.mode === "canvas" ? "accent" : "neutral"}>{c.mode === "canvas" ? tx("画布", "Canvas") : tx("对话", "Chat")}</Badge> },
               { key: "status", header: tx("状态", "Status"), render: (c) => <State tone={STATUS[c.status][0]}>{STATUS[c.status][1]}</State> },
               { key: "source", header: tx("来源", "Source"), render: (c) => <Muted>{SOURCE[c.source]}</Muted> },
               { key: "people", header: tx("参与者", "People"), render: (c) => <AvatarGroup names={c.participants} /> },

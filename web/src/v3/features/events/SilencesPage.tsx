@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Page } from "../../app/Shell";
 import { api, useGet } from "../../api/client";
@@ -7,6 +7,8 @@ import { Avatar, Badge, Bar, Btn, Card, CardHead, Col, Icon, IconBtn, Input, Lab
 import { DataTable } from "../../ui/data";
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
+import { useCreateParam } from "../../ui/forms";
+import { NewInhibitDrawer } from "./CreateDrawers";
 import "./events.css";
 
 export default function SilencesPage() {
@@ -18,6 +20,21 @@ export default function SilencesPage() {
   const inhib = useGet<{ items: Inhibition[] }>("/inhibitions");
   const [matchers, setMatchers] = useState([{ k: "service", op: "=", v: "checkout-api" }, { k: "alertname", op: "=", v: "DownstreamTimeout" }]);
   const [duration, setDuration] = useState("1h");
+  const [inhibitOpen, setInhibitOpen] = useCreateParam("inhibit");
+  const [silenceParam, setSilenceParam] = useCreateParam("silence");
+  const form = useRef<HTMLElement>(null);
+  const focusForm = () => {
+    form.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    form.current?.querySelector<HTMLInputElement>("input")?.focus();
+    form.current?.classList.add("flash");
+    setTimeout(() => form.current?.classList.remove("flash"), 900);
+  };
+  useEffect(() => {
+    if (silenceParam) {
+      focusForm();
+      setSilenceParam(false);
+    }
+  }, [silenceParam]); // eslint-disable-line react-hooks/exhaustive-deps
   const [reason, setReason] = useState(tx("回滚执行期间屏蔽下游超时告警", "Mute downstream timeouts during the rollback"));
   const [preview, setPreview] = useState<{ affects: number; sample: string[] } | null>(null);
   useEffect(() => {
@@ -37,7 +54,8 @@ export default function SilencesPage() {
   const STATE: Record<Silence["state"], [Tone, string]> = { active: ["accent", tx("生效中", "Active")], planned: ["neutral", tx("计划中", "Planned")], expired: ["neutral", tx("已过期", "Expired")] };
   const rows = (list.data?.items ?? []).filter((s) => !q || s.matchers.some((m) => `${m.k}=${m.v}`.includes(q)));
   return (
-    <Page flush crumbs={[tx("事件与告警", "Events"), tx("静默与抑制", "Silences")]} actions={<Btn kind="primary" icon="plus">{tx("新建静默", "New silence")}</Btn>}>
+    <Page flush crumbs={[tx("事件与告警", "Events"), tx("静默与抑制", "Silences")]} actions={<><Btn icon="plus" onClick={() => setInhibitOpen(true)}>{tx("新建抑制规则", "New inhibition")}</Btn><Btn kind="primary" icon="plus" onClick={focusForm}>{tx("新建静默", "New silence")}</Btn></>}>
+      <NewInhibitDrawer open={inhibitOpen} onClose={() => setInhibitOpen(false)} />
       <Tabs value="silences" onChange={() => undefined} options={[{ value: "silences", label: tx("静默", "Silences"), count: list.data?.counts.active }, { value: "inhibit", label: tx("抑制规则", "Inhibition"), count: inhib.data?.items.length }, { value: "windows", label: tx("维护窗口", "Maintenance"), count: 2 }]} />
       <div className="v3-split">
         <div className="main">
@@ -65,7 +83,7 @@ export default function SilencesPage() {
               />
             </Card>
             <Card>
-              <CardHead title={tx("抑制规则", "Inhibition rules")} right={<Btn kind="ghost" icon="plus" h={26}>{tx("新建抑制规则", "New rule")}</Btn>} />
+              <CardHead title={tx("抑制规则", "Inhibition rules")} right={<Btn kind="ghost" icon="plus" h={26} onClick={() => setInhibitOpen(true)}>{tx("新建抑制规则", "New rule")}</Btn>} />
               <ul>
                 {inhib.data?.items.map((r) => (
                   <li key={r.id} className="inhibit-row">
@@ -91,7 +109,7 @@ export default function SilencesPage() {
             </Card>
           </div>
         </div>
-        <aside className="aside" style={{ width: 380 }}>
+        <aside ref={form} className="aside silence-form" style={{ width: 380 }}>
           <Row gap={10} style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
             <Tile icon="clock" tone="accent" />
             <Col gap={0}>

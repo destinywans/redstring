@@ -30,7 +30,7 @@ mock("GET", "/conversations", ({ query }) => {
     ...paginate(items, query),
     counts: { mine: LIST.filter((c) => c.mine && c.status !== "archived").length, team: 31, triage: 23, archived: 12 },
     stats: [
-      { id: "active", label: l("进行中", "Active"), value: "6", sub: l("其中 Canvas 调查 2 个", "2 on canvas"), series: [3, 4, 4, 5, 6, 5, 6] },
+      { id: "active", label: l("进行中", "Active"), value: "6", sub: l("其中画布 2 个", "2 on canvas"), series: [3, 4, 4, 5, 6, 5, 6] },
       { id: "waiting", label: l("等待审批", "Awaiting approval"), value: "2", tone: "warn", sub: l("最早一条已等待 13 分钟", "Oldest waiting 13 min"), series: [0, 1, 1, 2, 1, 2, 2] },
       { id: "resolved", label: l("本周已解决", "Resolved this week"), value: "14", tone: "ok", sub: l("平均解决 38 分钟", "Avg 38 min to resolve"), series: [1, 2, 3, 2, 4, 1, 1] },
       { id: "triage", label: l("本周自动初查", "Auto-triage this week"), value: "23", sub: l("其中 17 条给出根因候选", "17 with a root-cause candidate"), series: [2, 5, 3, 4, 6, 1, 2] },
@@ -126,7 +126,7 @@ const capacity = {
         },
         { type: "next_steps", items: [
           { icon: "shield", label: l("生成扩容提案", "Create scaling proposal"), action: "proposal" },
-          { icon: "branch", label: l("转为 Canvas 调查", "Open as canvas"), action: "canvas" },
+          { icon: "branch", label: l("转为画布", "Open as canvas"), action: "canvas" },
           { icon: "book", label: l("保存为 Runbook 草稿", "Save as runbook draft"), action: "runbook" },
         ] },
       ],
@@ -344,8 +344,8 @@ mock("POST", "/conversations", ({ body }) => {
 mock("POST", "/conversations/:id/messages", ({ params, body }) => {
   const c = STORE[params.id];
   if (!c) throw new MockError(404, "not_found", "conversation not found");
-  const b = body as { text: string };
-  const msg = { id: `u-${Date.now()}`, role: "user", author: "王晨", created_at: new Date().toISOString(), parts: [{ type: "text", markdown: b.text }] };
+  const b = body as { text: string; model?: string; reasoning?: string; attachments?: unknown[] };
+  const msg = { id: `u-${Date.now()}`, role: "user", author: "王晨", created_at: new Date().toISOString(), parts: [{ type: "text", markdown: b.text }], attachments: b.attachments ?? [] };
   (c.messages as unknown[]).push(msg);
   return { message: msg, reply_id: `a-${Date.now()}` };
 });

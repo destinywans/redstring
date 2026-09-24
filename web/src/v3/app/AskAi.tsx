@@ -2,7 +2,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { create } from "zustand";
 import { AiAvatar, Muted, Strong } from "../ui/core";
 import { Drawer } from "../ui/overlays";
-import { Composer, NextSteps } from "../ui/Composer";
+import { Composer, NextSteps, type SendExtra } from "../ui/Composer";
+import { newConversationUrl } from "../api/stream";
 import { useI18n } from "../i18n";
 import { locate } from "./nav";
 
@@ -21,9 +22,9 @@ export function AskAiDrawer() {
   const { pathname } = useLocation();
   const where = locate(pathname);
   const view = where.child ? tl(where.child.label) : where.section ? tl(where.section.label) : tx("当前页面", "This page");
-  const start = (text: string) => {
+  const start = (text: string, x: SendExtra = { files: [], choice: null }) => {
     setOpen(false);
-    nav(`/conversations/new?q=${encodeURIComponent(text)}&context=${encodeURIComponent(pathname)}`);
+    nav(`${newConversationUrl(text, [], x)}&context=${encodeURIComponent(pathname)}`);
   };
   return (
     <Drawer open={isOpen} onClose={() => setOpen(false)} width={420} title={tx("问 AI", "Ask AI")} sub={tx("会带上当前视图：{v}", "Includes the current view: {v}", { v: view })} icon={<AiAvatar size={28} />}>
@@ -40,7 +41,7 @@ export function AskAiDrawer() {
         </div>
         <Muted size={11.5}>{tx("AI 只读取证；任何写操作都会生成提案，经人工批准后执行。", "The AI only reads. Any write becomes a proposal that a person approves.")}</Muted>
         <span style={{ flexGrow: 1 }} />
-        <Composer key={draft} placeholder={draft || tx("问一个问题…", "Ask a question…")} autoFocus attachments={[{ kind: "view", id: "view", label: view }]} onSend={(t) => start(t || draft)} />
+        <Composer key={draft} placeholder={draft || tx("问一个问题…", "Ask a question…")} autoFocus attachments={[{ kind: "view", id: "view", label: view }]} onSend={(t, _att, x) => start(t || draft, x)} />
       </div>
     </Drawer>
   );

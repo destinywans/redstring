@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ComponentType } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import { Shell, Page } from "./Shell";
 import { useApplyPreferences } from "./theme";
 import { Skeleton } from "../ui/core";
@@ -30,7 +30,19 @@ const Postmortems = p(() => import("../features/knowledge/PostmortemsPage"));
 const Memory = p(() => import("../features/knowledge/MemoryPage"));
 const Sources = p(() => import("../features/knowledge/SourcesPage"));
 const Canvas = p(() => import("../features/canvas/CanvasPage"));
+const NewRule = p(() => import("../features/events/NewRulePage"));
+const NewRunbook = p(() => import("../features/knowledge/NewRunbookPage"));
+const NewPostmortem = p(() => import("../features/knowledge/NewPostmortemPage"));
+const NewSource = p(() => import("../features/knowledge/NewSourcePage"));
+const DocCanvas = p(() => import("../features/canvas/DocCanvasPage"));
+const Canvases = p(() => import("../features/canvas/CanvasesPage"));
 const NewConversation = p(() => import("../features/conversation/ConversationPage"), "NewConversationPage");
+
+/** Investigation canvases keep the evidence/write-back view; other kinds (plan, review, …) use the generic canvas. */
+function CanvasRoute() {
+  const { id = "" } = useParams();
+  return id.startsWith("INV-") ? <Canvas /> : <DocCanvas />;
+}
 
 function Loading() {
   return (
@@ -49,6 +61,7 @@ function Loading() {
 
 export const ROUTES: [string, ComponentType][] = [
   ["services", p(() => import("../features/observe/ServicesPage"))],
+  ["services/new", p(() => import("../features/observe/NewServicePage"))],
   ["services/:id", p(() => import("../features/observe/ServiceDetailPage"))],
   ["services/:id/resilience", p(() => import("../features/observe/ServiceDetailPage"), "ResiliencePage")],
   ["resources", p(() => import("../features/observe/ResourcesPage"))],
@@ -93,22 +106,27 @@ export default function V3App() {
           <Route path="conversations" element={<Conversations />} />
           <Route path="conversations/new" element={<NewConversation />} />
           <Route path="conversations/:id" element={<Conversation />} />
-          <Route path="canvas/:id" element={<Canvas />} />
+          <Route path="canvases" element={<Canvases />} />
+          <Route path="canvas/:id" element={<CanvasRoute />} />
           <Route path="templates" element={<Templates />} />
           <Route path="inbox" element={<Inbox />} />
           <Route path="incidents" element={<Incidents />} />
           <Route path="incidents/:id" element={<Incidents />} />
           <Route path="alerts" element={<Alerts />} />
           <Route path="alert-rules" element={<Rules />} />
+          <Route path="alert-rules/new" element={<NewRule />} />
           <Route path="routing" element={<Routing />} />
           <Route path="silences" element={<Silences />} />
           <Route path="review/:id" element={<Review />} />
           <Route path="executions/:id" element={<Execution />} />
           <Route path="runbooks" element={<Runbooks />} />
+          <Route path="runbooks/new" element={<NewRunbook />} />
           <Route path="runbooks/:id" element={<RunbookEditor />} />
           <Route path="postmortems" element={<Postmortems />} />
+          <Route path="postmortems/new" element={<NewPostmortem />} />
           <Route path="memory" element={<Memory />} />
           <Route path="knowledge-sources" element={<Sources />} />
+          <Route path="knowledge-sources/new" element={<NewSource />} />
           {ROUTES.map(([path, C]) => (
             <Route key={path} path={path} element={<C />} />
           ))}

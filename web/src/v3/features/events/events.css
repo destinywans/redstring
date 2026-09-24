@@ -498,3 +498,7 @@
   overflow: hidden;
   border-collapse: separate;
 }
+.silence-form.flash {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  transition: box-shadow 0.3s;
+}

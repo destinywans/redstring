@@ -2,9 +2,10 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { api, useGet } from "../../api/client";
-import type { InvestigationTemplate } from "../../api/types";
-import { Badge, Brand, Btn, Check, Col, Icon, LabelChip, Muted, Pills, Row, SearchBox, Section, Skeleton, Spacer, Strong, Tile, cx } from "../../ui/core";
-import { toast } from "../../ui/overlays";
+import type { CanvasSummary, InvestigationTemplate } from "../../api/types";
+import { Badge, Brand, Btn, Check, Input, Col, Icon, LabelChip, Muted, Pills, Row, SearchBox, Section, Skeleton, Spacer, Strong, Tile, cx } from "../../ui/core";
+import { Dialog, toast } from "../../ui/overlays";
+import { KindTag } from "../canvas/CanvasesPage";
 import { useI18n } from "../../i18n";
 import { PageHead } from "./ConversationsPage";
 import "./templates.css";
@@ -16,6 +17,7 @@ export default function TemplatesPage() {
   const [q, setQ] = useState("");
   const { data, isLoading } = useGet<{ items: InvestigationTemplate[]; counts: Record<string, number> }>("/investigation-templates", { owner: owner === "all" ? undefined : owner, q });
   const [selId, setSel] = useState("tpl-release");
+  const [saveOpen, setSaveOpen] = useState(false);
   const sel = data?.items.find((t) => t.id === selId) ?? data?.items[0];
   const start = async (t: InvestigationTemplate) => {
     const r = await api<{ investigation_id: string }>("POST", `/investigation-templates/${t.id}/start`);
@@ -23,11 +25,11 @@ export default function TemplatesPage() {
     nav(`/canvas/${r.investigation_id}`);
   };
   return (
-    <Page crumbs={[tx("对话与调查", "Conversations"), tx("调查模板", "Templates")]} actions={<Btn kind="primary" icon="plus">{tx("新建模板", "New template")}</Btn>} flush>
+    <Page crumbs={[tx("对话与画布", "Conversations & canvases"), tx("模板", "Templates")]} actions={<Btn kind="primary" icon="plus" onClick={() => setSaveOpen(true)}>{tx("新建模板", "New template")}</Btn>} flush>
       <div className="v3-split">
         <div className="main">
           <div className="v3-content">
-            <PageHead title={tx("调查模板", "Investigation templates")} desc={tx("把常见故障的排查思路固化成模板：自动派生初始分支，预置只读步骤和 Runbook。", "Turn proven troubleshooting paths into templates: initial branches, read-only steps and runbooks are created for you.")} />
+            <PageHead title={tx("画布模板", "Canvas templates")} desc={tx("把常见故障的排查思路固化成模板：自动派生初始分支，预置只读步骤和 Runbook。", "Turn proven troubleshooting paths into templates: initial branches, read-only steps and runbooks are created for you.")} />
             <Row gap={8}>
               <Pills value={owner} onChange={setOwner} options={[{ value: "all", label: tx("全部", "All"), count: data?.counts.all }, { value: "official", label: tx("官方", "Official"), count: data?.counts.official }, { value: "team", label: tx("我的团队", "My team"), count: data?.counts.team }]} />
               <SearchBox placeholder={tx("搜索模板", "Search templates")} value={q} onChange={setQ} width={220} />
@@ -127,6 +129,64 @@ export default function TemplatesPage() {
           </aside>
         )}
       </div>
+      <SaveAsTemplateDialog open={saveOpen} onClose={() => setSaveOpen(false)} />
     </Page>
+  );
+}
+
+/** New template = save an existing canvas's structure (nodes, read-only steps, runbooks) as a template. */
+function SaveAsTemplateDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { tx } = useI18n();
+  const { data } = useGet<{ items: CanvasSummary[] }>(open ? "/canvases" : null);
+  const [pick, setPick] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [keep, setKeep] = useState({ nodes: true, steps: true, runbooks: true, content: false });
+  const cur = data?.items.find((c) => c.id === pick) ?? data?.items[0];
+  const save = async () => {
+    await api("POST", "/canvas-templates", { body: { from_canvas: cur?.id, name: name || cur?.title, keep } });
+    toast(tx("已保存为团队模板「{n}」", "Saved as team template “{n}”", { n: name || cur?.title || "" }));
+    onClose();
+  };
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      width={640}
+      title={tx("从画布保存为模板", "Save a canvas as a template")}
+      footer={
+        <>
+          <Muted size={11.5}>{tx("模板只保存结构与只读步骤，不包含证据和对话内容", "Templates keep structure and read-only steps — never evidence or chat content")}</Muted>
+          <Spacer />
+          <Btn kind="ghost" onClick={onClose}>{tx("取消", "Cancel")}</Btn>
+          <Btn kind="primary" icon="save" onClick={save} disabled={!cur}>{tx("保存模板", "Save template")}</Btn>
+        </>
+      }
+    >
+      <Col gap={14}>
+        <Col gap={6}>
+          <Strong>{tx("选择画布", "Canvas")}</Strong>
+          <div className="v3-col" style={{ gap: 4, maxHeight: 220, overflow: "auto" }}>
+            {data?.items.map((c) => (
+              <button key={c.id} type="button" className={cx("tpl-pick", cur?.id === c.id && "on")} onClick={() => setPick(c.id)}>
+                <KindTag kind={c.kind} />
+                <span className="grow ellipsis" style={{ textAlign: "left" }}>{c.title}</span>
+                <Muted size={11.5}>{c.meta}</Muted>
+              </button>
+            ))}
+          </div>
+        </Col>
+        <Col gap={6}>
+          <Strong>{tx("模板名称", "Template name")}</Strong>
+          <Input value={name} placeholder={cur?.title} onChange={(e) => setName(e.target.value)} aria-label={tx("模板名称", "Template name")} />
+        </Col>
+        <Col gap={6}>
+          <Strong>{tx("保留内容", "Keep")}</Strong>
+          <Check checked={keep.nodes} onChange={(v) => setKeep({ ...keep, nodes: v })} label={tx("节点结构与分支", "Node structure and branches")} />
+          <Check checked={keep.steps} onChange={(v) => setKeep({ ...keep, steps: v })} label={tx("只读取证步骤", "Read-only evidence steps")} />
+          <Check checked={keep.runbooks} onChange={(v) => setKeep({ ...keep, runbooks: v })} label={tx("关联的 Runbook", "Linked runbooks")} />
+          <Check checked={keep.content} onChange={(v) => setKeep({ ...keep, content: v })} label={tx("节点中的示例文字（去除服务名与数值）", "Sample text in nodes (service names and numbers removed)")} />
+        </Col>
+      </Col>
+    </Dialog>
   );
 }

@@ -3,11 +3,13 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Page } from "../../app/Shell";
 import { api, useGet, API_MODE } from "../../api/client";
-import { sendAndStream } from "../../api/stream";
-import type { Artifact, Conversation, Message, Part, StreamEvent } from "../../api/types";
-import { AiAvatar, Avatar, Badge, Btn, Col, Divider, Dot, Env, Icon, Muted, Row, Segmented, Skeleton, Spacer, Strong, Tile, TextLink, Mono, cx } from "../../ui/core";
+import { newConversationUrl, sendAndStream, takeAttachments } from "../../api/stream";
+import { formatSize } from "../../api/upload";
+import type { Artifact, Conversation, Message, ModelChoice, Part, StreamEvent, Upload } from "../../api/types";
+import { AiAvatar, Avatar, Badge, Brand, Btn, Col, Divider, Dot, Env, Icon, Muted, Row, Segmented, Skeleton, Spacer, Strong, Tile, TextLink, Mono, cx } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { Composer } from "../../ui/Composer";
+import { useModelCatalog, describeChoice } from "../../ui/ModelPicker";
 import { PartView, type PartActions } from "./Parts";
 import { ArtifactPanel, ARTIFACT_ICON } from "./ArtifactPanel";
 import { useI18n } from "../../i18n";
@@ -45,8 +47,15 @@ function MessageView({ m, conv, actions, onOpenArtifact }: { m: Message; conv: C
           <b style={{ fontWeight: 600 }}>{user ? m.author : "AI"}</b>
           <Muted>
             {fmt.time(m.created_at)}
-            {m.run && ` · ${m.run.agent} ${m.run.version} · ${m.run.model}`}
+            {m.run && ` · ${m.run.agent} ${m.run.version}`}
           </Muted>
+          {m.run && (
+            <span className="v3-row muted" style={{ gap: 4, fontSize: 12 }} title={tx("本轮使用的模型与推理强度", "Model and reasoning effort used for this turn")}>
+              {m.run.brand && <Brand name={m.run.brand} size={14} />}
+              {m.run.model}
+              {m.run.reasoning_label && ` · ${m.run.reasoning_label}`}
+            </span>
+          )}
           {m.streaming && (
             <Badge tone="accent">
               <span className="v3-spinner spin" />
@@ -54,6 +63,7 @@ function MessageView({ m, conv, actions, onOpenArtifact }: { m: Message; conv: C
             </Badge>
           )}
         </Row>
+        {m.attachments && m.attachments.length > 0 && <UploadChips files={m.attachments} />}
         {m.parts.map((p: Part, i) =>
           p.type === "artifacts" ? (
             <div key={i} className="v3-col" style={{ gap: 8 }}>
@@ -77,6 +87,35 @@ function MessageView({ m, conv, actions, onOpenArtifact }: { m: Message; conv: C
           ),
         )}
       </div>
+    </div>
+  );
+}
+
+function UploadChips({ files }: { files: Upload[] }) {
+  const { tx } = useI18n();
+  return (
+    <div className="v3-row" style={{ gap: 6, flexWrap: "wrap" }}>
+      {files.map((f) => (
+        <span key={f.id} className="att-file">
+          <span className={cx("att-ext", f.kind)}>{f.kind === "link" ? "URL" : f.kind === "paste" ? "TXT" : (f.name.split(".").pop() ?? "").slice(0, 4).toUpperCase()}</span>
+          <span className="v3-col" style={{ gap: 0, minWidth: 0 }}>
+            <span className="ellipsis" style={{ fontSize: 12, fontWeight: 500 }}>{f.name}</span>
+            <span className="muted" style={{ fontSize: 11 }}>{f.kind === "link" ? tx("链接", "Link") : formatSize(f.size)}</span>
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Shown between assistant turns whose model or effort differ. */
+function TurnDivider({ run }: { run: NonNullable<Message["run"]> }) {
+  const { tx } = useI18n();
+  const label = run.reasoning_label ? `${run.model} · ${run.reasoning_label}` : run.model;
+  return (
+    <div className="turn-divider" role="separator">
+      {run.brand && <Brand name={run.brand} size={14} />}
+      {tx("本轮起切换为 {m}", "Switched to {m} from this turn", { m: label })}
     </div>
   );
 }
@@ -143,7 +182,7 @@ function SidePanel({ conv }: { conv: Conversation }) {
       <Col gap={8}>
         <Muted size={11.5}>{tx("下一步", "Next")}</Muted>
         <Btn icon="branch" to={`/canvas/${conv.investigation_id ?? "INV-231"}`} style={{ justifyContent: "flex-start" }}>
-          {tx("转为 Canvas 调查", "Open as canvas investigation")}
+          {tx("转为画布", "Open as canvas")}
         </Btn>
         <Btn icon="book" style={{ justifyContent: "flex-start" }} onClick={() => toast(tx("已保存为 Runbook 草稿", "Saved as a runbook draft"))}>
           {tx("保存为 Runbook 草稿", "Save as runbook draft")}
@@ -165,6 +204,9 @@ export default function ConversationPage() {
   const { data: conv, isLoading, error } = useGet<Conversation>(`/conversations/${id}`);
   const [messages, setMessages] = useState<Message[]>([]);
   const [sending, setSending] = useState(false);
+  const [choice, setChoice] = useState<ModelChoice | null>(() => (params.get("model") ? { model: params.get("model")!, reasoning: params.get("reasoning") ?? undefined } : null));
+  const [turn, setTurn] = useState<ModelChoice | null>(null);
+  const { data: catalog } = useModelCatalog();
   const stop = useRef<(() => void) | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const artifact = params.get("artifact");
@@ -178,27 +220,44 @@ export default function ConversationPage() {
   }, [messages]);
 
   const send = useCallback(
-    async (text: string) => {
-      if (!text || sending) return;
+    async (text: string, files: Upload[] = [], pick: ModelChoice | null = choice) => {
+      if ((!text && !files.length) || sending) return;
+      const c = pick ?? catalog?.default ?? null;
       setSending(true);
-      stop.current = await sendAndStream(id, text, (e) => {
-        setMessages((ms) => applyEvent(ms, e));
-        if (e.type === "message.completed") {
-          setSending(false);
-          qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === "/conversations" });
-        }
-      });
+      setTurn(c);
+      stop.current = await sendAndStream(
+        id,
+        text,
+        (e) => {
+          setMessages((ms) => applyEvent(ms, e));
+          if (e.type === "message.completed") {
+            setSending(false);
+            setTurn(null);
+            stop.current = null;
+            qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === "/conversations" });
+          }
+        },
+        { choice: c, attachments: files },
+      );
     },
-    [id, sending, qc],
+    [id, sending, qc, choice, catalog],
   );
+  const stopTurn = () => {
+    stop.current?.();
+    stop.current = null;
+    setSending(false);
+    setTurn(null);
+    setMessages((ms) => ms.map((m) => (m.streaming ? { ...m, streaming: false } : m)));
+  };
 
   useEffect(() => {
     const q = params.get("send");
     if (conv && q) {
       const next = new URLSearchParams(params);
-      next.delete("send");
+      const files = takeAttachments(next.get("files"));
+      for (const k of ["send", "files", "model", "reasoning"]) next.delete(k);
       setParams(next, { replace: true });
-      void send(q);
+      void send(q, files);
     }
   }, [conv]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -221,11 +280,11 @@ export default function ConversationPage() {
     },
   };
 
-  if (error) return <Page crumbs={[tx("对话与调查", "Conversations")]}>{String(error)}</Page>;
+  if (error) return <Page crumbs={[tx("对话与画布", "Conversations & canvases")]}>{String(error)}</Page>;
   return (
     <Page
       flush
-      crumbs={[tx("对话与调查", "Conversations"), conv?.title ?? "…"]}
+      crumbs={[tx("对话与画布", "Conversations & canvases"), conv?.title ?? "…"]}
       actions={
         <>
           <Segmented
@@ -234,7 +293,7 @@ export default function ConversationPage() {
             onChange={(v) => v === "canvas" && nav(`/canvas/${conv?.investigation_id ?? "INV-231"}`)}
             options={[
               { value: "chat", label: tx("对话", "Chat"), icon: "message" },
-              { value: "canvas", label: "Canvas", icon: "branch" },
+              { value: "canvas", label: tx("画布", "Canvas"), icon: "branch" },
             ]}
           />
           {conv?.scope.service && (
@@ -273,7 +332,17 @@ export default function ConversationPage() {
                   <Muted>{tx("可以直接提问，也可以用 / 命令或 @ 引用服务、告警与 Runbook。", "Ask directly, or use / commands and @ to reference services, alerts and runbooks.")}</Muted>
                 </div>
               )}
-              {conv && messages.map((m) => <MessageView key={m.id} m={m} conv={conv} actions={actions} onOpenArtifact={openArtifact} />)}
+              {conv &&
+                messages.map((m, i) => {
+                  const prev = messages.slice(0, i).reverse().find((x) => x.role === "assistant" && x.run);
+                  const switched = m.role === "assistant" && m.run && prev?.run && (prev.run.model_id !== m.run.model_id || prev.run.reasoning !== m.run.reasoning);
+                  return (
+                    <div key={m.id} className="v3-col" style={{ gap: 18 }}>
+                      {switched && m.run && <TurnDivider run={m.run} />}
+                      <MessageView m={m} conv={conv} actions={actions} onOpenArtifact={openArtifact} />
+                    </div>
+                  );
+                })}
               <div ref={bottom} />
             </div>
           </div>
@@ -281,11 +350,16 @@ export default function ConversationPage() {
             <Composer
               placeholder={tx("继续提问，或让 AI 执行一个动作…", "Ask a follow-up, or ask the AI to take an action…")}
               sending={sending}
+              onStop={stopTurn}
+              turn={turn}
+              choice={choice}
+              onChoiceChange={setChoice}
               attachments={conv?.scope.service ? [{ kind: "service", id: conv.scope.service, label: conv.scope.service }] : []}
-              onSend={(t, att) => send(t || att.map((a) => a.label).join(" "))}
+              onSend={(t, att, x) => send(t || att.map((a) => a.label).join(" "), x.files, x.choice)}
             />
             <p className="hint">
-              {tx("⏎ 发送 · Shift + ⏎ 换行 · 写操作一律经过人工批准", "⏎ send · Shift + ⏎ new line · every write needs human approval")}
+              {tx("⏎ 发送 · Shift + ⏎ 换行 · 每轮使用一个模型，切换从下一轮生效 · 写操作一律经过人工批准", "⏎ send · Shift + ⏎ new line · one model per turn, switches apply next turn · every write needs human approval")}
+              {turn && choice && describeChoice(catalog, turn)?.label !== describeChoice(catalog, choice)?.label && ` · ${tx("本轮：{m}", "This turn: {m}", { m: describeChoice(catalog, turn)?.label ?? "" })}`}
               {API_MODE === "mock" && ` · ${tx("示例数据", "Sample data")}`}
             </p>
           </div>
@@ -319,13 +393,15 @@ export function NewConversationPage() {
   useEffect(() => {
     if (!q || started.current) return;
     started.current = true;
-    void api<{ id: string }>("POST", "/conversations", { body: { text: q, context: params.get("context") } }).then(({ id }) =>
-      nav(`/conversations/${id}?send=${encodeURIComponent(q)}`, { replace: true }),
+    const carry = new URLSearchParams({ send: q });
+    for (const k of ["model", "reasoning", "files"]) if (params.get(k)) carry.set(k, params.get(k)!);
+    void api<{ id: string }>("POST", "/conversations", { body: { text: q, context: params.get("context"), model: params.get("model") } }).then(({ id }) =>
+      nav(`/conversations/${id}?${carry}`, { replace: true }),
     );
   }, [q, nav, params]);
   if (q)
     return (
-      <Page crumbs={[tx("对话与调查", "Conversations"), tx("新对话", "New")]}>
+      <Page crumbs={[tx("对话与画布", "Conversations & canvases"), tx("新对话", "New")]}>
         <div className="v3-col" style={{ alignItems: "center", padding: 80, gap: 10 }}>
           <span className="v3-spinner spin" style={{ width: 18, height: 18, color: "var(--accent)" }} />
           <Muted>{tx("正在创建对话…", "Creating the conversation…")}</Muted>
@@ -333,14 +409,15 @@ export function NewConversationPage() {
       </Page>
     );
   return (
-    <Page crumbs={[tx("对话与调查", "Conversations"), tx("新对话", "New")]}>
+    <Page crumbs={[tx("对话与画布", "Conversations & canvases"), tx("新对话", "New")]}>
       <div className="v3-col" style={{ alignItems: "center", padding: "80px 24px", gap: 16 }}>
         <AiAvatar size={40} />
         <h1 style={{ fontSize: 20, fontWeight: 600 }}>{tx("开始一个新对话", "Start a new conversation")}</h1>
         <div style={{ width: "min(720px, 100%)" }}>
-          <Composer big autoFocus placeholder={tx("描述问题、下指令，或用 / 选择命令…", "Describe a problem, give an instruction, or pick a / command…")} onSend={(t) => nav(`/conversations/new?q=${encodeURIComponent(t)}`)} />
+          <Composer big autoFocus minRows={4} placeholder={tx("描述问题、下指令，或用 / 选择命令…", "Describe a problem, give an instruction, or pick a / command…")} onSend={(t, att, x) => nav(newConversationUrl(t, att, x))} />
         </div>
       </div>
     </Page>
   );
 }
+

@@ -457,7 +457,7 @@ export default function CanvasPage() {
   return (
     <Page
       flush
-      crumbs={[tx("对话与调查", "Conversations"), inv?.title ?? "…"]}
+      crumbs={[tx("对话与画布", "Conversations & canvases"), inv?.title ?? "…"]}
       actions={
         inv && (
           <>
@@ -473,7 +473,7 @@ export default function CanvasPage() {
               onChange={(v) => v === "chat" && nav(`/conversations/${inv.conversation_id ?? "C-320"}`)}
               options={[
                 { value: "chat", label: tx("对话", "Chat"), icon: "message" },
-                { value: "canvas", label: "Canvas", icon: "branch" },
+                { value: "canvas", label: tx("画布", "Canvas"), icon: "branch" },
               ]}
             />
             <AvatarGroup names={inv.participants} />

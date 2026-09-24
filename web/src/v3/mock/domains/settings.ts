@@ -91,7 +91,7 @@ mock("GET", "/roles/:id", ({ params }) => {
     scope: [P("环境：生产", "Env: prod"), P("应用：交易平台全部", "Apps: all Trading"), P("团队：平台工程", "Team: Platform eng.")],
     actions: [P("查看", "View"), P("创建 / 编辑", "Create / edit"), P("删除", "Delete"), P("批准", "Approve"), P("管理", "Manage")],
     matrix: [
-      { resource: P("对话与调查", "Conversations & investigations"), grants: [1, 1, 0, 0, 0] },
+      { resource: P("对话与画布", "Conversations & canvases"), grants: [1, 1, 0, 0, 0] },
       { resource: P("事件与告警", "Incidents & alerts"), grants: [1, 1, 0, 0, 0] },
       { resource: P("告警规则与路由", "Alert rules & routing"), grants: [1, 1, 0, 0, 0] },
       { resource: P("静默", "Silences"), grants: [1, 1, 1, 0, 0] },

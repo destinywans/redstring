@@ -23,3 +23,21 @@
   border-radius: 8px;
   border: 1px solid var(--border);
 }
+.tpl-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+}
+.tpl-pick:hover {
+  background: var(--hover);
+}
+.tpl-pick.on {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}

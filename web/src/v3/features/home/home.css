@@ -1,0 +1,89 @@
+.home {
+  padding: 22px 32px 28px;
+  gap: 18px;
+}
+.home-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(860px, 100%);
+  align-self: center;
+}
+.home-hero h2 {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.home-hero p {
+  margin-top: 2px;
+  font-size: 13px;
+}
+.home-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 1280px) {
+  .home-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.home-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.home-card .attn {
+  display: flex;
+  gap: 12px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border);
+  transition: background var(--dur-fast);
+}
+.home-card .todo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  transition: background var(--dur-fast);
+}
+.home-card .attn:hover,
+.home-card .todo:hover {
+  background: var(--hover);
+}
+.home-card li:last-child {
+  border-bottom: none;
+}
+.feed {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 6px 4px;
+  margin: 0 -4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.feed:hover {
+  background: var(--hover);
+}
+.recent {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 4px;
+  margin: 0 -4px;
+  border-radius: 6px;
+}
+.recent:hover {
+  background: var(--hover);
+}
+.home-card .v3-table th,
+.home-card .v3-table td {
+  padding: 0 6px;
+  white-space: nowrap;
+}
+.home-card .v3-table th:first-child,
+.home-card .v3-table td:first-child {
+  padding-left: 16px;
+}

@@ -1,0 +1,219 @@
+.v3-md {
+  font-size: 13.5px;
+  line-height: 1.7;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.v3-md ul {
+  padding-left: 18px;
+  list-style: disc;
+}
+.v3-md h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+.v3-md h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 8px;
+}
+.v3-md h3 {
+  font-size: 13px;
+  font-weight: 600;
+}
+.md-code {
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--sunken);
+  border: 1px solid var(--border);
+}
+.md-caret {
+  display: inline-block;
+  width: 7px;
+  height: 15px;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: var(--accent);
+  border-radius: 1px;
+}
+.part-tools {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.part-tools .head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: left;
+}
+.part-tools .head b {
+  color: var(--text);
+  font-weight: 500;
+}
+.part-tools .body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur) var(--ease);
+}
+.part-tools .body.open {
+  grid-template-rows: 1fr;
+}
+.part-tools .body ul {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 12px;
+}
+.part-tools .body.open ul {
+  padding: 4px 12px 10px;
+  border-top: 1px solid var(--border);
+}
+.part-tools li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.part-card {
+  overflow: hidden;
+}
+.part-card > .bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.part-card > .foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 8px;
+}
+.img-box {
+  position: relative;
+  padding: 12px;
+  background: var(--sunken);
+}
+.call-graph text {
+  font-size: 11.5px;
+  fill: var(--text);
+}
+.part-files {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.part-files .file {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+.part-files pre {
+  margin: 0;
+  height: 84px;
+  padding: 8px 10px;
+  background: var(--sunken);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  overflow: hidden;
+  white-space: pre-wrap;
+}
+.part-files .meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+.diff {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.75;
+}
+.diff > div {
+  padding: 4px 0;
+  min-width: 0;
+  overflow-x: auto;
+}
+.diff > div:first-child {
+  border-right: 1px solid var(--border);
+}
+.diff .dl {
+  padding: 0 12px;
+  white-space: pre;
+  color: var(--muted);
+}
+.diff .dl.del {
+  background: var(--del);
+  color: var(--danger);
+}
+.diff .dl.add {
+  background: var(--add);
+  color: var(--ok);
+}
+.part-proposal {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+}
+.part-gap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  border: 1px dashed var(--warn);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 12px;
+}
+.part-status {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 12px;
+  align-self: flex-start;
+}
+.todo-ring {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  flex: none;
+}
+.v3-native-select {
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel);
+  font-size: 12.5px;
+}

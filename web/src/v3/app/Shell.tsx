@@ -1,0 +1,213 @@
+import { useEffect, useState, type ReactNode } from "react";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { AiAvatar, Avatar, Badge, Btn, Dot, Icon, IconBtn, Kbd, Tile, cx } from "../ui/core";
+import { MenuButton, Toaster } from "../ui/overlays";
+import { useI18n } from "../i18n";
+import { NAV, SETTINGS_NAV, locate, type NavItem } from "./nav";
+import { usePreferences } from "./preferences";
+import { CommandPalette, useCommandPalette } from "./CommandPalette";
+import { AskAiDrawer, useAskAi } from "./AskAi";
+import { useGet } from "../api/client";
+import type { Me, WatchedService } from "../api/types";
+import "./shell.css";
+
+function Section({ item, active, activeChild }: { item: NavItem; active: boolean; activeChild?: string }) {
+  const { tl } = useI18n();
+  const [open, setOpen] = useState(active);
+  useEffect(() => {
+    if (active) setOpen(true);
+  }, [active]);
+  const hasChildren = item.children.length > 0;
+  return (
+    <div className="nav-section">
+      <div className={cx("nav-item", active && !hasChildren && "active", active && hasChildren && "parent")}>
+        <Link to={item.to} className="nav-link" onClick={() => hasChildren && setOpen(true)}>
+          <Icon name={item.icon} size={16} />
+          <span className="grow">{tl(item.label)}</span>
+          {item.count ? <span className="nav-count">{item.count}</span> : null}
+        </Link>
+        {hasChildren && (
+          <button type="button" className="nav-caret" aria-label="toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+            <Icon name="down" size={13} style={{ transform: open ? "none" : "rotate(-90deg)", transition: "transform 160ms" }} />
+          </button>
+        )}
+      </div>
+      {hasChildren && (
+        <div className={cx("nav-children", open && "open")}>
+          <div>
+            {item.children.map((c) => (
+              <NavLink key={c.id} to={c.to} className={cx("nav-child", activeChild === c.id && "active")}>
+                {tl(c.label)}
+              </NavLink>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Sidebar() {
+  const { pathname } = useLocation();
+  const { tx } = useI18n();
+  const where = locate(pathname);
+  const open = useCommandPalette((s) => s.setOpen);
+  const me = useGet<Me>("/me");
+  const watched = useGet<{ items: WatchedService[] }>("/me/watched-services");
+  return (
+    <nav className="v3-sidebar" aria-label={tx("主导航", "Main navigation")}>
+      <div className="brand-row">
+        <span className="logo">A</span>
+        <span className="grow" style={{ fontWeight: 600, fontSize: 13.5 }}>
+          AIOps Canvas
+        </span>
+        <IconBtn icon="down" label={tx("切换工作区", "Switch workspace")} size={24} />
+      </div>
+      <div className="v3-row" style={{ gap: 6 }}>
+        <button type="button" className="search-btn" onClick={() => open(true)}>
+          <Icon name="search" size={14} />
+          <span className="grow" style={{ textAlign: "left" }}>
+            {tx("搜索或跳转", "Search or jump")}
+          </span>
+          <Kbd>⌘K</Kbd>
+        </button>
+        <Link to="/conversations/new" className="new-btn" aria-label={tx("新建对话", "New conversation")} title={tx("新建对话", "New conversation")}>
+          <Icon name="plus" size={15} />
+        </Link>
+      </div>
+      <div className="nav-list">
+        {NAV.map((s) => (
+          <Section key={s.id} item={s} active={where.section?.id === s.id} activeChild={where.section?.id === s.id ? where.child?.id : undefined} />
+        ))}
+      </div>
+      <div className="nav-list">
+        <h2 className="nav-head">{tx("关注的服务", "Watched services")}</h2>
+        {watched.data?.items.map((s) => (
+          <Link key={s.id} to={`/services/${s.id}`} className="watched">
+            <Dot tone={s.status} size={7} pulse={s.status === "danger"} />
+            <span className="ellipsis grow">{s.name}</span>
+            {s.signal && (
+              <span className="tnum" style={{ fontSize: 11.5, color: `var(--${s.status === "ok" ? "muted" : s.status})` }}>
+                {s.signal}
+              </span>
+            )}
+          </Link>
+        ))}
+      </div>
+      <span style={{ flexGrow: 1 }} />
+      <div className="nav-list">
+        <Section item={SETTINGS_NAV} active={where.section?.id === "settings"} activeChild={where.section?.id === "settings" ? where.child?.id : undefined} />
+      </div>
+      <AccountCard me={me.data} />
+    </nav>
+  );
+}
+
+function AccountCard({ me }: { me?: Me }) {
+  const { tx, locale } = useI18n();
+  const { theme, setTheme, setLocale } = usePreferences();
+  const nav = useNavigate();
+  return (
+    <MenuButton
+      place="top-start"
+      items={[
+        { label: tx("个人资料", "Profile"), icon: "user", onSelect: () => nav("/settings/profile") },
+        { label: tx("偏好设置", "Preferences"), icon: "sliders", onSelect: () => nav("/settings/preferences") },
+        { sep: true, label: "" },
+        { label: tx("浅色", "Light"), icon: "sun", active: theme === "light", onSelect: () => setTheme("light") },
+        { label: tx("深色", "Dark"), icon: "moon", active: theme === "dark", onSelect: () => setTheme("dark") },
+        { label: tx("跟随系统", "System"), icon: "monitor", active: theme === "system", onSelect: () => setTheme("system") },
+        { sep: true, label: "" },
+        { label: "中文", icon: "globe", active: locale === "zh-CN", onSelect: () => setLocale("zh-CN") },
+        { label: "English", icon: "globe", active: locale === "en-US", onSelect: () => setLocale("en-US") },
+        { sep: true, label: "" },
+        { label: tx("退出登录", "Sign out"), icon: "logout", danger: true },
+      ]}
+      trigger={({ onClick, ref }) => (
+        <button type="button" ref={ref} onClick={onClick} className="account">
+          <Avatar name={me?.name ?? "?"} size={26} accent />
+          <span className="v3-col grow" style={{ gap: 0, lineHeight: 1.3, textAlign: "left" }}>
+            <span style={{ fontSize: 12.5, fontWeight: 500 }}>{me?.name ?? "…"}</span>
+            <span className="muted ellipsis" style={{ fontSize: 11.5 }}>
+              {me ? `${me.title} · ${me.team}` : ""}
+            </span>
+          </span>
+          {me?.oncall.active && (
+            <Badge tone="ok">
+              <Dot tone="ok" size={6} />
+              {tx("值班", "On call")}
+            </Badge>
+          )}
+        </button>
+      )}
+    />
+  );
+}
+
+/** Top bar used by every page: breadcrumbs on the left, page actions + Ask AI on the right. */
+export function Page({ crumbs, title, actions, children, ai = true, bodyClass, flush }: { crumbs?: ReactNode[]; title?: ReactNode; actions?: ReactNode; children: ReactNode; ai?: boolean; bodyClass?: string; flush?: boolean }) {
+  const { tx } = useI18n();
+  const openAi = useAskAi((s) => s.setOpen);
+  useEffect(() => {
+    const t = crumbs?.filter((c) => typeof c === "string").slice(-1)[0] ?? (typeof title === "string" ? title : "");
+    document.title = t ? `${t} · AIOps Canvas` : "AIOps Canvas";
+  }, [crumbs, title]);
+  return (
+    <main className="v3-page">
+      <header className="v3-topbar">
+        {title ?? (
+          <nav className="crumbs" aria-label={tx("面包屑", "Breadcrumbs")}>
+            {crumbs?.map((c, i) => (
+              <span key={i} className={i === (crumbs?.length ?? 0) - 1 ? "cur" : ""}>
+                {i > 0 && <Icon name="right" size={12} color="var(--faint)" />}
+                {c}
+              </span>
+            ))}
+          </nav>
+        )}
+        <span style={{ flexGrow: 1 }} />
+        {actions}
+        {ai && (
+          <Btn kind="ghost" onClick={() => openAi(true)} style={{ color: "var(--accent-text)" }}>
+            <Icon name="sparkles" size={14} />
+            {tx("问 AI", "Ask AI")}
+            <Kbd>⌘J</Kbd>
+          </Btn>
+        )}
+      </header>
+      <div className={cx("v3-page-body", flush && "flush", bodyClass)}>{children}</div>
+    </main>
+  );
+}
+
+export function Shell() {
+  const { pathname } = useLocation();
+  const { tx } = useI18n();
+  const setAi = useAskAi((s) => s.setOpen);
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        setAi(true);
+      }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [setAi]);
+  return (
+    <div className="v3 v3-shell">
+      <a href="#v3-main" className="sr-only">
+        {tx("跳到主要内容", "Skip to content")}
+      </a>
+      <Sidebar />
+      <div id="v3-main" className="v3-main" key={pathname.split("/").slice(0, 2).join("/")}>
+        <Outlet />
+      </div>
+      <CommandPalette />
+      <AskAiDrawer />
+      <Toaster />
+    </div>
+  );
+}
+
+export { AiAvatar, Tile };

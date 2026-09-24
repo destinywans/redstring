@@ -1,0 +1,113 @@
+.v3-composer {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 10px 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+.v3-composer:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow);
+}
+.v3-composer.big {
+  padding: 14px 16px 10px;
+}
+.v3-composer textarea {
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  font-size: 13.5px;
+  line-height: 1.55;
+  padding: 0;
+}
+.v3-composer.big textarea {
+  font-size: 14.5px;
+}
+.composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.composer-bar .send {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  padding: 0;
+  transition: filter var(--dur-fast), opacity var(--dur-fast);
+}
+.composer-bar .send:disabled {
+  opacity: 0.4;
+}
+.composer-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  border-radius: 12px;
+  background: var(--overlay);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  max-height: 340px;
+  display: flex;
+  flex-direction: column;
+}
+.composer-menu .menu-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.composer-menu ul {
+  overflow: auto;
+  padding: 4px 6px 6px;
+}
+.composer-menu li,
+.composer-menu .opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.composer-menu li.on,
+.composer-menu .opt.on {
+  background: var(--accent-soft);
+}
+.composer-menu .menu-group {
+  padding: 8px 10px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.next-step {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: 14px;
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: 12px;
+}

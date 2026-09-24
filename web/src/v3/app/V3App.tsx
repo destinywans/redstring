@@ -15,6 +15,16 @@ const Preferences = p(() => import("../features/settings/PreferencesPage"));
 const Pending = p(() => import("../features/Pending"));
 const Conversations = p(() => import("../features/conversation/ConversationsPage"));
 const Conversation = p(() => import("../features/conversation/ConversationPage"));
+const Templates = p(() => import("../features/conversation/TemplatesPage"));
+const Inbox = p(() => import("../features/events/InboxPage"));
+const Incidents = p(() => import("../features/events/IncidentsPage"));
+const Alerts = p(() => import("../features/events/AlertsPage"));
+const Rules = p(() => import("../features/events/RulesPage"));
+const Routing = p(() => import("../features/events/RoutingPage"));
+const Silences = p(() => import("../features/events/SilencesPage"));
+const Review = p(() => import("../features/events/ReviewPage"));
+const Execution = p(() => import("../features/events/ExecutionPage"));
+const Canvas = p(() => import("../features/canvas/CanvasPage"));
 const NewConversation = p(() => import("../features/conversation/ConversationPage"), "NewConversationPage");
 
 function Loading() {
@@ -46,6 +56,17 @@ export default function V3App() {
           <Route path="conversations" element={<Conversations />} />
           <Route path="conversations/new" element={<NewConversation />} />
           <Route path="conversations/:id" element={<Conversation />} />
+          <Route path="canvas/:id" element={<Canvas />} />
+          <Route path="templates" element={<Templates />} />
+          <Route path="inbox" element={<Inbox />} />
+          <Route path="incidents" element={<Incidents />} />
+          <Route path="incidents/:id" element={<Incidents />} />
+          <Route path="alerts" element={<Alerts />} />
+          <Route path="alert-rules" element={<Rules />} />
+          <Route path="routing" element={<Routing />} />
+          <Route path="silences" element={<Silences />} />
+          <Route path="review/:id" element={<Review />} />
+          <Route path="executions/:id" element={<Execution />} />
           {ROUTES.map(([path, C]) => (
             <Route key={path} path={path} element={<C />} />
           ))}

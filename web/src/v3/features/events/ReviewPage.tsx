@@ -1,0 +1,232 @@
+import { useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { Page } from "../../app/Shell";
+import { api, useGet } from "../../api/client";
+import type { Proposal } from "../../api/types";
+import { AiAvatar, Avatar, Badge, Btn, Card, CardHead, Col, Icon, IconBtn, KV, Muted, Row, Skeleton, Spacer, Textarea, type IconName } from "../../ui/core";
+import { Dialog, toast } from "../../ui/overlays";
+import { Markdown } from "../../ui/Markdown";
+import { Sparkline } from "../../charts";
+import { useI18n } from "../../i18n";
+import "./events.css";
+
+export default function ReviewPage() {
+  const { id = "PRP-88" } = useParams();
+  const { tx } = useI18n();
+  const nav = useNavigate();
+  const { data: p } = useGet<Proposal>(`/proposals/${id}`);
+  const [checks, setChecks] = useState<Set<number>>(new Set());
+  const [note, setNote] = useState("");
+  const [reply, setReply] = useState("");
+  const [thread, setThread] = useState<Proposal["discussion"]>([]);
+  const [rejecting, setRejecting] = useState(false);
+  const [busy, setBusy] = useState(false);
+  if (!p)
+    return (
+      <Page crumbs={[tx("事件收件箱", "Inbox"), "…"]}>
+        <div className="v3-content">
+          <Skeleton h={40} />
+          <Skeleton h={300} />
+        </div>
+      </Page>
+    );
+  const risk = { low: ["ok", tx("低风险", "Low risk")], medium: ["warn", tx("中风险", "Medium risk")], high: ["danger", tx("高风险", "High risk")] } as const;
+  const all = checks.size === p.checklist.length;
+  const approve = async () => {
+    setBusy(true);
+    const r = await api<{ execution_id: string }>("POST", `/proposals/${p.id}/approve`, { body: { note } });
+    setBusy(false);
+    toast(tx("已批准，执行器已排队 · 审计 #A-5521", "Approved — queued on the executor · audit #A-5521"));
+    nav(`/executions/${r.execution_id}`);
+  };
+  return (
+    <Page
+      crumbs={[tx("事件收件箱", "Inbox"), p.title]}
+      actions={
+        <>
+          <Badge tone="accent">{tx("待你复核", "Awaiting your review")}</Badge>
+          <Btn kind="ghost" icon="branch" to={`/canvas/${p.investigation_id}`}>
+            {tx("在调查中查看", "View in investigation")}
+          </Btn>
+          <IconBtn icon="up" label={tx("上一项", "Previous")} />
+          <IconBtn icon="down" label={tx("下一项", "Next")} />
+        </>
+      }
+    >
+      <div className="review-layout">
+        <Col gap={16} style={{ flex: "1 1 0", minWidth: 0, maxWidth: 760 }} className="stagger">
+          <Col gap={6}>
+            <h1 style={{ fontSize: 19, fontWeight: 600, letterSpacing: "-0.01em" }}>{p.title}</h1>
+            <Row gap={8} wrap style={{ fontSize: 12.5 }}>
+              <AiAvatar size={18} />
+              <Muted size={12.5}>
+                {p.proposed_by} · {p.proposed_at}
+              </Muted>
+              <Badge tone={risk[p.risk][0]}>{risk[p.risk][1]}</Badge>
+              <Badge>{p.impact}</Badge>
+              {p.reversible && <Badge tone="ok">{tx("可回退", "Reversible")}</Badge>}
+            </Row>
+          </Col>
+          <Card>
+            <CardHead title={tx("变更内容", "Change")} icon="terminal" />
+            <Col gap={12} style={{ padding: "14px 16px" }}>
+              <KV k={tx("目标", "Target")}>{p.target}</KV>
+              <div className="review-diff">
+                <div className="path">{p.diff.path}</div>
+                {p.diff.lines.map((l) => (
+                  <div key={l} className={l.startsWith("-") ? "del" : l.startsWith("+") ? "add" : ""}>
+                    {l}
+                  </div>
+                ))}
+              </div>
+              <KV k={tx("执行方式", "Method")}>{p.method}</KV>
+            </Col>
+          </Card>
+          <Card>
+            <CardHead title={tx("依据", "Evidence")} count={p.evidence.length} right={<Btn kind="ghost" h={24} iconRight="right" to={`/canvas/${p.investigation_id}`}>{tx("查看推理过程", "See reasoning")}</Btn>} />
+            <ul>
+              {p.evidence.map((e) => (
+                <li key={e.n} className="review-ev">
+                  <span className="n">{e.n}</span>
+                  <Icon name={e.icon as IconName} size={15} color="var(--muted)" />
+                  <Col gap={0} grow>
+                    <span style={{ fontWeight: 500 }}>{e.title}</span>
+                    <Muted>{e.desc}</Muted>
+                  </Col>
+                  {e.series && <Sparkline values={e.series} width={72} height={20} color="var(--danger)" />}
+                </li>
+              ))}
+            </ul>
+          </Card>
+          <Card>
+            <CardHead title={tx("恢复验证 · 执行后自动观测 180 秒", "Verification · 180 s automatic watch")} icon="clock" />
+            <ul style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 9 }}>
+              {p.verification.map((v) => (
+                <li key={v} className="v3-row" style={{ gap: 10, fontSize: 12.5, alignItems: "flex-start" }}>
+                  <Icon name="shield" size={15} color="var(--muted)" style={{ marginTop: 1 }} />
+                  {v}
+                </li>
+              ))}
+              <li style={{ paddingLeft: 25 }}>
+                <Muted>{p.verification_note}</Muted>
+              </li>
+            </ul>
+          </Card>
+        </Col>
+        <Card className="approve-card">
+          <Col gap={14} style={{ padding: 16 }}>
+            <Row gap={8}>
+              <Icon name="shield" size={16} color="var(--accent-text)" />
+              <h2 style={{ fontSize: 14, fontWeight: 600 }}>{tx("复核并批准", "Review & approve")}</h2>
+            </Row>
+            <fieldset className="checklist">
+              <legend>{tx("核对清单（{n} 项都勾选后可批准）", "Checklist ({n} items required)", { n: p.checklist.length })}</legend>
+              {p.checklist.map((c, i) => (
+                <label key={c} className={checks.has(i) ? "on" : ""}>
+                  <input
+                    type="checkbox"
+                    checked={checks.has(i)}
+                    onChange={() =>
+                      setChecks((s) => {
+                        const n = new Set(s);
+                        if (n.has(i)) n.delete(i);
+                        else n.add(i);
+                        return n;
+                      })
+                    }
+                  />
+                  <span>{c}</span>
+                </label>
+              ))}
+            </fieldset>
+            <Col gap={4}>
+              <Muted>{tx("审批要求", "Requirement")}</Muted>
+              <span style={{ fontSize: 12.5 }}>{p.requirement}</span>
+            </Col>
+            <label className="v3-field">
+              <span className="label">{tx("备注（可选）", "Note (optional)")}</span>
+              <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder={tx("写给执行记录和报告的说明…", "A note for the execution record and report…")} style={{ minHeight: 60 }} />
+            </label>
+            <Row gap={8}>
+              <Btn kind="danger" h={32} style={{ flexGrow: 1 }} onClick={() => setRejecting(true)}>
+                {tx("拒绝", "Reject")}
+              </Btn>
+              <Btn kind="primary" icon="check" h={32} style={{ flexGrow: 2 }} disabled={!all} loading={busy} onClick={approve} title={all ? undefined : tx("先完成核对清单", "Complete the checklist first")}>
+                {tx("批准并排队执行", "Approve & queue")}
+              </Btn>
+            </Row>
+            <Row gap={8} align="flex-start">
+              <Icon name="shield" size={14} color="var(--muted)" style={{ marginTop: 1 }} />
+              <Muted>{tx("批准后由独立执行器执行，AI 自身没有写权限；批准记录写入审计日志。", "An independent executor runs it after approval; the AI has no write access. Approvals are audited.")}</Muted>
+            </Row>
+          </Col>
+          <Col gap={12} style={{ padding: 16, borderTop: "1px solid var(--border)" }}>
+            <Row gap={8}>
+              <h3 style={{ fontSize: 12.5, fontWeight: 600 }}>{tx("讨论", "Discussion")}</h3>
+              <Spacer />
+              <Badge>
+                <Icon name="link" size={11} />
+                {tx("已同步飞书 #sre-oncall", "Synced to Feishu #sre-oncall")}
+              </Badge>
+            </Row>
+            <ul className="discussion">
+              {[...p.discussion, ...thread].map((m, i) => (
+                <li key={i} className={i >= p.discussion.length ? "anim-rise" : undefined}>
+                  {m.ai ? <AiAvatar /> : <Avatar name={m.author} />}
+                  <Col gap={2}>
+                    <Row gap={8} style={{ fontSize: 12 }}>
+                      <b style={{ fontWeight: 600 }}>{m.author}</b>
+                      <Muted>{m.time}</Muted>
+                    </Row>
+                    <Markdown text={m.text} />
+                  </Col>
+                </li>
+              ))}
+            </ul>
+            <form
+              className="reply"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!reply.trim()) return;
+                const m = await api<Proposal["discussion"][number]>("POST", `/proposals/${p.id}/comments`, { body: { text: reply } });
+                setThread((t) => [...t, m]);
+                setReply("");
+              }}
+            >
+              <input value={reply} onChange={(e) => setReply(e.target.value)} placeholder={tx("回复，或 @ 同事…", "Reply, or @ a teammate…")} aria-label={tx("回复讨论", "Reply")} />
+              <IconBtn icon="send" label={tx("发送回复", "Send")} size={26} submit />
+            </form>
+          </Col>
+        </Card>
+      </div>
+      <Dialog
+        open={rejecting}
+        onClose={() => setRejecting(false)}
+        title={tx("拒绝提案", "Reject proposal")}
+        footer={
+          <>
+            <Btn kind="ghost" onClick={() => setRejecting(false)}>
+              {tx("取消", "Cancel")}
+            </Btn>
+            <Btn
+              kind="danger"
+              onClick={async () => {
+                await api("POST", `/proposals/${p.id}/reject`, { body: { note } });
+                setRejecting(false);
+                toast(tx("已拒绝，AI 会根据你的说明重新分析", "Rejected — the AI will re-analyse with your note"));
+                nav(`/canvas/${p.investigation_id}`);
+              }}
+            >
+              {tx("确认拒绝", "Reject")}
+            </Btn>
+          </>
+        }
+      >
+        <Col gap={8}>
+          <Muted>{tx("说明拒绝原因，AI 会把它作为新的约束继续调查。", "Explain why; the AI uses it as a new constraint.")}</Muted>
+          <Textarea value={note} onChange={(e) => setNote(e.target.value)} autoFocus />
+        </Col>
+      </Dialog>
+    </Page>
+  );
+}

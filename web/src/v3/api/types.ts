@@ -152,3 +152,178 @@ export type StreamEvent =
   | { type: "part.added"; message_id: string; part: Part }
   | { type: "text.delta"; message_id: string; index: number; delta: string }
   | { type: "message.completed"; message_id: string; run: Message["run"] };
+
+/* ---------------- canvas investigations ---------------- */
+export type LoopStep = { key: "anomaly" | "evidence" | "proposal" | "approval" | "execution" | "verify"; label: string; detail: string; state: "done" | "active" | "pending" | "error"; href?: string };
+export type EvidenceBody =
+  | { type: "chart"; unit: string; values: number[]; marker?: number }
+  | { type: "log"; lines: string[] }
+  | { type: "diff"; minus: string; plus: string }
+  | { type: "table"; rows: string[][] };
+export type CanvasNode = {
+  id: string;
+  kind: "root" | "branch" | "evidence";
+  parent?: string;
+  title: string;
+  subtitle: string;
+  status: "active" | "running" | "ruled_out" | "confirmed";
+  x: number;
+  y: number;
+  w: number;
+  summary?: string;
+  confidence?: "high" | "medium" | "low";
+  evidence_refs?: string[];
+  tools?: string;
+  series?: number[];
+  writeback?: { to: string; version: string };
+  evidence?: EvidenceBody & { source: string; color: string };
+  context: { version: string; inherits?: string; tokens: number; messages: number; excludes: string[] };
+  versions: { v: string; text: string; at: string }[];
+};
+export type EvidenceTrayItem = { id: string; kind: "chart" | "log" | "table" | "diff"; title: string; source: string; body: EvidenceBody };
+export type CanvasGraph = {
+  investigation: { id: string; title: string; status: ConversationStatus; incident_id?: string; env: EnvName; participants: string[]; conversation_id?: string };
+  loop: LoopStep[];
+  nodes: CanvasNode[];
+  tray: EvidenceTrayItem[];
+};
+export type WritebackPreview = {
+  from: { id: string; title: string; version: string };
+  to: { id: string; title: string; version: string; next_version: string; hops: number };
+  conclusions: { id: string; text: string; evidence: string[]; recommended: boolean; tokens?: number }[];
+  timeline: { v: string; text: string; meta: string; isNew?: boolean }[];
+  checks: { tone: "ok" | "warn"; text: string }[];
+  budget: { before: number; after: number; limit: number };
+};
+
+/* ---------------- investigation templates ---------------- */
+export type InvestigationTemplate = {
+  id: string;
+  name: string;
+  owner: "official" | "team";
+  description: string;
+  branches: { name: string; step: string; tools: string[] }[];
+  tools: string[];
+  uses: string;
+  version: string;
+  maintainer: string;
+  triggers: { manual: boolean; auto_triage: boolean; matchers: { name: string; value: string }[] };
+  runbooks: string[];
+  budget: { turns: number; tools: number; minutes: number };
+};
+
+/* ---------------- events: inbox, alerts, incidents ---------------- */
+export type InboxItem = { id: string; kind: "alert" | "approval" | "mention" | "runbook" | "report" | "access" | "agent"; tone: Tone; title: string; sub: string; time: string; unread: boolean; day: "today" | "yesterday"; href: string; alert_id?: string };
+export type AlertDetail = {
+  id: string;
+  severity: Severity;
+  title: string;
+  state: "firing" | "pending" | "resolved";
+  source: string;
+  env: EnvName;
+  since: string;
+  rule: string;
+  triage?: { summary: string; confidence: "high" | "medium" | "low"; agent: string; duration_s: number; tools: number; investigation_id: string; proposal_id?: string };
+  series: { labels: string[]; values: number[]; threshold: number; release_at?: number };
+  labels: { k: string; v: string }[];
+  summary: string;
+  runbook?: { id: string; title: string };
+  notifications: { time: string; channel: string; text: string; done: boolean }[];
+  grouping: { group: string; inhibited: string; incident: { id: string; label: string }; change: { id: string; label: string } };
+};
+export type AlertInstance = { id: string; value: string; state: "firing" | "pending"; duration: string; series: number[]; pending?: { pct: number; text: string } };
+export type AlertGroup = {
+  id: string;
+  severity: Severity;
+  labels: { k: string; v: string }[];
+  service: string;
+  count: number;
+  state: "firing" | "pending" | "silenced" | "resolved";
+  since: string;
+  notify: { channel?: string; text: string };
+  badges: { text: string; tone: Tone }[];
+  owner?: string;
+  inhibited?: boolean;
+  instances: AlertInstance[];
+};
+export type AlertGroupPolicy = {
+  group_by: string[];
+  route: string;
+  timing: { key: "group_wait" | "group_interval" | "repeat_interval"; label: string; value: string; help: string }[];
+  timeline: { time: string; channel: string; text: string; done: boolean }[];
+  inhibition: string[];
+};
+export type ServicePeek = { id: string; name: string; tier: Tier; team: string; env: EnvName; status: "ok" | "warn" | "danger"; kpis: { k: string; v: string; tone?: Tone }[]; owner: string; oncall: string; change: string };
+export type PersonPeek = { id: string; name: string; role: string; oncall?: string; load: string };
+export type Incident = {
+  id: string;
+  severity: Severity;
+  title: string;
+  status: "active" | "mitigated" | "resolved";
+  duration: string;
+  commander: string;
+  stage: number;
+  timeline: { time: string; actor: { kind: "brand" | "ai" | "person"; name: string }; text: string; sub?: string }[];
+  impact: { peak: string; budget_used: string; budget_left: number; note: string; series: number[] };
+  roles: { role: string; name: string; ai?: boolean }[];
+  links: { kind: RefKind; label: string; href: string }[];
+};
+
+/* ---------------- alert rules, routing, silences ---------------- */
+export type AlertRuleSummary = { id: string; folder: string; name: string; state: "firing" | "pending" | "ok"; schedule?: string };
+export type AlertRule = AlertRuleSummary & {
+  datasource: string;
+  query_ref: string;
+  expr: string;
+  preview: { values: number[]; threshold: number };
+  condition: { op: ">" | "<"; value: number; unit: string; for_minutes: number; recover_minutes: number };
+  evaluation: { mode: "continuous" | "cron"; interval: string; cron?: string; no_data: string };
+  labels: { k: string; v: string }[];
+  annotation: string;
+  runbook: string;
+  route_path: string[];
+  ai_triage: { enabled: boolean; template: string };
+  last_eval: string;
+};
+export type RouteNode = {
+  id: string;
+  title: string;
+  matchers: { k: string; v: string }[];
+  receivers: { channel: string; target: string }[];
+  timing: [string, string, string];
+  hits: number;
+  continue?: boolean;
+  children: RouteNode[];
+};
+export type Silence = { id: string; matchers: { k: string; v: string }[]; state: "active" | "planned" | "expired"; window: string; remaining?: { pct: number; text: string }; affects: number; creator: string; reason: string };
+export type Inhibition = { id: string; source: { k: string; v: string }[]; target: { k: string; v: string }[]; equal: string[]; active: boolean; stat: string };
+
+/* ---------------- proposals & executions ---------------- */
+export type Proposal = {
+  id: string;
+  title: string;
+  status: "pending" | "approved" | "rejected" | "executed";
+  risk: "low" | "medium" | "high";
+  impact: string;
+  reversible: boolean;
+  proposed_by: string;
+  proposed_at: string;
+  investigation_id: string;
+  target: string;
+  diff: { path: string; lines: string[] };
+  method: string;
+  evidence: { n: number; icon: string; title: string; desc: string; series?: number[] }[];
+  verification: string[];
+  verification_note: string;
+  checklist: string[];
+  requirement: string;
+  discussion: { author: string; ai?: boolean; time: string; text: string }[];
+};
+export type Execution = {
+  id: string;
+  proposal_id: string;
+  status: "queued" | "executing" | "verifying" | "succeeded" | "failed";
+  steps: { time: string; icon: string; tone: Tone; title: string; desc: string }[];
+  observation: { values: number[]; threshold: number; labels: string[]; band: [number, number]; marker: number; checks: { text: string; value: string }[] };
+  report: { title: string; severity: Severity; meta: string; summary: string; impact: string; timeline: { time: string; text: string }[]; actions: { text: string; owner: string; due: string; done: boolean }[]; refs: string };
+};

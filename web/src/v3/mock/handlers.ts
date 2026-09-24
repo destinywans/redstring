@@ -2,3 +2,6 @@
 import "./domains/identity";
 import "./domains/home";
 import "./domains/conversations";
+import "./domains/canvas";
+import "./domains/templates";
+import "./domains/events";

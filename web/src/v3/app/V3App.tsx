@@ -56,6 +56,15 @@ export const ROUTES: [string, ComponentType][] = [
   ["traces", p(() => import("../features/observe/TracesPage"))],
   ["logs", p(() => import("../features/observe/LogsPage"))],
   ["changes", p(() => import("../features/observe/ChangesPage"))],
+  ["integrations", p(() => import("../features/integrations/ConnectorsPage"))],
+  ["integrations/new", p(() => import("../features/integrations/AddConnectorPage"))],
+  ["integrations/mcp", p(() => import("../features/integrations/McpPage"))],
+  ["integrations/ingest", p(() => import("../features/integrations/IngestPage"))],
+  ["integrations/ingest/push", p(() => import("../features/integrations/IngestPage"))],
+  ["integrations/ingest/stack", p(() => import("../features/integrations/IngestPage"))],
+  ["integrations/mapping", p(() => import("../features/integrations/MappingPage"))],
+  ["integrations/coverage", p(() => import("../features/integrations/CoveragePage"))],
+  ["integrations/webhooks", p(() => import("../features/integrations/WebhooksPage"))],
 ];
 
 export default function V3App() {

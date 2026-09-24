@@ -1,37 +1,4 @@
-/* ---------- shared notes ---------- */
-.v3-grid2 {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-.danger-note,
-.warn-note,
-.ok-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  font-size: 12px;
-  line-height: 1.5;
-}
-.danger-note {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-.warn-note {
-  background: var(--warn-soft);
-  color: var(--warn);
-}
-.ok-note {
-  align-items: center;
-  background: var(--ok-soft);
-  color: var(--ok);
-}
-.danger-note > span,
-.warn-note > span {
-  color: var(--text);
-}
+/* ---------- legend ---------- */
 .lg-item {
   display: inline-flex;
   align-items: center;

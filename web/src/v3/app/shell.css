@@ -307,3 +307,13 @@ html[data-v3-density="compact"] .v3-content {
   gap: 12px;
   padding: 14px 20px 24px;
 }
+.mock-badge {
+  flex: none;
+  margin-left: 10px;
+  padding: 1px 7px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 5px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: help;
+}

@@ -209,6 +209,9 @@ html[data-v3-theme-changing] *::after {
 .anim-fade {
   animation: v3-fade var(--dur) ease-out both;
 }
+.anim-slide {
+  animation: v3-slide-in var(--dur-slow) var(--ease) both;
+}
 .anim-pop {
   animation: v3-pop var(--dur) var(--ease) both;
 }

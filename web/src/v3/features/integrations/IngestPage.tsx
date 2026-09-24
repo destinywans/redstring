@@ -1,0 +1,448 @@
+import { useState, type ReactNode } from "react";
+import { NavLink, useLocation } from "react-router-dom";
+import { Page } from "../../app/Shell";
+import { useGet, useSend } from "../../api/client";
+import type { ContractKind, PullDraft, PushView } from "../../api/types";
+import { Badge, Brand, Btn, Chip, Code, Col, Icon, KV, LabelChip, Mono, Muted, Num, Panel, Row, Segmented, Skeleton, Spacer, State, Stepper, Strong, TextLink, Tile, cx, type IconName, type Tone } from "../../ui/core";
+import { toast } from "../../ui/overlays";
+import { Lines } from "../../charts";
+import { useI18n } from "../../i18n";
+import "./integrations.css";
+
+export default function IngestPage() {
+  const { tx } = useI18n();
+  const { pathname } = useLocation();
+  const mode = pathname.endsWith("/push") ? "push" : pathname.endsWith("/stack") ? "stack" : "pull";
+  const test = useSend<void, { code: number }>("POST", "/ingest/push/test");
+  return (
+    <Page
+      flush
+      crumbs={[tx("集成中心", "Integrations"), tx("通用接入", "Generic ingest"), mode === "pull" ? tx("新建 Pull 接入", "New pull source") : mode === "push" ? tx("事件接入", "Event push") : tx("配套栈", "Starter stack")]}
+      actions={
+        mode === "pull" ? (
+          <>
+            <Btn onClick={() => toast(tx("草稿已保存", "Draft saved"))}>{tx("保存草稿", "Save draft")}</Btn>
+            <Btn kind="primary" icon="play" onClick={() => toast(tx("测试通过，接入已启用", "Test passed — source enabled"))}>
+              {tx("测试并启用", "Test & enable")}
+            </Btn>
+          </>
+        ) : (
+          <>
+            <Btn icon="key" to="/integrations/webhooks">
+              {tx("新建令牌", "New token")}
+            </Btn>
+            <Btn kind="primary" icon="send" loading={test.isPending} onClick={() => test.mutate(undefined, { onSuccess: (r) => toast(tx("测试事件已发送 · {c}", "Test event sent · {c}", { c: r.code })) })}>
+              {tx("发送测试事件", "Send test event")}
+            </Btn>
+          </>
+        )
+      }
+    >
+      <nav className="ingest-tabs" aria-label={tx("接入方式", "Ingest mode")}>
+        {(
+          [
+            ["/integrations/ingest", tx("Pull · 查询型 API", "Pull · query API"), "download"],
+            ["/integrations/ingest/push", tx("Push · 事件接入", "Push · events"), "upload"],
+            ["/integrations/ingest/stack", tx("配套栈（可选）", "Starter stack (optional)"), "layers"],
+          ] as [string, string, IconName][]
+        ).map(([to, label, icon]) => (
+          <NavLink key={to} to={to} end>
+            <Icon name={icon} size={14} />
+            {label}
+          </NavLink>
+        ))}
+        <Spacer />
+        <Muted size={11.5}>{tx("Pull 适合查询型数据（指标、日志、链路），Push 适合事件型数据（告警、变更、资源变更）", "Pull suits query data (metrics, logs, traces); Push suits events (alerts, changes, resource updates)")}</Muted>
+      </nav>
+      {mode === "pull" ? <Pull /> : <Push stackOnly={mode === "stack"} />}
+    </Page>
+  );
+}
+
+function Hl({ body, highlights }: { body: string; highlights: { text: string; color: string }[] }) {
+  // Tokenise the sample so each mapped value gets the same colour as its target field.
+  const parts: ReactNode[] = [];
+  let rest = body;
+  let k = 0;
+  while (rest.length) {
+    let best: { i: number; h: { text: string; color: string } } | null = null;
+    for (const h of highlights) {
+      const i = rest.indexOf(h.text);
+      if (i >= 0 && (!best || i < best.i)) best = { i, h };
+    }
+    if (!best) {
+      parts.push(rest);
+      break;
+    }
+    parts.push(rest.slice(0, best.i));
+    parts.push(
+      <mark key={k++} className="hl" style={{ background: `var(--${best.h.color}s)`, boxShadow: `inset 0 -2px 0 var(--${best.h.color})` }}>
+        {best.h.text}
+      </mark>,
+    );
+    rest = rest.slice(best.i + best.h.text.length);
+  }
+  return <pre className="v3-code sample">{parts}</pre>;
+}
+
+function Pull() {
+  const { tx } = useI18n();
+  const { data: d } = useGet<PullDraft>("/ingest/pull/pull-ops-metrics");
+  const [contract, setContract] = useState<ContractKind>("metric");
+  const [accepted, setAccepted] = useState(false);
+  if (!d)
+    return (
+      <div className="v3-content">
+        <Skeleton h={60} />
+        <Skeleton h={360} />
+      </div>
+    );
+  const kinds: [ContractKind, string][] = [
+    ["metric", tx("指标序列", "Metric series")],
+    ["log", tx("日志条目", "Log entries")],
+    ["trace", tx("链路", "Traces")],
+    ["resource", tx("资源", "Resources")],
+    ["change", tx("变更", "Changes")],
+    ["alert", tx("告警", "Alerts")],
+  ];
+  return (
+    <div className="v3-content" style={{ padding: "14px 24px" }}>
+      <Row gap={10}>
+        <Tile icon="download" tone="accent" size={30} />
+        <Col gap={1}>
+          <Strong size={14}>{tx("新建 Pull 接入 · {n}", "New pull source · {n}", { n: d.name })}</Strong>
+          <Muted>{tx("把你的查询 API 映射成标准数据契约，Agent 就能像使用 Prometheus 一样使用它", "Map your query API onto a standard data contract so agents can use it like Prometheus")}</Muted>
+        </Col>
+        <Spacer />
+        <div style={{ width: 560 }}>
+          <Stepper steps={[tx("连接", "Connect"), tx("请求模板", "Request"), tx("字段映射", "Mapping"), tx("测试", "Test"), tx("启用", "Enable")]} active={d.step} />
+        </div>
+      </Row>
+      <div className="pull-grid">
+        <Panel title={tx("请求模板", "Request template")} right={<TextLink icon="edit">{tx("编辑", "Edit")}</TextLink>} style={{ width: 330, flex: "none" }}>
+          <Col gap={10}>
+            <Col gap={4}>
+              <Row gap={8}>
+                <Badge tone="accent" mono>
+                  {d.request.method}
+                </Badge>
+                <Muted size={11.5}>{d.request.host}</Muted>
+              </Row>
+              <Mono color="var(--text)" size={12.5}>{d.request.path}</Mono>
+            </Col>
+            <div className="param-table">
+              {d.request.params.map((p) => (
+                <div key={p.k}>
+                  <span className="k">{p.k}</span>
+                  <span className="grow">{p.v}</span>
+                  {p.variable && <Badge tone="accent">{tx("变量", "var")}</Badge>}
+                </div>
+              ))}
+            </div>
+            <Muted size={11.5}>{tx("{service} 来自服务映射，{metric} 来自已登记查询；Agent 只能调用登记过的组合。", "{service} comes from service mapping and {metric} from registered queries; agents can only call registered combinations.")}</Muted>
+            <KV k={tx("认证", "Auth")} kw={56}>
+              <Row gap={6}>
+                <Brand name="vault" size={18} />
+                <Mono color="var(--text)" size={11.5}>{d.request.auth}</Mono>
+              </Row>
+            </KV>
+            <KV k={tx("限速", "Limits")} kw={56}>
+              {d.request.rate}
+            </KV>
+            <KV k={tx("分页", "Paging")} kw={56}>
+              {d.request.paging}
+            </KV>
+          </Col>
+        </Panel>
+        <Panel title={tx("响应样例", "Sample response")} style={{ flex: "1 1 0", minWidth: 0 }}>
+          <Col gap={10}>
+            <Row gap={8}>
+              <Badge tone="ok" mono>
+                {d.sample.status}
+              </Badge>
+              <Muted size={11.5}>{d.sample.meta}</Muted>
+              <Spacer />
+              <Chip icon="rotate" onClick={() => toast(tx("已重新请求 · 200 · 81 ms", "Re-requested · 200 · 81 ms"))}>
+                {tx("重新请求", "Re-request")}
+              </Chip>
+            </Row>
+            <Hl body={d.sample.body} highlights={d.sample.highlights} />
+            <Muted size={11.5}>{tx("高亮部分与右侧映射一一对应，颜色相同。", "Highlights match the mapping on the right by colour.")}</Muted>
+          </Col>
+        </Panel>
+        <Panel
+          title={tx("映射到数据契约", "Map to data contract")}
+          right={
+            <Badge mono>{d.contract_version}</Badge>
+          }
+          style={{ width: 400, flex: "none" }}
+        >
+          <Col gap={10}>
+            <Row gap={4} wrap role="group" aria-label={tx("数据契约", "Data contract")}>
+              {kinds.map(([k, label]) => (
+                <Chip key={k} active={contract === k} onClick={() => setContract(k)}>
+                  {label}
+                </Chip>
+              ))}
+            </Row>
+            {!accepted && (
+              <div className="ai-strip">
+                <Icon name="sparkles" size={14} />
+                <span className="grow">{tx("AI 已根据样例推荐 6 个映射，请逐项确认", "AI suggested 6 mappings from the sample — confirm each")}</span>
+                <Btn kind="soft" h={24} onClick={() => setAccepted(true)}>
+                  {tx("全部接受", "Accept all")}
+                </Btn>
+              </div>
+            )}
+            <div>
+              {d.fields.map((f) => (
+                <div key={f.field} className="map-field">
+                  <Row gap={6}>
+                    <i style={{ width: 8, height: 8, borderRadius: 2, background: `var(--${f.color})`, flex: "none" }} />
+                    <Mono color="var(--text)">{f.field}</Mono>
+                    {f.required && <span style={{ color: "var(--danger)" }}>*</span>}
+                  </Row>
+                  <Col gap={1} style={{ minWidth: 0 }}>
+                    <Mono color="var(--accent-text)" size={11.5}>{f.source}</Mono>
+                    {f.transform && <Muted size={11}>{f.transform}</Muted>}
+                  </Col>
+                  {f.state === "ok" ? <Icon name="check" size={14} color={accepted ? "var(--ok)" : "var(--faint)"} /> : <Icon name="alert" size={14} color="var(--warn)" />}
+                </div>
+              ))}
+            </div>
+          </Col>
+        </Panel>
+      </div>
+      <Panel title={tx("测试预览", "Test preview")} right={<Badge tone="ok">{tx("可用于调查", "Ready for investigations")}</Badge>}>
+        <Row gap={16} align="flex-start">
+          <table className="v3-table" style={{ flex: "1 1 0" }}>
+            <thead>
+              <tr>
+                {["service", "name", "timestamp", "value", "labels"].map((h) => (
+                  <th key={h} className="mono">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {d.preview.rows.map((r) => (
+                <tr key={r.time} style={{ height: 32 }}>
+                  <td className="mono">{r.service}</td>
+                  <td className="mono">{r.name}</td>
+                  <td className="mono muted">{r.time}</td>
+                  <td>
+                    <Num color={r.bad ? "var(--danger)" : undefined}>{r.value}</Num>
+                  </td>
+                  <td>
+                    {Object.entries(r.labels).map(([k, v]) => (
+                      <LabelChip key={k} k={k} v={v} />
+                    ))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <Col gap={8} style={{ width: 380, flex: "none" }}>
+            <Row gap={6}>
+              <Muted size={11.5}>{tx("映射后的序列", "Mapped series")}</Muted>
+              <Spacer />
+              <Mono color="var(--muted)" size={11}>checkout-api · db_wait_p95</Mono>
+            </Row>
+            <Lines series={[{ name: "db_wait_p95", values: d.preview.series, color: "var(--c3)" }]} height={70} grid={2} />
+            <Row gap={4} wrap>
+              {d.preview.checks.map((c) => (
+                <Badge key={c.label} tone={c.tone as Tone}>
+                  {c.tone === "ok" && <Icon name="check" size={11} />}
+                  {c.label}
+                </Badge>
+              ))}
+            </Row>
+          </Col>
+        </Row>
+        <Row gap={8} className="pull-foot">
+          <Icon name="lock" size={13} />
+          <span>{tx("遥测数据不落平台：只保存接入配置和查询审计，调查时按需查询。", "Telemetry never lands in the platform — only the config and query audit are stored; data is queried on demand.")}</span>
+          <Spacer />
+          <Btn kind="ghost" h={28}>
+            {tx("上一步", "Back")}
+          </Btn>
+          <Btn kind="primary" h={28} iconRight="right">
+            {tx("下一步：测试", "Next: test")}
+          </Btn>
+        </Row>
+      </Panel>
+    </div>
+  );
+}
+
+function Push({ stackOnly }: { stackOnly: boolean }) {
+  const { tx } = useI18n();
+  const { data: d } = useGet<PushView>("/ingest/push");
+  const [sel, setSel] = useState("change");
+  const [deploy, setDeploy] = useState<"helm" | "compose">("helm");
+  if (!d)
+    return (
+      <div className="v3-content">
+        <Skeleton h={400} />
+      </div>
+    );
+  const t = d.types.find((x) => x.id === sel)!;
+  const path = d.endpoint.path.replace("/change", `/${sel}`);
+  const curl = `curl -X POST https://${d.endpoint.host}${path} \\\n  -H "Authorization: Bearer $TOKEN" \\\n  -H "Idempotency-Key: $(uuidgen)" \\\n  -d @event.json`;
+  const stack = (
+    <aside className={cx("aside", stackOnly && "anim-slide")} style={{ width: stackOnly ? 520 : 360, padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
+      <Row gap={10}>
+        <Tile icon="layers" tone="accent" size={32} />
+        <Col gap={0} grow>
+          <Strong size={14}>{tx("可选配套栈", "Optional starter stack")}</Strong>
+          <Muted size={11.5}>{tx("没有现成的观测系统时使用", "For teams without an observability stack")}</Muted>
+        </Col>
+        <State tone={d.stack.enabled ? "ok" : "neutral"}>{d.stack.enabled ? tx("已启用", "Enabled") : tx("未启用", "Not enabled")}</State>
+      </Row>
+      <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.6 }}>
+        {tx("一键部署开源观测组件。部署完成后自动创建连接器并映射服务，", "Deploy open-source observability components in one step. Connectors and service mappings are created automatically; ")}
+        <b>{tx("平台仍把它当作外部系统对接，不存储遥测数据", "the platform still treats them as external systems and stores no telemetry")}</b>。
+      </p>
+      <Col gap={10}>
+        {d.stack.components.map((c) => (
+          <Row key={c.name} gap={10}>
+            <Brand name={c.brand} size={26} />
+            <Col gap={0} grow>
+              <b style={{ fontSize: 12.5, fontWeight: 600 }}>{c.name}</b>
+              <Muted size={11}>{c.role}</Muted>
+            </Col>
+          </Row>
+        ))}
+      </Col>
+      <Segmented label={tx("部署方式", "Deploy with")} value={deploy} onChange={setDeploy} options={[{ value: "helm", label: "Helm" }, { value: "compose", label: "Docker Compose" }]} />
+      <Code>{deploy === "helm" ? d.stack.helm : d.stack.compose}</Code>
+      <KV k={tx("资源估算", "Estimate")} kw={64}>
+        {d.stack.estimate}
+      </KV>
+      <Row gap={8}>
+        <Btn kind="primary" icon="download" onClick={() => toast(tx("已生成 values.yaml 与部署说明", "values.yaml and instructions generated"))}>
+          {tx("生成部署清单", "Generate manifests")}
+        </Btn>
+        <Btn kind="ghost" icon="book">
+          {tx("查看说明", "Docs")}
+        </Btn>
+      </Row>
+    </aside>
+  );
+  return (
+    <div className="v3-split">
+      <div className="side push-types">
+        <Row gap={6} style={{ padding: "0 4px 6px" }}>
+          <Muted size={11.5}>{tx("事件类型", "Event types")}</Muted>
+          <Spacer />
+          <Muted size={11}>{tx("今日", "Today")}</Muted>
+        </Row>
+        {d.types.map((x) => (
+          <button key={x.id} type="button" className={cx("etype", sel === x.id && "on")} aria-pressed={sel === x.id} onClick={() => setSel(x.id)}>
+            <Tile icon={x.icon as IconName} tone={sel === x.id ? "accent" : "neutral"} size={28} />
+            <Col gap={0} grow style={{ minWidth: 0 }}>
+              <b style={{ fontSize: 12.5, fontWeight: 600 }}>{x.name}</b>
+              <Mono color="var(--muted)" size={11}>{x.schema}</Mono>
+            </Col>
+            <Col gap={0} style={{ textAlign: "right" }}>
+              <span className="tnum" style={{ fontSize: 12 }}>{x.today}</span>
+              <span style={{ fontSize: 11, color: `var(--${x.tone})` }}>
+                {tx("拒绝", "rej.")} {x.rejected}
+              </span>
+            </Col>
+          </button>
+        ))}
+        <Btn kind="ghost" icon="plus" style={{ justifyContent: "flex-start", marginTop: 6 }}>
+          {tx("自定义事件 schema", "Custom event schema")}
+        </Btn>
+        <div className="push-note">{tx("事件型小数据落到平台（带 schema 校验、幂等去重与签名校验）；遥测大数据请用 Pull 或配套栈。", "Small event data lands in the platform (schema-validated, idempotent, signed); use Pull or the starter stack for telemetry.")}</div>
+      </div>
+      <div className="main">
+        <div className="v3-content" style={{ padding: "14px 20px" }} key={sel}>
+          <Panel title={tx("接入接口 · {n}", "Endpoint · {n}", { n: t.name })} className="anim-fade">
+            <Col gap={10}>
+              <Row gap={8}>
+                <Badge tone="accent" mono>
+                  {d.endpoint.method}
+                </Badge>
+                <Mono color="var(--text)" size={12.5}>{path}</Mono>
+                <Muted size={11.5}>{d.endpoint.host}</Muted>
+                <Spacer />
+                <Chip
+                  icon="code"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(curl).catch(() => undefined);
+                    toast(tx("已复制 curl 命令", "curl command copied"));
+                  }}
+                >
+                  {tx("复制 curl", "Copy curl")}
+                </Chip>
+                <Chip icon="download">OpenAPI</Chip>
+              </Row>
+              <div>
+                {d.endpoint.headers.map((h) => (
+                  <div key={h.k} className="hdr-row">
+                    <Mono color="var(--text)" size={11.5}>{h.k}</Mono>
+                    <Col gap={1}>
+                      <Mono color="var(--accent-text)" size={11.5}>{h.v}</Mono>
+                      <Muted size={11}>{h.note}</Muted>
+                    </Col>
+                  </div>
+                ))}
+              </div>
+              <Code>{d.endpoint.example}</Code>
+              <div className="v3-grid2">
+                {d.endpoint.responses.map((r) => (
+                  <Row key={r.code} gap={6}>
+                    <Badge tone={r.tone} mono>
+                      {r.code}
+                    </Badge>
+                    <Muted size={11.5}>{r.text}</Muted>
+                  </Row>
+                ))}
+              </div>
+            </Col>
+          </Panel>
+          <Panel title={tx("最近投递", "Recent deliveries")} right={<TextLink>{tx("全部", "All")}</TextLink>}>
+            <table className="v3-table">
+              <thead>
+                <tr>
+                  <th>{tx("时间", "Time")}</th>
+                  <th>{tx("来源", "Source")}</th>
+                  <th>{tx("幂等键", "Idempotency key")}</th>
+                  <th>{tx("结果", "Result")}</th>
+                  <th>{tx("耗时", "Latency")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {d.deliveries.map((x, i) => (
+                  <tr key={i} style={{ height: 36 }}>
+                    <td className="mono muted" style={{ fontSize: 11.5 }}>{x.time}</td>
+                    <td>
+                      <Row gap={6}>
+                        <Brand name={x.source} size={20} />
+                        {x.source}
+                      </Row>
+                    </td>
+                    <td className="mono" style={{ fontSize: 11.5 }}>{x.key}</td>
+                    <td>
+                      <Row gap={6}>
+                        <Badge tone={x.tone} mono>
+                          {x.code}
+                        </Badge>
+                        <Muted size={11.5}>{x.result}</Muted>
+                      </Row>
+                    </td>
+                    <td>
+                      <Muted>{x.ms}</Muted>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Panel>
+        </div>
+      </div>
+      {stack}
+    </div>
+  );
+}

@@ -466,3 +466,98 @@ export type ChangesView = {
     alert: { text: string; incident: string };
   };
 };
+
+/* ---------------- integrations ---------------- */
+export type ConnectorStatus = "ok" | "unverified" | "error";
+export type ConnectorCategory = "model" | "observe" | "delivery" | "infra" | "im" | "knowledge" | "agent_obs" | "security";
+export type TagChip = { label: string; tone?: Tone; mono?: boolean };
+export type Connector = { id: string; brand: string; name: string; kind: string; category: ConnectorCategory; status: ConnectorStatus; tags: TagChip[]; meta: string };
+export type ConnectorList = { items: Connector[]; counts: Record<ConnectorStatus, number>; categories: { id: ConnectorCategory | "all"; label: string; count: number }[] };
+export type ConnectorDetail = Connector & {
+  scope: string;
+  address: string;
+  auth: { brand?: string; text: string };
+  checked: string;
+  services: string[];
+  queries: string[];
+  tools: { name: string; desc: string; enabled: boolean }[];
+  deeplink?: string;
+};
+export type ConnectorType = {
+  brand: string;
+  name: string;
+  kind: string;
+  version: string;
+  auth_methods: { id: string; label: string; desc: string }[];
+  scopes: { id: string; label: string; required: boolean }[];
+  tools: { name: string; desc: string }[];
+  webhook_url: string;
+};
+
+export type McpServer = {
+  id: string;
+  brand: string;
+  name: string;
+  desc: string;
+  transport: string;
+  caps: string;
+  trust: { label: string; tone: Tone };
+  apps: { label: string; tone?: Tone }[];
+  status: "ok" | "pending" | "error";
+  last: string;
+};
+export type McpList = { kpis: Kpi[]; items: McpServer[]; pending_change?: { server: string; title: string; tools: TagChip[]; note: string } };
+export type McpDetail = McpServer & {
+  version: string;
+  counts: { tools: number; resources: number; prompts: number };
+  tools: { name: string; desc: string; write: boolean; enabled: boolean; calls: string }[];
+  resources: { uri: string; desc: string }[];
+  prompts: { name: string; desc: string }[];
+  calls: { time: string; agent: string; tool: string; ms: number; ok: boolean }[];
+  trust_info: { readonly_check: string; scope: string[]; limit: string; auth: string };
+};
+
+export type ContractKind = "metric" | "log" | "trace" | "resource" | "change" | "alert";
+export type PullDraft = {
+  id: string;
+  name: string;
+  step: number;
+  request: { method: string; host: string; path: string; params: { k: string; v: string; variable: boolean }[]; auth: string; rate: string; paging: string };
+  sample: { status: number; meta: string; body: string; highlights: { text: string; color: string }[] };
+  contract: ContractKind;
+  contract_version: string;
+  fields: { field: string; required: boolean; source: string; transform?: string; color: string; state: "ok" | "warn" | "none" }[];
+  preview: { rows: { service: string; name: string; time: string; value: string; labels: Record<string, string>; bad?: boolean }[]; series: number[]; checks: TagChip[] };
+};
+export type PushEventType = { id: string; icon: string; name: string; schema: string; today: string; rejected: string; tone: Tone };
+export type PushView = {
+  types: PushEventType[];
+  endpoint: { method: string; path: string; host: string; headers: { k: string; v: string; note: string }[]; example: string; responses: { code: string; tone: Tone; text: string }[] };
+  deliveries: { time: string; source: string; key: string; code: string; tone: Tone; result: string; ms: string }[];
+  stack: { enabled: boolean; components: { brand: string; name: string; role: string }[]; helm: string; compose: string; estimate: string };
+};
+
+export type MappingCell = { state: "ok" | "suggested" | "missing"; value?: string; brand?: string };
+export type ServiceMapping = {
+  systems: { id: string; brand: string; label: string }[];
+  rows: { service: string; cells: Record<string, MappingCell> }[];
+  suggestions: number;
+};
+
+export type CoverageCell = { state: "ok" | "partial" | "missing" | "na" | "pull"; brand?: string; text?: string; href?: string };
+export type CoverageView = {
+  kpis: Kpi[];
+  types: { label: string; pct: number; tone: Tone }[];
+  columns: { id: string; label: string }[];
+  rows: { service: string; tier: string; cells: Record<string, CoverageCell>; owner?: string; score: number }[];
+  impact: { answers: string; flagged: string; delta: string; lowered: string; by_type: { label: string; value: number; tone?: Tone }[]; eval_failures: number };
+  fixes: { text: string; impact: string; action: string; href: string }[];
+};
+
+export type WebhookView = {
+  inbound: { id: string; brand: string; name: string; url: string; verify: string; count: string; last: string; status: "ok" | "error" }[];
+  deliveries: { time: string; event: string; code: string; ms: string }[];
+  tokens: { name: string; scopes: string[]; used: string; expires: string }[];
+  mcp: { enabled: boolean; url: string; tools: string[]; clients: string };
+  outbound: { event: string; target: string; brand?: string }[];
+};

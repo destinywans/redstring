@@ -7,7 +7,7 @@ import { NAV, SETTINGS_NAV, locate, type NavItem } from "./nav";
 import { usePreferences } from "./preferences";
 import { CommandPalette, useCommandPalette } from "./CommandPalette";
 import { AskAiDrawer, useAskAi } from "./AskAi";
-import { useGet } from "../api/client";
+import { API_MODE, useGet } from "../api/client";
 import type { Me, WatchedService } from "../api/types";
 import "./shell.css";
 
@@ -36,7 +36,7 @@ function Section({ item, active, activeChild }: { item: NavItem; active: boolean
         <div className={cx("nav-children", open && "open")}>
           <div>
             {item.children.map((c) => (
-              <NavLink key={c.id} to={c.to} className={cx("nav-child", activeChild === c.id && "active")}>
+              <NavLink key={c.id} to={c.to} className={() => cx("nav-child", activeChild === c.id && "active")}>
                 {tl(c.label)}
               </NavLink>
             ))}
@@ -164,6 +164,11 @@ export function Page({ crumbs, title, actions, children, ai = true, bodyClass, f
               </span>
             ))}
           </nav>
+        )}
+        {API_MODE === "mock" && (
+          <span className="mock-badge" title={tx("页面数据来自前端 mock，等待后端按 API 契约提供", "Page data is served by frontend mocks until the backend implements the API contract")}>
+            {tx("示意数据", "Sample data")}
+          </span>
         )}
         <span style={{ flexGrow: 1 }} />
         {actions}

@@ -7,3 +7,4 @@ import "./domains/templates";
 import "./domains/events";
 import "./domains/knowledge";
 import "./domains/observe";
+import "./domains/integrations";

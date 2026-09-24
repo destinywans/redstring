@@ -58,6 +58,7 @@ export function Lines({
   draw = true,
   hover = true,
   axis,
+  sync,
 }: {
   series: Series[];
   height?: number;
@@ -72,9 +73,13 @@ export function Lines({
   draw?: boolean;
   hover?: boolean;
   axis?: string[];
+  /** Share the hovered index across several charts (synced crosshair). */
+  sync?: { index: number | null; set: (i: number | null) => void };
 }) {
   const [ref, w] = useWidth<HTMLDivElement>(width);
-  const [hi, setHi] = useState<number | null>(null);
+  const [own, setOwn] = useState<number | null>(null);
+  const hi = sync ? sync.index : own;
+  const setHi = sync ? sync.set : setOwn;
   const n = series[0]?.values.length ?? 0;
   const ymax = max ?? Math.max(1e-9, ...series.flatMap((s) => s.values)) * 1.15;
   const xat = (i: number) => (n <= 1 ? 0 : (w * i) / (n - 1));
@@ -167,9 +172,11 @@ export function Sparkline({ values, color = "var(--accent)", fill, width = 64, h
   );
 }
 
-export function StackedArea({ series, colors = C, height = 120, width, labels, names, axis }: { series: number[][]; colors?: string[]; height?: number; width?: number; labels?: string[]; names?: string[]; axis?: string[] }) {
+export function StackedArea({ series, colors = C, height = 120, width, labels, names, axis, sync, children }: { series: number[][]; colors?: string[]; height?: number; width?: number; labels?: string[]; names?: string[]; axis?: string[]; sync?: { index: number | null; set: (i: number | null) => void }; children?: ReactNode }) {
   const [ref, w] = useWidth<HTMLDivElement>(width);
-  const [hi, setHi] = useState<number | null>(null);
+  const [own, setOwn] = useState<number | null>(null);
+  const hi = sync ? sync.index : own;
+  const setHi = sync ? sync.set : setOwn;
   const n = series[0]?.length ?? 0;
   const tops = Array.from({ length: n }, (_, i) => series.reduce((a, s) => a + s[i], 0));
   const ymax = Math.max(...tops) * 1.1 || 1;
@@ -198,6 +205,7 @@ export function StackedArea({ series, colors = C, height = 120, width, labels, n
             ))}
             {hi !== null && <line x1={xat(hi)} x2={xat(hi)} y1={0} y2={height} className="ch-cross" />}
           </svg>
+          {children}
           {hi !== null && (
             <div className="ch-tip" style={{ left: Math.min(xat(hi) + 10, w - 140), top: 8 }}>
               {labels?.[hi] && <b>{labels[hi]}</b>}

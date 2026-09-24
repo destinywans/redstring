@@ -47,7 +47,16 @@ function Loading() {
   );
 }
 
-export const ROUTES: [string, ComponentType][] = [];
+export const ROUTES: [string, ComponentType][] = [
+  ["services", p(() => import("../features/observe/ServicesPage"))],
+  ["services/:id", p(() => import("../features/observe/ServiceDetailPage"))],
+  ["services/:id/resilience", p(() => import("../features/observe/ServiceDetailPage"), "ResiliencePage")],
+  ["resources", p(() => import("../features/observe/ResourcesPage"))],
+  ["metrics", p(() => import("../features/observe/MetricsPage"))],
+  ["traces", p(() => import("../features/observe/TracesPage"))],
+  ["logs", p(() => import("../features/observe/LogsPage"))],
+  ["changes", p(() => import("../features/observe/ChangesPage"))],
+];
 
 export default function V3App() {
   useApplyPreferences();

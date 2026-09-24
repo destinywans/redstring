@@ -367,3 +367,102 @@ export type MemoryView = {
 };
 export type KnowledgeSource = { id: string; brand?: string; name: string; kind: string; sync: string; docs: number; chunks: string; last: string; status: "connected" | "error"; error?: string };
 export type RetrievalHit = { brand?: string; title: string; snippet: string; keyword: number; vector: number; score: number };
+
+/* ---------------- resources & observability ---------------- */
+export type Health = "ok" | "warn" | "danger";
+export type ServiceSummary = {
+  id: string;
+  name: string;
+  desc: string;
+  tier: Tier;
+  team: string;
+  oncall: string;
+  status: Health;
+  slo: { target: string; budget_left: number };
+  release: { brand: string; version: string; when: string };
+  alerts: number;
+  connectors: string[];
+};
+export type ServiceCatalog = { kpis: Kpi[]; items: ServiceSummary[]; facets: { key: string; title: string; items: { label: string; count: number; on: boolean }[] }[] };
+export type ServiceDetail = {
+  id: string;
+  name: string;
+  tier: Tier;
+  team: string;
+  env: EnvName;
+  status: Health;
+  desc: string;
+  deeplinks: { brand: string; name: string; url: string }[];
+  ai: { text: string; investigation: string; proposal?: string; meta: string };
+  signals: Kpi[];
+  slo: { availability: string; target: string; budget_left: number; burn: { window: string; value: string; tone: Tone; pct: number }[]; note: string };
+  changes: { brand: string; title: string; meta: string; tag?: string }[];
+  deps: { upstream: { brand?: string; name: string; status: Health; meta: string }[]; downstream: { brand?: string; name: string; status: Health; meta: string }[] };
+  tabs: Record<string, number>;
+};
+export type Resilience = {
+  synced: string;
+  rollout: {
+    title: string;
+    status: string;
+    stable: string;
+    steps: { weight: string; note: string; state: "done" | "current" | "todo" }[];
+    split: { stable: number; canary: number };
+    analysis: { name: string; value: string; threshold: string; ok: boolean }[];
+    stable_series: number[];
+    canary_series: number[];
+    next: string;
+    source: string;
+  };
+  breakers: { brand: string; upstream: string; mechanism: string; state: "closed" | "open" | "half_open" | "none"; threshold: string; ejected: string }[];
+  breaker_timeline: { from: number; to: number; state: "closed" | "open" | "half_open" }[];
+  breaker_note: string;
+  limits: { brand: string; route: string; mechanism: string; limit: string; used: string; pct: number; rejected: number }[];
+  limit_note: string;
+  flags: { brand: string; key: string; desc: string; on: boolean; tag: { text: string; tone: Tone }; action: string }[];
+  hpa: { min: number; max: number; current: number; desired: number; replicas: number[]; desired_series: number[]; cpu: number[]; target: number; note: string };
+  ai: string[];
+};
+export type TopologyNode = { id: string; name: string; brand?: string; sub: string; status: Health; group: string; x: number; y: number; impacted: boolean };
+export type Topology = {
+  groups: { id: string; label: string; zone: string; x: number; y: number; w: number; h: number }[];
+  nodes: TopologyNode[];
+  edges: { id: string; from: string; to: string; label?: string; tone: "ok" | "warn" | "danger"; fast?: boolean; width: number; path: string; lx: number; ly: number }[];
+  blast: string;
+  tree: { depth: number; kind: string; name: string; brand?: string; status: Health; replicas: string; cpu?: number; mem?: number; alerts?: number; open?: boolean; hit?: boolean }[];
+  sankey: { cols: { id: string; label: string; value: number; color: string }[][]; links: { from: string; to: string; value: number; color: string }[] };
+  detail: { id: string; name: string; meta: string; brand: string; conns: { used: number; max: number }; from_service: { used: number; max: number; service: string }; wait: number[]; health: { k: string; v: string }[]; owner: string; dependents: string; source: string };
+};
+export type MetricsDashboard = {
+  window: { labels: string[]; ticks: string[]; release_at: number; rollback_at: number; incident: [number, number]; incident_label: string };
+  kpis: Kpi[];
+  requests: { ok: number[]; client: number[]; server: number[] };
+  slo: { remaining: number; availability: string; delta: string; burn: { window: string; value: string; tone: Tone; pct: number }[]; note: string };
+  latency: { p50: number[]; p95: number[]; p99: number[]; heat: number[][]; buckets: string[] };
+  endpoints: { label: string; value: number; tone?: Tone }[];
+  instances: { label: string; values: number[]; tone?: Tone }[];
+};
+export type TraceSummary = { id: string; op: string; duration_ms: number; spans: number; error: boolean; time: string };
+export type Span = { id: string; depth: number; service: string; op: string; start: number; end: number; status: "ok" | "error"; label?: string; attrs?: { k: string; v: string }[]; error?: string };
+export type TraceSearch = { points: { t: number; ms: number; error: boolean; id?: string }[]; release_at: number; items: TraceSummary[] };
+export type TraceDetail = { id: string; op: string; duration_ms: number; spans: Span[]; time: string };
+export type LogLine = { time: string; level: "ERROR" | "WARN" | "INFO"; service: string; message: string; trace?: string };
+export type LogSearch = { total: string; errors: string; histogram: number[][]; items: LogLine[]; patterns: { template: string; level: LogLine["level"]; count: string; trend: number[]; new?: boolean }[] };
+export type Pipeline = { id: string; brand: string; ref: string; service: string; title: string; trigger: string; status: "success" | "failed" | "running" | "canceled"; stages: ("ok" | "danger" | "accent" | "neutral")[]; duration: string; time: string };
+export type ChangesView = {
+  kpis: Kpi[];
+  sources: { brand: string; name: string; count: number; on: boolean }[];
+  lanes: { service: string; marks: { at: number; tone: "ok" | "danger"; label?: string }[]; alerts: [number, number][] }[];
+  axis: string[];
+  pipelines: Pipeline[];
+  detail: {
+    id: string;
+    title: string;
+    meta: string;
+    brand: string;
+    stages: { name: string; jobs: { name: string; state: "ok" | "running"; brand?: string }[] }[];
+    diff: { path: string; minus: string; plus: string };
+    risk: { title: string; meta: string; text: string };
+    alert: { text: string; incident: string };
+  };
+};

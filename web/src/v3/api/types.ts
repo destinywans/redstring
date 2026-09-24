@@ -644,3 +644,65 @@ export type GuardrailsView = {
   counts: Record<"all" | "blocked" | "masked", number>;
   detail: { id: string; title: string; meta: string; source: string; snippet: string; masked: string; verdict: string };
 };
+
+/* ---------------- settings ---------------- */
+export type NotifyChannel = "feishu" | "email" | "sms" | "phone";
+export type ProfileView = {
+  name: string;
+  display_name: string;
+  department: string;
+  title: string;
+  timezone: string;
+  contacts: { kind: "email" | "phone" | "feishu"; label: string; value: string; verified: boolean; note?: string }[];
+  notifications: { event: string; label: string; channels: Record<NotifyChannel, boolean> }[];
+  security: {
+    password_changed: string;
+    mfa_enabled: boolean;
+    org_rule: string;
+    factors: { kind: "passkey" | "totp" | "recovery"; name: string; sub: string }[];
+    sessions: { id: string; device: string; sub: string; current?: boolean }[];
+    tokens: string;
+  };
+};
+export type OrgNode = { id: string; name: string; count: number; depth: number; kind: "org" | "team" | "group" };
+export type Member = {
+  id: string;
+  name: string;
+  email: string;
+  department: string;
+  roles: string[];
+  phone: string;
+  mfa: "passkey" | "totp" | "none" | "na";
+  source: "feishu" | "ldap" | "system" | "invite";
+  status: "active" | "disabled";
+  last_login: string;
+  agent?: boolean;
+};
+export type MembersView = { org: OrgNode[]; groups: OrgNode[]; items: Member[]; counts: Record<"all" | "admin" | "no_mfa" | "disabled", number>; mfa_grace_days: number };
+export type Role = { id: string; name: string; members: number; kind: "system" | "business" | "machine" };
+export type RoleDetail = Role & {
+  desc: string;
+  member_names: string[];
+  scope: string[];
+  actions: string[];
+  matrix: { resource: string; grants: (0 | 1 | 2)[] }[];
+  notes: string;
+};
+export type SecurityView = {
+  sso: { brand: string; name: string; sub: string; enabled: boolean; default?: boolean }[];
+  scim: boolean;
+  mfa_policy: "all" | "privileged" | "none";
+  mfa_methods: { id: string; label: string; enabled: boolean; note?: string }[];
+  approval_passkey: boolean;
+  session: { idle: string; max: string; ip_allow: string; new_device_notice: boolean };
+  vault: { name: string; sub: string; connected: boolean };
+  token_ttl: string;
+  password_policy: string;
+};
+export type AuditEntry = { id: string; time: string; actor: { kind: "user" | "agent" | "system"; name: string }; action: string; target: string; result: "ok" | "blocked" | "failed"; source: string };
+export type AuditView = {
+  items: AuditEntry[];
+  counts: Record<"all" | "user" | "agent" | "system", number>;
+  volume: number[][];
+};
+export type AuditDetail = { id: string; title: string; time: string; actor_kind: AuditEntry["actor"]["kind"]; actor_name: string; actor: { k: string; v: string }[]; links: { k: string; v: string; to: string }[]; payload: string; chain_ok: boolean };

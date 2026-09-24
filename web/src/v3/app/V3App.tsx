@@ -74,6 +74,11 @@ export const ROUTES: [string, ComponentType][] = [
   ["agents/runs/:id", p(() => import("../features/agents/RunDetailPage"))],
   ["agents/guardrails", p(() => import("../features/agents/GuardrailsPage"))],
   ["agents/:id", p(() => import("../features/agents/AgentPage"))],
+  ["settings/profile", p(() => import("../features/settings/ProfilePage"))],
+  ["settings/members", p(() => import("../features/settings/MembersPage"))],
+  ["settings/roles", p(() => import("../features/settings/RolesPage"))],
+  ["settings/security", p(() => import("../features/settings/SecurityPage"))],
+  ["settings/audit", p(() => import("../features/settings/AuditPage"))],
 ];
 
 export default function V3App() {

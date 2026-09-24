@@ -9,3 +9,4 @@ import "./domains/knowledge";
 import "./domains/observe";
 import "./domains/integrations";
 import "./domains/agents";
+import "./domains/settings";

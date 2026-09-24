@@ -1,0 +1,130 @@
+.set-two {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+.set-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.set-list > li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  animation: v3-fade var(--dur) ease-out both;
+}
+.set-list > li:last-child {
+  border-bottom: none;
+}
+.set-sep {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.notif input[type="checkbox"],
+.set-list input[type="checkbox"] {
+  margin: 0;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.org-tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.org-tree button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+  transition: background var(--dur-fast);
+}
+.org-tree button:hover {
+  background: var(--hover);
+}
+.org-tree button.on {
+  background: var(--hover);
+  font-weight: 500;
+}
+.warn-bar,
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  font-size: 12.5px;
+}
+.warn-bar {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.warn-bar > span {
+  color: var(--text);
+}
+.bulk-bar {
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+}
+.perm-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--faint);
+  transition: background var(--dur-fast), border-color var(--dur-fast), transform var(--dur-fast);
+}
+.perm-cell:hover {
+  border-color: var(--border-strong);
+}
+.perm-cell:active {
+  transform: scale(0.92);
+}
+.perm-cell.yes {
+  color: var(--ok);
+}
+.perm-cell.hl {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.sec-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 1200px) {
+  .set-two {
+    flex-direction: column;
+  }
+  .set-two > * {
+    width: 100% !important;
+  }
+  .sec-grid {
+    grid-template-columns: 1fr;
+  }
+}

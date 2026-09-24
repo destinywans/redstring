@@ -806,3 +806,82 @@ export type CanvasDoc = {
   artifacts: CanvasDocArtifact[];
   threads: Record<string, { context: string; turns: CanvasTurn[] }>;
 };
+
+/* ---------------- v4: traces (application + agent) ---------------- */
+export type TraceFacet = { key: string; label: string; items: { value: string; count: number; color?: string; tone?: Tone }[] };
+export type TraceRow = { id: string; time: string; op: string; services: string[]; duration_ms: number; spans: number; errors: number; tokens?: string; cost?: string; agent?: string; model?: string; href: string };
+export type TraceList = {
+  scope: "app" | "agent";
+  total: number;
+  took: string;
+  colors: Record<string, string>;
+  facets: TraceFacet[];
+  views: { id: string; label: string; count?: number; query: string }[];
+  histogram: { counts: [number, number][]; axis: string[] };
+  scatter: { x: number; y: number; error: boolean; id?: string }[];
+  items: TraceRow[];
+};
+export type TraceSpan = {
+  id: string;
+  depth: number;
+  service: string;
+  op: string;
+  start: number;
+  end: number;
+  status: "ok" | "error";
+  critical?: boolean;
+  label?: string;
+  attrs?: { k: string; v: string; hot?: boolean }[];
+  events?: { at: string; name: string; text: string }[];
+  logs?: { time: string; level: "ERROR" | "WARN" | "INFO"; message: string }[];
+  links?: { kind: "metric" | "change" | "runbook"; label: string; href: string; brand?: string }[];
+};
+export type TraceView = {
+  id: string;
+  trace_id: string;
+  op: string;
+  duration_ms: number;
+  time: string;
+  version: string;
+  colors: Record<string, string>;
+  spans: TraceSpan[];
+  flame_note: string;
+  graph: { nodes: { id: string; x: number; y: number; sub: string; danger?: boolean }[]; edges: { from: string; to: string; label: string; danger?: boolean }[] };
+};
+export type AgentSpanKind = "agent" | "chain" | "llm" | "tool" | "retriever" | "guardrail" | "output";
+export type AgentSpan = {
+  id: string;
+  depth: number;
+  kind: AgentSpanKind;
+  name: string;
+  meta: string;
+  start: number;
+  dur: number;
+  llm?: {
+    model: string;
+    effort: string;
+    api: string;
+    max_tokens: number;
+    first_token: string;
+    cost: string;
+    status: string;
+    usage: { cached: number; input: number; reasoning: number; output: number };
+    messages: { role: string; tone: Tone | "t0"; text?: string; tokens: string; folded?: boolean; json?: unknown }[];
+    output?: string;
+    params: Record<string, unknown>;
+    scores: { name: string; value: string; source: string; tone: Tone }[];
+  };
+  tool?: { brand: string; connector: string; budget: string; args: unknown; result: unknown; evidence: string };
+  guard?: { target: string; rule: string; result: string };
+};
+export type AgentTrace = {
+  id: string;
+  agent: string;
+  status: "success" | "failed" | "blocked";
+  stats: { k: string; v: string }[];
+  scores: { label: string; tone: Tone; icon?: string }[];
+  session: string;
+  turns: { n: number; brand: string; model: string; meta: string; current?: boolean; switched?: boolean; run_id?: string }[];
+  total: number;
+  spans: AgentSpan[];
+};

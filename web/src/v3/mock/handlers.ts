@@ -10,6 +10,7 @@ import "./domains/create";
 import "./domains/events";
 import "./domains/knowledge";
 import "./domains/observe";
+import "./domains/traces";
 import "./domains/integrations";
 import "./domains/agents";
 import "./domains/settings";

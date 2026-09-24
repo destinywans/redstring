@@ -1,178 +1,214 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { useGet } from "../../api/client";
-import type { Span, TraceDetail, TraceSearch } from "../../api/types";
-import { Badge, Brand, Btn, Card, Chip, Code, Input, LabelChip, Legend, Mono, Muted, Num, Pills, Row, Skeleton, Spacer, Strong, cx } from "../../ui/core";
-import { Axis } from "../../charts";
+import type { TraceList } from "../../api/types";
+import { Badge, Brand, Btn, Card, Chip, Dot, Icon, Legend, Muted, Num, Panel, Row, Skeleton, Spacer, cx, type Tone } from "../../ui/core";
+import { StackedBars } from "../../charts";
 import { useI18n } from "../../i18n";
-import "./observe.css";
+import "./trace.css";
 
+export const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 1 : 2)} s` : `${Math.round(ms)} ms`);
+
+export function ScopeSwitch({ scope, onChange }: { scope: "app" | "agent"; onChange: (s: "app" | "agent") => void }) {
+  const { tx } = useI18n();
+  return (
+    <div className="tr-scope" role="group" aria-label={tx("链路范围", "Trace scope")}>
+      {(["app", "agent"] as const).map((s) => (
+        <button key={s} type="button" aria-pressed={scope === s} className={cx(scope === s && "on")} onClick={() => onChange(s)}>
+          <Icon name={s === "app" ? "activity" : "cpu"} size={13} />
+          {s === "app" ? tx("应用", "Application") : "Agent"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Traces v2 — facets, TraceQL, saved views, count histogram, duration scatter and a table. One explorer for application and agent traces. */
 export default function TracesPage() {
   const { tx } = useI18n();
-  const [errors, setErrors] = useState<"errors" | "all">("errors");
-  const [min, setMin] = useState("1000");
-  const list = useGet<TraceSearch>("/traces", { errors: errors === "errors", min_ms: min });
-  const [tid, setTid] = useState("4bf92f35");
-  const { data: tr } = useGet<TraceDetail>(`/traces/${tid}`);
-  const [spanId, setSpanId] = useState("s4");
-  const span: Span | undefined = tr?.spans.find((s) => s.id === spanId);
+  const nav = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const scope = params.get("scope") === "agent" ? "agent" : "app";
+  const [view, setView] = useState(scope === "agent" ? "all" : "errors");
+  const [checked, setChecked] = useState<Record<string, boolean>>({ "service:checkout-api": true, [`status:${tx("错误", "Error")}`]: true, "op:POST /api/orders": true, "version:v2.8.1": true });
+  const { data, isLoading, refetch } = useGet<TraceList>("/traces", { scope, view, service: params.get("service") ?? undefined });
+  const [q, setQ] = useState("");
+  useEffect(() => setView(scope === "agent" ? "all" : "errors"), [scope]);
+  useEffect(() => {
+    const v = data?.views.find((x) => x.id === view);
+    if (v) setQ(v.query);
+  }, [data, view]);
+  const maxMs = useMemo(() => Math.max(1, ...(data?.items ?? []).map((r) => r.duration_ms)), [data]);
+  const setScope = (s: "app" | "agent") => setParams(s === "agent" ? { scope: "agent" } : {}, { replace: true });
+  const toggle = (k: string) => setChecked((c) => ({ ...c, [k]: !c[k] }));
   return (
-    <Page flush crumbs={[tx("资源与观测", "Resources"), tx("链路", "Traces")]} actions={<Chip icon="clock" caret>{tx("最近 30 分钟", "Last 30 min")}</Chip>}>
-      <div className="trace-bar">
-        <Chip caret>
-          <Brand name="tempo" size={18} />
-          {tx("Tempo · 生产", "Tempo · prod")}
-        </Chip>
-        <Chip caret>{tx("服务：checkout-api", "Service: checkout-api")}</Chip>
-        <Chip caret>{tx("接口：POST /orders", "Endpoint: POST /orders")}</Chip>
-        <Input value={min} onChange={(e) => setMin(e.target.value.replace(/\D/g, ""))} width={110} aria-label={tx("最小耗时（毫秒）", "Min duration (ms)")} right={<Muted>ms</Muted>} />
-        <Pills value={errors} onChange={setErrors} options={[{ value: "errors", label: tx("错误", "Errors") }, { value: "all", label: tx("全部", "All") }]} />
-        <Spacer />
-        <Btn kind="primary" icon="search" h={30} onClick={() => list.refetch()}>
-          {tx("搜索", "Search")}
-        </Btn>
-      </div>
-      <div className="v3-split">
-        <div className="side" style={{ width: 480, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
-          <Row gap={8}>
-            <Strong>{tx("耗时分布", "Duration distribution")}</Strong>
-            <Spacer />
-            <Legend items={[[tx("正常", "OK"), "var(--accent-line)"], [tx("错误", "Error"), "var(--danger)"]]} />
-          </Row>
-          {list.data ? (
-            <svg width="100%" viewBox="0 0 440 140" className="scatter" role="img" aria-label={tx("耗时散点图", "Duration scatter")}>
-              {[35, 70, 105].map((y) => (
-                <line key={y} x1={0} x2={440} y1={y} y2={y} className="ch-grid" />
-              ))}
-              <line x1={list.data.release_at} x2={list.data.release_at} y1={0} y2={140} className="ch-marker" style={{ stroke: "var(--muted)" }} />
-              {list.data.points.map((p, i) => (
-                <circle
-                  key={i}
-                  cx={p.t}
-                  cy={140 - p.ms / 25}
-                  r={p.id === tid ? 5.5 : 3.5}
-                  className={cx("pt", p.id && "clickable")}
-                  style={{ fill: p.error ? "var(--danger)" : "var(--accent-line)", stroke: p.id === tid ? "var(--text)" : "none", strokeWidth: 1.5 }}
-                  onClick={() => p.id && setTid(p.id)}
-                >
-                  <title>{`${p.ms} ms`}</title>
-                </circle>
-              ))}
-            </svg>
-          ) : (
-            <Skeleton h={140} />
+    <Page
+      flush
+      crumbs={[tx("资源与观测", "Resources"), tx("链路", "Traces")]}
+      actions={
+        <>
+          <ScopeSwitch scope={scope} onChange={setScope} />
+          <Chip caret>
+            <Brand name={scope === "agent" ? "phoenix" : "tempo"} size={18} />
+            {scope === "agent" ? tx("Agent 运行记录", "Agent runs") : tx("Tempo · 生产", "Tempo · prod")}
+          </Chip>
+          <Chip icon="clock" caret>{scope === "agent" ? tx("最近 24 小时", "Last 24 h") : tx("最近 1 小时", "Last 1 h")}</Chip>
+        </>
+      }
+    >
+      <div className="tr-layout">
+        <aside className="tr-facets" aria-label={tx("筛选", "Filters")}>
+          {isLoading && <Skeleton h={300} />}
+          {data?.facets.map((f) => (
+            <section key={f.key}>
+              <b>{f.label}</b>
+              {f.items.map((it) => {
+                const k = `${f.key}:${it.value}`;
+                return (
+                  <label key={k}>
+                    <input type="checkbox" checked={!!checked[k]} onChange={() => toggle(k)} />
+                    {it.color ? <i className="tr-sw" style={{ background: it.color }} /> : it.tone ? <Dot tone={it.tone} size={7} /> : null}
+                    <span className="grow ellipsis">{it.value}</span>
+                    <Muted size={11}>{it.count.toLocaleString()}</Muted>
+                  </label>
+                );
+              })}
+            </section>
+          ))}
+          {scope === "app" && data && (
+            <section>
+              <b>{tx("耗时", "Duration")}</b>
+              <div className="tr-durhist">
+                {[2, 5, 12, 26, 38, 30, 18, 9, 6, 4, 3, 2, 2, 3, 4, 3, 2, 1].map((v, i) => (
+                  <span key={i} style={{ height: `${(v / 38) * 100}%`, background: i >= 9 ? "var(--accent)" : "var(--faint)" }} />
+                ))}
+              </div>
+              <Row gap={4}>
+                <Muted size={11.5}>&gt; 1 s</Muted>
+                <Spacer />
+                <Muted size={11.5}>{tx("最长 3.4 s", "max 3.4 s")}</Muted>
+              </Row>
+            </section>
           )}
-          <Axis labels={["14:01", tx("14:03 发布", "14:03 release"), "14:16", "14:31"]} />
+        </aside>
+        <div className="tr-main">
+          <form
+            className="tr-query"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void refetch();
+            }}
+          >
+            <label className="grow">
+              <Badge tone="info" mono>{scope === "agent" ? tx("筛选", "Filter") : "TraceQL"}</Badge>
+              <input value={q} onChange={(e) => setQ(e.target.value)} aria-label={tx("链路查询", "Trace query")} spellCheck={false} placeholder={scope === "agent" ? 'agent = "investigator" && model = "claude-opus-5-5"' : "{ status = error }"} />
+            </label>
+            <Btn kind="primary" icon="search" h={34} type="submit">{tx("搜索", "Search")}</Btn>
+          </form>
+          <Row gap={6} wrap>
+            <Muted size={11.5}>{tx("视图", "Views")}</Muted>
+            {data?.views.map((v) => (
+              <Chip key={v.id} active={view === v.id} onClick={() => setView(v.id)}>
+                {v.count !== undefined && <Dot tone="danger" size={6} />}
+                {v.label}
+                {v.count !== undefined && ` ${v.count}`}
+              </Chip>
+            ))}
+            <Chip icon="plus">{tx("保存视图", "Save view")}</Chip>
+            <Spacer />
+            {data && <Muted size={11.5}>{tx("找到 {n} 条 · {t}", "{n} found · {t}", { n: data.total.toLocaleString(), t: data.took })}</Muted>}
+          </Row>
+          <div className="tr-charts">
+            <Panel title={tx("数量 · 按状态", "Count · by status")} right={<Legend items={[[tx("正常", "OK"), "var(--c1s)"], [tx("错误", "Error"), "var(--danger)"]]} />} bodyStyle={{ padding: "10px 14px" }}>
+              {data ? (
+                <div className="v3-col" style={{ gap: 6 }}>
+                  <StackedBars data={data.histogram.counts} colors={["var(--c1s)", "var(--danger)"]} height={96} names={[tx("正常", "OK"), tx("错误", "Error")]} />
+                  <Row gap={0} style={{ justifyContent: "space-between" }}>
+                    {data.histogram.axis.map((a) => (
+                      <Muted key={a} size={10.5}>{a}</Muted>
+                    ))}
+                  </Row>
+                </div>
+              ) : (
+                <Skeleton h={110} />
+              )}
+            </Panel>
+            <Panel title={tx("耗时分布", "Duration")} right={<Legend items={[[tx("正常", "OK"), "var(--c1)"], [tx("错误", "Error"), "var(--danger)"]]} />} bodyStyle={{ padding: "10px 14px" }}>
+              {data ? (
+                <div className="v3-col" style={{ gap: 6 }}>
+                  <svg width="100%" height="105" viewBox="0 0 440 110" preserveAspectRatio="none" role="img" aria-label={tx("耗时散点图", "Duration scatter")}>
+                    <line x1={0} x2={440} y1={36} y2={36} className="ch-grid" />
+                    <line x1={0} x2={440} y1={73} y2={73} className="ch-grid" />
+                    {scope === "app" && <rect x={232} y={6} width={104} height={58} rx={4} className="tr-brush" />}
+                    {data.scatter.map((p, i) => (
+                      <circle key={i} cx={p.x} cy={p.y} r={p.error ? 3.2 : 2.6} fill={p.error ? "var(--danger)" : "var(--c1)"} className={cx(p.id && "clickable")} onClick={() => p.id && nav(scope === "agent" ? `/agents/runs/${p.id}` : `/traces/${p.id}`)} />
+                    ))}
+                  </svg>
+                  <Row gap={6}>
+                    <Muted size={11.5}>{scope === "app" ? tx("框选一段查看这些链路", "Brush a region to filter these traces") : tx("点一个点打开运行", "Click a point to open the run")}</Muted>
+                    <Spacer />
+                    <Muted size={11.5}>{tx("纵轴：耗时", "Y: duration")}</Muted>
+                  </Row>
+                </div>
+              ) : (
+                <Skeleton h={110} />
+              )}
+            </Panel>
+          </div>
           <Card style={{ overflow: "hidden" }}>
-            <table className="v3-table">
+            <table className="v3-table tr-table">
               <thead>
                 <tr>
-                  <th>Trace</th>
-                  <th>{tx("入口", "Root")}</th>
+                  <th style={{ width: "15%" }}>{tx("开始时间", "Start")}</th>
+                  <th style={{ width: scope === "agent" ? "26%" : "26%" }}>{scope === "agent" ? tx("运行", "Run") : tx("根操作", "Root operation")}</th>
+                  <th style={{ width: "16%" }}>{scope === "agent" ? tx("模型", "Model") : tx("服务", "Services")}</th>
                   <th>{tx("耗时", "Duration")}</th>
-                  <th>Span</th>
-                  <th>{tx("状态", "Status")}</th>
-                  <th>{tx("时间", "Time")}</th>
+                  <th style={{ width: 60 }}>Span</th>
+                  {scope === "agent" && <th style={{ width: 70 }}>tokens</th>}
+                  {scope === "agent" && <th style={{ width: 64 }}>{tx("成本", "Cost")}</th>}
+                  <th style={{ width: 60 }}>{tx("错误", "Errors")}</th>
                 </tr>
               </thead>
               <tbody>
-                {list.data?.items.map((t) => (
-                  <tr key={t.id} className={cx("clickable", t.id === tid && "selected")} style={{ height: 36 }} onClick={() => setTid(t.id)}>
+                {data?.items.map((r) => (
+                  <tr key={r.id} className="clickable" onClick={() => nav(r.href)}>
+                    <td className="mono muted" style={{ fontSize: 11.5 }}>{r.time}</td>
                     <td>
-                      <Mono color="var(--text)">{t.id}…</Mono>
+                      <span className="v3-col" style={{ gap: 0 }}>
+                        <span className={cx(scope === "app" && "mono")} style={{ fontSize: 12.5, fontWeight: 500 }}>{r.op}</span>
+                        {r.agent && <Muted size={11}>{r.agent}</Muted>}
+                      </span>
                     </td>
-                    <td className="ellipsis">{t.op}</td>
                     <td>
-                      <Num color={t.error ? "var(--danger)" : undefined}>{(t.duration_ms / 1000).toFixed(2)} s</Num>
+                      {scope === "agent" ? (
+                        <Muted size={12}>{r.model}</Muted>
+                      ) : (
+                        <Row gap={3}>
+                          {r.services.map((s) => (
+                            <i key={s} className="tr-sw" title={s} style={{ background: data.colors[s] }} />
+                          ))}
+                          <Muted size={11}>{r.services.length}</Muted>
+                        </Row>
+                      )}
                     </td>
                     <td>
-                      <Num color="var(--muted)">{t.spans}</Num>
+                      <div className="tr-durbar">
+                        <span style={{ width: `${(100 * r.duration_ms) / maxMs}%`, background: r.errors ? "var(--danger)" : "var(--c1)" }} />
+                        <Num color={r.errors ? "var(--danger)" : undefined}>{fmtMs(r.duration_ms)}</Num>
+                      </div>
                     </td>
-                    <td>{t.error ? <Badge tone="danger">{tx("错误", "Error")}</Badge> : <Muted>—</Muted>}</td>
-                    <td>
-                      <Muted>{t.time}</Muted>
-                    </td>
+                    <td className="tnum muted">{r.spans}</td>
+                    {scope === "agent" && <td className="tnum">{r.tokens}</td>}
+                    {scope === "agent" && <td className="tnum">{r.cost}</td>}
+                    <td>{r.errors ? <Badge tone={"danger" as Tone}>{r.errors}</Badge> : <Muted>—</Muted>}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </Card>
         </div>
-        <div className="main" style={{ display: "flex", flexDirection: "column" }}>
-          {!tr ? (
-            <Skeleton h={300} style={{ margin: 16 }} />
-          ) : (
-            <>
-              <div style={{ padding: "14px 16px 10px", borderBottom: "1px solid var(--border)" }} className="anim-fade" key={tr.id}>
-                <Row gap={6} wrap>
-                  <b style={{ fontSize: 14 }}>{tr.op}</b>
-                  <Num color="var(--danger)">{(tr.duration_ms / 1000).toFixed(2)} s</Num>
-                  <Badge>{tx("{n} 个 span", "{n} spans", { n: tr.spans.length + 6 })}</Badge>
-                  <Badge tone="danger">{tx("1 个错误", "1 error")}</Badge>
-                  <Spacer />
-                  <Btn h={26} icon="external">
-                    {tx("在 Jaeger 中打开", "Open in Jaeger")}
-                  </Btn>
-                  <Btn h={26} kind="soft" icon="branch" to="/canvas/INV-231">
-                    {tx("带入调查", "Add to investigation")}
-                  </Btn>
-                </Row>
-                <Muted size={11.5}>
-                  trace {tr.id}77b34da6a3ce929d0e0e4736 · {tr.time}
-                </Muted>
-              </div>
-              <ol className="waterfall" key={tr.id + "w"}>
-                <li className="wf-axis">
-                  <span className="wf-name" />
-                  <span className="wf-track">
-                    <Axis labels={["0", "0.8 s", "1.6 s", "2.4 s", "3.2 s"]} style={{ marginTop: 0 }} />
-                  </span>
-                  <span className="wf-dur" />
-                </li>
-                {tr.spans.map((s, i) => {
-                  const l = (100 * s.start) / tr.duration_ms;
-                  const w = Math.max(0.6, (100 * (s.end - s.start)) / tr.duration_ms);
-                  return (
-                    <li key={s.id} className={cx("wf-row", s.id === spanId && "on", s.status === "error" && s.depth > 1 && "err")} onClick={() => setSpanId(s.id)} style={{ animationDelay: `${i * 40}ms` }}>
-                      <span className="wf-name" style={{ paddingLeft: s.depth * 14 }}>
-                        <Muted size={11.5}>{s.service}</Muted>
-                        <span className="ellipsis" style={{ fontSize: 12, fontWeight: 500 }}>
-                          {s.op}
-                        </span>
-                      </span>
-                      <span className="wf-track">
-                        <span className="wf-bar" style={{ left: `${l}%`, width: `${w}%`, background: s.status === "error" && s.depth > 1 ? "var(--danger)" : s.service === "orders-db" ? "var(--ok)" : "var(--accent-line)" }} />
-                      </span>
-                      <span className="wf-dur tnum">{s.label ?? `${s.end - s.start} ms`}</span>
-                    </li>
-                  );
-                })}
-              </ol>
-              {span && (
-                <div className="span-detail anim-fade" key={span.id}>
-                  <Row gap={8}>
-                    <Strong>{span.op}</Strong>
-                    {span.status === "error" && <Badge tone="danger">{tx("错误", "Error")}</Badge>}
-                    <Muted size={11.5}>
-                      {span.service} · {span.end - span.start} ms
-                    </Muted>
-                  </Row>
-                  {span.attrs && (
-                    <Row gap={5} wrap>
-                      {span.attrs.map((a) => (
-                        <LabelChip key={a.k} k={a.k} v={a.v} />
-                      ))}
-                    </Row>
-                  )}
-                  {span.error && <Code>{span.error}</Code>}
-                  {!span.attrs && !span.error && <Muted>{tx("没有额外属性。", "No extra attributes.")}</Muted>}
-                </div>
-              )}
-            </>
-          )}
-        </div>
       </div>
     </Page>
   );
 }
-

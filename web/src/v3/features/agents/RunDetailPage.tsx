@@ -7,13 +7,14 @@ import { Badge, Btn, Card, CardHead, Col, Icon, IconBtn, Mono, Muted, Row, Skele
 import { toast } from "../../ui/overlays";
 import { Axis } from "../../charts";
 import { useI18n } from "../../i18n";
+import { AgentTrace } from "./AgentTrace";
 import "./agents.css";
 
 export default function RunDetailPage() {
   const { tx } = useI18n();
   const { id = "run_7f3a" } = useParams();
   const { data: r } = useGet<RunDetail>(`/agent-runs/${id}`);
-  const [tab, setTab] = useState("run");
+  const [tab, setTab] = useState("trace");
   const [stepId, setStepId] = useState("s2");
   const [vote, setVote] = useState<"up" | "down" | null>(null);
   const feedback = useSend<{ vote: "up" | "down" }>("POST", `/agent-runs/${id}/feedback`);
@@ -31,7 +32,9 @@ export default function RunDetailPage() {
         <>
           <IconBtn icon="check" label={tx("有用", "Helpful")} active={vote === "up"} onClick={() => rate("up")} />
           <IconBtn icon="x" label={tx("无用", "Not helpful")} active={vote === "down"} onClick={() => rate("down")} />
-          <Btn icon="external">{tx("在 Phoenix 中打开", "Open in Phoenix")}</Btn>
+          <Btn icon="plus" onClick={() => toast(tx("已加入数据集「根因分析 · 回归」", "Added to dataset “Root cause · regression”"))}>{tx("加入数据集", "Add to dataset")}</Btn>
+          <Btn icon="edit" onClick={() => toast(tx("已打开标注：为这次运行打分并写备注", "Annotation opened: score this run and leave a note"))}>{tx("标注", "Annotate")}</Btn>
+          <Btn kind="ghost" icon="external">{tx("在 Phoenix 中打开", "Open in Phoenix")}</Btn>
           <Btn kind="ghost" icon="download">
             {tx("导出", "Export")}
           </Btn>
@@ -42,14 +45,17 @@ export default function RunDetailPage() {
         value={tab}
         onChange={setTab}
         options={[
-          { value: "run", label: tx("运行记录", "Run") },
+          { value: "trace", label: "Trace" },
+          { value: "run", label: tx("运行概览", "Overview") },
           { value: "memory", label: tx("记忆", "Memory") },
           { value: "skills", label: tx("Skills 与工具", "Skills & tools") },
           { value: "policy", label: tx("自动化策略", "Automation policy") },
           { value: "usage", label: tx("模型用量", "Model usage") },
         ]}
       />
-      {!r ? (
+      {tab === "trace" ? (
+        <AgentTrace runId={id} />
+      ) : !r ? (
         <div className="v3-content">
           <Skeleton h={60} />
           <Skeleton h={300} />
@@ -195,7 +201,7 @@ export default function RunDetailPage() {
             </div>
           )}
           {tab === "memory" && <MemoryCard r={r} />}
-          {tab !== "run" && tab !== "memory" && (
+          {tab !== "run" && tab !== "memory" && tab !== "trace" && (
             <Card style={{ padding: 20 }}>
               <Muted>{tx("这一栏展示本次运行加载的 Skills、工具定义、自动化策略与模型用量，数据结构与运行记录相同，待后端提供。", "This tab shows the skills, tool definitions, automation policy and model usage loaded for this run; same data shape as the run record, pending backend.")}</Muted>
             </Card>

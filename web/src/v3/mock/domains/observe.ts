@@ -229,37 +229,7 @@ mock("GET", "/metrics/dashboard", ({ query }) => {
 });
 mock("POST", "/metrics/ask", () => ({ conversation_id: "C-320" }));
 
-/* ---------------- traces ---------------- */
-const PTS: [number, number, boolean][] = [[20, 30, false], [40, 34, false], [60, 28, false], [80, 40, false], [100, 32, false], [120, 36, false], [140, 30, false], [160, 38, false], [180, 34, false], [200, 30, false], [220, 110, true], [228, 96, true], [240, 118, true], [252, 88, true], [260, 124, true], [272, 104, false], [284, 120, true], [296, 98, true], [308, 126, true], [320, 92, false], [332, 116, true], [344, 108, true], [356, 122, true], [368, 100, true], [380, 118, true], [392, 94, false], [404, 112, true], [416, 126, true]];
-const TRACES = [
-  { id: "4bf92f35", op: "POST /orders", duration_ms: 3210, spans: 14, error: true, time: "14:30:58" },
-  { id: "a07c11de", op: "POST /orders", duration_ms: 3180, spans: 14, error: true, time: "14:30:41" },
-  { id: "91e2b8f0", op: "POST /orders", duration_ms: 3050, spans: 13, error: true, time: "14:30:22" },
-  { id: "0c55d913", op: "GET /cart", duration_ms: 1420, spans: 9, error: false, time: "14:30:10" },
-  { id: "7fa01b62", op: "POST /orders", duration_ms: 3120, spans: 14, error: true, time: "14:29:51" },
-  { id: "e3d4c7a8", op: "POST /orders", duration_ms: 2960, spans: 14, error: true, time: "14:29:33" },
-];
-mock("GET", "/traces", ({ query }) => {
-  const errorsOnly = query.errors !== "false";
-  const min = Number(query.min_ms ?? 1000);
-  return { points: PTS.map(([t, ms, error]) => ({ t, ms: ms * 25, error, id: t === 308 ? "4bf92f35" : undefined })), release_at: 212, items: TRACES.filter((t) => (!errorsOnly || t.error) && t.duration_ms >= min) };
-});
-mock("GET", "/traces/:id", ({ params }) => ({
-  id: params.id,
-  op: "POST /orders",
-  duration_ms: 3210,
-  time: "14:30:58",
-  spans: [
-    { id: "s1", depth: 0, service: "api-gateway", op: "POST /api/orders", start: 0, end: 3210, status: "ok" },
-    { id: "s2", depth: 1, service: "checkout-api", op: "POST /orders", start: 5, end: 3205, status: "error" },
-    { id: "s3", depth: 2, service: "checkout-api", op: "validate_cart", start: 10, end: 42, status: "ok" },
-    { id: "s4", depth: 2, service: "checkout-api", op: "db.pool.acquire", start: 45, end: 3045, status: "error", label: P("等待连接 3.0 s", "waited 3.0 s for a connection"), attrs: [{ k: "db.system", v: "postgresql" }, { k: "db.name", v: "orders" }, { k: "pool.max", v: "50" }, { k: "pool.active", v: "50" }, { k: "pool.wait_ms", v: "3000" }, { k: "error", v: "true" }], error: "TimeoutError: acquire connection timeout after 3000ms (pool active=50, max=50)" },
-    { id: "s5", depth: 3, service: "orders-db", op: "INSERT orders", start: 3050, end: 3080, status: "ok", attrs: [{ k: "db.statement", v: "INSERT INTO orders …" }, { k: "rows", v: "1" }] },
-    { id: "s6", depth: 2, service: "checkout-api", op: "payment.authorize", start: 3090, end: 3180, status: "ok" },
-    { id: "s7", depth: 3, service: "payment-gateway", op: "POST /authorize", start: 3095, end: 3175, status: "ok" },
-    { id: "s8", depth: 2, service: "checkout-api", op: "kafka.produce order-events", start: 3185, end: 3198, status: "ok" },
-  ],
-}));
+/* traces: see ./traces.ts */
 
 /* ---------------- logs ---------------- */
 mock("GET", "/logs", ({ query }) => {

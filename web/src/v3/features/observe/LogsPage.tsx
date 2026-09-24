@@ -103,7 +103,7 @@ export default function LogsPage() {
                         <Muted>{r.service}</Muted>
                       </td>
                       <td className="mono ellipsis" style={{ fontSize: 11.5, maxWidth: 0 }}>{r.message}</td>
-                      <td>{r.trace && <button type="button" className="v3-iconbtn" style={{ width: 24, height: 24 }} aria-label={tx("查看链路", "View trace")} onClick={() => nav("/traces")}><Icon name="branch" size={14} color="var(--accent-text)" /></button>}</td>
+                      <td>{r.trace && <button type="button" className="v3-iconbtn" style={{ width: 24, height: 24 }} aria-label={tx("查看链路", "View trace")} onClick={() => nav(`/traces/${r.trace}`)}><Icon name="branch" size={14} color="var(--accent-text)" /></button>}</td>
                     </tr>
                   ))}
                 </tbody>

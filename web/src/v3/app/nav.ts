@@ -8,7 +8,7 @@ export const NAV: NavItem[] = [
   { id: "home", label: l("总览", "Overview"), icon: "home", to: "/", children: [] },
   {
     id: "conv",
-    label: l("对话与画布", "Conversations & canvases"),
+    label: l("对话与画布", "Chat & canvases"),
     icon: "message",
     to: "/conversations",
     children: [
@@ -65,6 +65,7 @@ export const NAV: NavItem[] = [
     to: "/integrations",
     children: [
       { id: "connectors", label: l("连接器", "Connectors"), to: "/integrations", match: ["/integrations/new"] },
+      { id: "models", label: l("模型", "Models"), to: "/integrations/models" },
       { id: "mcp", label: l("MCP 服务器", "MCP servers"), to: "/integrations/mcp" },
       { id: "ingest", label: l("通用接入", "Generic ingest"), to: "/integrations/ingest" },
       { id: "mapping", label: l("服务映射", "Service mapping"), to: "/integrations/mapping" },

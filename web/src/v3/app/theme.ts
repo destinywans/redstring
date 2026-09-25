@@ -16,7 +16,7 @@ export function useApplyPreferences() {
         timer = setTimeout(() => delete root.dataset.v3ThemeChanging, 320);
       }
       root.dataset.v3Theme = next;
-      document.querySelector('meta[name="theme-color"]')?.setAttribute("content", next === "dark" ? "#0E0E10" : "#FFFFFF");
+      document.querySelector('meta[name="theme-color"]')?.setAttribute("content", next === "dark" ? "#09090A" : "#FFFFFF");
     };
     apply();
     media.addEventListener("change", apply);

@@ -33,7 +33,18 @@ export const MODELS = [
     reasoning: { kind: "none", levels: [] }, tools: true, vision: false, context_k: 128, cost: P("本地", "local"), available: true },
 ];
 
-mock("GET", "/models", () => ({ items: MODELS, default: { model: "claude:claude-opus-5-5", reasoning: "high" } }));
+/** Personal AI preferences; the composer's default model comes from here. */
+const aiPrefs = {
+  default: { model: "claude:claude-opus-5-5", reasoning: "high" },
+  canvas_inherit: true,
+  show_reasoning: "collapsed",
+  auto_context: true,
+  memory: true,
+  budget_warn_tokens: 50000,
+};
+mock("GET", "/models", () => ({ items: MODELS, default: aiPrefs.default }));
+mock("GET", "/me/ai-preferences", () => aiPrefs);
+mock("PUT", "/me/ai-preferences", ({ body }) => Object.assign(aiPrefs, body));
 
 mock("POST", "/uploads", ({ body }) => {
   const b = (body ?? {}) as { name?: string; size?: number; mime?: string; kind?: string; url?: string };

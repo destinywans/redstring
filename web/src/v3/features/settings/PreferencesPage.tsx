@@ -66,8 +66,8 @@ export default function PreferencesPage() {
     sync({ density: d });
   };
   return (
-    <Page crumbs={[tx("设置", "Settings"), tx("偏好设置", "Preferences")]}>
-      <div className="v3-content" style={{ maxWidth: 980 }}>
+    <Page ai={false} bodyClass="set-narrow" crumbs={[tx("设置", "Settings"), tx("偏好设置", "Preferences")]}>
+      <div className="v3-content">
         <div className="page-h1">
           <Col gap={4}>
             <h1>{tx("偏好设置", "Preferences")}</h1>

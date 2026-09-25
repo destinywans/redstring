@@ -226,6 +226,9 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | GET | `/roles` · `/roles/{id}` | | `{ items: Role[] }` · `RoleDetail` | mock |
 | PUT | `/roles/{id}` | `{ matrix }`（机器身份的"批准"列必须拒绝） | 结果 | mock |
 | GET · PUT | `/security` | `SecurityView` | `SecurityView` | mock |
+| GET · PUT | `/me/notification-settings` | `{ quiet: { enabled, from, to }, digest: off\|daily\|weekly, subscriptions }` | 同左 | mock |
+| GET · PUT | `/me/ai-preferences` | `{ default: ModelChoice, canvas_inherit, show_reasoning, auto_context, memory, budget_warn_tokens }`；`GET /models` 的 `default` 取自这里 | 同左 | mock |
+| GET · PUT | `/workspace` | `{ name, slug, timezone, locale, week_start, retention_days, data_region, brand }`（仅管理员可改，写入审计） | 同左 | mock |
 | GET | `/audit` | `filter: all\|user\|agent\|system`, `q` | `AuditView` | mock |
 | GET | `/audit/{id}` | | `AuditDetail`（含哈希链校验结果） | mock |
 | POST | `/audit/export` | 过滤条件 | `{ url }` | mock |

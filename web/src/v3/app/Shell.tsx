@@ -1,10 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { AiAvatar, Avatar, Badge, Btn, Dot, Icon, IconBtn, Kbd, Tile, cx } from "../ui/core";
-import { MenuButton, Toaster } from "../ui/overlays";
+import { MenuButton, Toaster, toast } from "../ui/overlays";
 import { useI18n } from "../i18n";
-import { NAV, SETTINGS_NAV, locate, type NavItem } from "./nav";
-import { usePreferences } from "./preferences";
+import { NAV, SETTINGS_GROUPS, locate, type NavItem } from "./nav";
 import { CommandPalette, useCommandPalette } from "./CommandPalette";
 import { AskAiDrawer, useAskAi } from "./AskAi";
 import { API_MODE, useGet } from "../api/client";
@@ -95,33 +94,59 @@ function Sidebar() {
         ))}
       </div>
       <span style={{ flexGrow: 1 }} />
-      <div className="nav-list">
-        <Section item={SETTINGS_NAV} active={where.section?.id === "settings"} activeChild={where.section?.id === "settings" ? where.child?.id : undefined} />
-      </div>
+      <AccountCard me={me.data} />
+    </nav>
+  );
+}
+
+/** Last page outside settings, so "Back to app" returns where the user left. */
+let lastAppPath = "/";
+
+/** In settings the app sidebar is replaced by the settings menu (Linear / Notion style). */
+function SettingsSidebar() {
+  const { tx, tl } = useI18n();
+  const { pathname } = useLocation();
+  const me = useGet<Me>("/me");
+  return (
+    <nav className="v3-sidebar settings-sidebar" aria-label={tx("设置导航", "Settings navigation")}>
+      <Link to={lastAppPath} className="settings-back">
+        <Icon name="left" size={15} />
+        {tx("返回应用", "Back to app")}
+      </Link>
+      {SETTINGS_GROUPS.map((g) => (
+        <div key={g.id} className="nav-list">
+          <h2 className="nav-head">{g.id === "workspace" && me.data ? `${tl(g.label)} · ${me.data.team}` : tl(g.label)}</h2>
+          {g.items.map((it) => {
+            const active = pathname === it.to || pathname.startsWith(it.to + "/");
+            return (
+              <Link key={it.id} to={it.to} className={cx("nav-item nav-link settings-item", active && "active")} aria-current={active ? "page" : undefined}>
+                <Icon name={it.icon} size={15} />
+                <span className="grow">{tl(it.label)}</span>
+              </Link>
+            );
+          })}
+        </div>
+      ))}
+      <span style={{ flexGrow: 1 }} />
       <AccountCard me={me.data} />
     </nav>
   );
 }
 
 function AccountCard({ me }: { me?: Me }) {
-  const { tx, locale } = useI18n();
-  const { theme, setTheme, setLocale } = usePreferences();
+  const { tx } = useI18n();
   const nav = useNavigate();
+  const signOut = () => {
+    if (API_MODE === "mock") toast(tx("示意模式：不会真正退出登录", "Sample mode: you are not actually signed out"));
+    else void fetch("/api/v1/auth/logout", { method: "POST", credentials: "same-origin" }).finally(() => location.assign("/"));
+  };
   return (
     <MenuButton
       place="top-start"
       items={[
-        { label: tx("个人资料", "Profile"), icon: "user", onSelect: () => nav("/settings/profile") },
-        { label: tx("偏好设置", "Preferences"), icon: "sliders", onSelect: () => nav("/settings/preferences") },
+        { label: tx("设置", "Settings"), icon: "sliders", onSelect: () => nav("/settings/profile") },
         { sep: true, label: "" },
-        { label: tx("浅色", "Light"), icon: "sun", active: theme === "light", onSelect: () => setTheme("light") },
-        { label: tx("深色", "Dark"), icon: "moon", active: theme === "dark", onSelect: () => setTheme("dark") },
-        { label: tx("跟随系统", "System"), icon: "monitor", active: theme === "system", onSelect: () => setTheme("system") },
-        { sep: true, label: "" },
-        { label: "中文", icon: "globe", active: locale === "zh-CN", onSelect: () => setLocale("zh-CN") },
-        { label: "English", icon: "globe", active: locale === "en-US", onSelect: () => setLocale("en-US") },
-        { sep: true, label: "" },
-        { label: tx("退出登录", "Sign out"), icon: "logout", danger: true },
+        { label: tx("退出登录", "Sign out"), icon: "logout", danger: true, onSelect: signOut },
       ]}
       trigger={({ onClick, ref }) => (
         <button type="button" ref={ref} onClick={onClick} className="account">
@@ -189,6 +214,10 @@ export function Shell() {
   const { pathname } = useLocation();
   const { tx } = useI18n();
   const setAi = useAskAi((s) => s.setOpen);
+  const inSettings = pathname.startsWith("/settings");
+  useEffect(() => {
+    if (!inSettings) lastAppPath = pathname + location.search;
+  }, [pathname, inSettings]);
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
@@ -204,7 +233,7 @@ export function Shell() {
       <a href="#v3-main" className="sr-only">
         {tx("跳到主要内容", "Skip to content")}
       </a>
-      <Sidebar />
+      {inSettings ? <SettingsSidebar /> : <Sidebar />}
       <div id="v3-main" className="v3-main" key={pathname.split("/").slice(0, 2).join("/")}>
         <Outlet />
       </div>

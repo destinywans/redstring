@@ -20,7 +20,7 @@ export default function SecurityPage() {
   return (
     <Page
       ai={false}
-      crumbs={[tx("设置", "Settings"), tx("安全与登录", "Security")]}
+      crumbs={[tx("设置", "Settings"), tx("安全策略", "Security policy")]}
       actions={
         <Btn kind="primary" icon="check" disabled={!dirty} loading={save.isPending} onClick={() => s && save.mutate(s, { onSuccess: () => toast(tx("安全策略已保存并写入审计", "Security policy saved and audited")) })}>
           {tx("保存", "Save")}

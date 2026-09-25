@@ -177,3 +177,29 @@ mock("GET", "/audit/:id", ({ params }) => {
   };
 });
 mock("POST", "/audit/export", () => ({ url: "/exports/audit-2026-09-24.csv" }));
+
+mock("GET", "/me/notification-settings", () => ({
+  quiet: { enabled: true, from: "22:00", to: "08:00" },
+  digest: "daily",
+  subscriptions: [
+    { id: "watched", label: P("关注的服务出现异常", "Watched services degrade"), sub: P("checkout-api 等 4 个服务", "checkout-api and 3 more"), on: true },
+    { id: "ai-triage", label: P("AI 初查完成", "AI triage finished"), sub: P("只包括我负责或关注的服务", "Only services you own or watch"), on: true },
+    { id: "approvals", label: P("需要我审批的提案", "Proposals awaiting my approval"), sub: P("包括画布中的执行步骤", "Including execution steps in canvases"), on: true },
+    { id: "mentions", label: P("对话与画布中 @ 我", "@mentions in conversations and canvases"), sub: P("飞书卡片，可直接跳转", "Feishu card with a deep link"), on: true },
+    { id: "weekly", label: P("每周可靠性周报", "Weekly reliability report"), sub: P("周一 09:00 · 由 AI 生成", "Mondays 09:00 · AI generated"), on: false },
+  ],
+}));
+mock("PUT", "/me/notification-settings", ({ body }) => ({ ok: true, ...(body as object) }));
+
+const workspace = {
+  name: P("交易平台", "Trading platform"),
+  slug: "trade",
+  timezone: "Asia/Shanghai (UTC+08:00)",
+  locale: "zh-CN",
+  week_start: "monday",
+  retention_days: 180,
+  data_region: P("本地部署 · 数据不出内网", "Self-hosted · data stays on-prem"),
+  brand: { name: "AIOps Canvas", logo: null as string | null, pending: true },
+};
+mock("GET", "/workspace", () => workspace);
+mock("PUT", "/workspace", ({ body }) => Object.assign(workspace, body));

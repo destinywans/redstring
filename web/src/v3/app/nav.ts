@@ -90,19 +90,38 @@ export const NAV: NavItem[] = [
   },
 ];
 
+/** Settings live on their own page (Linear / Notion style); the app sidebar is replaced by these groups. */
+export const SETTINGS_GROUPS: { id: string; label: L; items: (NavChild & { icon: IconName })[] }[] = [
+  {
+    id: "account",
+    label: l("个人", "Account"),
+    items: [
+      { id: "profile", label: l("个人资料", "Profile"), to: "/settings/profile", icon: "user" },
+      { id: "preferences", label: l("偏好设置", "Preferences"), to: "/settings/preferences", icon: "sliders" },
+      { id: "notifications", label: l("通知", "Notifications"), to: "/settings/notifications", icon: "bell" },
+      { id: "ai", label: l("模型与 AI", "Models & AI"), to: "/settings/ai", icon: "sparkles" },
+      { id: "account-security", label: l("账号安全", "Account security"), to: "/settings/account-security", icon: "key" },
+    ],
+  },
+  {
+    id: "workspace",
+    label: l("工作区", "Workspace"),
+    items: [
+      { id: "workspace", label: l("通用", "General"), to: "/settings/workspace", icon: "home" },
+      { id: "members", label: l("成员与团队", "Members & teams"), to: "/settings/members", icon: "users" },
+      { id: "roles", label: l("角色与权限", "Roles & permissions"), to: "/settings/roles", icon: "shield" },
+      { id: "security", label: l("安全策略", "Security policy"), to: "/settings/security", icon: "lock" },
+      { id: "audit", label: l("审计日志", "Audit log"), to: "/settings/audit", icon: "file" },
+    ],
+  },
+];
+
 export const SETTINGS_NAV: NavItem = {
   id: "settings",
   label: l("设置", "Settings"),
   icon: "sliders",
   to: "/settings/profile",
-  children: [
-    { id: "profile", label: l("个人资料", "Profile"), to: "/settings/profile" },
-    { id: "preferences", label: l("偏好设置", "Preferences"), to: "/settings/preferences" },
-    { id: "members", label: l("成员与团队", "Members & teams"), to: "/settings/members" },
-    { id: "roles", label: l("角色与权限", "Roles"), to: "/settings/roles" },
-    { id: "security", label: l("安全与登录", "Security"), to: "/settings/security" },
-    { id: "audit", label: l("审计日志", "Audit log"), to: "/settings/audit" },
-  ],
+  children: SETTINGS_GROUPS.flatMap((g) => g.items.map(({ icon: _icon, ...c }) => c)),
 };
 
 const prefixOf = (c: NavChild) => [c.to, ...(c.match ?? [])];

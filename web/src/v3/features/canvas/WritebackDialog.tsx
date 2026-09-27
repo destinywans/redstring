@@ -123,7 +123,7 @@ export function WritebackDialog({ open, investigation, from, onClose, onDone }: 
           <Col gap={10}>
             <Section title={tx("检查", "Checks")}>
               {data.checks.map((c) => (
-                <Row key={c.text} gap={8} align="flex-start" style={{ fontSize: 12.5, lineHeight: 1.45 }}>
+                <Row key={c.text} gap={8} align="flex-start" style={{ fontSize: "var(--fs-sm)", lineHeight: 1.45 }}>
                   <Icon name={c.tone === "ok" ? "check" : "alert"} size={15} color={`var(--${c.tone})`} style={{ marginTop: 1 }} />
                   <span>{c.text}</span>
                 </Row>

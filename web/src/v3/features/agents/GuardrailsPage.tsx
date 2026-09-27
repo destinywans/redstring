@@ -119,9 +119,9 @@ export default function GuardrailsPage() {
                       </Row>
                     ),
                   },
-                  { key: "rule", header: tx("规则", "Rule"), width: "17%", render: (e) => <span style={{ fontSize: 12 }}>{e.rule}</span> },
+                  { key: "rule", header: tx("规则", "Rule"), width: "17%", render: (e) => <span style={{ fontSize: "var(--fs-sub)" }}>{e.rule}</span> },
                   { key: "action", header: tx("处理", "Action"), render: (e) => <State tone={act(e.action)[1]}>{act(e.action)[0]}</State> },
-                  { key: "detail", header: tx("详情", "Detail"), width: "39%", render: (e) => <span className="ellipsis muted" style={{ fontSize: 12 }}>{e.detail}</span> },
+                  { key: "detail", header: tx("详情", "Detail"), width: "39%", render: (e) => <span className="ellipsis muted" style={{ fontSize: "var(--fs-sub)" }}>{e.detail}</span> },
                 ]}
               />
             </Card>
@@ -130,7 +130,7 @@ export default function GuardrailsPage() {
                 <Col gap={10}>
                   <Row gap={8}>
                     <Icon name="shield" size={16} color="var(--danger)" />
-                    <b style={{ fontSize: 13.5 }}>{d.title}</b>
+                    <b style={{ fontSize: "var(--fs-md)" }}>{d.title}</b>
                     <State tone="danger">{tx("已拦截", "Blocked")}</State>
                     <Spacer />
                     <Muted size={11.5}>{d.meta}</Muted>
@@ -142,7 +142,7 @@ export default function GuardrailsPage() {
                   </Code>
                   <Row gap={8} align="flex-start">
                     <Icon name="check" size={14} color="var(--ok)" style={{ marginTop: 2 }} />
-                    <span style={{ fontSize: 12.5 }}>{d.verdict}</span>
+                    <span style={{ fontSize: "var(--fs-sm)" }}>{d.verdict}</span>
                   </Row>
                   <Row gap={6}>
                     <Btn h={26} icon="play" to="/agents/runs/run_7f3a">

@@ -84,8 +84,8 @@ export default function AuditPage() {
                       </Row>
                     ),
                   },
-                  { key: "action", header: tx("操作", "Action"), width: "17%", render: (a) => <span style={{ fontSize: 12.5 }}>{a.action}</span> },
-                  { key: "target", header: tx("对象", "Object"), width: "27%", render: (a) => <span className="ellipsis muted" style={{ fontSize: 12 }}>{a.target}</span> },
+                  { key: "action", header: tx("操作", "Action"), width: "17%", render: (a) => <span style={{ fontSize: "var(--fs-sm)" }}>{a.action}</span> },
+                  { key: "target", header: tx("对象", "Object"), width: "27%", render: (a) => <span className="ellipsis muted" style={{ fontSize: "var(--fs-sub)" }}>{a.target}</span> },
                   { key: "result", header: tx("结果", "Result"), render: (a) => <State tone={res(a.result)[1]}>{res(a.result)[0]}</State> },
                   { key: "source", header: tx("来源", "Source"), render: (a) => <Muted>{a.source}</Muted> },
                 ]}
@@ -140,7 +140,7 @@ export default function AuditPage() {
                   <Section title={tx("防篡改", "Tamper evidence")}>
                     <Row gap={8}>
                       <Icon name={d.chain_ok ? "check" : "alert"} size={14} color={d.chain_ok ? "var(--ok)" : "var(--danger)"} />
-                      <span style={{ fontSize: 12.5 }}>{d.chain_ok ? tx("哈希链校验通过，与上一条记录连续", "Hash chain verified — continuous with the previous entry") : tx("哈希链不连续，请联系安全管理员", "Hash chain broken — contact a security admin")}</span>
+                      <span style={{ fontSize: "var(--fs-sm)" }}>{d.chain_ok ? tx("哈希链校验通过，与上一条记录连续", "Hash chain verified — continuous with the previous entry") : tx("哈希链不连续，请联系安全管理员", "Hash chain broken — contact a security admin")}</span>
                     </Row>
                   </Section>
                 </Col>

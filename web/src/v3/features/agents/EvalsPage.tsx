@@ -42,7 +42,7 @@ export default function EvalsPage() {
                   <Tile icon="play" tone="accent" size={30} />
                   <Col gap={1}>
                     <Row gap={8}>
-                      <b style={{ fontSize: 14 }}>{e.title}</b>
+                      <b style={{ fontSize: "var(--fs-lg)" }}>{e.title}</b>
                       <Badge>{e.dataset}</Badge>
                     </Row>
                     <Muted size={11.5}>{e.meta}</Muted>
@@ -151,7 +151,7 @@ export default function EvalsPage() {
                   <Icon name="layers" size={14} color={`var(--${d.tone === "neutral" ? "muted" : d.tone})`} />
                   <Col gap={2} grow>
                     <Row gap={8}>
-                      <b style={{ fontSize: 12.5 }}>{d.name}</b>
+                      <b style={{ fontSize: "var(--fs-sm)" }}>{d.name}</b>
                       <Spacer />
                       <Num color="var(--muted)">{d.count}</Num>
                     </Row>
@@ -166,7 +166,7 @@ export default function EvalsPage() {
               {e?.evaluators.map((v) => (
                 <Row key={v.name} gap={8}>
                   <Icon name="check" size={13} color="var(--ok)" />
-                  <span style={{ fontSize: 12.5, flexGrow: 1 }}>{v.name}</span>
+                  <span style={{ fontSize: "var(--fs-sm)", flexGrow: 1 }}>{v.name}</span>
                   <Badge>{v.kind}</Badge>
                 </Row>
               ))}

@@ -298,7 +298,7 @@ function Push({ stackOnly }: { stackOnly: boolean }) {
         </Col>
         <State tone={d.stack.enabled ? "ok" : "neutral"}>{d.stack.enabled ? tx("已启用", "Enabled") : tx("未启用", "Not enabled")}</State>
       </Row>
-      <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.6 }}>
+      <p style={{ margin: 0, fontSize: "var(--fs-sm)", lineHeight: 1.6 }}>
         {tx("一键部署开源观测组件。部署完成后自动创建连接器并映射服务，", "Deploy open-source observability components in one step. Connectors and service mappings are created automatically; ")}
         <b>{tx("平台仍把它当作外部系统对接，不存储遥测数据", "the platform still treats them as external systems and stores no telemetry")}</b>。
       </p>
@@ -307,7 +307,7 @@ function Push({ stackOnly }: { stackOnly: boolean }) {
           <Row key={c.name} gap={10}>
             <Brand name={c.brand} size={26} />
             <Col gap={0} grow>
-              <b style={{ fontSize: 12.5, fontWeight: 600 }}>{c.name}</b>
+              <b style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}>{c.name}</b>
               <Muted size={11}>{c.role}</Muted>
             </Col>
           </Row>
@@ -340,12 +340,12 @@ function Push({ stackOnly }: { stackOnly: boolean }) {
           <button key={x.id} type="button" className={cx("etype", sel === x.id && "on")} aria-pressed={sel === x.id} onClick={() => setSel(x.id)}>
             <Tile icon={x.icon as IconName} tone={sel === x.id ? "accent" : "neutral"} size={28} />
             <Col gap={0} grow style={{ minWidth: 0 }}>
-              <b style={{ fontSize: 12.5, fontWeight: 600 }}>{x.name}</b>
+              <b style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}>{x.name}</b>
               <Mono color="var(--muted)" size={11}>{x.schema}</Mono>
             </Col>
             <Col gap={0} style={{ textAlign: "right" }}>
-              <span className="tnum" style={{ fontSize: 12 }}>{x.today}</span>
-              <span style={{ fontSize: 11, color: `var(--${x.tone})` }}>
+              <span className="tnum" style={{ fontSize: "var(--fs-sub)" }}>{x.today}</span>
+              <span style={{ fontSize: "var(--fs-cap)", color: `var(--${x.tone})` }}>
                 {tx("拒绝", "rej.")} {x.rejected}
               </span>
             </Col>
@@ -416,14 +416,14 @@ function Push({ stackOnly }: { stackOnly: boolean }) {
               <tbody>
                 {d.deliveries.map((x, i) => (
                   <tr key={i} style={{ height: 36 }}>
-                    <td className="mono muted" style={{ fontSize: 11.5 }}>{x.time}</td>
+                    <td className="mono muted" style={{ fontSize: "var(--fs-sub)" }}>{x.time}</td>
                     <td>
                       <Row gap={6}>
                         <Brand name={x.source} size={20} />
                         {x.source}
                       </Row>
                     </td>
-                    <td className="mono" style={{ fontSize: 11.5 }}>{x.key}</td>
+                    <td className="mono" style={{ fontSize: "var(--fs-sub)" }}>{x.key}</td>
                     <td>
                       <Row gap={6}>
                         <Badge tone={x.tone} mono>

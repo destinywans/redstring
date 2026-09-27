@@ -39,7 +39,7 @@ export default function TemplatesPage() {
               {data?.items.map((t) => (
                 <button key={t.id} type="button" className={cx("tpl-card lift", sel?.id === t.id && "on")} onClick={() => setSel(t.id)} onDoubleClick={() => start(t)}>
                   <Row gap={8} style={{ width: "100%" }}>
-                    <b style={{ fontSize: 13, flexGrow: 1 }}>{t.name}</b>
+                    <b style={{ fontSize: "var(--fs-body)", flexGrow: 1 }}>{t.name}</b>
                     <Badge tone={t.owner === "official" ? "accent" : "neutral"}>{t.owner === "official" ? tx("官方", "Official") : tx("团队", "Team")}</Badge>
                   </Row>
                   <Muted size={12}>{t.description}</Muted>

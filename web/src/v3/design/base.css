@@ -17,6 +17,28 @@
   --dur: 180ms;
   --dur-slow: 240ms;
   --sidebar-w: 232px;
+  /* Type scale. Comfortable is the default; compact density restores the denser v3 sizes. */
+  --fs-tiny: 11px;
+  --fs-cap: 12px;
+  --fs-sub: 12.5px;
+  --fs-sm: 13.5px;
+  --fs-body: 14px;
+  --fs-md: 14.5px;
+  --fs-lg: 15px;
+  --fs-mono: 13px;
+  --fs-title: 24px;
+}
+
+html[data-v3-density="compact"] {
+  --fs-tiny: 11px;
+  --fs-cap: 11.5px;
+  --fs-sub: 12px;
+  --fs-sm: 12.5px;
+  --fs-body: 13px;
+  --fs-md: 13.5px;
+  --fs-lg: 14px;
+  --fs-mono: 12px;
+  --fs-title: 22px;
 }
 
 *,
@@ -36,7 +58,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
-  font-size: 13px;
+  font-size: var(--fs-body);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;

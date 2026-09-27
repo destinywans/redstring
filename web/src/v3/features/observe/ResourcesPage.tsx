@@ -114,8 +114,8 @@ export default function ResourcesPage() {
                   >
                     {n.brand ? <Brand name={n.brand} size={26} /> : <Tile icon="box" size={26} />}
                     <Col gap={0} grow>
-                      <span className="ellipsis" style={{ fontSize: 12.5, fontWeight: 600 }}>{n.name}</span>
-                      <span className="ellipsis muted" style={{ fontSize: 11 }}>{n.sub}</span>
+                      <span className="ellipsis" style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}>{n.name}</span>
+                      <span className="ellipsis muted" style={{ fontSize: "var(--fs-cap)" }}>{n.sub}</span>
                     </Col>
                     <Dot tone={n.status} size={8} pulse={n.status === "danger"} />
                   </button>
@@ -199,7 +199,7 @@ export default function ResourcesPage() {
                 <Gauge pct={t.detail.conns.used / t.detail.conns.max} size={138} tone="ok" label={`${Math.round((100 * t.detail.conns.used) / t.detail.conns.max)}%`} sub={tx("连接 {a} / {b}", "conns {a} / {b}", { a: t.detail.conns.used, b: t.detail.conns.max })} />
                 <Gauge pct={1} size={138} tone="danger" label="100%" sub={`${t.detail.from_service.service} ${t.detail.from_service.used} / ${t.detail.from_service.max}`} />
               </Row>
-              <Section title={tx("连接等待 P95", "Connection wait P95")} right={<span className="mono" style={{ color: "var(--danger)", fontSize: 12 }}>420 ms</span>}>
+              <Section title={tx("连接等待 P95", "Connection wait P95")} right={<span className="mono" style={{ color: "var(--danger)", fontSize: "var(--fs-sub)" }}>420 ms</span>}>
                 <Lines series={[{ name: "P95", values: t.detail.wait, color: "var(--c3)", fill: "var(--c3s)" }]} height={52} max={520} grid={2} markers={[{ at: 16, label: tx("发布", "release"), tone: "warn" }]} format={(v) => `${Math.round(v)} ms`} />
               </Section>
               <Section title={tx("健康", "Health")}>

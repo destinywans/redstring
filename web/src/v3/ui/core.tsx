@@ -50,21 +50,25 @@ export function Grid({ cols, gap = 12, style, ...rest }: HTMLAttributes<HTMLDivE
 }
 
 /* ---------- text ---------- */
-export const Muted = ({ children, size, style }: { children: ReactNode; size?: number; style?: CSSProperties }) => (
-  <span className="muted" style={{ fontSize: size ?? 12, ...style }}>
+/** Maps legacy pixel sizes onto the type scale so density switches every text size at once. */
+const FS: Record<number, string> = { 10: "tiny", 10.5: "tiny", 11: "cap", 11.5: "sub", 12: "sub", 12.5: "sm", 13: "body", 13.5: "md", 14: "lg" };
+export const fs = (n?: number | string) => (typeof n === "number" && FS[n] ? `var(--fs-${FS[n]})` : n);
+
+export const Muted = ({ children, size, style }: { children: ReactNode; size?: number | string; style?: CSSProperties }) => (
+  <span className="muted" style={{ fontSize: fs(size ?? 12), ...style }}>
     {children}
   </span>
 );
-export const Strong = ({ children, size = 12.5, style }: { children: ReactNode; size?: number; style?: CSSProperties }) => (
-  <b style={{ fontSize: size, fontWeight: 600, ...style }}>{children}</b>
+export const Strong = ({ children, size = 12.5, style }: { children: ReactNode; size?: number | string; style?: CSSProperties }) => (
+  <b style={{ fontSize: fs(size), fontWeight: 600, ...style }}>{children}</b>
 );
-export const Mono = ({ children, color, size = 12, style }: { children: ReactNode; color?: string; size?: number; style?: CSSProperties }) => (
-  <span className="mono" style={{ fontSize: size, color: color ?? "var(--muted)", ...style }}>
+export const Mono = ({ children, color, size = 12, style }: { children: ReactNode; color?: string; size?: number | string; style?: CSSProperties }) => (
+  <span className="mono" style={{ fontSize: fs(size), color: color ?? "var(--muted)", ...style }}>
     {children}
   </span>
 );
-export const Num = ({ children, color, size, style }: { children: ReactNode; color?: string; size?: number; style?: CSSProperties }) => (
-  <span className="tnum" style={{ color: color ?? "var(--text)", fontSize: size, fontWeight: 500, ...style }}>
+export const Num = ({ children, color, size, style }: { children: ReactNode; color?: string; size?: number | string; style?: CSSProperties }) => (
+  <span className="tnum" style={{ color: color ?? "var(--text)", fontSize: fs(size), fontWeight: 500, ...style }}>
     {children}
   </span>
 );

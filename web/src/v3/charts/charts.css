@@ -51,7 +51,7 @@
   position: absolute;
   top: -2px;
   transform: translateX(-50%);
-  font-size: 10.5px;
+  font-size: var(--fs-tiny);
   line-height: 16px;
   padding: 0 5px;
   border-radius: 4px;
@@ -72,7 +72,7 @@
   background: var(--overlay);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-lg);
-  font-size: 11.5px;
+  font-size: var(--fs-sub);
   pointer-events: none;
   animation: v3-fade 100ms ease-out both;
 }
@@ -102,7 +102,7 @@
   display: flex;
   justify-content: space-between;
   margin-top: 4px;
-  font-size: 10.5px;
+  font-size: var(--fs-tiny);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -130,7 +130,7 @@
   align-items: center;
   gap: 8px;
   height: 22px;
-  font-size: 12px;
+  font-size: var(--fs-sub);
 }
 .ch-hbars .track {
   flex-grow: 1;
@@ -158,7 +158,7 @@
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  font-size: 10.5px;
+  font-size: var(--fs-tiny);
   color: var(--muted);
   text-align: right;
   flex: none;
@@ -197,7 +197,7 @@
 }
 .ch-gauge .lbl span,
 .ch-donut .lbl span {
-  font-size: 11px;
+  font-size: var(--fs-cap);
   color: var(--muted);
 }
 .ch-donut {
@@ -219,7 +219,7 @@
 .ch-sankey-label {
   position: absolute;
   transform: translateY(-50%);
-  font-size: 11px;
+  font-size: var(--fs-cap);
   white-space: nowrap;
 }
 .ch-tm {
@@ -230,7 +230,7 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  font-size: 11px;
+  font-size: var(--fs-cap);
   line-height: 1.3;
   transition: filter 120ms;
 }
@@ -247,7 +247,7 @@
 .ch-radar-label {
   position: absolute;
   transform: translate(-50%, -50%);
-  font-size: 11px;
+  font-size: var(--fs-cap);
   color: var(--muted);
   white-space: nowrap;
 }
@@ -261,7 +261,7 @@
   display: flex;
   align-items: center;
   height: 24px;
-  font-size: 12px;
+  font-size: var(--fs-sub);
 }
 .ch-swim .lane {
   position: relative;
@@ -276,7 +276,7 @@
   bottom: 3px;
   border-radius: 4px;
   color: #fff;
-  font-size: 10.5px;
+  font-size: var(--fs-tiny);
   line-height: 18px;
   padding: 0 5px;
   overflow: hidden;
@@ -298,5 +298,5 @@
 .ch-multiples .head {
   display: flex;
   justify-content: space-between;
-  font-size: 11px;
+  font-size: var(--fs-cap);
 }

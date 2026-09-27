@@ -30,24 +30,56 @@ function Edge({ from, to, kind, live }: { from: CanvasNode; to: CanvasNode; kind
   return <path d={d} className={cx("cv-edge", kind === "evidence" && "evidence", live && "flow")} style={{ stroke: color }} />;
 }
 
+/** Below this zoom, nodes render in a compact form so their text stays readable. */
+export const LITE_ZOOM = 0.8;
+/** Markdown summary → one plain line (drops emphasis and [n] citation markers). */
+export const plainText = (md: string) => md.replace(/\*\*|__|`/g, "").replace(/\[\d+\]/g, "").trim();
+
 function NodeCard({
   n,
   selected,
   onSelect,
   onDragStart,
   onAsk,
+  k = 1,
 }: {
   n: CanvasNode;
   selected: boolean;
   onSelect: () => void;
   onDragStart: (e: RPE) => void;
   onAsk: (text: string) => void;
+  /** Current zoom; below LITE_ZOOM the node switches to a compact form whose text does not shrink. */
+  k?: number;
 }) {
   const { tx } = useI18n();
   const [q, setQ] = useState("");
   const icon: IconName = n.kind === "root" ? "alert" : n.kind === "evidence" ? (n.evidence?.type === "log" ? "terminal" : n.evidence?.type === "diff" ? "code" : "activity") : n.status === "ruled_out" ? "branch" : "database";
   const tone = n.kind === "root" ? "danger" : n.status === "ruled_out" ? "ok" : "accent";
   const collapsed = n.kind === "branch" && n.status === "ruled_out";
+  if (k < LITE_ZOOM) {
+    const status =
+      n.status === "running" ? [tx("分析中", "Working"), "accent"] : collapsed ? [tx("已排除", "Ruled out"), "ok"] : n.status === "confirmed" ? [tx("已确认", "Confirmed"), "ok"] : null;
+    const line = n.summary ? plainText(n.summary) : n.subtitle;
+    return (
+      <article
+        className={cx("cv-node lite", n.kind, selected && "selected", n.status === "running" && "running")}
+        style={{ left: n.x, top: n.y, width: n.w, borderTopColor: n.kind === "evidence" ? n.evidence?.color : undefined }}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          onSelect();
+        }}
+      >
+        <div className="cv-lite" style={{ fontSize: `calc(var(--fs-sm) / ${k})` }} onPointerDown={onDragStart}>
+          <div className="cv-lite-head">
+            <span className="cv-lite-dot" style={{ background: n.kind === "evidence" ? n.evidence?.color : `var(--${tone === "accent" ? "accent" : tone})` }} />
+            <b className="ellipsis">{n.title}</b>
+            {status && <span className={cx("cv-lite-tag", status[1])}>{status[0]}</span>}
+          </div>
+          {line && <div className="cv-lite-line">{line}</div>}
+        </div>
+      </article>
+    );
+  }
   return (
     <article
       className={cx("cv-node anim-pop", n.kind, collapsed && "collapsed", selected && "selected", n.status === "running" && "running")}
@@ -66,10 +98,10 @@ function NodeCard({
           <Tile icon={icon} tone={tone} size={26} />
         )}
         <div className="v3-col grow" style={{ gap: 0, lineHeight: 1.35 }}>
-          <span className="ellipsis" style={{ fontWeight: 600, fontSize: n.kind === "evidence" ? 12 : 13 }}>
+          <span className="ellipsis" style={{ fontWeight: 600, fontSize: n.kind === "evidence" ? "var(--fs-sub)" : "var(--fs-body)" }}>
             {n.title}
           </span>
-          <span className="muted ellipsis" style={{ fontSize: 11 }}>
+          <span className="muted ellipsis" style={{ fontSize: "var(--fs-cap)" }}>
             {n.subtitle}
           </span>
         </div>
@@ -84,7 +116,7 @@ function NodeCard({
       {!collapsed && n.kind !== "evidence" && (
         <div className="cv-body">
           {n.tools && (
-            <Row gap={6} style={{ fontSize: 11.5, color: "var(--muted)" }}>
+            <Row gap={6} style={{ fontSize: "var(--fs-sub)", color: "var(--muted)" }}>
               <Icon name="check" size={12} color="var(--ok)" />
               {n.tools}
               <Spacer />
@@ -230,7 +262,7 @@ function Inspector({ n, nodes, onClose, onWriteback }: { n: CanvasNode; nodes: C
                   <span key={l} style={{ width: `${(p * used * 100) / budget}%`, background: c }} title={l} />
                 ))}
               </div>
-              <Row gap={10} wrap style={{ fontSize: 11 }}>
+              <Row gap={10} wrap style={{ fontSize: "var(--fs-cap)" }}>
                 {parts.map(([l, , c]) => (
                   <span key={l} className="v3-row muted" style={{ gap: 4 }}>
                     <i style={{ width: 7, height: 7, borderRadius: 2, background: c }} />
@@ -290,7 +322,7 @@ function Inspector({ n, nodes, onClose, onWriteback }: { n: CanvasNode; nodes: C
               <Row key={r} gap={10} className="cv-ev-row">
                 <Tile icon={(["code", "activity", "terminal"] as IconName[])[i % 3]} size={24} />
                 <Col gap={0} grow>
-                  <span style={{ fontSize: 12.5 }}>{r}</span>
+                  <span style={{ fontSize: "var(--fs-sm)" }}>{r}</span>
                   <Muted size={11}>{["GitLab #8812", "Prometheus", "Elasticsearch"][i % 3]}</Muted>
                 </Col>
                 <IconBtn icon="external" label={tx("打开来源", "Open source")} size={24} />
@@ -507,7 +539,7 @@ export default function CanvasPage() {
                 <Row gap={8}>
                   <Tile icon={t.kind === "chart" ? "activity" : t.kind === "table" ? "grid" : t.kind === "log" ? "terminal" : "code"} size={22} />
                   <Col gap={0} grow>
-                    <span className="ellipsis" style={{ fontSize: 12, fontWeight: 500 }}>
+                    <span className="ellipsis" style={{ fontSize: "var(--fs-sub)", fontWeight: 500 }}>
                       {t.title}
                     </span>
                     <Muted size={10.5}>{t.source}</Muted>
@@ -567,6 +599,7 @@ export default function CanvasPage() {
                 selected={sel === n.id}
                 onSelect={() => setSel(n.id)}
                 onAsk={(t) => ask(n.id, t)}
+                k={view.k}
                 onDragStart={(e) => {
                   if ((e.target as HTMLElement).closest("button,input")) return;
                   e.stopPropagation();

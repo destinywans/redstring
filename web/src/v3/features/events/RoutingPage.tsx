@@ -25,7 +25,7 @@ function Tree({ n, sel, onSel, depth = 0 }: { n: RouteNode; sel: string; onSel: 
     <Col gap={10}>
       <button type="button" className={cx("route-node lift", sel === n.id && "on")} onClick={() => onSel(n)}>
         <Row gap={6}>
-          <b style={{ fontSize: 12.5 }}>{n.title}</b>
+          <b style={{ fontSize: "var(--fs-sm)" }}>{n.title}</b>
           {n.continue && <Badge tone="accent">{tx("继续匹配", "Continue")}</Badge>}
           <Spacer />
           <Muted size={11.5}>{tx("近 24h 命中 {n}", "{n} hits / 24h", { n: n.hits })}</Muted>
@@ -161,12 +161,12 @@ export default function RoutingPage() {
                 <Row gap={6}>
                   <Badge>{tx("5 分钟未认领", "Unclaimed 5 min")}</Badge>
                   <Icon name="right" size={12} color="var(--faint)" />
-                  <span style={{ fontSize: 12 }}>{tx("电话 主值班 王晨", "Call primary Wang Chen")}</span>
+                  <span style={{ fontSize: "var(--fs-sub)" }}>{tx("电话 主值班 王晨", "Call primary Wang Chen")}</span>
                 </Row>
                 <Row gap={6}>
                   <Badge>{tx("15 分钟未认领", "Unclaimed 15 min")}</Badge>
                   <Icon name="right" size={12} color="var(--faint)" />
-                  <span style={{ fontSize: 12 }}>{tx("电话 二线 张磊 · 飞书 @负责人", "Call secondary Zhang Lei · Feishu @owner")}</span>
+                  <span style={{ fontSize: "var(--fs-sub)" }}>{tx("电话 二线 张磊 · 飞书 @负责人", "Call secondary Zhang Lei · Feishu @owner")}</span>
                 </Row>
               </Section>
               <Section title={tx("消息预览", "Message preview")}>

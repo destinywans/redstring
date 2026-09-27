@@ -55,7 +55,7 @@ export default function PostmortemsPage() {
                     <Donut parts={data.causes.map((c) => ({ value: c.pct, color: c.color, label: c.label }))} size={112} thick={16} center="57" sub={tx("起事件", "incidents")} />
                     <Col gap={3} grow>
                       {data.causes.map((c) => (
-                        <Row key={c.label} gap={6} style={{ fontSize: 12 }}>
+                        <Row key={c.label} gap={6} style={{ fontSize: "var(--fs-sub)" }}>
                           <i style={{ width: 8, height: 8, borderRadius: 2, background: c.color }} />
                           <span className="grow">{c.label}</span>
                           <Num>{c.pct}%</Num>
@@ -72,7 +72,7 @@ export default function PostmortemsPage() {
             <Panel title={tx("需要跟进的改进项", "Follow-ups")} right={<TextLink>{tx("全部 25 项", "All 25")}</TextLink>}>
               <ul>
                 {data?.followups.map((f, i) => (
-                  <li key={f.text} className="v3-row" style={{ gap: 8, padding: "7px 0", borderBottom: "1px solid var(--border)", fontSize: 12.5 }}>
+                  <li key={f.text} className="v3-row" style={{ gap: 8, padding: "7px 0", borderBottom: "1px solid var(--border)", fontSize: "var(--fs-sm)" }}>
                     <input type="checkbox" aria-label={f.text} checked={done.has(i)} onChange={() => setDone((s) => { const n = new Set(s); if (n.has(i)) n.delete(i); else n.add(i); return n; })} style={{ accentColor: "var(--accent)", margin: 0 }} />
                     <span className="ellipsis grow" style={{ textDecoration: done.has(i) ? "line-through" : undefined }}>{f.text}</span>
                     <Badge>{f.owner}</Badge>

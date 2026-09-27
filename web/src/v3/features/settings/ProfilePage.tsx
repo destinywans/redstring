@@ -74,7 +74,7 @@ export default function ProfilePage() {
                     {c.kind === "feishu" ? <Brand name="feishu" size={30} /> : <Tile icon={(c.kind === "email" ? "message" : "phone") as IconName} size={30} />}
                     <Col gap={0} grow>
                       <Muted>{c.label}</Muted>
-                      <span style={{ fontSize: 13, fontWeight: 500 }}>{c.value}</span>
+                      <span style={{ fontSize: "var(--fs-body)", fontWeight: 500 }}>{c.value}</span>
                     </Col>
                     {c.note ? <Badge tone="accent">{c.note}</Badge> : c.verified && <State tone="ok">{tx("已确认", "Verified")}</State>}
                     <Btn h={28}>{c.kind === "feishu" ? tx("解绑", "Unlink") : tx("修改", "Change")}</Btn>

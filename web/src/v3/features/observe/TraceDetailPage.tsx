@@ -170,7 +170,7 @@ export default function TraceDetailPage() {
                     <div key={n.id} className={cx("td-gnode", n.danger && "danger")} style={{ left: n.x, top: n.y }}>
                       <i className="tr-sw" style={{ width: 10, height: 10, background: t.colors[n.id] }} />
                       <span className="v3-col" style={{ gap: 0, minWidth: 0 }}>
-                        <b className="ellipsis" style={{ fontSize: 12 }}>{n.id}</b>
+                        <b className="ellipsis" style={{ fontSize: "var(--fs-sub)" }}>{n.id}</b>
                         <Muted size={10.5}>{n.sub}</Muted>
                       </span>
                     </div>

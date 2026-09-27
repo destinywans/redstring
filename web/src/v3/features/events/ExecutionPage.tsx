@@ -49,7 +49,7 @@ export default function ExecutionPage() {
             <ol className="exec-steps">
               {e.steps.map((s, i) => (
                 <li key={s.time} style={{ animationDelay: `${i * 80}ms` }}>
-                  <span className="tnum muted" style={{ width: 58, flex: "none", fontSize: 12, paddingTop: 2 }}>
+                  <span className="tnum muted" style={{ width: 58, flex: "none", fontSize: "var(--fs-sub)", paddingTop: 2 }}>
                     {s.time}
                   </span>
                   <span className="rail">
@@ -57,7 +57,7 @@ export default function ExecutionPage() {
                     {i < e.steps.length - 1 && <span className="line" />}
                   </span>
                   <Col gap={0} style={{ paddingBottom: 12 }}>
-                    <span style={{ fontWeight: 500, fontSize: 12.5 }}>{s.title}</span>
+                    <span style={{ fontWeight: 500, fontSize: "var(--fs-sm)" }}>{s.title}</span>
                     <Muted>{s.desc}</Muted>
                   </Col>
                 </li>
@@ -81,7 +81,7 @@ export default function ExecutionPage() {
               />
               <ul className="v3-col" style={{ gap: 6 }}>
                 {e.observation.checks.map((c) => (
-                  <li key={c.text} className="v3-row" style={{ gap: 8, fontSize: 12.5 }}>
+                  <li key={c.text} className="v3-row" style={{ gap: 8, fontSize: "var(--fs-sm)" }}>
                     <Icon name="check" size={14} color="var(--ok)" />
                     <span className="grow">{c.text}</span>
                     <Mono color="var(--text)">{c.value}</Mono>
@@ -173,7 +173,7 @@ export default function ExecutionPage() {
             <h3>{tx("后续改进", "Action items")}</h3>
             <ul className="v3-col" style={{ gap: 2 }}>
               {r.actions.map((a, i) => (
-                <li key={a.text} className="v3-row" style={{ gap: 8, fontSize: 12.5, padding: "3px 0" }}>
+                <li key={a.text} className="v3-row" style={{ gap: 8, fontSize: "var(--fs-sm)", padding: "3px 0" }}>
                   <input
                     type="checkbox"
                     aria-label={a.text}

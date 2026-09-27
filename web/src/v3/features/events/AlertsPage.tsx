@@ -86,7 +86,7 @@ export default function AlertsPage() {
               <Muted>{tx("显示被抑制的告警", "Show inhibited")}</Muted>
               <Toggle on={showInhibited} onChange={setShowInhibited} label={tx("显示被抑制的告警", "Show inhibited")} />
             </Row>
-            <Row gap={6} className="muted" style={{ fontSize: 11.5 }}>
+            <Row gap={6} className="muted" style={{ fontSize: "var(--fs-sub)" }}>
               <Icon name="sparkles" size={13} color="var(--accent-text)" />
               {tx("鼠标停在服务名或人名上查看摘要；行尾是快捷操作；勾选后底部出现批量操作栏。", "Hover a service or person for a summary; row ends have quick actions; select rows for bulk actions.")}
               <Spacer />
@@ -123,7 +123,7 @@ export default function AlertsPage() {
                         </Badge>
                       ))}
                       <Spacer />
-                      <span className="since muted" style={{ fontSize: 11.5 }}>{g.since}</span>
+                      <span className="since muted" style={{ fontSize: "var(--fs-sub)" }}>{g.since}</span>
                       <Row gap={4}>
                         {g.notify.channel && <Brand name={g.notify.channel} size={20} />}
                         <Muted size={11.5}>{g.notify.text}</Muted>
@@ -149,7 +149,7 @@ export default function AlertsPage() {
                           rowHeight={40}
                           headBg
                           columns={[
-                            { key: "id", header: tx("实例", "Instance"), width: "32%", render: (r) => <span className="mono" style={{ fontSize: 12 }}>{r.id}</span> },
+                            { key: "id", header: tx("实例", "Instance"), width: "32%", render: (r) => <span className="mono" style={{ fontSize: "var(--fs-sub)" }}>{r.id}</span> },
                             { key: "v", header: tx("当前值", "Value"), render: (r) => <b className="tnum" style={{ color: r.state === "firing" ? "var(--danger)" : "var(--warn)", fontWeight: 500 }}>{r.value}</b> },
                             {
                               key: "s",
@@ -227,7 +227,7 @@ export default function AlertsPage() {
                     <Row gap={6}>
                       <Strong>{t.label}</Strong>
                       <Spacer />
-                      <span className="mono" style={{ fontSize: 12 }}>
+                      <span className="mono" style={{ fontSize: "var(--fs-sub)" }}>
                         {t.value}
                       </span>
                     </Row>
@@ -240,7 +240,7 @@ export default function AlertsPage() {
                   <Row key={n.time} gap={8}>
                     <Muted size={11.5}>{n.time}</Muted>
                     {n.channel === "feishu" ? <Brand name="feishu" size={18} /> : <Icon name={n.channel === "sms" ? "message" : "rotate"} size={14} color="var(--muted)" />}
-                    <span className="grow" style={{ fontSize: 12 }}>
+                    <span className="grow" style={{ fontSize: "var(--fs-sub)" }}>
                       {n.text}
                     </span>
                     <Icon name={n.done ? "check" : "clock"} size={13} color={n.done ? "var(--ok)" : "var(--muted)"} />
@@ -249,7 +249,7 @@ export default function AlertsPage() {
               </Section>
               <Section title={tx("抑制与延迟", "Inhibition & delay")}>
                 {policy.data.inhibition.map((t) => (
-                  <p key={t} style={{ fontSize: 12 }}>
+                  <p key={t} style={{ fontSize: "var(--fs-sub)" }}>
                     {t}
                   </p>
                 ))}

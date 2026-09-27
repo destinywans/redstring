@@ -31,7 +31,7 @@ function ReportView({ a }: { a: Extract<Artifact["content"], { kind: "report" }>
           {a.editing_note}
         </div>
       )}
-      {editing ? <Textarea value={text} onChange={(e) => setText(e.target.value)} style={{ minHeight: 420, fontFamily: "var(--mono)", fontSize: 12.5 }} /> : <Markdown text={text} />}
+      {editing ? <Textarea value={text} onChange={(e) => setText(e.target.value)} style={{ minHeight: 420, fontFamily: "var(--mono)", fontSize: "var(--fs-sm)" }} /> : <Markdown text={text} />}
       {a.annotations.map((n) => (
         <div key={n.text} className="art-note">
           <Avatar name={n.author} size={20} accent />

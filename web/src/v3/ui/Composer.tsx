@@ -43,7 +43,7 @@ function Preview({ m }: { m: MentionCandidate }) {
         <MentionIcon m={m} />
         <div className="v3-col grow" style={{ gap: 1, minWidth: 0 }}>
           <div className="v3-row" style={{ gap: 6 }}>
-            <b style={{ fontSize: 14 }}>{p?.title ?? m.label}</b>
+            <b style={{ fontSize: "var(--fs-lg)" }}>{p?.title ?? m.label}</b>
             {p?.tier && <Tier tier={p.tier} />}
             {p?.status_label && <Badge tone={p.status}>{p.status_label}</Badge>}
           </div>
@@ -67,7 +67,7 @@ function Preview({ m }: { m: MentionCandidate }) {
       {p?.change && (
         <div className="v3-col" style={{ gap: 4 }}>
           <Muted size={11.5}>{tx("最近变更", "Recent change")}</Muted>
-          <div className="v3-row" style={{ gap: 8, fontSize: 12.5 }}>
+          <div className="v3-row" style={{ gap: 8, fontSize: "var(--fs-sm)" }}>
             <Brand name={p.change.brand} size={20} />
             <span className="grow ellipsis">{p.change.text}</span>
             <Muted size={11.5}>{p.change.meta}</Muted>
@@ -94,11 +94,11 @@ function CommandPreview({ c }: { c: CommandItem }) {
   return (
     <div className="cm-preview anim-fade" key={c.id}>
       <div className="v3-row" style={{ gap: 8 }}>
-        <b className="mono" style={{ fontSize: 14 }}>{c.name}</b>
+        <b className="mono" style={{ fontSize: "var(--fs-lg)" }}>{c.name}</b>
         {c.creates === "canvas" && <Badge tone="info">{tx("创建画布", "Creates a canvas")}</Badge>}
         {c.badge && <Badge tone="accent">{c.badge}</Badge>}
       </div>
-      <p style={{ fontSize: 12.5, lineHeight: 1.6 }}>{c.desc}</p>
+      <p style={{ fontSize: "var(--fs-sm)", lineHeight: 1.6 }}>{c.desc}</p>
       {c.params && (
         <table className="cm-params">
           <tbody>
@@ -361,7 +361,7 @@ export function Composer({
                     {head && MENTION_TABS[tab].key === "all" && <div className="menu-group">{head}</div>}
                     <div role="option" aria-selected={i === sel} className={cx("opt", i === sel && "on")} onMouseDown={() => choose(i)} onMouseMove={() => setSel(i)}>
                       <MentionIcon m={m} />
-                      <span className="grow ellipsis" style={{ fontSize: 12.5, fontWeight: i === sel ? 600 : 400 }}>{m.label}</span>
+                      <span className="grow ellipsis" style={{ fontSize: "var(--fs-sm)", fontWeight: i === sel ? 600 : 400 }}>{m.label}</span>
                       {m.tier && <Tier tier={m.tier} />}
                       {m.meta && <Muted size={11.5}>{m.meta}</Muted>}
                     </div>
@@ -379,8 +379,8 @@ export function Composer({
                     <div role="option" aria-selected={i === sel} className={cx("opt", i === sel && "on")} onMouseDown={() => choose(i)} onMouseMove={() => setSel(i)}>
                       <Tile icon={c.icon as IconName} tone={i === sel ? "accent" : c.group === "skill" || c.group === "runbook" ? "t1" : "neutral"} size={24} />
                       <span className="v3-col grow" style={{ gap: 0, minWidth: 0 }}>
-                        <span className={cx(c.group === "command" && "mono")} style={{ fontSize: 12.5, fontWeight: i === sel ? 600 : 400 }}>{c.name}</span>
-                        <span className="muted ellipsis" style={{ fontSize: 11 }}>{c.desc}</span>
+                        <span className={cx(c.group === "command" && "mono")} style={{ fontSize: "var(--fs-sm)", fontWeight: i === sel ? 600 : 400 }}>{c.name}</span>
+                        <span className="muted ellipsis" style={{ fontSize: "var(--fs-cap)" }}>{c.desc}</span>
                       </span>
                       {c.badge && <Badge tone="accent">{c.badge}</Badge>}
                     </div>
@@ -421,8 +421,8 @@ export function Composer({
             <span key={f.key} className={cx("att-file", f.error && "error")}>
               <span className={cx("att-ext", f.kind)}>{extOf(f.name, f.kind)}</span>
               <span className="v3-col" style={{ gap: 0, minWidth: 0 }}>
-                <span className="ellipsis" style={{ fontSize: 12, fontWeight: 500 }}>{f.name}</span>
-                <span className="muted" style={{ fontSize: 11 }}>
+                <span className="ellipsis" style={{ fontSize: "var(--fs-sub)", fontWeight: 500 }}>{f.name}</span>
+                <span className="muted" style={{ fontSize: "var(--fs-cap)" }}>
                   {f.error ?? (f.upload ? (f.kind === "link" ? tx("链接 · 发送时解析", "Link · resolved on send") : formatSize(f.size)) : tx("上传中 {p}%", "Uploading {p}%", { p: f.progress }))}
                 </span>
               </span>
@@ -530,8 +530,8 @@ function PlusItem({ icon, tone = "neutral", title, sub, k, disabled, onClick }: 
     <button type="button" className="cm-plusitem" disabled={disabled} onClick={onClick}>
       <Tile icon={icon} tone={tone} size={28} />
       <span className="v3-col grow" style={{ gap: 0, minWidth: 0 }}>
-        <span style={{ fontSize: 12.5, fontWeight: 500 }}>{title}</span>
-        <span className="muted" style={{ fontSize: 11.5 }}>{sub}</span>
+        <span style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{title}</span>
+        <span className="muted" style={{ fontSize: "var(--fs-sub)" }}>{sub}</span>
       </span>
       {k && <Kbd>{k}</Kbd>}
     </button>

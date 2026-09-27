@@ -69,20 +69,20 @@ export default function MemoryPage() {
               <div className="mem-conflict anim-rise">
                 <Row gap={8}>
                   <Icon name="alert" size={15} color="var(--warn)" />
-                  <b style={{ fontSize: 12.5, color: "var(--warn)" }}>{tx("两条记忆互相矛盾，需要裁决", "Two memories conflict — please decide")}</b>
+                  <b style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>{tx("两条记忆互相矛盾，需要裁决", "Two memories conflict — please decide")}</b>
                 </Row>
                 <div className="grid-2">
                   <Card style={{ padding: "10px 12px" }}>
                     <Col gap={4}>
                       <Badge>{tx("A · 较旧", "A · older")}</Badge>
-                      <span style={{ fontSize: 12.5 }}>{data.conflict.a.text}</span>
+                      <span style={{ fontSize: "var(--fs-sm)" }}>{data.conflict.a.text}</span>
                       <Muted size={11.5}>{data.conflict.a.source}</Muted>
                     </Col>
                   </Card>
                   <Card style={{ padding: "10px 12px" }}>
                     <Col gap={4}>
                       <Badge tone="accent">{tx("B · 较新", "B · newer")}</Badge>
-                      <span style={{ fontSize: 12.5 }}>{data.conflict.b.text}</span>
+                      <span style={{ fontSize: "var(--fs-sm)" }}>{data.conflict.b.text}</span>
                       <Muted size={11.5}>{data.conflict.b.source}</Muted>
                     </Col>
                   </Card>

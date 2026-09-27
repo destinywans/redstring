@@ -48,7 +48,7 @@ export default function MappingPage() {
       <Row gap={5} className={cx("map-ok", accepted.has(key) && "anim-pop")}>
         {c.brand && <Brand name={c.brand} size={16} />}
         <Icon name="check" size={13} color="var(--ok)" />
-        <span className="ellipsis mono" style={{ fontSize: 11.5 }}>{c.value}</span>
+        <span className="ellipsis mono" style={{ fontSize: "var(--fs-sub)" }}>{c.value}</span>
       </Row>
     );
   };
@@ -120,7 +120,7 @@ export default function MappingPage() {
                     <td>
                       <Row gap={8}>
                         <Tile icon="box" size={22} />
-                        <b style={{ fontSize: 12.5 }}>{r.service}</b>
+                        <b style={{ fontSize: "var(--fs-sm)" }}>{r.service}</b>
                       </Row>
                     </td>
                     {data.systems.map((s) => (

@@ -93,7 +93,7 @@ export default function LogsPage() {
                 <tbody>
                   {rows.map((r, i) => (
                     <tr key={r.time + i} className={cx(i < extra.length && live && "anim-rise")} style={{ height: 34 }}>
-                      <td className="mono muted" style={{ fontSize: 11.5 }}>{r.time}</td>
+                      <td className="mono muted" style={{ fontSize: "var(--fs-sub)" }}>{r.time}</td>
                       <td>
                         <Badge tone={LV[r.level]} mono>
                           {r.level}
@@ -102,7 +102,7 @@ export default function LogsPage() {
                       <td>
                         <Muted>{r.service}</Muted>
                       </td>
-                      <td className="mono ellipsis" style={{ fontSize: 11.5, maxWidth: 0 }}>{r.message}</td>
+                      <td className="mono ellipsis" style={{ fontSize: "var(--fs-sub)", maxWidth: 0 }}>{r.message}</td>
                       <td>{r.trace && <button type="button" className="v3-iconbtn" style={{ width: 24, height: 24 }} aria-label={tx("查看链路", "View trace")} onClick={() => nav(`/traces/${r.trace}`)}><Icon name="branch" size={14} color="var(--accent-text)" /></button>}</td>
                     </tr>
                   ))}
@@ -131,7 +131,7 @@ export default function LogsPage() {
                   <Spacer />
                   <Sparkline values={p.trend} width={70} height={18} color={p.level === "ERROR" ? "var(--danger)" : "var(--muted)"} />
                 </Row>
-                <span className="mono" style={{ fontSize: 11.5, lineHeight: 1.5 }}>{p.template}</span>
+                <span className="mono" style={{ fontSize: "var(--fs-sub)", lineHeight: 1.5 }}>{p.template}</span>
               </li>
             ))}
           </ul>

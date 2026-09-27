@@ -109,8 +109,8 @@ export default function WebhooksPage() {
                     <tbody key={sel}>
                       {(hook?.status === "error" ? [] : data.deliveries).map((d) => (
                         <tr key={d.time} className="anim-fade" style={{ height: 32 }}>
-                          <td className="mono muted" style={{ fontSize: 11.5 }}>{d.time}</td>
-                          <td className="mono" style={{ fontSize: 11.5 }}>{d.event}</td>
+                          <td className="mono muted" style={{ fontSize: "var(--fs-sub)" }}>{d.time}</td>
+                          <td className="mono" style={{ fontSize: "var(--fs-sub)" }}>{d.event}</td>
                           <td>
                             <Badge tone="ok" mono>
                               {d.code}
@@ -191,7 +191,7 @@ export default function WebhooksPage() {
                   <li key={t.name}>
                     <Row gap={6}>
                       <Icon name="link" size={14} />
-                      <b style={{ fontSize: 12.5 }}>{t.name}</b>
+                      <b style={{ fontSize: "var(--fs-sm)" }}>{t.name}</b>
                       <Spacer />
                       <Muted size={11.5}>{t.expires}</Muted>
                     </Row>

@@ -67,7 +67,7 @@ export default function NewPostmortemPage() {
                   <Spacer />
                   <Badge tone="ok">{tx("已解决", "Resolved")}</Badge>
                 </Row>
-                <span style={{ fontSize: 12.5, fontWeight: 500 }}>{c.title}</span>
+                <span style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{c.title}</span>
                 <Muted size={11.5}>{tx("{r} · 持续 {d} · {n} 条证据", "{r} · {d} · {n} evidence", { r: c.resolved, d: c.duration, n: c.evidence })}</Muted>
               </button>
             ))}
@@ -83,7 +83,7 @@ export default function NewPostmortemPage() {
                   <Strong size={13}>{data.incident.id}</Strong>
                   <Badge tone="ok">{tx("已解决", "Resolved")}</Badge>
                 </Row>
-                <span style={{ fontSize: 12.5, fontWeight: 500 }}>{data.incident.title}</span>
+                <span style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{data.incident.title}</span>
                 <Muted size={11.5}>{tx("{w} · 持续 {d}", "{w} · {d}", { w: data.incident.window, d: data.incident.duration })}</Muted>
               </div>
             )}
@@ -141,7 +141,7 @@ export default function NewPostmortemPage() {
                   <b>{tx("时间线", "Timeline")}</b>
                   <ol className="v3-col" style={{ listStyle: "none", gap: 6 }}>
                     {data.timeline.map((t) => (
-                      <li key={t.at + t.text} className="v3-row" style={{ gap: 10, fontSize: 12.5 }}>
+                      <li key={t.at + t.text} className="v3-row" style={{ gap: 10, fontSize: "var(--fs-sm)" }}>
                         <Mono size={11.5} color="var(--muted)">{t.at}</Mono>
                         <Dot tone={t.tone} size={8} />
                         {t.text}
@@ -186,15 +186,15 @@ export default function NewPostmortemPage() {
                 <Strong size={13}>{tx("复盘检查", "Postmortem checks")}</Strong>
               </Row>
               <Col gap={8}>
-                <Row gap={6}><Icon name="check" size={14} color="var(--ok)" /><span style={{ fontSize: 12.5 }}>{tx("没有归咎个人（无责表述）", "Blameless wording")}</span></Row>
-                <Row gap={6}><Icon name="check" size={14} color="var(--ok)" /><span style={{ fontSize: 12.5 }}>{tx("根因引用了证据（2 条）", "Root cause cites evidence (2)")}</span></Row>
-                <Row gap={6}><Icon name="check" size={14} color="var(--ok)" /><span style={{ fontSize: 12.5 }}>{tx("每个改进项都有负责人和期限", "Every action has an owner and due date")}</span></Row>
-                <Row gap={6} align="flex-start"><Icon name="alert" size={14} color="var(--warn)" /><span style={{ fontSize: 12.5 }}>{tx("缺少客户影响：需要客服工单数据", "Customer impact missing: needs support ticket data")}</span></Row>
+                <Row gap={6}><Icon name="check" size={14} color="var(--ok)" /><span style={{ fontSize: "var(--fs-sm)" }}>{tx("没有归咎个人（无责表述）", "Blameless wording")}</span></Row>
+                <Row gap={6}><Icon name="check" size={14} color="var(--ok)" /><span style={{ fontSize: "var(--fs-sm)" }}>{tx("根因引用了证据（2 条）", "Root cause cites evidence (2)")}</span></Row>
+                <Row gap={6}><Icon name="check" size={14} color="var(--ok)" /><span style={{ fontSize: "var(--fs-sm)" }}>{tx("每个改进项都有负责人和期限", "Every action has an owner and due date")}</span></Row>
+                <Row gap={6} align="flex-start"><Icon name="alert" size={14} color="var(--warn)" /><span style={{ fontSize: "var(--fs-sm)" }}>{tx("缺少客户影响：需要客服工单数据", "Customer impact missing: needs support ticket data")}</span></Row>
               </Col>
               <Col gap={8}>
                 <Muted size={11.5}>{tx("发布到", "Publish to")}</Muted>
-                <Row gap={8}><Brand name="confluence" size={22} /><span style={{ fontSize: 12.5 }}>{tx("Confluence · SRE 手册 / 复盘", "Confluence · SRE handbook / Postmortems")}</span></Row>
-                <Row gap={8}><Brand name="feishu" size={22} /><span style={{ fontSize: 12.5 }}>{tx("飞书 · 交易平台群摘要", "Feishu · trading group summary")}</span></Row>
+                <Row gap={8}><Brand name="confluence" size={22} /><span style={{ fontSize: "var(--fs-sm)" }}>{tx("Confluence · SRE 手册 / 复盘", "Confluence · SRE handbook / Postmortems")}</span></Row>
+                <Row gap={8}><Brand name="feishu" size={22} /><span style={{ fontSize: "var(--fs-sm)" }}>{tx("飞书 · 交易平台群摘要", "Feishu · trading group summary")}</span></Row>
                 <Muted size={11}>{tx("发布需要审阅通过后手动确认", "Publishing needs review and a manual confirmation")}</Muted>
               </Col>
               <Col gap={6}>

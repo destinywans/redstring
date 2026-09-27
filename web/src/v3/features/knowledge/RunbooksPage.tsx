@@ -96,9 +96,9 @@ export default function RunbooksPage() {
               <li key={s.id} className="anim-rise">
                 <Row gap={8}>
                   <Icon name={s.icon as IconName} size={15} color={`var(--${s.tone === "neutral" ? "muted" : s.tone === "accent" ? "accent-text" : s.tone})`} />
-                  <b style={{ fontSize: 12.5 }}>{s.title}</b>
+                  <b style={{ fontSize: "var(--fs-sm)" }}>{s.title}</b>
                 </Row>
-                <p className="muted" style={{ fontSize: 12, lineHeight: 1.5 }}>
+                <p className="muted" style={{ fontSize: "var(--fs-sub)", lineHeight: 1.5 }}>
                   {s.body}
                 </p>
                 <Row gap={6}>

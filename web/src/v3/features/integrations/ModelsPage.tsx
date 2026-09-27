@@ -98,7 +98,7 @@ export default function ModelsPage() {
                     <Row key={a.api} gap={8} align="flex-start">
                       <span className="f-num">{i + 1}</span>
                       <span className="v3-col" style={{ gap: 0 }}>
-                        <span style={{ fontSize: 12.5, fontWeight: 500 }}>{a.api}</span>
+                        <span style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{a.api}</span>
                         <Muted size={11.5}>{a.note}</Muted>
                       </span>
                     </Row>
@@ -108,7 +108,7 @@ export default function ModelsPage() {
                   <Muted size={11.5}>{tx("强度映射", "Effort mapping")}</Muted>
                   {detail ? (
                     detail.mapping.map((x) => (
-                      <Row key={x.level} gap={8} style={{ fontSize: 12 }}>
+                      <Row key={x.level} gap={8} style={{ fontSize: "var(--fs-sub)" }}>
                         <Badge tone={x.is_default ? "accent" : "neutral"}>{x.level}</Badge>
                         <Mono size={11.5}>{x.param}</Mono>
                         {x.is_default && <Muted size={11}>{tx("默认", "default")}</Muted>}
@@ -118,7 +118,7 @@ export default function ModelsPage() {
                     <Muted size={12}>{tx("该模型不支持推理强度，选择器中不显示强度。", "No effort control; the picker hides it for this model.")}</Muted>
                   ) : (
                     m.reasoning.levels.map((l) => (
-                      <Row key={l.id} gap={8} style={{ fontSize: 12 }}>
+                      <Row key={l.id} gap={8} style={{ fontSize: "var(--fs-sub)" }}>
                         <Badge tone={l.id === m.reasoning.default ? "accent" : "neutral"}>{l.label}</Badge>
                         <Mono size={11.5}>{m.api === "messages" ? `thinking.effort = "${l.id}"` : m.reasoning.kind === "toggle" ? `think = ${l.id === "on"}` : `reasoning_effort = "${l.id}"`}</Mono>
                       </Row>
@@ -136,7 +136,7 @@ export default function ModelsPage() {
                 <KV k={tx("可用角色", "Roles")} kw={64}>{detail?.roles ?? m.scope}</KV>
                 <KV k="Agent" kw={64}>{detail?.agents ?? m.used_by}</KV>
                 {detail && <KV k={tx("限额", "Limits")} kw={64}>{detail.limits}</KV>}
-                <Row gap={6} align="flex-start" style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                <Row gap={6} align="flex-start" style={{ fontSize: "var(--fs-sub)", color: "var(--muted)" }}>
                   <Icon name="lock" size={13} />
                   <span>{tx("密钥保存在 Vault，前端与模型都拿不到；切换默认模型写入审计。", "Keys live in Vault and never reach the browser or the model; changing the default is audited.")}</span>
                 </Row>

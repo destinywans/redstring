@@ -121,7 +121,7 @@ export default function CanvasesPage() {
                 <Thumb g={cv.thumb} />
               </div>
               <div className="cv-card-body">
-                <b className="ellipsis" style={{ fontSize: 13 }}>
+                <b className="ellipsis" style={{ fontSize: "var(--fs-body)" }}>
                   {cv.title}
                 </b>
                 <Row gap={6}>
@@ -256,7 +256,7 @@ export function NewCanvasDialog({ open, onClose, initialKind = "plan" }: { open:
           </Field>
           <Row gap={8}>
             <Toggle on={draft} onChange={setDraft} label={tx("由 AI 起草初始节点", "Let the AI draft the first nodes")} />
-            <span style={{ fontSize: 12.5 }}>{tx("由 AI 起草初始节点", "Let the AI draft the first nodes")}</span>
+            <span style={{ fontSize: "var(--fs-sm)" }}>{tx("由 AI 起草初始节点", "Let the AI draft the first nodes")}</span>
             <Muted size={11.5}>{tx("基于服务映射、历史指标和已有 Runbook", "From service mapping, past metrics and runbooks")}</Muted>
           </Row>
         </div>

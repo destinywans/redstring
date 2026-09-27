@@ -75,7 +75,7 @@ export default function EvalCasePage() {
                   <Row key={e.title} gap={10}>
                     <Brand name={e.brand} size={22} />
                     <Col gap={0} style={{ minWidth: 0 }}>
-                      <span style={{ fontSize: 12.5, fontWeight: 500 }}>
+                      <span style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>
                         <sup className="v3-sup">{i + 1}</sup> {e.title}
                       </span>
                       <Muted size={11.5}>{e.sub}</Muted>
@@ -122,7 +122,7 @@ export default function EvalCasePage() {
                   ))}
                 </ol>
               )}
-              <div style={{ fontSize: 13, lineHeight: 1.65 }}>
+              <div style={{ fontSize: "var(--fs-body)", lineHeight: 1.65 }}>
                 <Markdown text={c.output.markdown} />
               </div>
               <Divider />

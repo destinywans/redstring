@@ -133,7 +133,7 @@ export default function ChangesPage() {
                   <td>
                     <Row gap={8}>
                       <Brand name={p.brand} size={18} />
-                      <span className="mono" style={{ fontSize: 12 }}>{p.ref}</span>
+                      <span className="mono" style={{ fontSize: "var(--fs-sub)" }}>{p.ref}</span>
                     </Row>
                   </td>
                   <td className="ellipsis" style={{ maxWidth: 0 }}>{p.title}</td>

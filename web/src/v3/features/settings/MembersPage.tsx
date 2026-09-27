@@ -142,12 +142,12 @@ export default function MembersPage() {
                         {m.agent ? <AiAvatar size={26} /> : <Avatar name={m.name} size={26} accent={m.id === "u1"} />}
                         <Col gap={0} style={{ minWidth: 0 }}>
                           <span className="ellipsis" style={{ fontWeight: 500 }}>{m.name}</span>
-                          <span className="ellipsis muted" style={{ fontSize: 11.5 }}>{m.email}</span>
+                          <span className="ellipsis muted" style={{ fontSize: "var(--fs-sub)" }}>{m.email}</span>
                         </Col>
                       </Row>
                     ),
                   },
-                  { key: "dept", header: tx("部门", "Department"), render: (m) => <Muted>{m.department}</Muted> },
+                  { key: "dept", header: tx("部门", "Department"), render: (m) => <Muted style={{ whiteSpace: "nowrap" }}>{m.department}</Muted> },
                   {
                     key: "roles",
                     header: tx("角色", "Roles"),
@@ -164,9 +164,9 @@ export default function MembersPage() {
                   },
                   { key: "phone", header: tx("手机", "Phone"), render: (m) => <Mono color="var(--muted)" size={11.5}>{m.phone}</Mono> },
                   { key: "mfa", header: tx("两步验证", "2FA"), render: (m) => mfa(m.mfa) },
-                  { key: "source", header: tx("来源", "Source"), render: (m) => src(m.source) },
+                  { key: "source", header: tx("来源", "Source"), render: (m) => <span style={{ whiteSpace: "nowrap" }}>{src(m.source)}</span> },
                   { key: "status", header: tx("状态", "Status"), render: (m) => <State tone={m.status === "active" ? "ok" : "neutral"}>{m.status === "active" ? tx("活跃", "Active") : tx("已停用", "Disabled")}</State> },
-                  { key: "last", header: tx("最近登录", "Last sign-in"), render: (m) => <Muted>{m.last_login}</Muted> },
+                  { key: "last", header: tx("最近登录", "Last sign-in"), render: (m) => <Muted style={{ whiteSpace: "nowrap" }}>{m.last_login}</Muted> },
                 ]}
               />
             </Card>

@@ -14,7 +14,7 @@ export function LoopBar({ steps }: { steps: LoopStep[] }) {
             <span className={cx("mk", s.state)}>{s.state === "done" ? <Icon name="check" size={12} /> : s.state === "error" ? "!" : i + 1}</span>
             <span className="v3-col" style={{ gap: 0, lineHeight: 1.25 }}>
               <b>{s.label}</b>
-              <span className="muted" style={{ fontSize: 11.5 }}>
+              <span className="muted" style={{ fontSize: "var(--fs-sub)" }}>
                 {s.detail}
               </span>
             </span>

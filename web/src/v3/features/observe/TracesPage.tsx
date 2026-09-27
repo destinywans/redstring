@@ -173,10 +173,10 @@ export default function TracesPage() {
               <tbody>
                 {data?.items.map((r) => (
                   <tr key={r.id} className="clickable" onClick={() => nav(r.href)}>
-                    <td className="mono muted" style={{ fontSize: 11.5 }}>{r.time}</td>
+                    <td className="mono muted" style={{ fontSize: "var(--fs-sub)" }}>{r.time}</td>
                     <td>
                       <span className="v3-col" style={{ gap: 0 }}>
-                        <span className={cx(scope === "app" && "mono")} style={{ fontSize: 12.5, fontWeight: 500 }}>{r.op}</span>
+                        <span className={cx(scope === "app" && "mono")} style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{r.op}</span>
                         {r.agent && <Muted size={11}>{r.agent}</Muted>}
                       </span>
                     </td>

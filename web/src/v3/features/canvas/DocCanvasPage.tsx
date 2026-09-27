@@ -10,6 +10,7 @@ import { describeChoice, useModelCatalog } from "../../ui/ModelPicker";
 import { VBars } from "../../charts";
 import { useI18n } from "../../i18n";
 import { CanvasState, KindTag } from "./CanvasesPage";
+import { LITE_ZOOM } from "./CanvasPage";
 import "./canvas.css";
 import "./canvases.css";
 
@@ -45,7 +46,7 @@ function Block({ b }: { b: CanvasBlock }) {
       return (
         <div className="v3-col" style={{ gap: 7 }}>
           {b.items.map((r, i) => (
-            <Row key={i} gap={6} style={{ fontSize: 12 }}>
+            <Row key={i} gap={6} style={{ fontSize: "var(--fs-sub)" }}>
               {r.dot && <Dot tone={r.dot} size={7} />}
               {r.badge && <Badge tone={r.badge_tone ?? "neutral"}>{r.badge}</Badge>}
               <span className="grow" style={{ minWidth: 0 }}>
@@ -64,7 +65,7 @@ function Block({ b }: { b: CanvasBlock }) {
             <Row key={i} gap={8} align="flex-start">
               <span className={cx("dc-step", s.state)}>{s.state === "done" ? <Icon name="check" size={11} /> : s.state === "gate" ? <Icon name="shield" size={11} /> : i + 1}</span>
               <span className="v3-col" style={{ gap: 0, minWidth: 0 }}>
-                <span style={{ fontSize: 12, fontWeight: 500 }}>{s.text}</span>
+                <span style={{ fontSize: "var(--fs-sub)", fontWeight: 500 }}>{s.text}</span>
                 <Muted size={10.5}>{s.sub}</Muted>
               </span>
             </Row>
@@ -81,6 +82,17 @@ function Block({ b }: { b: CanvasBlock }) {
   }
 }
 
+/** One line that stands for the node when zoomed out. */
+function liteLine(n: CanvasDocNode) {
+  for (const b of n.blocks) {
+    if (b.type === "text" || b.type === "callout") return b.text;
+    if (b.type === "kv") return b.items.map(([k, v]) => `${k} ${v}`).join(" · ");
+    if (b.type === "steps") return b.items.map((x) => x.text).join(" → ");
+    if (b.type === "rows") return b.items.map((x) => x.text).join(" · ");
+  }
+  return n.sub;
+}
+
 function Turn({ t }: { t: CanvasTurn }) {
   return (
     <Row gap={8} align="flex-start">
@@ -92,7 +104,7 @@ function Turn({ t }: { t: CanvasTurn }) {
             <Muted size={11}>{t.reasoning_label ? `${t.model} · ${t.reasoning_label}` : t.model}</Muted>
           </Row>
         )}
-        <p style={{ fontSize: 12.5, lineHeight: 1.6 }}>{t.text}</p>
+        <p style={{ fontSize: "var(--fs-sm)", lineHeight: 1.6 }}>{t.text}</p>
       </div>
     </Row>
   );
@@ -129,7 +141,7 @@ export default function DocCanvasPage() {
     const h: Record<string, number> = {};
     layer.current?.querySelectorAll<HTMLElement>("[data-node]").forEach((el) => (h[el.dataset.node!] = el.offsetHeight));
     setHeights((old) => (JSON.stringify(old) === JSON.stringify(h) ? old : h));
-  }, [nodes]);
+  }, [nodes, view.k < LITE_ZOOM]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const byId = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n])), [nodes]);
   const selected = sel ? byId[sel] : undefined;
@@ -269,7 +281,7 @@ export default function DocCanvasPage() {
               <article
                 key={n.id}
                 data-node={n.id}
-                className={cx("cv-node dc-node anim-pop", sel === n.id && "selected")}
+                className={cx("cv-node dc-node anim-pop", view.k < LITE_ZOOM && "lite", sel === n.id && "selected")}
                 style={{ left: n.x, top: n.y, width: n.w }}
                 onPointerDown={(e) => {
                   e.stopPropagation();
@@ -279,23 +291,36 @@ export default function DocCanvasPage() {
                   area.current?.setPointerCapture(e.pointerId);
                 }}
               >
-                <div className="cv-head">
-                  <Tile icon={n.icon as IconName} tone={n.tone as Tone} size={26} />
-                  <div className="v3-col grow" style={{ gap: 0, lineHeight: 1.35, minWidth: 0 }}>
-                    <span className="ellipsis" style={{ fontWeight: 600, fontSize: 13 }}>
-                      {n.title}
-                    </span>
-                    <span className="muted ellipsis" style={{ fontSize: 11 }}>
-                      {n.sub}
-                    </span>
+                {view.k < LITE_ZOOM ? (
+                  <div className="cv-lite" style={{ fontSize: `calc(var(--fs-sm) / ${view.k})` }}>
+                    <div className="cv-lite-head">
+                      <span className="cv-lite-dot" style={{ background: `var(--${n.tone === "neutral" ? "faint" : n.tone})` }} />
+                      <b className="ellipsis">{n.title}</b>
+                      {sel === n.id && <span className="cv-lite-tag accent">{tx("已选中", "Selected")}</span>}
+                    </div>
+                    <div className="cv-lite-line">{liteLine(n)}</div>
                   </div>
-                  {sel === n.id && <Badge tone="accent">{tx("已选中", "Selected")}</Badge>}
-                </div>
-                <div className="v3-col dc-body" style={{ gap: 8 }}>
-                  {n.blocks.map((b, i) => (
-                    <Block key={i} b={b} />
-                  ))}
-                </div>
+                ) : (
+                  <>
+                <div className="cv-head">
+                    <Tile icon={n.icon as IconName} tone={n.tone as Tone} size={26} />
+                    <div className="v3-col grow" style={{ gap: 0, lineHeight: 1.35, minWidth: 0 }}>
+                      <span className="ellipsis" style={{ fontWeight: 600, fontSize: "var(--fs-body)" }}>
+                        {n.title}
+                      </span>
+                      <span className="muted ellipsis" style={{ fontSize: "var(--fs-cap)" }}>
+                        {n.sub}
+                      </span>
+                    </div>
+                    {sel === n.id && <Badge tone="accent">{tx("已选中", "Selected")}</Badge>}
+                  </div>
+                  <div className="v3-col dc-body" style={{ gap: 8 }}>
+                    {n.blocks.map((b, i) => (
+                      <Block key={i} b={b} />
+                    ))}
+                  </div>
+                    </>
+                )}
               </article>
             ))}
             {doc?.artifacts.map((a) => (
@@ -313,7 +338,7 @@ export default function DocCanvasPage() {
               >
                 {a.brand ? <Brand name={a.brand} size={26} /> : a.ext ? <span className={cx("att-ext", a.tone === "ok" ? "" : "link")} style={{ width: 26, height: 26 }}>{a.ext}</span> : <Tile icon={(a.icon ?? "file") as IconName} tone={a.tone ?? "neutral"} size={26} />}
                 <span className="v3-col" style={{ gap: 0, minWidth: 0 }}>
-                  <span className="ellipsis" style={{ fontSize: 12, fontWeight: 500 }}>
+                  <span className="ellipsis" style={{ fontSize: "var(--fs-sub)", fontWeight: 500 }}>
                     {a.title}
                   </span>
                   <Muted size={10.5}>{a.sub}</Muted>
@@ -384,7 +409,7 @@ export default function DocCanvasPage() {
                 </>
               )}
               {tab === "context" && (
-                <div className="v3-col" style={{ gap: 8, fontSize: 12.5 }}>
+                <div className="v3-col" style={{ gap: 8, fontSize: "var(--fs-sm)" }}>
                   <Muted size={11.5}>{tx("本节点可见的上下文", "Context visible to this node")}</Muted>
                   <Row gap={6}><Icon name="layers" size={13} />{tx("主线：目标与范围 v4", "Main: Goal & scope v4")}</Row>
                   <Row gap={6}><Icon name="book" size={13} />{tx("Runbook「连接池容量调整」", "Runbook “Pool sizing”")}</Row>
@@ -394,7 +419,7 @@ export default function DocCanvasPage() {
               )}
               {tab === "artifacts" &&
                 doc?.artifacts.map((a) => (
-                  <Row key={a.id} gap={8} style={{ fontSize: 12.5 }}>
+                  <Row key={a.id} gap={8} style={{ fontSize: "var(--fs-sm)" }}>
                     <Icon name="file" size={13} color="var(--muted)" />
                     <span className="grow">{a.title}</span>
                     <Muted size={11}>{a.sub}</Muted>

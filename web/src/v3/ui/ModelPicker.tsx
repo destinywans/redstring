@@ -26,7 +26,7 @@ export function sameChoice(a?: ModelChoice | null, b?: ModelChoice | null) {
 function Caps({ m }: { m: ModelInfo }) {
   const { tx } = useI18n();
   const tag = (t: string) => (
-    <Badge key={t} style={{ height: 18, fontSize: 10.5 }}>
+    <Badge key={t} style={{ height: 18, fontSize: "var(--fs-tiny)" }}>
       {t}
     </Badge>
   );

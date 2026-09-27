@@ -72,7 +72,7 @@ export function AlertDetailView({ id }: { id: string }) {
           <Icon name="sparkles" size={16} color="var(--accent-text)" style={{ marginTop: 2 }} />
           <Col gap={6} grow>
             <Row gap={8} wrap>
-              <b style={{ fontSize: 12.5, color: "var(--accent-text)" }}>{tx("AI 初查", "AI triage")}</b>
+              <b style={{ fontSize: "var(--fs-sm)", color: "var(--accent-text)" }}>{tx("AI 初查", "AI triage")}</b>
               <Badge tone="accent">{tx("置信度 高", "Confidence high")}</Badge>
               <Muted size={11.5}>{tx("{a} · 用时 {d} 秒 · {t} 次工具调用", "{a} · {d}s · {t} tool calls", { a: a.triage.agent, d: a.triage.duration_s, t: a.triage.tools })}</Muted>
             </Row>
@@ -235,10 +235,10 @@ export default function InboxPage() {
                         <button type="button" className={cx("inbox-item", it.id === selId && it.kind === "alert" && "on")} onClick={() => select(it)}>
                           <Tile icon={KIND_ICON[it.kind]} tone={it.tone as Tone} size={26} />
                           <Col gap={1} grow>
-                            <span className="ellipsis" style={{ fontSize: 12.5, fontWeight: unread ? 600 : 400 }}>
+                            <span className="ellipsis" style={{ fontSize: "var(--fs-sm)", fontWeight: unread ? 600 : 400 }}>
                               {it.title}
                             </span>
-                            <span className="ellipsis muted" style={{ fontSize: 11.5 }}>
+                            <span className="ellipsis muted" style={{ fontSize: "var(--fs-sub)" }}>
                               {it.sub}
                             </span>
                           </Col>
@@ -254,7 +254,7 @@ export default function InboxPage() {
               </div>
             );
           })}
-          <Row gap={6} style={{ padding: "10px 16px", fontSize: 11.5 }} className="muted">
+          <Row gap={6} style={{ padding: "10px 16px", fontSize: "var(--fs-sub)" }} className="muted">
             <Kbd>J</Kbd>
             <Kbd>K</Kbd>
             {tx("上下切换告警", "move between alerts")}

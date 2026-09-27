@@ -55,7 +55,7 @@
   border-radius: 6px;
   background: transparent;
   color: var(--text);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   text-align: left;
   transition: background var(--dur-fast);
 }
@@ -73,7 +73,7 @@
   gap: 8px;
   padding: 9px 12px;
   border-radius: 9px;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 .warn-bar {
   background: var(--warn-soft);

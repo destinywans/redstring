@@ -1,4 +1,4 @@
-import { Fragment, useRef } from "react";
+import { Fragment, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { useGet } from "../../api/client";
@@ -6,7 +6,7 @@ import type { HomeSummary } from "../../api/types";
 import { AiAvatar, Avatar, Badge, Btn, Card, CardHead, Chip, Dot, Env, Icon, Muted, Row, Sev, Skeleton, Sup, Tier, Tile, TextLink, Legend, Bar, type IconName, type Tone } from "../../ui/core";
 import { newConversationUrl } from "../../api/stream";
 import { Composer } from "../../ui/Composer";
-import { MenuButton } from "../../ui/overlays";
+import { MenuButton, Popover } from "../../ui/overlays";
 import { Sparkline, StackedBars, Axis } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./home.css";
@@ -32,7 +32,7 @@ function Briefing({ data, onOpen }: { data?: HomeSummary; onOpen: (href: string)
   const { tx } = useI18n();
   const b = data?.briefing;
   return (
-    <Card className="home-brief anim-rise">
+    <Card className="home-brief" style={{ border: "none" }}>
       <div className="brief-head">
         <AiAvatar size={22} />
         <b>{tx("AI 今日简报", "AI briefing")}</b>
@@ -50,18 +50,6 @@ function Briefing({ data, onOpen }: { data?: HomeSummary; onOpen: (href: string)
           ))}
         </Row>
       )}
-      <div className="brief-kpis">
-        {data?.kpis.map((k) => (
-          <div key={k.id} className="brief-kpi">
-            <Muted size={11}>{k.label}</Muted>
-            <b className="tnum" style={{ color: k.tone && k.tone !== "neutral" && k.tone !== "accent" ? `var(--${k.tone})` : undefined }}>
-              {k.value}
-              {k.unit && <small>{k.unit}</small>}
-            </b>
-            {k.delta && <span className="muted tnum" style={{ fontSize: 11, color: k.delta_good === false ? "var(--danger)" : undefined }}>{k.delta}</span>}
-          </div>
-        ))}
-      </div>
       {b && (
         <div className="brief-oncall">
           <Avatar name={b.oncall.name} size={22} />
@@ -72,6 +60,39 @@ function Briefing({ data, onOpen }: { data?: HomeSummary; onOpen: (href: string)
         </div>
       )}
     </Card>
+  );
+}
+
+/** One line of status chips above the composer; the full AI briefing opens in a popover. */
+function StatusRow({ data, onOpen }: { data?: HomeSummary; onOpen: (href: string) => void }) {
+  const { tx } = useI18n();
+  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
+  const [open, setOpen] = useState(false);
+  if (!data) return <Skeleton w={520} h={26} />;
+  return (
+    <div className="home-status">
+      {data.kpis.map((k) => (
+        <span key={k.id} className="home-stat">
+          <span className="muted">{k.label}</span>
+          <b className="tnum" style={{ color: k.tone && k.tone !== "neutral" && k.tone !== "accent" ? `var(--${k.tone})` : undefined }}>
+            {k.value}
+            {k.unit && <small className="muted"> {k.unit}</small>}
+          </b>
+        </span>
+      ))}
+      <span className="home-stat">
+        <Dot tone="ok" size={6} />
+        <span className="muted">{tx("值班 {n} · 至 {u}", "On call {n} · until {u}", { n: data.briefing.oncall.name, u: data.briefing.oncall.until })}</span>
+      </span>
+      <button ref={setAnchor} type="button" className="home-stat brief-btn" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <Icon name="sparkles" size={13} />
+        {tx("AI 今日简报", "AI briefing")}
+        <Icon name="down" size={12} />
+      </button>
+      <Popover anchor={anchor} open={open} onClose={() => setOpen(false)} place="bottom-end" style={{ width: 420, padding: 0 }}>
+        <Briefing data={data} onOpen={(h) => { setOpen(false); onOpen(h); }} />
+      </Popover>
+    </div>
   );
 }
 
@@ -88,13 +109,13 @@ export default function HomePage() {
   const nav = useNavigate();
   const { data } = useGet<HomeSummary>("/home");
   const ask = (text: string) => nav(`/conversations/new?q=${encodeURIComponent(text)}`);
-  const band = useRef<HTMLElement>(null);
+  const band = useRef<HTMLDivElement>(null);
   const labels = [tx("P1", "P1"), "P2", "P3", "P4"];
   return (
     <Page
       title={
         <Row gap={10}>
-          <h1 style={{ fontSize: 14, fontWeight: 600 }}>{tx("总览", "Overview")}</h1>
+          <h1 style={{ fontSize: "var(--fs-lg)", fontWeight: 600 }}>{tx("总览", "Overview")}</h1>
           <MenuButton
             place="bottom-start"
             items={[{ label: tx("全部环境", "All environments"), active: true }, { label: tx("生产", "Production") }, { label: tx("预发", "Staging") }]}
@@ -113,14 +134,15 @@ export default function HomePage() {
       }
     >
       <div className="v3-content home">
-        <section className="home-band" ref={band}>
-          <div className="home-hero anim-rise">
-            <div>
-              <h2>
-                {greetingWord(tx)}，{data?.greeting.name ?? "…"}
-              </h2>
-              <p className="muted">{data?.greeting.summary ?? <Skeleton w={420} h={12} style={{ marginTop: 6 }} />}</p>
-            </div>
+        <section className="home-center anim-rise">
+          <div className="home-greet">
+            <h2>
+              {greetingWord(tx)}，{data?.greeting.name ?? "…"}
+            </h2>
+            <p className="muted">{data ? tx("{a} 个服务异常，{t} 项等待你处理", "{a} services degraded, {t} items waiting for you", { a: data.attention.filter((x) => x.severity === "P1" || x.severity === "P2").length, t: data.todos.length }) : <Skeleton w={260} h={12} />}</p>
+          </div>
+          <StatusRow data={data} onOpen={(h) => nav(h)} />
+          <div className="home-composer" ref={band}>
             <Composer
               big
               minRows={3}
@@ -142,19 +164,18 @@ export default function HomePage() {
                 />
               }
             />
-            <Row gap={8} wrap>
-              {data?.suggestions.map((s) => (
-                <Chip key={s.id} onClick={() => ask(s.text)} icon={s.tone ? undefined : (s.icon as IconName)}>
-                  {s.tone && <Dot tone={s.tone as Tone} size={6} />}
-                  {s.text}
-                </Chip>
-              ))}
-            </Row>
           </div>
-          <Briefing data={data} onOpen={(h) => nav(h)} />
+          <Row gap={8} wrap style={{ justifyContent: "center" }}>
+            {data?.suggestions.map((s) => (
+              <Chip key={s.id} onClick={() => ask(s.text)} icon={s.tone ? undefined : (s.icon as IconName)}>
+                {s.tone && <Dot tone={s.tone as Tone} size={6} />}
+                {s.text}
+              </Chip>
+            ))}
+          </Row>
         </section>
 
-        <div className="home-grid">
+        <div className="home-top">
           <Card className="home-card anim-rise">
             <CardHead title={tx("需要关注", "Needs attention")} count={data?.attention.length} right={<TextLink to="/inbox">{tx("事件收件箱", "Inbox")}</TextLink>} />
             <ul>
@@ -212,6 +233,9 @@ export default function HomePage() {
             </ul>
           </Card>
 
+        </div>
+
+        <div className="home-grid">
           <Card className="home-card anim-rise">
             <CardHead title={tx("关注的服务", "Watched services")} count={data?.services.length} right={<TextLink to="/services">{tx("服务目录", "Services")}</TextLink>} />
             <table className="v3-table">
@@ -274,11 +298,11 @@ export default function HomePage() {
             <ul style={{ padding: "6px 16px 8px" }}>
               {data?.activity.map((a) => (
                 <li key={a.id} className="feed" onClick={() => a.href && nav(a.href)}>
-                  <span className="tnum muted" style={{ width: 40, flex: "none", fontSize: 12 }}>
+                  <span className="tnum muted" style={{ width: 40, flex: "none", fontSize: "var(--fs-sub)" }}>
                     {fmt.time(a.time)}
                   </span>
                   <Tile icon={ACT_ICON[a.kind]} tone={a.tone as Tone} size={22} />
-                  <span style={{ fontSize: 12.5 }}>{a.text}</span>
+                  <span style={{ fontSize: "var(--fs-sm)" }}>{a.text}</span>
                 </li>
               ))}
             </ul>

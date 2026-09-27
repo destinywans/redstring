@@ -75,7 +75,7 @@ export function NewRunbookDialog({ open, onClose, initial = "postmortem" }: { op
             <Row gap={10}>
               <Tile icon={o.icon} tone={src === o.key ? "accent" : "neutral"} size={28} />
               <span className="v3-col grow" style={{ gap: 0, textAlign: "left" }}>
-                <b style={{ fontSize: 13 }}>{o.title}</b>
+                <b style={{ fontSize: "var(--fs-body)" }}>{o.title}</b>
                 <Muted size={11.5}>{o.sub}</Muted>
               </span>
               {src === o.key && <Icon name="check" size={16} color="var(--accent)" />}
@@ -157,7 +157,7 @@ export default function NewRunbookPage() {
                       <div className="v3-col grow" style={{ gap: 6, minWidth: 0 }}>
                         <Row gap={8}>
                           <Badge tone={KIND_TONE[s.kind]}>{kindLabel[s.kind]}</Badge>
-                          <b style={{ fontSize: 13 }}>{s.title}</b>
+                          <b style={{ fontSize: "var(--fs-body)" }}>{s.title}</b>
                           <Spacer />
                           {s.approval && (
                             <Badge tone="warn">
@@ -166,7 +166,7 @@ export default function NewRunbookPage() {
                             </Badge>
                           )}
                         </Row>
-                        <p style={{ fontSize: 12.5, lineHeight: 1.6 }}>{s.body}</p>
+                        <p style={{ fontSize: "var(--fs-sm)", lineHeight: 1.6 }}>{s.body}</p>
                         {s.tool && (
                           <Row gap={6}>
                             <Icon name="cpu" size={13} color="var(--muted)" />
@@ -192,7 +192,7 @@ export default function NewRunbookPage() {
               <AiAvatar size={24} />
               <Strong size={13}>{blank ? tx("写作提示", "Writing tips") : tx("起草说明", "Draft notes")}</Strong>
             </Row>
-            <p style={{ fontSize: 12.5, lineHeight: 1.6 }}>
+            <p style={{ fontSize: "var(--fs-sm)", lineHeight: 1.6 }}>
               {blank
                 ? tx("先写清楚触发条件，再按「检查 → 判断 → 操作 → 验证」组织步骤。写操作会生成提案，需要人工批准。", "State the trigger first, then order steps as check → decide → act → verify. Write actions become proposals that need approval.")
                 : tx("根据复盘的时间线和证据，把实际有效的取证与处置整理成步骤；写操作已标为需要审批。", "Built from the postmortem timeline and evidence; write actions are marked as needing approval.")}
@@ -201,7 +201,7 @@ export default function NewRunbookPage() {
               <Col gap={8}>
                 <Muted size={11.5}>{tx("来源", "Sources")}</Muted>
                 {draft?.sources.map((s) => (
-                  <Row key={s} gap={8} style={{ fontSize: 12 }}>
+                  <Row key={s} gap={8} style={{ fontSize: "var(--fs-sub)" }}>
                     <Tile icon="file" size={22} />
                     {s}
                   </Row>

@@ -57,7 +57,7 @@ function Sidebar() {
     <nav className="v3-sidebar" aria-label={tx("主导航", "Main navigation")}>
       <div className="brand-row">
         <span className="logo">A</span>
-        <span className="grow" style={{ fontWeight: 600, fontSize: 13.5 }}>
+        <span className="grow" style={{ fontWeight: 600, fontSize: "var(--fs-md)" }}>
           AIOps Canvas
         </span>
         <IconBtn icon="down" label={tx("切换工作区", "Switch workspace")} size={24} />
@@ -86,7 +86,7 @@ function Sidebar() {
             <Dot tone={s.status} size={7} pulse={s.status === "danger"} />
             <span className="ellipsis grow">{s.name}</span>
             {s.signal && (
-              <span className="tnum" style={{ fontSize: 11.5, color: `var(--${s.status === "ok" ? "muted" : s.status})` }}>
+              <span className="tnum" style={{ fontSize: "var(--fs-sub)", color: `var(--${s.status === "ok" ? "muted" : s.status})` }}>
                 {s.signal}
               </span>
             )}
@@ -152,8 +152,8 @@ function AccountCard({ me }: { me?: Me }) {
         <button type="button" ref={ref} onClick={onClick} className="account">
           <Avatar name={me?.name ?? "?"} size={26} accent />
           <span className="v3-col grow" style={{ gap: 0, lineHeight: 1.3, textAlign: "left" }}>
-            <span style={{ fontSize: 12.5, fontWeight: 500 }}>{me?.name ?? "…"}</span>
-            <span className="muted ellipsis" style={{ fontSize: 11.5 }}>
+            <span style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{me?.name ?? "…"}</span>
+            <span className="muted ellipsis" style={{ fontSize: "var(--fs-sub)" }}>
               {me ? `${me.title} · ${me.team}` : ""}
             </span>
           </span>

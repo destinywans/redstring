@@ -41,11 +41,11 @@ export default function LifecyclePage() {
                           <div className={`lc-stage ${s.tone === "accent" ? "on" : ""}`}>
                             <Row gap={6}>
                               <Mono color="var(--muted)" size={11}>{`0${i + 1}`}</Mono>
-                              <b style={{ fontSize: 13 }}>{s.name}</b>
+                              <b style={{ fontSize: "var(--fs-body)" }}>{s.name}</b>
                               <Spacer />
                               <Dot tone={s.tone} size={7} pulse={s.tone === "accent"} />
                             </Row>
-                            <span className="tnum" style={{ fontSize: 13, fontWeight: 600 }}>{s.value}</span>
+                            <span className="tnum" style={{ fontSize: "var(--fs-body)", fontWeight: 600 }}>{s.value}</span>
                             <Muted size={11.5}>{s.sub}</Muted>
                           </div>
                           {i < data.stages.length - 1 && <Icon name="right" size={14} color="var(--faint)" />}
@@ -80,7 +80,7 @@ export default function LifecyclePage() {
                         <Tile icon={a.icon as IconName} tone={a.status === "canary" ? "accent" : "neutral"} size={26} />
                         <Col gap={0} style={{ minWidth: 0 }}>
                           <span className="ellipsis" style={{ fontWeight: 600 }}>{a.name}</span>
-                          <span className="ellipsis muted" style={{ fontSize: 11.5 }}>{a.desc}</span>
+                          <span className="ellipsis muted" style={{ fontSize: "var(--fs-sub)" }}>{a.desc}</span>
                         </Col>
                       </Row>
                     ),
@@ -110,7 +110,7 @@ export default function LifecyclePage() {
               <li key={t.title}>
                 <Row gap={8}>
                   <Icon name={t.icon as IconName} size={15} color={`var(--${t.tone})`} />
-                  <b style={{ fontSize: 12.5 }}>{t.title}</b>
+                  <b style={{ fontSize: "var(--fs-sm)" }}>{t.title}</b>
                 </Row>
                 <p>{t.body}</p>
                 <Btn h={26} to={t.href} style={{ alignSelf: "flex-start" }}>

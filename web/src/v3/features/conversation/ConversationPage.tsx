@@ -43,14 +43,14 @@ function MessageView({ m, conv, actions, onOpenArtifact }: { m: Message; conv: C
     <div className={cx("msg anim-rise", user && "user")}>
       {user ? <Avatar name={m.author} size={28} /> : <AiAvatar size={28} />}
       <div className="v3-col grow" style={{ gap: 10 }}>
-        <Row gap={8} style={{ fontSize: 12 }}>
+        <Row gap={8} style={{ fontSize: "var(--fs-sub)" }}>
           <b style={{ fontWeight: 600 }}>{user ? m.author : "AI"}</b>
           <Muted>
             {fmt.time(m.created_at)}
             {m.run && ` · ${m.run.agent} ${m.run.version}`}
           </Muted>
           {m.run && (
-            <span className="v3-row muted" style={{ gap: 4, fontSize: 12 }} title={tx("本轮使用的模型与推理强度", "Model and reasoning effort used for this turn")}>
+            <span className="v3-row muted" style={{ gap: 4, fontSize: "var(--fs-sub)" }} title={tx("本轮使用的模型与推理强度", "Model and reasoning effort used for this turn")}>
               {m.run.brand && <Brand name={m.run.brand} size={14} />}
               {m.run.model}
               {m.run.reasoning_label && ` · ${m.run.reasoning_label}`}
@@ -74,7 +74,7 @@ function MessageView({ m, conv, actions, onOpenArtifact }: { m: Message; conv: C
                   <button key={id} type="button" className="art-chip lift" onClick={() => onOpenArtifact(id)}>
                     <Tile icon={ARTIFACT_ICON[a.kind]} tone="accent" size={26} />
                     <span className="v3-col grow" style={{ gap: 0, textAlign: "left" }}>
-                      <span style={{ fontSize: 12.5, fontWeight: 500 }}>{a.title}</span>
+                      <span style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{a.title}</span>
                       <Muted size={11}>{a.meta}</Muted>
                     </span>
                     <Icon name="panel" size={14} color="var(--muted)" />
@@ -99,8 +99,8 @@ function UploadChips({ files }: { files: Upload[] }) {
         <span key={f.id} className="att-file">
           <span className={cx("att-ext", f.kind)}>{f.kind === "link" ? "URL" : f.kind === "paste" ? "TXT" : (f.name.split(".").pop() ?? "").slice(0, 4).toUpperCase()}</span>
           <span className="v3-col" style={{ gap: 0, minWidth: 0 }}>
-            <span className="ellipsis" style={{ fontSize: 12, fontWeight: 500 }}>{f.name}</span>
-            <span className="muted" style={{ fontSize: 11 }}>{f.kind === "link" ? tx("链接", "Link") : formatSize(f.size)}</span>
+            <span className="ellipsis" style={{ fontSize: "var(--fs-sub)", fontWeight: 500 }}>{f.name}</span>
+            <span className="muted" style={{ fontSize: "var(--fs-cap)" }}>{f.kind === "link" ? tx("链接", "Link") : formatSize(f.size)}</span>
           </span>
         </span>
       ))}
@@ -142,7 +142,7 @@ function SidePanel({ conv }: { conv: Conversation }) {
       <Col gap={6}>
         <Muted size={11.5}>{tx("本轮用到的连接器", "Connectors used")}</Muted>
         {s.connectors.map((c) => (
-          <Row key={c.name} gap={8} style={{ fontSize: 12.5 }}>
+          <Row key={c.name} gap={8} style={{ fontSize: "var(--fs-sm)" }}>
             <Dot tone="ok" size={7} />
             <span className="grow">{c.name}</span>
             <Muted>{tx("{n} 次", "{n}×", { n: c.calls })}</Muted>
@@ -156,7 +156,7 @@ function SidePanel({ conv }: { conv: Conversation }) {
             <span key={p.label} title={`${p.label} · ${(p.tokens / 1000).toFixed(1)}k`} style={{ width: `${(100 * p.tokens) / s.context.budget}%`, background: p.color }} />
           ))}
         </div>
-        <Row gap={10} wrap style={{ fontSize: 11 }}>
+        <Row gap={10} wrap style={{ fontSize: "var(--fs-cap)" }}>
           {s.context.parts.map((p) => (
             <span key={p.label} className="v3-row muted" style={{ gap: 4 }}>
               <i style={{ width: 7, height: 7, borderRadius: 2, background: p.color }} />
@@ -171,7 +171,7 @@ function SidePanel({ conv }: { conv: Conversation }) {
       <Col gap={6}>
         <Muted size={11.5}>{tx("记忆召回", "Recalled memory")}</Muted>
         {s.recalled.map((r) => (
-          <Row key={r.title} gap={8} style={{ fontSize: 12.5 }}>
+          <Row key={r.title} gap={8} style={{ fontSize: "var(--fs-sm)" }}>
             <Icon name={r.kind === "runbook" ? "book" : "file"} size={14} color="var(--muted)" />
             <span className="grow">{r.title}</span>
             <Mono>{r.score.toFixed(2)}</Mono>

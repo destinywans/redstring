@@ -57,7 +57,7 @@ export default function ReviewPage() {
         <Col gap={16} style={{ flex: "1 1 0", minWidth: 0, maxWidth: 760 }} className="stagger">
           <Col gap={6}>
             <h1 style={{ fontSize: 19, fontWeight: 600, letterSpacing: "-0.01em" }}>{p.title}</h1>
-            <Row gap={8} wrap style={{ fontSize: 12.5 }}>
+            <Row gap={8} wrap style={{ fontSize: "var(--fs-sm)" }}>
               <AiAvatar size={18} />
               <Muted size={12.5}>
                 {p.proposed_by} · {p.proposed_at}
@@ -102,7 +102,7 @@ export default function ReviewPage() {
             <CardHead title={tx("恢复验证 · 执行后自动观测 180 秒", "Verification · 180 s automatic watch")} icon="clock" />
             <ul style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 9 }}>
               {p.verification.map((v) => (
-                <li key={v} className="v3-row" style={{ gap: 10, fontSize: 12.5, alignItems: "flex-start" }}>
+                <li key={v} className="v3-row" style={{ gap: 10, fontSize: "var(--fs-sm)", alignItems: "flex-start" }}>
                   <Icon name="shield" size={15} color="var(--muted)" style={{ marginTop: 1 }} />
                   {v}
                 </li>
@@ -117,7 +117,7 @@ export default function ReviewPage() {
           <Col gap={14} style={{ padding: 16 }}>
             <Row gap={8}>
               <Icon name="shield" size={16} color="var(--accent-text)" />
-              <h2 style={{ fontSize: 14, fontWeight: 600 }}>{tx("复核并批准", "Review & approve")}</h2>
+              <h2 style={{ fontSize: "var(--fs-lg)", fontWeight: 600 }}>{tx("复核并批准", "Review & approve")}</h2>
             </Row>
             <fieldset className="checklist">
               <legend>{tx("核对清单（{n} 项都勾选后可批准）", "Checklist ({n} items required)", { n: p.checklist.length })}</legend>
@@ -141,7 +141,7 @@ export default function ReviewPage() {
             </fieldset>
             <Col gap={4}>
               <Muted>{tx("审批要求", "Requirement")}</Muted>
-              <span style={{ fontSize: 12.5 }}>{p.requirement}</span>
+              <span style={{ fontSize: "var(--fs-sm)" }}>{p.requirement}</span>
             </Col>
             <label className="v3-field">
               <span className="label">{tx("备注（可选）", "Note (optional)")}</span>
@@ -162,7 +162,7 @@ export default function ReviewPage() {
           </Col>
           <Col gap={12} style={{ padding: 16, borderTop: "1px solid var(--border)" }}>
             <Row gap={8}>
-              <h3 style={{ fontSize: 12.5, fontWeight: 600 }}>{tx("讨论", "Discussion")}</h3>
+              <h3 style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}>{tx("讨论", "Discussion")}</h3>
               <Spacer />
               <Badge>
                 <Icon name="link" size={11} />
@@ -174,7 +174,7 @@ export default function ReviewPage() {
                 <li key={i} className={i >= p.discussion.length ? "anim-rise" : undefined}>
                   {m.ai ? <AiAvatar /> : <Avatar name={m.author} />}
                   <Col gap={2}>
-                    <Row gap={8} style={{ fontSize: 12 }}>
+                    <Row gap={8} style={{ fontSize: "var(--fs-sub)" }}>
                       <b style={{ fontWeight: 600 }}>{m.author}</b>
                       <Muted>{m.time}</Muted>
                     </Row>

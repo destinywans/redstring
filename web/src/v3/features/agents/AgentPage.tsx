@@ -146,7 +146,7 @@ export default function AgentPage() {
                       {a.release.gates.map((g) => (
                         <Row key={g.label} gap={8}>
                           <Icon name={g.pass ? "check" : "x"} size={14} color={g.pass ? "var(--ok)" : "var(--danger)"} />
-                          <span style={{ fontSize: 12.5, flexGrow: 1 }}>{g.label}</span>
+                          <span style={{ fontSize: "var(--fs-sm)", flexGrow: 1 }}>{g.label}</span>
                           <Num color={g.pass ? undefined : "var(--danger)"}>{g.value}</Num>
                         </Row>
                       ))}
@@ -190,7 +190,7 @@ export default function AgentPage() {
                       <Tile icon={c.icon as IconName} size={26} />
                       <Col gap={0} style={{ minWidth: 0 }}>
                         <Muted size={11.5}>{c.key}</Muted>
-                        <span className="ellipsis" style={{ fontSize: 12.5, fontWeight: 500 }}>{c.value}</span>
+                        <span className="ellipsis" style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{c.value}</span>
                       </Col>
                     </Row>
                   ))}

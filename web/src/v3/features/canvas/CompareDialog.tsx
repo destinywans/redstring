@@ -42,7 +42,7 @@ export function CompareDialog({ a, b, onClose, onMerge }: { a?: CanvasNode; b?: 
       </div>
       <Row gap={8} style={{ padding: "10px 14px", borderTop: "1px solid var(--border)", background: "var(--sunken)" }}>
         <Icon name="check" size={14} color="var(--ok)" />
-        <span style={{ fontSize: 12, flexGrow: 1 }}>{tx("两个结论互相印证，没有冲突", "The conclusions agree — no conflict")}</span>
+        <span style={{ fontSize: "var(--fs-sub)", flexGrow: 1 }}>{tx("两个结论互相印证，没有冲突", "The conclusions agree — no conflict")}</span>
         <Btn kind="primary" icon="merge" h={26} onClick={onMerge}>
           {tx("合并到主线", "Merge to main")}
         </Btn>

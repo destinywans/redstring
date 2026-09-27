@@ -19,7 +19,7 @@ export default function CoveragePage() {
   const rows = data?.rows.filter((r) => (filter === "all" || (filter === "t0" ? r.tier === "T0" : r.score < 100)) && (!q || r.service.includes(q)));
   const Cell = ({ c }: { c?: CoverageCell }) => {
     if (!c) return null;
-    if (c.state === "na") return <span style={{ color: "var(--faint)", fontSize: 12 }}>{tx("不适用", "N/A")}</span>;
+    if (c.state === "na") return <span style={{ color: "var(--faint)", fontSize: "var(--fs-sub)" }}>{tx("不适用", "N/A")}</span>;
     if (c.state === "partial") return <span className="cov-part">◐ {c.text}</span>;
     if (c.state === "missing")
       return (
@@ -64,7 +64,7 @@ export default function CoveragePage() {
               <Row gap={4}>
                 <Muted size={11.5}>{t.label}</Muted>
                 <Spacer />
-                <b className="tnum" style={{ fontSize: 13, color: `var(--${t.tone})` }}>{t.pct}%</b>
+                <b className="tnum" style={{ fontSize: "var(--fs-body)", color: `var(--${t.tone})` }}>{t.pct}%</b>
               </Row>
               <span className="track">
                 <span style={{ width: `${t.pct}%`, background: `var(--${t.tone})` }} />
@@ -143,7 +143,7 @@ export default function CoveragePage() {
                         <span className="track small">
                           <span style={{ width: `${r.score}%`, background: `var(--${toneOf(r.score)})` }} />
                         </span>
-                        <b className="tnum" style={{ fontSize: 12, color: `var(--${toneOf(r.score)})` }}>{r.score}%</b>
+                        <b className="tnum" style={{ fontSize: "var(--fs-sub)", color: `var(--${toneOf(r.score)})` }}>{r.score}%</b>
                       </Row>
                     </td>
                   </tr>
@@ -172,7 +172,7 @@ export default function CoveragePage() {
               <Link to="/agents/evals" className="cov-eval lift">
                 <Tile icon="activity" tone="warn" size={26} />
                 <Col gap={0} grow>
-                  <b style={{ fontSize: 12.5, fontWeight: 600 }}>{tx("评测：{n} 个用例因数据缺失而失败", "Evals: {n} cases failed from missing data", { n: data.impact.eval_failures })}</b>
+                  <b style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}>{tx("评测：{n} 个用例因数据缺失而失败", "Evals: {n} cases failed from missing data", { n: data.impact.eval_failures })}</b>
                   <Muted size={11.5}>{tx("单独统计，不计入模型退化", "Tracked separately, not counted as model regression")}</Muted>
                 </Col>
                 <Icon name="right" size={14} />
@@ -183,7 +183,7 @@ export default function CoveragePage() {
                 {data.fixes.map((f, i) => (
                   <li key={f.text}>
                     <span className="n">{i + 1}</span>
-                    <span className="grow" style={{ fontSize: 12.5 }}>{f.text}</span>
+                    <span className="grow" style={{ fontSize: "var(--fs-sm)" }}>{f.text}</span>
                     <Badge tone="accent">{f.impact}</Badge>
                     <Btn h={26} iconRight="right" to={f.href}>
                       {f.action}

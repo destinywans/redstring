@@ -73,7 +73,7 @@ export default function SecurityPage() {
                 </Row>
                 <Row gap={10}>
                   <Toggle on={s.approval_passkey} onChange={(v) => up({ approval_passkey: v })} label={tx("审批需要通行密钥", "Passkey for approvals")} />
-                  <span style={{ fontSize: 12.5 }}>{tx("批准生产写操作时，必须用通行密钥再次验证", "Approving production writes requires a passkey re-check")}</span>
+                  <span style={{ fontSize: "var(--fs-sm)" }}>{tx("批准生产写操作时，必须用通行密钥再次验证", "Approving production writes requires a passkey re-check")}</span>
                 </Row>
               </Col>
             </Panel>
@@ -108,11 +108,11 @@ export default function SecurityPage() {
                 </Row>
                 <Row gap={8}>
                   <Icon name="shield" size={14} color="var(--ok)" />
-                  <span style={{ fontSize: 12.5 }}>{tx("连接器只保存凭据引用，平台不存明文", "Connectors store credential references only — no plaintext")}</span>
+                  <span style={{ fontSize: "var(--fs-sm)" }}>{tx("连接器只保存凭据引用，平台不存明文", "Connectors store credential references only — no plaintext")}</span>
                 </Row>
                 <Row gap={8}>
                   <Icon name="shield" size={14} color="var(--ok)" />
-                  <span style={{ fontSize: 12.5 }}>{tx("写操作凭据只由执行器持有，Agent 不可见", "Write credentials live only with the executor; agents never see them")}</span>
+                  <span style={{ fontSize: "var(--fs-sm)" }}>{tx("写操作凭据只由执行器持有，Agent 不可见", "Write credentials live only with the executor; agents never see them")}</span>
                   <Badge tone="accent">{tx("强制", "Enforced")}</Badge>
                 </Row>
                 <div className="form-grid">

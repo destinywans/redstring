@@ -89,10 +89,10 @@ export default function SourcesPage() {
                 <li key={h.title} className="ret-hit">
                   <Row gap={8}>
                     {h.brand ? <Brand name={h.brand} size={20} /> : <Tile icon="book" size={20} />}
-                    <span className="ellipsis grow" style={{ fontWeight: 500, fontSize: 12.5 }}>{h.title}</span>
+                    <span className="ellipsis grow" style={{ fontWeight: 500, fontSize: "var(--fs-sm)" }}>{h.title}</span>
                     <Mono color="var(--accent-text)">{h.score.toFixed(2)}</Mono>
                   </Row>
-                  <p className="muted" style={{ fontSize: 12, lineHeight: 1.5 }}>{h.snippet}</p>
+                  <p className="muted" style={{ fontSize: "var(--fs-sub)", lineHeight: 1.5 }}>{h.snippet}</p>
                   <Row gap={4}>
                     <Badge>{tx("关键词 {v}", "keyword {v}", { v: h.keyword.toFixed(2) })}</Badge>
                     <Badge>{tx("向量 {v}", "vector {v}", { v: h.vector.toFixed(2) })}</Badge>

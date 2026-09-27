@@ -90,7 +90,7 @@ export default function NewSourcePage() {
                   {test && (
                     <Row gap={6} className="anim-fade">
                       <Icon name={test.ok ? "check" : "alert"} size={14} color={test.ok ? "var(--ok)" : "var(--danger)"} />
-                      <span style={{ fontSize: 12.5 }}>{test.message}</span>
+                      <span style={{ fontSize: "var(--fs-sm)" }}>{test.message}</span>
                     </Row>
                   )}
                 </Row>
@@ -140,7 +140,7 @@ export default function NewSourcePage() {
                 <Row gap={10}>
                   <Toggle on={inherit} onChange={setInherit} label={tx("继承来源权限", "Inherit source permissions")} />
                   <span className="v3-col" style={{ gap: 0 }}>
-                    <span style={{ fontSize: 12.5, fontWeight: 500 }}>{tx("继承 {t} 空间权限", "Inherit {t} space permissions", { t: cur.label })}</span>
+                    <span style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{tx("继承 {t} 空间权限", "Inherit {t} space permissions", { t: cur.label })}</span>
                     <Muted size={11.5}>{tx("检索时按提问人的权限过滤，Agent 不会读到提问人看不到的文档", "Results are filtered by the asker's permissions; agents never read what the asker cannot")}</Muted>
                   </span>
                 </Row>
@@ -194,14 +194,14 @@ export default function NewSourcePage() {
                 <Muted size={11.5}>{tx("检索试用", "Try a search")}</Muted>
                 <Input icon="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tx("连接池耗尽怎么处理", "How to handle pool exhaustion")} />
                 {[["0.82", tx("SRE 手册 / 数据库连接池耗尽", "SRE handbook / Pool exhaustion")], ["0.77", tx("交易平台 / checkout-api 容量说明", "Trading / checkout-api capacity")], ["0.61", tx("SRE 手册 / 发布回滚规范", "SRE handbook / Rollback guide")]].map(([s, t]) => (
-                  <Row key={t} gap={8} style={{ fontSize: 12 }}>
+                  <Row key={t} gap={8} style={{ fontSize: "var(--fs-sub)" }}>
                     <Mono size={11} color="var(--muted)">{s}</Mono>
                     <span className="ellipsis">{t}</span>
                   </Row>
                 ))}
               </Col>
             )}
-            <Row gap={8} align="flex-start" style={{ fontSize: 11.5, color: "var(--muted)" }}>
+            <Row gap={8} align="flex-start" style={{ fontSize: "var(--fs-sub)", color: "var(--muted)" }}>
               <Icon name="lock" size={13} />
               <span>{tx("文档内容只作为检索数据，不会被当作指令执行。", "Document content is retrieval data only; it is never executed as instructions.")}</span>
             </Row>

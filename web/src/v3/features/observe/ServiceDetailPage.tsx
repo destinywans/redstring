@@ -90,7 +90,7 @@ export default function ServiceDetailPage() {
                 <li key={c.title} className="svc-change">
                   <Brand name={c.brand} size={22} />
                   <Col gap={0} grow>
-                    <span className="ellipsis" style={{ fontSize: 12.5, fontWeight: 500 }}>
+                    <span className="ellipsis" style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>
                       {c.title}
                     </span>
                     <Muted size={11.5}>{c.meta}</Muted>
@@ -122,7 +122,7 @@ function Dep({ d }: { d: ServiceDetail["deps"]["upstream"][number] }) {
   return (
     <Row gap={8}>
       {d.brand ? <Brand name={d.brand} size={20} /> : <Tile icon="box" size={20} />}
-      <span className="grow" style={{ fontSize: 12.5 }}>
+      <span className="grow" style={{ fontSize: "var(--fs-sm)" }}>
         {d.name}
       </span>
       <Muted size={11.5}>{d.meta}</Muted>
@@ -205,7 +205,7 @@ export function ResiliencePage() {
                   {r.rollout.analysis.map((a) => (
                     <Row key={a.name} gap={8}>
                       <Icon name={a.ok ? "check" : "x"} size={13} color={a.ok ? "var(--ok)" : "var(--danger)"} />
-                      <span className="grow" style={{ fontSize: 12 }}>{a.name}</span>
+                      <span className="grow" style={{ fontSize: "var(--fs-sub)" }}>{a.name}</span>
                       <Num>{a.value}</Num>
                       <Muted size={11}>{a.threshold}</Muted>
                     </Row>
@@ -270,7 +270,7 @@ export function ResiliencePage() {
                   <Row gap={8}>
                     <Brand name={x.brand} size={22} />
                     <Col gap={0}>
-                      <span className="mono" style={{ fontSize: 12 }}>{x.route}</span>
+                      <span className="mono" style={{ fontSize: "var(--fs-sub)" }}>{x.route}</span>
                       <Muted size={11}>{x.mechanism}</Muted>
                     </Col>
                   </Row>
@@ -306,7 +306,7 @@ export function ResiliencePage() {
                   <Brand name={f.brand} size={22} />
                   <Col gap={1} grow>
                     <Row gap={6}>
-                      <span className="mono" style={{ fontSize: 12 }}>{f.key}</span>
+                      <span className="mono" style={{ fontSize: "var(--fs-sub)" }}>{f.key}</span>
                       <Badge tone={f.tag.tone}>{f.tag.text}</Badge>
                     </Row>
                     <Muted size={11.5}>{f.desc}</Muted>

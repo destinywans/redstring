@@ -50,7 +50,7 @@
 }
 .lc-todos p {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-sub);
   line-height: 1.5;
   color: var(--muted);
 }
@@ -98,7 +98,7 @@
   gap: 10px;
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 .diff-list li:last-child {
   border-bottom: none;
@@ -141,7 +141,7 @@
   border-radius: 6px;
   background: transparent;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--fs-sub);
   text-align: left;
   transition: background var(--dur-fast);
 }
@@ -164,7 +164,7 @@
   border-radius: 10px;
   background: var(--panel);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-mono);
   line-height: 1.75;
   transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
 }
@@ -260,7 +260,7 @@
   border: 1px dashed var(--ok);
   border-radius: 8px;
   background: var(--ok-soft);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   line-height: 1.55;
 }
 .tool-sum {
@@ -273,18 +273,18 @@
   border-radius: 8px;
   background: var(--panel);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-sub);
   text-align: left;
 }
 .tool-steps {
   margin: 0;
   padding: 4px 0 4px 28px;
-  font-size: 11.5px;
+  font-size: var(--fs-sub);
   color: var(--muted);
   line-height: 1.8;
 }
 .baseline {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 .baseline summary {
   cursor: pointer;
@@ -332,7 +332,7 @@ a.chain-node:hover {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11.5px;
+  font-size: var(--fs-sub);
   color: var(--muted);
 }
 .lg-dot i {
@@ -354,7 +354,7 @@ a.chain-node:hover {
   border: none;
   background: transparent;
   color: var(--text);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   text-align: left;
   animation: v3-rise var(--dur) var(--ease) both;
   transition: background var(--dur-fast);
@@ -395,7 +395,7 @@ button.g-row:disabled {
 }
 .g-row .meta {
   text-align: right;
-  font-size: 12px;
+  font-size: var(--fs-sub);
   color: var(--muted);
 }
 .ctx-stack {
@@ -419,7 +419,7 @@ button.g-row:disabled {
   align-items: center;
   gap: 8px;
   height: 26px;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 .ctx-rows i {
   width: 8px;

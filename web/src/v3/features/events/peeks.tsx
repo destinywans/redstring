@@ -37,7 +37,7 @@ function ServiceCard({ id }: { id: string }) {
         {data.kpis.map((k) => (
           <div key={k.k} style={{ padding: "6px 8px", borderRadius: 7, background: "var(--sunken)" }}>
             <Muted size={10.5}>{k.k}</Muted>
-            <b className="tnum" style={{ display: "block", fontSize: 14, fontWeight: 600, color: k.tone ? `var(--${k.tone})` : undefined }}>
+            <b className="tnum" style={{ display: "block", fontSize: "var(--fs-lg)", fontWeight: 600, color: k.tone ? `var(--${k.tone})` : undefined }}>
               {k.v}
             </b>
           </div>

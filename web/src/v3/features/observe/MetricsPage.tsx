@@ -116,7 +116,7 @@ export default function MetricsPage() {
                     <b className="tnum" style={{ fontSize: 22, fontWeight: 600 }}>
                       {d.slo.availability}
                     </b>
-                    <span className="tnum" style={{ color: "var(--danger)", fontSize: 11.5 }}>{d.slo.delta}</span>
+                    <span className="tnum" style={{ color: "var(--danger)", fontSize: "var(--fs-sub)" }}>{d.slo.delta}</span>
                   </Col>
                 </Row>
                 {d.slo.burn.map((b) => (

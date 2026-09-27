@@ -64,7 +64,7 @@ export default function ToolsPage() {
                   },
                   { key: "kind", header: tx("类型", "Type"), render: (t) => <Badge tone={t.kind === "write" ? "warn" : "neutral"}>{t.kind === "write" ? tx("写", "Write") : tx("读", "Read")}</Badge> },
                   { key: "risk", header: tx("风险", "Risk"), render: (t) => <Badge tone={risk(t.risk)[1]}>{risk(t.risk)[0]}</Badge> },
-                  { key: "approval", header: tx("审批", "Approval"), width: "19%", render: (t) => (t.kind === "read" ? <Muted>{t.approval}</Muted> : <span style={{ fontSize: 12 }}>{t.approval}</span>) },
+                  { key: "approval", header: tx("审批", "Approval"), width: "19%", render: (t) => (t.kind === "read" ? <Muted>{t.approval}</Muted> : <span style={{ fontSize: "var(--fs-sub)" }}>{t.approval}</span>) },
                   { key: "agents", header: tx("可用 Agent", "Agents"), width: "17%", render: (t) => <Muted>{t.agents}</Muted> },
                   { key: "envs", header: tx("环境", "Envs"), render: (t) => <Muted>{t.envs}</Muted> },
                   { key: "calls", header: tx("近 7 天", "7 d"), align: "right", render: (t) => <Num>{t.calls}</Num> },
@@ -112,7 +112,7 @@ export default function ToolsPage() {
               <Col gap={8}>
                 {data?.env_limits.map((e) => (
                   <Row key={e.env} gap={8}>
-                    <span style={{ width: 48, fontSize: 12.5 }}>{e.env}</span>
+                    <span style={{ width: 48, fontSize: "var(--fs-sm)" }}>{e.env}</span>
                     <Badge tone="accent">{tx("最高 {l}", "Max {l}", { l: e.max })}</Badge>
                     <Muted size={11.5}>{e.note}</Muted>
                   </Row>
@@ -124,7 +124,7 @@ export default function ToolsPage() {
                 {data?.rules.map((r) => (
                   <Row key={r} gap={8} align="flex-start">
                     <Icon name="shield" size={14} color="var(--ok)" style={{ marginTop: 2 }} />
-                    <span style={{ fontSize: 12 }}>{r}</span>
+                    <span style={{ fontSize: "var(--fs-sub)" }}>{r}</span>
                   </Row>
                 ))}
               </Col>

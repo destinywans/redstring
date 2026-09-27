@@ -108,7 +108,7 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
               <label key={a.id} className="v3-row f-alert-row">
                 <input type="checkbox" checked={!!alerts[a.id]} onChange={(e) => setAlerts({ ...alerts, [a.id]: e.target.checked })} />
                 <Sev p={a.severity} />
-                <span className="grow ellipsis" style={{ fontSize: 12 }}>{a.text}</span>
+                <span className="grow ellipsis" style={{ fontSize: "var(--fs-sub)" }}>{a.text}</span>
                 <Muted size={11.5}>{a.at}</Muted>
               </label>
             ))}
@@ -197,14 +197,14 @@ export function NewRouteDrawer({ open, onClose }: { open: boolean; onClose: () =
             <Row gap={8}>
               <Brand name="feishu" size={24} />
               <span className="v3-col" style={{ gap: 0 }}>
-                <span style={{ fontSize: 12.5, fontWeight: 500 }}>{tx("飞书「交易值班群」", "Feishu “Trading on-call”")}</span>
+                <span style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{tx("飞书「交易值班群」", "Feishu “Trading on-call”")}</span>
                 <Muted size={11}>{tx("卡片通知 · @当前值班人 · 可在卡片上认领、静默", "Card · @on-call · claim or silence from the card")}</Muted>
               </span>
             </Row>
             <Row gap={8}>
               <Tile icon="phone" size={24} />
               <span className="v3-col" style={{ gap: 0 }}>
-                <span style={{ fontSize: 12.5, fontWeight: 500 }}>{tx("值班表「交易平台主值班」", "Schedule “Trading primary”")}</span>
+                <span style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{tx("值班表「交易平台主值班」", "Schedule “Trading primary”")}</span>
                 <Muted size={11}>{tx("电话 + 短信 · 仅 P1", "Phone + SMS · P1 only")}</Muted>
               </span>
             </Row>
@@ -234,7 +234,7 @@ export function NewRouteDrawer({ open, onClose }: { open: boolean; onClose: () =
             {esc.map((e) => (
               <Row key={e.n} gap={8}>
                 <span className="f-num">{e.n}</span>
-                <span className="grow" style={{ fontSize: 12 }}>{e.text}</span>
+                <span className="grow" style={{ fontSize: "var(--fs-sub)" }}>{e.text}</span>
                 <Avatar name={e.who} size={18} />
                 <Muted size={11.5}>{e.who}</Muted>
               </Row>
@@ -243,11 +243,11 @@ export function NewRouteDrawer({ open, onClose }: { open: boolean; onClose: () =
         </Field>
         <Row gap={8}>
           <Toggle on={cont} onChange={setCont} label={tx("继续匹配", "Continue")} />
-          <span style={{ fontSize: 12.5 }}>{tx("命中后继续匹配后续路由", "Keep matching later routes after a hit")}</span>
+          <span style={{ fontSize: "var(--fs-sm)" }}>{tx("命中后继续匹配后续路由", "Keep matching later routes after a hit")}</span>
         </Row>
         <div className="f-section" style={{ background: "var(--sunken)" }}>
           <Row gap={6}>
-            <b className="grow" style={{ fontSize: 12 }}>{tx("用样例告警测试", "Test with a sample alert")}</b>
+            <b className="grow" style={{ fontSize: "var(--fs-sub)" }}>{tx("用样例告警测试", "Test with a sample alert")}</b>
             <Btn h={24} icon="play" onClick={runTest}>{tx("运行", "Run")}</Btn>
           </Row>
           <Row gap={4} wrap>
@@ -258,7 +258,7 @@ export function NewRouteDrawer({ open, onClose }: { open: boolean; onClose: () =
           {test && (
             <Row gap={6} className="anim-fade">
               <Icon name={test.hit ? "check" : "info"} size={13} color={test.hit ? "var(--ok)" : "var(--muted)"} />
-              <span style={{ fontSize: 12 }}>{test.text}</span>
+              <span style={{ fontSize: "var(--fs-sub)" }}>{test.text}</span>
             </Row>
           )}
         </div>
@@ -336,7 +336,7 @@ export function NewInhibitDrawer({ open, onClose }: { open: boolean; onClose: ()
         </Field>
         <div className="f-section">
           <Row gap={6}>
-            <b className="grow" style={{ fontSize: 12.5 }}>{tx("预览 · 过去 7 天", "Preview · last 7 days")}</b>
+            <b className="grow" style={{ fontSize: "var(--fs-sm)" }}>{tx("预览 · 过去 7 天", "Preview · last 7 days")}</b>
             {preview && <Badge tone="accent">{tx("会抑制 {n} 条", "Would suppress {n}", { n: preview.suppressed })}</Badge>}
           </Row>
           {preview && (
@@ -349,9 +349,9 @@ export function NewInhibitDrawer({ open, onClose }: { open: boolean; onClose: ()
               </Row>
               <div className="v3-col" style={{ gap: 4 }}>
                 {preview.samples.map((s) => (
-                  <Row key={s.name} gap={8} style={{ fontSize: 12 }}>
+                  <Row key={s.name} gap={8} style={{ fontSize: "var(--fs-sub)" }}>
                     <Sev p={s.severity} />
-                    <span className="mono grow" style={{ fontSize: 11.5 }}>{s.name}</span>
+                    <span className="mono grow" style={{ fontSize: "var(--fs-sub)" }}>{s.name}</span>
                     <Badge tone={s.suppressed ? "accent" : "neutral"}>{s.suppressed ? tx("会被抑制", "Suppressed") : tx("不抑制 · {r}", "Kept · {r}", { r: s.reason ?? "" })}</Badge>
                   </Row>
                 ))}
@@ -359,7 +359,7 @@ export function NewInhibitDrawer({ open, onClose }: { open: boolean; onClose: ()
             </>
           )}
         </div>
-        <Row gap={8} align="flex-start" style={{ fontSize: 12, color: "var(--muted)" }}>
+        <Row gap={8} align="flex-start" style={{ fontSize: "var(--fs-sub)", color: "var(--muted)" }}>
           <Icon name="lock" size={13} />
           <span>{tx("不会抑制 P1；被抑制的告警仍会记录在告警页，可以随时查看。", "P1 is never suppressed; suppressed alerts stay visible on the alerts page.")}</span>
         </Row>

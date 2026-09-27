@@ -38,7 +38,7 @@
   border-radius: 6px;
   background: var(--sunken);
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--fs-sub);
   font-weight: 600;
   display: inline-flex;
   align-items: center;
@@ -48,7 +48,7 @@
   border: 1px solid var(--accent-line);
   border-radius: 8px;
   overflow: hidden;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 .rb-suggest .bar {
   display: flex;
@@ -57,7 +57,7 @@
   padding: 6px 10px;
   background: var(--accent-soft);
   color: var(--accent-text);
-  font-size: 12px;
+  font-size: var(--fs-sub);
 }
 .rb-suggest .del {
   padding: 4px 10px;
@@ -94,7 +94,7 @@
   border-radius: 6px;
   border: none;
   background: transparent;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   text-align: left;
 }
 .mem-svc:hover {
@@ -131,7 +131,7 @@
 .rb-opt.on { border-color: var(--accent); background: var(--accent-soft); }
 .rb-opt.wide { grid-column: span 2; }
 .rb-opt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.rb-pm { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 7px; background: var(--panel); font-size: 12px; cursor: pointer; }
+.rb-pm { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 7px; background: var(--panel); font-size: var(--fs-sub); cursor: pointer; }
 .rb-pm input { margin: 0; accent-color: var(--accent); }
 .rb-title { flex: 1; min-width: 0; font-size: 18px; font-weight: 600; border: none; outline: none; background: transparent; color: var(--text); padding: 2px 0; }
 .rb-title:focus { box-shadow: 0 1px 0 var(--accent); }
@@ -142,20 +142,20 @@
 .pm-left { width: 272px; flex: none; padding: 16px; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 14px; overflow: auto; }
 .pm-center { flex: 1; min-width: 0; padding: 18px 24px; display: flex; flex-direction: column; gap: 16px; overflow: auto; }
 .pm-outline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.pm-outline li { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px; border-radius: 6px; font-size: 12.5px; }
+.pm-outline li { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 8px; border-radius: 6px; font-size: var(--fs-sm); }
 .pm-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .pm-kpis > div { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 8px; background: var(--sunken); }
 .pm-kpis b { font-size: 18px; font-weight: 600; }
 .pm-section { display: flex; flex-direction: column; gap: 8px; }
-.pm-section > b { font-size: 13px; }
-.pm-section textarea { font-size: 13px; line-height: 1.7; }
+.pm-section > b { font-size: var(--fs-body); }
+.pm-section textarea { font-size: var(--fs-body); line-height: 1.7; }
 .pm-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
 .pm-pick button { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel); text-align: left; color: var(--text); }
 .pm-pick button:hover { border-color: var(--accent); }
 .ks-types { display: flex; gap: 6px; flex-wrap: wrap; }
-.ks-types button { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border-radius: 8px; font-size: 12.5px; border: 1px solid var(--border); background: var(--panel); color: var(--muted); }
+.ks-types button { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border-radius: 8px; font-size: var(--fs-sm); border: 1px solid var(--border); background: var(--panel); color: var(--muted); }
 .ks-types button.on { border-color: var(--accent); background: var(--accent-soft); color: var(--text); font-weight: 600; }
 .ks-spaces { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; background: var(--panel); }
-.ks-spaces li { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.ks-spaces li { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-bottom: 1px solid var(--border); font-size: var(--fs-sm); }
 .ks-spaces li:last-child { border-bottom: none; }
 .ks-spaces input { margin: 0; accent-color: var(--accent); }

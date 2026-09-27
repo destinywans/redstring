@@ -58,7 +58,7 @@ export default function RunbookEditorPage() {
               ))}
             </Row>
             <Section title={tx("适用场景", "When to use")}>
-              <p style={{ fontSize: 12.5, lineHeight: 1.6 }}>{rb.when}</p>
+              <p style={{ fontSize: "var(--fs-sm)", lineHeight: 1.6 }}>{rb.when}</p>
             </Section>
             <Section title={tx("排查与处理步骤", "Steps")}>
               <ol className="rb-steps">
@@ -68,7 +68,7 @@ export default function RunbookEditorPage() {
                     <Col gap={8} grow>
                       <Row gap={8}>
                         <Badge tone={KIND[s.kind][0]}>{KIND[s.kind][1]}</Badge>
-                        <b style={{ fontSize: 13 }}>{s.title}</b>
+                        <b style={{ fontSize: "var(--fs-body)" }}>{s.title}</b>
                         <Spacer />
                         {s.readonly && <Muted size={11.5}>{tx("只读 · Agent 可自动执行", "Read-only · agents may run it")}</Muted>}
                       </Row>
@@ -85,10 +85,10 @@ export default function RunbookEditorPage() {
                           {s.connectors.map((c) => (
                             <Brand key={c} name={c} size={22} />
                           ))}
-                          <span style={{ fontSize: 12.5 }}>{s.body}</span>
+                          <span style={{ fontSize: "var(--fs-sm)" }}>{s.body}</span>
                         </Row>
                       )}
-                      {!s.connectors && s.body && <p style={{ fontSize: 12.5 }}>{s.body}</p>}
+                      {!s.connectors && s.body && <p style={{ fontSize: "var(--fs-sm)" }}>{s.body}</p>}
                       {s.suggestion && (
                         <Col gap={8}>
                           {accepted === "pending" ? (
@@ -107,7 +107,7 @@ export default function RunbookEditorPage() {
                               <div className="add">+ {s.suggestion.plus}</div>
                             </div>
                           ) : (
-                            <p className="anim-fade" style={{ fontSize: 12.5 }}>
+                            <p className="anim-fade" style={{ fontSize: "var(--fs-sm)" }}>
                               {accepted === "yes" ? s.suggestion.plus : s.suggestion.minus}
                             </p>
                           )}
@@ -133,7 +133,7 @@ export default function RunbookEditorPage() {
               {rb.reviewers.map((r) => (
                 <Row key={r.name} gap={8}>
                   <Avatar name={r.name} size={22} accent={r.state === "pending"} />
-                  <span className="grow" style={{ fontSize: 12.5 }}>{r.name}</span>
+                  <span className="grow" style={{ fontSize: "var(--fs-sm)" }}>{r.name}</span>
                   {r.state === "pending" ? <State tone="warn">{tx("待复核", "Pending")}</State> : <Muted size={11.5}>{tx("可选", "Optional")}</Muted>}
                 </Row>
               ))}
@@ -142,7 +142,7 @@ export default function RunbookEditorPage() {
               {rb.versions.map((v, i) => (
                 <Row key={v.v} gap={10}>
                   <Mono color={i === 0 ? "var(--text)" : undefined}>{v.v}</Mono>
-                  <span className="grow" style={{ fontSize: 12.5 }}>{v.who}</span>
+                  <span className="grow" style={{ fontSize: "var(--fs-sm)" }}>{v.who}</span>
                   <Muted size={11.5}>{v.when}</Muted>
                 </Row>
               ))}

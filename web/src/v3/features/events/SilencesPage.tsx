@@ -140,7 +140,7 @@ export default function SilencesPage() {
             <Section title={tx("预览", "Preview")}>
               <Row gap={6}>
                 <Icon name="alert" size={14} color="var(--warn)" />
-                <span style={{ fontSize: 12.5 }}>{tx("将影响 {n} 条正在触发的告警", "Affects {n} firing alerts", { n: preview?.affects ?? "…" })}</span>
+                <span style={{ fontSize: "var(--fs-sm)" }}>{tx("将影响 {n} 条正在触发的告警", "Affects {n} firing alerts", { n: preview?.affects ?? "…" })}</span>
               </Row>
               <Row gap={4} wrap>
                 {preview?.sample.map((s) => (

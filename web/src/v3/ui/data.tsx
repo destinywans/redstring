@@ -59,6 +59,7 @@ export function DataTable<T>({
     onCheck?.(next);
   };
   return (
+    <div className="dt-scroll">
     <table className={cx("v3-table", headBg && "head-bg")}>
       <colgroup>
         {selectable && <col style={{ width: 36 }} />}
@@ -133,6 +134,7 @@ export function DataTable<T>({
         )}
       </tbody>
     </table>
+    </div>
   );
 }
 

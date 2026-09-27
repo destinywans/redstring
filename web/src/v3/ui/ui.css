@@ -104,14 +104,14 @@
   height: 20px;
   padding: 0 7px;
   border-radius: 5px;
-  font-size: 11.5px;
+  font-size: var(--fs-sub);
   font-weight: 500;
   white-space: nowrap;
   flex: none;
 }
 .v3-badge.mono {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-cap);
 }
 .v3-dot {
   display: inline-block;
@@ -127,14 +127,14 @@
   border: 1px solid var(--border);
   background: var(--panel);
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-cap);
   flex: none;
 }
 .v3-delta {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  font-size: 11.5px;
+  font-size: var(--fs-sub);
   font-weight: 500;
 }
 .v3-delta .arrow {
@@ -146,7 +146,7 @@
   border-radius: 5px;
   border: 1px solid var(--border);
   overflow: hidden;
-  font-size: 11px;
+  font-size: var(--fs-cap);
   flex: none;
 }
 .v3-labelchip span {
@@ -198,7 +198,7 @@
   gap: 6px;
   padding: 0 10px;
   border-radius: 6px;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   white-space: nowrap;
   flex: none;
@@ -226,7 +226,7 @@
 .v3-btn.k-secondary {
   background: var(--panel);
   color: var(--text);
-  border-color: var(--border);
+  border-color: var(--border-strong);
 }
 .v3-btn.k-secondary:hover:not(:disabled) {
   background: var(--hover);
@@ -289,7 +289,7 @@
   border-radius: 6px;
   background: var(--panel);
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-sub);
   white-space: nowrap;
   transition: background var(--dur-fast) ease, color var(--dur-fast) ease, border-color var(--dur-fast) ease;
 }
@@ -307,7 +307,7 @@
   align-items: center;
   gap: 4px;
   color: var(--accent-text);
-  font-size: 12px;
+  font-size: var(--fs-sub);
   background: none;
   border: none;
   padding: 0;
@@ -335,7 +335,7 @@
   border-bottom: 1px solid var(--border);
 }
 .v3-card-head h2 {
-  font-size: 13px;
+  font-size: var(--fs-body);
   font-weight: 600;
 }
 .v3-panel {
@@ -358,14 +358,14 @@
   gap: 8px;
 }
 .v3-section-label h3 {
-  font-size: 12px;
+  font-size: var(--fs-sub);
   font-weight: 600;
   color: var(--muted);
 }
 .v3-kv {
   display: flex;
   gap: 10px;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   align-items: baseline;
 }
 .v3-kv .k {
@@ -380,7 +380,7 @@
   display: inline-flex;
   gap: 12px;
   flex-wrap: wrap;
-  font-size: 11.5px;
+  font-size: var(--fs-sub);
   color: var(--muted);
 }
 .v3-legend span {
@@ -399,7 +399,7 @@
   border-radius: 8px;
   background: var(--sunken);
   border: 1px solid var(--border);
-  font-size: 11.5px;
+  font-size: var(--fs-mono);
   line-height: 1.6;
   white-space: pre-wrap;
   overflow: auto;
@@ -428,7 +428,7 @@
   border: none;
   background: var(--accent-soft);
   color: var(--accent-text);
-  font-size: 10px;
+  font-size: var(--fs-tiny);
   font-weight: 600;
 }
 .v3-cite {
@@ -440,7 +440,7 @@
   border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--panel);
-  font-size: 12px;
+  font-size: var(--fs-sub);
   color: var(--text);
 }
 .v3-cite .n {
@@ -449,7 +449,7 @@
   border-radius: 4px;
   background: var(--accent-soft);
   color: var(--accent-text);
-  font-size: 10px;
+  font-size: var(--fs-tiny);
   font-weight: 600;
   display: inline-flex;
   align-items: center;
@@ -482,16 +482,16 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 .v3-field .label {
   color: var(--muted);
   font-weight: 500;
-  font-size: 12px;
+  font-size: var(--fs-sub);
 }
 .v3-field .hint {
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--fs-sub);
 }
 .v3-input {
   display: inline-flex;
@@ -515,11 +515,11 @@
   border: none;
   outline: none;
   background: transparent;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 .v3-input.mono input {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-sub);
 }
 .v3-textarea {
   width: 100%;
@@ -529,7 +529,7 @@
   border-radius: 7px;
   background: var(--panel);
   resize: vertical;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   line-height: 1.6;
   outline: none;
 }
@@ -572,7 +572,7 @@
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   line-height: 1.45;
   cursor: pointer;
 }
@@ -598,13 +598,13 @@
   border-radius: 5px;
   background: transparent;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-sub);
   transition: background var(--dur-fast) ease, color var(--dur-fast) ease, box-shadow var(--dur-fast) ease;
 }
 .v3-seg.md button {
   height: 28px;
   padding: 0 12px;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 .v3-seg button.on {
   background: var(--panel);
@@ -622,7 +622,7 @@
   height: 28px;
   padding: 0 10px;
   border-radius: 6px;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -641,7 +641,7 @@
 }
 .v3-pills .count,
 .v3-tabs .count {
-  font-size: 11.5px;
+  font-size: var(--fs-sub);
   color: var(--muted);
   font-weight: 400;
 }
@@ -662,7 +662,7 @@
   background: transparent;
   border: none;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 .v3-tabs button::after,
 .v3-tabs a::after {
@@ -696,7 +696,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: var(--muted);
   white-space: nowrap;
 }
@@ -715,7 +715,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: var(--fs-cap);
   font-weight: 600;
   flex: none;
 }
@@ -743,14 +743,14 @@
 .v3-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 .v3-table th {
   height: 34px;
   padding: 0 12px;
   text-align: left;
   font-weight: 500;
-  font-size: 11.5px;
+  font-size: var(--fs-sub);
   color: var(--muted);
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
@@ -807,7 +807,7 @@
   font-size: 22px;
 }
 .v3-kpi .unit {
-  font-size: 12px;
+  font-size: var(--fs-sub);
   font-weight: 500;
   color: var(--muted);
   margin-left: 3px;
@@ -906,7 +906,7 @@
   border: none;
   border-radius: 6px;
   background: transparent;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   text-align: left;
   color: var(--text);
 }
@@ -928,7 +928,7 @@
   border-radius: 6px;
   background: var(--text);
   color: var(--bg);
-  font-size: 11.5px;
+  font-size: var(--fs-sub);
   white-space: nowrap;
   animation: v3-fade var(--dur-fast) ease-out both;
 }
@@ -952,7 +952,7 @@
   background: var(--text);
   color: var(--bg);
   box-shadow: var(--shadow-lg);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   animation: v3-pop var(--dur) var(--ease) both;
 }
 .v3-toast button {
@@ -962,7 +962,7 @@
   border: 1px solid rgba(128, 128, 128, 0.5);
   background: transparent;
   color: var(--bg);
-  font-size: 12px;
+  font-size: var(--fs-sub);
   font-weight: 500;
 }
 .v3-toast .x {
@@ -992,7 +992,7 @@
   gap: 8px;
   padding: 8px 10px;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: var(--fs-sub);
   line-height: 1.5;
 }
 .danger-note {
@@ -1031,4 +1031,15 @@
   flex-direction: column;
   align-items: stretch;
   gap: 5px;
+}
+/* tables keep usable column widths and scroll sideways in narrow panes */
+.dt-scroll {
+  overflow-x: auto;
+  min-width: 0;
+}
+.dt-scroll > .v3-table {
+  min-width: 880px;
+}
+.dt-scroll th {
+  white-space: nowrap;
 }

@@ -69,8 +69,8 @@ export default function RunDetailPage() {
                 <>
                   <Icon name={c.icon as IconName} size={15} color={last ? "var(--accent-text)" : "var(--muted)"} />
                   <span className="v3-col" style={{ gap: 0, lineHeight: 1.25 }}>
-                    <span style={{ fontSize: 11, color: "var(--muted)" }}>{c.label}</span>
-                    <span style={{ fontSize: 12.5, fontWeight: 500 }}>{c.value}</span>
+                    <span style={{ fontSize: "var(--fs-cap)", color: "var(--muted)" }}>{c.label}</span>
+                    <span style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{c.value}</span>
                   </span>
                 </>
               );
@@ -90,8 +90,8 @@ export default function RunDetailPage() {
             <Spacer />
             {r.stats.map((s) => (
               <span key={s.k} className="v3-col" style={{ gap: 0, lineHeight: 1.3 }}>
-                <span style={{ fontSize: 11, color: "var(--muted)" }}>{s.k}</span>
-                <b className="tnum" style={{ fontSize: 14, fontWeight: 600 }}>{s.v}</b>
+                <span style={{ fontSize: "var(--fs-cap)", color: "var(--muted)" }}>{s.k}</span>
+                <b className="tnum" style={{ fontSize: "var(--fs-lg)", fontWeight: 600 }}>{s.v}</b>
               </span>
             ))}
           </Card>
@@ -223,12 +223,12 @@ function MemoryCard({ r }: { r: RunDetail }) {
             <Tile icon={m.icon as IconName} size={26} />
             <Col gap={3} grow style={{ minWidth: 0 }}>
               <Row gap={8} align="baseline">
-                <b style={{ fontSize: 12.5, fontWeight: 600 }}>{m.name}</b>
+                <b style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}>{m.name}</b>
                 <Muted size={11.5}>{m.desc}</Muted>
               </Row>
               {m.hits.map((h) => (
                 <Row key={h.text} gap={8}>
-                  <span className="grow" style={{ fontSize: 12.5 }}>{h.text}</span>
+                  <span className="grow" style={{ fontSize: "var(--fs-sm)" }}>{h.text}</span>
                   {h.score && <Mono>{h.score}</Mono>}
                 </Row>
               ))}

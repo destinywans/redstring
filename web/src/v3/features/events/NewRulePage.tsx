@@ -113,7 +113,7 @@ export default function NewRulePage() {
             <div className="f-ai" style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
               <Row gap={6}>
                 <Icon name="sparkles" size={15} />
-                <b style={{ fontSize: 12.5 }}>{tx("用一句话描述规则", "Describe the rule in one sentence")}</b>
+                <b style={{ fontSize: "var(--fs-sm)" }}>{tx("用一句话描述规则", "Describe the rule in one sentence")}</b>
               </Row>
               <Row gap={8}>
                 <Input value={ask} onChange={(e) => setAsk(e.target.value)} width="100%" style={{ flex: 1 }} onKeyDown={(e) => e.key === "Enter" && void generate()} />
@@ -145,7 +145,7 @@ export default function NewRulePage() {
                 </Row>
               </Field>
               <Field label={tx("持续", "For")}>
-                <Input value={forMin} onChange={(e) => setForMin(e.target.value)} right={<span className="muted" style={{ whiteSpace: "nowrap", fontSize: 12 }}>{tx("分钟", "min")}</span>} />
+                <Input value={forMin} onChange={(e) => setForMin(e.target.value)} right={<span className="muted" style={{ whiteSpace: "nowrap", fontSize: "var(--fs-sub)" }}>{tx("分钟", "min")}</span>} />
               </Field>
               <Field label={tx("评估间隔", "Evaluate every")}>
                 <select className="f-select" defaultValue="1m" aria-label={tx("评估间隔", "Evaluate every")}>
@@ -186,14 +186,14 @@ export default function NewRulePage() {
             <Row gap={10}>
               <Toggle on={triage} onChange={setTriage} label={tx("触发时自动初查", "Auto-triage on fire")} />
               <span className="v3-col" style={{ gap: 0 }}>
-                <span style={{ fontSize: 12.5, fontWeight: 500 }}>{tx("触发时自动初查", "Auto-triage on fire")}</span>
+                <span style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{tx("触发时自动初查", "Auto-triage on fire")}</span>
                 <Muted size={11.5}>{tx("告警初查 Agent 只读取证，结果附在告警上", "The triage agent only reads; results are attached to the alert")}</Muted>
               </span>
             </Row>
             <Row gap={10}>
               <Toggle on={night} onChange={setNight} label={tx("夜间降级", "Night downgrade")} />
               <span className="v3-col" style={{ gap: 0 }}>
-                <span style={{ fontSize: 12.5, fontWeight: 500 }}>{tx("夜间降为 P3", "Downgrade to P3 at night")}</span>
+                <span style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{tx("夜间降为 P3", "Downgrade to P3 at night")}</span>
                 <Muted size={11.5}>{tx("22:00–08:00 不打电话，次日汇总", "No calls 22:00–08:00; next-day digest")}</Muted>
               </span>
             </Row>
@@ -232,7 +232,7 @@ export default function NewRulePage() {
                       <span key={h} style={{ left: `${h}%` }} />
                     ))}
                   </div>
-                  <Row gap={0} style={{ justifyContent: "space-between", fontSize: 10.5, color: "var(--muted)" }}>
+                  <Row gap={0} style={{ justifyContent: "space-between", fontSize: "var(--fs-tiny)", color: "var(--muted)" }}>
                     {preview.backtest.days.map((d) => (
                       <span key={d}>{d}</span>
                     ))}
@@ -254,7 +254,7 @@ export default function NewRulePage() {
                   {preview.route.receivers.map((r) => (
                     <Row key={r.text} gap={8}>
                       {r.brand ? <Brand name={r.brand} size={22} /> : <Tile icon="phone" size={22} />}
-                      <span style={{ fontSize: 12.5 }}>{r.text}</span>
+                      <span style={{ fontSize: "var(--fs-sm)" }}>{r.text}</span>
                     </Row>
                   ))}
                   <Muted size={11.5}>{tx("按当前路由规则计算", "Computed from current routes")}</Muted>
@@ -287,7 +287,7 @@ export default function NewRulePage() {
           {imported && (
             <Panel title={tx("解析结果 · {n} 条", "Parsed · {n}", { n: imported.length })} bodyStyle={{ padding: "6px 16px" }} right={<Btn kind="primary" h={26} onClick={() => { toast(tx("已导入为草稿", "Imported as drafts")); nav("/alert-rules"); }}>{tx("导入为草稿", "Import as drafts")}</Btn>}>
               {imported.map((r) => (
-                <Row key={r.name} gap={8} style={{ height: 36, borderBottom: "1px solid var(--border)", fontSize: 12.5 }}>
+                <Row key={r.name} gap={8} style={{ height: 36, borderBottom: "1px solid var(--border)", fontSize: "var(--fs-sm)" }}>
                   <span className="mono grow">{r.name}</span>
                   <Badge tone={r.status === "new" ? "ok" : "warn"}>{r.note}</Badge>
                 </Row>

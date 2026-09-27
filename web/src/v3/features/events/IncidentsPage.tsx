@@ -50,7 +50,7 @@ export default function IncidentsPage() {
                     <Spacer />
                     <State tone={STATUS[it.status][0]}>{STATUS[it.status][1]}</State>
                   </Row>
-                  <span className="ellipsis" style={{ fontWeight: 500, fontSize: 12.5 }}>
+                  <span className="ellipsis" style={{ fontWeight: 500, fontSize: "var(--fs-sm)" }}>
                     {it.title}
                   </span>
                   <Muted size={11.5}>
@@ -103,12 +103,12 @@ export default function IncidentsPage() {
                   <ol className="inc-timeline">
                     {[...inc.timeline, ...notes.map((n) => ({ time: n.time, actor: { kind: "person" as const, name: "王晨" }, text: n.text, sub: undefined }))].map((e, i) => (
                       <li key={i} className={i >= inc.timeline.length ? "anim-rise" : undefined}>
-                        <span className="tnum muted" style={{ width: 44, flex: "none", fontSize: 12, paddingTop: 2 }}>
+                        <span className="tnum muted" style={{ width: 44, flex: "none", fontSize: "var(--fs-sub)", paddingTop: 2 }}>
                           {e.time}
                         </span>
                         <span style={{ flex: "none", marginTop: 1 }}>{e.actor.kind === "brand" ? <Brand name={e.actor.name} size={20} /> : e.actor.kind === "ai" ? <AiAvatar size={20} /> : <Avatar name={e.actor.name} size={20} />}</span>
                         <Col gap={1}>
-                          <span style={{ fontSize: 12.5 }}>{e.text}</span>
+                          <span style={{ fontSize: "var(--fs-sm)" }}>{e.text}</span>
                           {e.sub && <Muted size={11.5}>{e.sub}</Muted>}
                         </Col>
                       </li>
@@ -152,7 +152,7 @@ export default function IncidentsPage() {
                           <Muted>{r.role}</Muted>
                           <Spacer />
                           {r.ai ? <AiAvatar size={20} /> : <Avatar name={r.name} size={20} />}
-                          <span style={{ fontSize: 12.5 }}>{r.name}</span>
+                          <span style={{ fontSize: "var(--fs-sm)" }}>{r.name}</span>
                         </Row>
                       ))}
                     </Col>

@@ -58,14 +58,14 @@ export default function McpPage() {
                     <Brand name={s.brand} size={30} />
                     <Col gap={0} style={{ minWidth: 0 }}>
                       <b style={{ fontWeight: 600 }}>{s.name}</b>
-                      <span className="ellipsis muted" style={{ fontSize: 11.5 }}>
+                      <span className="ellipsis muted" style={{ fontSize: "var(--fs-sub)" }}>
                         {s.desc} · {s.last}
                       </span>
                     </Col>
                   </Row>
                   <Col gap={1} style={{ minWidth: 0 }}>
                     <Mono color="var(--text)" size={11.5}>{s.transport}</Mono>
-                    <span className="ellipsis muted" style={{ fontSize: 11 }}>{s.caps}</span>
+                    <span className="ellipsis muted" style={{ fontSize: "var(--fs-cap)" }}>{s.caps}</span>
                   </Col>
                   <span>
                     <Badge tone={s.trust.tone}>
@@ -93,7 +93,7 @@ export default function McpPage() {
               <div className="mcp-change anim-rise">
                 <Icon name="alert" size={16} color="var(--warn)" style={{ marginTop: 2 }} />
                 <Col gap={6} grow>
-                  <b style={{ fontSize: 12.5, color: "var(--warn)" }}>{data.pending_change.title}</b>
+                  <b style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>{data.pending_change.title}</b>
                   <Row gap={6}>
                     {data.pending_change.tools.map((t) => (
                       <Badge key={t.label} tone={t.tone as Tone} mono>
@@ -222,7 +222,7 @@ function McpAside({ id, onClose }: { id: string; onClose: () => void }) {
                 <tbody>
                   {s.calls.map((c, i) => (
                     <tr key={i} style={{ height: 34 }}>
-                      <td className="mono muted" style={{ fontSize: 11.5 }}>{c.time}</td>
+                      <td className="mono muted" style={{ fontSize: "var(--fs-sub)" }}>{c.time}</td>
                       <td><Muted>{c.agent}</Muted></td>
                       <td><Mono color="var(--text)">{c.tool}</Mono></td>
                       <td style={{ textAlign: "right" }}>

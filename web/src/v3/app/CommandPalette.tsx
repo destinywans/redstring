@@ -143,14 +143,14 @@ export function CommandPalette() {
                   ["P3", tx("Pod 重启次数 > 3", "Pod restarts > 3")],
                 ] as const
               ).map(([p, t]) => (
-                <div key={t} className="v3-row" style={{ gap: 8, fontSize: 12 }}>
+                <div key={t} className="v3-row" style={{ gap: 8, fontSize: "var(--fs-sub)" }}>
                   <Sev p={p} />
                   {t}
                 </div>
               ))}
             </PvSection>
             <Btn kind="primary" h={32} onClick={silence}>
-              {tx("确认静默", "Confirm silence")} <span className="mono" style={{ fontSize: 11, opacity: 0.8 }}>⏎</span>
+              {tx("确认静默", "Confirm silence")} <span className="mono" style={{ fontSize: "var(--fs-cap)", opacity: 0.8 }}>⏎</span>
             </Btn>
             <Muted size={11}>{tx("会记录到审计日志。", "Recorded in the audit log.")}</Muted>
           </div>
@@ -180,7 +180,7 @@ export function CommandPalette() {
                 ["clock", tx("时间窗口 13:58 – 14:30", "Window 13:58 – 14:30")],
                 ["book", tx("Runbook：数据库连接池耗尽", "Runbook: DB pool exhaustion")],
               ].map(([i, t]) => (
-                <div key={t} className="v3-row" style={{ gap: 6, fontSize: 12 }}>
+                <div key={t} className="v3-row" style={{ gap: 6, fontSize: "var(--fs-sub)" }}>
                   <Icon name={i as IconName} size={13} color="var(--muted)" />
                   {t}
                 </div>
@@ -380,7 +380,7 @@ export function CommandPalette() {
 function PvSection({ title, children }: { title: ReactNode; children: ReactNode }) {
   return (
     <div className="v3-col" style={{ gap: 6 }}>
-      <span style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)" }}>{title}</span>
+      <span style={{ fontSize: "var(--fs-sub)", fontWeight: 600, color: "var(--muted)" }}>{title}</span>
       {children}
     </div>
   );

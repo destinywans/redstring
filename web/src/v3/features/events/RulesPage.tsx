@@ -13,7 +13,7 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
     <section className="rule-step">
       <span className="n">{n}</span>
       <div className="v3-col grow" style={{ gap: 8 }}>
-        <b style={{ fontSize: 13 }}>{title}</b>
+        <b style={{ fontSize: "var(--fs-body)" }}>{title}</b>
         {children}
       </div>
     </section>
@@ -181,12 +181,12 @@ export default function RulesPage() {
                       </Row>
                       <Row gap={8}>
                         <Toggle on={ai} onChange={setAi} label={tx("触发后 AI 自动初查", "AI triage on fire")} />
-                        <span style={{ fontSize: 12.5 }}>{tx("触发后 AI 自动初查", "AI auto-triage when firing")}</span>
+                        <span style={{ fontSize: "var(--fs-sm)" }}>{tx("触发后 AI 自动初查", "AI auto-triage when firing")}</span>
                         <Muted size={11.5}>{tx("模板：{t}", "Template: {t}", { t: r.ai_triage.template })}</Muted>
                       </Row>
                       <Row gap={8}>
                         <Toggle on={false} label={tx("同时抑制下游超时告警", "Inhibit downstream timeouts")} />
-                        <span style={{ fontSize: 12.5 }}>{tx("同时抑制下游超时告警", "Also inhibit downstream timeouts")}</span>
+                        <span style={{ fontSize: "var(--fs-sm)" }}>{tx("同时抑制下游超时告警", "Also inhibit downstream timeouts")}</span>
                         <Muted size={11.5}>{tx("由抑制规则统一管理", "Managed by inhibition rules")}</Muted>
                       </Row>
                     </Step>
@@ -197,7 +197,7 @@ export default function RulesPage() {
                 <Card style={{ padding: 16 }}>
                   <Col gap={8}>
                     {["14:31:00", "14:30:30", "14:30:00", "14:29:30", "14:05:00", "14:04:30"].map((t, i) => (
-                      <Row key={t} gap={10} style={{ fontSize: 12.5 }}>
+                      <Row key={t} gap={10} style={{ fontSize: "var(--fs-sm)" }}>
                         <span className="mono muted">{t}</span>
                         <State tone={i < 4 ? "danger" : i === 4 ? "danger" : "warn"}>{i < 5 ? tx("触发中", "Firing") : tx("待定", "Pending")}</State>
                         <span className="tnum">{[8.4, 8.3, 8.6, 8.2, 2.1, 1.2][i]}%</span>

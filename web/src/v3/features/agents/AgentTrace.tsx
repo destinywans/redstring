@@ -118,7 +118,7 @@ function LlmDetail({ s }: { s: AgentSpan }) {
         {tab === "scores" &&
           (l.scores.length ? (
             l.scores.map((sc) => (
-              <Row key={sc.name} gap={8} style={{ fontSize: 12.5 }}>
+              <Row key={sc.name} gap={8} style={{ fontSize: "var(--fs-sm)" }}>
                 <Badge tone={sc.tone}>{sc.value}</Badge>
                 <span className="grow">{sc.name}</span>
                 <Muted size={11.5}>{sc.source}</Muted>
@@ -259,10 +259,10 @@ export function AgentTrace({ runId }: { runId: string }) {
                       <span style={{ width: mode === "tree" ? s.depth * 14 : 0, flex: "none" }} />
                       <Tile icon={k.icon} tone={k.tone as Tone} size={20} />
                       <span className="v3-col grow" style={{ gap: 0, minWidth: 0 }}>
-                        <span className="ellipsis" style={{ fontSize: 12.5, fontWeight: 500 }}>{s.name}</span>
+                        <span className="ellipsis" style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{s.name}</span>
                         <Muted size={11}>{s.meta}</Muted>
                       </span>
-                      <span className="tnum muted" style={{ fontSize: 11.5, width: 48, textAlign: "right" }}>{dur(s.dur)}</span>
+                      <span className="tnum muted" style={{ fontSize: "var(--fs-sub)", width: 48, textAlign: "right" }}>{dur(s.dur)}</span>
                       <span className="tl" style={{ width: mode === "timeline" ? 180 : 110 }}>
                         <span style={{ left: `${(100 * s.start) / t.total}%`, width: `${Math.max(1.2, (100 * s.dur) / t.total)}%`, background: k.bar }} />
                       </span>

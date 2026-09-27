@@ -53,8 +53,8 @@ export default function ConnectorsPage() {
                   <Row gap={9} style={{ width: "100%" }}>
                     <Brand name={c.brand} size={30} />
                     <Col gap={0} grow style={{ minWidth: 0 }}>
-                      <span className="ellipsis" style={{ fontWeight: 600, fontSize: 12.5 }}>{c.name}</span>
-                      <span className="ellipsis muted" style={{ fontSize: 11 }}>{c.kind}</span>
+                      <span className="ellipsis" style={{ fontWeight: 600, fontSize: "var(--fs-sm)" }}>{c.name}</span>
+                      <span className="ellipsis muted" style={{ fontSize: "var(--fs-cap)" }}>{c.kind}</span>
                     </Col>
                     <Dot tone={STATUS_TONE[c.status]} size={8} pulse={c.status === "error"} />
                   </Row>

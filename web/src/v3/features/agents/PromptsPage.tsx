@@ -38,7 +38,7 @@ export default function PromptsPage() {
                     <button type="button" className={cx(sel === i.id && "on")} onClick={() => setSel(i.id)}>
                       <Icon name={k === "prompt" ? "file" : "book"} size={14} />
                       <span className="ellipsis grow mono">{i.name}</span>
-                      <span className="mono muted" style={{ fontSize: 11 }}>{i.version}</span>
+                      <span className="mono muted" style={{ fontSize: "var(--fs-cap)" }}>{i.version}</span>
                       {i.status && <State tone="accent">{i.status}</State>}
                     </button>
                   </li>
@@ -94,7 +94,7 @@ export default function PromptsPage() {
                 <textarea value={text} onChange={(e) => setDraft(e.target.value)} spellCheck={false} aria-label={tx("提示词内容", "Prompt text")} />
               </div>
               <Panel title={tx("发布说明", "Release notes")}>
-                <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.6 }}>{p.notes}</p>
+                <p style={{ margin: 0, fontSize: "var(--fs-sm)", lineHeight: 1.6 }}>{p.notes}</p>
               </Panel>
             </div>
           )}

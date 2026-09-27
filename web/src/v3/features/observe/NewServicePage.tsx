@@ -153,8 +153,8 @@ export default function NewServicePage() {
               </div>
               <Field label="SLO">
                 <Row gap={8}>
-                  <Input value={form.slo} onChange={(e) => setForm({ slo: e.target.value })} right={<span className="muted" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>{tx("% 可用性", "% avail.")}</span>} />
-                  <Input value={form.p99} onChange={(e) => setForm({ p99: e.target.value })} right={<span className="muted" style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>ms P99</span>} />
+                  <Input value={form.slo} onChange={(e) => setForm({ slo: e.target.value })} right={<span className="muted" style={{ fontSize: "var(--fs-sub)", whiteSpace: "nowrap" }}>{tx("% 可用性", "% avail.")}</span>} />
+                  <Input value={form.p99} onChange={(e) => setForm({ p99: e.target.value })} right={<span className="muted" style={{ fontSize: "var(--fs-sub)", whiteSpace: "nowrap" }}>ms P99</span>} />
                 </Row>
               </Field>
               <Col gap={8}>
@@ -164,7 +164,7 @@ export default function NewServicePage() {
                   return (
                     <Row key={s.brand} gap={8}>
                       <Brand name={s.brand} size={20} />
-                      <span className="muted" style={{ fontSize: 12, width: 44 }}>{tx(s.zh, s.en)}</span>
+                      <span className="muted" style={{ fontSize: "var(--fs-sub)", width: 44 }}>{tx(s.zh, s.en)}</span>
                       {ok ? <Mono size={11.5}>{s.value(cur)}</Mono> : <Suggested><Mono size={11.5}>{s.value(cur)}</Mono></Suggested>}
                       <Spacer />
                       {ok ? <Icon name="check" size={13} color="var(--ok)" /> : <Badge tone="accent">{tx("建议", "Suggested")}</Badge>}
@@ -176,7 +176,7 @@ export default function NewServicePage() {
                 <Muted size={11.5}>{tx("覆盖度", "Coverage")}</Muted>
                 <Row gap={8}>
                   <Bar pct={coverage} tone={coverage >= 70 ? "ok" : "warn"} width="100%" height={8} />
-                  <b style={{ fontSize: 12.5, color: coverage >= 70 ? "var(--ok)" : "var(--warn)" }}>{coverage}%</b>
+                  <b style={{ fontSize: "var(--fs-sm)", color: coverage >= 70 ? "var(--ok)" : "var(--warn)" }}>{coverage}%</b>
                 </Row>
                 <Muted size={11.5}>{tx("缺 Runbook{m}", "Missing a runbook{m}", { m: cur.missing.length ? tx("、{s}", ", {s}", { s: cur.missing.join("、") }) : "" })}</Muted>
               </Col>

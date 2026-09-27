@@ -91,7 +91,7 @@ export default function AddConnectorPage() {
                   <Col gap={6}>
                     <Row gap={8}>
                       <Toggle on={hook} onChange={setHook} label={tx("自动创建 Webhook", "Create webhook")} />
-                      <span style={{ fontSize: 12.5 }}>{tx("自动在上述项目创建流水线与部署事件 Webhook", "Create pipeline and deployment webhooks on these projects")}</span>
+                      <span style={{ fontSize: "var(--fs-sm)" }}>{tx("自动在上述项目创建流水线与部署事件 Webhook", "Create pipeline and deployment webhooks on these projects")}</span>
                     </Row>
                     {hook && t && <Code>{t.webhook_url}</Code>}
                   </Col>

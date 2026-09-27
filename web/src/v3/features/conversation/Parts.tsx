@@ -185,7 +185,7 @@ function ImagePart({ p }: { p: Extract<Part, { type: "image" }> }) {
       </div>
       <div className="foot">
         <Icon name="file" size={14} color="var(--muted)" />
-        <span style={{ fontSize: 12 }}>{p.title}.png</span>
+        <span style={{ fontSize: "var(--fs-sub)" }}>{p.title}.png</span>
         <Muted size={11.5}>{p.caption}</Muted>
         <Spacer />
         <IconBtn icon="download" label={tx("下载", "Download")} size={24} onClick={() => toast(tx("已开始下载", "Download started"))} />
@@ -212,7 +212,7 @@ function FilesPart({ p }: { p: Extract<Part, { type: "files" }> }) {
           <span className="meta">
             <Tile icon={FILE_ICON[f.kind]} size={24} />
             <span className="v3-col grow" style={{ gap: 0, textAlign: "left" }}>
-              <span className="ellipsis" style={{ fontSize: 12, fontWeight: 500 }}>{f.name}</span>
+              <span className="ellipsis" style={{ fontSize: "var(--fs-sub)", fontWeight: 500 }}>{f.name}</span>
               <Muted size={10.5}>{f.size}</Muted>
             </span>
             <Icon name="eye" size={14} color="var(--muted)" />
@@ -287,7 +287,7 @@ function ProposalPart({ p }: { p: Extract<Part, { type: "proposal" }> }) {
       <Tile icon="shield" tone="accent" size={30} />
       <div className="v3-col grow" style={{ gap: 8 }}>
         <Row gap={6} wrap>
-          <b style={{ fontSize: 13 }}>{p.title}</b>
+          <b style={{ fontSize: "var(--fs-body)" }}>{p.title}</b>
           <Badge tone={risk[p.risk][0]}>{risk[p.risk][1]}</Badge>
           {p.reversible && <Badge tone="ok">{tx("可回退", "Reversible")}</Badge>}
         </Row>
@@ -370,7 +370,7 @@ function TasksPart({ p }: { p: Extract<Part, { type: "tasks" }> }) {
       {p.items.map((t) => (
         <Row key={t.label} gap={8}>
           {t.state === "done" ? <Icon name="check" size={14} color="var(--ok)" /> : t.state === "running" ? <span className="v3-spinner spin" style={{ color: "var(--accent)" }} /> : <span className="todo-ring" />}
-          <span style={{ fontSize: 12.5, color: t.state === "todo" ? "var(--muted)" : undefined, fontWeight: t.state === "running" ? 500 : undefined }}>{t.label}</span>
+          <span style={{ fontSize: "var(--fs-sm)", color: t.state === "todo" ? "var(--muted)" : undefined, fontWeight: t.state === "running" ? 500 : undefined }}>{t.label}</span>
           <Spacer />
           {t.meta && <Muted size={11}>{t.meta}</Muted>}
         </Row>

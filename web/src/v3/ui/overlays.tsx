@@ -50,8 +50,8 @@ export function Drawer({
         <div className="v3-drawer-head">
           {icon}
           <div className="v3-col grow" style={{ gap: 0 }}>
-            <b style={{ fontSize: 14, fontWeight: 600 }}>{title}</b>
-            {sub && <span className="muted" style={{ fontSize: 11.5 }}>{sub}</span>}
+            <b style={{ fontSize: "var(--fs-lg)", fontWeight: 600 }}>{title}</b>
+            {sub && <span className="muted" style={{ fontSize: "var(--fs-sub)" }}>{sub}</span>}
           </div>
           {right}
           <IconBtn icon="x" label={tx("关闭", "Close")} onClick={onClose} />
@@ -74,7 +74,7 @@ export function Dialog({ open, onClose, title, children, footer, width = 520 }: 
       <div className="v3-backdrop" onClick={onClose} aria-hidden="true" />
       <div className="v3-dialog" role="dialog" aria-modal="true" style={{ width: `min(${width}px, calc(100vw - 32px))` }}>
         <div className="v3-drawer-head">
-          <b style={{ fontSize: 14, fontWeight: 600, flexGrow: 1 }}>{title}</b>
+          <b style={{ fontSize: "var(--fs-lg)", fontWeight: 600, flexGrow: 1 }}>{title}</b>
           <IconBtn icon="x" label={tx("关闭", "Close")} onClick={onClose} />
         </div>
         <div className="v3-dialog-body">{children}</div>

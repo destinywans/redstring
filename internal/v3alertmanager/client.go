@@ -1,5 +1,6 @@
 // Package v3alertmanager reads environment-bound Alertmanager silences and
-// inhibition configuration. It never changes Alertmanager state.
+// inhibition configuration. Its low-level silence write adapter is not exposed
+// as a product route until authorization, ownership, and durable audit exist.
 package v3alertmanager
 
 import (

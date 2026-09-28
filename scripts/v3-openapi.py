@@ -790,7 +790,7 @@ S['V3KnowledgeSourceRegistration'] = obj({**fieldnames('id environment_id applic
     ['id','environment_id','name','type','url','spaces','schedule','chunk','inherit_acl','registration_status','created_at'])
 S['V3KnowledgeSourceRegistrationInput'] = obj({**fieldnames('name type url secret_ref application_id team_id schedule chunk'),
     'spaces':arr(string()),'inherit_acl':v3_bool()},
-    ['name','type','url','secret_ref','spaces','schedule','chunk','inherit_acl'])
+    ['name','type','url','spaces','schedule','chunk','inherit_acl'])
 v3_route('get','/knowledge-sources/registrations','Read scoped, unverified source registrations',
     response=obj({'items':arr(ref('V3KnowledgeSourceRegistration')),'index':{'type':'null'},
         'complete_v3_dto':v3_bool(),'truncated':v3_bool(),'unavailable_fields':arr(string())},
@@ -799,7 +799,7 @@ v3_route('get','/knowledge-sources/registrations','Read scoped, unverified sourc
 v3_route('post','/knowledge-sources/registrations','Register scoped source configuration without activating sync',
     body=ref('V3KnowledgeSourceRegistrationInput'),status=201,
     response=obj({'id':string(),'registration_status':string(enum=['unverified'])},['id','registration_status']),
-    desc='Auxiliary operation; stores a Vault reference, not a plaintext credential. Registration does not prove connection or begin ingestion. Requires one environment and knowledge.manage; audit is transactional.')
+    desc='Auxiliary operation. A single public HTTPS Markdown Web page may omit secret_ref, use no spaces, manual schedule and inherited source access; other source kinds still require a Vault reference, never a plaintext credential. Registration does not prove connection or begin ingestion. Requires one environment and knowledge.manage; audit is transactional.')
 v3_route('post','/knowledge-sources/registrations/{id}/sync','Observe one registered source through a configured read-only reader',
     response=obj({'read_id':string(),'observed_count':integer(minimum=0),
         'index_state':string(enum=['not_proven']),'complete_v3_dto':v3_bool()},
@@ -814,10 +814,17 @@ v3_route('get','/knowledge-sources/registrations/{id}/evidence','Read observed s
         ['id','last_read','index','complete_v3_dto']),
     desc='Auxiliary read of current authorized registration. An absent read returns null evidence; attributed ready documents and chunks are reported only for an observed item and never imply a complete source index. No source content is returned.')
 v3_route('post','/knowledge-sources/test','Test a knowledge source connection',
-    body=obj(fieldnames('type url secret_ref'),['type','url','secret_ref']),status=501,
-    desc='The Vault-backed source connector is not yet configured. After validating the request and knowledge.manage, the endpoint fails closed with 501 source_connection_test_unavailable; it never returns a fixed success.')
+    body=obj(fieldnames('type url secret_ref'),['type','url']),
+    response=obj({'ok':v3_bool(),'message':string(),'connected':v3_bool(),
+        'observed_at':string(format='date-time'),'persistent':v3_bool(),
+        'scope_verified':v3_bool(),'spaces':arr(string())},
+        ['ok','message','connected','observed_at','persistent','scope_verified']),
+    desc='A configured source-specific read-only prober can return a point-in-time successful access observation only after validation and knowledge.manage. A public HTTPS Markdown Web page may omit secret_ref; other source kinds require a Vault reference. Success is not persisted sync, index, user-wide access or application/team scope verification. Production currently configures no Readers, so it returns 501 source_connection_test_unavailable, not a fixed success; upstream read failure returns 503.')
 P['/knowledge-sources/test']['post']['responses']['501'] = {
-    'description':'Vault-backed source connection test is not available',
+    'description':'No source-specific read-only connection prober is configured',
+    'content':{'application/json':{'schema':ref('Error')}}}
+P['/knowledge-sources/test']['post']['responses']['503'] = {
+    'description':'Configured read-only source probe, authorization or storage unavailable',
     'content':{'application/json':{'schema':ref('Error')}}}
 
 # Source-backed memory governance. These partial operations do not satisfy the
@@ -1245,12 +1252,14 @@ S['V3Member'] = obj({**fieldnames('id name email department phone last_login'),
 S['V3MembersView'] = obj({'org':arr(obj({**fieldnames('id name kind'),'count':integer(),'depth':integer()})),
     'groups':arr(obj({**fieldnames('id name kind'),'count':integer(),'depth':integer()})),
     'items':arr(ref('V3Member')),'counts':v3_map(integer()),'mfa_grace_days':integer()})
-v3_route('get','/roles','List scoped roles',response=listed('V3Role'))
+v3_route('get','/roles','List scoped roles',response=listed('V3Role'),
+    desc='Members and role grants are limited to the selected authorized environments. Only a reader with global roles.view and global environment.view can inventory unassigned historical roles and accounts.')
 v3_route('get','/roles/{id}','Read role matrix and associations',response=ref('V3RoleDetail'),
-    desc='A role whose grants cannot be represented by the flat five-column matrix returns 409 matrix_editor_required. Other platform grants are described in notes, not projected into matrix cells.')
+    desc='Visible grants and member names are limited to the selected authorized environments. A role whose grants cannot be represented by the flat five-column matrix returns 409 matrix_editor_required. Other platform grants are described in notes, not projected into matrix cells.')
 v3_route('put','/roles/{id}','Update role matrix',
     body=obj({'matrix':arr(obj({'resource':string(),'grants':arr(integer(enum=[0,1,2]))}))},['matrix']),
-    response=ref('V3RoleDetail'),desc='Requires a global roles:manage grant and rechecks current authority inside the write transaction. Unrepresentable or scoped grants return 409 rather than being silently overwritten. Rejects removal of the last global role manager.')
+    response=obj({'ok':v3_bool()},['ok']),
+    desc='Requires an active account with global roles.manage and global environment.view, rechecked inside the write transaction. Success returns only {ok:true}; a manager is not automatically authorized to read role detail after the write. Unrepresentable or scoped grants return 409 rather than being silently overwritten. Rejects removal of the last eligible global human role manager.')
 v3_route('get','/members','List scoped members',response=ref('V3MembersView'),
     query=[v3_query('filter'),v3_query('q')])
 

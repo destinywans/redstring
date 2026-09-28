@@ -217,10 +217,10 @@
 | GET | `/postmortems/candidates` | | 有真实结案证据、尚无复盘且当前有权访问的事件；含实际证据数与持续时长 | implemented |
 | GET | `/postmortems/draft` | `incident` | 复盘草稿 | mock |
 | POST | `/postmortems` | `{ incident_id, sections, actions, status: draft\|review }` | `{ id }`；同事务锁定已解决事件并写入复盘与审计，不触发外部动作 | implemented |
-| POST | `/knowledge-sources/test` | `{ type, url, secret_ref: "vault:…" }` | 连接结果 | mock |
-| POST | `/knowledge-sources` | `{ type, url, secret_ref: "vault:…", spaces, schedule, chunk, inherit_acl }`（只接受 Vault 引用） | `{ id, status }` | mock |
+| POST | `/knowledge-sources/test` | `{ type, url, secret_ref? }`；公开 HTTPS 单页 Markdown 可无凭据，其他类型需 Vault 引用 | 连接结果 | mock |
+| POST | `/knowledge-sources` | `{ type, url, secret_ref?, spaces, schedule, chunk, inherit_acl }`；公开 HTTPS 单页 Markdown 可无凭据，其他类型需 Vault 引用 | `{ id, status }` | mock |
 
-`GET /runbooks/draft` 目前只有传入真实模板 ID 的 `template` 来源可返回无步骤大纲；对话、复盘和导入来源通过验证后返回 `501 draft_generator_unavailable`。前端尚未为模板、对话和导入入口传 `from`，草稿页仍为 `mock`。`GET /postmortems/draft` 仅拼接有结案证据的事件信息与时间线，影响、根因、行动建议均留空，不是 AI 生成稿；主契约同样保持 `mock`。知识来源登记、受限观察与归属证据不代表实际连接、正文导入或索引完成；生产配置尚无 Reader，来源同步返回 501。
+`GET /runbooks/draft` 目前只有传入真实模板 ID 的 `template` 来源可返回无步骤大纲；对话、复盘和导入来源通过验证后返回 `501 draft_generator_unavailable`。前端尚未为模板、对话和导入入口传 `from`，草稿页仍为 `mock`。`GET /postmortems/draft` 仅拼接有结案证据的事件信息与时间线，影响、根因、行动建议均留空，不是 AI 生成稿；主契约同样保持 `mock`。公开 Web 来源仅支持无凭据单页 HTTPS Markdown、手动观察；其他类型仍需 Vault 引用。登记、受限观察与归属证据不代表对所有用户公开、正文导入或索引完成；生产配置尚无 Reader，测试及来源同步返回 501。
 
 ## Agent 链路（`traces.ts`）
 
@@ -319,7 +319,7 @@ Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评�
 | GET | `/audit/{id}` | | `AuditDetail`（含哈希链校验结果） | implemented |
 | POST | `/audit/export` | 过滤条件 | `{ url }` | implemented |
 
-`GET /workspace` 读取持久化记录；缺失或损坏时返回 `503 workspace_unavailable`，不会合成默认值。`PUT /workspace` 严格校验单个 JSON 对象、已知字段和值，在服务端事务内复核当前账号、平台管理员身份及全局 `workspace.manage` 授权，并返回持久化结果；`data_region` 与品牌素材由部署配置管理。尚无版本前置条件，保存的 slug、默认设置和留存天数也未驱动相关页面语义。`GET/PUT /roles/{id}` 对平面五列矩阵无法无损表达的授权返回 `409 matrix_editor_required`，写入时复核当前全局 `roles.manage` 授权并保护最后一位有效管理员。这些后端门禁不表示整页设置或角色编辑已完成：前端仍使用示意数据，主契约维持 `mock`。
+`GET /workspace` 读取持久化记录；缺失或损坏时返回 `503 workspace_unavailable`，不会合成默认值。`PUT /workspace` 严格校验单个 JSON 对象、已知字段和值，在服务端事务内复核当前账号、平台管理员身份及全局 `workspace.manage` 授权，并返回持久化结果；`data_region` 与品牌素材由部署配置管理。尚无版本前置条件，保存的 slug、默认设置和留存天数也未驱动相关页面语义。角色/成员列表与详情只展示所选且已授权环境内的对象与成员；只有同时具备全局模块查看和全局 `environment.view` 的管理员可盘点无环境归属的旧记录。`GET/PUT /roles/{id}` 对平面五列矩阵无法无损表达的授权返回 `409 matrix_editor_required`；写入时在事务内复核当前有效账号、全局 `roles.manage` 与全局 `environment.view`，保护最后一位有效人类管理员。PUT 成功仅返回 `{ ok: true }`，不在提交后重读并泄露角色详情。这些后端门禁不表示整页设置或角色编辑已完成：前端仍使用示意数据，主契约维持 `mock`。
 
 ## 后端辅助接口（不计入上述 166 项）
 

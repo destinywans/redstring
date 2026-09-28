@@ -31652,7 +31652,7 @@
       "post": {
         "summary": "Register scoped source configuration without activating sync",
         "operationId": "post_knowledge_sources_registrations",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary operation; stores a Vault reference, not a plaintext credential. Registration does not prove connection or begin ingestion. Requires one environment and knowledge.manage; audit is transactional.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary operation. A single public HTTPS Markdown Web page may omit secret_ref, use no spaces, manual schedule and inherited source access; other source kinds still require a Vault reference, never a plaintext credential. Registration does not prove connection or begin ingestion. Requires one environment and knowledge.manage; audit is transactional.",
         "responses": {
           "201": {
             "description": "Success",
@@ -32050,14 +32050,50 @@
       "post": {
         "summary": "Test a knowledge source connection",
         "operationId": "post_knowledge_sources_test",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. The Vault-backed source connector is not yet configured. After validating the request and knowledge.manage, the endpoint fails closed with 501 source_connection_test_unavailable; it never returns a fixed success.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. A configured source-specific read-only prober can return a point-in-time successful access observation only after validation and knowledge.manage. A public HTTPS Markdown Web page may omit secret_ref; other source kinds require a Vault reference. Success is not persisted sync, index, user-wide access or application/team scope verification. Production currently configures no Readers, so it returns 501 source_connection_test_unavailable, not a fixed success; upstream read failure returns 503.",
         "responses": {
-          "501": {
-            "description": "Vault-backed source connection test is not available",
+          "200": {
+            "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Error"
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "connected": {
+                      "type": "boolean"
+                    },
+                    "observed_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "persistent": {
+                      "type": "boolean"
+                    },
+                    "scope_verified": {
+                      "type": "boolean"
+                    },
+                    "spaces": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "message",
+                    "connected",
+                    "observed_at",
+                    "persistent",
+                    "scope_verified"
+                  ]
                 }
               }
             }
@@ -32113,7 +32149,17 @@
             }
           },
           "503": {
-            "description": "Dependency unavailable",
+            "description": "Configured read-only source probe, authorization or storage unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "No source-specific read-only connection prober is configured",
             "content": {
               "application/json": {
                 "schema": {
@@ -32151,8 +32197,7 @@
                 "additionalProperties": false,
                 "required": [
                   "type",
-                  "url",
-                  "secret_ref"
+                  "url"
                 ]
               }
             }
@@ -38123,7 +38168,7 @@
       "get": {
         "summary": "List scoped roles",
         "operationId": "get_roles",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. ",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Members and role grants are limited to the selected authorized environments. Only a reader with global roles.view and global environment.view can inventory unassigned historical roles and accounts.",
         "responses": {
           "200": {
             "description": "Success",
@@ -38232,7 +38277,7 @@
       "get": {
         "summary": "Read role matrix and associations",
         "operationId": "get_roles_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. A role whose grants cannot be represented by the flat five-column matrix returns 409 matrix_editor_required. Other platform grants are described in notes, not projected into matrix cells.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Visible grants and member names are limited to the selected authorized environments. A role whose grants cannot be represented by the flat five-column matrix returns 409 matrix_editor_required. Other platform grants are described in notes, not projected into matrix cells.",
         "responses": {
           "200": {
             "description": "Success",
@@ -38335,14 +38380,23 @@
       "put": {
         "summary": "Update role matrix",
         "operationId": "put_roles_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires a global roles:manage grant and rechecks current authority inside the write transaction. Unrepresentable or scoped grants return 409 rather than being silently overwritten. Rejects removal of the last global role manager.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires an active account with global roles.manage and global environment.view, rechecked inside the write transaction. Success returns only {ok:true}; a manager is not automatically authorized to read role detail after the write. Unrepresentable or scoped grants return 409 rather than being silently overwritten. Rejects removal of the last eligible global human role manager.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/V3RoleDetail"
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ok"
+                  ]
                 }
               }
             }
@@ -48515,7 +48569,6 @@
           "name",
           "type",
           "url",
-          "secret_ref",
           "spaces",
           "schedule",
           "chunk",

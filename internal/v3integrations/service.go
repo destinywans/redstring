@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/searchtext"
 	"github.com/wans/aiops-canvas/internal/store"
 )
@@ -91,6 +92,12 @@ func (s *Service) Register(api *httpapi.Server) {
 	api.Register("POST /api/v1/connectors", "admin", s.create)
 	api.Register("PATCH /api/v1/connectors/{id}", "admin", s.patch)
 	api.Register("POST /api/v1/connectors/{id}/test", "admin", s.test)
+	for _, pattern := range []string{"GET /api/v1/connector-types/{type}", "GET /api/v1/connectors", "GET /api/v1/connectors/{id}"} {
+		api.MarkV3Route(pattern, "connectors", "view")
+	}
+	for _, pattern := range []string{"POST /api/v1/connectors", "PATCH /api/v1/connectors/{id}", "POST /api/v1/connectors/{id}/test"} {
+		api.MarkV3Route(pattern, "connectors", "manage")
+	}
 }
 
 func (s *Service) connectorType(w http.ResponseWriter, r *http.Request) {
@@ -131,6 +138,22 @@ const columns = "id,environment_id,provider,name,category,endpoint,auth_method,c
 
 func (s *Service) lookup(ctx context.Context, id string, environments []string) (connector, error) {
 	return scanConnector(s.DB.QueryRow(ctx, "SELECT "+columns+" FROM v3_connectors WHERE id=$1 AND environment_id = ANY($2::text[])", id, environments))
+}
+
+func (s *Service) authorizeWriteTx(w http.ResponseWriter, r *http.Request, tx pgx.Tx, environment string) bool {
+	policy := &rbac.V3Policy{Store: &store.Store{DB: s.DB}}
+	err := policy.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), rbac.V3Decision{
+		Module: "connectors", Action: "manage", EnvironmentID: environment,
+	})
+	if errors.Is(err, store.ErrForbidden) {
+		httpapi.Error(w, http.StatusForbidden, "forbidden", "Connector management permission required")
+		return false
+	}
+	if err != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, "authorization_unavailable", "Connector authorization unavailable")
+		return false
+	}
+	return true
 }
 
 func (s *Service) list(w http.ResponseWriter, r *http.Request) {
@@ -220,6 +243,15 @@ func summary(c connector, lang string) map[string]any {
 	return map[string]any{"id": c.ID, "brand": c.Provider, "name": c.Name, "kind": kindCopy(kind, lang), "category": c.Category, "status": c.Status, "tags": tags, "meta": meta}
 }
 
+func displayTools(items []tool, lang string) []tool {
+	tools := make([]tool, 0, len(items))
+	for _, item := range items {
+		item.Desc = toolCopy(item.Name, lang)
+		tools = append(tools, item)
+	}
+	return tools
+}
+
 func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 	env, ok := s.scope(w, r, false)
 	if !ok {
@@ -255,12 +287,7 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 	result["checked"] = checked
 	result["services"] = []string{}
 	result["queries"] = []string{}
-	tools := make([]tool, 0, len(c.Tools))
-	for _, item := range c.Tools {
-		item.Desc = toolCopy(item.Name, lang)
-		tools = append(tools, item)
-	}
-	result["tools"] = tools
+	result["tools"] = displayTools(c.Tools, lang)
 	httpapi.WriteJSON(w, 200, result)
 }
 
@@ -317,6 +344,9 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
+	if !s.authorizeWriteTx(w, r, tx, env[0]) {
+		return
+	}
 	_, err = tx.Exec(r.Context(), `INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,credential_ref,tools) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, id, env[0], d.Provider, d.Name, d.Category, strings.TrimRight(strings.TrimSpace(in.URL), "/"), in.Auth, in.CredentialRef, raw)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -327,7 +357,7 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 		return
 	}
-	if err = audit(r.Context(), tx, "connector.created", id, map[string]any{"environment": env[0], "provider": d.Provider, "endpoint": in.URL, "auth_method": in.Auth}); err != nil {
+	if err = audit(r.Context(), tx, "connector.created", id, map[string]any{"environment": env[0], "provider": d.Provider, "auth_method": in.Auth}); err != nil {
 		httpapi.Error(w, 503, "audit_unavailable", "Could not audit connector creation")
 		return
 	}
@@ -351,7 +381,20 @@ func (s *Service) patch(w http.ResponseWriter, r *http.Request) {
 	if !httpapi.Decode(w, r, &in) {
 		return
 	}
-	c, err := s.lookup(r.Context(), r.PathValue("id"), env)
+	if len(in.Tools) == 0 {
+		httpapi.Error(w, 422, "invalid_tools", "Choose at least one tool to update")
+		return
+	}
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if !s.authorizeWriteTx(w, r, tx, env[0]) {
+		return
+	}
+	c, err := scanConnector(tx.QueryRow(r.Context(), "SELECT "+columns+" FROM v3_connectors WHERE id=$1 AND environment_id=$2 FOR UPDATE", r.PathValue("id"), env[0]))
 	if errors.Is(err, pgx.ErrNoRows) {
 		httpapi.Error(w, 404, "not_found", "Connector not found")
 		return
@@ -360,24 +403,38 @@ func (s *Service) patch(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 		return
 	}
-	d := descriptors[c.Provider]
+	d, known := descriptors[c.Provider]
+	if !known {
+		httpapi.Error(w, 422, "invalid_connector", "Connector type is not supported")
+		return
+	}
 	seen := map[string]bool{}
-	updated := make([]tool, 0, len(in.Tools))
-	for _, t := range in.Tools {
-		if seen[t.Name] || !knownTool(d, t.Name) {
+	requested := make(map[string]bool, len(in.Tools))
+	for _, item := range in.Tools {
+		if seen[item.Name] || !knownTool(d, item.Name) {
 			httpapi.Error(w, 422, "invalid_tools", "Choose distinct supported read-only tools")
 			return
 		}
-		seen[t.Name] = true
-		updated = append(updated, tool{Name: t.Name, Desc: "Read-only", Enabled: t.Enabled})
+		seen[item.Name] = true
+		requested[item.Name] = item.Enabled
+	}
+	updated := make([]tool, 0, len(c.Tools)+len(requested))
+	for _, item := range c.Tools {
+		if !knownTool(d, item.Name) {
+			continue
+		}
+		if enabled, ok := requested[item.Name]; ok {
+			item.Enabled = enabled
+			delete(requested, item.Name)
+		}
+		updated = append(updated, item)
+	}
+	for _, item := range in.Tools {
+		if enabled, ok := requested[item.Name]; ok {
+			updated = append(updated, tool{Name: item.Name, Desc: toolCopy(item.Name, "en"), Enabled: enabled})
+		}
 	}
 	raw, _ := json.Marshal(updated)
-	tx, err := s.DB.Begin(r.Context())
-	if err != nil {
-		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
-		return
-	}
-	defer tx.Rollback(r.Context())
 	_, err = tx.Exec(r.Context(), "UPDATE v3_connectors SET tools=$1,updated_at=now() WHERE id=$2 AND environment_id=$3", raw, c.ID, c.EnvironmentID)
 	if err != nil {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
@@ -391,7 +448,7 @@ func (s *Service) patch(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 		return
 	}
-	httpapi.WriteJSON(w, 200, map[string]any{"ok": true, "tools": updated})
+	httpapi.WriteJSON(w, 200, map[string]any{"ok": true, "tools": displayTools(updated, r.Header.Get("Accept-Language"))})
 }
 
 func audit(ctx context.Context, tx pgx.Tx, action, target string, changes any) error {

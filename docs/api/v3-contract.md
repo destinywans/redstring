@@ -1,6 +1,8 @@
 # v3 前端 API 契约（Web ⇄ 后端）
 
-- 状态：**前端已按本契约用 Mock 实现，后端待实现**（2026-09-24；同日 v4 增补：模型与推理强度、附件、通用画布、各"新建"流程、链路 v2）。
+- 状态：**契约冻结 v1（2026-09-28）**。前端已按本契约用 Mock 实现，后端待实现。历史：2026-09-24 初版；v4 增补模型与推理强度、附件、通用画布、各"新建"流程、链路 v2；2026-09-28 增补实例与环境。
+- 表格每行只写一个方法和一个路径。`scripts/check-v3-contract.py` 会核对本文件和 Mock 路由是否一致，改契约后运行它。
+- 冻结后的修改流程：先改本文件和 `types.ts`，再改 Mock 与后端；破坏性修改（删字段、改语义）在「变更记录」里写明。
 - 类型真相源：`web/src/v3/api/types.ts`。本文件只描述路径、参数和语义，字段以该文件为准。
 - Mock 实现：`web/src/v3/mock/domains/*.ts`，每个文件对应下面一节；`VITE_API_MODE=http` 时前端直接请求真实后端。
 - 与既有 `docs/api-contract.md` / `internal/apicontract/openapi.json` 的关系：v3 为新 UI 所需的读模型。后端落地时优先复用既有资源（调查、分支、提案、执行、Runbook、连接器）；能直接对齐的路径就对齐，对不齐的在 OpenAPI 中新增，再同步 `scripts/build-openapi.py`。本文件的"状态"列在后端实现后改为 `implemented`。
@@ -78,7 +80,8 @@
 | GET | `/conversations` | `filter`, `q`, 分页 | `ConversationList` | mock |
 | GET | `/conversations/{id}` | | `Conversation` | mock |
 | POST | `/conversations` | `{ text, context?, model? }` | `{ id }` | mock |
-| POST | `/conversations/{id}/messages` | `{ text, model?, reasoning?, attachments? }` | `{ message, reply_id }` + SSE | mock |
+| POST | `/conversations/{id}/messages` | `{ text, model?, reasoning?, attachments? }` | `{ message, reply_id }`，随后由事件流推送回复 | mock |
+| GET | `/conversations/{id}/events` | | SSE：`StreamEvent`（见「流式对话」）；回复结束后服务端保存完整消息 | mock（前端模拟） |
 | GET | `/canvases` | `kind`, `q`, 分页 | `{ items: CanvasSummary[], counts }`；`kind`：investigation / plan / review / analysis / custom | mock |
 | POST | `/canvases` | `{ title, kind, template_id, goal, services, ai_draft }` | `{ id, href }`；调查类返回 `INV-*` | mock |
 | GET | `/canvases/{id}` | | `CanvasDoc`（非调查类画布：通用节点块、边、产物、各节点对话） | mock |
@@ -88,7 +91,7 @@
 | GET | `/investigations/{id}/canvas` | | `CanvasGraph` | mock |
 | POST | `/investigations/{id}/branches` | `{ parent, title }` | `CanvasNode` | mock |
 | PATCH | `/investigations/{id}/nodes/{node}` | 位置、折叠、标题 | `CanvasNode` | mock |
-| POST | `/investigations/{id}/nodes/{node}/messages` | `{ text }` | `{ summary }` | mock |
+| POST | `/investigations/{id}/nodes/{node}/messages` | `{ text, model?, reasoning? }` | `{ summary, new_branch? }`；`new_branch` 表示 AI 在该节点下派生了子分支（标题、副标题、摘要） | mock |
 | GET | `/investigations/{id}/writeback-preview` | `node` | 回写预览 | mock |
 | POST | `/investigations/{id}/writeback` | `{ node, target, items }` | `{ version }` | mock |
 | GET | `/investigation-templates` | | 模板列表 | mock |
@@ -104,19 +107,24 @@
 | GET | `/alert-groups` | `q`, `severity`, `env` | 告警分组 | mock |
 | GET | `/alert-groups/{id}/policy` | | `AlertGroupPolicy` | mock |
 | POST | `/alert-groups/bulk` | `{ ids, action: claim\|silence\|investigate }` | 结果 | mock |
-| GET | `/services/{id}/peek` · `/people/{name}/peek` | | `ServicePeek` · `PersonPeek`（悬浮卡） | mock |
-| GET | `/incidents` · `/incidents/{id}` | | 事件列表 · `Incident` | mock |
+| GET | `/services/{id}/peek` | | `ServicePeek`（悬浮卡） | mock |
+| GET | `/people/{name}/peek` | | `PersonPeek`（悬浮卡） | mock |
+| GET | `/incidents` | `status: active\|resolved\|all` | `{ items, counts }` | mock |
+| GET | `/incidents/{id}` | | `Incident` | mock |
 | POST | `/incidents/{id}/timeline` | `{ text }` | 时间线条目 | mock |
-| GET | `/alert-rules` · `/alert-rules/{id}` | | 规则列表 · `AlertRule` | mock |
+| GET | `/alert-rules` | | 规则列表 | mock |
+| GET | `/alert-rules/{id}` | | `AlertRule` | mock |
 | POST | `/alert-rules/{id}/dry-run` | `{ expr, for }` | `{ would_fire, windows }` | mock |
 | PUT | `/alert-rules/{id}` | `AlertRule` | `AlertRule` | mock |
 | GET | `/notification-routes` | | `{ root: RouteNode }` | mock |
-| POST | `/notification-routes/test` | 样例告警 | 命中路径 | mock |
-| GET | `/silences` · `/inhibitions` | | 静默 · `{ items: Inhibition[] }` | mock |
+| GET | `/silences` | | 静默列表 | mock |
+| GET | `/inhibitions` | | `{ items: Inhibition[] }` | mock |
 | POST | `/silences/preview` | 匹配器 | `{ affects, sample }` | mock |
-| POST | `/silences` · DELETE `/silences/{id}` | 匹配器 + 时长 | `{ id }` | mock |
+| POST | `/silences` | 匹配器 + 时长 | `{ id }` | mock |
+| DELETE | `/silences/{id}` | | 204 | mock |
 | GET | `/proposals/{id}` | | `Proposal` | mock |
-| POST | `/proposals/{id}/approve` · `/reject` | `{ comment? }`（批准需通行密钥二次验证） | `{ execution_id }` | mock |
+| POST | `/proposals/{id}/approve` | `{ comment? }`（需通行密钥二次验证） | `{ execution_id }` | mock |
+| POST | `/proposals/{id}/reject` | `{ comment? }` | 更新后的提案 | mock |
 | POST | `/proposals/{id}/comments` | `{ text }` | 评论 | mock |
 | GET | `/executions/{id}` | | `Execution` | mock |
 | POST | `/executions/{id}/report/publish` | | 发布结果 | mock |
@@ -125,7 +133,8 @@
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
-| GET | `/runbooks` · `/runbooks/{id}` | `q`, `service` | 列表 · `Runbook` | mock |
+| GET | `/runbooks` | `q`, `service` | Runbook 列表 | mock |
+| GET | `/runbooks/{id}` | | `Runbook` | mock |
 | POST | `/runbooks/{id}/dry-run` | 当前草稿 | 演练结果 | mock |
 | POST | `/runbooks/{id}/submit` | 草稿 | 提交审核 | mock |
 | GET | `/postmortems` | | `PostmortemSummary` | mock |
@@ -167,13 +176,17 @@
 | POST | `/alert-rules/preview` | `{ query, op, threshold, for_minutes, range }` | 校验、曲线、触发区间、7 天回测、会命中的路由、相似规则 | mock |
 | POST | `/alert-rules` | `{ …, mode: draft\|dry_run\|enabled }` | `{ id, status }` | mock |
 | POST | `/alert-rules/import` | `{ yaml }` | 解析结果（新建 / 重复），导入后为草稿 | mock |
-| POST | `/notification-routes/test` · `/notification-routes` | 匹配条件、接收方、分组、时段、升级 | 测试结果 · `{ id }` | mock |
-| POST | `/inhibitions/preview` · `/inhibitions` | `{ source, target, equal }` | 过去 7 天会抑制的数量与样例 · `{ id }`（P1 永不抑制） | mock |
+| POST | `/notification-routes/test` | 路由草稿 + 样例告警 | 命中路径 | mock |
+| POST | `/notification-routes` | 匹配条件、接收方、分组、时段、升级 | `{ id }` | mock |
+| POST | `/inhibitions/preview` | `{ source, target, equal }` | 过去 7 天会抑制的数量与样例 | mock |
+| POST | `/inhibitions` | `{ source, target, equal }`（P1 永不抑制） | `{ id }` | mock |
 | GET | `/runbooks/draft` | `source: template\|postmortem\|conversation\|import`, `from` | Runbook 草稿（写操作步骤标记 `approval`） | mock |
 | POST | `/runbooks` | `{ title, source, from, steps, status: draft\|review }` | `{ id }`；复核通过前 Agent 不使用 | mock |
-| GET | `/postmortems/candidates` · `/postmortems/draft` | `incident` | 可写复盘的事件 · 复盘草稿 | mock |
+| GET | `/postmortems/candidates` | | 可写复盘的事件 | mock |
+| GET | `/postmortems/draft` | `incident` | 复盘草稿 | mock |
 | POST | `/postmortems` | `{ incident_id, sections, actions, status }` | `{ id }` | mock |
-| POST | `/knowledge-sources/test` · `/knowledge-sources` | `{ type, url, secret_ref: "vault:…", spaces, schedule, chunk, inherit_acl }` | 连接结果 · `{ id, status }`；只接受 Vault 引用 | mock |
+| POST | `/knowledge-sources/test` | `{ type, url, secret_ref: "vault:…" }` | 连接结果 | mock |
+| POST | `/knowledge-sources` | `{ type, url, secret_ref: "vault:…", spaces, schedule, chunk, inherit_acl }`（只接受 Vault 引用） | `{ id, status }` | mock |
 
 ## Agent 链路（`traces.ts`）
 
@@ -191,7 +204,8 @@
 | PATCH | `/connectors/{id}` | 如 `{ tools: [{ name, enabled }] }` | 更新结果 | mock |
 | POST | `/connectors` | `{ type, url, auth, tools, webhook }`（凭据只传 Vault 引用） | `{ id }` | mock |
 | GET | `/connector-types/{type}` | | `ConnectorType`（认证方式、权限范围、只读工具） | mock |
-| GET | `/mcp-servers` · `/mcp-servers/{id}` | | `McpList` · `McpDetail` | mock |
+| GET | `/mcp-servers` | | `McpList` | mock |
+| GET | `/mcp-servers/{id}` | | `McpDetail` | mock |
 | PATCH | `/mcp-servers/{id}/tools/{name}` | `{ enabled }`（写入工具开启后仍只能以提案使用） | 结果 | mock |
 | POST | `/mcp-servers/{id}/review` | 审核新版本发现的工具 | 结果 | mock |
 | GET | `/ingest/pull/{id}` | | `PullDraft`（请求模板、样例、字段映射、预览） | mock |
@@ -218,11 +232,13 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | POST | `/agents/{id}/rollout` | `{ to, percent, override }`（`override` 表示管理员放行未通过的门禁，写审计） | 结果 | mock |
 | POST | `/agents/{id}/rollback` | | 结果 | mock |
 | PATCH | `/agents/{id}/level` | `{ level: L0..L3 }`（受环境上限约束） | 结果 | mock |
-| GET | `/prompts` · `/prompts/{id}` | | `{ items: PromptItem[] }` · `PromptDetail` | mock |
+| GET | `/prompts` | | `{ items: PromptItem[] }` | mock |
+| GET | `/prompts/{id}` | | `PromptDetail` | mock |
 | POST | `/prompts/{id}/trial` | `{ case, a, b }` | `PromptTrial[]` | mock |
 | POST | `/prompts/{id}/versions` | `{ text }` | `{ version }` | mock |
 | GET | `/agent-tools` | `kind: all\|read\|write` | `ToolsView` | mock |
-| GET | `/evals/{id}` · POST `/evals` | | `EvalExperiment` · `{ id }` | mock |
+| GET | `/evals/{id}` | | `EvalExperiment` | mock |
+| POST | `/evals` | 实验配置 | `{ id }` | mock |
 | GET | `/eval-cases/{id}` | | `EvalCase` | mock |
 | POST | `/eval-cases/{id}/labels` | 人工评分 | `{ next }` | mock |
 | GET | `/agent-runs` | `filter: all\|failed\|blocked\|negative` | `RunsView` | mock |
@@ -235,21 +251,33 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
-| GET · PUT | `/me/profile` | `ProfileView` | `ProfileView` | mock |
+| GET | `/me/profile` | | `ProfileView` | mock |
+| PUT | `/me/profile` | `ProfileView` | `ProfileView` | mock |
 | DELETE | `/me/sessions/{id}` | | 204 | mock |
 | GET | `/members` | `filter: all\|admin\|no_mfa\|disabled`, `q` | `MembersView` | mock |
 | POST | `/members/invitations` | `{ email, role? }` | 结果 | mock |
 | POST | `/members/sync` | | `{ added, updated }` | mock |
 | POST | `/members/mfa-reminders` | | `{ sent }` | mock |
-| GET | `/roles` · `/roles/{id}` | | `{ items: Role[] }` · `RoleDetail` | mock |
+| GET | `/roles` | | `{ items: Role[] }` | mock |
+| GET | `/roles/{id}` | | `RoleDetail` | mock |
 | PUT | `/roles/{id}` | `{ matrix }`（机器身份的"批准"列必须拒绝） | 结果 | mock |
-| GET · PUT | `/security` | `SecurityView` | `SecurityView` | mock |
-| GET · PUT | `/me/notification-settings` | `{ quiet: { enabled, from, to }, digest: off\|daily\|weekly, subscriptions }` | 同左 | mock |
-| GET · PUT | `/me/ai-preferences` | `{ default: ModelChoice, canvas_inherit, show_reasoning, auto_context, memory, budget_warn_tokens }`；`GET /models` 的 `default` 取自这里 | 同左 | mock |
-| GET · PUT | `/workspace` | `{ name, slug, timezone, locale, week_start, retention_days, data_region, brand }`（仅管理员可改，写入审计） | 同左 | mock |
+| GET | `/security` | | `SecurityView` | mock |
+| PUT | `/security` | `SecurityView` | `SecurityView` | mock |
+| GET | `/me/notification-settings` | | `{ quiet: { enabled, from, to }, digest: off\|daily\|weekly, subscriptions }` | mock |
+| PUT | `/me/notification-settings` | 同上 | 同上 | mock |
+| GET | `/me/ai-preferences` | | `{ default: ModelChoice, canvas_inherit, show_reasoning, auto_context, memory, budget_warn_tokens }`；`GET /models` 的 `default` 取自这里 | mock |
+| PUT | `/me/ai-preferences` | 同上 | 同上 | mock |
+| GET | `/workspace` | | `{ name, slug, timezone, locale, week_start, retention_days, data_region, brand }` | mock |
+| PUT | `/workspace` | 同上（仅管理员可改，写入审计） | 同上 | mock |
 | GET | `/audit` | `filter: all\|user\|agent\|system`, `q` | `AuditView` | mock |
 | GET | `/audit/{id}` | | `AuditDetail`（含哈希链校验结果） | mock |
 | POST | `/audit/export` | 过滤条件 | `{ url }` | mock |
+
+## 变更记录
+
+| 日期 | 变更 |
+| --- | --- |
+| 2026-09-28 | 冻结 v1。拆分合并行；补 `GET /conversations/{id}/events` 行；画布节点对话请求加 `model`、`reasoning`，响应加 `new_branch`；新增实例与环境一节和 `X-AIOps-Environment`。 |
 
 ## 后端实现提示
 

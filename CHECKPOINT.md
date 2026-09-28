@@ -1,5 +1,17 @@
 # AIOps Canvas 检查点
 
+## CP-056 · 2026-09-28 · v3 API 契约冻结 v1，分支推送
+
+- 用户准备开始改后端，要求先确定当前 API 契约并推送这一版。
+- `docs/api/v3-contract.md` 冻结为 v1：
+  - 表格每行只写一个方法和一个路径（拆开了原来 21 处合并行，删掉重复的 `POST /notification-routes/test`）；
+  - 补上 `GET /conversations/{id}/events`（SSE，Mock 在前端模拟）；
+  - 更正：`GET /incidents` 的 `status` 参数与 `{ items, counts }` 响应、画布节点对话的 `model` / `reasoning` 和 `new_branch`；
+  - 新增冻结后的修改流程与「变更记录」。
+- 新增 `scripts/check-v3-contract.py`：核对契约与 Mock 路由，当前 165 条完全一致。另用脚本核对前端实际发出的 143 种请求，全部有对应 Mock。
+- 字段仍以 `web/src/v3/api/types.ts` 为准；v3 契约还没有生成 OpenAPI，后端落地时按 `docs/api/v3-contract.md` 开头的约定合入 `internal/apicontract/openapi.json`。
+- 分支 `codex/v3-frontend` 首次推送到 origin，未开 PR。
+
 ## CP-055 · 2026-09-28 · 模型选择二级菜单、问 AI 浮出卡片
 
 - 用户看过对比图（https://claude.ai/artifact/Cj3K4VdX6iJCSWAvMAxbGA）后选了方案 A。

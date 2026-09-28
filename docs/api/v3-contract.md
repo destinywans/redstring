@@ -300,6 +300,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 ## 后端辅助接口（不计入上述 166 项）
 
 - `GET /investigations/{id}/nodes/{node}/messages`：只读当前持久化调查分支的 `{ branch_id, revision, messages }`。服务端以分支记录核对调查、应用、环境和所属团队，再检查当前 `canvas.view`；消息保留历史 JSON 原貌，旧记录可能没有 `created_at`，不补造时间或 AI 摘要。当前上下文超过 24 KiB、损坏或缺失返回 503；不存在、路径不匹配或无对象访问权返回 404。完整调查图、节点写入和祖先回写仍为 `mock`。
+- `GET /incidents/{id}/timeline/manual`：从持久化 `v3_incident_timeline` 读取当前事件的人工备注，响应 `{ items, scope: "manual_only" }`；按事件的应用/环境及当前 `events.view` 限定对象，按保存时间与 ID 排序，姓名取当前成员记录。未知或无权事件返回 404，超过 500 条人工记录或读取故障返回 503，不返回部分列表。不合成系统/AI 时间线、影响或错误预算，不能替代仍为 `mock` 的 `GET /incidents/{id}`。
 - `POST /mcp-servers/{id}/discover`：在单一环境和当前 `connectors.manage` 授权下，对显式绑定的登记执行有界 MCP `tools/list`，保存不可变的**未信任声明观察快照**及管理审计。响应含快照 ID、登记版本/摘要、工具摘要/数量和采集时间，`trust=untrusted_observation`、`approved=false`、`health_verified=false`；不回传工具声明、端点或凭据。调用后再核对授权、登记与绑定实例；上游失败或声明无效时仅写脱敏失败审计并返回 502。发现不等于工具审核、启用、执行或健康证明，这些主接口仍为 `mock`。
 - `GET /changes/records?service_id=…&binding_id=…&page=1`：只读已显式绑定的 GitLab 项目流水线，要求当前环境的 `services.view` 与 `connectors.view`，每页 20 条，最多查询第 1000 页；前后复核授权与来源。只返回可核实的流水线身份、状态、分支、提交及上游时间，不包含变更风险、告警关联或看板 KPI，不替代主 `GET /changes`。
 - `GET /changes/merge-requests?service_id=…&binding_id=…&page=1&state=all&target_branch=…`：同一显式绑定的 GitLab 项目只读合并请求元数据；须单独启用 `list_merge_requests` 工具。每页 20 条，最多第 1000 页；返回分支、状态、提交标识及上游时间，不含差异、部署或风险推断。筛选非法为 422，来源或授权变化明确失败，不替代主 `GET /changes`。

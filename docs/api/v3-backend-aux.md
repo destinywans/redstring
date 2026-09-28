@@ -5,6 +5,7 @@
 | 方法 | 路径 | 参数与含义 |
 | --- | --- | --- |
 | GET | `/api/v1/investigations/{id}/nodes/{node}/messages` | 只读当前持久化分支的 `{ branch_id, revision, messages }`，以持久化调查/应用/环境/所属团队核对当前 `canvas.view`。返回原始历史消息 JSON，旧记录的可选字段（包括 `created_at`）可能缺失，不合成图节点、时间、摘要或模型输出。上下文最大 24 KiB；对象不存在、路径不匹配或无访问权返回 404，当前上下文缺失、过大或损坏返回 503。完整调查图、节点写入和祖先回写仍未接通。 |
+| GET | `/api/v1/incidents/{id}/timeline/manual` | 按当前事件应用/环境及 `events.view` 读取已持久化的人工备注，按保存时间/ID 排序；返回 `{ items, scope: "manual_only" }`，展示姓名取当前成员记录。未知或无权事件 404，超过 500 条或读取故障 503，不返回部分结果。不合成系统/AI 时间线、影响或错误预算，也不使完整事件详情可用。 |
 | POST | `/api/v1/mcp-servers/{id}/discover` | 单环境、显式绑定及当前 `connectors.manage` 下发起有界 MCP `tools/list`，无请求体。保存不可变的未信任工具声明快照、版本/摘要和同事务管理审计；响应仅返回快照身份、摘要、数量、时间以及 `approved=false`、`health_verified=false`，不含原始声明、端点或凭据。请求后再核对授权、登记版本/内容和绑定实例。上游失败或声明无效时记录脱敏失败审计并返回 502；发现不授予审核、启用或执行权。 |
 | GET | `/api/v1/changes/records` | 必填 `service_id`、`binding_id`，可选 `page`（1–1000）；从已显式绑定的同环境 GitLab 项目读取每页 20 条流水线记录。调用前后均复核服务和连接器权限，缺少来源返回未接入，上游错误返回 502。只证明流水线自身状态与时间，不推断部署、风险或告警关联。 |
 | GET | `/api/v1/changes/merge-requests` | 必填 `service_id`、`binding_id`；可选 `page`（1–1000）、`state`（`all`/`opened`/`closed`/`locked`/`merged`）、`target_branch`。在同一明确绑定的 GitLab 项目按页读取 20 条合并请求身份、分支、状态、提交标识和上游时间；须启用 `list_merge_requests`。请求和上游响应均有界，读取前后复核来源和授权；非法筛选 422，变更 409，来源不可用 503，上游失败或损坏 502。无差异、部署或风险判定。 |

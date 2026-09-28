@@ -442,6 +442,10 @@ v3_route('get','/incidents/{id}','Read incident detail when impact is available'
 P['/incidents/{id}']['get']['responses'].pop('200')
 v3_route('post','/incidents/{id}/timeline','Append a durable incident note',
     role='operator',body=obj({'text':string()},['text']),response=ref('V3IncidentTimelineEntry'),status=201)
+v3_route('get','/incidents/{id}/timeline/manual','Read persisted human incident notes',
+    response=obj({'items':{'type':'array','items':ref('V3IncidentTimelineEntry'),'maxItems':500},
+        'scope':string(enum=['manual_only'])}, ['items','scope']),
+    desc='Auxiliary read outside the 166 V3 page contracts. Resolves the incident application and environment from persisted records and checks current events.view before reading its manually authored v3_incident_timeline rows. Items are ordered by persisted created_at and ID; the actor name comes from the current user record. The response contains no inferred system or AI entries, impact, error budget, or complete incident detail. An absent or inaccessible incident returns 404; more than 500 manual entries or storage failure returns 503 without a partial list. This route does not replace GET /incidents/{id}.')
 S['V3ObservedAlertRuleSummary'] = obj({**fieldnames('id folder name environment_id application_id'),
     'state':string(enum=['firing','pending','ok'])},
     ['id','folder','name','state','environment_id','application_id'])

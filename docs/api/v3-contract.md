@@ -271,7 +271,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | GET | `/security` | | `SecurityView` | mock |
 | PUT | `/security` | `SecurityView` | `SecurityView` | mock |
 | GET | `/me/notification-settings` | | `{ quiet: { enabled, from, to }, digest: off\|daily\|weekly, subscriptions }`；只读取当前账号已保存偏好，无记录时返回平台默认值，不代表通知渠道已接通 | implemented |
-| PUT | `/me/notification-settings` | 同上 | 同上 | mock |
+| PUT | `/me/notification-settings` | 部分更新 `{ quiet?: boolean\|{enabled,from,to}, digest?, subscriptions?: { [existing_id]: boolean }\|现有订阅完整列表 }` | 保存并返回当前账号合并后的完整通知偏好；订阅标识与文案不能在此接口新建或修改，不代表通知已投递 | implemented |
 | GET | `/me/ai-preferences` | | `{ default: ModelChoice, canvas_inherit, show_reasoning, auto_context, memory, budget_warn_tokens }`；`GET /models` 的 `default` 取自这里 | implemented |
 | PUT | `/me/ai-preferences` | 同上 | 同上 | implemented |
 | GET | `/workspace` | | `{ name, slug, timezone, locale, week_start, retention_days, data_region, brand }` | mock |

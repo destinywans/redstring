@@ -22436,7 +22436,7 @@
       "put": {
         "summary": "Update personal notification settings",
         "operationId": "put_me_notification_settings",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. ",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Merges the authenticated user's supported preference fields in a locked, audited transaction and returns the stored result. The current UI sends quiet as a boolean, digest as an enum and subscriptions as existing subscription IDs mapped to booleans. Full objects preserve existing subscription identity and metadata. This saves preferences only; it does not enable or send notifications.",
         "responses": {
           "200": {
             "description": "Success",
@@ -22522,7 +22522,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/V3NotificationSettings"
+                "$ref": "#/components/schemas/V3NotificationSettingsPatch"
               }
             }
           }
@@ -37553,7 +37553,12 @@
                 "type": "string"
               }
             },
-            "additionalProperties": false
+            "additionalProperties": false,
+            "required": [
+              "enabled",
+              "from",
+              "to"
+            ]
           },
           "digest": {
             "type": "string",
@@ -37581,11 +37586,101 @@
                   "type": "boolean"
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "label",
+                "sub",
+                "on"
+              ]
             }
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "required": [
+          "quiet",
+          "digest",
+          "subscriptions"
+        ]
+      },
+      "V3NotificationSettingsPatch": {
+        "type": "object",
+        "properties": {
+          "quiet": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "from": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "enabled",
+                  "from",
+                  "to"
+                ]
+              }
+            ]
+          },
+          "digest": {
+            "type": "string",
+            "enum": [
+              "off",
+              "daily",
+              "weekly"
+            ]
+          },
+          "subscriptions": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "sub": {
+                      "type": "string"
+                    },
+                    "on": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "label",
+                    "sub",
+                    "on"
+                  ]
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "boolean"
+                }
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "minProperties": 1
       },
       "V3Part": {
         "oneOf": [

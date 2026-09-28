@@ -64,8 +64,17 @@ S['V3AIPreferences'] = obj({'default': ref('V3ModelChoice'), 'canvas_inherit': v
     'show_reasoning': string(enum=['expanded','collapsed','hidden']), 'auto_context': v3_bool(),
     'memory': v3_bool(), 'budget_warn_tokens': integer()},
     ['default','canvas_inherit','show_reasoning','auto_context','memory','budget_warn_tokens'])
-S['V3NotificationSettings'] = obj({'quiet': obj({'enabled': v3_bool(), 'from': string(), 'to': string()}),
-    'digest': string(enum=['off','daily','weekly']), 'subscriptions': arr(v3_object('id label sub', {'on': v3_bool()}))})
+S['V3NotificationSettings'] = obj({'quiet': obj({'enabled': v3_bool(), 'from': string(), 'to': string()}, ['enabled','from','to']),
+    'digest': string(enum=['off','daily','weekly']),
+    'subscriptions': arr(obj({**fieldnames('id label sub'), 'on': v3_bool()}, ['id','label','sub','on']))},
+    ['quiet','digest','subscriptions'])
+S['V3NotificationSettingsPatch'] = obj({
+    'quiet': {'oneOf':[v3_bool(), obj({'enabled':v3_bool(),'from':string(),'to':string()}, ['enabled','from','to'])]},
+    'digest': string(enum=['off','daily','weekly']),
+    'subscriptions': {'oneOf':[arr(obj({**fieldnames('id label sub'),'on':v3_bool()}, ['id','label','sub','on'])),
+        {'type':'object','additionalProperties':v3_bool()}]},
+})
+S['V3NotificationSettingsPatch']['minProperties'] = 1
 v3_route('get','/instance','Read the configured V3 isolation boundary',role='public',response=ref('V3InstanceInfo'))
 v3_route('get','/integrations/lower-sources','List configured lower-environment source metadata',
     response=listed('V3LowerSource'),
@@ -83,7 +92,8 @@ v3_route('get','/me/ai-preferences','Read personal AI preferences',response=ref(
 v3_route('put','/me/ai-preferences','Update personal AI preferences',body=ref('V3AIPreferences'),response=ref('V3AIPreferences'))
 v3_route('get','/me/notification-settings','Read personal notification settings',response=ref('V3NotificationSettings'),
     desc='Reads the authenticated user\'s persisted preference document. A user with no saved document receives platform defaults. This is not evidence that any notification delivery channel is connected or has delivered a message. Corrupt stored settings return 503 rather than silently replacing them with defaults.')
-v3_route('put','/me/notification-settings','Update personal notification settings',body=ref('V3NotificationSettings'),response=ref('V3NotificationSettings'))
+v3_route('put','/me/notification-settings','Update personal notification settings',body=ref('V3NotificationSettingsPatch'),response=ref('V3NotificationSettings'),
+    desc='Merges the authenticated user\'s supported preference fields in a locked, audited transaction and returns the stored result. The current UI sends quiet as a boolean, digest as an enum and subscriptions as existing subscription IDs mapped to booleans. Full objects preserve existing subscription identity and metadata. This saves preferences only; it does not enable or send notifications.')
 v3_route('get','/workspace','Read workspace settings',response=ref('V3Workspace'))
 v3_route('put','/workspace','Update workspace settings',role='admin',body=ref('V3Workspace'),response=ref('V3Workspace'))
 v3_route('get','/models','List configured inference models',response=ref('V3ModelCatalog'),

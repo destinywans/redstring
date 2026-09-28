@@ -184,41 +184,48 @@ func (s *Service) getNotifications(ctx context.Context, id string) (notification
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return v, err
 	}
-	if len(raw) > 0 {
-		var fields map[string]json.RawMessage
-		if err = json.Unmarshal(raw, &fields); err != nil || fields == nil ||
-			len(fields["quiet"]) == 0 || len(fields["digest"]) == 0 || len(fields["subscriptions"]) == 0 ||
-			string(fields["quiet"]) == "null" || string(fields["digest"]) == "null" || string(fields["subscriptions"]) == "null" {
-			return notificationSettings{}, errStoredNotificationSettings
-		}
-		var quiet map[string]json.RawMessage
-		if err = json.Unmarshal(fields["quiet"], &quiet); err != nil || quiet == nil ||
-			len(quiet["enabled"]) == 0 || len(quiet["from"]) == 0 || len(quiet["to"]) == 0 ||
-			string(quiet["enabled"]) == "null" || string(quiet["from"]) == "null" || string(quiet["to"]) == "null" {
-			return notificationSettings{}, errStoredNotificationSettings
-		}
-		if err = json.Unmarshal(raw, &v); err != nil {
-			return notificationSettings{}, errStoredNotificationSettings
-		}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return v, nil
 	}
-	if v.Subscriptions == nil {
-		v.Subscriptions = []subscription{}
+	return decodeStoredNotifications(raw)
+}
+
+func decodeStoredNotifications(raw []byte) (notificationSettings, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil ||
+		len(fields["quiet"]) == 0 || len(fields["digest"]) == 0 || len(fields["subscriptions"]) == 0 ||
+		string(fields["quiet"]) == "null" || string(fields["digest"]) == "null" || string(fields["subscriptions"]) == "null" {
+		return notificationSettings{}, errStoredNotificationSettings
 	}
+	var quiet map[string]json.RawMessage
+	if err := json.Unmarshal(fields["quiet"], &quiet); err != nil || quiet == nil ||
+		len(quiet["enabled"]) == 0 || len(quiet["from"]) == 0 || len(quiet["to"]) == 0 ||
+		string(quiet["enabled"]) == "null" || string(quiet["from"]) == "null" || string(quiet["to"]) == "null" {
+		return notificationSettings{}, errStoredNotificationSettings
+	}
+	var v notificationSettings
+	if err := json.Unmarshal(raw, &v); err != nil || v.Subscriptions == nil || !validNotificationSettings(v) {
+		return notificationSettings{}, errStoredNotificationSettings
+	}
+	return v, nil
+}
+
+func validNotificationSettings(v notificationSettings) bool {
 	// A stored settings document is configuration, not proof that a delivery
 	// channel is connected. Reject malformed persisted values rather than
 	// presenting zero values as a valid user preference.
 	if !validClock(v.Quiet.From) || !validClock(v.Quiet.To) ||
 		(v.Digest != "off" && v.Digest != "daily" && v.Digest != "weekly") || len(v.Subscriptions) > 100 {
-		return notificationSettings{}, errStoredNotificationSettings
+		return false
 	}
 	seen := make(map[string]bool, len(v.Subscriptions))
 	for _, sub := range v.Subscriptions {
 		if sub.ID == "" || seen[sub.ID] || len(sub.ID) > 80 || len(sub.Label) > 120 {
-			return notificationSettings{}, errStoredNotificationSettings
+			return false
 		}
 		seen[sub.ID] = true
 	}
-	return v, nil
+	return true
 }
 func validClock(s string) bool {
 	if len(s) != 5 || s[2] != ':' {
@@ -232,35 +239,105 @@ func validClock(s string) bool {
 	return s[:2] <= "23" && s[3:] <= "59"
 }
 func (s *Service) putNotifications(ctx context.Context, id string, raw map[string]json.RawMessage) (notificationSettings, error) {
-	v, err := s.getNotifications(ctx, id)
+	if len(raw) == 0 {
+		return notificationSettings{}, errInvalid
+	}
+	for key, b := range raw {
+		if key != "quiet" && key != "digest" && key != "subscriptions" || len(b) == 0 || string(b) == "null" {
+			return notificationSettings{}, errInvalid
+		}
+	}
+	tx, err := s.Store.DB.Begin(ctx)
 	if err != nil {
-		return v, err
+		return notificationSettings{}, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `INSERT INTO v3_user_settings(user_id) VALUES($1) ON CONFLICT(user_id) DO NOTHING`, id); err != nil {
+		return notificationSettings{}, err
+	}
+	var stored []byte
+	if err = tx.QueryRow(ctx, `SELECT notification_settings FROM v3_user_settings WHERE user_id=$1 FOR UPDATE`, id).Scan(&stored); err != nil {
+		return notificationSettings{}, err
+	}
+	v, err := decodeStoredNotifications(stored)
+	if err != nil {
+		return notificationSettings{}, err
 	}
 	if b, ok := raw["quiet"]; ok {
 		if len(b) > 0 && b[0] == '{' {
+			var fields map[string]json.RawMessage
+			if err = json.Unmarshal(b, &fields); err != nil || len(fields) != 3 ||
+				len(fields["enabled"]) == 0 || len(fields["from"]) == 0 || len(fields["to"]) == 0 ||
+				string(fields["enabled"]) == "null" || string(fields["from"]) == "null" || string(fields["to"]) == "null" {
+				return notificationSettings{}, errInvalid
+			}
+			for key := range fields {
+				if key != "enabled" && key != "from" && key != "to" {
+					return notificationSettings{}, errInvalid
+				}
+			}
 			if err = json.Unmarshal(b, &v.Quiet); err != nil {
-				return v, errInvalid
+				return notificationSettings{}, errInvalid
 			}
 		} else if err = json.Unmarshal(b, &v.Quiet.Enabled); err != nil {
-			return v, errInvalid
+			return notificationSettings{}, errInvalid
 		}
 	}
 	if b, ok := raw["digest"]; ok {
 		if err = json.Unmarshal(b, &v.Digest); err != nil {
-			return v, errInvalid
+			return notificationSettings{}, errInvalid
 		}
 	}
 	if b, ok := raw["subscriptions"]; ok {
 		if len(b) > 0 && b[0] == '[' {
-			if err = json.Unmarshal(b, &v.Subscriptions); err != nil {
-				return v, errInvalid
+			var input []json.RawMessage
+			if err = json.Unmarshal(b, &input); err != nil || len(input) != len(v.Subscriptions) {
+				return notificationSettings{}, errInvalid
+			}
+			patch := make(map[string]bool, len(input))
+			for _, entry := range input {
+				var fields map[string]json.RawMessage
+				if err = json.Unmarshal(entry, &fields); err != nil || len(fields) != 4 {
+					return notificationSettings{}, errInvalid
+				}
+				for key := range fields {
+					if key != "id" && key != "label" && key != "sub" && key != "on" {
+						return notificationSettings{}, errInvalid
+					}
+				}
+				var item subscription
+				if err = json.Unmarshal(entry, &item); err != nil || item.ID == "" || len(fields["id"]) == 0 || len(fields["label"]) == 0 || len(fields["sub"]) == 0 || len(fields["on"]) == 0 ||
+					string(fields["id"]) == "null" || string(fields["label"]) == "null" || string(fields["sub"]) == "null" || string(fields["on"]) == "null" {
+					return notificationSettings{}, errInvalid
+				}
+				if _, exists := patch[item.ID]; exists {
+					return notificationSettings{}, errInvalid
+				}
+				found := false
+				for _, existing := range v.Subscriptions {
+					if existing.ID == item.ID && existing.Label == item.Label && existing.Sub == item.Sub {
+						found = true
+						break
+					}
+				}
+				if !found {
+					return notificationSettings{}, errInvalid
+				}
+				patch[item.ID] = item.On
+			}
+			for i := range v.Subscriptions {
+				v.Subscriptions[i].On = patch[v.Subscriptions[i].ID]
 			}
 		} else {
-			var patch map[string]bool
-			if err = json.Unmarshal(b, &patch); err != nil {
-				return v, errInvalid
+			var patch map[string]json.RawMessage
+			if err = json.Unmarshal(b, &patch); err != nil || patch == nil {
+				return notificationSettings{}, errInvalid
 			}
-			for key, on := range patch {
+			for key, value := range patch {
+				var on bool
+				if string(value) == "null" || json.Unmarshal(value, &on) != nil {
+					return notificationSettings{}, errInvalid
+				}
 				found := false
 				for i := range v.Subscriptions {
 					if v.Subscriptions[i].ID == key {
@@ -270,27 +347,15 @@ func (s *Service) putNotifications(ctx context.Context, id string, raw map[strin
 					}
 				}
 				if !found {
-					return v, errInvalid
+					return notificationSettings{}, errInvalid
 				}
 			}
 		}
 	}
-	if !validClock(v.Quiet.From) || !validClock(v.Quiet.To) || (v.Digest != "off" && v.Digest != "daily" && v.Digest != "weekly") || len(v.Subscriptions) > 100 {
-		return v, errInvalid
+	if !validNotificationSettings(v) {
+		return notificationSettings{}, errInvalid
 	}
-	seen := map[string]bool{}
-	for _, sub := range v.Subscriptions {
-		if sub.ID == "" || seen[sub.ID] || len(sub.ID) > 80 || len(sub.Label) > 120 {
-			return v, errInvalid
-		}
-		seen[sub.ID] = true
-	}
-	tx, err := s.Store.DB.Begin(ctx)
-	if err != nil {
-		return v, err
-	}
-	defer tx.Rollback(ctx)
-	_, err = tx.Exec(ctx, `INSERT INTO v3_user_settings(user_id,notification_settings) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET notification_settings=EXCLUDED.notification_settings,updated_at=now()`, id, mustJSON(v))
+	_, err = tx.Exec(ctx, `UPDATE v3_user_settings SET notification_settings=$2,updated_at=now() WHERE user_id=$1`, id, mustJSON(v))
 	if err != nil {
 		return v, err
 	}

@@ -167,7 +167,7 @@
 | 设置 | GET | `/security` | 聚合 | mock |
 | 设置 | PUT | `/security` | 新增 | mock |
 | 设置 | GET | `/me/notification-settings` | 新增 | implemented |
-| 设置 | PUT | `/me/notification-settings` | 新增 | mock |
+| 设置 | PUT | `/me/notification-settings` | 新增 | implemented |
 | 设置 | GET | `/me/ai-preferences` | 新增 | implemented |
 | 设置 | PUT | `/me/ai-preferences` | 新增 | implemented |
 | 设置 | GET | `/workspace` | 新增 | mock |

@@ -106,12 +106,12 @@ func (s *Service) Register(api *httpapi.Server) {
 }
 
 func (s *Service) connectorType(w http.ResponseWriter, r *http.Request) {
+	lang := r.Header.Get("Accept-Language")
 	d, ok := descriptors[r.PathValue("type")]
 	if !ok {
-		httpapi.Error(w, 404, "not_found", "Connector type is not available")
+		httpapi.Error(w, 404, "not_found", localized(lang, "连接器类型不可用", "Connector type is not available"))
 		return
 	}
-	lang := r.Header.Get("Accept-Language")
 	auth := make([]map[string]string, 0, len(d.Methods))
 	for _, method := range d.Methods {
 		label, desc := authMethodCopy(method, lang)

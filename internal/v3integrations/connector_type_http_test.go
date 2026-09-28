@@ -83,16 +83,19 @@ func TestConnectorTypeRegisteredHTTPContract(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	request := func(server *httpapi.Server, path, env, auth string) *httptest.ResponseRecorder {
+	requestLanguage := func(server *httpapi.Server, path, env, auth, language string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(http.MethodGet, path, nil)
 		r.Header.Set("X-AIOps-Environment", env)
-		r.Header.Set("Accept-Language", "en-US")
+		r.Header.Set("Accept-Language", language)
 		if auth != "" {
 			r.AddCookie(&http.Cookie{Name: "aiops_session", Value: auth})
 		}
 		w := httptest.NewRecorder()
 		server.ServeHTTP(w, r)
 		return w
+	}
+	request := func(server *httpapi.Server, path, env, auth string) *httptest.ResponseRecorder {
+		return requestLanguage(server, path, env, auth, "en-US")
 	}
 	assertError := func(w *httptest.ResponseRecorder, status int, code string) {
 		t.Helper()
@@ -159,7 +162,24 @@ func TestConnectorTypeRegisteredHTTPContract(t *testing.T) {
 	if !strings.Contains(got.AuthMethods[0].Desc, "no authorization flow") {
 		t.Fatalf("OAuth token was described as a live authorization flow: %+v", got.AuthMethods[0])
 	}
-	assertError(request(api, "/api/v1/connector-types/not-a-provider", "dev", token), http.StatusNotFound, "not_found")
+	for _, tc := range []struct {
+		language string
+		message  string
+	}{
+		{language: "en-US", message: "Connector type is not available"},
+		{language: "zh-CN", message: "连接器类型不可用"},
+	} {
+		w := requestLanguage(api, "/api/v1/connector-types/not-a-provider", "dev", token, tc.language)
+		assertError(w, http.StatusNotFound, "not_found")
+		var result struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || result.Error.Message != tc.message {
+			t.Fatalf("unknown type language %q: body=%s err=%v", tc.language, w.Body.String(), err)
+		}
+	}
 
 	withoutPolicy := httpapi.New(st, nil, true)
 	New(db, "nonprod", nil).Register(withoutPolicy)

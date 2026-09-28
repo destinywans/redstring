@@ -413,7 +413,7 @@ v3_route('get','/silences','Read environment-scoped Alertmanager silences',
         'unscoped_present':v3_bool()},
         ['items','counts','partial','unavailable_environments','unscoped_present']),
     query=[v3_query('state',string(enum=['active','planned','expired','all']))],
-    desc='Only provider silences with an exact configured environment-label matcher are returned. Current affects is counted from provider alerts silenced by each ID, not inferred from matcher overlap. Other-environment records do not affect counts, status, or coverage; broad records set only unscoped_present. Unconfigured or failed sources return 503; broad records or partial environment failure return 206. Still incomplete for application/team-scoped grants and very large shared upstream responses.')
+    desc='Only provider silences with an exact configured environment-label matcher are returned. Current affects is counted from provider alerts silenced by each ID, not inferred from matcher overlap. Other-environment records do not affect counts, status, or coverage; broad records set only unscoped_present. Unconfigured or failed sources return 503; broad records or partial environment failure return 206. More than 500 visible silences returns 503 without partial counts; the shared provider response is bounded to 2 MiB. Still incomplete for application/team-scoped grants and larger shared upstream responses.')
 P['/silences']['get']['responses']['206'] = P['/silences']['get']['responses']['200']
 v3_route('get','/inhibitions','Read environment-scoped Alertmanager inhibition configuration',
     response=obj({'items':arr(ref('V3InhibitionRead')),'partial':v3_bool(),

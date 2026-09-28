@@ -26617,7 +26617,7 @@
       "get": {
         "summary": "Read environment-scoped Alertmanager silences",
         "operationId": "get_silences",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Only provider silences with an exact configured environment-label matcher are returned. Current affects is counted from provider alerts silenced by each ID, not inferred from matcher overlap. Other-environment records do not affect counts, status, or coverage; broad records set only unscoped_present. Unconfigured or failed sources return 503; broad records or partial environment failure return 206. Still incomplete for application/team-scoped grants and very large shared upstream responses.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Only provider silences with an exact configured environment-label matcher are returned. Current affects is counted from provider alerts silenced by each ID, not inferred from matcher overlap. Other-environment records do not affect counts, status, or coverage; broad records set only unscoped_present. Unconfigured or failed sources return 503; broad records or partial environment failure return 206. More than 500 visible silences returns 503 without partial counts; the shared provider response is bounded to 2 MiB. Still incomplete for application/team-scoped grants and larger shared upstream responses.",
         "responses": {
           "200": {
             "description": "Success",

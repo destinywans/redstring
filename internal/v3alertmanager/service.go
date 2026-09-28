@@ -103,12 +103,13 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		}
+		affects := countSilencedAlerts(alerts, label, env)
 		for _, silence := range scoped {
 			if len(all) == maxRecords {
 				httpapi.Error(w, http.StatusServiceUnavailable, "silence_limit", "Silence result exceeds limit")
 				return
 			}
-			all = append(all, projectSilence(silence, alerts, label, env, now, r.Header.Get("Accept-Language")))
+			all = append(all, projectSilence(silence, affects[silence.ID], now, r.Header.Get("Accept-Language")))
 		}
 	}
 	if len(unavailable) == len(scope.EnvironmentIDs) {
@@ -171,7 +172,27 @@ func classifySilence(s Silence, label, env string, labels map[string]string) rec
 	return scopeBroad
 }
 
-func projectSilence(s Silence, alerts []Alert, label, env string, now time.Time, language string) silenceView {
+// Count only alerts in the requested environment and count a duplicate
+// silencedBy ID on one alert once. This avoids rescanning the full shared
+// upstream for every visible silence.
+func countSilencedAlerts(alerts []Alert, label, env string) map[string]int {
+	counts := make(map[string]int)
+	for _, alert := range alerts {
+		if alert.Labels[label] != env {
+			continue
+		}
+		seen := make(map[string]bool, len(alert.Status.SilencedBy))
+		for _, id := range alert.Status.SilencedBy {
+			if id != "" && !seen[id] {
+				counts[id]++
+				seen[id] = true
+			}
+		}
+	}
+	return counts
+}
+
+func projectSilence(s Silence, affects int, now time.Time, language string) silenceView {
 	state := s.Status.State
 	if state == "pending" {
 		state = "planned"
@@ -192,17 +213,7 @@ func projectSilence(s Silence, alerts []Alert, label, env string, now time.Time,
 	if state != "active" {
 		return view
 	}
-	for _, alert := range alerts {
-		if alert.Labels[label] != env {
-			continue
-		}
-		for _, silenceID := range alert.Status.SilencedBy {
-			if silenceID == s.ID {
-				view.Affects++
-				break
-			}
-		}
-	}
+	view.Affects = affects
 	duration := s.EndsAt.Sub(s.StartsAt)
 	if duration > 0 {
 		pct := int(100 * now.Sub(s.StartsAt).Seconds() / duration.Seconds())

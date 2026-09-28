@@ -178,6 +178,39 @@ func TestSharedSilenceSourceOtherEnvironmentDoesNotChangeCoverage(t *testing.T) 
 	}
 }
 
+func TestLargeSharedSourceCountsOnlyVisibleRecords(t *testing.T) {
+	foreign := silence(t, "foreign", "active", "staging")
+	visible := silence(t, "visible", "active", "test")
+	silences := make([]Silence, maxRecords+1)
+	for i := 0; i < maxRecords; i++ {
+		silences[i] = foreign
+	}
+	silences[maxRecords] = visible
+	alerts := make([]Alert, maxRecords+1)
+	for i := 0; i < maxRecords; i++ {
+		alerts[i] = Alert{Labels: map[string]string{"environment": "staging"}}
+		alerts[i].Status.SilencedBy = []string{"visible"}
+	}
+	alerts[maxRecords] = Alert{Labels: map[string]string{"environment": "test"}}
+	alerts[maxRecords].Status.SilencedBy = []string{"visible", "visible"}
+	w := request(t, testServer(t, fakeSource{silences: map[string][]Silence{"test": silences}, alerts: map[string][]Alert{"test": alerts}}), "/api/v1/silences", "test")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"id":"visible"`) || strings.Contains(w.Body.String(), `"id":"foreign"`) || !strings.Contains(w.Body.String(), `"affects":1`) || !strings.Contains(w.Body.String(), `"active":1`) {
+		t.Fatalf("scoped shared source status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestTooManyVisibleSilencesDoNotReturnIncompleteCounts(t *testing.T) {
+	visible := silence(t, "visible", "active", "test")
+	silences := make([]Silence, maxRecords+1)
+	for i := range silences {
+		silences[i] = visible
+	}
+	w := request(t, testServer(t, fakeSource{silences: map[string][]Silence{"test": silences}}), "/api/v1/silences", "test")
+	if w.Code != 503 || !strings.Contains(w.Body.String(), `"code":"silence_limit"`) || strings.Contains(w.Body.String(), `"counts"`) {
+		t.Fatalf("unbounded view status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestTrulyBroadSilenceOnlySetsNonCountCoverageFlag(t *testing.T) {
 	broad := silence(t, "broad", "active", "test")
 	broad.Matchers[0].IsRegex = true

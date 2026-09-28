@@ -47,6 +47,27 @@ func TestListSilencesUsesEnvironmentBoundEndpoint(t *testing.T) {
 	}
 }
 
+func TestSharedUpstreamCanExceedVisibleRecordBound(t *testing.T) {
+	const silence = `{"id":"s1","status":{"state":"active"},"matchers":[{"name":"environment","value":"test","isEqual":true}],"startsAt":"2026-09-28T00:00:00Z","endsAt":"2026-09-29T00:00:00Z","updatedAt":"2026-09-28T00:01:00Z","createdBy":"ops","comment":"maintenance"}`
+	const alert = `{"labels":{"environment":"test"},"status":{"silencedBy":["s1"]}}`
+	client, _ := localClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/alertmanager/api/v2/silences":
+			_, _ = w.Write([]byte("[" + strings.TrimSuffix(strings.Repeat(silence+",", maxRecords+1), ",") + "]"))
+		case "/alertmanager/api/v2/alerts":
+			_, _ = w.Write([]byte("[" + strings.TrimSuffix(strings.Repeat(alert+",", maxRecords+1), ",") + "]"))
+		default:
+			t.Errorf("unexpected provider path %s", r.URL.Path)
+		}
+	}, "")
+	if items, err := client.ListSilences(context.Background(), "dev"); err != nil || len(items) != maxRecords+1 {
+		t.Fatalf("silences=%d err=%v", len(items), err)
+	}
+	if items, err := client.ListAlerts(context.Background(), "dev"); err != nil || len(items) != maxRecords+1 {
+		t.Fatalf("alerts=%d err=%v", len(items), err)
+	}
+}
+
 func TestListAlertsReadsObservedSilenceIDs(t *testing.T) {
 	client, _ := localClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/alertmanager/api/v2/alerts" {

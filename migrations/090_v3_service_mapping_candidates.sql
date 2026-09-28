@@ -22,8 +22,9 @@ CREATE TABLE v3_service_mapping_candidates (
   REFERENCES v3_application_environments(application_id,environment_id) ON DELETE CASCADE,
  CHECK ((accepted_at IS NULL)=(accepted_by IS NULL))
 );
--- Accepted rows retain immutable decision history. A later explicit removal
--- may produce a new pending review for the same current external target.
+-- Accepted rows remain for review while the application environment exists.
+-- The management_audit entry is the durable decision record after its removal.
+-- A later explicit removal may produce a new pending candidate for that target.
 CREATE UNIQUE INDEX v3_service_mapping_candidate_pending_unique
  ON v3_service_mapping_candidates(application_id,environment_id,system_id,source_kind,source_id)
  WHERE accepted_at IS NULL;

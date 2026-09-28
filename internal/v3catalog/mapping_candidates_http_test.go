@@ -373,4 +373,55 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE action='v3.service_mapping.accepted'`).Scan(&audits); err != nil || audits != 4 {
 		t.Fatalf("concurrent accept audit count=%d err=%v", audits, err)
 	}
+	t.Run("concurrent discovery keeps both candidates", func(t *testing.T) {
+		// Reopen the two accepted services. Each discover request then updates
+		// both pending candidate rows in one transaction, exercising the lock
+		// order when the requests start together.
+		if _, err := db.Exec(ctx, `UPDATE application_environments
+		 SET bindings='[]',binding_revision=binding_revision+1
+		 WHERE id IN ('env-concurrent-a','env-concurrent-b')`); err != nil {
+			t.Fatal(err)
+		}
+		for round := 0; round < 12; round++ {
+			start := make(chan struct{})
+			results := make(chan *httptest.ResponseRecorder, 2)
+			var wg sync.WaitGroup
+			for i := 0; i < 2; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					<-start
+					results <- request(http.MethodPost, "/service-mappings/discover", "")
+				}()
+			}
+			close(start)
+			wg.Wait()
+			close(results)
+			for result := range results {
+				if result.Code != http.StatusOK {
+					t.Fatalf("round %d concurrent discover status=%d body=%s", round, result.Code, result.Body.String())
+				}
+				var response struct {
+					Suggestions int `json:"suggestions"`
+				}
+				if err := json.Unmarshal(result.Body.Bytes(), &response); err != nil || response.Suggestions < 2 {
+					t.Fatalf("round %d concurrent discover suggestions=%d body=%s err=%v", round, response.Suggestions, result.Body.String(), err)
+				}
+			}
+			var pending, distinctApps, currentRevisions int
+			if err := db.QueryRow(ctx, `SELECT count(*),count(DISTINCT m.application_id),
+			 count(*) FILTER (WHERE m.binding_revision=e.binding_revision
+			 AND m.expires_at>now() AND m.source_id=t.id AND m.external_id=t.external_id)
+			 FROM v3_service_mapping_candidates m
+			 JOIN application_environments e ON e.application_id=m.application_id AND e.key=m.environment_id
+			 JOIN v3_connector_targets t ON t.application_id=m.application_id AND t.environment_id=m.environment_id
+			 WHERE m.application_id IN ('app-concurrent-a','app-concurrent-b') AND m.accepted_at IS NULL`).Scan(
+				&pending, &distinctApps, &currentRevisions); err != nil {
+				t.Fatal(err)
+			}
+			if pending != 2 || distinctApps != 2 || currentRevisions != 2 {
+				t.Fatalf("round %d inconsistent candidates: pending=%d apps=%d current=%d", round, pending, distinctApps, currentRevisions)
+			}
+		}
+	})
 }

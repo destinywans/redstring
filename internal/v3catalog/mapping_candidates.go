@@ -248,7 +248,15 @@ func (s *Service) mappingDiscover(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	suggestions := 0
-	for _, group := range groups {
+	appIDs := make([]string, 0, len(groups))
+	for appID := range groups {
+		appIDs = append(appIDs, appID)
+	}
+	// Concurrent discovery requests must acquire candidate-row locks in the
+	// same application order rather than Go's randomized map iteration order.
+	sort.Strings(appIDs)
+	for _, appID := range appIDs {
+		group := groups[appID]
 		if len(group) != 1 || !group[0].ready || !validMappingProject(group[0].externalID) {
 			continue
 		}

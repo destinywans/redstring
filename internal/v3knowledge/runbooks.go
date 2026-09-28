@@ -49,8 +49,9 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"GET /api/v1/runbooks/{id}", "view", s.getHandler(api)},
 		{"POST /api/v1/runbooks", "manage", s.createHandler(api)},
 		{"POST /api/v1/runbooks/{id}/submit", "manage", s.submitHandler(api)},
-		{"POST /api/v1/runbooks/{id}/dry-run", "view", s.dryRunHandler(api)},
+		{"POST /api/v1/runbooks/{id}/dry-run", "manage", s.dryRunHandler(api)},
 		{"POST /api/v1/runbooks/{id}/reviews", "manage", s.reviewHandler()},
+		{"POST /api/v1/runbooks/{id}/reindex", "manage", s.reindexHandler()},
 		{"GET /api/v1/runbooks/{id}/record", "view", s.recordHandler()},
 		{"GET /api/v1/runbooks/{id}/history", "view", s.historyHandler()},
 	}
@@ -395,7 +396,9 @@ func (s *Service) dryRunHandler(api *httpapi.Server) http.HandlerFunc {
 			knowledgeError(w, err)
 			return
 		}
-		if err = s.authorizeRunbookReadWithTx(r, tx, doc); err != nil {
+		// A preview is persisted and audited, so published Runbooks also
+		// require write authority over this specific document.
+		if err = s.authorizeDocumentWithTx(r, tx, doc, "manage"); err != nil {
 			if errors.Is(err, store.ErrForbidden) {
 				httpapi.Error(w, 404, "not_found", "Runbook not found")
 			} else {

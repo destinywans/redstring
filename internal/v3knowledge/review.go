@@ -136,6 +136,21 @@ func (s *Service) reviewHandler() http.HandlerFunc {
 			knowledgeError(w, err)
 			return
 		}
-		httpapi.WriteJSON(w, 200, map[string]any{"id": id, "status": next, "version": doc.Version})
+		response := map[string]any{"id": id, "status": next, "version": doc.Version}
+		if in.Decision == "approve" {
+			// The human decision is durable before embedding starts. The governed
+			// indexer owns generation reservation, failure recording, and the
+			// active pointer; an unavailable embedder must not undo publication.
+			// V3 authorization was checked above against the locked document.
+			// The legacy knowledge service can carry a different application
+			// ACL, so reuse its adapters without reapplying that unrelated ACL.
+			indexer := knowledge.NewWithRepository(s.Knowledge.Repository, s.Knowledge.Embedding, s.Knowledge.Vectors)
+			indexErr := indexer.Index(knowledge.WithPrincipal(r.Context(), actor, httpapi.CurrentUser(r).Role), id)
+			indexStatus, semanticReady := s.runbookIndexStatus(r, id, doc.Version, indexErr)
+			response["index_status"] = indexStatus
+			response["semantic_search_ready"] = semanticReady
+			response["index_retry_required"] = !semanticReady
+		}
+		httpapi.WriteJSON(w, 200, response)
 	}
 }

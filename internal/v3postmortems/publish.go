@@ -27,21 +27,22 @@ func (s *Service) Publish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	var incident, app, team, env, status, author string
+	var incident, investigation, app, team, env, status, author string
 	var validClose bool
-	err = tx.QueryRow(r.Context(), `SELECT pm.incident_id,pm.application_id,COALESCE(a.owner_team_id,''),
+	err = tx.QueryRow(r.Context(), `SELECT pm.incident_id,pm.investigation_id,pm.application_id,COALESCE(a.owner_team_id,''),
  pm.environment_id,pm.status,pm.created_by,
- (i.status='resolved' AND i.investigation_id=pm.investigation_id
+ (i.status='resolved' AND inv.status='closed' AND i.investigation_id=pm.investigation_id
   AND EXISTS(SELECT 1 FROM events ev WHERE ev.seq=pm.close_event_seq
    AND ev.investigation_id=pm.investigation_id AND ev.type='investigation.closed'))
  FROM v3_postmortems pm
  JOIN ops_incidents i ON i.id=pm.incident_id AND i.application_id=pm.application_id
+ JOIN investigations inv ON inv.id=pm.investigation_id AND inv.application_id=pm.application_id
  JOIN applications a ON a.id=pm.application_id AND NOT a.archived
  JOIN application_environments e ON e.id=i.environment_id AND e.application_id=pm.application_id
   AND e.key=pm.environment_id AND NOT e.archived
  JOIN v3_application_environments ve ON ve.application_id=pm.application_id AND ve.environment_id=pm.environment_id
- WHERE pm.id=$1 FOR UPDATE OF pm,i`, id).
-		Scan(&incident, &app, &team, &env, &status, &author, &validClose)
+ WHERE pm.id=$1 FOR UPDATE OF pm,i,inv`, id).
+		Scan(&incident, &investigation, &app, &team, &env, &status, &author, &validClose)
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && !inScope(scope, env) {
 		httpapi.Error(w, 404, "not_found", "Postmortem not found")
 		return
@@ -65,6 +66,19 @@ func (s *Service) Publish(w http.ResponseWriter, r *http.Request) {
 	}
 	if status != "review" || !validClose {
 		httpapi.Error(w, 409, "invalid_state", "Postmortem is not ready for publication")
+		return
+	}
+	// Hold the report row through commit so a concurrent deletion cannot remove
+	// the evidence after this check and before publication.
+	var reportInvestigation string
+	err = tx.QueryRow(r.Context(), `SELECT investigation_id FROM investigation_reports
+ WHERE investigation_id=$1 FOR SHARE`, investigation).Scan(&reportInvestigation)
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpapi.Error(w, 409, "invalid_state", "Postmortem is not ready for publication")
+		return
+	}
+	if err != nil {
+		httpapi.Error(w, 503, "postmortems_unavailable", "Postmortem review is unavailable")
 		return
 	}
 	_, err = tx.Exec(r.Context(), `UPDATE v3_postmortems SET status='published',updated_at=now()

@@ -22,6 +22,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3admin"
+	"github.com/wans/aiops-canvas/internal/v3agents"
 	"github.com/wans/aiops-canvas/internal/v3alertmanager"
 	"github.com/wans/aiops-canvas/internal/v3alertrules"
 	"github.com/wans/aiops-canvas/internal/v3audit"
@@ -36,6 +37,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3knowledge"
 	"github.com/wans/aiops-canvas/internal/v3knowledgesources"
 	"github.com/wans/aiops-canvas/internal/v3mcp"
+	"github.com/wans/aiops-canvas/internal/v3memory"
 	"github.com/wans/aiops-canvas/internal/v3observe"
 	"github.com/wans/aiops-canvas/internal/v3postmortems"
 	"github.com/wans/aiops-canvas/internal/v3proposals"
@@ -405,6 +407,8 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	v3postmortems.New(s.DB, policy).Register(api)
 	v3knowledgesources.New(s.DB, policy).Register(api)
 	v3sourceregistry.New(s.DB, policy).Register(api)
+	v3memory.New(s.DB, policy).Register(api)
+	v3agents.New(s.DB, policy).Register(api)
 	go auditV3.CleanupExpired(ctx)
 	return nil
 }

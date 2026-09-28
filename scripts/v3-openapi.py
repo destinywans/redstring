@@ -1,7 +1,8 @@
 """V3 operations backed by current handlers; types.ts defines public DTO fields.
 
-This file intentionally omits mock-only routes. Reusing a path replaces its
-pre-V3 operation because the V3 instance serves the new semantics there.
+This file omits frontend-only mock routes. Registered partial or explicitly
+unavailable handlers are documented with their actual response boundaries.
+Reusing a path replaces its pre-V3 operation on the V3 instance.
 """
 
 def v3_object(names, extra=None, required=None):
@@ -570,9 +571,55 @@ v3_route('post','/runbooks/{id}/submit','Submit runbook for review',
     desc='Requires scoped knowledge:manage grant and maintainer ownership.',
     response=obj({'ok':v3_bool(),'status':string(enum=['review'])}))
 v3_route('post','/runbooks/{id}/dry-run','Validate runbook without execution',
+    role='viewer with scoped knowledge.manage',
     response=obj({'steps':integer(),'ok':v3_bool(),'mode':string(enum=['validation_only']),
         'checks':arr({'type':'object','additionalProperties':True})}),
-    desc='Validation only against persisted steps; request body is not used. Never runs external write steps.')
+    desc='Requires knowledge.manage because the validation preview and audit are persisted. Validates persisted steps without a request body and never runs external write steps.')
+v3_route('get','/runbooks/draft','Read a source-validated Runbook outline',
+    query=[v3_query('source',string(enum=['template','postmortem','conversation','import'])),v3_query('from')],
+    response=obj({'title':string(),'applies_to':arr(string()),'trigger':string(),
+        'steps':arr(ref('V3RunbookStep')),'sources':arr(string()),'outline':string(),
+        'draft_mode':string(enum=['template_outline']),'missing':arr(string())},
+        ['title','applies_to','trigger','steps','sources','outline','draft_mode','missing']),
+    desc='Partial main-contract operation: only a registered template and explicit from ID return an outline with empty steps. Other validated sources return 501 draft_generator_unavailable. The complete AI-drafted page remains mock.')
+P['/runbooks/draft']['get']['responses']['501'] = {
+    'description':'Source-backed Runbook draft generator is not configured',
+    'content':{'application/json':{'schema':ref('Error')}}}
+v3_route('post','/runbooks/{id}/reviews','Review a submitted Runbook',
+    body=obj({'decision':string(enum=['approve','request_changes']),'note':string()},['decision']),
+    response=obj({'id':string(),'status':string(enum=['published','draft']),'version':integer(),
+        'index_status':string(),'semantic_search_ready':v3_bool(),
+        'index_retry_required':v3_bool()},
+        ['id','status','version']),
+    desc='Auxiliary governance operation. Requires scoped knowledge.manage and a reviewer other than the maintainer. Requesting changes requires a note. Approval first commits publication, then attempts indexing outside the transaction; optional response fields report actual index status, semantic search readiness and retry need. An unavailable embedder does not undo human publication.')
+v3_route('post','/runbooks/{id}/reindex','Retry semantic indexing for one published Runbook',
+    role='viewer with scoped knowledge.manage',
+    response=obj({'id':string(),'status':string(enum=['published']),'version':integer(),
+        'index_status':string(),'semantic_search_ready':v3_bool(),
+        'index_retry_required':v3_bool()},
+        ['id','status','version','index_status','semantic_search_ready','index_retry_required']),
+    desc='Auxiliary V3 retry operation for a published Runbook in one selected environment. It rechecks the persisted object and scoped knowledge.manage, audits the request, then uses the existing governed indexer outside the transaction. Keyword publication persists when embedding fails; the response separates semantic readiness and retry need. This does not bypass the V3 object scope or use the legacy operate ACL.')
+v3_route('get','/runbooks/{id}/record','Read persisted structured Runbook fields',
+    response=obj({**fieldnames('id title version status owner application_id team_id when source_kind'),
+        'environment_ids':arr(string()),'tags':arr(string()),'steps':arr(ref('V3RunbookCreateStep')),
+        'partial':v3_bool(),'unavailable_fields':arr(string())},
+        ['id','title','version','status','owner','application_id','environment_ids','team_id',
+         'tags','when','steps','source_kind','partial','unavailable_fields']),
+    desc='Auxiliary partial record. Usage, incident resolution and execution verification are unavailable; an older document without structured V3 steps returns 503.')
+v3_route('get','/runbooks/{id}/history','Read bounded Runbook governance history',
+    response=obj({'id':string(),
+        'versions':arr(obj({'version':integer(),'actor_id':string(),'created_at':string()},
+            ['version','actor_id','created_at'])),
+        'reviews':arr(obj({'id':string(),'version':integer(),'actor_id':string(),
+            'decision':string(),'note':string(),'created_at':string()},
+            ['id','version','actor_id','decision','created_at'])),
+        'validation_previews':arr(obj({'id':string(),'version':integer(),'actor_id':string(),
+            'step_count':integer(),'readonly_valid':v3_bool(),
+            'checks':arr({'type':'object','additionalProperties':True}),'created_at':string()},
+            ['id','version','actor_id','step_count','readonly_valid','checks','created_at'])),
+        'execution_verification_available':v3_bool()},
+        ['id','versions','reviews','validation_previews','execution_verification_available']),
+    desc='Auxiliary history; each collection is limited to 100 rows and fails with 413 if larger. Review notes are visible only to the maintainer or knowledge managers. No execution verification producer is connected.')
 S['V3PostmortemCandidate'] = obj({**fieldnames('id title resolved duration'),
     'severity':string(enum=['P1','P2','P3','P4']), 'evidence':integer(minimum=0)},
     ['id','title','severity','resolved','duration','evidence'])
@@ -598,7 +645,20 @@ v3_route('post','/postmortems','Create a governed incident postmortem',
         'actions':arr(ref('V3PostmortemActionInput')),
         'status':string(enum=['draft','review'])},['incident_id','sections','actions','status']),
     response=obj({'id':string()},['id']),status=201,
-    desc='Requires a single selected environment and current events:view plus knowledge:manage on the incident application or its persisted owner team. Locks and rechecks the resolved incident, investigation report and closing event; one postmortem per incident. Stores sections and actions with an audit record in one transaction, without executing or notifying. Publishing is a separate future step.')
+    desc='Requires a single selected environment and current events:view plus knowledge:manage on the incident application or its persisted owner team. Locks and rechecks the resolved incident, investigation report and closing event; one postmortem per incident. Stores sections and actions with an audit record in one transaction, without executing or notifying. Publishing requires a separate human review.')
+v3_route('get','/postmortems/draft','Read an evidence-only postmortem starting point',
+    query=[v3_query('incident')],
+    response=obj({'incident':obj({**fieldnames('id title severity window duration')},
+            ['id','title','severity','window','duration']),
+        'sections':arr(ref('V3PostmortemSectionInput')),
+        'timeline':arr(obj({**fieldnames('at text tone')},['at','text','tone'])),
+        'actions':arr(ref('V3PostmortemActionInput')),
+        'draft_mode':string(enum=['evidence_only']),'missing':arr(string())},
+        ['incident','sections','timeline','actions','draft_mode','missing']),
+    desc='Partial main-contract operation. Uses a resolved incident and persisted close/report evidence, leaving impact, root cause and action recommendations blank. It does not generate the AI-drafted page. More than 200 timeline rows returns 413.')
+v3_route('post','/postmortems/{id}/publish','Publish a reviewed postmortem',
+    response=obj({'id':string(),'status':string(enum=['published'])},['id','status']),
+    desc='Auxiliary human review operation requiring scoped knowledge.manage. The author cannot publish their own report; the resolved incident, closed investigation, retained investigation report and saved close event are checked again before publication.')
 S['V3KnowledgeSearchHit'] = obj({**fieldnames('title snippet'),
     'keyword':v3_num(),'vector':v3_num(),'score':v3_num()})
 v3_route('post','/knowledge/search','Search scoped knowledge with keyword/vector ranking',
@@ -631,12 +691,205 @@ v3_route('post','/knowledge-sources/registrations','Register scoped source confi
     body=ref('V3KnowledgeSourceRegistrationInput'),status=201,
     response=obj({'id':string(),'registration_status':string(enum=['unverified'])},['id','registration_status']),
     desc='Auxiliary operation; stores a Vault reference, not a plaintext credential. Registration does not prove connection or begin ingestion. Requires one environment and knowledge.manage; audit is transactional.')
+v3_route('post','/knowledge-sources/registrations/{id}/sync','Observe one registered source through a configured read-only reader',
+    response=obj({'read_id':string(),'observed_count':integer(minimum=0),
+        'index_state':string(enum=['not_proven']),'complete_v3_dto':v3_bool()},
+        ['read_id','observed_count','index_state','complete_v3_dto']),
+    desc='Auxiliary lineage operation requiring one environment and knowledge.manage. Production currently has no source Readers, so it returns 501 source_reader_unavailable. A reader-injected success proves only a complete bounded ACL-verified observation; it does not import documents or prove indexing.')
+P['/knowledge-sources/registrations/{id}/sync']['post']['responses']['501'] = {
+    'description':'No read-only source reader is configured',
+    'content':{'application/json':{'schema':ref('Error')}}}
+v3_route('get','/knowledge-sources/registrations/{id}/evidence','Read observed source lineage and attributed index evidence',
+    response=obj({'id':string(),'last_read':{'type':['object','null']},
+        'index':{'type':['object','null']},'reason':string(),'complete_v3_dto':v3_bool()},
+        ['id','last_read','index','complete_v3_dto']),
+    desc='Auxiliary read of current authorized registration. An absent read returns null evidence; attributed ready documents and chunks are reported only for an observed item and never imply a complete source index. No source content is returned.')
 v3_route('post','/knowledge-sources/test','Test a knowledge source connection',
     body=obj(fieldnames('type url secret_ref'),['type','url','secret_ref']),status=501,
     desc='The Vault-backed source connector is not yet configured. After validating the request and knowledge.manage, the endpoint fails closed with 501 source_connection_test_unavailable; it never returns a fixed success.')
 P['/knowledge-sources/test']['post']['responses']['501'] = {
     'description':'Vault-backed source connection test is not available',
     'content':{'application/json':{'schema':ref('Error')}}}
+
+# Source-backed memory governance. These partial operations do not satisfy the
+# frozen MemoryView or frontend memory-action contract.
+S['V3MemoryFactEvidence'] = obj({**fieldnames('id fact source state environment_id application_id team_id'),
+    'source_version':integer(),'source_current':v3_bool(),
+    'confirmed':{'type':['string','null'],'format':'date-time'},
+    'created_at':string(format='date-time'),'revision':integer()},
+    ['id','fact','source','source_version','state','environment_id','confirmed','created_at','revision'])
+v3_route('get','/memory','Read the complete V3 memory view',status=503,
+    desc='The complete MemoryView requires unavailable layer counts, policy, recall, confidence and expiry evidence. Always returns 503 memory_view_unavailable with partial_endpoint /api/v1/memory/facts; the main contract remains mock.')
+P['/memory']['get']['responses']['503'] = {
+    'description':'Complete MemoryView is unavailable; response identifies the partial fact endpoint',
+    'content':{'application/json':{'schema':obj({'error':obj({'code':string(),'message':string(),
+        'partial_endpoint':string()},['code','message','partial_endpoint'])},['error'])}}}
+v3_route('get','/memory/facts','Read current scoped source-backed memory facts',
+    response=obj({'items':arr(ref('V3MemoryFactEvidence')),'partial':v3_bool(),
+        'unavailable_fields':arr(string())},['items','partial','unavailable_fields']),
+    desc='Auxiliary partial facts. Only current published source versions and current knowledge.view scope are returned. Confidence, recall, expiry, layer counts and policy are unavailable; more than 500 candidate facts returns 413.')
+v3_route('post','/memory/facts/{id}/{action}','Confirm, reject or expire a source-backed memory fact',
+    response=obj({'fact':{'type':'object','additionalProperties':True},
+        'fact_redacted':v3_bool(),'partial':v3_bool(),'unavailable_fields':arr(string())},
+        ['fact','fact_redacted','partial','unavailable_fields']),
+    desc='Partial main-contract operation. Only confirm, reject and expire are supported; no forget action. Requires knowledge.manage, a current published source and a valid state transition. Rejected or expired fact text is redacted in the response; frontend action semantics remain mock.')
+v3_route('post','/memory/conflicts/resolve','Resolve an open conflict between two persisted facts',
+    body=obj({'keep':string(),'drop':string()},['keep','drop']),
+    response=obj({'id':string(),'state':string(enum=['resolved']),
+        'keep':string(),'drop':string()},['id','state','keep','drop']),
+    desc='Partial main-contract operation. Requires actual distinct fact IDs for both keep and drop, an open conflict, current sources and knowledge.manage. The current frontend does not submit this body, so its interaction remains mock.')
+
+# Persisted Agent governance and reported observations. The runtime router,
+# evaluator, prompt trial, trace producer and tool executor are not connected.
+S['V3AgentEvidenceSummary'] = obj({**fieldnames('id icon name desc version level status runs_7d success avg_tokens status_source'),
+    'score':{'type':'null'},'routing_connected':v3_bool(),
+    'available':obj({'evaluation':v3_bool(),'usage':v3_bool()},['evaluation','usage'])},
+    ['id','icon','name','desc','version','level','status','score','runs_7d',
+     'success','avg_tokens','available','status_source','routing_connected'])
+v3_route('get','/agents/lifecycle','Read bounded persisted Agent lifecycle evidence',
+    response=obj({'stages':arr({'type':'object','additionalProperties':True}),
+        'agents':arr(ref('V3AgentEvidenceSummary')),
+        'todos':arr({'type':'object','additionalProperties':True}),
+        'missing':arr(string()),'partial':v3_bool(),'truncated':v3_bool()},
+        ['stages','agents','todos','missing','partial','truncated']),
+    desc='Partial main-contract projection, at most 200 Agents. Score is null and usage/routing are unavailable; the current frontend requires a number and must not render this as a complete Lifecycle.')
+v3_route('get','/agents/{id}','Read one persisted Agent and version metadata',
+    response=obj({**S['V3AgentEvidenceSummary']['properties'], **fieldnames('owner account summary'),
+        'versions':arr({'type':'object','additionalProperties':True}),
+        'release':obj({**fieldnames('from to'), 'target':integer(),
+            'configured_canary_percent':integer(),
+            'observed_traffic':{'type':'null'},
+            'current':{'type':'null'},'tokens':{'type':'null'},
+            'gates':arr({'type':'object','additionalProperties':True}),
+            'routing_connected':v3_bool(),'missing':arr(string())},
+            ['from','to','target','configured_canary_percent','observed_traffic',
+             'current','tokens','gates','routing_connected','missing']),
+        'diff':arr({'type':'object','additionalProperties':True}),
+        'config':arr({'type':'object','additionalProperties':True}),
+        'scope':{'type':'object','additionalProperties':True}},
+        S['V3AgentEvidenceSummary']['required'] +
+        ['owner','account','summary','versions','release','diff','config','scope']),
+    desc='Partial main-contract projection: version status may be draft, actual traffic and token counts are unavailable. Null release fields are incompatible with the current Agent page; no live routing is implied.')
+v3_route('post','/agents/{id}/rollout','Save a gated Agent release configuration',
+    body=obj({'to':string(),'percent':integer(minimum=1,maximum=100),
+        'override':v3_bool(),'override_reason':string()},['to','percent']),
+    response=obj({'id':string(),'to':string(),'configured_percent':integer(),
+        'observed_traffic':{'type':'null'},'routing_connected':v3_bool(),
+        'gate_experiment_id':string(),'override':v3_bool()},
+        ['id','to','configured_percent','observed_traffic','routing_connected','override']),
+    desc='Persists requested release configuration only; no traffic router is connected. Requires the latest passing evaluation for current stable to candidate. Override requires an enabled human administrator, a nonempty override_reason and audit; machine identities cannot override. The current frontend omits that reason. Observed traffic remains null.')
+v3_route('post','/agents/{id}/rollback','Save a rollback release configuration',
+    response=obj({'id':string(),'to':string()},['id','to']),
+    desc='Requires a prior persisted release target. Saves governance metadata only; no traffic router is connected and no actual traffic change is claimed.')
+v3_route('patch','/agents/{id}/level','Change an Agent permission level within its environment cap',
+    body=obj({'level':string(enum=['L0','L1','L2','L3'])},['level']),
+    response=obj({'level':string(),'max_level':string()},['level','max_level']),
+    desc='Requires scoped agents.manage; a requested level above the persisted environment maximum returns 409. This metadata does not grant an unconnected runtime tool execution path.')
+v3_route('get','/prompts','List bounded persisted Prompt versions',
+    response=obj({'items':arr(obj({**fieldnames('id kind name version status')},
+        ['id','kind','name','version','status'])),'truncated':v3_bool()},['items','truncated']),
+    desc='At most 200 persisted Prompt identities; skills and runtime usage are not represented by this response. The full Prompt page remains mock.')
+v3_route('get','/prompts/{id}','Read one stored Prompt version',
+    response=obj({**fieldnames('id name version status notes'),
+        'variables':arr(string()),
+        'used_by':string(),'lines':arr(obj({'text':string()},['text'])),
+        'scope':{'type':'object','additionalProperties':True}},
+        ['id','name','version','status','variables','used_by','lines','notes','scope']),
+    desc='Stored Prompt text and metadata only; not a model trial, published runtime version or complete frontend PromptDetail.')
+v3_route('post','/prompts/{id}/versions','Store a new Prompt text revision',
+    body=obj({'text':string()},['text']),response=obj({'version':string()},['version']),status=201,
+    desc='Stores a nonempty text revision of at most 20000 characters with audit. It does not publish or execute the Prompt.')
+v3_route('post','/prompts/{id}/trial','Run a Prompt comparison trial',
+    body=obj({'case':string(),'a':string(),'b':string()},['case','a','b']),status=503,
+    desc='Always returns 503 prompt_trial_unavailable after request and authorization validation; no trial runner or model execution is configured.')
+P['/prompts/{id}/trial']['post']['responses']['503'] = {
+    'description':'Prompt trial runner is unavailable',
+    'content':{'application/json':{'schema':ref('Error')}}}
+v3_route('get','/agent-tools','Read persisted Agent tool governance metadata',
+    query=[v3_query('kind',string(enum=['all','read','write']))],
+    response=obj({'items':arr({'type':'object','additionalProperties':True}),
+        'levels':arr({'type':'object','additionalProperties':True}),
+        'env_limits':arr(obj(fieldnames('env max note'),['env','max','note'])),
+        'rules':arr(string()),
+        'missing':arr(string()),'truncated':v3_bool()},
+        ['items','levels','env_limits','rules','missing','truncated']),
+    desc='At most 200 registered tools. Calls/errors are unavailable and executable is false; no live tool executor is connected. The full ToolsView remains mock.')
+v3_route('get','/evals/{id}','Read one stored Agent evaluation experiment',
+    response=obj({**fieldnames('id title status baseline_version candidate_version result_ref created_at'),
+        'dataset':string(),'meta':string(),
+        'metrics':{'type':['object','null'],'additionalProperties':True},
+        'radar':{'type':'null'},'cases':arr({'type':'object','additionalProperties':True}),
+        'datasets':arr({'type':'object','additionalProperties':True}),
+        'evaluators':arr({'type':'object','additionalProperties':True}),
+        'missing':arr(string()),'partial':v3_bool()},
+        ['id','title','dataset','meta','status','baseline_version','candidate_version',
+         'metrics','radar','cases','datasets','evaluators','result_ref','created_at','missing','partial']),
+    desc='Partial stored evaluation record. Dataset, radar and case detail are unavailable; a passed status is a persisted trusted-producer report, not proof that this service ran quality thresholds.')
+v3_route('post','/evals','Create pending Agent evaluation metadata',
+    body=obj({**fieldnames('agent_id title baseline_version candidate_version')},
+        ['agent_id','title','baseline_version','candidate_version']),
+    response=obj({'id':string(),'status':string(enum=['pending']),
+        'execution_available':v3_bool()},['id','status','execution_available']),status=201,
+    desc='Requires two distinct known versions. Stores a pending experiment only; it does not queue or execute evaluation, and execution_available is false. The current frontend rerun request has no matching body.')
+v3_route('get','/eval-cases/{id}','Read one partially evidenced evaluation case',
+    response=obj({**fieldnames('id title queue expected_ref'),
+        'labels':arr({'type':'object','additionalProperties':True}),
+        **{key:{'type':'null'} for key in ['alert','evidence','expected','output','baseline','auto']},
+        'missing':arr(string()),'partial':v3_bool()},
+        ['id','title','queue','expected_ref','labels','alert','evidence','expected',
+         'output','baseline','auto','missing','partial']),
+    desc='At most 50 human labels; input evidence, expected output, baseline and automatic scoring are unavailable. This does not satisfy the frontend EvalCase DTO.')
+v3_route('post','/eval-cases/{id}/labels','Record one human evaluation label',
+    body=obj({'next':string(enum=['correct','incorrect','partial','unsure']),
+        'note':string()},['next']),
+    response=obj({'next':string(),'id':string()},['next','id']),
+    desc='Requires an explicit next label and optional note up to 2000 runes; saved with audit. The current frontend sends different fields and would receive 422.')
+v3_route('get','/agent-runs','Read bounded reported Agent runs',
+    query=[v3_query('filter',string(enum=['all','failed','blocked','negative']))],
+    response=obj({'kpis':arr({'type':'object','additionalProperties':True}),
+        'trend':{'type':'null'},'durations':{'type':'null'},
+        'items':arr({'type':'object','additionalProperties':True}),
+        'counts':{'type':'null'},'partial':v3_bool(),'truncated':v3_bool(),
+        'missing':arr(string())},
+        ['kpis','trend','durations','items','counts','partial','truncated','missing']),
+    desc='At most 200 persisted run reports. Complete steps, aggregate KPIs, trends and counts are unavailable; no live runtime producer is connected.')
+v3_route('get','/agent-runs/{id}','Read one reported Agent run and bounded spans',
+    response=obj({'id':string(),'chain':arr(obj(fieldnames('label value icon'),
+            ['label','value','icon'])),
+        'stats':arr(obj(fieldnames('k v'),['k','v'])),
+        'steps':arr({'type':'object','additionalProperties':True}),
+        'total':{'type':['number','null']},'context':{'type':'null'},
+        'budget':string(),'isolated':arr({'type':'object','additionalProperties':True}),
+        'memory':{'type':'null'},'partial':v3_bool(),'missing':arr(string())},
+        ['id','chain','stats','steps','total','context','budget','isolated','memory','partial','missing']),
+    desc='At most 500 reported spans, without complete conversation, context, memory or token accounting. Does not satisfy the RunDetail page DTO.')
+v3_route('get','/agent-runs/{id}/trace','Read bounded reported Agent trace metadata',
+    response=obj({'id':string(),'agent':string(),'status':string(),
+        'stats':arr({'type':'object','additionalProperties':True}),
+        'scores':arr({'type':'object','additionalProperties':True}),
+        'session':string(),'turns':arr({'type':'object','additionalProperties':True}),
+        'total':{'type':['number','null']},
+        'spans':arr({'type':'object','additionalProperties':True}),
+        'partial':v3_bool(),'missing':arr(string())},
+        ['id','agent','status','stats','scores','session','turns','total','spans','partial','missing']),
+    desc='At most 500 producer-reported spans; LLM messages, tool arguments/results, scores and complete session turns are unavailable. Reported tool spans do not prove two-phase executor audit. The full AgentTrace remains mock.')
+v3_route('post','/agent-runs/{id}/feedback','Save a user vote for a completed Agent run',
+    body=obj({'vote':string(enum=['up','down'])},['vote']),
+    response=obj({'vote':string(enum=['up','down'])},['vote']),
+    desc='One current-user vote is upserted on a completed run with transactional audit. An active run returns 409; this does not derive evaluation quality metrics.')
+v3_route('get','/guardrails','Read persisted Agent guardrail policies and reported events',
+    query=[v3_query('filter',string(enum=['all','blocked','masked']))],
+    response=obj({'policies':arr({'type':'object','additionalProperties':True}),
+        'trend':{'type':'null'},'events':arr({'type':'object','additionalProperties':True}),
+        'counts':{'type':'null'},'detail':{'type':'null'},
+        'partial':v3_bool(),'truncated':v3_bool(),'missing':arr(string())},
+        ['policies','trend','events','counts','detail','partial','truncated','missing']),
+    desc='At most 200 policies and events. Runtime enforcement, trend, counts and detail are unproven; events rely on a trusted reporting hook and the full GuardrailsView remains mock.')
+v3_route('patch','/guardrails/{id}','Change one persisted guardrail policy setting',
+    body=obj({'enabled':v3_bool()},['enabled']),
+    response=obj({'id':string(),'enabled':v3_bool(),'revision':integer()},
+        ['id','enabled','revision']),
+    desc='Scoped agents.manage setting with audit and a persisted policy revision; a forced guardrail cannot be disabled. This does not prove a live runtime consumes the policy.')
 
 # Read-only service discovery and externally queried telemetry.
 S['V3CatalogEvidenceState'] = obj({'state':string(enum=['unavailable']), 'reason':string()},['state'])

@@ -149,7 +149,7 @@
 | --- | --- | --- | --- | --- |
 | GET | `/runbooks` | `q`, `service` | Runbook 列表 | mock |
 | GET | `/runbooks/{id}` | | `Runbook` | mock |
-| POST | `/runbooks/{id}/dry-run` | 验证当前持久化步骤，不执行外部动作 | 演练结果 | implemented |
+| POST | `/runbooks/{id}/dry-run` | 当前对象需 `knowledge.manage`；验证持久化步骤并保存预览/审计，不执行外部动作 | 演练结果 | implemented |
 | POST | `/runbooks/{id}/submit` | 当前持久化草稿，无请求体 | 提交审核 | implemented |
 | GET | `/postmortems` | | `PostmortemSummary` | mock |
 | GET | `/memory` | | `MemoryView` | mock |
@@ -157,6 +157,8 @@
 | POST | `/memory/conflicts/resolve` | `{ keep, drop }` | 结果 | mock |
 | GET | `/knowledge-sources` | | 知识来源 | mock |
 | POST | `/knowledge/search` | `{ q, service?, top_k? }` | `{ hits: RetrievalHit[] }` | implemented |
+
+知识治理另有部分证据与人工审核辅助接口，详见 [V3 后端辅助接口](v3-backend-aux.md)。`GET /memory` 当前明确返回 `503 memory_view_unavailable`，只提供 `/memory/facts` 的受权、当前来源事实列表；没有可信的层级、置信度、召回次数与过期值。事实状态操作仅支持 `confirm`、`reject`、`expire`，冲突裁决须传入两个真实事实 ID。现有前端的 `forget` 和冲突请求体不符合此接口，因此上述主页面行保持 `mock`。
 
 ## 资源与观测（`observe.ts`）
 
@@ -206,11 +208,15 @@
 | POST | `/knowledge-sources/test` | `{ type, url, secret_ref: "vault:…" }` | 连接结果 | mock |
 | POST | `/knowledge-sources` | `{ type, url, secret_ref: "vault:…", spaces, schedule, chunk, inherit_acl }`（只接受 Vault 引用） | `{ id, status }` | mock |
 
+`GET /runbooks/draft` 目前只有传入真实模板 ID 的 `template` 来源可返回无步骤大纲；对话、复盘和导入来源通过验证后返回 `501 draft_generator_unavailable`。前端尚未为模板、对话和导入入口传 `from`，草稿页仍为 `mock`。`GET /postmortems/draft` 仅拼接有结案证据的事件信息与时间线，影响、根因、行动建议均留空，不是 AI 生成稿；主契约同样保持 `mock`。知识来源登记、受限观察与归属证据不代表实际连接、正文导入或索引完成；生产配置尚无 Reader，来源同步返回 501。
+
 ## Agent 链路（`traces.ts`）
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
 | GET | `/agent-runs/{id}/trace` | | `AgentTrace`：汇总、会话各轮模型、Span 树（agent / chain / llm / tool / retriever / guardrail），LLM 消息、参数、token 构成、评分，工具参数与结果 | mock |
+
+Agent Trace 后端目前只能读受信生产者上报的有界 Span 元数据；模型消息、工具参数/结果、评分和完整回合仍无生产者。工具 Span 也不证明外部执行器的两阶段审计完成，故整页保持 `mock`。
 
 ## 集成中心（`integrations.ts`）
 
@@ -251,7 +257,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | --- | --- | --- | --- | --- |
 | GET | `/agents/lifecycle` | | `Lifecycle` | mock |
 | GET | `/agents/{id}` | | `AgentDetail` | mock |
-| POST | `/agents/{id}/rollout` | `{ to, percent, override }`（`override` 表示管理员放行未通过的门禁，写审计） | 结果 | mock |
+| POST | `/agents/{id}/rollout` | `{ to, percent, override?, override_reason? }`；放行未通过门禁须启用的人类管理员填写原因并写审计 | 仅保存发布配置，尚无真实流量路由 | mock |
 | POST | `/agents/{id}/rollback` | | 结果 | mock |
 | PATCH | `/agents/{id}/level` | `{ level: L0..L3 }`（受环境上限约束） | 结果 | mock |
 | GET | `/prompts` | | `{ items: PromptItem[] }` | mock |
@@ -260,14 +266,16 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | POST | `/prompts/{id}/versions` | `{ text }` | `{ version }` | mock |
 | GET | `/agent-tools` | `kind: all\|read\|write` | `ToolsView` | mock |
 | GET | `/evals/{id}` | | `EvalExperiment` | mock |
-| POST | `/evals` | 实验配置 | `{ id }` | mock |
+| POST | `/evals` | `{ agent_id, title, baseline_version, candidate_version }` | `{ id, status: "pending", execution_available: false }`，未启动评测 | mock |
 | GET | `/eval-cases/{id}` | | `EvalCase` | mock |
-| POST | `/eval-cases/{id}/labels` | 人工评分 | `{ next }` | mock |
+| POST | `/eval-cases/{id}/labels` | `{ next: correct\|incorrect\|partial\|unsure, note? }` | `{ next, id }` | mock |
 | GET | `/agent-runs` | `filter: all\|failed\|blocked\|negative` | `RunsView` | mock |
 | GET | `/agent-runs/{id}` | | `RunDetail`（执行时间线、上下文组成、记忆） | mock |
 | POST | `/agent-runs/{id}/feedback` | `{ vote: up\|down }` | 结果 | mock |
 | GET | `/guardrails` | `filter: all\|blocked\|masked` | `GuardrailsView` | mock |
 | PATCH | `/guardrails/{id}` | `{ enabled }`（强制规则不可关闭） | 结果 | mock |
+
+Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评测、发布意图、反馈和护栏设置；尚无评测执行器、流量路由消费者、Prompt trial 或完整运行/护栏观测生产者。`POST /prompts/{id}/trial` 明确返回 `503 prompt_trial_unavailable`，`POST /evals` 只创建 `pending` 元数据，发布和回滚不改变真实流量。部分读取返回 `null`、`partial: true` 或“未接入”；现有前端对 `score`、发布 token/门禁、评测、Trace、运行统计的 DTO 与请求体尚不兼容，不能直接切换 HTTP 模式。管理员门禁放行另需非空 `override_reason`，现有前端未提交；这些主契约行继续为 `mock`。
 
 ## 设置（`settings.ts`）
 

@@ -29,6 +29,10 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := adminDB.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public; CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public"); err != nil {
+		adminDB.Close()
+		t.Fatal(err)
+	}
 	schema := "v3_runbook_http_" + store.ID()
 	quoted := pgx.Identifier{schema}.Sanitize()
 	if _, err := adminDB.Exec(ctx, "CREATE SCHEMA "+quoted); err != nil {
@@ -145,6 +149,7 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	seed("runbook-other-env", "app-1", "test", "draft", maintainer.ID, nil)
 	seed("runbook-unknown-env", "app-1", "", "published", maintainer.ID, nil)
 	seed("runbook-review", "app-1", "dev", "review", maintainer.ID, nil)
+	seed("runbook-public", "app-1", "dev", "published", maintainer.ID, []Step{{N: 1, Kind: "query", Title: "Read metrics", Readonly: true}})
 	seed("runbook-team", "app-1", "dev", "draft", teamMaintainer.ID, []Step{{N: 1, Kind: "query", Title: "Read metrics", Readonly: true, Connectors: []string{"prometheus"}}})
 	login := func(email, password string) string {
 		t.Helper()
@@ -251,6 +256,20 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	assert(request("runbook-other-app", "submit", "dev", teamToken), 403, "forbidden")
 	assert(request("runbook-other-app", "dry-run", "dev", teamToken), 404, "not_found")
 	assert(request("runbook-unknown-env", "dry-run", "dev", maintainerToken), 404, "not_found")
+	// A published document is readable by this user, but a validation
+	// preview creates permanent preview and audit rows.
+	assert(request("runbook-public", "dry-run", "dev", readerToken), 404, "not_found")
+	var rejectedPreviews, rejectedAudits int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_runbook_validation_previews WHERE document_id='runbook-public'`).Scan(&rejectedPreviews); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE target='runbook-public' AND action='runbook.validation_preview'`).Scan(&rejectedAudits); err != nil {
+		t.Fatal(err)
+	}
+	if rejectedPreviews != 0 || rejectedAudits != 0 {
+		t.Fatalf("viewer persisted a preview or audit: previews=%d audits=%d", rejectedPreviews, rejectedAudits)
+	}
+	assert(request("runbook-public", "dry-run", "dev", otherToken), 200, "")
 	assert(request("runbook-other-env", "submit", "test", teamToken), 403, "forbidden")
 	assert(request("runbook-review", "submit", "dev", maintainerToken), 409, "invalid_state")
 	assert(request("runbook-team", "dry-run", "dev", teamToken), 200, "")

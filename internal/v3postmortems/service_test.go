@@ -64,6 +64,10 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := adminDB.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public; CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public"); err != nil {
+		adminDB.Close()
+		t.Fatal(err)
+	}
 	schema := "v3_postmortem_http_" + store.ID()
 	quoted := pgx.Identifier{schema}.Sanitize()
 	if _, err := adminDB.Exec(ctx, "CREATE SCHEMA "+quoted); err != nil {
@@ -328,6 +332,24 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 	postmortemRunbook := `{"title":"Evidence based response","source":"postmortem","from":"ready","steps":[{"n":1,"kind":"check","title":"Inspect evidence","readonly":true}],"status":"draft"}`
 	assertError(call("POST", "/api/v1/runbooks", "dev", adminToken, postmortemRunbook), 422, "invalid_source")
 	assertError(call("POST", "/api/v1/postmortems/"+made.ID+"/publish", "dev", teamToken, ""), 403, "self_review_forbidden")
+	if _, err := db.Exec(ctx, `UPDATE investigations SET status='active' WHERE id='closed-inv'`); err != nil {
+		t.Fatal(err)
+	}
+	assertError(call("POST", "/api/v1/postmortems/"+made.ID+"/publish", "dev", adminToken, ""), 409, "invalid_state")
+	if _, err := db.Exec(ctx, `UPDATE investigations SET status='closed' WHERE id='closed-inv'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM investigation_reports WHERE investigation_id='closed-inv'`); err != nil {
+		t.Fatal(err)
+	}
+	assertError(call("POST", "/api/v1/postmortems/"+made.ID+"/publish", "dev", adminToken, ""), 409, "invalid_state")
+	if _, err := db.Exec(ctx, `INSERT INTO investigation_reports(investigation_id,execution_id,report)
+ VALUES('closed-inv','execution','{}')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, `SELECT status FROM v3_postmortems WHERE id=$1`, made.ID).Scan(&status); err != nil || status != "review" {
+		t.Fatalf("stale evidence advanced postmortem: status=%q err=%v", status, err)
+	}
 	published := call("POST", "/api/v1/postmortems/"+made.ID+"/publish", "dev", adminToken, "")
 	if published.Code != 200 || !strings.Contains(published.Body.String(), `"status":"published"`) {
 		t.Fatalf("publish: %d %s", published.Code, published.Body.String())

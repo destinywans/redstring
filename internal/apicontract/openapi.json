@@ -3846,7 +3846,7 @@
       "post": {
         "summary": "Search scoped knowledge with keyword/vector ranking",
         "operationId": "post_knowledge_search",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. When embeddings are unavailable, returns a keyword result with degraded=true; an unavailable keyword index returns 503.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Keyword and vector candidates use the same current explicit environment, active application mapping and V3 environment/knowledge grants. A document carrying team_id must match the application current owner team and have an additional team knowledge grant. Candidate document ID/version and current grants are rechecked before output; malformed or unknown scope and source_registration_id documents are excluded pending trusted provenance. When embeddings are unavailable, returns a keyword result with degraded=true; an unavailable keyword index returns 503.",
         "responses": {
           "200": {
             "description": "Success",
@@ -31503,7 +31503,7 @@
       "get": {
         "summary": "Read scoped published document identities",
         "operationId": "get_knowledge_sources_observed_documents",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read-only backend endpoint, not the V3 KnowledgeSource DTO. This document-only projection does not join available source registrations, observed reads or index attribution, so reason is document_only_projection and sync/index fields remain unknown. No document body is returned.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read-only backend endpoint, not the V3 KnowledgeSource DTO. Current document title, explicit environment, active application mapping, matching owner team and V3 grants are rechecked before output. Malformed or unknown scope and source_registration_id documents are excluded. This document-only projection does not join available source registrations, observed reads or index attribution, so reason is document_only_projection and sync/index fields remain unknown. No document body is returned.",
         "responses": {
           "200": {
             "description": "Success",

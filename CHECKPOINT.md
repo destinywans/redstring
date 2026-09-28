@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-134 · 2026-09-29 · 知识正文与 Runbook 当前权限边界
+
+- WAN-123 源提交 `e88182568b7483c6a4be16448f7e654f7e55e74d` 在本地集成分支合入为 `cb7317f`，无迁移或新路由。V3 关键词与向量检索共用显式环境、已发布文档、有效应用/环境绑定以及当前环境和知识查看授权；带 `team_id` 的文档还须匹配当前应用负责人并具备团队查看权限。命中在输出前按文档 ID/版本及授权重核。来源文档身份投影在输出前重新读取当前标题、映射和授权；Runbook 写入与读取在事务/当前数据库记录上拒绝异常或缺失范围。历史环境不明、异常 JSON、已退役映射及带 `source_registration_id` 的未验证来源文档失败关闭。旧检索另排除团队标记与未验证来源；新 `search_knowledge` 证据组件为可选且未在 `cmd/aiops` 注册。
+- 独立只读审查未见本次变更的确定性越权；交接所称“V3 旧 Worker 仍运行”不符当前源码：V3 实例关闭旧 Worker/队列，未迁移旧知识体路由返回 501。旧工具在非 V3 路径仍可读无显式环境的历史文档，未来不得误接到 V3；新工具需从持久会话绑定操作者、应用、环境，不能从模型参数推断。当前以 `source_registration_id` 键排除未验证来源；未来导入器必须强制写来源标记并验证反例。`team_id` 缺失的应用文档只按应用授权，若产品要求一律继承团队权限需另定契约。
+- 一次性 pgvector PG17 随机 schema 的 `internal/v3knowledge`、`internal/v3knowledgesources` 全包测试通过；`internal/knowledge` 的新增 V3 作用域及旧检索定向测试通过。该包首次全量检查因临时库扩展准备及三处旧 RBAC 夹具缺少应用资源/授权失败；只更新 `drafts_test.go`、`governance_test.go`、`repository_test.go` 的测试数据后，三项定向及全包测试通过，生产授权代码未放宽。三个受影响包与 `cmd/aiops` 的 `go vet`、314 条 OpenAPI 引用、165 行主契约、路由矩阵及差异检查通过；容器已清理。未迁移现有业务库、导入公开 Web 正文、启用生产 Reader/Agent 工具、修改前端或完成页面验收。现有 `POST /knowledge/search` 状态不变，知识来源与完整 Runbook 页面仍 `mock`，总数 **34/166 `implemented`**。当前新增提交仅在本地，既有私有远端推送此前两次被自动审批拒绝，等待用户明确批准，不得代推或绕过。
+
 ## CP-133 · 2026-09-29 · 静默创建单端点对账与过期防护
 
 - WAN-118 源提交 `b35c33a718f72920c0fce02f9fd6b9be795b30fa` 合入集成分支为 `307eebc`，新增迁移 `101_v3_silence_create_terminal_states.sql` 的 `manual_review` / `expired` 状态。私有对账读取一个受信 Alertmanager 端点的完整、未按环境过滤的静默列表：没有操作标记则保持 `unknown` 且不重发，唯一且完整匹配才 `confirmed`，重复标记或载荷失配进入持久 `manual_review`，列表失败不确认；状态变化与审计同事务。`beginCreate` 和低层网络调用前分别检查固定时间窗，明显过期时拒发。只有低层明确在发送前返回 `ErrSilenceCreateExpired`，未来执行器才可调用 `markCreateNotSentExpired`；该私有方法本身不能证明未发送。

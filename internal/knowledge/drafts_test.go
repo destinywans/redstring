@@ -183,6 +183,8 @@ func TestPostgresExperienceDraftHTTPRolesAndValidation(t *testing.T) {
 	if _, e := db.Exec(ctx, "INSERT INTO users(id,email,name,role,password_hash) VALUES('viewer','viewer@example.invalid','Viewer','viewer','unused')"); e != nil {
 		t.Fatal(e)
 	}
+	grantLegacyKnowledgeResource(t, db, "u", "a", "a-default", true)
+	grantLegacyKnowledgeResource(t, db, "viewer", "a", "a-default", false)
 	if _, e := db.Exec(ctx, "INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,'u',now()+interval '1 hour'),($2,'viewer',now()+interval '1 hour')", store.Hash("operator-token"), store.Hash("viewer-token")); e != nil {
 		t.Fatal(e)
 	}

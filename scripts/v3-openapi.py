@@ -780,7 +780,7 @@ v3_route('post','/knowledge/search','Search scoped knowledge with keyword/vector
     body=obj({'q':string(),'service':string(),'top_k':integer(minimum=1,maximum=20)},['q']),
     response=obj({'hits':arr(ref('V3KnowledgeSearchHit')),
         'mode':string(enum=['hybrid','keyword','none']),'degraded':v3_bool()}),
-    desc='When embeddings are unavailable, returns a keyword result with degraded=true; an unavailable keyword index returns 503.')
+    desc='Keyword and vector candidates use the same current explicit environment, active application mapping and V3 environment/knowledge grants. A document carrying team_id must match the application current owner team and have an additional team knowledge grant. Candidate document ID/version and current grants are rechecked before output; malformed or unknown scope and source_registration_id documents are excluded pending trusted provenance. When embeddings are unavailable, returns a keyword result with degraded=true; an unavailable keyword index returns 503.')
 P['/knowledge/search']['post']['responses']['413'] = {
     'description':'Authorized knowledge candidate scope is too large; narrow the search to one service',
     'content':{'application/json':{'schema':ref('Error')}}}
@@ -793,7 +793,7 @@ v3_route('get','/knowledge-sources/observed-documents','Read scoped published do
         'index':{'type':'null'},'partial':v3_bool(),'reason':string(),
         'truncated':v3_bool()},
         ['items','index','partial','reason','truncated']),
-    desc='Auxiliary read-only backend endpoint, not the V3 KnowledgeSource DTO. This document-only projection does not join available source registrations, observed reads or index attribution, so reason is document_only_projection and sync/index fields remain unknown. No document body is returned.')
+    desc='Auxiliary read-only backend endpoint, not the V3 KnowledgeSource DTO. Current document title, explicit environment, active application mapping, matching owner team and V3 grants are rechecked before output. Malformed or unknown scope and source_registration_id documents are excluded. This document-only projection does not join available source registrations, observed reads or index attribution, so reason is document_only_projection and sync/index fields remain unknown. No document body is returned.')
 S['V3KnowledgeSourceRegistration'] = obj({**fieldnames('id environment_id application_id team_id name type url schedule chunk registration_status created_at'),
     'spaces':arr(string()),'inherit_acl':v3_bool()},
     ['id','environment_id','name','type','url','spaces','schedule','chunk','inherit_acl','registration_status','created_at'])

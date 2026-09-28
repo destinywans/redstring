@@ -257,7 +257,7 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) {
 		operationError(w, err)
 		return
 	}
-	rows, err := s.db.Query(r.Context(), `SELECT id,role,author,parts,attachments,run,state,created_at FROM v3_conversation_messages WHERE conversation_id=$1 ORDER BY created_at,id`, id)
+	rows, err := s.db.Query(r.Context(), `SELECT id,role,author,parts,attachments,run,state,created_at FROM v3_conversation_messages WHERE conversation_id=$1 ORDER BY sort_order`, id)
 	if err != nil {
 		operationError(w, err)
 		return
@@ -439,7 +439,9 @@ func pagination(r *http.Request) (int, int) {
 
 func (s *Service) latestReply(ctx context.Context, conv string) (string, error) {
 	var id string
-	err := s.db.QueryRow(ctx, `SELECT id FROM v3_conversation_replies WHERE conversation_id=$1 ORDER BY started_at DESC,id DESC LIMIT 1`, conv).Scan(&id)
+	err := s.db.QueryRow(ctx, `SELECT r.id FROM v3_conversation_replies r
+		JOIN v3_conversation_messages m ON m.id=r.user_message_id AND m.conversation_id=r.conversation_id
+		WHERE r.conversation_id=$1 ORDER BY m.sort_order DESC,r.id DESC LIMIT 1`, conv).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound
 	}

@@ -243,11 +243,12 @@ func isolatedConversationDBWithConns(t *testing.T, maxConns int32) *pgxpool.Pool
 	}
 	_, err = db.Exec(ctx, `
 		CREATE TABLE v3_conversations (id text PRIMARY KEY, owner_id text NOT NULL, environment_id text NOT NULL, active_reply_id text, updated_at timestamptz);
-		CREATE TABLE v3_conversation_messages (id text PRIMARY KEY, conversation_id text NOT NULL, role text NOT NULL, author text NOT NULL, parts jsonb NOT NULL, attachments jsonb NOT NULL DEFAULT '[]', run jsonb, state text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
+		CREATE SEQUENCE v3_conversation_message_order_seq;
+		CREATE TABLE v3_conversation_messages (id text PRIMARY KEY, conversation_id text NOT NULL, role text NOT NULL, author text NOT NULL, parts jsonb NOT NULL, attachments jsonb NOT NULL DEFAULT '[]', run jsonb, state text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), sort_order bigint NOT NULL DEFAULT nextval('v3_conversation_message_order_seq'), UNIQUE(conversation_id,sort_order));
 		CREATE TABLE v3_conversation_replies (id text PRIMARY KEY, conversation_id text NOT NULL, assistant_message_id text NOT NULL, initiating_session_hash text NOT NULL DEFAULT '', worker_claim_id text NOT NULL DEFAULT '', lease_expires_at timestamptz, state text NOT NULL, error text NOT NULL DEFAULT '', finished_at timestamptz);
 		CREATE TABLE v3_conversation_events (seq bigserial PRIMARY KEY, conversation_id text NOT NULL, reply_id text NOT NULL, payload jsonb NOT NULL);
 		CREATE TABLE sessions (token_hash text PRIMARY KEY, user_id text NOT NULL, expires_at timestamptz NOT NULL);
-		CREATE TABLE management_audit (actor_id text NOT NULL, actor_kind text NOT NULL, action text NOT NULL, target text NOT NULL, outcome text NOT NULL, changes jsonb NOT NULL);
+		CREATE TABLE management_audit (id bigserial PRIMARY KEY, chain_seq bigserial NOT NULL UNIQUE, actor_id text NOT NULL, actor_kind text NOT NULL, action text NOT NULL, target text NOT NULL, outcome text NOT NULL, changes jsonb NOT NULL);
 		INSERT INTO v3_conversations(id,owner_id,environment_id,active_reply_id) VALUES('c','persisted-owner','test','r');
 		INSERT INTO v3_conversation_messages(id,conversation_id,role,author,parts,state) VALUES('u','c','user','user','[{"type":"text","markdown":"private history"}]','completed'),('a','c','assistant','AI','[]','streaming');
 		INSERT INTO v3_conversation_replies(id,conversation_id,assistant_message_id,worker_claim_id,lease_expires_at,state) VALUES('r','c','a','r',clock_timestamp()+interval '1 hour','queued');`)

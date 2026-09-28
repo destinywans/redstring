@@ -878,7 +878,7 @@ func (s *Service) recoveredParts(ctx context.Context, tx pgx.Tx, reply string) (
 func (s *Service) contextMessages(ctx context.Context, conv string) ([]inference.Message, error) {
 	rows, err := s.db.Query(ctx, `SELECT role,parts FROM v3_conversation_messages
 		WHERE conversation_id=$1 AND (role='user' OR role='assistant' AND state='completed')
-		ORDER BY created_at,id`, conv)
+		ORDER BY sort_order`, conv)
 	if err != nil {
 		return nil, err
 	}

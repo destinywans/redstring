@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
@@ -490,6 +491,9 @@ func (s *Service) saveImport(ctx context.Context, user core.User, mr MR, manifes
  VALUES($1,NULL,NULL,$2,$3,'',$4::jsonb,$5::jsonb,false)`, targetID,
 		manifest.Template.Kind, manifest.Template.Name, nodes, edges)
 	if err != nil {
+		if importUniqueConflict(err, "v3_canvas_templates") {
+			return store.ErrConflict
+		}
 		return err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO v3_config_imports
@@ -497,6 +501,9 @@ func (s *Service) saveImport(ctx context.Context, user core.User, mr MR, manifes
  VALUES($1,$2,$3,$4,$5,'template',$6,$7)`, store.ID(), s.Repository.ProjectID(),
 		mr.IID, mr.MergeCommitSHA, manifest.PromotionID, targetID, user.ID)
 	if err != nil {
+		if importUniqueConflict(err, "v3_config_imports") {
+			return store.ErrConflict
+		}
 		return err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes)
@@ -508,6 +515,12 @@ func (s *Service) saveImport(ctx context.Context, user core.User, mr MR, manifes
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func importUniqueConflict(err error, table string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505" &&
+		(pgErr.TableName == table || strings.HasPrefix(pgErr.ConstraintName, table+"_"))
 }
 
 // Keep time imported for the export lease without relying on the remote clock.

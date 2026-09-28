@@ -71,7 +71,7 @@ CREATE TABLE v3_effective_role_grants(user_id text NOT NULL,module text NOT NULL
  scope_kind text NOT NULL,scope_id text NOT NULL,v3_identity_kind text NOT NULL DEFAULT 'human',role_kind text NOT NULL DEFAULT 'human');
 CREATE TABLE v3_canvas_templates(id text PRIMARY KEY,owner_id text,environment_id text,
  kind text NOT NULL,name text NOT NULL,description text NOT NULL DEFAULT '',nodes jsonb NOT NULL,edges jsonb NOT NULL,
- is_default boolean NOT NULL DEFAULT false);
+ is_default boolean NOT NULL DEFAULT false,created_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE management_audit(id bigserial PRIMARY KEY,actor_id text NOT NULL,action text NOT NULL,
  target text NOT NULL,outcome text NOT NULL,changes jsonb NOT NULL DEFAULT '{}');
 INSERT INTO users(id,email,name,role) VALUES

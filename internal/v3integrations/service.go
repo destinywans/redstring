@@ -186,7 +186,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		if query != "" && !searchtext.Match(c.Name+" "+c.Provider+" "+c.Endpoint, query) {
 			continue
 		}
-		items = append(items, summary(c))
+		items = append(items, summary(c, r.Header.Get("Accept-Language")))
 	}
 	if rows.Err() != nil {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
@@ -199,21 +199,25 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items, "counts": counts, "categories": cats})
 }
 
-func summary(c connector) map[string]any {
+func summary(c connector, lang string) map[string]any {
 	tags := make([]map[string]string, 0)
 	for _, t := range c.Tools {
 		if t.Enabled {
 			tags = append(tags, map[string]string{"label": t.Name, "tone": "accent"})
 		}
 	}
-	meta := "Connection not tested"
+	meta := localized(lang, "尚未检查连接", "Connection not tested")
 	if c.Status == "ok" && c.Checked != nil {
-		meta = "Checked " + c.Checked.UTC().Format(time.RFC3339)
+		meta = localized(lang, "已检查 ", "Checked ") + c.Checked.UTC().Format(time.RFC3339)
 	}
 	if c.Status == "error" {
-		meta = "Connection check failed: " + c.ErrorCode
+		meta = localized(lang, "连接检查失败：", "Connection check failed: ") + c.ErrorCode
 	}
-	return map[string]any{"id": c.ID, "brand": c.Provider, "name": c.Name, "kind": descriptors[c.Provider].Kind, "category": c.Category, "status": c.Status, "tags": tags, "meta": meta}
+	kind := descriptors[c.Provider].Kind
+	if kind == "" {
+		kind = c.Provider
+	}
+	return map[string]any{"id": c.ID, "brand": c.Provider, "name": c.Name, "kind": kindCopy(kind, lang), "category": c.Category, "status": c.Status, "tags": tags, "meta": meta}
 }
 
 func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
@@ -234,18 +238,29 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 		return
 	}
-	result := summary(c)
-	checked := "Never checked"
+	lang := r.Header.Get("Accept-Language")
+	result := summary(c, lang)
+	checked := localized(lang, "尚未检查", "Never checked")
 	if c.Checked != nil {
 		checked = c.Checked.UTC().Format(time.RFC3339)
 	}
 	result["scope"] = c.EnvironmentID
 	result["address"] = c.Endpoint
-	result["auth"] = map[string]string{"brand": "vault", "text": c.AuthMethod + " · Vault reference"}
+	if c.AuthMethod == "none" {
+		result["auth"] = map[string]string{"text": localized(lang, "无需认证", "No authentication")}
+	} else {
+		label, _ := authMethodCopy(c.AuthMethod, lang)
+		result["auth"] = map[string]string{"brand": "vault", "text": label + localized(lang, " · Vault 引用", " · Vault reference")}
+	}
 	result["checked"] = checked
 	result["services"] = []string{}
 	result["queries"] = []string{}
-	result["tools"] = c.Tools
+	tools := make([]tool, 0, len(c.Tools))
+	for _, item := range c.Tools {
+		item.Desc = toolCopy(item.Name, lang)
+		tools = append(tools, item)
+	}
+	result["tools"] = tools
 	httpapi.WriteJSON(w, 200, result)
 }
 

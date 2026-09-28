@@ -40,14 +40,23 @@ type member struct {
 	MFA        string   `json:"mfa"`
 	Source     string   `json:"source"`
 	Status     string   `json:"status"`
-	LastLogin  string   `json:"last_login"`
+	LastLogin  *string  `json:"last_login"`
 	Agent      bool     `json:"agent,omitempty"`
 }
 
+type memberCounts struct {
+	All      int  `json:"all"`
+	Admin    int  `json:"admin"`
+	NoMFA    *int `json:"no_mfa"`
+	Disabled int  `json:"disabled"`
+}
+
 type membersView struct {
-	Org          []orgNode      `json:"org"`
-	Groups       []orgNode      `json:"groups"`
-	Items        []member       `json:"items"`
-	Counts       map[string]int `json:"counts"`
-	MFAGraceDays int            `json:"mfa_grace_days"`
+	Org               []orgNode    `json:"org"`
+	Groups            []orgNode    `json:"groups"`
+	Items             []member     `json:"items"`
+	Counts            memberCounts `json:"counts"`
+	MFAGraceDays      *int         `json:"mfa_grace_days"`
+	CompleteV3DTO     bool         `json:"complete_v3_dto"`
+	UnavailableFields []string     `json:"unavailable_fields"`
 }

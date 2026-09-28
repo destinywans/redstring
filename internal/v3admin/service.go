@@ -11,7 +11,9 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/searchtext"
 	"github.com/wans/aiops-canvas/internal/store"
 )
@@ -28,6 +30,7 @@ var errMachineApproval = errors.New("machine identity cannot approve")
 var errInvalidStoredRoleGrant = errors.New("stored role grant conflicts with role kind")
 var errLastRoleManager = errors.New("cannot remove last role manager")
 var errUnsupportedMemberSource = errors.New("member source is not represented in V3 contract")
+var errMemberMFAUnavailable = errors.New("member MFA evidence is unavailable")
 
 func respond(w http.ResponseWriter, v any, err error) {
 	if err == nil {
@@ -55,6 +58,8 @@ func respond(w http.ResponseWriter, v any, err error) {
 		httpapi.Error(w, 409, "last_role_manager", "At least one active human role manager is required")
 	case errors.Is(err, errUnsupportedMemberSource):
 		httpapi.Error(w, 503, "member_source_unmapped", "Member directory contains an unmapped identity source")
+	case errors.Is(err, errMemberMFAUnavailable):
+		httpapi.Error(w, 503, "member_mfa_unavailable", "Member MFA enrollment and grace policy are unavailable")
 	default:
 		httpapi.Error(w, 503, "admin_unavailable", "Administration storage unavailable")
 	}
@@ -377,69 +382,143 @@ func (s *Service) members(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "invalid_filter", "Invalid member filter")
 		return
 	}
-	global, err := s.hasGlobalCatalogRead(r.Context(), httpapi.CurrentUser(r).ID, "members")
-	if err != nil {
-		respond(w, nil, err)
-		return
-	}
-	v, err := s.getMembers(r.Context(), envs, global, filter, r.URL.Query().Get("q"), englishLanguage(r.Header.Get("Accept-Language")))
+	v, err := s.getMembers(r.Context(), httpapi.CurrentUser(r), envs, filter, r.URL.Query().Get("q"), englishLanguage(r.Header.Get("Accept-Language")))
 	respond(w, v, err)
 }
 
-func (s *Service) getMembers(ctx context.Context, envs []string, global bool, filter, q string, english bool) (membersView, error) {
-	v := membersView{Org: []orgNode{}, Groups: []orgNode{}, Items: []member{}, Counts: map[string]int{"all": 0, "admin": 0, "no_mfa": 0, "disabled": 0}}
-	rows, err := s.Store.DB.Query(ctx, `SELECT u.id,u.name,u.email,COALESCE(u.department_id,''),
- COALESCE(t.name,u.department,''),COALESCE(u.phone,''),u.source,u.disabled,u.v3_identity_kind
+// The V3 page needs factor enrollment, a grace policy, group membership and
+// successful-login history that the current account store cannot prove. Keep
+// the useful directory projection explicitly partial instead of inventing a
+// clean MFA count, zero-day grace period or most-recent login.
+func (s *Service) getMembers(ctx context.Context, actor core.User, envs []string, filter, q string, english bool) (membersView, error) {
+	v := membersView{
+		Org: []orgNode{}, Groups: []orgNode{}, Items: []member{},
+		UnavailableFields: []string{"groups", "org_hierarchy", "legacy_role_mapping", "items[].mfa", "items[].last_login", "counts.no_mfa", "mfa_grace_days", "directory_sync_source"},
+	}
+	tx, err := s.Store.DB.Begin(ctx)
+	if err != nil {
+		return v, err
+	}
+	defer tx.Rollback(ctx)
+	// Account, legacy role-association and V3 matrix writers that change these
+	// grants take these locks in this order. Waiting before the authorization
+	// recheck closes their middleware-to-handler revocation window.
+	for _, key := range []int64{752018992, 752018995, 752018998} {
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock_shared($1)`, key); err != nil {
+			return v, err
+		}
+	}
+	var active bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND NOT disabled AND deleted_at IS NULL)`, actor.ID).Scan(&active); err != nil {
+		return v, err
+	}
+	if !active {
+		return v, store.ErrForbidden
+	}
+	policy := &rbac.V3Policy{Store: s.Store}
+	for _, env := range envs {
+		if err = policy.AuthorizeWithTx(ctx, tx, actor, rbac.V3Decision{Module: "members", Action: "view", EnvironmentID: env}); err != nil {
+			return v, err
+		}
+	}
+	var global bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS (
+ SELECT 1 FROM v3_effective_role_grants WHERE user_id=$1
+  AND module='members' AND action='view' AND scope_kind='global' AND scope_id='*')
+ AND EXISTS (SELECT 1 FROM v3_effective_role_grants WHERE user_id=$1
+  AND module='environment' AND action='view' AND scope_kind='global' AND scope_id='*')`, actor.ID).Scan(&global); err != nil {
+		return v, err
+	}
+	if filter == "no_mfa" {
+		return v, errMemberMFAUnavailable
+	}
+	// A single statement supplies both visible accounts and their projected
+	// roles. Counts and the flat organization list derive from those same rows,
+	// so an app/team update cannot mix two different list snapshots.
+	rows, err := tx.Query(ctx, `SELECT u.id,u.name,u.email,COALESCE(t.id,''),
+ COALESCE(t.name,u.department,''),COALESCE(u.phone,''),u.source,u.disabled,u.v3_identity_kind,
+ COALESCE(visible_role.id,''),COALESCE(visible_role.name,'')
  FROM users u LEFT JOIN teams t ON t.id=u.department_id
+ LEFT JOIN LATERAL (
+  SELECT DISTINCT r.id,r.name FROM rbac_roles r
+  JOIN (SELECT user_id,role_id FROM rbac_user_roles UNION
+   SELECT member.id,dr.role_id FROM users member JOIN rbac_department_roles dr ON dr.department_id=member.department_id) assigned
+   ON assigned.role_id=r.id
+  WHERE assigned.user_id=u.id AND EXISTS (
+   SELECT 1 FROM v3_role_grants g WHERE g.role_id=r.id AND (
+    g.scope_kind='global' OR (g.scope_kind='environment' AND g.scope_id=ANY($2::text[]))
+    OR (g.scope_kind='application' AND EXISTS (
+     SELECT 1 FROM v3_application_environments ae
+     JOIN applications app ON app.id=ae.application_id AND NOT app.archived
+     JOIN application_environments e ON e.application_id=app.id AND e.key=ae.environment_id AND NOT e.archived
+     WHERE ae.application_id=g.scope_id AND ae.environment_id=ANY($2::text[])))
+    OR (g.scope_kind='team' AND EXISTS (
+     SELECT 1 FROM applications app
+     JOIN v3_application_environments ae ON ae.application_id=app.id
+     JOIN application_environments e ON e.application_id=app.id AND e.key=ae.environment_id AND NOT e.archived
+     WHERE app.owner_team_id=g.scope_id AND NOT app.archived AND ae.environment_id=ANY($2::text[])))
+   ))
+ ) visible_role ON true
  WHERE u.deleted_at IS NULL AND u.source<>'settings_demo'
  AND (($1 AND NOT EXISTS (
   SELECT 1 FROM (
    SELECT ur.user_id,ur.role_id FROM rbac_user_roles ur
-   UNION SELECT u2.id,dr.role_id FROM users u2 JOIN rbac_department_roles dr ON dr.department_id=u2.department_id
+   UNION SELECT member.id,dr.role_id FROM users member JOIN rbac_department_roles dr ON dr.department_id=member.department_id
   ) assigned JOIN v3_role_grants admission ON admission.role_id=assigned.role_id
   WHERE assigned.user_id=u.id AND admission.module='environment' AND admission.action='view'
    AND admission.scope_kind IN ('global','environment')
  )) OR EXISTS (
   SELECT 1 FROM (
    SELECT ur.user_id,ur.role_id FROM rbac_user_roles ur
-   UNION SELECT u2.id,dr.role_id FROM users u2 JOIN rbac_department_roles dr ON dr.department_id=u2.department_id
-  ) assigned JOIN v3_role_grants g ON g.role_id=assigned.role_id
-  WHERE assigned.user_id=u.id AND g.module='environment' AND g.action='view'
-   AND (g.scope_kind='global' OR (g.scope_kind='environment' AND g.scope_id=ANY($2::text[])))
+   UNION SELECT member.id,dr.role_id FROM users member JOIN rbac_department_roles dr ON dr.department_id=member.department_id
+  ) assigned JOIN v3_role_grants admission ON admission.role_id=assigned.role_id
+  WHERE assigned.user_id=u.id AND admission.module='environment' AND admission.action='view'
+   AND (admission.scope_kind='global' OR (admission.scope_kind='environment' AND admission.scope_id=ANY($2::text[])))
  ))
- ORDER BY u.name,u.id`, global, envs)
+ ORDER BY u.name,u.id,visible_role.name,visible_role.id`, global, envs)
 	if err != nil {
 		return v, err
 	}
 	all := []member{}
+	indices := map[string]int{}
+	adminIDs := map[string]bool{}
 	deptCounts := map[string]int{}
+	deptNames := map[string]string{}
 	for rows.Next() {
 		var m member
-		var deptID, source, kind string
+		var deptID, source, kind, roleID, roleName string
 		var disabled bool
-		if err = rows.Scan(&m.ID, &m.Name, &m.Email, &deptID, &m.Department, &m.Phone, &source, &disabled, &kind); err != nil {
+		if err = rows.Scan(&m.ID, &m.Name, &m.Email, &deptID, &m.Department, &m.Phone, &source, &disabled, &kind, &roleID, &roleName); err != nil {
 			break
 		}
-		m.Roles = []string{}
-		mappedSource, validSource := sourceLabel(source)
-		if !validSource {
-			rows.Close()
-			return v, errUnsupportedMemberSource
+		index, known := indices[m.ID]
+		if !known {
+			mappedSource, validSource := sourceLabel(source)
+			if !validSource {
+				rows.Close()
+				return v, errUnsupportedMemberSource
+			}
+			m.Source = mappedSource
+			m.Roles = []string{}
+			m.MFA = "na"
+			m.Agent = kind == "machine"
+			m.Status = "active"
+			if disabled {
+				m.Status = "disabled"
+			}
+			index = len(all)
+			indices[m.ID] = index
+			all = append(all, m)
+			if deptID != "" {
+				deptCounts[deptID]++
+				deptNames[deptID] = m.Department
+			}
 		}
-		m.Source = mappedSource
-		// No verified factor registry exists yet. "na" means unknown here;
-		// reporting "none" would falsely claim the user has no second factor.
-		m.MFA = "na"
-		m.Agent = kind == "machine"
-		m.Status = "active"
-		if disabled {
-			m.Status = "disabled"
-		}
-		// Session expiry is not a login timestamp. An empty value is truthful.
-		m.LastLogin = ""
-		all = append(all, m)
-		if deptID != "" {
-			deptCounts[deptID]++
+		if roleID != "" {
+			all[index].Roles = append(all[index].Roles, roleName)
+			if roleID == "admin" {
+				adminIDs[m.ID] = true
+			}
 		}
 	}
 	if err == nil {
@@ -449,83 +528,35 @@ func (s *Service) getMembers(ctx context.Context, envs []string, global bool, fi
 	if err != nil {
 		return v, err
 	}
-	for i := range all {
-		roleRows, e := s.Store.DB.Query(ctx, `SELECT DISTINCT r.id,r.name FROM rbac_roles r
- JOIN (SELECT user_id,role_id FROM rbac_user_roles UNION
- SELECT u.id,dr.role_id FROM users u JOIN rbac_department_roles dr ON dr.department_id=u.department_id) a
- ON a.role_id=r.id WHERE a.user_id=$1 AND EXISTS (
-  SELECT 1 FROM v3_role_grants g WHERE g.role_id=r.id AND (
-   g.scope_kind='global' OR (g.scope_kind='environment' AND g.scope_id=ANY($2::text[]))
-   OR (g.scope_kind='application' AND EXISTS (
-    SELECT 1 FROM v3_application_environments ae
-    JOIN applications app ON app.id=ae.application_id AND NOT app.archived
-    JOIN application_environments e ON e.application_id=app.id AND e.key=ae.environment_id AND NOT e.archived
-    WHERE ae.application_id=g.scope_id AND ae.environment_id=ANY($2::text[])))
-   OR (g.scope_kind='team' AND EXISTS (
-    SELECT 1 FROM applications app
-    JOIN v3_application_environments ae ON ae.application_id=app.id
-    JOIN application_environments e ON e.application_id=app.id AND e.key=ae.environment_id AND NOT e.archived
-    WHERE app.owner_team_id=g.scope_id AND NOT app.archived AND ae.environment_id=ANY($2::text[])))
-  )) ORDER BY r.name,r.id`, all[i].ID, envs)
-		if e != nil {
-			return v, e
-		}
-		admin := false
-		for roleRows.Next() {
-			var id, name string
-			if e = roleRows.Scan(&id, &name); e != nil {
-				break
-			}
-			all[i].Roles = append(all[i].Roles, name)
-			if id == "admin" {
-				admin = true
-			}
-		}
-		if e == nil {
-			e = roleRows.Err()
-		}
-		roleRows.Close()
-		if e != nil {
-			return v, e
-		}
-		v.Counts["all"]++
-		if admin {
-			v.Counts["admin"]++
-		}
-		if all[i].MFA == "none" && all[i].Status == "active" {
-			v.Counts["no_mfa"]++
-		}
-		if all[i].Status == "disabled" {
-			v.Counts["disabled"]++
-		}
-		if (filter == "all" || filter == "admin" && admin || filter == "no_mfa" && all[i].MFA == "none" && all[i].Status == "active" || filter == "disabled" && all[i].Status == "disabled") &&
-			(q == "" || searchtext.Match(all[i].Name+" "+all[i].Email+" "+all[i].Phone+" "+all[i].Department, q)) {
-			v.Items = append(v.Items, all[i])
-		}
-	}
-	rootName := "全公司"
-	if english {
-		rootName = "Company"
-	}
-	v.Org = append(v.Org, orgNode{ID: "all", Name: rootName, Count: len(all), Kind: "org"})
-	teamRows, err := s.Store.DB.Query(ctx, `SELECT id,name FROM teams ORDER BY name,id`)
-	if err != nil {
+	if err = tx.Commit(ctx); err != nil {
 		return v, err
 	}
-	for teamRows.Next() {
-		var id, name string
-		if err = teamRows.Scan(&id, &name); err != nil {
-			break
+	for _, m := range all {
+		v.Counts.All++
+		if adminIDs[m.ID] {
+			v.Counts.Admin++
 		}
-		if count := deptCounts[id]; count > 0 {
-			v.Org = append(v.Org, orgNode{ID: id, Name: name, Count: count, Depth: 1, Kind: "team"})
+		if m.Status == "disabled" {
+			v.Counts.Disabled++
+		}
+		if (filter == "all" || filter == "admin" && adminIDs[m.ID] || filter == "disabled" && m.Status == "disabled") &&
+			(q == "" || searchtext.Match(m.Name+" "+m.Email+" "+m.Phone+" "+m.Department, q)) {
+			v.Items = append(v.Items, m)
 		}
 	}
-	if err == nil {
-		err = teamRows.Err()
+	rootName := "可见成员"
+	if english {
+		rootName = "Visible members"
 	}
-	teamRows.Close()
-	return v, err
+	v.Org = append(v.Org, orgNode{ID: "all", Name: rootName, Count: len(all), Kind: "org"})
+	for id, count := range deptCounts {
+		v.Org = append(v.Org, orgNode{ID: id, Name: deptNames[id], Count: count, Depth: 1, Kind: "team"})
+	}
+	sort.Slice(v.Org[1:], func(i, j int) bool {
+		a, b := v.Org[i+1], v.Org[j+1]
+		return a.Name < b.Name || a.Name == b.Name && a.ID < b.ID
+	})
+	return v, nil
 }
 
 func sourceLabel(v string) (string, bool) {

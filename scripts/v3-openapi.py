@@ -648,11 +648,13 @@ P['/runbooks']['get']['responses']['413'] = {
     'description':'More than 1000 candidate Runbooks exceed the unpaged response limit',
     'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('get','/runbooks/{id}','Read governed runbook',response=ref('V3Runbook'),
-    desc='Returns 503 runbook_read_unavailable for an accessible runbook until complete usage, outcome, and verification history is persisted. No zero usage or fabricated version timestamp is returned.')
+    desc='Reads the Runbook document, current object authorization and structured V3 steps in one read-only snapshot. Hidden, out-of-scope or non-Runbook objects return 404. An authorized document without a structured record returns 503 structured_steps_unavailable; an authorized structured Runbook returns 503 runbook_read_unavailable until complete usage, outcome, review lineage and execution verification are persisted. No zero usage or fabricated version timestamp is returned; persisted partial fields are available at /runbooks/{id}/record.')
 for _path in ['/runbooks','/runbooks/{id}']:
     P[_path]['get']['responses']['503'] = {
         'description':'Mandatory Runbook read fields lack an authoritative persisted source',
         'content':{'application/json':{'schema':ref('Error')}}}
+P['/runbooks/{id}']['get']['responses']['503']['description'] = (
+    'Structured V3 steps are missing, or mandatory full-detail fields lack an authoritative persisted source')
 v3_route('post','/runbooks','Create governed runbook draft',
     body=obj({'title':string(),'source':string(enum=['blank','template','postmortem','conversation','import']),
         'from':string(),'steps':arr(ref('V3RunbookCreateStep')),

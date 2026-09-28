@@ -29447,7 +29447,7 @@
       "get": {
         "summary": "Read governed runbook",
         "operationId": "get_runbooks_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Returns 503 runbook_read_unavailable for an accessible runbook until complete usage, outcome, and verification history is persisted. No zero usage or fabricated version timestamp is returned.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Reads the Runbook document, current object authorization and structured V3 steps in one read-only snapshot. Hidden, out-of-scope or non-Runbook objects return 404. An authorized document without a structured record returns 503 structured_steps_unavailable; an authorized structured Runbook returns 503 runbook_read_unavailable until complete usage, outcome, review lineage and execution verification are persisted. No zero usage or fabricated version timestamp is returned; persisted partial fields are available at /runbooks/{id}/record.",
         "responses": {
           "200": {
             "description": "Success",
@@ -29510,7 +29510,7 @@
             }
           },
           "503": {
-            "description": "Mandatory Runbook read fields lack an authoritative persisted source",
+            "description": "Structured V3 steps are missing, or mandatory full-detail fields lack an authoritative persisted source",
             "content": {
               "application/json": {
                 "schema": {

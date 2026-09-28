@@ -164,7 +164,7 @@
 | GET | `/knowledge-sources` | | 知识来源 | mock |
 | POST | `/knowledge/search` | `{ q, service?, top_k? }` | `{ hits: RetrievalHit[] }` | implemented |
 
-知识治理另有部分证据与人工审核辅助接口，详见 [V3 后端辅助接口](v3-backend-aux.md)。`GET /memory` 当前明确返回 `503 memory_view_unavailable`，只提供 `/memory/facts` 的受权、当前来源事实列表；没有可信的层级、置信度、召回次数与过期值。事实状态操作仅支持 `confirm`、`reject`、`expire`，冲突裁决须传入两个真实事实 ID。现有前端的 `forget` 和冲突请求体不符合此接口，因此上述主页面行保持 `mock`。
+知识治理另有部分证据与人工审核辅助接口，详见 [V3 后端辅助接口](v3-backend-aux.md)。`GET /runbooks/{id}` 在同一只读快照中核对文档范围、当前对象授权与结构化步骤：隐藏或非 Runbook 为 404；有权旧文档缺步骤为 `503 structured_steps_unavailable`；有步骤但缺完整用量、事件处置、审核来源与执行核验时为 `503 runbook_read_unavailable`，不补零冒充完整 DTO。已落库字段可从 `/runbooks/{id}/record` 读取，主详情继续 `mock`。`GET /memory` 当前明确返回 `503 memory_view_unavailable`，只提供 `/memory/facts` 的受权、当前来源事实列表；没有可信的层级、置信度、召回次数与过期值。事实状态操作仅支持 `confirm`、`reject`、`expire`，冲突裁决须传入两个真实事实 ID。现有前端的 `forget` 和冲突请求体不符合此接口，因此上述主页面行保持 `mock`。
 
 ## 资源与观测（`observe.ts`）
 

@@ -201,7 +201,7 @@ v3_route('post','/conversations/{id}/messages','Start a durable assistant reply'
     desc='A second concurrent reply is rejected with 409. The user message is durable before 202.')
 v3_route('get','/conversations/{id}/events','Resume ordered assistant events',
     query=[{'name':'Last-Event-ID','in':'header','schema':string(pattern='^[0-9]+$')}],
-    desc='SSE sequence IDs support reconnection. Last-Event-ID must be one nonnegative decimal event ID; invalid or duplicate values return 422 invalid_event_cursor. message.completed follows durable persistence.')
+    desc='SSE sequence IDs support reconnection. Last-Event-ID must be one nonnegative decimal event ID; invalid or duplicate values return 422 invalid_event_cursor. A positive cursor must belong to this authorized conversation and replays its original reply even after a newer turn starts; an unknown or deleted cursor returns 422. An omitted or zero cursor selects the latest reply. Early failure emits an empty message.started before status and terminal events. message.completed follows durable persistence.')
 
 # General canvases are persisted separately from investigation branches. The
 # current list projects both, but legacy investigation routes and participant

@@ -23591,7 +23591,7 @@
       "get": {
         "summary": "Resume ordered assistant events",
         "operationId": "get_conversations_id_events",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. SSE sequence IDs support reconnection. Last-Event-ID must be one nonnegative decimal event ID; invalid or duplicate values return 422 invalid_event_cursor. message.completed follows durable persistence.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. SSE sequence IDs support reconnection. Last-Event-ID must be one nonnegative decimal event ID; invalid or duplicate values return 422 invalid_event_cursor. A positive cursor must belong to this authorized conversation and replays its original reply even after a newer turn starts; an unknown or deleted cursor returns 422. An omitted or zero cursor selects the latest reply. Early failure emits an empty message.started before status and terminal events. message.completed follows durable persistence.",
         "responses": {
           "200": {
             "description": "Success",

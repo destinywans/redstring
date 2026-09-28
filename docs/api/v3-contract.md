@@ -32,7 +32,7 @@
 
 `POST /conversations/{id}/messages` 提交用户消息，返回 `{ message, reply_id }`；随后 `GET /conversations/{id}/events`（SSE）推送 `StreamEvent`：
 
-服务端断线续传头 `Last-Event-ID` 只接受单个非负十进制事件 ID；空值、重复头、负数、非数字或溢出返回 `422 invalid_event_cursor`。这一严格校验已接入后端，但不改变该主路由的 `mock` 状态。
+服务端断线续传头 `Last-Event-ID` 只接受单个非负十进制事件 ID；空值、重复头、负数、非数字或溢出返回 `422 invalid_event_cursor`。正数游标必须属于当前有权会话，续传该事件所在的回复，即使之后已有新回合；已删除或未知游标返回 422。缺省或 0 游标读取当前最新回复。早期失败也先补空 `message.started`，再发状态与 `message.completed`。这些后端保障不改变该主路由的 `mock` 状态。
 
 | 事件 | 含义 |
 | --- | --- |
@@ -43,7 +43,7 @@
 
 **按轮选择模型（v4）**：请求体可带 `model`（`provider:model`，来自 `GET /models`）与 `reasoning`（该模型声明的档位 id）；缺省时用 `GET /models` 的 `default`。一轮只用一个模型，回复进行中切换只影响下一轮；`message.completed` 的 `run` 记录 `model_id`、`model`、`reasoning`、`reasoning_label`、`brand`。附件先经 `POST /uploads` 上传，再以 `attachments: Upload[]` 随消息提交；附件一律作为数据，不执行其中的指令。
 
-画布节点对话复用同一套部件与事件（`POST /investigations/{id}/nodes/{node}/messages`、`POST /canvases/{id}/nodes/{node}/messages`）。
+调查画布节点对话仍规划复用富消息部件与事件；当前通用画布节点 `POST /canvases/{id}/nodes/{node}/messages` 是持久化同步 `{ reply }`，不使用上述 SSE 流。
 
 ## 身份与全局（`identity.ts`、`home.ts`）
 

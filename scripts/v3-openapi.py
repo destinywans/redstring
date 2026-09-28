@@ -615,6 +615,22 @@ S['V3ServiceMapping'] = obj({'systems':arr(v3_object('id brand label')),
 v3_route('get','/service-mappings','Read persisted service connector mappings',
     response=ref('V3ServiceMapping'),
     desc='Shows only bindings for authorized applications and environments; missing means no persisted binding, not a health check.')
+S['V3GitLabPipelineRecord'] = obj({**fieldnames('id provider service_id environment_id binding_id connector_id project_id status ref sha source created_at updated_at')},
+    ['id','provider','service_id','environment_id','binding_id','connector_id','project_id','status','ref','sha','source','created_at','updated_at'])
+S['V3GitLabPipelineRecord']['properties']['provider'] = string(enum=['gitlab'])
+for timestamp in ('created_at','updated_at'):
+    S['V3GitLabPipelineRecord']['properties'][timestamp] = string(format='date-time')
+v3_route('get','/changes/records','Read a bounded page of verified GitLab pipeline records',
+    query=[v3_query('service_id'),v3_query('binding_id'),v3_query('page',integer(minimum=1,maximum=1000))],
+    response=obj({'items':arr(ref('V3GitLabPipelineRecord')),'page':integer(minimum=1),
+        'page_size':integer(enum=[20]),'next_page':integer(minimum=0)},['items','page','page_size','next_page']),
+    desc='Auxiliary read-only source evidence. Requires an explicitly bound numeric GitLab project in the selected environment, enabled list_pipelines tool, services.view for the persisted application or team, and connectors.view for its environment. Scope and grant are rechecked after the upstream fetch. Does not provide DORA KPIs, deployment proof, risk score, diff or alert correlation. Zero next_page means no upstream next-page header.')
+for parameter in P['/changes/records']['get']['parameters']:
+    if parameter['name'] in ('service_id','binding_id'):
+        parameter['required'] = True
+P['/changes/records']['get']['responses']['502'] = {
+    'description':'GitLab pipeline source failed or returned an invalid bounded response',
+    'content':{'application/json':{'schema':ref('Error')}}}
 S['V3MetricProbe'] = obj({'status':string(enum=['observed','no_samples','not_registered','not_configured','unavailable','truncated']),
     'series':integer(minimum=0),'samples':integer(minimum=0)},['status','series','samples'])
 S['V3IncompleteMetrics'] = obj({'error':obj({'code':string(),'message':string()},['code','message']),

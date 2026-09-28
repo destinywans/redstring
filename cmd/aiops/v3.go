@@ -26,6 +26,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3audit"
 	"github.com/wans/aiops-canvas/internal/v3canvas"
 	"github.com/wans/aiops-canvas/internal/v3catalog"
+	"github.com/wans/aiops-canvas/internal/v3changes"
 	"github.com/wans/aiops-canvas/internal/v3conversation"
 	"github.com/wans/aiops-canvas/internal/v3discovery"
 	"github.com/wans/aiops-canvas/internal/v3events"
@@ -158,6 +159,7 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 
 	connector := v3integrations.New(s.DB, cfg.Tier, v3integrations.NewVaultResolver(os.Getenv("AIOPS_VAULT_URL"), os.Getenv("AIOPS_VAULT_TOKEN")))
 	connector.Register(api)
+	v3changes.New(s.DB, cfg.Tier, policy, connector.Prober.Resolver).Register(api)
 	for _, pattern := range []string{"GET /api/v1/connector-types/{type}", "GET /api/v1/connectors", "GET /api/v1/connectors/{id}"} {
 		api.MarkV3Route(pattern, "connectors", "view")
 	}

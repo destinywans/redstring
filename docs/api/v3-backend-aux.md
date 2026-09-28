@@ -4,6 +4,7 @@
 
 | 方法 | 路径 | 参数与含义 |
 | --- | --- | --- |
+| GET | `/api/v1/changes/records` | 必填 `service_id`、`binding_id`，可选 `page`（1–1000）；从已显式绑定的同环境 GitLab 项目读取每页 20 条流水线记录。调用前后均复核服务和连接器权限，缺少来源返回未接入，上游错误返回 502。只证明流水线自身状态与时间，不推断部署、风险或告警关联。 |
 | GET | `/api/v1/alert-rules/observed` | 读取受权环境及应用内、与受信规则组绑定的 Prometheus 告警规则摘要。来源未配置/全部不可用时返回 503；部分环境失败返回 206，并列出 `unavailable_environments`。 |
 | GET | `/api/v1/alert-rules/observed/{id}` | 读取同一来源中的规则表达式、状态、标签和实际评估时间。没有可信的历史预览、阈值、通知路径或 AI 初查设置。 |
 | GET | `/api/v1/knowledge-sources/observed-documents` | 仅读取有明确环境归属、已发布且受权的文档身份。本接口不提供来源登记或同步状态，`partial` 为 true，未接入字段为 null；不返回正文。 |

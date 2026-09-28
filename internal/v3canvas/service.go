@@ -36,7 +36,13 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"POST /api/v1/canvas-templates", "change", s.saveTemplate},
 	} {
 		api.Register(route.pattern, "viewer", route.handler)
-		api.MarkV3Route(route.pattern, "canvas", route.action)
+		if route.pattern == "GET /api/v1/canvases" {
+			// The list contains both private generic canvases and application
+			// scoped investigations; each row is checked against its own grant.
+			api.MarkV3ObjectRoute(route.pattern, "canvas", route.action)
+		} else {
+			api.MarkV3Route(route.pattern, "canvas", route.action)
+		}
 	}
 }
 
@@ -84,17 +90,78 @@ type thumb struct {
 	Edges []string `json:"edges"`
 }
 type summary struct {
-	ID           string    `json:"id"`
-	Title        string    `json:"title"`
-	Kind         string    `json:"kind"`
-	Status       string    `json:"status"`
-	Meta         string    `json:"meta"`
-	Participants []string  `json:"participants"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	Href         string    `json:"href"`
-	Services     []string  `json:"services"`
-	Thumb        thumb     `json:"thumb"`
+	ID              string    `json:"id"`
+	Title           string    `json:"title"`
+	Kind            string    `json:"kind"`
+	Status          string    `json:"status"`
+	Meta            string    `json:"meta"`
+	Participants    *[]string `json:"participants"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	Href            string    `json:"href"`
+	InvestigationID string    `json:"investigation_id,omitempty"`
+	Services        []string  `json:"services"`
+	Thumb           thumb     `json:"thumb"`
 }
+
+type branchPreview struct {
+	ID     string `json:"id"`
+	Parent string `json:"parent"`
+}
+
+// Investigation thumbnails are a deterministic drawing of persisted branch
+// topology. The coordinates are presentation only; no branch content is
+// inferred from the layout.
+func investigationThumb(branches []branchPreview) thumb {
+	out := thumb{Nodes: [][5]any{}, Edges: []string{}}
+	position := map[string][2]int{}
+	for i, b := range branches {
+		if i >= 8 {
+			break
+		}
+		x, y := (i%4)*52+8, (i/4)*42+8
+		position[b.ID] = [2]int{x, y}
+		out.Nodes = append(out.Nodes, [5]any{x, y, 36, 18, "info"})
+	}
+	for _, b := range branches {
+		from, parentVisible := position[b.Parent]
+		to, childVisible := position[b.ID]
+		if parentVisible && childVisible {
+			out.Edges = append(out.Edges, fmt.Sprintf("M%d %d L%d %d", from[0]+18, from[1]+9, to[0]+18, to[1]+9))
+		}
+	}
+	return out
+}
+
+const canvasListSource = `WITH visible AS (
+ SELECT c.id,c.title,c.kind,c.status,c.services,c.updated_at,c.nodes,
+        COALESCE(u.name,'') AS owner_name,NULL::text AS investigation_id,
+        '[]'::jsonb AS branches,0::bigint AS branch_count
+ FROM v3_canvases c JOIN users u ON u.id=c.owner_id
+ WHERE c.owner_id=$1 AND c.environment_id=ANY($2::text[])
+ AND EXISTS (SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$1
+   AND g.module='canvas' AND g.action='view'
+   AND ((g.scope_kind='global' AND g.scope_id='*')
+     OR (g.scope_kind='environment' AND g.scope_id=c.environment_id)))
+ UNION ALL
+ SELECT i.id,i.title,'investigation',i.status,ARRAY[i.application_id],i.updated_at,
+        '[]'::jsonb,'',i.id,
+        COALESCE((SELECT jsonb_agg(jsonb_build_object('id',b.id,'parent',COALESCE(b.parent_id,'')) ORDER BY b.id)
+                  FROM (SELECT id,parent_id FROM branches WHERE investigation_id=i.id ORDER BY id LIMIT 8) b),'[]'::jsonb),
+        (SELECT count(*) FROM branches b WHERE b.investigation_id=i.id)
+ FROM investigations i
+ JOIN applications a ON a.id=i.application_id AND NOT a.archived
+ JOIN application_environments ae ON ae.id=i.environment_id AND ae.application_id=i.application_id AND NOT ae.archived
+ JOIN v3_application_environments vae ON vae.application_id=i.application_id AND vae.environment_id=ae.key
+ WHERE ae.key=ANY($2::text[])
+ AND EXISTS (SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$1
+   AND g.module='canvas' AND g.action='view'
+   AND ((g.scope_kind='global' AND g.scope_id='*')
+     OR (g.scope_kind='environment' AND g.scope_id=ae.key)
+     OR (g.scope_kind='application' AND g.scope_id=i.application_id)
+     OR (a.owner_team_id IS NOT NULL AND g.scope_kind='team' AND g.scope_id=a.owner_team_id)))
+), searched AS (
+ SELECT * FROM visible WHERE ($3='' OR aiops_search_match(title,$3))
+) `
 
 func validKind(k string) bool {
 	return k == "plan" || k == "review" || k == "analysis" || k == "custom"
@@ -171,7 +238,7 @@ func publicSummary(id, title, kind, status, owner string, services []string, at 
 	if owner != "" {
 		people = append(people, owner)
 	}
-	return summary{ID: id, Title: title, Kind: kind, Status: status, Meta: fmt.Sprintf("%d 个节点", len(nodes)), Participants: people, UpdatedAt: at, Href: "/canvas/" + id, Services: services, Thumb: makeThumb(nodes)}
+	return summary{ID: id, Title: title, Kind: kind, Status: status, Meta: fmt.Sprintf("%d 个节点", len(nodes)), Participants: &people, UpdatedAt: at, Href: "/canvas/" + id, Services: services, Thumb: makeThumb(nodes)}
 }
 func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	if !s.ready(w) {
@@ -197,7 +264,8 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	}
 	owner := httpapi.CurrentUser(r).ID
 	counts := map[string]int{"all": 0, "investigation": 0, "plan": 0, "review": 0, "analysis": 0, "custom": 0}
-	rows, err := s.Store.DB.Query(r.Context(), `SELECT kind,count(*) FROM v3_canvases WHERE owner_id=$1 AND environment_id=ANY($2::text[]) AND ($3='' OR aiops_search_match(title,$3)) GROUP BY kind`, owner, envs, q)
+	rows, err := s.Store.DB.Query(r.Context(), canvasListSource+`SELECT kind,count(*),bool_and(
+   kind<>'investigation' OR status IN ('open','closed')) FROM searched GROUP BY kind`, owner, envs, q)
 	if err != nil {
 		httpapi.Error(w, 503, "canvas_unavailable", "Canvas list unavailable")
 		return
@@ -205,7 +273,12 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var k string
 		var count int
-		if err = rows.Scan(&k, &count); err != nil {
+		var validStatus bool
+		if err = rows.Scan(&k, &count, &validStatus); err != nil {
+			break
+		}
+		if !validStatus {
+			err = errors.New("unknown investigation status")
 			break
 		}
 		counts[k] = count
@@ -220,21 +293,13 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := []summary{}
-	// Investigation canvases cannot be inferred from old application-bound
-	// investigations without their own V3 visibility and projection adapter.
-	if kind == "investigation" {
-		httpapi.Error(w, 503, "investigation_canvas_unavailable", "Investigation canvas listing requires the investigation branch adapter")
-		return
-	}
 	total := counts["all"]
 	if kind != "" {
 		total = counts[kind]
 	}
-	rows, err = s.Store.DB.Query(r.Context(), `SELECT c.id,c.title,c.kind,c.status,c.services,c.updated_at,c.nodes,COALESCE(u.name,'')
- FROM v3_canvases c JOIN users u ON u.id=c.owner_id
- WHERE c.owner_id=$1 AND c.environment_id=ANY($2::text[])
- AND ($3='' OR aiops_search_match(c.title,$3)) AND ($4='' OR c.kind=$4)
- ORDER BY c.updated_at DESC,c.id LIMIT $5 OFFSET $6`, owner, envs, q, kind, size, (page-1)*size)
+	rows, err = s.Store.DB.Query(r.Context(), canvasListSource+`SELECT id,title,kind,status,services,updated_at,nodes,owner_name,investigation_id,branches,branch_count
+ FROM searched WHERE ($4='' OR kind=$4)
+ ORDER BY updated_at DESC,id LIMIT $5 OFFSET $6`, owner, envs, q, kind, size, (page-1)*size)
 	if err != nil {
 		httpapi.Error(w, 503, "canvas_unavailable", "Canvas list unavailable")
 		return
@@ -243,9 +308,32 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		var id, title, k, status, name string
 		var services []string
 		var at time.Time
-		var raw []byte
-		if err = rows.Scan(&id, &title, &k, &status, &services, &at, &raw, &name); err != nil {
+		var raw, branchRaw []byte
+		var investigationID *string
+		var branchCount int64
+		if err = rows.Scan(&id, &title, &k, &status, &services, &at, &raw, &name, &investigationID, &branchRaw, &branchCount); err != nil {
 			break
+		}
+		if investigationID != nil {
+			branches := []branchPreview{}
+			if err = json.Unmarshal(branchRaw, &branches); err != nil {
+				break
+			}
+			mapped, valid := investigationStatus(status)
+			if !valid {
+				err = errors.New("unknown investigation status")
+				break
+			}
+			status = mapped
+			item := publicSummary(id, title, k, status, "", services, at, nil)
+			item.Meta = fmt.Sprintf("%d 个节点", branchCount)
+			item.Thumb = investigationThumb(branches)
+			// Legacy investigations have no durable creator/participant source.
+			item.Participants = nil
+			item.InvestigationID = *investigationID
+			item.Href = "/canvas/" + *investigationID
+			items = append(items, item)
+			continue
 		}
 		var nodes []Node
 		nodes, err = decodeNodes(raw)
@@ -262,7 +350,18 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "canvas_unavailable", "Canvas list unavailable")
 		return
 	}
-	httpapi.WriteJSON(w, 200, map[string]any{"items": items, "counts": counts, "total": total, "page": page, "page_size": size, "incomplete_kinds": []string{"investigation"}})
+	httpapi.WriteJSON(w, 200, map[string]any{"items": items, "counts": counts, "total": total, "page": page, "page_size": size})
+}
+
+func investigationStatus(status string) (string, bool) {
+	switch status {
+	case "open":
+		return "active", true
+	case "closed":
+		return "resolved", true
+	default:
+		return "", false
+	}
 }
 
 type createRequest struct {

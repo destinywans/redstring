@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-115 · 2026-09-29 · WAN-123 有界证据契约校正
+
+- 独立契约复核后的校正已提交 `e228f520b3ad7d8a02d104fa491f4f0b480f485d` 并推送 `codex/wan-117-v3-integration`；远端同名分支回读为相同 SHA，提交后工作树干净。`GET /knowledge-sources/observed-documents` 的部分原因改为 `document_only_projection`，避免误称已接入的来源登记簿不可用；该响应仍不联接同步或索引归属。
+- `GET /agents/{id}` 最多返回 100 个版本，额外取第 101 条来确定显式 `truncated`；注册 HTTP 的隔离 PG 用例覆盖 2、100、101 条边界。OpenAPI 补六处实际存在的 413 响应及九条 Agent 写操作的 scoped grant 前提，生成契约与文字辅助契约同步。
+- `check-contract.py` 对 308 个注册操作、`check-v3-contract.py` 对 165 行主契约、路由矩阵及 `v3knowledgesources` 包测试通过；Agent 注册 HTTP 用例在一次性 PG17 中通过。首次本地包测试因沙箱外 Go 缓存写权限失败，改用 `/private/tmp` 缓存后通过；这不是代码失败。主契约仍 **32/166 `implemented`**。下一步接收第三轮 WAN-120～123 的主接口闭合切片，逐项核实前端 DTO、授权与真实来源后再改状态；未迁移现有业务库或验证真实产品页面。
+
 ## CP-114 · 2026-09-29 · WAN-123 知识治理与 Agent 证据接线
 
 - WAN-123 领域分支 `codex/wan-123-v3-knowledge-agent` 的前三个提交 `03b3e03`、`505afa7`、`9c37a0a` 分别合入集成分支为 `15e0279`、`9291012`、`d33d4f3`。Agent 初稿 `caf7d0f` 独立合入曾被自动审批拒绝：机器身份可能绕过评测门禁、晚到护栏事件可能丢失。完成 `4842596`、`63bb21a`、`f1e82cb`、`28f37ab` 修正及独立复核后，Agent 与四个修正作为一个无中间提交的安全序列合入 `b6b0416f327ccb922898f1c3dce6954f4666540b`。本分支 `codex/wan-117-v3-integration` 已推送，`origin` 同名远端回读为该 SHA，代码提交后工作树干净。

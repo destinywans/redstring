@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -139,6 +140,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	items := make([]map[string]any, 0)
+	lang := r.Header.Get("Accept-Language")
 	seen := map[string]bool{}
 	toolCount := 0
 	candidates := 0
@@ -190,7 +192,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			seen[v.ID] = true
-			items = append(items, summary(v))
+			items = append(items, summary(v, lang))
 			if v.Record.MCP != nil {
 				toolCount += len(v.Record.MCP.Bindings)
 			}
@@ -205,26 +207,30 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	}
 	// These are registration counts, not discovered tools, health or call volume.
 	kpis := []map[string]any{
-		{"id": "servers", "label": "已绑定服务器", "value": strconv.Itoa(len(items)), "sub": "未绑定环境的旧登记不展示", "series": []int{}},
-		{"id": "tools", "label": "已配置只读工具", "value": strconv.Itoa(toolCount), "sub": "未执行实时发现", "series": []int{}},
+		{"id": "servers", "label": mcpLocalized(lang, "已绑定登记", "Bound registrations"), "value": strconv.Itoa(len(items)), "sub": mcpLocalized(lang, "仅统计当前可见的显式环境绑定", "Only explicit environment bindings visible to you"), "series": []int{}},
+		{"id": "tools", "label": mcpLocalized(lang, "已登记只读绑定", "Registered read-only bindings"), "value": strconv.Itoa(toolCount), "sub": mcpLocalized(lang, "不表示 V3 已审核或可执行", "Not V3 reviewed or executable"), "series": []int{}},
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"kpis": kpis, "items": items, "complete_v3_dto": false,
-		"unavailable_fields": []string{"unbound_legacy_registrations", "connection_health", "discovered_tools", "call_metrics", "pending_change"}})
+		"unavailable_fields": []string{"unbound_legacy_registrations", "connection_health", "discovered_capabilities", "v3_tool_review", "agent_authorized_apps", "call_metrics", "pending_change"}})
 }
 
-func summary(v registration) map[string]any {
-	bindings := 0
-	if v.Record.MCP != nil {
-		bindings = len(v.Record.MCP.Bindings)
+func mcpLocalized(lang, zh, en string) string {
+	if strings.HasPrefix(strings.ToLower(lang), "zh") {
+		return zh
 	}
+	return en
+}
+
+func summary(v registration, lang string) map[string]any {
 	return map[string]any{
 		"id": v.ID, "brand": "mcp", "name": v.Record.Title,
-		"desc": "已登记的应用 MCP 扩展", "transport": "Streamable HTTP",
-		"caps":   strconv.Itoa(bindings) + " 个已配置只读工具",
-		"trust":  map[string]string{"label": "待验证", "tone": "warn"},
-		"apps":   []map[string]string{{"label": v.Application}},
+		"desc": mcpLocalized(lang, "应用 "+v.Application+" 已绑定环境 "+v.EnvironmentID, "Application "+v.Application+" has a binding in "+v.EnvironmentID), "transport": "Streamable HTTP",
+		"caps":  mcpLocalized(lang, "MCP 能力未验证", "MCP capabilities unverified"),
+		"trust": map[string]string{"label": mcpLocalized(lang, "V3 待审核", "V3 review pending"), "tone": "warn"},
+		// The owning application and environment binding do not grant Agent use.
+		"apps":   []map[string]string{},
 		"status": "pending", // No live connection check has been persisted.
-		"last":   v.Record.UpdatedAt.UTC().Format(time.RFC3339),
+		"last":   mcpLocalized(lang, "V3 调用记录未接入", "V3 call history unavailable"),
 	}
 }
 
@@ -292,29 +298,27 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	result := summary(v)
-	tools := make([]map[string]any, 0)
-	if v.Record.MCP != nil {
-		for _, b := range v.Record.MCP.Bindings {
-			tools = append(tools, map[string]any{
-				"name": b.Name, "desc": b.Description, "write": false,
-				"enabled": v.Record.Enabled, "calls": "未接入",
-			})
-		}
-	}
-	result["version"] = strconv.Itoa(v.Record.Version)
-	result["counts"] = map[string]int{"tools": len(tools), "resources": 0, "prompts": 0}
-	result["tools"] = tools
+	lang := r.Header.Get("Accept-Language")
+	result := summary(v, lang)
+	// Legacy fixed-argument bindings and discovery observations are not V3
+	// reviewed Agent grants. This DTO can expose no callable tool yet.
+	result["version"] = mcpLocalized(lang, "服务版本未验证", "Server version unverified")
+	result["counts"] = map[string]int{"tools": 0, "resources": 0, "prompts": 0} // DTO placeholders, not observed zero counts.
+	result["tools"] = []any{}
 	result["resources"] = []any{}
 	result["prompts"] = []any{}
 	result["calls"] = []any{}
+	auth := mcpLocalized(lang, "未登记凭据引用", "No credential reference registered")
+	if v.Record.MCP != nil && v.Record.MCP.CredentialRef != "" {
+		auth = mcpLocalized(lang, "凭据引用已登记，未验证", "Credential reference registered, unverified")
+	}
 	result["trust_info"] = map[string]any{
-		"readonly_check": "管理员登记只读固定参数；实时 readOnlyHint 尚未验证",
-		"scope":          []string{v.Application + " · " + v.EnvironmentID},
-		"limit":          "单应用最多 8 个已登记工具", "auth": "凭据不在此接口展示",
+		"readonly_check": mcpLocalized(lang, "V3 只读审核未完成", "V3 read-only review unavailable"),
+		"scope":          []string{}, // The environment binding is not an Agent grant.
+		"limit":          mcpLocalized(lang, "V3 调用尚不可用", "V3 calls unavailable"), "auth": auth,
 	}
 	result["complete_v3_dto"] = false
-	result["unavailable_fields"] = []string{"connection_health", "discovered_resources", "discovered_prompts", "call_history", "version_review"}
+	result["unavailable_fields"] = []string{"connection_health", "server_version", "v3_tool_review", "agent_tool_grants", "agent_authorized_apps", "tool_count", "resource_count", "prompt_count", "discovered_resources", "discovered_prompts", "call_history", "call_limit"}
 	httpapi.WriteJSON(w, 200, result)
 }
 

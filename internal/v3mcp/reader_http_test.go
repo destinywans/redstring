@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -116,12 +117,15 @@ func TestMCPReadsAndBindingUseSingleConnectionWithoutPartialLists(t *testing.T) 
 		}); err != nil {
 		t.Fatal(err)
 	}
-	request := func(method, path string) *httptest.ResponseRecorder {
+	request := func(method, path string, languages ...string) *httptest.ResponseRecorder {
 		t.Helper()
 		callCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
 		defer cancel()
 		r := httptest.NewRequest(method, path, nil).WithContext(callCtx)
 		r.Header.Set("X-AIOps-Environment", "dev")
+		if len(languages) > 0 {
+			r.Header.Set("Accept-Language", languages[0])
+		}
 		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: session})
 		w := httptest.NewRecorder()
 		api.ServeHTTP(w, r)
@@ -132,6 +136,73 @@ func TestMCPReadsAndBindingUseSingleConnectionWithoutPartialLists(t *testing.T) 
 		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"complete_v3_dto":false`) ||
 			strings.Contains(w.Body.String(), "secret-ref") || strings.Contains(w.Body.String(), "private.example.invalid") {
 			t.Fatalf("read %s: %d %s", path, w.Code, w.Body.String())
+		}
+	}
+	list := request(http.MethodGet, "/api/v1/mcp-servers", "en-US")
+	var listDTO struct {
+		Complete    bool                                     `json:"complete_v3_dto"`
+		Unavailable []string                                 `json:"unavailable_fields"`
+		KPIs        []struct{ ID, Label, Value, Sub string } `json:"kpis"`
+		Items       []struct {
+			ID, Caps, Last, Status string
+			Trust                  struct{ Label, Tone string }
+			Apps                   []any `json:"apps"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(list.Body.Bytes(), &listDTO); err != nil {
+		t.Fatal(err)
+	}
+	if list.Code != http.StatusOK || listDTO.Complete || len(listDTO.Unavailable) == 0 || len(listDTO.KPIs) != 2 ||
+		listDTO.KPIs[0].Value != "1" || listDTO.KPIs[1].Value != "1" || listDTO.KPIs[1].Label != "Registered read-only bindings" ||
+		len(listDTO.Items) != 1 || listDTO.Items[0].ID != "mcp-1" || listDTO.Items[0].Status != "pending" ||
+		listDTO.Items[0].Trust.Tone != "warn" || listDTO.Items[0].Apps == nil || len(listDTO.Items[0].Apps) != 0 ||
+		listDTO.Items[0].Caps != "MCP capabilities unverified" || listDTO.Items[0].Last != "V3 call history unavailable" {
+		t.Fatalf("registration presented as live or reviewed: %s", list.Body.String())
+	}
+	detail := request(http.MethodGet, "/api/v1/mcp-servers/mcp-1", "zh-CN")
+	var detailDTO struct {
+		Complete                         bool     `json:"complete_v3_dto"`
+		Unavailable                      []string `json:"unavailable_fields"`
+		Status, Version, Last            string
+		Counts                           struct{ Tools, Resources, Prompts int } `json:"counts"`
+		Tools, Resources, Prompts, Calls []any
+		TrustInfo                        struct {
+			ReadOnlyCheck string   `json:"readonly_check"`
+			Scope         []string `json:"scope"`
+			Limit, Auth   string
+		} `json:"trust_info"`
+	}
+	if err := json.Unmarshal(detail.Body.Bytes(), &detailDTO); err != nil {
+		t.Fatal(err)
+	}
+	if detail.Code != http.StatusOK || detailDTO.Complete ||
+		!slices.Contains(detailDTO.Unavailable, "tool_count") || !slices.Contains(detailDTO.Unavailable, "resource_count") ||
+		!slices.Contains(detailDTO.Unavailable, "prompt_count") || detailDTO.Status != "pending" ||
+		detailDTO.Version != "服务版本未验证" || detailDTO.Last != "V3 调用记录未接入" ||
+		detailDTO.Counts.Tools != 0 || detailDTO.Counts.Resources != 0 || detailDTO.Counts.Prompts != 0 ||
+		detailDTO.Tools == nil || len(detailDTO.Tools) != 0 || detailDTO.Resources == nil || len(detailDTO.Resources) != 0 ||
+		detailDTO.Prompts == nil || len(detailDTO.Prompts) != 0 || detailDTO.Calls == nil || len(detailDTO.Calls) != 0 ||
+		detailDTO.TrustInfo.ReadOnlyCheck != "V3 只读审核未完成" || detailDTO.TrustInfo.Scope == nil || len(detailDTO.TrustInfo.Scope) != 0 ||
+		detailDTO.TrustInfo.Limit != "V3 调用尚不可用" || detailDTO.TrustInfo.Auth != "凭据引用已登记，未验证" {
+		t.Fatalf("detail presented unavailable MCP evidence as available: %s", detail.Body.String())
+	}
+	var bindingInstance string
+	if err := db.QueryRow(ctx, `SELECT binding_instance_id FROM v3_mcp_environment_bindings WHERE extension_id='mcp-1' AND environment_id='dev'`).Scan(&bindingInstance); err != nil {
+		t.Fatal(err)
+	}
+	observedTools := []byte(`[{"name":"read_app","description":"untrusted observation","read_only_hint":true,"input_schema":{"type":"object"}}]`)
+	if _, err := db.Exec(ctx, `INSERT INTO v3_mcp_discovery_snapshots
+ (id,extension_id,binding_instance_id,application_id,environment_id,registration_version,registration_hash,tools_hash,tools,tool_count,captured_by)
+ VALUES($1,'mcp-1',$2,'app','dev',1,$3,$4,$5,1,$6)`,
+		store.ID(), bindingInstance, digestBytes(raw), digestBytes(observedTools), observedTools, viewer.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/api/v1/mcp-servers", "/api/v1/mcp-servers/mcp-1"} {
+		w := request(http.MethodGet, path)
+		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"status":"pending"`) ||
+			!strings.Contains(w.Body.String(), `"complete_v3_dto":false`) || strings.Contains(w.Body.String(), "untrusted observation") ||
+			strings.Contains(w.Body.String(), `"enabled":true`) || strings.Contains(w.Body.String(), `"status":"ok"`) {
+			t.Fatalf("untrusted discovery promoted to health or Agent tool: %s %d %s", path, w.Code, w.Body.String())
 		}
 	}
 	if w := request(http.MethodPut, "/api/v1/mcp-servers/mcp-1/environment-binding"); w.Code != http.StatusOK ||

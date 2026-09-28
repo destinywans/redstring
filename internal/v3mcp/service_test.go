@@ -21,17 +21,39 @@ func TestSummaryNeverExposesEndpointOrCredential(t *testing.T) {
 			},
 		},
 	}
-	raw, err := json.Marshal(summary(v))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, secret := range []string{"private.example.test", "secret-ref"} {
-		if strings.Contains(string(raw), secret) {
-			t.Fatalf("registration summary exposed %q: %s", secret, raw)
+	for _, tc := range []struct {
+		language, trust, caps, last string
+	}{
+		{"zh-CN", "V3 待审核", "MCP 能力未验证", "V3 调用记录未接入"},
+		{"en-US", "V3 review pending", "MCP capabilities unverified", "V3 call history unavailable"},
+	} {
+		raw, err := json.Marshal(summary(v, tc.language))
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
-	if !strings.Contains(string(raw), `"status":"pending"`) || !strings.Contains(string(raw), "连接状态未验证") && !strings.Contains(string(raw), "待验证") {
-		t.Fatalf("unverified registration was reported as healthy: %s", raw)
+		for _, secret := range []string{"private.example.test", "secret-ref"} {
+			if strings.Contains(string(raw), secret) {
+				t.Fatalf("registration summary exposed %q: %s", secret, raw)
+			}
+		}
+		var got struct {
+			Status string `json:"status"`
+			Desc   string `json:"desc"`
+			Trust  struct {
+				Label string `json:"label"`
+				Tone  string `json:"tone"`
+			} `json:"trust"`
+			Apps []any  `json:"apps"`
+			Caps string `json:"caps"`
+			Last string `json:"last"`
+		}
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Status != "pending" || !strings.Contains(got.Desc, "Orders") || !strings.Contains(got.Desc, "test") ||
+			got.Trust.Tone != "warn" || got.Trust.Label != tc.trust || got.Apps == nil || len(got.Apps) != 0 || got.Caps != tc.caps || got.Last != tc.last {
+			t.Fatalf("registration appeared reviewed, called or Agent-authorized: %s", raw)
+		}
 	}
 }
 

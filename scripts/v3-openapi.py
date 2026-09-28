@@ -218,7 +218,7 @@ S['V3ConversationList'] = obj({'items': arr(ref('V3ConversationSummary')),
         'triage':{'type':['integer','null']},'archived':integer()})})
 v3_route('get','/conversations','List scoped conversations',response=ref('V3ConversationList'),
     query=[v3_query(x) for x in ['filter','q','tab','status','mode','page','page_size']],
-    desc='The current manual-chat projection returns null for unknown total tokens and unconnected team/triage counts; it is not yet the complete frontend DTO.')
+    desc='The mine/archived projection merges privately owned manual chats and generic canvases in one authorized snapshot with consistent search, page, total and known counts. Team and triage have no reliable unified source and return 503 rather than an empty list; their counts are null, stats is empty and unknown provider usage is null. Historical investigations lack trustworthy mine/participants attribution. The current frontend expects numeric tokens and a conversation-view entry gate also excludes canvas-only users, so this is not the complete page contract.')
 v3_route('post','/conversations','Create conversation',body=obj({'text':string(minLength=1),'context':{'type':['string','null']},'model':{'type':['string','null']}},['text']),
     response=obj({'id':string()},['id']),status=201,
     desc='text must contain non-whitespace and fit within 2 MiB UTF-8; context is limited to 4096 bytes and model to 256 bytes. The selected default model and creation audit are persisted. The first message is submitted separately.')
@@ -1099,7 +1099,14 @@ S['V3ServiceMapping'] = obj({'systems':arr(v3_object('id brand label')),
     'suggestions':integer(minimum=0)},['systems','rows','suggestions'])
 v3_route('get','/service-mappings','Read persisted service connector mappings',
     response=ref('V3ServiceMapping'),
-    desc='Shows only bindings for authorized applications and environments; missing means no persisted binding, not a health check. More than 1000 visible services returns 422 result_limit instead of an incomplete map.')
+    desc='Shows only bindings for authorized applications and environments; missing means no persisted binding, not a health check. Pending suggestions are shown only if their explicit target, activation evidence and binding revision remain current and the runtime binding validator accepts the proposed GitLab binding. The current deployed validator does not yet accept GitLab, so it shows no such suggestions. More than 1000 visible services returns 422 result_limit instead of an incomplete map.')
+v3_route('post','/service-mappings/discover','Stage scoped service mapping candidates',
+    response=obj({'suggestions':integer(minimum=0)},['suggestions']),
+    desc='Partial operation in exactly one selected environment. Requires current services.change on each visible service and environment connectors.view/manage. Only a single explicitly enrolled numeric GitLab project target per service is eligible; connector activation evidence must postdate the target binding and a recent successful check must exist. The 15-minute candidate is saved without changing the service binding. More than 500 visible unmapped source rows returns 422. The deployed runtime binding validator does not yet support GitLab, so the response is currently suggestions=0 even when review candidates are stored. No label, name or deployment inference is performed; the frontend does not refresh the list after discovery.')
+v3_route('post','/service-mappings/accept','Accept current scoped service mapping candidates',
+    body=obj({'cells':{'type':'array','items':string(),'maxItems':1000}},['cells']),
+    response=obj({'accepted':integer(minimum=0)},['accepted']),
+    desc='Partial operation in exactly one selected environment. Only service:code cells are accepted after transaction-local services.view/change and connectors.view/manage checks, a unique unexpired candidate, current source identity, activation evidence, sole GitLab project target, binding revision and runtime binding validation. Binding, accepted candidate and audit commit together; a verified repeat can return accepted=0. The deployed validator currently rejects GitLab, so a new acceptance returns 409 mapping_binding_unavailable. The frontend marks accepted before response and does not recover on failure.')
 S['V3GitLabPipelineRecord'] = obj({**fieldnames('id provider service_id environment_id binding_id connector_id project_id status ref sha source created_at updated_at')},
     ['id','provider','service_id','environment_id','binding_id','connector_id','project_id','status','ref','sha','source','created_at','updated_at'])
 S['V3GitLabPipelineRecord']['properties']['provider'] = string(enum=['gitlab'])

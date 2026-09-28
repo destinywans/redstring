@@ -109,6 +109,8 @@
 
 对话详情、后续模型上下文和最新回复使用持久 `sort_order`，同一事务写入的用户/助手消息按回合排序。有 `accepted` 审计的回合按序列化顺序；迁入或无审计的旧回合只按时间戳作确定性回填，不能据此证明原始提交顺序。迁移 085 在应用启动事务中回填整表并建索引，部署前须停旧回复 worker 并在代表性副本量测锁时。
 
+`GET /conversations` 的 `mine` 与 `archived` 现在在同一授权快照中合并本人持久对话和私人通用画布，按当前会话、角色来源、环境及各模块查看权限复核，搜索、分页、总数与已知分面保持一致。`team`/`triage` 缺可靠统一来源时返回 503；相应 `counts` 为 `null`，`stats` 为空。历史调查缺可靠的本人/参与者归属，画布回合缺用量时 `tokens` 为 `null`，不以部分数字冒充总用量。当前前端将 `tokens` 当数字且列表入口只核 `conversation.view`，画布专属用户及未知用量的页面体验仍未接通；主读取路由保持 `mock`。
+
 通用画布模板保存已在同一事务复核会话、本人同环境源画布和当前 `canvas.change`，只复制净化后的节点/边布局及用户提交的模板名称，排除源节点标题、内容块、产物与对话；图结构验证失败不保存模板或审计。模板名称仍是可持久化文本：当前前端名称留空时会沿用源画布标题，可能包含需用户检查的业务信息。前端默认提交 `steps=true`、`runbooks=true`，而后端明确 422；页面还称“团队模板”，但当前仅为私有模板，且列表不含调查模板。故 `GET/POST /canvas-templates` 仍为 `mock`。
 
 通用画布节点 `POST /canvases/{id}/nodes/{node}/messages` 的后端已接持久化同步回复：限定本人画布、单一环境和当前 `canvas.change`，一次只运行一条回复。模型上下文包含当前节点及沿有向边可达的祖先节点块与已完成回合，不包含兄弟或失败回合，超过 24 KiB 返回 413；工具调用被拒绝。失败的用户输入保留供刷新核对，不生成虚假助手消息。`GET /canvases/{id}` 校验节点、七种块、边和产物结构，在 `threads` 返回各节点完整已保存回合；历史超过 500 次交换、2 MiB 总量或单条助手消息 64 KiB 时返回 413，不截断。前端目前既无超限恢复/分页，也未在发送失败时清除 `busy`；真实 409/413/422/503 可卡住输入框，因此画布整页及这两条主路由仍为 `mock`，调查节点接口与通用节点分开。
@@ -258,6 +260,8 @@ Agent Trace 后端目前只能读受信生产者上报的有界 Span 元数据�
 | GET | `/webhooks` | | `WebhookView`（入站、令牌、对外 MCP、出站） | mock |
 | POST | `/webhooks/{id}/redeliver` | | 结果 | mock |
 | POST | `/api-tokens` | `{ name, scopes, ttl }` | `{ id, secret_shown_once }` | mock |
+
+服务映射候选目前仅来自管理员显式绑定的单个 GitLab 数字项目目标，不按标签、名称或部署记录推断。`POST /service-mappings/discover` 在一个环境中核对服务与连接器授权、近期探测和绑定后的激活审计，保存 15 分钟候选，不直接改服务映射；超过 500 条可见未映射来源返回 422。`POST /service-mappings/accept` 在事务中复核候选唯一性、来源身份/修订、当前授权及绑定可用性，并将映射、候选状态与审计一同提交。迁移 `090_v3_service_mapping_candidates.sql` 保存候选；应用环境退役时候选会级联删除，管理审计另记接受决定。当前正式 `ValidateBindings` 不支持 GitLab，故发现不展示可接受建议，新接受返回 409；测试注入的通过校验器只证明事务路径。前端发现后不刷新、接受前就乐观显示成功，且文案误称来自标签/命名/部署；`PUT` 仍未接通。因此这三条主路由保持 `mock`，不能把候选持久化当作页面完成。
 
 Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v1/events/{alert|change|incident|resource|oncall}`，请求头 `Authorization: Bearer`、`Idempotency-Key`、`X-Signature` + `X-Timestamp`；返回 `202 / 409 / 422 / 401`。
 

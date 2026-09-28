@@ -201,7 +201,7 @@
 | --- | --- | --- | --- | --- |
 | GET | `/connectors` | `category`, `q` | `ConnectorList` | mock |
 | GET | `/connectors/{id}` | | `ConnectorDetail` | mock |
-| POST | `/connectors/{id}/test` | | `{ ok, latency_ms }` | mock |
+| POST | `/connectors/{id}/test` | | `{ ok, latency_ms }` | implemented |
 | PATCH | `/connectors/{id}` | 如 `{ tools: [{ name, enabled }] }` | 更新结果 | mock |
 | POST | `/connectors` | `{ type, url, auth, tools, webhook }`（凭据只传 Vault 引用） | `{ id }` | mock |
 | GET | `/connector-types/{type}` | | `ConnectorType`（认证方式、权限范围、只读工具） | mock |

@@ -395,11 +395,15 @@ func (s *Service) patch(w http.ResponseWriter, r *http.Request) {
 }
 
 func audit(ctx context.Context, tx pgx.Tx, action, target string, changes any) error {
+	return auditOutcome(ctx, tx, action, target, "success", changes)
+}
+
+func auditOutcome(ctx context.Context, tx pgx.Tx, action, target, outcome string, changes any) error {
 	raw, err := json.Marshal(changes)
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, "INSERT INTO management_audit(actor_id,action,target,outcome,changes) VALUES($1,$2,$3,'success',$4)", store.Principal(ctx).ID, action, target, raw)
+	_, err = tx.Exec(ctx, "INSERT INTO management_audit(actor_id,action,target,outcome,changes) VALUES($1,$2,$3,$4,$5)", store.Principal(ctx).ID, action, target, outcome, raw)
 	return err
 }
 
@@ -445,7 +449,11 @@ func (s *Service) test(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 		return
 	}
-	if err = audit(r.Context(), tx, "connector.connection.tested", c.ID, map[string]any{"environment": c.EnvironmentID, "ok": result.OK, "latency_ms": result.LatencyMS, "error_code": result.ErrorCode}); err != nil {
+	outcome := "failure"
+	if result.OK {
+		outcome = "success"
+	}
+	if err = auditOutcome(r.Context(), tx, "connector.connection.tested", c.ID, outcome, map[string]any{"environment": c.EnvironmentID, "ok": result.OK, "latency_ms": result.LatencyMS, "error_code": result.ErrorCode}); err != nil {
 		httpapi.Error(w, 503, "audit_unavailable", "Could not audit connection check")
 		return
 	}

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -86,6 +87,7 @@ func TestConnectorReadsUsePersistedScopedRecords(t *testing.T) {
 	for _, route := range []string{"GET /api/v1/connectors", "GET /api/v1/connectors/{id}"} {
 		api.MarkV3Route(route, "connectors", "view")
 	}
+	api.MarkV3Route("POST /api/v1/connectors/{id}/test", "connectors", "manage")
 	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{
 		Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev", "test"},
 	}, policy, st.Session, func(ctx context.Context, user core.User, module, action, environment string) error {
@@ -149,6 +151,65 @@ func TestConnectorReadsUsePersistedScopedRecords(t *testing.T) {
 	}
 	if strings.Contains(detail.Body.String(), "vault://") {
 		t.Fatal("credential reference leaked")
+	}
+	var upstreamHealthy atomic.Bool
+	upstreamHealthy.Store(true)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/-/ready" {
+			t.Errorf("unexpected probe request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if !upstreamHealthy.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+	if _, err := db.Exec(ctx, `INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method)
+ VALUES('local-probe','dev','prometheus','Local probe','observe',$1,'none')`, upstream.URL); err != nil {
+		t.Fatal(err)
+	}
+	probe := func(env string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/connectors/local-probe/test", nil)
+		r.Header.Set("X-AIOps-Environment", env)
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		return w
+	}
+	if w := probe("dev"); w.Code != http.StatusForbidden {
+		t.Fatalf("view-only connection test: %d %s", w.Code, w.Body.String())
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('viewer','connectors','manage','environment','dev')`); err != nil {
+		t.Fatal(err)
+	}
+	if w := probe("all"); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "env_view_only") {
+		t.Fatalf("all-scope connection test: %d %s", w.Code, w.Body.String())
+	}
+	if w := probe("dev"); w.Code != http.StatusOK {
+		t.Fatalf("authorized connection test: %d %s", w.Code, w.Body.String())
+	}
+	var status string
+	var checked bool
+	if err := db.QueryRow(ctx, `SELECT status,last_checked_at IS NOT NULL FROM v3_connectors WHERE id='local-probe'`).Scan(&status, &checked); err != nil || status != "ok" || !checked {
+		t.Fatalf("persisted connection check: status=%q checked=%v err=%v", status, checked, err)
+	}
+	var audits int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE action='connector.connection.tested' AND target='local-probe' AND outcome='success'`).Scan(&audits); err != nil || audits != 1 {
+		t.Fatalf("connection check audit: count=%d err=%v", audits, err)
+	}
+	upstreamHealthy.Store(false)
+	if w := probe("dev"); w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "connector_test_failed") {
+		t.Fatalf("failed upstream connection test: %d %s", w.Code, w.Body.String())
+	}
+	if err := db.QueryRow(ctx, `SELECT status,last_checked_at IS NOT NULL FROM v3_connectors WHERE id='local-probe'`).Scan(&status, &checked); err != nil || status != "error" || !checked {
+		t.Fatalf("persisted failed connection check: status=%q checked=%v err=%v", status, checked, err)
+	}
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE action='connector.connection.tested' AND target='local-probe' AND outcome='failure'`).Scan(&audits); err != nil || audits != 1 {
+		t.Fatalf("failed check audit: count=%d err=%v", audits, err)
 	}
 	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='connectors'`); err != nil {
 		t.Fatal(err)

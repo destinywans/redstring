@@ -21,7 +21,7 @@ func TestToolAuditRejectsMalformedEventsBeforeWrite(t *testing.T) {
 		{Name: "read_service_profile", StepID: "s1", Status: "started", TargetID: "resource_1"},
 		{Name: "read_service_profile", StepID: "s1", Status: "succeeded", TargetID: "unsafe target with spaces"},
 	} {
-		if err := s.appendToolAudit(context.Background(), "owner", "test", "c", "r", event); !errors.Is(err, errToolInvocation) {
+		if err := s.appendToolAudit(context.Background(), "owner", "test", "c", "r", "r", event); !errors.Is(err, errToolInvocation) {
 			t.Fatalf("event %#v: %v", event, err)
 		}
 	}

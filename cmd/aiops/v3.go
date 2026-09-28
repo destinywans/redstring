@@ -6,10 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
@@ -185,19 +188,20 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		toolModels[modelID] = true
 	}
 	personalSettings.ToolModels = toolModels
+	configuredConversationEnv := func(environmentID string) bool {
+		for _, id := range cfg.EnvironmentIDs {
+			if id == environmentID {
+				return true
+			}
+		}
+		return false
+	}
 	chat := v3conversation.New(s.DB, runtime, v3conversation.Options{
 		CurrentUser:    httpapi.CurrentUser,
 		RefreshSession: s.Session,
 		Shutdown:       ctx,
 		AuthorizeBackgroundTurn: func(ctx context.Context, ownerID, environmentID string) error {
-			configured := false
-			for _, id := range cfg.EnvironmentIDs {
-				if id == environmentID {
-					configured = true
-					break
-				}
-			}
-			if !configured {
+			if !configuredConversationEnv(environmentID) {
 				return store.ErrForbidden
 			}
 			member, err := s.Member(ctx, ownerID)
@@ -208,6 +212,19 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 				return store.ErrForbidden
 			}
 			return policy.Authorize(ctx, member.User, rbac.V3Decision{Module: "conversation", Action: "change", EnvironmentID: environmentID})
+		},
+		AuthorizeBackgroundTurnTx: func(ctx context.Context, tx pgx.Tx, ownerID, environmentID string) error {
+			if !configuredConversationEnv(environmentID) {
+				return store.ErrForbidden
+			}
+			member, err := s.MemberTx(ctx, tx, ownerID)
+			if err != nil {
+				return err
+			}
+			if member.DeletedAt != nil || member.Disabled {
+				return store.ErrForbidden
+			}
+			return policy.AuthorizeWithTx(ctx, tx, member.User, rbac.V3Decision{Module: "conversation", Action: "change", EnvironmentID: environmentID})
 		},
 		ToolsForTurn: func(_ context.Context, ownerID, environmentID, modelID string) ([]inference.EvidenceTool, error) {
 			if !toolModels[modelID] {
@@ -254,6 +271,22 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	if err := chat.RecoverInterrupted(ctx); err != nil {
 		return fmt.Errorf("recover V3 conversation runs: %w", err)
 	}
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				sweepCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				if err := chat.RecoverInterrupted(sweepCtx); err != nil && ctx.Err() == nil {
+					log.Printf("V3 reply recovery sweep: %v", err)
+				}
+				cancel()
+			}
+		}
+	}()
 	chat.Register(api.Register)
 	for _, pattern := range []string{"GET /api/v1/conversations", "GET /api/v1/conversations/{id}"} {
 		api.MarkV3Route(pattern, "conversation", "view")

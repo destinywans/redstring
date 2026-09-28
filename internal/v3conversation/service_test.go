@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -172,6 +173,10 @@ func (*finalOnlyRuntime) Run(context.Context, inference.Request, func(inference.
 }
 
 func isolatedConversationDB(t *testing.T) *pgxpool.Pool {
+	return isolatedConversationDBWithConns(t, 0)
+}
+
+func isolatedConversationDBWithConns(t *testing.T, maxConns int32) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
@@ -204,6 +209,9 @@ func isolatedConversationDB(t *testing.T) *pgxpool.Pool {
 		t.Fatal(err)
 	}
 	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	if maxConns > 0 {
+		cfg.MaxConns = maxConns
+	}
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -211,13 +219,13 @@ func isolatedConversationDB(t *testing.T) *pgxpool.Pool {
 	_, err = db.Exec(ctx, `
 		CREATE TABLE v3_conversations (id text PRIMARY KEY, owner_id text NOT NULL, environment_id text NOT NULL, active_reply_id text, updated_at timestamptz);
 		CREATE TABLE v3_conversation_messages (id text PRIMARY KEY, conversation_id text NOT NULL, role text NOT NULL, author text NOT NULL, parts jsonb NOT NULL, attachments jsonb NOT NULL DEFAULT '[]', run jsonb, state text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
-		CREATE TABLE v3_conversation_replies (id text PRIMARY KEY, conversation_id text NOT NULL, assistant_message_id text NOT NULL, initiating_session_hash text NOT NULL DEFAULT '', worker_claim_id text NOT NULL DEFAULT '', state text NOT NULL, error text NOT NULL DEFAULT '', finished_at timestamptz);
+		CREATE TABLE v3_conversation_replies (id text PRIMARY KEY, conversation_id text NOT NULL, assistant_message_id text NOT NULL, initiating_session_hash text NOT NULL DEFAULT '', worker_claim_id text NOT NULL DEFAULT '', lease_expires_at timestamptz, state text NOT NULL, error text NOT NULL DEFAULT '', finished_at timestamptz);
 		CREATE TABLE v3_conversation_events (seq bigserial PRIMARY KEY, conversation_id text NOT NULL, reply_id text NOT NULL, payload jsonb NOT NULL);
 		CREATE TABLE sessions (token_hash text PRIMARY KEY, user_id text NOT NULL, expires_at timestamptz NOT NULL);
 		CREATE TABLE management_audit (actor_id text NOT NULL, actor_kind text NOT NULL, action text NOT NULL, target text NOT NULL, outcome text NOT NULL, changes jsonb NOT NULL);
 		INSERT INTO v3_conversations(id,owner_id,environment_id,active_reply_id) VALUES('c','persisted-owner','test','r');
 		INSERT INTO v3_conversation_messages(id,conversation_id,role,author,parts,state) VALUES('u','c','user','user','[{"type":"text","markdown":"private history"}]','completed'),('a','c','assistant','AI','[]','streaming');
-		INSERT INTO v3_conversation_replies(id,conversation_id,assistant_message_id,state) VALUES('r','c','a','queued');`)
+		INSERT INTO v3_conversation_replies(id,conversation_id,assistant_message_id,worker_claim_id,lease_expires_at,state) VALUES('r','c','a','r',clock_timestamp()+interval '1 hour','queued');`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +362,10 @@ func TestRecoverInterruptedRetainsOnlyAuthorizedSessionOutput(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			svc := New(db, nil, Options{AuthorizeBackgroundTurn: func(context.Context, string, string) error {
+			if _, err := db.Exec(ctx, `UPDATE v3_conversation_replies SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE id='r'`); err != nil {
+				t.Fatal(err)
+			}
+			svc := New(db, nil, Options{AuthorizeBackgroundTurnTx: func(context.Context, pgx.Tx, string, string) error {
 				if tc.revokeRole {
 					return ErrForbidden
 				}
@@ -371,5 +382,138 @@ func TestRecoverInterruptedRetainsOnlyAuthorizedSessionOutput(t *testing.T) {
 				t.Fatalf("state=%s parts=%s", state, parts)
 			}
 		})
+	}
+}
+
+func TestLiveLeaseIsNotRecoveredAndExpiredLeaseFencesWorker(t *testing.T) {
+	db := isolatedConversationDB(t)
+	ctx := context.Background()
+	svc := New(db, nil, Options{AuthorizeBackgroundTurnTx: func(context.Context, pgx.Tx, string, string) error { return nil }})
+	if err := svc.RecoverInterrupted(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var state string
+	if err := db.QueryRow(ctx, `SELECT state FROM v3_conversation_replies WHERE id='r'`).Scan(&state); err != nil || state != "queued" {
+		t.Fatalf("live queued reply state=%q err=%v", state, err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE v3_conversation_replies SET state='running' WHERE id='r'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RecoverInterrupted(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, `SELECT state FROM v3_conversation_replies WHERE id='r'`).Scan(&state); err != nil || state != "running" {
+		t.Fatalf("live running reply state=%q err=%v", state, err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE v3_conversation_replies SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE id='r'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.appendToolAudit(ctx, "persisted-owner", "test", "c", "r", "r", &inference.ToolInvocation{Name: "read_service_profile", StepID: "s", Status: "started"}); !errors.Is(err, ErrBusy) {
+		t.Fatalf("expired worker audit: %v", err)
+	}
+	if err := svc.appendEvent(ctx, "c", "r", "r", map[string]any{"type": "text.delta", "delta": "stale"}); !errors.Is(err, ErrBusy) {
+		t.Fatalf("expired worker event: %v", err)
+	}
+	if err := svc.finish(ctx, "c", "r", "r", "a", nil, nil, nil); !errors.Is(err, ErrBusy) {
+		t.Fatalf("expired worker completion: %v", err)
+	}
+	if err := svc.RecoverInterrupted(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, `SELECT state FROM v3_conversation_replies WHERE id='r'`).Scan(&state); err != nil || state != "failed" {
+		t.Fatalf("expired reply state=%q err=%v", state, err)
+	}
+	var leaked bool
+	if err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_conversation_events WHERE reply_id='r' AND payload::text LIKE '%stale%')`).Scan(&leaked); err != nil || leaked {
+		t.Fatalf("stale event persisted=%v err=%v", leaked, err)
+	}
+}
+
+func TestRecoveryAuthorizationWithSingleConnection(t *testing.T) {
+	db := isolatedConversationDBWithConns(t, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if _, err := db.Exec(ctx, `UPDATE v3_conversation_replies SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE id='r'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_conversation_events(conversation_id,reply_id,payload) VALUES('c','r','{"type":"text.delta","delta":"authorized partial"}')`); err != nil {
+		t.Fatal(err)
+	}
+	queryOK := false
+	svc := New(db, nil, Options{AuthorizeBackgroundTurnTx: func(ctx context.Context, tx pgx.Tx, owner, env string) error {
+		var one int
+		err := tx.QueryRow(ctx, `SELECT 1`).Scan(&one)
+		queryOK = err == nil && one == 1 && owner == "persisted-owner" && env == "test"
+		return err
+	}})
+	if err := svc.RecoverInterrupted(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var parts string
+	if err := db.QueryRow(ctx, `SELECT parts::text FROM v3_conversation_messages WHERE id='a'`).Scan(&parts); err != nil {
+		t.Fatal(err)
+	}
+	if !queryOK || !strings.Contains(parts, "authorized partial") {
+		t.Fatalf("authorization query succeeded=%v, recovered parts=%s", queryOK, parts)
+	}
+}
+
+func TestRecoveryTrustsOnlyTransactionAuthorization(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		txCallback bool
+	}{
+		{"revoked after prior authorization", true},
+		{"missing transaction callback", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := isolatedConversationDB(t)
+			ctx := context.Background()
+			if _, err := db.Exec(ctx, `UPDATE v3_conversation_replies SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE id='r'`); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(ctx, `INSERT INTO v3_conversation_events(conversation_id,reply_id,payload) VALUES('c','r','{"type":"text.delta","delta":"sensitive partial"}')`); err != nil {
+				t.Fatal(err)
+			}
+			opts := Options{AuthorizeBackgroundTurn: func(context.Context, string, string) error {
+				return nil // a prior, out-of-transaction authorization
+			}}
+			if tc.txCallback {
+				opts.AuthorizeBackgroundTurnTx = func(context.Context, pgx.Tx, string, string) error {
+					return ErrForbidden // grant revoked before recovery acquires the row lock
+				}
+			}
+			if err := New(db, nil, opts).RecoverInterrupted(ctx); err != nil {
+				t.Fatal(err)
+			}
+			var leaked bool
+			if err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_conversation_events WHERE reply_id='r' AND payload::text LIKE '%sensitive partial%')`).Scan(&leaked); err != nil || leaked {
+				t.Fatalf("replayable output retained=%v err=%v", leaked, err)
+			}
+		})
+	}
+}
+
+func TestRecoveryProcessesMoreThanOneBatch(t *testing.T) {
+	db := isolatedConversationDB(t)
+	ctx := context.Background()
+	_, err := db.Exec(ctx, `
+		UPDATE v3_conversation_replies SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE id='r';
+		INSERT INTO v3_conversations(id,owner_id,environment_id,active_reply_id)
+		SELECT 'c'||lpad(i::text,3,'0'),'persisted-owner','test','r'||lpad(i::text,3,'0') FROM generate_series(1,100) i;
+		INSERT INTO v3_conversation_messages(id,conversation_id,role,author,parts,state)
+		SELECT 'a'||lpad(i::text,3,'0'),'c'||lpad(i::text,3,'0'),'assistant','AI','[]','streaming' FROM generate_series(1,100) i;
+		INSERT INTO v3_conversation_replies(id,conversation_id,assistant_message_id,worker_claim_id,lease_expires_at,state)
+		SELECT 'r'||lpad(i::text,3,'0'),'c'||lpad(i::text,3,'0'),'a'||lpad(i::text,3,'0'),
+			'r'||lpad(i::text,3,'0'),clock_timestamp()-interval '1 second','queued' FROM generate_series(1,100) i;`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := New(db, nil, Options{}).RecoverInterrupted(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var active int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_conversation_replies WHERE state IN ('queued','running')`).Scan(&active); err != nil || active != 0 {
+		t.Fatalf("active replies after batch recovery=%d err=%v", active, err)
 	}
 }

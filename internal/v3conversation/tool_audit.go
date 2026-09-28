@@ -15,8 +15,8 @@ var auditTargetID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,256}$`)
 // runtime awaits the started callback before calling Read, and awaits the
 // terminal callback before returning evidence to the model. Never put tool
 // arguments, query text, evidence, or provider errors into management audit.
-func (s *Service) appendToolAudit(ctx context.Context, owner, env, conv, reply string, invocation *inference.ToolInvocation) error {
-	if invocation == nil || owner == "" || env == "" || env == "all" || conv == "" || reply == "" ||
+func (s *Service) appendToolAudit(ctx context.Context, owner, env, conv, reply, claim string, invocation *inference.ToolInvocation) error {
+	if invocation == nil || owner == "" || env == "" || env == "all" || conv == "" || reply == "" || claim == "" ||
 		invocation.Name == "" || invocation.StepID == "" || invocation.DurationMS < 0 ||
 		(invocation.TargetID != "" && !auditTargetID.MatchString(invocation.TargetID)) {
 		return errToolInvocation
@@ -37,9 +37,18 @@ func (s *Service) appendToolAudit(ctx context.Context, owner, env, conv, reply s
 	default:
 		return errToolInvocation
 	}
-	_, err := s.db.Exec(ctx, `INSERT INTO management_audit(actor_id,actor_kind,action,target,outcome,changes)
-		VALUES($1,'agent','v3.conversation.tool',$2,$3,
-		jsonb_build_object('environment_id',$4,'conversation_id',$5,'reply_id',$6,'step_id',$7,'duration_ms',$8,'resource_id',$9))`,
-		owner, invocation.Name, outcome, env, conv, reply, invocation.StepID, invocation.DurationMS, invocation.TargetID)
+	result, err := s.db.Exec(ctx, `WITH owned AS MATERIALIZED (
+		SELECT r.id FROM v3_conversation_replies r JOIN v3_conversations c ON c.id=r.conversation_id
+		WHERE r.id=$6 AND r.conversation_id=$5 AND r.worker_claim_id=$10
+			AND r.state='running' AND r.lease_expires_at>clock_timestamp() AND c.active_reply_id=r.id
+		FOR UPDATE OF r
+	)
+	INSERT INTO management_audit(actor_id,actor_kind,action,target,outcome,changes)
+	SELECT $1,'agent','v3.conversation.tool',$2,$3,
+		jsonb_build_object('environment_id',$4,'conversation_id',$5,'reply_id',owned.id,'step_id',$7,'duration_ms',$8,'resource_id',$9)
+	FROM owned`, owner, invocation.Name, outcome, env, conv, reply, invocation.StepID, invocation.DurationMS, invocation.TargetID, claim)
+	if err == nil && result.RowsAffected() == 0 {
+		return ErrBusy
+	}
 	return err
 }

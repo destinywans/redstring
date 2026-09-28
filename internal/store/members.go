@@ -104,6 +104,15 @@ func (s *Store) Members(ctx context.Context, includeDeleted bool) ([]Member, err
 func (s *Store) Member(ctx context.Context, id string) (Member, error) {
 	return scanMember(s.DB.QueryRow(ctx, "SELECT "+memberColumns+" FROM users WHERE id=$1", id))
 }
+
+// MemberTx reads member state on the caller's transaction connection. It is
+// used by reply recovery while that transaction holds the reply row lock.
+func (s *Store) MemberTx(ctx context.Context, tx pgx.Tx, id string) (Member, error) {
+	if tx == nil {
+		return Member{}, ErrForbidden
+	}
+	return scanMember(tx.QueryRow(ctx, "SELECT "+memberColumns+" FROM users WHERE id=$1", id))
+}
 func validMember(email, name, department, job string) bool {
 	a, e := mail.ParseAddress(email)
 	return e == nil && a.Address == email && len(email) <= 320 && strings.Contains(email, "@") && strings.TrimSpace(name) != "" && len(name) <= 200 && len(department) <= 200 && len(job) <= 200

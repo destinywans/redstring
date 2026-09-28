@@ -45,6 +45,10 @@ type Options struct {
 	// environment. It must not use the initiating request's identity or scope.
 	// Nil or an error fails the background reply closed.
 	AuthorizeBackgroundTurn func(context.Context, string, string) error
+	// AuthorizeBackgroundTurnTx rechecks the owner and grant on the same
+	// transaction connection that holds an expired reply lock. A missing
+	// callback fails recovery closed and discards partial model output.
+	AuthorizeBackgroundTurnTx func(context.Context, pgx.Tx, string, string) error
 	// ToolsForTurn binds read-only tools to the persisted owner and environment.
 	// Each tool must independently recheck its target's V3 scope when Read runs.
 	// Nil means no tools are offered to the model.
@@ -55,7 +59,7 @@ type Options struct {
 	// RunTimeout bounds a background turn after the initiating HTTP request has ended.
 	RunTimeout time.Duration
 	// Shutdown stops failed-reply persistence retries when the server exits.
-	// Startup recovery closes any interrupted reply after the next start.
+	// Startup and periodic recovery close replies after their lease expires.
 	Shutdown context.Context
 }
 
@@ -64,6 +68,9 @@ type Service struct {
 	runtime inference.Runner
 	opts    Options
 }
+
+const replyLease = 30 * time.Second
+const replyRenewInterval = 10 * time.Second
 
 func New(db *pgxpool.Pool, runtime inference.Runner, opts Options) *Service {
 	if opts.Environment == nil {
@@ -185,6 +192,16 @@ func (s *Service) authorizeBackgroundTurn(ctx context.Context, owner, env string
 	return nil
 }
 
+func (s *Service) authorizeBackgroundTurnTx(ctx context.Context, tx pgx.Tx, owner, env string) error {
+	if tx == nil || owner == "" || env == "" || env == "all" || s.opts.AuthorizeBackgroundTurnTx == nil {
+		return ErrForbidden
+	}
+	if s.opts.AuthorizeBackgroundTurnTx(ctx, tx, owner, env) != nil {
+		return ErrForbidden
+	}
+	return nil
+}
+
 func (s *Service) authorizeActiveTurn(ctx context.Context, owner, env, sessionToken string) error {
 	if sessionToken == "" || s.opts.RefreshSession == nil {
 		return ErrForbidden
@@ -278,8 +295,8 @@ func (s *Service) startTurn(ctx context.Context, id, owner, env, author, session
 	if err != nil {
 		return Message{}, "", err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO v3_conversation_replies(id,conversation_id,user_message_id,assistant_message_id,model_id,reasoning,initiating_session_hash,state)
-		VALUES($1,$2,$3,$4,$5,$6,$7,'queued')`, replyID, id, userID, assistantID, model.ID, input.Reasoning, sessionHash)
+	_, err = tx.Exec(ctx, `INSERT INTO v3_conversation_replies(id,conversation_id,user_message_id,assistant_message_id,model_id,reasoning,initiating_session_hash,worker_claim_id,lease_expires_at,state)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$1,clock_timestamp()+$8::double precision * interval '1 second','queued')`, replyID, id, userID, assistantID, model.ID, input.Reasoning, sessionHash, replyLease.Seconds())
 	if err != nil {
 		return Message{}, "", err
 	}
@@ -298,21 +315,62 @@ func (s *Service) startTurn(ctx context.Context, id, owner, env, author, session
 	return Message{ID: userID, Role: "user", Author: author, CreatedAt: now, Parts: []json.RawMessage{textPart(input.Text)}, Attachments: input.Attachments}, replyID, nil
 }
 
-func (s *Service) appendEvent(ctx context.Context, conv, reply string, payload any) error {
+func (s *Service) appendEvent(ctx context.Context, conv, reply, claim string, payload any) error {
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(ctx, `INSERT INTO v3_conversation_events(conversation_id,reply_id,payload) VALUES($1,$2,$3)`, conv, reply, raw)
+	result, err := s.db.Exec(ctx, `WITH owned AS MATERIALIZED (
+		SELECT r.id FROM v3_conversation_replies r JOIN v3_conversations c ON c.id=r.conversation_id
+		WHERE r.id=$2 AND r.conversation_id=$1 AND r.worker_claim_id=$3
+			AND r.state='running' AND r.lease_expires_at>clock_timestamp() AND c.active_reply_id=r.id
+		FOR UPDATE OF r
+	)
+	INSERT INTO v3_conversation_events(conversation_id,reply_id,payload)
+	SELECT $1,owned.id,$4 FROM owned`, conv, reply, claim, raw)
+	if err == nil && result.RowsAffected() == 0 {
+		return ErrBusy
+	}
 	return err
 }
 
-func (s *Service) finish(ctx context.Context, conv, reply, assistant string, parts []json.RawMessage, run any, runErr error) error {
+func (s *Service) finish(ctx context.Context, conv, reply, claim, assistant string, parts []json.RawMessage, run any, runErr error) error {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if err := lockReply(ctx, tx, conv, reply, claim, false); err != nil {
+		return err
+	}
+	if err := s.finishLocked(ctx, tx, conv, reply, assistant, parts, run, runErr); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// lockReply serializes all terminal writes with the worker's event/audit writes.
+// A recovery may only take an expired lease; a worker must still own a live one.
+func lockReply(ctx context.Context, tx pgx.Tx, conv, reply, claim string, expired bool) error {
+	var id string
+	condition := "r.worker_claim_id=$3 AND r.state='running' AND r.lease_expires_at>clock_timestamp()"
+	args := []any{conv, reply, claim}
+	if expired {
+		condition = "r.state IN ('queued','running') AND (r.lease_expires_at IS NULL OR r.lease_expires_at<=clock_timestamp())"
+		args = args[:2]
+	}
+	err := tx.QueryRow(ctx, `SELECT r.id FROM v3_conversation_replies r
+		JOIN v3_conversations c ON c.id=r.conversation_id
+		WHERE r.id=$2 AND r.conversation_id=$1 AND c.active_reply_id=r.id AND `+condition+`
+		FOR UPDATE OF r`, args...).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrBusy
+	}
+	return err
+}
+
+func (s *Service) finishLocked(ctx context.Context, tx pgx.Tx, conv, reply, assistant string, parts []json.RawMessage, run any, runErr error) error {
+	var err error
 	state := "completed"
 	event := map[string]any{"type": "message.completed", "message_id": assistant, "run": run}
 	errText := ""
@@ -340,7 +398,7 @@ func (s *Service) finish(ctx context.Context, conv, reply, assistant string, par
 		return err
 	}
 	var updated string
-	err = tx.QueryRow(ctx, `UPDATE v3_conversation_replies SET state=$1,error=$2,finished_at=now()
+	err = tx.QueryRow(ctx, `UPDATE v3_conversation_replies SET state=$1,error=$2,finished_at=clock_timestamp(),lease_expires_at=NULL
 		WHERE id=$3 AND conversation_id=$4 AND state IN ('queued','running') RETURNING id`, state, errText, reply, conv).Scan(&updated)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrBusy
@@ -366,22 +424,23 @@ func (s *Service) finish(ctx context.Context, conv, reply, assistant string, par
 	if err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, sessionToken string) {
 	// A lost UPDATE response can mean the claim committed even though the caller
 	// saw an error. Reuse one claim ID until the database recovers so retrying
 	// cannot start a second model run or strand the reply in queued state.
-	claimID := store.ID()
+	claimID := reply // issued atomically with the queued reply in startTurn
 	var assistant, owner, env, sessionHash string
 	for attempt := 0; ; attempt++ {
 		claimCtx, claimCancel := context.WithTimeout(s.opts.Shutdown, 10*time.Second)
-		err := s.db.QueryRow(claimCtx, `UPDATE v3_conversation_replies AS r SET state='running',worker_claim_id=$3
+		err := s.db.QueryRow(claimCtx, `UPDATE v3_conversation_replies AS r SET state='running',lease_expires_at=clock_timestamp()+$3::double precision * interval '1 second'
 			FROM v3_conversations AS c
 			WHERE r.id=$1 AND r.conversation_id=$2 AND c.id=r.conversation_id
-				AND (r.state='queued' OR (r.state='running' AND r.worker_claim_id=$3))
-			RETURNING r.assistant_message_id,c.owner_id,c.environment_id,r.initiating_session_hash`, reply, conv, claimID).Scan(&assistant, &owner, &env, &sessionHash)
+				AND c.active_reply_id=r.id AND r.worker_claim_id=$1
+				AND r.state IN ('queued','running') AND r.lease_expires_at>clock_timestamp()
+			RETURNING r.assistant_message_id,c.owner_id,c.environment_id,r.initiating_session_hash`, reply, conv, replyLease.Seconds()).Scan(&assistant, &owner, &env, &sessionHash)
 		claimCancel()
 		if err == nil {
 			break
@@ -401,27 +460,29 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 	}
 	ctx, cancel := context.WithTimeout(s.opts.Shutdown, s.opts.RunTimeout)
 	defer cancel()
+	stopRenewal := s.renewWhileRunning(ctx, cancel, conv, reply, claimID)
+	defer stopRenewal()
 	if sessionToken == "" || sessionHash == "" || store.Hash(sessionToken) != sessionHash {
-		s.failTurn(conv, reply, assistant, nil, ErrForbidden)
+		s.failTurn(conv, reply, claimID, assistant, nil, ErrForbidden)
 		return
 	}
 	if err := s.authorizeActiveTurn(ctx, owner, env, sessionToken); err != nil {
-		s.failTurn(conv, reply, assistant, nil, err)
+		s.failTurn(conv, reply, claimID, assistant, nil, err)
 		return
 	}
 	started := time.Now()
-	if err := s.appendEvent(ctx, conv, reply, map[string]any{"type": "message.started", "message": Message{ID: assistant, Role: "assistant", Author: "AI", CreatedAt: started.UTC(), Parts: []json.RawMessage{}, Streaming: true}}); err != nil {
-		s.failTurn(conv, reply, assistant, nil, err)
+	if err := s.appendEvent(ctx, conv, reply, claimID, map[string]any{"type": "message.started", "message": Message{ID: assistant, Role: "assistant", Author: "AI", CreatedAt: started.UTC(), Parts: []json.RawMessage{}, Streaming: true}}); err != nil {
+		s.failTurn(conv, reply, claimID, assistant, nil, err)
 		return
 	}
 	msgs, err := s.contextMessages(ctx, conv)
 	if err != nil {
-		s.failTurn(conv, reply, assistant, nil, err)
+		s.failTurn(conv, reply, claimID, assistant, nil, err)
 		return
 	}
 	parts := []json.RawMessage{textPart("")}
-	if err = s.appendEvent(ctx, conv, reply, map[string]any{"type": "part.added", "message_id": assistant, "part": map[string]any{"type": "text", "markdown": ""}}); err != nil {
-		s.failTurn(conv, reply, assistant, parts, err)
+	if err = s.appendEvent(ctx, conv, reply, claimID, map[string]any{"type": "part.added", "message_id": assistant, "part": map[string]any{"type": "text", "markdown": ""}}); err != nil {
+		s.failTurn(conv, reply, claimID, assistant, parts, err)
 		return
 	}
 	var streamed strings.Builder
@@ -434,7 +495,7 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 		} else {
 			parts[1] = marshal(part)
 		}
-		return s.appendEvent(ctx, conv, reply, map[string]any{"type": "part.added", "message_id": assistant, "part": part})
+		return s.appendEvent(ctx, conv, reply, claimID, map[string]any{"type": "part.added", "message_id": assistant, "part": part})
 	}
 	emit := func(e inference.Event) error {
 		switch e.Type {
@@ -446,7 +507,7 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 				return err
 			}
 			streamed.WriteString(e.Delta)
-			return s.appendEvent(ctx, conv, reply, map[string]any{"type": "text.delta", "message_id": assistant, "index": 0, "delta": e.Delta})
+			return s.appendEvent(ctx, conv, reply, claimID, map[string]any{"type": "text.delta", "message_id": assistant, "index": 0, "delta": e.Delta})
 		case "tool_invocation":
 			if e.Invocation == nil || e.Invocation.StepID != e.StepID {
 				return errToolInvocation
@@ -465,7 +526,7 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 					return err
 				}
 			}
-			if err := s.appendToolAudit(ctx, owner, env, conv, reply, e.Invocation); err != nil {
+			if err := s.appendToolAudit(ctx, owner, env, conv, reply, claimID, e.Invocation); err != nil {
 				return err
 			}
 			if e.Invocation.Status == "started" {
@@ -495,7 +556,7 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 			}
 			evidencePart := map[string]any{"type": "status", "text": e.Evidence.Title, "detail": e.Evidence.Content}
 			parts = append(parts, marshal(evidencePart))
-			return s.appendEvent(ctx, conv, reply, map[string]any{"type": "part.added", "message_id": assistant, "part": evidencePart})
+			return s.appendEvent(ctx, conv, reply, claimID, map[string]any{"type": "part.added", "message_id": assistant, "part": evidencePart})
 		}
 		return nil
 	}
@@ -503,7 +564,7 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 	if model.Tools && s.opts.ToolsForTurn != nil {
 		tools, err = s.opts.ToolsForTurn(ctx, owner, env, model.ID)
 		if err != nil {
-			s.failTurn(conv, reply, assistant, parts, err)
+			s.failTurn(conv, reply, claimID, assistant, parts, err)
 			return
 		}
 	}
@@ -520,11 +581,11 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 	answer, runErr := s.runtime.Run(ctx, inference.Request{RunID: reply, AttemptID: reply, BranchID: conv, ModelID: model.ID, Reasoning: reasoning, Messages: msgs, Tools: tools}, emit)
 	if runErr != nil {
 		parts[0] = textPart(streamed.String())
-		s.failTurn(conv, reply, assistant, parts, runErr)
+		s.failTurn(conv, reply, claimID, assistant, parts, runErr)
 		return
 	}
 	if answer == "" {
-		s.failTurn(conv, reply, assistant, parts, errors.New("empty model response"))
+		s.failTurn(conv, reply, claimID, assistant, parts, errors.New("empty model response"))
 		return
 	}
 	streamedText := streamed.String()
@@ -533,28 +594,28 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 		// The client can only append text.delta. Publishing a divergent final
 		// answer would leave its message different from the durable message.
 		parts[0] = textPart(streamedText)
-		s.failTurn(conv, reply, assistant, parts, err)
+		s.failTurn(conv, reply, claimID, assistant, parts, err)
 		return
 	}
 	parts[0] = textPart(answer)
 	// The provider may emit a final accumulated chunk rather than individual deltas.
 	if suffix != "" {
 		if err := s.authorizeActiveTurn(ctx, owner, env, sessionToken); err != nil {
-			s.failTurn(conv, reply, assistant, nil, err)
+			s.failTurn(conv, reply, claimID, assistant, nil, err)
 			return
 		}
-		if err := s.appendEvent(ctx, conv, reply, map[string]any{"type": "text.delta", "message_id": assistant, "index": 0, "delta": suffix}); err != nil {
-			s.failTurn(conv, reply, assistant, parts, err)
+		if err := s.appendEvent(ctx, conv, reply, claimID, map[string]any{"type": "text.delta", "message_id": assistant, "index": 0, "delta": suffix}); err != nil {
+			s.failTurn(conv, reply, claimID, assistant, parts, err)
 			return
 		}
 	}
 	if err := s.authorizeActiveTurn(ctx, owner, env, sessionToken); err != nil {
-		s.failTurn(conv, reply, assistant, nil, err)
+		s.failTurn(conv, reply, claimID, assistant, nil, err)
 		return
 	}
 	run := map[string]any{"id": reply, "agent": "AI", "version": "v3", "model": model.Name, "model_id": model.ID, "reasoning": reasoning, "tokens": 0, "duration_s": time.Since(started).Seconds()}
-	if err := s.finish(ctx, conv, reply, assistant, parts, run, nil); err != nil {
-		s.failTurn(conv, reply, assistant, parts, err)
+	if err := s.finish(ctx, conv, reply, claimID, assistant, parts, run, nil); err != nil {
+		s.failTurn(conv, reply, claimID, assistant, parts, err)
 	}
 }
 
@@ -565,7 +626,7 @@ func completionSuffix(streamed, final string) (string, error) {
 	return strings.TrimPrefix(final, streamed), nil
 }
 
-func (s *Service) failTurn(conv, reply, assistant string, parts []json.RawMessage, cause error) {
+func (s *Service) failTurn(conv, reply, claim, assistant string, parts []json.RawMessage, cause error) {
 	if parts == nil {
 		parts = []json.RawMessage{}
 	}
@@ -574,7 +635,7 @@ func (s *Service) failTurn(conv, reply, assistant string, parts []json.RawMessag
 			return
 		}
 		ctx, cancel := context.WithTimeout(s.opts.Shutdown, 10*time.Second)
-		err := s.finish(ctx, conv, reply, assistant, parts, nil, cause)
+		err := s.finish(ctx, conv, reply, claim, assistant, parts, nil, cause)
 		cancel()
 		if err == nil || errors.Is(err, ErrBusy) {
 			return
@@ -591,56 +652,122 @@ func (s *Service) failTurn(conv, reply, assistant string, parts []json.RawMessag
 	}
 }
 
-// RecoverInterrupted marks turns from a previous process as failed before the
-// HTTP server begins accepting requests. It does not replay model calls, which
-// could duplicate provider charges and tool activity.
-func (s *Service) RecoverInterrupted(ctx context.Context) error {
-	rows, err := s.db.Query(ctx, `SELECT r.conversation_id,r.id,r.assistant_message_id,c.owner_id,c.environment_id,
-		EXISTS(SELECT 1 FROM sessions ss WHERE ss.token_hash=r.initiating_session_hash
-			AND ss.user_id=c.owner_id AND ss.expires_at>now())
-		FROM v3_conversation_replies r JOIN v3_conversations c ON c.id=r.conversation_id
-		WHERE r.state IN ('queued','running')`)
-	if err != nil {
-		return err
-	}
-	type pending struct {
-		conv, reply, assistant, owner, env string
-		sessionActive                      bool
-	}
-	var interrupted []pending
-	for rows.Next() {
-		var p pending
-		if err = rows.Scan(&p.conv, &p.reply, &p.assistant, &p.owner, &p.env, &p.sessionActive); err != nil {
-			rows.Close()
-			return err
-		}
-		interrupted = append(interrupted, p)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return err
-	}
-	for _, p := range interrupted {
-		if !p.sessionActive || s.authorizeBackgroundTurn(ctx, p.owner, p.env) != nil {
-			if err = s.finish(ctx, p.conv, p.reply, p.assistant, nil, nil, ErrForbidden); err != nil && !errors.Is(err, ErrBusy) {
-				return err
+// renewWhileRunning cancels the model as soon as ownership cannot be renewed.
+// Every durable write still checks the lease independently, so cancellation is
+// a resource bound rather than the ownership fence.
+func (s *Service) renewWhileRunning(ctx context.Context, cancel context.CancelFunc, conv, reply, claim string) func() {
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(replyRenewInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				renewCtx, end := context.WithTimeout(ctx, replyRenewInterval)
+				result, err := s.db.Exec(renewCtx, `UPDATE v3_conversation_replies AS r
+					SET lease_expires_at=clock_timestamp()+$4::double precision * interval '1 second'
+					FROM v3_conversations AS c
+					WHERE r.id=$2 AND r.conversation_id=$1 AND r.worker_claim_id=$3
+						AND r.state='running' AND r.lease_expires_at>clock_timestamp()
+						AND c.id=r.conversation_id AND c.active_reply_id=r.id`, conv, reply, claim, replyLease.Seconds())
+				end()
+				if err != nil || result.RowsAffected() != 1 {
+					cancel()
+					return
+				}
 			}
-			continue
 		}
-		parts, err := s.recoveredParts(ctx, p.reply)
+	}()
+	return func() { close(stop); <-done }
+}
+
+// RecoverInterrupted closes only expired turns. It can run at startup or from
+// a periodic sweeper. No model call is replayed after an expired lease.
+func (s *Service) RecoverInterrupted(ctx context.Context) error {
+	type pending struct{ conv, reply string }
+	// Keyset pagination visits every candidate present in this pass, even when
+	// another instance wins a row. A later sweep picks up newly expired rows.
+	lastID := ""
+	for {
+		rows, err := s.db.Query(ctx, `SELECT r.conversation_id,r.id
+            FROM v3_conversation_replies r JOIN v3_conversations c ON c.id=r.conversation_id
+            WHERE r.state IN ('queued','running') AND c.active_reply_id=r.id AND r.id>$1
+                AND (r.lease_expires_at IS NULL OR r.lease_expires_at<=clock_timestamp())
+            ORDER BY r.id LIMIT 100`, lastID)
 		if err != nil {
 			return err
 		}
-		if err = s.finish(ctx, p.conv, p.reply, p.assistant, parts, nil, errors.New("reply interrupted by server restart")); err != nil && !errors.Is(err, ErrBusy) {
+		var interrupted []pending
+		for rows.Next() {
+			var p pending
+			if err = rows.Scan(&p.conv, &p.reply); err != nil {
+				rows.Close()
+				return err
+			}
+			interrupted = append(interrupted, p)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		for _, p := range interrupted {
+			if err = s.recoverOne(ctx, p.conv, p.reply); err != nil && !errors.Is(err, ErrBusy) {
+				return err
+			}
+		}
+		if len(interrupted) < 100 {
+			return nil
+		}
+		lastID = interrupted[len(interrupted)-1].reply
+		if err = ctx.Err(); err != nil {
 			return err
 		}
 	}
-	return nil
 }
 
-func (s *Service) recoveredParts(ctx context.Context, reply string) ([]json.RawMessage, error) {
-	rows, err := s.db.Query(ctx, `SELECT payload FROM v3_conversation_events WHERE reply_id=$1 ORDER BY seq`, reply)
+func (s *Service) recoverOne(ctx context.Context, conv, reply string) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err = lockReply(ctx, tx, conv, reply, "", true); err != nil {
+		return err
+	}
+	var assistant, owner, env string
+	var sessionActive bool
+	err = tx.QueryRow(ctx, `SELECT r.assistant_message_id,c.owner_id,c.environment_id,
+        EXISTS(SELECT 1 FROM sessions ss WHERE ss.token_hash=r.initiating_session_hash
+            AND ss.user_id=c.owner_id AND ss.expires_at>clock_timestamp())
+        FROM v3_conversation_replies r JOIN v3_conversations c ON c.id=r.conversation_id
+        WHERE r.id=$1 AND r.conversation_id=$2`, reply, conv).Scan(&assistant, &owner, &env, &sessionActive)
+	if err != nil {
+		return err
+	}
+	var parts []json.RawMessage
+	cause := error(ErrForbidden)
+	if sessionActive && s.authorizeBackgroundTurnTx(ctx, tx, owner, env) == nil {
+		parts, err = s.recoveredParts(ctx, tx, reply)
+		if err != nil {
+			return err
+		}
+		cause = errors.New("reply interrupted after lease expiry")
+	}
+	if err = s.finishLocked(ctx, tx, conv, reply, assistant, parts, nil, cause); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Service) recoveredParts(ctx context.Context, tx pgx.Tx, reply string) ([]json.RawMessage, error) {
+	rows, err := tx.Query(ctx, `SELECT payload FROM v3_conversation_events WHERE reply_id=$1 ORDER BY seq`, reply)
 	if err != nil {
 		return nil, err
 	}

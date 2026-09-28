@@ -36799,7 +36799,7 @@
       "get": {
         "summary": "Read persisted service connector mappings",
         "operationId": "get_service_mappings",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Shows only bindings for authorized applications and environments; missing means no persisted binding, not a health check. Pending suggestions are shown only if their explicit target, activation evidence and binding revision remain current and the runtime binding validator accepts the proposed GitLab binding. The current deployed validator does not yet accept GitLab, so it shows no such suggestions. More than 1000 visible services returns 422 result_limit instead of an incomplete map.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Shows only bindings for authorized applications and environments; missing means no persisted binding, not a health check. Pending suggestions are shown only if their explicit GitLab project target, activation evidence and binding revision remain current. A V3-only validator permits exactly that source-derived GitLab binding while passing every other binding to the unchanged platform validator. Activation is historical project-access evidence; a recent generic connector probe does not prove current project access. More than 1000 visible services returns 422 result_limit instead of an incomplete map.",
         "responses": {
           "200": {
             "description": "Success",
@@ -36896,7 +36896,7 @@
       "post": {
         "summary": "Stage scoped service mapping candidates",
         "operationId": "post_service_mappings_discover",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial operation in exactly one selected environment. Requires current services.change on each visible service and environment connectors.view/manage. Only a single explicitly enrolled numeric GitLab project target per service is eligible; connector activation evidence must postdate the target binding and a recent successful check must exist. The 15-minute candidate is saved without changing the service binding. More than 500 visible unmapped source rows returns 422. The deployed runtime binding validator does not yet support GitLab, so the response is currently suggestions=0 even when review candidates are stored. No label, name or deployment inference is performed; the frontend does not refresh the list after discovery.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial operation in exactly one selected environment. Requires current services.change on each visible service and environment connectors.view/manage. Only a single explicitly enrolled numeric GitLab project target per service is eligible; connector activation evidence must postdate the target binding and a recent successful check must exist. The 15-minute candidate is saved without changing the service binding. A V3-only validator checks the exact source-derived GitLab binding and delegates all other bindings to the unchanged platform validator. More than 500 visible unmapped source rows returns 422. No label, name or deployment inference is performed; the frontend does not refresh the list after discovery.",
         "responses": {
           "200": {
             "description": "Success",
@@ -37003,7 +37003,7 @@
       "post": {
         "summary": "Accept current scoped service mapping candidates",
         "operationId": "post_service_mappings_accept",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial operation in exactly one selected environment. Only service:code cells are accepted after transaction-local services.view/change and connectors.view/manage checks, a unique unexpired candidate, current source identity, activation evidence, sole GitLab project target, binding revision and runtime binding validation. Binding, accepted candidate and audit commit together; a verified repeat can return accepted=0. The deployed validator currently rejects GitLab, so a new acceptance returns 409 mapping_binding_unavailable. The frontend marks accepted before response and does not recover on failure.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial operation in exactly one selected environment. Only service:code cells are accepted after transaction-local services.view/change and connectors.view/manage checks, a unique unexpired candidate, current source identity, activation evidence, sole GitLab project target, binding revision and V3-only exact GitLab binding validation. All other bindings still use the unchanged platform validator. Binding, accepted candidate and audit commit together; a verified repeat can return accepted=0. The frontend marks accepted before response and does not recover on failure; the page contract remains incomplete.",
         "responses": {
           "200": {
             "description": "Success",

@@ -261,7 +261,7 @@ Agent Trace 后端目前只能读受信生产者上报的有界 Span 元数据�
 | POST | `/webhooks/{id}/redeliver` | | 结果 | mock |
 | POST | `/api-tokens` | `{ name, scopes, ttl }` | `{ id, secret_shown_once }` | mock |
 
-服务映射候选目前仅来自管理员显式绑定的单个 GitLab 数字项目目标，不按标签、名称或部署记录推断。`POST /service-mappings/discover` 在一个环境中核对服务与连接器授权、近期探测和绑定后的激活审计，保存 15 分钟候选，不直接改服务映射；超过 500 条可见未映射来源返回 422。`POST /service-mappings/accept` 在事务中复核候选唯一性、来源身份/修订、当前授权及绑定可用性，并将映射、候选状态与审计一同提交。迁移 `090_v3_service_mapping_candidates.sql` 保存候选；应用环境退役时候选会级联删除，管理审计另记接受决定。当前正式 `ValidateBindings` 不支持 GitLab，故发现不展示可接受建议，新接受返回 409；测试注入的通过校验器只证明事务路径。前端发现后不刷新、接受前就乐观显示成功，且文案误称来自标签/命名/部署；`PUT` 仍未接通。因此这三条主路由保持 `mock`，不能把候选持久化当作页面完成。
+服务映射候选目前仅来自管理员显式绑定的单个 GitLab 数字项目目标，不按标签、名称或部署记录推断。`POST /service-mappings/discover` 在一个环境中核对服务与连接器授权、近期探测和绑定后的激活审计，保存 15 分钟候选，不直接改服务映射；超过 500 条可见未映射来源返回 422。`POST /service-mappings/accept` 在事务中复核候选唯一性、来源身份/修订、当前授权及绑定可用性，并将映射、候选状态与审计一同提交。V3 专用校验只允许与已登记来源完全相同的单个 GitLab 项目绑定，其余绑定继续交给原平台校验器；旧平台的全局 GitLab 拒绝规则没有扩大。迁移 `090_v3_service_mapping_candidates.sql` 保存候选；应用环境退役时候选会级联删除，管理审计另记接受决定。激活审计证明绑定时曾核验项目访问，近期通用探测不证明当前仍能访问项目。V3 实例拦截未迁移的旧环境编辑路由，旧模式也不能在已绑定 V3 的数据库上启动。隔离数据库 HTTP 测试覆盖候选、接受与审计，尚无正式进程对真实 GitLab 项目的端到端验收。前端发现后不刷新、接受前就乐观显示成功，且文案误称来自标签/命名/部署；`PUT` 仍未接通。因此这三条主路由保持 `mock`，不能把候选持久化当作页面完成。
 
 Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v1/events/{alert|change|incident|resource|oncall}`，请求头 `Authorization: Bearer`、`Idempotency-Key`、`X-Signature` + `X-Timestamp`；返回 `202 / 409 / 422 / 401`。
 

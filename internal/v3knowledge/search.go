@@ -10,7 +10,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/knowledge"
@@ -88,25 +87,63 @@ func (s *Service) SearchHandler(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "knowledge_unavailable", "Keyword index unavailable")
 		return
 	}
+	userID := httpapi.CurrentUser(r).ID
+	type scopedHits struct {
+		scope           appEnvironment
+		keyword, vector []knowledge.Hit
+	}
+	observed := make([]scopedHits, 0, len(apps))
 	for _, scope := range apps {
-		hits, e := pgRepo.KeywordSearch(r.Context(), scope.app, scope.env, in.Q, in.TopK*4)
+		hits, e := pgRepo.V3KeywordSearch(r.Context(), userID, scope.app, scope.env, in.Q, in.TopK*4)
 		if e != nil {
 			httpapi.Error(w, 503, "knowledge_unavailable", "Keyword search failed")
 			return
 		}
-		keyword = append(keyword, hits...)
+		found := scopedHits{scope: scope, keyword: hits}
 		if len(embed) > 0 {
 			if scoped, ok := s.Knowledge.Vectors.(interface {
-				SearchScoped(context.Context, string, string, inference.EmbeddingDescriptor, []float32, int) ([]knowledge.Hit, error)
+				V3SearchScoped(context.Context, string, string, string, inference.EmbeddingDescriptor, []float32, int) ([]knowledge.Hit, error)
 			}); ok {
-				results, e := scoped.SearchScoped(r.Context(), scope.app, scope.env, desc, embed, in.TopK*4)
+				results, e := scoped.V3SearchScoped(r.Context(), userID, scope.app, scope.env, desc, embed, in.TopK*4)
 				if e != nil {
 					degraded = true
 				} else {
-					vector = append(vector, results...)
+					found.vector = results
 				}
 			} else {
 				degraded = true
+			}
+		}
+		observed = append(observed, found)
+	}
+	// Recheck current document ownership and grants after all retrieval reads.
+	// A revocation or application/team remap between candidate selection and
+	// retrieval must not leave its already-read passage in the response.
+	for _, found := range observed {
+		ids := make([]string, 0, len(found.keyword)+len(found.vector))
+		seen := map[string]bool{}
+		for _, h := range append(found.keyword, found.vector...) {
+			if h.DocumentID != "" && !seen[h.DocumentID] {
+				seen[h.DocumentID] = true
+				ids = append(ids, h.DocumentID)
+			}
+		}
+		if len(ids) == 0 {
+			continue
+		}
+		visible, e := pgRepo.V3VisibleDocumentIDs(r.Context(), userID, found.scope.app, found.scope.env, ids)
+		if e != nil {
+			httpapi.Error(w, 503, "knowledge_unavailable", "Search scope changed")
+			return
+		}
+		for _, h := range found.keyword {
+			if version, ok := visible[h.DocumentID]; ok && version == h.Version {
+				keyword = append(keyword, h)
+			}
+		}
+		for _, h := range found.vector {
+			if version, ok := visible[h.DocumentID]; ok && version == h.Version {
+				vector = append(vector, h)
 			}
 		}
 	}
@@ -146,6 +183,7 @@ WHERE NOT a.archived AND ($3='' OR a.id=$3 OR a.key=$3 OR a.name=$3)
 AND EXISTS (
  SELECT 1 FROM unnest($2::text[]) requested(environment_id)
  JOIN v3_application_environments ae ON ae.application_id=a.id AND ae.environment_id=requested.environment_id
+ JOIN application_environments e ON e.application_id=a.id AND e.key=requested.environment_id AND NOT e.archived
  WHERE EXISTS (
   SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$1
   AND g.module='environment' AND g.action='view'
@@ -154,8 +192,7 @@ AND EXISTS (
   SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$1
   AND g.module='knowledge' AND g.action='view'
   AND ((g.scope_kind='global' AND g.scope_id='*') OR (g.scope_kind='environment' AND g.scope_id=requested.environment_id)
-   OR (g.scope_kind='application' AND g.scope_id=a.id)
-   OR (a.owner_team_id IS NOT NULL AND g.scope_kind='team' AND g.scope_id=a.owner_team_id))
+   OR (g.scope_kind='application' AND g.scope_id=a.id))
  )
 )
 ORDER BY a.id LIMIT 201`, user.ID, envs, service)
@@ -188,21 +225,6 @@ ORDER BY a.id LIMIT 201`, user.ID, envs, service)
 	for _, app := range all {
 		for _, env := range envs {
 			authorizationErr := s.Policy.Authorize(r.Context(), user, rbac.V3Decision{Module: "knowledge", Action: "view", EnvironmentID: env, ApplicationID: app})
-			if errors.Is(authorizationErr, store.ErrForbidden) && app != "" {
-				// V3Decision intentionally accepts either an application or a
-				// team, not both. Re-read the current owner and mapping before
-				// checking the team's grant against the persisted target.
-				var team string
-				lookupErr := s.DB.QueryRow(r.Context(), `SELECT COALESCE(a.owner_team_id,'')
-FROM applications a JOIN v3_application_environments ae ON ae.application_id=a.id
-WHERE a.id=$1 AND NOT a.archived AND ae.environment_id=$2`, app, env).Scan(&team)
-				if lookupErr != nil && !errors.Is(lookupErr, pgx.ErrNoRows) {
-					return nil, lookupErr
-				}
-				if lookupErr == nil && team != "" {
-					authorizationErr = s.Policy.Authorize(r.Context(), user, rbac.V3Decision{Module: "knowledge", Action: "view", EnvironmentID: env, TeamID: team})
-				}
-			}
 			if authorizationErr == nil {
 				out = append(out, appEnvironment{app, env})
 			} else if !errors.Is(authorizationErr, store.ErrForbidden) {

@@ -72,6 +72,7 @@ func (s *Service) reviewHandler() http.HandlerFunc {
 		}
 		defer tx.Rollback(r.Context())
 		var doc knowledge.Document
+		doc.ID = id
 		err = tx.QueryRow(r.Context(), `SELECT COALESCE(application_id,''),source,version,lifecycle,metadata
  FROM knowledge_documents WHERE id=$1 FOR UPDATE`, id).
 			Scan(&doc.ApplicationID, &doc.Source, &doc.Version, &doc.Lifecycle, &doc.Metadata)

@@ -223,7 +223,7 @@ func (s *Service) createHandler(api *httpapi.Server) http.HandlerFunc {
 			metadata.TeamID = binding.TeamID
 			decision := rbac.V3Decision{Module: "knowledge", Action: "manage", EnvironmentID: scopeIDs(r)[0], ApplicationID: binding.ApplicationID}
 			authErr := s.Policy.AuthorizeWithTx(r.Context(), tx, user, decision)
-			if errors.Is(authErr, store.ErrForbidden) && binding.TeamID != "" {
+			if authErr == nil && binding.TeamID != "" {
 				decision.ApplicationID = ""
 				decision.TeamID = binding.TeamID
 				authErr = s.Policy.AuthorizeWithTx(r.Context(), tx, user, decision)
@@ -305,6 +305,7 @@ func (s *Service) submitHandler(api *httpapi.Server) http.HandlerFunc {
 		// Lock the current row and recheck both maintainer and matrix grants on
 		// this transaction before changing lifecycle or writing audit records.
 		var current knowledge.Document
+		current.ID = id
 		var metadata knowledge.Metadata
 		err = tx.QueryRow(r.Context(), `SELECT COALESCE(application_id,''),source,version,lifecycle,metadata
  FROM knowledge_documents WHERE id=$1 FOR UPDATE`, id).Scan(&current.ApplicationID, &current.Source, &current.Version, &current.Lifecycle, &metadata)
@@ -642,42 +643,57 @@ func (s *Service) authorizeDocumentUsing(r *http.Request, q runbookQueryRow, d k
 		return store.ErrForbidden
 	}
 	for _, env := range scopeIDs(r) {
-		if len(d.Metadata.EnvironmentIDs) > 0 && !contains(d.Metadata.EnvironmentIDs, env) {
+		if !contains(d.Metadata.EnvironmentIDs, env) {
 			continue
 		}
-		teamID := ""
-		if d.ApplicationID != "" {
-			// Resolve the owning team from the persisted application and require
-			// an active mapping to this environment. Metadata.TeamID is a content
-			// field and never grants access to another application's Runbook.
-			err := q.QueryRow(r.Context(), `SELECT COALESCE(a.owner_team_id,'') FROM applications a
- JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$2
- JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
- WHERE a.id=$1 AND NOT a.archived`, d.ApplicationID, env).Scan(&teamID)
-			if errors.Is(err, pgx.ErrNoRows) {
+		// Inspect persisted JSON before authorization. Decoding into Metadata
+		// erases the difference between a missing team and team_id:null/"".
+		// A malformed environment list can likewise contain a valid env plus
+		// an unknown entry, and must not pass a narrower Go membership check.
+		var teamScoped bool
+		var teamID string
+		err := q.QueryRow(r.Context(), `SELECT d.metadata ? 'team_id',COALESCE(d.metadata->>'team_id','')
+ FROM knowledge_documents d WHERE d.id=$1 AND d.version=$2 AND COALESCE(d.application_id,'')=$3
+ AND jsonb_typeof(d.metadata)='object' AND NOT (d.metadata ? 'source_registration_id')
+ AND CASE WHEN jsonb_typeof(d.metadata->'environment_ids')='array'
+   THEN jsonb_array_length(d.metadata->'environment_ids')>0
+     AND d.metadata->'environment_ids' ? $4
+     AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(d.metadata->'environment_ids') env_item
+       WHERE jsonb_typeof(env_item)<>'string' OR btrim(env_item #>> '{}')='')
+   ELSE false END
+ AND (($3<>'' AND EXISTS (SELECT 1 FROM applications a
+   JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$4
+   JOIN application_environments e ON e.application_id=a.id AND e.key=$4 AND NOT e.archived
+   WHERE a.id=$3 AND NOT a.archived
+   AND (NOT (d.metadata ? 'team_id') OR (
+     jsonb_typeof(d.metadata->'team_id')='string'
+     AND btrim(d.metadata->>'team_id')<>''
+     AND d.metadata->>'team_id'=a.owner_team_id))))
+ OR ($3='' AND d.application_id IS NULL AND d.metadata->>'visibility'='workspace'
+   AND NOT (d.metadata ? 'team_id')))`, d.ID, d.Version, d.ApplicationID, env).Scan(&teamScoped, &teamID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		err = authorize(rbac.V3Decision{Module: "knowledge", Action: action, EnvironmentID: env, ApplicationID: d.ApplicationID})
+		if errors.Is(err, store.ErrForbidden) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if teamScoped {
+			err = authorize(rbac.V3Decision{Module: "knowledge", Action: action, EnvironmentID: env, TeamID: teamID})
+			if errors.Is(err, store.ErrForbidden) {
 				continue
 			}
 			if err != nil {
 				return err
 			}
 		}
-		err := authorize(rbac.V3Decision{Module: "knowledge", Action: action, EnvironmentID: env, ApplicationID: d.ApplicationID})
-		if err == nil {
-			return nil
-		}
-		if !errors.Is(err, store.ErrForbidden) {
-			return err
-		}
-		if teamID == "" {
-			continue
-		}
-		err = authorize(rbac.V3Decision{Module: "knowledge", Action: action, EnvironmentID: env, TeamID: teamID})
-		if err == nil {
-			return nil
-		}
-		if !errors.Is(err, store.ErrForbidden) {
-			return err
-		}
+		return nil
 	}
 	return store.ErrForbidden
 }

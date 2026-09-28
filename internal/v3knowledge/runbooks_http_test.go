@@ -79,7 +79,12 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
  ('runbook-creator','knowledge','manage','environment','dev'),
  ('runbook-manager','knowledge','manage','application','app-1'),
  ('runbook-manager','knowledge','view','application','app-1'),
+	 ('runbook-manager','knowledge','manage','team','ops'),
+	 ('runbook-manager','knowledge','view','team','ops'),
 	 ('runbook-reader','knowledge','view','application','app-1'),
+	 ('runbook-reader','knowledge','view','team','ops'),
+	 ('runbook-team-manager','knowledge','view','application','app-1'),
+	 ('runbook-team-manager','knowledge','manage','application','app-1'),
 	 ('runbook-team-manager','knowledge','view','team','ops'),
 	 ('runbook-team-manager','knowledge','manage','team','ops')`,
 		`INSERT INTO teams(id,name) VALUES('ops','Operations'),('other-team','Other Team')`,
@@ -125,13 +130,15 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 		if steps == nil {
 			steps = []Step{}
 		}
-		// Deliberately misleading TeamID proves authorization resolves the
-		// application's real owner_team_id, not document metadata.
+		teamID := "ops"
+		if app == "app-2" {
+			teamID = "other-team"
+		}
 		environments := []string{env}
 		if env == "" {
 			environments = nil
 		}
-		metadata, _ := json.Marshal(knowledge.Metadata{MaintainerID: owner, TeamID: "ops", ActorID: owner, Origin: "human", Visibility: "application", EnvironmentIDs: environments})
+		metadata, _ := json.Marshal(knowledge.Metadata{MaintainerID: owner, TeamID: teamID, ActorID: owner, Origin: "human", Visibility: "application", EnvironmentIDs: environments})
 		stepJSON, _ := json.Marshal(steps)
 		if _, err := db.Exec(ctx, `INSERT INTO knowledge_documents(id,application_id,title,body,source,version,content_hash,created_by,lifecycle,metadata)
  VALUES($1,$2,$3,$4,$5,1,$6,$7,$8,$9)`, id, app, id, "# "+id, "runbook://v3/"+id, store.Hash(id), owner, lifecycle, metadata); err != nil {
@@ -151,6 +158,10 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	seed("runbook-review", "app-1", "dev", "review", maintainer.ID, nil)
 	seed("runbook-public", "app-1", "dev", "published", maintainer.ID, []Step{{N: 1, Kind: "query", Title: "Read metrics", Readonly: true}})
 	seed("runbook-team", "app-1", "dev", "draft", teamMaintainer.ID, []Step{{N: 1, Kind: "query", Title: "Read metrics", Readonly: true, Connectors: []string{"prometheus"}}})
+	seed("runbook-mismatch", "app-1", "dev", "published", maintainer.ID, nil)
+	if _, err := db.Exec(ctx, `UPDATE knowledge_documents SET metadata=jsonb_set(metadata,'{team_id}','"other-team"') WHERE id='runbook-mismatch'`); err != nil {
+		t.Fatal(err)
+	}
 	seed("runbook-unstructured", "app-1", "dev", "published", maintainer.ID, nil)
 	seed("runbook-non-runbook", "app-1", "dev", "published", maintainer.ID, nil)
 	seed("runbook-alias", "app-1", "dev", "published", maintainer.ID, []Step{{N: 1, Kind: "act", Title: "Restart", Approval: true}})
@@ -264,6 +275,28 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 			t.Fatalf("source provenance %q/%q: got %q/%q: %v", source.kind, source.ref, kind, ref, err)
 		}
 	}
+	// A team-only manager may read the postmortem source, but cannot create
+	// an app-scoped Runbook that the same actor would immediately lose.
+	for _, statement := range []string{
+		`INSERT INTO investigations(id,application_id,title,status) VALUES('runbook-source-inv','app-1','Source','closed')`,
+		`INSERT INTO events(investigation_id,type,payload) VALUES('runbook-source-inv','investigation.closed','{}')`,
+		`INSERT INTO v3_postmortems(id,incident_id,investigation_id,application_id,environment_id,close_event_seq,sections,actions,status,created_by)
+ SELECT 'runbook-source-pm','runbook-source-incident','runbook-source-inv','app-1','dev',seq,'[]','[]','published',(SELECT id FROM users WHERE email='team@example.invalid')
+ FROM events WHERE investigation_id='runbook-source-inv' AND type='investigation.closed'`,
+		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('runbook-team-manager','events','view','team','ops')`,
+		`DELETE FROM v3_role_grants WHERE role_id='runbook-team-manager' AND module='knowledge' AND scope_kind='application'`,
+	} {
+		if _, err := db.Exec(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assert(create("postmortem", "runbook-source-pm", "dev", teamToken), 403, "forbidden")
+	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('runbook-team-manager','knowledge','view','application','app-1'),
+ ('runbook-team-manager','knowledge','manage','application','app-1')`); err != nil {
+		t.Fatal(err)
+	}
 	// The main detail route checks document, current scope and structured
 	// steps together, but cannot claim the full usage/incident DTO yet.
 	assert(get("runbook-main", "", "dev", maintainerToken), 503, "runbook_read_unavailable")
@@ -284,6 +317,47 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	assert(aliasRecord, 200, "")
 	if !strings.Contains(aliasRecord.Body.String(), `"kind":"act"`) || !strings.Contains(aliasRecord.Body.String(), `"approval":true`) {
 		t.Fatalf("partial record lost persisted action kind or approval: %s", aliasRecord.Body.String())
+	}
+	var originalMetadata []byte
+	if err := db.QueryRow(ctx, `SELECT metadata FROM knowledge_documents WHERE id='runbook-public'`).Scan(&originalMetadata); err != nil {
+		t.Fatal(err)
+	}
+	for _, invalid := range []string{
+		`{"team_id":null}`,
+		`{"team_id":""}`,
+		`{"environment_ids":["dev",""]}`,
+		`{"environment_ids":["dev",null]}`,
+		`{"source_registration_id":"unverified"}`,
+	} {
+		if _, err := db.Exec(ctx, `UPDATE knowledge_documents SET metadata=metadata || $2::jsonb WHERE id=$1`, "runbook-public", invalid); err != nil {
+			t.Fatal(err)
+		}
+		for _, suffix := range []string{"", "/record", "/history"} {
+			assert(get("runbook-public", suffix, "dev", readerToken), 404, "not_found")
+		}
+		if _, err := db.Exec(ctx, `UPDATE knowledge_documents SET metadata=$2::jsonb WHERE id=$1`, "runbook-public", originalMetadata); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, suffix := range []string{"", "/record", "/history"} {
+		assert(get("runbook-mismatch", suffix, "dev", maintainerToken), 404, "not_found")
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='runbook-reader' AND module='knowledge' AND scope_kind='team'`); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{"", "/record", "/history"} {
+		assert(get("runbook-public", suffix, "dev", readerToken), 404, "not_found")
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES('runbook-reader','knowledge','view','team','ops')`); err != nil {
+		t.Fatal(err)
+	}
+	assert(get("runbook-public", "/record", "dev", readerToken), 200, "")
+	if _, err := db.Exec(ctx, `UPDATE applications SET owner_team_id='other-team' WHERE id='app-1'`); err != nil {
+		t.Fatal(err)
+	}
+	assert(get("runbook-public", "/record", "dev", readerToken), 404, "not_found")
+	if _, err := db.Exec(ctx, `UPDATE applications SET owner_team_id='ops' WHERE id='app-1'`); err != nil {
+		t.Fatal(err)
 	}
 	assert(get("runbook-main", "", "all", maintainerToken), 503, "runbook_read_unavailable")
 	assert(request("runbook-main", "submit", "dev", ""), 401, "")

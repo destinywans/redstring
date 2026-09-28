@@ -53,7 +53,7 @@
 | 事件与告警 | POST | `/alert-groups/bulk` | 新增 | mock |
 | 事件与告警 | GET | `/services/{id}/peek` | 聚合 | mock |
 | 事件与告警 | GET | `/people/{name}/peek` | 新增 | mock |
-| 事件与告警 | GET | `/incidents` | 旧路径适配 | mock |
+| 事件与告警 | GET | `/incidents` | 旧路径适配 | implemented |
 | 事件与告警 | GET | `/incidents/{id}` | 旧路径适配 | mock |
 | 事件与告警 | POST | `/incidents/{id}/timeline` | 新增 | implemented |
 | 事件与告警 | GET | `/alert-rules` | 新增 | mock |
@@ -156,12 +156,12 @@
 | Agent 运行台 | PATCH | `/guardrails/{id}` | 新增 | mock |
 | 设置 | GET | `/me/profile` | 聚合 | mock |
 | 设置 | PUT | `/me/profile` | 新增 | mock |
-| 设置 | DELETE | `/me/sessions/{id}` | 新增 | mock |
+| 设置 | DELETE | `/me/sessions/{id}` | 新增 | implemented |
 | 设置 | GET | `/members` | 聚合 | mock |
 | 设置 | POST | `/members/invitations` | 新增 | mock |
 | 设置 | POST | `/members/sync` | 新增 | mock |
 | 设置 | POST | `/members/mfa-reminders` | 新增 | mock |
-| 设置 | GET | `/roles` | 新增 | mock |
+| 设置 | GET | `/roles` | 新增 | implemented |
 | 设置 | GET | `/roles/{id}` | 聚合 | mock |
 | 设置 | PUT | `/roles/{id}` | 新增 | mock |
 | 设置 | GET | `/security` | 聚合 | mock |

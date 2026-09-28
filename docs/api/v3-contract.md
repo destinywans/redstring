@@ -110,7 +110,7 @@
 | POST | `/alert-groups/bulk` | `{ ids, action: claim\|silence\|investigate }` | 结果 | mock |
 | GET | `/services/{id}/peek` | | `ServicePeek`（悬浮卡） | mock |
 | GET | `/people/{name}/peek` | | `PersonPeek`（悬浮卡） | mock |
-| GET | `/incidents` | `status: active\|resolved\|all` | `{ items, counts }` | mock |
+| GET | `/incidents` | `status: active\|resolved\|all` | `{ items, counts }` | implemented |
 | GET | `/incidents/{id}` | | `Incident` | mock |
 | POST | `/incidents/{id}/timeline` | `{ text }` | 时间线条目 | implemented |
 | GET | `/alert-rules` | | 规则列表 | mock |
@@ -254,12 +254,12 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | --- | --- | --- | --- | --- |
 | GET | `/me/profile` | | `ProfileView` | mock |
 | PUT | `/me/profile` | `ProfileView` | `ProfileView` | mock |
-| DELETE | `/me/sessions/{id}` | | 204 | mock |
+| DELETE | `/me/sessions/{id}` | | 204 | implemented |
 | GET | `/members` | `filter: all\|admin\|no_mfa\|disabled`, `q` | `MembersView` | mock |
 | POST | `/members/invitations` | `{ email, role? }` | 结果 | mock |
 | POST | `/members/sync` | | `{ added, updated }` | mock |
 | POST | `/members/mfa-reminders` | | `{ sent }` | mock |
-| GET | `/roles` | | `{ items: Role[] }` | mock |
+| GET | `/roles` | | `{ items: Role[] }` | implemented |
 | GET | `/roles/{id}` | | `RoleDetail` | mock |
 | PUT | `/roles/{id}` | `{ matrix }`（机器身份的"批准"列必须拒绝） | 结果 | mock |
 | GET | `/security` | | `SecurityView` | mock |

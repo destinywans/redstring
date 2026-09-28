@@ -15,7 +15,7 @@ export default function ConnectorsPage() {
   const nav = useNavigate();
   const [cat, setCat] = useState("all");
   const [q, setQ] = useState("");
-  const [sel, setSel] = useState<string | null>("prometheus");
+  const [sel, setSel] = useState<string | null>(null);
   const { data, isLoading } = useGet<ConnectorList>("/connectors", { category: cat, q });
   const statusLabel = (s: ConnectorStatus) => ({ ok: tx("已连接", "Connected"), unverified: tx("未验证", "Unverified"), error: tx("异常", "Error") })[s];
   return (

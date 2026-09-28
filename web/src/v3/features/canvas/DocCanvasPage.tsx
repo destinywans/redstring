@@ -11,6 +11,7 @@ import { VBars } from "../../charts";
 import { useI18n } from "../../i18n";
 import { CanvasState, KindTag } from "./CanvasesPage";
 import { LITE_ZOOM } from "./CanvasPage";
+import { DetailPanel, FLOAT_COVER, usePinned } from "../../ui/DetailPanel";
 import "./canvas.css";
 import "./canvases.css";
 
@@ -122,7 +123,9 @@ export default function DocCanvasPage() {
   const { data: catalog } = useModelCatalog();
   const [nodes, setNodes] = useState<CanvasDocNode[]>([]);
   const [heights, setHeights] = useState<Record<string, number>>({});
-  const [sel, setSel] = useState<string | null>("exec");
+  const [sel, setSel] = useState<string | null>(null);
+  const [pinned, setPinned] = usePinned("doc-canvas");
+  const panned = useRef(false);
   const [tab, setTab] = useState<"chat" | "context" | "artifacts">("chat");
   const [view, setView] = useState({ x: 0, y: 0, k: 1 });
   const [threads, setThreads] = useState<CanvasDoc["threads"]>({});
@@ -130,7 +133,7 @@ export default function DocCanvasPage() {
   const [busy, setBusy] = useState<ModelChoice | null>(null);
   const area = useRef<HTMLDivElement>(null);
   const layer = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ kind: "pan" | "node"; id?: string; sx: number; sy: number; ox: number; oy: number } | null>(null);
+  const drag = useRef<{ kind: "pan" | "node"; id?: string; sx: number; sy: number; ox: number; oy: number; moved?: boolean } | null>(null);
 
   useEffect(() => {
     if (!data) return;
@@ -182,6 +185,7 @@ export default function DocCanvasPage() {
     if (!d) return;
     const dx = e.clientX - d.sx;
     const dy = e.clientY - d.sy;
+    if (Math.abs(dx) + Math.abs(dy) > 2) d.moved = true;
     if (d.kind === "pan") setView((v) => ({ ...v, x: d.ox + dx, y: d.oy + dy }));
     else setNodes((ns) => ns.map((n) => (n.id === d.id ? { ...n, x: d.ox + dx / view.k, y: d.oy + dy / view.k } : n)));
   };
@@ -214,6 +218,80 @@ export default function DocCanvasPage() {
   };
 
   const doc = data;
+  const inspector = selected ? (
+    <DetailPanel
+      pinned={pinned}
+      onPin={setPinned}
+      onClose={() => setSel(null)}
+      label={tx("节点详情", "Node details")}
+      header={
+        <>
+          <Tile icon={selected.icon as IconName} tone={selected.tone as Tone} />
+          <div className="v3-col grow" style={{ gap: 0, minWidth: 0 }}>
+            <Strong size={13.5}>{selected.title}</Strong>
+            <Muted size={11.5}>{thread?.context ?? selected.sub}</Muted>
+          </div>
+        </>
+      }
+      footer={
+            <div style={{ padding: "0 12px 12px", flex: "none" }}>
+              <Composer minRows={1} maxRows={6} placeholder={tx("在这个节点继续…", "Continue in this node…")} sending={!!busy} turn={busy} choice={choice} onChoiceChange={setChoice} onSend={(t, _a, x) => void ask(t, x.choice)} />
+            </div>
+      }
+    >
+            <Tabs
+              value={tab}
+              onChange={setTab}
+              pad="6px 16px 0"
+              options={[
+                { value: "chat", label: tx("对话", "Chat") },
+                { value: "context", label: tx("上下文", "Context") },
+                { value: "artifacts", label: tx("产物", "Artifacts"), count: doc?.artifacts.length },
+              ]}
+            />
+            <div className="cv-inspector-body">
+              {tab === "chat" && (
+                <>
+                  {(thread?.turns ?? []).length === 0 && <Muted>{tx("在这个节点提问：AI 只看到这个节点和它继承的上下文。", "Ask in this node: the AI only sees this node and the context it inherits.")}</Muted>}
+                  {thread?.turns.map((t) => <Turn key={t.id} t={t} />)}
+                  {busy && (
+                    <Row gap={8}>
+                      <AiAvatar size={22} />
+                      <span className="v3-spinner spin" />
+                      <Muted size={11.5}>{describeChoice(catalog, busy)?.label}</Muted>
+                    </Row>
+                  )}
+                </>
+              )}
+              {tab === "context" && (
+                <div className="v3-col" style={{ gap: 8, fontSize: "var(--fs-sm)" }}>
+                  <Muted size={11.5}>{tx("本节点可见的上下文", "Context visible to this node")}</Muted>
+                  <Row gap={6}><Icon name="layers" size={13} />{tx("主线：目标与范围 v4", "Main: Goal & scope v4")}</Row>
+                  <Row gap={6}><Icon name="book" size={13} />{tx("Runbook「连接池容量调整」", "Runbook “Pool sizing”")}</Row>
+                  <Row gap={6}><Icon name="file" size={13} />{tx("INC-1042 复盘", "INC-1042 postmortem")}</Row>
+                  <Muted size={11.5}>{tx("兄弟分支的对话不会进入本节点上下文。", "Sibling branches' conversations are not included.")}</Muted>
+                </div>
+              )}
+              {tab === "artifacts" &&
+                doc?.artifacts.map((a) => (
+                  <Row key={a.id} gap={8} style={{ fontSize: "var(--fs-sm)" }}>
+                    <Icon name="file" size={13} color="var(--muted)" />
+                    <span className="grow">{a.title}</span>
+                    <Muted size={11}>{a.sub}</Muted>
+                  </Row>
+                ))}
+              <Spacer />
+            </div>
+    </DetailPanel>
+  ) : null;
+  // Keep the selected node clear of the floating card by panning the canvas.
+  useEffect(() => {
+    if (!selected || pinned || !area.current) return;
+    const right = view.x + (selected.x + selected.w) * view.k;
+    const overlap = right - (area.current.clientWidth - FLOAT_COVER) + 16;
+    if (overlap > 0) setView((v) => ({ ...v, x: v.x - overlap }));
+  }, [sel, pinned]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <Page
       flush
@@ -257,7 +335,13 @@ export default function DocCanvasPage() {
             e.currentTarget.setPointerCapture(e.pointerId);
           }}
           onPointerMove={onMove}
-          onPointerUp={() => (drag.current = null)}
+          onPointerUp={() => {
+            panned.current = !!drag.current?.moved;
+            drag.current = null;
+          }}
+          onClick={(e) => {
+            if (!panned.current && !(e.target as HTMLElement).closest(".cv-node, .dc-artifact, .cv-toolbar, .cv-zoom, .dp")) setSel(null);
+          }}
         >
           {isLoading && (
             <div style={{ padding: 40 }}>
@@ -373,65 +457,9 @@ export default function DocCanvasPage() {
               {tx("自动布局", "Auto layout")}
             </Btn>
           </div>
+          {selected && !pinned && inspector}
         </div>
-        {selected && (
-          <aside className="cv-inspector anim-fade" aria-label={tx("节点详情", "Node details")}>
-            <Row gap={10} style={{ padding: "14px 16px 0" }}>
-              <Tile icon={selected.icon as IconName} tone={selected.tone as Tone} />
-              <div className="v3-col grow" style={{ gap: 0, minWidth: 0 }}>
-                <Strong size={13.5}>{selected.title}</Strong>
-                <Muted size={11.5}>{thread?.context ?? selected.sub}</Muted>
-              </div>
-              <IconBtn icon="x" label={tx("关闭详情", "Close details")} onClick={() => setSel(null)} />
-            </Row>
-            <Tabs
-              value={tab}
-              onChange={setTab}
-              pad="6px 16px 0"
-              options={[
-                { value: "chat", label: tx("对话", "Chat") },
-                { value: "context", label: tx("上下文", "Context") },
-                { value: "artifacts", label: tx("产物", "Artifacts"), count: doc?.artifacts.length },
-              ]}
-            />
-            <div className="cv-inspector-body">
-              {tab === "chat" && (
-                <>
-                  {(thread?.turns ?? []).length === 0 && <Muted>{tx("在这个节点提问：AI 只看到这个节点和它继承的上下文。", "Ask in this node: the AI only sees this node and the context it inherits.")}</Muted>}
-                  {thread?.turns.map((t) => <Turn key={t.id} t={t} />)}
-                  {busy && (
-                    <Row gap={8}>
-                      <AiAvatar size={22} />
-                      <span className="v3-spinner spin" />
-                      <Muted size={11.5}>{describeChoice(catalog, busy)?.label}</Muted>
-                    </Row>
-                  )}
-                </>
-              )}
-              {tab === "context" && (
-                <div className="v3-col" style={{ gap: 8, fontSize: "var(--fs-sm)" }}>
-                  <Muted size={11.5}>{tx("本节点可见的上下文", "Context visible to this node")}</Muted>
-                  <Row gap={6}><Icon name="layers" size={13} />{tx("主线：目标与范围 v4", "Main: Goal & scope v4")}</Row>
-                  <Row gap={6}><Icon name="book" size={13} />{tx("Runbook「连接池容量调整」", "Runbook “Pool sizing”")}</Row>
-                  <Row gap={6}><Icon name="file" size={13} />{tx("INC-1042 复盘", "INC-1042 postmortem")}</Row>
-                  <Muted size={11.5}>{tx("兄弟分支的对话不会进入本节点上下文。", "Sibling branches' conversations are not included.")}</Muted>
-                </div>
-              )}
-              {tab === "artifacts" &&
-                doc?.artifacts.map((a) => (
-                  <Row key={a.id} gap={8} style={{ fontSize: "var(--fs-sm)" }}>
-                    <Icon name="file" size={13} color="var(--muted)" />
-                    <span className="grow">{a.title}</span>
-                    <Muted size={11}>{a.sub}</Muted>
-                  </Row>
-                ))}
-              <Spacer />
-            </div>
-            <div style={{ padding: "0 12px 12px" }}>
-              <Composer minRows={1} maxRows={6} placeholder={tx("在这个节点继续…", "Continue in this node…")} sending={!!busy} turn={busy} choice={choice} onChoiceChange={setChoice} onSend={(t, _a, x) => void ask(t, x.choice)} />
-            </div>
-          </aside>
-        )}
+        {selected && pinned && inspector}
       </div>
     </Page>
   );

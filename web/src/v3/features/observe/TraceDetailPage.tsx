@@ -7,6 +7,7 @@ import { Badge, Brand, Btn, Code, Icon, IconBtn, Legend, Mono, Muted, Num, Row, 
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import { ScopeSwitch, fmtMs } from "./TracesPage";
+import { DetailPanel, usePinned } from "../../ui/DetailPanel";
 import "./trace.css";
 
 type View = "wf" | "flame" | "graph";
@@ -18,7 +19,8 @@ export default function TraceDetailPage() {
   const { id = "4bf92f35" } = useParams();
   const { data: t } = useGet<TraceView>(`/traces/${id}`);
   const [view, setView] = useState<View>("wf");
-  const [sel, setSel] = useState<string | null>("s5");
+  const [sel, setSel] = useState<string | null>(null);
+  const [pinned, setPinned] = usePinned("trace-detail");
   const [crit, setCrit] = useState(true);
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<"attrs" | "events" | "logs" | "links">("attrs");
@@ -31,6 +33,76 @@ export default function TraceDetailPage() {
   const hasChild = (i: number) => !!t && i + 1 < t.spans.length && t.spans[i + 1].depth > t.spans[i].depth;
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => fmtMs(total * f));
 
+  const spanPanel = span && t ? (
+    <DetailPanel pinned={pinned} onPin={setPinned} onClose={() => setSel(null)} width={380} label={tx("Span 详情", "Span details")} header={
+                <div className="v3-col" style={{ gap: 4, minWidth: 0 }}>
+                  <Row gap={8}>
+                    <i className="tr-sw" style={{ width: 10, height: 10, background: t.colors[span.service] }} />
+                    <Strong size={14}>{span.op}</Strong>
+                    {span.status === "error" && <Badge tone="danger">{tx("错误", "Error")}</Badge>}
+                  </Row>
+                  <Muted size={11.5}>
+                    {tx("{s} · {d} · 占总耗时 {p}%", "{s} · {d} · {p}% of total", { s: span.service, d: fmtMs(span.end - span.start), p: Math.round((100 * (span.end - span.start)) / total) })}
+                    {span.critical && tx(" · 关键路径", " · critical path")}
+                  </Muted>
+                </div>
+    }>
+                <Tabs
+                  value={tab}
+                  onChange={setTab}
+                  pad="6px 16px 0"
+                  options={[
+                    { value: "attrs", label: tx("属性", "Attributes") },
+                    { value: "events", label: tx("事件", "Events"), count: span.events?.length },
+                    { value: "logs", label: tx("日志", "Logs"), count: span.logs?.length },
+                    { value: "links", label: tx("关联", "Links"), count: span.links?.length },
+                  ]}
+                />
+                <div className="v3-col" style={{ gap: 12, padding: 16 }}>
+                  {tab === "attrs" &&
+                    (span.attrs?.length ? (
+                      <div>
+                        {span.attrs.map((a) => (
+                          <div key={a.k} className={cx("td-attr", a.hot && "hot")}>
+                            <span>{a.k}</span>
+                            <span>{a.v}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <Muted>{tx("这个 Span 没有额外属性", "No extra attributes on this span")}</Muted>
+                    ))}
+                  {tab === "events" && (span.events?.length ? span.events.map((e) => <Code key={e.at}>{`${e.at}  ${e.name}\n${e.text}`}</Code>) : <Muted>{tx("没有事件", "No events")}</Muted>)}
+                  {tab === "logs" &&
+                    (span.logs?.length ? (
+                      span.logs.map((l) => (
+                        <div key={l.time + l.message} className="td-log">
+                          <span className="muted">{l.time.slice(-12)}</span>
+                          <span style={{ color: l.level === "ERROR" ? "var(--danger)" : l.level === "WARN" ? "var(--warn)" : "var(--muted)" }}>{l.level}</span>
+                          <span>{l.message}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <Muted>{tx("没有关联日志", "No correlated logs")}</Muted>
+                    ))}
+                  {tab === "links" &&
+                    (span.links?.length ? (
+                      span.links.map((k) => (
+                        <Row key={k.label} gap={6}>
+                          {k.brand ? <Brand name={k.brand} size={18} /> : <Tile icon={k.kind === "metric" ? "activity" : "book"} tone={k.kind === "runbook" ? "t1" : "neutral"} size={18} />}
+                          <Link className="v3-link" to={k.href}>{k.label}</Link>
+                        </Row>
+                      ))
+                    ) : (
+                      <Muted>{tx("没有关联对象", "No links")}</Muted>
+                    ))}
+                  <Row gap={6}>
+                    <Btn h={26} icon="pin" onClick={() => toast(tx("已钉到画布 INV-231", "Pinned to canvas INV-231"))}>{tx("钉到画布", "Pin to canvas")}</Btn>
+                    <Btn h={26} kind="soft" icon="branch" to="/canvas/INV-231">{tx("带入调查", "Bring into investigation")}</Btn>
+                  </Row>
+                </div>
+    </DetailPanel>
+  ) : null;
   return (
     <Page
       flush
@@ -75,7 +147,12 @@ export default function TraceDetailPage() {
             </Row>
           </div>
           <div className="td-body">
-            <div className="td-main">
+            <div
+              className="td-main"
+              onClick={(e) => {
+                if (!(e.target as HTMLElement).closest(".td-row, .td-flame-row button, .td-gnode, .td-bar")) setSel(null);
+              }}
+            >
               <div className="td-bar">
                 <Segmented label={tx("视图", "View")} value={view} onChange={setView} options={[{ value: "wf", label: tx("瀑布图", "Waterfall") }, { value: "flame", label: tx("火焰图", "Flame graph") }, { value: "graph", label: tx("服务图", "Service graph") }]} />
                 <SearchBox placeholder={tx("在链路中搜索", "Search in trace")} value={q} onChange={setQ} width={200} />
@@ -178,77 +255,8 @@ export default function TraceDetailPage() {
                 </div>
               )}
             </div>
-            {span && (
-              <aside className="aside anim-fade" style={{ width: 380 }} aria-label={tx("Span 详情", "Span details")}>
-                <div className="v3-col" style={{ gap: 4, padding: "14px 16px 0" }}>
-                  <Row gap={8}>
-                    <i className="tr-sw" style={{ width: 10, height: 10, background: t.colors[span.service] }} />
-                    <Strong size={14}>{span.op}</Strong>
-                    {span.status === "error" && <Badge tone="danger">{tx("错误", "Error")}</Badge>}
-                    <Spacer />
-                    <IconBtn icon="x" label={tx("关闭", "Close")} size={24} onClick={() => setSel(null)} />
-                  </Row>
-                  <Muted size={11.5}>
-                    {tx("{s} · {d} · 占总耗时 {p}%", "{s} · {d} · {p}% of total", { s: span.service, d: fmtMs(span.end - span.start), p: Math.round((100 * (span.end - span.start)) / total) })}
-                    {span.critical && tx(" · 关键路径", " · critical path")}
-                  </Muted>
-                </div>
-                <Tabs
-                  value={tab}
-                  onChange={setTab}
-                  pad="6px 16px 0"
-                  options={[
-                    { value: "attrs", label: tx("属性", "Attributes") },
-                    { value: "events", label: tx("事件", "Events"), count: span.events?.length },
-                    { value: "logs", label: tx("日志", "Logs"), count: span.logs?.length },
-                    { value: "links", label: tx("关联", "Links"), count: span.links?.length },
-                  ]}
-                />
-                <div className="v3-col" style={{ gap: 12, padding: 16 }}>
-                  {tab === "attrs" &&
-                    (span.attrs?.length ? (
-                      <div>
-                        {span.attrs.map((a) => (
-                          <div key={a.k} className={cx("td-attr", a.hot && "hot")}>
-                            <span>{a.k}</span>
-                            <span>{a.v}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <Muted>{tx("这个 Span 没有额外属性", "No extra attributes on this span")}</Muted>
-                    ))}
-                  {tab === "events" && (span.events?.length ? span.events.map((e) => <Code key={e.at}>{`${e.at}  ${e.name}\n${e.text}`}</Code>) : <Muted>{tx("没有事件", "No events")}</Muted>)}
-                  {tab === "logs" &&
-                    (span.logs?.length ? (
-                      span.logs.map((l) => (
-                        <div key={l.time + l.message} className="td-log">
-                          <span className="muted">{l.time.slice(-12)}</span>
-                          <span style={{ color: l.level === "ERROR" ? "var(--danger)" : l.level === "WARN" ? "var(--warn)" : "var(--muted)" }}>{l.level}</span>
-                          <span>{l.message}</span>
-                        </div>
-                      ))
-                    ) : (
-                      <Muted>{tx("没有关联日志", "No correlated logs")}</Muted>
-                    ))}
-                  {tab === "links" &&
-                    (span.links?.length ? (
-                      span.links.map((k) => (
-                        <Row key={k.label} gap={6}>
-                          {k.brand ? <Brand name={k.brand} size={18} /> : <Tile icon={k.kind === "metric" ? "activity" : "book"} tone={k.kind === "runbook" ? "t1" : "neutral"} size={18} />}
-                          <Link className="v3-link" to={k.href}>{k.label}</Link>
-                        </Row>
-                      ))
-                    ) : (
-                      <Muted>{tx("没有关联对象", "No links")}</Muted>
-                    ))}
-                  <Row gap={6}>
-                    <Btn h={26} icon="pin" onClick={() => toast(tx("已钉到画布 INV-231", "Pinned to canvas INV-231"))}>{tx("钉到画布", "Pin to canvas")}</Btn>
-                    <Btn h={26} kind="soft" icon="branch" to="/canvas/INV-231">{tx("带入调查", "Bring into investigation")}</Btn>
-                  </Row>
-                </div>
-              </aside>
-            )}
+            {/* docked when pinned; otherwise floats over the waterfall (td-body is the positioning context) */}
+            {spanPanel}
           </div>
         </>
       )}

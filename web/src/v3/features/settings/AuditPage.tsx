@@ -14,7 +14,7 @@ export default function AuditPage() {
   const { tx } = useI18n();
   const [filter, setFilter] = useState<"all" | "user" | "agent" | "system">("all");
   const [q, setQ] = useState("");
-  const [sel, setSel] = useState<string | null>("a1");
+  const [sel, setSel] = useState<string | null>(null);
   const { data } = useGet<AuditView>("/audit", { filter, q });
   const exp = useSend<void, { url: string }>("POST", "/audit/export");
   const res = (r: AuditEntry["result"]) => (r === "ok" ? ([tx("成功", "OK"), "ok"] as const) : r === "blocked" ? ([tx("已拦截", "Blocked"), "warn"] as const) : ([tx("失败", "Failed"), "danger"] as const));

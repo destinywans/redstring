@@ -11,6 +11,7 @@ import { useI18n } from "../../i18n";
 import { LoopBar } from "./LoopBar";
 import { WritebackDialog } from "./WritebackDialog";
 import { CompareDialog } from "./CompareDialog";
+import { DetailPanel, FLOAT_COVER, usePinned } from "../../ui/DetailPanel";
 import "./canvas.css";
 
 type View = { x: number; y: number; k: number };
@@ -193,7 +194,7 @@ function NodeCard({
   );
 }
 
-function Inspector({ n, nodes, onClose, onWriteback }: { n: CanvasNode; nodes: CanvasNode[]; onClose: () => void; onWriteback: () => void }) {
+function Inspector({ n, nodes, onClose, onWriteback, pinned, onPin }: { n: CanvasNode; nodes: CanvasNode[]; onClose: () => void; onWriteback: () => void; pinned: boolean; onPin: (v: boolean) => void }) {
   const { tx, fmt } = useI18n();
   const [tab, setTab] = useState<"chat" | "evidence" | "context" | "agent">("context");
   const kids = nodes.filter((x) => x.parent === n.id);
@@ -207,17 +208,23 @@ function Inspector({ n, nodes, onClose, onWriteback }: { n: CanvasNode; nodes: C
     [tx("工具", "Tools"), 0.19, "var(--c6)"],
   ];
   return (
-    <aside className="cv-inspector anim-fade" aria-label={tx("节点详情", "Node details")}>
-      <Row gap={10} style={{ padding: "14px 16px 0" }}>
-        <Tile icon={n.kind === "root" ? "alert" : n.kind === "evidence" ? "file" : "database"} tone={n.kind === "root" ? "danger" : "accent"} />
-        <Col gap={0} grow>
-          <Strong size={13.5}>{n.title}</Strong>
-          <Muted size={11.5}>
-            {n.kind === "root" ? tx("主线", "Main line") : n.kind === "evidence" ? tx("证据节点", "Evidence node") : tx("分支", "Branch")} · {tx("上下文", "context")} {n.context.version}
-          </Muted>
-        </Col>
-        <IconBtn icon="x" label={tx("关闭详情", "Close")} onClick={onClose} />
-      </Row>
+    <DetailPanel
+      pinned={pinned}
+      onPin={onPin}
+      onClose={onClose}
+      label={tx("节点详情", "Node details")}
+      header={
+        <>
+          <Tile icon={n.kind === "root" ? "alert" : n.kind === "evidence" ? "file" : "database"} tone={n.kind === "root" ? "danger" : "accent"} />
+          <Col gap={0} grow style={{ minWidth: 0 }}>
+            <Strong size={13.5}>{n.title}</Strong>
+            <Muted size={11.5}>
+              {n.kind === "root" ? tx("主线", "Main line") : n.kind === "evidence" ? tx("证据节点", "Evidence node") : tx("分支", "Branch")} · {tx("上下文", "context")} {n.context.version}
+            </Muted>
+          </Col>
+        </>
+      }
+    >
       <Tabs
         value={tab}
         onChange={setTab}
@@ -350,7 +357,7 @@ function Inspector({ n, nodes, onClose, onWriteback }: { n: CanvasNode; nodes: C
           </Col>
         )}
       </div>
-    </aside>
+    </DetailPanel>
   );
 }
 
@@ -361,7 +368,8 @@ export default function CanvasPage() {
   const [params, setParams] = useSearchParams();
   const { data, isLoading } = useGet<CanvasGraph>(`/investigations/${id}/canvas`);
   const [nodes, setNodes] = useState<CanvasNode[]>([]);
-  const [sel, setSel] = useState<string | null>("b-pool");
+  const [sel, setSel] = useState<string | null>(null);
+  const [pinned, setPinned] = usePinned("canvas");
   const [view, setView] = useState<View>({ x: 0, y: 0, k: 1 });
   const [tray, setTray] = useState(false);
   const [compare, setCompare] = useState(false);
@@ -376,6 +384,7 @@ export default function CanvasPage() {
 
   const byId = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n])), [nodes]);
   const selected = sel ? byId[sel] : undefined;
+  const panned = useRef(false);
 
   const toCanvas = (cx: number, cy: number) => {
     const r = area.current!.getBoundingClientRect();
@@ -394,6 +403,7 @@ export default function CanvasPage() {
   const onPointerUp = () => {
     const d = drag.current;
     drag.current = null;
+    panned.current = !!d?.moved;
     if (d?.kind === "node" && d.moved) {
       const n = nodes.find((x) => x.id === d.id);
       if (n) void api("PATCH", `/investigations/${id}/nodes/${n.id}`, { body: { x: Math.round(n.x), y: Math.round(n.y) } });
@@ -483,6 +493,16 @@ export default function CanvasPage() {
     setParams(next, { replace: true });
   };
 
+  const inspector = selected ? <Inspector n={selected} nodes={nodes} onClose={() => setSel(null)} onWriteback={() => setWriteback("b-cmp")} pinned={pinned} onPin={setPinned} /> : null;
+  // Keep the selected node clear of the floating card by panning the canvas.
+  useEffect(() => {
+    if (!selected || pinned || !area.current) return;
+    const w = area.current.clientWidth;
+    const right = view.x + (selected.x + selected.w) * view.k;
+    const overlap = right - (w - FLOAT_COVER) + 16;
+    if (overlap > 0) setView((v) => ({ ...v, x: v.x - overlap }));
+  }, [sel, pinned]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const inv = data?.investigation;
   const bounds = nodes.length ? { minX: Math.min(...nodes.map((n) => n.x)) - 40, minY: Math.min(...nodes.map((n) => n.y)) - 40, maxX: Math.max(...nodes.map((n) => n.x + n.w)) + 40, maxY: Math.max(...nodes.map((n) => n.y + 180)) + 40 } : null;
 
@@ -563,7 +583,8 @@ export default function CanvasPage() {
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onClick={(e) => {
-            if (e.target === area.current && !drag.current) setSel(null);
+            // A click on empty canvas (not a pan) closes the floating detail card.
+            if (!panned.current && !(e.target as HTMLElement).closest(".cv-node, .cv-toolbar, .cv-zoom, .cv-minimap, .dp")) setSel(null);
           }}
           onDragOver={(e) => {
             if (e.dataTransfer.types.includes("text/x-aiops-evidence")) {
@@ -650,9 +671,10 @@ export default function CanvasPage() {
               {tx("自动布局", "Auto layout")}
             </Btn>
           </div>
+          {selected && !pinned && inspector}
           {compare && <CompareDialog a={byId["b-pool"]} b={byId["b-cmp"]} onClose={() => setCompare(false)} onMerge={() => { setCompare(false); setWriteback("b-cmp"); }} />}
         </div>
-        {selected && <Inspector n={selected} nodes={nodes} onClose={() => setSel(null)} onWriteback={() => setWriteback("b-cmp")} />}
+        {selected && pinned && inspector}
       </div>
       <WritebackDialog
         open={!!writeback}

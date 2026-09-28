@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { api, useGet } from "../../api/client";
 import type { CanvasSummary, InvestigationTemplate } from "../../api/types";
-import { Badge, Brand, Btn, Check, Input, Col, Icon, LabelChip, Muted, Pills, Row, SearchBox, Section, Skeleton, Spacer, Strong, Tile, cx } from "../../ui/core";
+import { Badge, Brand, Btn, Check, IconBtn, Input, Col, Icon, LabelChip, Muted, Pills, Row, SearchBox, Section, Skeleton, Spacer, Strong, Tile, cx } from "../../ui/core";
 import { Dialog, toast } from "../../ui/overlays";
 import { KindTag } from "../canvas/CanvasesPage";
 import { useI18n } from "../../i18n";
@@ -16,9 +16,9 @@ export default function TemplatesPage() {
   const [owner, setOwner] = useState<"all" | "official" | "team">("all");
   const [q, setQ] = useState("");
   const { data, isLoading } = useGet<{ items: InvestigationTemplate[]; counts: Record<string, number> }>("/investigation-templates", { owner: owner === "all" ? undefined : owner, q });
-  const [selId, setSel] = useState("tpl-release");
+  const [selId, setSel] = useState<string | null>(null);
   const [saveOpen, setSaveOpen] = useState(false);
-  const sel = data?.items.find((t) => t.id === selId) ?? data?.items[0];
+  const sel = data?.items.find((t) => t.id === selId);
   const start = async (t: InvestigationTemplate) => {
     const r = await api<{ investigation_id: string }>("POST", `/investigation-templates/${t.id}/start`);
     toast(tx("已用「{t}」新建调查，自动派生 {n} 个分支", "Started an investigation from “{t}” with {n} branches", { t: t.name, n: t.branches.length }));
@@ -73,6 +73,7 @@ export default function TemplatesPage() {
                   {sel.owner === "official" ? tx("官方模板", "Official") : tx("团队模板", "Team")} · {sel.version} · {sel.maintainer}
                 </Muted>
               </Col>
+              <IconBtn icon="x" label={tx("关闭", "Close")} onClick={() => setSel(null)} />
             </Row>
             <Col gap={16} style={{ padding: 16 }} className="anim-fade">
               <Section title={tx("触发方式", "Triggers")}>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Page } from "../../app/Shell";
 import { useGet } from "../../api/client";
 import type { Topology } from "../../api/types";
@@ -6,6 +6,7 @@ import { Avatar, Bar, Brand, Btn, Chip, Col, Dot, Icon, IconBtn, KV, Muted, Row,
 import { toast } from "../../ui/overlays";
 import { Gauge, Lines, Sankey } from "../../charts";
 import { useI18n } from "../../i18n";
+import { DetailPanel, FLOAT_COVER, usePinned } from "../../ui/DetailPanel";
 import "./observe.css";
 
 const TONE_COLOR = { ok: "var(--c2)", warn: "var(--warn)", danger: "var(--danger)" };
@@ -29,9 +30,77 @@ export default function ResourcesPage() {
   const { data: t } = useGet<Topology>("/topology");
   const [view, setView] = useState<"topo" | "tree" | "sankey">("topo");
   const [blast, setBlast] = useState(true);
-  const [sel, setSel] = useState("orders-db");
+  const [sel, setSel] = useState<string | null>(null);
+  const [pinned, setPinned] = usePinned("topology");
+  const box = useRef<HTMLDivElement>(null);
+  const floating = !!sel && !pinned;
+  // Keep the selected node clear of the floating card by scrolling the canvas.
+  useEffect(() => {
+    if (!floating || !box.current) return;
+    const el = box.current.querySelector<HTMLElement>(`[data-node="${CSS.escape(sel!)}"]`);
+    if (!el) return;
+    const b = box.current.getBoundingClientRect();
+    const n = el.getBoundingClientRect();
+    const overlap = n.right - (b.right - FLOAT_COVER) + 16;
+    if (overlap > 0) box.current.scrollBy({ left: overlap, behavior: "smooth" });
+  }, [sel, floating]);
   const [hover, setHover] = useState<string | null>(null);
   const [open, setOpen] = useState<Set<number>>(new Set());
+  const detail = t && sel ? (
+    <DetailPanel
+      pinned={pinned}
+      onPin={setPinned}
+      onClose={() => setSel(null)}
+      label={tx("资源详情", "Resource details")}
+      header={
+            <>
+              <Brand name={t.detail.brand} size={30} />
+              <Col gap={0} grow>
+                <Strong size={14}>{sel === "orders-db" ? t.detail.name : sel}</Strong>
+                <Muted size={11.5}>{sel === "orders-db" ? t.detail.meta : t.nodes.find((n) => n.id === sel)?.sub}</Muted>
+              </Col>
+            </>
+      }
+    >
+            <Col gap={16} style={{ padding: 16 }} className="anim-fade" key={sel}>
+              <Row gap={12}>
+                <Gauge pct={t.detail.conns.used / t.detail.conns.max} size={138} tone="ok" label={`${Math.round((100 * t.detail.conns.used) / t.detail.conns.max)}%`} sub={tx("连接 {a} / {b}", "conns {a} / {b}", { a: t.detail.conns.used, b: t.detail.conns.max })} />
+                <Gauge pct={1} size={138} tone="danger" label="100%" sub={`${t.detail.from_service.service} ${t.detail.from_service.used} / ${t.detail.from_service.max}`} />
+              </Row>
+              <Section title={tx("连接等待 P95", "Connection wait P95")} right={<span className="mono" style={{ color: "var(--danger)", fontSize: "var(--fs-sub)" }}>420 ms</span>}>
+                <Lines series={[{ name: "P95", values: t.detail.wait, color: "var(--c3)", fill: "var(--c3s)" }]} height={52} max={520} grid={2} markers={[{ at: 16, label: tx("发布", "release"), tone: "warn" }]} format={(v) => `${Math.round(v)} ms`} />
+              </Section>
+              <Section title={tx("健康", "Health")}>
+                {t.detail.health.map((h) => (
+                  <KV key={h.k} k={h.k} kw={76}>
+                    <span className="tnum">{h.v}</span>
+                  </KV>
+                ))}
+              </Section>
+              <Section title={tx("归属", "Ownership")}>
+                <KV k={tx("负责人", "Owner")} kw={76}>
+                  <Row gap={6}>
+                    <Avatar name={t.detail.owner} size={20} />
+                    {t.detail.owner}
+                  </Row>
+                </KV>
+                <KV k={tx("被依赖", "Dependents")} kw={76}>{t.detail.dependents}</KV>
+                <KV k={tx("来源", "Source")} kw={76}>
+                  <Row gap={6}>
+                    <Brand name="kubernetes" size={18} />
+                    <Muted size={11.5}>{t.detail.source}</Muted>
+                  </Row>
+                </KV>
+              </Section>
+              <div className="v3-grid2">
+                <Btn icon="activity" to="/metrics">{tx("查看指标", "Metrics")}</Btn>
+                <Btn icon="pin" to="/canvas/INV-231">{tx("钉到调查", "Pin to investigation")}</Btn>
+                <Btn icon="external">Grafana</Btn>
+                <Btn kind="soft" icon="sparkles" to="/conversations/new?q=orders-db%20%E7%8E%B0%E5%9C%A8%E5%81%A5%E5%BA%B7%E5%90%97%EF%BC%9F">{tx("问 AI", "Ask AI")}</Btn>
+              </div>
+            </Col>
+    </DetailPanel>
+  ) : null;
   return (
     <Page
       flush
@@ -66,10 +135,17 @@ export default function ResourcesPage() {
               {tx("影响范围", "Blast radius")}
             </Chip>
           </Row>
-          <div className="topo-box">
+          <div className="topo-stage">
+          <div
+            className="topo-box"
+            ref={box}
+            onClick={(e) => {
+              if (!(e.target as HTMLElement).closest(".topo-node, .blast-chip, .topo-legend")) setSel(null);
+            }}
+          >
             {!t && <Skeleton h={600} style={{ margin: 20 }} />}
             {t && view === "topo" && (
-              <div className="topo-canvas anim-fade">
+              <div className="topo-canvas anim-fade" style={{ width: 880 + (floating ? FLOAT_COVER : 0) }}>
                 <div className={cx("blast-chip", blast && "show")}>
                   <Icon name="alert" size={14} color="var(--danger)" />
                   <b>{tx("影响范围", "Blast radius")}</b>
@@ -108,6 +184,7 @@ export default function ResourcesPage() {
                     type="button"
                     className={cx("topo-node lift", sel === n.id && "sel", n.status === "danger" && "bad", blast && n.impacted && "hit", blast && !n.impacted && "dim")}
                     style={{ left: n.x, top: n.y }}
+                    data-node={n.id}
                     onClick={() => setSel(n.id)}
                     onMouseEnter={() => setHover(n.id)}
                     onMouseLeave={() => setHover(null)}
@@ -184,55 +261,10 @@ export default function ResourcesPage() {
               </div>
             )}
           </div>
+          {t && floating && detail}
+          </div>
         </div>
-        {t && (
-          <aside className="aside" style={{ width: 320 }}>
-            <Row gap={10} style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
-              <Brand name={t.detail.brand} size={30} />
-              <Col gap={0} grow>
-                <Strong size={14}>{sel === "orders-db" ? t.detail.name : sel}</Strong>
-                <Muted size={11.5}>{sel === "orders-db" ? t.detail.meta : t.nodes.find((n) => n.id === sel)?.sub}</Muted>
-              </Col>
-            </Row>
-            <Col gap={16} style={{ padding: 16 }} className="anim-fade" key={sel}>
-              <Row gap={12}>
-                <Gauge pct={t.detail.conns.used / t.detail.conns.max} size={138} tone="ok" label={`${Math.round((100 * t.detail.conns.used) / t.detail.conns.max)}%`} sub={tx("连接 {a} / {b}", "conns {a} / {b}", { a: t.detail.conns.used, b: t.detail.conns.max })} />
-                <Gauge pct={1} size={138} tone="danger" label="100%" sub={`${t.detail.from_service.service} ${t.detail.from_service.used} / ${t.detail.from_service.max}`} />
-              </Row>
-              <Section title={tx("连接等待 P95", "Connection wait P95")} right={<span className="mono" style={{ color: "var(--danger)", fontSize: "var(--fs-sub)" }}>420 ms</span>}>
-                <Lines series={[{ name: "P95", values: t.detail.wait, color: "var(--c3)", fill: "var(--c3s)" }]} height={52} max={520} grid={2} markers={[{ at: 16, label: tx("发布", "release"), tone: "warn" }]} format={(v) => `${Math.round(v)} ms`} />
-              </Section>
-              <Section title={tx("健康", "Health")}>
-                {t.detail.health.map((h) => (
-                  <KV key={h.k} k={h.k} kw={76}>
-                    <span className="tnum">{h.v}</span>
-                  </KV>
-                ))}
-              </Section>
-              <Section title={tx("归属", "Ownership")}>
-                <KV k={tx("负责人", "Owner")} kw={76}>
-                  <Row gap={6}>
-                    <Avatar name={t.detail.owner} size={20} />
-                    {t.detail.owner}
-                  </Row>
-                </KV>
-                <KV k={tx("被依赖", "Dependents")} kw={76}>{t.detail.dependents}</KV>
-                <KV k={tx("来源", "Source")} kw={76}>
-                  <Row gap={6}>
-                    <Brand name="kubernetes" size={18} />
-                    <Muted size={11.5}>{t.detail.source}</Muted>
-                  </Row>
-                </KV>
-              </Section>
-              <div className="v3-grid2">
-                <Btn icon="activity" to="/metrics">{tx("查看指标", "Metrics")}</Btn>
-                <Btn icon="pin" to="/canvas/INV-231">{tx("钉到调查", "Pin to investigation")}</Btn>
-                <Btn icon="external">Grafana</Btn>
-                <Btn kind="soft" icon="sparkles" to="/conversations/new?q=orders-db%20%E7%8E%B0%E5%9C%A8%E5%81%A5%E5%BA%B7%E5%90%97%EF%BC%9F">{tx("问 AI", "Ask AI")}</Btn>
-              </div>
-            </Col>
-          </aside>
-        )}
+        {t && sel && pinned && detail}
       </div>
     </Page>
   );

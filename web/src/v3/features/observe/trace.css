@@ -95,3 +95,4 @@
 .at-msg-body { padding: 8px 12px 10px; font-size: var(--fs-sm); line-height: 1.6; white-space: pre-wrap; }
 .at-json { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--sunken); font: var(--fs-mono)/1.6 var(--mono); white-space: pre-wrap; word-break: break-all; }
 .at-turns > * { flex: none; white-space: nowrap; }
+.td-body { position: relative; }

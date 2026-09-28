@@ -13,7 +13,7 @@ const ST: Record<McpServer["status"], Tone> = { ok: "ok", pending: "warn", error
 export default function McpPage() {
   const { tx } = useI18n();
   const { data } = useGet<McpList>("/mcp-servers");
-  const [sel, setSel] = useState<string | null>("cmdb-mcp");
+  const [sel, setSel] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const review = useSend<void>("POST", "/mcp-servers/k8s-mcp/review", ["/mcp-servers"]);
   const stLabel = (s: McpServer["status"]) => ({ ok: tx("正常", "Healthy"), pending: tx("待定", "Pending"), error: tx("异常", "Error") })[s];

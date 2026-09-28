@@ -8,7 +8,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -56,6 +58,12 @@ func respondJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+func protectedRule(name string, push int, force bool) map[string]any {
+	return map[string]any{"name": name, "allow_force_push": force,
+		"push_access_levels":  []any{map[string]any{"access_level": push}},
+		"merge_access_levels": []any{map[string]any{"access_level": 40}}}
 }
 
 func TestGitLabExportReconcilesStableIdentity(t *testing.T) {
@@ -145,6 +153,81 @@ func TestGitLabExportReconcilesStableIdentity(t *testing.T) {
 	}
 }
 
+func TestGitLabExportOverlappingCallsReconcileConflict(t *testing.T) {
+	payload := []byte(`{"kind":"template"}`)
+	var listCalls, mrPosts atomic.Int32
+	firstLists := make(chan struct{})
+	secondLists := make(chan struct{})
+	var base string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/api/v4/projects/42/merge_requests":
+			n := listCalls.Add(1)
+			if n <= 2 {
+				if n == 2 {
+					close(firstLists)
+				}
+				<-firstLists
+				respondJSON(w, 200, []MR{})
+			} else if n <= 4 {
+				if n == 4 {
+					close(secondLists)
+				}
+				<-secondLists
+				respondJSON(w, 200, []MR{})
+			} else {
+				respondJSON(w, 200, []MR{testMR(base, "opened")})
+			}
+		case r.Method == "GET" && r.URL.Path == "/api/v4/projects/42/repository/branches/"+testBranch:
+			respondJSON(w, 200, map[string]any{"name": testBranch})
+		case r.Method == "GET" && r.URL.Path == "/api/v4/projects/42/repository/files/"+testPath+"/raw":
+			w.WriteHeader(200)
+			_, _ = w.Write(payload)
+		case r.Method == "POST" && r.URL.Path == "/api/v4/projects/42/merge_requests":
+			if mrPosts.Add(1) == 1 {
+				respondJSON(w, 201, testMR(base, "opened"))
+			} else {
+				w.WriteHeader(409)
+			}
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.String())
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+	base = server.URL
+	c := clientFor(t, base)
+	type outcome struct {
+		mr  MR
+		err error
+	}
+	results := make(chan outcome, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			mr, err := c.Export(context.Background(), testBranch, testPath, payload, "Promote validated config")
+			results <- outcome{mr, err}
+		}()
+	}
+	var successes, conflicts int
+	for i := 0; i < 2; i++ {
+		result := <-results
+		if result.err == nil && result.mr.IID == 12 {
+			successes++
+		} else if errors.Is(result.err, ErrConflict) {
+			conflicts++
+		} else {
+			t.Fatalf("unexpected overlapping result: %+v", result)
+		}
+	}
+	if successes != 1 || conflicts != 1 || mrPosts.Load() != 2 {
+		t.Fatalf("successes=%d conflicts=%d MR POSTs=%d", successes, conflicts, mrPosts.Load())
+	}
+	m, err := c.Export(context.Background(), testBranch, testPath, payload, "Promote validated config")
+	if err != nil || m.IID != 12 || mrPosts.Load() != 2 {
+		t.Fatalf("stable retry did not reconcile: mr=%+v err=%v posts=%d", m, err, mrPosts.Load())
+	}
+}
+
 func TestGitLabReadMergedChecksDiffAndExactMergeSHA(t *testing.T) {
 	var base string
 	var diffs any = []map[string]any{{"old_path": testPath, "new_path": testPath, "new_file": true}}
@@ -164,7 +247,11 @@ func TestGitLabReadMergedChecksDiffAndExactMergeSHA(t *testing.T) {
 		case "/api/v4/projects/42/repository/branches/main":
 			respondJSON(w, 200, map[string]any{"name": "main", "protected": true})
 		case "/api/v4/projects/42/protected_branches/main":
-			respondJSON(w, 200, map[string]any{"name": "main", "allow_force_push": false, "push_access_levels": []any{map[string]any{"access_level": 0}}, "merge_access_levels": []any{map[string]any{"access_level": 40}}})
+			respondJSON(w, 200, protectedRule("main", 0, false))
+		case "/api/v4/projects/42/protected_branches":
+			w.Header().Set("X-Page", "1")
+			w.Header().Set("X-Per-Page", "100")
+			respondJSON(w, 200, []any{protectedRule("main", 0, false)})
 		case "/api/v4/projects/42/merge_requests/12/diffs":
 			respondJSON(w, 200, diffs)
 		case "/api/v4/projects/42/repository/files/" + testPath + "/raw":
@@ -206,6 +293,7 @@ func TestGitLabReadMergedReviewProvenance(t *testing.T) {
 		approverID                                                                                                                                                             int64
 		bot                                                                                                                                                                    bool
 		missingApproval, unsatisfiedRules, missingBotField, laterVersion, permissivePush, noProtection, unavailableApproval, unavailableVersions, unavailablePolicy, forcePush bool
+		wildcardPush, wildcardForce, safeWildcard, twoPage, listUnavailable, listHeadersMissing, listOverflow                                                                  bool
 		wantOK                                                                                                                                                                 bool
 	}{
 		{name: "valid independent review", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, wantOK: true},
@@ -225,13 +313,20 @@ func TestGitLabReadMergedReviewProvenance(t *testing.T) {
 		{name: "versions API unavailable", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, unavailableVersions: true},
 		{name: "policy API unavailable", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, unavailablePolicy: true},
 		{name: "force push allowed", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, forcePush: true},
+		{name: "permissive wildcard defeats exact rule", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, wildcardPush: true},
+		{name: "force push wildcard defeats exact rule", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, wildcardForce: true},
+		{name: "safe wildcard allowed", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, safeWildcard: true, wantOK: true},
+		{name: "safe second page allowed", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, twoPage: true, wantOK: true},
+		{name: "protected branch list unavailable", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, listUnavailable: true},
+		{name: "protected branch pagination unavailable", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, listHeadersMissing: true},
+		{name: "protected branch list overflow", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, listOverflow: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var base string
 			calls := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls++
-				if calls > 8 {
+				if calls > 13 {
 					t.Error("unbounded GitLab requests")
 				}
 				switch r.URL.Path {
@@ -274,7 +369,43 @@ func TestGitLabReadMergedReviewProvenance(t *testing.T) {
 					if tc.permissivePush {
 						push = 40
 					}
-					respondJSON(w, 200, map[string]any{"name": "main", "allow_force_push": tc.forcePush, "push_access_levels": []any{map[string]any{"access_level": push}}, "merge_access_levels": []any{map[string]any{"access_level": 40}}})
+					respondJSON(w, 200, protectedRule("main", push, tc.forcePush))
+				case "/api/v4/projects/42/protected_branches":
+					if tc.listUnavailable {
+						w.WriteHeader(503)
+						return
+					}
+					if r.URL.Query().Get("per_page") != "100" {
+						t.Error("unbounded policy list")
+					}
+					page, err := strconv.Atoi(r.URL.Query().Get("page"))
+					if err != nil || page < 1 || page > 5 {
+						t.Error("invalid policy page")
+					}
+					if !tc.listHeadersMissing {
+						w.Header().Set("X-Page", strconv.Itoa(page))
+						w.Header().Set("X-Per-Page", "100")
+					}
+					rules := []any{protectedRule("main", 0, false)}
+					if tc.twoPage && page == 1 {
+						w.Header().Set("X-Next-Page", "2")
+					}
+					if tc.twoPage && page == 2 {
+						rules = []any{protectedRule("*", 0, false)}
+					}
+					if tc.listOverflow {
+						w.Header().Set("X-Next-Page", strconv.Itoa(page+1))
+					}
+					if tc.wildcardPush {
+						rules = append(rules, protectedRule("*", 40, false))
+					}
+					if tc.wildcardForce {
+						rules = append(rules, protectedRule("m*", 0, true))
+					}
+					if tc.safeWildcard {
+						rules = append(rules, protectedRule("*", 0, false))
+					}
+					respondJSON(w, 200, rules)
 				case "/api/v4/projects/42/merge_requests/12/diffs":
 					respondJSON(w, 200, []map[string]any{{"old_path": testPath, "new_path": testPath, "new_file": true}})
 				case "/api/v4/projects/42/repository/files/" + testPath + "/raw":

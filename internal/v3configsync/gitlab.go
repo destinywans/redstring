@@ -265,7 +265,9 @@ func (c *GitLabClient) findMR(ctx context.Context, branch string) (MR, bool, err
 }
 
 // Export reconciles the same branch, path and payload before each write.
-// Callers must persist that identity and serialize concurrent attempts.
+// Callers persist that identity. Lease expiry can overlap calls: a competing
+// GitLab write may return ErrConflict, and retrying this identity reconciles
+// the accepted result. This is not a remote uniqueness guarantee for all time.
 func (c *GitLabClient) Export(ctx context.Context, branch, path string, payload []byte, title string) (MR, error) {
 	if !validBranch(branch) || !strings.HasPrefix(branch, c.config.BranchPrefix) || !validPath(path) || len(payload) == 0 || len(payload) > 256*1024 || !json.Valid(payload) || len(title) == 0 || len(title) > 180 {
 		return MR{}, errors.New("invalid GitLab export input")
@@ -429,10 +431,9 @@ func (c *GitLabClient) ReadMerged(ctx context.Context, iid int64, path string) (
 	return m, data, nil
 }
 
-// verifyMergedReview is an independent import gate. The exact branch rule
-// checked here is current policy only. It cannot prove protection at merge
-// time, or rule out a more permissive matching wildcard rule. Deployments
-// requiring those guarantees need captured merge-time governance evidence.
+// verifyMergedReview is an independent import gate. The branch rules checked
+// here are current policy only; historical protection at merge time still
+// requires captured merge-time governance evidence.
 func (c *GitLabClient) verifyMergedReview(ctx context.Context, m MR) error {
 	root := c.projectPath() + "/merge_requests/" + strconv.FormatInt(m.IID, 10)
 	var versions []struct {
@@ -491,35 +492,122 @@ func (c *GitLabClient) verifyMergedReview(ctx context.Context, m MR) error {
 	if !reviewerVerified {
 		return ErrUntrusted
 	}
+	return c.verifyProtectedTarget(ctx)
+}
+
+type branchAccessLevel struct {
+	AccessLevel  *int   `json:"access_level"`
+	UserID       *int64 `json:"user_id"`
+	GroupID      *int64 `json:"group_id"`
+	DeployKeyID  *int64 `json:"deploy_key_id"`
+	MemberRoleID *int64 `json:"member_role_id"`
+}
+
+type protectedBranchRule struct {
+	Name              string              `json:"name"`
+	AllowForcePush    *bool               `json:"allow_force_push"`
+	PushAccessLevels  []branchAccessLevel `json:"push_access_levels"`
+	MergeAccessLevels []branchAccessLevel `json:"merge_access_levels"`
+}
+
+func safeProtectedRule(rule protectedBranchRule) bool {
+	if rule.AllowForcePush == nil || *rule.AllowForcePush || len(rule.PushAccessLevels) != 1 || len(rule.MergeAccessLevels) == 0 {
+		return false
+	}
+	push := rule.PushAccessLevels[0]
+	if push.AccessLevel == nil || *push.AccessLevel != 0 || push.UserID != nil || push.GroupID != nil || push.DeployKeyID != nil || push.MemberRoleID != nil {
+		return false
+	}
+	for _, merge := range rule.MergeAccessLevels {
+		if merge.AccessLevel == nil || (*merge.AccessLevel != 30 && *merge.AccessLevel != 40 && *merge.AccessLevel != 60) ||
+			merge.UserID != nil || merge.GroupID != nil || merge.DeployKeyID != nil || merge.MemberRoleID != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// GitLab's documented protected-branch wildcard uses '*' across branch-name
+// characters, including '/'. Unknown pattern syntax fails closed.
+func branchPatternMatches(pattern, branch string) (bool, error) {
+	if pattern == "" || len(pattern) > 255 || strings.ContainsAny(pattern, "?[]\\") {
+		return false, ErrUntrusted
+	}
+	parts := strings.Split(pattern, "*")
+	if len(parts) == 1 {
+		return pattern == branch, nil
+	}
+	if !strings.HasPrefix(branch, parts[0]) {
+		return false, nil
+	}
+	rest := branch[len(parts[0]):]
+	for _, part := range parts[1 : len(parts)-1] {
+		index := strings.Index(rest, part)
+		if index < 0 {
+			return false, nil
+		}
+		rest = rest[index+len(part):]
+	}
+	return strings.HasSuffix(rest, parts[len(parts)-1]), nil
+}
+
+func (c *GitLabClient) verifyProtectedTarget(ctx context.Context) error {
 	var branch struct {
 		Name      string `json:"name"`
 		Protected *bool  `json:"protected"`
 	}
-	_, _, err = c.call(ctx, http.MethodGet, c.projectPath()+"/repository/branches/"+url.PathEscape(c.config.TargetBranch), nil, nil, 200, &branch)
+	_, _, err := c.call(ctx, http.MethodGet, c.projectPath()+"/repository/branches/"+url.PathEscape(c.config.TargetBranch), nil, nil, 200, &branch)
 	if err != nil || branch.Name != c.config.TargetBranch || branch.Protected == nil || !*branch.Protected {
 		return ErrUntrusted
 	}
-	var policy struct {
-		Name             string `json:"name"`
-		AllowForcePush   *bool  `json:"allow_force_push"`
-		PushAccessLevels []struct {
-			AccessLevel *int `json:"access_level"`
-		} `json:"push_access_levels"`
-		MergeAccessLevels []struct {
-			AccessLevel *int `json:"access_level"`
-		} `json:"merge_access_levels"`
-	}
+	var policy protectedBranchRule
 	_, _, err = c.call(ctx, http.MethodGet, c.projectPath()+"/protected_branches/"+url.PathEscape(c.config.TargetBranch), nil, nil, 200, &policy)
-	if err != nil || policy.Name != c.config.TargetBranch || policy.AllowForcePush == nil || *policy.AllowForcePush ||
-		len(policy.PushAccessLevels) != 1 || policy.PushAccessLevels[0].AccessLevel == nil || *policy.PushAccessLevels[0].AccessLevel != 0 || len(policy.MergeAccessLevels) == 0 {
+	if err != nil || policy.Name != c.config.TargetBranch || !safeProtectedRule(policy) {
 		return ErrUntrusted
 	}
-	for _, level := range policy.MergeAccessLevels {
-		if level.AccessLevel == nil || (*level.AccessLevel != 30 && *level.AccessLevel != 40 && *level.AccessLevel != 60) {
+	exactFound := false
+	for page := 1; page <= 5; page++ {
+		q := url.Values{"per_page": {"100"}, "page": {strconv.Itoa(page)}}
+		var rules []protectedBranchRule
+		_, h, err := c.call(ctx, http.MethodGet, c.projectPath()+"/protected_branches", q, nil, 200, &rules)
+		if err != nil || len(rules) > 100 || h.Get("X-Page") != strconv.Itoa(page) || h.Get("X-Per-Page") != "100" {
+			return ErrUntrusted
+		}
+		for _, rule := range rules {
+			matches, err := branchPatternMatches(rule.Name, c.config.TargetBranch)
+			if err != nil {
+				return ErrUntrusted
+			}
+			if !matches {
+				continue
+			}
+			if rule.Name == c.config.TargetBranch {
+				exactFound = true
+			}
+			// GitLab applies the most permissive matching rule. Every matching
+			// exact, wildcard and inherited rule must independently be safe.
+			if !safeProtectedRule(rule) {
+				return ErrUntrusted
+			}
+		}
+		next := h.Get("X-Next-Page")
+		if next == "" {
+			if len(rules) == 100 {
+				if page == 5 {
+					return ErrUntrusted
+				}
+				continue
+			}
+			if !exactFound {
+				return ErrUntrusted
+			}
+			return nil
+		}
+		if page == 5 || next != strconv.Itoa(page+1) || len(rules) == 0 {
 			return ErrUntrusted
 		}
 	}
-	return nil
+	return ErrUntrusted
 }
 
 // Merged retrieves one exact IID, so importing a selected item does not

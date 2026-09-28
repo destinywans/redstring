@@ -456,8 +456,8 @@ func (c *GitLabClient) verifyMergedReview(ctx context.Context, m MR) error {
 		return ErrUntrusted
 	}
 	var approvals struct {
-		IID        int64  `json:"iid"`
-		ProjectID  int64  `json:"project_id"`
+		IID        *int64 `json:"iid"`
+		ProjectID  *int64 `json:"project_id"`
 		State      string `json:"state"`
 		Approved   *bool  `json:"approved"`
 		ApprovedBy []struct {
@@ -470,7 +470,12 @@ func (c *GitLabClient) verifyMergedReview(ctx context.Context, m MR) error {
 	_, _, err = c.call(ctx, http.MethodGet, root+"/approvals", nil, nil, 200, &approvals)
 	// GitLab EE may report approved=true with no applicable rules. Require both
 	// satisfied current MR approval state and a distinct valid reviewer below.
-	if err != nil || approvals.IID != m.IID || approvals.ProjectID != c.config.ProjectID || approvals.State != "merged" ||
+	// GitLab CE's /approvals response has no MR/project/state fields. The
+	// request path is built from the exact MR validated by Merged. Some
+	// editions may include identifiers; reject them when inconsistent.
+	if err != nil || (approvals.IID != nil && *approvals.IID != m.IID) ||
+		(approvals.ProjectID != nil && *approvals.ProjectID != c.config.ProjectID) ||
+		(approvals.State != "" && approvals.State != "merged") ||
 		approvals.Approved == nil || !*approvals.Approved || len(approvals.ApprovedBy) == 0 || len(approvals.ApprovedBy) > 20 {
 		return ErrUntrusted
 	}

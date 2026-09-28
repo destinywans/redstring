@@ -294,9 +294,14 @@ func TestGitLabReadMergedReviewProvenance(t *testing.T) {
 		bot                                                                                                                                                                    bool
 		missingApproval, unsatisfiedRules, missingBotField, laterVersion, permissivePush, noProtection, unavailableApproval, unavailableVersions, unavailablePolicy, forcePush bool
 		wildcardPush, wildcardForce, safeWildcard, twoPage, listUnavailable, listHeadersMissing, listOverflow                                                                  bool
+		approvalNoIDs, approvalWrongIID, approvalWrongProject, approvalWrongState                                                                                              bool
 		wantOK                                                                                                                                                                 bool
 	}{
 		{name: "valid independent review", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, wantOK: true},
+		{name: "GitLab CE approval response without MR identity", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, approvalNoIDs: true, wantOK: true},
+		{name: "approval response wrong MR IID", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, approvalWrongIID: true},
+		{name: "approval response wrong project", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, approvalWrongProject: true},
+		{name: "approval response wrong state", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, approvalWrongState: true},
 		{name: "author approved", approverID: 7, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA},
 		{name: "bot approved", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, bot: true},
 		{name: "approval missing", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, missingApproval: true},
@@ -351,7 +356,22 @@ func TestGitLabReadMergedReviewProvenance(t *testing.T) {
 					if !tc.missingApproval {
 						approved = append(approved, map[string]any{"user": map[string]any{"id": tc.approverID}, "approved_at": tc.approvedAt})
 					}
-					respondJSON(w, 200, map[string]any{"iid": 12, "project_id": 42, "state": "merged", "approved": !tc.unsatisfiedRules, "approved_by": approved})
+					response := map[string]any{"approved": !tc.unsatisfiedRules, "approved_by": approved}
+					if !tc.approvalNoIDs {
+						response["iid"] = 12
+						response["project_id"] = 42
+						response["state"] = "merged"
+					}
+					if tc.approvalWrongIID {
+						response["iid"] = 13
+					}
+					if tc.approvalWrongProject {
+						response["project_id"] = 43
+					}
+					if tc.approvalWrongState {
+						response["state"] = "opened"
+					}
+					respondJSON(w, 200, response)
 				case "/api/v4/users/8":
 					user := map[string]any{"id": 8}
 					if !tc.missingBotField {

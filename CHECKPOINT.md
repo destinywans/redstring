@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-119 · 2026-09-29 · 连接器详情真实 DTO 闭合
+
+- WAN-122 源提交 `885ad6c`（基于已推送集成 `49b6399`）合入为 `e4348d1`；公共 OpenAPI、主契约和路由矩阵提交 `ae309bfe3cb4c5afcda8a731fcba6ebce015ad50`。集成分支已推送且远端回读同 SHA，代码提交后工作树干净。`GET /connectors/{id}` 只投影已登记对象、当前授权的服务绑定及最近有界连接探测；无凭据的记录即使留有旧成功探测仍为 `unverified`，已登记 Vault 引用不称已验证。前端会解释为 Agent 能力的 `tools`、`queries` 和标签在没有真实执行器/绑定时为空；存储中的工具选择仍只是配置偏好。OpenAPI 要求完整详情字段并说明 422 服务上限。主契约此一条按窄后端范围改为 `implemented`，总数 **34/166 `implemented`**。
+- 源分支在一次性隔离 PG16 随机 schema 完成 `go test ./internal/v3integrations -count=1 -timeout=120s`，含注册 HTTP 的凭据、ACL、健康与 DTO 边界；容器已清理。集成分支同包检查、`cmd/aiops` 编译、308 注册操作/219 schema 的 OpenAPI 引用、165 行主契约、路由矩阵与差异检查通过。无新迁移、现有业务库迁移、真实 Vault/GitLab/Agent 执行或前端修改。
+- `PATCH /connectors/{id}` 目前只持久化工具偏好，不授予 Agent 执行能力；前端开关未调用该接口，整页仍是 Mock，故该主行继续 `mock`。前端的测试结果刷新、错误态与 Edit/Disable 操作也未验收。下一步收拢 WAN-119 工作区与 WAN-124 配置提升切片，逐条核实真实来源和运行边界；无 PR、合并、部署或产品验收。
+
 ## CP-118 · 2026-09-29 · 抑制 matcher 合法空白兼容
 
 - WAN-118 源提交 `fc25a41` 从已推送集成 `49b6399` 派生并合入为 `71e066e46189beeef9eb3c740b83dc82d97c8156`；该提交已推送且远端回读一致，合入后工作树干净。单条 Alertmanager matcher 现接受操作符周围的空格、Tab、换行以及有效引号转义；畸形或在一条字符串中拼接多个 matcher 时整次 503 `invalid_inhibition_source`，不返回可能漏掉环境或应用约束的部分列表。源分支有隔离 PG16 注册 HTTP 测试与独立安全复核；集成分支 `go test ./internal/v3alertmanager -count=1 -timeout=120s`、308 条注册操作的 OpenAPI 引用及差异检查通过。

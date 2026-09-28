@@ -69,7 +69,7 @@ func (s *Service) queryTraces(w http.ResponseWriter, r *http.Request, id string)
 		}
 	}
 	start := time.Now()
-	results, err := s.Telemetry.QueryTracesBatchID(r.Context(), resources, observationWindow(), 20, id)
+	results, err := s.Telemetry.QueryTracesBatchID(r.Context(), resources, observationWindow(time.Hour), 20, id)
 	if err != nil {
 		httpapi.Error(w, 503, "telemetry_unavailable", "Scoped trace query failed")
 		return nil, 0, false

@@ -173,8 +173,9 @@ S['V3ConversationList'] = obj({'items': arr(ref('V3ConversationSummary')),
     'counts': obj({k:integer() for k in ['mine','team','triage','archived']})})
 v3_route('get','/conversations','List scoped conversations',response=ref('V3ConversationList'),
     query=[v3_query(x) for x in ['filter','q','tab','status','mode','page','page_size']])
-v3_route('post','/conversations','Create conversation',body=v3_object('text context model'),
-    response=obj({'id':string()},['id']),status=201)
+v3_route('post','/conversations','Create conversation',body=obj({'text':string(minLength=1),'context':{'type':['string','null']},'model':{'type':['string','null']}},['text']),
+    response=obj({'id':string()},['id']),status=201,
+    desc='text must contain non-whitespace and fit within 2 MiB UTF-8; context is limited to 4096 bytes and model to 256 bytes. The selected default model and creation audit are persisted. The first message is submitted separately.')
 v3_route('get','/conversations/{id}','Read conversation and saved messages',response=ref('V3Conversation'))
 v3_route('post','/conversations/{id}/messages','Start a durable assistant reply',
     body=obj({'text':string(),'model':string(),'reasoning':string(),
@@ -345,8 +346,8 @@ S['V3IncidentSummary'] = obj({**fieldnames('id title duration commander'),
     'status':string(enum=['active','mitigated','resolved'])},
     ['id','severity','title','status','duration','commander'])
 S['V3IncidentTimelineEntry'] = obj({'time':string(format='date-time'),
-    'actor':obj({'kind':string(enum=['brand','ai','person']),'name':string()}),
-    'text':string(),'sub':string()})
+    'actor':obj({'kind':string(enum=['brand','ai','person']),'name':string()},['kind','name']),
+    'text':string(),'sub':string()},['time','actor','text'])
 v3_route('get','/inbox','Read scoped inbox',response=obj({'items':arr(ref('V3InboxItem')),
     'counts':v3_map(integer())}),query=[v3_query('filter',string(enum=['all','mine','mentions','subscribed'])),v3_query('tab')],
     desc='Currently includes recent incident-backed alerts; other inbox kinds are not yet connected. tab remains an alias for filter.')

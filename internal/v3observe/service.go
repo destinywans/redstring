@@ -250,7 +250,10 @@ func (s *Service) observationTargets(ctx context.Context, user core.User, enviro
 	return result, nil
 }
 
-func observationWindow() connectors.TimeWindow {
-	now := time.Now().UTC()
-	return connectors.TimeWindow{Start: now.Add(-15 * time.Minute), End: now}
+func observationWindow(lookback time.Duration) connectors.TimeWindow {
+	// Loki's count and histogram queries require millisecond-aligned window
+	// boundaries. Derive both ends from one instant to preserve the requested
+	// lookback duration exactly.
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	return connectors.TimeWindow{Start: now.Add(-lookback), End: now}
 }

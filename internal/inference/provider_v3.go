@@ -59,7 +59,7 @@ func (p *providerModel) requestResponses(contents []*genai.Content, system strin
 		}
 		flush()
 	}
-	b := map[string]any{"model": p.provider.Model, "input": input, "stream": true, "store": false, "max_output_tokens": 4096}
+	b := map[string]any{"model": p.provider.Model, "input": input, "stream": true, "store": false, "max_output_tokens": p.outputTokenLimit()}
 	if system != "" {
 		b["instructions"] = system
 	}

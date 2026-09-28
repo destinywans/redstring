@@ -22698,7 +22698,7 @@
       "post": {
         "summary": "Create conversation",
         "operationId": "post_conversations",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. ",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. text must contain non-whitespace and fit within 2 MiB UTF-8; context is limited to 4096 bytes and model to 256 bytes. The selected default model and creation audit are persisted. The first message is submitted separately.",
         "responses": {
           "201": {
             "description": "Success",
@@ -22796,16 +22796,26 @@
                 "type": "object",
                 "properties": {
                   "text": {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1
                   },
                   "context": {
-                    "type": "string"
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   },
                   "model": {
-                    "type": "string"
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   }
                 },
-                "additionalProperties": false
+                "additionalProperties": false,
+                "required": [
+                  "text"
+                ]
               }
             }
           }
@@ -37376,7 +37386,11 @@
                 "type": "string"
               }
             },
-            "additionalProperties": false
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "name"
+            ]
           },
           "text": {
             "type": "string"
@@ -37385,7 +37399,12 @@
             "type": "string"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "required": [
+          "time",
+          "actor",
+          "text"
+        ]
       },
       "V3AlertGroupPartial": {
         "type": "object",

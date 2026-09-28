@@ -44,14 +44,14 @@
 | --- | --- | --- | --- | --- |
 | GET | `/me` | | `Me` | mock |
 | PATCH | `/me` | `Partial<Me>` | `Me` | mock |
-| PATCH | `/me/preferences` | `{ theme?, locale?, density?, reduce_motion? }` | 偏好 | mock |
+| PATCH | `/me/preferences` | `{ theme?, locale?, density?, reduce_motion? }` | 偏好 | implemented |
 | GET | `/me/watched-services` | | `{ items: WatchedService[] }` | mock |
 | GET | `/search` | `q` | ⌘K 搜索结果 | mock |
 | GET | `/mentions` | `q`, `kind` | `@` 提及候选 | mock |
 | GET | `/home` | | `HomeSummary`（v4 增加 `briefing`：带引用的摘要、生成时间、当前值班） | mock |
 | GET | `/mentions/{kind}/{id}/preview` | | `MentionPreview`（`@` 面板右侧预览） | mock |
 | GET | `/commands` | | `{ items: CommandItem[] }`（`/` 面板：命令、Skills、Runbook、模板） | mock |
-| GET | `/models` | | `ModelCatalog`：当前用户可用的模型、接口类型、推理强度档位与默认值 | mock |
+| GET | `/models` | | `ModelCatalog`：当前用户可用的模型、接口类型、推理强度档位与默认值 | implemented |
 | GET | `/models/admin` | | `ModelAdminView`（集成中心 › 模型） | mock |
 | POST | `/uploads` | multipart `file` + `kind`；链接与折叠粘贴用 JSON `{ kind, name, url \| text }` | `Upload`；单个 ≤ 20 MB，超出返回 413 | mock |
 
@@ -80,7 +80,7 @@
 | --- | --- | --- | --- | --- |
 | GET | `/conversations` | `filter`, `q`, 分页 | `ConversationList` | mock |
 | GET | `/conversations/{id}` | | `Conversation` | mock |
-| POST | `/conversations` | `{ text, context?, model? }` | `{ id }` | mock |
+| POST | `/conversations` | `{ text, context?, model? }` | `{ id }` | implemented |
 | POST | `/conversations/{id}/messages` | `{ text, model?, reasoning?, attachments? }` | `{ message, reply_id }`，随后由事件流推送回复 | mock |
 | GET | `/conversations/{id}/events` | | SSE：`StreamEvent`（见「流式对话」）；回复结束后服务端保存完整消息 | mock（前端模拟） |
 | GET | `/canvases` | `kind`, `q`, 分页 | `{ items: CanvasSummary[], counts }`；`kind`：investigation / plan / review / analysis / custom | mock |
@@ -112,7 +112,7 @@
 | GET | `/people/{name}/peek` | | `PersonPeek`（悬浮卡） | mock |
 | GET | `/incidents` | `status: active\|resolved\|all` | `{ items, counts }` | mock |
 | GET | `/incidents/{id}` | | `Incident` | mock |
-| POST | `/incidents/{id}/timeline` | `{ text }` | 时间线条目 | mock |
+| POST | `/incidents/{id}/timeline` | `{ text }` | 时间线条目 | implemented |
 | GET | `/alert-rules` | | 规则列表 | mock |
 | GET | `/alert-rules/{id}` | | `AlertRule` | mock |
 | POST | `/alert-rules/{id}/dry-run` | `{ expr, for }` | `{ would_fire, windows }` | mock |
@@ -266,8 +266,8 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | PUT | `/security` | `SecurityView` | `SecurityView` | mock |
 | GET | `/me/notification-settings` | | `{ quiet: { enabled, from, to }, digest: off\|daily\|weekly, subscriptions }` | mock |
 | PUT | `/me/notification-settings` | 同上 | 同上 | mock |
-| GET | `/me/ai-preferences` | | `{ default: ModelChoice, canvas_inherit, show_reasoning, auto_context, memory, budget_warn_tokens }`；`GET /models` 的 `default` 取自这里 | mock |
-| PUT | `/me/ai-preferences` | 同上 | 同上 | mock |
+| GET | `/me/ai-preferences` | | `{ default: ModelChoice, canvas_inherit, show_reasoning, auto_context, memory, budget_warn_tokens }`；`GET /models` 的 `default` 取自这里 | implemented |
+| PUT | `/me/ai-preferences` | 同上 | 同上 | implemented |
 | GET | `/workspace` | | `{ name, slug, timezone, locale, week_start, retention_days, data_region, brand }` | mock |
 | PUT | `/workspace` | 同上（仅管理员可改，写入审计） | 同上 | mock |
 | GET | `/audit` | `filter: all\|user\|agent\|system`, `q` | `AuditView` | mock |

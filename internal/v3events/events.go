@@ -23,15 +23,17 @@ import (
 // Authorize resolves the persisted application and instance environment in
 // the V3 matrix. It must not fall back to the historical application ACL.
 type Authorize func(context.Context, core.User, string, string, string) error
+type AuthorizeWithTx func(context.Context, pgx.Tx, core.User, string, string, string) error
 
 type Service struct {
-	DB        *pgxpool.Pool
-	Authorize Authorize
-	Location  *time.Location
+	DB          *pgxpool.Pool
+	Authorize   Authorize
+	AuthorizeTx AuthorizeWithTx
+	Location    *time.Location
 }
 
-func New(db *pgxpool.Pool, authorize Authorize) *Service {
-	return &Service{DB: db, Authorize: authorize, Location: time.Local}
+func New(db *pgxpool.Pool, authorize Authorize, authorizeTx AuthorizeWithTx) *Service {
+	return &Service{DB: db, Authorize: authorize, AuthorizeTx: authorizeTx, Location: time.Local}
 }
 
 // RegisterNew registers only routes that do not collide with operations.Register.
@@ -82,6 +84,21 @@ func (s *Service) scoped(r *http.Request, app, env, action string) error {
 		return store.ErrNotFound
 	}
 	return s.Authorize(r.Context(), httpapi.CurrentUser(r), app, env, action)
+}
+
+// Mutations authorize through the same transaction that holds the incident
+// lock, so a revoked grant cannot race with the durable timeline write.
+func (s *Service) scopedTx(r *http.Request, tx pgx.Tx, app, env, action string) error {
+	scope, ok := httpapi.V3ScopeFromContext(r.Context())
+	if !ok || s.AuthorizeTx == nil || tx == nil {
+		return store.ErrForbidden
+	}
+	for _, id := range scope.EnvironmentIDs {
+		if id == env {
+			return s.AuthorizeTx(r.Context(), tx, httpapi.CurrentUser(r), app, env, action)
+		}
+	}
+	return store.ErrNotFound
 }
 
 func (s *Service) incident(ctx context.Context, id string) (incidentRecord, error) {
@@ -591,7 +608,7 @@ func (s *Service) AppendTimeline(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
-	if err = s.scoped(r, v.ApplicationID, v.EnvironmentKey, "change"); err != nil {
+	if err = s.scopedTx(r, tx, v.ApplicationID, v.EnvironmentKey, "change"); err != nil {
 		respondErr(w, err)
 		return
 	}
@@ -608,7 +625,7 @@ func (s *Service) AppendTimeline(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
-	_, err = tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,actor_kind,application_id,action,target,outcome,changes) VALUES($1,'user',$2,'incident.timeline.append',$3,'succeeded',jsonb_build_object('entry_id',$4,'environment_id',$5))`, user.ID, v.ApplicationID, v.ID, id, v.EnvironmentKey)
+	_, err = tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,actor_kind,application_id,action,target,outcome,changes) VALUES($1,'user',$2,'incident.timeline.append',$3,'succeeded',jsonb_build_object('entry_id',$4::text,'environment_id',$5::text))`, user.ID, v.ApplicationID, v.ID, id, v.EnvironmentKey)
 	if err != nil {
 		respondErr(w, err)
 		return
@@ -617,11 +634,7 @@ func (s *Service) AppendTimeline(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
-	loc := s.Location
-	if loc == nil {
-		loc = time.Local
-	}
-	entry := timelineEntry{Time: created.In(loc).Format("15:04"), Text: input.Text}
+	entry := timelineEntry{Time: created.UTC().Format(time.RFC3339Nano), Text: input.Text}
 	entry.Actor.Kind = "person"
 	entry.Actor.Name = user.Name
 	httpapi.WriteJSON(w, 201, entry)

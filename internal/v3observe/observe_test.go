@@ -20,6 +20,16 @@ func TestRequestedLogLevels(t *testing.T) {
 	}
 }
 
+func TestObservationWindowSupportsExactLogCounts(t *testing.T) {
+	w := observationWindow(30 * time.Minute)
+	if w.End.Sub(w.Start) != 30*time.Minute {
+		t.Fatalf("unexpected observation window: %v", w.End.Sub(w.Start))
+	}
+	if w.Start.Nanosecond()%int(time.Millisecond) != 0 || w.End.Nanosecond()%int(time.Millisecond) != 0 {
+		t.Fatalf("log count window must use millisecond boundaries: %+v", w)
+	}
+}
+
 func TestRowsFromSpansUseObservedTraceData(t *testing.T) {
 	start := time.Date(2026, 9, 28, 10, 0, 0, 0, time.UTC)
 	rows := rowsFromSpans([]connectors.TraceSpan{

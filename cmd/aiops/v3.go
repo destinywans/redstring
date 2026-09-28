@@ -207,6 +207,14 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		CurrentUser:    httpapi.CurrentUser,
 		RefreshSession: s.Session,
 		Shutdown:       ctx,
+		DefaultModel: func(ctx context.Context, ownerID string) (string, error) {
+			var model string
+			err := s.DB.QueryRow(ctx, `SELECT COALESCE(ai_preferences #>> '{default,model}','') FROM v3_user_settings WHERE user_id=$1`, ownerID).Scan(&model)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return "", nil
+			}
+			return model, err
+		},
 		AuthorizeBackgroundTurn: func(ctx context.Context, ownerID, environmentID string) error {
 			if !configuredConversationEnv(environmentID) {
 				return store.ErrForbidden
@@ -312,6 +320,8 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	api.MarkV3ObjectRoute("GET /api/v1/traces/{id}", "traces", "view")
 	events := v3events.New(s.DB, func(ctx context.Context, user core.User, app, env, action string) error {
 		return policy.Authorize(ctx, user, rbac.V3Decision{Module: "events", Action: action, ApplicationID: app, EnvironmentID: env})
+	}, func(ctx context.Context, tx pgx.Tx, user core.User, app, env, action string) error {
+		return policy.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{Module: "events", Action: action, ApplicationID: app, EnvironmentID: env})
 	})
 	events.RegisterNew(api)
 	api.Register("GET /api/v1/incidents", "viewer", events.Incidents)

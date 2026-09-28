@@ -40,6 +40,10 @@ type Options struct {
 	// AllowedEnvironments returns the user's currently authorized environment IDs.
 	// It is required; a missing resolver fails closed.
 	AllowedEnvironments func(context.Context, core.User) ([]string, error)
+	// DefaultModel returns the user's saved model preference. Empty or stale
+	// preferences fall back to the first configured model, as GET /models does.
+	// A missing resolver fails conversation creation closed when no model is sent.
+	DefaultModel func(context.Context, string) (string, error)
 	// AuthorizeBackgroundTurn reloads the persisted owner and checks their current
 	// account state, role and V3 conversation/change grant for the persisted
 	// environment. It must not use the initiating request's identity or scope.
@@ -220,13 +224,16 @@ func (s *Service) create(ctx context.Context, owner, env, title, contextRef, mod
 		return "", err
 	}
 	defer tx.Rollback(ctx)
+	if err = s.authorizeBackgroundTurnTx(ctx, tx, owner, env); err != nil {
+		return "", err
+	}
 	_, err = tx.Exec(ctx, `INSERT INTO v3_conversations(id,owner_id,environment_id,title,context_ref,default_model_id)
 		VALUES($1,$2,$3,$4,$5,$6)`, id, owner, env, title, contextRef, model)
 	if err != nil {
 		return "", err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes)
-		VALUES($1,'v3.conversation.create',$2,'completed',jsonb_build_object('environment',$3))`, owner, id, env)
+		VALUES($1,'v3.conversation.create',$2,'completed',jsonb_build_object('environment',$3::text))`, owner, id, env)
 	if err != nil {
 		return "", err
 	}
@@ -488,6 +495,10 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 	var streamed strings.Builder
 	var calls []map[string]any
 	invocations := map[string]inference.ToolInvocation{}
+	// Provider-reported usage is the only token count presented as such. The
+	// latest model input describes the current context; total run usage also
+	// includes any preceding model calls made in the same turn.
+	contextInputTokens, runTokens, usageKnown := 0, 0, false
 	appendCalls := func() error {
 		part := map[string]any{"type": "tool_calls", "summary": fmt.Sprintf("%d tool calls", len(calls)), "calls": calls, "tokens": 0, "duration_s": 0}
 		if len(parts) == 1 {
@@ -499,6 +510,12 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 	}
 	emit := func(e inference.Event) error {
 		switch e.Type {
+		case "step":
+			if e.Step != nil && e.Step.Kind == "model" && e.Step.Status == "succeeded" && e.Step.Usage != nil {
+				contextInputTokens = e.Step.Usage.InputTokens
+				runTokens += e.Step.Usage.InputTokens + e.Step.Usage.OutputTokens
+				usageKnown = true
+			}
 		case "delta":
 			if e.Delta == "" {
 				return nil
@@ -613,7 +630,15 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 		s.failTurn(conv, reply, claimID, assistant, nil, err)
 		return
 	}
-	run := map[string]any{"id": reply, "agent": "AI", "version": "v3", "model": model.Name, "model_id": model.ID, "reasoning": reasoning, "tokens": 0, "duration_s": time.Since(started).Seconds()}
+	var reportedTokens any
+	if usageKnown {
+		reportedTokens = runTokens
+	}
+	run := map[string]any{"id": reply, "agent": "AI", "version": "v3", "model": model.Name, "model_id": model.ID, "reasoning": reasoning, "tokens": reportedTokens, "duration_s": time.Since(started).Seconds()}
+	if usageKnown && model.InputBudget > 0 {
+		run["context_input_tokens"] = contextInputTokens
+		run["context_budget"] = model.InputBudget
+	}
 	if err := s.finish(ctx, conv, reply, claimID, assistant, parts, run, nil); err != nil {
 		s.failTurn(conv, reply, claimID, assistant, parts, err)
 	}

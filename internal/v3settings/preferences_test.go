@@ -12,8 +12,96 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/store"
 )
+
+type allowPreferencesEnvironment struct{}
+
+func (allowPreferencesEnvironment) AuthorizeEnvironment(_ context.Context, _ core.User, _ string) error {
+	return nil
+}
+
+func TestPreferencesAuthenticatedHTTPAndEnvironment(t *testing.T) {
+	s := isolatedPreferencesStore(t)
+	ctx := t.Context()
+	password := "isolated-preferences-test-password"
+	for _, id := range []string{"one", "two"} {
+		if _, err := s.DB.Exec(ctx, `UPDATE users SET password_hash=$1 WHERE id=$2`, store.PasswordHash(password), id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, oneToken, err := s.Login(ctx, "one@example.invalid", password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, twoToken, err := s.Login(ctx, "two@example.invalid", password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := httpapi.New(s, nil, true)
+	New(s, nil).Register(api)
+	api.MarkV3Route("PATCH /api/v1/me/preferences", "", "")
+	err = api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev", "test"}}, allowPreferencesEnvironment{}, s.Session, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := func(token, environment, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPatch, "/api/v1/me/preferences", strings.NewReader(body))
+		if token != "" {
+			r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		}
+		r.Header.Set("X-AIOps-Environment", environment)
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		return w
+	}
+	assertPreferences := func(w *httptest.ResponseRecorder, expected Preferences) {
+		t.Helper()
+		if w.Code != http.StatusOK {
+			t.Fatalf("status=%d, body=%s", w.Code, w.Body.String())
+		}
+		var got Preferences
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got != expected {
+			t.Fatalf("response=%+v, error=%v, want=%+v", got, err, expected)
+		}
+		var fields map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &fields); err != nil || len(fields) != 4 {
+			t.Fatalf("response fields=%v, error=%v", fields, err)
+		}
+	}
+	assertError := func(w *httptest.ResponseRecorder, status int, code string) {
+		t.Helper()
+		var body struct {
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || w.Code != status || body.Error.Code != code {
+			t.Fatalf("status=%d, body=%s, error=%v; want %d %s", w.Code, w.Body.String(), err, status, code)
+		}
+	}
+	assertError(request("", "dev", `{"theme":"dark"}`), http.StatusUnauthorized, "unauthorized")
+	assertPreferences(request(oneToken, "dev", `{"theme":"dark","reduce_motion":true}`), Preferences{Theme: "dark", Locale: "zh-CN", Density: "comfortable", ReduceMotion: true})
+	assertPreferences(request(oneToken, "dev", `{"locale":"en-US","reduce_motion":false}`), Preferences{Theme: "dark", Locale: "en-US", Density: "comfortable"})
+	assertPreferences(request(twoToken, "test", `{}`), Preferences{Theme: "system", Locale: "zh-CN", Density: "comfortable"})
+	for _, body := range []string{`{"theme":"invalid"}`, `{"unknown":true}`, `{"locale":null}`, `null`, `[]`} {
+		w := request(oneToken, "dev", body)
+		if w.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("invalid %s: status=%d body=%s", body, w.Code, w.Body.String())
+		}
+	}
+	assertError(request(oneToken, "all", `{"theme":"light"}`), http.StatusConflict, "env_view_only")
+	stored, err := New(s, nil).prefs(ctx, "one")
+	if err != nil || stored != (Preferences{Theme: "dark", Locale: "en-US", Density: "comfortable"}) {
+		t.Fatalf("invalid/all writes changed data: %+v, %v", stored, err)
+	}
+	other, err := New(s, nil).prefs(ctx, "two")
+	if err != nil || other != (Preferences{Theme: "system", Locale: "zh-CN", Density: "comfortable"}) {
+		t.Fatalf("account isolation: %+v, %v", other, err)
+	}
+}
 
 func TestDecodePreferencesPatch(t *testing.T) {
 	for _, tc := range []struct {

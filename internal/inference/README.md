@@ -43,7 +43,19 @@ The bounded defaults are 5 minutes per attempt, 8 model calls, 32 evidence reads
 16 registered tools, 2 MiB frozen input, 8 KiB tool query, 256 KiB evidence content,
 8 MiB response stream, and 4096 output tokens per model call. Provider calls are
 not silently retried. A product retry creates a new attempt and may incur another
-charge. Hidden reasoning and provider-internal session IDs are not persisted.
+charge. The defaults can be lowered with `AIOPS_INFERENCE_MAX_CALLS` (1–8 calls
+per run) and
+`OPENAI_MAX_OUTPUT_TOKENS` (1–4096 tokens per Chat Completions or Responses
+request). These settings cannot raise the existing defaults.
+Hidden reasoning and provider-internal session IDs are not persisted.
+
+DeepSeek Flash uses the OpenAI-compatible Chat Completions adapter with
+`OPENAI_MODEL=deepseek-flash`, `OPENAI_BASE_URL=https://api.deepseek.com`, and
+`OPENAI_PROVIDER_NAME=DeepSeek` for the V3 catalog label. Keep its key in the
+local `OPENAI_API_KEY` environment, never in tracked configuration. For a
+bounded connection check, set `AIOPS_INFERENCE_MAX_CALLS=1` and
+`OPENAI_MAX_OUTPUT_TOKENS=128`. A request can still incur provider charges;
+these caps limit this process, not the provider account.
 
 Embedding uses `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, `EMBEDDING_BASE_URL`, and
 `EMBEDDING_API_KEY`; default is local Ollama `bge-m3` via `/api/embed`. OpenAI uses

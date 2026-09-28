@@ -96,12 +96,17 @@ type Runner interface {
 }
 type Provider struct {
 	ID, Kind, Model, BaseURL, APIKey string
+	// DisplayProvider identifies the vendor shown in the V3 model catalog;
+	// Kind still selects the wire protocol implementation.
+	DisplayProvider string
 	// API selects the wire protocol: chat_completions, responses, messages, or
 	// ollama. An empty value resolves from Kind for existing configurations.
 	API                        string
 	ContextWindow, InputBudget int
-	ReasoningKind              string
-	ReasoningLevels            []string
+	// MaxOutputTokens bounds OpenAI-compatible requests; zero uses 4096.
+	MaxOutputTokens int
+	ReasoningKind   string
+	ReasoningLevels []string
 }
 type Config struct {
 	Providers  []Provider
@@ -189,12 +194,15 @@ func New(cfg Config) (*Runtime, error) {
 	if cfg.MaxCalls == 0 {
 		cfg.MaxCalls = 8
 	}
-	if cfg.MaxCalls < 1 || cfg.MaxCalls > 32 || cfg.Timeout < 0 {
+	if cfg.MaxCalls < 1 || cfg.MaxCalls > 8 || cfg.Timeout < 0 {
 		return nil, errors.New("invalid inference limits")
 	}
 	seen := map[string]bool{}
 	for i := range cfg.Providers {
 		p := &cfg.Providers[i]
+		if p.Kind == "openai" && (p.MaxOutputTokens < 0 || p.MaxOutputTokens > 4096) {
+			return nil, fmt.Errorf("model %s: output token limit must be 1 to 4096", p.ID)
+		}
 		if p.ContextWindow == 0 {
 			p.ContextWindow = 32768
 		}
@@ -244,6 +252,14 @@ func New(cfg Config) (*Runtime, error) {
 
 // Providers are explicitly enabled by *_MODEL. No credential or endpoint discovery.
 func NewFromEnv() (Runner, error) {
+	maxCalls, err := envBoundedInt("AIOPS_INFERENCE_MAX_CALLS", 8, 8)
+	if err != nil {
+		return nil, err
+	}
+	maxOutputTokens, err := envBoundedInt("OPENAI_MAX_OUTPUT_TOKENS", 4096, 4096)
+	if err != nil {
+		return nil, err
+	}
 	var ps []Provider
 	for _, v := range []struct{ prefix, kind, base string }{{"OLLAMA", "ollama", "http://localhost:11434"}, {"OPENAI", "openai", "https://api.openai.com/v1"}, {"CLAUDE", "claude", "https://api.anthropic.com/v1"}} {
 		for _, m := range strings.Split(os.Getenv(v.prefix+"_MODEL"), ",") {
@@ -277,15 +293,35 @@ func NewFromEnv() (Runner, error) {
 					levels = append(levels, level)
 				}
 			}
-			ps = append(ps, Provider{ID: v.kind + ":" + m, Kind: v.kind, API: os.Getenv(v.prefix + "_API"), Model: m, BaseURL: strings.TrimRight(b, "/"), APIKey: os.Getenv(v.prefix + "_API_KEY"), ContextWindow: window, InputBudget: input, ReasoningKind: os.Getenv(v.prefix + "_REASONING_KIND"), ReasoningLevels: levels})
+			p := Provider{ID: v.kind + ":" + m, Kind: v.kind, API: os.Getenv(v.prefix + "_API"), Model: m, BaseURL: strings.TrimRight(b, "/"), APIKey: os.Getenv(v.prefix + "_API_KEY"), ContextWindow: window, InputBudget: input, ReasoningKind: os.Getenv(v.prefix + "_REASONING_KIND"), ReasoningLevels: levels, DisplayProvider: strings.TrimSpace(os.Getenv(v.prefix + "_PROVIDER_NAME"))}
+			if v.kind == "openai" {
+				p.MaxOutputTokens = maxOutputTokens
+			}
+			ps = append(ps, p)
 		}
 	}
-	return New(Config{Providers: ps})
+	return New(Config{Providers: ps, MaxCalls: maxCalls})
+}
+
+func envBoundedInt(name string, fallback, maximum int) (int, error) {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return fallback, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 || n > maximum {
+		return 0, fmt.Errorf("invalid %s: expected 1 to %d", name, maximum)
+	}
+	return n, nil
 }
 func (r *Runtime) Models() []Model {
 	ms := make([]Model, 0, len(r.cfg.Providers))
 	for _, p := range r.cfg.Providers {
-		ms = append(ms, Model{ID: p.ID, Name: p.Model, Provider: p.Kind, API: p.API, Tools: true, Streaming: true, ContextWindow: p.ContextWindow, InputBudget: p.InputBudget, ReasoningKind: p.ReasoningKind, ReasoningLevels: append([]string(nil), p.ReasoningLevels...)})
+		providerName := p.DisplayProvider
+		if providerName == "" {
+			providerName = p.Kind
+		}
+		ms = append(ms, Model{ID: p.ID, Name: p.Model, Provider: providerName, API: p.API, Tools: true, Streaming: true, ContextWindow: p.ContextWindow, InputBudget: p.InputBudget, ReasoningKind: p.ReasoningKind, ReasoningLevels: append([]string(nil), p.ReasoningLevels...)})
 	}
 	return ms
 }

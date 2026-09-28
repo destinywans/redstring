@@ -103,24 +103,39 @@ func (s *Service) createHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Text = strings.TrimSpace(in.Text)
-	if len(in.Text) > 2<<20 || len(in.Context) > 4096 {
-		apiError(w, 422, "invalid_body", "Conversation input is too large")
+	if in.Text == "" || len(in.Text) > 2<<20 || len(in.Context) > 4096 || len(in.Model) > 256 {
+		apiError(w, 422, "invalid_body", "Enter a prompt within the conversation input limits")
 		return
 	}
-	if in.Model != "" {
-		if _, err = s.model(in.Model, ""); err != nil {
+	requestedModel := in.Model
+	if requestedModel == "" {
+		if s.opts.DefaultModel == nil {
+			operationError(w, ErrModel)
+			return
+		}
+		requestedModel, err = s.opts.DefaultModel(r.Context(), u.ID)
+		if err != nil {
 			operationError(w, err)
 			return
 		}
+	}
+	selectedModel, err := s.model(requestedModel, "")
+	if err != nil && in.Model == "" {
+		selectedModel, err = s.model("", "")
+	}
+	if err != nil {
+		if in.Model != "" && errors.Is(err, ErrModel) {
+			apiError(w, 422, "invalid_model", "Selected model is not configured")
+			return
+		}
+		operationError(w, err)
+		return
 	}
 	title := []rune(in.Text)
 	if len(title) > 80 {
 		title = title[:80]
 	}
-	if len(title) == 0 {
-		title = []rune("New conversation")
-	}
-	id, err := s.create(r.Context(), u.ID, env, string(title), in.Context, in.Model)
+	id, err := s.create(r.Context(), u.ID, env, string(title), in.Context, selectedModel.ID)
 	if err != nil {
 		operationError(w, err)
 		return
@@ -219,8 +234,8 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) {
 		operationError(w, err)
 		return
 	}
-	var title, status string
-	err = s.db.QueryRow(r.Context(), `SELECT title,status FROM v3_conversations WHERE id=$1 AND owner_id=$2`, id, u.ID).Scan(&title, &status)
+	var title, status, contextRef, defaultModel string
+	err = s.db.QueryRow(r.Context(), `SELECT title,status,context_ref,default_model_id FROM v3_conversations WHERE id=$1 AND owner_id=$2 AND environment_id=$3`, id, u.ID, actual).Scan(&title, &status, &contextRef, &defaultModel)
 	if err != nil {
 		operationError(w, err)
 		return
@@ -259,7 +274,7 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) {
 		operationError(w, err)
 		return
 	}
-	write(w, 200, Conversation{ID: id, Title: title, Mode: "chat", Status: status, Scope: map[string]any{"env": actual, "inferred": false}, Messages: messages, Artifacts: []any{}, Side: map[string]any{"connectors": []any{}, "context": map[string]any{"used": 0, "budget": 0, "parts": []any{}}, "recalled": []any{}}})
+	write(w, 200, s.conversationDetail(id, title, status, actual, contextRef, defaultModel, messages))
 }
 
 func (s *Service) list(w http.ResponseWriter, r *http.Request) {

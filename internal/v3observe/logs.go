@@ -74,7 +74,7 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "scope_limit", "Select a service or narrow the environment")
 		return
 	}
-	window := observationWindow()
+	window := observationWindow(30 * time.Minute)
 	items := []logLine{}
 	total, errorsCount := int64(0), int64(0)
 	// Each level is queried separately so total and histogram refer to the

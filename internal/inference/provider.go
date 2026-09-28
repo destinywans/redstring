@@ -28,6 +28,13 @@ type providerModel struct {
 	steps           *stepLog
 }
 
+func (p *providerModel) outputTokenLimit() int {
+	if p.provider.MaxOutputTokens > 0 {
+		return p.provider.MaxOutputTokens
+	}
+	return 4096
+}
+
 func (p *providerModel) Name() string { return p.provider.Model }
 func (p *providerModel) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
 	return func(yield func(*model.LLMResponse, error) bool) {
@@ -225,13 +232,13 @@ func (p *providerModel) request(req *model.LLMRequest) (any, string, error) {
 		}
 		msgs = append(msgs, responses...)
 	}
-	b := map[string]any{"model": p.provider.Model, "messages": msgs, "stream": true, "max_tokens": 4096, "stream_options": map[string]any{"include_usage": true}}
+	b := map[string]any{"model": p.provider.Model, "messages": msgs, "stream": true, "max_tokens": p.outputTokenLimit(), "stream_options": map[string]any{"include_usage": true}}
 	if p.reasoning != "" {
 		if p.provider.ReasoningKind != "openai_effort" {
 			return nil, "", ErrUnsupportedReasoning
 		}
 		delete(b, "max_tokens")
-		b["max_completion_tokens"] = 4096
+		b["max_completion_tokens"] = p.outputTokenLimit()
 		b["reasoning_effort"] = p.reasoning
 	}
 	if len(declarations) > 0 {

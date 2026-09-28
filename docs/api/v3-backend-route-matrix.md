@@ -11,14 +11,14 @@
 | --- | --- | --- | --- | --- |
 | 身份与全局 | GET | `/me` | 新增 | mock |
 | 身份与全局 | PATCH | `/me` | 新增 | mock |
-| 身份与全局 | PATCH | `/me/preferences` | 新增 | mock |
+| 身份与全局 | PATCH | `/me/preferences` | 新增 | implemented |
 | 身份与全局 | GET | `/me/watched-services` | 新增 | mock |
 | 身份与全局 | GET | `/search` | 新增 | mock |
 | 身份与全局 | GET | `/mentions` | 新增 | mock |
 | 身份与全局 | GET | `/home` | 新增 | mock |
 | 身份与全局 | GET | `/mentions/{kind}/{id}/preview` | 新增 | mock |
 | 身份与全局 | GET | `/commands` | 新增 | mock |
-| 身份与全局 | GET | `/models` | 旧路径适配 | mock |
+| 身份与全局 | GET | `/models` | 旧路径适配 | implemented |
 | 身份与全局 | GET | `/models/admin` | 新增 | mock |
 | 身份与全局 | POST | `/uploads` | 新增 | mock |
 | 身份与全局 | GET | `/instance` | 新增 | implemented |
@@ -28,7 +28,7 @@
 | 身份与全局 | POST | `/promotions` | 新增 | mock |
 | 对话、画布与模板 | GET | `/conversations` | 聚合 | mock |
 | 对话、画布与模板 | GET | `/conversations/{id}` | 聚合 | mock |
-| 对话、画布与模板 | POST | `/conversations` | 新增 | mock |
+| 对话、画布与模板 | POST | `/conversations` | 新增 | implemented |
 | 对话、画布与模板 | POST | `/conversations/{id}/messages` | 新增 | mock |
 | 对话、画布与模板 | GET | `/conversations/{id}/events` | 新增 | mock（前端模拟） |
 | 对话、画布与模板 | GET | `/canvases` | 聚合 | mock |
@@ -55,7 +55,7 @@
 | 事件与告警 | GET | `/people/{name}/peek` | 新增 | mock |
 | 事件与告警 | GET | `/incidents` | 旧路径适配 | mock |
 | 事件与告警 | GET | `/incidents/{id}` | 旧路径适配 | mock |
-| 事件与告警 | POST | `/incidents/{id}/timeline` | 新增 | mock |
+| 事件与告警 | POST | `/incidents/{id}/timeline` | 新增 | implemented |
 | 事件与告警 | GET | `/alert-rules` | 新增 | mock |
 | 事件与告警 | GET | `/alert-rules/{id}` | 新增 | mock |
 | 事件与告警 | POST | `/alert-rules/{id}/dry-run` | 新增 | mock |
@@ -168,8 +168,8 @@
 | 设置 | PUT | `/security` | 新增 | mock |
 | 设置 | GET | `/me/notification-settings` | 新增 | mock |
 | 设置 | PUT | `/me/notification-settings` | 新增 | mock |
-| 设置 | GET | `/me/ai-preferences` | 新增 | mock |
-| 设置 | PUT | `/me/ai-preferences` | 新增 | mock |
+| 设置 | GET | `/me/ai-preferences` | 新增 | implemented |
+| 设置 | PUT | `/me/ai-preferences` | 新增 | implemented |
 | 设置 | GET | `/workspace` | 新增 | mock |
 | 设置 | PUT | `/workspace` | 新增 | mock |
 | 设置 | GET | `/audit` | 旧路径适配 | mock |

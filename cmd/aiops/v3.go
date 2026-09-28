@@ -184,6 +184,7 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		}
 		toolModels[modelID] = true
 	}
+	personalSettings.ToolModels = toolModels
 	chat := v3conversation.New(s.DB, runtime, v3conversation.Options{
 		CurrentUser:    httpapi.CurrentUser,
 		RefreshSession: s.Session,

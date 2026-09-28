@@ -22,6 +22,9 @@ import (
 type Service struct {
 	Store   *store.Store
 	Runtime inference.Runner
+	// ToolModels is the operator-enabled V3 read-tool allowlist. Legacy model
+	// capabilities remain on Runtime and are not changed by this catalog.
+	ToolModels map[string]bool
 }
 
 func New(s *store.Store, runtime inference.Runner) *Service {

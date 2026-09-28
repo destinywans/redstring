@@ -1133,7 +1133,7 @@
       "get": {
         "summary": "List configured inference models",
         "operationId": "get_models",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. available means configured, not remotely health-checked. Native Ollama returns 503 model_catalog_unavailable until the client ModelInfo.api enum can represent it.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. available means configured, not remotely health-checked. tools reflects the operator-enabled V3 read-tool allowlist rather than provider-wide capability; remote function calling is not attested by this response. Native Ollama returns 503 model_catalog_unavailable until the client ModelInfo.api enum can represent it.",
         "responses": {
           "200": {
             "description": "Success",
@@ -35055,7 +35055,8 @@
             "additionalProperties": false
           },
           "tools": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "True only when this configured model is explicitly enabled for V3 read tools by the server operator; not proof of successful remote function calling."
           },
           "vision": {
             "type": "boolean"

@@ -54,7 +54,8 @@ S['V3ModelInfo'] = v3_object('id name provider brand connector cost note unavail
     'api': string(enum=['responses','chat_completions','messages']),
     'reasoning': obj({'kind': string(enum=['levels','toggle','none']),
         'levels': arr(v3_object('id label hint')), 'default': string()}),
-    'tools': v3_bool(), 'vision': v3_bool(), 'context_k': integer(), 'available': v3_bool()})
+    'tools': {'type':'boolean','description':'True only when this configured model is explicitly enabled for V3 read tools by the server operator; not proof of successful remote function calling.'},
+    'vision': v3_bool(), 'context_k': integer(), 'available': v3_bool()})
 S['V3ModelCatalog'] = obj({'items': arr(ref('V3ModelInfo')), 'default': ref('V3ModelChoice')}, ['items','default'])
 S['V3Upload'] = obj({'id':string(),'kind':string(enum=['file','image','link','paste']),
     'name':string(),'size':integer(minimum=0),'mime':string(),'url':string()},
@@ -85,7 +86,7 @@ v3_route('put','/me/notification-settings','Update personal notification setting
 v3_route('get','/workspace','Read workspace settings',response=ref('V3Workspace'))
 v3_route('put','/workspace','Update workspace settings',role='admin',body=ref('V3Workspace'),response=ref('V3Workspace'))
 v3_route('get','/models','List configured inference models',response=ref('V3ModelCatalog'),
-    desc='available means configured, not remotely health-checked. Native Ollama returns 503 model_catalog_unavailable until the client ModelInfo.api enum can represent it.')
+    desc='available means configured, not remotely health-checked. tools reflects the operator-enabled V3 read-tool allowlist rather than provider-wide capability; remote function calling is not attested by this response. Native Ollama returns 503 model_catalog_unavailable until the client ModelInfo.api enum can represent it.')
 for _path, _methods in {
     '/me': ['get', 'patch'],
     '/me/profile': ['get', 'put'],

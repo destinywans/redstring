@@ -107,19 +107,31 @@ func (s *Service) putAI(ctx context.Context, id string, p aiPreferences) (aiPref
 // ModelsHandler describes only adapters actually configured in this process.
 // Availability is "configured", not an invented successful remote probe.
 func (s *Service) ModelsHandler(w http.ResponseWriter, r *http.Request) {
+	items, err := s.modelCatalogItems(r)
+	if err != nil {
+		respond(w, nil, err)
+		return
+	}
+	p, err := s.getAI(r.Context(), httpapi.CurrentUser(r).ID)
+	if err != nil {
+		respond(w, nil, err)
+		return
+	}
+	httpapi.WriteJSON(w, 200, map[string]any{"items": items, "default": p.Default})
+}
+
+func (s *Service) modelCatalogItems(r *http.Request) ([]map[string]any, error) {
 	items := []map[string]any{}
 	for _, m := range s.models() {
 		if m.API == "ollama" {
 			// The frontend currently accepts only responses, chat_completions
 			// and messages. Reporting Ollama's native API as one of those would
 			// misrepresent its wire protocol; fail until the DTO is extended.
-			respond(w, nil, errModelCatalogUnavailable)
-			return
+			return nil, errModelCatalogUnavailable
 		}
 		note := localize(r, "已配置；连接状态未验证", "Configured; connection has not been verified")
 		if m.API != "responses" && m.API != "chat_completions" && m.API != "messages" {
-			respond(w, nil, errModelCatalogUnavailable)
-			return
+			return nil, errModelCatalogUnavailable
 		}
 		levels := []map[string]string{}
 		for _, level := range m.ReasoningLevels {
@@ -135,17 +147,12 @@ func (s *Service) ModelsHandler(w http.ResponseWriter, r *http.Request) {
 		contextK := m.ContextWindow / 1024
 		items = append(items, map[string]any{
 			"id": m.ID, "name": m.Name, "provider": m.Provider, "brand": m.Provider, "connector": m.Provider, "api": m.API,
-			"reasoning": map[string]any{"kind": kind, "levels": levels}, "tools": m.Tools, "vision": false,
+			"reasoning": map[string]any{"kind": kind, "levels": levels}, "tools": m.Tools && s.ToolModels[m.ID], "vision": false,
 			"context_k": contextK, "cost": localize(r, "未提供", "Not provided"),
 			"note": note, "available": true,
 		})
 	}
-	p, err := s.getAI(r.Context(), httpapi.CurrentUser(r).ID)
-	if err != nil {
-		respond(w, nil, err)
-		return
-	}
-	httpapi.WriteJSON(w, 200, map[string]any{"items": items, "default": p.Default})
+	return items, nil
 }
 
 type quietHours struct {

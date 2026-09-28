@@ -3,6 +3,7 @@
 package v3settings
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -113,11 +114,13 @@ func (s *Service) savePrefs(ctx context.Context, id string, patch preferencesPat
 	// The upsert takes the user's settings row lock. COALESCE applies only
 	// submitted fields, so concurrent patches to distinct fields do not erase
 	// each other through a stale read-modify-write snapshot.
-	_, err = tx.Exec(ctx, `INSERT INTO v3_user_settings(user_id,theme,locale,density,reduce_motion)
+	p := Preferences{}
+	err = tx.QueryRow(ctx, `INSERT INTO v3_user_settings(user_id,theme,locale,density,reduce_motion)
 	 VALUES($1,COALESCE($2,'system'),COALESCE($3,'zh-CN'),COALESCE($4,'comfortable'),COALESCE($5,false))
 	 ON CONFLICT(user_id) DO UPDATE SET theme=COALESCE($2,v3_user_settings.theme),
 	 locale=COALESCE($3,v3_user_settings.locale),density=COALESCE($4,v3_user_settings.density),
-	 reduce_motion=COALESCE($5,v3_user_settings.reduce_motion),updated_at=now()`, id, patch.Theme, patch.Locale, patch.Density, patch.ReduceMotion)
+	 reduce_motion=COALESCE($5,v3_user_settings.reduce_motion),updated_at=now()
+	 RETURNING theme,locale,density,reduce_motion`, id, patch.Theme, patch.Locale, patch.Density, patch.ReduceMotion).Scan(&p.Theme, &p.Locale, &p.Density, &p.ReduceMotion)
 	if err != nil {
 		return Preferences{}, err
 	}
@@ -128,7 +131,44 @@ func (s *Service) savePrefs(ctx context.Context, id string, patch preferencesPat
 	if err = tx.Commit(ctx); err != nil {
 		return Preferences{}, err
 	}
-	return s.prefs(ctx, id)
+	return p, nil
+}
+
+func decodePreferencesPatch(w http.ResponseWriter, r *http.Request) (preferencesPatch, bool) {
+	var fields map[string]json.RawMessage
+	if !httpapi.Decode(w, r, &fields) {
+		return preferencesPatch{}, false
+	}
+	if fields == nil {
+		httpapi.Error(w, http.StatusUnprocessableEntity, "invalid_body", "Expected a preferences object")
+		return preferencesPatch{}, false
+	}
+	var patch preferencesPatch
+	for name, value := range fields {
+		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			httpapi.Error(w, http.StatusUnprocessableEntity, "invalid_body", "Preference values cannot be null")
+			return preferencesPatch{}, false
+		}
+		var err error
+		switch name {
+		case "theme":
+			err = json.Unmarshal(value, &patch.Theme)
+		case "locale":
+			err = json.Unmarshal(value, &patch.Locale)
+		case "density":
+			err = json.Unmarshal(value, &patch.Density)
+		case "reduce_motion":
+			err = json.Unmarshal(value, &patch.ReduceMotion)
+		default:
+			httpapi.Error(w, http.StatusUnprocessableEntity, "invalid_body", "Unknown preference field")
+			return preferencesPatch{}, false
+		}
+		if err != nil {
+			httpapi.Error(w, http.StatusUnprocessableEntity, "invalid_body", "Invalid preference value type")
+			return preferencesPatch{}, false
+		}
+	}
+	return patch, true
 }
 
 func mustJSON(v any) []byte { b, _ := json.Marshal(v); return b }
@@ -193,8 +233,8 @@ func (s *Service) Register(api *httpapi.Server) {
 		respond(w, nil, errIdentityUnavailable)
 	})
 	api.Register("PATCH /api/v1/me/preferences", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		var p preferencesPatch
-		if !httpapi.Decode(w, r, &p) {
+		p, ok := decodePreferencesPatch(w, r)
+		if !ok {
 			return
 		}
 		v, e := s.savePrefs(r.Context(), httpapi.CurrentUser(r).ID, p)

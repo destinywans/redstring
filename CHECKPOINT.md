@@ -1,5 +1,10 @@
 # AIOps Canvas 检查点
 
+## CP-069 · 2026-09-28 · 偏好设置写入一致性
+
+- `PATCH /me/preferences` 严格接受对象内已知字段及正确类型；显式 `null`、未知字段和类型错误返回 422。写入与审计同事务，响应改为从 UPSERT `RETURNING` 取得实际持久化值，避免提交后再次读取失败或并发覆盖造成的回包不一致。
+- `v3settings` 定向 Go 测试通过；新增隔离 PostgreSQL 用例覆盖部分更新、显式 false、用户隔离、审计和并发不同字段更新，但因 `TEST_DATABASE_URL` 未设置而跳过。该主契约暂不标 `implemented`，待安全的隔离数据库完成针对性验证。
+
 ## CP-068 · 2026-09-28 · 审计结果值兼容
 
 - V3 对话正常写入的 `accepted`、`completed`，交付事件的 `recorded`，以及人工清理请求的 `pending_manual_cleanup` 现在有明确的列表结果投影，不再因为未知结果使整个 `GET /audit` 返回 503。后两种投影的“成功”只表示事件或请求已记录，不表示后续动作完成。

@@ -14,16 +14,24 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
-type Service struct{ Store *store.Store }
+type Service struct {
+	Store   *store.Store
+	Runtime inference.Runner
+}
 
 func New(st *store.Store) *Service { return &Service{Store: st} }
 
+// NewWithRuntime enables durable node replies. The V3 composition root must
+// pass its configured runner; New remains useful for storage-only use.
+func NewWithRuntime(st *store.Store, runtime inference.Runner) *Service {
+	return &Service{Store: st, Runtime: runtime}
+}
+
 // Register requires the V3 instance/environment middleware and policy matrix.
-// Node messages are deliberately absent until node-scoped durable generation
-// can be connected without bypassing reply persistence and approval gates.
 func (s *Service) Register(api *httpapi.Server) {
 	for _, route := range []struct {
 		pattern, action string
@@ -32,6 +40,7 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"GET /api/v1/canvases", "view", s.list},
 		{"POST /api/v1/canvases", "change", s.create},
 		{"GET /api/v1/canvases/{id}", "view", s.get},
+		{"POST /api/v1/canvases/{id}/nodes/{node}/messages", "change", s.sendNodeMessage},
 		{"GET /api/v1/canvas-templates", "view", s.templates},
 		{"POST /api/v1/canvas-templates", "change", s.saveTemplate},
 	} {
@@ -508,7 +517,12 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) {
 	if owner != "" {
 		people = append(people, owner)
 	}
-	doc := map[string]any{"id": r.PathValue("id"), "title": title, "kind": kind, "status": status, "participants": people, "note": goal, "nodes": nodes, "edges": edges, "artifacts": artifacts, "threads": map[string]any{}}
+	threads, err := s.nodeThreads(r.Context(), r.PathValue("id"), nodes)
+	if err != nil {
+		httpapi.Error(w, 503, "canvas_unavailable", "Canvas conversations unavailable")
+		return
+	}
+	doc := map[string]any{"id": r.PathValue("id"), "title": title, "kind": kind, "status": status, "participants": people, "note": goal, "nodes": nodes, "edges": edges, "artifacts": artifacts, "threads": threads}
 	// EnvName in the current frontend cannot represent every configured V3
 	// environment. Omit unsupported names instead of labeling them incorrectly.
 	if env == "prod" || env == "staging" || env == "test" {

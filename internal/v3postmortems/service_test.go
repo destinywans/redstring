@@ -254,4 +254,52 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 	if remaining.Code != 200 || !strings.Contains(remaining.Body.String(), `"items":[]`) {
 		t.Fatalf("remaining: %d %s", remaining.Code, remaining.Body.String())
 	}
+	assertError(call("GET", "/api/v1/postmortems/records", "dev", "", ""), 401, "unauthorized")
+	assertError(call("GET", "/api/v1/postmortems/records?tab=unknown", "dev", teamToken, ""), 422, "invalid_tab")
+	listed := call("GET", "/api/v1/postmortems/records?tab=review", "dev", teamToken, "")
+	if listed.Code != 200 {
+		t.Fatalf("records: %d %s", listed.Code, listed.Body.String())
+	}
+	var listedResult struct {
+		Items []Record `json:"items"`
+	}
+	if err := json.Unmarshal(listed.Body.Bytes(), &listedResult); err != nil {
+		t.Fatal(err)
+	}
+	if len(listedResult.Items) != 1 || listedResult.Items[0].ID != made.ID || listedResult.Items[0].IncidentID != "ready" ||
+		listedResult.Items[0].Severity != "P1" || listedResult.Items[0].Status != "review" ||
+		listedResult.Items[0].ActionCount != 1 || listedResult.Items[0].Resolved == "" ||
+		listedResult.Items[0].Duration == "" || listedResult.Items[0].CreatedAt == "" {
+		t.Fatalf("unexpected records: %+v", listedResult.Items)
+	}
+	if strings.Contains(listed.Body.String(), `"kpis"`) || strings.Contains(listed.Body.String(), `"cause"`) {
+		t.Fatalf("invented dashboard data: %s", listed.Body.String())
+	}
+	if draftOnly := call("GET", "/api/v1/postmortems/records?tab=draft", "dev", teamToken, ""); draftOnly.Code != 200 || !strings.Contains(draftOnly.Body.String(), `"items":[]`) {
+		t.Fatalf("draft filter: %d %s", draftOnly.Code, draftOnly.Body.String())
+	}
+	if otherEnv := call("GET", "/api/v1/postmortems/records", "test", adminToken, ""); otherEnv.Code != 200 || !strings.Contains(otherEnv.Body.String(), `"items":[]`) {
+		t.Fatalf("environment filter: %d %s", otherEnv.Code, otherEnv.Body.String())
+	}
+	// Hidden records sort ahead of the visible one and fill multiple DB batches.
+	// A scan that limits before authorization would omit the permitted record.
+	_, err = db.Exec(ctx, `INSERT INTO v3_postmortems
+ (id,incident_id,investigation_id,application_id,environment_id,close_event_seq,sections,actions,status,created_by,created_at)
+ SELECT 'pm-'||i.id,i.id,i.investigation_id,i.application_id,'dev',ev.seq,'[]','[]','draft',u.id,now()+interval '1 minute'
+ FROM ops_incidents i
+ JOIN LATERAL (SELECT seq FROM events WHERE investigation_id=i.investigation_id AND type='investigation.closed' LIMIT 1) ev ON true
+ CROSS JOIN (SELECT id FROM users WHERE email='admin@example.invalid') u
+ WHERE i.id LIKE 'hidden-%'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	visible := call("GET", "/api/v1/postmortems/records", "all", viewerToken, "")
+	var visibleResult struct {
+		Items []Record `json:"items"`
+	}
+	if err := json.Unmarshal(visible.Body.Bytes(), &visibleResult); err != nil || visible.Code != 200 ||
+		len(visibleResult.Items) != 1 || visibleResult.Items[0].ID != made.ID {
+		t.Fatalf("visible records: %d %+v err=%v", visible.Code, visibleResult.Items, err)
+	}
+	assertError(call("GET", "/api/v1/postmortems/records", "dev", adminToken, ""), 413, "scope_too_large")
 }

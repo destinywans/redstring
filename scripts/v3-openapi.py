@@ -495,9 +495,21 @@ S['V3PostmortemCandidate'] = obj({**fieldnames('id title resolved duration'),
     ['id','title','severity','resolved','duration','evidence'])
 S['V3PostmortemSectionInput'] = obj(fieldnames('key title text'),['key','title','text'])
 S['V3PostmortemActionInput'] = obj(fieldnames('text owner due'),['text','owner','due'])
+S['V3PersistedPostmortemRecord'] = obj({**fieldnames('id incident_id title resolved duration created_at'),
+    'severity':string(enum=['P1','P2','P3','P4']),
+    'status':string(enum=['draft','review','published']),
+    'action_count':integer(minimum=0)},
+    ['id','incident_id','title','severity','resolved','duration','status','created_at','action_count'])
 v3_route('get','/postmortems/candidates','List resolved incidents eligible for a postmortem',
     response=obj({'items':arr(ref('V3PostmortemCandidate'))},['items']),
     desc='Only incidents with a persisted closing event and investigation report, no existing postmortem, and current events:view plus knowledge:view on their registered application or owner team. Evidence and duration come from stored records. More than 1000 visible candidates returns 413; unknown source severity returns 503 rather than an invented classification.')
+v3_route('get','/postmortems/records','Read scoped persisted postmortem records',
+    query=[v3_query('tab',string(enum=['all','draft','review','published']))],
+    response=obj({'items':arr(ref('V3PersistedPostmortemRecord'))},['items']),
+    desc='Auxiliary read-only inventory, not the PostmortemSummary dashboard DTO. Requires current events:view and knowledge:view on each registered incident application or owner team. Returns stored status, close time, duration and action count; no invented cause categories, completion rate or KPI. More than 1000 visible records returns 413.')
+P['/postmortems/records']['get']['responses']['413'] = {
+    'description':'More than 1000 visible persisted records',
+    'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('post','/postmortems','Create a governed incident postmortem',
     body=obj({'incident_id':string(),'sections':arr(ref('V3PostmortemSectionInput')),
         'actions':arr(ref('V3PostmortemActionInput')),

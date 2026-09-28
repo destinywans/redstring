@@ -35,6 +35,8 @@ func New(db *pgxpool.Pool, access Access) *Service { return &Service{DB: db, Acc
 func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/postmortems/candidates", "viewer", s.Candidates)
 	api.MarkV3ObjectRoute("GET /api/v1/postmortems/candidates", "knowledge", "view")
+	api.Register("GET /api/v1/postmortems/records", "viewer", s.Records)
+	api.MarkV3ObjectRoute("GET /api/v1/postmortems/records", "knowledge", "view")
 	api.Register("POST /api/v1/postmortems", "viewer", s.Create)
 	api.MarkV3ObjectRoute("POST /api/v1/postmortems", "knowledge", "manage")
 }

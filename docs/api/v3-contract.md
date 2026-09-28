@@ -270,7 +270,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | PUT | `/roles/{id}` | `{ matrix }`（机器身份的"批准"列必须拒绝） | 结果 | mock |
 | GET | `/security` | | `SecurityView` | mock |
 | PUT | `/security` | `SecurityView` | `SecurityView` | mock |
-| GET | `/me/notification-settings` | | `{ quiet: { enabled, from, to }, digest: off\|daily\|weekly, subscriptions }` | mock |
+| GET | `/me/notification-settings` | | `{ quiet: { enabled, from, to }, digest: off\|daily\|weekly, subscriptions }`；只读取当前账号已保存偏好，无记录时返回平台默认值，不代表通知渠道已接通 | implemented |
 | PUT | `/me/notification-settings` | 同上 | 同上 | mock |
 | GET | `/me/ai-preferences` | | `{ default: ModelChoice, canvas_inherit, show_reasoning, auto_context, memory, budget_warn_tokens }`；`GET /models` 的 `default` 取自这里 | implemented |
 | PUT | `/me/ai-preferences` | 同上 | 同上 | implemented |

@@ -172,6 +172,8 @@ type notificationSettings struct {
 	Subscriptions []subscription `json:"subscriptions"`
 }
 
+var errStoredNotificationSettings = errors.New("stored notification settings are invalid")
+
 func defaultNotifications() notificationSettings {
 	return notificationSettings{Quiet: quietHours{From: "22:00", To: "08:00"}, Digest: "daily", Subscriptions: []subscription{}}
 }
@@ -183,12 +185,40 @@ func (s *Service) getNotifications(ctx context.Context, id string) (notification
 		return v, err
 	}
 	if len(raw) > 0 {
-		err = json.Unmarshal(raw, &v)
+		var fields map[string]json.RawMessage
+		if err = json.Unmarshal(raw, &fields); err != nil || fields == nil ||
+			len(fields["quiet"]) == 0 || len(fields["digest"]) == 0 || len(fields["subscriptions"]) == 0 ||
+			string(fields["quiet"]) == "null" || string(fields["digest"]) == "null" || string(fields["subscriptions"]) == "null" {
+			return notificationSettings{}, errStoredNotificationSettings
+		}
+		var quiet map[string]json.RawMessage
+		if err = json.Unmarshal(fields["quiet"], &quiet); err != nil || quiet == nil ||
+			len(quiet["enabled"]) == 0 || len(quiet["from"]) == 0 || len(quiet["to"]) == 0 ||
+			string(quiet["enabled"]) == "null" || string(quiet["from"]) == "null" || string(quiet["to"]) == "null" {
+			return notificationSettings{}, errStoredNotificationSettings
+		}
+		if err = json.Unmarshal(raw, &v); err != nil {
+			return notificationSettings{}, errStoredNotificationSettings
+		}
 	}
 	if v.Subscriptions == nil {
 		v.Subscriptions = []subscription{}
 	}
-	return v, err
+	// A stored settings document is configuration, not proof that a delivery
+	// channel is connected. Reject malformed persisted values rather than
+	// presenting zero values as a valid user preference.
+	if !validClock(v.Quiet.From) || !validClock(v.Quiet.To) ||
+		(v.Digest != "off" && v.Digest != "daily" && v.Digest != "weekly") || len(v.Subscriptions) > 100 {
+		return notificationSettings{}, errStoredNotificationSettings
+	}
+	seen := make(map[string]bool, len(v.Subscriptions))
+	for _, sub := range v.Subscriptions {
+		if sub.ID == "" || seen[sub.ID] || len(sub.ID) > 80 || len(sub.Label) > 120 {
+			return notificationSettings{}, errStoredNotificationSettings
+		}
+		seen[sub.ID] = true
+	}
+	return v, nil
 }
 func validClock(s string) bool {
 	if len(s) != 5 || s[2] != ':' {

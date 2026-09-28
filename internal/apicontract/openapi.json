@@ -22341,7 +22341,7 @@
       "get": {
         "summary": "Read personal notification settings",
         "operationId": "get_me_notification_settings",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. ",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Reads the authenticated user's persisted preference document. A user with no saved document receives platform defaults. This is not evidence that any notification delivery channel is connected or has delivered a message. Corrupt stored settings return 503 rather than silently replacing them with defaults.",
         "responses": {
           "200": {
             "description": "Success",

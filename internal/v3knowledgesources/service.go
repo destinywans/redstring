@@ -88,7 +88,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "knowledge_sources_unavailable", "Knowledge sources unavailable")
 		return
 	}
-	httpapi.WriteJSON(w, 200, response{Items: items, Index: nil, Partial: true, Reason: "source_registry_unavailable", Truncated: truncated})
+	httpapi.WriteJSON(w, 200, response{Items: items, Index: nil, Partial: true, Reason: "document_only_projection", Truncated: truncated})
 }
 
 func (s *Service) visible(ctx context.Context, user core.User, environments []string) ([]DocumentSource, bool, error) {

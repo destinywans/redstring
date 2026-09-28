@@ -93,13 +93,14 @@ func (s *Service) AgentDetail(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.DB.Query(r.Context(), `SELECT v.version,v.created_at,EXISTS(
  SELECT 1 FROM v3_agent_release_events e WHERE e.agent_id=v.agent_id
  AND e.to_version=v.version AND e.percent=100) FROM v3_agent_versions v
- WHERE v.agent_id=$1 ORDER BY v.created_at DESC,v.version DESC LIMIT 100`, a.ID)
+ WHERE v.agent_id=$1 ORDER BY v.created_at DESC,v.version DESC LIMIT 101`, a.ID)
 	if err != nil {
 		unavailable(w)
 		return
 	}
 	defer rows.Close()
 	versions := make([]any, 0)
+	truncated := false
 	for rows.Next() {
 		var v string
 		var created time.Time
@@ -107,6 +108,10 @@ func (s *Service) AgentDetail(w http.ResponseWriter, r *http.Request) {
 		if err = rows.Scan(&v, &created, &everStable); err != nil {
 			unavailable(w)
 			return
+		}
+		if len(versions) == 100 {
+			truncated = true
+			continue
 		}
 		status := "draft"
 		if everStable {
@@ -137,6 +142,7 @@ func (s *Service) AgentDetail(w http.ResponseWriter, r *http.Request) {
 	out["account"] = unknown
 	out["summary"] = a.Summary
 	out["versions"] = versions
+	out["truncated"] = truncated
 	out["release"] = map[string]any{"from": a.Stable, "to": a.Canary, "current": nil,
 		"target": a.Percent, "configured_canary_percent": a.Percent, "observed_traffic": nil,
 		"routing_connected": false, "gates": []any{}, "tokens": nil,

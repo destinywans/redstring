@@ -200,6 +200,34 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 	if !strings.Contains(detail.Body.String(), `"traffic":"未接入"`) || !strings.Contains(detail.Body.String(), `"current":null`) {
 		t.Fatalf("configured traffic presented as observed: %s", detail.Body.String())
 	}
+	checkVersions := func(w *httptest.ResponseRecorder, count int, wantTruncated bool) {
+		t.Helper()
+		if w.Code != 200 {
+			t.Fatalf("agent detail status=%d body=%s", w.Code, w.Body.String())
+		}
+		var body struct {
+			Versions  []json.RawMessage `json:"versions"`
+			Truncated *bool             `json:"truncated"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Truncated == nil || *body.Truncated != wantTruncated || len(body.Versions) != count {
+			t.Fatalf("agent detail versions=%d truncated=%v, want versions=%d truncated=%t",
+				len(body.Versions), body.Truncated, count, wantTruncated)
+		}
+	}
+	checkVersions(detail, 2, false)
+	if _, err = db.Exec(ctx, `INSERT INTO v3_agent_versions(agent_id,version,artifact_ref,created_by)
+ SELECT 'triage','bulk-'||g,'git:bulk-'||g,$1 FROM generate_series(1,98) g`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	checkVersions(request("GET", "/api/v1/agents/triage", adminToken, "dev", ""), 100, false)
+	if _, err = db.Exec(ctx, `INSERT INTO v3_agent_versions(agent_id,version,artifact_ref,created_by)
+ VALUES('triage','bulk-99','git:bulk-99',$1)`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	checkVersions(request("GET", "/api/v1/agents/triage", adminToken, "dev", ""), 100, true)
 	assert(request("PATCH", "/api/v1/agents/triage/level", adminToken, "dev", `{"level":"L1"}`), 409, `"code":"agent_level_cap"`)
 	if _, err = db.Exec(ctx, `INSERT INTO v3_agent_environment_limits(environment_id,max_level) VALUES('dev','L1')`); err != nil {
 		t.Fatal(err)

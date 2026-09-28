@@ -3937,6 +3937,16 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "Authorized knowledge candidate scope is too large; narrow the search to one service",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -28883,6 +28893,16 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "More than 1000 candidate Runbooks exceed the unpaged response limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -30271,6 +30291,16 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "Runbook history exceeds 100 rows in any unpaged collection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -30381,6 +30411,16 @@
           },
           "503": {
             "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "More than 1000 visible eligible incidents exceed the unpaged response limit",
             "content": {
               "application/json": {
                 "schema": {
@@ -30850,6 +30890,16 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "Incident evidence timeline exceeds 200 events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -31004,7 +31054,7 @@
       "get": {
         "summary": "Read scoped published document identities",
         "operationId": "get_knowledge_sources_observed_documents",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read-only backend endpoint, not the V3 KnowledgeSource DTO. A source registry, synchronization state and index summary are unavailable. No document body is returned.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read-only backend endpoint, not the V3 KnowledgeSource DTO. This document-only projection does not join available source registrations, observed reads or index attribution, so reason is document_only_projection and sync/index fields remain unknown. No document body is returned.",
         "responses": {
           "200": {
             "description": "Success",
@@ -31984,6 +32034,16 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "More than 500 candidate memory facts exceed the bounded view",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -32432,7 +32492,7 @@
       "get": {
         "summary": "Read one persisted Agent and version metadata",
         "operationId": "get_agents_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract projection: version status may be draft, actual traffic and token counts are unavailable. Null release fields are incompatible with the current Agent page; no live routing is implied.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract projection: at most 100 versions are returned and truncated reports whether more exist. Version status may be draft; actual traffic and token counts are unavailable. Null release fields are incompatible with the current Agent page; no live routing is implied.",
         "responses": {
           "200": {
             "description": "Success",
@@ -32511,6 +32571,9 @@
                         "type": "object",
                         "additionalProperties": true
                       }
+                    },
+                    "truncated": {
+                      "type": "boolean"
                     },
                     "release": {
                       "type": "object",
@@ -32606,6 +32669,7 @@
                     "account",
                     "summary",
                     "versions",
+                    "truncated",
                     "release",
                     "diff",
                     "config",
@@ -32708,7 +32772,7 @@
       "post": {
         "summary": "Save a gated Agent release configuration",
         "operationId": "post_agents_id_rollout",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Persists requested release configuration only; no traffic router is connected. Requires the latest passing evaluation for current stable to candidate. Override requires an enabled human administrator, a nonempty override_reason and audit; machine identities cannot override. The current frontend omits that reason. Observed traffic remains null.",
+        "description": "Minimum role: viewer with scoped agents.manage. V3 instance and environment scope apply. Persists requested release configuration only; no traffic router is connected. Requires the latest passing evaluation for current stable to candidate. Override requires an enabled human administrator, a nonempty override_reason and audit; machine identities cannot override. The current frontend omits that reason. Observed traffic remains null.",
         "responses": {
           "200": {
             "description": "Success",
@@ -32876,7 +32940,7 @@
       "post": {
         "summary": "Save a rollback release configuration",
         "operationId": "post_agents_id_rollback",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires a prior persisted release target. Saves governance metadata only; no traffic router is connected and no actual traffic change is claimed.",
+        "description": "Minimum role: viewer with scoped agents.manage. V3 instance and environment scope apply. Requires a prior persisted release target. Saves governance metadata only; no traffic router is connected and no actual traffic change is claimed.",
         "responses": {
           "200": {
             "description": "Success",
@@ -32994,7 +33058,7 @@
       "patch": {
         "summary": "Change an Agent permission level within its environment cap",
         "operationId": "patch_agents_id_level",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires scoped agents.manage; a requested level above the persisted environment maximum returns 409. This metadata does not grant an unconnected runtime tool execution path.",
+        "description": "Minimum role: viewer with scoped agents.manage. V3 instance and environment scope apply. Requires scoped agents.manage; a requested level above the persisted environment maximum returns 409. This metadata does not grant an unconnected runtime tool execution path.",
         "responses": {
           "200": {
             "description": "Success",
@@ -33437,7 +33501,7 @@
       "post": {
         "summary": "Store a new Prompt text revision",
         "operationId": "post_prompts_id_versions",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Stores a nonempty text revision of at most 20000 characters with audit. It does not publish or execute the Prompt.",
+        "description": "Minimum role: viewer with scoped agents.change. V3 instance and environment scope apply. Stores a nonempty text revision of at most 20000 characters with audit. It does not publish or execute the Prompt.",
         "responses": {
           "201": {
             "description": "Success",
@@ -33570,7 +33634,7 @@
       "post": {
         "summary": "Run a Prompt comparison trial",
         "operationId": "post_prompts_id_trial",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Always returns 503 prompt_trial_unavailable after request and authorization validation; no trial runner or model execution is configured.",
+        "description": "Minimum role: viewer with scoped agents.change. V3 instance and environment scope apply. Always returns 503 prompt_trial_unavailable after request and authorization validation; no trial runner or model execution is configured.",
         "responses": {
           "503": {
             "description": "Prompt trial runner is unavailable",
@@ -34057,7 +34121,7 @@
       "post": {
         "summary": "Create pending Agent evaluation metadata",
         "operationId": "post_evals",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires two distinct known versions. Stores a pending experiment only; it does not queue or execute evaluation, and execution_available is false. The current frontend rerun request has no matching body.",
+        "description": "Minimum role: viewer with scoped agents.change. V3 instance and environment scope apply. Requires two distinct known versions. Stores a pending experiment only; it does not queue or execute evaluation, and execution_available is false. The current frontend rerun request has no matching body.",
         "responses": {
           "201": {
             "description": "Success",
@@ -34374,7 +34438,7 @@
       "post": {
         "summary": "Record one human evaluation label",
         "operationId": "post_eval_cases_id_labels",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires an explicit next label and optional note up to 2000 runes; saved with audit. The current frontend sends different fields and would receive 422.",
+        "description": "Minimum role: viewer with scoped agents.change. V3 instance and environment scope apply. Requires an explicit next label and optional note up to 2000 runes; saved with audit. The current frontend sends different fields and would receive 422.",
         "responses": {
           "200": {
             "description": "Success",
@@ -35058,7 +35122,7 @@
       "post": {
         "summary": "Save a user vote for a completed Agent run",
         "operationId": "post_agent_runs_id_feedback",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. One current-user vote is upserted on a completed run with transactional audit. An active run returns 409; this does not derive evaluation quality metrics.",
+        "description": "Minimum role: viewer with scoped agents.change. V3 instance and environment scope apply. One current-user vote is upserted on a completed run with transactional audit. An active run returns 409; this does not derive evaluation quality metrics.",
         "responses": {
           "200": {
             "description": "Success",
@@ -35356,7 +35420,7 @@
       "patch": {
         "summary": "Change one persisted guardrail policy setting",
         "operationId": "patch_guardrails_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Scoped agents.manage setting with audit and a persisted policy revision; a forced guardrail cannot be disabled. This does not prove a live runtime consumes the policy.",
+        "description": "Minimum role: viewer with scoped agents.manage. V3 instance and environment scope apply. Scoped agents.manage setting with audit and a persisted policy revision; a forced guardrail cannot be disabled. This does not prove a live runtime consumes the policy.",
         "responses": {
           "200": {
             "description": "Success",

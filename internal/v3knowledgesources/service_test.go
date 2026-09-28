@@ -103,7 +103,7 @@ func TestVisibleDocumentSourcesFailsClosedOnPolicyFailure(t *testing.T) {
 }
 
 func TestPartialSourceDoesNotClaimSyncOrIndexState(t *testing.T) {
-	value := response{Items: []DocumentSource{{ID: "doc", Name: "Doc", Kind: "document"}}, Partial: true, Reason: "source_registry_unavailable"}
+	value := response{Items: []DocumentSource{{ID: "doc", Name: "Doc", Kind: "document"}}, Partial: true, Reason: "document_only_projection"}
 	encoded, err := json.Marshal(value)
 	if err != nil {
 		t.Fatal(err)

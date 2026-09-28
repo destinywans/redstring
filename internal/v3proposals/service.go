@@ -21,6 +21,7 @@ import (
 
 type Access interface {
 	Authorize(context.Context, core.User, rbac.V3Decision) error
+	AuthorizeWithTx(context.Context, pgx.Tx, core.User, rbac.V3Decision) error
 }
 
 type Service struct {
@@ -154,7 +155,7 @@ func (s *Service) Create(ctx context.Context, in NewProposal) (string, error) {
 	var inserted string
 	err = tx.QueryRow(ctx, `INSERT INTO v3_proposals
  (id,investigation_id,application_id,environment_id,content,created_by,creator_kind)
- SELECT $1,i.id,i.application_id,$2,$3,$4,$5
+ SELECT $1::text,i.id,i.application_id,$2::text,$3::jsonb,$4::text,$5::text
  FROM investigations i
  JOIN applications a ON a.id=i.application_id AND NOT a.archived
  JOIN v3_application_environments ve ON ve.application_id=i.application_id AND ve.environment_id=$2
@@ -169,7 +170,7 @@ func (s *Service) Create(ctx context.Context, in NewProposal) (string, error) {
 		return "", err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,actor_kind,application_id,action,target,outcome,changes)
- VALUES($1,$2,$3,'v3.proposal.created',$4,'success',jsonb_build_object('environment_id',$5,'investigation_id',$6))`,
+ VALUES($1,$2,$3,'v3.proposal.created',$4,'success',jsonb_build_object('environment_id',$5::text,'investigation_id',$6::text))`,
 		in.CreatedBy, in.CreatorKind, in.ApplicationID, id, in.EnvironmentID, in.InvestigationID)
 	if err != nil {
 		return "", err
@@ -250,6 +251,24 @@ func (s *Service) scoped(w http.ResponseWriter, r *http.Request, action string) 
 	return v, true
 }
 
+// A review write must recheck the persisted grant on its transaction's
+// connection after locking the proposal. The earlier HTTP check is useful for
+// response scoping, but a grant may be revoked before the write begins.
+func (s *Service) authorizeLocked(w http.ResponseWriter, r *http.Request, tx pgx.Tx, v record, action string) bool {
+	err := s.Access.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), rbac.V3Decision{
+		Module: "proposals", Action: action, EnvironmentID: v.EnvironmentID, ApplicationID: v.ApplicationID,
+	})
+	if errors.Is(err, store.ErrForbidden) {
+		httpapi.Error(w, 403, "forbidden", "Proposal permission required")
+		return false
+	}
+	if err != nil {
+		httpapi.Error(w, 503, "authorization_unavailable", "Proposal authorization unavailable")
+		return false
+	}
+	return true
+}
+
 func (s *Service) detail(ctx context.Context, v record) (Proposal, error) {
 	out := Proposal{ID: v.ID, Status: v.Status, ProposedAt: v.CreatedAt.UTC().Format(time.RFC3339), Content: v.Content, Discussion: []CommentItem{}}
 	rows, err := s.DB.Query(ctx, `SELECT COALESCE(NULLIF(u.name,''),c.author_id),c.created_at,c.body
@@ -320,6 +339,9 @@ func (s *Service) Comment(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
+	if !s.authorizeLocked(w, r, tx, v, "change") {
+		return
+	}
 	hash := store.Hash(in.Text)
 	if key != "" {
 		var priorHash, author, body string
@@ -353,7 +375,7 @@ func (s *Service) Comment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,actor_kind,application_id,action,target,outcome,changes)
- VALUES($1,'user',$2,'v3.proposal.comment_added',$3,'success',jsonb_build_object('environment_id',$4,'comment_id',$5))`, user.ID, v.ApplicationID, v.ID, v.EnvironmentID, id)
+ VALUES($1,'user',$2,'v3.proposal.comment_added',$3,'success',jsonb_build_object('environment_id',$4::text,'comment_id',$5::text))`, user.ID, v.ApplicationID, v.ID, v.EnvironmentID, id)
 	if err != nil {
 		unavailable(w)
 		return
@@ -372,16 +394,6 @@ func (s *Service) Comment(w http.ResponseWriter, r *http.Request) {
 func (s *Service) Reject(w http.ResponseWriter, r *http.Request) {
 	v, ok := s.scoped(w, r, "manage")
 	if !ok {
-		return
-	}
-	// Rejection is a human review decision even though it cannot enqueue work.
-	var human bool
-	if err := s.DB.QueryRow(r.Context(), `SELECT v3_identity_kind='human' FROM users WHERE id=$1 AND NOT disabled`, httpapi.CurrentUser(r).ID).Scan(&human); err != nil {
-		unavailable(w)
-		return
-	}
-	if !human {
-		httpapi.Error(w, 403, "forbidden", "Human reviewer required")
 		return
 	}
 	var in struct {
@@ -418,6 +430,25 @@ func (s *Service) Reject(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
+	if !s.authorizeLocked(w, r, tx, v, "manage") {
+		return
+	}
+	// Rejection is a human review decision even though it cannot enqueue work.
+	// Lock the identity until commit so a simultaneous machine conversion or
+	// disable cannot race this decision.
+	var human bool
+	if err = tx.QueryRow(ctx, `SELECT v3_identity_kind='human' FROM users WHERE id=$1 AND NOT disabled FOR SHARE`, user.ID).Scan(&human); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			httpapi.Error(w, 403, "forbidden", "Human reviewer required")
+		} else {
+			unavailable(w)
+		}
+		return
+	}
+	if !human {
+		httpapi.Error(w, 403, "forbidden", "Human reviewer required")
+		return
+	}
 	if status == "rejected" && rejectedBy == user.ID && priorReason == reason {
 		if err = tx.Commit(ctx); err != nil {
 			unavailable(w)
@@ -434,7 +465,7 @@ func (s *Service) Reject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,actor_kind,application_id,action,target,outcome,changes)
- VALUES($1,'user',$2,'v3.proposal.rejected',$3,'success',jsonb_build_object('environment_id',$4,'reason_present',$5))`, user.ID, v.ApplicationID, v.ID, v.EnvironmentID, reason != "")
+ VALUES($1,'user',$2,'v3.proposal.rejected',$3,'success',jsonb_build_object('environment_id',$4::text,'reason_present',$5::boolean))`, user.ID, v.ApplicationID, v.ID, v.EnvironmentID, reason != "")
 		if err != nil {
 			unavailable(w)
 			return

@@ -123,10 +123,10 @@
 | POST | `/silences/preview` | 匹配器 | `{ affects, sample }` | mock |
 | POST | `/silences` | 匹配器 + 时长 | `{ id }` | mock |
 | DELETE | `/silences/{id}` | | 204 | mock |
-| GET | `/proposals/{id}` | | `Proposal` | mock |
+| GET | `/proposals/{id}` | | `Proposal` | implemented |
 | POST | `/proposals/{id}/approve` | `{ comment? }`（需通行密钥二次验证） | `{ execution_id }` | mock |
-| POST | `/proposals/{id}/reject` | `{ comment? }` | 更新后的提案 | mock |
-| POST | `/proposals/{id}/comments` | `{ text }` | 评论 | mock |
+| POST | `/proposals/{id}/reject` | `{ comment? }` | 更新后的提案 | implemented |
+| POST | `/proposals/{id}/comments` | `{ text }` | 评论 | implemented |
 | GET | `/executions/{id}` | | `Execution` | mock |
 | POST | `/executions/{id}/report/publish` | | 发布结果 | mock |
 

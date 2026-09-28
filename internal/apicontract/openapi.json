@@ -27190,6 +27190,16 @@
                 }
               }
             }
+          },
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3ProposalComment"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -38313,7 +38323,9 @@
             "type": "string",
             "enum": [
               "pending",
-              "rejected"
+              "approved",
+              "rejected",
+              "executed"
             ]
           },
           "risk": {

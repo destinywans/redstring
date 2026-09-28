@@ -215,6 +215,32 @@ func TestPreferencesPersistIsolationAndAudit(t *testing.T) {
 	}
 }
 
+func TestPreferencesAuditFailureRollsBackUpdate(t *testing.T) {
+	s := isolatedPreferencesStore(t)
+	ctx := t.Context()
+	if _, err := s.DB.Exec(ctx, `CREATE FUNCTION reject_preferences_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+	BEGIN
+		IF NEW.action = 'v3.preferences.updated' THEN
+			RAISE EXCEPTION 'test audit failure';
+		END IF;
+		RETURN NEW;
+	END $$`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB.Exec(ctx, `CREATE TRIGGER reject_preferences_audit BEFORE INSERT ON management_audit
+		FOR EACH ROW EXECUTE FUNCTION reject_preferences_audit()`); err != nil {
+		t.Fatal(err)
+	}
+	dark := "dark"
+	if _, err := New(s, nil).savePrefs(ctx, "one", preferencesPatch{Theme: &dark}); err == nil {
+		t.Fatal("audit failure must reject the preferences update")
+	}
+	got, err := New(s, nil).prefs(ctx, "one")
+	if err != nil || got != (Preferences{Theme: "system", Locale: "zh-CN", Density: "comfortable"}) {
+		t.Fatalf("preferences changed despite audit failure: %+v, %v", got, err)
+	}
+}
+
 func TestConcurrentPreferencesPatchesPreserveSeparateFields(t *testing.T) {
 	s := isolatedPreferencesStore(t)
 	service := New(s, nil)

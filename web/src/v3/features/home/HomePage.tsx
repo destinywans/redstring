@@ -9,6 +9,7 @@ import { Composer } from "../../ui/Composer";
 import { MenuButton, Popover } from "../../ui/overlays";
 import { Sparkline, StackedBars, Axis } from "../../charts";
 import { useI18n } from "../../i18n";
+import { useCurrentEnv } from "../../app/EnvSwitch";
 import "./home.css";
 
 const TODO_TONE = { approval: "accent", report: "info", runbook: "t1", access: "warn" } as const;
@@ -96,6 +97,27 @@ function StatusRow({ data, onOpen }: { data?: HomeSummary; onOpen: (href: string
   );
 }
 
+/** Where a request from the home composer runs: the global environment, shown instead of a per-request picker. */
+function EnvLine() {
+  const { tx } = useI18n();
+  const cur = useCurrentEnv();
+  if (!cur) return null;
+  const color = `var(--${cur.tone})`;
+  return (
+    <span className="home-envline">
+      <Dot tone={cur.tone === "stg" ? "stg" : cur.tone === "prod" ? "prod" : "dev"} size={6} />
+      {cur.viewOnly ? (
+        tx("当前为「全部非生产环境」，只能查看；执行前请在右上角选定一个环境", "Viewing all non-production environments; pick one at the top right before running anything")
+      ) : (
+        <>
+          {tx("将在", "Runs in")} <b style={{ color }}>{cur.label}</b> {tx("环境中执行", "")}
+          {cur.tone === "prod" && tx(" · 写操作会生成提案，需人工批准", " · writes become proposals that need approval")}
+        </>
+      )}
+    </span>
+  );
+}
+
 function greetingWord(tx: (a: string, b: string) => string) {
   const h = new Date().getHours();
   if (h < 11) return tx("早上好", "Good morning");
@@ -116,17 +138,6 @@ export default function HomePage() {
       title={
         <Row gap={10}>
           <h1 style={{ fontSize: "var(--fs-lg)", fontWeight: 600 }}>{tx("总览", "Overview")}</h1>
-          <MenuButton
-            place="bottom-start"
-            items={[{ label: tx("全部环境", "All environments"), active: true }, { label: tx("生产", "Production") }, { label: tx("预发", "Staging") }]}
-            trigger={({ onClick, ref }) => (
-              <span ref={ref}>
-                <Chip caret onClick={onClick}>
-                  {tx("全部环境", "All environments")}
-                </Chip>
-              </span>
-            )}
-          />
           <Chip icon="clock" caret>
             {tx("最近 24 小时", "Last 24 hours")}
           </Chip>
@@ -149,22 +160,9 @@ export default function HomePage() {
               spanRef={band}
               placeholder={tx("问问题、下指令，或描述一个异常。例如：checkout-api 现在的 P99 是多少，周六大促要不要扩容？", "Ask, instruct, or describe an anomaly. e.g. What is checkout-api's P99 now — should we scale for Saturday's sale?")}
               onSend={(t, att, x) => nav(newConversationUrl(t, att, x))}
-              env={
-                <MenuButton
-                  place="bottom-end"
-                  items={[{ label: tx("生产", "Prod"), active: true }, { label: tx("预发", "Staging") }, { label: tx("全部环境", "All environments") }]}
-                  trigger={({ onClick, ref }) => (
-                    <span ref={ref}>
-                      <Chip caret onClick={onClick}>
-                        <Dot tone="danger" size={6} />
-                        {tx("生产", "Prod")}
-                      </Chip>
-                    </span>
-                  )}
-                />
-              }
             />
           </div>
+          <EnvLine />
           <Row gap={8} wrap style={{ justifyContent: "center" }}>
             {data?.suggestions.map((s) => (
               <Chip key={s.id} onClick={() => ask(s.text)} icon={s.tone ? undefined : (s.icon as IconName)}>

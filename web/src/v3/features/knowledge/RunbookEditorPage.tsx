@@ -7,6 +7,8 @@ import { Avatar, Badge, Brand, Btn, Code, Col, Icon, Mono, Muted, Num, Row, Sect
 import { toast } from "../../ui/overlays";
 import { VBars } from "../../charts";
 import { useI18n } from "../../i18n";
+import { PromoteButton } from "./PromoteDialog";
+import "../../ui/forms.css";
 import "./knowledge.css";
 
 export default function RunbookEditorPage() {
@@ -33,6 +35,7 @@ export default function RunbookEditorPage() {
           <Btn kind="ghost" icon="file">
             {tx("预览", "Preview")}
           </Btn>
+          <PromoteButton kind="runbooks" id={rb.id} title={rb.title} />
           <Btn kind="primary" icon="check" onClick={() => { void api("POST", `/runbooks/${rb.id}/submit`); toast(tx("已提交复核，已通知王晨", "Submitted for review; Wang Chen notified")); }}>
             {tx("提交复核", "Submit for review")}
           </Btn>

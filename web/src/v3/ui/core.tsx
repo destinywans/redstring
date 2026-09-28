@@ -9,6 +9,7 @@ import {
 import { Link } from "react-router-dom";
 import { ICONS, type IconName } from "./iconPaths";
 import { useI18n } from "../i18n";
+import { useEnv } from "../app/environment";
 
 export type Tone =
   | "neutral"
@@ -144,11 +145,20 @@ export const Sev = ({ p }: { p: Severity }) => (
   </Badge>
 );
 export type EnvName = "prod" | "staging" | "test";
-export function Env({ env }: { env: EnvName }) {
+export function Env({ env }: { env: EnvName | string }) {
   const { tx } = useI18n();
-  const map = { prod: ["prod", tx("生产", "Prod")], staging: ["stg", tx("预发", "Staging")], test: ["dev", tx("测试", "Test")] } as const;
-  const [tone, label] = map[env];
-  return <Badge tone={tone as Tone}>{label}</Badge>;
+  const prodInstance = useEnv((s) => s.instance?.tier === "production");
+  const selected = useEnv((s) => s.env);
+  // A label that only repeats the instance's (or the selected) environment adds nothing.
+  if ((prodInstance && env === "prod") || env === selected) return null;
+  const map: Record<string, [Tone, string]> = {
+    prod: ["prod", tx("生产", "Prod")],
+    staging: ["stg", tx("预发", "Staging")],
+    test: ["dev", tx("测试", "Test")],
+    dev: ["dev", tx("开发", "Dev")],
+  };
+  const [tone, label] = map[env] ?? ["neutral", env];
+  return <Badge tone={tone}>{label}</Badge>;
 }
 export const Tier = ({ tier }: { tier: string }) => (
   <Badge tone={tier === "T0" ? "t0" : tier === "T1" ? "t1" : "neutral"} mono>

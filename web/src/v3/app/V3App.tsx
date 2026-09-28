@@ -72,6 +72,7 @@ export const ROUTES: [string, ComponentType][] = [
   ["changes", p(() => import("../features/observe/ChangesPage"))],
   ["integrations", p(() => import("../features/integrations/ConnectorsPage"))],
   ["integrations/new", p(() => import("../features/integrations/AddConnectorPage"))],
+  ["integrations/sync", p(() => import("../features/integrations/ConfigSyncPage"))],
   ["integrations/models", p(() => import("../features/integrations/ModelsPage"))],
   ["integrations/mcp", p(() => import("../features/integrations/McpPage"))],
   ["integrations/ingest", p(() => import("../features/integrations/IngestPage"))],

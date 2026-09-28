@@ -1,5 +1,6 @@
 import { currentLocale } from "../app/preferences";
 import { pick, type L } from "../i18n";
+import { currentEnv } from "../app/environment";
 
 type Ctx = { params: Record<string, string>; query: Record<string, unknown>; body: unknown };
 type Handler = (ctx: Ctx) => unknown;
@@ -35,13 +36,33 @@ function isL(v: unknown): v is L {
   return typeof v === "object" && v !== null && "zh" in v && "en" in v && Object.keys(v).length === 2;
 }
 
+/**
+ * Fixtures are written as the production instance. When the demo shows a non-production instance,
+ * production env tags and cluster names are rewritten to the selected environment, since a
+ * non-production instance never holds production data.
+ */
+function lowerEnv(): { id: string; cluster: string } | null {
+  try {
+    if (localStorage.getItem("aiops-v3-demo-instance") !== "nonprod") return null;
+  } catch {
+    return null;
+  }
+  const env = currentEnv();
+  const id = env && env !== "all" ? env : "staging";
+  return { id, cluster: id === "test" ? "aiops-test" : id.startsWith("feature-") ? "dev-sh-1" : `${id}-sh-1` };
+}
+
 /** Fixtures hold bilingual literals; the "server" answers in the request language, as the real API will. */
-function localise(value: unknown): unknown {
-  if (isL(value)) return pick(currentLocale(), value);
-  if (Array.isArray(value)) return value.map(localise);
+function localise(value: unknown, lower: ReturnType<typeof lowerEnv>, key = ""): unknown {
+  if (isL(value)) return localise(pick(currentLocale(), value), lower, key);
+  if (typeof value === "string" && lower) {
+    if (key === "env" && value === "prod") return lower.id;
+    return value.replace(/\bprod-(sh|bj)-1\b/g, lower.cluster);
+  }
+  if (Array.isArray(value)) return value.map((v) => localise(v, lower, key));
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) out[k] = localise(v);
+    for (const [k, v] of Object.entries(value)) out[k] = localise(v, lower, k);
     return out;
   }
   return value;
@@ -60,7 +81,7 @@ export async function handleMock<T>(method: string, path: string, query: Record<
     if (!m) continue;
     const params = Object.fromEntries(r.keys.map((k, i) => [k, decodeURIComponent(m[i + 1])]));
     try {
-      return localise(r.handler({ params, query, body })) as T;
+      return localise(r.handler({ params, query, body }), path === "/instance" ? null : lowerEnv()) as T;
     } catch (e) {
       if (e instanceof MockError) {
         const { ApiError } = await import("../api/client");

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
 import { currentLocale, usePreferences } from "../app/preferences";
 import { handleMock } from "../mock/router";
+import { currentEnv, useEnv } from "../app/environment";
 
 /** `mock` serves the contract from in-browser fixtures; `http` calls the Go API under /api/v1. */
 export const API_MODE: "mock" | "http" = import.meta.env.VITE_API_MODE === "http" ? "http" : "mock";
@@ -41,6 +42,8 @@ export async function api<T>(
     credentials: "same-origin",
     headers: {
       "Accept-Language": currentLocale(),
+      // Global environment (see app/environment.ts); production instances ignore it.
+      ...(currentEnv() ? { "X-AIOps-Environment": currentEnv() } : {}),
       ...(opts.body !== undefined ? { "Content-Type": "application/json" } : {}),
     },
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
@@ -56,9 +59,15 @@ export async function api<T>(
 /** Typed GET bound to the current locale, so switching language refetches server-localised text. */
 export function useGet<T>(path: string | null, query?: Query, options?: Partial<UseQueryOptions<T>>) {
   const locale = usePreferences((s) => s.locale);
+  const env = useEnv((s) => s.env);
   return useQuery<T>({
-    queryKey: [path, query ?? {}, locale],
+    // Switching environment refetches, like switching language.
+    queryKey: [path, query ?? {}, locale, env],
     queryFn: () => api<T>("GET", path!, { query }),
+    // Keep showing the same resource while it refetches for another environment or language;
+    // a different path or query is a different resource and must not show the old one.
+    placeholderData: (prev, prevQuery) =>
+      prevQuery && prevQuery.queryKey[0] === path && JSON.stringify(prevQuery.queryKey[1]) === JSON.stringify(query ?? {}) ? prev : undefined,
     enabled: path !== null,
     staleTime: 30_000,
     ...options,

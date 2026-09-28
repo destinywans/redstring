@@ -370,3 +370,61 @@ html[data-v3-density="compact"] .v3-content {
 .v3-content > .v3-panel {
   flex-shrink: 0;
 }
+
+/* ---- global environment ---- */
+.v3-topbar.env-prod::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: var(--prod);
+}
+.v3-topbar { position: relative; }
+.env-pill {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px 0 9px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: var(--fs-sub);
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--sunken);
+  color: var(--text);
+}
+button.env-pill { cursor: pointer; }
+.env-pill > i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+.env-pill small { font-weight: 400; color: var(--muted); font-size: var(--fs-cap); }
+.env-pill.prod { background: var(--prod-soft); color: var(--prod); border-color: color-mix(in srgb, var(--prod) 45%, transparent); }
+.env-pill.stg { background: var(--stg-soft); color: var(--stg); border-color: color-mix(in srgb, var(--stg) 45%, transparent); }
+.env-pill.dev { background: var(--dev-soft); color: var(--dev); border-color: color-mix(in srgb, var(--dev) 45%, transparent); }
+.env-other { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-sub); color: var(--accent-text); white-space: nowrap; }
+.env-h { padding: 6px 10px 2px; font-size: var(--fs-cap); color: var(--faint); font-weight: 600; }
+.env-sep { height: 1px; background: var(--border); margin: 5px 4px; }
+.env-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.env-item:hover, .env-item.on { background: var(--hover); }
+.env-item small { color: var(--muted); font-size: var(--fs-cap); white-space: nowrap; }
+.env-out-text { display: flex; flex-direction: column; gap: 1px; white-space: nowrap; }
+.env-item > i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.env-item > i.prod { background: var(--prod); }
+.env-item > i.stg { background: var(--stg); }
+.env-item > i.dev { background: var(--dev); }
+.env-item > i.all { border: 1.5px solid var(--muted); }
+.env-item.out { color: var(--accent-text); }

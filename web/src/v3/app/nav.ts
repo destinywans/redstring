@@ -71,6 +71,7 @@ export const NAV: NavItem[] = [
       { id: "mapping", label: l("服务映射", "Service mapping"), to: "/integrations/mapping" },
       { id: "coverage", label: l("数据覆盖度", "Data coverage"), to: "/integrations/coverage" },
       { id: "webhooks", label: l("Webhook 与 API", "Webhooks & API"), to: "/integrations/webhooks" },
+      { id: "sync", label: l("配置同步", "Config sync"), to: "/integrations/sync" },
     ],
   },
   {

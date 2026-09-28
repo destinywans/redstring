@@ -79,7 +79,6 @@ export default function SourcesPage() {
             </form>
             <Row gap={6}>
               <Chip icon="box">checkout-api</Chip>
-              <Chip caret>{tx("生产", "Prod")}</Chip>
               <Chip caret>Top 4</Chip>
               <Btn kind="primary" h={26} onClick={search}>{tx("检索", "Search")}</Btn>
             </Row>

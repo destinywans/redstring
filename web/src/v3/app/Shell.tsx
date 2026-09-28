@@ -8,6 +8,8 @@ import { CommandPalette, useCommandPalette } from "./CommandPalette";
 import { AskAiDrawer, useAskAi } from "./AskAi";
 import { API_MODE, useGet } from "../api/client";
 import type { Me, WatchedService } from "../api/types";
+import { EnvSwitch, useInstanceLoader } from "./EnvSwitch";
+import { useEnv } from "./environment";
 import "./shell.css";
 
 function Section({ item, active, activeChild }: { item: NavItem; active: boolean; activeChild?: string }) {
@@ -209,6 +211,7 @@ export function Page({ crumbs, title, actions, children, ai = true, bodyClass, f
   const { tx } = useI18n();
   const openAi = useAskAi((s) => s.setOpen);
   const hrefOf = useCrumbHref();
+  const prodInstance = useEnv((s) => s.instance?.tier === "production");
   const { pathname } = useLocation();
   useEffect(() => {
     const t = crumbs?.map((c) => (isLinkCrumb(c) ? c.label : c)).filter((c) => typeof c === "string").slice(-1)[0] ?? (typeof title === "string" ? title : "");
@@ -216,7 +219,7 @@ export function Page({ crumbs, title, actions, children, ai = true, bodyClass, f
   }, [crumbs, title]);
   return (
     <main className="v3-page">
-      <header className="v3-topbar">
+      <header className={cx("v3-topbar", prodInstance && !pathname.startsWith("/settings") && "env-prod")}>
         {title ?? (
           <nav className="crumbs" aria-label={tx("面包屑", "Breadcrumbs")}>
             {crumbs?.map((c, i) => {
@@ -245,6 +248,7 @@ export function Page({ crumbs, title, actions, children, ai = true, bodyClass, f
         )}
         <span style={{ flexGrow: 1 }} />
         {actions}
+        <EnvSwitch />
         {ai && (
           <Btn kind="ghost" onClick={() => openAi(true)} style={{ color: "var(--accent-text)" }}>
             <Icon name="sparkles" size={14} />
@@ -259,6 +263,7 @@ export function Page({ crumbs, title, actions, children, ai = true, bodyClass, f
 }
 
 export function Shell() {
+  useInstanceLoader();
   const { pathname } = useLocation();
   const { tx } = useI18n();
   const setAi = useAskAi((s) => s.setOpen);

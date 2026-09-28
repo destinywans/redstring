@@ -8,12 +8,14 @@ import { MenuButton, toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
 import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
+import { useCurrentEnv } from "../../app/EnvSwitch";
 import "./events.css";
 
 const KIND_ICON: Record<InboxItem["kind"], IconName> = { alert: "alert", approval: "shield", mention: "message", runbook: "book", report: "file", access: "user", agent: "cpu" };
 
 export function AlertDetailView({ id }: { id: string }) {
   const { tx } = useI18n();
+  const curEnv = useCurrentEnv();
   const nav = useNavigate();
   const { data: a } = useGet<AlertDetail>(`/alerts/${id}`);
   const [claimed, setClaimed] = useState(false);
@@ -65,7 +67,7 @@ export function AlertDetailView({ id }: { id: string }) {
         />
       </Row>
       <Muted>
-        {a.source} · {tx("生产", "Prod")} · {a.since} · {tx("规则「{r}」", "Rule “{r}”", { r: a.rule })}
+        {a.source} · {curEnv?.label ?? "—"} · {a.since} · {tx("规则「{r}」", "Rule “{r}”", { r: a.rule })}
       </Muted>
       {a.triage && (
         <div className="ai-triage">

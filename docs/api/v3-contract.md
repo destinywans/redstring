@@ -18,6 +18,7 @@
 | 过滤 | 列表过滤用查询参数：`q`（搜索）、`filter` / `category` / `kind` 等枚举；数组参数重复键（`?k=a&k=b`） |
 | 写操作 | 模型只读取证。任何对外部系统的写动作都只生成**提案**，人工批准后由独立执行器执行；本契约中的 POST/PUT/PATCH 只修改平台自身配置或状态 |
 | 审计 | 所有写请求和 Agent 工具调用都写入审计（`GET /audit`） |
+| 环境 | 请求头 `X-AIOps-Environment: <环境 id> \| all`，取右上角的当前环境；列表、AI 取证范围和执行目标都按它过滤。`all` 只允许在非生产实例中使用，且只能查看，写请求要返回 `409 env_view_only`。生产实例只有 `prod` 一个环境，可以不带这个请求头 |
 
 ### 流式对话
 
@@ -50,6 +51,23 @@
 | GET | `/models` | | `ModelCatalog`：当前用户可用的模型、接口类型、推理强度档位与默认值 | mock |
 | GET | `/models/admin` | | `ModelAdminView`（集成中心 › 模型） | mock |
 | POST | `/uploads` | multipart `file` + `kind`；链接与折叠粘贴用 JSON `{ kind, name, url \| text }` | `Upload`；单个 ≤ 20 MB，超出返回 413 | mock |
+
+### 实例与环境（`instance.ts`）
+
+**一个平台实例只对应一个隔离边界。**生产平台独立部署：独立域名、数据库和凭据，界面上固定显示“生产”，不能切换。非生产平台管理开发、测试、预发和需求验证环境，可以切换，也可以选「全部非生产环境」查看。
+
+- **跨环境读取**只读且单向：生产可以通过「低环境只读来源」读取非生产环境做对比，凭据存放在生产的 Vault；非生产平台不能访问生产。
+- **配置提升**不在两个平台之间直接调用：非生产导出为配置仓库的合并请求，审核合并后，由生产平台在「配置同步」中导入。执行记录和证据不随之带过去。
+
+| 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
+| --- | --- | --- | --- | --- |
+| GET | `/instance` | | `InstanceInfo`：`tier`（`production` \| `nonprod`）、`name`、`domain`、`environments[]`（id、名称、分组、集群、回收时间）、`default_env`，以及另一个平台的链接 `other` | mock |
+| GET | `/integrations/lower-sources` | | `{ items: LowerSource[] }`，只有生产实例提供；非生产实例返回 404 | mock |
+| GET | `/config-sync` | | `{ direction: "import" \| "export", items: SyncItem[] }`：生产实例列出待导入项，非生产实例列出已导出项 | mock |
+| POST | `/config-sync/{id}/import` | | `SyncItem`；只允许生产实例导入已合并的变更 | mock |
+| POST | `/promotions` | `{ kind, id }` | `{ mr, path }`：写入配置仓库并发起合并请求；生产实例返回 `409 already_production` | mock |
+
+当前环境保存在浏览器本地（`aiops-v3-env`），并写入地址栏 `?env=`，这样分享链接时打开的是同一个环境。
 
 主题、语言、密度、减少动效保存在浏览器本地（`aiops-v3-preferences`），并尽力同步到 `PATCH /me/preferences`。
 

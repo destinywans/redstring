@@ -6,6 +6,7 @@ import { Drawer, toast } from "../../ui/overlays";
 import { AiBanner, AiTag, Callout, MatcherList, PillSelect, Suggested, type Matcher } from "../../ui/forms";
 import { VBars } from "../../charts";
 import { useI18n } from "../../i18n";
+import { useCurrentEnv } from "../../app/EnvSwitch";
 
 type IncidentDraft = {
   title: string;
@@ -23,6 +24,7 @@ type IncidentDraft = {
 /** New incident: AI pre-fills from the selected alerts; the person confirms. */
 export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { tx } = useI18n();
+  const curEnv = useCurrentEnv();
   const nav = useNavigate();
   const { data, refetch, isFetching } = useGet<IncidentDraft>(open ? "/incidents/draft" : null, undefined, { staleTime: 0 });
   const [title, setTitle] = useState("");
@@ -39,7 +41,7 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
     setAlerts(Object.fromEntries(data.alerts.map((a) => [a.id, true])));
   }, [data]);
   const submit = async () => {
-    const r = await create.mutateAsync({ title, severity: sev, impact, env: data?.env, services: data?.services.map((s) => s.id), alert_ids: Object.keys(alerts).filter((k) => alerts[k]), commander: data?.commander.name, ...opts });
+    const r = await create.mutateAsync({ title, severity: sev, impact, env: curEnv && !curEnv.viewOnly ? curEnv.id : data?.env, services: data?.services.map((s) => s.id), alert_ids: Object.keys(alerts).filter((k) => alerts[k]), commander: data?.commander.name, ...opts });
     toast(tx("已创建事件 {id}", "Created incident {id}", { id: r.id }));
     onClose();
     if (r.investigation_id) nav(`/canvas/${r.investigation_id}`);
@@ -76,10 +78,10 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
               <PillSelect label={tx("级别", "Severity")} value={sev} options={["P1", "P2", "P3", "P4"] as Severity[]} onChange={setSev} />
             </Suggested>
           </Field>
-          <Field label={tx("环境", "Environment")}>
+          <Field label={tx("环境", "Environment")} hint={curEnv?.viewOnly ? tx("当前为全部非生产环境，请选定一个", "Viewing all non-production — pick one") : tx("默认取右上角的当前环境", "Defaults to the current environment")}>
             <Chip caret>
-              <Dot tone="prod" size={7} />
-              {tx("生产", "Production")}
+              <Dot tone={curEnv?.tone ?? "prod"} size={7} />
+              {curEnv && !curEnv.viewOnly ? curEnv.label : tx("选择环境", "Choose environment")}
             </Chip>
           </Field>
         </div>
@@ -272,6 +274,7 @@ type InhibitPreview = { suppressed: number; per_day: number[]; summary: string; 
 
 export function NewInhibitDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { tx } = useI18n();
+  const curEnv = useCurrentEnv();
   const [src, setSrc] = useState<Matcher[]>([]);
   const [dst, setDst] = useState<Matcher[]>([]);
   const [equal, setEqual] = useState<string[]>([]);
@@ -332,7 +335,7 @@ export function NewInhibitDrawer({ open, onClose }: { open: boolean; onClose: ()
           </Row>
         </Field>
         <Field label={tx("生效范围", "Scope")}>
-          <Chip caret>{tx("生产 · 全部集群", "Production · all clusters")}</Chip>
+          <Chip caret>{tx("{e} · 全部集群", "{e} · all clusters", { e: curEnv?.label ?? "—" })}</Chip>
         </Field>
         <div className="f-section">
           <Row gap={6}>

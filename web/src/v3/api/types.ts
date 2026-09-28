@@ -885,3 +885,19 @@ export type AgentTrace = {
   total: number;
   spans: AgentSpan[];
 };
+
+/* ---------------- v4: instance & environments ---------------- */
+/** A platform instance covers one isolation boundary: production runs alone; non-production environments share one. */
+export type InstanceTier = "production" | "nonprod";
+export type EnvironmentInfo = { id: string; label: string; kind: "standing" | "feature"; tone: "prod" | "stg" | "dev"; clusters: string[]; note?: string };
+export type InstanceInfo = {
+  tier: InstanceTier;
+  name: string;
+  domain: string;
+  environments: EnvironmentInfo[];
+  default_env: string;
+  /** The other instance, reachable only as a link (separate domain and sign-in). */
+  other?: { label: string; url: string; domain: string };
+};
+export type LowerSource = { id: string; name: string; brand: string; env: string; env_label: string; purpose: string; credential: string };
+export type SyncItem = { id: string; kind: "runbook" | "alert_rule" | "agent_version" | "template"; kind_label: string; title: string; mr: string; author: string; meta: string; status: "pending" | "imported" | "exported" | "merged" };

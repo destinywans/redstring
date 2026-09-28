@@ -6,6 +6,8 @@ import type { ConnectorDetail, ConnectorList, ConnectorStatus } from "../../api/
 import { Badge, Brand, Btn, Code, Col, Dot, Icon, IconBtn, KV, Mono, Muted, Pills, Row, SearchBox, Section, Skeleton, Spacer, State, Strong, TextLink, Toggle, cx, type Tone } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
+import { useEnv } from "../../app/environment";
+import type { LowerSource } from "../../api/types";
 import "./integrations.css";
 
 export const STATUS_TONE: Record<ConnectorStatus, Tone> = { ok: "ok", unverified: "warn", error: "danger" };
@@ -75,6 +77,7 @@ export default function ConnectorsPage() {
                 </button>
               )}
             </div>
+            <LowerSources />
           </div>
         </div>
         {sel && <ConnectorAside id={sel} onClose={() => setSel(null)} />}
@@ -195,5 +198,44 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
         </>
       )}
     </aside>
+  );
+}
+
+/**
+ * Production instance only: read-only sources from lower environments, used to compare staging with production.
+ * One-way by design — a non-production instance has no way to reach production.
+ */
+function LowerSources() {
+  const { tx } = useI18n();
+  const prod = useEnv((s) => s.instance?.tier === "production");
+  const { data } = useGet<{ items: LowerSource[] }>(prod ? "/integrations/lower-sources" : null);
+  if (!prod) return null;
+  return (
+    <section className="v3-card lower-src">
+      <div className="v3-card-head">
+        <b style={{ fontSize: "var(--fs-lg)" }}>{tx("低环境只读来源", "Read-only lower-environment sources")}</b>
+        <Badge>{data?.items.length ?? 0}</Badge>
+        <Spacer />
+        <Muted size={12}>{tx("只读、单向：生产可以读取低环境用于对比，低环境不能访问生产", "Read-only, one-way: production may read lower environments for comparison; they can never reach production")}</Muted>
+        <Btn h={26} icon="plus" onClick={() => toast(tx("添加时只能选择只读凭据，凭据保存在生产 Vault", "Only read-only credentials can be added; they live in the production Vault"))}>
+          {tx("添加", "Add")}
+        </Btn>
+      </div>
+      {data?.items.map((x) => (
+        <div key={x.id} className="lower-row">
+          <Brand name={x.brand} size={28} />
+          <Col gap={0} grow>
+            <Strong size={13.5}>{x.name}</Strong>
+            <Muted size={12}>
+              {x.purpose} · {x.credential}
+            </Muted>
+          </Col>
+          <Badge tone="warn">
+            <Icon name="lock" size={11} />
+            {tx("只读 · {e}", "Read-only · {e}", { e: x.env_label })}
+          </Badge>
+        </div>
+      ))}
+    </section>
   );
 }

@@ -5,6 +5,8 @@ import { Badge, Btn, Chip, Field, Input, Muted, Panel, Row, Segmented, Skeleton,
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import { SettingsHead } from "./common";
+import { API_MODE } from "../../api/client";
+import { useEnv } from "../../app/environment";
 import "./settings.css";
 
 type Workspace = { name: string; slug: string; timezone: string; locale: string; week_start: "monday" | "sunday"; retention_days: number; data_region: string; brand: { name: string; logo: string | null; pending: boolean } };
@@ -20,6 +22,8 @@ export default function WorkspacePage() {
   }, [data]);
   const dirty = !!data && !!w && JSON.stringify(data) !== JSON.stringify(w);
   const up = (patch: Partial<Workspace>) => setW((x) => (x ? { ...x, ...patch } : x));
+  const tier = useEnv((s) => s.instance?.tier);
+  const domain = useEnv((s) => s.instance?.domain ?? "—");
   return (
     <Page
       ai={false}
@@ -69,6 +73,35 @@ export default function WorkspacePage() {
                   <Segmented label={tx("每周开始于", "Week starts on")} value={w.week_start} onChange={(v) => up({ week_start: v })} options={[{ value: "monday", label: tx("周一", "Monday") }, { value: "sunday", label: tx("周日", "Sunday") }]} />
                 </Field>
               </div>
+            </Panel>
+            <Panel title={tx("实例", "Instance")}>
+              <div className="form-grid">
+                <Field label={tx("实例类型", "Instance type")} hint={tx("生产单独部署一套；开发、测试、预发和需求验证环境共用一套。部署时确定，界面上不能切换。", "Production runs on its own; development, test, staging and feature environments share one. Set at deploy time, not switchable in the UI.")}>
+                  <Chip icon="lock">{tier === "production" ? tx("生产实例", "Production instance") : tx("非生产实例", "Non-production instance")}</Chip>
+                </Field>
+                <Field label={tx("域名", "Domain")}>
+                  <Chip icon="globe">{domain}</Chip>
+                </Field>
+              </div>
+              {API_MODE === "mock" && (
+                <Row gap={10} style={{ marginTop: 12 }}>
+                  <Muted size={12}>{tx("演示：以哪种实例形态显示", "Demo: show the UI as")}</Muted>
+                  <Segmented
+                    label={tx("演示实例形态", "Demo instance")}
+                    value={tier ?? "production"}
+                    onChange={(v) => {
+                      try {
+                        localStorage.setItem("aiops-v3-demo-instance", v);
+                        localStorage.removeItem("aiops-v3-env");
+                      } catch {
+                        /* demo only */
+                      }
+                      location.reload();
+                    }}
+                    options={[{ value: "production", label: tx("生产实例", "Production") }, { value: "nonprod", label: tx("非生产实例", "Non-production") }]}
+                  />
+                </Row>
+              )}
             </Panel>
             <Panel title={tx("数据", "Data")}>
               <div className="form-grid">

@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/searchtext"
@@ -253,6 +254,71 @@ func displayTools(items []tool, lang string) []tool {
 	return tools
 }
 
+var errConnectorServiceLimit = errors.New("connector service result limit exceeded")
+
+// connectorServices projects only reviewed external targets belonging to this
+// exact connector instance and environment. Every service is checked against
+// its persisted application/team V3 grant before its key enters the response.
+func (s *Service) connectorServices(ctx context.Context, c connector, user core.User) ([]string, error) {
+	tx, err := s.DB.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	services := []string{}
+	afterID := ""
+	for {
+		rows, err := tx.Query(ctx, `SELECT DISTINCT a.id,a.key,COALESCE(a.owner_team_id,'')
+ FROM v3_connector_targets t
+ JOIN applications a ON a.id=t.application_id AND NOT a.archived
+ JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=t.environment_id
+ JOIN application_environments e ON e.application_id=a.id AND e.key=t.environment_id AND NOT e.archived
+ WHERE t.connector_id=$1 AND t.environment_id=$2 AND a.id>$3
+ ORDER BY a.id LIMIT 100`, c.ID, c.EnvironmentID, afterID)
+		if err != nil {
+			return nil, err
+		}
+		type candidate struct{ id, key, team string }
+		batch := make([]candidate, 0, 100)
+		for rows.Next() {
+			var item candidate
+			if err = rows.Scan(&item.id, &item.key, &item.team); err != nil {
+				break
+			}
+			batch = append(batch, item)
+		}
+		if err == nil {
+			err = rows.Err()
+		}
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range batch {
+			err = s.authorizeTargetTx(ctx, tx, user, item.id, c.EnvironmentID, item.team, "view")
+			if errors.Is(err, errTargetServiceForbidden) {
+				continue
+			}
+			if err != nil {
+				return nil, err
+			}
+			if len(services) == 1000 {
+				return nil, errConnectorServiceLimit
+			}
+			services = append(services, item.key)
+		}
+		if len(batch) < 100 {
+			break
+		}
+		afterID = batch[len(batch)-1].id
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return services, nil
+}
+
 func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 	env, ok := s.scope(w, r, false)
 	if !ok {
@@ -271,6 +337,19 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 		return
 	}
+	services, err := s.connectorServices(r.Context(), c, httpapi.CurrentUser(r))
+	if errors.Is(err, errConnectorServiceLimit) {
+		httpapi.Error(w, 422, "result_limit", "Too many services for connector detail")
+		return
+	}
+	if errors.Is(err, store.ErrForbidden) {
+		httpapi.Error(w, 403, "forbidden", "Connector permission required")
+		return
+	}
+	if err != nil {
+		httpapi.Error(w, 503, "storage_unavailable", "Connector service bindings are unavailable")
+		return
+	}
 	lang := r.Header.Get("Accept-Language")
 	result := summary(c, lang)
 	checked := localized(lang, "尚未检查", "Never checked")
@@ -286,7 +365,9 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 		result["auth"] = map[string]string{"brand": "vault", "text": label + localized(lang, " · Vault 引用", " · Vault reference")}
 	}
 	result["checked"] = checked
-	result["services"] = []string{}
+	result["services"] = services
+	// Query IDs are not yet bound to a V3 connector instance. Tool settings
+	// only describe desired configuration and do not grant execution.
 	result["queries"] = []string{}
 	result["tools"] = displayTools(c.Tools, lang)
 	httpapi.WriteJSON(w, 200, result)

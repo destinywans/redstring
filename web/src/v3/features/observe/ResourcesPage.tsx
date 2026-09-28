@@ -34,15 +34,19 @@ export default function ResourcesPage() {
   const [pinned, setPinned] = usePinned("topology");
   const box = useRef<HTMLDivElement>(null);
   const floating = !!sel && !pinned;
-  // Keep the selected node clear of the floating card by scrolling the canvas.
+  // Shift the graph left (not the legend or the page) just enough to keep the selected node clear of the card.
+  const [shift, setShift] = useState(0);
   useEffect(() => {
-    if (!floating || !box.current) return;
+    if (!floating || !box.current) {
+      setShift(0);
+      return;
+    }
     const el = box.current.querySelector<HTMLElement>(`[data-node="${CSS.escape(sel!)}"]`);
     if (!el) return;
     const b = box.current.getBoundingClientRect();
     const n = el.getBoundingClientRect();
     const overlap = n.right - (b.right - FLOAT_COVER) + 16;
-    if (overlap > 0) box.current.scrollBy({ left: overlap, behavior: "smooth" });
+    if (overlap > 0) setShift((x) => x - overlap);
   }, [sel, floating]);
   const [hover, setHover] = useState<string | null>(null);
   const [open, setOpen] = useState<Set<number>>(new Set());
@@ -145,13 +149,7 @@ export default function ResourcesPage() {
           >
             {!t && <Skeleton h={600} style={{ margin: 20 }} />}
             {t && view === "topo" && (
-              <div className="topo-canvas anim-fade" style={{ width: 880 + (floating ? FLOAT_COVER : 0) }}>
-                <div className={cx("blast-chip", blast && "show")}>
-                  <Icon name="alert" size={14} color="var(--danger)" />
-                  <b>{tx("影响范围", "Blast radius")}</b>
-                  {t.blast}
-                  <TextLink to="/canvas/INV-231">{tx("加入调查", "Add to investigation")}</TextLink>
-                </div>
+              <div className="topo-canvas anim-fade" style={{ transform: shift ? `translateX(${shift}px)` : undefined }}>
                 {t.groups.map((g) => (
                   <div key={g.id} className="topo-group" style={{ left: g.x, top: g.y, width: g.w, height: g.h }}>
                     <span>
@@ -197,24 +195,6 @@ export default function ResourcesPage() {
                     <Dot tone={n.status} size={8} pulse={n.status === "danger"} />
                   </button>
                 ))}
-                <div className="topo-legend">
-                  <Row gap={6}>
-                    <svg width="28" height="6" aria-hidden="true">
-                      <path className="flow" d="M0 3 L28 3" style={{ stroke: "var(--c2)", strokeWidth: 2 }} />
-                    </svg>
-                    {tx("正常流量（速度 ≈ 请求量）", "Normal traffic (speed ≈ volume)")}
-                  </Row>
-                  <Row gap={6}>
-                    <svg width="28" height="6" aria-hidden="true">
-                      <path className="flow-fast" d="M0 3 L28 3" style={{ stroke: "var(--danger)", strokeWidth: 2 }} />
-                    </svg>
-                    {tx("异常链路", "Unhealthy path")}
-                  </Row>
-                  <Row gap={8}>
-                    <span style={{ width: 26, height: 12, borderRadius: 4, border: "1px dashed var(--border-strong)" }} />
-                    {tx("命名空间 / 可用区", "Namespace / zone")}
-                  </Row>
-                </div>
               </div>
             )}
             {t && view === "tree" && (
@@ -261,6 +241,34 @@ export default function ResourcesPage() {
               </div>
             )}
           </div>
+          {t && view === "topo" && (
+            <>
+              <div className={cx("blast-chip", blast && "show")}>
+                <Icon name="alert" size={14} color="var(--danger)" />
+                <b>{tx("影响范围", "Blast radius")}</b>
+                {t.blast}
+                <TextLink to="/canvas/INV-231">{tx("加入调查", "Add to investigation")}</TextLink>
+              </div>
+              <div className="topo-legend">
+                <Row gap={6}>
+                  <svg width="28" height="6" aria-hidden="true">
+                    <path className="flow" d="M0 3 L28 3" style={{ stroke: "var(--c2)", strokeWidth: 2 }} />
+                  </svg>
+                  {tx("正常流量（速度 ≈ 请求量）", "Normal traffic (speed ≈ volume)")}
+                </Row>
+                <Row gap={6}>
+                  <svg width="28" height="6" aria-hidden="true">
+                    <path className="flow-fast" d="M0 3 L28 3" style={{ stroke: "var(--danger)", strokeWidth: 2 }} />
+                  </svg>
+                  {tx("异常链路", "Unhealthy path")}
+                </Row>
+                <Row gap={8}>
+                  <span style={{ width: 26, height: 12, borderRadius: 4, border: "1px dashed var(--border-strong)" }} />
+                  {tx("命名空间 / 可用区", "Namespace / zone")}
+                </Row>
+              </div>
+            </>
+          )}
           {t && floating && detail}
           </div>
         </div>

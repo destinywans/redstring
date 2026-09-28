@@ -224,6 +224,8 @@
 | GET | `/mcp-servers/{id}` | | `McpDetail` | mock |
 | PATCH | `/mcp-servers/{id}/tools/{name}` | `{ enabled }`（写入工具开启后仍只能以提案使用） | 结果 | mock |
 | POST | `/mcp-servers/{id}/review` | 审核新版本发现的工具 | 结果 | mock |
+
+当前 MCP 列表只是已显式绑定环境的登记元数据快照。服务端最多扫描 2000 条候选记录；若还有第 2001 条，返回 `413 candidate_scan_limit` 而不返回部分列表。超过 1000 条有权可见登记返回独立的 `413 scope_too_large`。这两个上限均不表示 MCP 健康、工具发现或执行可用。
 | GET | `/ingest/pull/{id}` | | `PullDraft`（请求模板、样例、字段映射、预览） | mock |
 | POST | `/ingest/pull/{id}/test` | 映射 | `{ ok, rows, dropped }` | mock |
 | GET | `/ingest/push` | | `PushView`（事件类型、接口说明、投递记录、配套栈） | mock |

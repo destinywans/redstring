@@ -1,5 +1,10 @@
 # AIOps Canvas 检查点
 
+## CP-108 · 2026-09-29 · MCP 列表候选扫描上限
+
+- WAN-122 业务提交 `a63071a` 合入为 `6d89b06`。MCP 列表在一致快照中至多扫描 2000 条候选登记；第 2001 条明确返回 `413 candidate_scan_limit`，不返回部分结果。原有超过 1000 条有权可见登记的 `413 scope_too_large` 独立保留；隐藏记录不计入可见上限，权限仍逐条在事务内复核。
+- 一次性 PG17 随机 schema 的 `go test ./internal/v3mcp -count=1` 通过，容器已清理；公共契约与 OpenAPI 同步两个 413 边界。数据库/策略逐候选查询仍受 20 秒超时，极慢环境可能 503；尚未发现或审核真实 MCP 工具。主契约维持 **32/166 `implemented`**。
+
 ## CP-107 · 2026-09-29 · MCP 发现协议共用 helper
 
 - 从 legacy `Service.Discover` 中抽出协议级 `aiextensions.DiscoverTools(ctx, credentialRoot, MCPConfig)`：传输配置先按既有端点与凭据引用规则验证，然后沿用 Streamable HTTP 连接、凭据文件权限、禁代理/重定向、超时、分页与工具数量上限。legacy 入口仍先执行原有账号/应用授权，再调用同一 helper；此处不赋予 V3 新权限或自动信任上游工具声明。

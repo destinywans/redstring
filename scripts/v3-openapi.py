@@ -351,7 +351,10 @@ v3_route('get','/mcp-servers','List accessible, environment-bound MCP extensions
     response=obj({'kpis':arr(obj({'id':string(),'label':string(),'value':string(),
         'sub':string(),'series':arr(v3_num())})), 'items':arr(ref('V3McpServerPartial')),
         'complete_v3_dto':v3_bool(),'unavailable_fields':arr(string())}),
-    desc='Partial registration metadata only. Unbound historical MCP records are omitted, not copied across environments. Health, discovered tools, call metrics and pending changes are unavailable; status is always pending.')
+    desc='Partial registration metadata only. Unbound historical MCP records are omitted, not copied across environments. A single authorization snapshot scans at most 2000 candidate registrations; a 2001st candidate returns 413 candidate_scan_limit rather than partial items, while more than 1000 visible registrations returns 413 scope_too_large. Health, discovered tools, call metrics and pending changes are unavailable; status is always pending.')
+P['/mcp-servers']['get']['responses']['413'] = {
+    'description':'Candidate scan or visible registration limit exceeded',
+    'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('get','/mcp-servers/{id}','Read accessible MCP registration metadata',
     response=ref('V3McpDetailPartial'),
     desc='Partial: no live discovery, health or tool-call history. Counts for resources and prompts are placeholders; unavailable_fields names the gaps. Credentials are never returned.')

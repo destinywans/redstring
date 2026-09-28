@@ -25957,7 +25957,7 @@
       "get": {
         "summary": "List accessible, environment-bound MCP extensions",
         "operationId": "get_mcp_servers",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial registration metadata only. Unbound historical MCP records are omitted, not copied across environments. Health, discovered tools, call metrics and pending changes are unavailable; status is always pending.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial registration metadata only. Unbound historical MCP records are omitted, not copied across environments. A single authorization snapshot scans at most 2000 candidate registrations; a 2001st candidate returns 413 candidate_scan_limit rather than partial items, while more than 1000 visible registrations returns 413 scope_too_large. Health, discovered tools, call metrics and pending changes are unavailable; status is always pending.",
         "responses": {
           "200": {
             "description": "Success",
@@ -26066,6 +26066,16 @@
           },
           "503": {
             "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Candidate scan or visible registration limit exceeded",
             "content": {
               "application/json": {
                 "schema": {

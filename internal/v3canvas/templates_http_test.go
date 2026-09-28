@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -179,6 +180,103 @@ func TestCanvasTemplatesHTTPV3ScopeSanitizationAndBoundedList(t *testing.T) {
 	assert(request(http.MethodPost, "dev", "", `{}`), 401, "")
 	assert(request(http.MethodPost, "dev", otherToken, `{}`), 403, "forbidden")
 	assert(request(http.MethodPost, "all", ownerToken, `{}`), 409, "env_view_only")
+	// The registered detail route must return typed nested blocks, edges,
+	// artifacts and empty per-node threads, not opaque database JSON.
+	const shapeNodes = `[
+ {"id":"root","x":10,"y":20,"w":240,"icon":"layers","tone":"info","title":"Root","sub":"Scope","badge":{"text":"ready","tone":"ok"},"blocks":[{"type":"kv","items":[["target","36k"]],"unknown":"private-extra"}]},
+ {"id":"child","x":290,"y":20,"w":240,"icon":"activity","tone":"warn","title":"Child","sub":"Branch","blocks":[{"type":"steps","items":[{"text":"approve","sub":"human","state":"gate"}]}]}
+]`
+	const shapeEdges = `[{"from":"root","to":"child","tone":"accent","live":true}]`
+	const shapeArtifacts = `[{"id":"artifact-1","x":290,"y":320,"icon":"file","tone":"info","title":"Plan","sub":"plan.md","href":"/artifacts/one","unknown":"private-extra"}]`
+	if _, err = db.Exec(ctx, `INSERT INTO v3_canvases(id,owner_id,environment_id,title,kind,nodes,edges,artifacts)
+ VALUES('CV-shapes',$1,'dev','Typed plan','plan',$2::jsonb,$3::jsonb,$4::jsonb)`, owner.ID, shapeNodes, shapeEdges, shapeArtifacts); err != nil {
+		t.Fatal(err)
+	}
+	shaped := canvasGet("/api/v1/canvases/CV-shapes", "dev", ownerToken)
+	assert(shaped, 200, "")
+	var shapedDoc struct {
+		Nodes     []Node                `json:"nodes"`
+		Edges     []Edge                `json:"edges"`
+		Artifacts []CanvasArtifact      `json:"artifacts"`
+		Threads   map[string]nodeThread `json:"threads"`
+	}
+	if err = json.Unmarshal(shaped.Body.Bytes(), &shapedDoc); err != nil ||
+		len(shapedDoc.Nodes) != 2 || shapedDoc.Nodes[0].Badge == nil || len(shapedDoc.Nodes[0].Blocks) != 1 ||
+		len(shapedDoc.Edges) != 1 || len(shapedDoc.Artifacts) != 1 ||
+		len(shapedDoc.Threads) != 2 || shapedDoc.Threads["child"].Turns == nil ||
+		strings.Contains(shaped.Body.String(), "private-extra") {
+		t.Fatalf("invalid typed canvas detail: %s (%v)", shaped.Body.String(), err)
+	}
+	if _, err = db.Exec(ctx, `UPDATE v3_canvases SET nodes=$1::jsonb WHERE id='CV-shapes'`, `[{"id":"root","x":10,"y":20,"w":240,"icon":"layers","tone":"info","title":"Root","sub":"Scope","blocks":[{"type":"kv"}]}]`); err != nil {
+		t.Fatal(err)
+	}
+	assert(canvasGet("/api/v1/canvases/CV-shapes", "dev", ownerToken), 503, "canvas_unavailable")
+	if _, err = db.Exec(ctx, `UPDATE v3_canvases SET nodes=$1::jsonb WHERE id='CV-shapes'`, shapeNodes); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO v3_canvas_node_exchanges
+	 (id,canvas_id,node_id,user_id,author,user_text,model_id,model_name,model_provider,state,lease_expires_at)
+	 SELECT 'CNT-bulk-' || gs::text,'CV-shapes','root',$1,'Owner','prompt','fake','Fake','Test','failed',clock_timestamp()
+	 FROM generate_series(1,$2) gs`, owner.ID, maxCanvasExchanges+1); err != nil {
+		t.Fatal(err)
+	}
+	assert(canvasGet("/api/v1/canvases/CV-shapes", "dev", ownerToken), 413, "canvas_history_too_large")
+	// A detail read holds the grant source until its consistent document
+	// snapshot has been read. Revocation either precedes the read or waits.
+	historyLock, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer historyLock.Rollback(context.Background())
+	if _, err = historyLock.Exec(ctx, `LOCK TABLE v3_canvas_node_exchanges IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatal(err)
+	}
+	reading := make(chan *httptest.ResponseRecorder, 1)
+	go func() { reading <- canvasGet("/api/v1/canvases/CV-source", "dev", ownerToken) }()
+	waiting := false
+	for until := time.Now().Add(2 * time.Second); time.Now().Before(until); time.Sleep(10 * time.Millisecond) {
+		if err = adminDB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+ WHERE datname=current_database() AND wait_event_type='Lock'
+ AND query LIKE '%SELECT node_id,id,author,user_text,left(assistant_text,65537)%')`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			break
+		}
+	}
+	if !waiting {
+		t.Fatal("detail did not reach locked history read")
+	}
+	revoked := make(chan error, 1)
+	go func() {
+		_, revokeErr := db.Exec(ctx, `DELETE FROM rbac_user_roles WHERE user_id=$1 AND role_id='canvas-editor'`, owner.ID)
+		revoked <- revokeErr
+	}()
+	waiting = false
+	for until := time.Now().Add(2 * time.Second); time.Now().Before(until); time.Sleep(10 * time.Millisecond) {
+		if err = adminDB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+ WHERE datname=current_database() AND wait_event_type='Lock'
+ AND query LIKE '%DELETE FROM rbac_user_roles WHERE user_id=%')`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			break
+		}
+	}
+	if !waiting {
+		t.Fatal("canvas grant revocation did not wait for read")
+	}
+	if err = historyLock.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assert(<-reading, 200, "")
+	if err = <-revoked; err != nil {
+		t.Fatal(err)
+	}
+	assert(canvasGet("/api/v1/canvases/CV-source", "dev", ownerToken), 403, "forbidden")
+	if _, err = db.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'canvas-editor')`, owner.ID); err != nil {
+		t.Fatal(err)
+	}
 	assert(request(http.MethodPost, "staging", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":{"nodes":true}}`), 404, "not_found")
 	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-other","name":"Unsafe","keep":{"nodes":true}}`), 404, "not_found")
 	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":{"nodes":true,"steps":true}}`), 422, "unsafe_template_content")

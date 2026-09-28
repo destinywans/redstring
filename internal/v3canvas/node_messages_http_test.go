@@ -107,7 +107,10 @@ func TestGenericNodeRepliesPersistAndKeepNodeContextIsolated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	nodes := []Node{{ID: "a", Title: "Alpha", Sub: "A only", Blocks: []json.RawMessage{}}, {ID: "b", Title: "Beta", Sub: "B only", Blocks: []json.RawMessage{}}}
+	nodes := []Node{
+		{ID: "a", X: 10, Y: 10, W: 240, Icon: "layers", Tone: "info", Title: "Alpha", Sub: "A only", Blocks: []json.RawMessage{}},
+		{ID: "b", X: 300, Y: 10, W: 240, Icon: "layers", Tone: "info", Title: "Beta", Sub: "B only", Blocks: []json.RawMessage{}},
+	}
 	if _, err = db.Exec(ctx, `INSERT INTO v3_canvases(id,owner_id,environment_id,title,kind,nodes) VALUES('CV-test',$1,'dev','Test','plan',$2::jsonb)`, owner.ID, mustJSON(nodes)); err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +311,7 @@ func TestGenericNodeRepliesPersistAndKeepNodeContextIsolated(t *testing.T) {
 	if !ok {
 		t.Fatal("fake model missing")
 	}
-	pending, _, status, err := svc.startNodeTurn(ctx, owner, "dev", "CV-test", "a", nodeMessageRequest{Text: "expired session"}, model)
+	pending, _, status, err := svc.startNodeTurn(ctx, ownerToken, owner, "dev", "CV-test", "a", nodeMessageRequest{Text: "expired session"}, model)
 	if err != nil {
 		t.Fatalf("start pending status=%d err=%v", status, err)
 	}
@@ -328,7 +331,7 @@ func TestGenericNodeRepliesPersistAndKeepNodeContextIsolated(t *testing.T) {
 	for until := time.Now().Add(2 * time.Second); time.Now().Before(until); time.Sleep(10 * time.Millisecond) {
 		if err = adminDB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
  WHERE datname=current_database() AND wait_event_type='Lock'
- AND query LIKE '%SELECT owner_id,environment_id FROM v3_canvases%')`).Scan(&waiting); err != nil {
+ AND query LIKE '%SELECT owner_id,environment_id,nodes FROM v3_canvases%')`).Scan(&waiting); err != nil {
 			t.Fatal(err)
 		}
 		if waiting {
@@ -356,5 +359,202 @@ func TestGenericNodeRepliesPersistAndKeepNodeContextIsolated(t *testing.T) {
 	svc.failNodeTurn(pending)
 	if err = db.QueryRow(ctx, `SELECT count(*) FROM v3_canvas_node_exchanges WHERE id=$1 AND assistant_text IS NOT NULL`, pending).Scan(&completed); err != nil || completed != 0 {
 		t.Fatalf("expired session answer saved: count=%d err=%v", completed, err)
+	}
+	if _, err = db.Exec(ctx, `UPDATE sessions SET expires_at=clock_timestamp()+interval '1 hour' WHERE token_hash=$1`, store.Hash(ownerToken)); err != nil {
+		t.Fatal(err)
+	}
+	// A child sees its own blocks, transitive parent blocks and completed
+	// parent exchanges. It never receives sibling data or failed prompts.
+	richNodes := append(nodes, Node{ID: "c", X: 600, Y: 10, W: 240, Icon: "layers", Tone: "info", Title: "Sibling", Sub: "sibling-secret", Blocks: []json.RawMessage{json.RawMessage(`{"type":"text","text":"sibling-block-secret"}`)}})
+	richNodes[0].Blocks = []json.RawMessage{json.RawMessage(`{"type":"text","text":"ancestor-block"}`)}
+	richNodes[1].Blocks = []json.RawMessage{json.RawMessage(`{"type":"text","text":"current-block"}`)}
+	if _, err = db.Exec(ctx, `UPDATE v3_canvases SET goal='plan-goal',nodes=$1::jsonb,edges=$2::jsonb WHERE id='CV-test'`, mustJSON(richNodes), mustJSON([]Edge{{From: "a", To: "b"}})); err != nil {
+		t.Fatal(err)
+	}
+	var inheritedRequest inference.Request
+	modelCalls := 0
+	fake.run = func(_ context.Context, req inference.Request) (string, error) {
+		modelCalls++
+		inheritedRequest = req
+		return "inherited answer", nil
+	}
+	w = request("POST", path+"b/messages", ownerToken, `{"text":"check inheritance","model":"fake"}`)
+	if w.Code != 200 || modelCalls != 1 {
+		t.Fatalf("inherited reply status=%d body=%s calls=%d", w.Code, w.Body.String(), modelCalls)
+	}
+	var prompt strings.Builder
+	for _, message := range inheritedRequest.Messages {
+		prompt.WriteString(message.Content)
+	}
+	for _, marker := range []string{"plan-goal", "ancestor-block", "current-block", "private alpha"} {
+		if !strings.Contains(prompt.String(), marker) {
+			t.Fatalf("inherited context missing %q: %s", marker, prompt.String())
+		}
+	}
+	for _, marker := range []string{"sibling-secret", "sibling-block-secret", "after revocation", "completion audit fails"} {
+		if strings.Contains(prompt.String(), marker) {
+			t.Fatalf("inherited context leaked %q: %s", marker, prompt.String())
+		}
+	}
+	// A large, otherwise valid node block returns a bounded input error
+	// before a prompt is recorded or a model is called.
+	largeText := strings.Repeat("x", 8000)
+	richNodes[1].Blocks = []json.RawMessage{
+		mustJSON(map[string]string{"type": "text", "text": largeText}),
+		mustJSON(map[string]string{"type": "text", "text": largeText}),
+		mustJSON(map[string]string{"type": "text", "text": largeText}),
+		mustJSON(map[string]string{"type": "text", "text": largeText}),
+	}
+	if _, err = db.Exec(ctx, `UPDATE v3_canvases SET nodes=$1::jsonb WHERE id='CV-test'`, mustJSON(richNodes)); err != nil {
+		t.Fatal(err)
+	}
+	var before int
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM v3_canvas_node_exchanges WHERE canvas_id='CV-test'`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	w = request("POST", path+"b/messages", ownerToken, `{"text":"too much context","model":"fake"}`)
+	if w.Code != 413 || modelCalls != 1 || !strings.Contains(w.Body.String(), `"code":"node_context_too_large"`) {
+		t.Fatalf("oversized node context status=%d body=%s calls=%d", w.Code, w.Body.String(), modelCalls)
+	}
+	var after int
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM v3_canvas_node_exchanges WHERE canvas_id='CV-test'`).Scan(&after); err != nil || after != before {
+		t.Fatalf("oversized context was recorded: before=%d after=%d err=%v", before, after, err)
+	}
+	if _, err = db.Exec(ctx, `UPDATE v3_canvases SET nodes=$1::jsonb WHERE id='CV-test'`, mustJSON(nodes)); err != nil {
+		t.Fatal(err)
+	}
+	// Hold the completion audit after the permission read. A concurrent
+	// grant deletion must wait until the accepted reply commits.
+	accepted, _, status, err := svc.startNodeTurn(ctx, ownerToken, owner, "dev", "CV-test", "a", nodeMessageRequest{Text: "grant race"}, model)
+	if err != nil || status != 0 {
+		t.Fatalf("start grant race status=%d err=%v", status, err)
+	}
+	auditLock, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer auditLock.Rollback(context.Background())
+	if _, err = auditLock.Exec(ctx, `LOCK TABLE management_audit IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatal(err)
+	}
+	completedTurn := make(chan error, 1)
+	go func() {
+		completedTurn <- svc.completeNodeTurn(ownerToken, owner, "dev", "CV-test", "a", accepted, "committed before revocation")
+	}()
+	waiting = false
+	for until := time.Now().Add(2 * time.Second); time.Now().Before(until); time.Sleep(10 * time.Millisecond) {
+		if err = adminDB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+ WHERE datname=current_database() AND wait_event_type='Lock'
+ AND query LIKE '%INSERT INTO management_audit%')`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			break
+		}
+	}
+	if !waiting {
+		t.Fatal("completion did not reach blocked audit insert")
+	}
+	reading := make(chan *httptest.ResponseRecorder, 1)
+	go func() { reading <- request("GET", "/api/v1/canvases/CV-test", ownerToken, "") }()
+	waiting = false
+	for until := time.Now().Add(2 * time.Second); time.Now().Before(until); time.Sleep(10 * time.Millisecond) {
+		if err = adminDB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+ WHERE datname=current_database() AND wait_event_type='Lock'
+ AND query LIKE '%FOR SHARE OF c%')`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			break
+		}
+	}
+	if !waiting {
+		t.Fatal("detail read did not wait for reply completion")
+	}
+	revokeDone := make(chan error, 1)
+	go func() {
+		_, revokeErr := db.Exec(ctx, `DELETE FROM rbac_user_roles WHERE user_id=$1 AND role_id='node-editor'`, owner.ID)
+		revokeDone <- revokeErr
+	}()
+	waiting = false
+	for until := time.Now().Add(2 * time.Second); time.Now().Before(until); time.Sleep(10 * time.Millisecond) {
+		if err = adminDB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+ WHERE datname=current_database() AND wait_event_type='Lock'
+ AND query LIKE '%DELETE FROM rbac_user_roles WHERE user_id=%')`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			break
+		}
+	}
+	if !waiting {
+		t.Fatal("grant revocation did not wait for completion")
+	}
+	if err = auditLock.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = <-completedTurn; err != nil {
+		t.Fatalf("accepted reply failed: %v", err)
+	}
+	readResult := <-reading
+	if readResult.Code != 200 || !strings.Contains(readResult.Body.String(), "committed before revocation") {
+		t.Fatalf("detail did not read committed reply: status=%d body=%s", readResult.Code, readResult.Body.String())
+	}
+	if err = <-revokeDone; err != nil {
+		t.Fatalf("grant revocation failed: %v", err)
+	}
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM v3_canvas_node_exchanges WHERE id=$1 AND state='completed' AND assistant_text='committed before revocation'`, accepted).Scan(&completed); err != nil || completed != 1 {
+		t.Fatalf("accepted reply missing before revocation: count=%d err=%v", completed, err)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'node-editor')`, owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM v3_canvas_node_exchanges WHERE canvas_id='CV-test'`).Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	// Session revocation while the start transaction waits on the canvas
+	// row must prevent both prompt persistence and the model call.
+	startLock, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer startLock.Rollback(context.Background())
+	if _, err = startLock.Exec(ctx, `SELECT 1 FROM v3_canvases WHERE id='CV-test' FOR UPDATE`); err != nil {
+		t.Fatal(err)
+	}
+	late := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		late <- request("POST", path+"b/messages", ownerToken, `{"text":"revoked while waiting","model":"fake"}`)
+	}()
+	waiting = false
+	for until := time.Now().Add(2 * time.Second); time.Now().Before(until); time.Sleep(10 * time.Millisecond) {
+		if err = adminDB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+ WHERE datname=current_database() AND wait_event_type='Lock'
+ AND query LIKE '%SELECT owner_id,environment_id,goal,nodes,edges,artifacts FROM v3_canvases%')`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			break
+		}
+	}
+	if !waiting {
+		t.Fatal("node start did not block on canvas row")
+	}
+	if _, err = db.Exec(ctx, `DELETE FROM sessions WHERE token_hash=$1`, store.Hash(ownerToken)); err != nil {
+		t.Fatal(err)
+	}
+	if err = startLock.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case result := <-late:
+		if result.Code != 401 || modelCalls != 1 {
+			t.Fatalf("revoked start status=%d body=%s calls=%d", result.Code, result.Body.String(), modelCalls)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("revoked node start did not finish")
+	}
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM v3_canvas_node_exchanges WHERE canvas_id='CV-test'`).Scan(&after); err != nil || after != before {
+		t.Fatalf("revoked start was recorded: before=%d after=%d err=%v", before, after, err)
 	}
 }

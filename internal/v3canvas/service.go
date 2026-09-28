@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
+	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
@@ -65,7 +66,12 @@ type Node struct {
 	Tone   string            `json:"tone"`
 	Title  string            `json:"title"`
 	Sub    string            `json:"sub"`
+	Badge  *NodeBadge        `json:"badge,omitempty"`
 	Blocks []json.RawMessage `json:"blocks"`
+}
+type NodeBadge struct {
+	Text string `json:"text"`
+	Tone string `json:"tone"`
 }
 type Edge struct {
 	From string `json:"from"`
@@ -485,12 +491,43 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// Every accepted node start/completion takes a conflicting canvas row
+	// lock. READ COMMITTED lets a detail request wait for such a completion
+	// and then read its final row and exchanges without a stale-snapshot 40001.
+	tx, err := s.Store.DB.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		httpapi.Error(w, 503, "canvas_unavailable", "Canvas unavailable")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	cookie, cookieErr := r.Cookie("aiops_session")
+	if cookieErr != nil || cookie.Value == "" {
+		httpapi.Error(w, 401, "unauthorized", "Login required")
+		return
+	}
+	var sessionUser string
+	err = tx.QueryRow(r.Context(), `SELECT s.user_id FROM sessions s JOIN users u ON u.id=s.user_id
+	 WHERE s.token_hash=$1 AND s.user_id=$2 AND s.expires_at>clock_timestamp()
+	 AND NOT u.disabled AND u.deleted_at IS NULL FOR SHARE OF s,u`, store.Hash(cookie.Value), httpapi.CurrentUser(r).ID).Scan(&sessionUser)
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpapi.Error(w, 401, "unauthorized", "Login required")
+		return
+	}
+	if err != nil {
+		httpapi.Error(w, 503, "canvas_unavailable", "Canvas authorization unavailable")
+		return
+	}
+	if err = lockCanvasGrantSources(r.Context(), tx, sessionUser); err != nil {
+		httpapi.Error(w, 503, "canvas_unavailable", "Canvas authorization unavailable")
+		return
+	}
 	var title, kind, status, goal, env, owner string
 	var services []string
 	var nodeRaw, edgeRaw, artifactRaw []byte
-	err := s.Store.DB.QueryRow(r.Context(), `SELECT c.title,c.kind,c.status,c.goal,c.environment_id,c.services,c.nodes,c.edges,c.artifacts,COALESCE(u.name,'')
+	err = tx.QueryRow(r.Context(), `SELECT c.title,c.kind,c.status,c.goal,c.environment_id,c.services,c.nodes,c.edges,c.artifacts,COALESCE(u.name,'')
  FROM v3_canvases c JOIN users u ON u.id=c.owner_id
- WHERE c.id=$1 AND c.owner_id=$2 AND c.environment_id=ANY($3::text[])`, r.PathValue("id"), httpapi.CurrentUser(r).ID, envs).Scan(&title, &kind, &status, &goal, &env, &services, &nodeRaw, &edgeRaw, &artifactRaw, &owner)
+	WHERE c.id=$1 AND c.owner_id=$2 AND c.environment_id=ANY($3::text[])
+	FOR SHARE OF c`, r.PathValue("id"), httpapi.CurrentUser(r).ID, envs).Scan(&title, &kind, &status, &goal, &env, &services, &nodeRaw, &edgeRaw, &artifactRaw, &owner)
 	if errors.Is(err, pgx.ErrNoRows) {
 		httpapi.Error(w, 404, "not_found", "Canvas not found")
 		return
@@ -499,28 +536,34 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "canvas_unavailable", "Canvas unavailable")
 		return
 	}
-	nodes, err := decodeNodes(nodeRaw)
-	if err != nil {
-		httpapi.Error(w, 503, "canvas_unavailable", "Canvas structure is invalid")
+	if err = (&rbac.V3Policy{Store: s.Store}).AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), rbac.V3Decision{Module: "canvas", Action: "view", EnvironmentID: env}); err != nil {
+		if errors.Is(err, store.ErrForbidden) {
+			httpapi.Error(w, 404, "not_found", "Canvas not found")
+		} else {
+			httpapi.Error(w, 503, "canvas_unavailable", "Canvas authorization unavailable")
+		}
 		return
 	}
-	edges, err := decodeEdges(edgeRaw)
+	nodes, edges, artifacts, err := decodeCanvasDocument(nodeRaw, edgeRaw, artifactRaw)
 	if err != nil {
 		httpapi.Error(w, 503, "canvas_unavailable", "Canvas structure is invalid")
-		return
-	}
-	artifacts := []json.RawMessage{}
-	if err = json.Unmarshal(artifactRaw, &artifacts); err != nil {
-		httpapi.Error(w, 503, "canvas_unavailable", "Canvas artifacts are invalid")
 		return
 	}
 	people := []string{}
 	if owner != "" {
 		people = append(people, owner)
 	}
-	threads, err := s.nodeThreads(r.Context(), r.PathValue("id"), nodes)
+	threads, err := s.nodeThreads(r.Context(), tx, r.PathValue("id"), nodes)
 	if err != nil {
-		httpapi.Error(w, 503, "canvas_unavailable", "Canvas conversations unavailable")
+		if errors.Is(err, errCanvasHistoryTooLarge) {
+			httpapi.Error(w, 413, "canvas_history_too_large", "Canvas conversation history exceeds the detail limit")
+		} else {
+			httpapi.Error(w, 503, "canvas_unavailable", "Canvas conversations unavailable")
+		}
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		httpapi.Error(w, 503, "canvas_unavailable", "Canvas unavailable")
 		return
 	}
 	doc := map[string]any{"id": r.PathValue("id"), "title": title, "kind": kind, "status": status, "participants": people, "note": goal, "nodes": nodes, "edges": edges, "artifacts": artifacts, "threads": threads}

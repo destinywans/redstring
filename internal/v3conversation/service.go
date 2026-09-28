@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -39,11 +40,23 @@ type Options struct {
 	// AllowedEnvironments returns the user's currently authorized environment IDs.
 	// It is required; a missing resolver fails closed.
 	AllowedEnvironments func(context.Context, core.User) ([]string, error)
+	// AuthorizeBackgroundTurn reloads the persisted owner and checks their current
+	// account state, role and V3 conversation/change grant for the persisted
+	// environment. It must not use the initiating request's identity or scope.
+	// Nil or an error fails the background reply closed.
+	AuthorizeBackgroundTurn func(context.Context, string, string) error
+	// ToolsForTurn binds read-only tools to the persisted owner and environment.
+	// Each tool must independently recheck its target's V3 scope when Read runs.
+	// Nil means no tools are offered to the model.
+	ToolsForTurn func(context.Context, string, string, string) ([]inference.EvidenceTool, error)
 	// ValidateAttachments must verify every upload ID belongs to the user and
 	// environment before a message can reference it. Nil rejects attachments.
 	ValidateAttachments func(context.Context, core.User, string, []json.RawMessage) error
 	// RunTimeout bounds a background turn after the initiating HTTP request has ended.
 	RunTimeout time.Duration
+	// Shutdown stops failed-reply persistence retries when the server exits.
+	// Startup recovery closes any interrupted reply after the next start.
+	Shutdown context.Context
 }
 
 type Service struct {
@@ -64,6 +77,9 @@ func New(db *pgxpool.Pool, runtime inference.Runner, opts Options) *Service {
 	}
 	if opts.RunTimeout <= 0 {
 		opts.RunTimeout = 5 * time.Minute
+	}
+	if opts.Shutdown == nil {
+		opts.Shutdown = context.Background()
 	}
 	return &Service{db: db, runtime: runtime, opts: opts}
 }
@@ -158,6 +174,28 @@ func (s *Service) allowed(ctx context.Context, user core.User, requested string)
 	return allowed, nil
 }
 
+func (s *Service) authorizeBackgroundTurn(ctx context.Context, owner, env string) error {
+	if owner == "" || env == "" || env == "all" || s.opts.AuthorizeBackgroundTurn == nil {
+		return ErrForbidden
+	}
+	// Do not persist details from the identity store or policy engine in a reply.
+	if s.opts.AuthorizeBackgroundTurn(ctx, owner, env) != nil {
+		return ErrForbidden
+	}
+	return nil
+}
+
+func (s *Service) authorizeActiveTurn(ctx context.Context, owner, env, sessionToken string) error {
+	if sessionToken == "" || s.opts.RefreshSession == nil {
+		return ErrForbidden
+	}
+	current, err := s.opts.RefreshSession(ctx, sessionToken)
+	if err != nil || current.ID != owner || current.Disabled {
+		return ErrForbidden
+	}
+	return s.authorizeBackgroundTurn(ctx, owner, env)
+}
+
 func (s *Service) create(ctx context.Context, owner, env, title, contextRef, model string) (string, error) {
 	id := store.ID()
 	tx, err := s.db.Begin(ctx)
@@ -203,7 +241,10 @@ func textPart(markdown string) json.RawMessage {
 
 func marshal(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
 
-func (s *Service) startTurn(ctx context.Context, id, owner, env, author string, input TurnInput, model inference.Model) (Message, string, error) {
+func (s *Service) startTurn(ctx context.Context, id, owner, env, author, sessionHash string, input TurnInput, model inference.Model) (Message, string, error) {
+	if sessionHash == "" {
+		return Message{}, "", ErrForbidden
+	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return Message{}, "", err
@@ -237,8 +278,8 @@ func (s *Service) startTurn(ctx context.Context, id, owner, env, author string, 
 	if err != nil {
 		return Message{}, "", err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO v3_conversation_replies(id,conversation_id,user_message_id,assistant_message_id,model_id,reasoning,state)
-        VALUES($1,$2,$3,$4,$5,$6,'queued')`, replyID, id, userID, assistantID, model.ID, input.Reasoning)
+	_, err = tx.Exec(ctx, `INSERT INTO v3_conversation_replies(id,conversation_id,user_message_id,assistant_message_id,model_id,reasoning,initiating_session_hash,state)
+		VALUES($1,$2,$3,$4,$5,$6,$7,'queued')`, replyID, id, userID, assistantID, model.ID, input.Reasoning, sessionHash)
 	if err != nil {
 		return Message{}, "", err
 	}
@@ -277,6 +318,14 @@ func (s *Service) finish(ctx context.Context, conv, reply, assistant string, par
 	errText := ""
 	if runErr != nil {
 		state, errText = "failed", runErr.Error()
+		if errors.Is(runErr, ErrForbidden) {
+			// A grant can be revoked after streaming began. Remove replayable model
+			// output and discard the in-memory answer before recording the failure.
+			parts = nil
+			if _, err = tx.Exec(ctx, `DELETE FROM v3_conversation_events WHERE conversation_id=$1 AND reply_id=$2`, conv, reply); err != nil {
+				return err
+			}
+		}
 		// The frozen V3 stream understands only four event types. A status part
 		// exposes the failure while message.completed closes EventSource. The
 		// durable reply state and error still record that the model did not succeed.
@@ -320,11 +369,44 @@ func (s *Service) finish(ctx context.Context, conv, reply, assistant string, par
 	return tx.Commit(ctx)
 }
 
-func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning string) {
-	ctx, cancel := context.WithTimeout(context.Background(), s.opts.RunTimeout)
+func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, sessionToken string) {
+	// A lost UPDATE response can mean the claim committed even though the caller
+	// saw an error. Reuse one claim ID until the database recovers so retrying
+	// cannot start a second model run or strand the reply in queued state.
+	claimID := store.ID()
+	var assistant, owner, env, sessionHash string
+	for attempt := 0; ; attempt++ {
+		claimCtx, claimCancel := context.WithTimeout(s.opts.Shutdown, 10*time.Second)
+		err := s.db.QueryRow(claimCtx, `UPDATE v3_conversation_replies AS r SET state='running',worker_claim_id=$3
+			FROM v3_conversations AS c
+			WHERE r.id=$1 AND r.conversation_id=$2 AND c.id=r.conversation_id
+				AND (r.state='queued' OR (r.state='running' AND r.worker_claim_id=$3))
+			RETURNING r.assistant_message_id,c.owner_id,c.environment_id,r.initiating_session_hash`, reply, conv, claimID).Scan(&assistant, &owner, &env, &sessionHash)
+		claimCancel()
+		if err == nil {
+			break
+		}
+		if errors.Is(err, pgx.ErrNoRows) || s.opts.Shutdown.Err() != nil {
+			return
+		}
+		if attempt == 0 || attempt%30 == 29 {
+			log.Printf("V3 reply claim not yet persisted (conversation=%s reply=%s): %v", conv, reply, err)
+		}
+		backoff := time.Duration(1<<min(attempt, 7)) * 200 * time.Millisecond
+		select {
+		case <-s.opts.Shutdown.Done():
+			return
+		case <-time.After(backoff):
+		}
+	}
+	ctx, cancel := context.WithTimeout(s.opts.Shutdown, s.opts.RunTimeout)
 	defer cancel()
-	var assistant string
-	if err := s.db.QueryRow(ctx, `UPDATE v3_conversation_replies SET state='running' WHERE id=$1 AND state='queued' RETURNING assistant_message_id`, reply).Scan(&assistant); err != nil {
+	if sessionToken == "" || sessionHash == "" || store.Hash(sessionToken) != sessionHash {
+		s.failTurn(conv, reply, assistant, nil, ErrForbidden)
+		return
+	}
+	if err := s.authorizeActiveTurn(ctx, owner, env, sessionToken); err != nil {
+		s.failTurn(conv, reply, assistant, nil, err)
 		return
 	}
 	started := time.Now()
@@ -344,26 +426,71 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning s
 	}
 	var streamed strings.Builder
 	var calls []map[string]any
+	invocations := map[string]inference.ToolInvocation{}
+	appendCalls := func() error {
+		part := map[string]any{"type": "tool_calls", "summary": fmt.Sprintf("%d tool calls", len(calls)), "calls": calls, "tokens": 0, "duration_s": 0}
+		if len(parts) == 1 {
+			parts = append(parts, marshal(part))
+		} else {
+			parts[1] = marshal(part)
+		}
+		return s.appendEvent(ctx, conv, reply, map[string]any{"type": "part.added", "message_id": assistant, "part": part})
+	}
 	emit := func(e inference.Event) error {
 		switch e.Type {
 		case "delta":
 			if e.Delta == "" {
 				return nil
 			}
+			if err := s.authorizeActiveTurn(ctx, owner, env, sessionToken); err != nil {
+				return err
+			}
 			streamed.WriteString(e.Delta)
 			return s.appendEvent(ctx, conv, reply, map[string]any{"type": "text.delta", "message_id": assistant, "index": 0, "delta": e.Delta})
+		case "tool_invocation":
+			if e.Invocation == nil || e.Invocation.StepID != e.StepID {
+				return errToolInvocation
+			}
+			if e.Invocation.Status != "started" {
+				previous, ok := invocations[e.StepID]
+				if !ok || previous.Name != e.Invocation.Name || previous.Status != "started" {
+					return errToolInvocation
+				}
+			}
+			if e.Invocation.Status == "started" {
+				if _, duplicate := invocations[e.StepID]; duplicate {
+					return errToolInvocation
+				}
+				if err := s.authorizeActiveTurn(ctx, owner, env, sessionToken); err != nil {
+					return err
+				}
+			}
+			if err := s.appendToolAudit(ctx, owner, env, conv, reply, e.Invocation); err != nil {
+				return err
+			}
+			if e.Invocation.Status == "started" {
+				invocations[e.StepID] = *e.Invocation
+				return nil
+			}
+			invocations[e.StepID] = *e.Invocation
+			if e.Invocation.Status == "failed" {
+				calls = append(calls, map[string]any{"id": e.StepID, "connector": "", "tool": e.Invocation.Name, "args": "", "duration_ms": e.Invocation.DurationMS, "status": "error"})
+				return appendCalls()
+			}
+			return s.authorizeActiveTurn(ctx, owner, env, sessionToken)
 		case "evidence":
 			if e.Evidence == nil {
 				return nil
 			}
-			calls = append(calls, map[string]any{"id": e.StepID, "connector": e.Evidence.Source, "tool": e.Evidence.Kind, "args": "", "duration_ms": 0, "status": "ok"})
-			part := map[string]any{"type": "tool_calls", "summary": fmt.Sprintf("%d tool calls", len(calls)), "calls": calls, "tokens": 0, "duration_s": 0}
-			if len(parts) == 1 {
-				parts = append(parts, marshal(part))
-			} else {
-				parts[1] = marshal(part)
+			if err := s.authorizeActiveTurn(ctx, owner, env, sessionToken); err != nil {
+				return err
 			}
-			if err := s.appendEvent(ctx, conv, reply, map[string]any{"type": "part.added", "message_id": assistant, "part": part}); err != nil {
+			invocation, ok := invocations[e.StepID]
+			if !ok || invocation.Status != "succeeded" {
+				return errToolInvocation
+			}
+			calls = append(calls, map[string]any{"id": e.StepID, "connector": e.Evidence.Source, "tool": invocation.Name, "args": "", "duration_ms": invocation.DurationMS, "status": "ok"})
+			if err := appendCalls(); err != nil {
 				return err
 			}
 			evidencePart := map[string]any{"type": "status", "text": e.Evidence.Title, "detail": e.Evidence.Content}
@@ -372,7 +499,25 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning s
 		}
 		return nil
 	}
-	answer, runErr := s.runtime.Run(ctx, inference.Request{RunID: reply, AttemptID: reply, BranchID: conv, ModelID: model.ID, Reasoning: reasoning, Messages: msgs}, emit)
+	var tools []inference.EvidenceTool
+	if model.Tools && s.opts.ToolsForTurn != nil {
+		tools, err = s.opts.ToolsForTurn(ctx, owner, env, model.ID)
+		if err != nil {
+			s.failTurn(conv, reply, assistant, parts, err)
+			return
+		}
+	}
+	// Even a long-running model can be interrupted by account or role changes.
+	for i := range tools {
+		read := tools[i].Read
+		tools[i].Read = func(toolCtx context.Context, query string) (inference.Evidence, error) {
+			if err := s.authorizeActiveTurn(toolCtx, owner, env, sessionToken); err != nil {
+				return inference.Evidence{}, err
+			}
+			return read(toolCtx, query)
+		}
+	}
+	answer, runErr := s.runtime.Run(ctx, inference.Request{RunID: reply, AttemptID: reply, BranchID: conv, ModelID: model.ID, Reasoning: reasoning, Messages: msgs, Tools: tools}, emit)
 	if runErr != nil {
 		parts[0] = textPart(streamed.String())
 		s.failTurn(conv, reply, assistant, parts, runErr)
@@ -394,10 +539,18 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning s
 	parts[0] = textPart(answer)
 	// The provider may emit a final accumulated chunk rather than individual deltas.
 	if suffix != "" {
+		if err := s.authorizeActiveTurn(ctx, owner, env, sessionToken); err != nil {
+			s.failTurn(conv, reply, assistant, nil, err)
+			return
+		}
 		if err := s.appendEvent(ctx, conv, reply, map[string]any{"type": "text.delta", "message_id": assistant, "index": 0, "delta": suffix}); err != nil {
 			s.failTurn(conv, reply, assistant, parts, err)
 			return
 		}
+	}
+	if err := s.authorizeActiveTurn(ctx, owner, env, sessionToken); err != nil {
+		s.failTurn(conv, reply, assistant, nil, err)
+		return
 	}
 	run := map[string]any{"id": reply, "agent": "AI", "version": "v3", "model": model.Name, "model_id": model.ID, "reasoning": reasoning, "tokens": 0, "duration_s": time.Since(started).Seconds()}
 	if err := s.finish(ctx, conv, reply, assistant, parts, run, nil); err != nil {
@@ -413,27 +566,51 @@ func completionSuffix(streamed, final string) (string, error) {
 }
 
 func (s *Service) failTurn(conv, reply, assistant string, parts []json.RawMessage, cause error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 	if parts == nil {
 		parts = []json.RawMessage{}
 	}
-	_ = s.finish(ctx, conv, reply, assistant, parts, nil, cause)
+	for attempt := 0; ; attempt++ {
+		if s.opts.Shutdown.Err() != nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(s.opts.Shutdown, 10*time.Second)
+		err := s.finish(ctx, conv, reply, assistant, parts, nil, cause)
+		cancel()
+		if err == nil || errors.Is(err, ErrBusy) {
+			return
+		}
+		if attempt == 0 || attempt%30 == 29 {
+			log.Printf("V3 reply failure not yet persisted (conversation=%s reply=%s): %v", conv, reply, err)
+		}
+		backoff := time.Duration(1<<min(attempt, 7)) * 200 * time.Millisecond
+		select {
+		case <-s.opts.Shutdown.Done():
+			return
+		case <-time.After(backoff):
+		}
+	}
 }
 
 // RecoverInterrupted marks turns from a previous process as failed before the
 // HTTP server begins accepting requests. It does not replay model calls, which
 // could duplicate provider charges and tool activity.
 func (s *Service) RecoverInterrupted(ctx context.Context) error {
-	rows, err := s.db.Query(ctx, `SELECT conversation_id,id,assistant_message_id FROM v3_conversation_replies WHERE state IN ('queued','running')`)
+	rows, err := s.db.Query(ctx, `SELECT r.conversation_id,r.id,r.assistant_message_id,c.owner_id,c.environment_id,
+		EXISTS(SELECT 1 FROM sessions ss WHERE ss.token_hash=r.initiating_session_hash
+			AND ss.user_id=c.owner_id AND ss.expires_at>now())
+		FROM v3_conversation_replies r JOIN v3_conversations c ON c.id=r.conversation_id
+		WHERE r.state IN ('queued','running')`)
 	if err != nil {
 		return err
 	}
-	type pending struct{ conv, reply, assistant string }
+	type pending struct {
+		conv, reply, assistant, owner, env string
+		sessionActive                      bool
+	}
 	var interrupted []pending
 	for rows.Next() {
 		var p pending
-		if err = rows.Scan(&p.conv, &p.reply, &p.assistant); err != nil {
+		if err = rows.Scan(&p.conv, &p.reply, &p.assistant, &p.owner, &p.env, &p.sessionActive); err != nil {
 			rows.Close()
 			return err
 		}
@@ -445,6 +622,12 @@ func (s *Service) RecoverInterrupted(ctx context.Context) error {
 		return err
 	}
 	for _, p := range interrupted {
+		if !p.sessionActive || s.authorizeBackgroundTurn(ctx, p.owner, p.env) != nil {
+			if err = s.finish(ctx, p.conv, p.reply, p.assistant, nil, nil, ErrForbidden); err != nil && !errors.Is(err, ErrBusy) {
+				return err
+			}
+			continue
+		}
 		parts, err := s.recoveredParts(ctx, p.reply)
 		if err != nil {
 			return err

@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/inference"
+	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3uploads"
 )
 
@@ -183,13 +184,18 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 422, "unsupported_reasoning", "Selected reasoning level is not supported by this model")
 		return
 	}
-	msg, reply, err := s.startTurn(r.Context(), id, u.ID, env, u.Name, in, model)
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil || cookie.Value == "" || s.opts.RefreshSession == nil {
+		apiError(w, 401, "unauthorized", "Sign in again")
+		return
+	}
+	msg, reply, err := s.startTurn(r.Context(), id, u.ID, env, u.Name, store.Hash(cookie.Value), in, model)
 	if err != nil {
 		operationError(w, err)
 		return
 	}
 	// The request's context ends with the HTTP response. A bounded worker owns the reply.
-	go s.runTurn(id, reply, model, in.Reasoning)
+	go s.runTurn(id, reply, model, in.Reasoning, cookie.Value)
 	write(w, 202, map[string]any{"message": msg, "reply_id": reply})
 }
 

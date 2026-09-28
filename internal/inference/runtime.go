@@ -50,14 +50,29 @@ type Evidence struct {
 	Title   string `json:"title"`
 	Content string `json:"content"`
 	Source  string `json:"source"`
+	// TargetID is a non-secret identifier resolved after a successful read.
+	TargetID string `json:"target_id,omitempty"`
 }
 type Event struct {
-	Type     string    `json:"type"`
-	Delta    string    `json:"delta,omitempty"`
-	Evidence *Evidence `json:"evidence,omitempty"`
+	Type       string          `json:"type"`
+	Delta      string          `json:"delta,omitempty"`
+	Evidence   *Evidence       `json:"evidence,omitempty"`
+	Invocation *ToolInvocation `json:"invocation,omitempty"`
 	// StepID links evidence to the tool step that produced it.
 	StepID string `json:"step_id,omitempty"`
 	Step   *Step  `json:"step,omitempty"`
+}
+
+// ToolInvocation records the read boundary without copying the query, tool
+// arguments, returned evidence, or error text into the audit event. A started
+// event is persisted immediately before Read; a terminal event follows Read.
+// DurationMS measures only the Read call, excluding callback persistence time.
+type ToolInvocation struct {
+	Name       string `json:"name"`
+	StepID     string `json:"step_id"`
+	Status     string `json:"status"` // started, succeeded, failed
+	DurationMS int64  `json:"duration_ms"`
+	TargetID   string `json:"target_id,omitempty"`
 }
 
 // Read receives an opaque query, not a target URL. Callers bind the authorized
@@ -386,7 +401,21 @@ func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) 
 			if len(args.Query) > 8192 {
 				return Evidence{}, errors.New("evidence query exceeds 8 KiB")
 			}
+			started := ToolInvocation{Name: read.Name, StepID: step.ID, Status: "started"}
+			if err = send(Event{Type: "tool_invocation", StepID: step.ID, Invocation: &started}); err != nil {
+				return Evidence{}, err
+			}
+			readStarted := time.Now()
 			ev, err = read.Read(tc, args.Query)
+			finished := ToolInvocation{Name: read.Name, StepID: step.ID, Status: "succeeded", DurationMS: time.Since(readStarted).Milliseconds()}
+			if err != nil {
+				finished.Status = "failed"
+			} else {
+				finished.TargetID = ev.TargetID
+			}
+			if emitErr := send(Event{Type: "tool_invocation", StepID: step.ID, Invocation: &finished}); emitErr != nil {
+				return Evidence{}, emitErr
+			}
 			if err != nil {
 				return Evidence{}, err
 			}

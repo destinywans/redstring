@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -115,7 +116,8 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	auditV3 := v3audit.New(s.DB, cfg.EnvironmentIDs)
 	auditV3.Register(api)
 	v3canvas.New(s).Register(api)
-	v3catalog.New(s, policy, cfg.EnvironmentIDs...).Register(api)
+	catalog := v3catalog.New(s, policy, cfg.EnvironmentIDs...)
+	catalog.Register(api)
 	v3proposals.New(s.DB, policy).Register(api)
 	api.MarkV3Route("POST /api/v1/services", "services", "change")
 	api.MarkV3ObjectRoute("GET /api/v1/services", "services", "view")
@@ -164,9 +166,73 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		}
 		return allowed, nil
 	}
+	// Function-calling support is model-specific. Only models explicitly
+	// verified by the operator are offered V3 read tools; an empty allowlist
+	// leaves ordinary conversations available without tool schemas.
+	toolModels := map[string]bool{}
+	configuredModels := map[string]bool{}
+	for _, model := range runtime.Models() {
+		configuredModels[model.ID] = model.Tools
+	}
+	for _, modelID := range strings.Split(os.Getenv("AIOPS_V3_TOOL_MODELS"), ",") {
+		modelID = strings.TrimSpace(modelID)
+		if modelID == "" {
+			continue
+		}
+		if !configuredModels[modelID] {
+			return fmt.Errorf("V3 tool model %q is not configured with tool support", modelID)
+		}
+		toolModels[modelID] = true
+	}
 	chat := v3conversation.New(s.DB, runtime, v3conversation.Options{
 		CurrentUser:    httpapi.CurrentUser,
 		RefreshSession: s.Session,
+		Shutdown:       ctx,
+		AuthorizeBackgroundTurn: func(ctx context.Context, ownerID, environmentID string) error {
+			configured := false
+			for _, id := range cfg.EnvironmentIDs {
+				if id == environmentID {
+					configured = true
+					break
+				}
+			}
+			if !configured {
+				return store.ErrForbidden
+			}
+			member, err := s.Member(ctx, ownerID)
+			if err != nil {
+				return err
+			}
+			if member.DeletedAt != nil || member.Disabled {
+				return store.ErrForbidden
+			}
+			return policy.Authorize(ctx, member.User, rbac.V3Decision{Module: "conversation", Action: "change", EnvironmentID: environmentID})
+		},
+		ToolsForTurn: func(_ context.Context, ownerID, environmentID, modelID string) ([]inference.EvidenceTool, error) {
+			if !toolModels[modelID] {
+				return nil, nil
+			}
+			return []inference.EvidenceTool{{
+				Name:        "read_service_profile",
+				Description: "Read one service's registered profile by exact service key in this conversation's environment. Health is unavailable unless independently observed.",
+				Read: func(ctx context.Context, key string) (inference.Evidence, error) {
+					member, err := s.Member(ctx, ownerID)
+					if err != nil || member.DeletedAt != nil || member.Disabled {
+						return inference.Evidence{}, errors.New("service profile unavailable")
+					}
+					profile, err := catalog.LookupServiceEvidence(ctx, member.User, environmentID, key)
+					if err != nil {
+						// Keep hidden and missing services indistinguishable to the model.
+						return inference.Evidence{}, errors.New("service profile unavailable")
+					}
+					content, err := json.Marshal(profile)
+					if err != nil {
+						return inference.Evidence{}, errors.New("service profile unavailable")
+					}
+					return inference.Evidence{Kind: "service_profile", Title: "Service profile: " + profile.Name, Content: string(content), Source: "service_catalog", TargetID: profile.ID}, nil
+				},
+			}}, nil
+		},
 		Environment: func(r *http.Request) (string, error) {
 			if cfg.Tier == "production" {
 				return cfg.DefaultEnv, nil

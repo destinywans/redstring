@@ -80,6 +80,39 @@ func TestV3EnvironmentAllIsReadOnlyAndFiltered(t *testing.T) {
 	}
 }
 
+func TestV3EnvironmentAllAllowsOnlyStructuredReadPost(t *testing.T) {
+	called := 0
+	h, err := NewV3EnvironmentHandler(V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev", "test"}},
+		testV3EnvironmentAuthorizer{"dev": true, "test": true}, testV3Session,
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			called++
+			scope, ok := V3ScopeFromContext(r.Context())
+			if !ok || !scope.All || !reflect.DeepEqual(scope.EnvironmentIDs, []string{"dev", "test"}) {
+				t.Fatalf("unexpected query scope: %+v", scope)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		path string
+		want int
+	}{{"/api/v1/knowledge/search", http.StatusNoContent}, {"/api/v1/knowledge/import", http.StatusConflict}} {
+		r := httptest.NewRequest(http.MethodPost, tc.path, nil)
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: "good"})
+		r.Header.Set("X-AIOps-Environment", "all")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != tc.want {
+			t.Fatalf("%s status=%d, want %d", tc.path, w.Code, tc.want)
+		}
+	}
+	if called != 1 {
+		t.Fatalf("read-only handler calls=%d", called)
+	}
+}
+
 func TestV3EnvironmentRejectsMissingAndUnauthorizedScope(t *testing.T) {
 	h, err := NewV3EnvironmentHandler(V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev", "test"}},
 		testV3EnvironmentAuthorizer{"dev": true}, testV3Session, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))

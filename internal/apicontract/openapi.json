@@ -21182,7 +21182,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/V3Preferences"
+                "$ref": "#/components/schemas/V3PreferencesPatch"
               }
             }
           }
@@ -23570,7 +23570,7 @@
       "get": {
         "summary": "Search available persisted records",
         "operationId": "get_search",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial: only scoped incidents and own conversations are indexed; recent is always empty until user navigation history exists.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial: only scoped services, incidents and own conversations are indexed; recent is always empty until user navigation history exists.",
         "responses": {
           "200": {
             "description": "Success",
@@ -23692,7 +23692,7 @@
       "get": {
         "summary": "List available mention candidates",
         "operationId": "get_mentions",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial: only incident and conversation references are supported.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial: only scoped service, incident and conversation references are supported.",
         "responses": {
           "200": {
             "description": "Success",
@@ -23796,6 +23796,7 @@
             "schema": {
               "type": "string",
               "enum": [
+                "service",
                 "incident",
                 "conversation"
               ]
@@ -23816,7 +23817,7 @@
       "get": {
         "summary": "Preview an accessible reference",
         "operationId": "get_mentions_kind_id_preview",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial: only incident and conversation records have verified previews; other kinds return 503 preview_unavailable. Metrics and related records are empty until sources are connected.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial: only service, incident and conversation records have verified previews; other kinds return 503 preview_unavailable. Metrics and related records are empty until sources are connected.",
         "responses": {
           "200": {
             "description": "Success",
@@ -24725,6 +24726,470 @@
         },
         "tags": [
           "connectors"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/mcp-servers": {
+      "get": {
+        "summary": "List accessible, environment-bound MCP extensions",
+        "operationId": "get_mcp_servers",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial registration metadata only. Unbound historical MCP records are omitted, not copied across environments. Health, discovered tools, call metrics and pending changes are unavailable; status is always pending.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "kpis": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "value": {
+                            "type": "string"
+                          },
+                          "sub": {
+                            "type": "string"
+                          },
+                          "series": {
+                            "type": "array",
+                            "items": {
+                              "type": "number"
+                            }
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3McpServerPartial"
+                      }
+                    },
+                    "complete_v3_dto": {
+                      "type": "boolean"
+                    },
+                    "unavailable_fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "mcp-servers"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/mcp-servers/{id}": {
+      "get": {
+        "summary": "Read accessible MCP registration metadata",
+        "operationId": "get_mcp_servers_id",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial: no live discovery, health or tool-call history. Counts for resources and prompts are placeholders; unavailable_fields names the gaps. Credentials are never returned.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3McpDetailPartial"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "mcp-servers"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/mcp-servers/{id}/tools/{name}": {
+      "patch": {
+        "summary": "Change a reviewed MCP tool",
+        "operationId": "patch_mcp_servers_id_tools_name",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Currently always returns 503 mcp_review_unavailable after scoped authorization; no trusted discovery snapshot exists.",
+        "responses": {
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "mcp-servers"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "enabled"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/mcp-servers/{id}/review": {
+      "post": {
+        "summary": "Review newly discovered MCP tools",
+        "operationId": "post_mcp_servers_id_review",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Currently always returns 503 mcp_review_unavailable after scoped authorization; no trusted discovery snapshot exists.",
+        "responses": {
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "mcp-servers"
         ],
         "security": [
           {
@@ -32827,6 +33292,37 @@
           "reduce_motion"
         ]
       },
+      "V3PreferencesPatch": {
+        "type": "object",
+        "properties": {
+          "theme": {
+            "type": "string",
+            "enum": [
+              "light",
+              "dark",
+              "system"
+            ]
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "zh-CN",
+              "en-US"
+            ]
+          },
+          "density": {
+            "type": "string",
+            "enum": [
+              "comfortable",
+              "compact"
+            ]
+          },
+          "reduce_motion": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
       "V3Me": {
         "type": "object",
         "properties": {
@@ -34901,6 +35397,261 @@
               },
               "additionalProperties": false
             }
+          }
+        },
+        "additionalProperties": false
+      },
+      "V3McpServerPartial": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "brand": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "desc": {
+            "type": "string"
+          },
+          "transport": {
+            "type": "string"
+          },
+          "caps": {
+            "type": "string"
+          },
+          "last": {
+            "type": "string"
+          },
+          "trust": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "tone": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "apps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "tone": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending"
+            ]
+          },
+          "complete_v3_dto": {
+            "type": "boolean"
+          },
+          "unavailable_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "V3McpDetailPartial": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "brand": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "desc": {
+            "type": "string"
+          },
+          "transport": {
+            "type": "string"
+          },
+          "caps": {
+            "type": "string"
+          },
+          "last": {
+            "type": "string"
+          },
+          "trust": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "tone": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "apps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "tone": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending"
+            ]
+          },
+          "complete_v3_dto": {
+            "type": "boolean"
+          },
+          "unavailable_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "version": {
+            "type": "string"
+          },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "tools": {
+                "type": "integer"
+              },
+              "resources": {
+                "type": "integer"
+              },
+              "prompts": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "desc": {
+                  "type": "string"
+                },
+                "write": {
+                  "type": "boolean"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "calls": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "resources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "uri": {
+                  "type": "string"
+                },
+                "desc": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "prompts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "desc": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "calls": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "time": {
+                  "type": "string"
+                },
+                "agent": {
+                  "type": "string"
+                },
+                "tool": {
+                  "type": "string"
+                },
+                "ms": {
+                  "type": "integer"
+                },
+                "ok": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "trust_info": {
+            "type": "object",
+            "properties": {
+              "readonly_check": {
+                "type": "string"
+              },
+              "scope": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "limit": {
+                "type": "string"
+              },
+              "auth": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
           }
         },
         "additionalProperties": false

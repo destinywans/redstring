@@ -4,6 +4,7 @@ package v3discovery
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/url"
@@ -54,6 +55,8 @@ type record struct {
 	Title         string
 	EnvironmentID string
 	ApplicationID string
+	TeamID        string
+	Tier          string
 	State         string
 }
 
@@ -72,6 +75,7 @@ type candidate struct {
 	Label  string `json:"label"`
 	Meta   string `json:"meta,omitempty"`
 	Status string `json:"status,omitempty"`
+	Tier   string `json:"tier,omitempty"`
 }
 
 func (s *Service) ready(w http.ResponseWriter, r *http.Request) ([]string, bool) {
@@ -88,6 +92,10 @@ func (s *Service) ready(w http.ResponseWriter, r *http.Request) ([]string, bool)
 }
 
 func parseQuery(w http.ResponseWriter, r *http.Request) (string, bool) {
+	if len(r.URL.Query()["q"]) > 1 {
+		httpapi.Error(w, 422, "invalid_query", "Select one search query")
+		return "", false
+	}
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	if utf8.RuneCountInString(q) > 200 || len(q) > 800 {
 		httpapi.Error(w, 422, "invalid_query", "Search query is too long")
@@ -114,7 +122,7 @@ func (s *Service) search(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, item := range records {
 			result = append(result, hit{Kind: item.Kind, ID: item.ID, Title: item.Title,
-				Subtitle: label(r, item.Kind), Status: tone(item), Href: href(item)})
+				Subtitle: meta(r, item), Status: tone(item), Href: href(item)})
 			if len(result) == 8 {
 				break
 			}
@@ -134,8 +142,12 @@ func (s *Service) mentions(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if len(r.URL.Query()["kind"]) > 1 {
+		httpapi.Error(w, 422, "invalid_kind", "Select one reference kind")
+		return
+	}
 	kind := strings.TrimSpace(r.URL.Query().Get("kind"))
-	if kind != "" && kind != "incident" && kind != "conversation" {
+	if kind != "" && kind != "service" && kind != "incident" && kind != "conversation" {
 		httpapi.Error(w, 422, "unsupported_kind", "Mention kind is not available")
 		return
 	}
@@ -147,7 +159,7 @@ func (s *Service) mentions(w http.ResponseWriter, r *http.Request) {
 	items := []candidate{}
 	for _, item := range records {
 		items = append(items, candidate{Kind: item.Kind, ID: item.ID, Label: item.Title,
-			Meta: label(r, item.Kind), Status: tone(item)})
+			Meta: meta(r, item), Status: tone(item), Tier: item.Tier})
 		if len(items) == 30 {
 			break
 		}
@@ -161,7 +173,7 @@ func (s *Service) preview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kind, id := r.PathValue("kind"), r.PathValue("id")
-	if kind != "incident" && kind != "conversation" {
+	if kind != "service" && kind != "incident" && kind != "conversation" {
 		httpapi.Error(w, 503, "preview_unavailable", "This reference kind has no verified preview source")
 		return
 	}
@@ -178,10 +190,17 @@ func (s *Service) preview(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "preview_unavailable", "Reference preview unavailable")
 		return
 	}
-	httpapi.WriteJSON(w, 200, map[string]any{
-		"kind": item.Kind, "id": item.ID, "title": item.Title, "subtitle": label(r, item.Kind),
-		"status": tone(item), "metrics": []any{}, "related": []any{}, "href": href(item),
-	})
+	preview := map[string]any{
+		"kind": item.Kind, "id": item.ID, "title": item.Title, "subtitle": meta(r, item),
+		"metrics": []any{}, "related": []any{}, "href": href(item),
+	}
+	if value := tone(item); value != "" {
+		preview["status"] = value
+	}
+	if item.Tier != "" {
+		preview["tier"] = item.Tier
+	}
+	httpapi.WriteJSON(w, 200, preview)
 }
 
 func (s *Service) commands(w http.ResponseWriter, r *http.Request) {
@@ -201,6 +220,49 @@ func (s *Service) records(r *http.Request, envs []string, q, kind string) ([]rec
 	if q != "" {
 		limit = 101
 	}
+	if kind == "" || kind == "service" {
+		rows, err := s.DB.Query(r.Context(), `SELECT a.id,a.name,ve.environment_id,COALESCE(a.owner_team_id,''),COALESCE(p.tier,'')
+FROM applications a
+JOIN v3_application_environments ve ON ve.application_id=a.id
+JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
+LEFT JOIN v3_service_environment_profiles p ON p.application_id=a.id AND p.environment_id=ve.environment_id
+WHERE NOT a.archived AND ve.environment_id=ANY($1::text[])
+AND ($2='' OR aiops_search_match(concat_ws(' ',a.key,a.name,a.id),$2))
+AND EXISTS (SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$4
+ AND g.module='services' AND g.action='view' AND (
+  (g.scope_kind='global' AND g.scope_id='*') OR
+  (g.scope_kind='environment' AND g.scope_id=ve.environment_id) OR
+  (g.scope_kind='application' AND g.scope_id=a.id) OR
+  (g.scope_kind='team' AND g.scope_id=a.owner_team_id)))
+ORDER BY a.name,ve.environment_id,a.id LIMIT $3`, envs, q, limit, httpapi.CurrentUser(r).ID)
+		if err != nil {
+			return nil, err
+		}
+		count := 0
+		for rows.Next() {
+			var v record
+			var appID string
+			v.Kind = "service"
+			if err = rows.Scan(&appID, &v.Title, &v.EnvironmentID, &v.TeamID, &v.Tier); err != nil {
+				break
+			}
+			v.ApplicationID = appID
+			v.ID = serviceRecordID(appID, v.EnvironmentID)
+			v.Tier = supportedTier(v.Tier)
+			items = append(items, v)
+			count++
+		}
+		if err == nil {
+			err = rows.Err()
+		}
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		if q != "" && count > 100 {
+			return nil, errTooBroad
+		}
+	}
 	if kind == "" || kind == "incident" {
 		rows, err := s.DB.Query(r.Context(), `SELECT i.id,i.title,e.key,i.application_id,i.status
 FROM ops_incidents i
@@ -208,7 +270,12 @@ JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.
 JOIN v3_application_environments ve ON ve.application_id=i.application_id AND ve.environment_id=e.key
 JOIN applications a ON a.id=i.application_id AND NOT a.archived
 WHERE e.key=ANY($1::text[]) AND ($2='' OR aiops_search_match(i.id||' '||i.title,$2))
-ORDER BY i.updated_at DESC,i.id LIMIT $3`, envs, q, limit)
+AND EXISTS (SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$4
+ AND g.module='events' AND g.action='view' AND (
+  (g.scope_kind='global' AND g.scope_id='*') OR
+  (g.scope_kind='environment' AND g.scope_id=e.key) OR
+  (g.scope_kind='application' AND g.scope_id=i.application_id)))
+ORDER BY i.updated_at DESC,i.id LIMIT $3`, envs, q, limit, httpapi.CurrentUser(r).ID)
 		if err != nil {
 			return nil, err
 		}
@@ -234,6 +301,10 @@ ORDER BY i.updated_at DESC,i.id LIMIT $3`, envs, q, limit)
 	if kind == "" || kind == "conversation" {
 		rows, err := s.DB.Query(r.Context(), `SELECT id,title,environment_id,status FROM v3_conversations
 WHERE owner_id=$1 AND environment_id=ANY($2) AND ($3='' OR aiops_search_match(id||' '||title,$3))
+AND EXISTS (SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$1
+ AND g.module='conversation' AND g.action='view' AND (
+  (g.scope_kind='global' AND g.scope_id='*') OR
+  (g.scope_kind='environment' AND g.scope_id=environment_id)))
 ORDER BY updated_at DESC,id LIMIT $4`, httpapi.CurrentUser(r).ID, envs, q, limit)
 		if err != nil {
 			return nil, err
@@ -262,10 +333,10 @@ ORDER BY updated_at DESC,id LIMIT $4`, httpapi.CurrentUser(r).ID, envs, q, limit
 	visible := make([]record, 0, len(items))
 	authorized := map[string]error{}
 	for _, item := range items {
-		if q != "" && !searchtext.Match(item.ID+" "+item.Title, q) {
+		if q != "" && item.Kind != "service" && !searchtext.Match(item.ID+" "+item.Title, q) {
 			continue
 		}
-		key := item.Kind + "\x00" + item.EnvironmentID + "\x00" + item.ApplicationID
+		key := item.Kind + "\x00" + item.EnvironmentID + "\x00" + item.ApplicationID + "\x00" + item.TeamID
 		err, cached := authorized[key]
 		if !cached {
 			err = s.authorize(r, item)
@@ -283,7 +354,20 @@ ORDER BY updated_at DESC,id LIMIT $4`, httpapi.CurrentUser(r).ID, envs, q, limit
 func (s *Service) recordByID(r *http.Request, envs []string, kind, id string) (record, error) {
 	v := record{Kind: kind}
 	var err error
-	if kind == "incident" {
+	if kind == "service" {
+		appID, env, valid := parseServiceRecordID(id)
+		if !valid {
+			return v, pgx.ErrNoRows
+		}
+		err = s.DB.QueryRow(r.Context(), `SELECT a.name,COALESCE(a.owner_team_id,''),COALESCE(p.tier,'')
+FROM applications a
+JOIN v3_application_environments ve ON ve.application_id=a.id
+JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
+LEFT JOIN v3_service_environment_profiles p ON p.application_id=a.id AND p.environment_id=ve.environment_id
+WHERE a.id=$1 AND NOT a.archived AND ve.environment_id=$2 AND ve.environment_id=ANY($3::text[])`, appID, env, envs).Scan(&v.Title, &v.TeamID, &v.Tier)
+		v.ID, v.ApplicationID, v.EnvironmentID = id, appID, env
+		v.Tier = supportedTier(v.Tier)
+	} else if kind == "incident" {
 		err = s.DB.QueryRow(r.Context(), `SELECT i.id,i.title,e.key,i.application_id,i.status FROM ops_incidents i
 JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id AND NOT e.archived
 JOIN v3_application_environments ve ON ve.application_id=i.application_id AND ve.environment_id=e.key
@@ -303,10 +387,44 @@ func (s *Service) authorize(r *http.Request, v record) error {
 	module := "events"
 	if v.Kind == "conversation" {
 		module = "conversation"
+	} else if v.Kind == "service" {
+		module = "services"
 	}
-	return s.Access.Authorize(r.Context(), httpapi.CurrentUser(r), rbac.V3Decision{
+	err := s.Access.Authorize(r.Context(), httpapi.CurrentUser(r), rbac.V3Decision{
 		Module: module, Action: "view", EnvironmentID: v.EnvironmentID, ApplicationID: v.ApplicationID,
 	})
+	if err == nil || !errors.Is(err, store.ErrForbidden) || v.Kind != "service" || v.TeamID == "" {
+		return err
+	}
+	return s.Access.Authorize(r.Context(), httpapi.CurrentUser(r), rbac.V3Decision{
+		Module: module, Action: "view", EnvironmentID: v.EnvironmentID, TeamID: v.TeamID,
+	})
+}
+
+func serviceRecordID(appID, env string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(appID + "\x00" + env))
+}
+
+func parseServiceRecordID(id string) (string, string, bool) {
+	if id == "" || len(id) > 1024 {
+		return "", "", false
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(id)
+	if err != nil {
+		return "", "", false
+	}
+	parts := strings.Split(string(raw), "\x00")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" || serviceRecordID(parts[0], parts[1]) != id {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
+}
+
+func supportedTier(value string) string {
+	if value == "T0" || value == "T1" || value == "T2" {
+		return value
+	}
+	return ""
 }
 
 var errTooBroad = errors.New("discovery candidates exceed bounded query")
@@ -323,11 +441,20 @@ func href(v record) string {
 	if v.Kind == "incident" {
 		return "/incidents/" + url.PathEscape(v.ID)
 	}
+	if v.Kind == "service" {
+		return "/services/" + url.PathEscape(v.ID)
+	}
 	return "/conversations/" + url.PathEscape(v.ID)
 }
 
 func label(r *http.Request, kind string) string {
 	en := strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "en")
+	if kind == "service" {
+		if en {
+			return "Service"
+		}
+		return "服务"
+	}
 	if kind == "incident" {
 		if en {
 			return "Incident"
@@ -338,6 +465,13 @@ func label(r *http.Request, kind string) string {
 		return "Conversation"
 	}
 	return "对话"
+}
+
+func meta(r *http.Request, v record) string {
+	if v.EnvironmentID == "" {
+		return label(r, v.Kind)
+	}
+	return label(r, v.Kind) + " · " + v.EnvironmentID
 }
 
 func tone(v record) string {

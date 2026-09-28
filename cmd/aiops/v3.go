@@ -25,6 +25,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3events"
 	"github.com/wans/aiops-canvas/internal/v3integrations"
 	"github.com/wans/aiops-canvas/internal/v3knowledge"
+	"github.com/wans/aiops-canvas/internal/v3mcp"
 	"github.com/wans/aiops-canvas/internal/v3observe"
 	"github.com/wans/aiops-canvas/internal/v3proposals"
 	"github.com/wans/aiops-canvas/internal/v3settings"
@@ -111,6 +112,7 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	api.MarkV3ObjectRoute("GET /api/v1/services/{id}", "services", "view")
 	api.MarkV3ObjectRoute("GET /api/v1/service-mappings", "services", "view")
 	v3discovery.New(s.DB, policy).Register(api)
+	v3mcp.New(s.DB, policy).Register(api)
 
 	personalSettings := v3settings.New(s, runtime)
 	personalSettings.Register(api)

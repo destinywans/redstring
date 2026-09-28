@@ -115,7 +115,7 @@ func NewV3EnvironmentHandler(cfg V3InstanceConfig, authorizer V3EnvironmentAutho
 				Error(w, http.StatusUnprocessableEntity, "invalid_environment", "All is only available on a non-production instance")
 				return
 			}
-			if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions && !v3ReadOnlyPost(r) {
 				Error(w, http.StatusConflict, "env_view_only", "All non-production environments are read-only")
 				return
 			}
@@ -153,6 +153,13 @@ func NewV3EnvironmentHandler(cfg V3InstanceConfig, authorizer V3EnvironmentAutho
 		r = r.WithContext(context.WithValue(r.Context(), v3EnvironmentContextKey{}, V3EnvironmentScope{Tier: cfg.Tier, EnvironmentIDs: []string{env}}))
 		next.ServeHTTP(w, r)
 	}), nil
+}
+
+// Some existing query APIs use POST for structured read input. Keep this
+// allowlist narrow: an all-environment view must never turn a mutation into a
+// write merely because its handler happens to return data.
+func v3ReadOnlyPost(r *http.Request) bool {
+	return r.Method == http.MethodPost && r.URL.Path == "/api/v1/knowledge/search"
 }
 
 func v3EnvironmentExempt(r *http.Request) bool {

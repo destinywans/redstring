@@ -26,6 +26,7 @@ def v3_route(method, path, summary, *, body=None, response=None, status=200, que
 S['V3Preferences'] = obj({'theme': string(enum=['light','dark','system']),
     'locale': string(enum=['zh-CN','en-US']), 'density': string(enum=['comfortable','compact']),
     'reduce_motion': v3_bool()}, ['theme','locale','density','reduce_motion'])
+S['V3PreferencesPatch'] = obj(S['V3Preferences']['properties'])
 S['V3Me'] = v3_object('id name email phone title team department timezone', {
     'avatar_url': string(), 'oncall': obj({'active': v3_bool(), 'until': string(), 'schedule': string()}, ['active']),
     'roles': arr(string()), 'mfa': obj({'totp': v3_bool(), 'passkeys': integer()}, ['totp','passkeys']),
@@ -65,7 +66,7 @@ S['V3NotificationSettings'] = obj({'quiet': obj({'enabled': v3_bool(), 'from': s
 v3_route('get','/instance','Read the configured V3 isolation boundary',role='public',response=ref('V3InstanceInfo'))
 v3_route('get','/me','Read current account',response=ref('V3Me'))
 v3_route('patch','/me','Update current account',body=v3_object('name phone title timezone'),response=ref('V3Me'))
-v3_route('patch','/me/preferences','Update visual and language preferences',body=ref('V3Preferences'),response=ref('V3Preferences'))
+v3_route('patch','/me/preferences','Update visual and language preferences',body=ref('V3PreferencesPatch'),response=ref('V3Preferences'))
 v3_route('get','/me/profile','Read personal profile',response=ref('V3ProfileView'))
 v3_route('put','/me/profile','Update personal profile',body=ref('V3ProfileView'),response=ref('V3ProfileView'))
 v3_route('delete','/me/sessions/{id}','Revoke one account session',status=204)
@@ -201,9 +202,8 @@ v3_route('post','/canvas-templates','Save a safe canvas structure template',
     desc='Only structure is accepted; steps, Runbooks and content return 422.')
 P['/conversations/{id}/events']['get']['responses']['200']['content'] = {'text/event-stream':{'schema':string()}}
 
-# Search and @mentions currently cover only authorized incidents and the
-# current user's conversations. There is no persisted recent list or command
-# registry, so their absence is reported rather than replaced with fixtures.
+# Search and @mentions use persisted, scoped service, incident and conversation
+# records. There is no persisted recent list or executable command registry.
 S['V3SearchHit'] = obj({**fieldnames('kind id title subtitle status href')})
 S['V3MentionCandidate'] = obj({**fieldnames('kind id label meta status')})
 S['V3MentionPreviewPartial'] = obj({**fieldnames('kind id title subtitle status href'),
@@ -212,14 +212,14 @@ S['V3MentionPreviewPartial'] = obj({**fieldnames('kind id title subtitle status 
 v3_route('get','/search','Search available persisted records',
     response=obj({'query':string(),'hits':arr(ref('V3SearchHit')),'recent':arr(ref('V3SearchHit'))}),
     query=[v3_query('q')],
-    desc='Partial: only scoped incidents and own conversations are indexed; recent is always empty until user navigation history exists.')
+    desc='Partial: only scoped services, incidents and own conversations are indexed; recent is always empty until user navigation history exists.')
 v3_route('get','/mentions','List available mention candidates',
     response=obj({'items':arr(ref('V3MentionCandidate'))}),
-    query=[v3_query('q'),v3_query('kind',string(enum=['incident','conversation']))],
-    desc='Partial: only incident and conversation references are supported.')
+    query=[v3_query('q'),v3_query('kind',string(enum=['service','incident','conversation']))],
+    desc='Partial: only scoped service, incident and conversation references are supported.')
 v3_route('get','/mentions/{kind}/{id}/preview','Preview an accessible reference',
     response=ref('V3MentionPreviewPartial'),
-    desc='Partial: only incident and conversation records have verified previews; other kinds return 503 preview_unavailable. Metrics and related records are empty until sources are connected.')
+    desc='Partial: only service, incident and conversation records have verified previews; other kinds return 503 preview_unavailable. Metrics and related records are empty until sources are connected.')
 v3_route('get','/commands','Read executable command catalog',
     desc='Currently always returns 503 commands_unavailable; no verified command registry is configured.')
 P['/commands']['get']['responses'].pop('200')
@@ -253,6 +253,38 @@ v3_route('patch','/connectors/{id}','Update connector configuration',role='admin
 v3_route('post','/connectors/{id}/test','Probe configured connector',role='admin',
     response=obj({'ok':v3_bool(),'latency_ms':integer(),'error_code':string()}),
     desc='Failure returns an explicit error; a configured adapter is not silently reported healthy.')
+
+# MCP registrations are legacy application-bound records. Only an explicitly
+# reviewed registration/environment binding may appear in V3; the migration
+# does not guess an environment for historical registrations.
+S['V3McpServerPartial'] = obj({**fieldnames('id brand name desc transport caps last'),
+    'trust':obj({'label':string(),'tone':string()}),
+    'apps':arr(obj({'label':string(),'tone':string()})),
+    'status':string(enum=['pending']),
+    'complete_v3_dto':v3_bool(), 'unavailable_fields':arr(string())})
+S['V3McpDetailPartial'] = obj({**S['V3McpServerPartial']['properties'],
+    'version':string(), 'counts':obj({k:integer() for k in ['tools','resources','prompts']}),
+    'tools':arr(obj({'name':string(),'desc':string(),'write':v3_bool(),
+        'enabled':v3_bool(),'calls':string()})),
+    'resources':arr(obj({'uri':string(),'desc':string()})),
+    'prompts':arr(obj({'name':string(),'desc':string()})),
+    'calls':arr(obj({'time':string(),'agent':string(),'tool':string(),'ms':integer(),'ok':v3_bool()})),
+    'trust_info':obj({'readonly_check':string(),'scope':arr(string()),'limit':string(),'auth':string()})})
+v3_route('get','/mcp-servers','List accessible, environment-bound MCP extensions',
+    response=obj({'kpis':arr(obj({'id':string(),'label':string(),'value':string(),
+        'sub':string(),'series':arr(v3_num())})), 'items':arr(ref('V3McpServerPartial')),
+        'complete_v3_dto':v3_bool(),'unavailable_fields':arr(string())}),
+    desc='Partial registration metadata only. Unbound historical MCP records are omitted, not copied across environments. Health, discovered tools, call metrics and pending changes are unavailable; status is always pending.')
+v3_route('get','/mcp-servers/{id}','Read accessible MCP registration metadata',
+    response=ref('V3McpDetailPartial'),
+    desc='Partial: no live discovery, health or tool-call history. Counts for resources and prompts are placeholders; unavailable_fields names the gaps. Credentials are never returned.')
+v3_route('patch','/mcp-servers/{id}/tools/{name}','Change a reviewed MCP tool',
+    body=obj({'enabled':v3_bool()},['enabled']),
+    desc='Currently always returns 503 mcp_review_unavailable after scoped authorization; no trusted discovery snapshot exists.')
+P['/mcp-servers/{id}/tools/{name}']['patch']['responses'].pop('200')
+v3_route('post','/mcp-servers/{id}/review','Review newly discovered MCP tools',
+    desc='Currently always returns 503 mcp_review_unavailable after scoped authorization; no trusted discovery snapshot exists.')
+P['/mcp-servers/{id}/review']['post']['responses'].pop('200')
 
 # Alerts and incidents: document the real partial responses explicitly, while
 # completion status remains tracked separately in the human contract.

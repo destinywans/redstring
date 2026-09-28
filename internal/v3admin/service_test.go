@@ -10,7 +10,7 @@ func TestMatrixUsesStableCodesAndRejectsUnknownCells(t *testing.T) {
 		{Module: "roles", Action: "manage", ScopeKind: "global", ScopeID: "*", Assurance: "standard"},
 		{Module: "proposals", Action: "approve", ScopeKind: "global", ScopeID: "*", Assurance: "passkey"},
 	}, false)
-	if rows[4].Grants[3] != 2 || rows[8].Grants[4] != 1 {
+	if rows[4].Grants[3] != 2 || rows[9].Grants[4] != 1 || rows[6].Resource != "服务目录" {
 		t.Fatalf("stored grants not represented: %+v", rows)
 	}
 	got, err := canonicalMatrix(rows)

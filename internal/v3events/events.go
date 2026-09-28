@@ -48,6 +48,8 @@ func (s *Service) RegisterNew(api *httpapi.Server) {
 	api.MarkV3ObjectRoute("POST /api/v1/alerts/{id}/claim", "events", "change")
 	api.Register("POST /api/v1/incidents/{id}/timeline", "operator", s.AppendTimeline)
 	api.MarkV3ObjectRoute("POST /api/v1/incidents/{id}/timeline", "events", "change")
+	api.Register("GET /api/v1/incidents/{id}/timeline/manual", "viewer", s.ManualTimeline)
+	api.MarkV3ObjectRoute("GET /api/v1/incidents/{id}/timeline/manual", "events", "view")
 }
 
 type incidentRecord struct {

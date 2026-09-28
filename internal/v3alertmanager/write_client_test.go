@@ -16,12 +16,24 @@ const testSilenceID = "81bdbb76-d904-494f-bd03-5dd8fe33eaa3"
 const missingSilenceID = "38fd904f-1055-4f69-a950-d50f4f37bc8c"
 
 func sampleCreateSilence() CreateSilenceRequest {
+	start := time.Now().UTC().Add(time.Minute).Truncate(time.Second)
 	return CreateSilenceRequest{
 		Matchers:  []Matcher{{Name: "environment", Value: "test", IsEqual: true}},
-		StartsAt:  time.Date(2026, 9, 29, 10, 0, 0, 0, time.UTC),
-		EndsAt:    time.Date(2026, 9, 29, 11, 0, 0, 0, time.UTC),
+		StartsAt:  start,
+		EndsAt:    start.Add(time.Hour),
 		CreatedBy: "operator",
 		Comment:   "maintenance",
+	}
+}
+
+func TestCreateSilenceRejectsElapsedWindowBeforeNetwork(t *testing.T) {
+	client, requests := localClient(t, func(http.ResponseWriter, *http.Request) {
+		t.Error("elapsed silence was dispatched")
+	}, "")
+	input := sampleCreateSilence()
+	input.StartsAt = time.Now().UTC().Add(-time.Minute)
+	if _, err := client.CreateSilence(context.Background(), "dev", input); !errors.Is(err, ErrSilenceCreateExpired) || *requests != 0 {
+		t.Fatalf("elapsed create err=%v requests=%d", err, *requests)
 	}
 }
 

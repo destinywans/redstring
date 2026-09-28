@@ -2,7 +2,10 @@ package v3alertmanager
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"sync"
 	"testing"
@@ -92,6 +95,35 @@ func ledgerAppInput(key string) SilenceCreateInput {
 			{Name: "alertname", Value: "DownstreamTimeout", IsEqual: true}}}
 }
 
+func observedSilenceForCreate(op SilenceCreateOperation, id string) Silence {
+	value := Silence{ID: id, Matchers: append([]Matcher(nil), op.Request.Matchers...),
+		StartsAt: op.Request.StartsAt.Add(169 * time.Millisecond), EndsAt: op.Request.EndsAt,
+		UpdatedAt: op.Request.StartsAt.Add(time.Second), CreatedBy: op.Request.CreatedBy,
+		Comment: op.Request.Comment, Annotations: map[string]string{silenceOperationAnnotation: op.ID}}
+	value.Status.State = "active"
+	return value
+}
+
+func testReconcileClient(t *testing.T, status int, body any) *Client {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v2/silences" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(status)
+		if err := json.NewEncoder(w).Encode(body); err != nil {
+			t.Error(err)
+		}
+	}))
+	t.Cleanup(server.Close)
+	client, err := New(map[string]Endpoint{"test": {URL: server.URL, AllowHTTP: true}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return client
+}
+
 func TestSilenceCreateLedgerIdempotencyAuditAndUnknownReconciliation(t *testing.T) {
 	db, ledger, actor := testSilenceLedger(t)
 	ctx := t.Context()
@@ -112,6 +144,7 @@ func TestSilenceCreateLedgerIdempotencyAuditAndUnknownReconciliation(t *testing.
 	if _, err = ledger.ReserveCreate(ctx, actor, changed); !errors.Is(err, ErrSilenceCreateConflict) {
 		t.Fatalf("same key changed request: %v", err)
 	}
+	ledger.Now = func() time.Time { return op.Request.StartsAt.Add(10 * time.Second) }
 	dispatch, err := ledger.beginCreate(ctx, actor, op.ID)
 	if err != nil || dispatch.State != SilenceCreateDispatching {
 		t.Fatalf("dispatch op=%+v err=%v", dispatch, err)
@@ -126,30 +159,16 @@ func TestSilenceCreateLedgerIdempotencyAuditAndUnknownReconciliation(t *testing.
 		t.Fatalf("unknown replay: %v", err)
 	}
 	const providerID = "11111111-2222-3333-4444-555555555555"
-	observed := Silence{ID: providerID, Matchers: append([]Matcher(nil), op.Request.Matchers...), StartsAt: op.Request.StartsAt.Add(169 * time.Millisecond),
-		EndsAt: op.Request.EndsAt, CreatedBy: op.Request.CreatedBy, Comment: op.Request.Comment,
-		Annotations: map[string]string{silenceOperationAnnotation: op.ID}}
-	tooLate := observed
-	tooLate.StartsAt = op.Request.StartsAt.Add(maxAlertmanagerStartShift + time.Nanosecond)
-	if err = ledger.confirmObservedCreate(ctx, op.ID, tooLate); !errors.Is(err, ErrSilenceCreateMismatch) {
-		t.Fatalf("excessive Alertmanager start shift accepted: %v", err)
+	observed := observedSilenceForCreate(op, providerID)
+	unrelated := observed
+	unrelated.Annotations = map[string]string{silenceOperationAnnotation: "other-operation"}
+	client := testReconcileClient(t, http.StatusOK, []Silence{unrelated, observed})
+	confirmed, err := ledger.reconcileCreate(ctx, op.ID, client)
+	if err != nil || confirmed.State != SilenceCreateConfirmed || confirmed.UpstreamID != providerID {
+		t.Fatalf("reconcile op=%+v err=%v", confirmed, err)
 	}
-	tooEarly := observed
-	tooEarly.StartsAt = op.Request.StartsAt.Add(-time.Millisecond)
-	if err = ledger.confirmObservedCreate(ctx, op.ID, tooEarly); !errors.Is(err, ErrSilenceCreateMismatch) {
-		t.Fatalf("earlier Alertmanager start accepted: %v", err)
-	}
-	bad := observed
-	bad.Matchers = append([]Matcher(nil), observed.Matchers...)
-	bad.Matchers[0].Value = "changed"
-	if err = ledger.confirmObservedCreate(ctx, op.ID, bad); !errors.Is(err, ErrSilenceCreateMismatch) {
-		t.Fatalf("changed upstream: %v", err)
-	}
-	if err = ledger.confirmObservedCreate(ctx, op.ID, observed); err != nil {
+	if _, err = ledger.reconcileCreate(ctx, op.ID, client); err != nil {
 		t.Fatal(err)
-	}
-	if err = ledger.confirmObservedCreate(ctx, op.ID, observed); err != nil {
-		t.Fatalf("confirmed replay: %v", err)
 	}
 	replay, err = ledger.FindCreateByKey(ctx, actor, in.IdempotencyKey)
 	if err != nil || replay.State != SilenceCreateConfirmed || replay.UpstreamID != providerID {
@@ -164,6 +183,72 @@ func TestSilenceCreateLedgerIdempotencyAuditAndUnknownReconciliation(t *testing.
 	}
 	if operations != 1 || audits != 4 {
 		t.Fatalf("operations=%d audits=%d", operations, audits)
+	}
+}
+
+func TestSilenceCreateLedgerExpiresDelayedDispatch(t *testing.T) {
+	db, ledger, actor := testSilenceLedger(t)
+	ctx := t.Context()
+	op, err := ledger.ReserveCreate(ctx, actor, ledgerAppInput("expired-key-001"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledger.Now = func() time.Time { return op.Request.StartsAt.Add(maxAlertmanagerStartShift + time.Nanosecond) }
+	if _, err = ledger.beginCreate(ctx, actor, op.ID); !errors.Is(err, ErrSilenceCreateExpired) {
+		t.Fatalf("late dispatch: %v", err)
+	}
+	var state string
+	if err = db.QueryRow(ctx, `SELECT state FROM v3_silence_create_operations WHERE id=$1`, op.ID).Scan(&state); err != nil || state != SilenceCreateExpired {
+		t.Fatalf("state=%s err=%v", state, err)
+	}
+	var audits int
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE target=$1 AND action='v3.silence_create.expired'`, op.ID).Scan(&audits); err != nil || audits != 1 {
+		t.Fatalf("expired audits=%d err=%v", audits, err)
+	}
+	if _, err = ledger.beginCreate(ctx, actor, op.ID); !errors.Is(err, ErrSilenceCreateBusy) {
+		t.Fatalf("expired intent redispatched: %v", err)
+	}
+}
+
+func TestSilenceCreateLedgerRecordsPreNetworkExpiry(t *testing.T) {
+	db, ledger, actor := testSilenceLedger(t)
+	ctx := t.Context()
+	// Hold the reservation clock one hour in the past to simulate an executor
+	// pausing after beginCreate, while the HTTP client uses the actual clock.
+	frozen := time.Now().UTC().Add(-time.Hour)
+	ledger.Now = func() time.Time { return frozen }
+	op, err := ledger.ReserveCreate(ctx, actor, ledgerAppInput("presend-expired-key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = ledger.beginCreate(ctx, actor, op.ID); err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requests++
+	}))
+	defer server.Close()
+	client, err := New(map[string]Endpoint{"test": {URL: server.URL, AllowHTTP: true}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = client.CreateSilence(ctx, "test", op.Request); !errors.Is(err, ErrSilenceCreateExpired) || requests != 0 {
+		t.Fatalf("pre-network window check err=%v requests=%d", err, requests)
+	}
+	if err = ledger.markCreateNotSentExpired(ctx, op.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = ledger.markCreateNotSentExpired(ctx, op.ID); err != nil {
+		t.Fatalf("expired replay: %v", err)
+	}
+	var state string
+	var audits int
+	if err = db.QueryRow(ctx, `SELECT state FROM v3_silence_create_operations WHERE id=$1`, op.ID).Scan(&state); err != nil || state != SilenceCreateExpired {
+		t.Fatalf("state=%q err=%v", state, err)
+	}
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE target=$1 AND action='v3.silence_create.expired'`, op.ID).Scan(&audits); err != nil || audits != 1 {
+		t.Fatalf("expired audits=%d err=%v", audits, err)
 	}
 }
 

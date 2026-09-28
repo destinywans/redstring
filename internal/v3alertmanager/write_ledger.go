@@ -27,12 +27,15 @@ const (
 	SilenceCreateUnknown      = "unknown"
 	SilenceCreateAcknowledged = "acknowledged"
 	SilenceCreateConfirmed    = "confirmed"
+	SilenceCreateManualReview = "manual_review"
+	SilenceCreateExpired      = "expired"
 )
 
 var (
 	ErrSilenceCreateInvalid   = errors.New("invalid silence create request")
 	ErrSilenceCreateBusy      = errors.New("silence create already dispatched")
 	ErrSilenceCreateMismatch  = errors.New("observed silence does not match create intent")
+	ErrSilenceCreateExpired   = errors.New("silence create intent time window expired")
 	ErrSilenceCreateConflict  = store.ErrConflict
 	ErrSilenceCreateForbidden = store.ErrForbidden
 	ErrSilenceCreateNotFound  = store.ErrNotFound
@@ -196,10 +199,14 @@ func (l *DatabaseSilenceLedger) prepare(in SilenceCreateInput) ([]Matcher, strin
 }
 
 func (l *DatabaseSilenceLedger) now() time.Time {
+	return l.currentTime().Truncate(time.Second)
+}
+
+func (l *DatabaseSilenceLedger) currentTime() time.Time {
 	if l.Now != nil {
-		return l.Now().UTC().Truncate(time.Second)
+		return l.Now().UTC()
 	}
-	return time.Now().UTC().Truncate(time.Second)
+	return time.Now().UTC()
 }
 
 func (l *DatabaseSilenceLedger) activeHuman(ctx context.Context, tx pgx.Tx, actor core.User) error {
@@ -463,6 +470,24 @@ func (l *DatabaseSilenceLedger) beginCreate(ctx context.Context, actor core.User
 	if v.State != SilenceCreateReserved {
 		return SilenceCreateOperation{}, ErrSilenceCreateBusy
 	}
+	// The fixed window was reserved after approval. Alertmanager can only
+	// normalize the start by the bounded shift we verify on readback. A delayed
+	// executor must not silently shorten the approved duration.
+	now := l.currentTime()
+	if now.After(v.Request.StartsAt.Add(maxAlertmanagerStartShift)) || !now.Before(v.Request.EndsAt) {
+		if _, err = tx.Exec(ctx, `UPDATE v3_silence_create_operations
+ SET state='expired',updated_at=clock_timestamp() WHERE id=$1`, id); err != nil {
+			return SilenceCreateOperation{}, err
+		}
+		if err = auditSilenceCreate(ctx, tx, v.ActorID, v.ApplicationID,
+			"v3.silence_create.expired", id, "expired", v.EnvironmentID, SilenceCreateExpired); err != nil {
+			return SilenceCreateOperation{}, err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return SilenceCreateOperation{}, err
+		}
+		return SilenceCreateOperation{}, ErrSilenceCreateExpired
+	}
 	_, err = tx.Exec(ctx, `UPDATE v3_silence_create_operations SET state='dispatching',updated_at=clock_timestamp() WHERE id=$1`, id)
 	if err != nil {
 		return SilenceCreateOperation{}, err
@@ -475,6 +500,43 @@ func (l *DatabaseSilenceLedger) beginCreate(ctx context.Context, actor core.User
 	}
 	v.State = SilenceCreateDispatching
 	return v.SilenceCreateOperation, nil
+}
+
+// markCreateNotSentExpired closes an already reserved dispatch only when the
+// low-level client returned ErrSilenceCreateExpired before its network call.
+// Any other write failure may have reached Alertmanager and must stay unknown.
+func (l *DatabaseSilenceLedger) markCreateNotSentExpired(ctx context.Context, id string) error {
+	if l == nil || l.DB == nil {
+		return errors.New("silence create ledger unavailable")
+	}
+	tx, err := l.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	v, err := scanSilenceCreate(tx.QueryRow(ctx, `SELECT `+silenceCreateColumns+`
+ FROM v3_silence_create_operations WHERE id=$1 FOR UPDATE`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrSilenceCreateNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if v.State == SilenceCreateExpired {
+		return tx.Commit(ctx)
+	}
+	if v.State != SilenceCreateDispatching {
+		return ErrSilenceCreateBusy
+	}
+	if _, err = tx.Exec(ctx, `UPDATE v3_silence_create_operations
+ SET state='expired',updated_at=clock_timestamp() WHERE id=$1`, id); err != nil {
+		return err
+	}
+	if err = auditSilenceCreate(ctx, tx, v.ActorID, v.ApplicationID,
+		"v3.silence_create.expired", id, "expired", v.EnvironmentID, SilenceCreateExpired); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (l *DatabaseSilenceLedger) acknowledgeCreate(ctx context.Context, id, upstreamID string) error {
@@ -569,50 +631,4 @@ func sameSilenceMatchers(a, b []Matcher) bool {
 		}
 	}
 	return true
-}
-
-// confirmObservedCreate is safe after a lost POST response only when the
-// caller has found exactly one upstream record with this operation marker.
-// Alertmanager can move a just-past startsAt forward to its receive time. Only
-// that field has a bounded tolerance; scope and end of the silence stay exact.
-// This method verifies its full payload but cannot prove global uniqueness.
-func (l *DatabaseSilenceLedger) confirmObservedCreate(ctx context.Context, id string, observed Silence) error {
-	if l == nil || l.DB == nil {
-		return errors.New("silence create ledger unavailable")
-	}
-	tx, err := l.DB.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-	v, err := scanSilenceCreate(tx.QueryRow(ctx, `SELECT `+silenceCreateColumns+` FROM v3_silence_create_operations WHERE id=$1 FOR UPDATE`, id))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrSilenceCreateNotFound
-	}
-	if err != nil {
-		return err
-	}
-	if !validSilenceID(observed.ID) || observed.Annotations[silenceOperationAnnotation] != id ||
-		v.UpstreamID != "" && v.UpstreamID != observed.ID ||
-		observed.StartsAt.Before(v.Request.StartsAt) ||
-		observed.StartsAt.After(v.Request.StartsAt.Add(maxAlertmanagerStartShift)) ||
-		!observed.StartsAt.Before(v.Request.EndsAt) || !observed.EndsAt.Equal(v.Request.EndsAt) ||
-		observed.CreatedBy != v.Request.CreatedBy || observed.Comment != v.Request.Comment ||
-		!sameSilenceMatchers(observed.Matchers, v.Request.Matchers) || len(observed.Annotations) != len(v.Request.Annotations) {
-		return ErrSilenceCreateMismatch
-	}
-	if v.State == SilenceCreateConfirmed {
-		return tx.Commit(ctx)
-	}
-	if v.State != SilenceCreateDispatching && v.State != SilenceCreateUnknown && v.State != SilenceCreateAcknowledged {
-		return ErrSilenceCreateBusy
-	}
-	_, err = tx.Exec(ctx, `UPDATE v3_silence_create_operations SET state='confirmed',upstream_id=$2,updated_at=clock_timestamp() WHERE id=$1`, id, observed.ID)
-	if err != nil {
-		return err
-	}
-	if err = auditSilenceCreate(ctx, tx, v.ActorID, v.ApplicationID, "v3.silence_create.confirmed", id, "success", v.EnvironmentID, "confirmed"); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
 }

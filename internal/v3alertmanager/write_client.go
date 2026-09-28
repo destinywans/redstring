@@ -53,7 +53,7 @@ func (c *Client) CreateSilence(ctx context.Context, environment string, input Cr
 	if err != nil || len(body) > maxSilenceRequestBytes {
 		return "", errors.New("invalid or oversized Alertmanager silence creation input")
 	}
-	response, err := c.write(ctx, environment, http.MethodPost, "/api/v2/silences", body)
+	response, err := c.write(ctx, environment, http.MethodPost, "/api/v2/silences", body, &input)
 	if err != nil {
 		return "", err
 	}
@@ -73,7 +73,7 @@ func (c *Client) ExpireSilence(ctx context.Context, environment, id string) erro
 	if !validSilenceID(id) {
 		return errors.New("invalid Alertmanager silence ID")
 	}
-	_, err := c.write(ctx, environment, http.MethodDelete, "/api/v2/silence/"+url.PathEscape(id), nil)
+	_, err := c.write(ctx, environment, http.MethodDelete, "/api/v2/silence/"+url.PathEscape(id), nil, nil)
 	return err
 }
 
@@ -97,7 +97,7 @@ func validSilenceID(id string) bool {
 	return true
 }
 
-func (c *Client) write(ctx context.Context, environment, method, path string, body []byte) ([]byte, error) {
+func (c *Client) write(ctx context.Context, environment, method, path string, body []byte, create *CreateSilenceRequest) ([]byte, error) {
 	if c == nil {
 		return nil, ErrNotConfigured
 	}
@@ -135,6 +135,15 @@ func (c *Client) write(ctx context.Context, environment, method, path string, bo
 	}
 	// New installs a no-redirect policy and bounds the request timeout. A
 	// timeout or broken connection after dispatch has an uncertain outcome.
+	// Recheck immediately before the network call. An executor may have been
+	// delayed after its durable dispatch reservation; an elapsed start window
+	// must not silently shorten the approved duration.
+	if create != nil {
+		now := time.Now().UTC()
+		if now.After(create.StartsAt.Add(maxAlertmanagerStartShift)) || !now.Before(create.EndsAt) {
+			return nil, ErrSilenceCreateExpired
+		}
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%w: Alertmanager request: %v", ErrSilenceWriteUncertain, err)

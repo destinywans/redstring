@@ -20,15 +20,20 @@ function Section({ item, active, activeChild }: { item: NavItem; active: boolean
   return (
     <div className="nav-section">
       <div className={cx("nav-item", active && !hasChildren && "active", active && hasChildren && "parent")}>
-        <Link to={item.to} className="nav-link" onClick={() => hasChildren && setOpen(true)}>
-          <Icon name={item.icon} size={16} />
-          <span className="grow">{tl(item.label)}</span>
-          {item.count ? <span className="nav-count">{item.count}</span> : null}
-        </Link>
-        {hasChildren && (
-          <button type="button" className="nav-caret" aria-label="toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-            <Icon name="down" size={13} style={{ transform: open ? "none" : "rotate(-90deg)", transition: "transform 160ms" }} />
+        {hasChildren ? (
+          // Sections with children only expand / collapse; the user picks a child explicitly.
+          <button type="button" className="nav-link nav-toggle" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+            <Icon name={item.icon} size={16} />
+            <span className="grow">{tl(item.label)}</span>
+            {item.count ? <span className="nav-count">{item.count}</span> : null}
+            <Icon name="down" size={13} className="nav-chevron" style={{ transform: open ? "none" : "rotate(-90deg)" }} />
           </button>
+        ) : (
+          <Link to={item.to} className="nav-link">
+            <Icon name={item.icon} size={16} />
+            <span className="grow">{tl(item.label)}</span>
+            {item.count ? <span className="nav-count">{item.count}</span> : null}
+          </Link>
         )}
       </div>
       {hasChildren && (

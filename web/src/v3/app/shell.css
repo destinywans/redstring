@@ -121,17 +121,20 @@
   align-items: center;
   font-weight: 500;
 }
-.nav-caret {
-  width: 24px;
-  height: 24px;
-  margin-right: 3px;
+.nav-toggle {
+  width: 100%;
   border: none;
   background: transparent;
   color: inherit;
-  border-radius: 5px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding-right: 10px;
+}
+.nav-chevron {
+  flex: none;
+  opacity: 0.7;
+  transition: transform 160ms;
 }
 .nav-children {
   display: grid;

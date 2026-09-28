@@ -90,7 +90,7 @@ func TestMainAlertRuleListRegisteredHTTPAndProviderScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var stagingFails, tooMany atomic.Bool
+	var stagingFails, tooMany, duplicateVisible atomic.Bool
 	rule := func(name, env, app string) map[string]any {
 		labels := map[string]string{}
 		if env != "" {
@@ -120,6 +120,12 @@ func TestMainAlertRuleListRegisteredHTTPAndProviderScope(t *testing.T) {
 				group("hidden-group", rule("HiddenRule", "test", "hidden")),
 				group("unlabeled-group", rule("NoOwner", "", "")),
 				group("unbound-group", rule("NoBinding", "test", "allowed")),
+			}
+			if duplicateVisible.Load() {
+				second := rule("AllowedRule", "test", "allowed")
+				second["query"] = "up == 1"
+				second["state"] = "firing"
+				groups[0] = group("allowed-group", rule("AllowedRule", "test", "allowed"), second)
 			}
 			if tooMany.Load() {
 				many := make([]map[string]any, 501)
@@ -195,14 +201,35 @@ func TestMainAlertRuleListRegisteredHTTPAndProviderScope(t *testing.T) {
 	}
 	checkList(request("/api/v1/alert-rules", "test"), 1, 0)
 	checkList(request("/api/v1/alert-rules", "all"), 2, 1)
+	visibleID := toDetail("test", "allowed", ObservedRule{GroupIdentity: "/etc/prometheus/rules.yml\x00allowed-group", Group: "allowed-group", Name: "AllowedRule"}).ID
+	hiddenID := toDetail("test", "hidden", ObservedRule{GroupIdentity: "/etc/prometheus/rules.yml\x00hidden-group", Group: "hidden-group", Name: "HiddenRule"}).ID
+	detailPath := "/api/v1/alert-rules/observed/" + visibleID
+	w := request(detailPath, "test")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"expr":"up == 0"`) || !strings.Contains(w.Body.String(), `"partial":true`) {
+		t.Fatalf("unique observed detail status=%d body=%s", w.Code, w.Body.String())
+	}
+	w = request("/api/v1/alert-rules/observed/"+hiddenID, "test")
+	if w.Code != 404 || strings.Contains(w.Body.String(), "HiddenRule") {
+		t.Fatalf("hidden observed detail leaked: %d %s", w.Code, w.Body.String())
+	}
+	duplicateVisible.Store(true)
+	w = request(detailPath, "test")
+	if w.Code != 503 || !strings.Contains(w.Body.String(), "alert_rule_identity_conflict") || strings.Contains(w.Body.String(), "up ==") {
+		t.Fatalf("ambiguous observed detail returned a rule: %d %s", w.Code, w.Body.String())
+	}
+	duplicateVisible.Store(false)
 	stagingFails.Store(true)
+	w = request("/api/v1/alert-rules/observed/nonexistent", "all")
+	if w.Code != 503 || !strings.Contains(w.Body.String(), "rule_source_partial") {
+		t.Fatalf("unknown detail with unavailable provider was treated as absent: %d %s", w.Code, w.Body.String())
+	}
 	for _, env := range []string{"all", "staging"} {
 		w := request("/api/v1/alert-rules", env)
 		if w.Code != 503 || strings.Contains(w.Body.String(), `"counts"`) {
 			t.Fatalf("partial main-list counts leaked for %s: %d %s", env, w.Code, w.Body.String())
 		}
 	}
-	w := request("/api/v1/alert-rules/observed", "all")
+	w = request("/api/v1/alert-rules/observed", "all")
 	if w.Code != 206 || !strings.Contains(w.Body.String(), `"unavailable_environments":["staging"]`) {
 		t.Fatalf("auxiliary partial diagnostic changed: %d %s", w.Code, w.Body.String())
 	}
@@ -213,11 +240,19 @@ func TestMainAlertRuleListRegisteredHTTPAndProviderScope(t *testing.T) {
 		t.Fatalf("oversized provider was reported as complete: %d %s", w.Code, w.Body.String())
 	}
 	tooMany.Store(false)
+	w = request("/api/v1/alert-rules/observed/nonexistent", "all")
+	if w.Code != 404 || strings.Contains(w.Body.String(), "AllowedRule") {
+		t.Fatalf("unknown observed detail leaked a rule: %d %s", w.Code, w.Body.String())
+	}
 	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='alert_rules' AND scope_id='allowed'`); err != nil {
 		t.Fatal(err)
 	}
 	w = request("/api/v1/alert-rules", "test")
 	if w.Code != 403 {
 		t.Fatalf("revoked application grant still listed rules: %d %s", w.Code, w.Body.String())
+	}
+	w = request(detailPath, "test")
+	if w.Code != 403 || strings.Contains(w.Body.String(), "AllowedRule") || strings.Contains(w.Body.String(), "up ==") {
+		t.Fatalf("revoked application grant still disclosed detail: %d %s", w.Code, w.Body.String())
 	}
 }

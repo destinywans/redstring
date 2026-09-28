@@ -309,11 +309,20 @@ func (s *Service) Detail(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, status, errorCode(status), "Alert rule source or authorization is unavailable")
 		return
 	}
-	for _, item := range items {
+	var match *Detail
+	for i := range items {
+		item := &items[i]
 		if item.ID == id {
-			httpapi.WriteJSON(w, 200, item)
-			return
+			if match != nil {
+				httpapi.Error(w, http.StatusServiceUnavailable, "alert_rule_identity_conflict", "Observed rule identity is ambiguous")
+				return
+			}
+			match = item
 		}
+	}
+	if match != nil {
+		httpapi.WriteJSON(w, http.StatusOK, match)
+		return
 	}
 	if len(unavailable) > 0 {
 		httpapi.Error(w, 503, "rule_source_partial", "A rule provider is unavailable; the rule cannot be resolved")

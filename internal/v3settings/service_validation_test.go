@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/wans/aiops-canvas/internal/core"
 )
 
 func TestPreferencesRejectUnsupportedValuesBeforeStorage(t *testing.T) {
@@ -44,7 +46,7 @@ func TestWorkspaceRejectsInvalidInputBeforeStorage(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			input := valid
 			tc.change(&input)
-			_, err := (&Service{}).putWorkspace(t.Context(), "user", input)
+			_, err := (&Service{}).putWorkspace(t.Context(), core.User{ID: "user"}, "dev", input)
 			if !errors.Is(err, errInvalid) {
 				t.Fatalf("invalid %s: got %v, want invalid settings", tc.name, err)
 			}

@@ -14,8 +14,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
+	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
@@ -182,7 +184,7 @@ func (s *Service) getWorkspace(ctx context.Context) (workspace, error) {
 	return v, err
 }
 
-func (s *Service) putWorkspace(ctx context.Context, id string, w workspace) (workspace, error) {
+func (s *Service) putWorkspace(ctx context.Context, user core.User, environmentID string, w workspace) (workspace, error) {
 	if strings.TrimSpace(w.Name) == "" || utf8.RuneCountInString(w.Name) > 120 || !slugPattern.MatchString(w.Slug) || !validTimezone(w.Timezone) ||
 		(w.Locale != "zh-CN" && w.Locale != "en-US") || (w.WeekStart != "monday" && w.WeekStart != "sunday") || w.RetentionDays < 1 || w.RetentionDays > 3650 {
 		return workspace{}, errInvalid
@@ -192,6 +194,37 @@ func (s *Service) putWorkspace(ctx context.Context, id string, w workspace) (wor
 		return workspace{}, err
 	}
 	defer tx.Rollback(ctx)
+	// Account, department, legacy role association, and V3 matrix writers use
+	// these locks. Take them in the existing account-writer order before reading
+	// authority, then retain them through the workspace update and audit.
+	for _, key := range []int64{752018992, 752018995, 752018998} {
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, key); err != nil {
+			return workspace{}, err
+		}
+	}
+	var activeID string
+	if err = tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 AND NOT disabled AND deleted_at IS NULL AND source<>'settings_demo' FOR SHARE`, user.ID).Scan(&activeID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return workspace{}, store.ErrForbidden
+		}
+		return workspace{}, err
+	}
+	// Workspace settings apply to the whole instance. A scoped environment
+	// grant can pass the route gate, but must not mutate instance-wide state.
+	// The contract's administrator is the effective platform administrator,
+	// not any member delegated one V3 manage cell.
+	if err = (&rbac.V3Policy{Store: s.Store}).AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{Module: "workspace", Action: "manage", EnvironmentID: environmentID}); err != nil {
+		return workspace{}, err
+	}
+	var globalManage bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_effective_role_grants g
+ JOIN rbac_platform_administrators a ON a.user_id=g.user_id
+ WHERE g.user_id=$1 AND g.module='workspace' AND g.action='manage' AND g.scope_kind='global' AND g.scope_id='*')`, user.ID).Scan(&globalManage); err != nil {
+		return workspace{}, err
+	}
+	if !globalManage {
+		return workspace{}, store.ErrForbidden
+	}
 	// Read the immutable deployment fields under the same row lock as the
 	// update. A concurrent branding/deployment change must not be overwritten
 	// or validated against an earlier snapshot.
@@ -204,18 +237,20 @@ func (s *Service) putWorkspace(ctx context.Context, id string, w workspace) (wor
 	if w.DataRegion != current.DataRegion || w.Brand.Name != current.Brand.Name || !equalStringPointers(w.Brand.Logo, current.Brand.Logo) || w.Brand.Pending != current.Brand.Pending {
 		return workspace{}, errInvalid
 	}
-	_, err = tx.Exec(ctx, `UPDATE workspace_settings SET name=$1,v3_slug=$2,timezone=$3,language=$4,v3_week_start=$5,v3_retention_days=$6,revision=revision+1,updated_at=now() WHERE id='default'`, w.Name, w.Slug, w.Timezone, w.Locale, w.WeekStart, w.RetentionDays)
+	var saved workspace
+	err = tx.QueryRow(ctx, `UPDATE workspace_settings SET name=$1,v3_slug=$2,timezone=$3,language=$4,v3_week_start=$5,v3_retention_days=$6,revision=revision+1,updated_at=now() WHERE id='default'
+ RETURNING name,v3_slug,timezone,language,v3_week_start,v3_retention_days,v3_data_region,v3_brand_name,v3_brand_logo,v3_brand_pending`, w.Name, w.Slug, w.Timezone, w.Locale, w.WeekStart, w.RetentionDays).Scan(&saved.Name, &saved.Slug, &saved.Timezone, &saved.Locale, &saved.WeekStart, &saved.RetentionDays, &saved.DataRegion, &saved.Brand.Name, &saved.Brand.Logo, &saved.Brand.Pending)
 	if err != nil {
 		return workspace{}, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes) VALUES($1,'v3.workspace.updated','default','success',$2)`, id, mustJSON(map[string]any{"name": w.Name, "slug": w.Slug, "timezone": w.Timezone, "locale": w.Locale, "week_start": w.WeekStart, "retention_days": w.RetentionDays}))
+	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes) VALUES($1,'v3.workspace.updated','default','success',$2)`, user.ID, mustJSON(map[string]any{"name": saved.Name, "slug": saved.Slug, "timezone": saved.Timezone, "locale": saved.Locale, "week_start": saved.WeekStart, "retention_days": saved.RetentionDays}))
 	if err != nil {
 		return workspace{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return workspace{}, err
 	}
-	return s.getWorkspace(ctx)
+	return saved, nil
 }
 
 func equalStringPointers(a, b *string) bool {
@@ -253,7 +288,12 @@ func (s *Service) Register(api *httpapi.Server) {
 		if !httpapi.Decode(w, r, &v) {
 			return
 		}
-		updated, e := s.putWorkspace(r.Context(), httpapi.CurrentUser(r).ID, v)
+		scope, ok := httpapi.V3ScopeFromContext(r.Context())
+		if !ok || scope.All || len(scope.EnvironmentIDs) != 1 {
+			httpapi.Error(w, http.StatusServiceUnavailable, "environment_unavailable", "Workspace write requires one authorized environment")
+			return
+		}
+		updated, e := s.putWorkspace(r.Context(), httpapi.CurrentUser(r), scope.EnvironmentIDs[0], v)
 		respond(w, updated, e)
 	})
 }

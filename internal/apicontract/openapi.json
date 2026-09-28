@@ -26471,7 +26471,7 @@
       "get": {
         "summary": "List accessible, environment-bound MCP extensions",
         "operationId": "get_mcp_servers",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial registration metadata only. Unbound historical MCP records are omitted, not copied across environments. A single authorization snapshot scans at most 2000 candidate registrations; a 2001st candidate returns 413 candidate_scan_limit rather than partial items, while more than 1000 visible registrations returns 413 scope_too_large. Health, discovered tools, call metrics and pending changes are unavailable; status is always pending.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial registration metadata only. The KPIs count visible registrations and legacy read-only bindings, not V3 reviewed tools. Unbound historical MCP records are omitted, not copied across environments. A single authorization snapshot scans at most 2000 candidate registrations; a 2001st candidate returns 413 candidate_scan_limit rather than partial items, while more than 1000 visible registrations returns 413 scope_too_large. Health, discovered capabilities, V3 tool review, Agent grants, call metrics and pending changes are unavailable; status is a pending placeholder and complete_v3_dto is false.",
         "responses": {
           "200": {
             "description": "Success",
@@ -26623,7 +26623,7 @@
       "get": {
         "summary": "Read accessible MCP registration metadata",
         "operationId": "get_mcp_servers_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial: no live discovery, health or tool-call history. Counts for resources and prompts are placeholders; unavailable_fields names the gaps. Credentials are never returned.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial registration metadata only: legacy fixed-argument bindings and untrusted discovery observations are not V3 reviewed Agent tools, so tools and Agent apps are empty. No verified service version, live health, actual tool/resource/prompt counts, Agent grants or tool-call history exists; counts of 0 are DTO placeholders and every unknown count is named in unavailable_fields. A credential reference may be reported as registered but never verified or returned. complete_v3_dto is false.",
         "responses": {
           "200": {
             "description": "Success",
@@ -46619,10 +46619,12 @@
             "type": "string"
           },
           "caps": {
-            "type": "string"
+            "type": "string",
+            "description": "Localized unverified capability text; no V3 reviewed tool is implied."
           },
           "last": {
-            "type": "string"
+            "type": "string",
+            "description": "Localized call-history-unavailable text, not a registration timestamp or a last-call time."
           },
           "trust": {
             "type": "object",
@@ -46655,7 +46657,8 @@
             "type": "string",
             "enum": [
               "pending"
-            ]
+            ],
+            "description": "Placeholder while no verified V3 connection-health state exists."
           },
           "complete_v3_dto": {
             "type": "boolean"
@@ -46688,10 +46691,12 @@
             "type": "string"
           },
           "caps": {
-            "type": "string"
+            "type": "string",
+            "description": "Localized unverified capability text; no V3 reviewed tool is implied."
           },
           "last": {
-            "type": "string"
+            "type": "string",
+            "description": "Localized call-history-unavailable text, not a registration timestamp or a last-call time."
           },
           "trust": {
             "type": "object",
@@ -46724,7 +46729,8 @@
             "type": "string",
             "enum": [
               "pending"
-            ]
+            ],
+            "description": "Placeholder while no verified V3 connection-health state exists."
           },
           "complete_v3_dto": {
             "type": "boolean"
@@ -46736,19 +46742,26 @@
             }
           },
           "version": {
-            "type": "string"
+            "type": "string",
+            "description": "Localized server-version-unverified text, not the legacy registration revision."
           },
           "counts": {
             "type": "object",
             "properties": {
               "tools": {
-                "type": "integer"
+                "type": "integer",
+                "minimum": 0,
+                "description": "Placeholder 0; actual V3 count is unknown and listed in unavailable_fields."
               },
               "resources": {
-                "type": "integer"
+                "type": "integer",
+                "minimum": 0,
+                "description": "Placeholder 0; actual V3 count is unknown and listed in unavailable_fields."
               },
               "prompts": {
-                "type": "integer"
+                "type": "integer",
+                "minimum": 0,
+                "description": "Placeholder 0; actual V3 count is unknown and listed in unavailable_fields."
               }
             },
             "additionalProperties": false

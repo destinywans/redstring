@@ -429,12 +429,15 @@ v3_route('post','/connectors/{id}/test','Probe configured connector',role='admin
 # reviewed registration/environment binding may appear in V3; the migration
 # does not guess an environment for historical registrations.
 S['V3McpServerPartial'] = obj({**fieldnames('id brand name desc transport caps last'),
+    'caps':string(description='Localized unverified capability text; no V3 reviewed tool is implied.'),
+    'last':string(description='Localized call-history-unavailable text, not a registration timestamp or a last-call time.'),
     'trust':obj({'label':string(),'tone':string()}),
     'apps':arr(obj({'label':string(),'tone':string()})),
-    'status':string(enum=['pending']),
+    'status':string(enum=['pending'],description='Placeholder while no verified V3 connection-health state exists.'),
     'complete_v3_dto':v3_bool(), 'unavailable_fields':arr(string())})
 S['V3McpDetailPartial'] = obj({**S['V3McpServerPartial']['properties'],
-    'version':string(), 'counts':obj({k:integer() for k in ['tools','resources','prompts']}),
+    'version':string(description='Localized server-version-unverified text, not the legacy registration revision.'),
+    'counts':obj({k:integer(minimum=0,description='Placeholder 0; actual V3 count is unknown and listed in unavailable_fields.') for k in ['tools','resources','prompts']}),
     'tools':arr(obj({'name':string(),'desc':string(),'write':v3_bool(),
         'enabled':v3_bool(),'calls':string()})),
     'resources':arr(obj({'uri':string(),'desc':string()})),
@@ -445,13 +448,13 @@ v3_route('get','/mcp-servers','List accessible, environment-bound MCP extensions
     response=obj({'kpis':arr(obj({'id':string(),'label':string(),'value':string(),
         'sub':string(),'series':arr(v3_num())})), 'items':arr(ref('V3McpServerPartial')),
         'complete_v3_dto':v3_bool(),'unavailable_fields':arr(string())}),
-    desc='Partial registration metadata only. Unbound historical MCP records are omitted, not copied across environments. A single authorization snapshot scans at most 2000 candidate registrations; a 2001st candidate returns 413 candidate_scan_limit rather than partial items, while more than 1000 visible registrations returns 413 scope_too_large. Health, discovered tools, call metrics and pending changes are unavailable; status is always pending.')
+    desc='Partial registration metadata only. The KPIs count visible registrations and legacy read-only bindings, not V3 reviewed tools. Unbound historical MCP records are omitted, not copied across environments. A single authorization snapshot scans at most 2000 candidate registrations; a 2001st candidate returns 413 candidate_scan_limit rather than partial items, while more than 1000 visible registrations returns 413 scope_too_large. Health, discovered capabilities, V3 tool review, Agent grants, call metrics and pending changes are unavailable; status is a pending placeholder and complete_v3_dto is false.')
 P['/mcp-servers']['get']['responses']['413'] = {
     'description':'Candidate scan or visible registration limit exceeded',
     'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('get','/mcp-servers/{id}','Read accessible MCP registration metadata',
     response=ref('V3McpDetailPartial'),
-    desc='Partial: no live discovery, health or tool-call history. Counts for resources and prompts are placeholders; unavailable_fields names the gaps. Credentials are never returned.')
+    desc='Partial registration metadata only: legacy fixed-argument bindings and untrusted discovery observations are not V3 reviewed Agent tools, so tools and Agent apps are empty. No verified service version, live health, actual tool/resource/prompt counts, Agent grants or tool-call history exists; counts of 0 are DTO placeholders and every unknown count is named in unavailable_fields. A credential reference may be reported as registered but never verified or returned. complete_v3_dto is false.')
 v3_route('patch','/mcp-servers/{id}/tools/{name}','Change a reviewed MCP tool',
     body=obj({'enabled':v3_bool()},['enabled']),
     desc='Currently always returns 503 mcp_review_unavailable after scoped authorization; no trusted discovery snapshot exists.')

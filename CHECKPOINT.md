@@ -4,7 +4,7 @@
 
 - 用户准备开始改后端，要求先确定当前 API 契约并推送这一版。
 - `docs/api/v3-contract.md` 冻结为 v1：
-  - 表格每行只写一个方法和一个路径（拆开了原来 21 处合并行，删掉重复的 `POST /notification-routes/test`）；
+  - 表格每行只写一个方法和一个路径（拆开了原来 20 处合并行，删掉重复的 `POST /notification-routes/test`）；
   - 补上 `GET /conversations/{id}/events`（SSE，Mock 在前端模拟）；
   - 更正：`GET /incidents` 的 `status` 参数与 `{ items, counts }` 响应、画布节点对话的 `model` / `reasoning` 和 `new_branch`；
   - 新增冻结后的修改流程与「变更记录」。

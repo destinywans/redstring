@@ -29,6 +29,9 @@ type Service struct {
 	Store                  *store.Store
 	Access                 Access
 	InstanceEnvironmentIDs []string
+	// The legacy environment writer validates runtime connector bindings.
+	// A suggested mapping cannot bypass that policy when accepted here.
+	MappingBindingValidator func([]core.Binding) error
 }
 
 // The configured instance environment set is independent of the selected
@@ -42,12 +45,26 @@ func New(st *store.Store, access Access, instanceEnvironmentIDs ...string) *Serv
 // subset of the frontend V3 DTO until live health, release and SLO evidence is
 // available; callers must not mark them as the complete V3 contract.
 func (s *Service) Register(api *httpapi.Server) {
+	if s.MappingBindingValidator == nil {
+		// Platform bindings are configured after V3 routes during startup, so
+		// resolve this at request time rather than capturing a nil function.
+		s.MappingBindingValidator = func(bindings []core.Binding) error {
+			if api.ValidateBindings == nil {
+				return errors.New("binding validation unavailable")
+			}
+			return api.ValidateBindings(bindings)
+		}
+	}
 	api.Register("POST /api/v1/services", "admin", s.register)
 	api.MarkV3Route("POST /api/v1/services", "services", "change")
 	api.Register("GET /api/v1/services", "viewer", s.services)
 	api.Register("GET /api/v1/services/{id}", "viewer", s.service)
 	api.Register("GET /api/v1/service-mappings", "viewer", s.mappings)
 	api.MarkV3ObjectRoute("GET /api/v1/service-mappings", "services", "view")
+	api.Register("POST /api/v1/service-mappings/discover", "viewer", s.mappingDiscover)
+	api.Register("POST /api/v1/service-mappings/accept", "viewer", s.mappingAccept)
+	api.MarkV3ObjectRoute("POST /api/v1/service-mappings/discover", "services", "change")
+	api.MarkV3ObjectRoute("POST /api/v1/service-mappings/accept", "services", "change")
 }
 
 type registration struct {

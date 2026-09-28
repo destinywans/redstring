@@ -3,12 +3,15 @@ package v3catalog
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/rbac"
+	"github.com/wans/aiops-canvas/internal/store"
 )
 
 type mappingCatalogRow struct {
@@ -94,9 +97,14 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	requestScope, _ := httpapi.V3ScopeFromContext(r.Context())
+	singleEnvironment := len(envs) == 1 && !requestScope.All
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	byName := map[string]*mappingRow{}
+	visibleAppIDs := []string{}
+	visibleAppKeys := map[string]string{}
+	visibleBindings := map[string][]core.Binding{}
 	order := []string{}
 	count := 0
 	var cursorKey, cursorEnv, cursorID string
@@ -115,6 +123,10 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 			if !visible {
 				continue
 			}
+			if singleEnvironment {
+				visibleAppIDs = append(visibleAppIDs, item.appID)
+				visibleAppKeys[item.appID] = item.key
+			}
 			// Hidden records cannot consume the visible result budget.
 			count++
 			if count > 1000 {
@@ -125,6 +137,9 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 			if err := json.Unmarshal(item.bindings, &bindings); err != nil {
 				httpapi.Error(w, 503, "catalog_unavailable", "Service mappings unavailable")
 				return
+			}
+			if singleEnvironment {
+				visibleBindings[item.appID] = bindings
 			}
 			row, found := byName[item.key]
 			if !found {
@@ -159,6 +174,70 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 		cursorKey, cursorEnv, cursorID = last.key, last.env, last.appID
 	}
 	output := make([]mappingRow, 0, len(order))
+	suggestions := 0
+	if singleEnvironment && len(visibleAppIDs) > 0 {
+		connectorAllowed := true
+		for _, action := range []string{"view", "manage"} {
+			err := s.Access.Authorize(ctx, httpapi.CurrentUser(r), rbac.V3Decision{
+				Module: "connectors", Action: action, EnvironmentID: envs[0],
+			})
+			if errors.Is(err, store.ErrForbidden) {
+				connectorAllowed = false
+				break
+			}
+			if err != nil {
+				httpapi.Error(w, 503, "authorization_unavailable", "Mapping policy unavailable")
+				return
+			}
+		}
+		if connectorAllowed {
+			pending, err := s.currentMappingSuggestions(ctx, envs[0], visibleAppIDs)
+			if err != nil {
+				httpapi.Error(w, 503, "catalog_unavailable", "Mapping candidates unavailable")
+				return
+			}
+			for _, candidate := range pending {
+				if visibleAppKeys[candidate.appID] != candidate.key {
+					continue
+				}
+				visibleNow, err := s.canView(ctx, httpapi.CurrentUser(r), catalogRow{
+					appID: candidate.appID, env: envs[0], teamID: candidate.teamID,
+				})
+				if err != nil {
+					httpapi.Error(w, 503, "authorization_unavailable", "Mapping policy unavailable")
+					return
+				}
+				if !visibleNow {
+					continue
+				}
+				changeDecision := rbac.V3Decision{Module: "services", Action: "change", EnvironmentID: envs[0], ApplicationID: candidate.appID}
+				changeErr := s.Access.Authorize(ctx, httpapi.CurrentUser(r), changeDecision)
+				if errors.Is(changeErr, store.ErrForbidden) && candidate.teamID != "" {
+					changeDecision.ApplicationID = ""
+					changeDecision.TeamID = candidate.teamID
+					changeErr = s.Access.Authorize(ctx, httpapi.CurrentUser(r), changeDecision)
+				}
+				if errors.Is(changeErr, store.ErrForbidden) {
+					continue
+				}
+				if changeErr != nil {
+					httpapi.Error(w, 503, "authorization_unavailable", "Mapping policy unavailable")
+					return
+				}
+				bindings := append([]core.Binding(nil), visibleBindings[candidate.appID]...)
+				bindings = append(bindings, core.Binding{Kind: "gitlab", ConnectorID: candidate.connectorID, Resource: candidate.externalID})
+				if !s.mappingBindingSupported(bindings) {
+					continue
+				}
+				row := byName[candidate.key]
+				if row == nil || row.Cells["code"].State != "" {
+					continue
+				}
+				row.Cells["code"] = mappingCell{State: "suggested", Value: "Configured GitLab project #" + candidate.externalID, Brand: "gitlab"}
+				suggestions++
+			}
+		}
+	}
 	for _, key := range order {
 		row := byName[key]
 		for _, system := range mappingSystems {
@@ -168,5 +247,5 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 		}
 		output = append(output, *row)
 	}
-	httpapi.WriteJSON(w, 200, map[string]any{"systems": mappingSystems, "rows": output, "suggestions": 0})
+	httpapi.WriteJSON(w, 200, map[string]any{"systems": mappingSystems, "rows": output, "suggestions": suggestions})
 }

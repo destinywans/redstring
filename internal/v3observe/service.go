@@ -104,10 +104,13 @@ func (s *Service) discover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := s.Store.DB.Query(r.Context(), `SELECT r.name,r.attributes,COALESCE(t.name,'')
- FROM cmdb_resources r LEFT JOIN teams t ON t.id=r.owner_team_id
+ FROM cmdb_resources r
+ JOIN cmdb_sync_sources src ON src.id=r.source_id AND src.kind=r.source_kind
+ LEFT JOIN teams t ON t.id=r.owner_team_id
  WHERE r.kind='deployment' AND r.source_kind='kubernetes' AND NOT r.is_mock
  AND r.observed_at >= now()-interval '5 minutes'
- AND r.attributes->>'environment_key'=ANY($1::text[])
+ AND src.last_success_at IS NOT NULL AND src.environment_key=ANY($1::text[])
+ AND r.attributes->>'environment_key'=src.environment_key
  AND ($2='' OR r.attributes->>'cluster'=$2)
  AND NOT EXISTS (SELECT 1 FROM cmdb_resource_applications l WHERE l.resource_id=r.id)
  ORDER BY r.name,r.id LIMIT 501`, envs, cluster)

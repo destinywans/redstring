@@ -207,11 +207,13 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 		// A workload link is evidence-backed only when one current inventory item
 		// matches this exact environment/name/namespace. Ambiguous matches fail.
 		if item.Namespace != "" {
-			rows, e := tx.Query(r.Context(), `SELECT id FROM cmdb_resources
- WHERE kind='deployment' AND attributes->>'resource_type' IN ('Deployment','StatefulSet','DaemonSet')
- AND source_kind='kubernetes' AND NOT is_mock
- AND observed_at >= now()-interval '5 minutes'
- AND name=$1 AND attributes->>'namespace'=$2 AND attributes->>'environment_key'=$3 LIMIT 2`, item.ID, item.Namespace, envs[0])
+			rows, e := tx.Query(r.Context(), `SELECT r.id FROM cmdb_resources r
+ JOIN cmdb_sync_sources src ON src.id=r.source_id AND src.kind=r.source_kind
+ WHERE r.kind='deployment' AND r.attributes->>'resource_type' IN ('Deployment','StatefulSet','DaemonSet')
+ AND r.source_kind='kubernetes' AND NOT r.is_mock
+ AND r.observed_at >= now()-interval '5 minutes' AND src.last_success_at IS NOT NULL
+ AND r.name=$1 AND r.attributes->>'namespace'=$2
+ AND src.environment_key=$3 AND r.attributes->>'environment_key'=src.environment_key LIMIT 2`, item.ID, item.Namespace, envs[0])
 			if e != nil {
 				httpapi.Error(w, 503, "catalog_unavailable", "Workload inventory unavailable")
 				return

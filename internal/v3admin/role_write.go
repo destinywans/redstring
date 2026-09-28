@@ -184,27 +184,38 @@ func validateMatrixEditable(grants []grant) error {
 			return errScopedCell
 		}
 	}
+	return validateMatrixGroups(grants)
+}
+
+// A grouped cell is truthful only when every underlying module has the same
+// operation and assurance. For example, roles.view alone cannot be rendered
+// as a granted "Members & roles" view cell.
+func validateMatrixGroups(grants []grant) error {
 	for _, resource := range matrixCatalog {
 		if len(resource.Modules) < 2 {
 			continue
 		}
 		for _, action := range matrixActions {
-			found := 0
-			assurance := ""
-			for _, module := range resource.Modules {
+			var expected map[string]bool
+			for index, module := range resource.Modules {
+				actual := map[string]bool{}
 				for _, g := range grants {
 					if g.Module == module && g.Action == action {
-						if assurance != "" && assurance != g.Assurance {
-							return errPartialMatrix
-						}
-						assurance = g.Assurance
-						found++
-						break
+						actual[g.ScopeKind+"\x00"+g.ScopeID+"\x00"+g.Assurance] = true
 					}
 				}
-			}
-			if found > 0 && found != len(resource.Modules) {
-				return errPartialMatrix
+				if index == 0 {
+					expected = actual
+					continue
+				}
+				if len(actual) != len(expected) {
+					return errPartialMatrix
+				}
+				for key := range expected {
+					if !actual[key] {
+						return errPartialMatrix
+					}
+				}
 			}
 		}
 	}

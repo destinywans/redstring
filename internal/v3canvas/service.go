@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -65,6 +66,19 @@ type template struct {
 	Nodes     string `json:"nodes"`
 	IsDefault bool   `json:"is_default,omitempty"`
 }
+
+const maxTemplateItems = 500
+
+func nodeCountLabel(r *http.Request, count int) string {
+	if strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "en") {
+		if count == 1 {
+			return "1 node"
+		}
+		return fmt.Sprintf("%d nodes", count)
+	}
+	return fmt.Sprintf("%d 个节点", count)
+}
+
 type thumb struct {
 	Nodes [][5]any `json:"nodes"`
 	Edges []string `json:"edges"`
@@ -414,7 +428,7 @@ func (s *Service) templates(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := s.Store.DB.Query(r.Context(), `SELECT id,kind,name,description,jsonb_array_length(nodes),is_default
  FROM v3_canvas_templates WHERE owner_id IS NULL OR (owner_id=$1 AND environment_id=ANY($2::text[]))
- ORDER BY kind,is_default DESC,created_at,id`, httpapi.CurrentUser(r).ID, envs)
+ ORDER BY kind,is_default DESC,created_at,id LIMIT $3`, httpapi.CurrentUser(r).ID, envs, maxTemplateItems+1)
 	if err != nil {
 		httpapi.Error(w, 503, "template_unavailable", "Templates unavailable")
 		return
@@ -426,7 +440,7 @@ func (s *Service) templates(w http.ResponseWriter, r *http.Request) {
 		if err = rows.Scan(&t.ID, &t.Kind, &t.Name, &t.Desc, &count, &t.IsDefault); err != nil {
 			break
 		}
-		t.Nodes = fmt.Sprintf("%d 个节点", count)
+		t.Nodes = nodeCountLabel(r, count)
 		items = append(items, t)
 	}
 	if err == nil {
@@ -437,13 +451,19 @@ func (s *Service) templates(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "template_unavailable", "Templates unavailable")
 		return
 	}
+	if len(items) > maxTemplateItems {
+		httpapi.Error(w, 422, "template_scope_too_broad", "Template list exceeds the bounded result")
+		return
+	}
+	// Only persisted generic templates are returned. Investigation templates
+	// have a separate domain and no V3 template projection here yet.
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items})
 }
 
 type saveTemplateRequest struct {
 	FromCanvas string `json:"from_canvas"`
 	Name       string `json:"name"`
-	Keep       struct {
+	Keep       *struct {
 		Nodes    bool `json:"nodes"`
 		Steps    bool `json:"steps"`
 		Runbooks bool `json:"runbooks"`
@@ -464,7 +484,7 @@ func (s *Service) saveTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Name = strings.TrimSpace(in.Name)
-	if in.Name == "" || len([]rune(in.Name)) > 200 || in.FromCanvas == "" {
+	if in.Name == "" || len([]rune(in.Name)) > 200 || in.FromCanvas == "" || in.Keep == nil {
 		httpapi.Error(w, 422, "invalid_template", "Select a canvas and a template name")
 		return
 	}
@@ -483,6 +503,10 @@ func (s *Service) saveTemplate(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "canvas_unavailable", "Source canvas unavailable")
 		return
 	}
+	if len(rawNodes) > 1<<20 || len(rawEdges) > 1<<20 {
+		httpapi.Error(w, 422, "unsafe_template_structure", "Canvas structure exceeds template limits")
+		return
+	}
 	nodes, err := decodeNodes(rawNodes)
 	if err != nil {
 		httpapi.Error(w, 503, "canvas_unavailable", "Invalid source structure")
@@ -497,16 +521,40 @@ func (s *Service) saveTemplate(w http.ResponseWriter, r *http.Request) {
 		nodes = []Node{}
 		edges = []Edge{}
 	} else {
-		nodes = sanitizeNodes(nodes)
+		nodes, edges, err = sanitizeTemplateStructure(nodes, edges)
+		if err != nil {
+			httpapi.Error(w, 422, "unsafe_template_structure", "Canvas graph cannot be saved as a structural template")
+			return
+		}
 	}
 	id := "CT-" + store.ID()
-	_, err = s.Store.DB.Exec(r.Context(), `INSERT INTO v3_canvas_templates(id,owner_id,environment_id,kind,name,description,nodes,edges)
+	tx, err := s.Store.DB.Begin(r.Context())
+	if err != nil {
+		httpapi.Error(w, 503, "template_unavailable", "Template save failed")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	_, err = tx.Exec(r.Context(), `INSERT INTO v3_canvas_templates(id,owner_id,environment_id,kind,name,description,nodes,edges)
 		VALUES($1,$2,$3,$4,$5,'', $6::jsonb,$7::jsonb)`, id, httpapi.CurrentUser(r).ID, envs[0], kind, in.Name, mustJSON(nodes), mustJSON(edges))
 	if err != nil {
 		httpapi.Error(w, 503, "template_unavailable", "Template save failed")
 		return
 	}
-	httpapi.WriteJSON(w, 201, template{ID: id, Kind: kind, Name: in.Name, Desc: "", Nodes: fmt.Sprintf("%d 个节点", len(nodes))})
+	_, err = tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,action,target,outcome,changes)
+	 VALUES($1,'v3.canvas_template.saved',$2,'success',jsonb_build_object('environment_id',$3,'source_canvas_id',$4))`,
+		httpapi.CurrentUser(r).ID, id, envs[0], in.FromCanvas)
+	if err != nil {
+		httpapi.Error(w, 503, "audit_unavailable", "Template audit unavailable")
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		httpapi.Error(w, 503, "template_unavailable", "Template save failed")
+		return
+	}
+	// Persisted owner and environment make this a private template; the V3 DTO
+	// has no scope field, so the response contains only contracted fields.
+	httpapi.WriteJSON(w, 201, template{ID: id, Kind: kind, Name: in.Name, Desc: "",
+		Nodes: nodeCountLabel(r, len(nodes))})
 }
 
 // sanitizeNodes copies only layout and harmless presentation tokens. Titles,
@@ -514,7 +562,71 @@ func (s *Service) saveTemplate(w http.ResponseWriter, r *http.Request) {
 func sanitizeNodes(src []Node) []Node {
 	dst := make([]Node, len(src))
 	for i, n := range src {
-		dst[i] = Node{ID: n.ID, X: n.X, Y: n.Y, W: n.W, Icon: n.Icon, Tone: n.Tone, Title: fmt.Sprintf("节点 %d", i+1), Sub: "", Blocks: []json.RawMessage{}}
+		icon, tone := templateIcon(n.Icon), n.Tone
+		if !validTemplateTone(tone) {
+			tone = "info"
+		}
+		dst[i] = Node{ID: fmt.Sprintf("node-%d", i+1), X: n.X, Y: n.Y, W: n.W, Icon: icon, Tone: tone, Title: fmt.Sprintf("节点 %d", i+1), Sub: "", Blocks: []json.RawMessage{}}
 	}
 	return dst
+}
+
+var safeNodeID = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,100}$`)
+
+func templateIcon(icon string) string {
+	switch icon {
+	case "layers", "alert", "activity", "server", "database", "shield", "file-text", "code", "sparkles":
+		return icon
+	default:
+		return "layers"
+	}
+}
+
+func validTemplateTone(t string) bool {
+	switch t {
+	case "neutral", "accent", "ok", "warn", "danger", "info", "t1", "dev":
+		return true
+	}
+	return false
+}
+
+func validEdgeTone(t string) bool {
+	switch t {
+	case "neutral", "accent", "ok", "warn", "danger", "info":
+		return true
+	}
+	return false
+}
+
+func sanitizeTemplateStructure(srcNodes []Node, srcEdges []Edge) ([]Node, []Edge, error) {
+	if len(srcNodes) > 100 || len(srcEdges) > 200 {
+		return nil, nil, errors.New("template graph exceeds limits")
+	}
+	seen := map[string]bool{}
+	for _, n := range srcNodes {
+		if !safeNodeID.MatchString(n.ID) || seen[n.ID] || n.W <= 0 || n.W > 2000 ||
+			n.X < -100000 || n.X > 100000 || n.Y < -100000 || n.Y > 100000 {
+			return nil, nil, errors.New("invalid node structure")
+		}
+		seen[n.ID] = true
+	}
+	nodes := sanitizeNodes(srcNodes)
+	ids := make(map[string]string, len(srcNodes))
+	for i, n := range srcNodes {
+		ids[n.ID] = nodes[i].ID
+	}
+	edges := make([]Edge, 0, len(srcEdges))
+	links := map[string]bool{}
+	for _, edge := range srcEdges {
+		key := edge.From + "\x00" + edge.To
+		if !seen[edge.From] || !seen[edge.To] || edge.From == edge.To || links[key] {
+			return nil, nil, errors.New("invalid edge structure")
+		}
+		links[key] = true
+		if !validEdgeTone(edge.Tone) {
+			edge.Tone = ""
+		}
+		edges = append(edges, Edge{From: ids[edge.From], To: ids[edge.To], Tone: edge.Tone, Dash: edge.Dash})
+	}
+	return nodes, edges, nil
 }

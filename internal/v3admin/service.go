@@ -100,7 +100,17 @@ func (s *Service) roles(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := s.Store.DB.Query(r.Context(), `SELECT id,name,v3_kind FROM rbac_roles r
  WHERE $1 OR EXISTS (SELECT 1 FROM v3_role_grants g WHERE g.role_id=r.id
- AND (g.scope_kind='global' OR (g.scope_kind='environment' AND g.scope_id=ANY($2::text[]))))
+ AND (g.scope_kind='global' OR (g.scope_kind='environment' AND g.scope_id=ANY($2::text[]))
+ OR (g.scope_kind='team' AND EXISTS (
+  SELECT 1 FROM applications a
+  JOIN v3_application_environments ae ON ae.application_id=a.id
+  JOIN application_environments e ON e.application_id=a.id AND e.key=ae.environment_id AND NOT e.archived
+  WHERE a.owner_team_id=g.scope_id AND NOT a.archived AND ae.environment_id=ANY($2::text[])))
+ OR (g.scope_kind='application' AND EXISTS (
+  SELECT 1 FROM v3_application_environments ae
+  JOIN applications a ON a.id=ae.application_id AND NOT a.archived
+  JOIN application_environments e ON e.application_id=a.id AND e.key=ae.environment_id AND NOT e.archived
+  WHERE ae.application_id=g.scope_id AND ae.environment_id=ANY($2::text[])))))
  ORDER BY name,id`, global, envs)
 	if err != nil {
 		respond(w, nil, err)
@@ -122,6 +132,9 @@ func (s *Service) roles(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, err)
 		return
 	}
+	// App/team grants are usable only after environment.view admits the user
+	// to this instance environment. Do not count subjects whose only access is
+	// in another environment or whose unrelated grant happens to be global.
 	for i := range items {
 		err = s.Store.DB.QueryRow(r.Context(), `SELECT count(DISTINCT u.id) FROM users u
  JOIN (SELECT user_id,role_id FROM rbac_user_roles UNION
@@ -129,6 +142,7 @@ func (s *Service) roles(w http.ResponseWriter, r *http.Request) {
  ON a.user_id=u.id WHERE a.role_id=$1 AND NOT u.disabled AND u.deleted_at IS NULL
  AND u.source<>'settings_demo' AND ($2 OR EXISTS (
  SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=u.id
+ AND g.module='environment' AND g.action='view'
  AND (g.scope_kind='global' OR (g.scope_kind='environment' AND g.scope_id=ANY($3::text[])))))`, items[i].ID, global, envs).Scan(&items[i].Members)
 		if err != nil {
 			respond(w, nil, err)
@@ -165,7 +179,17 @@ func (s *Service) getRole(ctx context.Context, id string, envs []string, global,
 	v := roleDetail{MemberNames: []string{}, Scope: []string{}, Matrix: []matrixRow{}}
 	err := s.Store.DB.QueryRow(ctx, `SELECT id,name,description,v3_kind FROM rbac_roles r
  WHERE r.id=$1 AND ($2 OR EXISTS (SELECT 1 FROM v3_role_grants g WHERE g.role_id=r.id
- AND (g.scope_kind='global' OR (g.scope_kind='environment' AND g.scope_id=ANY($3::text[])))))`, id, global, envs).
+ AND (g.scope_kind='global' OR (g.scope_kind='environment' AND g.scope_id=ANY($3::text[]))
+ OR (g.scope_kind='team' AND EXISTS (
+  SELECT 1 FROM applications a
+  JOIN v3_application_environments ae ON ae.application_id=a.id
+  JOIN application_environments e ON e.application_id=a.id AND e.key=ae.environment_id AND NOT e.archived
+  WHERE a.owner_team_id=g.scope_id AND NOT a.archived AND ae.environment_id=ANY($3::text[])))
+ OR (g.scope_kind='application' AND EXISTS (
+  SELECT 1 FROM v3_application_environments ae
+  JOIN applications a ON a.id=ae.application_id AND NOT a.archived
+  JOIN application_environments e ON e.application_id=a.id AND e.key=ae.environment_id AND NOT e.archived
+  WHERE ae.application_id=g.scope_id AND ae.environment_id=ANY($3::text[]))))))`, id, global, envs).
 		Scan(&v.ID, &v.Name, &v.Desc, &v.Kind)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return v, store.ErrNotFound
@@ -173,12 +197,15 @@ func (s *Service) getRole(ctx context.Context, id string, envs []string, global,
 	if err != nil {
 		return v, err
 	}
+	// Keep the names consistent with the list count and with the V3 policy's
+	// independent environment admission check.
 	rows, err := s.Store.DB.Query(ctx, `SELECT DISTINCT u.id,u.name FROM users u
  JOIN (SELECT user_id,role_id FROM rbac_user_roles UNION
  SELECT x.id,dr.role_id FROM users x JOIN rbac_department_roles dr ON dr.department_id=x.department_id) a
  ON a.user_id=u.id WHERE a.role_id=$1 AND NOT u.disabled AND u.deleted_at IS NULL
  AND u.source<>'settings_demo' AND ($2 OR EXISTS (
  SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=u.id
+ AND g.module='environment' AND g.action='view'
  AND (g.scope_kind='global' OR (g.scope_kind='environment' AND g.scope_id=ANY($3::text[])))))
  ORDER BY u.name,u.id`, id, global, envs)
 	if err != nil {
@@ -199,28 +226,18 @@ func (s *Service) getRole(ctx context.Context, id string, envs []string, global,
 		return v, err
 	}
 	v.Members = len(v.MemberNames)
-	grants, err := s.roleGrants(ctx, id)
+	grants, err := s.roleGrants(ctx, id, envs, global)
 	if err != nil {
 		return v, err
 	}
-	visible := map[string]bool{}
-	for _, e := range envs {
-		visible[e] = true
-	}
-	if !global {
-		filtered := grants[:0]
-		for _, g := range grants {
-			if g.ScopeKind == "global" || g.ScopeKind == "environment" && visible[g.ScopeID] {
-				filtered = append(filtered, g)
-			}
-		}
-		grants = filtered
+	if err := validateMatrixGroups(grants); err != nil {
+		return v, err
 	}
 	scopes := map[string]bool{}
 	for _, g := range grants {
 		if g.ScopeKind == "global" {
 			scopes["global"] = true
-		} else if g.ScopeKind != "environment" || visible[g.ScopeID] {
+		} else {
 			scopes[g.ScopeKind+":"+g.ScopeID] = true
 		}
 	}
@@ -240,9 +257,21 @@ func (s *Service) getRole(ctx context.Context, id string, envs []string, global,
 	return v, nil
 }
 
-func (s *Service) roleGrants(ctx context.Context, roleID string) ([]grant, error) {
+func (s *Service) roleGrants(ctx context.Context, roleID string, envs []string, global bool) ([]grant, error) {
 	rows, err := s.Store.DB.Query(ctx, `SELECT module,action,scope_kind,scope_id,assurance
- FROM v3_role_grants WHERE role_id=$1 ORDER BY module,action,scope_kind,scope_id`, roleID)
+ FROM v3_role_grants g WHERE role_id=$1 AND ($2 OR g.scope_kind='global'
+ OR (g.scope_kind='environment' AND g.scope_id=ANY($3::text[]))
+ OR (g.scope_kind='team' AND EXISTS (
+  SELECT 1 FROM applications a
+  JOIN v3_application_environments ae ON ae.application_id=a.id
+  JOIN application_environments e ON e.application_id=a.id AND e.key=ae.environment_id AND NOT e.archived
+  WHERE a.owner_team_id=g.scope_id AND NOT a.archived AND ae.environment_id=ANY($3::text[])))
+ OR (g.scope_kind='application' AND EXISTS (
+  SELECT 1 FROM v3_application_environments ae
+  JOIN applications a ON a.id=ae.application_id AND NOT a.archived
+  JOIN application_environments e ON e.application_id=a.id AND e.key=ae.environment_id AND NOT e.archived
+  WHERE ae.application_id=g.scope_id AND ae.environment_id=ANY($3::text[]))))
+ ORDER BY module,action,scope_kind,scope_id`, roleID, global, envs)
 	if err != nil {
 		return nil, err
 	}

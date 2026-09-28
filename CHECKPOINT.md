@@ -1,5 +1,10 @@
 # AIOps Canvas 检查点
 
+## CP-097 · 2026-09-28 · 软删除身份的本地认证门禁
+
+- 集成分支 `codex/wan-117-v3-integration` 对 `Store.Login` 和 `Store.Session` 同时要求 `users.deleted_at IS NULL`。迁移 010 已约束软删除必须同时 disabled，正常 `DeleteMember` 也撤销会话；本次增加认证入口显式防线，与 OIDC 的软删除校验一致，不宣称正常路径原本可越权。
+- 一次性 Docker PG17、随机测试 schema 中模拟旧数据/损坏数据绕过该 CHECK，验证已软删除但未 disabled 的账号不能新登录，已有 session 也不能再使用；`TestAuthenticationRejectsSoftDeletedIdentity` 通过，容器已清理。没有运行全量测试或修改现有业务库；主契约仍 **32/166 `implemented`**。
+
 ## CP-096 · 2026-09-28 · V3 后端并行集成起点
 
 - 当前独立 worktree 从已推送 `codex/v3-backend` 的 `5d66be6` 建立 `codex/wan-117-v3-integration`，创建时工作区干净。主契约基线 **32/166 `implemented`**；前端、现有业务库和真实共享集群未修改。旧 checkout 的未提交 `internal/v3canvas/templates_http_test.go` 与无关 `.claude/` 未被复制或清理。

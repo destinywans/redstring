@@ -81,6 +81,8 @@ Tempo Trace 详情补充了受限 Span 属性及异常事件投影：先按已�
 
 ## 定向验证与后续接续
 
+并行集成首个公共认证修正：本地 `Login` 和 `Session` 显式排除 `users.deleted_at` 非空的身份。迁移 010 的 CHECK 和正常删除流程已要求同时禁用并撤销会话，因此这是防止旧数据或异常导入绕过禁用标志的补强，不能据此声称已在正常删除流程复现越权。一次性 PG17 的随机 schema 定向测试模拟不一致旧行，验证新登录及旧会话均被拒绝；不增加 166 项主契约完成数。
+
 已执行受影响 Go 包检查、OpenAPI 生成、`scripts/check-contract.py`、`scripts/check-v3-contract.py` 和 `git diff --check`。Docker 恢复后，在临时 PG17 数据库中通过 RBAC 撤权、对话租约与恢复、附件内容、新安装迁移，以及个人偏好、模型目录、AI 偏好、普通对话创建/详情、事件时间线的定向 HTTP/持久化用例；临时库均已删除。会话详情仍缺产物与带评分的记忆来源，旧回复用量未知，故继续标 `mock`。
 
 本机专用实验栈的 Prometheus、Loki、Alertmanager、Grafana、Elasticsearch、Tempo、Collector 已启动；Elasticsearch 为 green，Collector/Tempo 就绪，Grafana 新增两个数据源健康查询成功。Loki 的真实 30 分钟只读查询返回 HTTP 200、494 条日志和 31 个时间桶；Elasticsearch 当次有 39,972 条日志；Tempo 最近查询为 0 条 Trace，不能据此称追踪链路已打通。DeepSeek Flash 只发一次 16-token 上限的直接 API 请求（返回 HTTP 200、35 输入 token、15 输出 token）和一次 16-token 上限的适配器流式请求（通过）；本地 `.env` 被 Git 忽略且为 0600，默认运行限制为每轮 1 次模型调用、单次最多 128 输出 token，密钥不入库或日志。

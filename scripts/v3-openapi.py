@@ -417,17 +417,25 @@ S['V3RunbookStep'] = obj({'n':integer(),'kind':string(enum=['query','check','act
     'readonly':v3_bool(),'approval':v3_bool()})
 S['V3RunbookSummary'] = obj({**fieldnames('id title scope owner version last_verified'),
     'tags':arr(string()),'status':string(enum=['published','review','draft']),
-    'refs_30d':integer(),'resolve_rate':v3_num(),'stale':v3_bool()})
-S['V3Runbook'] = obj({**fieldnames('id title version base owner scope when status'),
+    'refs_30d':integer(),'resolve_rate':v3_num(),'stale':v3_bool()},
+    ['id','title','tags','scope','owner','version','status','refs_30d','last_verified','stale'])
+S['V3Runbook'] = obj({**fieldnames('id title version base owner scope when'),
     'tags':arr(string()),'steps':arr(ref('V3RunbookStep')),
     'reviewers':arr(v3_object('name state')),'versions':arr(v3_object('v who when')),
     'usage':obj({'refs':integer(),'resolve_rate':v3_num(),'weekly':arr(integer()),'highlight':integer()}),
-    'incidents':arr(v3_object('id title'))})
+    'incidents':arr(v3_object('id title'))},
+    ['id','title','version','base','owner','scope','tags','when','steps','reviewers','versions','usage','incidents'])
 v3_route('get','/runbooks','List accessible runbooks',response=obj({'items':arr(ref('V3RunbookSummary')),
     'counts':v3_map(integer()),'kpis':arr({'type':'object','additionalProperties':True}),
     'suggestions':arr({'type':'object','additionalProperties':True})}),
-    query=[v3_query(x) for x in ['q','service','tab']])
-v3_route('get','/runbooks/{id}','Read governed runbook',response=ref('V3Runbook'))
+    query=[v3_query(x) for x in ['q','service','tab']],
+    desc='Returns 503 runbook_read_unavailable when an accessible runbook exists: complete reference and verification history is not persisted. An empty accessible collection returns empty items and counts.')
+v3_route('get','/runbooks/{id}','Read governed runbook',response=ref('V3Runbook'),
+    desc='Returns 503 runbook_read_unavailable for an accessible runbook until complete usage, outcome, and verification history is persisted. No zero usage or fabricated version timestamp is returned.')
+for _path in ['/runbooks','/runbooks/{id}']:
+    P[_path]['get']['responses']['503'] = {
+        'description':'Mandatory Runbook read fields lack an authoritative persisted source',
+        'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('post','/runbooks','Create governed runbook draft',
     body=obj({'title':string(),'source':string(),'from':string(),'steps':arr(ref('V3RunbookStep')),
         'status':string(enum=['draft','review'])},['title']),response=obj({'id':string()},['id']),status=201,

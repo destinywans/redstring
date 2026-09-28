@@ -26829,7 +26829,7 @@
       "get": {
         "summary": "List accessible runbooks",
         "operationId": "get_runbooks",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. ",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Returns 503 runbook_read_unavailable when an accessible runbook exists: complete reference and verification history is not persisted. An empty accessible collection returns empty items and counts.",
         "responses": {
           "200": {
             "description": "Success",
@@ -26921,7 +26921,7 @@
             }
           },
           "503": {
-            "description": "Dependency unavailable",
+            "description": "Mandatory Runbook read fields lack an authoritative persisted source",
             "content": {
               "application/json": {
                 "schema": {
@@ -27118,7 +27118,7 @@
       "get": {
         "summary": "Read governed runbook",
         "operationId": "get_runbooks_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. ",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Returns 503 runbook_read_unavailable for an accessible runbook until complete usage, outcome, and verification history is persisted. No zero usage or fabricated version timestamp is returned.",
         "responses": {
           "200": {
             "description": "Success",
@@ -27181,7 +27181,7 @@
             }
           },
           "503": {
-            "description": "Dependency unavailable",
+            "description": "Mandatory Runbook read fields lack an authoritative persisted source",
             "content": {
               "application/json": {
                 "schema": {
@@ -37720,7 +37720,19 @@
             "type": "boolean"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "tags",
+          "scope",
+          "owner",
+          "version",
+          "status",
+          "refs_30d",
+          "last_verified",
+          "stale"
+        ]
       },
       "V3Runbook": {
         "type": "object",
@@ -37744,9 +37756,6 @@
             "type": "string"
           },
           "when": {
-            "type": "string"
-          },
-          "status": {
             "type": "string"
           },
           "tags": {
@@ -37831,7 +37840,22 @@
             }
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "version",
+          "base",
+          "owner",
+          "scope",
+          "tags",
+          "when",
+          "steps",
+          "reviewers",
+          "versions",
+          "usage",
+          "incidents"
+        ]
       },
       "V3KnowledgeSearchHit": {
         "type": "object",

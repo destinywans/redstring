@@ -17,7 +17,6 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/knowledge"
 	"github.com/wans/aiops-canvas/internal/rbac"
-	"github.com/wans/aiops-canvas/internal/searchtext"
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
@@ -36,36 +35,6 @@ type Step struct {
 	Code       string   `json:"code,omitempty"`
 	Readonly   bool     `json:"readonly,omitempty"`
 	Approval   bool     `json:"approval,omitempty"`
-}
-
-type Runbook struct {
-	ID        string           `json:"id"`
-	Title     string           `json:"title"`
-	Version   string           `json:"version"`
-	Base      string           `json:"base"`
-	Owner     string           `json:"owner"`
-	Scope     string           `json:"scope"`
-	Tags      []string         `json:"tags"`
-	When      string           `json:"when"`
-	Steps     []Step           `json:"steps"`
-	Reviewers []map[string]any `json:"reviewers"`
-	Versions  []map[string]any `json:"versions"`
-	Usage     map[string]any   `json:"usage"`
-	Incidents []map[string]any `json:"incidents"`
-	Status    string           `json:"status"`
-}
-
-type Summary struct {
-	ID           string   `json:"id"`
-	Title        string   `json:"title"`
-	Tags         []string `json:"tags"`
-	Scope        string   `json:"scope"`
-	Owner        string   `json:"owner"`
-	Version      string   `json:"version"`
-	Status       string   `json:"status"`
-	Refs30D      int      `json:"refs_30d"`
-	LastVerified string   `json:"last_verified"`
-	Stale        bool     `json:"stale"`
 }
 
 // Register adds routes that do not conflict with the old knowledge module.
@@ -103,23 +72,21 @@ func (s *Service) listHandler(api *httpapi.Server) http.HandlerFunc {
 			httpapi.Error(w, 422, "invalid_query", "Invalid Runbook filter")
 			return
 		}
-		rows, err := s.DB.Query(r.Context(), `SELECT d.id,COALESCE(u.name,''),COALESCE(v.last_verified_at::text,'')
+		rows, err := s.DB.Query(r.Context(), `SELECT d.id
 FROM knowledge_documents d LEFT JOIN v3_runbooks v ON v.document_id=d.id
-LEFT JOIN users u ON u.id=d.created_by
 WHERE (d.source LIKE 'runbook://%' OR v.document_id IS NOT NULL)
 ORDER BY d.created_at DESC LIMIT 1001`)
 		if err != nil {
 			httpapi.Error(w, 503, "knowledge_unavailable", "Runbooks unavailable")
 			return
 		}
-		type row struct{ id, owner, verified string }
-		candidates := []row{}
+		candidates := []string{}
 		for rows.Next() {
-			var v row
-			if err = rows.Scan(&v.id, &v.owner, &v.verified); err != nil {
+			var id string
+			if err = rows.Scan(&id); err != nil {
 				break
 			}
-			candidates = append(candidates, v)
+			candidates = append(candidates, id)
 		}
 		if err == nil {
 			err = rows.Err()
@@ -133,10 +100,8 @@ ORDER BY d.created_at DESC LIMIT 1001`)
 			httpapi.Error(w, 413, "scope_too_large", "Runbook collection exceeds the unpaged V3 response limit")
 			return
 		}
-		items := []Summary{}
-		counts := map[string]int{"all": 0, "mine": 0, "review": 0, "stale": 0}
-		for _, row := range candidates {
-			doc, getErr := s.rawDocument(r.Context(), row.id)
+		for _, id := range candidates {
+			doc, getErr := s.rawDocument(r.Context(), id)
 			if errors.Is(getErr, knowledge.ErrForbidden) || errors.Is(getErr, store.ErrForbidden) || errors.Is(getErr, store.ErrNotFound) {
 				continue
 			}
@@ -154,31 +119,16 @@ ORDER BY d.created_at DESC LIMIT 1001`)
 				httpapi.Error(w, 503, "authorization_unavailable", "Knowledge access could not be checked")
 				return
 			}
-			status := publicStatus(doc.Lifecycle)
-			if status == "" {
+			if publicStatus(doc.Lifecycle) == "" {
 				continue
 			}
-			last, stale := verifiedState(row.verified)
-			entry := Summary{ID: doc.ID, Title: doc.Title, Tags: nonNil(doc.Metadata.Tags), Scope: documentScope(doc), Owner: row.owner, Version: fmt.Sprintf("v%d", doc.Version), Status: status, Refs30D: 0, LastVerified: last, Stale: stale}
-			counts["all"]++
-			if doc.Metadata.MaintainerID == httpapi.CurrentUser(r).ID {
-				counts["mine"]++
-			}
-			if status == "review" {
-				counts["review"]++
-			}
-			if stale {
-				counts["stale"]++
-			}
-			if tab == "mine" && doc.Metadata.MaintainerID != httpapi.CurrentUser(r).ID || tab == "review" && status != "review" || tab == "stale" && !stale {
-				continue
-			}
-			if q != "" && !searchtext.Match(doc.Title+" "+strings.Join(doc.Metadata.Tags, " "), q) {
-				continue
-			}
-			items = append(items, entry)
+			// The response requires references, verification and stale state for
+			// every item, plus counts across tabs. No complete usage/verification
+			// producer exists, so even a filtered collection cannot claim zeros.
+			writeRunbookReadUnavailable(w)
+			return
 		}
-		httpapi.WriteJSON(w, 200, map[string]any{"items": items, "counts": counts, "kpis": []any{}, "suggestions": []any{}})
+		httpapi.WriteJSON(w, 200, map[string]any{"items": []any{}, "counts": map[string]int{"all": 0, "mine": 0, "review": 0, "stale": 0}, "kpis": []any{}, "suggestions": []any{}})
 	}
 }
 
@@ -196,18 +146,10 @@ func (s *Service) getHandler(api *httpapi.Server) http.HandlerFunc {
 			httpapi.Error(w, 404, "not_found", "Runbook not found")
 			return
 		}
-		var steps []Step
-		var whenText, owner string
-		err = s.DB.QueryRow(r.Context(), `SELECT COALESCE(v.when_text,''),COALESCE(v.steps,'[]'::jsonb),COALESCE(u.name,'') FROM knowledge_documents d LEFT JOIN v3_runbooks v ON v.document_id=d.id LEFT JOIN users u ON u.id=d.created_by WHERE d.id=$1`, doc.ID).Scan(&whenText, &steps, &owner)
-		if err != nil {
-			httpapi.Error(w, 503, "knowledge_unavailable", "Runbook unavailable")
-			return
-		}
-		if steps == nil {
-			steps = []Step{}
-		}
-		rb := Runbook{ID: doc.ID, Title: doc.Title, Version: fmt.Sprintf("v%d", doc.Version), Base: "", Owner: owner, Scope: documentScope(doc), Tags: nonNil(doc.Metadata.Tags), When: whenText, Steps: steps, Reviewers: []map[string]any{}, Versions: []map[string]any{{"v": fmt.Sprintf("v%d", doc.Version), "who": owner, "when": doc.CreatedAt.Format(time.RFC3339)}}, Usage: map[string]any{"refs": 0, "resolve_rate": 0, "weekly": []int{}, "highlight": 0}, Incidents: []map[string]any{}, Status: publicStatus(doc.Lifecycle)}
-		httpapi.WriteJSON(w, 200, rb)
+		// Runbook.usage is mandatory in the V3 DTO. The current repository
+		// records neither complete references nor resolved outcomes; returning
+		// zero would falsely assert that those events were measured.
+		writeRunbookReadUnavailable(w)
 	}
 }
 
@@ -544,12 +486,6 @@ func contains(xs []string, x string) bool {
 	}
 	return false
 }
-func nonNil(xs []string) []string {
-	if xs == nil {
-		return []string{}
-	}
-	return xs
-}
 func isRunbook(source string) bool { return strings.HasPrefix(source, "runbook://") }
 func publicStatus(s string) string {
 	if s == "draft" || s == "review" || s == "published" {
@@ -557,21 +493,8 @@ func publicStatus(s string) string {
 	}
 	return ""
 }
-func documentScope(d knowledge.Document) string {
-	if d.ApplicationID != "" {
-		return d.ApplicationID
-	}
-	return "workspace"
-}
-func verifiedState(raw string) (string, bool) {
-	if raw == "" {
-		return "", false
-	}
-	t, err := time.Parse(time.RFC3339Nano, raw)
-	if err != nil {
-		return raw, false
-	}
-	return t.Format(time.RFC3339), time.Since(t) > 90*24*time.Hour
+func writeRunbookReadUnavailable(w http.ResponseWriter) {
+	httpapi.Error(w, 503, "runbook_read_unavailable", "Runbook usage and verification history are not available")
 }
 func knowledgeError(w http.ResponseWriter, err error) {
 	switch {

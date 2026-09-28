@@ -1,11 +1,33 @@
 package v3knowledge
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/wans/aiops-canvas/internal/knowledge"
 )
+
+func TestRunbookReadUnavailableDoesNotClaimMeasuredValues(t *testing.T) {
+	w := httptest.NewRecorder()
+	writeRunbookReadUnavailable(w)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", w.Code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := body["error"].(map[string]any)
+	if !ok || got["code"] != "runbook_read_unavailable" {
+		t.Fatalf("unexpected error body: %#v", body)
+	}
+	if len(body) != 1 || len(got) != 2 {
+		t.Fatalf("response includes unmeasured runbook fields: %#v", body)
+	}
+}
 
 func TestValidateCreateRejectsUnsafeRunbookInputs(t *testing.T) {
 	valid := createInput{Title: "Inspect pool", Source: "blank", Steps: []Step{{Kind: "query", Title: "Read metrics", Readonly: true, Connectors: []string{"prometheus"}}}}

@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-104 · 2026-09-29 · 资源身份与观测部分证据
+
+- WAN-120 业务提交 `b36c6d3` 合入为 `f4b1b10`。服务发现返回稳定 `resource_id`、Kubernetes UID、环境和集群；`POST /services` 可用资源身份消除同名歧义，并在写事务内重新核对来源、五分钟新鲜度、UID、命名空间、未关联及资源查看授权。服务列表/映射先扫描完整有权集合，超过 1000 可见项报错；拓扑剔除失联/过期清单，不能借关联应用的负责人团队授权查看资源。
+- 指标、日志、Trace 查询以持久化应用、环境、负责人团队和绑定来源归属判定；多项不同来源绑定返回 409，范围超限返回 422。日志不从有界行样本编造完整模式计数与趋势，正常查询返回 503 及真实 `available` / `missing`；Trace 列表同样返回 503 样本与缺失聚合，详情显式 `partial:true`。OpenAPI 已改为对应部分响应，避免把缺证据的读取宣称为完整 200。
+- 一次性 PG17 随机 schema 中 `go test -p 1 ./internal/v3catalog ./internal/v3discovery ./internal/v3topology ./internal/v3observe -count=1` 通过，临时容器已清理。当前前端未发送 `resource_id`，同名工作负载尚不能经页面完整注册；无真实 Prometheus/Loki/Tempo/Elasticsearch 端到端读取，也未迁移现有库。`POST /services` 已有的唯一身份/手工登记契约继续 `implemented`；其它资源观测主契约仍 `mock`，总数仍为 **32/166 `implemented`**。
+
 ## CP-103 · 2026-09-28 · MCP 与来源登记快照、GitLab 只读变更证据
 
 - 从 WAN-122 业务分支按序合入 `2296d4c`→`c8a3e06`、`9792a1a`→`9e83032`、`90fba52`→`83a714b`、`be4f7b4`→`942e5c4`。MCP 和来源登记读取在同一数据库快照中完成，先关闭结果集再于事务内核对授权；绑定/创建在写事务内复核当前授权，避免单连接池死锁与撤权后写入。

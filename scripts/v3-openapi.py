@@ -279,7 +279,7 @@ S['V3ResourceTopologyPartial'] = obj({
 v3_route('get','/topology','Read authorized resource identities and relationships',
     response=ref('V3ResourceTopologyPartial'),
     query=[v3_query(x) for x in ['cluster','around','depth','group_by']],
-    desc='Partial CMDB projection only; each node is checked against resources.view in its persisted environment/application/team. Edges require both endpoints in a common authorized environment. group_by is currently unsupported (422); layout, health, blast radius, tree and Sankey are unavailable. No resources.view grant is automatically seeded from legacy RBAC.')
+    desc='Partial CMDB projection only. Collector nodes require present inventory with an observed resource and successful source no older than five minutes, with matching environment. Each node is checked against resources.view in its persisted environment/application/team; a linked resource cannot borrow its application owner-team grant. Edges require both endpoints in a common authorized environment. group_by is currently unsupported (422); layout, health, blast radius, tree and Sankey are unavailable. No resources.view grant is automatically seeded from legacy RBAC.')
 
 # Connectors and their configured provider capabilities.
 S['V3TagChip'] = obj({'label':string(),'tone':string(),'mono':v3_bool()},['label'])
@@ -608,7 +608,8 @@ v3_route('get','/services','Read authorized persisted service metadata',
         'complete_v3_dto':v3_bool()},['items','total','complete_v3_dto']),
     query=[v3_query(x) for x in ['q','tier','team','status']],
     desc='Partial V3 DTO: live status/health, measured SLO, releases and alerts are explicitly unavailable. '
-         'Configured targets and bindings are not live evidence. A status filter returns 422 until live status is connected.')
+         'Configured targets and bindings are not live evidence. A status filter returns 422 until live status is connected. '
+         'A bounded scan covers all authorized services before response; more than 1000 visible rows returns 422 result_limit rather than an incomplete total.')
 v3_route('get','/services/{id}','Read one authorized service metadata record',
     response=ref('V3ServiceMetadata'),
     desc='Partial V3 DTO with explicit evidence gaps; id binds application and environment.')
@@ -631,18 +632,21 @@ v3_route('delete','/services/{id}/external-targets/{bindingId}','Remove an exact
     status=204,
     desc='Requires services.change for the persisted application or team and connectors.manage for its environment. '
          'Only the scoped binding is removed and the change is audited; no external target is deleted.')
-S['V3DiscoveredService'] = obj({**fieldnames('id namespace kind image owner_hint tier_hint'),
-    'replicas':{'type':['integer','null']},'matched':arr(string()),'missing':arr(string())})
+S['V3DiscoveredService'] = obj({**fieldnames('id resource_id uid environment_id cluster namespace kind image owner_hint tier_hint owner_label_hint'),
+    'replicas':{'type':['integer','null']},'matched':arr(string()),'missing':arr(string())},
+    ['id','resource_id','uid','environment_id','cluster','namespace','kind','image',
+     'owner_hint','tier_hint','replicas','matched','missing'])
 v3_route('get','/services/discover','Discover scoped workloads',
     response=obj({'cluster':string(),'items':arr(ref('V3DiscoveredService')),'registered':integer()}),
-    query=[v3_query('cluster')])
+    query=[v3_query('cluster')],
+    desc='Returns current, present Kubernetes workload inventory after resources.view and services.view checks. resource_id is the stable CMDB registration identity; uid is the source Kubernetes UID. Reusing the name-only id can be ambiguous even when only one namesake is visible.')
 S['V3ServiceRegistration'] = obj({'items':arr(obj({
-    'id':string(), 'namespace':string(), 'tier':string(enum=['T0','T1','T2','T3']),
+    'id':string(), 'namespace':string(), 'resource_id':string(), 'tier':string(enum=['T0','T1','T2','T3']),
     'owner':string(), 'slo':string(), 'p99':string()},['id']))},['items'])
 v3_route('post','/services','Register scoped service metadata',
     role='admin',body=ref('V3ServiceRegistration'),
     response=obj({'created':integer(minimum=1)},['created']),status=201,
-    desc='Atomically registers 1-50 service profiles. Links a current Kubernetes workload only when its identity is unique; registration is audited.')
+    desc='Atomically registers 1-50 service profiles. Optional resource_id must be the stable CMDB identity from discovery and requires namespace. It is revalidated in the selected environment for presence, UID, freshness, namespace, unclaimed state and resources.view authorization under transaction locks. Without resource_id, a name/namespace must resolve uniquely or remain a manual-only registration; stale, claimed, mismatched or ambiguous inventory returns 409. Registration is audited.')
 S['V3MappingCell'] = obj({'state':string(enum=['ok','suggested','missing']),
     'value':string(),'brand':string()},['state'])
 S['V3ServiceMapping'] = obj({'systems':arr(v3_object('id brand label')),
@@ -650,7 +654,7 @@ S['V3ServiceMapping'] = obj({'systems':arr(v3_object('id brand label')),
     'suggestions':integer(minimum=0)},['systems','rows','suggestions'])
 v3_route('get','/service-mappings','Read persisted service connector mappings',
     response=ref('V3ServiceMapping'),
-    desc='Shows only bindings for authorized applications and environments; missing means no persisted binding, not a health check.')
+    desc='Shows only bindings for authorized applications and environments; missing means no persisted binding, not a health check. More than 1000 visible services returns 422 result_limit instead of an incomplete map.')
 S['V3GitLabPipelineRecord'] = obj({**fieldnames('id provider service_id environment_id binding_id connector_id project_id status ref sha source created_at updated_at')},
     ['id','provider','service_id','environment_id','binding_id','connector_id','project_id','status','ref','sha','source','created_at','updated_at'])
 S['V3GitLabPipelineRecord']['properties']['provider'] = string(enum=['gitlab'])
@@ -719,17 +723,27 @@ S['V3IncompleteMetrics'] = obj({'error':obj({'code':string(),'message':string()}
     'missing':arr(string())},['error','service','environment_id','available','missing'])
 v3_route('get','/metrics/dashboard','Inspect scoped metric dashboard readiness',
     query=[v3_query('service'),v3_query('range',string(enum=['1h'])),v3_query('align',string(enum=['true','false']))],
-    desc='Requires a persisted service/environment Prometheus binding. The currently registered queries cannot fill the required V3 MetricsDashboard; when scoped data is available, returns 503 dashboard_unavailable with observed query availability and missing sections. No KPI or SLO values are fabricated.')
+    desc='Requires exactly one persisted service/environment Prometheus binding and current services.view. Ambiguous distinct bindings return 409 ambiguous_binding; excessive authorized scope returns 422 scope_limit. The currently registered queries cannot fill the required V3 MetricsDashboard; when scoped data is available, returns 503 dashboard_unavailable with observed query availability and missing sections. No KPI or SLO values are fabricated.')
 P['/metrics/dashboard']['get']['responses'].pop('200')
 P['/metrics/dashboard']['get']['responses']['503'] = {
     'description':'Complete V3 dashboard unavailable from registered sources',
     'content':{'application/json':{'schema':{'oneOf':[ref('Error'),ref('V3IncompleteMetrics')]}}}}
 S['V3LogLine'] = obj({**fieldnames('time service message trace'),
     'level':string(enum=['ERROR','WARN','INFO'])})
+S['V3IncompleteLogs'] = obj({'error':obj({'code':string(),'message':string()},['code','message']),
+    'available':obj({'total':string(),'errors':string(),
+        'histogram':arr(arr(integer())),'items_sample':arr(ref('V3LogLine'))},
+        ['total','errors','histogram','items_sample']),
+    'missing':arr(string())},['error','available','missing'])
 v3_route('get','/logs','Search configured log provider',
     response=obj({'total':string(),'errors':string(),'histogram':arr(arr(integer())),
         'items':arr(ref('V3LogLine')),'patterns':arr({'type':'object','additionalProperties':True})}),
-    query=[v3_query(x) for x in ['q','levels','service']])
+    query=[v3_query(x) for x in ['q','levels','service']],
+    desc='Requires explicit persisted service/environment/owner-team binding and current logs.view. A normal query returns 503 log_patterns_unavailable with exact available counts, histogram and bounded line sample; no pattern counts or trends are inferred from that sample. Only an explicitly empty levels selection returns a complete 200 empty result. Distinct authorized bindings return 409 ambiguous_binding; more than 3 targets or other excessive authorized scope returns 422 scope_limit.')
+P['/logs']['get']['responses']['200']['description'] = 'Explicitly empty levels selection; no upstream log query'
+P['/logs']['get']['responses']['503'] = {
+    'description':'Complete log patterns unavailable or configured provider failed',
+    'content':{'application/json':{'schema':{'oneOf':[ref('Error'),ref('V3IncompleteLogs')]}}}}
 S['V3TraceRow'] = obj({**fieldnames('id time op href'),
     'services':arr(string()),'duration_ms':v3_num(),'spans':integer(),'errors':integer()})
 S['V3TraceList'] = obj({'scope':string(enum=['app','agent']),'total':integer(),'took':string(),
@@ -745,11 +759,26 @@ S['V3TraceView'] = obj({**fieldnames('id trace_id op time version flame_note'),
         'attrs':arr(obj(fieldnames('k v'),['k','v'])),
         'events':arr(obj({'at':string(format='date-time'),**fieldnames('name text')},['at','name']))})),
     'graph':obj({'nodes':arr({'type':'object','additionalProperties':True}),
-        'edges':arr({'type':'object','additionalProperties':True})})})
-v3_route('get','/traces','Query scoped traces',response=ref('V3TraceList'),
-    query=[v3_query(x) for x in ['scope','view','service']])
+        'edges':arr({'type':'object','additionalProperties':True})}),
+    'partial':{'type':'boolean','const':True},'missing':arr(string())},
+    ['partial','missing'])
+S['V3IncompleteTraceList'] = obj({'error':obj({'code':string(),'message':string()},['code','message']),
+    'scope':string(enum=['app']),'view':string(),'took':string(),
+    'observed_sample':arr(ref('V3TraceRow')),'missing':arr(string())},
+    ['error','scope','view','took','observed_sample','missing'])
+v3_route('get','/traces','Query scoped traces',
+    query=[v3_query(x) for x in ['scope','view','service']],
+    desc='Requires explicit persisted service/environment/owner-team Tempo binding and current traces.view. A bounded trace sample cannot establish full totals, facets, histogram or scatter population, so returns 503 trace_aggregation_unavailable with observed_sample and missing sections even for an empty sample. Agent scope is not configured; TraceQL q returns 422. Distinct authorized bindings return 409 ambiguous_binding; more than 6 targets or other excessive authorized scope returns 422 scope_limit.')
+P['/traces']['get']['responses'].pop('200')
+P['/traces']['get']['responses']['503'] = {
+    'description':'Complete trace aggregation unavailable or scoped provider failed',
+    'content':{'application/json':{'schema':{'oneOf':[ref('Error'),ref('V3IncompleteTraceList')]}}}}
 v3_route('get','/traces/{id}','Read scoped trace',response=ref('V3TraceView'),
-    query=[v3_query('service')])
+    query=[v3_query('service')],
+    desc='Requires explicit persisted service/environment/owner-team Tempo binding and current traces.view. Returns only scoped spans, partial=true and missing complete-trace, critical-path and correlation sections. The href from the list preserves an encoded service filter. A trace exceeding the bounded span limit returns 413 trace_too_large; distinct authorized bindings return 409 ambiguous_binding and excessive authorized scope returns 422 scope_limit.')
+P['/traces/{id}']['get']['responses']['413'] = {
+    'description':'Trace exceeds the scoped span limit',
+    'content':{'application/json':{'schema':ref('Error')}}}
 
 # Role matrix and membership are read from V3 grants. The writable role
 # endpoint applies only to explicitly scoped grants and audits the change.

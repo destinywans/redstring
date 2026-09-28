@@ -24788,7 +24788,7 @@
       "get": {
         "summary": "Read authorized resource identities and relationships",
         "operationId": "get_topology",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial CMDB projection only; each node is checked against resources.view in its persisted environment/application/team. Edges require both endpoints in a common authorized environment. group_by is currently unsupported (422); layout, health, blast radius, tree and Sankey are unavailable. No resources.view grant is automatically seeded from legacy RBAC.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial CMDB projection only. Collector nodes require present inventory with an observed resource and successful source no older than five minutes, with matching environment. Each node is checked against resources.view in its persisted environment/application/team; a linked resource cannot borrow its application owner-team grant. Edges require both endpoints in a common authorized environment. group_by is currently unsupported (422); layout, health, blast radius, tree and Sankey are unavailable. No resources.view grant is automatically seeded from legacy RBAC.",
         "responses": {
           "200": {
             "description": "Success",
@@ -29666,7 +29666,7 @@
       "get": {
         "summary": "Read authorized persisted service metadata",
         "operationId": "get_services",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial V3 DTO: live status/health, measured SLO, releases and alerts are explicitly unavailable. Configured targets and bindings are not live evidence. A status filter returns 422 until live status is connected.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial V3 DTO: live status/health, measured SLO, releases and alerts are explicitly unavailable. Configured targets and bindings are not live evidence. A status filter returns 422 until live status is connected. A bounded scan covers all authorized services before response; more than 1000 visible rows returns 422 result_limit rather than an incomplete total.",
         "responses": {
           "200": {
             "description": "Success",
@@ -29809,7 +29809,7 @@
       "post": {
         "summary": "Register scoped service metadata",
         "operationId": "post_services",
-        "description": "Minimum role: admin. V3 instance and environment scope apply. Atomically registers 1-50 service profiles. Links a current Kubernetes workload only when its identity is unique; registration is audited.",
+        "description": "Minimum role: admin. V3 instance and environment scope apply. Atomically registers 1-50 service profiles. Optional resource_id must be the stable CMDB identity from discovery and requires namespace. It is revalidated in the selected environment for presence, UID, freshness, namespace, unclaimed state and resources.view authorization under transaction locks. Without resource_id, a name/namespace must resolve uniquely or remain a manual-only registration; stale, claimed, mismatched or ambiguous inventory returns 409. Registration is audited.",
         "responses": {
           "201": {
             "description": "Success",
@@ -30367,7 +30367,7 @@
       "get": {
         "summary": "Discover scoped workloads",
         "operationId": "get_services_discover",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. ",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Returns current, present Kubernetes workload inventory after resources.view and services.view checks. resource_id is the stable CMDB registration identity; uid is the source Kubernetes UID. Reusing the name-only id can be ambiguous even when only one namesake is visible.",
         "responses": {
           "200": {
             "description": "Success",
@@ -30486,7 +30486,7 @@
       "get": {
         "summary": "Read persisted service connector mappings",
         "operationId": "get_service_mappings",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Shows only bindings for authorized applications and environments; missing means no persisted binding, not a health check.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Shows only bindings for authorized applications and environments; missing means no persisted binding, not a health check. More than 1000 visible services returns 422 result_limit instead of an incomplete map.",
         "responses": {
           "200": {
             "description": "Success",
@@ -31058,7 +31058,7 @@
       "get": {
         "summary": "Inspect scoped metric dashboard readiness",
         "operationId": "get_metrics_dashboard",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires a persisted service/environment Prometheus binding. The currently registered queries cannot fill the required V3 MetricsDashboard; when scoped data is available, returns 503 dashboard_unavailable with observed query availability and missing sections. No KPI or SLO values are fabricated.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires exactly one persisted service/environment Prometheus binding and current services.view. Ambiguous distinct bindings return 409 ambiguous_binding; excessive authorized scope returns 422 scope_limit. The currently registered queries cannot fill the required V3 MetricsDashboard; when scoped data is available, returns 503 dashboard_unavailable with observed query availability and missing sections. No KPI or SLO values are fabricated.",
         "responses": {
           "401": {
             "description": "Authentication required",
@@ -31180,10 +31180,10 @@
       "get": {
         "summary": "Search configured log provider",
         "operationId": "get_logs",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. ",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires explicit persisted service/environment/owner-team binding and current logs.view. A normal query returns 503 log_patterns_unavailable with exact available counts, histogram and bounded line sample; no pattern counts or trends are inferred from that sample. Only an explicitly empty levels selection returns a complete 200 empty result. Distinct authorized bindings return 409 ambiguous_binding; more than 3 targets or other excessive authorized scope returns 422 scope_limit.",
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Explicitly empty levels selection; no upstream log query",
             "content": {
               "application/json": {
                 "schema": {
@@ -31274,11 +31274,18 @@
             }
           },
           "503": {
-            "description": "Dependency unavailable",
+            "description": "Complete log patterns unavailable or configured provider failed",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Error"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Error"
+                    },
+                    {
+                      "$ref": "#/components/schemas/V3IncompleteLogs"
+                    }
+                  ]
                 }
               }
             }
@@ -31329,18 +31336,8 @@
       "get": {
         "summary": "Query scoped traces",
         "operationId": "get_traces",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. ",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires explicit persisted service/environment/owner-team Tempo binding and current traces.view. A bounded trace sample cannot establish full totals, facets, histogram or scatter population, so returns 503 trace_aggregation_unavailable with observed_sample and missing sections even for an empty sample. Agent scope is not configured; TraceQL q returns 422. Distinct authorized bindings return 409 ambiguous_binding; more than 6 targets or other excessive authorized scope returns 422 scope_limit.",
         "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/V3TraceList"
-                }
-              }
-            }
-          },
           "401": {
             "description": "Authentication required",
             "content": {
@@ -31392,11 +31389,18 @@
             }
           },
           "503": {
-            "description": "Dependency unavailable",
+            "description": "Complete trace aggregation unavailable or scoped provider failed",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Error"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Error"
+                    },
+                    {
+                      "$ref": "#/components/schemas/V3IncompleteTraceList"
+                    }
+                  ]
                 }
               }
             }
@@ -31447,7 +31451,7 @@
       "get": {
         "summary": "Read scoped trace",
         "operationId": "get_traces_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. ",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires explicit persisted service/environment/owner-team Tempo binding and current traces.view. Returns only scoped spans, partial=true and missing complete-trace, critical-path and correlation sections. The href from the list preserves an encoded service filter. A trace exceeding the bounded span limit returns 413 trace_too_large; distinct authorized bindings return 409 ambiguous_binding and excessive authorized scope returns 422 scope_limit.",
         "responses": {
           "200": {
             "description": "Success",
@@ -31511,6 +31515,16 @@
           },
           "503": {
             "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Trace exceeds the scoped span limit",
             "content": {
               "application/json": {
                 "schema": {
@@ -41420,6 +41434,18 @@
           "id": {
             "type": "string"
           },
+          "resource_id": {
+            "type": "string"
+          },
+          "uid": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "cluster": {
+            "type": "string"
+          },
           "namespace": {
             "type": "string"
           },
@@ -41433,6 +41459,9 @@
             "type": "string"
           },
           "tier_hint": {
+            "type": "string"
+          },
+          "owner_label_hint": {
             "type": "string"
           },
           "replicas": {
@@ -41454,7 +41483,22 @@
             }
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "resource_id",
+          "uid",
+          "environment_id",
+          "cluster",
+          "namespace",
+          "kind",
+          "image",
+          "owner_hint",
+          "tier_hint",
+          "replicas",
+          "matched",
+          "missing"
+        ]
       },
       "V3ServiceRegistration": {
         "type": "object",
@@ -41468,6 +41512,9 @@
                   "type": "string"
                 },
                 "namespace": {
+                  "type": "string"
+                },
+                "resource_id": {
                   "type": "string"
                 },
                 "tier": {
@@ -41894,6 +41941,72 @@
         },
         "additionalProperties": false
       },
+      "V3IncompleteLogs": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "message"
+            ]
+          },
+          "available": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "string"
+              },
+              "errors": {
+                "type": "string"
+              },
+              "histogram": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                }
+              },
+              "items_sample": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3LogLine"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "total",
+              "errors",
+              "histogram",
+              "items_sample"
+            ]
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "error",
+          "available",
+          "missing"
+        ]
+      },
       "V3TraceRow": {
         "type": "object",
         "properties": {
@@ -42139,9 +42252,77 @@
               }
             },
             "additionalProperties": false
+          },
+          "partial": {
+            "type": "boolean",
+            "const": true
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "required": [
+          "partial",
+          "missing"
+        ]
+      },
+      "V3IncompleteTraceList": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "message"
+            ]
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "app"
+            ]
+          },
+          "view": {
+            "type": "string"
+          },
+          "took": {
+            "type": "string"
+          },
+          "observed_sample": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3TraceRow"
+            }
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "error",
+          "scope",
+          "view",
+          "took",
+          "observed_sample",
+          "missing"
+        ]
       },
       "V3Role": {
         "type": "object",

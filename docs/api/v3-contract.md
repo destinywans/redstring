@@ -168,9 +168,13 @@
 | GET | `/traces` | `scope: app\|agent`, `view`, `q`（TraceQL / 过滤表达式）, `service` | `TraceList`：分面计数、保存的视图、按状态直方图、耗时散点、表格 | mock |
 | GET | `/traces/{id}` | | `TraceView`：Span（关键路径、属性、事件、日志、关联）、火焰图说明、服务调用图 | mock |
 | GET | `/services/discover` | `cluster` | 只读发现未登记的工作负载与负责人、系统映射线索 | mock |
-| POST | `/services` | `{ items: [{ id, namespace, tier, owner, slo, p99 }] }` | `{ created }` | implemented |
+| POST | `/services` | `{ items: [{ id, namespace, resource_id?, tier, owner, slo, p99 }] }`；`resource_id` 为发现接口返回的稳定 CMDB 标识，提供时必须有 namespace | `{ created }` | implemented |
 | GET | `/logs` | `q`, `levels` | `LogSearch`（含 AI 聚类的日志模式） | mock |
 | GET | `/changes` | `range`, `sources` | `ChangesView`（CI/CD 与 GitOps 事件，只读） | mock |
+
+资源发现现在返回 `resource_id`、Kubernetes `uid`、环境与集群；注册时按当前环境、采集新鲜度、存在状态、UID、命名空间、是否已关联及 `resources.view` 重新核对。旧客户端只传名称时仅可匹配唯一工作负载；同名、过期或已关联身份返回 409，不会静默关联。当前前端未传 `resource_id`，同名资源的发现到注册交互尚未接通。服务列表和系统映射超过 1000 条可见记录会返回 `422 result_limit`，不会返回不完整总数。拓扑仅显示五分钟内成功采集且环境吻合的现存节点，关联应用不会替资源借用其团队授权。
+
+观测查询只使用持久化应用、环境、负责人团队及已配置的外部目标绑定；不同来源绑定冲突返回 `409 ambiguous_binding`，范围过大返回 `422 scope_limit`。普通日志查询返回 `503 log_patterns_unavailable`，其中 `available` 仅包含真实总数、错误数、直方图和有界样本，`missing` 标明模式计数与趋势；只有显式空 `levels` 返回完整空结果。Trace 列表返回 `503 trace_aggregation_unavailable`，只提供 `observed_sample` 与缺失的总数/分面/直方图字段；详情 `200` 标记 `partial: true` 和 `missing`，不能把受权 Span 样本当成完整链路。指标、日志、Trace 主页面均保持 `mock`。
 
 ## v4 新建流程（`create.ts`）
 

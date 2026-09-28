@@ -1,5 +1,13 @@
 # AIOps Canvas 检查点
 
+## CP-114 · 2026-09-29 · WAN-123 知识治理与 Agent 证据接线
+
+- WAN-123 领域分支 `codex/wan-123-v3-knowledge-agent` 的前三个提交 `03b3e03`、`505afa7`、`9c37a0a` 分别合入集成分支为 `15e0279`、`9291012`、`d33d4f3`。Agent 初稿 `caf7d0f` 独立合入曾被自动审批拒绝：机器身份可能绕过评测门禁、晚到护栏事件可能丢失。完成 `4842596`、`63bb21a`、`f1e82cb`、`28f37ab` 修正及独立复核后，Agent 与四个修正作为一个无中间提交的安全序列合入 `b6b0416f327ccb922898f1c3dce6954f4666540b`。本分支 `codex/wan-117-v3-integration` 已推送，`origin` 同名远端回读为该 SHA，代码提交后工作树干净。
+- Runbook/复盘：迁移 110 保存结构化步骤、审核与历史；模板草稿只给空步骤大纲，复盘草稿只给结案事实，主页面仍是 `mock`。审核拒绝自审，批准提交后在事务外尝试索引并报告语义就绪；持久化 dry-run 要求对象级 `knowledge.manage`；新增同权限辅助重试 `POST /runbooks/{id}/reindex`。复盘发布在同事务重新锁定已解决事件、已关闭调查、报告和结案事件。用量、执行核验、AI 草稿和完整前端 DTO 尚无可信来源。
+- 来源与记忆：迁移 111–112 保存有界、ACL 验证的来源观察及可归属索引证据；生产构造未装 Reader，来源同步明确 501，不导入正文。迁移 113–114 保存当前已发布来源锚定的事实与冲突；`GET /memory` 固定 503，辅助 `/memory/facts` 只给部分字段，前端 `forget`/冲突请求体尚不匹配。主契约保持 `mock`。
+- Agent：迁移 115–118、`v3agents.New(...).Register` 接入 20 条主路由，保存目录/版本、Prompt 修订、待执行评测、配置发布、上报运行与护栏策略。失败门禁放行限启用的人类管理员；护栏事件可带受信生产者采集的策略修订和数据库决策时间，以免晚到上报因当前策略关闭而消失。没有真实流量路由器、评测器、Prompt trial、工具执行器和完整运行/护栏生产者；部分 DTO 会令当前前端报错，不能启用整页 HTTP 模式，也不把上报 Span 当作执行审计。主完成数仍 **32/166 `implemented`**。
+- 一次性 PG17 隔离容器运行 `go test ./internal/v3knowledge ./internal/v3postmortems ./internal/v3sourceregistry ./internal/v3knowledgesources ./internal/v3memory ./internal/v3agents -count=1 -timeout=120s` 均通过，临时容器已清理；`cmd/aiops` 编译、308 个注册操作 OpenAPI 引用、165 行主契约和路由矩阵检查通过，差异检查通过。领域分支另对 Agent/Runbook/复盘做定向 `go vet` 与独立只读复核。现有业务库未执行 110–118，未连接真实来源/模型或验证浏览器；Runbook 索引前复查与索引器之间的极窄并发变化尚无独立运行验证。下一步继续 WAN-118 和其余 V3 主页面契约，实际迁移与产品验收另行记录。
+
 ## CP-113 · 2026-09-29 · 事件人工时间线的持久只读入口
 
 - WAN-118 业务提交 `5583d57` 合入为 `3f1834f`。新增辅助 `GET /incidents/{id}/timeline/manual`：从当前持久事件读取 `v3_incident_timeline` 的真实人工备注，按保存时间/ID 排序，以事件归属的应用/环境核对当前 `events.view`，响应 `{ items, scope: "manual_only" }`。展示姓名取成员当前记录；隐藏或未知事件都返回 404，超过 500 条人工记录或存储故障返回 503，不返回截断列表。没有系统/AI 时间线、影响或错误预算推断。

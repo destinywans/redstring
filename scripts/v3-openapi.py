@@ -438,6 +438,27 @@ v3_route('get','/knowledge-sources/observed-documents','Read scoped published do
         'truncated':v3_bool()},
         ['items','index','partial','reason','truncated']),
     desc='Auxiliary read-only backend endpoint, not the V3 KnowledgeSource DTO. A source registry, synchronization state and index summary are unavailable. No document body is returned.')
+S['V3KnowledgeSourceRegistration'] = obj({**fieldnames('id environment_id application_id team_id name type url schedule chunk registration_status created_at'),
+    'spaces':arr(string()),'inherit_acl':v3_bool()},
+    ['id','environment_id','name','type','url','spaces','schedule','chunk','inherit_acl','registration_status','created_at'])
+S['V3KnowledgeSourceRegistrationInput'] = obj({**fieldnames('name type url secret_ref application_id team_id schedule chunk'),
+    'spaces':arr(string()),'inherit_acl':v3_bool()},
+    ['name','type','url','secret_ref','spaces','schedule','chunk','inherit_acl'])
+v3_route('get','/knowledge-sources/registrations','Read scoped, unverified source registrations',
+    response=obj({'items':arr(ref('V3KnowledgeSourceRegistration')),'index':{'type':'null'},
+        'complete_v3_dto':v3_bool(),'truncated':v3_bool(),'unavailable_fields':arr(string())},
+        ['items','index','complete_v3_dto','truncated','unavailable_fields']),
+    desc='Auxiliary registration inventory only; no connection, sync, document count or index status is claimed. Returns 422 when a bounded candidate scan cannot prove completeness.')
+v3_route('post','/knowledge-sources/registrations','Register scoped source configuration without activating sync',
+    body=ref('V3KnowledgeSourceRegistrationInput'),status=201,
+    response=obj({'id':string(),'registration_status':string(enum=['unverified'])},['id','registration_status']),
+    desc='Auxiliary operation; stores a Vault reference, not a plaintext credential. Registration does not prove connection or begin ingestion. Requires one environment and knowledge.manage; audit is transactional.')
+v3_route('post','/knowledge-sources/test','Test a knowledge source connection',
+    body=obj(fieldnames('type url secret_ref'),['type','url','secret_ref']),status=501,
+    desc='The Vault-backed source connector is not yet configured. After validating the request and knowledge.manage, the endpoint fails closed with 501 source_connection_test_unavailable; it never returns a fixed success.')
+P['/knowledge-sources/test']['post']['responses']['501'] = {
+    'description':'Vault-backed source connection test is not available',
+    'content':{'application/json':{'schema':ref('Error')}}}
 
 # Read-only service discovery and externally queried telemetry.
 S['V3CatalogEvidenceState'] = obj({'state':string(enum=['unavailable']), 'reason':string()},['state'])

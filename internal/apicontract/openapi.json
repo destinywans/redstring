@@ -27452,6 +27452,379 @@
         ]
       }
     },
+    "/knowledge-sources/registrations": {
+      "get": {
+        "summary": "Read scoped, unverified source registrations",
+        "operationId": "get_knowledge_sources_registrations",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary registration inventory only; no connection, sync, document count or index status is claimed. Returns 422 when a bounded candidate scan cannot prove completeness.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3KnowledgeSourceRegistration"
+                      }
+                    },
+                    "index": {
+                      "type": "null"
+                    },
+                    "complete_v3_dto": {
+                      "type": "boolean"
+                    },
+                    "truncated": {
+                      "type": "boolean"
+                    },
+                    "unavailable_fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "index",
+                    "complete_v3_dto",
+                    "truncated",
+                    "unavailable_fields"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "knowledge-sources"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      },
+      "post": {
+        "summary": "Register scoped source configuration without activating sync",
+        "operationId": "post_knowledge_sources_registrations",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary operation; stores a Vault reference, not a plaintext credential. Registration does not prove connection or begin ingestion. Requires one environment and knowledge.manage; audit is transactional.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "registration_status": {
+                      "type": "string",
+                      "enum": [
+                        "unverified"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "registration_status"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "knowledge-sources"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3KnowledgeSourceRegistrationInput"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/knowledge-sources/test": {
+      "post": {
+        "summary": "Test a knowledge source connection",
+        "operationId": "post_knowledge_sources_test",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. The Vault-backed source connector is not yet configured. After validating the request and knowledge.manage, the endpoint fails closed with 501 source_connection_test_unavailable; it never returns a fixed success.",
+        "responses": {
+          "501": {
+            "description": "Vault-backed source connection test is not available",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "knowledge-sources"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  },
+                  "secret_ref": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "type",
+                  "url",
+                  "secret_ref"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/services": {
       "get": {
         "summary": "Read authorized persisted service metadata",
@@ -37276,6 +37649,116 @@
           "chunks",
           "last",
           "status"
+        ]
+      },
+      "V3KnowledgeSourceRegistration": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "team_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "chunk": {
+            "type": "string"
+          },
+          "registration_status": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "spaces": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "inherit_acl": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "environment_id",
+          "name",
+          "type",
+          "url",
+          "spaces",
+          "schedule",
+          "chunk",
+          "inherit_acl",
+          "registration_status",
+          "created_at"
+        ]
+      },
+      "V3KnowledgeSourceRegistrationInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "secret_ref": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "team_id": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "chunk": {
+            "type": "string"
+          },
+          "spaces": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "inherit_acl": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "type",
+          "url",
+          "secret_ref",
+          "spaces",
+          "schedule",
+          "chunk",
+          "inherit_acl"
         ]
       },
       "V3CatalogEvidenceState": {

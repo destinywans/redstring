@@ -31,6 +31,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3observe"
 	"github.com/wans/aiops-canvas/internal/v3proposals"
 	"github.com/wans/aiops-canvas/internal/v3settings"
+	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
 	"github.com/wans/aiops-canvas/internal/v3topology"
 	"github.com/wans/aiops-canvas/internal/v3uploads"
 )
@@ -208,6 +209,7 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	knowledgeV3.Register(api)
 	knowledgeV3.RegisterSearch(api)
 	v3knowledgesources.New(s.DB, policy).Register(api)
+	v3sourceregistry.New(s.DB, policy).Register(api)
 	go auditV3.CleanupExpired(ctx)
 	return nil
 }

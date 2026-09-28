@@ -14,7 +14,9 @@ var sourceEnvironmentKey = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,100}$`)
 
 // SaveSnapshot commits only complete source snapshots. Failed/old observations
 // retain the previous objects, edges and observed_at; missing objects are marked,
-// never deleted. Explicit grants use existing permissions and only action=view.
+// never deleted. Their application links are retired so a replaced UID cannot
+// keep an authoritative service association. Explicit grants use existing
+// permissions and only action=view.
 func SaveSnapshot(ctx context.Context, db *pgxpool.Pool, snapshot Snapshot) error {
 	if snapshot.SourceID == "" || snapshot.SourceKind == "" {
 		return fmt.Errorf("source identity required")
@@ -110,11 +112,13 @@ func SaveSnapshot(ctx context.Context, db *pgxpool.Pool, snapshot Snapshot) erro
 			return err
 		}
 		ids[record.ExternalID] = id
-		if _, err = tx.Exec(ctx, `DELETE FROM cmdb_resource_applications WHERE resource_id=$1`, id); err != nil {
+		// Collector configuration owns only discovered links. A V3 registration
+		// may have attached this exact UID in a separate transaction.
+		if _, err = tx.Exec(ctx, `DELETE FROM cmdb_resource_applications WHERE resource_id=$1 AND provenance='discovered'`, id); err != nil {
 			return err
 		}
 		for _, link := range record.Applications {
-			_, err = tx.Exec(ctx, `INSERT INTO cmdb_resource_applications(resource_id,application_id,environment_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`, id, link.ApplicationID, link.EnvironmentID)
+			_, err = tx.Exec(ctx, `INSERT INTO cmdb_resource_applications(resource_id,application_id,environment_id,provenance) VALUES($1,$2,$3,'discovered') ON CONFLICT DO NOTHING`, id, link.ApplicationID, link.EnvironmentID)
 			if err != nil {
 				return err
 			}
@@ -146,6 +150,15 @@ func SaveSnapshot(ctx context.Context, db *pgxpool.Pool, snapshot Snapshot) erro
 		seen = append(seen, id)
 	}
 	_, err = tx.Exec(ctx, `UPDATE cmdb_resources SET attributes=jsonb_set(attributes,'{inventory_presence}','"missing"'),updated_at=now() WHERE source_kind=$1 AND source_id=$2 AND NOT(id=ANY($3::text[])) AND attributes->>'inventory_presence' IS DISTINCT FROM 'missing'`, snapshot.SourceKind, snapshot.SourceID, seen)
+	if err != nil {
+		return err
+	}
+	// A complete source snapshot is evidence that an omitted UID is no longer
+	// current. Retire all of its application links, including manual links;
+	// otherwise consumers of the link table could treat the old UID as live.
+	_, err = tx.Exec(ctx, `DELETE FROM cmdb_resource_applications l USING cmdb_resources r
+ WHERE l.resource_id=r.id AND r.source_kind=$1 AND r.source_id=$2
+ AND NOT(r.id=ANY($3::text[]))`, snapshot.SourceKind, snapshot.SourceID, seen)
 	if err != nil {
 		return err
 	}

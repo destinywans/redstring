@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -48,6 +49,9 @@ func TestRegisterServiceHTTPV3ScopePersistenceAndAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	// Registration must never borrow a second pool connection while holding
+	// its transaction and existing-service row lock.
+	cfg.MaxConns = 1
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -77,6 +81,28 @@ func TestRegisterServiceHTTPV3ScopePersistenceAndAudit(t *testing.T) {
 	if _, err := db.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'service-writer')`, writer.ID); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(ctx, `INSERT INTO cmdb_sync_sources(id,kind,name,last_success_at,environment_key)
+ VALUES('live-source','kubernetes','Live',now(),'dev'),
+ ('stale-source','kubernetes','Stale',now()-interval '1 day','dev'),
+ ('other-source','kubernetes','Other',now(),'staging');
+ INSERT INTO cmdb_resources(id,name,kind,source_kind,source_id,external_id,observed_at,attributes) VALUES
+ ('checkout-workload','checkout-api','deployment','kubernetes','live-source','uid-checkout',now(),'{"uid":"uid-checkout","cluster":"cluster-a","namespace":"trade","environment_key":"dev","inventory_presence":"present","resource_type":"Deployment"}'),
+ ('stale-source-workload','stale-source-api','deployment','kubernetes','stale-source','uid-stale-source',now(),'{"uid":"uid-stale-source","cluster":"cluster-a","namespace":"trade","environment_key":"dev","inventory_presence":"present","resource_type":"Deployment"}'),
+ ('stale-observation-workload','stale-observation-api','deployment','kubernetes','live-source','uid-stale-observation',now()-interval '1 day','{"uid":"uid-stale-observation","cluster":"cluster-a","namespace":"trade","environment_key":"dev","inventory_presence":"present","resource_type":"Deployment"}'),
+ ('missing-workload','missing-api','deployment','kubernetes','live-source','uid-missing',now(),'{"uid":"uid-missing","cluster":"cluster-a","namespace":"trade","environment_key":"dev","inventory_presence":"missing","resource_type":"Deployment"}'),
+ ('bad-uid-workload','bad-uid-api','deployment','kubernetes','live-source','uid-real',now(),'{"uid":"uid-old","cluster":"cluster-a","namespace":"trade","environment_key":"dev","inventory_presence":"present","resource_type":"Deployment"}'),
+ ('wrong-source-env-workload','wrong-source-env-api','deployment','kubernetes','other-source','uid-wrong-source',now(),'{"uid":"uid-wrong-source","cluster":"cluster-a","namespace":"trade","environment_key":"dev","inventory_presence":"present","resource_type":"Deployment"}'),
+ ('wrong-attribute-env-workload','wrong-attribute-env-api','deployment','kubernetes','live-source','uid-wrong-attribute',now(),'{"uid":"uid-wrong-attribute","cluster":"cluster-a","namespace":"trade","environment_key":"staging","inventory_presence":"present","resource_type":"Deployment"}'),
+ ('linked-workload','linked-api','deployment','kubernetes','live-source','uid-linked',now(),'{"uid":"uid-linked","cluster":"cluster-a","namespace":"trade","environment_key":"dev","inventory_presence":"present","resource_type":"Deployment"}'),
+ ('duplicate-a','duplicate-api','deployment','kubernetes','live-source','uid-duplicate-a',now(),'{"uid":"uid-duplicate-a","cluster":"cluster-a","namespace":"trade","environment_key":"dev","inventory_presence":"present","resource_type":"Deployment"}'),
+ ('duplicate-b','duplicate-api','deployment','kubernetes','live-source','uid-duplicate-b',now(),'{"uid":"uid-duplicate-b","cluster":"cluster-b","namespace":"trade","environment_key":"dev","inventory_presence":"present","resource_type":"Deployment"}'),
+ ('other-env-workload','other-env-api','deployment','kubernetes','other-source','uid-other-env',now(),'{"uid":"uid-other-env","cluster":"cluster-c","namespace":"trade","environment_key":"staging","inventory_presence":"present","resource_type":"Deployment"}');
+ INSERT INTO applications(id,name,key,environment) VALUES('linked-app','Linked','linked-existing','dev');
+ INSERT INTO application_environments(id,application_id,key,name) VALUES('linked-app-env','linked-app','dev','Dev');
+ INSERT INTO cmdb_resource_applications(resource_id,application_id,environment_id)
+ VALUES('linked-workload','linked-app','linked-app-env')`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := st.CreateUser(ctx, core.User{Email: "reader@example.invalid", Name: "Reader", Role: "viewer"}, "isolated-reader-password"); err != nil {
 		t.Fatal(err)
 	}
@@ -99,6 +125,9 @@ func TestRegisterServiceHTTPV3ScopePersistenceAndAudit(t *testing.T) {
 	}
 	request := func(environment, token, body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(http.MethodPost, "/api/v1/services", strings.NewReader(body))
+		requestCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		r = r.WithContext(requestCtx)
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("X-AIOps-Environment", environment)
 		if token != "" {
@@ -119,6 +148,17 @@ func TestRegisterServiceHTTPV3ScopePersistenceAndAudit(t *testing.T) {
 	assert(request("dev", readerToken, body), 403, "forbidden")
 	assert(request("all", writerToken, body), 409, "env_view_only")
 	assert(request("staging", writerToken, body), 403, "forbidden")
+	assert(request("dev", writerToken, body), 403, "forbidden") // resources.view is required to link.
+	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('service-writer','resources','view','environment','dev')`); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"stale-source-api", "stale-observation-api", "missing-api", "bad-uid-api", "wrong-source-env-api", "wrong-attribute-env-api", "linked-api"} {
+		assert(request("dev", writerToken, `{"items":[{"id":"`+name+`","namespace":"trade"}]}`), 409, "workload_unavailable")
+	}
+	assert(request("dev", writerToken, `{"items":[{"id":"duplicate-api","namespace":"trade"}]}`), 409, "ambiguous_workload")
+	// The same name in another environment must not be linked into dev.
+	assert(request("dev", writerToken, `{"items":[{"id":"other-env-api","namespace":"trade"}]}`), 201, "")
 	created := request("dev", writerToken, body)
 	assert(created, 201, "")
 	var result map[string]any
@@ -139,10 +179,54 @@ func TestRegisterServiceHTTPV3ScopePersistenceAndAudit(t *testing.T) {
 		t.Fatalf("incorrect persisted service: %s %s %s %s %s %f %d", key, environment, tier, owner, namespace, slo, p99)
 	}
 	var auditCount int
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE actor_id=$1 AND action='v3.service.created' AND outcome='success' AND changes->>'environment'='dev'`, writer.ID).Scan(&auditCount); err != nil {
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit a
+ JOIN applications app ON app.id=a.application_id
+ WHERE a.actor_id=$1 AND a.action='v3.service.created' AND a.outcome='success'
+ AND a.changes->>'environment'='dev' AND app.key='checkout-api'`, writer.ID).Scan(&auditCount); err != nil {
 		t.Fatal(err)
 	}
 	if auditCount != 1 {
 		t.Fatalf("created service must have exactly one audit entry, got %d", auditCount)
+	}
+	var linked, provenance string
+	if err := db.QueryRow(ctx, `SELECT l.resource_id,l.provenance FROM cmdb_resource_applications l
+	 JOIN applications a ON a.id=l.application_id WHERE a.key='checkout-api'`).Scan(&linked, &provenance); err != nil {
+		t.Fatal(err)
+	}
+	if linked != "checkout-workload" || provenance != "manual" {
+		t.Fatalf("unexpected workload link %q (%s)", linked, provenance)
+	}
+	var manualLinks int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM cmdb_resource_applications l
+ JOIN applications a ON a.id=l.application_id WHERE a.key='other-env-api'`).Scan(&manualLinks); err != nil {
+		t.Fatal(err)
+	}
+	if manualLinks != 0 {
+		t.Fatalf("other-environment workload was incorrectly linked: %d", manualLinks)
+	}
+	var manualLinked bool
+	if err := db.QueryRow(ctx, `SELECT (changes->>'resource_linked')::boolean FROM management_audit a
+ JOIN applications app ON app.id=a.application_id WHERE app.key='other-env-api'
+ AND a.action='v3.service.created'`).Scan(&manualLinked); err != nil {
+		t.Fatal(err)
+	}
+	if manualLinked {
+		t.Fatal("manual service audit incorrectly claims a resource link")
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
+ ('viewer','environment','view','environment','staging'),
+ ('service-writer','services','change','environment','staging')`); err != nil {
+		t.Fatal(err)
+	}
+	// Reuse the existing service identity in a second environment. The old
+	// identity grant is checked inside the same single-connection transaction.
+	assert(request("staging", writerToken, `{"items":[{"id":"checkout-api","namespace":"trade"}]}`), 201, "")
+	var envCount int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_application_environments ve
+ JOIN applications app ON app.id=ve.application_id WHERE app.key='checkout-api'`).Scan(&envCount); err != nil {
+		t.Fatal(err)
+	}
+	if envCount != 2 {
+		t.Fatalf("existing service identity was not reused across environments: %d", envCount)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
@@ -84,6 +85,10 @@ func (f catalogAccess) Authorize(_ context.Context, _ core.User, d rbac.V3Decisi
 	return f(d)
 }
 
+func (f catalogAccess) AuthorizeWithTx(_ context.Context, _ pgx.Tx, _ core.User, d rbac.V3Decision) error {
+	return f(d)
+}
+
 func TestCatalogAuthorizationUsesPersistedTeamOnlyAfterApplicationDenial(t *testing.T) {
 	decisions := []rbac.V3Decision{}
 	s := Service{Access: catalogAccess(func(d rbac.V3Decision) error {
@@ -117,21 +122,21 @@ func TestExistingServiceLinkRequiresAuthorizationOnExistingIdentity(t *testing.T
 		return store.ErrForbidden
 	})}
 	user := core.User{ID: "user-1"}
-	if err := s.authorizeExistingGrants(context.Background(), user, "app-1", "team-1", []string{"staging"}); err != nil {
+	if err := s.authorizeExistingGrants(context.Background(), nil, user, "app-1", "team-1", []string{"staging"}); err != nil {
 		t.Fatal(err)
 	}
 	if len(decisions) != 2 || decisions[0].ApplicationID != "app-1" || decisions[1].TeamID != "team-1" || decisions[1].EnvironmentID != "staging" {
 		t.Fatalf("existing identity was not checked before link: %#v", decisions)
 	}
 	decisions = nil
-	if err := s.authorizeExistingGrants(context.Background(), user, "app-2", "", []string{"staging"}); !errors.Is(err, store.ErrForbidden) {
+	if err := s.authorizeExistingGrants(context.Background(), nil, user, "app-2", "", []string{"staging"}); !errors.Is(err, store.ErrForbidden) {
 		t.Fatalf("unrelated application was linkable: %v", err)
 	}
 	if len(decisions) != 1 || decisions[0].ApplicationID != "app-2" {
 		t.Fatalf("unexpected scope for unrelated application: %#v", decisions)
 	}
 	decisions = nil
-	if err := s.authorizeExistingGrants(context.Background(), user, "legacy", "", nil); !errors.Is(err, store.ErrForbidden) {
+	if err := s.authorizeExistingGrants(context.Background(), nil, user, "legacy", "", nil); !errors.Is(err, store.ErrForbidden) {
 		t.Fatalf("unmapped legacy application was linkable: %v", err)
 	}
 	if len(decisions) != 0 {
@@ -146,19 +151,19 @@ func TestExistingServiceCannotUseOtherInstanceEnvironmentAsIdentityEvidence(t *t
 		return nil // even a global grant must not cross the configured boundary
 	}), "staging", "test")
 	user := core.User{ID: "user-1"}
-	if err := s.authorizeExistingGrants(context.Background(), user, "app-prod", "", []string{"prod"}); !errors.Is(err, store.ErrForbidden) {
+	if err := s.authorizeExistingGrants(context.Background(), nil, user, "app-prod", "", []string{"prod"}); !errors.Is(err, store.ErrForbidden) {
 		t.Fatalf("prod-only identity was reusable in nonprod instance: %v", err)
 	}
 	if checks != 0 {
 		t.Fatalf("outside-instance grant was consulted %d times", checks)
 	}
-	if err := s.authorizeExistingGrants(context.Background(), user, "app-test", "", []string{"prod", "test"}); err != nil {
+	if err := s.authorizeExistingGrants(context.Background(), nil, user, "app-test", "", []string{"prod", "test"}); err != nil {
 		t.Fatalf("in-instance identity was denied: %v", err)
 	}
 	if checks != 1 {
 		t.Fatalf("expected exactly one in-instance grant check, got %d", checks)
 	}
-	if err := New(nil, s.Access).authorizeExistingGrants(context.Background(), user, "app-test", "", []string{"test"}); !errors.Is(err, store.ErrForbidden) {
+	if err := New(nil, s.Access).authorizeExistingGrants(context.Background(), nil, user, "app-test", "", []string{"test"}); !errors.Is(err, store.ErrForbidden) {
 		t.Fatalf("missing instance configuration did not fail closed: %v", err)
 	}
 }

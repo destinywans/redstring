@@ -205,43 +205,24 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 			appID = store.ID()
 		}
 		envID := store.ID()
-		var resourceID string
-		// A workload link is evidence-backed only when one current inventory item
-		// matches this exact environment/name/namespace. Ambiguous matches fail.
-		if item.Namespace != "" {
-			rows, e := tx.Query(r.Context(), `SELECT r.id FROM cmdb_resources r
- JOIN cmdb_sync_sources src ON src.id=r.source_id AND src.kind=r.source_kind
- WHERE r.kind='deployment' AND r.attributes->>'resource_type' IN ('Deployment','StatefulSet','DaemonSet')
- AND r.source_kind='kubernetes' AND NOT r.is_mock
- AND r.observed_at >= now()-interval '5 minutes' AND src.last_success_at IS NOT NULL
- AND r.name=$1 AND r.attributes->>'namespace'=$2
- AND src.environment_key=$3 AND r.attributes->>'environment_key'=src.environment_key LIMIT 2`, item.ID, item.Namespace, envs[0])
-			if e != nil {
+		// A manual service may have no CMDB resource. A discovered service may
+		// link only a fresh, present and unclaimed workload with a verified UID.
+		// Resolve before writing the application so a stale discovery cannot be
+		// silently turned into a metadata-only registration.
+		resourceID, resourceTeamID, e := s.registrationWorkload(r.Context(), tx, item, envs[0])
+		if e != nil {
+			var matchErr *workloadMatchError
+			if errors.As(e, &matchErr) {
+				httpapi.Error(w, 409, matchErr.code, matchErr.message)
+			} else {
 				httpapi.Error(w, 503, "catalog_unavailable", "Workload inventory unavailable")
+			}
+			return
+		}
+		if resourceID != "" {
+			if e = s.authorizeResourceLink(r.Context(), tx, user, envs[0], resourceTeamID); e != nil {
+				policyError(w, e)
 				return
-			}
-			matches := []string{}
-			for rows.Next() {
-				var id string
-				if e = rows.Scan(&id); e != nil {
-					break
-				}
-				matches = append(matches, id)
-			}
-			if e == nil {
-				e = rows.Err()
-			}
-			rows.Close()
-			if e != nil {
-				httpapi.Error(w, 503, "catalog_unavailable", "Workload inventory unavailable")
-				return
-			}
-			if len(matches) > 1 {
-				httpapi.Error(w, 409, "ambiguous_workload", "Specify a uniquely identified workload")
-				return
-			}
-			if len(matches) == 1 {
-				resourceID = matches[0]
 			}
 		}
 		var tier, slo any
@@ -297,8 +278,9 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if resourceID != "" {
-			_, err = tx.Exec(r.Context(), `INSERT INTO cmdb_resource_applications(resource_id,application_id,environment_id)
- VALUES($1,$2,$3) ON CONFLICT DO NOTHING`, resourceID, appID, envID)
+			_, err = tx.Exec(r.Context(), `INSERT INTO cmdb_resource_applications(resource_id,application_id,environment_id,provenance)
+	 VALUES($1,$2,$3,'manual')
+	 ON CONFLICT (resource_id,application_id,environment_id) DO UPDATE SET provenance='manual'`, resourceID, appID, envID)
 			if err != nil {
 				writeError(w, err)
 				return
@@ -324,6 +306,139 @@ func serviceAuditAction(existing bool) string {
 		return "v3.service.environment_linked"
 	}
 	return "v3.service.created"
+}
+
+type workloadMatchError struct {
+	code, message string
+}
+
+func (e *workloadMatchError) Error() string { return e.message }
+
+// registrationWorkload uses the discovery route's source, presence, UID and
+// freshness rules. The current POST DTO contains only name and namespace, so
+// every trusted namesake in an environment must be unique, even across
+// clusters. Locking the chosen row makes a concurrent inventory refresh wait
+// until the registration transaction commits.
+func (s *Service) registrationWorkload(ctx context.Context, tx pgx.Tx, item registerItem, env string) (string, string, error) {
+	// Inventory refreshes lock their source before updating resource rows.
+	// Take the same order explicitly; a joined FOR UPDATE/FOR SHARE query does
+	// not guarantee which table's row lock is acquired first.
+	sources, err := tx.Query(ctx, `SELECT id FROM cmdb_sync_sources
+ WHERE kind='kubernetes' AND environment_key=$1 ORDER BY id FOR SHARE`, env)
+	if err != nil {
+		return "", "", err
+	}
+	for sources.Next() {
+		var id string
+		if err = sources.Scan(&id); err != nil {
+			break
+		}
+	}
+	if err == nil {
+		err = sources.Err()
+	}
+	sources.Close()
+	if err != nil {
+		return "", "", err
+	}
+	rows, err := tx.Query(ctx, `SELECT r.id,COALESCE(r.owner_team_id,''),r.attributes->>'namespace'
+ FROM cmdb_resources r
+ JOIN cmdb_sync_sources src ON src.id=r.source_id AND src.kind=r.source_kind
+ WHERE r.kind='deployment' AND r.source_kind='kubernetes' AND NOT r.is_mock
+ AND lower(r.name)=lower($1)
+ AND r.observed_at BETWEEN now()-interval '5 minutes' AND now()+interval '1 minute'
+ AND src.last_success_at BETWEEN now()-interval '5 minutes' AND now()+interval '1 minute'
+ AND src.environment_key=$2 AND src.environment_key<>''
+ AND r.attributes->>'environment_key'=src.environment_key
+ AND r.attributes->>'inventory_presence'='present'
+ AND r.external_id<>'' AND r.attributes->>'uid'=r.external_id
+ AND r.attributes->>'resource_type' IN ('Deployment','StatefulSet','DaemonSet')
+ AND r.attributes->>'namespace'<>'' AND r.attributes->>'cluster'<>''
+ AND NOT EXISTS (SELECT 1 FROM cmdb_resource_applications l WHERE l.resource_id=r.id)
+ ORDER BY r.id LIMIT 2 FOR UPDATE OF r`, item.ID, env)
+	if err != nil {
+		return "", "", err
+	}
+	type match struct{ id, team, namespace string }
+	var matches []match
+	for rows.Next() {
+		var m match
+		if err = rows.Scan(&m.id, &m.team, &m.namespace); err != nil {
+			break
+		}
+		matches = append(matches, m)
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
+		return "", "", err
+	}
+	if len(matches) > 1 {
+		return "", "", &workloadMatchError{"ambiguous_workload", "Multiple current workloads share this service name; registration needs a resource identity"}
+	}
+	if len(matches) == 1 && matches[0].namespace != item.Namespace {
+		return "", "", &workloadMatchError{"workload_mismatch", "A current workload has this service name in another namespace"}
+	}
+
+	// Include stale, missing, malformed-source and already-linked namesakes.
+	// An invalid candidate is not proof of a link, but it must not be silently
+	// converted into a new unrelated service either. A completely absent name
+	// remains a valid manual, metadata-only registration.
+	rows, err = tx.Query(ctx, `SELECT r.id FROM cmdb_resources r
+ LEFT JOIN cmdb_sync_sources src ON src.id=r.source_id AND src.kind=r.source_kind
+ WHERE r.kind='deployment' AND r.source_kind='kubernetes'
+ AND lower(r.name)=lower($1)
+ AND ($2='' OR r.attributes->>'namespace'=$2)
+ AND (src.environment_key=$3 OR r.attributes->>'environment_key'=$3)
+ ORDER BY r.id LIMIT 2 FOR UPDATE OF r`, item.ID, item.Namespace, env)
+	if err != nil {
+		return "", "", err
+	}
+	var raw []string
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			break
+		}
+		raw = append(raw, id)
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
+		return "", "", err
+	}
+	if len(matches) == 0 {
+		if len(raw) > 0 {
+			return "", "", &workloadMatchError{"workload_unavailable", "A matching workload exists but is not current, present or available for registration"}
+		}
+		return "", "", nil
+	}
+	if len(raw) != 1 || raw[0] != matches[0].id {
+		return "", "", &workloadMatchError{"ambiguous_workload", "Multiple workload identities match this service name and namespace"}
+	}
+	return matches[0].id, matches[0].team, nil
+}
+
+func (s *Service) authorizeResourceLink(ctx context.Context, tx pgx.Tx, user core.User, env, team string) error {
+	decision := rbac.V3Decision{Module: "resources", Action: "view", EnvironmentID: env, TeamID: team}
+	access, ok := s.transactionAccess()
+	if !ok {
+		return store.ErrForbidden
+	}
+	return access.AuthorizeWithTx(ctx, tx, user, decision)
+}
+
+type transactionalAccess interface {
+	AuthorizeWithTx(context.Context, pgx.Tx, core.User, rbac.V3Decision) error
+}
+
+func (s *Service) transactionAccess() (transactionalAccess, bool) {
+	access, ok := s.Access.(transactionalAccess)
+	return access, ok
 }
 
 // Changing a service in the target environment is insufficient to claim an
@@ -354,18 +469,22 @@ func (s *Service) authorizeExisting(ctx context.Context, tx pgx.Tx, user core.Us
 	if err != nil {
 		return err
 	}
-	return s.authorizeExistingGrants(ctx, user, appID, teamID, oldEnvs)
+	return s.authorizeExistingGrants(ctx, tx, user, appID, teamID, oldEnvs)
 }
 
-func (s *Service) authorizeExistingGrants(ctx context.Context, user core.User, appID, teamID string, oldEnvs []string) error {
+func (s *Service) authorizeExistingGrants(ctx context.Context, tx pgx.Tx, user core.User, appID, teamID string, oldEnvs []string) error {
 	if len(s.InstanceEnvironmentIDs) == 0 {
+		return store.ErrForbidden
+	}
+	access, ok := s.transactionAccess()
+	if !ok {
 		return store.ErrForbidden
 	}
 	for _, env := range oldEnvs {
 		if !s.instanceEnvironment(env) {
 			continue
 		}
-		err := s.Access.Authorize(ctx, user, rbac.V3Decision{Module: "services", Action: "change", EnvironmentID: env, ApplicationID: appID})
+		err := access.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{Module: "services", Action: "change", EnvironmentID: env, ApplicationID: appID})
 		if err == nil {
 			return nil
 		}
@@ -373,7 +492,7 @@ func (s *Service) authorizeExistingGrants(ctx context.Context, user core.User, a
 			return err
 		}
 		if teamID != "" {
-			err = s.Access.Authorize(ctx, user, rbac.V3Decision{Module: "services", Action: "change", EnvironmentID: env, TeamID: teamID})
+			err = access.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{Module: "services", Action: "change", EnvironmentID: env, TeamID: teamID})
 			if err == nil {
 				return nil
 			}

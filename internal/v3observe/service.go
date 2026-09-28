@@ -4,10 +4,8 @@ package v3observe
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/wans/aiops-canvas/internal/connectors"
@@ -79,130 +77,6 @@ func (s *Service) allowedEnvironments(w http.ResponseWriter, r *http.Request, mo
 		return nil, false
 	}
 	return allowed, true
-}
-
-type discoveredService struct {
-	ID        string   `json:"id"`
-	Namespace string   `json:"namespace"`
-	Kind      string   `json:"kind"`
-	Replicas  *int     `json:"replicas"`
-	Image     string   `json:"image"`
-	OwnerHint string   `json:"owner_hint"`
-	TierHint  string   `json:"tier_hint"`
-	Matched   []string `json:"matched"`
-	Missing   []string `json:"missing"`
-}
-
-// discover returns fresh, unregistered workload records. No provider match is
-// asserted without an application binding and configured connector identity.
-func (s *Service) discover(w http.ResponseWriter, r *http.Request) {
-	envs, ok := s.allowedEnvironments(w, r, "services")
-	if !ok {
-		return
-	}
-	cluster := strings.TrimSpace(r.URL.Query().Get("cluster"))
-	if len(cluster) > 200 {
-		httpapi.Error(w, 422, "invalid_cluster", "Cluster filter is too long")
-		return
-	}
-	rows, err := s.Store.DB.Query(r.Context(), `SELECT r.name,r.attributes,COALESCE(t.name,'')
- FROM cmdb_resources r
- JOIN cmdb_sync_sources src ON src.id=r.source_id AND src.kind=r.source_kind
- LEFT JOIN teams t ON t.id=r.owner_team_id
- WHERE r.kind='deployment' AND r.source_kind='kubernetes' AND NOT r.is_mock
- AND r.observed_at >= now()-interval '5 minutes'
- AND src.last_success_at IS NOT NULL AND src.environment_key=ANY($1::text[])
- AND r.attributes->>'environment_key'=src.environment_key
- AND ($2='' OR r.attributes->>'cluster'=$2)
- AND NOT EXISTS (SELECT 1 FROM cmdb_resource_applications l WHERE l.resource_id=r.id)
- ORDER BY r.name,r.id LIMIT 501`, envs, cluster)
-	if err != nil {
-		httpapi.Error(w, 503, "catalog_unavailable", "Resource catalog unavailable")
-		return
-	}
-	defer rows.Close()
-	items := []discoveredService{}
-	discoveredCluster := ""
-	multipleClusters := false
-	for rows.Next() {
-		var name, team string
-		var raw []byte
-		if err = rows.Scan(&name, &raw, &team); err != nil {
-			break
-		}
-		var attrs struct {
-			Namespace    string            `json:"namespace"`
-			ResourceType string            `json:"resource_type"`
-			Cluster      string            `json:"cluster"`
-			Images       []string          `json:"images"`
-			Replicas     *int              `json:"replicas"`
-			Labels       map[string]string `json:"labels"`
-		}
-		if err = json.Unmarshal(raw, &attrs); err != nil {
-			break
-		}
-		if cluster == "" {
-			if len(items) == 0 {
-				discoveredCluster = attrs.Cluster
-			} else if discoveredCluster != attrs.Cluster {
-				multipleClusters = true
-			}
-		}
-		image := ""
-		if len(attrs.Images) > 0 {
-			image = attrs.Images[0]
-		}
-		owner := team
-		if owner == "" {
-			owner = attrs.Labels["team"]
-		}
-		items = append(items, discoveredService{ID: name, Namespace: attrs.Namespace, Kind: attrs.ResourceType,
-			Replicas: attrs.Replicas, Image: image, OwnerHint: owner, Matched: []string{}, Missing: []string{}})
-	}
-	if err == nil {
-		err = rows.Err()
-	}
-	if err != nil {
-		httpapi.Error(w, 503, "catalog_unavailable", "Resource catalog unavailable")
-		return
-	}
-	if len(items) > 500 {
-		httpapi.Error(w, 422, "result_limit", "Narrow the cluster or environment filter")
-		return
-	}
-	if cluster == "" && !multipleClusters {
-		cluster = discoveredCluster
-	}
-	registeredRows, err := s.Store.DB.Query(r.Context(), `SELECT DISTINCT a.id,e.environment_id FROM applications a
- JOIN v3_application_environments e ON e.application_id=a.id
- WHERE NOT a.archived AND e.environment_id=ANY($1::text[])`, envs)
-	if err != nil {
-		httpapi.Error(w, 503, "catalog_unavailable", "Service registry unavailable")
-		return
-	}
-	registeredIDs := map[string]bool{}
-	for registeredRows.Next() {
-		var id, env string
-		if err = registeredRows.Scan(&id, &env); err != nil {
-			break
-		}
-		decisionErr := s.Access.Authorize(r.Context(), httpapi.CurrentUser(r), rbac.V3Decision{Module: "services", Action: "view", EnvironmentID: env, ApplicationID: id})
-		if decisionErr == nil {
-			registeredIDs[id] = true
-		} else if !errors.Is(decisionErr, store.ErrForbidden) {
-			err = decisionErr
-			break
-		}
-	}
-	if err == nil {
-		err = registeredRows.Err()
-	}
-	registeredRows.Close()
-	if err != nil {
-		httpapi.Error(w, 503, "catalog_unavailable", "Service registry unavailable")
-		return
-	}
-	httpapi.WriteJSON(w, 200, map[string]any{"cluster": cluster, "items": items, "registered": len(registeredIDs)})
 }
 
 // observationTargets use only persisted application/environment bindings. An

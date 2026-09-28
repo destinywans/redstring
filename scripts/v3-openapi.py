@@ -320,7 +320,7 @@ S['V3ConnectorType'] = obj({**fieldnames('brand name kind version webhook_url'),
     'tools':arr(v3_object('name desc'))})
 v3_route('get','/connector-types/{type}','Read one supported connector type',response=ref('V3ConnectorType'),
     role='viewer with scoped connectors.view',
-    desc='Type-level descriptor only. Auth methods correspond to supported connection probes; version, upstream token scopes and webhook URL have no verified type-level source and are empty. Agent-executable connector tools are not wired, so tools is empty. No connector instance health or wizard side effects are implied.')
+    desc='Type-level descriptor only. Auth methods correspond to supported connection probes; unknown types return a localized 404. Version, upstream token scopes and webhook URL have no verified type-level source and are empty. Agent-executable connector tools are not wired, so tools is empty. No connector instance health or wizard side effects are implied.')
 v3_route('get','/connectors','List configured connectors',role='admin',response=ref('V3ConnectorList'),
     query=[v3_query(x) for x in ['category','q']],
     desc='Counts cover all currently authorized connector registrations before category or search filters. Disabled registrations are unverified and identified in meta, with no enabled tools. Status ok/error reflects a persisted connection test from the last 15 minutes, not continuous health; older results become unverified with their last-check time. More than 1000 visible registrations returns 413 instead of an incomplete unpaged result.')

@@ -229,7 +229,7 @@ Agent Trace 后端目前只能读受信生产者上报的有界 Span 元数据�
 | POST | `/connectors/{id}/test` | | `{ ok, latency_ms }` | implemented |
 | PATCH | `/connectors/{id}` | 如 `{ tools: [{ name, enabled }] }` | 更新结果 | mock |
 | POST | `/connectors` | `{ type, url, auth, tools, webhook, credential_ref? }`；凭据仅传 Vault 引用，缺凭据/项目范围的 GitLab 创建请求保存为未启用登记，`webhook` 仅记录意图，不自动创建 Webhook | `{ id }`；未启用登记不可测试连接或启用工具，补齐凭据及项目绑定后可通过辅助接口激活 | implemented |
-| GET | `/connector-types/{type}` | | `ConnectorType`（真实探测器支持的认证方式；暂无类型级权限范围与可执行 Agent 工具时返回空数组） | mock |
+| GET | `/connector-types/{type}` | | `ConnectorType`（真实探测器支持的认证方式；暂无类型级权限范围与可执行 Agent 工具时返回空数组） | implemented |
 | GET | `/mcp-servers` | | `McpList` | mock |
 | GET | `/mcp-servers/{id}` | | `McpDetail` | mock |
 | PATCH | `/mcp-servers/{id}/tools/{name}` | `{ enabled }`（写入工具开启后仍只能以提案使用） | 结果 | mock |
@@ -237,7 +237,7 @@ Agent Trace 后端目前只能读受信生产者上报的有界 Span 元数据�
 
 当前 MCP 列表只是已显式绑定环境的登记元数据快照。服务端最多扫描 2000 条候选记录；若还有第 2001 条，返回 `413 candidate_scan_limit` 而不返回部分列表。超过 1000 条有权可见登记返回独立的 `413 scope_too_large`。这两个上限均不表示 MCP 健康、工具发现或执行可用。
 
-`GET /connector-types/{type}` 当前只描述已支持的连接器类型及探测器可接受的认证方式，要求当前环境的 `connectors.view`。版本、上游令牌权限与 Webhook 地址没有类型级可信来源，返回空值；尚无连接器支持的 Agent 工具执行器，因此 `tools: []`。未知类型错误尚未按语言契约本地化，暂不计为完成；新建向导的静态项目映射、事件、深链及工具说明也未接线，前端目录还有未支持的类型。
+`GET /connector-types/{type}` 只描述已支持的连接器类型及探测器可接受的认证方式，要求当前环境的 `connectors.view`；未知类型返回按 `Accept-Language` 本地化的 404。版本、上游令牌权限与 Webhook 地址没有类型级可信来源，返回空值；尚无连接器支持的 Agent 工具执行器，因此 `tools: []`。本条后端路由完成不代表新建向导的静态项目映射、事件、深链及工具说明已接线，前端目录还有未支持的类型。
 | GET | `/ingest/pull/{id}` | | `PullDraft`（请求模板、样例、字段映射、预览） | mock |
 | POST | `/ingest/pull/{id}/test` | 映射 | `{ ok, rows, dropped }` | mock |
 | GET | `/ingest/push` | | `PushView`（事件类型、接口说明、投递记录、配套栈） | mock |

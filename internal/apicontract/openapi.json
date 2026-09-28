@@ -25205,7 +25205,7 @@
       "get": {
         "summary": "Read one supported connector type",
         "operationId": "get_connector_types_type",
-        "description": "Minimum role: viewer with scoped connectors.view. V3 instance and environment scope apply. Type-level descriptor only. Auth methods correspond to supported connection probes; version, upstream token scopes and webhook URL have no verified type-level source and are empty. Agent-executable connector tools are not wired, so tools is empty. No connector instance health or wizard side effects are implied.",
+        "description": "Minimum role: viewer with scoped connectors.view. V3 instance and environment scope apply. Type-level descriptor only. Auth methods correspond to supported connection probes; unknown types return a localized 404. Version, upstream token scopes and webhook URL have no verified type-level source and are empty. Agent-executable connector tools are not wired, so tools is empty. No connector instance health or wizard side effects are implied.",
         "responses": {
           "200": {
             "description": "Success",

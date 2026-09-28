@@ -161,7 +161,7 @@
 | GET | `/traces` | `scope: app\|agent`, `view`, `q`（TraceQL / 过滤表达式）, `service` | `TraceList`：分面计数、保存的视图、按状态直方图、耗时散点、表格 | mock |
 | GET | `/traces/{id}` | | `TraceView`：Span（关键路径、属性、事件、日志、关联）、火焰图说明、服务调用图 | mock |
 | GET | `/services/discover` | `cluster` | 只读发现未登记的工作负载与负责人、系统映射线索 | mock |
-| POST | `/services` | `{ items: [{ id, namespace, tier, owner, slo, p99 }] }` | `{ created }` | mock |
+| POST | `/services` | `{ items: [{ id, namespace, tier, owner, slo, p99 }] }` | `{ created }` | implemented |
 | GET | `/logs` | `q`, `levels` | `LogSearch`（含 AI 聚类的日志模式） | mock |
 | GET | `/changes` | `range`, `sources` | `ChangesView`（CI/CD 与 GitOps 事件，只读） | mock |
 

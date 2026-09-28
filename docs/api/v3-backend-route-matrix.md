@@ -92,7 +92,7 @@
 | 资源与观测 | GET | `/traces` | 聚合 | mock |
 | 资源与观测 | GET | `/traces/{id}` | 聚合 | mock |
 | 资源与观测 | GET | `/services/discover` | 新增 | mock |
-| 资源与观测 | POST | `/services` | 新增 | mock |
+| 资源与观测 | POST | `/services` | 新增 | implemented |
 | 资源与观测 | GET | `/logs` | 聚合 | mock |
 | 资源与观测 | GET | `/changes` | 聚合 | mock |
 | v4 新建流程 | GET | `/incidents/draft` | 新增 | mock |

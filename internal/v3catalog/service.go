@@ -43,6 +43,7 @@ func New(st *store.Store, access Access, instanceEnvironmentIDs ...string) *Serv
 // available; callers must not mark them as the complete V3 contract.
 func (s *Service) Register(api *httpapi.Server) {
 	api.Register("POST /api/v1/services", "admin", s.register)
+	api.MarkV3Route("POST /api/v1/services", "services", "change")
 	api.Register("GET /api/v1/services", "viewer", s.services)
 	api.Register("GET /api/v1/services/{id}", "viewer", s.service)
 	api.Register("GET /api/v1/service-mappings", "viewer", s.mappings)

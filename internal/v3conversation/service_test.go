@@ -72,3 +72,20 @@ func TestAllowedEnvironmentsFailsClosedAndExcludesProduction(t *testing.T) {
 		t.Fatalf("unauthorized environment: %v", err)
 	}
 }
+
+func TestCompletionSuffixKeepsStreamAndPersistedReplyConsistent(t *testing.T) {
+	for _, tc := range []struct {
+		streamed, final, suffix string
+		wantErr                 bool
+	}{
+		{"", "complete answer", "complete answer", false},
+		{"first", "first answer", " answer", false},
+		{"complete answer", "complete answer", "", false},
+		{"first", "revised answer", "", true},
+	} {
+		suffix, err := completionSuffix(tc.streamed, tc.final)
+		if suffix != tc.suffix || (err != nil) != tc.wantErr {
+			t.Fatalf("streamed=%q final=%q: suffix=%q err=%v", tc.streamed, tc.final, suffix, err)
+		}
+	}
+}

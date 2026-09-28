@@ -382,24 +382,34 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning s
 		s.failTurn(conv, reply, assistant, parts, errors.New("empty model response"))
 		return
 	}
+	streamedText := streamed.String()
+	suffix, err := completionSuffix(streamedText, answer)
+	if err != nil {
+		// The client can only append text.delta. Publishing a divergent final
+		// answer would leave its message different from the durable message.
+		parts[0] = textPart(streamedText)
+		s.failTurn(conv, reply, assistant, parts, err)
+		return
+	}
 	parts[0] = textPart(answer)
 	// The provider may emit a final accumulated chunk rather than individual deltas.
-	if !strings.HasPrefix(answer, streamed.String()) || len(answer) > streamed.Len() {
-		suffix := answer
-		if strings.HasPrefix(answer, streamed.String()) {
-			suffix = strings.TrimPrefix(answer, streamed.String())
-		}
-		if suffix != "" {
-			if err := s.appendEvent(ctx, conv, reply, map[string]any{"type": "text.delta", "message_id": assistant, "index": 0, "delta": suffix}); err != nil {
-				s.failTurn(conv, reply, assistant, parts, err)
-				return
-			}
+	if suffix != "" {
+		if err := s.appendEvent(ctx, conv, reply, map[string]any{"type": "text.delta", "message_id": assistant, "index": 0, "delta": suffix}); err != nil {
+			s.failTurn(conv, reply, assistant, parts, err)
+			return
 		}
 	}
 	run := map[string]any{"id": reply, "agent": "AI", "version": "v3", "model": model.Name, "model_id": model.ID, "reasoning": reasoning, "tokens": 0, "duration_s": time.Since(started).Seconds()}
 	if err := s.finish(ctx, conv, reply, assistant, parts, run, nil); err != nil {
 		s.failTurn(conv, reply, assistant, parts, err)
 	}
+}
+
+func completionSuffix(streamed, final string) (string, error) {
+	if !strings.HasPrefix(final, streamed) {
+		return "", errors.New("model final response differs from streamed content")
+	}
+	return strings.TrimPrefix(final, streamed), nil
 }
 
 func (s *Service) failTurn(conv, reply, assistant string, parts []json.RawMessage, cause error) {

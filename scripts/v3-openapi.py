@@ -288,7 +288,12 @@ v3_route('post','/connectors','Create a connector',role='admin',
     body=obj({'type':string(),'url':string(),'auth':string(),'credential_ref':string(),
         'tools':arr(string()),'webhook':v3_bool()},['type','url','auth']),
     response=obj({'id':string()},['id']),status=201,
-    desc='Creates an audited environment-scoped registration. The current GitLab wizard omits Vault credential and project scope; its request is stored disabled and unverified. webhook=true records intent only and does not provision a remote Webhook. A disabled registration cannot be probed or have tools enabled; activation after credentials and explicit scope is a separate pending contract. Fully configured non-GitLab read-only registrations may be enabled on creation.')
+    desc='Creates an audited environment-scoped registration. The current GitLab wizard omits Vault credential and project scope; its request is stored disabled and unverified. webhook=true records intent only and does not provision a remote Webhook. A disabled registration cannot be probed or have tools enabled; activation requires a Vault reference and explicit project binding. Fully configured non-GitLab read-only registrations may be enabled on creation.')
+v3_route('post','/connectors/{id}/activate','Activate verified GitLab project binding',role='admin',
+    body=obj({'credential_ref':string()},['credential_ref']),
+    response=obj({'enabled':v3_bool(),'status':string(enum=['ok']),'verified_projects':integer(),'webhook_active':v3_bool()},
+        ['enabled','status','verified_projects','webhook_active']),
+    desc='Auxiliary V3 operation outside the 166 page routes. Requires one selected environment and connectors.manage. A disabled GitLab registration needs a Vault credential reference and at least one explicitly bound numeric GitLab project. The backend performs a GET for each exact project through GitLab, then rechecks authorization, connector configuration, and bindings before enabling it. This does not attest the token is read-only. Tools remain disabled; webhook=true remains intent only and no remote Webhook is provisioned. A failed check leaves the registration disabled; changing the project bindings requires reactivation. This is a point-in-time verification, not continuous health.')
 v3_route('patch','/connectors/{id}','Update connector configuration',role='admin',
     body=obj({'tools':arr(obj({'name':string(),'enabled':v3_bool()}))},['tools']),
     response=obj({'ok':v3_bool(),'tools':arr(obj({'name':string(),'desc':string(),'enabled':v3_bool()}))}))

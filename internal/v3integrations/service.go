@@ -93,12 +93,13 @@ func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/connectors", "admin", s.list)
 	api.Register("GET /api/v1/connectors/{id}", "admin", s.detail)
 	api.Register("POST /api/v1/connectors", "admin", s.create)
+	api.Register("POST /api/v1/connectors/{id}/activate", "admin", s.activate)
 	api.Register("PATCH /api/v1/connectors/{id}", "admin", s.patch)
 	api.Register("POST /api/v1/connectors/{id}/test", "admin", s.test)
 	for _, pattern := range []string{"GET /api/v1/connector-types/{type}", "GET /api/v1/connectors", "GET /api/v1/connectors/{id}"} {
 		api.MarkV3Route(pattern, "connectors", "view")
 	}
-	for _, pattern := range []string{"POST /api/v1/connectors", "PATCH /api/v1/connectors/{id}", "POST /api/v1/connectors/{id}/test"} {
+	for _, pattern := range []string{"POST /api/v1/connectors", "POST /api/v1/connectors/{id}/activate", "PATCH /api/v1/connectors/{id}", "POST /api/v1/connectors/{id}/test"} {
 		api.MarkV3Route(pattern, "connectors", "manage")
 	}
 }

@@ -258,8 +258,9 @@ func (s *Service) createTarget(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var provider string
-	err = tx.QueryRow(r.Context(), `SELECT provider FROM v3_connectors
- WHERE id=$1 AND environment_id=$2 FOR SHARE`, in.ConnectorID, env).Scan(&provider)
+	var connectorEnabled bool
+	err = tx.QueryRow(r.Context(), `SELECT provider,enabled FROM v3_connectors
+ WHERE id=$1 AND environment_id=$2 FOR UPDATE`, in.ConnectorID, env).Scan(&provider, &connectorEnabled)
 	if errors.Is(err, pgx.ErrNoRows) {
 		httpapi.Error(w, 404, "not_found", "Connector not found")
 		return
@@ -296,6 +297,26 @@ func (s *Service) createTarget(w http.ResponseWriter, r *http.Request) {
 		}
 		httpapi.Error(w, 503, "storage_unavailable", "Target storage unavailable")
 		return
+	}
+	// A new binding expands the scope that was verified during GitLab
+	// activation. Make the connector inert until the complete target set is
+	// verified again; otherwise the new project could be read immediately.
+	if provider == "gitlab" && connectorEnabled {
+		_, err = tx.Exec(r.Context(), `UPDATE v3_connectors c SET enabled=false,status='unverified',
+ last_checked_at=NULL,last_latency_ms=NULL,last_error_code='',updated_at=now(),
+ tools=COALESCE((SELECT jsonb_agg(jsonb_set(value,'{enabled}','false'::jsonb,true))
+ FROM jsonb_array_elements(c.tools) AS item(value)),'[]'::jsonb)
+ WHERE id=$1 AND environment_id=$2`, in.ConnectorID, env)
+		if err != nil {
+			httpapi.Error(w, 503, "storage_unavailable", "Connector storage unavailable")
+			return
+		}
+		if err = audit(r.Context(), tx, "connector.deactivated", in.ConnectorID, map[string]any{
+			"environment": env, "reason": "project_scope_changed",
+		}); err != nil {
+			httpapi.Error(w, 503, "audit_unavailable", "Connector audit unavailable")
+			return
+		}
 	}
 	if err = s.auditTargetTx(r.Context(), tx, httpapi.CurrentUser(r).ID, app, env, "v3.connector.target_bound", id, in.ConnectorID, in.TargetKind, in.ExternalID); err != nil {
 		httpapi.Error(w, 503, "audit_unavailable", "Target audit unavailable")
@@ -352,9 +373,44 @@ func (s *Service) deleteTarget(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "storage_unavailable", "Target storage unavailable")
 		return
 	}
+	// Activation locks this connector row before checking the complete target
+	// set. Taking the same lock before deletion prevents the final binding from
+	// disappearing between activation's check and commit.
+	var provider string
+	var connectorEnabled bool
+	if err = tx.QueryRow(r.Context(), `SELECT provider,enabled FROM v3_connectors
+ WHERE id=$1 AND environment_id=$2 FOR UPDATE`, connectorID, env).Scan(&provider, &connectorEnabled); err != nil {
+		httpapi.Error(w, 503, "storage_unavailable", "Connector storage unavailable")
+		return
+	}
 	if _, err = tx.Exec(r.Context(), `DELETE FROM v3_connector_targets WHERE id=$1`, r.PathValue("bindingId")); err != nil {
 		httpapi.Error(w, 503, "storage_unavailable", "Target storage unavailable")
 		return
+	}
+	if provider == "gitlab" {
+		var remaining int
+		if err = tx.QueryRow(r.Context(), `SELECT count(*) FROM v3_connector_targets
+ WHERE connector_id=$1 AND environment_id=$2`, connectorID, env).Scan(&remaining); err != nil {
+			httpapi.Error(w, 503, "storage_unavailable", "Target storage unavailable")
+			return
+		}
+		if remaining == 0 && connectorEnabled {
+			_, err = tx.Exec(r.Context(), `UPDATE v3_connectors c SET enabled=false,status='unverified',
+ last_checked_at=NULL,last_latency_ms=NULL,last_error_code='',updated_at=now(),
+ tools=COALESCE((SELECT jsonb_agg(jsonb_set(value,'{enabled}','false'::jsonb,true))
+ FROM jsonb_array_elements(c.tools) AS item(value)),'[]'::jsonb)
+ WHERE id=$1 AND environment_id=$2`, connectorID, env)
+			if err != nil {
+				httpapi.Error(w, 503, "storage_unavailable", "Connector storage unavailable")
+				return
+			}
+			if err = audit(r.Context(), tx, "connector.deactivated", connectorID, map[string]any{
+				"environment": env, "reason": "last_project_unbound",
+			}); err != nil {
+				httpapi.Error(w, 503, "audit_unavailable", "Connector audit unavailable")
+				return
+			}
+		}
 	}
 	if err = s.auditTargetTx(r.Context(), tx, httpapi.CurrentUser(r).ID, app, env, "v3.connector.target_unbound", r.PathValue("bindingId"), connectorID, kind, externalID); err != nil {
 		httpapi.Error(w, 503, "audit_unavailable", "Target audit unavailable")

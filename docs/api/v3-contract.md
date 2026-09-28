@@ -207,7 +207,7 @@
 | GET | `/connectors/{id}` | | `ConnectorDetail` | mock |
 | POST | `/connectors/{id}/test` | | `{ ok, latency_ms }` | implemented |
 | PATCH | `/connectors/{id}` | 如 `{ tools: [{ name, enabled }] }` | 更新结果 | mock |
-| POST | `/connectors` | `{ type, url, auth, tools, webhook, credential_ref? }`；凭据仅传 Vault 引用，缺凭据/项目范围的 GitLab 创建请求保存为未启用登记，`webhook` 仅记录意图，不自动创建 Webhook | `{ id }`；未启用登记不可测试连接或启用工具，后续激活接口另行定义 | implemented |
+| POST | `/connectors` | `{ type, url, auth, tools, webhook, credential_ref? }`；凭据仅传 Vault 引用，缺凭据/项目范围的 GitLab 创建请求保存为未启用登记，`webhook` 仅记录意图，不自动创建 Webhook | `{ id }`；未启用登记不可测试连接或启用工具，补齐凭据及项目绑定后可通过辅助接口激活 | implemented |
 | GET | `/connector-types/{type}` | | `ConnectorType`（认证方式、权限范围、只读工具） | mock |
 | GET | `/mcp-servers` | | `McpList` | mock |
 | GET | `/mcp-servers/{id}` | | `McpDetail` | mock |
@@ -227,6 +227,8 @@
 | POST | `/api-tokens` | `{ name, scopes, ttl }` | `{ id, secret_shown_once }` | mock |
 
 Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v1/events/{alert|change|incident|resource|oncall}`，请求头 `Authorization: Bearer`、`Idempotency-Key`、`X-Signature` + `X-Timestamp`；返回 `202 / 409 / 422 / 401`。
+
+连接器辅助激活接口（不计入 166 项页面契约）：`POST /connectors/{id}/activate`，在单一环境下传 `{ credential_ref: "vault://mount/path#field" }`。当前仅支持 GitLab：须先通过服务环境的显式目标绑定登记至少一个数字项目 ID；后端用 Vault 凭据对每个项目发起 GET 验证，再复核权限、连接器配置和绑定集合，成功后启用连接器。验证并不证明令牌本身只有只读权限。工具仍保持关闭，`webhook` 仅记录意图；验证失败不启用，项目绑定变化须重新激活。返回 `{ enabled: true, status: "ok", verified_projects, webhook_active: false }`，表示一次验证结果，不代表持续健康。
 
 ## Agent 运行台（`agents.ts`）
 

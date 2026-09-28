@@ -416,7 +416,7 @@ v3_route('get','/inbox','Read scoped inbox',response=obj({'items':arr(ref('V3Inb
     desc='Currently includes recent incident-backed alerts; other inbox kinds are not yet connected. tab remains an alias for filter.')
 v3_route('post','/alerts/{id}/claim','Claim a persisted active alert',role='operator',
     response=obj({'id':string(),'assignee_id':string()},['id','assignee_id']),
-    desc='Partial V3 behavior: transactionally sets platform ownership and audits the change; '
+    desc='Partial V3 behavior: rechecks the current application/environment change grant while the incident row is locked, then transactionally sets platform ownership and audits the change; '
          'same-user retry is idempotent. The full AlertDetail response, metric series, and '
          'grouping policy are not available yet; no external escalation is stopped.')
 S['V3AlertGroupPartial'] = obj({**fieldnames('id service since owner'),
@@ -469,6 +469,8 @@ v3_route('get','/alert-rules/observed/{id}','Read one provider-observed alert ru
     desc='Auxiliary read-only backend endpoint. No historical preview, threshold condition, notification route or AI triage is inferred.')
 
 S['V3SilenceMatcher'] = obj(fieldnames('k v'), ['k','v'])
+S['V3SilencePreviewMatcher'] = obj({'k':string(),'op':string(enum=['=','!=','=~','!~']),
+    'v':string(minLength=1,maxLength=256)}, ['k','op','v'])
 S['V3SilenceRemaining'] = obj({'pct':integer(minimum=0,maximum=100),'text':string()},['pct','text'])
 S['V3SilenceRead'] = obj({**fieldnames('id window creator reason'),
     'matchers':arr(ref('V3SilenceMatcher')),
@@ -487,6 +489,11 @@ v3_route('get','/silences','Read environment-scoped Alertmanager silences',
     query=[v3_query('state',string(enum=['active','planned','expired','all']))],
     desc='Only provider silences with an exact positive non-regex environment matcher are returned. Application-scoped records also require an explicit server-owned application-label-to-persisted-ID binding to an active application in that environment and a current V3 application/team view grant. Exact environment silences with wider application scope require environment-wide silence view and manage grants. Ambiguous matchers are hidden. Affects comes from provider-observed alerts restricted to the authorized environment and application; counts cover the visible records. Broad records without exact environment binding are hidden and set unscoped_present for environment administrators (206). An authorized source failure, a duplicate visible ID or more than 500 visible records fails closed, without partial counts. Provider responses are bounded to 2 MiB.')
 P['/silences']['get']['responses']['206'] = P['/silences']['get']['responses']['200']
+v3_route('post','/silences/preview','Count currently matching Alertmanager alerts without creating a silence',
+    body=obj({'matchers':{'type':'array','items':ref('V3SilencePreviewMatcher'),
+        'minItems':1,'maxItems':20}}, ['matchers']),
+    response=obj({'affects':integer(minimum=0),'sample':{'type':'array','items':string(),'maxItems':5}}, ['affects','sample']),
+    desc='Read-only live snapshot in exactly one selected environment; all is rejected with 409. The selected environment is an implicit exact matcher. An exact application= provider label must be bound by server configuration to an active persisted application and requires current silences.view on that application or owner team; unknown and hidden bindings both return 404. Without an exact application matcher, current environment-wide silences.view and silences.manage are required. Affects counts all matching current alerts in that selected environment, not historical or future alerts. Sample contains at most five distinct sorted real alertname values, not representative alert records. More than 500 current-environment alerts, an upstream error, or malformed upstream null returns 503 without partial counts. No silence is created. The current frontend form and stale-result handling are not compatible with the authorization/refresh semantics, so page acceptance remains pending.')
 v3_route('get','/inhibitions','Read environment-scoped Alertmanager inhibition configuration',
     response=obj({'items':arr(ref('V3InhibitionRead')),'partial':v3_bool(),
         'unavailable':arr(string()),'unavailable_environments':arr(string()),

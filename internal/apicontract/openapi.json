@@ -26999,7 +26999,7 @@
       "post": {
         "summary": "Claim a persisted active alert",
         "operationId": "post_alerts_id_claim",
-        "description": "Minimum role: operator. V3 instance and environment scope apply. Partial V3 behavior: transactionally sets platform ownership and audits the change; same-user retry is idempotent. The full AlertDetail response, metric series, and grouping policy are not available yet; no external escalation is stopped.",
+        "description": "Minimum role: operator. V3 instance and environment scope apply. Partial V3 behavior: rechecks the current application/environment change grant while the incident row is locked, then transactionally sets platform ownership and audits the change; same-user retry is idempotent. The full AlertDetail response, metric series, and grouping policy are not available yet; no external escalation is stopped.",
         "responses": {
           "200": {
             "description": "Success",
@@ -27958,6 +27958,145 @@
               ]
             }
           },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/silences/preview": {
+      "post": {
+        "summary": "Count currently matching Alertmanager alerts without creating a silence",
+        "operationId": "post_silences_preview",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Read-only live snapshot in exactly one selected environment; all is rejected with 409. The selected environment is an implicit exact matcher. An exact application= provider label must be bound by server configuration to an active persisted application and requires current silences.view on that application or owner team; unknown and hidden bindings both return 404. Without an exact application matcher, current environment-wide silences.view and silences.manage are required. Affects counts all matching current alerts in that selected environment, not historical or future alerts. Sample contains at most five distinct sorted real alertname values, not representative alert records. More than 500 current-environment alerts, an upstream error, or malformed upstream null returns 503 without partial counts. No silence is created. The current frontend form and stale-result handling are not compatible with the authorization/refresh semantics, so page acceptance remains pending.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "affects": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "sample": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "maxItems": 5
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "affects",
+                    "sample"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "silences"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "matchers": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/V3SilencePreviewMatcher"
+                    },
+                    "minItems": 1,
+                    "maxItems": 20
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "matchers"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
           {
             "name": "X-AIOps-Environment",
             "in": "header",
@@ -40910,6 +41049,34 @@
         "additionalProperties": false,
         "required": [
           "k",
+          "v"
+        ]
+      },
+      "V3SilencePreviewMatcher": {
+        "type": "object",
+        "properties": {
+          "k": {
+            "type": "string"
+          },
+          "op": {
+            "type": "string",
+            "enum": [
+              "=",
+              "!=",
+              "=~",
+              "!~"
+            ]
+          },
+          "v": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "k",
+          "op",
           "v"
         ]
       },

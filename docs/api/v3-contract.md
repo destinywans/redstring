@@ -149,6 +149,8 @@
 
 `POST /silences/preview` 的后端现按所选单一环境读取实时 Alertmanager 告警快照。请求为 `{ matchers: [{ k, op, v }] }`，支持 `=`、`!=`、`=~`、`!~`（1–20 条）；环境是隐含的精确匹配。精确 `application=` 值必须在服务端绑定到有效应用并有当前应用/团队 `silences.view`，无应用匹配则要求环境级 `silences.view` 与 `silences.manage`。`affects` 是此刻该环境匹配告警的完整条数，`sample` 仅为最多 5 个去重排序的真实 `alertname`；来源异常、超过 500 条该环境告警或异常 `null` 均返回 503，不给部分计数。预览不会创建静默。现有页面默认仅传 service/alertname，普通应用用户会因缺精确应用匹配收到 403，且页面尚未正确清除旧预览/失败状态，故该主契约继续 `mock`。`POST /alerts/{id}/claim` 已改为持有事件行锁时复核当前授权，仍只返回 `{ id, assignee_id }`，不等于完整告警详情。
 
+底层 Alertmanager 适配器现可按 v2 协议创建和过期静默：创建不带客户端 ID，校验返回 UUID；过期使用单数 `/silence/{id}` 路径；超时等结果不确定的写入单独标记。它尚未处理 V3 产品层的持久操作意图、对象归属、授权、幂等回查和审计，也未注册 `POST /silences` 或 `DELETE /silences/{id}` 产品路由。反向代理的 404 尚不能与 Alertmanager 确认的对象缺失可靠区分；开放写路由前须补足这些边界。两条主契约继续 `mock`。
+
 `GET /inhibitions` 现在仅展示来源/目标都绑定当前环境、应用归属有效且当前用户有相应应用或团队 `silences.view` 的规则；宽应用范围要求同环境的查看与管理授权。跨环境、匹配器歧义与失效绑定不会出现在列表；任一已授权上游来源失败时返回 503，不给部分规则。成功响应始终为 `206 partial`，因为 Alertmanager 配置没有可信的逐规则活动状态或命中数；故完整 `Inhibition[]` 主契约仍为 `mock`。
 
 ## 知识与记忆（`knowledge.ts`）

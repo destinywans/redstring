@@ -1,7 +1,9 @@
 package v3agents
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -9,6 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/rbac"
+	"github.com/wans/aiops-canvas/internal/store"
 )
 
 type prompt struct {
@@ -17,6 +21,34 @@ type prompt struct {
 }
 
 func promptDisplayVersion(version int) string { return "v" + strconv.Itoa(version) }
+
+func promptLocalized(r *http.Request, zh, en string) string {
+	if strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "en") {
+		return en
+	}
+	return zh
+}
+
+func promptRequestError(w http.ResponseWriter, r *http.Request, code, zh, en string) {
+	httpapi.Error(w, 422, code, promptLocalized(r, zh, en))
+}
+
+// The shared decoder has English-only errors. Keep the same strict JSON and
+// size rules here so Prompt validation can respond in the selected language.
+func decodePromptVersion(w http.ResponseWriter, r *http.Request, target any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		promptRequestError(w, r, "invalid_body", "请求正文必须是有效 JSON", "Invalid JSON body")
+		return false
+	}
+	if decoder.Decode(new(any)) != io.EOF {
+		promptRequestError(w, r, "invalid_body", "请求只能包含一个 JSON 对象", "Expected one JSON object")
+		return false
+	}
+	return true
+}
 
 func (s *Service) loadPrompt(r *http.Request, id string) (prompt, error) {
 	var p prompt
@@ -52,10 +84,17 @@ func (s *Service) Prompts(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if len([]rune(query)) > 160 {
+		promptRequestError(w, r, "invalid_agent_request", "搜索词不能超过 160 个字符", "Prompt search must be at most 160 characters")
+		return
+	}
 	items := make([]any, 0)
 	rows, err := s.DB.Query(r.Context(), `SELECT p.id,p.name,p.current_version FROM v3_agent_prompts p
- JOIN v3_agents a ON a.id=p.agent_id WHERE a.environment_id=ANY($1) AND `+visibleAgentGrantSQL+`
- ORDER BY p.name,p.id LIMIT 201`, envs, httpapi.CurrentUser(r).ID)
+	 JOIN v3_agents a ON a.id=p.agent_id WHERE p.current_version>0
+	 AND a.environment_id=ANY($1) AND `+visibleAgentGrantSQL+`
+	 AND ($3='' OR strpos(lower(p.name),lower($3))>0 OR strpos(lower(p.id),lower($3))>0)
+ ORDER BY p.name,p.id LIMIT 201`, envs, httpapi.CurrentUser(r).ID, query)
 	if err != nil {
 		unavailable(w)
 		return
@@ -69,7 +108,7 @@ func (s *Service) Prompts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		items = append(items, map[string]any{"id": id, "kind": "prompt", "name": name,
-			"version": promptDisplayVersion(version), "status": "stored"})
+			"version": promptDisplayVersion(version)})
 	}
 	if rows.Err() != nil {
 		rows.Close()
@@ -77,37 +116,31 @@ func (s *Service) Prompts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows.Close()
-	truncated := len(items) > 200
-	if truncated {
-		items = items[:200]
+	if len(items) > 200 {
+		httpapi.Error(w, 413, "prompt_list_too_large", "Filter Prompts with q to return at most 200 items")
+		return
 	}
-	httpapi.WriteJSON(w, 200, map[string]any{"items": items, "truncated": truncated})
+	httpapi.WriteJSON(w, 200, map[string]any{"items": items, "truncated": false,
+		"partial": true, "unavailable_fields": []string{"skills", "publication_status"}})
 }
 
-var promptVariable = regexp.MustCompile(`\{\{\s*([a-zA-Z_][a-zA-Z_0-9]*)\s*\}\}`)
+var promptVariable = regexp.MustCompile(`\{\{\s*([a-zA-Z_][a-zA-Z_0-9]*)\s*\}\}|\{\s*([a-zA-Z_][a-zA-Z_0-9]*)\s*\}`)
 
 func (s *Service) PromptDetail(w http.ResponseWriter, r *http.Request) {
-	p, a, ok := s.promptAgent(w, r, r.PathValue("id"), "view")
+	p, a, body, ok := s.readPromptVersion(w, r)
 	if !ok {
-		return
-	}
-	if p.Version == 0 {
-		httpapi.Error(w, 409, "prompt_empty", "Prompt has no persisted version")
-		return
-	}
-	var body string
-	err := s.DB.QueryRow(r.Context(), `SELECT body FROM v3_agent_prompt_versions
- WHERE prompt_id=$1 AND version=$2`, p.ID, p.Version).Scan(&body)
-	if err != nil {
-		unavailable(w)
 		return
 	}
 	variables := make([]string, 0)
 	seen := map[string]bool{}
 	for _, match := range promptVariable.FindAllStringSubmatch(body, -1) {
-		if !seen[match[1]] {
-			variables = append(variables, match[1])
-			seen[match[1]] = true
+		name := match[1]
+		if name == "" {
+			name = match[2]
+		}
+		if !seen[name] {
+			variables = append(variables, name)
+			seen[name] = true
 		}
 	}
 	lines := make([]any, 0)
@@ -115,8 +148,86 @@ func (s *Service) PromptDetail(w http.ResponseWriter, r *http.Request) {
 		lines = append(lines, map[string]any{"text": line})
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"id": p.ID, "name": p.Name, "version": promptDisplayVersion(p.Version),
-		"status": "stored", "variables": variables, "used_by": a.Name, "lines": lines, "notes": "",
-		"scope": map[string]string{"application_id": a.App, "environment_id": a.Env}})
+		"variables": variables, "used_by": promptLocalized(r, "运行时使用关系未接入", "Runtime usage unavailable"), "lines": lines,
+		"notes": promptLocalized(r, "发布说明未记录", "Release notes unavailable"), "registered_agent": map[string]string{"id": a.ID, "name": a.Name},
+		"scope":   map[string]string{"application_id": a.App, "environment_id": a.Env},
+		"partial": true, "unavailable_fields": []string{"publication_status", "release_notes", "runtime_usage"}})
+}
+
+// readPromptVersion keeps scope, authorization, current-version metadata and
+// content in one locked read. A prompt that exists outside the current user's
+// scope has the same response as an unknown prompt ID.
+func (s *Service) readPromptVersion(w http.ResponseWriter, r *http.Request) (prompt, agent, string, bool) {
+	if s == nil || s.DB == nil || s.Access == nil {
+		unavailable(w)
+		return prompt{}, agent{}, "", false
+	}
+	envs, ok := requestScope(w, r, false)
+	if !ok {
+		return prompt{}, agent{}, "", false
+	}
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		unavailable(w)
+		return prompt{}, agent{}, "", false
+	}
+	defer tx.Rollback(r.Context())
+	var agentID string
+	err = tx.QueryRow(r.Context(), `SELECT agent_id FROM v3_agent_prompts WHERE id=$1`, r.PathValue("id")).Scan(&agentID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		notFound(w)
+		return prompt{}, agent{}, "", false
+	}
+	if err != nil {
+		unavailable(w)
+		return prompt{}, agent{}, "", false
+	}
+	a, err := scanAgent(tx.QueryRow(r.Context(), `SELECT `+agentColumns+` FROM v3_agents WHERE id=$1 FOR SHARE`, agentID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		notFound(w)
+		return prompt{}, agent{}, "", false
+	}
+	if err != nil {
+		unavailable(w)
+		return prompt{}, agent{}, "", false
+	}
+	var p prompt
+	err = tx.QueryRow(r.Context(), `SELECT id,agent_id,name,current_version FROM v3_agent_prompts
+	 WHERE id=$1 FOR SHARE`, r.PathValue("id")).Scan(&p.ID, &p.AgentID, &p.Name, &p.Version)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (p.AgentID != a.ID || !contains(envs, a.Env))) {
+		notFound(w)
+		return prompt{}, agent{}, "", false
+	}
+	if err != nil {
+		unavailable(w)
+		return prompt{}, agent{}, "", false
+	}
+	err = s.Access.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), rbac.V3Decision{
+		Module: "agents", Action: "view", EnvironmentID: a.Env, ApplicationID: a.App})
+	if errors.Is(err, store.ErrForbidden) {
+		notFound(w)
+		return prompt{}, agent{}, "", false
+	}
+	if err != nil {
+		unavailable(w)
+		return prompt{}, agent{}, "", false
+	}
+	if p.Version == 0 {
+		httpapi.Error(w, 409, "prompt_empty", "Prompt has no persisted version")
+		return prompt{}, agent{}, "", false
+	}
+	var body string
+	err = tx.QueryRow(r.Context(), `SELECT body FROM v3_agent_prompt_versions
+	 WHERE prompt_id=$1 AND version=$2`, p.ID, p.Version).Scan(&body)
+	if err != nil {
+		unavailable(w)
+		return prompt{}, agent{}, "", false
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		unavailable(w)
+		return prompt{}, agent{}, "", false
+	}
+	return p, a, body, true
 }
 
 func (s *Service) PromptVersion(w http.ResponseWriter, r *http.Request) {
@@ -127,11 +238,11 @@ func (s *Service) PromptVersion(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Text string `json:"text"`
 	}
-	if !httpapi.Decode(w, r, &body) {
+	if !decodePromptVersion(w, r, &body) {
 		return
 	}
 	if strings.TrimSpace(body.Text) == "" || len([]rune(body.Text)) > 20000 {
-		invalid(w, "Prompt must contain 1 to 20000 characters")
+		promptRequestError(w, r, "invalid_agent_request", "提示词必须包含 1 到 20000 个字符", "Prompt must contain 1 to 20000 characters")
 		return
 	}
 	tx, err := s.DB.Begin(r.Context())

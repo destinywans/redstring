@@ -23,15 +23,24 @@ import (
 // but before its locked, transactional authorization check.
 type revokingPromptAccess struct {
 	policy         *rbac.V3Policy
+	action         string
 	afterAuthorize func() error
 	revoke         func() error
+}
+
+func (a *revokingPromptAccess) matches(decision rbac.V3Decision) bool {
+	action := a.action
+	if action == "" {
+		action = "change"
+	}
+	return decision.Module == "agents" && decision.Action == action
 }
 
 func (a *revokingPromptAccess) Authorize(ctx context.Context, user core.User, decision rbac.V3Decision) error {
 	if err := a.policy.Authorize(ctx, user, decision); err != nil {
 		return err
 	}
-	if decision.Module == "agents" && decision.Action == "change" && a.afterAuthorize != nil {
+	if a.matches(decision) && a.afterAuthorize != nil {
 		after := a.afterAuthorize
 		a.afterAuthorize = nil
 		return after()
@@ -40,7 +49,7 @@ func (a *revokingPromptAccess) Authorize(ctx context.Context, user core.User, de
 }
 
 func (a *revokingPromptAccess) AuthorizeWithTx(ctx context.Context, tx pgx.Tx, user core.User, decision rbac.V3Decision) error {
-	if decision.Module == "agents" && decision.Action == "change" && a.revoke != nil {
+	if a.matches(decision) && a.revoke != nil {
 		revoke := a.revoke
 		a.revoke = nil
 		if err := revoke(); err != nil {
@@ -176,10 +185,13 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := func(method, path, token, env, body string) *httptest.ResponseRecorder {
+	requestLanguage := func(method, path, token, env, body, language string) *httptest.ResponseRecorder {
 		t.Helper()
 		r := httptest.NewRequest(method, path, strings.NewReader(body))
 		r.Header.Set("X-AIOps-Environment", env)
+		if language != "" {
+			r.Header.Set("Accept-Language", language)
+		}
 		if token != "" {
 			r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
 		}
@@ -189,6 +201,9 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 		w := httptest.NewRecorder()
 		api.ServeHTTP(w, r)
 		return w
+	}
+	request := func(method, path, token, env, body string) *httptest.ResponseRecorder {
+		return requestLanguage(method, path, token, env, body, "")
 	}
 	assert := func(w *httptest.ResponseRecorder, status int, contains string) {
 		t.Helper()
@@ -267,7 +282,12 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 	if _, err = db.Exec(ctx, `INSERT INTO v3_agent_prompts(id,agent_id,name) VALUES('p1','triage','Triage prompt')`); err != nil {
 		t.Fatal(err)
 	}
+	assert(request("GET", "/api/v1/prompts/p1", adminToken, "dev", ""), 409, `"code":"prompt_empty"`)
 	assert(request("POST", "/api/v1/prompts/p1/versions", adminToken, "dev", `{"text":"Investigate {{ service }} with private details"}`), 201, `"version":"v1"`)
+	assert(requestLanguage("POST", "/api/v1/prompts/p1/versions", adminToken, "dev", `{"text":" "}`, "zh-CN"), 422, "提示词必须包含 1 到 20000 个字符")
+	assert(requestLanguage("POST", "/api/v1/prompts/p1/versions", adminToken, "dev", `{"text":" "}`, "en-US"), 422, "Prompt must contain 1 to 20000 characters")
+	assert(requestLanguage("POST", "/api/v1/prompts/p1/versions", adminToken, "dev", `{"text":`, "zh-CN"), 422, "请求正文必须是有效 JSON")
+	assert(requestLanguage("POST", "/api/v1/prompts/p1/versions", adminToken, "dev", `{"text":"valid"} {}`, "en-US"), 422, "Expected one JSON object")
 	var auditText string
 	if err = db.QueryRow(ctx, `SELECT changes::text FROM management_audit WHERE action='v3.agent.prompt.version' ORDER BY id DESC LIMIT 1`).Scan(&auditText); err != nil {
 		t.Fatal(err)
@@ -280,7 +300,7 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 	}
 	assert(request("GET", "/api/v1/prompts/triage.system", adminToken, "dev", ""), 200, `"version":"v1"`)
 	assert(request("POST", "/api/v1/prompts/triage.system/versions", adminToken, "all", `{"text":"Cannot save across environments"}`), 409, `"code":"env_view_only"`)
-	updatedPrompt := "  Investigate {{service}}\nUse read-only evidence.  "
+	updatedPrompt := "  Investigate {{service}} in {environment}\nUse read-only evidence.  "
 	updatedBody, err := json.Marshal(map[string]string{"text": updatedPrompt})
 	if err != nil {
 		t.Fatal(err)
@@ -289,19 +309,70 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 	refreshed := request("GET", "/api/v1/prompts/triage.system", adminToken, "dev", "")
 	assert(refreshed, 200, `"version":"v2"`)
 	var promptDetail struct {
-		ID, Version string
-		Lines       []struct{ Text string }
+		ID, Version, Notes string
+		UsedBy             string `json:"used_by"`
+		Variables          []string
+		Lines              []struct{ Text string }
+		Partial            bool
+		UnavailableFields  []string                  `json:"unavailable_fields"`
+		RegisteredAgent    struct{ ID, Name string } `json:"registered_agent"`
 	}
 	if err = json.Unmarshal(refreshed.Body.Bytes(), &promptDetail); err != nil || promptDetail.ID != "triage.system" ||
 		promptDetail.Version != "v2" || len(promptDetail.Lines) != 2 ||
-		strings.Join([]string{promptDetail.Lines[0].Text, promptDetail.Lines[1].Text}, "\n") != updatedPrompt {
+		strings.Join([]string{promptDetail.Lines[0].Text, promptDetail.Lines[1].Text}, "\n") != updatedPrompt ||
+		!promptDetail.Partial || promptDetail.RegisteredAgent.ID != "triage" ||
+		strings.Join(promptDetail.Variables, ",") != "service,environment" ||
+		promptDetail.UsedBy != "运行时使用关系未接入" || promptDetail.Notes != "发布说明未记录" ||
+		strings.Join(promptDetail.UnavailableFields, ",") != "publication_status,release_notes,runtime_usage" ||
+		strings.Contains(refreshed.Body.String(), `"status":`) {
 		t.Fatalf("refreshed prompt lost identity, version, or original whitespace: %+v err=%v", promptDetail, err)
 	}
+	assert(requestLanguage("GET", "/api/v1/prompts/triage.system", adminToken, "dev", "", "en-US"), 200, "Release notes unavailable")
 	listed := request("GET", "/api/v1/prompts", adminToken, "dev", "")
 	assert(listed, 200, `"id":"triage.system"`)
-	if !strings.Contains(listed.Body.String(), `"version":"v2"`) {
+	if !strings.Contains(listed.Body.String(), `"version":"v2"`) ||
+		!strings.Contains(listed.Body.String(), `"partial":true`) ||
+		!strings.Contains(listed.Body.String(), `"unavailable_fields":["skills","publication_status"]`) ||
+		strings.Contains(listed.Body.String(), `"status":`) {
 		t.Fatalf("list did not refresh persisted version: %s", listed.Body.String())
 	}
+	assert(request("GET", "/api/v1/prompts/triage.system", adminToken, "all", ""), 200, `"version":"v2"`)
+	unknownPrompt := request("GET", "/api/v1/prompts/missing", viewerToken, "dev", "")
+	assert(unknownPrompt, 404, `"code":"not_found"`)
+	if err = svc.RegisterPrompt(ctx, "other.system", "other", "other.system", "Other agent body", adminID); err != nil {
+		t.Fatal(err)
+	}
+	hiddenPrompt := request("GET", "/api/v1/prompts/other.system", viewerToken, "dev", "")
+	assert(hiddenPrompt, 404, `"code":"not_found"`)
+	if hiddenPrompt.Body.String() != unknownPrompt.Body.String() {
+		t.Fatalf("hidden prompt existence leaked: hidden=%s unknown=%s", hiddenPrompt.Body.String(), unknownPrompt.Body.String())
+	}
+	svc.Access = &revokingPromptAccess{policy: policy, action: "view", revoke: func() error {
+		_, revokeErr := adminDB.Exec(ctx, `DELETE FROM `+quoted+`.v3_role_grants
+ WHERE role_id='agent-viewer' AND module='agents' AND action='view'`)
+		return revokeErr
+	}}
+	revokedRead := request("GET", "/api/v1/prompts/triage.system", viewerToken, "dev", "")
+	svc.Access = policy
+	assert(revokedRead, 404, `"code":"not_found"`)
+	assert(request("GET", "/api/v1/prompts/triage.system", viewerToken, "dev", ""), 404, `"code":"not_found"`)
+	if _, err = db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('agent-viewer','agents','view','application','agent-app')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `UPDATE v3_agents SET application_id='other-app' WHERE id='triage'`); err != nil {
+		t.Fatal(err)
+	}
+	assert(request("GET", "/api/v1/prompts/triage.system", viewerToken, "dev", ""), 404, `"code":"not_found"`)
+	if _, err = db.Exec(ctx, `UPDATE v3_agents SET application_id='agent-app' WHERE id='triage'`); err != nil {
+		t.Fatal(err)
+	}
+	svc.Access = &revokingPromptAccess{policy: policy, action: "view", revoke: func() error {
+		return errors.New("policy storage unavailable")
+	}}
+	failedRead := request("GET", "/api/v1/prompts/triage.system", viewerToken, "dev", "")
+	svc.Access = policy
+	assert(failedRead, 503, `"code":"agent_console_unavailable"`)
 	if _, err = db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
  VALUES('agent-viewer','agents','change','application','agent-app')`); err != nil {
 		t.Fatal(err)
@@ -358,8 +429,47 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 	}
 	assert(request("POST", "/api/v1/prompts/triage.system/versions", adminToken, "dev", `{"text":"Third reviewed version"}`), 201, `"version":"v3"`)
 	assert(request("GET", "/api/v1/prompts/triage.system", adminToken, "dev", ""), 200, `"version":"v3"`)
+	if _, err = db.Exec(ctx, `DELETE FROM v3_agent_prompt_versions
+ WHERE prompt_id='triage.system' AND version=3`); err != nil {
+		t.Fatal(err)
+	}
+	assert(request("GET", "/api/v1/prompts/triage.system", adminToken, "dev", ""), 503, `"code":"agent_console_unavailable"`)
+	if _, err = db.Exec(ctx, `INSERT INTO v3_agent_prompt_versions(prompt_id,version,body,created_by)
+ VALUES('triage.system',3,'Third reviewed version',$1)`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	assert(request("GET", "/api/v1/prompts/triage.system", adminToken, "dev", ""), 200, `"version":"v3"`)
 	assert(request("POST", "/api/v1/prompts/p1/trial", adminToken, "dev", `{"case":"c1","a":"v1","b":"v2"}`), 503, `"code":"prompt_trial_unavailable"`)
 	assert(request("GET", "/api/v1/prompts", adminToken, "dev", ""), 200, `"id":"p1"`)
+	if _, err = db.Exec(ctx, `INSERT INTO v3_agent_prompts(id,agent_id,name,current_version)
+ SELECT 'bulk-p-'||g,'triage','Bulk Prompt '||lpad(g::text,3,'0'),1
+ FROM generate_series(1,198) g`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO v3_agent_prompt_versions(prompt_id,version,body,created_by)
+ SELECT 'bulk-p-'||g,1,'Body '||g,$1 FROM generate_series(1,198) g`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	assert(request("GET", "/api/v1/prompts", viewerToken, "dev", ""), 200, `"truncated":false`)
+	if _, err = db.Exec(ctx, `INSERT INTO v3_agent_prompts(id,agent_id,name,current_version)
+ VALUES('bulk-p-199','triage','Bulk Prompt 199',1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO v3_agent_prompt_versions(prompt_id,version,body,created_by)
+ VALUES('bulk-p-199',1,'Body 199',$1)`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	assert(request("GET", "/api/v1/prompts", viewerToken, "dev", ""), 413, `"code":"prompt_list_too_large"`)
+	filteredPrompts := request("GET", "/api/v1/prompts?q=bulk-p-199", viewerToken, "dev", "")
+	assert(filteredPrompts, 200, `"id":"bulk-p-199"`)
+	if strings.Contains(filteredPrompts.Body.String(), `"id":"bulk-p-198"`) {
+		t.Fatalf("Prompt q filter returned unrelated records: %s", filteredPrompts.Body.String())
+	}
+	assert(request("GET", "/api/v1/prompts?q=other.system", viewerToken, "dev", ""), 200, `"items":[]`)
+	assert(requestLanguage("GET", "/api/v1/prompts?q="+strings.Repeat("x", 161), viewerToken, "dev", "", "en-US"), 422, "Prompt search must be at most 160 characters")
+	if _, err = db.Exec(ctx, `DELETE FROM v3_agent_prompts WHERE id LIKE 'bulk-p-%'`); err != nil {
+		t.Fatal(err)
+	}
 	if err = svc.RegisterTool(ctx, ToolRegistration{ID: "read-pods", AgentID: "triage", Name: "Read Pods", Kind: "read", Risk: "low"}); err != nil {
 		t.Fatal(err)
 	}

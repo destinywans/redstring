@@ -270,9 +270,9 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | PUT | `/me/ai-preferences` | 同上 | 同上 | implemented |
 | GET | `/workspace` | | `{ name, slug, timezone, locale, week_start, retention_days, data_region, brand }` | mock |
 | PUT | `/workspace` | 同上（仅管理员可改，写入审计） | 同上 | mock |
-| GET | `/audit` | `filter: all\|user\|agent\|system`, `q` | `AuditView` | mock |
-| GET | `/audit/{id}` | | `AuditDetail`（含哈希链校验结果） | mock |
-| POST | `/audit/export` | 过滤条件 | `{ url }` | mock |
+| GET | `/audit` | `filter: all\|user\|agent\|system`, `q` | `AuditView` | implemented |
+| GET | `/audit/{id}` | | `AuditDetail`（含哈希链校验结果） | implemented |
+| POST | `/audit/export` | 过滤条件 | `{ url }` | implemented |
 
 ## 后端辅助接口（不计入上述 166 项）
 

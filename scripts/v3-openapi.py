@@ -224,6 +224,22 @@ v3_route('get','/commands','Read executable command catalog',
     desc='Currently always returns 503 commands_unavailable; no verified command registry is configured.')
 P['/commands']['get']['responses'].pop('200')
 
+# The resource index has evidence-backed identities and relationships, but not
+# the V3 topology layout, health, blast-radius or telemetry view-model yet.
+S['V3ResourceTopologyPartial'] = obj({
+    'complete_v3_dto':v3_bool(), 'source':string(),
+    'nodes':arr(obj({'id':string(),'name':string(),'kind':string(),'cluster':string(),
+        'environment_ids':arr(string())}, ['id','name','kind','environment_ids'])),
+    'edges':arr(obj({'id':string(),'from':string(),'to':string(),'kind':string(),
+        'provenance':string(),'environment_ids':arr(string())},
+        ['id','from','to','kind','provenance','environment_ids'])),
+    'unavailable_fields':arr(string())},
+    ['complete_v3_dto','source','nodes','edges','unavailable_fields'])
+v3_route('get','/topology','Read authorized resource identities and relationships',
+    response=ref('V3ResourceTopologyPartial'),
+    query=[v3_query(x) for x in ['cluster','around','depth','group_by']],
+    desc='Partial CMDB projection only; each node is checked against resources.view in its persisted environment/application/team. Edges require both endpoints in a common authorized environment. group_by is currently unsupported (422); layout, health, blast radius, tree and Sankey are unavailable. No resources.view grant is automatically seeded from legacy RBAC.')
+
 # Connectors and their configured provider capabilities.
 S['V3TagChip'] = obj({'label':string(),'tone':string(),'mono':v3_bool()},['label'])
 S['V3Connector'] = obj({**fieldnames('id brand name kind meta'),
@@ -285,6 +301,15 @@ P['/mcp-servers/{id}/tools/{name}']['patch']['responses'].pop('200')
 v3_route('post','/mcp-servers/{id}/review','Review newly discovered MCP tools',
     desc='Currently always returns 503 mcp_review_unavailable after scoped authorization; no trusted discovery snapshot exists.')
 P['/mcp-servers/{id}/review']['post']['responses'].pop('200')
+S['V3McpEnvironmentBinding'] = obj({'id':string(),'application_id':string(),
+    'environment_id':string(),'bound':v3_bool(),'changed':v3_bool()},
+    ['id','application_id','environment_id','bound','changed'])
+v3_route('put','/mcp-servers/{id}/environment-binding','Explicitly bind a registered MCP server to the selected environment',
+    response=ref('V3McpEnvironmentBinding'),
+    desc='Ancillary V3 metadata-only operation. Uses exactly one selected X-AIOps-Environment; body does not choose scope. Requires connectors.manage on the registered application. Only active registrations with operator-confirmed read-only bindings may be enrolled. This does not authorize tool execution or attest that endpoint, fixed arguments and credentials are safe for the selected environment. Idempotent and audited. Historical records are never automatically bound.')
+v3_route('delete','/mcp-servers/{id}/environment-binding','Unbind a registered MCP server from the selected environment',
+    response=ref('V3McpEnvironmentBinding'),
+    desc='Ancillary V3 operation. Uses exactly one selected X-AIOps-Environment and connectors.manage on the registered application. Idempotent and audited when changed.')
 
 # Alerts and incidents: document the real partial responses explicitly, while
 # completion status remains tracked separately in the human contract.

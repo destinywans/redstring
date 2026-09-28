@@ -56,6 +56,7 @@ type Snapshot struct {
 	SourceID           string    `json:"source_id"`
 	SourceKind         string    `json:"source_kind"`
 	SourceName         string    `json:"source_name"`
+	EnvironmentKey     string    `json:"environment_key,omitempty"`
 	ObservedAt         time.Time `json:"observed_at"`
 	Error              string    `json:"error,omitempty"`
 	GrantPermissionIDs []string  `json:"grant_permission_ids,omitempty"`

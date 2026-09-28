@@ -34,3 +34,39 @@ func TestSummaryNeverExposesEndpointOrCredential(t *testing.T) {
 		t.Fatalf("unverified registration was reported as healthy: %s", raw)
 	}
 }
+
+func TestBindableMCPRequiresActiveReviewedReadOnlyRegistration(t *testing.T) {
+	valid := aiextensions.Record{
+		ID: "mcp-1", ApplicationID: "app-1", Kind: "mcp",
+		Title: "Orders MCP", Maintainer: "platform", Enabled: true, Version: 1,
+		MCP: &aiextensions.MCPConfig{
+			Endpoint: "https://mcp.example.invalid/tools",
+			Bindings: []aiextensions.Binding{{Name: "orders", Tool: "read_orders", ReadOnlyConfirmed: true, Arguments: map[string]any{}}},
+		},
+	}
+	if !bindableMCP(valid) {
+		t.Fatal("reviewed registration must be bindable")
+	}
+	for _, tc := range []struct {
+		name string
+		edit func(*aiextensions.Record)
+	}{
+		{"disabled", func(r *aiextensions.Record) { r.Enabled = false }},
+		{"no reviewed tools", func(r *aiextensions.Record) { r.MCP.Bindings = nil }},
+		{"unreviewed tool", func(r *aiextensions.Record) { r.MCP.Bindings[0].ReadOnlyConfirmed = false }},
+		{"credential in URL", func(r *aiextensions.Record) { r.MCP.Endpoint = "https://secret@example.invalid/tools" }},
+		{"unsupported remote HTTP", func(r *aiextensions.Record) { r.MCP.Endpoint = "http://mcp.example.invalid/tools" }},
+		{"missing arguments", func(r *aiextensions.Record) { r.MCP.Bindings[0].Arguments = nil }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := valid
+			mcp := *valid.MCP
+			mcp.Bindings = append([]aiextensions.Binding(nil), valid.MCP.Bindings...)
+			r.MCP = &mcp
+			tc.edit(&r)
+			if bindableMCP(r) {
+				t.Fatal("invalid registration must not be bound")
+			}
+		})
+	}
+}

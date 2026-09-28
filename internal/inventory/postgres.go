@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"regexp"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var sourceEnvironmentKey = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,100}$`)
 
 // SaveSnapshot commits only complete source snapshots. Failed/old observations
 // retain the previous objects, edges and observed_at; missing objects are marked,
@@ -14,6 +18,9 @@ import (
 func SaveSnapshot(ctx context.Context, db *pgxpool.Pool, snapshot Snapshot) error {
 	if snapshot.SourceID == "" || snapshot.SourceKind == "" {
 		return fmt.Errorf("source identity required")
+	}
+	if snapshot.EnvironmentKey != "" && (snapshot.EnvironmentKey == "all" || !sourceEnvironmentKey.MatchString(snapshot.EnvironmentKey)) {
+		return fmt.Errorf("invalid source environment key")
 	}
 	tx, err := db.Begin(ctx)
 	if err != nil {
@@ -34,6 +41,15 @@ func SaveSnapshot(ctx context.Context, db *pgxpool.Pool, snapshot Snapshot) erro
 	}
 	if sourceKind != snapshot.SourceKind {
 		return fmt.Errorf("inventory source kind is immutable")
+	}
+	if snapshot.EnvironmentKey != "" {
+		var existingEnvironment string
+		if err = tx.QueryRow(ctx, `SELECT environment_key FROM cmdb_sync_sources WHERE id=$1`, snapshot.SourceID).Scan(&existingEnvironment); err != nil {
+			return err
+		}
+		if existingEnvironment != "" && existingEnvironment != snapshot.EnvironmentKey {
+			return fmt.Errorf("inventory source environment is immutable")
+		}
 	}
 	if snapshot.Error != "" {
 		_, err = tx.Exec(ctx, `UPDATE cmdb_sync_sources SET last_error=$2 WHERE id=$1`, snapshot.SourceID, snapshot.Error)
@@ -67,6 +83,10 @@ func SaveSnapshot(ctx context.Context, db *pgxpool.Pool, snapshot Snapshot) erro
 		ids[record.ExternalID] = id
 		if record.Attributes == nil {
 			record.Attributes = map[string]any{}
+		}
+		if snapshot.EnvironmentKey != "" {
+			// Use the configured collector scope, not a resource-supplied label.
+			record.Attributes["environment_key"] = snapshot.EnvironmentKey
 		}
 		record.Attributes["inventory_presence"] = "present"
 		observed := record.ObservedAt
@@ -143,7 +163,9 @@ func SaveSnapshot(ctx context.Context, db *pgxpool.Pool, snapshot Snapshot) erro
 			return err
 		}
 	}
-	_, err = tx.Exec(ctx, `UPDATE cmdb_sync_sources SET kind=$2,name=$3,last_success_at=$4,last_error='',resource_count=$5,updated_at=now() WHERE id=$1`, snapshot.SourceID, snapshot.SourceKind, snapshot.SourceName, snapshot.ObservedAt, len(ids))
+	_, err = tx.Exec(ctx, `UPDATE cmdb_sync_sources SET kind=$2,name=$3,last_success_at=$4,last_error='',resource_count=$5,
+ environment_key=CASE WHEN $6='' THEN environment_key ELSE $6 END,updated_at=now() WHERE id=$1`,
+		snapshot.SourceID, snapshot.SourceKind, snapshot.SourceName, snapshot.ObservedAt, len(ids), snapshot.EnvironmentKey)
 	if err != nil {
 		return err
 	}

@@ -33,7 +33,7 @@ go collector.Run(ctx) // ctx 取消关闭 watch 与循环；只启动一次
 }
 ```
 
-每个 source ID 全局唯一且 kind 不可变，资源 ID 由 source kind + source ID + Kubernetes UID 确定；同名重建对象产生新身份。集群身份使用 `kube-system` namespace UID，不用可重复的集群显示名。所有路径显式，API TLS 必须校验 CA，不读取用户默认 kubeconfig。
+每个 source ID 全局唯一且 kind 不可变，资源 ID 由 source kind + source ID + Kubernetes UID 确定；同名重建对象产生新身份。集群身份使用 `kube-system` namespace UID，不用可重复的集群显示名。所有路径显式，API TLS 必须校验 CA，不读取用户默认 kubeconfig。V3 资源拓扑只信任成功同步时记录在 `cmdb_sync_sources.environment_key` 的采集源环境，不以资源 `attributes.environment_key` 单独决定授权范围；历史来源需按配置重新成功同步，不能从旧属性推断环境。来源环境一旦确定不能由后续快照悄悄改写。
 
 List 分页每页 500，单源最多 10,000 个对象，单响应 32 MiB。完整成功采集后才提交一个事务；Watch 使用每类 List 的 resourceVersion 作为失效通知，有变化/410/连接关闭后重新完整 List，至少相隔 10 秒，无事件最多30秒（可配置10–300秒）回读。Watch 不直接据此删除任何CMDB对象，所有请求只 GET，不请求 Secret、ConfigMap，不持久化 Pod env/command/args/annotations。
 
@@ -49,7 +49,7 @@ WAN-112 指标补充按 `cluster=<source ID>,node=<name>` 精确匹配，不固�
 
 ```json
 {"sources":[{
-  "source_id":"local-lima", "source_kind":"lima", "source_name":"本地虚拟机",
+  "source_id":"local-lima", "source_kind":"lima", "source_name":"本地虚拟机", "environment_key":"lab",
   "observed_at":"2026-09-22T08:00:00Z",
   "resources":[{"external_id":"aiops-k8s-worker1","kind":"host","name":"aiops-k8s-worker1",
     "attributes":{"status":"Running","environment_key":"lab","resource_type":"VirtualMachine","metric_cluster":"aiops-vm-cluster","metric_node":"aiops-k8s-worker1"},
@@ -58,7 +58,7 @@ WAN-112 指标补充按 `cluster=<source ID>,node=<name>` 精确匹配，不固�
 }]}
 ```
 
-外部source_kind仅docker/lima；source独立报错使用error并保留旧数据；观察时间不得伪造为文件读取时间。文件旧于上次快照不回写时间。关系只在同源稳定ID之间解析，未找到端点不构造假节点。文件权限600并原子替换，顶层配置的grant_permission_ids为授权依据，文件不能额外加角色权限。
+外部source_kind仅docker/lima；用于 V3 拓扑的外部 source 必须在 source 层明确填 `environment_key`，记录中的同名属性不构成权限依据。source独立报错使用error并保留旧数据；观察时间不得伪造为文件读取时间。文件旧于上次快照不回写时间。关系只在同源稳定ID之间解析，未找到端点不构造假节点。文件权限600并原子替换，顶层配置的grant_permission_ids为授权依据，文件不能额外加角色权限。
 
 示例数据保留策略已由用户在 WAN-111 明确清理请求取代，执行记录见 [示例数据清理](releases/2026-09-22-sample-data-cleanup.md)。同步不生成Mock、不把Mock迁成real。attributes包含sync_status/current|stale|disconnected、sync_last_success_at、sync_error、inventory_presence。UI保留共用组件与覆盖抽屉，30秒读CMDB，不由页面直接调用集群；运行就绪、资源同步和指标采集状态分别呈现。
 

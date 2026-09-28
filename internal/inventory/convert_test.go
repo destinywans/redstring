@@ -19,6 +19,9 @@ func TestStableSourceIdentityAndRuntimeOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if snapshot.EnvironmentKey != source.EnvironmentKey {
+		t.Fatalf("collector scope lost: got %q, want %q", snapshot.EnvironmentKey, source.EnvironmentKey)
+	}
 	want := map[string]string{"pod": "deployment", "mirror": "node", "bare": "ns"}
 	got := map[string]string{}
 	for _, edge := range snapshot.Relations {

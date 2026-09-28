@@ -24,6 +24,7 @@ var matrixCatalog = []matrixResource{
 	{"agents", "Agent 配置与发布", "Agent config & release", []string{"agents"}},
 	{"identity", "成员与角色", "Members & roles", []string{"members", "roles"}},
 	{"audit", "审计日志", "Audit log", []string{"audit"}},
+	{"resources", "资源目录与关系", "Resource catalog & relations", []string{"resources"}},
 }
 
 var matrixActions = []string{"view", "change", "delete", "approve", "manage"}

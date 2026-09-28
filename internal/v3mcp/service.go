@@ -41,6 +41,8 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"GET /api/v1/mcp-servers/{id}", s.detail, "view"},
 		{"PATCH /api/v1/mcp-servers/{id}/tools/{name}", s.toolChange, "manage"},
 		{"POST /api/v1/mcp-servers/{id}/review", s.review, "manage"},
+		{"PUT /api/v1/mcp-servers/{id}/environment-binding", s.bindEnvironment, "manage"},
+		{"DELETE /api/v1/mcp-servers/{id}/environment-binding", s.unbindEnvironment, "manage"},
 	} {
 		api.Register(route.pattern, "viewer", route.handler)
 		api.MarkV3ObjectRoute(route.pattern, "connectors", route.action)

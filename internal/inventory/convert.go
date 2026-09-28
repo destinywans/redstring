@@ -112,7 +112,7 @@ func links(source Source, o object) []Link {
 	return out
 }
 func convert(source Source, objects []object, observed time.Time) (Snapshot, error) {
-	snapshot := Snapshot{SourceID: source.ID, SourceKind: "kubernetes", SourceName: source.Name, ObservedAt: observed, GrantPermissionIDs: source.GrantPermissionIDs, Resources: []Record{}, Relations: []Edge{}}
+	snapshot := Snapshot{SourceID: source.ID, SourceKind: "kubernetes", SourceName: source.Name, EnvironmentKey: source.EnvironmentKey, ObservedAt: observed, GrantPermissionIDs: source.GrantPermissionIDs, Resources: []Record{}, Relations: []Edge{}}
 	byUID := map[string]object{}
 	namespaces := map[string]string{}
 	nodes := map[string]string{}

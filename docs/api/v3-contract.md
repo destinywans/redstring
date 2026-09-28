@@ -155,7 +155,7 @@
 | GET | `/services/{id}` | | `ServiceDetail` | mock |
 | GET | `/services/{id}/resilience` | | `Resilience`（灰度 / 熔断 / 限流 / 开关 / HPA，只读） | mock |
 | POST | `/services/{id}/resilience/proposals` | `{ kind, params }` | `{ proposal_id }`（只生成提案或合并请求） | mock |
-| GET | `/topology` | `cluster`, `around`, `depth`, `group_by` | `Topology` | mock |
+| GET | `/topology` | `cluster`, `around`, `depth`, `group_by` | `Topology`；当前后端仅返回经授权的 CMDB 节点、关系和缺失字段清单，完整 DTO 尚未实现 | mock |
 | GET | `/metrics/dashboard` | `service`, `range`, `align` | `MetricsDashboard` | mock |
 | POST | `/metrics/ask` | `{ view, question }` | `{ conversation_id }` | mock |
 | GET | `/traces` | `scope: app\|agent`, `view`, `q`（TraceQL / 过滤表达式）, `service` | `TraceList`：分面计数、保存的视图、按状态直方图、耗时散点、表格 | mock |
@@ -273,6 +273,11 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | GET | `/audit` | `filter: all\|user\|agent\|system`, `q` | `AuditView` | mock |
 | GET | `/audit/{id}` | | `AuditDetail`（含哈希链校验结果） | mock |
 | POST | `/audit/export` | 过滤条件 | `{ url }` | mock |
+
+## 后端辅助接口（不计入上述 166 项）
+
+- `PUT /mcp-servers/{id}/environment-binding`：用请求头选择单一环境，把现有声明为只读且已经人工审核的 MCP 登记显式绑定到该环境；要求对所属应用有 `connectors.manage`，幂等并记录变更审计。该绑定仅使登记元数据可见，不代表端点、固定参数或凭据已经通过所选环境的执行安全审查。
+- `DELETE /mcp-servers/{id}/environment-binding`：从请求头指定的单一环境解绑该登记；同样检查所属应用权限，幂等并记录实际变更。旧登记不会自动绑定或复制到其他环境。
 
 ## 变更记录
 

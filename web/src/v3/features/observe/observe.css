@@ -194,7 +194,7 @@
 
 /* ---------- topology ---------- */
 .topo-box {
-  display: flex;
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
@@ -205,12 +205,12 @@
     var(--sunken);
 }
 .topo-canvas {
-  position: relative;
-  flex: none;
+  position: absolute;
+  left: 0;
+  top: 0;
   width: 880px;
   height: 760px;
-  margin: auto; /* centred when it fits, scrollable from the top-left when it doesn't */
-  transition: transform var(--dur-slow) var(--ease);
+  transform-origin: 0 0;
 }
 .topo-edges {
   position: absolute;
@@ -309,7 +309,7 @@
   position: absolute;
   z-index: 2;
   left: 12px;
-  bottom: 12px;
+  bottom: 56px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -725,4 +725,9 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+.topo-box.pan {
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
 }

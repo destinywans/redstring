@@ -490,3 +490,32 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* hint for nodes that appeared outside the view */
+.cv-newpill {
+  position: absolute;
+  z-index: 25;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 320px;
+  padding: 7px 14px;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--fs-sub);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: var(--shadow-lg);
+  cursor: pointer;
+  transform: translateY(-50%);
+  animation: dp-in var(--dur) var(--ease) both;
+}
+.cv-node.flash {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 4px var(--accent-soft), 0 0 28px color-mix(in srgb, var(--accent) 45%, transparent) !important;
+  transition: box-shadow 0.3s;
+}

@@ -1,15 +1,45 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Page } from "../../app/Shell";
 import { useGet } from "../../api/client";
-import type { Topology } from "../../api/types";
+import type { Topology, TopologyNode } from "../../api/types";
 import { Avatar, Bar, Brand, Btn, Chip, Col, Dot, Icon, IconBtn, KV, Muted, Row, Section, Segmented, Skeleton, State, Strong, TextLink, Tile, cx } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { Gauge, Lines, Sankey } from "../../charts";
 import { useI18n } from "../../i18n";
 import { DetailPanel, FLOAT_COVER, usePinned } from "../../ui/DetailPanel";
+import { ZoomControl, useViewport, type Bounds } from "../../ui/viewport";
 import "./observe.css";
 
 const TONE_COLOR = { ok: "var(--c2)", warn: "var(--warn)", danger: "var(--danger)" };
+const NODE_W = 172;
+const NODE_H = 48;
+
+/**
+ * Edge routing from node positions (not precomputed paths): nodes in the same column connect vertically
+ * (bottom of the upper one to the top of the lower one); otherwise right side to left side.
+ */
+function route(a: TopologyNode, b: TopologyNode) {
+  if (Math.abs(a.x - b.x) < 20) {
+    const [u, d] = a.y < b.y ? [a, b] : [b, a];
+    const x = u.x + NODE_W / 2;
+    const y1 = u.y + NODE_H;
+    const y2 = d.y;
+    return { d: `M${x} ${y1} L ${x} ${y2}`, lx: x + 22, ly: (y1 + y2) / 2 };
+  }
+  const [l, r] = a.x < b.x ? [a, b] : [b, a];
+  const x1 = l.x + NODE_W;
+  const y1 = l.y + NODE_H / 2;
+  const x2 = r.x;
+  const y2 = r.y + NODE_H / 2;
+  const mx = (x1 + x2) / 2;
+  return { d: `M${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`, lx: mx, ly: (y1 + y2) / 2 };
+}
+
+function boundsOf(t: Topology): Bounds {
+  const xs = [...t.groups.flatMap((g) => [g.x, g.x + g.w]), ...t.nodes.flatMap((n) => [n.x, n.x + NODE_W])];
+  const ys = [...t.groups.flatMap((g) => [g.y, g.y + g.h]), ...t.nodes.flatMap((n) => [n.y, n.y + NODE_H])];
+  return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
+}
 
 /** Rows whose ancestors are all expanded; `toggled` flips each row's default open state. */
 function visibleRows(tree: Topology["tree"], toggled: Set<number>) {
@@ -28,26 +58,40 @@ function visibleRows(tree: Topology["tree"], toggled: Set<number>) {
 export default function ResourcesPage() {
   const { tx } = useI18n();
   const { data: t } = useGet<Topology>("/topology");
-  const [view, setView] = useState<"topo" | "tree" | "sankey">("topo");
+  const [view_, setViewMode] = useState<"topo" | "tree" | "sankey">("topo");
   const [blast, setBlast] = useState(true);
   const [sel, setSel] = useState<string | null>(null);
   const [pinned, setPinned] = usePinned("topology");
   const box = useRef<HTMLDivElement>(null);
   const floating = !!sel && !pinned;
-  // Shift the graph left (not the legend or the page) just enough to keep the selected node clear of the card.
-  const [shift, setShift] = useState(0);
+  const { view, setView, zoom, fitTo } = useViewport(box, view_ === "topo");
+  const [animate, setAnimate] = useState(false);
+  const drag = useRef<{ sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null);
+  const panned = useRef(false);
+  const bounds = useMemo(() => (t ? boundsOf(t) : null), [t]);
+  const byId = useMemo(() => Object.fromEntries((t?.nodes ?? []).map((n) => [n.id, n])), [t]);
+  const fit = () => bounds && fitTo(bounds, { x: 40, top: 60, bottom: 60 });
+  // Fit and centre once the graph is on screen.
+  const fitted = useRef(false);
   useEffect(() => {
-    if (!floating || !box.current) {
-      setShift(0);
-      return;
-    }
+    if (!bounds || view_ !== "topo" || fitted.current) return;
+    fitted.current = true;
+    requestAnimationFrame(() => fit());
+  }); // eslint-disable-line react-hooks/exhaustive-deps
+  // Slide the graph (never the legend or the page) just enough to keep the selected node clear of the card.
+  useEffect(() => {
+    if (!floating || !box.current) return;
     const el = box.current.querySelector<HTMLElement>(`[data-node="${CSS.escape(sel!)}"]`);
     if (!el) return;
     const b = box.current.getBoundingClientRect();
     const n = el.getBoundingClientRect();
     const overlap = n.right - (b.right - FLOAT_COVER) + 16;
-    if (overlap > 0) setShift((x) => x - overlap);
-  }, [sel, floating]);
+    if (overlap <= 0) return;
+    setAnimate(true);
+    setView((v) => ({ ...v, x: v.x - overlap }));
+    const id = setTimeout(() => setAnimate(false), 320);
+    return () => clearTimeout(id);
+  }, [sel, floating]); // eslint-disable-line react-hooks/exhaustive-deps
   const [hover, setHover] = useState<string | null>(null);
   const [open, setOpen] = useState<Set<number>>(new Set());
   const detail = t && sel ? (
@@ -123,7 +167,7 @@ export default function ResourcesPage() {
       <div className="v3-split">
         <div className="main" style={{ display: "flex", flexDirection: "column", padding: "14px 16px", gap: 10, overflow: "hidden" }}>
           <Row gap={8}>
-            <Segmented label={tx("视图", "View")} value={view} onChange={setView} options={[{ value: "topo", label: tx("拓扑", "Topology") }, { value: "tree", label: tx("层级", "Hierarchy") }, { value: "sankey", label: tx("桑基", "Sankey") }]} />
+            <Segmented label={tx("视图", "View")} value={view_} onChange={setViewMode} options={[{ value: "topo", label: tx("拓扑", "Topology") }, { value: "tree", label: tx("层级", "Hierarchy") }, { value: "sankey", label: tx("桑基", "Sankey") }]} />
             <Chip icon="grid" caret>
               {tx("集群 prod-sh-1", "Cluster prod-sh-1")}
             </Chip>
@@ -141,15 +185,32 @@ export default function ResourcesPage() {
           </Row>
           <div className="topo-stage">
           <div
-            className="topo-box"
+            className={cx("topo-box", view_ === "topo" && "pan")}
             ref={box}
+            onPointerDown={(e) => {
+              if (e.button !== 0 || view_ !== "topo" || (e.target as HTMLElement).closest(".topo-node")) return;
+              drag.current = { sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y, moved: false };
+              e.currentTarget.setPointerCapture(e.pointerId);
+            }}
+            onPointerMove={(e) => {
+              const d = drag.current;
+              if (!d) return;
+              const dx = e.clientX - d.sx;
+              const dy = e.clientY - d.sy;
+              if (Math.abs(dx) + Math.abs(dy) > 2) d.moved = true;
+              setView((v) => ({ ...v, x: d.ox + dx, y: d.oy + dy }));
+            }}
+            onPointerUp={() => {
+              panned.current = !!drag.current?.moved;
+              drag.current = null;
+            }}
             onClick={(e) => {
-              if (!(e.target as HTMLElement).closest(".topo-node, .blast-chip, .topo-legend")) setSel(null);
+              if (!panned.current && !(e.target as HTMLElement).closest(".topo-node")) setSel(null);
             }}
           >
             {!t && <Skeleton h={600} style={{ margin: 20 }} />}
-            {t && view === "topo" && (
-              <div className="topo-canvas anim-fade" style={{ transform: shift ? `translateX(${shift}px)` : undefined }}>
+            {t && view_ === "topo" && (
+              <div className="topo-canvas" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`, transition: animate ? "transform 280ms var(--ease)" : "none" }}>
                 {t.groups.map((g) => (
                   <div key={g.id} className="topo-group" style={{ left: g.x, top: g.y, width: g.w, height: g.h }}>
                     <span>
@@ -163,7 +224,7 @@ export default function ResourcesPage() {
                   {t.edges.map((e) => (
                     <path
                       key={e.id}
-                      d={e.path}
+                      d={byId[e.from] && byId[e.to] ? route(byId[e.from], byId[e.to]).d : e.path}
                       className={e.fast ? "flow-fast" : "flow"}
                       style={{ fill: "none", stroke: TONE_COLOR[e.tone], strokeWidth: e.width, strokeLinecap: "round", opacity: hover && e.from !== hover && e.to !== hover ? 0.25 : 1, transition: "opacity 150ms" }}
                     />
@@ -171,7 +232,7 @@ export default function ResourcesPage() {
                 </svg>
                 {t.edges.map((e) =>
                   e.label ? (
-                    <span key={e.id} className="topo-elabel tnum" style={{ left: e.lx, top: e.ly, color: e.tone === "ok" ? "var(--muted)" : TONE_COLOR[e.tone] }}>
+                    <span key={e.id} className="topo-elabel tnum" style={{ left: byId[e.from] && byId[e.to] ? route(byId[e.from], byId[e.to]).lx : e.lx, top: byId[e.from] && byId[e.to] ? route(byId[e.from], byId[e.to]).ly : e.ly, color: e.tone === "ok" ? "var(--muted)" : TONE_COLOR[e.tone] }}>
                       {e.label}
                     </span>
                   ) : null,
@@ -197,7 +258,7 @@ export default function ResourcesPage() {
                 ))}
               </div>
             )}
-            {t && view === "tree" && (
+            {t && view_ === "tree" && (
               <div className="topo-tree anim-fade">
                 <div className="tree-row head">
                   <span>{tx("名称", "Name")}</span>
@@ -234,15 +295,16 @@ export default function ResourcesPage() {
                   })}
               </div>
             )}
-            {t && view === "sankey" && (
+            {t && view_ === "sankey" && (
               <div className="anim-fade" style={{ padding: "24px 48px", display: "flex", flexDirection: "column", gap: 14, background: "var(--panel)", height: "100%" }}>
                 <Sankey cols={t.sankey.cols} links={t.sankey.links} height={520} />
                 <Muted size={11.5}>{tx("线宽 = 请求量；红色为异常流量。checkout-api 流向 orders-db 的 500 qps 中 8.4% 以超时结束。", "Width = volume; red is unhealthy. 8.4% of the 500 qps from checkout-api to orders-db end in timeouts.")}</Muted>
               </div>
             )}
           </div>
-          {t && view === "topo" && (
+          {t && view_ === "topo" && (
             <>
+              <ZoomControl k={view.k} onZoom={(f) => zoom(f)} onReset={() => zoom(1 / view.k)} onFit={fit} />
               <div className={cx("blast-chip", blast && "show")}>
                 <Icon name="alert" size={14} color="var(--danger)" />
                 <b>{tx("影响范围", "Blast radius")}</b>

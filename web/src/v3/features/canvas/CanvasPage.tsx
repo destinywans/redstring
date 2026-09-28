@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as RPE } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as RPE } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { api, useGet } from "../../api/client";
@@ -18,14 +18,21 @@ type View = { x: number; y: number; k: number };
 const ANCHOR = 30;
 const clampK = (k: number) => Math.max(0.4, Math.min(1.8, k));
 
-function Edge({ from, to, kind, live }: { from: CanvasNode; to: CanvasNode; kind: "fork" | "evidence"; live?: boolean }) {
+export type Dir = "lr" | "tb";
+
+function Edge({ from, to, kind, live, dir, fromH }: { from: CanvasNode; to: CanvasNode; kind: "fork" | "evidence"; live?: boolean; dir: Dir; fromH: number }) {
   const x1 = from.x + from.w;
   const y1 = from.y + ANCHOR;
   const x2 = to.x;
   const y2 = to.y + ANCHOR;
-  const back = x2 < x1;
-  const d = back
-    ? `M${from.x + from.w / 2} ${from.y + 150} L ${to.x + to.w / 2} ${to.y}`
+  // Top-to-bottom layouts, and nodes stacked in the same column, connect bottom → top.
+  const vertical = dir === "tb" || x2 < x1;
+  const vx1 = from.x + from.w / 2;
+  const vy1 = from.y + fromH;
+  const vx2 = to.x + to.w / 2;
+  const vy2 = to.y;
+  const d = vertical
+    ? `M${vx1} ${vy1} C ${vx1} ${vy1 + 36}, ${vx2} ${vy2 - 36}, ${vx2} ${vy2}`
     : `M${x1} ${y1} C ${x1 + 40} ${y1}, ${x2 - 40} ${y2}, ${x2} ${y2}`;
   const color = kind === "evidence" ? to.evidence?.color ?? "var(--muted)" : to.status === "ruled_out" ? "var(--ok)" : "var(--accent)";
   return <path d={d} className={cx("cv-edge", kind === "evidence" && "evidence", live && "flow")} style={{ stroke: color }} />;
@@ -36,6 +43,29 @@ export const LITE_ZOOM = 0.8;
 /** Markdown summary → one plain line (drops emphasis and [n] citation markers). */
 export const plainText = (md: string) => md.replace(/\*\*|__|`/g, "").replace(/\[\d+\]/g, "").trim();
 
+/** Top-to-bottom tree layout: each depth is a row, leaves spread left to right, parents centred over children. */
+function layoutTB(nodes: CanvasNode[], heights: Record<string, number>): Record<string, { x: number; y: number }> {
+  const kids: Record<string, CanvasNode[]> = {};
+  nodes.forEach((n) => (kids[n.parent ?? ""] ??= []).push(n));
+  const depth: Record<string, number> = {};
+  const colW = Math.max(...nodes.map((n) => n.w)) + 40;
+  let leaf = 0;
+  const cx: Record<string, number> = {};
+  const walk = (n: CanvasNode, d: number): number => {
+    depth[n.id] = d;
+    const ch = kids[n.id] ?? [];
+    if (!ch.length) return (cx[n.id] = leaf++ * colW);
+    const xs = ch.map((c) => walk(c, d + 1));
+    return (cx[n.id] = (xs[0] + xs[xs.length - 1]) / 2);
+  };
+  (kids[""] ?? []).forEach((r) => walk(r, 0));
+  const rowH: number[] = [];
+  nodes.forEach((n) => (rowH[depth[n.id]] = Math.max(rowH[depth[n.id]] ?? 0, heights[n.id] ?? 160)));
+  const rowY: number[] = [];
+  rowH.forEach((h, i) => (rowY[i] = i === 0 ? 0 : rowY[i - 1] + rowH[i - 1] + 70));
+  return Object.fromEntries(nodes.map((n) => [n.id, { x: cx[n.id] + (colW - 40 - n.w) / 2, y: rowY[depth[n.id]] }]));
+}
+
 function NodeCard({
   n,
   selected,
@@ -43,6 +73,7 @@ function NodeCard({
   onDragStart,
   onAsk,
   k = 1,
+  flash,
 }: {
   n: CanvasNode;
   selected: boolean;
@@ -51,6 +82,8 @@ function NodeCard({
   onAsk: (text: string) => void;
   /** Current zoom; below LITE_ZOOM the node switches to a compact form whose text does not shrink. */
   k?: number;
+  /** Briefly highlighted (a node that just appeared). */
+  flash?: boolean;
 }) {
   const { tx } = useI18n();
   const [q, setQ] = useState("");
@@ -63,7 +96,8 @@ function NodeCard({
     const line = n.summary ? plainText(n.summary) : n.subtitle;
     return (
       <article
-        className={cx("cv-node lite", n.kind, selected && "selected", n.status === "running" && "running")}
+        data-node={n.id}
+        className={cx("cv-node lite", n.kind, selected && "selected", n.status === "running" && "running", flash && "flash")}
         style={{ left: n.x, top: n.y, width: n.w, borderTopColor: n.kind === "evidence" ? n.evidence?.color : undefined }}
         onPointerDown={(e) => {
           e.stopPropagation();
@@ -83,7 +117,8 @@ function NodeCard({
   }
   return (
     <article
-      className={cx("cv-node anim-pop", n.kind, collapsed && "collapsed", selected && "selected", n.status === "running" && "running")}
+      data-node={n.id}
+      className={cx("cv-node anim-pop", n.kind, collapsed && "collapsed", selected && "selected", n.status === "running" && "running", flash && "flash")}
       style={{ left: n.x, top: n.y, width: n.w, borderTopColor: n.kind === "evidence" ? n.evidence?.color : undefined }}
       onPointerDown={(e) => {
         e.stopPropagation();
@@ -371,6 +406,18 @@ export default function CanvasPage() {
   const [sel, setSel] = useState<string | null>(null);
   const [pinned, setPinned] = usePinned("canvas");
   const [view, setView] = useState<View>({ x: 0, y: 0, k: 1 });
+  const dirKey = `aiops-v3-canvas-dir:${id}`;
+  const [dir, setDirState] = useState<Dir>(() => {
+    try {
+      return localStorage.getItem(dirKey) === "tb" ? "tb" : "lr";
+    } catch {
+      return "lr";
+    }
+  });
+  const [heights, setHeights] = useState<Record<string, number>>({});
+  const [tb, setTb] = useState<Record<string, { x: number; y: number }>>({});
+  const [needFit, setNeedFit] = useState(false);
+  const layer = useRef<HTMLDivElement>(null);
   const [tray, setTray] = useState(false);
   const [compare, setCompare] = useState(false);
   const [dropHint, setDropHint] = useState(false);
@@ -383,6 +430,45 @@ export default function CanvasPage() {
   }, [data]);
 
   const byId = useMemo(() => Object.fromEntries(nodes.map((n) => [n.id, n])), [nodes]);
+  // `nodes` keeps the left-to-right positions; top-to-bottom positions live in `tb`. `shown` is what is drawn.
+  const shown = useMemo(() => (dir === "lr" ? nodes : nodes.map((n) => (tb[n.id] ? { ...n, ...tb[n.id] } : n))), [dir, nodes, tb]);
+  const shownById = useMemo(() => Object.fromEntries(shown.map((n) => [n.id, n])), [shown]);
+  useLayoutEffect(() => {
+    const h: Record<string, number> = {};
+    layer.current?.querySelectorAll<HTMLElement>("[data-node]").forEach((el) => (h[el.dataset.node!] = el.offsetHeight));
+    setHeights((old) => (JSON.stringify(old) === JSON.stringify(h) ? old : h));
+  });
+  // Top-to-bottom: lay out once; nodes that appear later go under their parent without moving the others.
+  useEffect(() => {
+    if (dir !== "tb" || !nodes.length) return;
+    const missing = nodes.filter((n) => !tb[n.id]);
+    if (!missing.length) return;
+    if (!Object.keys(tb).length) {
+      setTb(layoutTB(nodes, heights));
+      return;
+    }
+    setTb((m) => {
+      const next = { ...m };
+      for (const n of missing) {
+        const p = n.parent ? next[n.parent] : undefined;
+        const pn = n.parent ? byId[n.parent] : undefined;
+        const siblings = nodes.filter((x) => x.parent === n.parent && next[x.id]).length;
+        next[n.id] = p && pn ? { x: p.x + siblings * (n.w + 40), y: p.y + (heights[pn.id] ?? 160) + 70 } : { x: n.x, y: n.y };
+      }
+      return next;
+    });
+  }, [dir, nodes, heights]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setDir = (d: Dir) => {
+    if (d === dir) return;
+    try {
+      localStorage.setItem(dirKey, d);
+    } catch {
+      /* per-viewer convenience only */
+    }
+    if (d === "tb") setTb(layoutTB(nodes, heights));
+    setDirState(d);
+    setNeedFit(true);
+  };
   const selected = sel ? byId[sel] : undefined;
   const panned = useRef(false);
 
@@ -398,13 +484,14 @@ export default function CanvasPage() {
     const dy = e.clientY - d.sy;
     if (Math.abs(dx) + Math.abs(dy) > 2) d.moved = true;
     if (d.kind === "pan") setView((v) => ({ ...v, x: d.ox + dx, y: d.oy + dy }));
+    else if (dir === "tb") setTb((m) => ({ ...m, [d.id!]: { x: d.ox + dx / view.k, y: d.oy + dy / view.k } }));
     else setNodes((ns) => ns.map((n) => (n.id === d.id ? { ...n, x: d.ox + dx / view.k, y: d.oy + dy / view.k } : n)));
   };
   const onPointerUp = () => {
     const d = drag.current;
     drag.current = null;
     panned.current = !!d?.moved;
-    if (d?.kind === "node" && d.moved) {
+    if (d?.kind === "node" && d.moved && dir === "lr") {
       const n = nodes.find((x) => x.id === d.id);
       if (n) void api("PATCH", `/investigations/${id}/nodes/${n.id}`, { body: { x: Math.round(n.x), y: Math.round(n.y) } });
     }
@@ -418,16 +505,110 @@ export default function CanvasPage() {
       return { k, x: px - ((px - v.x) * k) / v.k, y: py - ((py - v.y) * k) / v.k };
     });
   }, []);
-  const fit = useCallback(() => {
-    if (!nodes.length || !area.current) return;
+  const fitTo = useCallback((list: CanvasNode[]) => {
+    if (!list.length || !area.current) return;
     const r = area.current.getBoundingClientRect();
-    const minX = Math.min(...nodes.map((n) => n.x));
-    const minY = Math.min(...nodes.map((n) => n.y));
-    const maxX = Math.max(...nodes.map((n) => n.x + n.w));
-    const maxY = Math.max(...nodes.map((n) => n.y + 200));
-    const k = clampK(Math.min((r.width - 60) / (maxX - minX), (r.height - 120) / (maxY - minY), 1.1));
-    setView({ k, x: 30 - minX * k, y: 40 - minY * k });
-  }, [nodes]);
+    const minX = Math.min(...list.map((n) => n.x));
+    const minY = Math.min(...list.map((n) => n.y));
+    const maxX = Math.max(...list.map((n) => n.x + n.w));
+    const maxY = Math.max(...list.map((n) => n.y + (heights[n.id] ?? 200)));
+    // Fit (never above 100%) and centre; leave room for the status line on top and the toolbar below.
+    const top = 40;
+    const bottom = 80;
+    const k = clampK(Math.min((r.width - 60) / (maxX - minX), (r.height - top - bottom) / (maxY - minY), 1));
+    setView({ k, x: (r.width - (maxX - minX) * k) / 2 - minX * k, y: top + (r.height - top - bottom - (maxY - minY) * k) / 2 - minY * k });
+  }, [heights]);
+  const fit = useCallback(() => fitTo(shown), [fitTo, shown]);
+
+  /* ---- nodes that appear while you work: never move the view on their own ---- */
+  const [flashIds, setFlashIds] = useState<Set<string>>(new Set());
+  const [pending, setPending] = useState<string[]>([]);
+  const [glide, setGlide] = useState(false);
+  const known = useRef<Set<string> | null>(null);
+  const cover = selected && !pinned ? FLOAT_COVER : 0;
+  const screenOf = (n: CanvasNode) => ({
+    x1: view.x + n.x * view.k,
+    x2: view.x + (n.x + n.w) * view.k,
+    y1: view.y + n.y * view.k,
+    y2: view.y + (n.y + (heights[n.id] ?? 150)) * view.k,
+  });
+  const onScreen = (n: CanvasNode) => {
+    const r = area.current?.getBoundingClientRect();
+    if (!r) return true;
+    const b = screenOf(n);
+    return b.x2 > 0 && b.x1 < r.width - cover && b.y2 > 0 && b.y1 < r.height;
+  };
+  const flash = (ids: string[]) => {
+    setFlashIds(new Set(ids));
+    setTimeout(() => setFlashIds(new Set()), 2000);
+  };
+  useEffect(() => {
+    if (!shown.length) return;
+    if (!known.current) {
+      known.current = new Set(shown.map((n) => n.id));
+      return;
+    }
+    const fresh = shown.filter((n) => !known.current!.has(n.id));
+    if (!fresh.length) return;
+    fresh.forEach((n) => known.current!.add(n.id));
+    const visible = fresh.filter(onScreen).map((n) => n.id);
+    const hidden = fresh.filter((n) => !onScreen(n)).map((n) => n.id);
+    if (visible.length) flash(visible);
+    if (hidden.length) setPending((p) => [...p, ...hidden]);
+  }, [shown]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Once a pending node scrolls into view on its own, its hint goes away.
+  useEffect(() => {
+    setPending((p) => {
+      const still = p.filter((pid) => shownById[pid] && !onScreen(shownById[pid]));
+      return still.length === p.length ? p : still;
+    });
+  }, [view, cover]); // eslint-disable-line react-hooks/exhaustive-deps
+  const glideTo = (next: View | ((v: View) => View)) => {
+    setGlide(true);
+    setView(next);
+    setTimeout(() => setGlide(false), 360);
+  };
+  const goToPending = () => {
+    const list = pending.map((pid) => shownById[pid]).filter(Boolean);
+    if (!list.length || !area.current) return;
+    const prev = view;
+    const r = area.current.getBoundingClientRect();
+    if (list.length === 1) {
+      const n = list[0];
+      glideTo((v) => ({ k: v.k, x: (r.width - cover) / 2 - (n.x + n.w / 2) * v.k, y: r.height / 2 - (n.y + (heights[n.id] ?? 150) / 2) * v.k }));
+    } else {
+      setGlide(true);
+      fitTo(shown);
+      setTimeout(() => setGlide(false), 360);
+    }
+    flash(pending);
+    setPending([]);
+    toast(list.length === 1 ? tx("已定位到新分支「{t}」", "Showing new branch “{t}”", { t: list[0].title }) : tx("已显示全部 {n} 个新分支", "Showing all {n} new branches", { n: list.length }), { undo: () => glideTo(prev) });
+  };
+  const pendingHint = (() => {
+    const first = pending.length ? shownById[pending[0]] : undefined;
+    const r = area.current?.getBoundingClientRect();
+    if (!first || !r) return null;
+    const b = screenOf(first);
+    const side = b.x1 >= r.width - cover ? "right" : b.x2 <= 0 ? "left" : b.y1 >= r.height ? "bottom" : "top";
+    const clampY = (y: number) => Math.min(Math.max(y, 56), r.height - 110);
+    const clampX = (x: number) => Math.min(Math.max(x, 120), r.width - cover - 260);
+    const style =
+      side === "right" ? { right: cover + 12, top: clampY((b.y1 + b.y2) / 2) } : side === "left" ? { left: 12, top: clampY((b.y1 + b.y2) / 2) } : side === "bottom" ? { bottom: 72, left: clampX(b.x1) } : { top: 44, left: clampX(b.x1) };
+    const arrow = { right: "→", left: "←", bottom: "↓", top: "↑" }[side];
+    return (
+      <button type="button" className="cv-newpill" style={style} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); goToPending(); }}>
+        {side === "left" || side === "top" ? <span>{arrow}</span> : null}
+        {pending.length === 1 ? tx("新分支：{t}", "New branch: {t}", { t: first.title }) : tx("{n} 个新分支", "{n} new branches", { n: pending.length })}
+        {side === "right" || side === "bottom" ? <span>{arrow}</span> : null}
+      </button>
+    );
+  })();
+  useEffect(() => {
+    if (!needFit) return;
+    setNeedFit(false);
+    requestAnimationFrame(() => fit());
+  }, [needFit, fit]);
   const fitted = useRef(false);
   useEffect(() => {
     if (nodes.length && !fitted.current) {
@@ -461,8 +642,22 @@ export default function CanvasPage() {
   };
   const ask = async (nodeId: string, text: string) => {
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, status: "running" } : n)));
-    const res = await api<{ summary: string }>("POST", `/investigations/${id}/nodes/${nodeId}/messages`, { body: { text } });
-    setTimeout(() => setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, status: "confirmed", summary: res.summary, context: { ...n.context, messages: n.context.messages + 2 } } : n))), 900);
+    const res = await api<{ summary: string; new_branch?: { title: string; subtitle: string; summary: string } }>("POST", `/investigations/${id}/nodes/${nodeId}/messages`, { body: { text } });
+    setTimeout(() => {
+      setNodes((ns) => {
+        const next = ns.map((n) => (n.id === nodeId ? { ...n, status: "confirmed" as const, summary: res.summary, context: { ...n.context, messages: n.context.messages + 2 } } : n));
+        const parent = ns.find((n) => n.id === nodeId);
+        if (!res.new_branch || !parent) return next;
+        // The AI derived a follow-up branch: place it right of its parent; existing nodes stay where they are.
+        const siblings = ns.filter((n) => n.parent === nodeId).length;
+        const child: CanvasNode = {
+          id: `b-ai-${Date.now()}`, kind: "branch", parent: nodeId, title: res.new_branch.title, subtitle: res.new_branch.subtitle, status: "running",
+          x: parent.x + parent.w + 70, y: parent.y + siblings * 200, w: 240, summary: "", context: { version: "v1", inherits: parent.context.version, tokens: 0, messages: 0, excludes: [] }, versions: [],
+        };
+        setTimeout(() => setNodes((cur) => cur.map((n) => (n.id === child.id ? { ...n, status: "active", summary: res.new_branch!.summary } : n))), 1600);
+        return [...next, child];
+      });
+    }, 900);
   };
   const addEvidence = (item: EvidenceTrayItem, clientX: number, clientY: number) => {
     const p = toCanvas(clientX, clientY);
@@ -498,13 +693,14 @@ export default function CanvasPage() {
   useEffect(() => {
     if (!selected || pinned || !area.current) return;
     const w = area.current.clientWidth;
-    const right = view.x + (selected.x + selected.w) * view.k;
+    const sn = shownById[selected.id] ?? selected;
+    const right = view.x + (sn.x + sn.w) * view.k;
     const overlap = right - (w - FLOAT_COVER) + 16;
     if (overlap > 0) setView((v) => ({ ...v, x: v.x - overlap }));
   }, [sel, pinned]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const inv = data?.investigation;
-  const bounds = nodes.length ? { minX: Math.min(...nodes.map((n) => n.x)) - 40, minY: Math.min(...nodes.map((n) => n.y)) - 40, maxX: Math.max(...nodes.map((n) => n.x + n.w)) + 40, maxY: Math.max(...nodes.map((n) => n.y + 180)) + 40 } : null;
+  const bounds = shown.length ? { minX: Math.min(...shown.map((n) => n.x)) - 40, minY: Math.min(...shown.map((n) => n.y)) - 40, maxX: Math.max(...shown.map((n) => n.x + n.w)) + 40, maxY: Math.max(...shown.map((n) => n.y + (heights[n.id] ?? 180))) + 40 } : null;
 
   return (
     <Page
@@ -605,18 +801,19 @@ export default function CanvasPage() {
               <Skeleton w={260} h={160} />
             </div>
           )}
-          <div className="cv-layer" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }}>
+          <div ref={layer} className="cv-layer" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`, transition: glide ? "transform 320ms var(--ease)" : undefined }}>
             <svg className="cv-edges" width="4000" height="3000" aria-hidden="true">
-              {nodes
-                .filter((n) => n.parent && byId[n.parent])
+              {shown
+                .filter((n) => n.parent && shownById[n.parent])
                 .map((n) => (
-                  <Edge key={n.id} from={byId[n.parent!]} to={n} kind={n.kind === "evidence" ? "evidence" : "fork"} live={n.status === "running" || (n.status === "confirmed" && n.id === sel)} />
+                  <Edge key={n.id} from={shownById[n.parent!]} to={n} dir={dir} fromH={heights[n.parent!] ?? 150} kind={n.kind === "evidence" ? "evidence" : "fork"} live={n.status === "running" || (n.status === "confirmed" && n.id === sel)} />
                 ))}
             </svg>
-            {nodes.map((n) => (
+            {shown.map((n) => (
               <NodeCard
                 key={n.id}
                 n={n}
+                flash={flashIds.has(n.id)}
                 selected={sel === n.id}
                 onSelect={() => setSel(n.id)}
                 onAsk={(t) => ask(n.id, t)}
@@ -631,20 +828,21 @@ export default function CanvasPage() {
               />
             ))}
           </div>
+          {pendingHint}
           {dropHint && <div className="cv-drop-hint">{tx("松开：成为「{p}」的证据节点", "Release to add as evidence of “{p}”", { p: selected?.title ?? "" })}</div>}
           <span className="cv-status">{tx("{b} 个分支 · {e} 个证据节点 · 拖入对话部件即可加入画布", "{b} branches · {e} evidence nodes · drag chat parts in", { b: nodes.filter((n) => n.kind === "branch").length, e: nodes.filter((n) => n.kind === "evidence").length })}</span>
           {bounds && (
             <div className="cv-minimap" aria-label={tx("缩略图", "Minimap")}>
               <svg width="150" height="80" viewBox={`${bounds.minX} ${bounds.minY} ${bounds.maxX - bounds.minX} ${bounds.maxY - bounds.minY}`} preserveAspectRatio="xMidYMid meet">
-                {nodes.map((n) => (
-                  <rect key={n.id} x={n.x} y={n.y} width={n.w} height={n.kind === "branch" && n.status === "ruled_out" ? 60 : 140} rx={10} style={{ fill: n.kind === "root" ? "var(--danger-soft)" : n.kind === "evidence" ? "var(--c3s)" : n.status === "ruled_out" ? "var(--ok-soft)" : "var(--accent-soft)" }} />
+                {shown.map((n) => (
+                  <rect key={n.id} x={n.x} y={n.y} width={n.w} height={heights[n.id] ?? 140} rx={10} style={{ fill: n.kind === "root" ? "var(--danger-soft)" : n.kind === "evidence" ? "var(--c3s)" : n.status === "ruled_out" ? "var(--ok-soft)" : "var(--accent-soft)" }} />
                 ))}
               </svg>
             </div>
           )}
           <div className="cv-zoom" onPointerDown={(e) => e.stopPropagation()}>
             <IconBtn icon="zoomout" label={tx("缩小", "Zoom out")} size={26} onClick={() => zoom(0.85)} />
-            <button type="button" className="tnum" onClick={() => setView({ x: 0, y: 0, k: 1 })} title={tx("重置", "Reset")}>
+            <button type="button" className="tnum" onClick={() => zoom(1 / view.k)} title={tx("恢复到 100%", "Reset to 100%")}>
               {Math.round(view.k * 100)}%
             </button>
             <IconBtn icon="zoomin" label={tx("放大", "Zoom in")} size={26} onClick={() => zoom(1.18)} />
@@ -667,7 +865,24 @@ export default function CanvasPage() {
             <Btn kind={tray ? "soft" : "ghost"} icon="file" onClick={() => setTray((t) => !t)}>
               {tx("证据", "Evidence")}
             </Btn>
-            <Btn kind="ghost" icon="grid" onClick={() => { if (data) setNodes(data.nodes.concat(nodes.filter((n) => !data.nodes.some((d) => d.id === n.id)))); fit(); }}>
+            <Segmented
+              label={tx("排布方向", "Layout direction")}
+              value={dir}
+              onChange={setDir}
+              options={[
+                { value: "lr", label: tx("横向", "Left → right") },
+                { value: "tb", label: tx("纵向", "Top → bottom") },
+              ]}
+            />
+            <Btn
+              kind="ghost"
+              icon="grid"
+              onClick={() => {
+                if (dir === "tb") setTb(layoutTB(nodes, heights));
+                else if (data) setNodes(data.nodes.concat(nodes.filter((n) => !data.nodes.some((d) => d.id === n.id))));
+                setNeedFit(true);
+              }}
+            >
               {tx("自动布局", "Auto layout")}
             </Btn>
           </div>

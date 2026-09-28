@@ -66,7 +66,10 @@ mock("POST", "/investigations/:id/branches", ({ body }) => {
   return { id: `b-${Date.now()}`, kind: "branch", parent: b.parent_id, title: b.title, subtitle: l("独立上下文 v1 · 刚刚派生", "Isolated context v1 · just forked"), status: "running", x: b.x, y: b.y, w: 240, summary: "", context: { version: "v1", inherits: "v4", tokens: 1200, messages: 0, excludes: [] }, versions: [] };
 });
 mock("PATCH", "/investigations/:id/nodes/:node", ({ body }) => body);
+let derived = 0;
 mock("POST", "/investigations/:id/nodes/:node/messages", () => ({
+  // The first follow-up in a session makes the AI derive one extra branch, to show how new nodes appear.
+  new_branch: derived++ === 0 ? { title: l("预发与生产配置差异", "Staging vs prod config diff"), subtitle: l("AI 派生 · 独立上下文 v1", "Derived by AI · isolated context v1"), summary: l("对比 12 项参数：只有 connection_pool.max 不同（预发 200、生产 50）。", "12 parameters compared: only connection_pool.max differs (staging 200, prod 50).") } : undefined,
   summary: l("连接池排队时长 P95 3.1 s，超过 HTTP 超时 3 s，因此返回 5xx；恢复上限后应在 1 分钟内回落。", "Pool queue P95 is 3.1 s, above the 3 s HTTP timeout, hence the 5xx. Restoring the max should recover within a minute."),
 }));
 mock("GET", "/investigations/:id/writeback-preview", () => ({

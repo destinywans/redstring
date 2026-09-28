@@ -158,8 +158,13 @@ export default function DocCanvasPage() {
     const ys = [...nodes.map((n) => n.y + (heights[n.id] ?? 200)), ...data.artifacts.map((a) => a.y + 52)];
     const minX = Math.min(...nodes.map((n) => n.x));
     const minY = Math.min(...nodes.map((n) => n.y));
-    const k = clampK(Math.min((r.width - 60) / (Math.max(...xs) - minX), (r.height - 110) / (Math.max(...ys) - minY), 1.1));
-    setView({ k, x: 30 - minX * k, y: 36 - minY * k });
+    // Fit (never above 100%) and centre; leave room for the note on top and the toolbar below.
+    const bw = Math.max(...xs) - minX;
+    const bh = Math.max(...ys) - minY;
+    const top = 36;
+    const bottom = 74;
+    const k = clampK(Math.min((r.width - 60) / bw, (r.height - top - bottom) / bh, 1));
+    setView({ k, x: (r.width - bw * k) / 2 - minX * k, y: top + (r.height - top - bottom - bh * k) / 2 - minY * k });
   }, [nodes, heights, data]);
   const fitted = useRef(false);
   useEffect(() => {

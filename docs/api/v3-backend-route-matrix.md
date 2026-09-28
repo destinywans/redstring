@@ -107,9 +107,9 @@
 | v4 新建流程 | POST | `/inhibitions` | 新增 | mock |
 | v4 新建流程 | GET | `/runbooks/draft` | 新增 | mock |
 | v4 新建流程 | POST | `/runbooks` | 新增 | mock |
-| v4 新建流程 | GET | `/postmortems/candidates` | 新增 | mock |
+| v4 新建流程 | GET | `/postmortems/candidates` | 新增 | implemented |
 | v4 新建流程 | GET | `/postmortems/draft` | 新增 | mock |
-| v4 新建流程 | POST | `/postmortems` | 新增 | mock |
+| v4 新建流程 | POST | `/postmortems` | 新增 | implemented |
 | v4 新建流程 | POST | `/knowledge-sources/test` | 新增 | mock |
 | v4 新建流程 | POST | `/knowledge-sources` | 新增 | mock |
 | Agent 链路 | GET | `/agent-runs/{id}/trace` | 聚合 | mock |

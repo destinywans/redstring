@@ -183,9 +183,9 @@
 | POST | `/inhibitions` | `{ source, target, equal }`（P1 永不抑制） | `{ id }` | mock |
 | GET | `/runbooks/draft` | `source: template\|postmortem\|conversation\|import`, `from` | Runbook 草稿（写操作步骤标记 `approval`） | mock |
 | POST | `/runbooks` | `{ title, source, from?, steps, status: draft\|review }`；非空白来源需验证已有引用，空白来源不得填写引用 | `{ id }`；复核通过前 Agent 不使用 | mock |
-| GET | `/postmortems/candidates` | | 可写复盘的事件 | mock |
+| GET | `/postmortems/candidates` | | 有真实结案证据、尚无复盘且当前有权访问的事件；含实际证据数与持续时长 | implemented |
 | GET | `/postmortems/draft` | `incident` | 复盘草稿 | mock |
-| POST | `/postmortems` | `{ incident_id, sections, actions, status }` | `{ id }` | mock |
+| POST | `/postmortems` | `{ incident_id, sections, actions, status: draft\|review }` | `{ id }`；同事务锁定已解决事件并写入复盘与审计，不触发外部动作 | implemented |
 | POST | `/knowledge-sources/test` | `{ type, url, secret_ref: "vault:…" }` | 连接结果 | mock |
 | POST | `/knowledge-sources` | `{ type, url, secret_ref: "vault:…", spaces, schedule, chunk, inherit_acl }`（只接受 Vault 引用） | `{ id, status }` | mock |
 

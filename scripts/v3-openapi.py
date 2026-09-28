@@ -490,6 +490,20 @@ v3_route('post','/runbooks/{id}/dry-run','Validate runbook without execution',
     response=obj({'steps':integer(),'ok':v3_bool(),'mode':string(enum=['validation_only']),
         'checks':arr({'type':'object','additionalProperties':True})}),
     desc='Validation only against persisted steps; request body is not used. Never runs external write steps.')
+S['V3PostmortemCandidate'] = obj({**fieldnames('id title resolved duration'),
+    'severity':string(enum=['P1','P2','P3','P4']), 'evidence':integer(minimum=0)},
+    ['id','title','severity','resolved','duration','evidence'])
+S['V3PostmortemSectionInput'] = obj(fieldnames('key title text'),['key','title','text'])
+S['V3PostmortemActionInput'] = obj(fieldnames('text owner due'),['text','owner','due'])
+v3_route('get','/postmortems/candidates','List resolved incidents eligible for a postmortem',
+    response=obj({'items':arr(ref('V3PostmortemCandidate'))},['items']),
+    desc='Only incidents with a persisted closing event and investigation report, no existing postmortem, and current events:view plus knowledge:view on their registered application or owner team. Evidence and duration come from stored records. More than 1000 visible candidates returns 413; unknown source severity returns 503 rather than an invented classification.')
+v3_route('post','/postmortems','Create a governed incident postmortem',
+    body=obj({'incident_id':string(),'sections':arr(ref('V3PostmortemSectionInput')),
+        'actions':arr(ref('V3PostmortemActionInput')),
+        'status':string(enum=['draft','review'])},['incident_id','sections','actions','status']),
+    response=obj({'id':string()},['id']),status=201,
+    desc='Requires a single selected environment and current events:view plus knowledge:manage on the incident application or its persisted owner team. Locks and rechecks the resolved incident, investigation report and closing event; one postmortem per incident. Stores sections and actions with an audit record in one transaction, without executing or notifying. Publishing is a separate future step.')
 S['V3KnowledgeSearchHit'] = obj({**fieldnames('title snippet'),
     'keyword':v3_num(),'vector':v3_num(),'score':v3_num()})
 v3_route('post','/knowledge/search','Search scoped knowledge with keyword/vector ranking',

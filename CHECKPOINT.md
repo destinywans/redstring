@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-132 · 2026-09-29 · 连接器登记工具设置辅助读取
+
+- WAN-122 源提交 `7343c8ffda0c997dd630120bbc4ce3d2a869d018` 合入集成分支为 `baaf258`，只改 `internal/v3integrations`，无迁移。辅助 `GET /connectors/{id}/tool-settings` 按当前授权环境及 `connectors.view` 返回持久工具开关、连接器启用状态和固定 `agent_execution_available:false`，不返回端点或 Vault 引用；旧工具目录未知、重复或失效时 503，不静默筛除。PATCH 对省略/`null` 的 `enabled` 返回 422，已存目录漂移返回 409；保留行锁、事务内 `connectors.manage` 与审计，局部并发更新可合并，审计失败回滚。独立只读审查未发现合入阻断缺陷，提示缺 `all` 范围和端点不泄露的独立断言。
+- 公共 OpenAPI 补辅助 GET 的准确响应和 PATCH 输入/409 语义，文字契约说明登记偏好与 Agent 执行能力的边界。一次性 pgvector PG17 随机 schema 中 `go test -p 1 ./internal/v3integrations -count=1 -timeout=180s` 通过，容器已清理；`go vet ./internal/v3integrations ./cmd/aiops`、314 条 OpenAPI 注册操作引用、165 行主契约和路由矩阵检查通过。没有修改前端、迁移现有业务库或连接真实外部目标；前端工具开关未调用 PATCH，详情 `tools` 因无 Agent 执行器仍为空，主 PATCH 保持 `mock`，总数 **34/166 `implemented`**。
+- 当前集成分支仅本地提交；此前向既有私有 GitHub 分支的推送两次被自动审批拒绝，等待用户对精确目标明确批准。不得重试或换会话代推；本记录不表示已推送、合并、部署或产品验收。
+
 ## CP-131 · 2026-09-29 · Alertmanager 静默创建意图台账
 
 - WAN-118 源提交 `dcdd789bfbf7ac1ed724b5b51af34ff7104b32f0` 在集成分支合入为 `a61d788`，只改 `internal/v3alertmanager` 并新增迁移 `100_v3_silence_operations.sql`。台账为创建操作持久保存操作者、环境/应用/团队归属、幂等键、规范化请求与固定时间窗、载荷哈希、上游 ID 和状态；保留/状态变更与管理审计同事务提交。保留和按键回查复核当前有效人类身份及作用域权限，宽范围需环境查看与管理双授权；外部写客户端对不确定结果作单独标记。没有生产调用者，也没有注册产品 `POST /silences` 或 `DELETE /silences/{id}`。

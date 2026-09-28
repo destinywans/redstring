@@ -26036,7 +26036,7 @@
       "patch": {
         "summary": "Update connector configuration",
         "operationId": "patch_connectors_id",
-        "description": "Minimum role: admin. V3 instance and environment scope apply. Updates persisted connector tool preferences only. The enabled flag is not an Agent execution grant; connector-backed Agent execution is not wired. The V3 frontend toggle currently does not call this route.",
+        "description": "Minimum role: admin. V3 instance and environment scope apply. Partially updates stored connector tool preferences under a row lock with current connectors.manage and atomic audit; distinct supported tool names and a present, non-null enabled boolean are required. Unknown, duplicate or retired stored tools return 409 tool_catalog_changed without silently deleting preferences. Enabling a tool on a disabled connector returns 409 connector_disabled. No object version precondition is implemented. The enabled flag gates some scoped read-only sources but is not an Agent execution grant; connector-backed Agent execution is not wired. The V3 frontend toggle currently does not call this route.",
         "responses": {
           "200": {
             "description": "Success",
@@ -26051,23 +26051,156 @@
                     "tools": {
                       "type": "array",
                       "items": {
-                        "type": "object",
-                        "properties": {
-                          "name": {
-                            "type": "string"
-                          },
-                          "desc": {
-                            "type": "string"
-                          },
-                          "enabled": {
-                            "type": "boolean"
-                          }
-                        },
-                        "additionalProperties": false
+                        "$ref": "#/components/schemas/V3RegisteredConnectorTool"
                       }
                     }
                   },
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "tools"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Connector disabled or stored tool catalog changed; no object version precondition",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "connectors"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tools": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "enabled": {
+                          "type": "boolean"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "name",
+                        "enabled"
+                      ]
+                    },
+                    "minItems": 1
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "tools"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/connectors/{id}/tool-settings": {
+      "get": {
+        "summary": "Read stored connector tool switches",
+        "operationId": "get_connectors_id_tool_settings",
+        "description": "Minimum role: admin. V3 instance and environment scope apply. Auxiliary read outside the 166 page routes. Requires current connectors.view in an authorized environment and selects the registration by ID and environment. Returns stored tool switches with localized catalog labels, connector enabled state and agent_execution_available=false; it exposes neither endpoint nor credential reference, and does not imply Agent execution. Unknown or cross-environment IDs return 404; unknown, duplicate or retired stored tools fail closed with 503 rather than silently changing the reported settings.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3ConnectorToolSettings"
                 }
               }
             }
@@ -26158,38 +26291,7 @@
             },
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "tools": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "name": {
-                          "type": "string"
-                        },
-                        "enabled": {
-                          "type": "boolean"
-                        }
-                      },
-                      "additionalProperties": false
-                    }
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "tools"
-                ]
-              }
-            }
-          }
-        }
+        ]
       }
     },
     "/connectors/{id}/activate": {
@@ -46772,6 +46874,57 @@
           "services",
           "queries",
           "tools"
+        ]
+      },
+      "V3RegisteredConnectorTool": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "desc": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "desc",
+          "enabled"
+        ]
+      },
+      "V3ConnectorToolSettings": {
+        "type": "object",
+        "properties": {
+          "connector_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "connector_enabled": {
+            "type": "boolean"
+          },
+          "registered_tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3RegisteredConnectorTool"
+            }
+          },
+          "agent_execution_available": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "connector_id",
+          "environment_id",
+          "connector_enabled",
+          "registered_tools",
+          "agent_execution_available"
         ]
       },
       "V3ConnectorList": {

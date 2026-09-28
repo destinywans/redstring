@@ -540,9 +540,10 @@ func (s *Service) saveTemplate(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "template_unavailable", "Template save failed")
 		return
 	}
+	auditChanges := mustJSON(map[string]string{"environment_id": envs[0], "source_canvas_id": in.FromCanvas})
 	_, err = tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,action,target,outcome,changes)
-	 VALUES($1,'v3.canvas_template.saved',$2,'success',jsonb_build_object('environment_id',$3,'source_canvas_id',$4))`,
-		httpapi.CurrentUser(r).ID, id, envs[0], in.FromCanvas)
+	 VALUES($1,'v3.canvas_template.saved',$2,'success',$3::jsonb)`,
+		httpapi.CurrentUser(r).ID, id, auditChanges)
 	if err != nil {
 		httpapi.Error(w, 503, "audit_unavailable", "Template audit unavailable")
 		return

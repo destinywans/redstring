@@ -181,7 +181,7 @@ func TestConversationDetailDoesNotInventMissingUsage(t *testing.T) {
 	svc := New(nil, testRuntime{models: []inference.Model{{ID: "model-1", InputBudget: 8192}}}, Options{})
 	detail := svc.conversationDetail("c", "title", "active", "test", "service:checkout", "model-1", []Message{{Role: "assistant", Run: json.RawMessage(`{"id":"old-run","tokens":0}`)}})
 	contextSide := detail.Side["context"].(map[string]any)
-	if contextSide["used"] != nil || contextSide["budget"] != 8192 {
+	if contextSide["used"] != nil || contextSide["budget"] != nil {
 		t.Fatalf("unknown historical usage must remain unknown: %+v", contextSide)
 	}
 	detail = svc.conversationDetail("c", "title", "active", "test", "service:checkout", "model-1", []Message{
@@ -189,7 +189,12 @@ func TestConversationDetailDoesNotInventMissingUsage(t *testing.T) {
 		{Role: "assistant"},
 	})
 	contextSide = detail.Side["context"].(map[string]any)
-	if contextSide["used"] != nil || len(contextSide["parts"].([]any)) != 0 {
+	if contextSide["used"] != nil || contextSide["budget"] != nil || len(contextSide["parts"].([]any)) != 0 {
 		t.Fatalf("newer unknown usage must not reuse an older model input count: %+v", contextSide)
+	}
+	detail = svc.conversationDetail("c", "title", "active", "test", "", "model-1", nil)
+	contextSide = detail.Side["context"].(map[string]any)
+	if contextSide["used"] != 0 || contextSide["budget"] != 8192 {
+		t.Fatalf("a conversation with no model turn has zero usage and its selected default budget: %+v", contextSide)
 	}
 }

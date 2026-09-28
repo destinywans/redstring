@@ -62,6 +62,31 @@ func TestPageBounds(t *testing.T) {
 	}
 }
 
+func TestLastEventCursorRejectsAmbiguousOrInvalidReplayPositions(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		values []string
+		want   int64
+		valid  bool
+	}{
+		{name: "initial", valid: true},
+		{name: "last committed", values: []string{"42"}, want: 42, valid: true},
+		{name: "explicit zero", values: []string{"0"}, valid: true},
+		{name: "empty", values: []string{""}},
+		{name: "negative", values: []string{"-1"}},
+		{name: "non decimal", values: []string{"4x"}},
+		{name: "overflow", values: []string{"9223372036854775808"}},
+		{name: "duplicate", values: []string{"4", "5"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, valid := lastEventCursor(tc.values)
+			if got != tc.want || valid != tc.valid {
+				t.Fatalf("lastEventCursor(%q) = (%d,%t), want (%d,%t)", tc.values, got, valid, tc.want, tc.valid)
+			}
+		})
+	}
+}
+
 func TestAllowedEnvironmentsFailsClosedAndExcludesProduction(t *testing.T) {
 	user := core.User{ID: "u1"}
 	if _, err := New(nil, nil, Options{}).allowed(context.Background(), user, "test"); !errors.Is(err, ErrForbidden) {

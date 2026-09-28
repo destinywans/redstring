@@ -363,11 +363,15 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 			AND ($5='' OR status=$5)
 		ORDER BY updated_at DESC,id LIMIT $6 OFFSET $7
 	) SELECT c.id,c.title,c.status,c.environment_id,c.context_ref,c.updated_at,
-		COALESCE(m.turns,0),COALESCE(m.assistants,0),COALESCE(m.reported_tokens,0)
+		COALESCE(m.turns,0),COALESCE(m.assistants,0),
+		CASE WHEN COALESCE(m.unknown_usage,0)=0 THEN COALESCE(m.reported_tokens,0) END
 		FROM selected c LEFT JOIN LATERAL (
 			SELECT count(*) FILTER (WHERE role='user') AS turns,
 				count(*) FILTER (WHERE role='assistant' AND state='completed') AS assistants,
-				COALESCE(sum(CASE WHEN role='assistant' AND state='completed' AND jsonb_typeof(run->'tokens')='number'
+				count(*) FILTER (WHERE role='assistant' AND state='completed'
+					AND (jsonb_typeof(run->'tokens')='number' AND run->>'tokens' ~ '^[0-9]{1,18}$') IS DISTINCT FROM TRUE) AS unknown_usage,
+				COALESCE(sum(CASE WHEN role='assistant' AND state='completed'
+					AND jsonb_typeof(run->'tokens')='number' AND run->>'tokens' ~ '^[0-9]{1,18}$'
 					THEN (run->>'tokens')::bigint ELSE 0 END),0) AS reported_tokens
 			FROM v3_conversation_messages WHERE conversation_id=c.id
 		) m ON true
@@ -381,7 +385,8 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, title, status, envID, contextRef string
 		var updated time.Time
-		var turns, assistants, reportedTokens int64
+		var turns, assistants int64
+		var reportedTokens *int64
 		if err = rows.Scan(&id, &title, &status, &envID, &contextRef, &updated, &turns, &assistants, &reportedTokens); err != nil {
 			operationError(w, err)
 			return
@@ -394,13 +399,17 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "en") {
 			sizeLabel = fmt.Sprintf("%d turns", turns)
 		}
+		// A partial sum is not the conversation's actual token usage. Old and
+		// provider-unknown replies keep this field explicitly unknown.
 		items = append(items, map[string]any{"id": id, "title": title, "mode": "chat", "status": status, "source": "manual", "scope": conversationScopeLabel(contextRef, envID), "participants": participants, "size": sizeLabel, "updated_at": updated, "tokens": reportedTokens})
 	}
 	if err = rows.Err(); err != nil {
 		operationError(w, err)
 		return
 	}
-	write(w, 200, map[string]any{"items": items, "total": total, "page": page, "page_size": size, "stats": []any{}, "counts": map[string]int{"mine": mineCount, "team": 0, "triage": 0, "archived": archivedCount}})
+	// Team and triage sources have no unified read model yet. Zero would
+	// incorrectly claim that those authorized sources are empty.
+	write(w, 200, map[string]any{"items": items, "total": total, "page": page, "page_size": size, "stats": []any{}, "counts": map[string]any{"mine": mineCount, "team": nil, "triage": nil, "archived": archivedCount}})
 }
 
 func conversationScopeLabel(refs, env string) string {
@@ -464,9 +473,10 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 503, "stream_unavailable", "Streaming unavailable")
 		return
 	}
-	cursor := int64(0)
-	if raw := r.Header.Get("Last-Event-ID"); raw != "" {
-		cursor, _ = strconv.ParseInt(raw, 10, 64)
+	cursor, ok := lastEventCursor(r.Header.Values("Last-Event-ID"))
+	if !ok {
+		apiError(w, 422, "invalid_event_cursor", "Last-Event-ID must be a nonnegative event ID")
+		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
@@ -556,4 +566,23 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func lastEventCursor(values []string) (int64, bool) {
+	if len(values) == 0 {
+		return 0, true
+	}
+	if len(values) != 1 || values[0] == "" {
+		return 0, false
+	}
+	for _, digit := range values[0] {
+		if digit < '0' || digit > '9' {
+			return 0, false
+		}
+	}
+	id, err := strconv.ParseInt(values[0], 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return id, true
 }

@@ -36,8 +36,11 @@ func (s *Service) conversationDetail(id, title, status, env, contextRef, default
 			continue
 		}
 		// The side panel describes the most recent assistant turn. An older
-		// reported input count must not survive a newer turn with unknown usage.
+		// reported input count or the conversation's original default-model
+		// budget must not survive a newer turn with unknown usage. A per-turn
+		// model may differ from the original default.
 		context["used"] = nil
+		context["budget"] = nil
 		context["parts"] = []any{}
 		for _, raw := range m.Parts {
 			var part struct {

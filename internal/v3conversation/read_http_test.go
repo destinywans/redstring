@@ -118,28 +118,32 @@ func TestConversationListRegisteredRouteUsesPersistedChatFacts(t *testing.T) {
 			ID           string    `json:"id"`
 			Scope        string    `json:"scope"`
 			Size         string    `json:"size"`
-			Tokens       int       `json:"tokens"`
+			Tokens       *int      `json:"tokens"`
 			Participants []string  `json:"participants"`
 			UpdatedAt    time.Time `json:"updated_at"`
 		} `json:"items"`
-		Total    int `json:"total"`
-		Page     int `json:"page"`
-		PageSize int `json:"page_size"`
+		Total    int             `json:"total"`
+		Page     int             `json:"page"`
+		PageSize int             `json:"page_size"`
+		Counts   map[string]*int `json:"counts"`
 	}
 	if rr := get(base+"?page_size=1&page=1", "all", "zh-CN", true); rr.Code != http.StatusOK {
 		t.Fatalf("all page: %d %s", rr.Code, rr.Body.String())
 	} else if err := json.Unmarshal(rr.Body.Bytes(), &page); err != nil {
 		t.Fatal(err)
 	}
-	if page.Total != 2 || page.Page != 1 || page.PageSize != 1 || len(page.Items) != 1 || page.Items[0].ID != "read-a" || page.Items[0].Scope != "checkout-api · test" || page.Items[0].Size != "2 轮" || page.Items[0].Tokens != 26 || strings.Join(page.Items[0].Participants, ",") != "Read Owner,AI" {
+	if page.Total != 2 || page.Page != 1 || page.PageSize != 1 || len(page.Items) != 1 || page.Items[0].ID != "read-a" || page.Items[0].Scope != "checkout-api · test" || page.Items[0].Size != "2 轮" || page.Items[0].Tokens != nil || strings.Join(page.Items[0].Participants, ",") != "Read Owner,AI" {
 		t.Fatalf("persisted first page: %+v", page)
+	}
+	if page.Counts["mine"] == nil || *page.Counts["mine"] != 2 || page.Counts["archived"] == nil || *page.Counts["archived"] != 1 || page.Counts["team"] != nil || page.Counts["triage"] != nil {
+		t.Fatalf("source counts must distinguish known values from unavailable sources: %+v", page.Counts)
 	}
 	if rr := get(base+"?page_size=1&page=2", "all", "en-US", true); rr.Code != http.StatusOK {
 		t.Fatalf("second page: %d %s", rr.Code, rr.Body.String())
 	} else if err := json.Unmarshal(rr.Body.Bytes(), &page); err != nil {
 		t.Fatal(err)
 	}
-	if page.Total != 2 || len(page.Items) != 1 || page.Items[0].ID != "read-b" || page.Items[0].Size != "1 turns" || len(page.Items[0].Participants) != 1 || page.Items[0].Tokens != 0 {
+	if page.Total != 2 || len(page.Items) != 1 || page.Items[0].ID != "read-b" || page.Items[0].Size != "1 turns" || len(page.Items[0].Participants) != 1 || page.Items[0].Tokens == nil || *page.Items[0].Tokens != 0 {
 		t.Fatalf("persisted second page: %+v", page)
 	}
 	for _, query := range []string{"?q=jiesuan", "?q=checkout-api"} {
@@ -157,6 +161,26 @@ func TestConversationListRegisteredRouteUsesPersistedChatFacts(t *testing.T) {
 		t.Fatal(err)
 	} else if page.Total != 1 || len(page.Items) != 1 || page.Items[0].ID != "read-archive" {
 		t.Fatalf("archive projection: %+v", page)
+	}
+	if _, err := db.Exec(ctx, `UPDATE v3_conversation_messages SET run='{"tokens":10}' WHERE id='read-unknown'`); err != nil {
+		t.Fatal(err)
+	}
+	if rr := get(base+"?page_size=1&page=1", "all", "", true); rr.Code != http.StatusOK {
+		t.Fatalf("known usage page: %d %s", rr.Code, rr.Body.String())
+	} else if err := json.Unmarshal(rr.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	} else if len(page.Items) != 1 || page.Items[0].Tokens == nil || *page.Items[0].Tokens != 36 {
+		t.Fatalf("complete provider usage should sum exactly: %+v", page.Items)
+	}
+	if _, err := db.Exec(ctx, `UPDATE v3_conversation_messages SET run='{"tokens":-1}' WHERE id='read-unknown'`); err != nil {
+		t.Fatal(err)
+	}
+	if rr := get(base+"?page_size=1&page=1", "all", "", true); rr.Code != http.StatusOK {
+		t.Fatalf("invalid usage page: %d %s", rr.Code, rr.Body.String())
+	} else if err := json.Unmarshal(rr.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	} else if len(page.Items) != 1 || page.Items[0].Tokens != nil {
+		t.Fatalf("invalid persisted usage must remain unknown: %+v", page.Items)
 	}
 	for _, query := range []string{"?tab=team", "?tab=triage", "?mode=canvas"} {
 		if rr := get(base+query, "test", "", true); rr.Code != http.StatusServiceUnavailable || !strings.Contains(rr.Body.String(), "conversation_source_unavailable") {

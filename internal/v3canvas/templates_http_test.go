@@ -133,6 +133,42 @@ func TestCanvasTemplatesHTTPV3ScopeSanitizationAndBoundedList(t *testing.T) {
  ('CV-stage',$2,'staging','Stage','plan',$3::jsonb,'[]'::jsonb)`, "CV-source", owner.ID, mustJSON(original), other.ID); err != nil {
 		t.Fatal(err)
 	}
+	canvasGet := func(path, environment, token string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, path, nil)
+		r.Header.Set("X-AIOps-Environment", environment)
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		return w
+	}
+	genericList := canvasGet("/api/v1/canvases?kind=plan", "dev", ownerToken)
+	assert(genericList, 200, "")
+	if !strings.Contains(genericList.Body.String(), `"id":"CV-source"`) || strings.Contains(genericList.Body.String(), `"id":"CV-other"`) || strings.Contains(genericList.Body.String(), `"id":"CV-stage"`) {
+		t.Fatalf("generic canvas list must be owner and environment scoped: %s", genericList.Body.String())
+	}
+	genericDetail := canvasGet("/api/v1/canvases/CV-source", "dev", ownerToken)
+	assert(genericDetail, 200, "")
+	var genericDoc struct {
+		ID        string         `json:"id"`
+		Kind      string         `json:"kind"`
+		Nodes     []Node         `json:"nodes"`
+		Edges     []Edge         `json:"edges"`
+		Artifacts []any          `json:"artifacts"`
+		Threads   map[string]any `json:"threads"`
+	}
+	if err = json.Unmarshal(genericDetail.Body.Bytes(), &genericDoc); err != nil || genericDoc.ID != "CV-source" || genericDoc.Kind != "plan" || len(genericDoc.Nodes) != 1 || len(genericDoc.Edges) != 0 || len(genericDoc.Artifacts) != 0 || genericDoc.Threads == nil {
+		t.Fatalf("generic canvas detail mismatch: %s (%v)", genericDetail.Body.String(), err)
+	}
+	assert(canvasGet("/api/v1/canvases/CV-other", "dev", ownerToken), 404, "not_found")
+	assert(canvasGet("/api/v1/canvases/CV-source", "staging", ownerToken), 404, "not_found")
+	allCanvases := canvasGet("/api/v1/canvases", "all", ownerToken)
+	assert(allCanvases, 200, "")
+	if !strings.Contains(allCanvases.Body.String(), `"id":"CV-source"`) || !strings.Contains(allCanvases.Body.String(), `"id":"CV-stage"`) || strings.Contains(allCanvases.Body.String(), `"id":"CV-other"`) {
+		t.Fatalf("all scope must contain only authorized owner canvases: %s", allCanvases.Body.String())
+	}
+	assert(canvasGet("/api/v1/canvases/CV-stage", "all", ownerToken), 200, "")
+	assert(canvasGet("/api/v1/canvases/CV-source", "all", otherToken), 404, "not_found")
+	assert(canvasGet("/api/v1/canvases?kind=investigation", "dev", ownerToken), 503, "investigation_canvas_unavailable")
 	assert(request(http.MethodGet, "dev", "", ""), 401, "")
 	assert(request(http.MethodPost, "dev", "", `{}`), 401, "")
 	assert(request(http.MethodPost, "dev", otherToken, `{}`), 403, "forbidden")

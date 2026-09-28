@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -44,6 +45,10 @@ func testMR(base, state string) MR {
 		m.ChangesCount = "1"
 	}
 	m.Author.Name = "Config reviewer"
+	m.Author.ID = 7
+	if state == "merged" {
+		m.MergedAt = time.Date(2026, 9, 28, 10, 0, 0, 0, time.UTC)
+	}
 	return m
 }
 
@@ -150,6 +155,16 @@ func TestGitLabReadMergedChecksDiffAndExactMergeSHA(t *testing.T) {
 			m := testMR(base, "merged")
 			m.ChangesCount = changesCount
 			respondJSON(w, 200, m)
+		case "/api/v4/projects/42/merge_requests/12/versions":
+			respondJSON(w, 200, []map[string]any{{"head_commit_sha": testSHA, "created_at": "2026-09-28T08:00:00Z", "state": "collected"}})
+		case "/api/v4/projects/42/merge_requests/12/approvals":
+			respondJSON(w, 200, map[string]any{"iid": 12, "project_id": 42, "state": "merged", "approved": true, "approved_by": []any{map[string]any{"user": map[string]any{"id": 8}, "approved_at": "2026-09-28T09:00:00Z"}}})
+		case "/api/v4/users/8":
+			respondJSON(w, 200, map[string]any{"id": 8, "bot": false})
+		case "/api/v4/projects/42/repository/branches/main":
+			respondJSON(w, 200, map[string]any{"name": "main", "protected": true})
+		case "/api/v4/projects/42/protected_branches/main":
+			respondJSON(w, 200, map[string]any{"name": "main", "allow_force_push": false, "push_access_levels": []any{map[string]any{"access_level": 0}}, "merge_access_levels": []any{map[string]any{"access_level": 40}}})
 		case "/api/v4/projects/42/merge_requests/12/diffs":
 			respondJSON(w, 200, diffs)
 		case "/api/v4/projects/42/repository/files/" + testPath + "/raw":
@@ -182,6 +197,108 @@ func TestGitLabReadMergedChecksDiffAndExactMergeSHA(t *testing.T) {
 	changesCount = "2" // /diffs can omit a second file under GitLab diff limits.
 	if _, _, err := c.ReadMerged(context.Background(), 12, testPath); !errors.Is(err, ErrUntrusted) {
 		t.Fatalf("truncated diff count accepted: %v", err)
+	}
+}
+
+func TestGitLabReadMergedReviewProvenance(t *testing.T) {
+	for _, tc := range []struct {
+		name, approvedAt, versionSHA                                                                                                                                           string
+		approverID                                                                                                                                                             int64
+		bot                                                                                                                                                                    bool
+		missingApproval, unsatisfiedRules, missingBotField, laterVersion, permissivePush, noProtection, unavailableApproval, unavailableVersions, unavailablePolicy, forcePush bool
+		wantOK                                                                                                                                                                 bool
+	}{
+		{name: "valid independent review", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, wantOK: true},
+		{name: "author approved", approverID: 7, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA},
+		{name: "bot approved", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, bot: true},
+		{name: "approval missing", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, missingApproval: true},
+		{name: "approval rules unsatisfied", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, unsatisfiedRules: true},
+		{name: "approval before final diff", approverID: 8, approvedAt: "2026-09-28T07:00:00Z", versionSHA: testSHA},
+		{name: "later commit invalidates approval", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, laterVersion: true},
+		{name: "approval after merge", approverID: 8, approvedAt: "2026-09-28T11:00:00Z", versionSHA: testSHA},
+		{name: "approval at merge instant", approverID: 8, approvedAt: "2026-09-28T10:00:00Z", versionSHA: testSHA},
+		{name: "final head mismatch", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: mergeSHA},
+		{name: "bot field missing", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, missingBotField: true},
+		{name: "direct push allowed", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, permissivePush: true},
+		{name: "target unprotected", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, noProtection: true},
+		{name: "approval API unavailable", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, unavailableApproval: true},
+		{name: "versions API unavailable", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, unavailableVersions: true},
+		{name: "policy API unavailable", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, unavailablePolicy: true},
+		{name: "force push allowed", approverID: 8, approvedAt: "2026-09-28T09:00:00Z", versionSHA: testSHA, forcePush: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var base string
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if calls > 8 {
+					t.Error("unbounded GitLab requests")
+				}
+				switch r.URL.Path {
+				case "/api/v4/projects/42/merge_requests/12":
+					respondJSON(w, 200, testMR(base, "merged"))
+				case "/api/v4/projects/42/merge_requests/12/versions":
+					if tc.unavailableVersions {
+						w.WriteHeader(503)
+						return
+					}
+					versions := []map[string]any{{"head_commit_sha": tc.versionSHA, "created_at": "2026-09-28T08:00:00Z", "state": "collected"}}
+					if tc.laterVersion {
+						versions = append(versions, map[string]any{"head_commit_sha": testSHA, "created_at": "2026-09-28T09:30:00Z", "state": "collected"})
+					}
+					respondJSON(w, 200, versions)
+				case "/api/v4/projects/42/merge_requests/12/approvals":
+					if tc.unavailableApproval {
+						w.WriteHeader(503)
+						return
+					}
+					approved := []any{}
+					if !tc.missingApproval {
+						approved = append(approved, map[string]any{"user": map[string]any{"id": tc.approverID}, "approved_at": tc.approvedAt})
+					}
+					respondJSON(w, 200, map[string]any{"iid": 12, "project_id": 42, "state": "merged", "approved": !tc.unsatisfiedRules, "approved_by": approved})
+				case "/api/v4/users/8":
+					user := map[string]any{"id": 8}
+					if !tc.missingBotField {
+						user["bot"] = tc.bot
+					}
+					respondJSON(w, 200, user)
+				case "/api/v4/projects/42/repository/branches/main":
+					respondJSON(w, 200, map[string]any{"name": "main", "protected": !tc.noProtection})
+				case "/api/v4/projects/42/protected_branches/main":
+					if tc.unavailablePolicy {
+						w.WriteHeader(503)
+						return
+					}
+					push := 0
+					if tc.permissivePush {
+						push = 40
+					}
+					respondJSON(w, 200, map[string]any{"name": "main", "allow_force_push": tc.forcePush, "push_access_levels": []any{map[string]any{"access_level": push}}, "merge_access_levels": []any{map[string]any{"access_level": 40}}})
+				case "/api/v4/projects/42/merge_requests/12/diffs":
+					respondJSON(w, 200, []map[string]any{{"old_path": testPath, "new_path": testPath, "new_file": true}})
+				case "/api/v4/projects/42/repository/files/" + testPath + "/raw":
+					if r.URL.Query().Get("ref") != mergeSHA {
+						t.Error("file read did not use merge SHA")
+					}
+					w.WriteHeader(200)
+					_, _ = w.Write([]byte(`{"kind":"runbook"}`))
+				default:
+					t.Errorf("unexpected GitLab request: %s", r.URL.String())
+					w.WriteHeader(404)
+				}
+			}))
+			defer server.Close()
+			base = server.URL
+			c := clientFor(t, base)
+			_, _, err := c.ReadMerged(context.Background(), 12, testPath)
+			if tc.wantOK && err != nil {
+				t.Fatalf("valid reviewed MR rejected: %v", err)
+			}
+			if !tc.wantOK && !errors.Is(err, ErrUntrusted) {
+				t.Fatalf("untrusted MR accepted: %v", err)
+			}
+		})
 	}
 }
 

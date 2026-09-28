@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -512,4 +511,3 @@ func (s *Service) saveImport(ctx context.Context, user core.User, mr MR, manifes
 }
 
 // Keep time imported for the export lease without relying on the remote clock.
-var now = time.Now

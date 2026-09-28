@@ -20,7 +20,7 @@ type exportRecord struct {
 	Payload                      []byte
 	MR                           int64
 	ProjectID                    int64
-	Lease                        *time.Time
+	Attempt                      int64
 }
 
 func (s *Service) exportTemplate(r *http.Request, env, templateID string) (MR, string, error) {
@@ -39,7 +39,7 @@ func (s *Service) exportTemplate(r *http.Request, env, templateID string) (MR, s
 		// creates anything else. Do not claim a successful export here.
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		if auditErr := s.markExportUnknown(cleanupCtx, actor, record.ID); auditErr != nil {
+		if auditErr := s.markExportUnknown(cleanupCtx, actor, record.ID, record.Attempt); auditErr != nil {
 			return MR{}, "", auditErr
 		}
 		return MR{}, "", errUnavailable
@@ -48,14 +48,14 @@ func (s *Service) exportTemplate(r *http.Request, env, templateID string) (MR, s
 		mr.SourceProjectID != record.ProjectID || mr.TargetProjectID != record.ProjectID {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		if auditErr := s.markExportUnknown(cleanupCtx, actor, record.ID); auditErr != nil {
+		if auditErr := s.markExportUnknown(cleanupCtx, actor, record.ID, record.Attempt); auditErr != nil {
 			return MR{}, "", auditErr
 		}
 		return MR{}, "", errUntrusted
 	}
 	finalizeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	if err = s.finishExport(finalizeCtx, actor, record.ID, mr); err != nil {
+	if err = s.finishExport(finalizeCtx, actor, record.ID, record.Attempt, mr); err != nil {
 		return MR{}, "", err
 	}
 	return mr, record.Path, nil
@@ -136,11 +136,11 @@ func (s *Service) reserveExport(ctx context.Context, actor core.User, env, templ
 		return exportRecord{}, err
 	}
 	var record exportRecord
-	err = tx.QueryRow(ctx, `SELECT id,branch,path,project_id,payload,state,COALESCE(mr_iid,0),mr_url,lease_until
+	err = tx.QueryRow(ctx, `SELECT id,branch,path,project_id,payload,state,COALESCE(mr_iid,0),mr_url,attempt_generation
  FROM v3_config_exports WHERE kind='template' AND object_id=$1 AND environment_id=$2 AND source_digest=$3
  FOR UPDATE`, templateID, env, digest).
 		Scan(&record.ID, &record.Branch, &record.Path, &record.ProjectID, &record.Payload,
-			&record.State, &record.MR, &record.URL, &record.Lease)
+			&record.State, &record.MR, &record.URL, &record.Attempt)
 	if err != nil {
 		return exportRecord{}, err
 	}
@@ -166,19 +166,29 @@ func (s *Service) reserveExport(ctx context.Context, actor core.User, env, templ
 		}
 		return record, nil
 	}
-	if record.State == "exporting" && record.Lease != nil && record.Lease.After(now()) {
-		return exportRecord{}, errBusy
+	if record.State == "exporting" {
+		// Read the DB clock after acquiring the row lock. PostgreSQL now() is
+		// fixed at transaction start, which may precede a long lock wait.
+		var leaseActive bool
+		if err = tx.QueryRow(ctx, `SELECT COALESCE(lease_until>clock_timestamp(),false)
+ FROM v3_config_exports WHERE id=$1`, record.ID).Scan(&leaseActive); err != nil {
+			return exportRecord{}, err
+		}
+		if leaseActive {
+			return exportRecord{}, errBusy
+		}
 	}
-	_, err = tx.Exec(ctx, `UPDATE v3_config_exports SET state='exporting',lease_until=now()+interval '1 minute',updated_at=now()
- WHERE id=$1`, record.ID)
+	err = tx.QueryRow(ctx, `UPDATE v3_config_exports SET state='exporting',
+ attempt_generation=attempt_generation+1,lease_until=clock_timestamp()+interval '1 minute',updated_at=clock_timestamp()
+ WHERE id=$1 RETURNING attempt_generation`, record.ID).Scan(&record.Attempt)
 	if err != nil {
 		return exportRecord{}, err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes)
  VALUES($1,'v3.config_export.requested',$2,'pending',jsonb_build_object(
  'environment_id',$3::text,'kind','template','source_id',$4::text,
- 'source_digest',$5::text,'project_id',$6::bigint))`, actor.ID, record.ID, env,
-		templateID, digest, record.ProjectID)
+ 'source_digest',$5::text,'project_id',$6::bigint,'attempt_generation',$7::bigint))`, actor.ID, record.ID, env,
+		templateID, digest, record.ProjectID, record.Attempt)
 	if err != nil {
 		return exportRecord{}, err
 	}
@@ -188,48 +198,53 @@ func (s *Service) reserveExport(ctx context.Context, actor core.User, env, templ
 	return record, nil
 }
 
-func (s *Service) markExportUnknown(ctx context.Context, actor core.User, id string) error {
+func (s *Service) markExportUnknown(ctx context.Context, actor core.User, id string, attempt int64) error {
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	_, err = tx.Exec(ctx, `UPDATE v3_config_exports SET state='uncertain',lease_until=NULL,updated_at=now()
- WHERE id=$1 AND state='exporting'`, id)
+	result, err := tx.Exec(ctx, `UPDATE v3_config_exports SET state='uncertain',lease_until=NULL,updated_at=now()
+ WHERE id=$1 AND state='exporting' AND attempt_generation=$2`, id, attempt)
 	if err != nil {
 		return err
 	}
+	if result.RowsAffected() != 1 {
+		return store.ErrConflict
+	}
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes)
- VALUES($1,'v3.config_export.result_unknown',$2,'unknown','{}'::jsonb)`, actor.ID, id)
+ VALUES($1,'v3.config_export.result_unknown',$2,'unknown',jsonb_build_object(
+ 'attempt_generation',$3::bigint))`, actor.ID, id, attempt)
 	if err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
 
-func (s *Service) finishExport(ctx context.Context, actor core.User, id string, mr MR) error {
+func (s *Service) finishExport(ctx context.Context, actor core.User, id string, attempt int64, mr MR) error {
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
 	var state string
-	err = tx.QueryRow(ctx, `SELECT state FROM v3_config_exports WHERE id=$1 FOR UPDATE`, id).Scan(&state)
+	var currentAttempt int64
+	err = tx.QueryRow(ctx, `SELECT state,attempt_generation FROM v3_config_exports WHERE id=$1 FOR UPDATE`, id).Scan(&state, &currentAttempt)
 	if err != nil {
 		return err
 	}
-	if state != "exporting" && state != "uncertain" {
+	if state != "exporting" || currentAttempt != attempt {
 		return store.ErrConflict
 	}
 	_, err = tx.Exec(ctx, `UPDATE v3_config_exports SET state='exported',mr_iid=$2,mr_url=$3,
- lease_until=NULL,updated_at=now() WHERE id=$1`, id, mr.IID, mr.URL)
+ lease_until=NULL,updated_at=now() WHERE id=$1 AND attempt_generation=$4`, id, mr.IID, mr.URL, attempt)
 	if err != nil {
 		return err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes)
  VALUES($1,'v3.config_export.completed',$2,'success',jsonb_build_object(
- 'project_id',$3::bigint,'mr_iid',$4::bigint))`, actor.ID, id,
-		s.Repository.ProjectID(), mr.IID)
+ 'project_id',$3::bigint,'mr_iid',$4::bigint,'attempt_generation',$5::bigint))`, actor.ID, id,
+		s.Repository.ProjectID(), mr.IID, attempt)
 	if err != nil {
 		return err
 	}

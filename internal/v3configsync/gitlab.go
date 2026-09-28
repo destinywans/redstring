@@ -30,18 +30,20 @@ type Config struct {
 }
 
 type MR struct {
-	IID             int64  `json:"iid"`
-	Title           string `json:"title"`
-	URL             string `json:"web_url"`
-	State           string `json:"state"`
-	SourceBranch    string `json:"source_branch"`
-	TargetBranch    string `json:"target_branch"`
-	SourceProjectID int64  `json:"source_project_id"`
-	TargetProjectID int64  `json:"target_project_id"`
-	MergeCommitSHA  string `json:"merge_commit_sha"`
-	SourceCommitSHA string `json:"sha"`
-	ChangesCount    string `json:"changes_count"`
+	IID             int64     `json:"iid"`
+	Title           string    `json:"title"`
+	URL             string    `json:"web_url"`
+	State           string    `json:"state"`
+	SourceBranch    string    `json:"source_branch"`
+	TargetBranch    string    `json:"target_branch"`
+	SourceProjectID int64     `json:"source_project_id"`
+	TargetProjectID int64     `json:"target_project_id"`
+	MergeCommitSHA  string    `json:"merge_commit_sha"`
+	SourceCommitSHA string    `json:"sha"`
+	ChangesCount    string    `json:"changes_count"`
+	MergedAt        time.Time `json:"merged_at"`
 	Author          struct {
+		ID   int64  `json:"id"`
 		Name string `json:"name"`
 	} `json:"author"`
 }
@@ -208,7 +210,8 @@ func (c *GitLabClient) trustedMR(m MR, requireMerged bool) error {
 	// independent changes_count must confirm one changed file before a
 	// single returned diff can be treated as complete. Empty/asynchronous
 	// or capped counts fail closed for a merged MR.
-	if requireMerged && (m.State != "merged" || !shaRE.MatchString(m.MergeCommitSHA) || m.ChangesCount != "1") {
+	if requireMerged && (m.State != "merged" || !shaRE.MatchString(m.MergeCommitSHA) || m.ChangesCount != "1" ||
+		!shaRE.MatchString(m.SourceCommitSHA) || m.Author.ID <= 0 || m.MergedAt.IsZero()) {
 		return ErrUntrusted
 	}
 	if m.State != "merged" && m.State != "opened" {
@@ -395,6 +398,9 @@ func (c *GitLabClient) ReadMerged(ctx context.Context, iid int64, path string) (
 	if err != nil {
 		return MR{}, nil, err
 	}
+	if err := c.verifyMergedReview(ctx, m); err != nil {
+		return MR{}, nil, err
+	}
 	q := url.Values{"per_page": {"100"}, "page": {"1"}}
 	var diffs []struct {
 		NewPath     string `json:"new_path"`
@@ -421,6 +427,99 @@ func (c *GitLabClient) ReadMerged(ctx context.Context, iid int64, path string) (
 		return MR{}, nil, ErrUntrusted
 	}
 	return m, data, nil
+}
+
+// verifyMergedReview is an independent import gate. The exact branch rule
+// checked here is current policy only. It cannot prove protection at merge
+// time, or rule out a more permissive matching wildcard rule. Deployments
+// requiring those guarantees need captured merge-time governance evidence.
+func (c *GitLabClient) verifyMergedReview(ctx context.Context, m MR) error {
+	root := c.projectPath() + "/merge_requests/" + strconv.FormatInt(m.IID, 10)
+	var versions []struct {
+		HeadCommitSHA string    `json:"head_commit_sha"`
+		CreatedAt     time.Time `json:"created_at"`
+		State         string    `json:"state"`
+	}
+	q := url.Values{"per_page": {"100"}, "page": {"1"}}
+	_, h, err := c.call(ctx, http.MethodGet, root+"/versions", q, nil, 200, &versions)
+	if err != nil || h.Get("X-Next-Page") != "" || len(versions) == 0 || len(versions) > 100 {
+		return ErrUntrusted
+	}
+	latest := versions[0]
+	for _, v := range versions[1:] {
+		if v.CreatedAt.After(latest.CreatedAt) {
+			latest = v
+		}
+	}
+	if latest.State != "collected" || latest.CreatedAt.IsZero() || !latest.CreatedAt.Before(m.MergedAt) || latest.HeadCommitSHA != m.SourceCommitSHA {
+		return ErrUntrusted
+	}
+	var approvals struct {
+		IID        int64  `json:"iid"`
+		ProjectID  int64  `json:"project_id"`
+		State      string `json:"state"`
+		Approved   *bool  `json:"approved"`
+		ApprovedBy []struct {
+			User struct {
+				ID int64 `json:"id"`
+			} `json:"user"`
+			ApprovedAt time.Time `json:"approved_at"`
+		} `json:"approved_by"`
+	}
+	_, _, err = c.call(ctx, http.MethodGet, root+"/approvals", nil, nil, 200, &approvals)
+	// GitLab EE may report approved=true with no applicable rules. Require both
+	// satisfied current MR approval state and a distinct valid reviewer below.
+	if err != nil || approvals.IID != m.IID || approvals.ProjectID != c.config.ProjectID || approvals.State != "merged" ||
+		approvals.Approved == nil || !*approvals.Approved || len(approvals.ApprovedBy) == 0 || len(approvals.ApprovedBy) > 20 {
+		return ErrUntrusted
+	}
+	reviewerVerified := false
+	for _, a := range approvals.ApprovedBy {
+		if a.User.ID <= 0 || a.User.ID == m.Author.ID || !a.ApprovedAt.After(latest.CreatedAt) || !a.ApprovedAt.Before(m.MergedAt) {
+			continue
+		}
+		var user struct {
+			ID  int64 `json:"id"`
+			Bot *bool `json:"bot"`
+		}
+		_, _, err = c.call(ctx, http.MethodGet, "/api/v4/users/"+strconv.FormatInt(a.User.ID, 10), nil, nil, 200, &user)
+		if err == nil && user.ID == a.User.ID && user.Bot != nil && !*user.Bot {
+			reviewerVerified = true
+			break
+		}
+	}
+	if !reviewerVerified {
+		return ErrUntrusted
+	}
+	var branch struct {
+		Name      string `json:"name"`
+		Protected *bool  `json:"protected"`
+	}
+	_, _, err = c.call(ctx, http.MethodGet, c.projectPath()+"/repository/branches/"+url.PathEscape(c.config.TargetBranch), nil, nil, 200, &branch)
+	if err != nil || branch.Name != c.config.TargetBranch || branch.Protected == nil || !*branch.Protected {
+		return ErrUntrusted
+	}
+	var policy struct {
+		Name             string `json:"name"`
+		AllowForcePush   *bool  `json:"allow_force_push"`
+		PushAccessLevels []struct {
+			AccessLevel *int `json:"access_level"`
+		} `json:"push_access_levels"`
+		MergeAccessLevels []struct {
+			AccessLevel *int `json:"access_level"`
+		} `json:"merge_access_levels"`
+	}
+	_, _, err = c.call(ctx, http.MethodGet, c.projectPath()+"/protected_branches/"+url.PathEscape(c.config.TargetBranch), nil, nil, 200, &policy)
+	if err != nil || policy.Name != c.config.TargetBranch || policy.AllowForcePush == nil || *policy.AllowForcePush ||
+		len(policy.PushAccessLevels) != 1 || policy.PushAccessLevels[0].AccessLevel == nil || *policy.PushAccessLevels[0].AccessLevel != 0 || len(policy.MergeAccessLevels) == 0 {
+		return ErrUntrusted
+	}
+	for _, level := range policy.MergeAccessLevels {
+		if level.AccessLevel == nil || (*level.AccessLevel != 30 && *level.AccessLevel != 40 && *level.AccessLevel != 60) {
+			return ErrUntrusted
+		}
+	}
+	return nil
 }
 
 // Merged retrieves one exact IID, so importing a selected item does not

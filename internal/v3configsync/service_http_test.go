@@ -6,11 +6,13 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -101,6 +103,13 @@ VALUES('CT-source','owner','test','plan','Safe plan',
 	if _, err = db.Exec(ctx, string(migration)); err != nil {
 		t.Fatal(err)
 	}
+	fenceMigration, err := os.ReadFile("../../migrations/121_v3_config_export_attempt_fence.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, string(fenceMigration)); err != nil {
+		t.Fatal(err)
+	}
 	return &store.Store{DB: db}
 }
 
@@ -112,6 +121,44 @@ type fakeRepository struct {
 	failOnce             bool
 	calls                int
 	cancelOnExport       context.CancelFunc
+}
+
+type exportGateCall struct {
+	branch, path string
+	payload      []byte
+	reply        chan exportGateResult
+}
+
+type exportGateResult struct {
+	mr  MR
+	err error
+}
+
+// Each call stays in flight until the test chooses its remote outcome.
+type gatedRepository struct {
+	*fakeRepository
+	calls chan exportGateCall
+}
+
+func (g *gatedRepository) Export(ctx context.Context, branch, path string, payload []byte, _ string) (MR, error) {
+	call := exportGateCall{branch: branch, path: path, payload: append([]byte(nil), payload...),
+		reply: make(chan exportGateResult, 1)}
+	select {
+	case g.calls <- call:
+	case <-ctx.Done():
+		return MR{}, ctx.Err()
+	}
+	select {
+	case result := <-call.reply:
+		return result.mr, result.err
+	case <-ctx.Done():
+		return MR{}, ctx.Err()
+	}
+}
+
+func gatedMR(iid int64, branch string) MR {
+	return MR{IID: iid, URL: fmt.Sprintf("https://gitlab.example.test/ops/config/-/merge_requests/%d", iid),
+		State: "opened", SourceBranch: branch, TargetBranch: "main", SourceProjectID: 77, TargetProjectID: 77}
 }
 
 func (*fakeRepository) ProjectID() int64     { return 77 }
@@ -365,5 +412,107 @@ func TestCancelledExportStillRecordsUnknownResult(t *testing.T) {
 	var auditCount int
 	if err := s.DB.QueryRow(t.Context(), `SELECT count(*) FROM management_audit WHERE action='v3.config_export.result_unknown' AND outcome='unknown'`).Scan(&auditCount); err != nil || auditCount != 1 {
 		t.Fatalf("canceled export outcome audit=%d err=%v", auditCount, err)
+	}
+}
+
+func TestExpiredExportAttemptCannotFinalizeNewLease(t *testing.T) {
+	for _, lateResult := range []struct {
+		name string
+		err  error
+	}{
+		{name: "late_unknown", err: errors.New("ambiguous upstream response")},
+		{name: "late_success"},
+	} {
+		t.Run(lateResult.name, func(t *testing.T) {
+			s := isolatedConfigStore(t)
+			repo := &gatedRepository{fakeRepository: &fakeRepository{}, calls: make(chan exportGateCall, 3)}
+			api := configServer(t, s, repo, "nonprod")
+			request := func() <-chan *httptest.ResponseRecorder {
+				done := make(chan *httptest.ResponseRecorder, 1)
+				go func() {
+					done <- configRequest(api, "POST", "/api/v1/promotions", "test", "owner-token", `{"kind":"templates","id":"CT-source"}`)
+				}()
+				return done
+			}
+			awaitCall := func() exportGateCall {
+				t.Helper()
+				select {
+				case call := <-repo.calls:
+					return call
+				case <-time.After(5 * time.Second):
+					t.Fatal("timed out waiting for remote export")
+					return exportGateCall{}
+				}
+			}
+			awaitResponse := func(done <-chan *httptest.ResponseRecorder) *httptest.ResponseRecorder {
+				t.Helper()
+				select {
+				case response := <-done:
+					return response
+				case <-time.After(5 * time.Second):
+					t.Fatal("timed out waiting for export response")
+					return nil
+				}
+			}
+			aDone := request()
+			aCall := awaitCall()
+			// Advance the database lease without waiting a wall-clock minute.
+			result, err := s.DB.Exec(t.Context(), `UPDATE v3_config_exports
+ SET lease_until=now()-interval '1 second'
+ WHERE state='exporting' AND attempt_generation=1`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.RowsAffected() != 1 {
+				t.Fatalf("expire A lease: affected=%d err=%v", result.RowsAffected(), err)
+			}
+			bDone := request()
+			bCall := awaitCall()
+			if aCall.branch != bCall.branch || aCall.path != bCall.path || string(aCall.payload) != string(bCall.payload) {
+				t.Fatal("takeover changed remote branch, path or signed payload")
+			}
+			var exportID, state string
+			var generation int64
+			if err := s.DB.QueryRow(t.Context(), `SELECT id,state,attempt_generation FROM v3_config_exports`).
+				Scan(&exportID, &state, &generation); err != nil || state != "exporting" || generation != 2 {
+				t.Fatalf("B lease id=%q state=%q attempt=%d err=%v", exportID, state, generation, err)
+			}
+			aCall.reply <- exportGateResult{mr: gatedMR(41, aCall.branch), err: lateResult.err}
+			if response := awaitResponse(aDone); response.Code != 409 || !strings.Contains(response.Body.String(), "promotion_conflict") {
+				t.Fatalf("stale A result: %d %s", response.Code, response.Body.String())
+			}
+			var leaseValid bool
+			if err := s.DB.QueryRow(t.Context(), `SELECT state,attempt_generation,lease_until>now()
+ FROM v3_config_exports WHERE id=$1`, exportID).Scan(&state, &generation, &leaseValid); err != nil ||
+				state != "exporting" || generation != 2 || !leaseValid {
+				t.Fatalf("stale A changed B lease: state=%q attempt=%d lease=%v err=%v", state, generation, leaseValid, err)
+			}
+			if response := configRequest(api, "POST", "/api/v1/promotions", "test", "owner-token", `{"kind":"templates","id":"CT-source"}`); response.Code != 409 || !strings.Contains(response.Body.String(), "promotion_in_progress") {
+				t.Fatalf("third request while B active: %d %s", response.Code, response.Body.String())
+			}
+			select {
+			case <-repo.calls:
+				t.Fatal("stale A allowed a third remote export")
+			default:
+			}
+			bCall.reply <- exportGateResult{mr: gatedMR(42, bCall.branch)}
+			if response := awaitResponse(bDone); response.Code != 200 || !strings.Contains(response.Body.String(), `"mr":"!42"`) {
+				t.Fatalf("B export result: %d %s", response.Code, response.Body.String())
+			}
+			var iid int64
+			if err := s.DB.QueryRow(t.Context(), `SELECT state,attempt_generation,mr_iid FROM v3_config_exports WHERE id=$1`, exportID).
+				Scan(&state, &generation, &iid); err != nil || state != "exported" || generation != 2 || iid != 42 {
+				t.Fatalf("B final ledger state=%q attempt=%d iid=%d err=%v", state, generation, iid, err)
+			}
+			var requested, unknown, completed int
+			if err := s.DB.QueryRow(t.Context(), `SELECT
+ count(*) FILTER (WHERE action='v3.config_export.requested'),
+ count(*) FILTER (WHERE action='v3.config_export.result_unknown'),
+ count(*) FILTER (WHERE action='v3.config_export.completed')
+ FROM management_audit`).Scan(&requested, &unknown, &completed); err != nil ||
+				requested != 2 || unknown != 0 || completed != 1 {
+				t.Fatalf("fenced audit requested=%d unknown=%d completed=%d err=%v", requested, unknown, completed, err)
+			}
+		})
 	}
 }

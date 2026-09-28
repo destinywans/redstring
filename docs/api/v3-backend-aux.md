@@ -11,7 +11,7 @@
 | GET | `/api/v1/changes/merge-requests` | 必填 `service_id`、`binding_id`；可选 `page`（1–1000）、`state`（`all`/`opened`/`closed`/`locked`/`merged`）、`target_branch`。在同一明确绑定的 GitLab 项目按页读取 20 条合并请求身份、分支、状态、提交标识和上游时间；须启用 `list_merge_requests`。请求和上游响应均有界，读取前后复核来源和授权；非法筛选 422，变更 409，来源不可用 503，上游失败或损坏 502。无差异、部署或风险判定。 |
 | GET | `/api/v1/changes/commits/{sha}` | 必填 `service_id`、`binding_id` 和完整 40/64 位十六进制 SHA；从同一绑定项目读取标题、作者/提交时间及父 SHA，须单独启用 `get_commit`，不调用差异接口。读取前后复核来源和授权；目标无效 422，缺失 404，变更 409，来源不可用 503，上游失败或损坏 502。无正文、差异、邮箱、部署或风险判定。 |
 | GET | `/api/v1/alert-rules/observed` | 读取受权环境及应用内、与受信规则组绑定的 Prometheus 告警规则摘要。来源未配置/全部不可用时返回 503；部分环境失败返回 206，并列出 `unavailable_environments`。 |
-| GET | `/api/v1/alert-rules/observed/{id}` | 读取同一来源中的规则表达式、状态、标签和实际评估时间。没有可信的历史预览、阈值、通知路径或 AI 初查设置。 |
+| GET | `/api/v1/alert-rules/observed/{id}` | 读取同一来源中当前授权且稳定 ID 唯一的规则表达式、状态、标签和实际评估时间；可见重复 ID 返回 `503 alert_rule_identity_conflict`，不会任选一条。未知 ID 且范围内来源失败返回 `503 rule_source_partial`，完整来源无匹配返回 404。没有可信的历史预览、阈值、通知路径或 AI 初查设置。 |
 | GET | `/api/v1/knowledge-sources/observed-documents` | 仅读取有明确环境归属、已发布且受权的文档身份。来源登记另有接口；本响应不联接登记、同步或索引归属，`reason: "document_only_projection"`、`partial: true`，未接入字段为 null；不返回正文。 |
 | GET | `/api/v1/knowledge-sources/registrations` | 读取当前环境与授权范围内的来源登记配置，不返回 Vault 引用。连接、同步、文档数和索引状态仍未知；返回 `complete_v3_dto: false`。 |
 | POST | `/api/v1/knowledge-sources/registrations` | 在单一环境下登记来源及 Vault 引用，需要 `knowledge.manage`，审计与登记同事务。只返回 `unverified`，不启动同步。 |

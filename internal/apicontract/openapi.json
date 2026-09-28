@@ -21759,7 +21759,7 @@
       "post": {
         "summary": "Import a merged signed canvas template",
         "operationId": "post_config_sync_id_import",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract operation: id is mr-<positive IID>. Requires the production prod environment and a human platform administrator with global workspace.manage, rechecked inside the import transaction. The repository must prove the MR is merged with exactly one expected changed file at its fixed merge commit; the bounded allowlisted manifest must verify against a configured trusted source public key. The service does not verify an independent MR approval or protected-branch policy; these are deployment gates before claiming the reviewed promotion workflow. Import and audit commit together; repeated identical imports converge, target drift returns 409. Non-production and all return 409. Missing repository or trust configuration returns 501. Unverifiable provenance returns 503. The four-kind frontend workflow remains mock.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract operation: id is mr-<positive IID>. Requires the production prod environment and a human platform administrator with global workspace.manage, rechecked inside the import transaction. The repository must prove the MR is merged with exactly one expected changed file at its fixed merge commit; the bounded allowlisted manifest must verify against a configured trusted source public key. Import also requires current satisfied MR approval state, a distinct non-bot approver after the final diff version and before merge, and currently verifiable protected target-branch policy. API reads cannot prove the governance policy in force at merge time; deployment must retain that evidence. Import and audit commit together; repeated identical imports converge, target drift returns 409. Non-production and all return 409. Missing repository or trust configuration returns 501. Unverifiable provenance returns 503. The four-kind frontend workflow remains mock.",
         "responses": {
           "200": {
             "description": "Success",
@@ -22902,7 +22902,7 @@
       "get": {
         "summary": "Read workspace settings",
         "operationId": "get_workspace",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. ",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Reads the persisted workspace record. A missing or invalid record returns 503 workspace_unavailable rather than invented defaults. This is backend persistence only: deployment-owned fields and the page-wide workspace contract are not yet wired.",
         "responses": {
           "200": {
             "description": "Success",
@@ -22997,7 +22997,7 @@
       "put": {
         "summary": "Update workspace settings",
         "operationId": "put_workspace",
-        "description": "Minimum role: admin. V3 instance and environment scope apply. Requires an active platform administrator with a global workspace.manage grant. The transaction rechecks authority and returns persisted settings. Data region and branding fields are deployment-owned and cannot be changed here.",
+        "description": "Minimum role: admin. V3 instance and environment scope apply. Requires an active platform administrator with a global workspace.manage grant. Accepts one strict JSON object with known editable fields; rejects unknown or invalid fields. The transaction rechecks authority and returns persisted settings. Data region and branding fields are deployment-owned and cannot be changed here. No version precondition is supported, and the saved slug, default settings, and retention values do not yet drive dependent page behavior.",
         "responses": {
           "200": {
             "description": "Success",
@@ -28172,7 +28172,7 @@
       "get": {
         "summary": "Read one provider-observed alert rule",
         "operationId": "get_alert_rules_observed_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read-only backend endpoint. No historical preview, threshold condition, notification route or AI triage is inferred.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read-only backend endpoint. The rule must be uniquely identified within the currently authorized provider result; duplicate visible stable IDs return 503 alert_rule_identity_conflict rather than an arbitrary expression or state. An unknown ID with a failed in-scope provider returns 503 rule_source_partial; a complete miss returns 404. No historical preview, threshold condition, notification route or AI triage is inferred.",
         "responses": {
           "200": {
             "description": "Success",

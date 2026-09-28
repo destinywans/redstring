@@ -215,9 +215,14 @@ P['/conversations/{id}/events']['get']['responses']['200']['content'] = {'text/e
 # records. There is no persisted recent list or executable command registry.
 S['V3SearchHit'] = obj({**fieldnames('kind id title subtitle status href')})
 S['V3MentionCandidate'] = obj({**fieldnames('kind id label meta status')})
-S['V3MentionPreviewPartial'] = obj({**fieldnames('kind id title subtitle status href'),
-    'metrics':arr({'type':'object','additionalProperties':True}),
-    'related':arr({'type':'object','additionalProperties':True})})
+S['V3MentionPreviewPartial'] = obj({**fieldnames('kind id title subtitle status_label href'),
+    'tier':string(enum=['T0','T1','T2']),
+    'status':string(enum=['neutral','accent','ok','warn','danger','info']),
+    'metrics':arr(obj({**fieldnames('label value tone'),'series':arr(v3_num())},
+        ['label','value','series'])),
+    'change':obj(fieldnames('brand text meta'), ['brand','text','meta']),
+    'related':arr(obj(fieldnames('label tone'), ['label']))},
+    ['kind','id','title','subtitle','metrics','related'])
 v3_route('get','/search','Search available persisted records',
     response=obj({'query':string(),'hits':arr(ref('V3SearchHit')),'recent':arr(ref('V3SearchHit'))}),
     query=[v3_query('q')],
@@ -228,7 +233,7 @@ v3_route('get','/mentions','List available mention candidates',
     desc='Partial: only scoped service, incident and conversation references are supported.')
 v3_route('get','/mentions/{kind}/{id}/preview','Preview an accessible reference',
     response=ref('V3MentionPreviewPartial'),
-    desc='Partial: only service, incident and conversation records have verified previews; other kinds return 503 preview_unavailable. Metrics and related records are empty until sources are connected.')
+    desc='Partial: only service, incident and conversation records have verified previews; other kinds return 503 preview_unavailable. Metrics and related records are empty until sources are connected. Incident status labels reflect persisted incident workflow state, not live alert health.')
 v3_route('get','/commands','Read executable command catalog',
     desc='Currently always returns 503 commands_unavailable; no verified command registry is configured.')
 P['/commands']['get']['responses'].pop('200')

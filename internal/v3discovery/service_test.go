@@ -2,6 +2,7 @@ package v3discovery
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http/httptest"
 	"strings"
@@ -63,5 +64,53 @@ func TestRepeatedSearchQueryIsRejected(t *testing.T) {
 	_, ok := parseQuery(w, httptest.NewRequest("GET", "/api/v1/search?q=alpha&q=beta", nil))
 	if ok || w.Code != 422 || !strings.Contains(w.Body.String(), "invalid_query") {
 		t.Fatalf("ambiguous query accepted: status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestMentionPreviewUsesOnlyPersistedRecordFields(t *testing.T) {
+	for _, tc := range []struct {
+		name, lang, state, wantStatus, wantLabel string
+	}{
+		{"open zh", "zh-CN", "open", "warn", "待处理"},
+		{"investigating en", "en-US", "investigating", "warn", "Investigating"},
+		{"resolved zh", "zh-CN", "resolved", "ok", "已解决"},
+		{"unknown en", "en-US", "unknown", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest("GET", "/api/v1/mentions/incident/inc-1/preview", nil)
+			r.Header.Set("Accept-Language", tc.lang)
+			v := previewOf(r, record{Kind: "incident", ID: "inc-1", Title: "High errors", EnvironmentID: "test", State: tc.state})
+			if v.Status != tc.wantStatus || v.StatusLabel != tc.wantLabel || v.Subtitle == "" || v.Href != "/incidents/inc-1" {
+				t.Fatalf("preview = %+v", v)
+			}
+			b, err := json.Marshal(v)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(b, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if metrics, ok := payload["metrics"].([]any); !ok || len(metrics) != 0 {
+				t.Fatalf("unverified metrics must be an empty array: %s", b)
+			}
+			if related, ok := payload["related"].([]any); !ok || len(related) != 0 {
+				t.Fatalf("unverified relationships must be an empty array: %s", b)
+			}
+			if _, ok := payload["change"]; ok {
+				t.Fatalf("unverified change must be absent: %s", b)
+			}
+			if tc.wantStatus == "" {
+				if _, ok := payload["status_label"]; ok {
+					t.Fatalf("unknown state must not be labeled: %s", b)
+				}
+			}
+		})
+	}
+
+	r := httptest.NewRequest("GET", "/api/v1/mentions/service/id/preview", nil)
+	v := previewOf(r, record{Kind: "service", ID: serviceRecordID("checkout", "test"), Title: "checkout", EnvironmentID: "test", Tier: "T1"})
+	if v.Tier != "T1" || v.Status != "" || v.StatusLabel != "" {
+		t.Fatalf("service preview invented health status: %+v", v)
 	}
 }

@@ -78,6 +78,19 @@ type candidate struct {
 	Tier   string `json:"tier,omitempty"`
 }
 
+type mentionPreview struct {
+	Kind        string `json:"kind"`
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Subtitle    string `json:"subtitle"`
+	Tier        string `json:"tier,omitempty"`
+	Status      string `json:"status,omitempty"`
+	StatusLabel string `json:"status_label,omitempty"`
+	Metrics     []any  `json:"metrics"`
+	Related     []any  `json:"related"`
+	Href        string `json:"href,omitempty"`
+}
+
 func (s *Service) ready(w http.ResponseWriter, r *http.Request) ([]string, bool) {
 	if s == nil || s.DB == nil || s.Access == nil {
 		httpapi.Error(w, 503, "discovery_unavailable", "Discovery storage or policy is not configured")
@@ -177,7 +190,10 @@ func (s *Service) preview(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "preview_unavailable", "This reference kind has no verified preview source")
 		return
 	}
-	if id == "" || len(id) > 200 {
+	// Service references encode both application and environment IDs. Keep
+	// this limit aligned with parseServiceRecordID so a listed candidate can
+	// still be previewed when its composite ID exceeds 200 bytes.
+	if id == "" || len(id) > 1024 {
 		httpapi.Error(w, 422, "invalid_reference", "Invalid reference ID")
 		return
 	}
@@ -190,17 +206,42 @@ func (s *Service) preview(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "preview_unavailable", "Reference preview unavailable")
 		return
 	}
-	preview := map[string]any{
-		"kind": item.Kind, "id": item.ID, "title": item.Title, "subtitle": meta(r, item),
-		"metrics": []any{}, "related": []any{}, "href": href(item),
+	httpapi.WriteJSON(w, 200, previewOf(r, item))
+}
+
+func previewOf(r *http.Request, item record) mentionPreview {
+	return mentionPreview{
+		Kind: item.Kind, ID: item.ID, Title: item.Title, Subtitle: meta(r, item),
+		Tier: item.Tier, Status: tone(item), StatusLabel: statusLabel(r, item),
+		// No verified telemetry or relationship source is connected to this
+		// preview. Never render synthetic metrics or inferred associations.
+		Metrics: []any{}, Related: []any{}, Href: href(item),
 	}
-	if value := tone(item); value != "" {
-		preview["status"] = value
+}
+
+func statusLabel(r *http.Request, item record) string {
+	if item.Kind != "incident" {
+		return ""
 	}
-	if item.Tier != "" {
-		preview["tier"] = item.Tier
+	en := strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "en")
+	switch item.State {
+	case "open":
+		if en {
+			return "Open"
+		}
+		return "待处理"
+	case "investigating":
+		if en {
+			return "Investigating"
+		}
+		return "调查中"
+	case "resolved":
+		if en {
+			return "Resolved"
+		}
+		return "已解决"
 	}
-	httpapi.WriteJSON(w, 200, preview)
+	return ""
 }
 
 func (s *Service) commands(w http.ResponseWriter, r *http.Request) {
@@ -476,10 +517,10 @@ func meta(r *http.Request, v record) string {
 
 func tone(v record) string {
 	if v.Kind == "incident" {
-		if v.State == "open" || v.State == "firing" {
+		if v.State == "open" || v.State == "investigating" {
 			return "warn"
 		}
-		if v.State == "resolved" || v.State == "closed" {
+		if v.State == "resolved" {
 			return "ok"
 		}
 	}

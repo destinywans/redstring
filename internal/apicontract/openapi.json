@@ -23953,7 +23953,7 @@
       "get": {
         "summary": "Preview an accessible reference",
         "operationId": "get_mentions_kind_id_preview",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial: only service, incident and conversation records have verified previews; other kinds return 503 preview_unavailable. Metrics and related records are empty until sources are connected.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial: only service, incident and conversation records have verified previews; other kinds return 503 preview_unavailable. Metrics and related records are empty until sources are connected. Incident status labels reflect persisted incident workflow state, not live alert health.",
         "responses": {
           "200": {
             "description": "Success",
@@ -36357,28 +36357,108 @@
           "subtitle": {
             "type": "string"
           },
-          "status": {
+          "status_label": {
             "type": "string"
           },
           "href": {
             "type": "string"
           },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "T0",
+              "T1",
+              "T2"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "neutral",
+              "accent",
+              "ok",
+              "warn",
+              "danger",
+              "info"
+            ]
+          },
           "metrics": {
             "type": "array",
             "items": {
               "type": "object",
-              "additionalProperties": true
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                },
+                "tone": {
+                  "type": "string"
+                },
+                "series": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "label",
+                "value",
+                "series"
+              ]
             }
+          },
+          "change": {
+            "type": "object",
+            "properties": {
+              "brand": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "meta": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "brand",
+              "text",
+              "meta"
+            ]
           },
           "related": {
             "type": "array",
             "items": {
               "type": "object",
-              "additionalProperties": true
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "tone": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "label"
+              ]
             }
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id",
+          "title",
+          "subtitle",
+          "metrics",
+          "related"
+        ]
       },
       "V3ResourceTopologyPartial": {
         "type": "object",

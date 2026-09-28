@@ -47,3 +47,7 @@
 | 110–119 | WAN-123 知识与 Agent | `internal/v3knowledge`、`v3knowledgesources`、`v3postmortems` 及新增相关领域包；只用本编号段创建新迁移 |
 
 编号是上限边界，不要求为每个小改动创建迁移。`cmd/aiops/v3.go`、`internal/httpapi`、`internal/rbac`、OpenAPI、主契约/路由矩阵、`PLAN.md` 和 `CHECKPOINT.md` 仍由集成会话维护。两个领域会话的实现、验证和产品验收分别记录；此分配不表示任何第二波接口已完成。
+
+## 第三波独立编号分配（2026-09-29）
+
+WAN-124 企业配置/身份/通知领域独占迁移 **120–129**，新增领域包限 `internal/v3configsync`、`internal/v3directory`、`internal/v3notificationdelivery` 及其定向测试。创建前已核查仓库没有该编号段的迁移。短期分支从已推送的 `codex/wan-117-v3-integration` 基线出发，先验证非生产配置导出 MR 与生产仅导入已合并配置的后端窄契约；真实外部系统写入、部署和共享集群操作仍按用户本轮范围限制。涉及公共路由、授权机制、OpenAPI、V3 主契约、计划与检查点的修改继续由集成会话拥有；该分配不表示 WAN-124 的代码或产品功能已实现。

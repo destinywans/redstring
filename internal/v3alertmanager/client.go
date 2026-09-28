@@ -1,6 +1,6 @@
 // Package v3alertmanager reads environment-bound Alertmanager silences and
-// inhibition configuration. Its low-level silence write adapter is not exposed
-// as a product route until authorization, ownership, and durable audit exist.
+// inhibition configuration. Its durable create intent ledger and low-level
+// write adapter are not registered as product write routes.
 package v3alertmanager
 
 import (

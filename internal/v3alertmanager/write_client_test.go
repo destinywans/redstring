@@ -55,6 +55,26 @@ func TestCreateSilenceUsesBoundEndpointAndV2Body(t *testing.T) {
 	}
 }
 
+func TestCreateSilenceIncludesServerOperationAnnotation(t *testing.T) {
+	client, _ := localClient(t, func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Annotations map[string]string `json:"annotations"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Annotations["aiops_operation_id"] != "op-1" {
+			t.Errorf("operation marker absent from create body: %+v", body.Annotations)
+		}
+		_, _ = w.Write([]byte(`{"silenceID":"` + testSilenceID + `"}`))
+	}, "")
+	input := sampleCreateSilence()
+	input.Annotations = map[string]string{"aiops_operation_id": "op-1"}
+	if _, err := client.CreateSilence(context.Background(), "dev", input); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestExpireSilenceUsesSingularPathAndDistinguishesMissing(t *testing.T) {
 	client, requests := localClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete ||

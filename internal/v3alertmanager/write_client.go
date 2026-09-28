@@ -16,6 +16,8 @@ import (
 
 const maxSilenceRequestBytes = 64 << 10
 
+// ErrSilenceNotFound represents HTTP 404 from the configured endpoint. A
+// reverse proxy can also emit 404, so this does not prove a prior deletion.
 var ErrSilenceNotFound = errors.New("Alertmanager silence not found")
 
 // ErrSilenceWriteUncertain means Alertmanager may have applied the request.
@@ -25,11 +27,12 @@ var ErrSilenceWriteUncertain = errors.New("Alertmanager silence write outcome is
 // CreateSilenceRequest is the Alertmanager v2 input body. In particular, it has
 // no ID field: POST with an ID would update an existing upstream silence.
 type CreateSilenceRequest struct {
-	Matchers  []Matcher `json:"matchers"`
-	StartsAt  time.Time `json:"startsAt"`
-	EndsAt    time.Time `json:"endsAt"`
-	CreatedBy string    `json:"createdBy"`
-	Comment   string    `json:"comment"`
+	Matchers    []Matcher         `json:"matchers"`
+	StartsAt    time.Time         `json:"startsAt"`
+	EndsAt      time.Time         `json:"endsAt"`
+	CreatedBy   string            `json:"createdBy"`
+	Comment     string            `json:"comment"`
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // CreateSilence sends one POST to Alertmanager. This low-level adapter does not

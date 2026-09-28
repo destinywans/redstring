@@ -1,6 +1,7 @@
 package v3observe
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/store"
 )
 
 type traceRow struct {
@@ -49,6 +51,10 @@ func (s *Service) queryTraces(w http.ResponseWriter, r *http.Request, id string)
 	}
 	targets, err := s.observationTargets(r.Context(), httpapi.CurrentUser(r), envs, "traces", r.URL.Query().Get("service"), []string{"tempo"})
 	if err != nil {
+		if errors.Is(err, store.ErrForbidden) {
+			httpapi.Error(w, 403, "forbidden", "Traces are outside your authorized scope")
+			return nil, 0, false
+		}
 		httpapi.Error(w, 503, "trace_scope_unavailable", "Trace scope lookup failed")
 		return nil, 0, false
 	}

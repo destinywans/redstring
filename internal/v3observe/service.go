@@ -22,6 +22,7 @@ type Access interface {
 }
 
 type Telemetry interface {
+	QueryMetrics(context.Context, string, string, connectors.TimeWindow) (connectors.MetricEvidence, error)
 	QueryLogsOptions(context.Context, string, string, string, string, bool, connectors.TimeWindow, int) (connectors.LogEvidence, error)
 	QueryTracesBatchID(context.Context, []string, connectors.TimeWindow, int, string) (map[string]connectors.TraceEvidence, error)
 }
@@ -45,6 +46,7 @@ func New(st *store.Store, access Access, telemetry Telemetry) *Service {
 
 func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/services/discover", "viewer", s.discover)
+	api.Register("GET /api/v1/metrics/dashboard", "viewer", s.metricDashboard)
 	api.Register("GET /api/v1/logs", "viewer", s.logs)
 	api.Register("GET /api/v1/traces", "viewer", s.traces)
 	api.Register("GET /api/v1/traces/{id}", "viewer", s.traceDetail)
@@ -246,6 +248,9 @@ func (s *Service) observationTargets(ctx context.Context, user core.User, enviro
 	}
 	if len(result) > 100 {
 		return nil, errors.New("observation scope exceeds bound")
+	}
+	if scanned > 0 && len(result) == 0 {
+		return nil, store.ErrForbidden
 	}
 	return result, nil
 }

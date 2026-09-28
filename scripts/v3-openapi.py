@@ -537,6 +537,18 @@ S['V3ServiceMapping'] = obj({'systems':arr(v3_object('id brand label')),
 v3_route('get','/service-mappings','Read persisted service connector mappings',
     response=ref('V3ServiceMapping'),
     desc='Shows only bindings for authorized applications and environments; missing means no persisted binding, not a health check.')
+S['V3MetricProbe'] = obj({'status':string(enum=['observed','no_samples','not_registered','not_configured','unavailable','truncated']),
+    'series':integer(minimum=0),'samples':integer(minimum=0)},['status','series','samples'])
+S['V3IncompleteMetrics'] = obj({'error':obj({'code':string(),'message':string()},['code','message']),
+    'service':string(),'environment_id':string(),'available':v3_map(ref('V3MetricProbe')),
+    'missing':arr(string())},['error','service','environment_id','available','missing'])
+v3_route('get','/metrics/dashboard','Inspect scoped metric dashboard readiness',
+    query=[v3_query('service'),v3_query('range',string(enum=['1h'])),v3_query('align',string(enum=['true','false']))],
+    desc='Requires a persisted service/environment Prometheus binding. The currently registered queries cannot fill the required V3 MetricsDashboard; when scoped data is available, returns 503 dashboard_unavailable with observed query availability and missing sections. No KPI or SLO values are fabricated.')
+P['/metrics/dashboard']['get']['responses'].pop('200')
+P['/metrics/dashboard']['get']['responses']['503'] = {
+    'description':'Complete V3 dashboard unavailable from registered sources',
+    'content':{'application/json':{'schema':{'oneOf':[ref('Error'),ref('V3IncompleteMetrics')]}}}}
 S['V3LogLine'] = obj({**fieldnames('time service message trace'),
     'level':string(enum=['ERROR','WARN','INFO'])})
 v3_route('get','/logs','Search configured log provider',

@@ -1,6 +1,7 @@
 package v3observe
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/store"
 )
 
 type logLine struct {
@@ -63,6 +65,10 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 	}
 	targets, err := s.observationTargets(r.Context(), httpapi.CurrentUser(r), envs, "logs", r.URL.Query().Get("service"), []string{"loki", "elasticsearch"})
 	if err != nil {
+		if errors.Is(err, store.ErrForbidden) {
+			httpapi.Error(w, 403, "forbidden", "Logs are outside your authorized scope")
+			return
+		}
 		httpapi.Error(w, 503, "log_scope_unavailable", "Log scope lookup failed")
 		return
 	}

@@ -28682,6 +28682,128 @@
         ]
       }
     },
+    "/metrics/dashboard": {
+      "get": {
+        "summary": "Inspect scoped metric dashboard readiness",
+        "operationId": "get_metrics_dashboard",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires a persisted service/environment Prometheus binding. The currently registered queries cannot fill the required V3 MetricsDashboard; when scoped data is available, returns 503 dashboard_unavailable with observed query availability and missing sections. No KPI or SLO values are fabricated.",
+        "responses": {
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Complete V3 dashboard unavailable from registered sources",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Error"
+                    },
+                    {
+                      "$ref": "#/components/schemas/V3IncompleteMetrics"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "metrics"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "service",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "range",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1h"
+              ]
+            }
+          },
+          {
+            "name": "align",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/logs": {
       "get": {
         "summary": "Search configured log provider",
@@ -38494,6 +38616,83 @@
           "systems",
           "rows",
           "suggestions"
+        ]
+      },
+      "V3MetricProbe": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "no_samples",
+              "not_registered",
+              "not_configured",
+              "unavailable",
+              "truncated"
+            ]
+          },
+          "series": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "samples": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "series",
+          "samples"
+        ]
+      },
+      "V3IncompleteMetrics": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "message"
+            ]
+          },
+          "service": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "available": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/V3MetricProbe"
+            }
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "error",
+          "service",
+          "environment_id",
+          "available",
+          "missing"
         ]
       },
       "V3LogLine": {

@@ -315,6 +315,7 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	observations := v3observe.New(s, policy, telemetry)
 	observations.Register(api)
 	api.MarkV3Route("GET /api/v1/services/discover", "services", "view")
+	api.MarkV3ObjectRoute("GET /api/v1/metrics/dashboard", "services", "view")
 	api.MarkV3ObjectRoute("GET /api/v1/logs", "logs", "view")
 	api.MarkV3ObjectRoute("GET /api/v1/traces", "traces", "view")
 	api.MarkV3ObjectRoute("GET /api/v1/traces/{id}", "traces", "view")

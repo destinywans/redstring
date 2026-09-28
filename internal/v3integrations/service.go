@@ -296,6 +296,18 @@ func validConnectorProjection(c connector) bool {
 // status is never a claim that the upstream remains healthy between tests.
 // Call only after validConnectorProjection, which checks Checked before use.
 func observedSummary(c connector, lang string, now time.Time) map[string]any {
+	if c.AuthMethod != "none" && c.CredentialRef == "" {
+		// A stored successful probe cannot be current when the selected
+		// authentication method has no credential reference to resolve.
+		c.Status = "unverified"
+		result := summary(c, lang)
+		if c.Enabled {
+			result["meta"] = localized(lang, "凭据未配置", "Credentials not configured")
+		} else {
+			result["meta"] = localized(lang, "未启用 · 凭据未配置", "Disabled · credentials not configured")
+		}
+		return result
+	}
 	if !c.Enabled {
 		c.Status = "unverified"
 		result := summary(c, lang)
@@ -321,12 +333,9 @@ func observedSummary(c connector, lang string, now time.Time) map[string]any {
 }
 
 func summary(c connector, lang string) map[string]any {
-	tags := make([]map[string]string, 0)
-	for _, t := range c.Tools {
-		if c.Enabled && t.Enabled {
-			tags = append(tags, map[string]string{"label": t.Name, "tone": "accent"})
-		}
-	}
+	// Persisted tool choices are registration preferences. They are not
+	// connector-backed Agent grants and must not appear as capability badges.
+	tags := []map[string]string{}
 	meta := localized(lang, "尚未检查连接", "Connection not tested")
 	if c.Status == "ok" && c.Checked != nil {
 		meta = localized(lang, "已检查 ", "Checked ") + c.Checked.UTC().Format(time.RFC3339)
@@ -460,16 +469,21 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 	result["address"] = c.Endpoint
 	if c.AuthMethod == "none" {
 		result["auth"] = map[string]string{"text": localized(lang, "无需认证", "No authentication")}
+	} else if c.CredentialRef == "" {
+		label, _ := authMethodCopy(c.AuthMethod, lang)
+		result["auth"] = map[string]string{"text": label + localized(lang, " · 凭据未配置", " · credentials not configured")}
 	} else {
 		label, _ := authMethodCopy(c.AuthMethod, lang)
-		result["auth"] = map[string]string{"brand": "vault", "text": label + localized(lang, " · Vault 引用", " · Vault reference")}
+		result["auth"] = map[string]string{"brand": "vault", "text": label + localized(lang, " · Vault 引用已登记", " · Vault reference registered")}
 	}
 	result["checked"] = checked
 	result["services"] = services
 	// Query IDs are not yet bound to a V3 connector instance. Tool settings
 	// only describe desired configuration and do not grant execution.
 	result["queries"] = []string{}
-	result["tools"] = displayTools(c.Tools, lang)
+	// Connector-backed Agent execution is not wired. Keep registration
+	// preferences in storage, but expose no executable tools in this DTO.
+	result["tools"] = []tool{}
 	httpapi.WriteJSON(w, 200, result)
 }
 

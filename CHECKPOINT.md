@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-133 · 2026-09-29 · 静默创建单端点对账与过期防护
+
+- WAN-118 源提交 `b35c33a718f72920c0fce02f9fd6b9be795b30fa` 合入集成分支为 `307eebc`，新增迁移 `101_v3_silence_create_terminal_states.sql` 的 `manual_review` / `expired` 状态。私有对账读取一个受信 Alertmanager 端点的完整、未按环境过滤的静默列表：没有操作标记则保持 `unknown` 且不重发，唯一且完整匹配才 `confirmed`，重复标记或载荷失配进入持久 `manual_review`，列表失败不确认；状态变化与审计同事务。`beginCreate` 和低层网络调用前分别检查固定时间窗，明显过期时拒发。只有低层明确在发送前返回 `ErrSilenceCreateExpired`，未来执行器才可调用 `markCreateNotSentExpired`；该私有方法本身不能证明未发送。
+- 独立只读复核未发现当前可达的合入阻断缺陷，但一次单端点快照不能证明 Alertmanager HA 经最终一致性收敛后的全局唯一；首次确认后不再自动复查，迟到的第二条同标记静默可能仍留下 `confirmed`。生产接线前需确定集群健康/收敛与多节点核对或等效证明，并验证延迟与双节点场景。`beginCreate` 仍未同事务绑定具体持久提案和人类批准，生产调用者及独立执行器仍不存在；拒绝写审计、删除对象归属/竞态、代理 404、前端幂等键及应用绑定、共享 AM 标签治理仍未完成。产品 `POST /silences` 和 `DELETE /silences/{id}` 不开放。
+- 集成分支在一次性 pgvector PG17 随机 schema 通过 `go test -p 1 ./internal/v3alertmanager -count=1 -timeout=180s`，容器已清理；`go vet ./internal/v3alertmanager ./cmd/aiops` 与 314 条 OpenAPI 操作引用检查通过。来源会话另报告一次性 Alertmanager v0.34.1 的 POST→GET annotation/载荷回读通过，集成会话未重跑真实 AM。未迁移现有业务库、写共享 AM、修改前端或做产品验收；主契约仍 **34/166 `implemented`**。集成分支新增提交仅在本地，既有私有远端推送此前被自动审批两次拒绝，等待用户明确批准，不得代推或绕过。
+
 ## CP-132 · 2026-09-29 · 连接器登记工具设置辅助读取
 
 - WAN-122 源提交 `7343c8ffda0c997dd630120bbc4ce3d2a869d018` 合入集成分支为 `baaf258`，只改 `internal/v3integrations`，无迁移。辅助 `GET /connectors/{id}/tool-settings` 按当前授权环境及 `connectors.view` 返回持久工具开关、连接器启用状态和固定 `agent_execution_available:false`，不返回端点或 Vault 引用；旧工具目录未知、重复或失效时 503，不静默筛除。PATCH 对省略/`null` 的 `enabled` 返回 422，已存目录漂移返回 409；保留行锁、事务内 `connectors.manage` 与审计，局部并发更新可合并，审计失败回滚。独立只读审查未发现合入阻断缺陷，提示缺 `all` 范围和端点不泄露的独立断言。

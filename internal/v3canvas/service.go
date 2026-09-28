@@ -649,15 +649,52 @@ func (s *Service) saveTemplate(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "unsafe_template_content", "Only node structure can currently be saved; evidence, steps and content are excluded")
 		return
 	}
+	tx, err := s.Store.DB.Begin(r.Context())
+	if err != nil {
+		httpapi.Error(w, 503, "template_unavailable", "Template save failed")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	cookie, cookieErr := r.Cookie("aiops_session")
+	if cookieErr != nil || cookie.Value == "" {
+		httpapi.Error(w, 401, "unauthorized", "Login required")
+		return
+	}
+	owner := httpapi.CurrentUser(r)
+	var sessionUser string
+	err = tx.QueryRow(r.Context(), `SELECT s.user_id FROM sessions s JOIN users u ON u.id=s.user_id
+ WHERE s.token_hash=$1 AND s.user_id=$2 AND s.expires_at>clock_timestamp()
+ AND NOT u.disabled AND u.deleted_at IS NULL FOR SHARE OF s,u`, store.Hash(cookie.Value), owner.ID).Scan(&sessionUser)
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpapi.Error(w, 401, "unauthorized", "Login required")
+		return
+	}
+	if err != nil {
+		httpapi.Error(w, 503, "template_unavailable", "Template authorization unavailable")
+		return
+	}
+	if err = lockCanvasGrantSources(r.Context(), tx, owner.ID); err != nil {
+		httpapi.Error(w, 503, "template_unavailable", "Template authorization unavailable")
+		return
+	}
 	var kind string
 	var rawNodes, rawEdges []byte
-	err := s.Store.DB.QueryRow(r.Context(), `SELECT kind,nodes,edges FROM v3_canvases WHERE id=$1 AND owner_id=$2 AND environment_id=$3`, in.FromCanvas, httpapi.CurrentUser(r).ID, envs[0]).Scan(&kind, &rawNodes, &rawEdges)
+	err = tx.QueryRow(r.Context(), `SELECT kind,nodes,edges FROM v3_canvases
+ WHERE id=$1 AND owner_id=$2 AND environment_id=$3 FOR SHARE`, in.FromCanvas, owner.ID, envs[0]).Scan(&kind, &rawNodes, &rawEdges)
 	if errors.Is(err, pgx.ErrNoRows) {
 		httpapi.Error(w, 404, "not_found", "Source canvas not found")
 		return
 	}
 	if err != nil {
 		httpapi.Error(w, 503, "canvas_unavailable", "Source canvas unavailable")
+		return
+	}
+	if err = (&rbac.V3Policy{Store: s.Store}).AuthorizeWithTx(r.Context(), tx, owner, rbac.V3Decision{Module: "canvas", Action: "change", EnvironmentID: envs[0]}); err != nil {
+		if errors.Is(err, store.ErrForbidden) {
+			httpapi.Error(w, 403, "forbidden", "Canvas change permission is required")
+		} else {
+			httpapi.Error(w, 503, "template_unavailable", "Template authorization unavailable")
+		}
 		return
 	}
 	if len(rawNodes) > 1<<20 || len(rawEdges) > 1<<20 {
@@ -684,15 +721,13 @@ func (s *Service) saveTemplate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	id := "CT-" + store.ID()
-	tx, err := s.Store.DB.Begin(r.Context())
-	if err != nil {
-		httpapi.Error(w, 503, "template_unavailable", "Template save failed")
+	if _, _, _, err = decodeCanvasDocument(mustJSON(nodes), mustJSON(edges), []byte("[]")); err != nil {
+		httpapi.Error(w, 422, "unsafe_template_structure", "Canvas graph cannot be saved as a structural template")
 		return
 	}
-	defer tx.Rollback(r.Context())
+	id := "CT-" + store.ID()
 	_, err = tx.Exec(r.Context(), `INSERT INTO v3_canvas_templates(id,owner_id,environment_id,kind,name,description,nodes,edges)
-		VALUES($1,$2,$3,$4,$5,'', $6::jsonb,$7::jsonb)`, id, httpapi.CurrentUser(r).ID, envs[0], kind, in.Name, mustJSON(nodes), mustJSON(edges))
+		VALUES($1,$2,$3,$4,$5,'', $6::jsonb,$7::jsonb)`, id, owner.ID, envs[0], kind, in.Name, mustJSON(nodes), mustJSON(edges))
 	if err != nil {
 		httpapi.Error(w, 503, "template_unavailable", "Template save failed")
 		return
@@ -700,7 +735,7 @@ func (s *Service) saveTemplate(w http.ResponseWriter, r *http.Request) {
 	auditChanges := mustJSON(map[string]string{"environment_id": envs[0], "source_canvas_id": in.FromCanvas})
 	_, err = tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,action,target,outcome,changes)
 	 VALUES($1,'v3.canvas_template.saved',$2,'success',$3::jsonb)`,
-		httpapi.CurrentUser(r).ID, id, auditChanges)
+		owner.ID, id, auditChanges)
 	if err != nil {
 		httpapi.Error(w, 503, "audit_unavailable", "Template audit unavailable")
 		return

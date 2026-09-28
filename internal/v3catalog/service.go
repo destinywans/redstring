@@ -61,6 +61,11 @@ func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/services/{id}", "viewer", s.service)
 	api.Register("GET /api/v1/service-mappings", "viewer", s.mappings)
 	api.MarkV3ObjectRoute("GET /api/v1/service-mappings", "services", "view")
+	// The current page sends no mapping data on save. Keep this route behind
+	// the V3 not-implemented gate until an identity- and revision-bearing
+	// request exists; a successful no-body PUT would falsely claim local-only
+	// page state had been persisted.
+	api.Register("PUT /api/v1/service-mappings", "viewer", mappingSaveUnavailable)
 	api.Register("POST /api/v1/service-mappings/discover", "viewer", s.mappingDiscover)
 	api.Register("POST /api/v1/service-mappings/accept", "viewer", s.mappingAccept)
 	api.MarkV3ObjectRoute("POST /api/v1/service-mappings/discover", "services", "change")

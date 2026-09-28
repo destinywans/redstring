@@ -69,6 +69,10 @@ var mappingSystems = []mappingSystem{
 	{ID: "workload", Brand: "kubernetes", Label: "工作负载"},
 }
 
+func mappingSaveUnavailable(w http.ResponseWriter, _ *http.Request) {
+	httpapi.Error(w, http.StatusNotImplemented, "mapping_save_unavailable", "Full mapping save requires object identities and revisions")
+}
+
 func mappingKind(kind string) string {
 	switch strings.ToLower(kind) {
 	case "prometheus", "victoriametrics":

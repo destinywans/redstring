@@ -41,13 +41,14 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"POST /api/v1/canvases", "change", s.create},
 		{"GET /api/v1/canvases/{id}", "view", s.get},
 		{"POST /api/v1/canvases/{id}/nodes/{node}/messages", "change", s.sendNodeMessage},
+		{"GET /api/v1/investigations/{id}/nodes/{node}/messages", "view", s.readInvestigationNodeMessages},
 		{"GET /api/v1/canvas-templates", "view", s.templates},
 		{"POST /api/v1/canvas-templates", "change", s.saveTemplate},
 	} {
 		api.Register(route.pattern, "viewer", route.handler)
-		if route.pattern == "GET /api/v1/canvases" {
-			// The list contains both private generic canvases and application
-			// scoped investigations; each row is checked against its own grant.
+		if route.pattern == "GET /api/v1/canvases" || strings.HasPrefix(route.pattern, "GET /api/v1/investigations/") {
+			// These routes resolve their application and owner team from the
+			// persisted investigation before checking the corresponding grant.
 			api.MarkV3ObjectRoute(route.pattern, "canvas", route.action)
 		} else {
 			api.MarkV3Route(route.pattern, "canvas", route.action)

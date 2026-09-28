@@ -107,7 +107,7 @@
 
 对话详情、后续模型上下文和最新回复使用持久 `sort_order`，同一事务写入的用户/助手消息按回合排序。有 `accepted` 审计的回合按序列化顺序；迁入或无审计的旧回合只按时间戳作确定性回填，不能据此证明原始提交顺序。迁移 085 在应用启动事务中回填整表并建索引，部署前须停旧回复 worker 并在代表性副本量测锁时。
 
-通用画布节点 `POST /canvases/{id}/nodes/{node}/messages` 的后端已接持久化同步回复：限定本人画布、单一环境和当前 `canvas.change`，一次只运行一条回复，模型只能读取该节点已完成的历史回合且不能调用工具；失败的用户输入保留供刷新核对，不生成虚假助手消息。`GET /canvases/{id}` 在 `threads` 返回每个节点的已保存回合。当前前端发送失败未清除 `busy`，真实 409/422/503 会卡住输入框；画布整页及该主路由仍标 `mock`，调查节点接口与通用节点分开。
+通用画布节点 `POST /canvases/{id}/nodes/{node}/messages` 的后端已接持久化同步回复：限定本人画布、单一环境和当前 `canvas.change`，一次只运行一条回复。模型上下文包含当前节点及沿有向边可达的祖先节点块与已完成回合，不包含兄弟或失败回合，超过 24 KiB 返回 413；工具调用被拒绝。失败的用户输入保留供刷新核对，不生成虚假助手消息。`GET /canvases/{id}` 校验节点、七种块、边和产物结构，在 `threads` 返回各节点完整已保存回合；历史超过 500 次交换、2 MiB 总量或单条助手消息 64 KiB 时返回 413，不截断。前端目前既无超限恢复/分页，也未在发送失败时清除 `busy`；真实 409/413/422/503 可卡住输入框，因此画布整页及这两条主路由仍为 `mock`，调查节点接口与通用节点分开。
 | GET | `/investigation-templates` | | 模板列表 | mock |
 | POST | `/investigation-templates/{id}/start` | `{ inputs }` | `{ investigation_id }` | mock |
 
@@ -144,6 +144,8 @@
 | POST | `/executions/{id}/report/publish` | | 发布结果 | mock |
 
 `POST /silences/preview` 的后端现按所选单一环境读取实时 Alertmanager 告警快照。请求为 `{ matchers: [{ k, op, v }] }`，支持 `=`、`!=`、`=~`、`!~`（1–20 条）；环境是隐含的精确匹配。精确 `application=` 值必须在服务端绑定到有效应用并有当前应用/团队 `silences.view`，无应用匹配则要求环境级 `silences.view` 与 `silences.manage`。`affects` 是此刻该环境匹配告警的完整条数，`sample` 仅为最多 5 个去重排序的真实 `alertname`；来源异常、超过 500 条该环境告警或异常 `null` 均返回 503，不给部分计数。预览不会创建静默。现有页面默认仅传 service/alertname，普通应用用户会因缺精确应用匹配收到 403，且页面尚未正确清除旧预览/失败状态，故该主契约继续 `mock`。`POST /alerts/{id}/claim` 已改为持有事件行锁时复核当前授权，仍只返回 `{ id, assignee_id }`，不等于完整告警详情。
+
+`GET /inhibitions` 现在仅展示来源/目标都绑定当前环境、应用归属有效且当前用户有相应应用或团队 `silences.view` 的规则；宽应用范围要求同环境的查看与管理授权。跨环境、匹配器歧义与失效绑定不会出现在列表；任一已授权上游来源失败时返回 503，不给部分规则。成功响应始终为 `206 partial`，因为 Alertmanager 配置没有可信的逐规则活动状态或命中数；故完整 `Inhibition[]` 主契约仍为 `mock`。
 
 ## 知识与记忆（`knowledge.ts`）
 
@@ -279,7 +281,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | GET | `/guardrails` | `filter: all\|blocked\|masked` | `GuardrailsView` | mock |
 | PATCH | `/guardrails/{id}` | `{ enabled }`（强制规则不可关闭） | 结果 | mock |
 
-Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评测、发布意图、反馈和护栏设置；尚无评测执行器、流量路由消费者、Prompt trial 或完整运行/护栏观测生产者。`POST /prompts/{id}/versions` 对已登记且当前有权的 Prompt 原样保存非空白文本，按 `vN` 返回版本，审计与修订同事务；但生产构造尚未登记 Prompt，前端默认 ID 在新库无法成功写入，面向用户的输入错误也未按语言契约本地化，因此仍为 `mock`。`POST /prompts/{id}/trial` 明确返回 `503 prompt_trial_unavailable`，`POST /evals` 只创建 `pending` 元数据，发布和回滚不改变真实流量。部分读取返回 `null`、`partial: true` 或“未接入”；现有前端对 `score`、发布 token/门禁、评测、Trace、运行统计的 DTO 与请求体尚不兼容，不能直接切换 HTTP 模式。管理员门禁放行另需非空 `override_reason`，现有前端未提交；相关主契约行继续为 `mock`。
+Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评测、发布意图、反馈和护栏设置；尚无评测执行器、流量路由消费者、Prompt trial 或完整运行/护栏观测生产者。Prompt 列表只返回有真实版本的已授权记录，支持最多 160 字符的 `q`，超过 200 条可见项返回 413；详情在同一读取事务中核对 Agent、归属、授权和正文，真实正文与 `vN` 可回读，但发布状态、运行时使用关系和说明均明确为部分/未知，不冒充完整前端 DTO。`POST /prompts/{id}/versions` 对已登记且当前有权的 Prompt 原样保存非空白文本，按 `vN` 返回版本，审计与修订同事务；生产构造尚未登记 Prompt，前端默认 ID 在新库无法成功写入，因此读写主路由仍为 `mock`。`POST /prompts/{id}/trial` 明确返回 `503 prompt_trial_unavailable`，`POST /evals` 只创建 `pending` 元数据，发布和回滚不改变真实流量。部分读取返回 `null`、`partial: true` 或“未接入”；现有前端对 `score`、发布 token/门禁、评测、Trace、运行统计的 DTO 与请求体尚不兼容，不能直接切换 HTTP 模式。管理员门禁放行另需非空 `override_reason`，现有前端未提交；相关主契约行继续为 `mock`。
 
 ## 设置（`settings.ts`）
 

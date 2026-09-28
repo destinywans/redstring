@@ -24001,7 +24001,7 @@
       "get": {
         "summary": "Read owner-scoped general canvas",
         "operationId": "get_canvases_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. General canvases return persisted per-node exchanges in threads. Failed user prompts remain visible without a fabricated assistant reply; only completed exchanges are used as later model context. Investigation canvas detail is not implemented by this route.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. General canvases return validated typed nodes, seven block variants, edges and artifacts plus persisted per-node exchanges in threads. Failed user prompts remain visible without a fabricated assistant reply; only completed exchanges are used as later model context. More than 500 exchanges, 2 MiB of thread history, or one assistant answer over 64 KiB returns 413 canvas_history_too_large. Invalid persisted canvas structure returns 503 canvas_unavailable. Investigation canvas detail is not implemented by this route.",
         "responses": {
           "200": {
             "description": "Success",
@@ -24064,7 +24064,17 @@
             }
           },
           "503": {
-            "description": "Dependency unavailable",
+            "description": "Persisted canvas structure, conversation history, or authorization source is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Conversation history exceeds the bounded canvas detail limit",
             "content": {
               "application/json": {
                 "schema": {
@@ -24106,7 +24116,7 @@
       "post": {
         "summary": "Run a scoped general-canvas node reply",
         "operationId": "post_canvases_id_nodes_node_messages",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Owner-only general canvas node, one selected environment and current canvas.change grant. The synchronous response follows a durable assistant turn; user prompt, model choice, status and audit are persisted. One node reply runs at a time and returns 409 reply_in_progress for a concurrent run. The configured model receives only this node context and completed turns; tool invocations are rejected, and model failure returns 503 with the failed user prompt retained. A deleted session or revoked grant cannot commit a late reply. Investigation nodes are separate and remain unavailable here.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Owner-only general canvas node, one selected environment and current canvas.change grant. The synchronous response follows a durable assistant turn; user prompt, model choice, status and audit are persisted. One node reply runs at a time and returns 409 reply_in_progress for a concurrent run. The configured model receives the current node blocks, blocks from all transitive ancestors, and prior completed node and ancestor turn pairs within a 24 KiB context budget; sibling, descendant, and failed turns are excluded. Oversize context returns 413 node_context_too_large. Tool invocations are rejected, and model failure returns 503 with the failed user prompt retained. A deleted session or revoked grant cannot commit a late reply. Investigation nodes are separate and remain unavailable here.",
         "responses": {
           "200": {
             "description": "Success",
@@ -24179,6 +24189,16 @@
           },
           "503": {
             "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Current and inherited node context exceeds the 24 KiB model budget",
             "content": {
               "application/json": {
                 "schema": {
@@ -28267,11 +28287,11 @@
     },
     "/inhibitions": {
       "get": {
-        "summary": "Read environment-scoped Alertmanager inhibition configuration",
+        "summary": "Read authorized Alertmanager inhibition configuration",
         "operationId": "get_inhibitions",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial projection: only rules with exact source and target environment matchers are returned. Other-environment rules do not affect status or coverage; broad rules set only unscoped_present. Alertmanager status does not expose per-rule active or hit counts, so active is omitted and stat explains unavailable data. Populated lists return 206, not a fabricated full V3 DTO. Unconfigured or failed sources return 503.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Always 206 partial when successful, including an empty list: only rules with exact source and target environment matchers are considered. An application-scoped rule also needs a server-owned application-label-to-active-ID binding and current application or owner-team silences.view grant for every exact application matcher. Wider application scope requires both current environment-wide silences.view and silences.manage. Cross-environment, inactive, unbound, hidden, mixed, and ambiguous rules are omitted; only authorized environment administrators may receive unscoped_present=true. Alertmanager status has no per-rule activity or hit counts, so active is omitted and stat explains unavailable data. Authorization is checked before reading upstream; unconfigured or failed upstream returns 503 without partial results.",
         "responses": {
-          "200": {
+          "206": {
             "description": "Success",
             "content": {
               "application/json": {
@@ -28366,55 +28386,11 @@
             }
           },
           "503": {
-            "description": "Dependency unavailable",
+            "description": "Authorized inhibition source, scope, or application catalog is unavailable",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "206": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "items": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/V3InhibitionRead"
-                      }
-                    },
-                    "partial": {
-                      "type": "boolean"
-                    },
-                    "unavailable": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
-                    "unavailable_environments": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
-                    "unscoped_present": {
-                      "type": "boolean"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "items",
-                    "partial",
-                    "unavailable",
-                    "unavailable_environments",
-                    "unscoped_present"
-                  ]
                 }
               }
             }
@@ -33223,7 +33199,7 @@
       "get": {
         "summary": "List bounded persisted Prompt versions",
         "operationId": "get_prompts",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. At most 200 persisted Prompt identities; skills and runtime usage are not represented by this response. The full Prompt page remains mock.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. At most 200 visible persisted Prompt identities with a nonzero version. Optional q matches ID or name, trimmed and bounded to 160 Unicode characters; excess returns localized 422. More than 200 visible matches returns 413 prompt_list_too_large rather than silent truncation. Skills and publication status are unavailable fields; runtime binding is not attested. The full Prompt page remains mock.",
         "responses": {
           "200": {
             "description": "Success",
@@ -33248,9 +33224,6 @@
                           },
                           "version": {
                             "type": "string"
-                          },
-                          "status": {
-                            "type": "string"
                           }
                         },
                         "additionalProperties": false,
@@ -33258,19 +33231,29 @@
                           "id",
                           "kind",
                           "name",
-                          "version",
-                          "status"
+                          "version"
                         ]
                       }
                     },
                     "truncated": {
                       "type": "boolean"
+                    },
+                    "partial": {
+                      "type": "boolean"
+                    },
+                    "unavailable_fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
                     }
                   },
                   "additionalProperties": false,
                   "required": [
                     "items",
-                    "truncated"
+                    "truncated",
+                    "partial",
+                    "unavailable_fields"
                   ]
                 }
               }
@@ -33317,7 +33300,7 @@
             }
           },
           "422": {
-            "description": "Invalid input",
+            "description": "Search term exceeds 160 Unicode characters; message follows Accept-Language zh/en",
             "content": {
               "application/json": {
                 "schema": {
@@ -33328,6 +33311,16 @@
           },
           "503": {
             "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "More than 200 visible Prompt identities; narrow q",
             "content": {
               "application/json": {
                 "schema": {
@@ -33347,6 +33340,14 @@
         ],
         "parameters": [
           {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 160
+            }
+          },
+          {
             "name": "X-AIOps-Environment",
             "in": "header",
             "schema": {
@@ -33361,7 +33362,7 @@
       "get": {
         "summary": "Read one stored Prompt version",
         "operationId": "get_prompts_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Stored Prompt text and metadata only; not a model trial, published runtime version or complete frontend PromptDetail.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Reads the current persisted Prompt version and registered Agent under one scoped, authorized transaction. Variables are parsed from persisted text; lines preserve the text for the frontend editor. Publication status, release notes and runtime usage are unavailable, with localized explanatory used_by and notes. Unknown or hidden Prompt returns 404; a Prompt with no version returns 409; storage or policy failure returns 503. This does not prove a runtime-bound Prompt or complete frontend page.",
         "responses": {
           "200": {
             "description": "Success",
@@ -33377,9 +33378,6 @@
                       "type": "string"
                     },
                     "version": {
-                      "type": "string"
-                    },
-                    "status": {
                       "type": "string"
                     },
                     "notes": {
@@ -33409,9 +33407,46 @@
                         ]
                       }
                     },
+                    "registered_agent": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "id",
+                        "name"
+                      ]
+                    },
                     "scope": {
                       "type": "object",
-                      "additionalProperties": true
+                      "properties": {
+                        "application_id": {
+                          "type": "string"
+                        },
+                        "environment_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "application_id",
+                        "environment_id"
+                      ]
+                    },
+                    "partial": {
+                      "type": "boolean"
+                    },
+                    "unavailable_fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
                     }
                   },
                   "additionalProperties": false,
@@ -33419,12 +33454,14 @@
                     "id",
                     "name",
                     "version",
-                    "status",
                     "variables",
                     "used_by",
                     "lines",
                     "notes",
-                    "scope"
+                    "registered_agent",
+                    "scope",
+                    "partial",
+                    "unavailable_fields"
                   ]
                 }
               }
@@ -33451,7 +33488,7 @@
             }
           },
           "404": {
-            "description": "Not found",
+            "description": "Unknown or hidden Prompt identity",
             "content": {
               "application/json": {
                 "schema": {
@@ -33461,7 +33498,7 @@
             }
           },
           "409": {
-            "description": "Conflict or stale version",
+            "description": "Registered Prompt has no persisted version",
             "content": {
               "application/json": {
                 "schema": {
@@ -33481,7 +33518,7 @@
             }
           },
           "503": {
-            "description": "Dependency unavailable",
+            "description": "Prompt storage, authorization policy, or current version is unavailable",
             "content": {
               "application/json": {
                 "schema": {
@@ -33523,7 +33560,7 @@
       "post": {
         "summary": "Store a new Prompt text revision",
         "operationId": "post_prompts_id_versions",
-        "description": "Minimum role: viewer with scoped agents.change. V3 instance and environment scope apply. Stores a nonblank text revision of at most 20000 characters with original whitespace and transactional audit, returning its vN display version. Requires a registered Prompt under the current scoped Agent; it does not publish or execute the Prompt.",
+        "description": "Minimum role: viewer with scoped agents.change. V3 instance and environment scope apply. Stores a nonblank text revision of at most 20000 Unicode characters with original whitespace and transactional audit, returning its vN display version. Invalid JSON, multiple JSON objects or invalid text return 422 with an Accept-Language zh/en message. Requires a registered Prompt under the current scoped Agent; it does not publish or execute the Prompt.",
         "responses": {
           "201": {
             "description": "Success",
@@ -33586,7 +33623,7 @@
             }
           },
           "422": {
-            "description": "Invalid input",
+            "description": "Invalid JSON body or Prompt text; message follows Accept-Language zh/en",
             "content": {
               "application/json": {
                 "schema": {
@@ -45024,6 +45061,428 @@
           "turns"
         ]
       },
+      "V3CanvasTone": {
+        "type": "string",
+        "enum": [
+          "neutral",
+          "accent",
+          "ok",
+          "warn",
+          "danger",
+          "info"
+        ]
+      },
+      "V3CanvasTileTone": {
+        "type": "string",
+        "enum": [
+          "neutral",
+          "accent",
+          "ok",
+          "warn",
+          "danger",
+          "info",
+          "t1",
+          "dev"
+        ]
+      },
+      "V3CanvasKVBlock": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "kv"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "maxItems": 200
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "items"
+        ]
+      },
+      "V3CanvasTagsBlock": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "tags"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "items"
+        ]
+      },
+      "V3CanvasTextBlock": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "text"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "text"
+        ]
+      },
+      "V3CanvasBarsBlock": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "bars"
+            ]
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 200
+          },
+          "highlight": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "color": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "values"
+        ]
+      },
+      "V3CanvasRow": {
+        "type": "object",
+        "properties": {
+          "badge": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "badge_tone": {
+            "$ref": "#/components/schemas/V3CanvasTone"
+          },
+          "dot": {
+            "$ref": "#/components/schemas/V3CanvasTone"
+          },
+          "state_tone": {
+            "$ref": "#/components/schemas/V3CanvasTone"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "text"
+        ]
+      },
+      "V3CanvasRowsBlock": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "rows"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3CanvasRow"
+            },
+            "maxItems": 200
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "items"
+        ]
+      },
+      "V3CanvasStep": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "sub": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "done",
+              "gate",
+              "todo"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "text",
+          "sub",
+          "state"
+        ]
+      },
+      "V3CanvasStepsBlock": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "steps"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3CanvasStep"
+            },
+            "maxItems": 200
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "items"
+        ]
+      },
+      "V3CanvasCalloutBlock": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "callout"
+            ]
+          },
+          "tone": {
+            "$ref": "#/components/schemas/V3CanvasTone"
+          },
+          "icon": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "tone",
+          "text"
+        ]
+      },
+      "V3CanvasBlock": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/V3CanvasKVBlock"
+          },
+          {
+            "$ref": "#/components/schemas/V3CanvasTagsBlock"
+          },
+          {
+            "$ref": "#/components/schemas/V3CanvasTextBlock"
+          },
+          {
+            "$ref": "#/components/schemas/V3CanvasBarsBlock"
+          },
+          {
+            "$ref": "#/components/schemas/V3CanvasRowsBlock"
+          },
+          {
+            "$ref": "#/components/schemas/V3CanvasStepsBlock"
+          },
+          {
+            "$ref": "#/components/schemas/V3CanvasCalloutBlock"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "kv": "#/components/schemas/V3CanvasKVBlock",
+            "tags": "#/components/schemas/V3CanvasTagsBlock",
+            "text": "#/components/schemas/V3CanvasTextBlock",
+            "bars": "#/components/schemas/V3CanvasBarsBlock",
+            "rows": "#/components/schemas/V3CanvasRowsBlock",
+            "steps": "#/components/schemas/V3CanvasStepsBlock",
+            "callout": "#/components/schemas/V3CanvasCalloutBlock"
+          }
+        }
+      },
+      "V3CanvasNode": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "icon": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "sub": {
+            "type": "string"
+          },
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          },
+          "w": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2000
+          },
+          "tone": {
+            "$ref": "#/components/schemas/V3CanvasTileTone"
+          },
+          "badge": {
+            "type": "object",
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "tone": {
+                "$ref": "#/components/schemas/V3CanvasTone"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "text",
+              "tone"
+            ]
+          },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3CanvasBlock"
+            },
+            "maxItems": 50
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "x",
+          "y",
+          "w",
+          "icon",
+          "tone",
+          "title",
+          "sub",
+          "blocks"
+        ]
+      },
+      "V3CanvasEdge": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "tone": {
+            "$ref": "#/components/schemas/V3CanvasTone"
+          },
+          "dash": {
+            "type": "boolean"
+          },
+          "live": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to"
+        ]
+      },
+      "V3CanvasArtifact": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "icon": {
+            "type": "string"
+          },
+          "brand": {
+            "type": "string"
+          },
+          "ext": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "sub": {
+            "type": "string"
+          },
+          "href": {
+            "type": "string"
+          },
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          },
+          "tone": {
+            "$ref": "#/components/schemas/V3CanvasTone"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "x",
+          "y",
+          "title",
+          "sub"
+        ]
+      },
       "V3CanvasDoc": {
         "type": "object",
         "properties": {
@@ -45054,23 +45513,23 @@
           "nodes": {
             "type": "array",
             "items": {
-              "type": "object",
-              "additionalProperties": true
-            }
+              "$ref": "#/components/schemas/V3CanvasNode"
+            },
+            "maxItems": 100
           },
           "edges": {
             "type": "array",
             "items": {
-              "type": "object",
-              "additionalProperties": true
-            }
+              "$ref": "#/components/schemas/V3CanvasEdge"
+            },
+            "maxItems": 200
           },
           "artifacts": {
             "type": "array",
             "items": {
-              "type": "object",
-              "additionalProperties": true
-            }
+              "$ref": "#/components/schemas/V3CanvasArtifact"
+            },
+            "maxItems": 100
           },
           "threads": {
             "type": "object",

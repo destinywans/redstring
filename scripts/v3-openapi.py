@@ -218,10 +218,49 @@ S['V3CanvasTurn'] = obj({**fieldnames('id author text model reasoning_label bran
     'role':string(enum=['user','assistant'])},['id','role','author','text'])
 S['V3CanvasThread'] = obj({'context':string(),'turns':arr(ref('V3CanvasTurn'))},
     ['context','turns'])
+S['V3CanvasTone'] = string(enum=['neutral','accent','ok','warn','danger','info'])
+S['V3CanvasTileTone'] = string(enum=['neutral','accent','ok','warn','danger','info','t1','dev'])
+S['V3CanvasKVBlock'] = obj({'type':string(enum=['kv']),
+    'items':{'type':'array','items':{'type':'array','items':string(),'minItems':2,'maxItems':2},'maxItems':200}},['type','items'])
+S['V3CanvasTagsBlock'] = obj({'type':string(enum=['tags']),
+    'items':{'type':'array','items':string(),'maxItems':200}},['type','items'])
+S['V3CanvasTextBlock'] = obj({'type':string(enum=['text']),'text':string()},['type','text'])
+S['V3CanvasBarsBlock'] = obj({'type':string(enum=['bars']),
+    'values':{'type':'array','items':v3_num(),'maxItems':200},
+    'highlight':integer(minimum=0),'color':string()},['type','values'])
+S['V3CanvasRow'] = obj({**fieldnames('badge text value state'),
+    'badge_tone':ref('V3CanvasTone'),'dot':ref('V3CanvasTone'),
+    'state_tone':ref('V3CanvasTone')},['text'])
+S['V3CanvasRowsBlock'] = obj({'type':string(enum=['rows']),
+    'items':{'type':'array','items':ref('V3CanvasRow'),'maxItems':200}},['type','items'])
+S['V3CanvasStep'] = obj({'text':string(),'sub':string(),
+    'state':string(enum=['done','gate','todo'])},['text','sub','state'])
+S['V3CanvasStepsBlock'] = obj({'type':string(enum=['steps']),
+    'items':{'type':'array','items':ref('V3CanvasStep'),'maxItems':200}},['type','items'])
+S['V3CanvasCalloutBlock'] = obj({'type':string(enum=['callout']),
+    'tone':ref('V3CanvasTone'),'icon':string(),'text':string()},['type','tone','text'])
+S['V3CanvasBlock'] = {'oneOf':[ref('V3Canvas'+name+'Block') for name in
+    ['KV','Tags','Text','Bars','Rows','Steps','Callout']],
+    'discriminator':{'propertyName':'type','mapping':{
+        kind:'#/components/schemas/V3Canvas'+name+'Block' for kind,name in
+        [('kv','KV'),('tags','Tags'),('text','Text'),('bars','Bars'),
+         ('rows','Rows'),('steps','Steps'),('callout','Callout')]}}}
+S['V3CanvasNode'] = obj({**fieldnames('id icon title sub'),
+    'x':integer(),'y':integer(),'w':integer(minimum=1,maximum=2000),
+    'tone':ref('V3CanvasTileTone'),
+    'badge':obj({'text':string(),'tone':ref('V3CanvasTone')},['text','tone']),
+    'blocks':{'type':'array','items':ref('V3CanvasBlock'),'maxItems':50}},
+    ['id','x','y','w','icon','tone','title','sub','blocks'])
+S['V3CanvasEdge'] = obj({'from':string(),'to':string(),
+    'tone':ref('V3CanvasTone'),'dash':v3_bool(),'live':v3_bool()},['from','to'])
+S['V3CanvasArtifact'] = obj({**fieldnames('id icon brand ext title sub href'),
+    'x':integer(),'y':integer(),'tone':ref('V3CanvasTone')},
+    ['id','x','y','title','sub'])
 S['V3CanvasDoc'] = obj({**fieldnames('id title kind status note env'),
-    'participants':arr(string()),'nodes':arr({'type':'object','additionalProperties':True}),
-    'edges':arr({'type':'object','additionalProperties':True}),
-    'artifacts':arr({'type':'object','additionalProperties':True}),
+    'participants':arr(string()),
+    'nodes':{'type':'array','items':ref('V3CanvasNode'),'maxItems':100},
+    'edges':{'type':'array','items':ref('V3CanvasEdge'),'maxItems':200},
+    'artifacts':{'type':'array','items':ref('V3CanvasArtifact'),'maxItems':100},
     'threads':v3_map(ref('V3CanvasThread'))},
     ['id','title','kind','status','participants','note','nodes','edges','artifacts','threads'])
 v3_route('get','/canvases','List scoped persisted canvases and investigations',
@@ -235,11 +274,20 @@ v3_route('post','/canvases','Create a persisted general canvas',
     response=obj(fieldnames('id href'),['id','href']),status=201,
     desc='Investigation creation and AI drafting currently return 503; selected services must be mapped to the request environment.')
 v3_route('get','/canvases/{id}','Read owner-scoped general canvas',response=ref('V3CanvasDoc'),
-    desc='General canvases return persisted per-node exchanges in threads. Failed user prompts remain visible without a fabricated assistant reply; only completed exchanges are used as later model context. Investigation canvas detail is not implemented by this route.')
+    desc='General canvases return validated typed nodes, seven block variants, edges and artifacts plus persisted per-node exchanges in threads. Failed user prompts remain visible without a fabricated assistant reply; only completed exchanges are used as later model context. More than 500 exchanges, 2 MiB of thread history, or one assistant answer over 64 KiB returns 413 canvas_history_too_large. Invalid persisted canvas structure returns 503 canvas_unavailable. Investigation canvas detail is not implemented by this route.')
+P['/canvases/{id}']['get']['responses']['413'] = {
+    'description':'Conversation history exceeds the bounded canvas detail limit',
+    'content':{'application/json':{'schema':ref('Error')}}}
+P['/canvases/{id}']['get']['responses']['503'] = {
+    'description':'Persisted canvas structure, conversation history, or authorization source is unavailable',
+    'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('post','/canvases/{id}/nodes/{node}/messages','Run a scoped general-canvas node reply',
     body=obj({'text':string(),'model':string(),'reasoning':string()},['text']),
     response=obj({'reply':string()},['reply']),
-    desc='Owner-only general canvas node, one selected environment and current canvas.change grant. The synchronous response follows a durable assistant turn; user prompt, model choice, status and audit are persisted. One node reply runs at a time and returns 409 reply_in_progress for a concurrent run. The configured model receives only this node context and completed turns; tool invocations are rejected, and model failure returns 503 with the failed user prompt retained. A deleted session or revoked grant cannot commit a late reply. Investigation nodes are separate and remain unavailable here.')
+    desc='Owner-only general canvas node, one selected environment and current canvas.change grant. The synchronous response follows a durable assistant turn; user prompt, model choice, status and audit are persisted. One node reply runs at a time and returns 409 reply_in_progress for a concurrent run. The configured model receives the current node blocks, blocks from all transitive ancestors, and prior completed node and ancestor turn pairs within a 24 KiB context budget; sibling, descendant, and failed turns are excluded. Oversize context returns 413 node_context_too_large. Tool invocations are rejected, and model failure returns 503 with the failed user prompt retained. A deleted session or revoked grant cannot commit a late reply. Investigation nodes are separate and remain unavailable here.')
+P['/canvases/{id}/nodes/{node}/messages']['post']['responses']['413'] = {
+    'description':'Current and inherited node context exceeds the 24 KiB model budget',
+    'content':{'application/json':{'schema':ref('Error')}}}
 S['V3InvestigationBranchContext'] = obj({
     'branch_id': string(), 'revision': integer(minimum=0),
     'messages': arr({})}, ['branch_id','revision','messages'])
@@ -505,13 +553,15 @@ v3_route('post','/silences/preview','Count currently matching Alertmanager alert
         'minItems':1,'maxItems':20}}, ['matchers']),
     response=obj({'affects':integer(minimum=0),'sample':{'type':'array','items':string(),'maxItems':5}}, ['affects','sample']),
     desc='Read-only live snapshot in exactly one selected environment; all is rejected with 409. The selected environment is an implicit exact matcher. An exact application= provider label must be bound by server configuration to an active persisted application and requires current silences.view on that application or owner team; unknown and hidden bindings both return 404. Without an exact application matcher, current environment-wide silences.view and silences.manage are required. Affects counts all matching current alerts in that selected environment, not historical or future alerts. Sample contains at most five distinct sorted real alertname values, not representative alert records. More than 500 current-environment alerts, an upstream error, or malformed upstream null returns 503 without partial counts. No silence is created. The current frontend form and stale-result handling are not compatible with the authorization/refresh semantics, so page acceptance remains pending.')
-v3_route('get','/inhibitions','Read environment-scoped Alertmanager inhibition configuration',
+v3_route('get','/inhibitions','Read authorized Alertmanager inhibition configuration',
     response=obj({'items':arr(ref('V3InhibitionRead')),'partial':v3_bool(),
         'unavailable':arr(string()),'unavailable_environments':arr(string()),
         'unscoped_present':v3_bool()},
-        ['items','partial','unavailable','unavailable_environments','unscoped_present']),
-    desc='Partial projection: only rules with exact source and target environment matchers are returned. Other-environment rules do not affect status or coverage; broad rules set only unscoped_present. Alertmanager status does not expose per-rule active or hit counts, so active is omitted and stat explains unavailable data. Populated lists return 206, not a fabricated full V3 DTO. Unconfigured or failed sources return 503.')
-P['/inhibitions']['get']['responses']['206'] = P['/inhibitions']['get']['responses']['200']
+        ['items','partial','unavailable','unavailable_environments','unscoped_present']),status=206,
+    desc='Always 206 partial when successful, including an empty list: only rules with exact source and target environment matchers are considered. An application-scoped rule also needs a server-owned application-label-to-active-ID binding and current application or owner-team silences.view grant for every exact application matcher. Wider application scope requires both current environment-wide silences.view and silences.manage. Cross-environment, inactive, unbound, hidden, mixed, and ambiguous rules are omitted; only authorized environment administrators may receive unscoped_present=true. Alertmanager status has no per-rule activity or hit counts, so active is omitted and stat explains unavailable data. Authorization is checked before reading upstream; unconfigured or failed upstream returns 503 without partial results.')
+P['/inhibitions']['get']['responses']['503'] = {
+    'description':'Authorized inhibition source, scope, or application catalog is unavailable',
+    'content':{'application/json':{'schema':ref('Error')}}}
 
 # V3 review records are separate from historical rollback action plans. A
 # trusted in-process producer must create one with complete sourced evidence;
@@ -814,20 +864,41 @@ v3_route('patch','/agents/{id}/level','Change an Agent permission level within i
     response=obj({'level':string(),'max_level':string()},['level','max_level']),
     desc='Requires scoped agents.manage; a requested level above the persisted environment maximum returns 409. This metadata does not grant an unconnected runtime tool execution path.')
 v3_route('get','/prompts','List bounded persisted Prompt versions',
-    response=obj({'items':arr(obj({**fieldnames('id kind name version status')},
-        ['id','kind','name','version','status'])),'truncated':v3_bool()},['items','truncated']),
-    desc='At most 200 persisted Prompt identities; skills and runtime usage are not represented by this response. The full Prompt page remains mock.')
+    query=[v3_query('q',string(maxLength=160))],
+    response=obj({'items':arr(obj({**fieldnames('id kind name version')},
+        ['id','kind','name','version'])),'truncated':v3_bool(),
+        'partial':v3_bool(),'unavailable_fields':arr(string())},
+        ['items','truncated','partial','unavailable_fields']),
+    desc='At most 200 visible persisted Prompt identities with a nonzero version. Optional q matches ID or name, trimmed and bounded to 160 Unicode characters; excess returns localized 422. More than 200 visible matches returns 413 prompt_list_too_large rather than silent truncation. Skills and publication status are unavailable fields; runtime binding is not attested. The full Prompt page remains mock.')
+P['/prompts']['get']['responses']['413'] = {
+    'description':'More than 200 visible Prompt identities; narrow q',
+    'content':{'application/json':{'schema':ref('Error')}}}
+P['/prompts']['get']['responses']['422'] = {
+    'description':'Search term exceeds 160 Unicode characters; message follows Accept-Language zh/en',
+    'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('get','/prompts/{id}','Read one stored Prompt version',
-    response=obj({**fieldnames('id name version status notes'),
+    response=obj({**fieldnames('id name version notes'),
         'variables':arr(string()),
         'used_by':string(),'lines':arr(obj({'text':string()},['text'])),
-        'scope':{'type':'object','additionalProperties':True}},
-        ['id','name','version','status','variables','used_by','lines','notes','scope']),
-    desc='Stored Prompt text and metadata only; not a model trial, published runtime version or complete frontend PromptDetail.')
+        'registered_agent':obj(fieldnames('id name'),['id','name']),
+        'scope':obj(fieldnames('application_id environment_id'),['application_id','environment_id']),
+        'partial':v3_bool(),'unavailable_fields':arr(string())},
+        ['id','name','version','variables','used_by','lines','notes','registered_agent','scope','partial','unavailable_fields']),
+    desc='Reads the current persisted Prompt version and registered Agent under one scoped, authorized transaction. Variables are parsed from persisted text; lines preserve the text for the frontend editor. Publication status, release notes and runtime usage are unavailable, with localized explanatory used_by and notes. Unknown or hidden Prompt returns 404; a Prompt with no version returns 409; storage or policy failure returns 503. This does not prove a runtime-bound Prompt or complete frontend page.')
+for _status, _description in {
+    '404':'Unknown or hidden Prompt identity',
+    '409':'Registered Prompt has no persisted version',
+    '503':'Prompt storage, authorization policy, or current version is unavailable',
+}.items():
+    P['/prompts/{id}']['get']['responses'][_status] = {
+        'description':_description,'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('post','/prompts/{id}/versions','Store a new Prompt text revision',
     role='viewer with scoped agents.change',
     body=obj({'text':string()},['text']),response=obj({'version':string(pattern=r'^v[1-9][0-9]*$')},['version']),status=201,
-    desc='Stores a nonblank text revision of at most 20000 characters with original whitespace and transactional audit, returning its vN display version. Requires a registered Prompt under the current scoped Agent; it does not publish or execute the Prompt.')
+    desc='Stores a nonblank text revision of at most 20000 Unicode characters with original whitespace and transactional audit, returning its vN display version. Invalid JSON, multiple JSON objects or invalid text return 422 with an Accept-Language zh/en message. Requires a registered Prompt under the current scoped Agent; it does not publish or execute the Prompt.')
+P['/prompts/{id}/versions']['post']['responses']['422'] = {
+    'description':'Invalid JSON body or Prompt text; message follows Accept-Language zh/en',
+    'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('post','/prompts/{id}/trial','Run a Prompt comparison trial',
     role='viewer with scoped agents.change',
     body=obj({'case':string(),'a':string(),'b':string()},['case','a','b']),status=503,

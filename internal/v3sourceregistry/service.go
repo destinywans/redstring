@@ -27,14 +27,26 @@ type Access interface {
 }
 
 type Service struct {
-	DB     *pgxpool.Pool
-	Access Access
+	DB      *pgxpool.Pool
+	Access  Access
+	Readers map[string]Reader
 }
 
 func New(db *pgxpool.Pool, access Access) *Service { return &Service{DB: db, Access: access} }
 
+// NewWithReaders enables only explicitly configured source-specific readers.
+// The default constructor deliberately leaves external reads unavailable.
+func NewWithReaders(db *pgxpool.Pool, access Access, readers map[string]Reader) *Service {
+	configured := make(map[string]Reader, len(readers))
+	for kind, reader := range readers {
+		configured[kind] = reader
+	}
+	return &Service{DB: db, Access: access, Readers: configured}
+}
+
 // Auxiliary routes deliberately avoid the complete V3 KnowledgeSource DTO.
-// There is no connector runner, source ACL adapter, or sync evidence yet.
+// A configured reader can record one scoped observation; scheduling and
+// trusted source-to-index ingestion remain unavailable.
 func (s *Service) Register(api *httpapi.Server) {
 	for _, route := range []struct {
 		pattern string
@@ -44,6 +56,8 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"GET /api/v1/knowledge-sources/registrations", s.list, "view"},
 		{"POST /api/v1/knowledge-sources/registrations", s.create, "manage"},
 		{"POST /api/v1/knowledge-sources/test", s.testConnection, "manage"},
+		{"POST /api/v1/knowledge-sources/registrations/{id}/sync", s.sync, "manage"},
+		{"GET /api/v1/knowledge-sources/registrations/{id}/evidence", s.evidence, "view"},
 	} {
 		api.Register(route.pattern, "viewer", route.handler)
 		api.MarkV3ObjectRoute(route.pattern, "knowledge", route.action)
@@ -183,9 +197,8 @@ func authorizationError(w http.ResponseWriter, err error) {
 	}
 }
 
-// Test fails closed until a Vault resolver and a source-specific read-only
-// connector are available. A syntactically valid request is not proof of a
-// live connection or readable spaces.
+// Test fails closed until a source-specific read-only prober is installed.
+// The result is a point-in-time probe, not a persisted sync or index status.
 func (s *Service) testConnection(w http.ResponseWriter, r *http.Request) {
 	user, envs, ok := s.ready(w, r, true)
 	if !ok {
@@ -203,7 +216,23 @@ func (s *Service) testConnection(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "invalid_source_connection", err.Error())
 		return
 	}
-	httpapi.Error(w, 501, "source_connection_test_unavailable", "No Vault-backed source connector is configured for a live read-only connection test")
+	prober, ok := s.Readers[v.Type].(ConnectionTester)
+	if !ok {
+		httpapi.Error(w, 501, "source_connection_test_unavailable", "No read-only connection prober is configured for this source type")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	if err := prober.Probe(ctx, ReadSpec{SourceType: v.Type, URL: v.URL, SecretRef: v.SecretRef, EnvironmentID: envs[0]}); err != nil {
+		httpapi.Error(w, 503, "source_connection_failed", "Read-only source connection failed")
+		return
+	}
+	if err := s.authorized(ctx, user, "manage", envs[0], "", ""); err != nil {
+		authorizationError(w, err)
+		return
+	}
+	httpapi.WriteJSON(w, 200, map[string]any{"connected": true, "observed_at": time.Now().UTC(),
+		"persistent": false, "scope_verified": false})
 }
 
 type item struct {

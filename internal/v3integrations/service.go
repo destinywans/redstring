@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -695,6 +696,25 @@ func (s *Service) test(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
+	current, err := scanConnector(tx.QueryRow(r.Context(), "SELECT "+columns+" FROM v3_connectors WHERE id=$1 AND environment_id=$2 FOR UPDATE", c.ID, c.EnvironmentID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpapi.Error(w, 409, "connector_changed", "Connector scope changed during connection check")
+		return
+	}
+	if err != nil {
+		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
+		return
+	}
+	if !s.authorizeWriteTx(w, r, tx, c.EnvironmentID) {
+		return
+	}
+	if !current.Enabled || current.Provider != c.Provider || current.Name != c.Name ||
+		current.Category != c.Category || current.Endpoint != c.Endpoint ||
+		current.AuthMethod != c.AuthMethod || current.CredentialRef != c.CredentialRef ||
+		current.Webhook != c.Webhook || !reflect.DeepEqual(current.Tools, c.Tools) {
+		httpapi.Error(w, 409, "connector_changed", "Connector configuration changed during connection check")
+		return
+	}
 	_, err = tx.Exec(r.Context(), "UPDATE v3_connectors SET status=$1,last_checked_at=now(),last_latency_ms=$2,last_error_code=$3,updated_at=now() WHERE id=$4 AND environment_id=$5", status, result.LatencyMS, result.ErrorCode, c.ID, c.EnvironmentID)
 	if err != nil {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")

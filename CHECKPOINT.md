@@ -1,5 +1,12 @@
 # AIOps Canvas 检查点
 
+## CP-077 · 2026-09-28 · 隔离 PostgreSQL 定向验证与回复审计 SQL 修复
+
+- Docker Desktop 29.8 已运行；原先停止的 `aiops-canvas-db-1` 已启动并通过 PG17 健康检查。所有验证只在临时数据库及测试创建的随机 schema 内执行，临时数据库已删除；现有 `aiops` 业务库未执行迁移或测试写入。
+- 新版 RBAC 事务内撤权、附件内容读取、个人偏好持久化及并发更新的定向 PostgreSQL 用例通过。对话租约/恢复首次暴露 `jsonb_build_object` 中参数无法推断类型（42P18/42P08）；对仅出现在 JSON 构造中的参数显式指定类型后，`internal/v3conversation` 在隔离 PG17 的包内测试通过。新安装全量迁移随个人偏好用例成功；从旧 schema 迁移的样例调查和环境保存检查也通过。
+- 旧 `TestPlatformFoundationPostgres` 在后续旧应用 ACL 断言处失败：它只创建旧 `application_grants`，而现行 `AuthorizeApplication` 要求应用绑定基础设施资源，预期已过时。代码检查另发现旧模式的 `operate` 可能与资源 `view` 共用判断，viewer 在特定资源授权下可能通过旧创建调查路径；V3 实例会以 501 阻断未迁移路由，但旧模式风险仍需单独定向验证和修复，不能由旧测试失败直接推断 V3 授权失效。
+- 037 审计历史回填在已有大量数据上的锁时、双实例回复恢复、真实 HTTP/SSE、第三方服务和前端 HTTP 模式均未验证。主契约状态仍为 2/166 `implemented`；相关 Linear 为 WAN-117 与 WAN-121。
+
 ## CP-076 · 2026-09-28 · V3 附件持久读取
 
 - `POST /uploads` 的文件与图片响应现在返回 `/api/v1/uploads/{id}/content`，数据库仍只在链接附件的 `url` 列保存外部 URL；消息引用校验重建并核对完整的客户端元数据。新增 GET 内容读取按所有者、实例中已配置的环境及当前 `conversation.view` 授权限制；无环境头的浏览器 GET 先由入口校验会话，再从持久记录确定环境。先查元数据和授权，后按相同记录条件读取内容，避免撤权用户反复触发大文件读取。普通文件安全保留原文件名作为附件下载；重新验证 MIME 的 PNG/JPEG/GIF/WebP 图片可内联，响应禁缓存、禁 MIME 猜测并设置 CSP sandbox。

@@ -45,7 +45,7 @@ func (s *Service) appendToolAudit(ctx context.Context, owner, env, conv, reply, 
 	)
 	INSERT INTO management_audit(actor_id,actor_kind,action,target,outcome,changes)
 	SELECT $1,'agent','v3.conversation.tool',$2,$3,
-		jsonb_build_object('environment_id',$4,'conversation_id',$5,'reply_id',owned.id,'step_id',$7,'duration_ms',$8,'resource_id',$9)
+		jsonb_build_object('environment_id',$4::text,'conversation_id',$5,'reply_id',owned.id,'step_id',$7::text,'duration_ms',$8::bigint,'resource_id',$9::text)
 	FROM owned`, owner, invocation.Name, outcome, env, conv, reply, invocation.StepID, invocation.DurationMS, invocation.TargetID, claim)
 	if err == nil && result.RowsAffected() == 0 {
 		return ErrBusy

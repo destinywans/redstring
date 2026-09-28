@@ -419,7 +419,7 @@ func (s *Service) finishLocked(ctx context.Context, tx pgx.Tx, conv, reply, assi
 		return err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,actor_kind,action,target,outcome,changes)
-		SELECT owner_id,'system','v3.conversation.reply',$2,$3,jsonb_build_object('conversation_id',$1)
+		SELECT owner_id,'system','v3.conversation.reply',$2,$3,jsonb_build_object('conversation_id',$1::text)
 		FROM v3_conversations WHERE id=$1`, conv, reply, state)
 	if err != nil {
 		return err

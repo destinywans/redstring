@@ -43,7 +43,7 @@ func (s *Service) ClaimAlert(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
-	if err = s.scoped(r, v.ApplicationID, v.EnvironmentKey, "change"); err != nil {
+	if err = s.scopedTx(r, tx, v.ApplicationID, v.EnvironmentKey, "change"); err != nil {
 		respondErr(w, err)
 		return
 	}
@@ -58,7 +58,7 @@ func (s *Service) ClaimAlert(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, err = tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,actor_kind,application_id,action,target,outcome,changes)
-			VALUES($1,'user',$2,'alert.claim',$3,'succeeded',jsonb_build_object('environment_id',$4,'assignee_id',$1))`,
+			VALUES($1,'user',$2,'alert.claim',$3,'succeeded',jsonb_build_object('environment_id',$4::text,'assignee_id',$1::text))`,
 			user.ID, v.ApplicationID, v.ID, v.EnvironmentKey); err != nil {
 			respondErr(w, err)
 			return

@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-103 · 2026-09-28 · MCP 与来源登记快照、GitLab 只读变更证据
+
+- 从 WAN-122 业务分支按序合入 `2296d4c`→`c8a3e06`、`9792a1a`→`9e83032`、`90fba52`→`83a714b`、`be4f7b4`→`942e5c4`。MCP 和来源登记读取在同一数据库快照中完成，先关闭结果集再于事务内核对授权；绑定/创建在写事务内复核当前授权，避免单连接池死锁与撤权后写入。
+- 新增辅助 `GET /changes/merge-requests` 与 `GET /changes/commits/{sha}`：仅查询当前环境中显式绑定、已启用的 GitLab 项目及各自单独启用的只读工具，前后复核来源和 `services.view` / `connectors.view`，上游请求限制时间、响应大小、分页或精确 SHA。只返回可核实的源元数据，不推断差异、部署或风险；OpenAPI、文字主契约和辅助契约已同步。
+- 一次性 PG17 随机 schema 中 `go test ./internal/v3mcp ./internal/v3changes ./internal/v3sourceregistry ./internal/v3integrations -count=1` 通过，临时容器已清理；`cmd/aiops` 编译及 270 操作的契约引用、165 行 V3 主契约和路由矩阵检查通过。未持有用于实连的最小范围 GitLab 凭据，也未迁移现有库、调用真实外部服务或运行全量测试；这两条辅助读取不增加主契约完成数，仍为 **32/166 `implemented`**。
+
 ## CP-102 · 2026-09-28 · 工作区与角色写入竞态门禁
 
 - 从 WAN-119 业务分支按序 cherry-pick `4682867`→`5575b8c` 和 `9332f53`→`70a8b27`。`PUT /workspace` 在锁定事务内复核有效平台管理员与全局 `workspace.manage`，保存后返回持久化值；`PUT /roles/{id}` 按账号/旧角色/矩阵写入的既有锁序复核当前 `roles.manage`，保护最后有效管理员。读取或保存遇到平面矩阵无法完整表示的授权会明确返回 409，避免把部分授权投影为可直接覆盖的五列矩阵。

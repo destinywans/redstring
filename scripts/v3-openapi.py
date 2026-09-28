@@ -667,6 +667,51 @@ for parameter in P['/changes/records']['get']['parameters']:
 P['/changes/records']['get']['responses']['502'] = {
     'description':'GitLab pipeline source failed or returned an invalid bounded response',
     'content':{'application/json':{'schema':ref('Error')}}}
+S['V3GitLabMergeRequestRecord'] = obj({**fieldnames(
+    'iid provider service_id environment_id binding_id connector_id project_id state source_branch target_branch sha merge_commit_sha squash_commit_sha created_at updated_at'),
+    'merged_at':{'type':['string','null'],'format':'date-time'}},
+    ['iid','provider','service_id','environment_id','binding_id','connector_id','project_id',
+     'state','source_branch','target_branch','sha','merge_commit_sha','squash_commit_sha',
+     'created_at','updated_at','merged_at'])
+S['V3GitLabMergeRequestRecord']['properties']['provider'] = string(enum=['gitlab'])
+S['V3GitLabMergeRequestRecord']['properties']['state'] = string(enum=['opened','closed','locked','merged'])
+for timestamp in ('created_at','updated_at'):
+    S['V3GitLabMergeRequestRecord']['properties'][timestamp] = string(format='date-time')
+v3_route('get','/changes/merge-requests','Read bound GitLab merge request metadata',
+    query=[v3_query('service_id'),v3_query('binding_id'),
+           v3_query('page',integer(minimum=1,maximum=1000)),
+           v3_query('state',string(enum=['all','opened','closed','locked','merged'])),
+           v3_query('target_branch')],
+    response=obj({'items':arr(ref('V3GitLabMergeRequestRecord')),
+                  'page':integer(minimum=1),'page_size':integer(enum=[20]),
+                  'next_page':integer(minimum=0)},['items','page','page_size','next_page']),
+    desc='Auxiliary read-only metadata from one explicitly bound numeric GitLab project in the selected environment. Requires services.view, connectors.view and the enabled list_merge_requests tool. Source and authorization are rechecked after the bounded upstream GET. Returns branches, state, commit identifiers and GitLab times only, not diff, deployment, risk or alert correlation. Invalid filters return 422, revoked or changed binding returns 404/409, unavailable source returns 503 and invalid upstream response returns 502.')
+for parameter in P['/changes/merge-requests']['get']['parameters']:
+    if parameter['name'] in ('service_id','binding_id'):
+        parameter['required'] = True
+P['/changes/merge-requests']['get']['responses']['502'] = {
+    'description':'GitLab merge request source failed or returned an invalid bounded response',
+    'content':{'application/json':{'schema':ref('Error')}}}
+S['V3GitLabCommitRecord'] = obj({**fieldnames(
+    'sha provider service_id environment_id binding_id connector_id project_id title authored_at committed_at'),
+    'parent_shas':arr(string())},
+    ['sha','provider','service_id','environment_id','binding_id','connector_id','project_id',
+     'title','authored_at','committed_at','parent_shas'])
+S['V3GitLabCommitRecord']['properties']['provider'] = string(enum=['gitlab'])
+for timestamp in ('authored_at','committed_at'):
+    S['V3GitLabCommitRecord']['properties'][timestamp] = string(format='date-time')
+v3_route('get','/changes/commits/{sha}','Read bound GitLab commit metadata',
+    query=[v3_query('service_id'),v3_query('binding_id')],
+    response=ref('V3GitLabCommitRecord'),
+    desc='Auxiliary read-only metadata for an exact 40- or 64-hex commit SHA from one explicitly bound numeric GitLab project. Requires services.view, connectors.view and the separate enabled get_commit tool; get_commit_diff never grants this read. Source and authorization are rechecked after the bounded upstream GET. Returns title, times and parent SHAs, not message body, diff, author email, deployment or risk. Invalid SHA/target returns 422, missing or revoked record returns 404, changed binding returns 409, unavailable source returns 503 and invalid upstream response returns 502.')
+for parameter in P['/changes/commits/{sha}']['get']['parameters']:
+    if parameter['name'] in ('service_id','binding_id'):
+        parameter['required'] = True
+    if parameter['name'] == 'sha':
+        parameter['schema'] = string(pattern='^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$')
+P['/changes/commits/{sha}']['get']['responses']['502'] = {
+    'description':'GitLab commit source failed or returned invalid bounded metadata',
+    'content':{'application/json':{'schema':ref('Error')}}}
 S['V3MetricProbe'] = obj({'status':string(enum=['observed','no_samples','not_registered','not_configured','unavailable','truncated']),
     'series':integer(minimum=0),'samples':integer(minimum=0)},['status','series','samples'])
 S['V3IncompleteMetrics'] = obj({'error':obj({'code':string(),'message':string()},['code','message']),

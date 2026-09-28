@@ -7,6 +7,7 @@
 - Mock 实现：`web/src/v3/mock/domains/*.ts`，每个文件对应下面一节；`VITE_API_MODE=http` 时前端直接请求真实后端。
 - 与既有 `docs/api-contract.md` / `internal/apicontract/openapi.json` 的关系：v3 为新 UI 所需的读模型。后端落地时优先复用既有资源（调查、分支、提案、执行、Runbook、连接器）；能直接对齐的路径就对齐，对不齐的在 OpenAPI 中新增，再同步 `scripts/build-openapi.py`。本文件的"状态"列在后端实现后改为 `implemented`。
 - `scripts/check-v3-contract.py` 核对的 165 条 Mock 路由，加上前端模拟而无 Mock 路由的 SSE `GET /conversations/{id}/events`，共 166 条。`implemented` 只表示后端真实处理、范围鉴权、契约和定向检查具备；不表示外部系统已实连或前端 HTTP 模式已验收。阶段进展与未完成项见 [后端实施记录](../plans/2026-09-28-v3-backend-implementation.md)。
+- 并行后端会话共用的 DTO、实例/环境、授权、错误、审计及迁移编号约束见 [V3 后端并行集成基线](v3-integration-baseline.md)；该文件不改变本契约的字段、路径或完成状态。
 
 ## 通用约定
 

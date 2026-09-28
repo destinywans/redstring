@@ -25635,6 +25635,16 @@
                 }
               }
             }
+          },
+          "502": {
+            "description": "GitLab project verification failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "tags": [

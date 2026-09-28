@@ -295,6 +295,9 @@ v3_route('post','/connectors/{id}/activate','Activate verified GitLab project bi
     response=obj({'enabled':v3_bool(),'status':string(enum=['ok']),'verified_projects':integer(),'webhook_active':v3_bool()},
         ['enabled','status','verified_projects','webhook_active']),
     desc='Auxiliary V3 operation outside the 166 page routes. Requires one selected environment and connectors.manage. A disabled GitLab registration needs a Vault credential reference and at least one explicitly bound numeric GitLab project. The backend performs a GET for each exact project through GitLab, then rechecks authorization, connector configuration, and bindings before enabling it. This does not attest the token is read-only. Tools remain disabled; webhook=true remains intent only and no remote Webhook is provisioned. A failed check leaves the registration disabled; changing the project bindings requires reactivation. This is a point-in-time verification, not continuous health.')
+P['/connectors/{id}/activate']['post']['responses']['502'] = {
+    'description':'GitLab project verification failed',
+    'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('patch','/connectors/{id}','Update connector configuration',role='admin',
     body=obj({'tools':arr(obj({'name':string(),'enabled':v3_bool()}))},['tools']),
     response=obj({'ok':v3_bool(),'tools':arr(obj({'name':string(),'desc':string(),'enabled':v3_bool()}))}))

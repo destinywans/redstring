@@ -228,7 +228,7 @@
 
 Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v1/events/{alert|change|incident|resource|oncall}`，请求头 `Authorization: Bearer`、`Idempotency-Key`、`X-Signature` + `X-Timestamp`；返回 `202 / 409 / 422 / 401`。
 
-连接器辅助激活接口（不计入 166 项页面契约）：`POST /connectors/{id}/activate`，在单一环境下传 `{ credential_ref: "vault://mount/path#field" }`。当前仅支持 GitLab：须先通过服务环境的显式目标绑定登记至少一个数字项目 ID；后端用 Vault 凭据对每个项目发起 GET 验证，再复核权限、连接器配置和绑定集合，成功后启用连接器。验证并不证明令牌本身只有只读权限。工具仍保持关闭，`webhook` 仅记录意图；验证失败不启用，项目绑定变化须重新激活。返回 `{ enabled: true, status: "ok", verified_projects, webhook_active: false }`，表示一次验证结果，不代表持续健康。
+连接器辅助激活接口（不计入 166 项页面契约）：`POST /connectors/{id}/activate`，在单一环境下传 `{ credential_ref: "vault://mount/path#field" }`。当前仅支持 GitLab：须先通过服务环境的显式目标绑定登记至少一个数字项目 ID；后端用 Vault 凭据对每个项目发起 GET 验证，再复核权限、连接器配置和绑定集合，成功后启用连接器。验证并不证明令牌本身只有只读权限。工具仍保持关闭，`webhook` 仅记录意图；上游项目验证失败返回 502 且不启用，项目绑定变化须重新激活。返回 `{ enabled: true, status: "ok", verified_projects, webhook_active: false }`，表示一次验证结果，不代表持续健康。
 
 ## Agent 运行台（`agents.ts`）
 

@@ -1,0 +1,19 @@
+{
+  "environments": [
+    {
+      "id": "staging",
+      "label": { "zh": "预发环境", "en": "Staging" }
+    }
+  ],
+  "sources": [
+    {
+      "id": "staging-prometheus",
+      "brand": "prometheus",
+      "environment_id": "staging",
+      "name": { "zh": "预发指标", "en": "Staging metrics" },
+      "purpose": { "zh": "跨环境指标对比来源", "en": "Cross-environment metrics comparison source" },
+      "endpoint": "https://prometheus.example.invalid",
+      "vault_ref": "vault://secret/aiops/staging-prometheus#token"
+    }
+  ]
+}

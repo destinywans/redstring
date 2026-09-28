@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CONTRACT = ROOT / "docs/api/v3-contract.md"
 OUTPUT = ROOT / "docs/api/v3-backend-route-matrix.md"
 ROW = re.compile(r"^\| (GET|POST|PUT|PATCH|DELETE) \| `([^`]+)` \|")
-V3_ENTRY = "exec(Path('scripts/v3-openapi.py').read_text())"
+V3_ENTRY = "# V3_CONTRACT_ENTRY:"
 
 # These views combine several authoritative records or external read sources.
 # Other paths absent from the old route set are independent new operations.

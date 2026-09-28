@@ -106,6 +106,12 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	}
 	api.RegisterPublic("GET /api/v1/instance", func(w http.ResponseWriter, _ *http.Request) { httpapi.WriteJSON(w, http.StatusOK, info) })
 	v3admin.New(s).Register(api)
+	lowerSources, err := loadV3LowerSources(os.Getenv("AIOPS_V3_LOWER_SOURCES_CONFIG"), cfg.Tier)
+	if err != nil {
+		return fmt.Errorf("load V3 lower-environment sources: %w", err)
+	}
+	lowerSources.Register(api)
+	api.MarkV3Route("GET /api/v1/integrations/lower-sources", "connectors", "view")
 	auditV3 := v3audit.New(s.DB, cfg.EnvironmentIDs)
 	auditV3.Register(api)
 	v3canvas.New(s).Register(api)

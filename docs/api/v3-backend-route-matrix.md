@@ -22,7 +22,7 @@
 | 身份与全局 | GET | `/models/admin` | 新增 | mock |
 | 身份与全局 | POST | `/uploads` | 新增 | mock |
 | 身份与全局 | GET | `/instance` | 新增 | implemented |
-| 身份与全局 | GET | `/integrations/lower-sources` | 新增 | mock |
+| 身份与全局 | GET | `/integrations/lower-sources` | 新增 | implemented |
 | 身份与全局 | GET | `/config-sync` | 新增 | mock |
 | 身份与全局 | POST | `/config-sync/{id}/import` | 新增 | mock |
 | 身份与全局 | POST | `/promotions` | 新增 | mock |

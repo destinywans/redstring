@@ -41,6 +41,8 @@ S['V3EnvironmentInfo'] = v3_object('id label note', {
 S['V3InstanceInfo'] = v3_object('name domain default_env', {
     'tier': string(enum=['production','nonprod']), 'environments': arr(ref('V3EnvironmentInfo')),
     'other': v3_object('label url domain')}, ['tier','name','domain','environments','default_env'])
+S['V3LowerSource'] = v3_object('id name brand env env_label purpose credential',
+    required=['id','name','brand','env','env_label','purpose','credential'])
 S['V3ProfileView'] = v3_object('name display_name department title timezone', {
     'contacts': arr(obj({'kind': string(enum=['email','phone','feishu']), **fieldnames('label value'), 'verified': v3_bool(), 'note': string()})),
     'notifications': arr(obj({'event': string(), 'label': string(), 'channels': obj({k:v3_bool() for k in ['feishu','email','sms','phone']})})),
@@ -64,6 +66,12 @@ S['V3AIPreferences'] = obj({'default': ref('V3ModelChoice'), 'canvas_inherit': v
 S['V3NotificationSettings'] = obj({'quiet': obj({'enabled': v3_bool(), 'from': string(), 'to': string()}),
     'digest': string(enum=['off','daily','weekly']), 'subscriptions': arr(v3_object('id label sub', {'on': v3_bool()}))})
 v3_route('get','/instance','Read the configured V3 isolation boundary',role='public',response=ref('V3InstanceInfo'))
+v3_route('get','/integrations/lower-sources','List configured lower-environment source metadata',
+    response=listed('V3LowerSource'),
+    desc='Requires connectors.view in the production environment. Only available on the production instance; non-production returns 404 after route authorization. The credential field reports that a Vault reference is configured, not that connectivity or read-only source credentials have been verified. Source endpoints and Vault references are never returned.')
+P['/integrations/lower-sources']['get']['responses']['404'] = {
+    'description':'Not available on a non-production instance',
+    'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('get','/me','Read current account',response=ref('V3Me'))
 v3_route('patch','/me','Update current account',body=v3_object('name phone title timezone'),response=ref('V3Me'))
 v3_route('patch','/me/preferences','Update visual and language preferences',body=ref('V3PreferencesPatch'),response=ref('V3Preferences'))

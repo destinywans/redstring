@@ -225,8 +225,9 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				bindings := append([]core.Binding(nil), visibleBindings[candidate.appID]...)
-				bindings = append(bindings, core.Binding{Kind: "gitlab", ConnectorID: candidate.connectorID, Resource: candidate.externalID})
-				if !s.mappingBindingSupported(bindings) {
+				expected := core.Binding{Kind: "gitlab", ConnectorID: candidate.connectorID, Resource: candidate.externalID}
+				bindings = append(bindings, expected)
+				if !s.mappingBindingSupported(bindings, expected) {
 					continue
 				}
 				row := byName[candidate.key]

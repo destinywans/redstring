@@ -58,12 +58,20 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "invalid_query", "Log query is too long")
 		return
 	}
+	service := strings.TrimSpace(r.URL.Query().Get("service"))
+	if len(service) > 200 {
+		httpapi.Error(w, 422, "invalid_service", "Service filter is too long")
+		return
+	}
+	// An omitted levels parameter uses the default set. An explicitly empty
+	// selection (all UI level chips disabled) must not query every level.
+	noLevels := r.URL.Query().Has("levels") && r.URL.Query().Get("levels") == ""
 	levels, ok := requestedLogLevels(r.URL.Query().Get("levels"))
 	if !ok {
 		httpapi.Error(w, 422, "invalid_levels", "Choose ERROR, WARN or INFO")
 		return
 	}
-	targets, err := s.observationTargets(r.Context(), httpapi.CurrentUser(r), envs, "logs", r.URL.Query().Get("service"), []string{"loki", "elasticsearch"})
+	targets, err := s.observationTargets(r.Context(), httpapi.CurrentUser(r), envs, "logs", service, []string{"loki", "elasticsearch"})
 	if err != nil {
 		if errors.Is(err, store.ErrForbidden) {
 			httpapi.Error(w, 403, "forbidden", "Logs are outside your authorized scope")
@@ -78,6 +86,11 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(targets) > 3 {
 		httpapi.Error(w, 422, "scope_limit", "Select a service or narrow the environment")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	if noLevels {
+		httpapi.WriteJSON(w, 200, map[string]any{"total": "0", "errors": "0", "histogram": [][3]int64{}, "items": []logLine{}, "patterns": []any{}})
 		return
 	}
 	window := observationWindow(30 * time.Minute)
@@ -126,6 +139,9 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 	for _, key := range keys {
 		histogram = append(histogram, buckets[key])
 	}
+	// The current providers return complete counts but only a bounded sample of
+	// individual lines. A pattern count or trend derived from that sample would
+	// misrepresent the 30-minute population; AI clustering is not connected.
 	httpapi.WriteJSON(w, 200, map[string]any{"total": fmt.Sprint(total), "errors": fmt.Sprint(errorsCount),
 		"histogram": histogram, "items": items, "patterns": []any{}})
 }

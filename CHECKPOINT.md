@@ -1,5 +1,10 @@
 # AIOps Canvas 检查点
 
+## CP-098 · 2026-09-28 · 画布范围测试并入与跨域 DTO 边界
+
+- 从主会话 `codex/v3-backend` 的 `f59647c` 独立 cherry-pick 通用画布读取范围测试到集成分支 `7b8bb91`，避免旧 checkout 遗留测试随新 worktree 丢失。一次性 PG17 随机 schema 中 `TestCanvasTemplatesHTTPV3ScopeSanitizationAndBoundedList` 通过，验证本人/环境/`all` 范围与调查画布尚不可用边界；容器已清理。没有据此把画布主契约标完成。
+- 对话列表 `tokens`、`team/triage` 计数和详情 `context.used/budget` 在真实来源未知时不能补零；当前前端类型仍要求数字且本轮不得改前端。因此领域会话可以返回显式未知，但对应主契约保持 `mock`，直到另行调整并验证前端契约。`GET /models/admin` 同样缺模型级健康、绑定、回退链、限额等可信来源，保持 `mock`。这两项为待复核的契约缺口，不增加 **32/166** 完成数。
+
 ## CP-097 · 2026-09-28 · 软删除身份的本地认证门禁
 
 - 集成分支 `codex/wan-117-v3-integration` 对 `Store.Login` 和 `Store.Session` 同时要求 `users.deleted_at IS NULL`。迁移 010 已约束软删除必须同时 disabled，正常 `DeleteMember` 也撤销会话；本次增加认证入口显式防线，与 OIDC 的软删除校验一致，不宣称正常路径原本可越权。

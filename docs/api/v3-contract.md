@@ -62,6 +62,8 @@
 | GET | `/models/admin` | | `ModelAdminView`（集成中心 › 模型） | mock |
 | POST | `/uploads` | multipart `file` + `kind`；链接与折叠粘贴用 JSON `{ kind, name, url \| text }` | `Upload`；单个 ≤ 20 MB，超出返回 413 | implemented |
 
+发现路由当前可按真实持久来源检索有权服务、事件、调查、有效人员与本人对话，支持中文与拼音，并分别将查询结果限制为 8 条搜索命中或 30 条提及候选；非空查询中任一来源类型匹配过宽时返回 413，不返回不完整成功结果。“最近访问”无真实行为记录，告警组、产物和 Runbook 预览无可用独立来源。调查结果暂链接画布列表，前端提及页签也尚未按类型重新查询；这三条主路由仍为 `mock`。
+
 ### 实例与环境（`instance.ts`）
 
 **一个平台实例只对应一个隔离边界。**生产平台独立部署：独立域名、数据库和凭据，界面上固定显示“生产”，不能切换。非生产平台管理开发、测试、预发和需求验证环境，可以切换，也可以选「全部非生产环境」查看。
@@ -227,13 +229,15 @@ Agent Trace 后端目前只能读受信生产者上报的有界 Span 元数据�
 | POST | `/connectors/{id}/test` | | `{ ok, latency_ms }` | implemented |
 | PATCH | `/connectors/{id}` | 如 `{ tools: [{ name, enabled }] }` | 更新结果 | mock |
 | POST | `/connectors` | `{ type, url, auth, tools, webhook, credential_ref? }`；凭据仅传 Vault 引用，缺凭据/项目范围的 GitLab 创建请求保存为未启用登记，`webhook` 仅记录意图，不自动创建 Webhook | `{ id }`；未启用登记不可测试连接或启用工具，补齐凭据及项目绑定后可通过辅助接口激活 | implemented |
-| GET | `/connector-types/{type}` | | `ConnectorType`（认证方式、权限范围、只读工具） | mock |
+| GET | `/connector-types/{type}` | | `ConnectorType`（真实探测器支持的认证方式；暂无类型级权限范围与可执行 Agent 工具时返回空数组） | mock |
 | GET | `/mcp-servers` | | `McpList` | mock |
 | GET | `/mcp-servers/{id}` | | `McpDetail` | mock |
 | PATCH | `/mcp-servers/{id}/tools/{name}` | `{ enabled }`（写入工具开启后仍只能以提案使用） | 结果 | mock |
 | POST | `/mcp-servers/{id}/review` | 审核新版本发现的工具 | 结果 | mock |
 
 当前 MCP 列表只是已显式绑定环境的登记元数据快照。服务端最多扫描 2000 条候选记录；若还有第 2001 条，返回 `413 candidate_scan_limit` 而不返回部分列表。超过 1000 条有权可见登记返回独立的 `413 scope_too_large`。这两个上限均不表示 MCP 健康、工具发现或执行可用。
+
+`GET /connector-types/{type}` 当前只描述已支持的连接器类型及探测器可接受的认证方式，要求当前环境的 `connectors.view`。版本、上游令牌权限与 Webhook 地址没有类型级可信来源，返回空值；尚无连接器支持的 Agent 工具执行器，因此 `tools: []`。未知类型错误尚未按语言契约本地化，暂不计为完成；新建向导的静态项目映射、事件、深链及工具说明也未接线，前端目录还有未支持的类型。
 | GET | `/ingest/pull/{id}` | | `PullDraft`（请求模板、样例、字段映射、预览） | mock |
 | POST | `/ingest/pull/{id}/test` | 映射 | `{ ok, rows, dropped }` | mock |
 | GET | `/ingest/push` | | `PushView`（事件类型、接口说明、投递记录、配套栈） | mock |
@@ -263,7 +267,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | GET | `/prompts` | | `{ items: PromptItem[] }` | mock |
 | GET | `/prompts/{id}` | | `PromptDetail` | mock |
 | POST | `/prompts/{id}/trial` | `{ case, a, b }` | `PromptTrial[]` | mock |
-| POST | `/prompts/{id}/versions` | `{ text }` | `{ version }` | mock |
+| POST | `/prompts/{id}/versions` | `{ text }` | `{ version }`（`vN`） | mock |
 | GET | `/agent-tools` | `kind: all\|read\|write` | `ToolsView` | mock |
 | GET | `/evals/{id}` | | `EvalExperiment` | mock |
 | POST | `/evals` | `{ agent_id, title, baseline_version, candidate_version }` | `{ id, status: "pending", execution_available: false }`，未启动评测 | mock |
@@ -275,7 +279,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | GET | `/guardrails` | `filter: all\|blocked\|masked` | `GuardrailsView` | mock |
 | PATCH | `/guardrails/{id}` | `{ enabled }`（强制规则不可关闭） | 结果 | mock |
 
-Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评测、发布意图、反馈和护栏设置；尚无评测执行器、流量路由消费者、Prompt trial 或完整运行/护栏观测生产者。`POST /prompts/{id}/trial` 明确返回 `503 prompt_trial_unavailable`，`POST /evals` 只创建 `pending` 元数据，发布和回滚不改变真实流量。部分读取返回 `null`、`partial: true` 或“未接入”；现有前端对 `score`、发布 token/门禁、评测、Trace、运行统计的 DTO 与请求体尚不兼容，不能直接切换 HTTP 模式。管理员门禁放行另需非空 `override_reason`，现有前端未提交；这些主契约行继续为 `mock`。
+Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评测、发布意图、反馈和护栏设置；尚无评测执行器、流量路由消费者、Prompt trial 或完整运行/护栏观测生产者。`POST /prompts/{id}/versions` 对已登记且当前有权的 Prompt 原样保存非空白文本，按 `vN` 返回版本，审计与修订同事务；但生产构造尚未登记 Prompt，前端默认 ID 在新库无法成功写入，面向用户的输入错误也未按语言契约本地化，因此仍为 `mock`。`POST /prompts/{id}/trial` 明确返回 `503 prompt_trial_unavailable`，`POST /evals` 只创建 `pending` 元数据，发布和回滚不改变真实流量。部分读取返回 `null`、`partial: true` 或“未接入”；现有前端对 `score`、发布 token/门禁、评测、Trace、运行统计的 DTO 与请求体尚不兼容，不能直接切换 HTTP 模式。管理员门禁放行另需非空 `override_reason`，现有前端未提交；相关主契约行继续为 `mock`。
 
 ## 设置（`settings.ts`）
 

@@ -256,8 +256,8 @@ v3_route('post','/canvas-templates','Save a safe canvas structure template',
     desc='Only structure is accepted; steps, Runbooks and content return 422.')
 P['/conversations/{id}/events']['get']['responses']['200']['content'] = {'text/event-stream':{'schema':string()}}
 
-# Search and @mentions use persisted, scoped service, incident and conversation
-# records. There is no persisted recent list or executable command registry.
+# Search and @mentions use persisted, scoped service, incident, investigation,
+# person and conversation records. No recent list or command registry exists.
 S['V3SearchHit'] = obj({**fieldnames('kind id title subtitle status href')})
 S['V3MentionCandidate'] = obj({**fieldnames('kind id label meta status')})
 S['V3MentionPreviewPartial'] = obj({**fieldnames('kind id title subtitle status_label href'),
@@ -271,14 +271,18 @@ S['V3MentionPreviewPartial'] = obj({**fieldnames('kind id title subtitle status_
 v3_route('get','/search','Search available persisted records',
     response=obj({'query':string(),'hits':arr(ref('V3SearchHit')),'recent':arr(ref('V3SearchHit'))}),
     query=[v3_query('q')],
-    desc='Partial: only scoped services, incidents and own conversations are indexed; recent is always empty until user navigation history exists.')
+    desc='Partial: scoped services, incidents, investigations, active visible human members and own conversations can be found with Chinese or pinyin matching. At most eight balanced hits are returned; real investigation IDs link to the canvas list until the frontend route accepts them. Recent is always empty until user navigation history exists.')
 v3_route('get','/mentions','List available mention candidates',
     response=obj({'items':arr(ref('V3MentionCandidate'))}),
-    query=[v3_query('q'),v3_query('kind',string(enum=['service','incident','conversation']))],
-    desc='Partial: only scoped service, incident and conversation references are supported.')
+    query=[v3_query('q'),v3_query('kind',string(enum=['service','incident','investigation','conversation','person']))],
+    desc='Partial: scoped service, incident, investigation, active visible human member and own conversation references are supported. At most 30 balanced candidates are returned; clients need a kind-specific query for a complete tab. Alert group, artifact and Runbook references have no verified source here.')
 v3_route('get','/mentions/{kind}/{id}/preview','Preview an accessible reference',
     response=ref('V3MentionPreviewPartial'),
-    desc='Partial: only service, incident and conversation records have verified previews; other kinds return 503 preview_unavailable. Metrics and related records are empty until sources are connected. Incident status labels reflect persisted incident workflow state, not live alert health.')
+    desc='Partial: scoped service, incident, investigation, active visible human member and own conversation records have verified previews; other kinds return 503 preview_unavailable. Metrics and related records are empty until sources are connected. Incident status labels reflect persisted incident workflow state, not live alert health.')
+for _path in ['/search','/mentions']:
+    P[_path]['get']['responses']['413'] = {
+        'description':'More than 100 matching records in a source kind exceed the bounded query; narrow the search',
+        'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('get','/commands','Read executable command catalog',
     desc='Currently always returns 503 commands_unavailable; no verified command registry is configured.')
 P['/commands']['get']['responses'].pop('200')
@@ -314,7 +318,9 @@ S['V3ConnectorType'] = obj({**fieldnames('brand name kind version webhook_url'),
     'auth_methods':arr(v3_object('id label desc')),
     'scopes':arr(obj({**fieldnames('id label'),'required':v3_bool()})),
     'tools':arr(v3_object('name desc'))})
-v3_route('get','/connector-types/{type}','Read one supported connector type',response=ref('V3ConnectorType'))
+v3_route('get','/connector-types/{type}','Read one supported connector type',response=ref('V3ConnectorType'),
+    role='viewer with scoped connectors.view',
+    desc='Type-level descriptor only. Auth methods correspond to supported connection probes; version, upstream token scopes and webhook URL have no verified type-level source and are empty. Agent-executable connector tools are not wired, so tools is empty. No connector instance health or wizard side effects are implied.')
 v3_route('get','/connectors','List configured connectors',role='admin',response=ref('V3ConnectorList'),
     query=[v3_query(x) for x in ['category','q']],
     desc='Counts cover all currently authorized connector registrations before category or search filters. Disabled registrations are unverified and identified in meta, with no enabled tools. Status ok/error reflects a persisted connection test from the last 15 minutes, not continuous health; older results become unverified with their last-check time. More than 1000 visible registrations returns 413 instead of an incomplete unpaged result.')
@@ -820,8 +826,8 @@ v3_route('get','/prompts/{id}','Read one stored Prompt version',
     desc='Stored Prompt text and metadata only; not a model trial, published runtime version or complete frontend PromptDetail.')
 v3_route('post','/prompts/{id}/versions','Store a new Prompt text revision',
     role='viewer with scoped agents.change',
-    body=obj({'text':string()},['text']),response=obj({'version':string()},['version']),status=201,
-    desc='Stores a nonempty text revision of at most 20000 characters with audit. It does not publish or execute the Prompt.')
+    body=obj({'text':string()},['text']),response=obj({'version':string(pattern=r'^v[1-9][0-9]*$')},['version']),status=201,
+    desc='Stores a nonblank text revision of at most 20000 characters with original whitespace and transactional audit, returning its vN display version. Requires a registered Prompt under the current scoped Agent; it does not publish or execute the Prompt.')
 v3_route('post','/prompts/{id}/trial','Run a Prompt comparison trial',
     role='viewer with scoped agents.change',
     body=obj({'case':string(),'a':string(),'b':string()},['case','a','b']),status=503,

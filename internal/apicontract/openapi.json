@@ -24611,7 +24611,7 @@
       "get": {
         "summary": "Search available persisted records",
         "operationId": "get_search",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial: only scoped services, incidents and own conversations are indexed; recent is always empty until user navigation history exists.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial: scoped services, incidents, investigations, active visible human members and own conversations can be found with Chinese or pinyin matching. At most eight balanced hits are returned; real investigation IDs link to the canvas list until the frontend route accepts them. Recent is always empty until user navigation history exists.",
         "responses": {
           "200": {
             "description": "Success",
@@ -24700,6 +24700,16 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "More than 100 matching records in a source kind exceed the bounded query; narrow the search",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -24733,7 +24743,7 @@
       "get": {
         "summary": "List available mention candidates",
         "operationId": "get_mentions",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial: only scoped service, incident and conversation references are supported.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial: scoped service, incident, investigation, active visible human member and own conversation references are supported. At most 30 balanced candidates are returned; clients need a kind-specific query for a complete tab. Alert group, artifact and Runbook references have no verified source here.",
         "responses": {
           "200": {
             "description": "Success",
@@ -24813,6 +24823,16 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "More than 100 matching records in a source kind exceed the bounded query; narrow the search",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -24839,7 +24859,9 @@
               "enum": [
                 "service",
                 "incident",
-                "conversation"
+                "investigation",
+                "conversation",
+                "person"
               ]
             }
           },
@@ -24858,7 +24880,7 @@
       "get": {
         "summary": "Preview an accessible reference",
         "operationId": "get_mentions_kind_id_preview",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial: only service, incident and conversation records have verified previews; other kinds return 503 preview_unavailable. Metrics and related records are empty until sources are connected. Incident status labels reflect persisted incident workflow state, not live alert health.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial: scoped service, incident, investigation, active visible human member and own conversation records have verified previews; other kinds return 503 preview_unavailable. Metrics and related records are empty until sources are connected. Incident status labels reflect persisted incident workflow state, not live alert health.",
         "responses": {
           "200": {
             "description": "Success",
@@ -25183,7 +25205,7 @@
       "get": {
         "summary": "Read one supported connector type",
         "operationId": "get_connector_types_type",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. ",
+        "description": "Minimum role: viewer with scoped connectors.view. V3 instance and environment scope apply. Type-level descriptor only. Auth methods correspond to supported connection probes; version, upstream token scopes and webhook URL have no verified type-level source and are empty. Agent-executable connector tools are not wired, so tools is empty. No connector instance health or wizard side effects are implied.",
         "responses": {
           "200": {
             "description": "Success",
@@ -33501,7 +33523,7 @@
       "post": {
         "summary": "Store a new Prompt text revision",
         "operationId": "post_prompts_id_versions",
-        "description": "Minimum role: viewer with scoped agents.change. V3 instance and environment scope apply. Stores a nonempty text revision of at most 20000 characters with audit. It does not publish or execute the Prompt.",
+        "description": "Minimum role: viewer with scoped agents.change. V3 instance and environment scope apply. Stores a nonblank text revision of at most 20000 characters with original whitespace and transactional audit, returning its vN display version. Requires a registered Prompt under the current scoped Agent; it does not publish or execute the Prompt.",
         "responses": {
           "201": {
             "description": "Success",
@@ -33511,7 +33533,8 @@
                   "type": "object",
                   "properties": {
                     "version": {
-                      "type": "string"
+                      "type": "string",
+                      "pattern": "^v[1-9][0-9]*$"
                     }
                   },
                   "additionalProperties": false,

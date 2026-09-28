@@ -37,7 +37,7 @@ type inhibitionView struct {
 	// partial until a trustworthy hit source exists.
 }
 
-var inhibitionMatcher = regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)(=~|!~|!=|=)(.*)$`)
+var inhibitionMatcher = regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)[ \t\n]*(=~|!~|!=|=)[ \t\n]*(?s:(.*))$`)
 var ErrInvalidMatcher = errors.New("invalid Alertmanager inhibition matcher")
 
 func (s *Service) Inhibitions(w http.ResponseWriter, r *http.Request) {
@@ -250,6 +250,11 @@ func ruleMatchers(values []string, exact, regex map[string]string) ([]matcherVie
 				return nil, ErrInvalidMatcher
 			}
 			value = parsed
+		} else if strings.ContainsAny(value, "{},\"'`\\\t\n\r !~=") {
+			// A string may contain multiple Alertmanager matchers. Never
+			// treat an unsupported composition as one label value: it can
+			// hide an environment or application constraint.
+			return nil, ErrInvalidMatcher
 		}
 		switch parts[2] {
 		case "=~":

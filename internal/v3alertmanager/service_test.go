@@ -333,6 +333,64 @@ func TestInhibitionsArePartialAndEnvironmentBound(t *testing.T) {
 	}
 }
 
+func TestInhibitionMatchersWhitespaceQuotingAndOperators(t *testing.T) {
+	matchers, err := ruleMatchers([]string{
+		" \t\nenvironment \t=\n \"test\" \t",
+		`application = "owned"`,
+		`severity != "critical"`,
+		`team =~ "ops|sre"`,
+		`note !~ "a,b"`,
+		`escaped = "quote\" and slash\\"`,
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []matcherView{
+		{K: "environment", Op: "=", V: "test"},
+		{K: "application", Op: "=", V: "owned"},
+		{K: "severity", Op: "!=", V: "! critical"},
+		{K: "team", Op: "=~", V: "~ ops|sre"},
+		{K: "note", Op: "!~", V: "!~ a,b"},
+		{K: "escaped", Op: "=", V: `quote" and slash\`},
+	}
+	if len(matchers) != len(want) {
+		t.Fatalf("matchers=%+v", matchers)
+	}
+	for i := range want {
+		if matchers[i] != want[i] {
+			t.Fatalf("matcher[%d]=%+v, want %+v", i, matchers[i], want[i])
+		}
+	}
+}
+
+func TestInhibitionMatchersRejectUnsupportedComposition(t *testing.T) {
+	for _, raw := range []string{
+		`environment="test",application="hidden"`,
+		`application="owned",application=~"owned|hidden"`,
+		`environment = test, environment != staging`,
+		`{environment="test",application="owned"}`,
+		`application=owned environment="staging"`,
+		`note=unquoted,bad`,
+		`note="unterminated`,
+	} {
+		if _, err := ruleMatchers([]string{raw}, nil, nil); !errors.Is(err, ErrInvalidMatcher) {
+			t.Errorf("raw=%q err=%v", raw, err)
+		}
+	}
+}
+
+func TestMalformedInhibitionMatcherFailsWholeResponse(t *testing.T) {
+	source := fakeSource{rules: map[string][]InhibitionRule{"test": {
+		{SourceMatchers: []string{`environment="test"`}, TargetMatchers: []string{`environment="test"`}},
+		{SourceMatchers: []string{`environment="test",application="hidden"`}, TargetMatchers: []string{`environment="test"`}},
+	}}}
+	w := request(t, testServer(t, source), "/api/v1/inhibitions", "test")
+	if w.Code != 503 || !strings.Contains(w.Body.String(), "invalid_inhibition_source") ||
+		strings.Contains(w.Body.String(), `"items"`) || strings.Contains(w.Body.String(), `"partial"`) {
+		t.Fatalf("malformed inhibition status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestForeignInhibitionRulesDoNotChangeCoverage(t *testing.T) {
 	source := fakeSource{rules: map[string][]InhibitionRule{"test": {
 		{SourceMatchers: []string{`environment="staging"`}, TargetMatchers: []string{`environment="staging"`}},

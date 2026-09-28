@@ -252,7 +252,7 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 			if !toolModels[modelID] {
 				return nil, nil
 			}
-			return []inference.EvidenceTool{{
+			tools := []inference.EvidenceTool{{
 				Name:        "read_service_profile",
 				Description: "Read one service's registered profile by exact service key in this conversation's environment. Health is unavailable unless independently observed.",
 				Read: func(ctx context.Context, key string) (inference.Evidence, error) {
@@ -271,7 +271,28 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 					}
 					return inference.Evidence{Kind: "service_profile", Title: "Service profile: " + profile.Name, Content: string(content), Source: "service_catalog", TargetID: profile.ID}, nil
 				},
-			}}, nil
+			}}
+			if telemetry == nil {
+				return tools, nil
+			}
+			metricTool, ok := v3conversation.NewServiceMetricsTool(v3conversation.ServiceMetricsToolOptions{
+				DB: s.DB, OwnerID: ownerID, EnvironmentID: environmentID,
+				CurrentUser: func(ctx context.Context, id string) (core.User, error) {
+					member, err := s.Member(ctx, id)
+					if err != nil {
+						return core.User{}, err
+					}
+					if member.DeletedAt != nil || member.Disabled {
+						return core.User{}, store.ErrForbidden
+					}
+					return member.User, nil
+				},
+				LookupService: catalog.LookupServiceEvidence, Telemetry: telemetry,
+			})
+			if ok {
+				tools = append(tools, metricTool)
+			}
+			return tools, nil
 		},
 		Environment: func(r *http.Request) (string, error) {
 			if cfg.Tier == "production" {

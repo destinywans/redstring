@@ -1,0 +1,170 @@
+package v3conversation
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/wans/aiops-canvas/internal/connectors"
+	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/wans/aiops-canvas/internal/v3catalog"
+)
+
+type metricToolTelemetry struct {
+	calls    int
+	resource string
+	queryID  string
+	window   connectors.TimeWindow
+	result   connectors.MetricEvidence
+	err      error
+}
+
+func (m *metricToolTelemetry) QueryMetrics(_ context.Context, resource, queryID string, window connectors.TimeWindow) (connectors.MetricEvidence, error) {
+	m.calls++
+	m.resource, m.queryID, m.window = resource, queryID, window
+	return m.result, m.err
+}
+
+func TestServiceMetricsToolFailsClosedAndRedactsProviderConfiguration(t *testing.T) {
+	db := isolatedConversationDB(t)
+	ctx := context.Background()
+	_, err := db.Exec(ctx, `
+		CREATE TABLE applications (id text PRIMARY KEY,key text NOT NULL,archived boolean NOT NULL DEFAULT false);
+		CREATE TABLE v3_application_environments (application_id text NOT NULL,environment_id text NOT NULL);
+		CREATE TABLE application_environments (application_id text NOT NULL,key text NOT NULL,archived boolean NOT NULL DEFAULT false,bindings jsonb NOT NULL DEFAULT '[]');
+		INSERT INTO applications(id,key) VALUES('app-1','checkout');
+		INSERT INTO v3_application_environments(application_id,environment_id) VALUES('app-1','test');
+		INSERT INTO application_environments(application_id,key) VALUES('app-1','test');`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memberActive := true
+	serviceVisible := true
+	identityCalls, catalogCalls := 0, 0
+	provider := &metricToolTelemetry{result: connectors.MetricEvidence{
+		Source: connectors.TelemetrySource{Provider: "prometheus", ApplicationID: "registered-checkout", QueryID: "request_rate", Query: "secret-promql", URL: "https://secret.metrics.internal", CapturedAt: time.Now().UTC()},
+		Series: []connectors.MetricSeries{{Labels: map[string]string{"job": "checkout", "sensitive": "secret-label"}, Samples: []connectors.MetricSample{{Timestamp: 100, Value: "2.5"}}}},
+	}}
+	tool, ok := NewServiceMetricsTool(ServiceMetricsToolOptions{
+		DB: db, OwnerID: "owner", EnvironmentID: "test", Telemetry: provider,
+		CurrentUser: func(_ context.Context, owner string) (core.User, error) {
+			identityCalls++
+			if owner != "owner" || !memberActive {
+				return core.User{}, errors.New("disabled")
+			}
+			return core.User{ID: owner}, nil
+		},
+		LookupService: func(_ context.Context, user core.User, env, key string) (v3catalog.ServiceEvidence, error) {
+			catalogCalls++
+			if !serviceVisible || user.ID != "owner" || env != "test" || key != "checkout" {
+				return v3catalog.ServiceEvidence{}, errors.New("hidden")
+			}
+			return v3catalog.ServiceEvidence{ID: "app-1", Key: key, Environment: env}, nil
+		},
+	})
+	if !ok || tool.Name != "read_service_metrics" {
+		t.Fatalf("tool not registered: %#v", tool)
+	}
+	read := func(input string) error {
+		_, err := tool.Read(ctx, input)
+		return err
+	}
+	for _, input := range []string{
+		`{"service":"checkout","query_id":"request_rate","url":"http://evil"}`,
+		`{"service":"checkout","query_id":"up"}`,
+		`{"service":"other","query_id":"request_rate"}`,
+		`{"service":"checkout","query_id":"request_rate"} {}`,
+	} {
+		if err := read(input); err == nil {
+			t.Fatalf("invalid or hidden target reached provider: %s", input)
+		}
+	}
+	if provider.calls != 0 {
+		t.Fatalf("provider called before authorized binding: %d", provider.calls)
+	}
+	input := `{"service":"checkout","query_id":"request_rate"}`
+	memberActive = false
+	if err := read(input); err == nil {
+		t.Fatal("revoked account reached provider")
+	}
+	memberActive = true
+	serviceVisible = false
+	if err := read(input); err == nil {
+		t.Fatal("hidden service reached provider")
+	}
+	serviceVisible = true
+	if err := read(input); err == nil {
+		t.Fatal("missing persisted binding reached provider")
+	}
+	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"prometheus","resource":"registered-checkout"}]'::jsonb`); err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := tool.Read(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 1 || provider.resource != "registered-checkout" || provider.queryID != "request_rate" || provider.window.End.Sub(provider.window.Start) != 15*time.Minute || provider.window.StepSeconds != 30 {
+		t.Fatalf("unscoped provider call: %+v", provider)
+	}
+	if evidence.TargetID != "app-1" || evidence.Source != "prometheus" || !strings.Contains(evidence.Content, `"status":"observed"`) || strings.Contains(evidence.Content, "secret-") {
+		t.Fatalf("unsafe or missing metric evidence: %#v", evidence)
+	}
+	var body metricToolEvidence
+	if err := json.Unmarshal([]byte(evidence.Content), &body); err != nil || len(body.Series) != 1 || body.Series[0].Samples[0].Value != "2.5" {
+		t.Fatalf("metric sample missing: %#v %v", body, err)
+	}
+	provider.result.Source.Warnings = []string{"secret-provider-warning"}
+	partial, err := tool.Read(ctx, input)
+	if err != nil || !strings.Contains(partial.Content, `"status":"partial"`) || !strings.Contains(partial.Content, `"incomplete":true`) || strings.Contains(partial.Content, "secret-") {
+		t.Fatalf("partial provider result was hidden or leaked details: %#v %v", partial, err)
+	}
+	provider.result.Source.Warnings = nil
+	if identityCalls < 4 || catalogCalls < 3 {
+		t.Fatalf("identity/catalog not rechecked on each valid read: %d/%d", identityCalls, catalogCalls)
+	}
+	provider.result.Empty = true
+	provider.result.Series = nil
+	empty, err := tool.Read(ctx, input)
+	if err != nil || !strings.Contains(empty.Content, `"status":"no_samples"`) {
+		t.Fatalf("empty query was presented as evidence of health: %#v %v", empty, err)
+	}
+	provider.result.Source.Warnings = []string{"partial upstream response"}
+	partialEmpty, err := tool.Read(ctx, input)
+	if err != nil || !strings.Contains(partialEmpty.Content, `"status":"partial"`) {
+		t.Fatalf("warning with no samples was reported as complete: %#v %v", partialEmpty, err)
+	}
+	provider.result.Source.Warnings = nil
+	provider.result.LimitReached = true
+	limitedEmpty, err := tool.Read(ctx, input)
+	if err != nil || !strings.Contains(limitedEmpty.Content, `"status":"partial"`) {
+		t.Fatalf("limited result with no samples was reported as complete: %#v %v", limitedEmpty, err)
+	}
+	provider.result.LimitReached = false
+	provider.result.Series = []connectors.MetricSeries{{Samples: []connectors.MetricSample{{Timestamp: 100, Value: "2.5"}}}}
+	provider.result.Empty = false
+	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"prometheus","resource":"registered-checkout"},{"kind":"prometheus","resource":"other"}]'::jsonb`); err != nil {
+		t.Fatal(err)
+	}
+	if err := read(input); err == nil || provider.calls != 5 {
+		t.Fatalf("ambiguous binding queried provider: calls=%d err=%v", provider.calls, err)
+	}
+}
+
+func TestServiceMetricsToolRejectsMissingDependencies(t *testing.T) {
+	if _, ok := NewServiceMetricsTool(ServiceMetricsToolOptions{OwnerID: "owner", EnvironmentID: "all"}); ok {
+		t.Fatal("all-environments scope exposed tool")
+	}
+	var missing *connectors.Telemetry
+	if _, ok := NewServiceMetricsTool(ServiceMetricsToolOptions{
+		DB: isolatedConversationDB(t), OwnerID: "owner", EnvironmentID: "test", Telemetry: missing,
+		CurrentUser: func(context.Context, string) (core.User, error) { return core.User{}, nil },
+		LookupService: func(context.Context, core.User, string, string) (v3catalog.ServiceEvidence, error) {
+			return v3catalog.ServiceEvidence{}, nil
+		},
+	}); ok {
+		t.Fatal("typed nil telemetry registered a model tool")
+	}
+}

@@ -372,6 +372,22 @@ P['/mcp-servers/{id}/tools/{name}']['patch']['responses'].pop('200')
 v3_route('post','/mcp-servers/{id}/review','Review newly discovered MCP tools',
     desc='Currently always returns 503 mcp_review_unavailable after scoped authorization; no trusted discovery snapshot exists.')
 P['/mcp-servers/{id}/review']['post']['responses'].pop('200')
+S['V3McpDiscoveryObservation'] = obj({
+    'snapshot_id':string(), 'mcp_server_id':string(), 'application_id':string(),
+    'environment_id':string(), 'registration_version':integer(minimum=1),
+    'registration_hash':string(), 'tools_hash':string(),
+    'tool_count':integer(minimum=0,maximum=128), 'captured_at':string(format='date-time'),
+    'trust':string(enum=['untrusted_observation']),
+    'approved':{'type':'boolean','const':False},
+    'health_verified':{'type':'boolean','const':False}},
+    ['snapshot_id','mcp_server_id','application_id','environment_id','registration_version',
+     'registration_hash','tools_hash','tool_count','captured_at','trust','approved','health_verified'])
+v3_route('post','/mcp-servers/{id}/discover','Observe MCP tool declarations in an immutable snapshot',
+    response=ref('V3McpDiscoveryObservation'),
+    desc='Auxiliary observation route outside the 166 V3 page contracts. Requires exactly one selected environment, an explicit active binding and current connectors.manage on the persisted application. No request body is accepted. A bounded Streamable HTTP tools/list runs only after authorization; registration version, raw record digest, binding instance and authorization are rechecked before an immutable observation and management audit commit. Tool names are sorted before hashing; remote descriptions, read-only hints and JSON input schemas remain untrusted claims. Discovery does not enable, approve, execute or attest the health of any tool. A still-authorized upstream or invalid-declaration failure is audited without endpoint, credential or remote text and returns 502; a missing discovery client or persistence/audit failure returns 503. A changed registration returns 409, while absent or inaccessible initial objects return 404.')
+P['/mcp-servers/{id}/discover']['post']['responses']['502'] = {
+    'description':'Bounded MCP discovery failed or returned invalid declarations',
+    'content':{'application/json':{'schema':ref('Error')}}}
 S['V3McpEnvironmentBinding'] = obj({'id':string(),'application_id':string(),
     'environment_id':string(),'bound':v3_bool(),'changed':v3_bool()},
     ['id','application_id','environment_id','bound','changed'])

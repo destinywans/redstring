@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-110 · 2026-09-29 · MCP 未信任发现快照接线
+
+- WAN-122 业务提交 `62786a1` 合入为 `1fda25a`。`POST /mcp-servers/{id}/discover` 限单一环境、显式绑定及当前应用 `connectors.manage`，出站前后复核关系版本、登记内容摘要、绑定实例与授权；调用共享有界 MCP `tools/list`，将按名称排序、容量受限的原始工具声明保存为不可变**未信任观察**，与脱敏管理审计同事务。无权的初始对象和不存在对象同为 404；仍有权的上游/声明失败写脱敏失败审计并返回 502，不能将发现视为健康、审核、启用或执行。
+- 集成根在 `cmd/aiops/v3.go` 注入现有 `AIOPS_MCP_CREDENTIAL_ROOT` 和 `aiextensions.DiscoverTools`，公开 OpenAPI、文字契约与辅助接口说明同步。迁移 `070_v3_mcp_discovery_snapshots.sql` 给显式绑定增加实例 ID，并保存不可更新/删除的历史快照；它在 `store.Migrate` 阶段执行，未在现有业务库执行。历史快照尚无保留期，后续审核/运维设计需明确容量与留存。
+- 业务分支独立复审已确认授权顺序、失败审计和稳定摘要的修复，并在隔离 PG16 运行注册 HTTP 用例。本集成分支另用一次性 PG17 随机 schema 跑 `go test ./internal/v3mcp -count=1`，主程序编译、273 个注册操作契约引用、165 行主契约及路由矩阵检查通过；临时容器已清理。未连接真实 MCP，前端及工具审核/启用/执行仍未验收；主契约继续 **32/166 `implemented`**。
+
 ## CP-109 · 2026-09-29 · 调查分支当前消息的只读辅助接口
 
 - WAN-121 业务提交 `c95944f` 合入为 `eead82f`。新增 `GET /investigations/{id}/nodes/{node}/messages`，在同一只读快照中从持久化分支解析调查、应用、环境和所属团队，复核当前 `canvas.view`，仅返回当前 revision 及原始历史消息 JSON。旧消息缺省字段原样缺省，不补造时间、图节点、摘要或模型输出；上下文超过 24 KiB、缺失或损坏明确 503。

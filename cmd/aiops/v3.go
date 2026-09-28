@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/wans/aiops-canvas/internal/aiextensions"
 	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
@@ -144,7 +145,12 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	api.MarkV3ObjectRoute("GET /api/v1/services/{id}", "services", "view")
 	api.MarkV3ObjectRoute("GET /api/v1/service-mappings", "services", "view")
 	v3discovery.New(s.DB, policy).Register(api)
-	v3mcp.New(s.DB, policy).Register(api)
+	mcpService := v3mcp.New(s.DB, policy)
+	credentialRoot := os.Getenv("AIOPS_MCP_CREDENTIAL_ROOT")
+	mcpService.DiscoverTools = func(ctx context.Context, config aiextensions.MCPConfig) ([]aiextensions.ToolInfo, error) {
+		return aiextensions.DiscoverTools(ctx, credentialRoot, config)
+	}
+	mcpService.Register(api)
 	v3topology.New(s.DB, policy).Register(api)
 	ruleSource, ruleBindings, err := loadV3AlertRuleSource(os.Getenv("AIOPS_V3_ALERT_RULES_CONFIG"), *info)
 	if err != nil {

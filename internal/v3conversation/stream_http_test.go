@@ -63,6 +63,7 @@ type streamItem struct {
 	id      int64
 	typ     string
 	message string
+	run     json.RawMessage
 }
 
 func readStreamItem(r *bufio.Reader) (streamItem, error) {
@@ -87,13 +88,14 @@ func readStreamItem(r *bufio.Reader) (streamItem, error) {
 		}
 		if strings.HasPrefix(line, "data: ") {
 			var payload struct {
-				Type      string `json:"type"`
-				MessageID string `json:"message_id"`
+				Type      string          `json:"type"`
+				MessageID string          `json:"message_id"`
+				Run       json.RawMessage `json:"run"`
 			}
 			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &payload); err != nil {
 				return item, err
 			}
-			item.typ, item.message = payload.Type, payload.MessageID
+			item.typ, item.message, item.run = payload.Type, payload.MessageID, payload.Run
 		}
 	}
 }
@@ -325,9 +327,15 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 		count++
 		if item.typ == "message.completed" {
 			terminal = true
-			var state, parts string
-			if err := db.QueryRow(ctx, `SELECT state,parts::text FROM v3_conversation_messages WHERE id=$1`, item.message).Scan(&state, &parts); err != nil || state != "completed" || !strings.Contains(parts, "first rest") {
+			var state, parts, savedRun string
+			if err := db.QueryRow(ctx, `SELECT state,parts::text,run::text FROM v3_conversation_messages WHERE id=$1`, item.message).Scan(&state, &parts, &savedRun); err != nil || state != "completed" || !strings.Contains(parts, "first rest") {
 				t.Fatalf("completion event before full message commit: state=%q parts=%q err=%v", state, parts, err)
+			}
+			var completed, persisted struct {
+				Tokens int `json:"tokens"`
+			}
+			if json.Unmarshal(item.run, &completed) != nil || json.Unmarshal([]byte(savedRun), &persisted) != nil || completed.Tokens != 22 || persisted.Tokens != 22 {
+				t.Fatalf("completed usage differs from persisted provider usage: event=%s saved=%s", item.run, savedRun)
 			}
 		}
 	}

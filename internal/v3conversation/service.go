@@ -416,7 +416,11 @@ func (s *Service) finishLocked(ctx context.Context, tx pgx.Tx, conv, reply, assi
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `UPDATE v3_conversation_messages SET parts=$1,run=$2,state=$3 WHERE id=$4 AND conversation_id=$5`, rawParts, marshal(run), state, assistant, conv)
+	var rawRun []byte
+	if run != nil {
+		rawRun = marshal(run)
+	}
+	_, err = tx.Exec(ctx, `UPDATE v3_conversation_messages SET parts=$1,run=$2,state=$3 WHERE id=$4 AND conversation_id=$5`, rawParts, rawRun, state, assistant, conv)
 	if err != nil {
 		return err
 	}
@@ -501,23 +505,38 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 	// Provider-reported usage is the only token count presented as such. The
 	// latest model input describes the current context; total run usage also
 	// includes any preceding model calls made in the same turn.
-	contextInputTokens, runTokens, usageKnown := 0, 0, false
-	appendCalls := func() error {
-		part := map[string]any{"type": "tool_calls", "summary": fmt.Sprintf("%d tool calls", len(calls)), "calls": calls, "tokens": 0, "duration_s": 0}
-		if len(parts) == 1 {
-			parts = append(parts, marshal(part))
-		} else {
-			parts[1] = marshal(part)
-		}
-		return s.appendEvent(ctx, conv, reply, claimID, map[string]any{"type": "part.added", "message_id": assistant, "part": part})
-	}
+	contextInputTokens, runTokens := 0, 0
+	modelSteps, reportedModelSteps := 0, 0
+	toolModelSteps, reportedToolModelSteps, toolTokens := 0, 0, 0
+	toolDurationMS := int64(0)
+	completedSteps := map[string]bool{}
 	emit := func(e inference.Event) error {
 		switch e.Type {
 		case "step":
-			if e.Step != nil && e.Step.Kind == "model" && e.Step.Status == "succeeded" && e.Step.Usage != nil {
-				contextInputTokens = e.Step.Usage.InputTokens
-				runTokens += e.Step.Usage.InputTokens + e.Step.Usage.OutputTokens
-				usageKnown = true
+			if e.Step != nil && e.Step.Kind == "model" && e.Step.Status == "succeeded" {
+				// ADK sends a running and terminal snapshot under one step ID.
+				// A repeated terminal event must not double-count provider usage.
+				if e.Step.ID != "" && completedSteps[e.Step.ID] {
+					return nil
+				}
+				if e.Step.ID != "" {
+					completedSteps[e.Step.ID] = true
+				}
+				modelSteps++
+				toolStep := len(e.Step.ToolCalls) > 0
+				if toolStep {
+					toolModelSteps++
+				}
+				if usage := e.Step.Usage; usage != nil && usage.InputTokens >= 0 && usage.OutputTokens >= 0 {
+					contextInputTokens = usage.InputTokens
+					tokens := usage.InputTokens + usage.OutputTokens
+					runTokens += tokens
+					reportedModelSteps++
+					if toolStep {
+						toolTokens += tokens
+						reportedToolModelSteps++
+					}
+				}
 			}
 		case "delta":
 			if e.Delta == "" {
@@ -556,7 +575,8 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 			invocations[e.StepID] = *e.Invocation
 			if e.Invocation.Status == "failed" {
 				calls = append(calls, map[string]any{"id": e.StepID, "connector": "", "tool": e.Invocation.Name, "args": "", "duration_ms": e.Invocation.DurationMS, "status": "error"})
-				return appendCalls()
+				toolDurationMS += e.Invocation.DurationMS
+				return nil
 			}
 			return s.authorizeActiveTurn(ctx, owner, env, sessionToken)
 		case "evidence":
@@ -571,9 +591,7 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 				return errToolInvocation
 			}
 			calls = append(calls, map[string]any{"id": e.StepID, "connector": e.Evidence.Source, "tool": invocation.Name, "args": "", "duration_ms": invocation.DurationMS, "status": "ok"})
-			if err := appendCalls(); err != nil {
-				return err
-			}
+			toolDurationMS += invocation.DurationMS
 			evidencePart := map[string]any{"type": "status", "text": e.Evidence.Title, "detail": e.Evidence.Content}
 			parts = append(parts, marshal(evidencePart))
 			return s.appendEvent(ctx, conv, reply, claimID, map[string]any{"type": "part.added", "message_id": assistant, "part": evidencePart})
@@ -633,14 +651,27 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 		s.failTurn(conv, reply, claimID, assistant, nil, err)
 		return
 	}
-	var reportedTokens any
-	if usageKnown {
-		reportedTokens = runTokens
+	// A tool card's tokens come only from provider-reported model steps that
+	// issued tool calls. If the provider omits that usage, omit the card rather
+	// than showing a fabricated zero; the evidence and tool audit still persist.
+	if len(calls) > 0 && toolModelSteps > 0 && toolModelSteps == reportedToolModelSteps {
+		part := map[string]any{"type": "tool_calls", "summary": fmt.Sprintf("%d tool calls", len(calls)), "calls": calls, "tokens": toolTokens, "duration_s": float64(toolDurationMS) / 1000}
+		parts = append(parts, marshal(part))
+		if err := s.appendEvent(ctx, conv, reply, claimID, map[string]any{"type": "part.added", "message_id": assistant, "part": part}); err != nil {
+			s.failTurn(conv, reply, claimID, assistant, parts, err)
+			return
+		}
 	}
-	run := map[string]any{"id": reply, "agent": "AI", "version": "v3", "model": model.Name, "model_id": model.ID, "reasoning": reasoning, "tokens": reportedTokens, "duration_s": time.Since(started).Seconds()}
-	if usageKnown && model.InputBudget > 0 {
-		run["context_input_tokens"] = contextInputTokens
-		run["context_budget"] = model.InputBudget
+	// Message.run is optional in the V3 contract. Omitting it preserves the
+	// complete numeric shape when some providers do not report token usage.
+	var run any
+	if modelSteps > 0 && modelSteps == reportedModelSteps {
+		reported := map[string]any{"id": reply, "agent": "AI", "version": "v3", "model": model.Name, "model_id": model.ID, "reasoning": reasoning, "tokens": runTokens, "duration_s": time.Since(started).Seconds()}
+		if model.InputBudget > 0 {
+			reported["context_input_tokens"] = contextInputTokens
+			reported["context_budget"] = model.InputBudget
+		}
+		run = reported
 	}
 	if err := s.finish(ctx, conv, reply, claimID, assistant, parts, run, nil); err != nil {
 		s.failTurn(conv, reply, claimID, assistant, parts, err)

@@ -141,6 +141,11 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	v3canvas.NewWithRuntime(s, runtime).Register(api)
 	catalog := v3catalog.New(s, policy, cfg.EnvironmentIDs...)
 	catalog.Register(api)
+	configSync, err := loadV3ConfigSync(os.Getenv("AIOPS_V3_CONFIG_SYNC_CONFIG"), cfg.Tier, s.DB, policy)
+	if err != nil {
+		return fmt.Errorf("load V3 configuration promotion: %w", err)
+	}
+	configSync.Register(api)
 	v3proposals.New(s.DB, policy).Register(api)
 	api.MarkV3Route("POST /api/v1/services", "services", "change")
 	api.MarkV3ObjectRoute("GET /api/v1/services", "services", "view")

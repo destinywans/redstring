@@ -1,0 +1,13 @@
+{
+  "tier": "nonprod",
+  "gitlab": {
+    "base_url": "https://gitlab.example.com",
+    "project_id": 123,
+    "target_branch": "main",
+    "branch_prefix": "aiops/promotions/",
+    "token_file": "/run/secrets/aiops-config-sync-gitlab-token",
+    "allow_loopback_http": false
+  },
+  "source_instance_id": "aiops-test",
+  "signing_key_file": "/run/secrets/aiops-config-sync-signing-key"
+}

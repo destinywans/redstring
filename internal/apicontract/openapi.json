@@ -21521,6 +21521,355 @@
         ]
       }
     },
+    "/config-sync": {
+      "get": {
+        "summary": "List configuration promotion records or merged candidates",
+        "operationId": "get_config_sync",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract operation: only sanitized canvas templates are supported. Non-production lists up to 100 exports by the current authenticated actor in selected authorized environments; each still requires canvas.change. Production requires a human platform administrator with global workspace.manage and lists up to 100 merged MR candidates. Candidate title, author and status are repository metadata, not verified provenance; the signed manifest, single changed file and merge commit are checked on explicit import. A missing repository or source signing/trust configuration returns 501. An over-limit list returns 413. The four-kind frontend page remains mock.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3ConfigSyncList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Configuration repository or source trust is unavailable, or requested promotion kind is unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Export or merged candidate list exceeds 100 items",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "config-sync"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/promotions": {
+      "post": {
+        "summary": "Export a sanitized canvas template to a GitLab merge request",
+        "operationId": "post_promotions",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract operation: one selected non-production environment, an active source template owner and canvas.change grant are required. The source template contains only allowlisted graph structure; no content, evidence, execution state, credentials or account ID is exported. Creates or reuses a durable signed manifest and a merge request in the separately configured repository; an uncertain remote result returns 503. Production returns 409 already_production; all returns 409 env_view_only. Kinds other than template/templates return 501 promotion_kind_unavailable. Missing repository or signing configuration returns 501. The four-kind frontend workflow remains mock.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3PromotionResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Configuration repository or source trust is unavailable, or requested promotion kind is unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "promotions"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3PromotionRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/config-sync/{id}/import": {
+      "post": {
+        "summary": "Import a merged signed canvas template",
+        "operationId": "post_config_sync_id_import",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract operation: id is mr-<positive IID>. Requires the production prod environment and a human platform administrator with global workspace.manage, rechecked inside the import transaction. The repository must prove the MR is merged with exactly one expected changed file at its fixed merge commit; the bounded allowlisted manifest must verify against a configured trusted source public key. The service does not verify an independent MR approval or protected-branch policy; these are deployment gates before claiming the reviewed promotion workflow. Import and audit commit together; repeated identical imports converge, target drift returns 409. Non-production and all return 409. Missing repository or trust configuration returns 501. Unverifiable provenance returns 503. The four-kind frontend workflow remains mock.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3ConfigSyncItem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Configuration repository or source trust is unavailable, or requested promotion kind is unsupported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "config-sync"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/me": {
       "get": {
         "summary": "Read current account",
@@ -43968,6 +44317,119 @@
         },
         "additionalProperties": false,
         "minProperties": 1
+      },
+      "V3ConfigSyncItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind_label": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "mr": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "meta": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "template"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "imported",
+              "exported"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "kind_label",
+          "title",
+          "mr",
+          "author",
+          "meta",
+          "status"
+        ]
+      },
+      "V3ConfigSyncList": {
+        "type": "object",
+        "properties": {
+          "direction": {
+            "type": "string",
+            "enum": [
+              "import",
+              "export"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3ConfigSyncItem"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "direction",
+          "items"
+        ]
+      },
+      "V3PromotionRequest": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "template",
+              "templates",
+              "runbooks",
+              "alert-rules",
+              "agents"
+            ],
+            "description": "Only template/templates are currently supported; other kinds return 501 promotion_kind_unavailable."
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id"
+        ]
+      },
+      "V3PromotionResult": {
+        "type": "object",
+        "properties": {
+          "mr": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "mr",
+          "path"
+        ]
       },
       "V3Part": {
         "oneOf": [

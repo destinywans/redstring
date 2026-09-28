@@ -1,6 +1,7 @@
 package v3knowledge
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -11,6 +12,31 @@ import (
 	"github.com/wans/aiops-canvas/internal/knowledge"
 	"github.com/wans/aiops-canvas/internal/store"
 )
+
+type structuredRunbook struct {
+	SourceKind string
+	WhenText   string
+	Steps      []Step
+}
+
+func readStructuredRunbook(ctx context.Context, tx pgx.Tx, id string) (structuredRunbook, error) {
+	var record structuredRunbook
+	err := tx.QueryRow(ctx, `SELECT source_kind,when_text,steps
+ FROM v3_runbooks WHERE document_id=$1`, id).
+		Scan(&record.SourceKind, &record.WhenText, &record.Steps)
+	if record.Steps == nil {
+		record.Steps = []Step{}
+	}
+	return record, err
+}
+
+func structuredRunbookError(w http.ResponseWriter, err error) {
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpapi.Error(w, 503, "structured_steps_unavailable", "Runbook has no structured V3 record")
+		return
+	}
+	knowledgeError(w, err)
+}
 
 func (s *Service) readableRunbook(w http.ResponseWriter, r *http.Request) (pgx.Tx, knowledge.Document, bool) {
 	if !s.ready(w) {
@@ -57,21 +83,10 @@ func (s *Service) recordHandler() http.HandlerFunc {
 			return
 		}
 		defer tx.Rollback(r.Context())
-		var sourceKind, whenText string
-		var steps []Step
-		err := tx.QueryRow(r.Context(), `SELECT source_kind,when_text,steps
- FROM v3_runbooks WHERE document_id=$1`, doc.ID).
-			Scan(&sourceKind, &whenText, &steps)
-		if errors.Is(err, pgx.ErrNoRows) {
-			httpapi.Error(w, 503, "structured_steps_unavailable", "Runbook has no structured V3 record")
-			return
-		}
+		record, err := readStructuredRunbook(r.Context(), tx, doc.ID)
 		if err != nil {
-			knowledgeError(w, err)
+			structuredRunbookError(w, err)
 			return
-		}
-		if steps == nil {
-			steps = []Step{}
 		}
 		if err = tx.Commit(r.Context()); err != nil {
 			knowledgeError(w, err)
@@ -82,7 +97,7 @@ func (s *Service) recordHandler() http.HandlerFunc {
 			"status": doc.Lifecycle, "owner": doc.Metadata.MaintainerID,
 			"application_id": doc.ApplicationID, "environment_ids": doc.Metadata.EnvironmentIDs,
 			"team_id": doc.Metadata.TeamID, "tags": nonnilStrings(doc.Metadata.Tags),
-			"when": whenText, "steps": steps, "source_kind": sourceKind,
+			"when": record.WhenText, "steps": record.Steps, "source_kind": record.SourceKind,
 			"partial": true, "unavailable_fields": []string{"usage", "incident_resolution", "execution_verification"},
 		})
 	}

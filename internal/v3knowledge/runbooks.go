@@ -46,7 +46,7 @@ func (s *Service) Register(api *httpapi.Server) {
 	}{
 		{"GET /api/v1/runbooks", "view", s.listHandler(api)},
 		{"GET /api/v1/runbooks/draft", "view", s.draftHandler()},
-		{"GET /api/v1/runbooks/{id}", "view", s.getHandler(api)},
+		{"GET /api/v1/runbooks/{id}", "view", s.getHandler()},
 		{"POST /api/v1/runbooks", "manage", s.createHandler(api)},
 		{"POST /api/v1/runbooks/{id}/submit", "manage", s.submitHandler(api)},
 		{"POST /api/v1/runbooks/{id}/dry-run", "manage", s.dryRunHandler(api)},
@@ -137,31 +137,28 @@ ORDER BY d.created_at DESC LIMIT 1001`)
 	}
 }
 
-func (s *Service) getHandler(api *httpapi.Server) http.HandlerFunc {
+func (s *Service) getHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !s.ready(w) {
+		tx, doc, ok := s.readableRunbook(w, r)
+		if !ok {
 			return
 		}
-		doc, err := s.rawDocument(r.Context(), r.PathValue("id"))
-		if err != nil {
+		defer tx.Rollback(r.Context())
+		// Check the structured record in the same snapshot as lifecycle,
+		// environment scope and authorization. Legacy documents are not a
+		// substitute for persisted V3 steps.
+		if _, err := readStructuredRunbook(r.Context(), tx, doc.ID); err != nil {
+			structuredRunbookError(w, err)
+			return
+		}
+		if err := tx.Commit(r.Context()); err != nil {
 			knowledgeError(w, err)
 			return
 		}
-		if !documentInScope(r, doc) || !isRunbook(doc.Source) {
-			httpapi.Error(w, 404, "not_found", "Runbook not found")
-			return
-		}
-		if err = s.authorizeRunbookRead(r, doc); err != nil {
-			if errors.Is(err, store.ErrForbidden) {
-				httpapi.Error(w, 404, "not_found", "Runbook not found")
-			} else {
-				httpapi.Error(w, 503, "authorization_unavailable", "Knowledge access could not be checked")
-			}
-			return
-		}
 		// Runbook.usage is mandatory in the V3 DTO. The current repository
-		// records neither complete references nor resolved outcomes; returning
-		// zero would falsely assert that those events were measured.
+		// records neither complete references nor resolved outcomes. Review
+		// assignments, base lineage and incident associations also lack a
+		// complete producer, so this route cannot return the full DTO yet.
 		writeRunbookReadUnavailable(w)
 	}
 }

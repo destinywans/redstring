@@ -312,7 +312,7 @@ func (s *Service) startTurn(ctx context.Context, id, owner, env, author, session
 		return Message{}, "", err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes)
-		VALUES($1,'v3.conversation.message',$2,'accepted',jsonb_build_object('reply_id',$3,'model_id',$4,'environment',$5))`, owner, id, replyID, model.ID, env)
+		VALUES($1,'v3.conversation.message',$2,'accepted',jsonb_build_object('reply_id',$3::text,'model_id',$4::text,'environment',$5::text))`, owner, id, replyID, model.ID, env)
 	if err != nil {
 		return Message{}, "", err
 	}
@@ -379,7 +379,10 @@ func lockReply(ctx context.Context, tx pgx.Tx, conv, reply, claim string, expire
 func (s *Service) finishLocked(ctx context.Context, tx pgx.Tx, conv, reply, assistant string, parts []json.RawMessage, run any, runErr error) error {
 	var err error
 	state := "completed"
-	event := map[string]any{"type": "message.completed", "message_id": assistant, "run": run}
+	event := map[string]any{"type": "message.completed", "message_id": assistant}
+	if run != nil {
+		event["run"] = run
+	}
 	errText := ""
 	if runErr != nil {
 		state, errText = "failed", runErr.Error()

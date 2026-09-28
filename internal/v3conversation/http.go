@@ -190,8 +190,25 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 422, "invalid_reasoning", "Invalid reasoning choice")
 		return
 	}
-	model, err := s.model(in.Model, fallback)
+	selectedModel := in.Model
+	if selectedModel == "" && s.opts.DefaultModel != nil {
+		selectedModel, err = s.opts.DefaultModel(r.Context(), u.ID)
+		if err != nil {
+			operationError(w, err)
+			return
+		}
+	}
+	model, err := s.model(selectedModel, fallback)
+	if err != nil && in.Model == "" {
+		// A removed preferred model falls back to the same first configured
+		// model advertised by GET /models, without changing this turn's choice.
+		model, err = s.model("", "")
+	}
 	if err != nil {
+		if in.Model != "" && errors.Is(err, ErrModel) {
+			apiError(w, 422, "invalid_model", "Selected model is not configured")
+			return
+		}
 		operationError(w, err)
 		return
 	}
@@ -465,8 +482,12 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 				var seq int64
 				var raw []byte
 				if err := s.db.QueryRow(r.Context(), `SELECT seq,payload FROM v3_conversation_events WHERE reply_id=$1 ORDER BY seq DESC LIMIT 1`, reply).Scan(&seq, &raw); err == nil {
-					_, _ = fmt.Fprintf(w, "id: %d\ndata: %s\n\n", seq, raw)
-					flusher.Flush()
+					// The terminal state and event commit in one transaction. A
+					// reconnect at or after its sequence has nothing left to replay.
+					if seq > cursor {
+						_, _ = fmt.Fprintf(w, "id: %d\ndata: %s\n\n", seq, raw)
+						flusher.Flush()
+					}
 				}
 				return
 			}

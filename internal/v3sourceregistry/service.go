@@ -23,6 +23,7 @@ import (
 
 type Access interface {
 	Authorize(context.Context, core.User, rbac.V3Decision) error
+	AuthorizeWithTx(context.Context, pgx.Tx, core.User, rbac.V3Decision) error
 }
 
 type Service struct {
@@ -162,6 +163,18 @@ func (s *Service) authorized(ctx context.Context, user core.User, action, env, a
 	return nil
 }
 
+func (s *Service) authorizedTx(ctx context.Context, tx pgx.Tx, user core.User, action, env, app, team string) error {
+	if err := s.Access.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{Module: "knowledge", Action: action,
+		EnvironmentID: env, ApplicationID: app}); err != nil {
+		return err
+	}
+	if team != "" {
+		return s.Access.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{Module: "knowledge", Action: action,
+			EnvironmentID: env, TeamID: team})
+	}
+	return nil
+}
+
 func authorizationError(w http.ResponseWriter, err error) {
 	if errors.Is(err, store.ErrForbidden) {
 		httpapi.Error(w, 403, "forbidden", "Knowledge permission required")
@@ -209,12 +222,7 @@ type item struct {
 	CreatedAt          time.Time `json:"created_at"`
 }
 
-func (s *Service) list(w http.ResponseWriter, r *http.Request) {
-	user, envs, ok := s.ready(w, r, false)
-	if !ok {
-		return
-	}
-	rows, err := s.DB.Query(r.Context(), `SELECT id,environment_id,COALESCE(application_id,''),COALESCE(team_id,''),
+const registrationCandidates = `SELECT id,environment_id,COALESCE(application_id,''),COALESCE(team_id,''),
  name,source_type,source_url,spaces,schedule,chunk,inherit_acl,created_at
  FROM v3_knowledge_source_registrations src WHERE environment_id=ANY($1::text[])
  AND (application_id IS NULL OR EXISTS (
@@ -237,51 +245,82 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
    AND ((g.scope_kind='global' AND g.scope_id='*')
      OR (g.scope_kind='environment' AND g.scope_id=src.environment_id)
      OR (g.scope_kind='team' AND g.scope_id=src.team_id))))
- ORDER BY created_at DESC,id LIMIT 1001`, envs, user.ID)
+ ORDER BY created_at DESC,id LIMIT 200 OFFSET $3`
+
+type candidate struct {
+	item
+	spaces []byte
+}
+
+func (s *Service) list(w http.ResponseWriter, r *http.Request) {
+	user, envs, ok := s.ready(w, r, false)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	tx, err := s.DB.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		httpapi.Error(w, 503, "source_registry_unavailable", "Source registry is unavailable")
 		return
 	}
-	defer rows.Close()
+	defer tx.Rollback(ctx)
 	items := []item{}
 	truncated := false
-	candidates := 0
-	for rows.Next() {
-		candidates++
-		var v item
-		var spaces []byte
-		if err := rows.Scan(&v.ID, &v.EnvironmentID, &v.ApplicationID, &v.TeamID,
-			&v.Name, &v.Type, &v.URL, &spaces, &v.Schedule, &v.Chunk, &v.InheritACL, &v.CreatedAt); err != nil {
+	// The candidate cap bounds a hostile or unexpectedly broad scope. Hidden
+	// registrations do not consume the response limit or signal truncation.
+	for offset := 0; offset <= 10000; offset += 200 {
+		rows, queryErr := tx.Query(ctx, registrationCandidates, envs, user.ID, offset)
+		if queryErr != nil {
 			httpapi.Error(w, 503, "source_registry_unavailable", "Source registry is unavailable")
 			return
 		}
-		if err := s.authorized(r.Context(), user, "view", v.EnvironmentID, v.ApplicationID, v.TeamID); err != nil {
-			if errors.Is(err, store.ErrForbidden) {
-				continue
+		batch := make([]candidate, 0, 200)
+		for rows.Next() {
+			var v candidate
+			if queryErr = rows.Scan(&v.ID, &v.EnvironmentID, &v.ApplicationID, &v.TeamID,
+				&v.Name, &v.Type, &v.URL, &v.spaces, &v.Schedule, &v.Chunk, &v.InheritACL, &v.CreatedAt); queryErr != nil {
+				break
 			}
-			authorizationError(w, err)
+			batch = append(batch, v)
+		}
+		if queryErr == nil {
+			queryErr = rows.Err()
+		}
+		rows.Close()
+		if queryErr != nil {
+			httpapi.Error(w, 503, "source_registry_unavailable", "Source registry is unavailable")
 			return
 		}
-		if err := json.Unmarshal(spaces, &v.Spaces); err != nil {
-			httpapi.Error(w, 503, "source_registry_unavailable", "Source registry is inconsistent")
+		if offset == 10000 && len(batch) > 0 {
+			httpapi.Error(w, 422, "source_registry_scope_too_broad", "Narrow the source registry scope")
 			return
 		}
-		v.RegistrationStatus = "unverified"
-		if len(items) == 200 {
-			truncated = true
-			continue
+		for _, v := range batch {
+			if err := s.authorizedTx(ctx, tx, user, "view", v.EnvironmentID, v.ApplicationID, v.TeamID); err != nil {
+				if errors.Is(err, store.ErrForbidden) {
+					continue
+				}
+				authorizationError(w, err)
+				return
+			}
+			if err := json.Unmarshal(v.spaces, &v.Spaces); err != nil {
+				httpapi.Error(w, 503, "source_registry_unavailable", "Source registry is inconsistent")
+				return
+			}
+			v.RegistrationStatus = "unverified"
+			if len(items) == 200 {
+				truncated = true
+				break
+			}
+			items = append(items, v.item)
 		}
-		items = append(items, v)
+		if truncated || len(batch) < 200 {
+			break
+		}
 	}
-	if rows.Err() != nil {
+	if err := tx.Commit(ctx); err != nil {
 		httpapi.Error(w, 503, "source_registry_unavailable", "Source registry is unavailable")
-		return
-	}
-	// Never return a seemingly complete list if the bounded candidate scan may
-	// have stopped before a later authorized registration. Hidden candidates
-	// also cannot set the user-visible truncated flag.
-	if candidates == 1001 {
-		httpapi.Error(w, 422, "source_registry_scope_too_broad", "Narrow the source registry scope")
 		return
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items, "index": nil,
@@ -303,10 +342,6 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	env := envs[0]
-	if err := s.authorized(r.Context(), user, "manage", env, v.ApplicationID, v.TeamID); err != nil {
-		authorizationError(w, err)
-		return
-	}
 	spaces, _ := json.Marshal(v.Spaces)
 	tx, err := s.DB.Begin(r.Context())
 	if err != nil {
@@ -330,6 +365,10 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if err := s.authorizedTx(r.Context(), tx, user, "manage", env, v.ApplicationID, v.TeamID); err != nil {
+		authorizationError(w, err)
+		return
+	}
 	id := uuid.NewString()
 	_, err = tx.Exec(r.Context(), `INSERT INTO v3_knowledge_source_registrations
  (id,environment_id,application_id,team_id,name,source_type,source_url,secret_ref,
@@ -344,7 +383,7 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 	_, err = tx.Exec(r.Context(), `INSERT INTO management_audit
  (actor_id,application_id,action,target,outcome,changes)
  VALUES($1,$2,'v3.knowledge_source.registered',$3,'success',
- jsonb_build_object('environment_id',$4,'source_type',$5,'team_id',$6))`,
+ jsonb_build_object('environment_id',$4::text,'source_type',$5::text,'team_id',$6::text))`,
 		user.ID, v.ApplicationID, id, env, v.Type, v.TeamID)
 	if err != nil {
 		httpapi.Error(w, 503, "audit_unavailable", "Source registration audit is unavailable")

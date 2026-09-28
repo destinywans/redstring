@@ -294,6 +294,23 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 			if ok {
 				tools = append(tools, metricTool)
 			}
+			logTool, ok := v3conversation.NewServiceLogsTool(v3conversation.ServiceLogsToolOptions{
+				Enabled: true, DB: s.DB, OwnerID: ownerID, EnvironmentID: environmentID,
+				CurrentUser: func(ctx context.Context, id string) (core.User, error) {
+					member, err := s.Member(ctx, id)
+					if err != nil {
+						return core.User{}, err
+					}
+					if member.DeletedAt != nil || member.Disabled {
+						return core.User{}, store.ErrForbidden
+					}
+					return member.User, nil
+				},
+				LookupService: catalog.LookupServiceEvidence, Access: policy, Telemetry: telemetry,
+			})
+			if ok {
+				tools = append(tools, logTool)
+			}
 			return tools, nil
 		},
 		Environment: func(r *http.Request) (string, error) {

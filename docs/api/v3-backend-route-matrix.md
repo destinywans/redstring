@@ -56,7 +56,7 @@
 | 事件与告警 | GET | `/incidents` | 旧路径适配 | implemented |
 | 事件与告警 | GET | `/incidents/{id}` | 旧路径适配 | mock |
 | 事件与告警 | POST | `/incidents/{id}/timeline` | 新增 | implemented |
-| 事件与告警 | GET | `/alert-rules` | 新增 | mock |
+| 事件与告警 | GET | `/alert-rules` | 新增 | implemented |
 | 事件与告警 | GET | `/alert-rules/{id}` | 新增 | mock |
 | 事件与告警 | POST | `/alert-rules/{id}/dry-run` | 新增 | mock |
 | 事件与告警 | PUT | `/alert-rules/{id}` | 新增 | mock |
@@ -113,7 +113,7 @@
 | v4 新建流程 | POST | `/knowledge-sources/test` | 新增 | mock |
 | v4 新建流程 | POST | `/knowledge-sources` | 新增 | mock |
 | Agent 链路 | GET | `/agent-runs/{id}/trace` | 聚合 | mock |
-| 集成中心 | GET | `/connectors` | 新增 | mock |
+| 集成中心 | GET | `/connectors` | 新增 | implemented |
 | 集成中心 | GET | `/connectors/{id}` | 新增 | mock |
 | 集成中心 | POST | `/connectors/{id}/test` | 新增 | implemented |
 | 集成中心 | PATCH | `/connectors/{id}` | 新增 | mock |

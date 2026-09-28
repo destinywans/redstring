@@ -165,7 +165,7 @@ func v3ReadOnlyPost(r *http.Request) bool {
 
 func v3EnvironmentExempt(r *http.Request) bool {
 	switch r.Method + " " + r.URL.Path {
-	case "POST /api/v1/auth/login", "POST /api/v1/auth/logout", "GET /api/v1/auth/me", "GET /api/v1/instance":
+	case "POST /api/v1/auth/login", "POST /api/v1/auth/logout", "GET /api/v1/auth/me", "GET /api/v1/instance", "GET /api/v1/auth/oidc/start", "GET /api/v1/auth/oidc/callback":
 		return true
 	}
 	// The one inbound Alertmanager route authenticates its configured source

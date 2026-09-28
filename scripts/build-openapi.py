@@ -65,6 +65,15 @@ def route(method,path,summary,role='viewer',body=None,response=None,status=200,d
 route('post','/auth/login','Log in','public',obj(fieldnames('email password'),['email','password']),obj({'user':ref('User')}),desc='Sets HttpOnly SameSite=Strict cookie; browser writes require matching Origin.')
 route('get','/auth/me','Current account',response=obj({'user':ref('User')}))
 route('post','/auth/logout','Log out',status=204)
+# Optional V3 browser OIDC authorization-code login, independent of an
+# environment selection. The callback consumes state once and sets the normal
+# local session cookie only for a verified exact issuer/subject binding.
+route('get','/auth/oidc/start','Start configured OIDC sign-in','public',status=302,desc='Sets a five-minute HttpOnly browser-bound state cookie; redirects using nonce and PKCE S256. Outstanding state is globally capped in the database. Returns 404 when OIDC is not configured.')
+P['/auth/oidc/start']['get']['responses']['429']={'description':'OIDC start rate or outstanding-state capacity exceeded','content':{'application/json':{'schema':ref('Error')}}}
+route('get','/auth/oidc/callback','Complete configured OIDC sign-in','public',status=302,query=[{'name':name,'in':'query','schema':string()} for name in ['state','code']],desc='Consumes browser-bound state once, exchanges the code, verifies signed ID token issuer, audience, expiry and nonce, and maps exact subject to an explicitly bound existing enabled human user. On success sets a local SameSite=Lax session cookie and redirects to /. Returns 404 when OIDC is not configured.')
+route('get','/auth/oidc/bindings/{user}','Read OIDC binding','platform-admin',response=obj(fieldnames('user_id subject'),['user_id','subject']),desc='Requires platform administrator plus global members.manage. Issuer comes only from server configuration. Returns 404 when unconfigured or unbound.')
+route('post','/auth/oidc/bindings','Bind existing member to OIDC subject','platform-admin',body=obj(fieldnames('user_id subject'),['user_id','subject']),response=obj(fieldnames('user_id subject'),['user_id','subject']),status=201,desc='Requires platform administrator plus global members.manage. Existing enabled human member only. Exact subject is unique per issuer; conflict returns 409. Revokes target local sessions and audits. Environment all returns 409 env_view_only.')
+route('delete','/auth/oidc/bindings/{user}','Unbind OIDC subject','platform-admin',status=204,desc='Requires platform administrator plus global members.manage. Revokes target local sessions and audits. Environment all returns 409 env_view_only.')
 route('get','/users','List workspace users','admin',response=listed('User'))
 route('post','/users','Create workspace user','admin',obj({**fieldnames('email name password'),'role':string(enum=['admin','operator','viewer'])},['email','name','password','role']),obj({'user':ref('User')}),201)
 route('patch','/users/{id}','Update account and revoke sessions','admin',obj({**fieldnames('name password'),'role':string(enum=['admin','operator','viewer']),'disabled':{'type':'boolean'}}),obj({'user':ref('User')}),desc='Role/password/disabled changes revoke existing sessions; last active administrator cannot be removed.')
@@ -303,7 +312,9 @@ route('post','/ai-extensions/{id}/discover','Discover tools from administrator r
 route('post','/ai-extensions/{id}/test','Invoke only the registered fixed-argument read-only tool binding','admin',obj({'binding':string()},['binding']),ref('Evidence'),desc='Read-only hint is insufficient alone: explicit administrator allowlist, immutable binding version and application ACL are checked.')
 
 # WAN-110: bounded provider-aware logs and traces; never accept raw query languages.
-S['TraceSpan']=obj({**fieldnames('trace_id span_id parent_span_id service name'),'start':string(format='date-time'),'duration_ms':{'type':'number'},'error':boolean})
+S['TraceAttribute']=obj(fieldnames('key value'),['key','value'])
+S['TraceEvent']=obj({'at':string(format='date-time'),**fieldnames('name text')},['at','name'])
+S['TraceSpan']=obj({**fieldnames('trace_id span_id parent_span_id service name'),'start':string(format='date-time'),'duration_ms':{'type':'number'},'error':boolean,'attributes':arr(ref('TraceAttribute')),'events':arr(ref('TraceEvent'))})
 S['TraceEvidence']=obj({'source':ref('TelemetrySource'),'spans':arr(ref('TraceSpan')),'trace_count':integer(),'empty':boolean,'limit_reached':boolean})
 P['/applications/{id}/telemetry']['get']['responses']['200']['content']['application/json']['schema']['properties'].update({'log_providers':arr(string(enum=['loki','elasticsearch'])),'traces_configured':boolean})
 P['/observability/logs/batch']['post']['requestBody']['content']['application/json']['schema']['properties'].update({'provider':string(enum=['','loki','elasticsearch']),'search':string(description='Literal log text; maximum 256 UTF-8 bytes, no raw query syntax.')})

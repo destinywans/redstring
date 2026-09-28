@@ -10,6 +10,10 @@
 
 ## 通用约定
 
+可选的企业 OIDC 登录属于 **166 项 V3 页面契约之外的认证辅助接口**：`GET /auth/oidc/start` 发起浏览器授权码登录，`GET /auth/oidc/callback` 接收 `state`、`code` 并在验证后设置现有本地会话 Cookie。两者只在完整配置 IdP 时注册；未配置为 404。服务端要求浏览器绑定的一次性状态、nonce、PKCE S256，以及签名、issuer、audience、过期时间校验。登录只匹配由平台管理员显式绑定的服务端 issuer 与 IdP subject；绑定目标必须是已启用的现有人类成员，不按邮箱匹配、不自动建号、不改变成员来源。登录后仍以本地角色和环境授权为准，不接受 IdP 声明的角色或环境。回调使用 SameSite=Lax 本地会话 Cookie；禁用成员和解绑会撤销本地会话，但 IdP 侧会话、签发的令牌及已进行中的请求不能由此撤销。
+
+绑定管理只在配置 OIDC 时注册，由平台管理员且具有全局 `members.manage` 的本地会话调用；写请求沿用 V3 环境规则，`all` 返回 `409 env_view_only`。`GET /auth/oidc/bindings/{user}` 查看当前 issuer 下的 subject；`POST /auth/oidc/bindings` 以 `{user_id,subject}` 显式绑定，重复 subject 或用户返回 `409`；`DELETE /auth/oidc/bindings/{user}` 解绑。客户端不能选择 issuer；绑定与解绑写审计并撤销目标用户现有本地会话。绑定已有成员需要先通过现有受控成员流程建立账号，新成员自助开通不属于这组辅助接口。
+
 | 项 | 约定 |
 | --- | --- |
 | 基址 | `/api/v1`，同源 Cookie 会话（`credentials: same-origin`） |
@@ -113,7 +117,7 @@
 | GET | `/incidents` | `status: active\|resolved\|all` | `{ items, counts }` | implemented |
 | GET | `/incidents/{id}` | | `Incident` | mock |
 | POST | `/incidents/{id}/timeline` | `{ text }` | 时间线条目 | implemented |
-| GET | `/alert-rules` | | 规则列表 | mock |
+| GET | `/alert-rules` | | `AlertRuleSummary[]` 与完整可见范围的 `all/firing/scheduled` 计数；仅展示服务端按 Prometheus 规则文件和组明确绑定到应用、且标签和环境均匹配的规则；来源失败或超限明确报错，不返回部分计数；无可信周期来源时 `scheduled=0` | implemented |
 | GET | `/alert-rules/{id}` | | `AlertRule` | mock |
 | POST | `/alert-rules/{id}/dry-run` | `{ expr, for }` | `{ would_fire, windows }` | mock |
 | PUT | `/alert-rules/{id}` | `AlertRule` | `AlertRule` | mock |
@@ -199,7 +203,7 @@
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
-| GET | `/connectors` | `category`, `q` | `ConnectorList` | mock |
+| GET | `/connectors` | `category`, `q`（名称、标识和供应商支持中文及拼音检索） | `ConnectorList`；计数基于当前可见全集，筛选只影响 `items`；`ok/error` 是最近 15 分钟的连接探测结果，不代表持续健康，过期显示 `unverified` 并保留上次检查时间；未分页的可见记录超过 1000 条返回 413 | implemented |
 | GET | `/connectors/{id}` | | `ConnectorDetail` | mock |
 | POST | `/connectors/{id}/test` | | `{ ok, latency_ms }` | implemented |
 | PATCH | `/connectors/{id}` | 如 `{ tools: [{ name, enabled }] }` | 更新结果 | mock |

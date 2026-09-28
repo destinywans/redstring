@@ -138,6 +138,11 @@ func scanConnector(rows pgx.Row) (connector, error) {
 
 const columns = "id,environment_id,provider,name,category,endpoint,auth_method,credential_ref,webhook_requested,tools,status,last_checked_at,last_latency_ms,last_error_code"
 
+// A connection test is a point-in-time probe, not ongoing health monitoring.
+// The list only calls it current for this short window; older results retain
+// their timestamp but do not advertise the connector as connected or broken.
+const listProbeFreshness = 15 * time.Minute
+
 func (s *Service) lookup(ctx context.Context, id string, environments []string) (connector, error) {
 	return scanConnector(s.DB.QueryRow(ctx, "SELECT "+columns+" FROM v3_connectors WHERE id=$1 AND environment_id = ANY($2::text[])", id, environments))
 }
@@ -187,41 +192,125 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "invalid_query", "Search is too long")
 		return
 	}
-	rows, err := s.DB.Query(r.Context(), "SELECT "+columns+" FROM v3_connectors WHERE environment_id = ANY($1::text[]) ORDER BY name,id", env)
+	// The frontend contract has no page cursor. Scan in bounded batches, then
+	// either return complete counts or fail instead of silently truncating them.
+	// A read-only snapshot also keeps the list and its authorization decisions
+	// on one connection (including with a single-connection pool).
+	tx, err := s.DB.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 		return
 	}
-	defer rows.Close()
+	defer tx.Rollback(r.Context())
+	policy := &rbac.V3Policy{Store: &store.Store{DB: s.DB}}
+	user := httpapi.CurrentUser(r)
 	items := make([]map[string]any, 0)
 	counts := map[string]int{"ok": 0, "unverified": 0, "error": 0}
 	categoryCounts := map[string]int{"all": 0}
-	for rows.Next() {
-		c, err := scanConnector(rows)
+	now := time.Now()
+	lastName, lastID := "", ""
+	for {
+		rows, err := tx.Query(r.Context(), "SELECT "+columns+" FROM v3_connectors WHERE environment_id = ANY($1::text[]) AND (name,id)>($2,$3) ORDER BY name,id LIMIT 201", env, lastName, lastID)
 		if err != nil {
 			httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 			return
 		}
-		counts[c.Status]++
-		categoryCounts["all"]++
-		categoryCounts[c.Category]++
-		if category != "all" && c.Category != category {
-			continue
+		batch := make([]connector, 0, 201)
+		for rows.Next() {
+			c, scanErr := scanConnector(rows)
+			if scanErr != nil {
+				err = scanErr
+				break
+			}
+			batch = append(batch, c)
 		}
-		if query != "" && !searchtext.Match(c.Name+" "+c.Provider+" "+c.Endpoint, query) {
-			continue
+		if err == nil {
+			err = rows.Err()
 		}
-		items = append(items, summary(c, r.Header.Get("Accept-Language")))
-	}
-	if rows.Err() != nil {
-		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
-		return
+		rows.Close()
+		if err != nil {
+			httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
+			return
+		}
+		for _, c := range batch {
+			// A connector registration belongs to exactly one environment. It
+			// carries no application/team owner; those scopes apply separately to
+			// its explicit target bindings, never to the registration itself.
+			err := policy.AuthorizeWithTx(r.Context(), tx, user, rbac.V3Decision{
+				Module: "connectors", Action: "view", EnvironmentID: c.EnvironmentID,
+			})
+			if errors.Is(err, store.ErrForbidden) {
+				continue
+			}
+			if err != nil {
+				httpapi.Error(w, 503, "authorization_unavailable", "Connector access could not be checked")
+				return
+			}
+			if !validConnectorProjection(c) {
+				httpapi.Error(w, 503, "connector_state_unavailable", "Connector state cannot be represented by the V3 contract")
+				return
+			}
+			if categoryCounts["all"] == 1000 {
+				httpapi.Error(w, 413, "scope_too_large", "Connector collection exceeds the unpaged V3 response limit")
+				return
+			}
+			projected := observedSummary(c, r.Header.Get("Accept-Language"), now)
+			counts[projected["status"].(string)]++
+			categoryCounts["all"]++
+			categoryCounts[c.Category]++
+			if category != "all" && c.Category != category {
+				continue
+			}
+			if query != "" && !searchtext.Match(c.ID+" "+c.Name+" "+c.Provider, query) {
+				continue
+			}
+			items = append(items, projected)
+		}
+		if len(batch) < 201 {
+			break
+		}
+		lastName, lastID = batch[len(batch)-1].Name, batch[len(batch)-1].ID
 	}
 	cats := make([]map[string]any, 0, len(categories))
 	for _, id := range categories {
 		cats = append(cats, map[string]any{"id": id, "label": categoryLabel(id, r.Header.Get("Accept-Language")), "count": categoryCounts[id]})
 	}
+	if err := tx.Commit(r.Context()); err != nil {
+		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
+		return
+	}
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items, "counts": counts, "categories": cats})
+}
+
+func validConnectorProjection(c connector) bool {
+	validCategory := false
+	for _, known := range categories {
+		validCategory = validCategory || (known != "all" && known == c.Category)
+	}
+	return validCategory && (c.Status == "ok" || c.Status == "unverified" || c.Status == "error") &&
+		(c.Status == "unverified" || c.Checked != nil)
+}
+
+// observedSummary projects the most recent bounded connection test. Its
+// status is never a claim that the upstream remains healthy between tests.
+// Call only after validConnectorProjection, which checks Checked before use.
+func observedSummary(c connector, lang string, now time.Time) map[string]any {
+	if c.Status == "unverified" {
+		return summary(c, lang)
+	}
+	age := now.Sub(*c.Checked)
+	if age >= 0 && age <= listProbeFreshness {
+		result := summary(c, lang)
+		if c.Status == "error" {
+			result["meta"] = localized(lang, "连接检查失败 ", "Connection test failed ") + c.Checked.UTC().Format(time.RFC3339) + ": " + c.ErrorCode
+		}
+		return result
+	}
+	last := c.Checked.UTC().Format(time.RFC3339)
+	c.Status = "unverified"
+	result := summary(c, lang)
+	result["meta"] = localized(lang, "上次连接检查 ", "Last connection test ") + last + localized(lang, " · 已过期", " · expired")
+	return result
 }
 
 func summary(c connector, lang string) map[string]any {
@@ -337,6 +426,10 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 		return
 	}
+	if !validConnectorProjection(c) {
+		httpapi.Error(w, 503, "connector_state_unavailable", "Connector state cannot be represented by the V3 contract")
+		return
+	}
 	services, err := s.connectorServices(r.Context(), c, httpapi.CurrentUser(r))
 	if errors.Is(err, errConnectorServiceLimit) {
 		httpapi.Error(w, 422, "result_limit", "Too many services for connector detail")
@@ -351,7 +444,7 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lang := r.Header.Get("Accept-Language")
-	result := summary(c, lang)
+	result := observedSummary(c, lang, time.Now())
 	checked := localized(lang, "尚未检查", "Never checked")
 	if c.Checked != nil {
 		checked = c.Checked.UTC().Format(time.RFC3339)

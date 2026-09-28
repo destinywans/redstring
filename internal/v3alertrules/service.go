@@ -142,10 +142,50 @@ func bindingKey(env, identity string) string {
 }
 
 func (s *Service) Register(api *httpapi.Server) {
+	api.Register("GET /api/v1/alert-rules", "viewer", s.MainList)
+	api.MarkV3ObjectRoute("GET /api/v1/alert-rules", "alert_rules", "view")
 	api.Register("GET /api/v1/alert-rules/observed", "viewer", s.List)
 	api.MarkV3ObjectRoute("GET /api/v1/alert-rules/observed", "alert_rules", "view")
 	api.Register("GET /api/v1/alert-rules/observed/{id}", "viewer", s.Detail)
 	api.MarkV3ObjectRoute("GET /api/v1/alert-rules/observed/{id}", "alert_rules", "view")
+}
+
+// MainList serves the complete V3 rule-list contract. Unlike the auxiliary
+// observed route, it never publishes partial counts when one authorized
+// environment's provider is unavailable. Prometheus rules have no cron
+// schedule, so the scheduled count is truthfully zero.
+func (s *Service) MainList(w http.ResponseWriter, r *http.Request) {
+	items, unavailable, status, err := s.visible(r)
+	if err != nil {
+		httpapi.Error(w, status, errorCode(status), "Alert rule source or authorization is unavailable")
+		return
+	}
+	if len(unavailable) != 0 {
+		httpapi.Error(w, http.StatusServiceUnavailable, "alert_rules_unavailable", "An authorized alert rule source is unavailable")
+		return
+	}
+	type mainSummary struct {
+		ID     string `json:"id"`
+		Folder string `json:"folder"`
+		Name   string `json:"name"`
+		State  string `json:"state"`
+	}
+	summaries := make([]mainSummary, 0, len(items))
+	counts := map[string]int{"all": 0, "firing": 0, "scheduled": 0}
+	seen := make(map[string]bool, len(items))
+	for _, item := range items {
+		if seen[item.ID] {
+			httpapi.Error(w, http.StatusServiceUnavailable, "alert_rule_identity_conflict", "Observed rule identity is ambiguous")
+			return
+		}
+		seen[item.ID] = true
+		summaries = append(summaries, mainSummary{ID: item.ID, Folder: item.Folder, Name: item.Name, State: item.State})
+		counts["all"]++
+		if item.State == "firing" {
+			counts["firing"]++
+		}
+	}
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"items": summaries, "counts": counts})
 }
 
 func (s *Service) visible(r *http.Request) ([]Detail, []string, int, error) {

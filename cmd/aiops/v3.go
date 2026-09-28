@@ -30,6 +30,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3conversation"
 	"github.com/wans/aiops-canvas/internal/v3discovery"
 	"github.com/wans/aiops-canvas/internal/v3events"
+	"github.com/wans/aiops-canvas/internal/v3identity"
 	"github.com/wans/aiops-canvas/internal/v3integrations"
 	"github.com/wans/aiops-canvas/internal/v3knowledge"
 	"github.com/wans/aiops-canvas/internal/v3knowledgesources"
@@ -112,6 +113,19 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		return err
 	}
 	api.RegisterPublic("GET /api/v1/instance", func(w http.ResponseWriter, _ *http.Request) { httpapi.WriteJSON(w, http.StatusOK, info) })
+	if issuer, clientID, redirect := os.Getenv("AIOPS_V3_OIDC_ISSUER"), os.Getenv("AIOPS_V3_OIDC_CLIENT_ID"), os.Getenv("AIOPS_V3_OIDC_REDIRECT_URL"); issuer != "" || clientID != "" || redirect != "" || os.Getenv("AIOPS_V3_OIDC_CLIENT_SECRET") != "" {
+		identity, err := v3identity.New(ctx, s, v3identity.Config{
+			Issuer: issuer, ClientID: clientID, ClientSecret: os.Getenv("AIOPS_V3_OIDC_CLIENT_SECRET"),
+			RedirectURL: redirect, PublicOrigin: api.AllowedOrigin, Tier: cfg.Tier,
+			SecureCookies:          api.SecureCookies,
+			AllowLoopbackHTTP:      os.Getenv("AIOPS_V3_OIDC_ALLOW_LOOPBACK_HTTP") == "true",
+			AllowedEndpointOrigins: oidcEndpointOrigins(os.Getenv("AIOPS_V3_OIDC_ENDPOINT_ORIGINS")),
+		}, nil)
+		if err != nil {
+			return fmt.Errorf("configure OIDC: %w", err)
+		}
+		identity.Register(api)
+	}
 	v3admin.New(s).Register(api)
 	lowerSources, err := loadV3LowerSources(os.Getenv("AIOPS_V3_LOWER_SOURCES_CONFIG"), cfg.Tier)
 	if err != nil {
@@ -384,6 +398,17 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	v3sourceregistry.New(s.DB, policy).Register(api)
 	go auditV3.CleanupExpired(ctx)
 	return nil
+}
+
+func oidcEndpointOrigins(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	for index := range parts {
+		parts[index] = strings.TrimSpace(parts[index])
+	}
+	return parts
 }
 
 func bindV3Instance(ctx context.Context, s *store.Store, info v3Instance) error {

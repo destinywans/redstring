@@ -281,7 +281,8 @@ S['V3ConnectorType'] = obj({**fieldnames('brand name kind version webhook_url'),
     'tools':arr(v3_object('name desc'))})
 v3_route('get','/connector-types/{type}','Read one supported connector type',response=ref('V3ConnectorType'))
 v3_route('get','/connectors','List configured connectors',role='admin',response=ref('V3ConnectorList'),
-    query=[v3_query(x) for x in ['category','q']])
+    query=[v3_query(x) for x in ['category','q']],
+    desc='Counts cover all currently authorized connector registrations before category or search filters. Status ok/error reflects a persisted connection test from the last 15 minutes, not continuous health; older results become unverified with their last-check time. More than 1000 visible registrations returns 413 instead of an incomplete unpaged result.')
 v3_route('get','/connectors/{id}','Read connector configuration',role='admin',response=ref('V3ConnectorDetail'))
 v3_route('post','/connectors','Create a connector',role='admin',
     body=obj({'type':string(),'url':string(),'auth':string(),'credential_ref':string(),
@@ -386,6 +387,15 @@ S['V3ObservedAlertRuleDetail'] = obj({**S['V3ObservedAlertRuleSummary']['propert
     **fieldnames('datasource expr last_evaluation'), 'for_seconds':v3_num(),
     'labels':v3_map(string()),'annotations':v3_map(string()),
     'evaluation_ms':v3_num(),'partial':v3_bool(),'unavailable':arr(string())})
+S['V3AlertRuleSummary'] = obj({**fieldnames('id folder name'),
+    'state':string(enum=['firing','pending','ok']), 'schedule':string()},
+    ['id','folder','name','state'])
+S['V3AlertRuleList'] = obj({'items':arr(ref('V3AlertRuleSummary')),
+    'counts':obj({k:integer(minimum=0) for k in ['all','firing','scheduled']},
+        ['all','firing','scheduled'])}, ['items','counts'])
+v3_route('get','/alert-rules','Read complete authorized alert rule summaries',
+    response=ref('V3AlertRuleList'),
+    desc='Rules come from configured Prometheus sources and exact server-owned file/group application bindings, with matching environment/application labels and V3 authorization. Counts describe the complete authorized result. Missing configuration, upstream failure or a result above the bound returns an error rather than synthetic or partial counts. Scheduled is zero until a trusted schedule source is connected.')
 v3_route('get','/alert-rules/observed','Read provider-observed alert rule summaries',
     response=obj({'items':arr(ref('V3ObservedAlertRuleSummary')),
         'counts':v3_map(integer()),'partial':v3_bool(),
@@ -660,7 +670,9 @@ S['V3TraceList'] = obj({'scope':string(enum=['app','agent']),'total':integer(),'
 S['V3TraceView'] = obj({**fieldnames('id trace_id op time version flame_note'),
     'duration_ms':v3_num(),'colors':v3_map(string()),
     'spans':arr(obj({**fieldnames('id service op'),'depth':integer(),'start':v3_num(),'end':v3_num(),
-        'status':string(enum=['ok','error'])})),
+        'status':string(enum=['ok','error']),
+        'attrs':arr(obj(fieldnames('k v'),['k','v'])),
+        'events':arr(obj({'at':string(format='date-time'),**fieldnames('name text')},['at','name']))})),
     'graph':obj({'nodes':arr({'type':'object','additionalProperties':True}),
         'edges':arr({'type':'object','additionalProperties':True})})})
 v3_route('get','/traces','Query scoped traces',response=ref('V3TraceList'),

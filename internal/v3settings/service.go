@@ -187,7 +187,16 @@ func (s *Service) putWorkspace(ctx context.Context, id string, w workspace) (wor
 		(w.Locale != "zh-CN" && w.Locale != "en-US") || (w.WeekStart != "monday" && w.WeekStart != "sunday") || w.RetentionDays < 1 || w.RetentionDays > 3650 {
 		return workspace{}, errInvalid
 	}
-	current, err := s.getWorkspace(ctx)
+	tx, err := s.Store.DB.Begin(ctx)
+	if err != nil {
+		return workspace{}, err
+	}
+	defer tx.Rollback(ctx)
+	// Read the immutable deployment fields under the same row lock as the
+	// update. A concurrent branding/deployment change must not be overwritten
+	// or validated against an earlier snapshot.
+	current := workspace{}
+	err = tx.QueryRow(ctx, `SELECT v3_data_region,v3_brand_name,v3_brand_logo,v3_brand_pending FROM workspace_settings WHERE id='default' FOR UPDATE`).Scan(&current.DataRegion, &current.Brand.Name, &current.Brand.Logo, &current.Brand.Pending)
 	if err != nil {
 		return workspace{}, err
 	}
@@ -195,11 +204,6 @@ func (s *Service) putWorkspace(ctx context.Context, id string, w workspace) (wor
 	if w.DataRegion != current.DataRegion || w.Brand.Name != current.Brand.Name || !equalStringPointers(w.Brand.Logo, current.Brand.Logo) || w.Brand.Pending != current.Brand.Pending {
 		return workspace{}, errInvalid
 	}
-	tx, err := s.Store.DB.Begin(ctx)
-	if err != nil {
-		return workspace{}, err
-	}
-	defer tx.Rollback(ctx)
 	_, err = tx.Exec(ctx, `UPDATE workspace_settings SET name=$1,v3_slug=$2,timezone=$3,language=$4,v3_week_start=$5,v3_retention_days=$6,revision=revision+1,updated_at=now() WHERE id='default'`, w.Name, w.Slug, w.Timezone, w.Locale, w.WeekStart, w.RetentionDays)
 	if err != nil {
 		return workspace{}, err

@@ -1,5 +1,10 @@
 # AIOps Canvas 检查点
 
+## CP-099 · 2026-09-28 · 连接探测结果按当前配置与授权提交
+
+- 从 WAN-122 集成模型分支 `b4e937a` cherry-pick 为集成分支 `f3ce18e`：连接器上游探测完成后，在事务内锁定登记行，重新检查启用状态、探测所用端点/认证/Vault 引用/工具配置及当前环境与 `connectors.manage` 授权，才持久化探测结果与审计。期间配置变更返回 409、授权撤销返回 403，不保存过期结果。
+- 业务分支先在临时 PG16 随机 schema 通过竞态与已有读取用例；集成分支又在一次性 PG17 随机 schema 运行 `TestConnectorTestRejectsChangesDuringProbe|TestConnectorReadScopeAndProbeStatus` 通过，容器已清理。未调用真实连接器或付费模型；一次探测不代表持续健康，主契约仍 **32/166 `implemented`**。
+
 ## CP-098 · 2026-09-28 · 画布范围测试并入与跨域 DTO 边界
 
 - 从主会话 `codex/v3-backend` 的 `f59647c` 独立 cherry-pick 通用画布读取范围测试到集成分支 `7b8bb91`，避免旧 checkout 遗留测试随新 worktree 丢失。一次性 PG17 随机 schema 中 `TestCanvasTemplatesHTTPV3ScopeSanitizationAndBoundedList` 通过，验证本人/环境/`all` 范围与调查画布尚不可用边界；容器已清理。没有据此把画布主契约标完成。

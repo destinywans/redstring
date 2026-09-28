@@ -494,11 +494,8 @@ func (s *Service) listVisible(r *http.Request) ([]incidentRecord, error) {
 var errTooManyIncidents = errors.New("V3 incident list exceeds unpaginated safety limit")
 
 func (s *Service) Incidents(w http.ResponseWriter, r *http.Request) {
-	filter := r.URL.Query().Get("status")
-	if filter == "" {
-		filter = "all"
-	}
-	if filter != "all" && filter != "active" && filter != "resolved" {
+	filter, ok := incidentFilter(r.URL.Query())
+	if !ok {
 		httpapi.Error(w, 422, "invalid_status", "Use active, resolved, or all")
 		return
 	}
@@ -507,9 +504,29 @@ func (s *Service) Incidents(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
+	items, counts := incidentList(values, filter, time.Now())
+	httpapi.WriteJSON(w, 200, map[string]any{"items": items, "counts": counts})
+}
+
+func incidentFilter(query url.Values) (string, bool) {
+	status := query["status"]
+	if len(status) == 0 {
+		return "active", true
+	}
+	if len(status) != 1 {
+		return "", false
+	}
+	switch status[0] {
+	case "active", "resolved", "all":
+		return status[0], true
+	default:
+		return "", false
+	}
+}
+
+func incidentList(values []incidentRecord, filter string, now time.Time) ([]incidentSummary, map[string]int) {
 	items := make([]incidentSummary, 0, len(values))
 	counts := map[string]int{"all": 0, "active": 0, "resolved": 0}
-	now := time.Now()
 	for _, v := range values {
 		status := incidentStatus(v)
 		counts["all"]++
@@ -523,7 +540,7 @@ func (s *Service) Incidents(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, summarize(v, now))
 	}
-	httpapi.WriteJSON(w, 200, map[string]any{"items": items, "counts": counts})
+	return items, counts
 }
 
 // Incident deliberately does not synthesize required SLO/error-budget numbers.

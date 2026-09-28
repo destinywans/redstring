@@ -327,7 +327,8 @@ S['V3InboxItem'] = obj({**fieldnames('id title sub time href alert_id'),
     'unread':v3_bool(),'day':string(enum=['today','yesterday'])})
 S['V3IncidentSummary'] = obj({**fieldnames('id title duration commander'),
     'severity':string(enum=['P1','P2','P3','P4']),
-    'status':string(enum=['active','mitigated','resolved']),'stage':integer()})
+    'status':string(enum=['active','mitigated','resolved'])},
+    ['id','severity','title','status','duration','commander'])
 S['V3IncidentTimelineEntry'] = obj({'time':string(format='date-time'),
     'actor':obj({'kind':string(enum=['brand','ai','person']),'name':string()}),
     'text':string(),'sub':string()})
@@ -353,7 +354,10 @@ for v3_parameter in P['/alert-groups']['get']['parameters']:
     if v3_parameter['name'] == 'severity':
         v3_parameter.update({'style':'form','explode':True})
 v3_route('get','/incidents','List scoped incidents',response=obj({'items':arr(ref('V3IncidentSummary')),
-    'counts':v3_map(integer())}),query=[v3_query('status')])
+    'counts':obj({k:integer(minimum=0) for k in ['active','resolved','all']},
+        ['active','resolved','all'])}, ['items','counts']),
+    query=[v3_query('status',string(enum=['active','resolved','all'],default='active'))],
+    desc='Counts cover all visible incidents regardless of the selected status. A mitigated incident remains active until work is resolved. Duplicate, empty, or unknown status values return 422.')
 v3_route('get','/incidents/{id}','Read incident detail when impact is available',
     desc='Currently always returns 503 impact_unavailable after identity and scope checks; required SLO impact data is not connected.')
 P['/incidents/{id}']['get']['responses'].pop('200')

@@ -95,6 +95,7 @@ func TestInvalidFiltersReturn422BeforeDatabaseAccess(t *testing.T) {
 	}{
 		{"/inbox?filter=mine&tab=mentions", service.Inbox, "invalid_filter"},
 		{"/alert-groups?severity=P5", service.AlertGroups, "invalid_severity"},
+		{"/incidents?status=active&status=resolved", service.Incidents, "invalid_status"},
 	} {
 		response := httptest.NewRecorder()
 		tc.handler(response, httptest.NewRequest(http.MethodGet, tc.path, nil))
@@ -109,5 +110,58 @@ func TestSummaryUsesActualAssigneeAndElapsedTime(t *testing.T) {
 	got := summarize(incidentRecord{ID: "i", Severity: "critical", Status: "open", AlertStatus: "firing", Title: "Disk full", Commander: "Li", StartsAt: since}, since.Add(90*time.Minute))
 	if got.Severity != "P1" || got.Status != "active" || got.Duration != "1h 30m" || got.Commander != "Li" {
 		t.Fatalf("unexpected summary: %+v", got)
+	}
+}
+
+func TestIncidentFilterDefaultsToActiveAndRejectsInvalidValues(t *testing.T) {
+	for _, tc := range []struct {
+		query string
+		want  string
+		ok    bool
+	}{
+		{"", "active", true},
+		{"status=active", "active", true},
+		{"status=resolved", "resolved", true},
+		{"status=all", "all", true},
+		{"status=", "", false},
+		{"status=other", "", false},
+		{"status=active&status=resolved", "", false},
+	} {
+		query, err := url.ParseQuery(tc.query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, ok := incidentFilter(query)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("%q: got %q,%t want %q,%t", tc.query, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+func TestIncidentListCountsUnfilteredVisibleRecords(t *testing.T) {
+	now := time.Date(2026, 9, 28, 9, 0, 0, 0, time.UTC)
+	values := []incidentRecord{
+		{ID: "open", Status: "open", AlertStatus: "firing", StartsAt: now.Add(-time.Hour)},
+		{ID: "mitigated", Status: "investigating", AlertStatus: "resolved", StartsAt: now.Add(-time.Hour)},
+		{ID: "resolved", Status: "resolved", AlertStatus: "resolved", StartsAt: now.Add(-time.Hour)},
+	}
+	for _, tc := range []struct {
+		filter string
+		ids    []string
+	}{
+		{"active", []string{"open", "mitigated"}},
+		{"resolved", []string{"resolved"}},
+		{"all", []string{"open", "mitigated", "resolved"}},
+	} {
+		items, counts := incidentList(values, tc.filter, now)
+		if len(items) != len(tc.ids) || counts["active"] != 2 || counts["resolved"] != 1 || counts["all"] != 3 {
+			t.Errorf("%s: items=%+v counts=%+v", tc.filter, items, counts)
+			continue
+		}
+		for i, id := range tc.ids {
+			if items[i].ID != id {
+				t.Errorf("%s: item[%d]=%q want %q", tc.filter, i, items[i].ID, id)
+			}
+		}
 	}
 }

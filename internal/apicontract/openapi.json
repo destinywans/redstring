@@ -8295,7 +8295,7 @@
       "get": {
         "summary": "List scoped incidents",
         "operationId": "get_incidents",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. ",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Counts cover all visible incidents regardless of the selected status. A mitigated incident remains active until work is resolved. Duplicate, empty, or unknown status values return 422.",
         "responses": {
           "200": {
             "description": "Success",
@@ -8312,12 +8312,33 @@
                     },
                     "counts": {
                       "type": "object",
-                      "additionalProperties": {
-                        "type": "integer"
-                      }
+                      "properties": {
+                        "active": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "resolved": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "all": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "active",
+                        "resolved",
+                        "all"
+                      ]
                     }
                   },
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "counts"
+                  ]
                 }
               }
             }
@@ -8396,7 +8417,13 @@
             "name": "status",
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "active",
+                "resolved",
+                "all"
+              ],
+              "default": "active"
             }
           },
           {
@@ -37104,12 +37131,17 @@
               "mitigated",
               "resolved"
             ]
-          },
-          "stage": {
-            "type": "integer"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "severity",
+          "title",
+          "status",
+          "duration",
+          "commander"
+        ]
       },
       "V3IncidentTimelineEntry": {
         "type": "object",

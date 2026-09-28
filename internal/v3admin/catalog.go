@@ -19,6 +19,7 @@ var matrixCatalog = []matrixResource{
 	{"silences", "静默", "Silences", []string{"silences"}},
 	{"proposals", "写操作提案", "Write proposals", []string{"proposals"}},
 	{"runbooks", "Runbook", "Runbook", []string{"runbooks"}},
+	{"knowledge", "知识来源与检索", "Knowledge sources & search", []string{"knowledge"}},
 	{"services", "服务目录", "Service catalog", []string{"services"}},
 	{"connectors", "连接器与映射", "Connectors & mapping", []string{"connectors"}},
 	{"agents", "Agent 配置与发布", "Agent config & release", []string{"agents"}},

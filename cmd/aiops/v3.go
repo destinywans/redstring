@@ -17,6 +17,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3admin"
+	"github.com/wans/aiops-canvas/internal/v3alertrules"
 	"github.com/wans/aiops-canvas/internal/v3audit"
 	"github.com/wans/aiops-canvas/internal/v3canvas"
 	"github.com/wans/aiops-canvas/internal/v3catalog"
@@ -25,6 +26,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3events"
 	"github.com/wans/aiops-canvas/internal/v3integrations"
 	"github.com/wans/aiops-canvas/internal/v3knowledge"
+	"github.com/wans/aiops-canvas/internal/v3knowledgesources"
 	"github.com/wans/aiops-canvas/internal/v3mcp"
 	"github.com/wans/aiops-canvas/internal/v3observe"
 	"github.com/wans/aiops-canvas/internal/v3proposals"
@@ -115,6 +117,15 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	v3discovery.New(s.DB, policy).Register(api)
 	v3mcp.New(s.DB, policy).Register(api)
 	v3topology.New(s.DB, policy).Register(api)
+	ruleSource, ruleBindings, err := loadV3AlertRuleSource(os.Getenv("AIOPS_V3_ALERT_RULES_CONFIG"), *info)
+	if err != nil {
+		return fmt.Errorf("load V3 alert rule source: %w", err)
+	}
+	ruleService, err := v3alertrules.New(v3alertrules.DatabaseCatalog{DB: s.DB}, policy, ruleSource, ruleBindings)
+	if err != nil {
+		return fmt.Errorf("bind V3 alert rule groups: %w", err)
+	}
+	ruleService.Register(api)
 
 	personalSettings := v3settings.New(s, runtime)
 	personalSettings.Register(api)
@@ -196,6 +207,7 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	knowledgeV3 := &v3knowledge.Service{DB: s.DB, Knowledge: know, Policy: policy}
 	knowledgeV3.Register(api)
 	knowledgeV3.RegisterSearch(api)
+	v3knowledgesources.New(s.DB, policy).Register(api)
 	go auditV3.CleanupExpired(ctx)
 	return nil
 }

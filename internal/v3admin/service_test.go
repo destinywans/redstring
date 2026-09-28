@@ -10,7 +10,13 @@ func TestMatrixUsesStableCodesAndRejectsUnknownCells(t *testing.T) {
 		{Module: "roles", Action: "manage", ScopeKind: "global", ScopeID: "*", Assurance: "standard"},
 		{Module: "proposals", Action: "approve", ScopeKind: "global", ScopeID: "*", Assurance: "passkey"},
 	}, false)
-	if rows[4].Grants[3] != 2 || rows[9].Grants[4] != 1 || rows[6].Resource != "服务目录" {
+	byName := map[string][]int{}
+	for _, row := range rows {
+		byName[row.Resource] = row.Grants
+	}
+	if len(byName["写操作提案"]) != 5 || len(byName["成员与角色"]) != 5 ||
+		len(byName["服务目录"]) != 5 || len(byName["知识来源与检索"]) != 5 ||
+		byName["写操作提案"][3] != 2 || byName["成员与角色"][4] != 1 {
 		t.Fatalf("stored grants not represented: %+v", rows)
 	}
 	got, err := canonicalMatrix(rows)

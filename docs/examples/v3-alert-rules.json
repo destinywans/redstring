@@ -1,0 +1,16 @@
+{
+  "environments": {
+    "test": {
+      "url": "https://prometheus.test.example.invalid",
+      "bearer_token_file": "/absolute/private/path/prometheus-token"
+    }
+  },
+  "bindings": [
+    {
+      "environment_id": "test",
+      "application_id": "registered-application-id",
+      "file": "/etc/prometheus/rules/application-alerts.yml",
+      "group": "application-alerts"
+    }
+  ]
+}

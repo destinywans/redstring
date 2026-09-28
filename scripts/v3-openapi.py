@@ -351,6 +351,22 @@ v3_route('get','/incidents/{id}','Read incident detail when impact is available'
 P['/incidents/{id}']['get']['responses'].pop('200')
 v3_route('post','/incidents/{id}/timeline','Append a durable incident note',
     role='operator',body=obj({'text':string()},['text']),response=ref('V3IncidentTimelineEntry'),status=201)
+S['V3ObservedAlertRuleSummary'] = obj({**fieldnames('id folder name environment_id application_id'),
+    'state':string(enum=['firing','pending','ok'])},
+    ['id','folder','name','state','environment_id','application_id'])
+S['V3ObservedAlertRuleDetail'] = obj({**S['V3ObservedAlertRuleSummary']['properties'],
+    **fieldnames('datasource expr last_evaluation'), 'for_seconds':v3_num(),
+    'labels':v3_map(string()),'annotations':v3_map(string()),
+    'evaluation_ms':v3_num(),'partial':v3_bool(),'unavailable':arr(string())})
+v3_route('get','/alert-rules/observed','Read provider-observed alert rule summaries',
+    response=obj({'items':arr(ref('V3ObservedAlertRuleSummary')),
+        'counts':v3_map(integer()),'partial':v3_bool(),
+        'unavailable_environments':arr(string())}),
+    desc='Auxiliary read-only backend endpoint, not the V3 AlertRule DTO. Rule groups require explicit server-side application/environment binding and matching provider labels. Unconfigured sources return 503; partial source failure returns 206.')
+P['/alert-rules/observed']['get']['responses']['206'] = P['/alert-rules/observed']['get']['responses']['200']
+v3_route('get','/alert-rules/observed/{id}','Read one provider-observed alert rule',
+    response=ref('V3ObservedAlertRuleDetail'),
+    desc='Auxiliary read-only backend endpoint. No historical preview, threshold condition, notification route or AI triage is inferred.')
 
 # V3 review records are separate from historical rollback action plans. A
 # trusted in-process producer must create one with complete sourced evidence;
@@ -412,6 +428,16 @@ v3_route('post','/knowledge/search','Search scoped knowledge with keyword/vector
     response=obj({'hits':arr(ref('V3KnowledgeSearchHit')),
         'mode':string(enum=['hybrid','keyword']),'degraded':v3_bool()}),
     desc='When embeddings are unavailable, returns a keyword result with degraded=true; an unavailable keyword index returns 503.')
+S['V3ObservedKnowledgeDocument'] = obj({**fieldnames('id name kind'),
+    'docs':{'type':['integer','null']},
+    **{key:{'type':['string','null']} for key in ['sync','chunks','last','status']}},
+    ['id','name','kind','docs','sync','chunks','last','status'])
+v3_route('get','/knowledge-sources/observed-documents','Read scoped published document identities',
+    response=obj({'items':arr(ref('V3ObservedKnowledgeDocument')),
+        'index':{'type':'null'},'partial':v3_bool(),'reason':string(),
+        'truncated':v3_bool()},
+        ['items','index','partial','reason','truncated']),
+    desc='Auxiliary read-only backend endpoint, not the V3 KnowledgeSource DTO. A source registry, synchronization state and index summary are unavailable. No document body is returned.')
 
 # Read-only service discovery and externally queried telemetry.
 S['V3CatalogEvidenceState'] = obj({'state':string(enum=['unavailable']), 'reason':string()},['state'])

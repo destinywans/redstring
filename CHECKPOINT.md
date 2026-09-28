@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-061 · 2026-09-28 · 告警规则与知识文档的真实来源辅助读接口
+
+- 分支 `codex/v3-backend`，仅改后端、OpenAPI、配置示例和定向测试；无关 `.claude/` 保留。新增只读 `/alert-rules/observed`、`/alert-rules/observed/{id}`：以私有配置把 Prometheus 端点和精确规则组绑定到环境及已登记应用，标签只作交叉校验，逐应用执行 V3 鉴权；没有配置或来源失败明确报不可用。未推断规则预览、阈值、路由和 AI 初查。
+- 新增 `/knowledge-sources/observed-documents`，仅投影明确归属环境、已发布且经 V3 授权的文档身份；不把文档冒充来源登记，索引和同步状态保持未知。知识模块已进入可编辑角色矩阵。两个辅助接口均不替代前端要求的完整规则/知识来源 DTO，166 项主契约状态不因此更改。
+- 定向 `v3alertrules`、`v3knowledgesources`、`v3admin`、`cmd/aiops` Go 测试，以及 OpenAPI 生成与契约脚本通过。没有 PostgreSQL 迁移实测、真实 Prometheus 请求或浏览器联调；后续需接来源登记与完整页面 DTO，并在隔离库验证授权和迁移。
+
 ## CP-060 · 2026-09-28 · V3 检索与 MCP 登记读接口
 
 - 分支 `codex/v3-backend` 延续 WAN-117；本轮只改后端、契约和定向测试，保留无关 `.claude/`。`all` 视图允许真正只读的结构化 `POST /knowledge/search`，其他 POST 仍返回 `409 env_view_only`；个人偏好 PATCH 的 OpenAPI 请求体改为可选字段。

@@ -347,3 +347,14 @@ html[data-v3-density="compact"] .v3-content {
 .v3-topbar > * { flex-shrink: 0; }
 .v3-topbar > .crumbs { flex-shrink: 1; overflow: hidden; }
 .crumbs .cur { min-width: 0; overflow: hidden; text-overflow: ellipsis; display: block; }
+
+.crumb-link {
+  color: inherit;
+  border-radius: 4px;
+  padding: 1px 2px;
+  margin: -1px -2px;
+}
+.crumb-link:hover {
+  color: var(--text);
+  background: var(--hover);
+}

@@ -29,7 +29,7 @@ export default function ExecutionPage() {
   const r = e.report;
   return (
     <Page
-      crumbs={[tx("事件收件箱", "Inbox"), tx("回滚 checkout-api 连接池配置", "Roll back checkout-api pool config"), tx("执行与报告", "Execution & report")]}
+      crumbs={[tx("事件收件箱", "Inbox"), { label: tx("回滚 checkout-api 连接池配置", "Roll back checkout-api pool config"), to: "/review/PRP-88" }, tx("执行与报告", "Execution & report")]}
       actions={
         <>
           <Badge tone="ok">

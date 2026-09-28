@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-do
 import { AiAvatar, Avatar, Badge, Btn, Dot, Icon, IconBtn, Kbd, Tile, cx } from "../ui/core";
 import { MenuButton, Toaster, toast } from "../ui/overlays";
 import { useI18n } from "../i18n";
-import { NAV, SETTINGS_GROUPS, locate, type NavItem } from "./nav";
+import { NAV, SETTINGS_GROUPS, SETTINGS_NAV, locate, type NavItem } from "./nav";
 import { CommandPalette, useCommandPalette } from "./CommandPalette";
 import { AskAiDrawer, useAskAi } from "./AskAi";
 import { API_MODE, useGet } from "../api/client";
@@ -175,11 +175,43 @@ function AccountCard({ me }: { me?: Me }) {
 }
 
 /** Top bar used by every page: breadcrumbs on the left, page actions + Ask AI on the right. */
-export function Page({ crumbs, title, actions, children, ai = true, bodyClass, flush }: { crumbs?: ReactNode[]; title?: ReactNode; actions?: ReactNode; children: ReactNode; ai?: boolean; bodyClass?: string; flush?: boolean }) {
+/** A breadcrumb is plain text/node, or an explicit `{ label, to }` for levels that are not menu items (a service, a proposal…). */
+export type Crumb = ReactNode | { label: ReactNode; to: string };
+const isLinkCrumb = (c: Crumb): c is { label: ReactNode; to: string } => typeof c === "object" && c !== null && "to" in c && "label" in c;
+
+/** Labels used in page titles that differ from the menu wording. */
+const CRUMB_ALIASES: Record<string, string> = { 全部对话: "/conversations", "All conversations": "/conversations", 事件收件箱: "/inbox", Inbox: "/inbox", 工作区通用: "/settings/workspace", Workspace: "/settings/workspace" };
+
+/** Resolve where a breadcrumb level goes: explicit link, alias, or the matching menu section / item. */
+function useCrumbHref() {
+  const { tl } = useI18n();
+  const { pathname } = useLocation();
+  const where = locate(pathname);
+  return (c: Crumb, i: number): string | undefined => {
+    if (isLinkCrumb(c)) return c.to;
+    if (typeof c !== "string") return undefined;
+    if (CRUMB_ALIASES[c]) return CRUMB_ALIASES[c];
+    const sections = [...NAV, SETTINGS_NAV];
+    const section = sections.find((sct) => tl(sct.label) === c);
+    if (section) return section.to;
+    const pool = where.section ? [where.section, ...sections.filter((x) => x !== where.section)] : sections;
+    for (const sct of pool) {
+      const child = sct.children.find((ch) => tl(ch.label) === c);
+      if (child) return child.to;
+    }
+    if (i === 0 && where.section) return where.section.to;
+    if (i === 1 && where.child) return where.child.to;
+    return undefined;
+  };
+}
+
+export function Page({ crumbs, title, actions, children, ai = true, bodyClass, flush }: { crumbs?: Crumb[]; title?: ReactNode; actions?: ReactNode; children: ReactNode; ai?: boolean; bodyClass?: string; flush?: boolean }) {
   const { tx } = useI18n();
   const openAi = useAskAi((s) => s.setOpen);
+  const hrefOf = useCrumbHref();
+  const { pathname } = useLocation();
   useEffect(() => {
-    const t = crumbs?.filter((c) => typeof c === "string").slice(-1)[0] ?? (typeof title === "string" ? title : "");
+    const t = crumbs?.map((c) => (isLinkCrumb(c) ? c.label : c)).filter((c) => typeof c === "string").slice(-1)[0] ?? (typeof title === "string" ? title : "");
     document.title = t ? `${t} · AIOps Canvas` : "AIOps Canvas";
   }, [crumbs, title]);
   return (
@@ -187,12 +219,23 @@ export function Page({ crumbs, title, actions, children, ai = true, bodyClass, f
       <header className="v3-topbar">
         {title ?? (
           <nav className="crumbs" aria-label={tx("面包屑", "Breadcrumbs")}>
-            {crumbs?.map((c, i) => (
-              <span key={i} className={i === (crumbs?.length ?? 0) - 1 ? "cur" : ""}>
-                {i > 0 && <Icon name="right" size={12} color="var(--faint)" />}
-                {c}
-              </span>
-            ))}
+            {crumbs?.map((c, i) => {
+              const last = i === crumbs.length - 1;
+              const label = isLinkCrumb(c) ? c.label : c;
+              const href = last ? undefined : hrefOf(c, i);
+              return (
+                <span key={i} className={last ? "cur" : ""}>
+                  {i > 0 && <Icon name="right" size={12} color="var(--faint)" />}
+                  {href && href !== pathname ? (
+                    <Link to={href} className="crumb-link">
+                      {label}
+                    </Link>
+                  ) : (
+                    label
+                  )}
+                </span>
+              );
+            })}
           </nav>
         )}
         {API_MODE === "mock" && (

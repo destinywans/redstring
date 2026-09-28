@@ -158,7 +158,7 @@ export function ResiliencePage() {
     );
   const STATE = { closed: ["ok", tx("关闭", "Closed")], open: ["danger", tx("打开", "Open")], half_open: ["warn", tx("半开", "Half-open")], none: ["neutral", tx("未配置", "None")] } as const;
   return (
-    <Page crumbs={[tx("资源与观测", "Resources"), tx("服务目录", "Services"), s.name, tx("流量与韧性", "Traffic & resilience")]} actions={<Btn kind="primary" icon="branch" to="/canvas/INV-231">{tx("发起调查", "Investigate")}</Btn>}>
+    <Page crumbs={[tx("资源与观测", "Resources"), tx("服务目录", "Services"), { label: s.name, to: `/services/${s.id}` }, tx("流量与韧性", "Traffic & resilience")]} actions={<Btn kind="primary" icon="branch" to="/canvas/INV-231">{tx("发起调查", "Investigate")}</Btn>}>
       <ServiceHeader s={s} />
       <div className="v3-content anim-fade">
         <Card className="ro-banner">

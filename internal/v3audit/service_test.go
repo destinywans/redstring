@@ -16,7 +16,10 @@ func TestAuditFilterAndOutcomeMapping(t *testing.T) {
 			t.Fatalf("invalid filter %#v accepted", input)
 		}
 	}
-	for value, want := range map[string]string{"success": "ok", "succeeded": "ok", "denied": "blocked", "failed": "failed"} {
+	for value, want := range map[string]string{
+		"success": "ok", "succeeded": "ok", "completed": "ok", "accepted": "ok",
+		"recorded": "ok", "pending_manual_cleanup": "ok", "denied": "blocked", "failed": "failed",
+	} {
 		got, err := resultKind(value)
 		if err != nil || got != want {
 			t.Fatalf("outcome %q = %q, %v", value, got, err)

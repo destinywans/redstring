@@ -159,7 +159,10 @@ type actor struct {
 
 func resultKind(outcome string) (string, error) {
 	switch strings.ToLower(outcome) {
-	case "success", "succeeded", "ok":
+	// These values record a successful request or a persisted lifecycle event.
+	// "accepted" and "pending_manual_cleanup" do not mean the downstream work
+	// completed; the action name retains that distinction in the audit row.
+	case "success", "succeeded", "ok", "completed", "accepted", "recorded", "pending_manual_cleanup":
 		return "ok", nil
 	case "blocked", "denied", "rejected":
 		return "blocked", nil

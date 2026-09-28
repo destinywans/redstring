@@ -1,5 +1,10 @@
 # AIOps Canvas 检查点
 
+## CP-068 · 2026-09-28 · 审计结果值兼容
+
+- V3 对话正常写入的 `accepted`、`completed`，交付事件的 `recorded`，以及人工清理请求的 `pending_manual_cleanup` 现在有明确的列表结果投影，不再因为未知结果使整个 `GET /audit` 返回 503。后两种投影的“成功”只表示事件或请求已记录，不表示后续动作完成。
+- `v3audit` 定向 Go 测试通过。审计行环境归属和 Agent 工具调用覆盖仍未完整验证；迁移 037、列表和 CSV 导出的 PostgreSQL/HTTP 链路未实测，主契约仍标 `mock`。本机没有可用 PostgreSQL 可执行文件，Docker daemon 当前未运行。
+
 ## CP-067 · 2026-09-28 · 连接器类型说明边界
 
 - `GET /connector-types/{type}` 的认证说明对应现有凭据探测方式，明确 OAuth 项仅消费已有令牌，不提供授权或刷新流程；工具说明改为具体查询用途。类型目录不再捏造版本、令牌范围或 Webhook 地址。

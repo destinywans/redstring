@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-086 · 2026-09-28 · DeepSeek 与 V3 对话 SSE、落库联合验证
+
+- 分支 `codex/v3-backend`。新增默认跳过的 `TestV3DeepSeekHTTPPGSmoke`，只有显式启用、专用本机临时 PG 数据库、单次模型调用、16–32 输出 token 上限和工具关闭均满足时才运行；本次仅执行一次，未自动重试。
+- 真实 DeepSeek Flash 经已注册 V3 HTTP 路由发送消息并流式回复。`message.completed` 到达时，另一条 PostgreSQL 连接已读到完整助手正文、完成状态、供应商用量和持久化终结事件；会话详情再次读取一致。测试通过，临时 PG 容器及随机 schema 已删除。密钥只从被忽略的本地配置加载，没有写进测试源码、输出或 Git。
+- 本地 Kafka 容器在 Docker 重启后恢复，Prometheus 的 Kafka、MySQL、Redis exporter target 当前均为 `up`；这仅证明采集目标可抓取，不证明业务指标齐备。主契约仍为 **26/166 `implemented`**：真实模型单次联调不补齐其他模型、工具调用、未知用量或前端 HTTP 契约，也不代表现有业务库已迁移。继续补外部连接器的持久绑定和可验证来源，保持定向检查范围。
+
 ## CP-085 · 2026-09-28 · V3 服务发现、关联持久性与对话日志取证
 
 - 分支 `codex/v3-backend`。本阶段已推送 Harbor 协议适配 `4767f4a`、GitLab 流水线辅助读取 `2668c8e`、服务发现/登记与库存关联 `4b963f6`（远端 SHA 已回读）；本检查点所在提交接入对话受限日志工具。主 V3 契约仍为 **26/166 `implemented`**，未因辅助接口或局部能力增加完成数。无关 `.claude/` 未触及。

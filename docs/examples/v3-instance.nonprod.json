@@ -1,0 +1,11 @@
+{
+  "tier": "nonprod",
+  "name": "AIOps Non-production",
+  "domain": "aiops-nonprod.example.invalid",
+  "environments": [
+    { "id": "dev", "label": "Development", "kind": "standing", "tone": "dev", "clusters": [] },
+    { "id": "test", "label": "Test", "kind": "standing", "tone": "dev", "clusters": [] },
+    { "id": "staging", "label": "Staging", "kind": "standing", "tone": "stg", "clusters": [] }
+  ],
+  "default_env": "dev"
+}

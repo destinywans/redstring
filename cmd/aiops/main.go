@@ -45,28 +45,48 @@ func run() error {
 	if os.Getenv("DATABASE_URL") == "" {
 		return fmt.Errorf("DATABASE_URL is required")
 	}
+	var v3Info *v3Instance
+	var v3Scope httpapi.V3InstanceConfig
+	if path := os.Getenv("AIOPS_V3_INSTANCE_CONFIG"); path != "" {
+		info, cfg, err := loadV3Instance(path)
+		if err != nil {
+			return fmt.Errorf("load V3 instance: %w", err)
+		}
+		v3Info, v3Scope = &info, cfg
+	}
 	s, e := store.New(ctx, os.Getenv("DATABASE_URL"))
 	if e != nil {
 		return e
 	}
 	defer s.Close()
+	if v3Info != nil {
+		if e = bindV3Instance(ctx, s, *v3Info); e != nil {
+			return fmt.Errorf("bind V3 instance before migrations: %w", e)
+		}
+	} else if e = rejectLegacyOnV3Database(ctx, s); e != nil {
+		return fmt.Errorf("check V3 instance boundary before legacy startup: %w", e)
+	}
 	if e = s.Migrate(ctx); e != nil {
 		return e
 	}
 	if e = s.Bootstrap(ctx, os.Getenv("AIOPS_ADMIN_EMAIL"), os.Getenv("AIOPS_ADMIN_PASSWORD")); e != nil {
 		return e
 	}
-	if _, e = s.DB.Exec(ctx, "INSERT INTO applications(id,name,description,environment,key) VALUES('demo','Demo Application','Registered demo environment','demo','demo') ON CONFLICT(id) DO NOTHING"); e != nil {
-		return e
-	}
-	if _, e = s.DB.Exec(ctx, "INSERT INTO application_environments(id,application_id,key,name) VALUES('demo-default','demo','demo','Demo') ON CONFLICT(id) DO NOTHING"); e != nil {
-		return e
+	if v3Info == nil {
+		// Retain the legacy bootstrap behavior without inserting a demo service
+		// into an explicitly configured V3 instance.
+		if _, e = s.DB.Exec(ctx, "INSERT INTO applications(id,name,description,environment,key) VALUES('demo','Demo Application','Registered demo environment','demo','demo') ON CONFLICT(id) DO NOTHING"); e != nil {
+			return e
+		}
+		if _, e = s.DB.Exec(ctx, "INSERT INTO application_environments(id,application_id,key,name) VALUES('demo-default','demo','demo','Demo') ON CONFLICT(id) DO NOTHING"); e != nil {
+			return e
+		}
 	}
 	runtime, e := inference.NewFromEnv()
 	if e != nil {
 		return e
 	}
-	api := httpapi.New(s, runtime)
+	api := httpapi.New(s, runtime, v3Info != nil)
 	api.SecureCookies = os.Getenv("AIOPS_SECURE_COOKIES") == "true"
 	api.AllowedOrigin = os.Getenv("AIOPS_PUBLIC_ORIGIN")
 	embedder, e := inference.NewEmbedderFromEnv()
@@ -77,7 +97,7 @@ func run() error {
 	if e = know.Migrate(ctx); e != nil {
 		return e
 	}
-	know.Register(api)
+	know.Register(api, os.Getenv("AIOPS_V3_INSTANCE_CONFIG") != "")
 	(&memoryview.Service{Store: s, Knowledge: know}).Register(api)
 	resources.New(s.DB).Register(api)
 	settings.New(s, "dev").Register(api)
@@ -131,7 +151,11 @@ func run() error {
 		}
 		return tools, nil
 	}
-	if e = configureTelemetry(api, worker); e != nil {
+	telemetryClient, e := configureTelemetry(api, worker)
+	if e != nil {
+		return e
+	}
+	if e = configureV3(ctx, s, runtime, api, telemetryClient, know, v3Info, v3Scope); e != nil {
 		return e
 	}
 	registry, e := configurePlatform(ctx, s, api, acts, worker, connector, connectorConfig)
@@ -144,7 +168,11 @@ func run() error {
 	entry := httpapi.NewIntegration("embedding", "Knowledge embedding", "embedding", embedding.Provider, true, nil, []string{"knowledge.embed"})
 	entry.Model = embedding.Model
 	api.Integrations = append(api.Integrations, entry)
-	ops, e := configureOperations(ctx, s, api, worker, know)
+	var operationsV3Scope *httpapi.V3InstanceConfig
+	if v3Info != nil {
+		operationsV3Scope = &v3Scope
+	}
+	ops, e := configureOperations(ctx, s, api, worker, know, operationsV3Scope)
 	if e != nil {
 		return e
 	}
@@ -174,8 +202,16 @@ func run() error {
 	}
 	deliveryDone := make(chan struct{})
 	deploymentDone := make(chan struct{})
-	go func() { defer close(deliveryDone); deliveryService.Run(ctx) }()
-	go func() { defer close(deploymentDone); deploymentService.Run(ctx) }()
+	v3InstanceActive := os.Getenv("AIOPS_V3_INSTANCE_CONFIG") != ""
+	if v3InstanceActive {
+		// Historical queues use the old application ACL. A V3 instance must not
+		// execute them until proposal, approval and worker checks use V3 grants.
+		close(deliveryDone)
+		close(deploymentDone)
+	} else {
+		go func() { defer close(deliveryDone); deliveryService.Run(ctx) }()
+		go func() { defer close(deploymentDone); deploymentService.Run(ctx) }()
+	}
 	inventoryDone := make(chan struct{})
 	if resourceSyncer != nil {
 		go func() { defer close(inventoryDone); resourceSyncer.Run(ctx) }()
@@ -183,10 +219,16 @@ func run() error {
 		close(inventoryDone)
 	}
 	opsDone := make(chan struct{})
-	go func() { defer close(opsDone); ops.Run(ctx) }()
-	go func() { defer close(actionDone); acts.Run(ctx) }()
 	workerDone := make(chan struct{})
-	go func() { defer close(workerDone); worker.Run(ctx) }()
+	if v3InstanceActive {
+		close(opsDone)
+		close(actionDone)
+		close(workerDone)
+	} else {
+		go func() { defer close(opsDone); ops.Run(ctx) }()
+		go func() { defer close(actionDone); acts.Run(ctx) }()
+		go func() { defer close(workerDone); worker.Run(ctx) }()
+	}
 	addr := os.Getenv("AIOPS_ADDR")
 	if addr == "" {
 		addr = "127.0.0.1:8080"

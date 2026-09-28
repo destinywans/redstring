@@ -1,0 +1,14 @@
+{
+  "tier": "production",
+  "name": "AIOps Production",
+  "domain": "aiops-prod.example.invalid",
+  "environments": [
+    { "id": "prod", "label": "Production", "kind": "standing", "tone": "prod", "clusters": [] }
+  ],
+  "default_env": "prod",
+  "other": {
+    "label": "Non-production",
+    "url": "https://aiops-nonprod.example.invalid",
+    "domain": "aiops-nonprod.example.invalid"
+  }
+}

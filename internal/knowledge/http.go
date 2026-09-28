@@ -12,7 +12,9 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
-func (s *Service) Register(api *httpapi.Server) {
+// Register omits the historical search projection when a V3 instance installs
+// the V3 knowledge search handler at the same route.
+func (s *Service) Register(api *httpapi.Server, v3Search ...bool) {
 	if s.Authorize == nil {
 		s.Authorize = func(ctx context.Context, user, app, permission string) error {
 			return api.AuthorizeApplication(ctx, core.User{ID: user, Role: PrincipalFromContext(ctx).Role}, app, permission)
@@ -133,19 +135,21 @@ func (s *Service) Register(api *httpapi.Server) {
 		d, e := s.Get(r.Context(), r.PathValue("id"))
 		respond(w, d, e)
 	})
-	api.Register("POST /api/v1/knowledge/search", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		var input struct {
-			ApplicationID string `json:"application_id"`
-			EnvironmentID string `json:"environment_id"`
-			Query         string `json:"query"`
-			Limit         int    `json:"limit"`
-		}
-		if !decode(w, r, &input) {
-			return
-		}
-		result, e := s.SearchScoped(r.Context(), input.ApplicationID, input.EnvironmentID, input.Query, input.Limit)
-		respond(w, result, e)
-	})
+	if len(v3Search) == 0 || !v3Search[0] {
+		api.Register("POST /api/v1/knowledge/search", "viewer", func(w http.ResponseWriter, r *http.Request) {
+			var input struct {
+				ApplicationID string `json:"application_id"`
+				EnvironmentID string `json:"environment_id"`
+				Query         string `json:"query"`
+				Limit         int    `json:"limit"`
+			}
+			if !decode(w, r, &input) {
+				return
+			}
+			result, e := s.SearchScoped(r.Context(), input.ApplicationID, input.EnvironmentID, input.Query, input.Limit)
+			respond(w, result, e)
+		})
+	}
 }
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, 256<<10)

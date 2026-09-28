@@ -1,11 +1,12 @@
 # v3 前端 API 契约（Web ⇄ 后端）
 
-- 状态：**契约冻结 v1（2026-09-28）**。前端已按本契约用 Mock 实现，后端待实现。历史：2026-09-24 初版；v4 增补模型与推理强度、附件、通用画布、各"新建"流程、链路 v2；2026-09-28 增补实例与环境。
+- 状态：**契约冻结 v1（2026-09-28）**。前端已按本契约用 Mock 实现；后端按接口逐项迁移，`mock` 仍表示尚未达到后端完成标准，即使已有部分处理逻辑。历史：2026-09-24 初版；v4 增补模型与推理强度、附件、通用画布、各"新建"流程、链路 v2；2026-09-28 增补实例与环境。
 - 表格每行只写一个方法和一个路径。`scripts/check-v3-contract.py` 会核对本文件和 Mock 路由是否一致，改契约后运行它。
 - 冻结后的修改流程：先改本文件和 `types.ts`，再改 Mock 与后端；破坏性修改（删字段、改语义）在「变更记录」里写明。
 - 类型真相源：`web/src/v3/api/types.ts`。本文件只描述路径、参数和语义，字段以该文件为准。
 - Mock 实现：`web/src/v3/mock/domains/*.ts`，每个文件对应下面一节；`VITE_API_MODE=http` 时前端直接请求真实后端。
 - 与既有 `docs/api-contract.md` / `internal/apicontract/openapi.json` 的关系：v3 为新 UI 所需的读模型。后端落地时优先复用既有资源（调查、分支、提案、执行、Runbook、连接器）；能直接对齐的路径就对齐，对不齐的在 OpenAPI 中新增，再同步 `scripts/build-openapi.py`。本文件的"状态"列在后端实现后改为 `implemented`。
+- `scripts/check-v3-contract.py` 核对的 165 条 Mock 路由，加上前端模拟而无 Mock 路由的 SSE `GET /conversations/{id}/events`，共 166 条。`implemented` 只表示后端真实处理、范围鉴权、契约和定向检查具备；不表示外部系统已实连或前端 HTTP 模式已验收。阶段进展与未完成项见 [后端实施记录](../plans/2026-09-28-v3-backend-implementation.md)。
 
 ## 通用约定
 
@@ -63,7 +64,7 @@
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
-| GET | `/instance` | | `InstanceInfo`：`tier`（`production` \| `nonprod`）、`name`、`domain`、`environments[]`（id、名称、分组、集群、回收时间）、`default_env`，以及另一个平台的链接 `other` | mock |
+| GET | `/instance` | | `InstanceInfo`：`tier`（`production` \| `nonprod`）、`name`、`domain`、`environments[]`（id、名称、分组、集群、回收时间）、`default_env`，以及另一个平台的链接 `other` | implemented |
 | GET | `/integrations/lower-sources` | | `{ items: LowerSource[] }`，只有生产实例提供；非生产实例返回 404 | mock |
 | GET | `/config-sync` | | `{ direction: "import" \| "export", items: SyncItem[] }`：生产实例列出待导入项，非生产实例列出已导出项 | mock |
 | POST | `/config-sync/{id}/import` | | `SyncItem`；只允许生产实例导入已合并的变更 | mock |

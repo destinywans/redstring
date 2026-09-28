@@ -18,7 +18,7 @@ import (
 )
 
 // Telemetry registration is operator configuration, never model-supplied URLs or queries.
-func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
+func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) (*connectors.Telemetry, error) {
 	path := os.Getenv("AIOPS_TELEMETRY_CONFIG")
 	if path == "" {
 		api.RegisterTelemetryBatch(nil)
@@ -28,11 +28,11 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
 			httpapi.NewIntegration("loki", "Loki", "connector", "loki", false, nil, []string{"logs.read"}),
 			httpapi.NewIntegration("elasticsearch", "Elasticsearch", "connector", "elasticsearch", false, nil, []string{"logs.read"}),
 			httpapi.NewIntegration("tempo", "Tempo", "connector", "tempo", false, nil, []string{"traces.read"}))
-		return nil
+		return nil, nil
 	}
 	config, e := connectors.LoadTelemetryConfig(path)
 	if e != nil {
-		return e
+		return nil, e
 	}
 	metrics := httpapi.NewIntegration("prometheus", "Prometheus", "connector", "prometheus", config.Prometheus.URL != "", nil, []string{"metrics.read"})
 	logs := httpapi.NewIntegration("loki", "Loki", "connector", "loki", config.Loki.URL != "", nil, []string{"logs.read"})
@@ -57,7 +57,7 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
 	api.Integrations = append(api.Integrations, metrics, logs, esLogs, traces)
 	client, e := connectors.NewTelemetry(config)
 	if e != nil {
-		return e
+		return nil, e
 	}
 	api.RegisterTelemetryBatch(client)
 	previous := worker.Tools
@@ -144,7 +144,7 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) error {
 		}
 		httpapi.WriteJSON(w, 200, result)
 	})
-	return nil
+	return client, nil
 }
 
 // The model receives a small bounded sample. Interactive log browsing retains

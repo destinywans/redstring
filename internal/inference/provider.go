@@ -21,6 +21,7 @@ var errConsumerStopped = errors.New("consumer stopped")
 
 type providerModel struct {
 	provider        Provider
+	reasoning       string
 	client          *http.Client
 	history         []Message
 	calls, maxCalls int
@@ -77,9 +78,14 @@ func (p *providerModel) GenerateContent(ctx context.Context, req *model.LLMReque
 			return
 		}
 		defer resp.Body.Close()
-		if p.provider.Kind == "claude" {
+		switch p.provider.API {
+		case "messages":
 			err = parseClaude(resp.Body, yield)
-		} else {
+		case "responses":
+			err = parseResponses(resp.Body, yield)
+		case "ollama":
+			err = parseOllama(resp.Body, p.calls, yield)
+		default:
 			err = parseOpenAI(resp.Body, yield)
 		}
 		if err != nil && !errors.Is(err, errConsumerStopped) {
@@ -138,6 +144,12 @@ func (p *providerModel) request(req *model.LLMRequest) (any, string, error) {
 			declarations = append(declarations, t.FunctionDeclarations...)
 		}
 	}
+	if p.provider.API == "responses" {
+		return p.requestResponses(contents, system, declarations)
+	}
+	if p.provider.API == "ollama" {
+		return p.requestOllama(contents, system, declarations)
+	}
 	if p.provider.Kind == "claude" {
 		msgs := []map[string]any{}
 		for _, c := range contents {
@@ -163,6 +175,13 @@ func (p *providerModel) request(req *model.LLMRequest) (any, string, error) {
 			}
 		}
 		b := map[string]any{"model": p.provider.Model, "max_tokens": 4096, "stream": true, "messages": msgs, "system": system}
+		if p.reasoning != "" {
+			if p.provider.ReasoningKind != "claude_adaptive" {
+				return nil, "", ErrUnsupportedReasoning
+			}
+			b["thinking"] = map[string]string{"type": "adaptive"}
+			b["output_config"] = map[string]string{"effort": p.reasoning}
+		}
 		if len(declarations) > 0 {
 			ts := []any{}
 			for _, d := range declarations {
@@ -207,6 +226,14 @@ func (p *providerModel) request(req *model.LLMRequest) (any, string, error) {
 		msgs = append(msgs, responses...)
 	}
 	b := map[string]any{"model": p.provider.Model, "messages": msgs, "stream": true, "max_tokens": 4096, "stream_options": map[string]any{"include_usage": true}}
+	if p.reasoning != "" {
+		if p.provider.ReasoningKind != "openai_effort" {
+			return nil, "", ErrUnsupportedReasoning
+		}
+		delete(b, "max_tokens")
+		b["max_completion_tokens"] = 4096
+		b["reasoning_effort"] = p.reasoning
+	}
 	if len(declarations) > 0 {
 		ts := []any{}
 		for _, d := range declarations {
@@ -367,6 +394,7 @@ func parseOpenAI(r io.Reader, yield func(*model.LLMResponse, error) bool) error 
 func partial(s string) *model.LLMResponse {
 	return &model.LLMResponse{Partial: true, Content: &genai.Content{Role: "model", Parts: []*genai.Part{{Text: s}}}}
 }
+
 // Usage is the provider-reported token count, or nil when the provider omits it.
 func finalResponse(parts []*genai.Part, usage *genai.GenerateContentResponseUsageMetadata) *model.LLMResponse {
 	return &model.LLMResponse{Content: &genai.Content{Role: "model", Parts: parts}, TurnComplete: true, UsageMetadata: usage}
@@ -392,7 +420,7 @@ func parseClaude(r io.Reader, yield func(*model.LLMResponse, error) bool) error 
 			Message struct {
 				Usage usage `json:"usage"`
 			} `json:"message"`
-			Usage usage `json:"usage"`
+			Usage   usage `json:"usage"`
 			Content struct {
 				Type, ID, Name, Text string
 				Input                map[string]any

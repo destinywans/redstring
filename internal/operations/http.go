@@ -10,7 +10,10 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
-func (s *Service) Register() {
+// Register keeps the historical incident routes unless the V3 projection and
+// independently authenticated webhook have been installed at composition.
+func (s *Service) Register(v3Incidents ...bool) {
+	skipIncidentReads := len(v3Incidents) > 0 && v3Incidents[0]
 	s.API.Register("GET /api/v1/operations/catalog", "admin", func(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteJSON(w, 200, s.Catalog())
 	})
@@ -18,24 +21,30 @@ func (s *Service) Register() {
 		v, e := s.IncidentEvents(r.Context(), httpapi.CurrentUser(r), r.PathValue("id"))
 		respond(w, v, e)
 	})
-	s.API.RegisterPublic("POST /api/v1/webhooks/alertmanager/{source}", s.webhook)
-	s.API.Register("GET /api/v1/incidents", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		scope, err := httpapi.ParseReadScope(r.URL.Query())
-		if err != nil {
-			httpapi.AuthorizationError(w, err)
-			return
-		}
-		r = r.WithContext(core.WithReadScope(r.Context(), scope))
-		v, e := s.Incidents(r.Context(), httpapi.CurrentUser(r), "", "")
-		respond(w, map[string]any{"items": v}, e)
-	})
-	s.API.Register("GET /api/v1/incidents/{id}", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		v, e := s.incident(r.Context(), r.PathValue("id"))
-		if e == nil {
-			e = s.incidentAccess(r.Context(), httpapi.CurrentUser(r), v, "view")
-		}
-		respond(w, v, e)
-	})
+	if !skipIncidentReads {
+		s.API.RegisterPublic("POST /api/v1/webhooks/alertmanager/{source}", s.webhook)
+	}
+	if !skipIncidentReads {
+		s.API.Register("GET /api/v1/incidents", "viewer", func(w http.ResponseWriter, r *http.Request) {
+			scope, err := httpapi.ParseReadScope(r.URL.Query())
+			if err != nil {
+				httpapi.AuthorizationError(w, err)
+				return
+			}
+			r = r.WithContext(core.WithReadScope(r.Context(), scope))
+			v, e := s.Incidents(r.Context(), httpapi.CurrentUser(r), "", "")
+			respond(w, map[string]any{"items": v}, e)
+		})
+	}
+	if !skipIncidentReads {
+		s.API.Register("GET /api/v1/incidents/{id}", "viewer", func(w http.ResponseWriter, r *http.Request) {
+			v, e := s.incident(r.Context(), r.PathValue("id"))
+			if e == nil {
+				e = s.incidentAccess(r.Context(), httpapi.CurrentUser(r), v, "view")
+			}
+			respond(w, v, e)
+		})
+	}
 	s.API.Register("POST /api/v1/incidents/{id}/claim", "operator", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			AssigneeID string `json:"assignee_id"`

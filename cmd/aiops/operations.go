@@ -13,9 +13,10 @@ import (
 	"github.com/wans/aiops-canvas/internal/knowledge"
 	"github.com/wans/aiops-canvas/internal/operations"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3webhook"
 )
 
-func configureOperations(ctx context.Context, db *store.Store, api *httpapi.Server, worker *httpapi.Worker, know *knowledge.Service) (*operations.Service, error) {
+func configureOperations(ctx context.Context, db *store.Store, api *httpapi.Server, worker *httpapi.Worker, know *knowledge.Service, v3Scope *httpapi.V3InstanceConfig) (*operations.Service, error) {
 	config, e := operations.LoadConfig(os.Getenv("AIOPS_OPERATIONS_CONFIG"))
 	if e != nil {
 		return nil, e
@@ -25,7 +26,14 @@ func configureOperations(ctx context.Context, db *store.Store, api *httpapi.Serv
 	if e = ops.Migrate(ctx); e != nil {
 		return nil, e
 	}
-	ops.Register()
+	ops.Register(v3Scope != nil)
+	if v3Scope != nil {
+		webhook, err := v3webhook.New(db.DB, *v3Scope, config)
+		if err != nil {
+			return nil, fmt.Errorf("configure V3 Alertmanager webhook: %w", err)
+		}
+		api.RegisterPublic(v3webhook.Pattern, webhook.Handler)
+	}
 	worker.Prepare = ops.PrepareRun
 	api.ConfigureContextBudget(worker, db)
 	api.ConfigureRunSteps(db, os.Getenv("AIOPS_TRACE_UI_URL"))

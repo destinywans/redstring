@@ -157,7 +157,7 @@ func TestOllamaRealSmoke(t *testing.T) {
 	if os.Getenv("AIOPS_REAL_OLLAMA") != "1" {
 		t.Skip("explicit opt-in; invokes local model")
 	}
-	r, err := New(Config{Providers: []Provider{{ID: "ollama:qwen3.6:latest", Kind: "ollama", Model: "qwen3.6:latest", BaseURL: "http://localhost:11434/v1"}}, Timeout: 4 * time.Minute})
+	r, err := New(Config{Providers: []Provider{{ID: "ollama:qwen3.6:latest", Kind: "ollama", Model: "qwen3.6:latest", BaseURL: "http://localhost:11434"}}, Timeout: 4 * time.Minute})
 	if err != nil {
 		t.Fatal(err)
 	}

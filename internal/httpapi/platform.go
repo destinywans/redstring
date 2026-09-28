@@ -66,7 +66,7 @@ func (s *Server) authorizeRoute(r *http.Request) error {
 	}
 	return p.AuthorizeApplication(r.Context(), CurrentUser(r), app, permission)
 }
-func (s *Server) platformRoutes() {
+func (s *Server) platformRoutes(v3Mode bool) {
 	p, ok := s.Store.(store.PlatformRepository)
 	if !ok {
 		return
@@ -245,7 +245,9 @@ func (s *Server) platformRoutes() {
 		}
 		WriteJSON(w, 200, v)
 	})
-	s.Register("GET /api/v1/audit", "admin", s.auditEntries)
+	if !v3Mode {
+		s.Register("GET /api/v1/audit", "admin", s.auditEntries)
+	}
 }
 
 func (s *Server) enrichApplication(a *core.Application) {

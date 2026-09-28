@@ -34,14 +34,18 @@ type Server struct {
 	Integrations            []Integration
 	ValidateBindings        func([]core.Binding) error
 	EnvironmentCapabilities func(core.Environment) []string
+	V3ModelsHandler         http.HandlerFunc
 	loginMu                 sync.Mutex
 	loginAttempts           map[string][]time.Time
+	v3Environment           http.Handler
+	v3Policy                V3PolicyFunc
+	v3Routes                map[string]V3RoutePermission
 }
 
-func New(s store.Repository, r inference.Runner) *Server {
-	x := &Server{Store: s, Runtime: r, mux: http.NewServeMux(), loginAttempts: map[string][]time.Time{}}
+func New(s store.Repository, r inference.Runner, v3Mode ...bool) *Server {
+	x := &Server{Store: s, Runtime: r, mux: http.NewServeMux(), loginAttempts: map[string][]time.Time{}, v3Routes: map[string]V3RoutePermission{}}
 	x.routes()
-	x.platformRoutes()
+	x.platformRoutes(len(v3Mode) > 0 && v3Mode[0])
 	return x
 }
 func WriteJSON(w http.ResponseWriter, status int, v any) {
@@ -109,12 +113,20 @@ func (s *Server) Register(pattern, minRole string, h http.HandlerFunc) {
 			Error(w, 401, "unauthorized", "Session expired")
 			return
 		}
+		ctx := store.WithPrincipal(context.WithValue(r.Context(), userKey{}, u), u)
+		r = r.WithContext(ctx)
+		if permission, ok := s.v3Routes[pattern]; ok {
+			scoped, allowed := s.authorizeV3Route(w, r, u, permission)
+			if !allowed {
+				return
+			}
+			h(w, scoped)
+			return
+		}
 		if e := s.authorizeRole(r, u, minRole); e != nil {
 			Error(w, 403, "forbidden", "Insufficient permission")
 			return
 		}
-		ctx := store.WithPrincipal(context.WithValue(r.Context(), userKey{}, u), u)
-		r = r.WithContext(ctx)
 		if e := s.authorizeRoute(r); e != nil {
 			AuthorizationError(w, e)
 			return
@@ -146,7 +158,19 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if s.v3Environment != nil {
+		s.v3Environment.ServeHTTP(w, r)
+		return
+	}
 	s.mux.ServeHTTP(w, r)
+}
+
+func v3AuthOrInstance(pattern string) bool {
+	switch pattern {
+	case "POST /api/v1/auth/login", "POST /api/v1/auth/logout", "GET /api/v1/auth/me", "GET /api/v1/instance", "POST /api/v1/webhooks/alertmanager/{source}":
+		return true
+	}
+	return false
 }
 func (s *Server) modelExists(id string) bool {
 	for _, m := range s.Runtime.Models() {
@@ -188,6 +212,10 @@ func (s *Server) routes() {
 		w.WriteHeader(204)
 	})
 	s.Register("GET /api/v1/models", "viewer", func(w http.ResponseWriter, r *http.Request) {
+		if s.V3ModelsHandler != nil {
+			s.V3ModelsHandler(w, r)
+			return
+		}
 		items := []map[string]any{}
 		for _, m := range s.Runtime.Models() {
 			items = append(items, map[string]any{"id": m.ID, "name": m.Name, "provider": m.Provider, "available": true, "availability": "configured_unverified", "tools": m.Tools, "streaming": m.Streaming, "context_window": m.ContextWindow, "input_budget": m.InputBudget})

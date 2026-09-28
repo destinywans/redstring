@@ -34,11 +34,16 @@ type Message struct {
 type Model struct {
 	ID            string `json:"id"`
 	Provider      string `json:"provider"`
+	API           string `json:"api"`
 	Name          string `json:"name"`
 	Tools         bool   `json:"tools"`
 	Streaming     bool   `json:"streaming"`
 	ContextWindow int    `json:"context_window"`
 	InputBudget   int    `json:"input_budget"`
+	// ReasoningKind and ReasoningLevels are configured per provider model.
+	// Empty values mean no selectable effort is advertised or accepted.
+	ReasoningKind   string   `json:"reasoning_kind,omitempty"`
+	ReasoningLevels []string `json:"reasoning_levels,omitempty"`
 }
 type Evidence struct {
 	Kind    string `json:"kind"`
@@ -63,6 +68,7 @@ type EvidenceTool struct {
 }
 type Request struct {
 	RunID, AttemptID, BranchID, ModelID string
+	Reasoning                           string
 	Messages                            []Message
 	Tools                               []EvidenceTool
 	MaxCalls, MaxToolCalls              int
@@ -75,7 +81,12 @@ type Runner interface {
 }
 type Provider struct {
 	ID, Kind, Model, BaseURL, APIKey string
-	ContextWindow, InputBudget       int
+	// API selects the wire protocol: chat_completions, responses, messages, or
+	// ollama. An empty value resolves from Kind for existing configurations.
+	API                        string
+	ContextWindow, InputBudget int
+	ReasoningKind              string
+	ReasoningLevels            []string
 }
 type Config struct {
 	Providers  []Provider
@@ -84,6 +95,74 @@ type Config struct {
 	MaxCalls   int
 }
 type Runtime struct{ cfg Config }
+
+var ErrUnsupportedReasoning = errors.New("reasoning level is not supported by this model")
+
+func validateReasoningProfile(p Provider) error {
+	if p.ReasoningKind == "" && len(p.ReasoningLevels) == 0 {
+		return nil
+	}
+	if len(p.ReasoningLevels) == 0 {
+		return errors.New("reasoning levels required when kind is configured")
+	}
+	allowed := map[string]bool{}
+	switch p.ReasoningKind {
+	case "openai_effort":
+		if p.Kind != "openai" {
+			return errors.New("openai effort requires the OpenAI provider")
+		}
+		for _, s := range []string{"none", "minimal", "low", "medium", "high", "xhigh"} {
+			allowed[s] = true
+		}
+	case "claude_adaptive":
+		if p.Kind != "claude" {
+			return errors.New("Claude adaptive effort requires the Claude provider")
+		}
+		for _, s := range []string{"low", "medium", "high", "xhigh", "max"} {
+			allowed[s] = true
+		}
+	case "ollama_think":
+		if p.Kind != "ollama" || p.API != "ollama" {
+			return errors.New("Ollama thinking requires the native Ollama API")
+		}
+		allowed["on"], allowed["off"] = true, true
+	default:
+		return errors.New("unknown reasoning kind")
+	}
+	seen := map[string]bool{}
+	for _, level := range p.ReasoningLevels {
+		if !allowed[level] || seen[level] {
+			return fmt.Errorf("invalid or duplicate reasoning level %q", level)
+		}
+		seen[level] = true
+	}
+	return nil
+}
+
+func validateReasoningChoice(p Provider, level string) error {
+	if level == "" {
+		return nil
+	}
+	for _, candidate := range p.ReasoningLevels {
+		if candidate == level {
+			return nil
+		}
+	}
+	return ErrUnsupportedReasoning
+}
+
+// SupportsReasoning lets API handlers validate before persisting a user turn.
+func SupportsReasoning(m Model, level string) bool {
+	if level == "" {
+		return true
+	}
+	for _, candidate := range m.ReasoningLevels {
+		if candidate == level {
+			return true
+		}
+	}
+	return false
+}
 
 func New(cfg Config) (*Runtime, error) {
 	if cfg.HTTPClient == nil {
@@ -123,6 +202,27 @@ func New(cfg Config) (*Runtime, error) {
 		default:
 			return nil, fmt.Errorf("unsupported provider %s", p.Kind)
 		}
+		if p.API == "" {
+			switch p.Kind {
+			case "ollama":
+				p.API = "ollama"
+			case "claude":
+				p.API = "messages"
+			default:
+				p.API = "chat_completions"
+			}
+		}
+		if !((p.Kind == "openai" && (p.API == "chat_completions" || p.API == "responses")) ||
+			(p.Kind == "claude" && p.API == "messages") ||
+			(p.Kind == "ollama" && (p.API == "ollama" || p.API == "chat_completions"))) {
+			return nil, fmt.Errorf("model %s: unsupported provider/API combination %s/%s", p.ID, p.Kind, p.API)
+		}
+		if p.API == "ollama" && u.Path != "" && u.Path != "/" {
+			return nil, fmt.Errorf("model %s: native Ollama endpoint must be the server root", p.ID)
+		}
+		if err := validateReasoningProfile(*p); err != nil {
+			return nil, fmt.Errorf("model %s: %w", p.ID, err)
+		}
 	}
 	return &Runtime{cfg: cfg}, nil
 }
@@ -130,7 +230,7 @@ func New(cfg Config) (*Runtime, error) {
 // Providers are explicitly enabled by *_MODEL. No credential or endpoint discovery.
 func NewFromEnv() (Runner, error) {
 	var ps []Provider
-	for _, v := range []struct{ prefix, kind, base string }{{"OLLAMA", "ollama", "http://localhost:11434/v1"}, {"OPENAI", "openai", "https://api.openai.com/v1"}, {"CLAUDE", "claude", "https://api.anthropic.com/v1"}} {
+	for _, v := range []struct{ prefix, kind, base string }{{"OLLAMA", "ollama", "http://localhost:11434"}, {"OPENAI", "openai", "https://api.openai.com/v1"}, {"CLAUDE", "claude", "https://api.anthropic.com/v1"}} {
 		for _, m := range strings.Split(os.Getenv(v.prefix+"_MODEL"), ",") {
 			m = strings.TrimSpace(m)
 			if m == "" {
@@ -139,6 +239,9 @@ func NewFromEnv() (Runner, error) {
 			b := os.Getenv(v.prefix + "_BASE_URL")
 			if b == "" {
 				b = v.base
+				if v.kind == "ollama" && os.Getenv(v.prefix+"_API") == "chat_completions" {
+					b += "/v1"
+				}
 			}
 			window, input := 0, 0
 			for _, pair := range []struct {
@@ -153,7 +256,13 @@ func NewFromEnv() (Runner, error) {
 					*pair.value = n
 				}
 			}
-			ps = append(ps, Provider{ID: v.kind + ":" + m, Kind: v.kind, Model: m, BaseURL: strings.TrimRight(b, "/"), APIKey: os.Getenv(v.prefix + "_API_KEY"), ContextWindow: window, InputBudget: input})
+			levels := []string(nil)
+			for _, level := range strings.Split(os.Getenv(v.prefix+"_REASONING_LEVELS"), ",") {
+				if level = strings.TrimSpace(level); level != "" {
+					levels = append(levels, level)
+				}
+			}
+			ps = append(ps, Provider{ID: v.kind + ":" + m, Kind: v.kind, API: os.Getenv(v.prefix + "_API"), Model: m, BaseURL: strings.TrimRight(b, "/"), APIKey: os.Getenv(v.prefix + "_API_KEY"), ContextWindow: window, InputBudget: input, ReasoningKind: os.Getenv(v.prefix + "_REASONING_KIND"), ReasoningLevels: levels})
 		}
 	}
 	return New(Config{Providers: ps})
@@ -161,7 +270,7 @@ func NewFromEnv() (Runner, error) {
 func (r *Runtime) Models() []Model {
 	ms := make([]Model, 0, len(r.cfg.Providers))
 	for _, p := range r.cfg.Providers {
-		ms = append(ms, Model{ID: p.ID, Name: p.Model, Provider: p.Kind, Tools: true, Streaming: true, ContextWindow: p.ContextWindow, InputBudget: p.InputBudget})
+		ms = append(ms, Model{ID: p.ID, Name: p.Model, Provider: p.Kind, API: p.API, Tools: true, Streaming: true, ContextWindow: p.ContextWindow, InputBudget: p.InputBudget, ReasoningKind: p.ReasoningKind, ReasoningLevels: append([]string(nil), p.ReasoningLevels...)})
 	}
 	return ms
 }
@@ -200,6 +309,9 @@ func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) 
 	}
 	if p.ID == "" {
 		return "", errors.New("model is not configured")
+	}
+	if err := validateReasoningChoice(p, req.Reasoning); err != nil {
+		return "", err
 	}
 	total := 0
 	for _, m := range req.Messages {
@@ -246,7 +358,7 @@ func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) 
 	if steps.prefix == "" {
 		steps.prefix = "attempt"
 	}
-	model := &providerModel{provider: p, client: r.cfg.HTTPClient, history: append([]Message(nil), req.Messages[:len(req.Messages)-1]...), maxCalls: maxCalls, steps: steps}
+	model := &providerModel{provider: p, client: r.cfg.HTTPClient, history: append([]Message(nil), req.Messages[:len(req.Messages)-1]...), maxCalls: maxCalls, steps: steps, reasoning: req.Reasoning}
 	if len(req.Tools) > 16 {
 		return "", errors.New("too many evidence tools")
 	}

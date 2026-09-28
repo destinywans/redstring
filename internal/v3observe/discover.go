@@ -71,6 +71,11 @@ var errRegisteredLimit = errors.New("service registry scan exceeds bound")
 // Connector matches and tier are never inferred from an
 // image or label except when a valid tier label is explicitly present.
 func (s *Service) discover(w http.ResponseWriter, r *http.Request) {
+	// The candidate walk, policy checks, and namesake queries share one
+	// budget. Per-query timeouts alone would reset on every 200-row page.
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	r = r.WithContext(ctx)
 	// Environment access is checked by the V3 middleware. A team-scoped
 	// services grant is checked only after resolving each resource's owner.
 	envs, ok := s.allowedEnvironments(w, r, "")

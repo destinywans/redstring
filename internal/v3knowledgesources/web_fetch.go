@@ -12,10 +12,11 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"net/url"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
 )
 
 const maxWebMarkdownBytes = 128 << 10
@@ -50,9 +51,9 @@ type WebFetcher struct {
 }
 
 func (f WebFetcher) Fetch(ctx context.Context, address string) (WebPage, error) {
-	u, host, port, err := parseWebURL(address)
+	u, host, port, err := v3sourceregistry.ParsePublicWebURL(address)
 	if err != nil {
-		return WebPage{}, err
+		return WebPage{}, ErrInvalidWebURL
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -136,41 +137,6 @@ func (f WebFetcher) Fetch(ctx context.Context, address string) (WebPage, error) 
 	}
 	hash := sha256.Sum256(body)
 	return WebPage{Body: string(body), SHA256: hex.EncodeToString(hash[:]), ContentType: mediaType}, nil
-}
-
-func parseWebURL(address string) (*url.URL, string, string, error) {
-	u, err := url.Parse(address)
-	if err != nil || u == nil || !strings.EqualFold(u.Scheme, "https") || u.Opaque != "" || u.User != nil || u.Host == "" || u.RawQuery != "" || u.ForceQuery || strings.Contains(address, "#") {
-		return nil, "", "", ErrInvalidWebURL
-	}
-	host := u.Hostname()
-	if host == "" || strings.ContainsAny(host, "%\\ ") || strings.HasSuffix(host, ".") {
-		return nil, "", "", ErrInvalidWebURL
-	}
-	port := u.Port()
-	if port == "" {
-		port = "443"
-	} else if port != "443" {
-		// Constrain external sources to the standard HTTPS endpoint.
-		return nil, "", "", ErrInvalidWebURL
-	}
-	if _, err := netip.ParseAddr(host); err != nil {
-		if len(host) > 253 {
-			return nil, "", "", ErrInvalidWebURL
-		}
-		for _, label := range strings.Split(host, ".") {
-			if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
-				return nil, "", "", ErrInvalidWebURL
-			}
-			for _, c := range label {
-				if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-') {
-					return nil, "", "", ErrInvalidWebURL
-				}
-			}
-		}
-	}
-	u.Scheme = "https"
-	return u, host, port, nil
 }
 
 func acceptedMarkdownType(mediaType, path string) bool {

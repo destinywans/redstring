@@ -95,11 +95,19 @@ func validateConnection(kind, address, secretRef string) error {
 	if len(address) > 2000 || strings.TrimSpace(address) != address {
 		return errors.New("invalid source URL")
 	}
+	if kind == "web" && secretRef == "" {
+		if _, _, _, err := ParsePublicWebURL(address); err != nil {
+			return err
+		}
+		return nil
+	}
 	u, err := url.Parse(address)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil ||
 		u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
 		return errors.New("source URL must be HTTPS without credentials, query or fragment")
 	}
+	// Other source types, including private Web endpoints, still require an
+	// opaque Vault ref.
 	if len(secretRef) > 300 || !vaultReference.MatchString(secretRef) {
 		return errors.New("secret_ref must be a Vault reference")
 	}
@@ -129,6 +137,10 @@ func validateCreate(v request) error {
 	}
 	if len(v.Spaces) > 100 {
 		return errors.New("too many spaces")
+	}
+	if v.Type == "web" && v.SecretRef == "" &&
+		(len(v.Spaces) != 0 || v.Schedule != "manual" || !*v.InheritACL) {
+		return errors.New("public Web Markdown requires one page, manual sync and inherited source access")
 	}
 	seen := map[string]bool{}
 	for _, space := range v.Spaces {
@@ -231,8 +243,13 @@ func (s *Service) testConnection(w http.ResponseWriter, r *http.Request) {
 		authorizationError(w, err)
 		return
 	}
-	httpapi.WriteJSON(w, 200, map[string]any{"connected": true, "observed_at": time.Now().UTC(),
-		"persistent": false, "scope_verified": false})
+	result := map[string]any{"ok": true, "message": "Read-only source access succeeded",
+		"connected": true, "observed_at": time.Now().UTC(),
+		"persistent": false, "scope_verified": false}
+	if v.Type == "web" && v.SecretRef == "" {
+		result["spaces"] = []any{}
+	}
+	httpapi.WriteJSON(w, 200, result)
 }
 
 type item struct {

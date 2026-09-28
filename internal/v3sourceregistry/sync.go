@@ -27,8 +27,10 @@ type ReadSpec struct {
 	Spaces                                                           []string
 }
 
-// Observation contains only bounded lineage evidence. A reader must verify
-// that an item was readable under the source ACL before setting ACLVerified.
+// Observation contains only bounded lineage evidence. ACLVerified means the
+// reader could access the item under its configured source access. A public
+// Web reader proves only an unauthenticated server-side read; this flag does
+// not grant product users access to a body or prove universal public access.
 // The body and title must never be returned in this type.
 type Observation struct {
 	ExternalID, ContentHash, EnvironmentID, ApplicationID, TeamID string

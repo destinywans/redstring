@@ -1,5 +1,10 @@
 # AIOps Canvas 检查点
 
+## CP-121 · 2026-09-29 · Runbook 详情范围与结构化来源核对
+
+- WAN-123 源提交 `dae5849574271a3c3d464afa6184509d0595854c` 合入集成为 `539303e`；公共契约提交 `7274369`。`GET /runbooks/{id}` 在同一只读快照内核对文档类型、环境/对象范围、当前授权和结构化 V3 步骤。隐藏、无权或非 Runbook 返回 404；有权旧文档缺结构化记录返回 `503 structured_steps_unavailable`；结构化记录存在但缺完整用量、事件处置、审核来源与执行核验时仍返回 `503 runbook_read_unavailable`，不把部分记录伪装成完整 `Runbook`。已保存字段由 `/runbooks/{id}/record` 读取，主路由仍 `mock`，总数 **34/166 `implemented`**。
+- 集成分支在一次性独立 `pgvector/pgvector:0.8.6-pg17` 的随机 schema 通过 Runbook 注册 HTTP 定向测试；首次使用普通 `postgres:17` 因缺 `vector` 扩展失败，替换为项目所需镜像后通过，两次容器均已清理。受影响包与 `cmd/aiops` 的 `go vet`、后者编译、311 条 OpenAPI 操作/223 schema 引用、165 行主契约、路由矩阵及差异检查通过。未迁移现有业务库、接入完整用量/执行来源、修改前端或产品验收。下一步继续可核实的主路由切片；提交与远端推送结果以本检查点的 Git/Linear 回读为准。
+
 ## CP-120 · 2026-09-29 · 配置提升安全边界、工作区与规则详情增量
 
 - 集成分支 `codex/wan-117-v3-integration` 的代码与契约已推送至 `802fd93ae611283a8f2fb7dcfbe475e4b8c47e79`，远端同名分支回读同 SHA，推送后工作树干净。WAN-124 源 `ef30e49`、`904b6ac`、`3e8d6d4` 分别合入为 `8d7a3d8`、`8866655`、`802fd93`；本地配置与公共契约为 `0368fd3`、`267f5b8`。WAN-119 工作区修正 `f002439`→`dc1329c`；WAN-118 规则详情修正 `b03af9a`→`32dfaad`。

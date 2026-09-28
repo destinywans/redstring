@@ -16,6 +16,8 @@ type prompt struct {
 	Version           int
 }
 
+func promptDisplayVersion(version int) string { return "v" + strconv.Itoa(version) }
+
 func (s *Service) loadPrompt(r *http.Request, id string) (prompt, error) {
 	var p prompt
 	err := s.DB.QueryRow(r.Context(), `SELECT id,agent_id,name,current_version FROM v3_agent_prompts WHERE id=$1`, id).
@@ -67,7 +69,7 @@ func (s *Service) Prompts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		items = append(items, map[string]any{"id": id, "kind": "prompt", "name": name,
-			"version": strconv.Itoa(version), "status": "stored"})
+			"version": promptDisplayVersion(version), "status": "stored"})
 	}
 	if rows.Err() != nil {
 		rows.Close()
@@ -112,7 +114,7 @@ func (s *Service) PromptDetail(w http.ResponseWriter, r *http.Request) {
 	for _, line := range strings.Split(body, "\n") {
 		lines = append(lines, map[string]any{"text": line})
 	}
-	httpapi.WriteJSON(w, 200, map[string]any{"id": p.ID, "name": p.Name, "version": strconv.Itoa(p.Version),
+	httpapi.WriteJSON(w, 200, map[string]any{"id": p.ID, "name": p.Name, "version": promptDisplayVersion(p.Version),
 		"status": "stored", "variables": variables, "used_by": a.Name, "lines": lines, "notes": "",
 		"scope": map[string]string{"application_id": a.App, "environment_id": a.Env}})
 }
@@ -128,7 +130,7 @@ func (s *Service) PromptVersion(w http.ResponseWriter, r *http.Request) {
 	if !httpapi.Decode(w, r, &body) {
 		return
 	}
-	if !bounded(body.Text, 20000) {
+	if strings.TrimSpace(body.Text) == "" || len([]rune(body.Text)) > 20000 {
 		invalid(w, "Prompt must contain 1 to 20000 characters")
 		return
 	}
@@ -138,6 +140,17 @@ func (s *Service) PromptVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
+	var agentApp, agentEnv string
+	err = tx.QueryRow(r.Context(), `SELECT application_id,environment_id FROM v3_agents
+ WHERE id=$1 FOR SHARE`, a.ID).Scan(&agentApp, &agentEnv)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (agentApp != a.App || agentEnv != a.Env)) {
+		notFound(w)
+		return
+	}
+	if err != nil {
+		unavailable(w)
+		return
+	}
 	err = tx.QueryRow(r.Context(), `SELECT current_version FROM v3_agent_prompts WHERE id=$1 AND agent_id=$2 FOR UPDATE`, p.ID, a.ID).Scan(&p.Version)
 	if errors.Is(err, pgx.ErrNoRows) {
 		notFound(w)
@@ -172,7 +185,7 @@ func (s *Service) PromptVersion(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
-	httpapi.WriteJSON(w, 201, map[string]any{"version": strconv.Itoa(next)})
+	httpapi.WriteJSON(w, 201, map[string]any{"version": promptDisplayVersion(next)})
 }
 
 func (s *Service) PromptTrial(w http.ResponseWriter, r *http.Request) {

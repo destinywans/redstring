@@ -19,6 +19,37 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
+// revokingPromptAccess models a grant removed after the route's first check
+// but before its locked, transactional authorization check.
+type revokingPromptAccess struct {
+	policy         *rbac.V3Policy
+	afterAuthorize func() error
+	revoke         func() error
+}
+
+func (a *revokingPromptAccess) Authorize(ctx context.Context, user core.User, decision rbac.V3Decision) error {
+	if err := a.policy.Authorize(ctx, user, decision); err != nil {
+		return err
+	}
+	if decision.Module == "agents" && decision.Action == "change" && a.afterAuthorize != nil {
+		after := a.afterAuthorize
+		a.afterAuthorize = nil
+		return after()
+	}
+	return nil
+}
+
+func (a *revokingPromptAccess) AuthorizeWithTx(ctx context.Context, tx pgx.Tx, user core.User, decision rbac.V3Decision) error {
+	if decision.Module == "agents" && decision.Action == "change" && a.revoke != nil {
+		revoke := a.revoke
+		a.revoke = nil
+		if err := revoke(); err != nil {
+			return err
+		}
+	}
+	return a.policy.AuthorizeWithTx(ctx, tx, user, decision)
+}
+
 func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
@@ -236,7 +267,7 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 	if _, err = db.Exec(ctx, `INSERT INTO v3_agent_prompts(id,agent_id,name) VALUES('p1','triage','Triage prompt')`); err != nil {
 		t.Fatal(err)
 	}
-	assert(request("POST", "/api/v1/prompts/p1/versions", adminToken, "dev", `{"text":"Investigate {{ service }} with private details"}`), 201, `"version":"1"`)
+	assert(request("POST", "/api/v1/prompts/p1/versions", adminToken, "dev", `{"text":"Investigate {{ service }} with private details"}`), 201, `"version":"v1"`)
 	var auditText string
 	if err = db.QueryRow(ctx, `SELECT changes::text FROM management_audit WHERE action='v3.agent.prompt.version' ORDER BY id DESC LIMIT 1`).Scan(&auditText); err != nil {
 		t.Fatal(err)
@@ -244,6 +275,89 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 	if strings.Contains(auditText, "private details") {
 		t.Fatal("prompt text leaked to audit")
 	}
+	if err = svc.RegisterPrompt(ctx, "triage.system", "triage", "triage.system", "Original {{service}}", adminID); err != nil {
+		t.Fatal(err)
+	}
+	assert(request("GET", "/api/v1/prompts/triage.system", adminToken, "dev", ""), 200, `"version":"v1"`)
+	assert(request("POST", "/api/v1/prompts/triage.system/versions", adminToken, "all", `{"text":"Cannot save across environments"}`), 409, `"code":"env_view_only"`)
+	updatedPrompt := "  Investigate {{service}}\nUse read-only evidence.  "
+	updatedBody, err := json.Marshal(map[string]string{"text": updatedPrompt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert(request("POST", "/api/v1/prompts/triage.system/versions", adminToken, "dev", string(updatedBody)), 201, `"version":"v2"`)
+	refreshed := request("GET", "/api/v1/prompts/triage.system", adminToken, "dev", "")
+	assert(refreshed, 200, `"version":"v2"`)
+	var promptDetail struct {
+		ID, Version string
+		Lines       []struct{ Text string }
+	}
+	if err = json.Unmarshal(refreshed.Body.Bytes(), &promptDetail); err != nil || promptDetail.ID != "triage.system" ||
+		promptDetail.Version != "v2" || len(promptDetail.Lines) != 2 ||
+		strings.Join([]string{promptDetail.Lines[0].Text, promptDetail.Lines[1].Text}, "\n") != updatedPrompt {
+		t.Fatalf("refreshed prompt lost identity, version, or original whitespace: %+v err=%v", promptDetail, err)
+	}
+	listed := request("GET", "/api/v1/prompts", adminToken, "dev", "")
+	assert(listed, 200, `"id":"triage.system"`)
+	if !strings.Contains(listed.Body.String(), `"version":"v2"`) {
+		t.Fatalf("list did not refresh persisted version: %s", listed.Body.String())
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('agent-viewer','agents','change','application','agent-app')`); err != nil {
+		t.Fatal(err)
+	}
+	var beforeAudit int
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM management_audit
+ WHERE action='v3.agent.prompt.version' AND target='triage.system'`).Scan(&beforeAudit); err != nil {
+		t.Fatal(err)
+	}
+	svc.Access = &revokingPromptAccess{policy: policy, revoke: func() error {
+		_, revokeErr := adminDB.Exec(ctx, `DELETE FROM `+quoted+`.v3_role_grants
+ WHERE role_id='agent-viewer' AND module='agents' AND action='change'`)
+		return revokeErr
+	}}
+	revoked := request("POST", "/api/v1/prompts/triage.system/versions", viewerToken, "dev", `{"text":"Revoked editor must not save"}`)
+	svc.Access = policy
+	assert(revoked, 403, `"code":"forbidden"`)
+	assert(request("POST", "/api/v1/prompts/triage.system/versions", viewerToken, "dev", `{"text":"Still revoked"}`), 403, `"code":"forbidden"`)
+	svc.Access = &revokingPromptAccess{policy: policy, afterAuthorize: func() error {
+		_, changeErr := adminDB.Exec(ctx, `UPDATE `+quoted+`.v3_agents SET application_id='other-app' WHERE id='triage'`)
+		return changeErr
+	}}
+	scopeChanged := request("POST", "/api/v1/prompts/triage.system/versions", adminToken, "dev", `{"text":"Changed scope must not save"}`)
+	svc.Access = policy
+	assert(scopeChanged, 404, `"code":"not_found"`)
+	if _, err = adminDB.Exec(ctx, `UPDATE `+quoted+`.v3_agents SET application_id='agent-app' WHERE id='triage'`); err != nil {
+		t.Fatal(err)
+	}
+	var currentVersion, afterAudit int
+	if err = db.QueryRow(ctx, `SELECT current_version FROM v3_agent_prompts WHERE id='triage.system'`).Scan(&currentVersion); err != nil || currentVersion != 2 {
+		t.Fatalf("denied write changed prompt version: %d %v", currentVersion, err)
+	}
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM management_audit
+ WHERE action='v3.agent.prompt.version' AND target='triage.system'`).Scan(&afterAudit); err != nil || afterAudit != beforeAudit {
+		t.Fatalf("denied write was audited as success: %d want %d err=%v", afterAudit, beforeAudit, err)
+	}
+	if _, err = db.Exec(ctx, `CREATE FUNCTION reject_prompt_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+ BEGIN IF NEW.action='v3.agent.prompt.version' THEN RAISE EXCEPTION 'prompt audit unavailable'; END IF;
+ RETURN NEW; END $$;
+ CREATE TRIGGER reject_prompt_audit BEFORE INSERT ON management_audit
+ FOR EACH ROW EXECUTE FUNCTION reject_prompt_audit()`); err != nil {
+		t.Fatal(err)
+	}
+	assert(request("POST", "/api/v1/prompts/triage.system/versions", adminToken, "dev", `{"text":"Audit must succeed before save"}`), 503, `"code":"agent_console_unavailable"`)
+	if err = db.QueryRow(ctx, `SELECT current_version FROM v3_agent_prompts WHERE id='triage.system'`).Scan(&currentVersion); err != nil || currentVersion != 2 {
+		t.Fatalf("audit failure advanced current version: %d %v", currentVersion, err)
+	}
+	var rolledBack int
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM v3_agent_prompt_versions WHERE prompt_id='triage.system' AND version=3`).Scan(&rolledBack); err != nil || rolledBack != 0 {
+		t.Fatalf("audit failure kept prompt content: %d %v", rolledBack, err)
+	}
+	if _, err = db.Exec(ctx, `DROP TRIGGER reject_prompt_audit ON management_audit; DROP FUNCTION reject_prompt_audit()`); err != nil {
+		t.Fatal(err)
+	}
+	assert(request("POST", "/api/v1/prompts/triage.system/versions", adminToken, "dev", `{"text":"Third reviewed version"}`), 201, `"version":"v3"`)
+	assert(request("GET", "/api/v1/prompts/triage.system", adminToken, "dev", ""), 200, `"version":"v3"`)
 	assert(request("POST", "/api/v1/prompts/p1/trial", adminToken, "dev", `{"case":"c1","a":"v1","b":"v2"}`), 503, `"code":"prompt_trial_unavailable"`)
 	assert(request("GET", "/api/v1/prompts", adminToken, "dev", ""), 200, `"id":"p1"`)
 	if err = svc.RegisterTool(ctx, ToolRegistration{ID: "read-pods", AgentID: "triage", Name: "Read Pods", Kind: "read", Risk: "low"}); err != nil {

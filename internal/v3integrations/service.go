@@ -117,13 +117,11 @@ func (s *Service) connectorType(w http.ResponseWriter, r *http.Request) {
 		label, desc := authMethodCopy(method, lang)
 		auth = append(auth, map[string]string{"id": method, "label": label, "desc": desc})
 	}
-	tools := make([]map[string]string, 0, len(d.Tools))
-	for _, name := range d.Tools {
-		tools = append(tools, map[string]string{"name": name, "desc": toolCopy(name, lang)})
-	}
 	// This is a provider type, not a connected instance: its version and token
 	// scopes cannot be verified here. Webhook provisioning is unsupported.
-	httpapi.WriteJSON(w, 200, map[string]any{"brand": d.Provider, "name": d.Name, "kind": kindCopy(d.Kind, lang), "version": "", "auth_methods": auth, "scopes": []any{}, "tools": tools, "webhook_url": ""})
+	// Descriptor tools are accepted registration preferences, not Agent tools.
+	// No connector-backed Agent execution is wired, so do not advertise them.
+	httpapi.WriteJSON(w, 200, map[string]any{"brand": d.Provider, "name": d.Name, "kind": kindCopy(d.Kind, lang), "version": "", "auth_methods": auth, "scopes": []any{}, "tools": []any{}, "webhook_url": ""})
 }
 
 func scanConnector(rows pgx.Row) (connector, error) {

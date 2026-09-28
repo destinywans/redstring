@@ -576,6 +576,25 @@ v3_route('get','/services','Read authorized persisted service metadata',
 v3_route('get','/services/{id}','Read one authorized service metadata record',
     response=ref('V3ServiceMetadata'),
     desc='Partial V3 DTO with explicit evidence gaps; id binds application and environment.')
+S['V3ExternalTarget'] = obj({**fieldnames('id connector_id provider target_kind external_id environment_id')},
+    ['id','connector_id','provider','target_kind','external_id','environment_id'])
+S['V3ExternalTargetInput'] = obj({'connector_id':string(),
+    'target_kind':string(enum=['project']), 'external_id':string()},
+    ['connector_id','target_kind','external_id'])
+v3_route('get','/services/{id}/external-targets','List explicitly bound external service targets',
+    response=obj({'items':arr(ref('V3ExternalTarget'))},['items']),
+    desc='Requires services.view for the persisted application or team and connectors.view for its environment. '
+         'At most 100 targets per service and environment; older application binding JSON is not inferred or copied. No endpoint or credentials are returned.')
+v3_route('post','/services/{id}/external-targets','Bind an exact external target to a service',
+    body=ref('V3ExternalTargetInput'),response=ref('V3ExternalTarget'),status=201,
+    desc='Requires services.change for the persisted application or team and connectors.manage for its environment. '
+         'Currently accepts only a positive numeric GitLab project ID on a connector in the same environment. '
+         'A target cannot be attributed to two services in one environment; a service may bind at most 100 targets per environment; writes are audited. '
+         'This metadata binding does not grant the connector new credentials or authorize an external write.')
+v3_route('delete','/services/{id}/external-targets/{bindingId}','Remove an exact external target binding',
+    status=204,
+    desc='Requires services.change for the persisted application or team and connectors.manage for its environment. '
+         'Only the scoped binding is removed and the change is audited; no external target is deleted.')
 S['V3DiscoveredService'] = obj({**fieldnames('id namespace kind image owner_hint tier_hint'),
     'replicas':{'type':['integer','null']},'matched':arr(string()),'missing':arr(string())})
 v3_route('get','/services/discover','Discover scoped workloads',

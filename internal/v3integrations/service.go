@@ -86,6 +86,7 @@ func (s *Service) scope(w http.ResponseWriter, r *http.Request, write bool) ([]s
 }
 
 func (s *Service) Register(api *httpapi.Server) {
+	s.registerTargets(api)
 	api.Register("GET /api/v1/connector-types/{type}", "viewer", s.connectorType)
 	api.Register("GET /api/v1/connectors", "admin", s.list)
 	api.Register("GET /api/v1/connectors/{id}", "admin", s.detail)

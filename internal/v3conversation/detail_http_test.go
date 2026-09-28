@@ -184,4 +184,12 @@ func TestConversationDetailDoesNotInventMissingUsage(t *testing.T) {
 	if contextSide["used"] != nil || contextSide["budget"] != 8192 {
 		t.Fatalf("unknown historical usage must remain unknown: %+v", contextSide)
 	}
+	detail = svc.conversationDetail("c", "title", "active", "test", "service:checkout", "model-1", []Message{
+		{Role: "assistant", Run: json.RawMessage(`{"id":"reported-run","context_input_tokens":40,"context_budget":8192}`)},
+		{Role: "assistant"},
+	})
+	contextSide = detail.Side["context"].(map[string]any)
+	if contextSide["used"] != nil || len(contextSide["parts"].([]any)) != 0 {
+		t.Fatalf("newer unknown usage must not reuse an older model input count: %+v", contextSide)
+	}
 }

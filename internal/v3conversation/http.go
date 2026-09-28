@@ -320,8 +320,31 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	}
 	statusFilter := r.URL.Query().Get("status")
 	modeFilter := r.URL.Query().Get("mode")
+	if filter != "mine" && filter != "archived" && filter != "team" && filter != "triage" {
+		apiError(w, 422, "invalid_filter", "Unknown conversation filter")
+		return
+	}
+	if modeFilter != "" && modeFilter != "chat" && modeFilter != "canvas" {
+		apiError(w, 422, "invalid_mode", "Unknown conversation mode")
+		return
+	}
+	if statusFilter != "" && statusFilter != "active" && statusFilter != "waiting_approval" && statusFilter != "resolved" && statusFilter != "archived" {
+		apiError(w, 422, "invalid_status", "Unknown conversation status")
+		return
+	}
+	// Team, triage and canvas entries have separate stores and grant models.
+	// Until they are joined into this owner-scoped index, an empty list would
+	// falsely tell the user that those conversations do not exist.
+	if filter == "team" || filter == "triage" || modeFilter == "canvas" {
+		apiError(w, 503, "conversation_source_unavailable", "This conversation source is not connected to the unified list")
+		return
+	}
+	if len(q) > 256 {
+		apiError(w, 422, "invalid_query", "Search is too long")
+		return
+	}
 	var total int
-	err = s.db.QueryRow(r.Context(), `SELECT count(*) FROM v3_conversations WHERE owner_id=$1 AND environment_id=ANY($2) AND ($3='' OR aiops_search_match(title,$3)) AND ($4='mine' AND status<>'archived' OR $4='archived' AND status='archived') AND ($5='' OR status=$5)`, u.ID, visible, q, filter, statusFilter).Scan(&total)
+	err = s.db.QueryRow(r.Context(), `SELECT count(*) FROM v3_conversations WHERE owner_id=$1 AND environment_id=ANY($2) AND ($3='' OR aiops_search_match(concat_ws(' ',id,title,context_ref,environment_id),$3)) AND ($4='mine' AND status<>'archived' OR $4='archived' AND status='archived') AND ($5='' OR status=$5)`, u.ID, visible, q, filter, statusFilter).Scan(&total)
 	if err != nil {
 		operationError(w, err)
 		return
@@ -332,11 +355,23 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		operationError(w, err)
 		return
 	}
-	if modeFilter != "" && modeFilter != "chat" {
-		write(w, 200, map[string]any{"items": []any{}, "total": 0, "page": page, "page_size": size, "stats": []any{}, "counts": map[string]int{"mine": mineCount, "team": 0, "triage": 0, "archived": archivedCount}})
-		return
-	}
-	rows, err := s.db.Query(r.Context(), `SELECT id,title,status,environment_id,updated_at,(SELECT count(*) FROM v3_conversation_messages m WHERE m.conversation_id=c.id AND m.role='user') FROM v3_conversations c WHERE owner_id=$1 AND environment_id=ANY($2) AND ($3='' OR aiops_search_match(title,$3)) AND ($4='mine' AND status<>'archived' OR $4='archived' AND status='archived') AND ($5='' OR status=$5) ORDER BY updated_at DESC,id LIMIT $6 OFFSET $7`, u.ID, visible, q, filter, statusFilter, size, (page-1)*size)
+	rows, err := s.db.Query(r.Context(), `WITH selected AS MATERIALIZED (
+		SELECT id,title,status,environment_id,context_ref,updated_at FROM v3_conversations
+		WHERE owner_id=$1 AND environment_id=ANY($2)
+			AND ($3='' OR aiops_search_match(concat_ws(' ',id,title,context_ref,environment_id),$3))
+			AND ($4='mine' AND status<>'archived' OR $4='archived' AND status='archived')
+			AND ($5='' OR status=$5)
+		ORDER BY updated_at DESC,id LIMIT $6 OFFSET $7
+	) SELECT c.id,c.title,c.status,c.environment_id,c.context_ref,c.updated_at,
+		COALESCE(m.turns,0),COALESCE(m.assistants,0),COALESCE(m.reported_tokens,0)
+		FROM selected c LEFT JOIN LATERAL (
+			SELECT count(*) FILTER (WHERE role='user') AS turns,
+				count(*) FILTER (WHERE role='assistant' AND state='completed') AS assistants,
+				COALESCE(sum(CASE WHEN role='assistant' AND state='completed' AND jsonb_typeof(run->'tokens')='number'
+					THEN (run->>'tokens')::bigint ELSE 0 END),0) AS reported_tokens
+			FROM v3_conversation_messages WHERE conversation_id=c.id
+		) m ON true
+		ORDER BY c.updated_at DESC,c.id`, u.ID, visible, q, filter, statusFilter, size, (page-1)*size)
 	if err != nil {
 		operationError(w, err)
 		return
@@ -344,20 +379,38 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	items := []map[string]any{}
 	for rows.Next() {
-		var id, title, status, scope string
+		var id, title, status, envID, contextRef string
 		var updated time.Time
-		var turns int
-		if err = rows.Scan(&id, &title, &status, &scope, &updated, &turns); err != nil {
+		var turns, assistants, reportedTokens int64
+		if err = rows.Scan(&id, &title, &status, &envID, &contextRef, &updated, &turns, &assistants, &reportedTokens); err != nil {
 			operationError(w, err)
 			return
 		}
-		items = append(items, map[string]any{"id": id, "title": title, "mode": "chat", "status": status, "source": "manual", "scope": scope, "participants": []string{u.Name}, "size": fmt.Sprintf("%d turns", turns), "updated_at": updated, "tokens": 0})
+		participants := []string{u.Name}
+		if assistants > 0 {
+			participants = append(participants, "AI")
+		}
+		sizeLabel := fmt.Sprintf("%d 轮", turns)
+		if strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "en") {
+			sizeLabel = fmt.Sprintf("%d turns", turns)
+		}
+		items = append(items, map[string]any{"id": id, "title": title, "mode": "chat", "status": status, "source": "manual", "scope": conversationScopeLabel(contextRef, envID), "participants": participants, "size": sizeLabel, "updated_at": updated, "tokens": reportedTokens})
 	}
 	if err = rows.Err(); err != nil {
 		operationError(w, err)
 		return
 	}
 	write(w, 200, map[string]any{"items": items, "total": total, "page": page, "page_size": size, "stats": []any{}, "counts": map[string]int{"mine": mineCount, "team": 0, "triage": 0, "archived": archivedCount}})
+}
+
+func conversationScopeLabel(refs, env string) string {
+	for _, ref := range strings.Split(refs, ",") {
+		kind, value, ok := strings.Cut(strings.TrimSpace(ref), ":")
+		if ok && kind == "service" && value != "" {
+			return value + " · " + env
+		}
+	}
+	return env
 }
 
 func pagination(r *http.Request) (int, int) {

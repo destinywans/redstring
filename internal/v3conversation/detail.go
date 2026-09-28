@@ -35,6 +35,10 @@ func (s *Service) conversationDetail(id, title, status, env, contextRef, default
 		if m.Role != "assistant" {
 			continue
 		}
+		// The side panel describes the most recent assistant turn. An older
+		// reported input count must not survive a newer turn with unknown usage.
+		context["used"] = nil
+		context["parts"] = []any{}
 		for _, raw := range m.Parts {
 			var part struct {
 				Type  string `json:"type"`

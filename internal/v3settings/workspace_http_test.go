@@ -44,22 +44,28 @@ func TestWorkspaceAuthenticatedHTTPPersistenceAndAudit(t *testing.T) {
 	api.MarkV3Route("GET /api/v1/workspace", "workspace", "view")
 	api.MarkV3Route("PUT /api/v1/workspace", "workspace", "manage")
 	policy := &rbac.V3Policy{Store: s}
-	err = api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"}}, policy, s.Session,
+	err = api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev", "test"}}, policy, s.Session,
 		func(ctx context.Context, user core.User, module, action, environmentID string) error {
 			return policy.Authorize(ctx, user, rbac.V3Decision{Module: module, Action: action, EnvironmentID: environmentID})
 		})
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := func(method, token, env, body string) *httptest.ResponseRecorder {
+	requestWithLanguage := func(method, token, env, language, body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, "/api/v1/workspace", strings.NewReader(body))
 		r.Header.Set("X-AIOps-Environment", env)
+		if language != "" {
+			r.Header.Set("Accept-Language", language)
+		}
 		if token != "" {
 			r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
 		}
 		w := httptest.NewRecorder()
 		api.ServeHTTP(w, r)
 		return w
+	}
+	request := func(method, token, env, body string) *httptest.ResponseRecorder {
+		return requestWithLanguage(method, token, env, "", body)
 	}
 	if w := request(http.MethodGet, "", "dev", ""); w.Code != http.StatusUnauthorized {
 		t.Fatalf("anonymous read: %d %s", w.Code, w.Body.String())
@@ -71,6 +77,9 @@ func TestWorkspaceAuthenticatedHTTPPersistenceAndAudit(t *testing.T) {
 	var original workspace
 	if err := json.Unmarshal(initial.Body.Bytes(), &original); err != nil {
 		t.Fatal(err)
+	}
+	if w := request(http.MethodGet, viewerToken, "all", ""); w.Code != http.StatusOK || w.Body.String() != initial.Body.String() {
+		t.Fatalf("all read with one authorized environment: %d %s", w.Code, w.Body.String())
 	}
 	updated := original
 	updated.Name = "研发工作区"
@@ -105,6 +114,27 @@ func TestWorkspaceAuthenticatedHTTPPersistenceAndAudit(t *testing.T) {
 	if w := request(http.MethodPut, adminToken, "dev", string(tamperedJSON)); w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("immutable brand: %d %s", w.Code, w.Body.String())
 	}
+	for _, change := range []struct {
+		name   string
+		mutate func(*workspace)
+	}{
+		{"data region", func(v *workspace) { v.DataRegion = "elsewhere" }},
+		{"brand logo", func(v *workspace) { logo := "other-logo"; v.Brand.Logo = &logo }},
+		{"brand pending", func(v *workspace) { v.Brand.Pending = !v.Brand.Pending }},
+	} {
+		tampered := updated
+		change.mutate(&tampered)
+		body, _ := json.Marshal(tampered)
+		if w := request(http.MethodPut, adminToken, "dev", string(body)); w.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("immutable %s: %d %s", change.name, w.Code, w.Body.String())
+		}
+	}
+	if w := requestWithLanguage(http.MethodPut, adminToken, "dev", "zh-CN", `{"unknown":true}`); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "工作区字段无效或未知") {
+		t.Fatalf("localized unknown-field error: %d %s", w.Code, w.Body.String())
+	}
+	if w := requestWithLanguage(http.MethodPut, adminToken, "dev", "en-US", `{"unknown":true}`); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "Invalid or unknown workspace field") {
+		t.Fatalf("English unknown-field error: %d %s", w.Code, w.Body.String())
+	}
 	saved := request(http.MethodPut, adminToken, "dev", string(payload))
 	if saved.Code != http.StatusOK {
 		t.Fatalf("admin write: %d %s", saved.Code, saved.Body.String())
@@ -132,6 +162,30 @@ func TestWorkspaceAuthenticatedHTTPPersistenceAndAudit(t *testing.T) {
 	}
 	if w := request(http.MethodGet, adminToken, "dev", ""); w.Code != http.StatusOK || w.Body.String() != saved.Body.String() {
 		t.Fatalf("workspace changed after audit failure: %d %s", w.Code, w.Body.String())
+	}
+	if _, err := s.DB.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='workspace' AND action='view'`); err != nil {
+		t.Fatal(err)
+	}
+	if w := request(http.MethodGet, viewerToken, "dev", ""); w.Code != http.StatusForbidden {
+		t.Fatalf("viewer without workspace.view read settings: %d %s", w.Code, w.Body.String())
+	}
+	if _, err := s.DB.Exec(ctx, `UPDATE workspace_settings SET v3_slug='Invalid Slug' WHERE id='default'`); err != nil {
+		t.Fatal(err)
+	}
+	if w := requestWithLanguage(http.MethodGet, adminToken, "dev", "zh-CN", ""); w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "工作区设置记录缺失或损坏") {
+		t.Fatalf("corrupt stored workspace read: %d %s", w.Code, w.Body.String())
+	}
+	if w := request(http.MethodPut, adminToken, "dev", string(payload)); w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("corrupt stored workspace write: %d %s", w.Code, w.Body.String())
+	}
+	if _, err := s.DB.Exec(ctx, `DELETE FROM workspace_settings WHERE id='default'`); err != nil {
+		t.Fatal(err)
+	}
+	if w := request(http.MethodGet, adminToken, "dev", ""); w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("missing workspace read: %d %s", w.Code, w.Body.String())
+	}
+	if w := request(http.MethodPut, adminToken, "dev", string(payload)); w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("missing workspace write: %d %s", w.Code, w.Body.String())
 	}
 }
 

@@ -9,9 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
-	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
@@ -181,12 +179,20 @@ func mustJSON(v any) []byte { b, _ := json.Marshal(v); return b }
 func (s *Service) getWorkspace(ctx context.Context) (workspace, error) {
 	v := workspace{}
 	err := s.Store.DB.QueryRow(ctx, `SELECT name,v3_slug,timezone,language,v3_week_start,v3_retention_days,v3_data_region,v3_brand_name,v3_brand_logo,v3_brand_pending FROM workspace_settings WHERE id='default'`).Scan(&v.Name, &v.Slug, &v.Timezone, &v.Locale, &v.WeekStart, &v.RetentionDays, &v.DataRegion, &v.Brand.Name, &v.Brand.Logo, &v.Brand.Pending)
-	return v, err
+	if errors.Is(err, pgx.ErrNoRows) {
+		return workspace{}, errWorkspaceUnavailable
+	}
+	if err != nil {
+		return workspace{}, err
+	}
+	if !validStoredWorkspace(v) {
+		return workspace{}, errWorkspaceUnavailable
+	}
+	return v, nil
 }
 
 func (s *Service) putWorkspace(ctx context.Context, user core.User, environmentID string, w workspace) (workspace, error) {
-	if strings.TrimSpace(w.Name) == "" || utf8.RuneCountInString(w.Name) > 120 || !slugPattern.MatchString(w.Slug) || !validTimezone(w.Timezone) ||
-		(w.Locale != "zh-CN" && w.Locale != "en-US") || (w.WeekStart != "monday" && w.WeekStart != "sunday") || w.RetentionDays < 1 || w.RetentionDays > 3650 {
+	if !validEditableWorkspace(w) {
 		return workspace{}, errInvalid
 	}
 	tx, err := s.Store.DB.Begin(ctx)
@@ -229,9 +235,15 @@ func (s *Service) putWorkspace(ctx context.Context, user core.User, environmentI
 	// update. A concurrent branding/deployment change must not be overwritten
 	// or validated against an earlier snapshot.
 	current := workspace{}
-	err = tx.QueryRow(ctx, `SELECT v3_data_region,v3_brand_name,v3_brand_logo,v3_brand_pending FROM workspace_settings WHERE id='default' FOR UPDATE`).Scan(&current.DataRegion, &current.Brand.Name, &current.Brand.Logo, &current.Brand.Pending)
+	err = tx.QueryRow(ctx, `SELECT name,v3_slug,timezone,language,v3_week_start,v3_retention_days,v3_data_region,v3_brand_name,v3_brand_logo,v3_brand_pending FROM workspace_settings WHERE id='default' FOR UPDATE`).Scan(&current.Name, &current.Slug, &current.Timezone, &current.Locale, &current.WeekStart, &current.RetentionDays, &current.DataRegion, &current.Brand.Name, &current.Brand.Logo, &current.Brand.Pending)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return workspace{}, errWorkspaceUnavailable
+	}
 	if err != nil {
 		return workspace{}, err
+	}
+	if !validStoredWorkspace(current) {
+		return workspace{}, errWorkspaceUnavailable
 	}
 	// Data residency and branding assets are deployment choices, not editable text.
 	if w.DataRegion != current.DataRegion || w.Brand.Name != current.Brand.Name || !equalStringPointers(w.Brand.Logo, current.Brand.Logo) || w.Brand.Pending != current.Brand.Pending {
@@ -242,6 +254,9 @@ func (s *Service) putWorkspace(ctx context.Context, user core.User, environmentI
  RETURNING name,v3_slug,timezone,language,v3_week_start,v3_retention_days,v3_data_region,v3_brand_name,v3_brand_logo,v3_brand_pending`, w.Name, w.Slug, w.Timezone, w.Locale, w.WeekStart, w.RetentionDays).Scan(&saved.Name, &saved.Slug, &saved.Timezone, &saved.Locale, &saved.WeekStart, &saved.RetentionDays, &saved.DataRegion, &saved.Brand.Name, &saved.Brand.Logo, &saved.Brand.Pending)
 	if err != nil {
 		return workspace{}, err
+	}
+	if !validStoredWorkspace(saved) {
+		return workspace{}, errWorkspaceUnavailable
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes) VALUES($1,'v3.workspace.updated','default','success',$2)`, user.ID, mustJSON(map[string]any{"name": saved.Name, "slug": saved.Slug, "timezone": saved.Timezone, "locale": saved.Locale, "week_start": saved.WeekStart, "retention_days": saved.RetentionDays}))
 	if err != nil {
@@ -282,18 +297,21 @@ func (s *Service) Register(api *httpapi.Server) {
 		v, e := s.savePrefs(r.Context(), httpapi.CurrentUser(r).ID, p)
 		respond(w, v, e)
 	})
-	api.Register("GET /api/v1/workspace", "viewer", func(w http.ResponseWriter, r *http.Request) { v, e := s.getWorkspace(r.Context()); respond(w, v, e) })
+	api.Register("GET /api/v1/workspace", "viewer", func(w http.ResponseWriter, r *http.Request) {
+		v, e := s.getWorkspace(r.Context())
+		respondWorkspace(w, r, v, e)
+	})
 	api.Register("PUT /api/v1/workspace", "admin", func(w http.ResponseWriter, r *http.Request) {
-		var v workspace
-		if !httpapi.Decode(w, r, &v) {
+		v, ok := decodeWorkspace(w, r)
+		if !ok {
 			return
 		}
 		scope, ok := httpapi.V3ScopeFromContext(r.Context())
 		if !ok || scope.All || len(scope.EnvironmentIDs) != 1 {
-			httpapi.Error(w, http.StatusServiceUnavailable, "environment_unavailable", "Workspace write requires one authorized environment")
+			httpapi.Error(w, http.StatusServiceUnavailable, "environment_unavailable", localize(r, "工作区更新需要一个已授权环境", "Workspace write requires one authorized environment"))
 			return
 		}
 		updated, e := s.putWorkspace(r.Context(), httpapi.CurrentUser(r), scope.EnvironmentIDs[0], v)
-		respond(w, updated, e)
+		respondWorkspace(w, r, updated, e)
 	})
 }

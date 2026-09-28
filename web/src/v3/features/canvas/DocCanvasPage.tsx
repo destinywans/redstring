@@ -11,7 +11,7 @@ import { VBars } from "../../charts";
 import { useI18n } from "../../i18n";
 import { CanvasState, KindTag } from "./CanvasesPage";
 import { LITE_ZOOM } from "./CanvasPage";
-import { DetailPanel, FLOAT_COVER, usePinned } from "../../ui/DetailPanel";
+import { DetailPanel, useFloatCover, usePinned } from "../../ui/DetailPanel";
 import "./canvas.css";
 import "./canvases.css";
 
@@ -289,13 +289,14 @@ export default function DocCanvasPage() {
             </div>
     </DetailPanel>
   ) : null;
+  const floatCover = useFloatCover();
   // Keep the selected node clear of the floating card by panning the canvas.
   useEffect(() => {
     if (!selected || pinned || !area.current) return;
     const right = view.x + (selected.x + selected.w) * view.k;
-    const overlap = right - (area.current.clientWidth - FLOAT_COVER) + 16;
+    const overlap = right - (area.current.clientWidth - floatCover) + 16;
     if (overlap > 0) setView((v) => ({ ...v, x: v.x - overlap }));
-  }, [sel, pinned]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sel, pinned, floatCover]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <Page

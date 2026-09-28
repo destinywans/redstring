@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Page } from "../../app/Shell";
 import { api, useGet, API_MODE } from "../../api/client";
-import { newConversationUrl, sendAndStream, takeAttachments } from "../../api/stream";
+import { applyEvent, newConversationUrl, sendAndStream, takeAttachments } from "../../api/stream";
 import { formatSize } from "../../api/upload";
 import type { Artifact, Conversation, Message, ModelChoice, Part, StreamEvent, Upload } from "../../api/types";
 import { AiAvatar, Avatar, Badge, Brand, Btn, Col, Divider, Dot, Env, Icon, Muted, Row, Segmented, Skeleton, Spacer, Strong, Tile, TextLink, Mono, cx } from "../../ui/core";
@@ -14,26 +14,6 @@ import { PartView, type PartActions } from "./Parts";
 import { ArtifactPanel, ARTIFACT_ICON } from "./ArtifactPanel";
 import { useI18n } from "../../i18n";
 import "./conversation.css";
-
-function applyEvent(messages: Message[], e: StreamEvent): Message[] {
-  switch (e.type) {
-    case "message.started":
-      return messages.some((m) => m.id === e.message.id) ? messages : [...messages, e.message];
-    case "part.added":
-      return messages.map((m) => {
-        if (m.id !== e.message_id) return m;
-        const i = m.parts.findIndex((p) => p.type === e.part.type && p.type === "tool_calls");
-        if (i >= 0) return { ...m, parts: m.parts.map((p, j) => (j === i ? e.part : p)) };
-        return { ...m, parts: [...m.parts, e.part] };
-      });
-    case "text.delta":
-      return messages.map((m) =>
-        m.id !== e.message_id ? m : { ...m, parts: m.parts.map((p, j) => (j === e.index && p.type === "text" ? { ...p, markdown: p.markdown + e.delta } : p)) },
-      );
-    case "message.completed":
-      return messages.map((m) => (m.id === e.message_id ? { ...m, streaming: false, run: e.run } : m));
-  }
-}
 
 function MessageView({ m, conv, actions, onOpenArtifact }: { m: Message; conv: Conversation; actions: PartActions; onOpenArtifact: (id: string) => void }) {
   const { tx, fmt } = useI18n();

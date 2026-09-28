@@ -350,6 +350,12 @@ mock("POST", "/conversations/:id/messages", ({ params, body }) => {
   return { message: msg, reply_id: `a-${Date.now()}` };
 });
 
+/** The mock event stream saves the finished reply, as the server would, so reopening the conversation shows it. */
+export function saveReply(conversationId: string, message: unknown) {
+  const c = STORE[conversationId];
+  if (c) (c.messages as unknown[]).push(message);
+}
+
 /** Canned streamed reply used by the mock event stream. */
 export function cannedReply(text: string) {
   const lower = text.toLowerCase();

@@ -11,7 +11,7 @@ import { useI18n } from "../../i18n";
 import { LoopBar } from "./LoopBar";
 import { WritebackDialog } from "./WritebackDialog";
 import { CompareDialog } from "./CompareDialog";
-import { DetailPanel, FLOAT_COVER, usePinned } from "../../ui/DetailPanel";
+import { DetailPanel, useFloatCover, usePinned } from "../../ui/DetailPanel";
 import "./canvas.css";
 
 type View = { x: number; y: number; k: number };
@@ -525,7 +525,8 @@ export default function CanvasPage() {
   const [pending, setPending] = useState<string[]>([]);
   const [glide, setGlide] = useState(false);
   const known = useRef<Set<string> | null>(null);
-  const cover = selected && !pinned ? FLOAT_COVER : 0;
+  const floatCover = useFloatCover();
+  const cover = selected && !pinned ? floatCover : 0;
   const screenOf = (n: CanvasNode) => ({
     x1: view.x + n.x * view.k,
     x2: view.x + (n.x + n.w) * view.k,
@@ -695,9 +696,9 @@ export default function CanvasPage() {
     const w = area.current.clientWidth;
     const sn = shownById[selected.id] ?? selected;
     const right = view.x + (sn.x + sn.w) * view.k;
-    const overlap = right - (w - FLOAT_COVER) + 16;
+    const overlap = right - (w - floatCover) + 16;
     if (overlap > 0) setView((v) => ({ ...v, x: v.x - overlap }));
-  }, [sel, pinned]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sel, pinned, floatCover]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const inv = data?.investigation;
   const bounds = shown.length ? { minX: Math.min(...shown.map((n) => n.x)) - 40, minY: Math.min(...shown.map((n) => n.y)) - 40, maxX: Math.max(...shown.map((n) => n.x + n.w)) + 40, maxY: Math.max(...shown.map((n) => n.y + (heights[n.id] ?? 180))) + 40 } : null;

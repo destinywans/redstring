@@ -248,7 +248,7 @@ export const Btn = forwardRef<HTMLButtonElement, BtnProps>(function Btn({ kind =
     </button>
   );
 });
-export function IconBtn({ icon, label, size = 28, color, onClick, to, active, style, submit }: { icon: IconName; label: string; size?: number; color?: string; onClick?: () => void; to?: string; active?: boolean; style?: CSSProperties; submit?: boolean }) {
+export function IconBtn({ icon, label, size = 28, color, onClick, to, active, style, submit, disabled }: { icon: IconName; label: string; size?: number; color?: string; onClick?: () => void; to?: string; active?: boolean; style?: CSSProperties; submit?: boolean; disabled?: boolean }) {
   const cls = cx("v3-iconbtn", active && "active");
   const st = { width: size, height: size, color, ...style };
   if (to)
@@ -258,7 +258,7 @@ export function IconBtn({ icon, label, size = 28, color, onClick, to, active, st
       </Link>
     );
   return (
-    <button type={submit ? "submit" : "button"} className={cls} aria-label={label} title={label} style={st} onClick={onClick}>
+    <button type={submit ? "submit" : "button"} className={cls} aria-label={label} title={label} style={st} onClick={onClick} disabled={disabled}>
       <Icon name={icon} size={16} />
     </button>
   );

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { IconBtn, cx } from "./core";
 import { useI18n } from "../i18n";
+import { askCover, useAskAi } from "../app/askState";
 import "./detail-panel.css";
 
 /** Per-page memory of whether the detail panel is pinned (docked) or floating. */
@@ -55,7 +56,7 @@ export function DetailPanel({
     if (pinned) return;
     const h = (e: KeyboardEvent) => {
       const t = e.target instanceof Element ? e.target : null;
-      if (e.key === "Escape" && !t?.closest("input, textarea, [contenteditable]")) onClose();
+      if (e.key === "Escape" && !t?.closest("input, textarea, [contenteditable], .ask-card")) onClose();
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
@@ -82,3 +83,9 @@ export function DetailPanel({
 
 /** Width a floating panel covers (card + gap), used to keep the selected item visible. */
 export const FLOAT_COVER = 372 + 24;
+
+/** Width floating cards cover on the right: the detail card, plus the Ask AI card when they sit side by side. */
+export function useFloatCover() {
+  const askOpen = useAskAi((s) => s.isOpen);
+  return FLOAT_COVER + askCover(askOpen);
+}

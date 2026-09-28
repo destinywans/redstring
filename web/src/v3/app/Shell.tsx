@@ -5,7 +5,7 @@ import { MenuButton, Toaster, toast } from "../ui/overlays";
 import { useI18n } from "../i18n";
 import { NAV, SETTINGS_GROUPS, SETTINGS_NAV, locate, type NavItem } from "./nav";
 import { CommandPalette, useCommandPalette } from "./CommandPalette";
-import { AskAiDrawer, useAskAi } from "./AskAi";
+import { AskAiCard, useAskAi, useAskOpenClass } from "./AskAi";
 import { API_MODE, useGet } from "../api/client";
 import type { Me, WatchedService } from "../api/types";
 import { EnvSwitch, useInstanceLoader } from "./EnvSwitch";
@@ -209,7 +209,8 @@ function useCrumbHref() {
 
 export function Page({ crumbs, title, actions, children, ai = true, bodyClass, flush }: { crumbs?: Crumb[]; title?: ReactNode; actions?: ReactNode; children: ReactNode; ai?: boolean; bodyClass?: string; flush?: boolean }) {
   const { tx } = useI18n();
-  const openAi = useAskAi((s) => s.setOpen);
+  const toggleAi = useAskAi((s) => s.toggle);
+  const aiOpen = useAskAi((s) => s.isOpen);
   const hrefOf = useCrumbHref();
   const prodInstance = useEnv((s) => s.instance?.tier === "production");
   const { pathname } = useLocation();
@@ -250,7 +251,7 @@ export function Page({ crumbs, title, actions, children, ai = true, bodyClass, f
         {actions}
         <EnvSwitch />
         {ai && (
-          <Btn kind="ghost" onClick={() => openAi(true)} style={{ color: "var(--accent-text)" }}>
+          <Btn kind="ghost" onClick={toggleAi} className={cx("ask-toggle", aiOpen && "on")} aria-pressed={aiOpen} style={{ color: "var(--accent-text)" }}>
             <Icon name="sparkles" size={14} />
             {tx("问 AI", "Ask AI")}
             <Kbd>⌘J</Kbd>
@@ -266,7 +267,8 @@ export function Shell() {
   useInstanceLoader();
   const { pathname } = useLocation();
   const { tx } = useI18n();
-  const setAi = useAskAi((s) => s.setOpen);
+  const toggleAi = useAskAi((s) => s.toggle);
+  const askClass = useAskOpenClass();
   const inSettings = pathname.startsWith("/settings");
   useEffect(() => {
     if (!inSettings) lastAppPath = pathname + location.search;
@@ -275,14 +277,14 @@ export function Shell() {
     const h = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
         e.preventDefault();
-        setAi(true);
+        toggleAi();
       }
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [setAi]);
+  }, [toggleAi]);
   return (
-    <div className="v3 v3-shell">
+    <div className={cx("v3 v3-shell", askClass)}>
       <a href="#v3-main" className="sr-only">
         {tx("跳到主要内容", "Skip to content")}
       </a>
@@ -291,7 +293,7 @@ export function Shell() {
         <Outlet />
       </div>
       <CommandPalette />
-      <AskAiDrawer />
+      {!inSettings && <AskAiCard />}
       <Toaster />
     </div>
   );

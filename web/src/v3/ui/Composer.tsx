@@ -142,6 +142,7 @@ export function Composer({
   onChoiceChange,
   viewAttachment,
   spanRef,
+  compact,
 }: {
   placeholder: string;
   onSend: (text: string, attachments: Attachment[], extra: SendExtra) => void;
@@ -165,6 +166,8 @@ export function Composer({
   viewAttachment?: Attachment;
   /** Element whose width the @ and / panels span (e.g. the whole home hero). */
   spanRef?: RefObject<HTMLElement | null>;
+  /** Narrow hosts (Ask AI card): @ and / show icons only, the model chip drops the vendor prefix. */
+  compact?: boolean;
 }) {
   const { tx, zh } = useI18n();
   const [text, setText] = useState("");
@@ -398,7 +401,7 @@ export function Composer({
   return (
     <div
       ref={box}
-      className={cx("v3-composer", big && "big", dragging && "dragging")}
+      className={cx("v3-composer", big && "big", compact && "compact", dragging && "dragging")}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes("Files")) {
           e.preventDefault();
@@ -461,18 +464,18 @@ export function Composer({
         <button ref={plusBtn} type="button" className={cx("cm-plus", plus && "on")} aria-label={tx("添加附件", "Add attachment")} aria-expanded={plus} onClick={() => setPlus((p) => !p)}>
           <Icon name="plus" size={15} />
         </button>
-        <button type="button" className={cx("cm-trigger", token?.kind === "@" && "on")} onClick={() => trigger("@")}>
+        <button type="button" className={cx("cm-trigger", token?.kind === "@" && "on")} onClick={() => trigger("@")} aria-label={tx("上下文", "Context")} title={compact ? tx("上下文 @", "Context @") : undefined}>
           <Icon name="at" size={13} />
-          {tx("上下文", "Context")}
+          {!compact && tx("上下文", "Context")}
         </button>
-        <button type="button" className={cx("cm-trigger", token?.kind === "/" && "on")} onClick={() => trigger("/")}>
+        <button type="button" className={cx("cm-trigger", token?.kind === "/" && "on")} onClick={() => trigger("/")} aria-label={tx("命令", "Commands")} title={compact ? tx("命令 /", "Commands /") : undefined}>
           <Icon name="slash" size={13} />
-          {tx("命令", "Commands")}
+          {!compact && tx("命令", "Commands")}
         </button>
         {footer}
         <span style={{ flexGrow: 1 }} />
         {env}
-        {model && <ModelPicker value={choice} onChange={setChoice} turn={sending ? turn : null} />}
+        {model && <ModelPicker value={choice} onChange={setChoice} turn={sending ? turn : null} compact={compact} />}
         {sending && onStop ? (
           <button type="button" className="send stop" aria-label={tx("停止生成", "Stop")} onClick={onStop}>
             <span />

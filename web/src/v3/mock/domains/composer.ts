@@ -20,17 +20,17 @@ const THINK = [lv("off", "关", "Off", "直接回答：更快", "Answer directly
 
 export const MODELS = [
   { id: "claude:claude-opus-5-5", name: "Claude Opus 5.5", provider: P("Anthropic · Claude 连接器", "Anthropic · Claude connector"), brand: "claude", connector: "claude", api: "messages",
-    reasoning: { kind: "levels", levels: CLAUDE_LEVELS, default: "high" }, tools: true, vision: true, context_k: 200, cost: "¥¥¥", note: P("调查助手默认", "Investigator default"), available: true },
+    reasoning: { kind: "levels", levels: CLAUDE_LEVELS, default: "high" }, tools: true, vision: true, context_k: 200, cost: "¥¥¥", available: true },
   { id: "claude:claude-sonnet-5", name: "Claude Sonnet 5", provider: P("Anthropic · Claude 连接器", "Anthropic · Claude connector"), brand: "claude", connector: "claude", api: "messages",
-    reasoning: { kind: "levels", levels: CLAUDE_LEVELS, default: "medium" }, tools: true, vision: true, context_k: 200, cost: "¥¥", note: P("更快，成本更低", "Faster and cheaper"), available: true },
+    reasoning: { kind: "levels", levels: CLAUDE_LEVELS, default: "medium" }, tools: true, vision: true, context_k: 200, cost: "¥¥", note: P("更快", "Faster"), available: true },
   { id: "openai:gpt-5", name: "GPT-5", provider: P("OpenAI 兼容", "OpenAI-compatible"), brand: "openai", connector: "openai", api: "responses",
     reasoning: { kind: "levels", levels: GPT_LEVELS, default: "medium" }, tools: true, vision: true, context_k: 400, cost: "¥¥", available: true },
   { id: "openai:gpt-5-mini", name: "GPT-5 mini", provider: P("OpenAI 兼容", "OpenAI-compatible"), brand: "openai", connector: "openai", api: "responses",
     reasoning: { kind: "levels", levels: GPT_LEVELS, default: "low" }, tools: true, vision: true, context_k: 400, cost: "¥", available: false, unavailable_reason: P("仅平台团队", "Platform team only") },
-  { id: "ollama:qwen3:32b", name: P("Qwen3 32B · 本地", "Qwen3 32B · local"), provider: P("本地 · Ollama", "Local · Ollama"), brand: "qwen", connector: "ollama", api: "chat_completions",
-    reasoning: { kind: "toggle", levels: THINK, default: "on" }, tools: true, vision: false, context_k: 128, cost: P("本地", "local"), note: P("数据不出内网", "Data stays on-prem"), available: true },
-  { id: "ollama:llama3.3:70b", name: P("Llama 3.3 70B · 本地", "Llama 3.3 70B · local"), provider: P("本地 · Ollama", "Local · Ollama"), brand: "ollama", connector: "ollama", api: "chat_completions",
-    reasoning: { kind: "none", levels: [] }, tools: true, vision: false, context_k: 128, cost: P("本地", "local"), available: true },
+  { id: "ollama:qwen3:32b", name: "Qwen3 32B", provider: P("本地 · Ollama", "Local · Ollama"), brand: "qwen", connector: "ollama", api: "chat_completions",
+    reasoning: { kind: "toggle", levels: THINK, default: "on" }, tools: true, vision: false, context_k: 128, cost: P("本地", "local"), note: P("本地 · 数据不出内网", "Local · stays on-prem"), available: true },
+  { id: "ollama:llama3.3:70b", name: "Llama 3.3 70B", provider: P("本地 · Ollama", "Local · Ollama"), brand: "ollama", connector: "ollama", api: "chat_completions",
+    reasoning: { kind: "none", levels: [] }, tools: true, vision: false, context_k: 128, cost: P("本地", "local"), note: P("本地", "Local"), available: true },
 ];
 
 /** Personal AI preferences; the composer's default model comes from here. */

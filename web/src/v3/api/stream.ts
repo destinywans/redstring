@@ -39,7 +39,19 @@ export async function sendAndStream(conversationId: string, text: string, onEven
     };
     return () => es.close();
   }
-  return mockStream(text, onEvent, opts.choice);
+  let reply: Message[] = [];
+  return mockStream(
+    text,
+    (e) => {
+      reply = applyEvent(reply, e);
+      onEvent(e);
+      if (e.type === "message.completed") {
+        const done = reply.find((m) => m.id === e.message_id);
+        if (done) void import("../mock/domains/conversations").then((m) => m.saveReply(conversationId, { ...done, streaming: false, run: e.run }));
+      }
+    },
+    opts.choice,
+  );
 }
 
 async function mockStream(text: string, onEvent: (e: StreamEvent) => void, choice?: ModelChoice | null) {
@@ -78,7 +90,7 @@ async function mockStream(text: string, onEvent: (e: StreamEvent) => void, choic
     onEvent({
       type: "message.completed",
       message_id: id,
-      run: { id: `run_${id.slice(-4)}`, agent: loc === "zh-CN" ? "调查助手" : "Investigator", version: "v12", model: pick(loc, m.name as L), model_id: m.id, reasoning: lvl?.id, reasoning_label: lvl ? (m.reasoning.kind === "toggle" ? `${loc === "zh-CN" ? "思考" : "Thinking"} ${pick(loc, lvl.label)}` : pick(loc, lvl.label)) : undefined, brand: m.brand, tokens: 4800, duration_s: end / 1000 },
+      run: { id: `run_${id.slice(-4)}`, agent: loc === "zh-CN" ? "调查助手" : "Investigator", version: "v12", model: typeof m.name === "string" ? m.name : pick(loc, m.name as L), model_id: m.id, reasoning: lvl?.id, reasoning_label: lvl ? (m.reasoning.kind === "toggle" ? `${loc === "zh-CN" ? "思考" : "Thinking"} ${pick(loc, lvl.label)}` : pick(loc, lvl.label)) : undefined, brand: m.brand, tokens: 4800, duration_s: end / 1000 },
     }),
   );
   return () => timers.forEach(clearTimeout);
@@ -95,4 +107,25 @@ export function newConversationUrl(text: string, refs: { kind: string; id: strin
   const key = stashAttachments(x.files);
   if (key) q.set("files", key);
   return `/conversations/new?${q}`;
+}
+
+/** Folds a stream event into a message list (conversation page and the Ask AI card). */
+export function applyEvent(messages: Message[], e: StreamEvent): Message[] {
+  switch (e.type) {
+    case "message.started":
+      return messages.some((m) => m.id === e.message.id) ? messages : [...messages, e.message];
+    case "part.added":
+      return messages.map((m) => {
+        if (m.id !== e.message_id) return m;
+        const i = m.parts.findIndex((p) => p.type === e.part.type && p.type === "tool_calls");
+        if (i >= 0) return { ...m, parts: m.parts.map((p, j) => (j === i ? e.part : p)) };
+        return { ...m, parts: [...m.parts, e.part] };
+      });
+    case "text.delta":
+      return messages.map((m) =>
+        m.id !== e.message_id ? m : { ...m, parts: m.parts.map((p, j) => (j === e.index && p.type === "text" ? { ...p, markdown: p.markdown + e.delta } : p)) },
+      );
+    case "message.completed":
+      return messages.map((m) => (m.id === e.message_id ? { ...m, streaming: false, run: e.run } : m));
+  }
 }

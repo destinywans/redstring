@@ -6,7 +6,8 @@ import { Avatar, Bar, Brand, Btn, Chip, Col, Dot, Icon, IconBtn, KV, Muted, Row,
 import { toast } from "../../ui/overlays";
 import { Gauge, Lines, Sankey } from "../../charts";
 import { useI18n } from "../../i18n";
-import { DetailPanel, FLOAT_COVER, usePinned } from "../../ui/DetailPanel";
+import { DetailPanel, useFloatCover, usePinned } from "../../ui/DetailPanel";
+import { useAskAi } from "../../app/askState";
 import { ZoomControl, useViewport, type Bounds } from "../../ui/viewport";
 import "./observe.css";
 
@@ -78,6 +79,8 @@ export default function ResourcesPage() {
     fitted.current = true;
     requestAnimationFrame(() => fit());
   }); // eslint-disable-line react-hooks/exhaustive-deps
+  const floatCover = useFloatCover();
+  const askAi = useAskAi((s) => s.open);
   // Slide the graph (never the legend or the page) just enough to keep the selected node clear of the card.
   useEffect(() => {
     if (!floating || !box.current) return;
@@ -85,13 +88,13 @@ export default function ResourcesPage() {
     if (!el) return;
     const b = box.current.getBoundingClientRect();
     const n = el.getBoundingClientRect();
-    const overlap = n.right - (b.right - FLOAT_COVER) + 16;
+    const overlap = n.right - (b.right - floatCover) + 16;
     if (overlap <= 0) return;
     setAnimate(true);
     setView((v) => ({ ...v, x: v.x - overlap }));
     const id = setTimeout(() => setAnimate(false), 320);
     return () => clearTimeout(id);
-  }, [sel, floating]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sel, floating, floatCover]); // eslint-disable-line react-hooks/exhaustive-deps
   const [hover, setHover] = useState<string | null>(null);
   const [open, setOpen] = useState<Set<number>>(new Set());
   const detail = t && sel ? (
@@ -144,7 +147,7 @@ export default function ResourcesPage() {
                 <Btn icon="activity" to="/metrics">{tx("查看指标", "Metrics")}</Btn>
                 <Btn icon="pin" to="/canvas/INV-231">{tx("钉到调查", "Pin to investigation")}</Btn>
                 <Btn icon="external">Grafana</Btn>
-                <Btn kind="soft" icon="sparkles" to="/conversations/new?q=orders-db%20%E7%8E%B0%E5%9C%A8%E5%81%A5%E5%BA%B7%E5%90%97%EF%BC%9F">{tx("问 AI", "Ask AI")}</Btn>
+                <Btn kind="soft" icon="sparkles" onClick={() => askAi(tx("{n} 现在健康吗？", "Is {n} healthy right now?", { n: sel ?? "" }))}>{tx("问 AI", "Ask AI")}</Btn>
               </div>
             </Col>
     </DetailPanel>

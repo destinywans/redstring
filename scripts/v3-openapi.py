@@ -813,7 +813,7 @@ v3_route('post','/knowledge-sources/registrations/{id}/sync','Observe one regist
     response=obj({'read_id':string(),'observed_count':integer(minimum=0),
         'index_state':string(enum=['not_proven']),'complete_v3_dto':v3_bool()},
         ['read_id','observed_count','index_state','complete_v3_dto']),
-    desc='Auxiliary lineage operation requiring one environment and knowledge.manage. Production currently has no source Readers, so it returns 501 source_reader_unavailable. A reader-injected success proves only a complete bounded ACL-verified observation; it does not import documents or prove indexing.')
+    desc='Auxiliary lineage operation requiring one environment and knowledge.manage. Explicit AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true configures only the application-bound, credential-free, single-page public HTTPS Markdown reader. An environment-only public Web registration returns 422 source_application_required before network access; unset/false or another unconfigured source type returns 501 source_reader_unavailable; a credentialed Web source is not supported by this reader. Application/team liveness is checked before network access and again under transaction before persistence. Success proves only a complete bounded ACL-verified hash observation; it does not import document bodies or prove indexing.')
 P['/knowledge-sources/registrations/{id}/sync']['post']['responses']['501'] = {
     'description':'No read-only source reader is configured',
     'content':{'application/json':{'schema':ref('Error')}}}
@@ -828,7 +828,7 @@ v3_route('post','/knowledge-sources/test','Test a knowledge source connection',
         'observed_at':string(format='date-time'),'persistent':v3_bool(),
         'scope_verified':v3_bool(),'spaces':arr(string())},
         ['ok','message','connected','observed_at','persistent','scope_verified']),
-    desc='A configured source-specific read-only prober can return a point-in-time successful access observation only after validation and knowledge.manage. A public HTTPS Markdown Web page may omit secret_ref; other source kinds require a Vault reference. Success is not persisted sync, index, user-wide access or application/team scope verification. Production currently configures no Readers, so it returns 501 source_connection_test_unavailable, not a fixed success; upstream read failure returns 503.')
+    desc='A configured source-specific read-only prober can return a point-in-time successful access observation only after validation and knowledge.manage. Production AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true configures an application-bound observation Reader, not a Prober: an unsaved public Web test still returns 501 source_connection_test_unavailable. Other source kinds require a Vault reference and return 501 without a configured Prober. Any future successful probe would not prove persisted sync, indexing, user-wide access or application/team scope.')
 P['/knowledge-sources/test']['post']['responses']['501'] = {
     'description':'No source-specific read-only connection prober is configured',
     'content':{'application/json':{'schema':ref('Error')}}}

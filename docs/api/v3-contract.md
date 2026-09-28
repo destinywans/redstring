@@ -222,7 +222,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | POST | `/knowledge-sources/test` | `{ type, url, secret_ref? }`；公开 HTTPS 单页 Markdown 可无凭据，其他类型需 Vault 引用 | 连接结果 | mock |
 | POST | `/knowledge-sources` | `{ type, url, secret_ref?, spaces, schedule, chunk, inherit_acl }`；公开 HTTPS 单页 Markdown 可无凭据，其他类型需 Vault 引用 | `{ id, status }` | mock |
 
-`GET /runbooks/draft` 目前只有传入真实模板 ID 的 `template` 来源可返回无步骤大纲；对话、复盘和导入来源通过验证后返回 `501 draft_generator_unavailable`。前端尚未为模板、对话和导入入口传 `from`，草稿页仍为 `mock`。`GET /postmortems/draft` 仅拼接有结案证据的事件信息与时间线，影响、根因、行动建议均留空，不是 AI 生成稿；主契约同样保持 `mock`。公开 Web 来源仅支持无凭据单页 HTTPS Markdown、手动观察；其他类型仍需 Vault 引用。登记、受限观察与归属证据不代表对所有用户公开、正文导入或索引完成；生产配置尚无 Reader，测试及来源同步返回 501。
+`GET /runbooks/draft` 目前只有传入真实模板 ID 的 `template` 来源可返回无步骤大纲；对话、复盘和导入来源通过验证后返回 `501 draft_generator_unavailable`。前端尚未为模板、对话和导入入口传 `from`，草稿页仍为 `mock`。`GET /postmortems/draft` 仅拼接有结案证据的事件信息与时间线，影响、根因、行动建议均留空，不是 AI 生成稿；主契约同样保持 `mock`。公开 Web 来源仅支持持久应用绑定、无凭据单页 HTTPS Markdown 的手动观察；其他类型仍需 Vault 引用。V3 实例须显式设置 `AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true` 才能记录公开页的哈希观察，未开启时同步返回 501；没有应用归属的登记返回 422。无登记的 `/knowledge-sources/test` 缺持久应用范围，即使开关开启也返回 501。登记、受限观察与归属证据不代表对所有用户公开、正文导入或索引完成；前端完整来源 DTO 未接通。
 
 ## Agent 链路（`traces.ts`）
 

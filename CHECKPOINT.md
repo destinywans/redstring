@@ -1,5 +1,12 @@
 # AIOps Canvas 检查点
 
+## CP-135 · 2026-09-29 · V3 公开 Web Reader 生产开关与 Agent 工具边界
+
+- WAN-123 本地代码提交 `d352484` 在 `cmd/aiops` 的 V3 启动路径新增严格开关 `AIOPS_V3_PUBLIC_WEB_READER_ENABLED`。缺省/`false` 无 Reader，只有字面 `true` 注入默认系统 DNS、系统信任根且无代理/凭据的 `PublicWebObservationReader`；其他值在注册 V3 路由前报错。仅持久应用绑定、无凭据单页 HTTPS Markdown 可手动同步；无应用登记在外部读取前 422，无登记的连接测试因无应用范围仍 501。抓取受 10 秒、128 KiB、全地址公网检查、固定 IP 拨号、原主机 TLS 验证和禁跳转约束；同步按登记对象的持久操作者/应用/环境/团队及当前授权重核，外部读取前检查应用/团队有效性，读取后在事务内再次复核，只保存观察身份与正文哈希，不存正文、不导入共享索引。未启用或其他未配置来源类型返回明确 501。`.env.example`、辅助契约和 OpenAPI 说明已同步；没有新增路由或迁移。
+- `search_knowledge` 可选证据工具保持生产关闭。当前 V3 对话持久记录只有 owner 与单一 environment，`ToolsForTurn` 也只收到 owner/environment/model；用户字符串 `context_ref` 不构成可信应用身份。启用前须将应用绑定为持久会话/回合范围，后台执行与恢复从同一持久来源取得 actor/application/environment，逐次复核有效应用环境映射、团队/应用权限与撤权；旧无应用会话失败关闭。模型能力白名单本身不补足范围证据，也不能由模型参数指定应用。此项为集成缺口，不把工具注册或计为已实施。
+- 隔离 pgvector PG17 随机 schema 中 `internal/v3knowledgesources`、`internal/v3sourceregistry` 全包测试通过，含本地 TLS 真实 Reader、无应用在抓取前拒绝、低权限应用/环境边界、抓取过程中撤权后不写 read/observation/audit、应用归档在抓取前拒绝，以及不产生 `knowledge_documents`；`cmd/aiops` 严格开关定向测试、受影响 `go vet`、314 个注册操作/225 schema 的 OpenAPI 引用、165 行主契约及路由矩阵检查通过。此 Reader 目前只供同步 HTTP 请求使用，没有后台任务或恢复执行路径；未来新增时必须在领取和恢复时重新核对持久 actor/application/environment。没有请求公网、迁移现有业务库、连接付费模型或验证产品页面；完整知识来源 DTO 与正文导入仍未闭合，主契约 **34/166 `implemented`** 不变。
+- 本地分支 `codex/wan-117-v3-integration` 的提交仍未获准推送；此前向既有私有 `git@github.com:destinywans/aiops-canvas.git` 同名分支推送两次被自动审批拒绝，理由是缺少对该目标发布后端源码的明确授权。远端仍为 `69897cc`。继续保留本地记录，不代推或绕过；本项尚未合并、部署或产品验收。
+
 ## CP-134 · 2026-09-29 · 知识正文与 Runbook 当前权限边界
 
 - WAN-123 源提交 `e88182568b7483c6a4be16448f7e654f7e55e74d` 在本地集成分支合入为 `cb7317f`，无迁移或新路由。V3 关键词与向量检索共用显式环境、已发布文档、有效应用/环境绑定以及当前环境和知识查看授权；带 `team_id` 的文档还须匹配当前应用负责人并具备团队查看权限。命中在输出前按文档 ID/版本及授权重核。来源文档身份投影在输出前重新读取当前标题、映射和授权；Runbook 写入与读取在事务/当前数据库记录上拒绝异常或缺失范围。历史环境不明、异常 JSON、已退役映射及带 `source_registration_id` 的未验证来源文档失败关闭。旧检索另排除团队标记与未验证来源；新 `search_knowledge` 证据组件为可选且未在 `cmd/aiops` 注册。

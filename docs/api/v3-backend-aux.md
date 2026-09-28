@@ -16,9 +16,9 @@
 | GET | `/api/v1/knowledge-sources/observed-documents` | 仅读取有明确环境归属、已发布且当前受权的文档身份，并在输出前按文档 ID 复核当前标题、有效应用/环境映射及团队归属；历史归属不明、异常元数据和带 `source_registration_id` 的未验证来源文档不显示。来源登记另有接口；本响应不联接登记、同步或索引归属，`reason: "document_only_projection"`、`partial: true`，未接入字段为 null；不返回正文。 |
 | GET | `/api/v1/knowledge-sources/registrations` | 读取当前环境与授权范围内的来源登记配置，不返回 Vault 引用。连接、同步、文档数和索引状态仍未知；返回 `complete_v3_dto: false`。 |
 | POST | `/api/v1/knowledge-sources/registrations` | 在单一环境下登记来源，需要 `knowledge.manage`，审计与登记同事务。仅无凭据、单页、HTTPS Markdown Web 来源可省略 `secret_ref`，且要求空 `spaces`、手动计划与继承来源访问；其他类型仍需 Vault 引用。只返回 `unverified`，不启动同步。 |
-| POST | `/api/v1/knowledge-sources/registrations/{id}/sync` | 单环境、`knowledge.manage` 下通过明确配置的只读 Reader 观察已登记来源；须完整遍历、逐项验证 ACL 与归属，至多 500 项，成功只返回读取 ID、观察数、`index_state: "not_proven"` 和 `complete_v3_dto: false`，不导入正文。当前生产构造未注入 Reader，因此返回 `501 source_reader_unavailable`。 |
+| POST | `/api/v1/knowledge-sources/registrations/{id}/sync` | 单环境、`knowledge.manage` 下通过明确配置的只读 Reader 观察已登记来源；须完整遍历、逐项验证 ACL 与归属，至多 500 项，成功只返回读取 ID、观察数、`index_state: "not_proven"` 和 `complete_v3_dto: false`，不导入正文。V3 显式开启公开 Web Reader 后仅持久绑定有效应用、无凭据单页 HTTPS Markdown 可进行哈希观察；环境级公开 Web 登记返回 `422 source_application_required`，未开启或其他未配置类型返回 `501 source_reader_unavailable`，带凭据的 Web 来源不能由该 Reader 读取。外部读取前与落库前均重核应用/环境/团队有效性。 |
 | GET | `/api/v1/knowledge-sources/registrations/{id}/evidence` | 只读当前受权来源最近一次观察及可精确归属到该观察的 ready 文档/分块数量。无观察时 `last_read`、`index` 为 null；即使有归属记录，`index.complete` 仍为 false，不推断完整索引。 |
-| POST | `/api/v1/knowledge-sources/test` | 来源类型有明确配置的只读 Prober 时，成功仅表示当时服务端可读取，不持久化同步或证明对所有用户公开、应用/团队范围及索引。公开 HTTPS 单页 Markdown 可省略 `secret_ref`；其他类型仍需 Vault 引用。当前生产构造未注入 Reader，返回 `501 source_connection_test_unavailable`，不会返回模拟成功。此路径在 166 项主契约内，状态仍为 `mock`。 |
+| POST | `/api/v1/knowledge-sources/test` | 来源类型有明确配置的只读 Prober 时，成功仅表示当时服务端可读取，不持久化同步或证明应用/团队范围及索引。生产公开 Web Reader 只接受持久应用登记的同步，不实现无登记来源的 Prober；即使开关为 `true`，此路径仍返回 `501 source_connection_test_unavailable`，不会返回模拟成功。其他类型的登记仍需 Vault 引用。此路径在 166 项主契约内，状态仍为 `mock`。 |
 | POST | `/api/v1/runbooks/{id}/reviews` | 独立管理者按已提交版本选择 `approve` 或 `request_changes`，后者必须填写说明；拒绝自审和非法状态。审核、版本历史与审计持久化；批准后才在事务外尝试索引，响应单独报告语义检索就绪和是否需重试。 |
 | POST | `/api/v1/runbooks/{id}/reindex` | 单环境、对象级 `knowledge.manage` 下重试已发布 Runbook 的语义索引；请求审计先落库，索引在事务外执行。响应分别给出 `index_status`、`semantic_search_ready` 与 `index_retry_required`；Embedding 失败不撤销人工发布，关键词检索仍可用。 |
 | GET | `/api/v1/runbooks/{id}/record` | 读取持久化的结构化步骤及版本、维护者、应用/环境、来源类型；返回 `partial: true`，明确缺少用量、事件处置和执行核验。旧文档无结构化步骤时 503，不把全文猜成步骤。 |
@@ -31,7 +31,7 @@
 
 告警规则源由 `AIOPS_V3_ALERT_RULES_CONFIG` 指向私有 JSON，字段示例见 [v3-alert-rules.json](../examples/v3-alert-rules.json)。每个环境只可绑定一个 Prometheus 只读端点；还需把响应中的精确规则组 `file` + `name` 绑定到一个已登记的应用。标签中的 `environment` 和 `application` 只是交叉校验，不能单独决定归属。配置文件中的令牌文件路径为绝对路径，令牌值不写入配置、日志或仓库。未配置时辅助规则接口明确返回未接入，主页面接口仍保持 `mock`。
 
-来源登记由迁移 `045_v3_knowledge_source_registry.sql` 单独保存，迁移 `119_v3_public_web_source.sql` 只放宽公开 Web 的空凭据规则，保留现有文档与索引。公开 Web 抓取只记录受限观察身份和正文哈希，不把正文发布到共享索引；现有共享检索尚未按团队范围过滤。知识来源主接口仍需实际连接、同步结果和索引状态；不能把单篇文档或仅登记的配置伪装成已连接来源。没有前端契约适配之前，不将辅助响应接到现有知识来源页。新增迁移只在一次性隔离 PostgreSQL 中验证，尚未在现有业务库执行。
+来源登记由迁移 `045_v3_knowledge_source_registry.sql` 单独保存，迁移 `119_v3_public_web_source.sql` 只放宽公开 Web 的空凭据规则，保留现有文档与索引。`AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true` 仅在 V3 实例中启用持久应用绑定、无凭据的公开单页 HTTPS Markdown 手动观察；严格使用系统 DNS 与信任根，不接收代理、私网地址或自定义凭据。抓取只记录受限观察身份和正文哈希，不把正文发布到共享索引；来源正文导入与索引归属链尚未实现。知识来源主接口仍需完整连接、同步结果和索引状态；不能把单篇文档或仅登记的配置伪装成已连接来源。没有前端契约适配之前，不将辅助响应接到现有知识来源页。新增迁移只在一次性隔离 PostgreSQL 中验证，尚未在现有业务库执行。
 
 Runbook/复盘治理新增迁移 `110`；来源观察证据为 `111`–`112`；来源锚定的记忆事实/冲突为 `113`–`114`。它们仅在一次性隔离 PostgreSQL 中执行过验证，尚未在现有业务库迁移。`GET /runbooks/draft`、`GET /postmortems/draft`、`GET /memory` 以及记忆状态/冲突操作虽有路由，均不满足当前整页 DTO 与交互契约；状态见 [V3 页面契约](v3-contract.md)。
 

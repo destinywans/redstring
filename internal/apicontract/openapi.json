@@ -31877,7 +31877,7 @@
       "post": {
         "summary": "Observe one registered source through a configured read-only reader",
         "operationId": "post_knowledge_sources_registrations_id_sync",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary lineage operation requiring one environment and knowledge.manage. Production currently has no source Readers, so it returns 501 source_reader_unavailable. A reader-injected success proves only a complete bounded ACL-verified observation; it does not import documents or prove indexing.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary lineage operation requiring one environment and knowledge.manage. Explicit AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true configures only the application-bound, credential-free, single-page public HTTPS Markdown reader. An environment-only public Web registration returns 422 source_application_required before network access; unset/false or another unconfigured source type returns 501 source_reader_unavailable; a credentialed Web source is not supported by this reader. Application/team liveness is checked before network access and again under transaction before persistence. Success proves only a complete bounded ACL-verified hash observation; it does not import document bodies or prove indexing.",
         "responses": {
           "200": {
             "description": "Success",
@@ -32152,7 +32152,7 @@
       "post": {
         "summary": "Test a knowledge source connection",
         "operationId": "post_knowledge_sources_test",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. A configured source-specific read-only prober can return a point-in-time successful access observation only after validation and knowledge.manage. A public HTTPS Markdown Web page may omit secret_ref; other source kinds require a Vault reference. Success is not persisted sync, index, user-wide access or application/team scope verification. Production currently configures no Readers, so it returns 501 source_connection_test_unavailable, not a fixed success; upstream read failure returns 503.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. A configured source-specific read-only prober can return a point-in-time successful access observation only after validation and knowledge.manage. Production AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true configures an application-bound observation Reader, not a Prober: an unsaved public Web test still returns 501 source_connection_test_unavailable. Other source kinds require a Vault reference and return 501 without a configured Prober. Any future successful probe would not prove persisted sync, indexing, user-wide access or application/team scope.",
         "responses": {
           "200": {
             "description": "Success",

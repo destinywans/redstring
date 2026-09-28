@@ -102,13 +102,16 @@ func (s *Service) connectorType(w http.ResponseWriter, r *http.Request) {
 	lang := r.Header.Get("Accept-Language")
 	auth := make([]map[string]string, 0, len(d.Methods))
 	for _, method := range d.Methods {
-		auth = append(auth, map[string]string{"id": method, "label": method, "desc": "Credential is read from a Vault reference when required"})
+		label, desc := authMethodCopy(method, lang)
+		auth = append(auth, map[string]string{"id": method, "label": label, "desc": desc})
 	}
 	tools := make([]map[string]string, 0, len(d.Tools))
 	for _, name := range d.Tools {
-		tools = append(tools, map[string]string{"name": name, "desc": localized(lang, "只读", "Read-only")})
+		tools = append(tools, map[string]string{"name": name, "desc": toolCopy(name, lang)})
 	}
-	httpapi.WriteJSON(w, 200, map[string]any{"brand": d.Provider, "name": d.Name, "kind": d.Kind, "version": "v3", "auth_methods": auth, "scopes": []any{}, "tools": tools, "webhook_url": ""})
+	// This is a provider type, not a connected instance: its version and token
+	// scopes cannot be verified here. Webhook provisioning is unsupported.
+	httpapi.WriteJSON(w, 200, map[string]any{"brand": d.Provider, "name": d.Name, "kind": kindCopy(d.Kind, lang), "version": "", "auth_methods": auth, "scopes": []any{}, "tools": tools, "webhook_url": ""})
 }
 
 func scanConnector(rows pgx.Row) (connector, error) {

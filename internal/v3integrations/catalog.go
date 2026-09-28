@@ -53,6 +53,81 @@ func localized(accept, zh, en string) string {
 	return en
 }
 
+// Auth metadata describes the credential shape the prober actually accepts.
+// In particular, "oauth" is a supplied bearer token, not an OAuth flow.
+func authMethodCopy(method, lang string) (string, string) {
+	switch method {
+	case "none":
+		return localized(lang, "无需认证", "No authentication"), localized(lang, "此连接不使用凭据。", "No credential is sent for this connection.")
+	case "oauth":
+		return localized(lang, "OAuth 访问令牌", "OAuth access token"), localized(lang, "从 Vault 引用读取已有令牌；不发起授权流程或自动续期。", "Reads an existing token from a Vault reference; no authorization flow or automatic refresh.")
+	case "pat":
+		return localized(lang, "个人访问令牌", "Personal access token"), localized(lang, "从 Vault 引用读取令牌；权限由上游令牌决定。", "Reads a token from a Vault reference; upstream token permissions apply.")
+	case "bearer":
+		return localized(lang, "Bearer 令牌", "Bearer token"), localized(lang, "从 Vault 引用读取令牌，并通过 Authorization 请求头发送。", "Reads a token from a Vault reference and sends it in the Authorization header.")
+	case "api_key":
+		return localized(lang, "API Key", "API key"), localized(lang, "从 Vault 引用读取密钥，并通过 Authorization 请求头发送。", "Reads a key from a Vault reference and sends it in the Authorization header.")
+	case "basic":
+		return localized(lang, "用户名和密码", "Username and password"), localized(lang, "从 Vault 引用读取用户名:密码，并使用 HTTP Basic 认证。", "Reads username:password from a Vault reference and uses HTTP Basic authentication.")
+	default:
+		return method, ""
+	}
+}
+
+func toolCopy(name, lang string) string {
+	switch name {
+	case "list_pipelines":
+		return localized(lang, "读取流水线列表与状态", "Read pipeline list and status")
+	case "get_pipeline":
+		return localized(lang, "读取流水线详情", "Read pipeline details")
+	case "get_commit_diff":
+		return localized(lang, "读取提交差异", "Read commit differences")
+	case "list_merge_requests":
+		return localized(lang, "读取合并请求列表", "Read merge request list")
+	case "query_metrics":
+		return localized(lang, "查询指标", "Query metrics")
+	case "search_logs":
+		return localized(lang, "检索日志", "Search logs")
+	case "query_traces":
+		return localized(lang, "查询链路追踪", "Query traces")
+	case "list_dashboards":
+		return localized(lang, "读取看板列表", "Read dashboard list")
+	case "list_builds":
+		return localized(lang, "读取构建列表", "Read build list")
+	case "get_app_status":
+		return localized(lang, "读取应用部署状态", "Read application deployment status")
+	case "list_images":
+		return localized(lang, "读取镜像列表", "Read image list")
+	default:
+		return name
+	}
+}
+
+func kindCopy(kind, lang string) string {
+	switch kind {
+	case "Code and pipelines":
+		return localized(lang, "代码与流水线", kind)
+	case "Metrics":
+		return localized(lang, "指标", kind)
+	case "Logs":
+		return localized(lang, "日志", kind)
+	case "Traces":
+		return localized(lang, "链路追踪", kind)
+	case "Dashboards":
+		return localized(lang, "看板", kind)
+	case "Pipelines":
+		return localized(lang, "流水线", kind)
+	case "Deployments":
+		return localized(lang, "部署", kind)
+	case "Images":
+		return localized(lang, "镜像", kind)
+	case "Secrets":
+		return localized(lang, "密钥", kind)
+	default:
+		return kind
+	}
+}
+
 func categoryLabel(id, accept string) string {
 	switch id {
 	case "all":

@@ -95,7 +95,8 @@ v3_route('get','/me/notification-settings','Read personal notification settings'
 v3_route('put','/me/notification-settings','Update personal notification settings',body=ref('V3NotificationSettingsPatch'),response=ref('V3NotificationSettings'),
     desc='Merges the authenticated user\'s supported preference fields in a locked, audited transaction and returns the stored result. The current UI sends quiet as a boolean, digest as an enum and subscriptions as existing subscription IDs mapped to booleans. Full objects preserve existing subscription identity and metadata. This saves preferences only; it does not enable or send notifications.')
 v3_route('get','/workspace','Read workspace settings',response=ref('V3Workspace'))
-v3_route('put','/workspace','Update workspace settings',role='admin',body=ref('V3Workspace'),response=ref('V3Workspace'))
+v3_route('put','/workspace','Update workspace settings',role='admin',body=ref('V3Workspace'),response=ref('V3Workspace'),
+    desc='Requires an active platform administrator with a global workspace.manage grant. The transaction rechecks authority and returns persisted settings. Data region and branding fields are deployment-owned and cannot be changed here.')
 v3_route('get','/models','List configured inference models',response=ref('V3ModelCatalog'),
     desc='available means configured, not remotely health-checked. tools reflects the operator-enabled V3 read-tool allowlist rather than provider-wide capability; remote function calling is not attested by this response. Native Ollama returns 503 model_catalog_unavailable until the client ModelInfo.api enum can represent it.')
 for _path, _methods in {
@@ -719,10 +720,11 @@ S['V3MembersView'] = obj({'org':arr(obj({**fieldnames('id name kind'),'count':in
     'groups':arr(obj({**fieldnames('id name kind'),'count':integer(),'depth':integer()})),
     'items':arr(ref('V3Member')),'counts':v3_map(integer()),'mfa_grace_days':integer()})
 v3_route('get','/roles','List scoped roles',response=listed('V3Role'))
-v3_route('get','/roles/{id}','Read role matrix and associations',response=ref('V3RoleDetail'))
+v3_route('get','/roles/{id}','Read role matrix and associations',response=ref('V3RoleDetail'),
+    desc='A role whose grants cannot be represented by the flat five-column matrix returns 409 matrix_editor_required. Other platform grants are described in notes, not projected into matrix cells.')
 v3_route('put','/roles/{id}','Update role matrix',
     body=obj({'matrix':arr(obj({'resource':string(),'grants':arr(integer(enum=[0,1,2]))}))},['matrix']),
-    response=ref('V3RoleDetail'),desc='Requires a global roles:manage grant; rejects removal of the last global role manager.')
+    response=ref('V3RoleDetail'),desc='Requires a global roles:manage grant and rechecks current authority inside the write transaction. Unrepresentable or scoped grants return 409 rather than being silently overwritten. Rejects removal of the last global role manager.')
 v3_route('get','/members','List scoped members',response=ref('V3MembersView'),
     query=[v3_query('filter'),v3_query('q')])
 

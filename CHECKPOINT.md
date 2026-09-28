@@ -1,5 +1,10 @@
 # AIOps Canvas 检查点
 
+## CP-102 · 2026-09-28 · 工作区与角色写入竞态门禁
+
+- 从 WAN-119 业务分支按序 cherry-pick `4682867`→`5575b8c` 和 `9332f53`→`70a8b27`。`PUT /workspace` 在锁定事务内复核有效平台管理员与全局 `workspace.manage`，保存后返回持久化值；`PUT /roles/{id}` 按账号/旧角色/矩阵写入的既有锁序复核当前 `roles.manage`，保护最后有效管理员。读取或保存遇到平面矩阵无法完整表示的授权会明确返回 409，避免把部分授权投影为可直接覆盖的五列矩阵。
+- 一次性 PG17 随机 schema 中 `go test ./internal/v3admin ./internal/v3settings -run 'Test(Role|Matrix|Workspace)' -count=1` 通过；临时容器已清理。OpenAPI 描述和文字契约已同步，契约引用、165 行 V3 主契约及路由矩阵检查通过。未迁移现有业务库、未验证整页前端；工作区和角色详情/编辑主契约继续 `mock`，完成数仍为 **32/166 `implemented`**。
+
 ## CP-101 · 2026-09-28 · 对话未知值与调查画布列表接入
 
 - 从 WAN-121 业务分支按序 cherry-pick `cda4a3c`→`a0ac6ac` 和 `bde4001`→`5ba8ce1`，包含迁移 080。对话列表只在所有完成回复都有有效供应商 token 时汇总，否则返回 `null`；team/triage 尚无统一来源也返回 `null`。详情不再把默认模型预算套到未知用量的新回复；SSE 拒绝非法/重复 `Last-Event-ID`。画布列表从持久调查与私人通用画布投影并按环境、应用/团队或所有者授权过滤，调查的未知参与者保持 `null`，不伪造身份。

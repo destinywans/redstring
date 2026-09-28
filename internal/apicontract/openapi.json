@@ -22638,7 +22638,7 @@
       "put": {
         "summary": "Update workspace settings",
         "operationId": "put_workspace",
-        "description": "Minimum role: admin. V3 instance and environment scope apply. ",
+        "description": "Minimum role: admin. V3 instance and environment scope apply. Requires an active platform administrator with a global workspace.manage grant. The transaction rechecks authority and returns persisted settings. Data region and branding fields are deployment-owned and cannot be changed here.",
         "responses": {
           "200": {
             "description": "Success",
@@ -31354,7 +31354,7 @@
       "get": {
         "summary": "Read role matrix and associations",
         "operationId": "get_roles_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. ",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. A role whose grants cannot be represented by the flat five-column matrix returns 409 matrix_editor_required. Other platform grants are described in notes, not projected into matrix cells.",
         "responses": {
           "200": {
             "description": "Success",
@@ -31457,7 +31457,7 @@
       "put": {
         "summary": "Update role matrix",
         "operationId": "put_roles_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires a global roles:manage grant; rejects removal of the last global role manager.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires a global roles:manage grant and rechecks current authority inside the write transaction. Unrepresentable or scoped grants return 409 rather than being silently overwritten. Rejects removal of the last global role manager.",
         "responses": {
           "200": {
             "description": "Success",

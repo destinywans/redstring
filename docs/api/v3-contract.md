@@ -283,6 +283,8 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | GET | `/audit/{id}` | | `AuditDetail`（含哈希链校验结果） | implemented |
 | POST | `/audit/export` | 过滤条件 | `{ url }` | implemented |
 
+`PUT /workspace` 已在服务端事务内复核当前账号、平台管理员身份及全局 `workspace.manage` 授权，并返回持久化结果；`data_region` 与品牌素材由部署配置管理。`GET/PUT /roles/{id}` 对平面五列矩阵无法无损表达的授权返回 `409 matrix_editor_required`，写入时复核当前全局 `roles.manage` 授权并保护最后一位有效管理员。这些后端门禁不表示整页设置或角色编辑已完成：前端仍使用示意数据，主契约维持 `mock`。
+
 ## 后端辅助接口（不计入上述 166 项）
 
 - `GET /changes/records?service_id=…&binding_id=…&page=1`：只读已显式绑定的 GitLab 项目流水线，要求当前环境的 `services.view` 与 `connectors.view`，每页 20 条，最多查询第 1000 页；前后复核授权与来源。只返回可核实的流水线身份、状态、分支、提交及上游时间，不包含变更风险、告警关联或看板 KPI，不替代主 `GET /changes`。

@@ -127,7 +127,7 @@
 | 集成中心 | POST | `/ingest/pull/{id}/test` | 新增 | mock |
 | 集成中心 | GET | `/ingest/push` | 聚合 | mock |
 | 集成中心 | POST | `/ingest/push/test` | 新增 | mock |
-| 集成中心 | GET | `/service-mappings` | 聚合 | mock |
+| 集成中心 | GET | `/service-mappings` | 聚合 | implemented |
 | 集成中心 | POST | `/service-mappings/accept` | 新增 | mock |
 | 集成中心 | POST | `/service-mappings/discover` | 新增 | mock |
 | 集成中心 | PUT | `/service-mappings` | 新增 | mock |

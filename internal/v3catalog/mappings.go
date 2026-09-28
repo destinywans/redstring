@@ -67,7 +67,7 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
  JOIN v3_application_environments ve ON ve.application_id=a.id
  JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
  WHERE NOT a.archived AND ve.environment_id=ANY($1::text[])
- ORDER BY a.key,ve.environment_id LIMIT 1001`, envs)
+ ORDER BY a.key,ve.environment_id`, envs)
 	if err != nil {
 		httpapi.Error(w, 503, "catalog_unavailable", "Service mappings unavailable")
 		return
@@ -77,11 +77,6 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 	order := []string{}
 	count := 0
 	for rows.Next() {
-		count++
-		if count > 1000 {
-			httpapi.Error(w, 422, "result_limit", "Narrow the environment scope")
-			return
-		}
 		var appID, key, env, teamID string
 		var raw []byte
 		if err = rows.Scan(&appID, &key, &env, &teamID, &raw); err != nil {
@@ -94,6 +89,14 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 		}
 		if !visible {
 			continue
+		}
+		// The limit is on authorized mappings, not all catalog entries. An
+		// unrelated service must not truncate this user's result or disclose
+		// its existence through a result-limit error.
+		count++
+		if count > 1000 {
+			httpapi.Error(w, 422, "result_limit", "Narrow the environment scope")
+			return
 		}
 		var bindings []core.Binding
 		if err = json.Unmarshal(raw, &bindings); err != nil {

@@ -47,6 +47,7 @@ func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/services", "viewer", s.services)
 	api.Register("GET /api/v1/services/{id}", "viewer", s.service)
 	api.Register("GET /api/v1/service-mappings", "viewer", s.mappings)
+	api.MarkV3ObjectRoute("GET /api/v1/service-mappings", "services", "view")
 }
 
 type registration struct {

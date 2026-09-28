@@ -213,7 +213,7 @@
 | POST | `/ingest/pull/{id}/test` | 映射 | `{ ok, rows, dropped }` | mock |
 | GET | `/ingest/push` | | `PushView`（事件类型、接口说明、投递记录、配套栈） | mock |
 | POST | `/ingest/push/test` | `{ type }` | `{ code }` | mock |
-| GET | `/service-mappings` | | `ServiceMapping` | mock |
+| GET | `/service-mappings` | | `ServiceMapping` | implemented |
 | POST | `/service-mappings/accept` | `{ cells: ["service:system"] }` | `{ accepted }` | mock |
 | POST | `/service-mappings/discover` | | `{ suggestions }` | mock |
 | PUT | `/service-mappings` | 完整映射 | 结果 | mock |

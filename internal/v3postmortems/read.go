@@ -23,7 +23,7 @@ type Record struct {
 	ActionCount int    `json:"action_count"`
 }
 
-const recordsSQL = `SELECT pm.id,pm.incident_id,pm.status,pm.created_at,
+const recordsSQL = `SELECT pm.id,pm.incident_id,pm.status,pm.created_at,pm.created_by,
  i.application_id,COALESCE(a.owner_team_id,''),e.key,i.title,i.severity,i.starts_at,closed.created_at,
  jsonb_array_length(pm.actions)
  FROM v3_postmortems pm
@@ -55,10 +55,10 @@ func (s *Service) Records(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type row struct {
-		record         Record
-		app, team, env string
-		start, closed  time.Time
-		created        time.Time
+		record                 Record
+		app, team, env, author string
+		start, closed          time.Time
+		created                time.Time
 	}
 	items := make([]Record, 0)
 	user := httpapi.CurrentUser(r)
@@ -74,7 +74,7 @@ func (s *Service) Records(w http.ResponseWriter, r *http.Request) {
 		batch := make([]row, 0, 256)
 		for rows.Next() {
 			var v row
-			if err = rows.Scan(&v.record.ID, &v.record.IncidentID, &v.record.Status, &v.created,
+			if err = rows.Scan(&v.record.ID, &v.record.IncidentID, &v.record.Status, &v.created, &v.author,
 				&v.app, &v.team, &v.env, &v.record.Title, &v.record.Severity, &v.start, &v.closed,
 				&v.record.ActionCount); err != nil {
 				break
@@ -96,6 +96,15 @@ func (s *Service) Records(w http.ResponseWriter, r *http.Request) {
 				}
 				httpapi.Error(w, 503, "authorization_unavailable", "Postmortem access could not be checked")
 				return
+			}
+			if v.record.Status != "published" && v.author != user.ID {
+				if err = s.authorizeModule(r.Context(), user, v.app, v.team, v.env, "knowledge", "manage"); err != nil {
+					if errors.Is(err, store.ErrForbidden) {
+						continue
+					}
+					httpapi.Error(w, 503, "authorization_unavailable", "Postmortem review access could not be checked")
+					return
+				}
 			}
 			parsed, valid := severity(v.record.Severity)
 			if !valid {

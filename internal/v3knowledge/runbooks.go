@@ -45,10 +45,14 @@ func (s *Service) Register(api *httpapi.Server) {
 		handler         http.HandlerFunc
 	}{
 		{"GET /api/v1/runbooks", "view", s.listHandler(api)},
+		{"GET /api/v1/runbooks/draft", "view", s.draftHandler()},
 		{"GET /api/v1/runbooks/{id}", "view", s.getHandler(api)},
 		{"POST /api/v1/runbooks", "manage", s.createHandler(api)},
 		{"POST /api/v1/runbooks/{id}/submit", "manage", s.submitHandler(api)},
 		{"POST /api/v1/runbooks/{id}/dry-run", "view", s.dryRunHandler(api)},
+		{"POST /api/v1/runbooks/{id}/reviews", "manage", s.reviewHandler()},
+		{"GET /api/v1/runbooks/{id}/record", "view", s.recordHandler()},
+		{"GET /api/v1/runbooks/{id}/history", "view", s.historyHandler()},
 	}
 	for _, route := range routes {
 		api.Register(route.pattern, "viewer", route.handler)
@@ -112,7 +116,7 @@ ORDER BY d.created_at DESC LIMIT 1001`)
 			if !documentInScope(r, doc) || (service != "" && doc.ApplicationID != service && !contains(doc.Metadata.SharedApplicationIDs, service)) {
 				continue
 			}
-			if authErr := s.authorizeDocument(r, doc, "view"); authErr != nil {
+			if authErr := s.authorizeRunbookRead(r, doc); authErr != nil {
 				if errors.Is(authErr, store.ErrForbidden) {
 					continue
 				}
@@ -142,8 +146,16 @@ func (s *Service) getHandler(api *httpapi.Server) http.HandlerFunc {
 			knowledgeError(w, err)
 			return
 		}
-		if !documentInScope(r, doc) || !isRunbook(doc.Source) || s.authorizeDocument(r, doc, "view") != nil {
+		if !documentInScope(r, doc) || !isRunbook(doc.Source) {
 			httpapi.Error(w, 404, "not_found", "Runbook not found")
+			return
+		}
+		if err = s.authorizeRunbookRead(r, doc); err != nil {
+			if errors.Is(err, store.ErrForbidden) {
+				httpapi.Error(w, 404, "not_found", "Runbook not found")
+			} else {
+				httpapi.Error(w, 503, "authorization_unavailable", "Knowledge access could not be checked")
+			}
 			return
 		}
 		// Runbook.usage is mandatory in the V3 DTO. The current repository
@@ -166,6 +178,10 @@ func (s *Service) createHandler(api *httpapi.Server) http.HandlerFunc {
 		if !s.ready(w) {
 			return
 		}
+		if len(scopeIDs(r)) != 1 {
+			httpapi.Error(w, 409, "env_view_only", "Select one environment for a Runbook")
+			return
+		}
 		var in createInput
 		if !httpapi.Decode(w, r, &in) {
 			return
@@ -184,7 +200,6 @@ func (s *Service) createHandler(api *httpapi.Server) http.HandlerFunc {
 		id := store.ID()
 		body := renderBody(in)
 		metadata := knowledge.Metadata{MaintainerID: user.ID, Origin: "human", ActorID: user.ID, Visibility: "workspace", EnvironmentIDs: append([]string(nil), scopeIDs(r)...)}
-		metaJSON, _ := json.Marshal(metadata)
 		stepsJSON, _ := json.Marshal(in.Steps)
 		status := in.Status
 		if status == "" {
@@ -196,12 +211,8 @@ func (s *Service) createHandler(api *httpapi.Server) http.HandlerFunc {
 			return
 		}
 		defer tx.Rollback(r.Context())
-		conversationID, sourceErr := s.validateSource(r, tx, in)
+		binding, sourceErr := s.validateSource(r, tx, in)
 		if sourceErr != nil {
-			if errors.Is(sourceErr, errPostmortemUnavailable) {
-				httpapi.Error(w, 503, "source_unavailable", "Postmortem storage is not available")
-				return
-			}
 			if errors.Is(sourceErr, store.ErrForbidden) || errors.Is(sourceErr, store.ErrNotFound) || errors.Is(sourceErr, errSourceEmpty) {
 				httpapi.Error(w, 422, "invalid_source", "Source was not found or is not accessible in this environment")
 				return
@@ -209,20 +220,40 @@ func (s *Service) createHandler(api *httpapi.Server) http.HandlerFunc {
 			httpapi.Error(w, 503, "source_unavailable", "Source validation failed")
 			return
 		}
+		if binding.ApplicationID != "" {
+			metadata.Visibility = "application"
+			metadata.TeamID = binding.TeamID
+			decision := rbac.V3Decision{Module: "knowledge", Action: "manage", EnvironmentID: scopeIDs(r)[0], ApplicationID: binding.ApplicationID}
+			authErr := s.Policy.AuthorizeWithTx(r.Context(), tx, user, decision)
+			if errors.Is(authErr, store.ErrForbidden) && binding.TeamID != "" {
+				decision.ApplicationID = ""
+				decision.TeamID = binding.TeamID
+				authErr = s.Policy.AuthorizeWithTx(r.Context(), tx, user, decision)
+			}
+			if authErr != nil {
+				if errors.Is(authErr, store.ErrForbidden) {
+					httpapi.Error(w, 403, "forbidden", "Runbook source scope cannot be managed")
+				} else {
+					httpapi.Error(w, 503, "authorization_unavailable", "Knowledge access could not be checked")
+				}
+				return
+			}
+		}
+		metaJSON, _ := json.Marshal(metadata)
 		var created time.Time
-		err = tx.QueryRow(r.Context(), `INSERT INTO knowledge_documents(id,application_id,title,body,source,version,content_hash,created_by,lifecycle,metadata) VALUES($1,NULL,$2,$3,$4,1,$5,$6,$7,$8) RETURNING created_at`, id, in.Title, body, "runbook://v3/"+id, store.Hash(body), user.ID, status, metaJSON).Scan(&created)
+		err = tx.QueryRow(r.Context(), `INSERT INTO knowledge_documents(id,application_id,title,body,source,version,content_hash,created_by,lifecycle,metadata) VALUES($1,NULLIF($2,''),$3,$4,$5,1,$6,$7,$8,$9) RETURNING created_at`, id, binding.ApplicationID, in.Title, body, "runbook://v3/"+id, store.Hash(body), user.ID, status, metaJSON).Scan(&created)
 		if err == nil {
-			_, err = tx.Exec(r.Context(), `INSERT INTO v3_runbooks(document_id,source_kind,source_ref,conversation_id,steps) VALUES($1,$2,$3,NULLIF($4,''),$5)`, id, in.Source, in.From, conversationID, stepsJSON)
+			_, err = tx.Exec(r.Context(), `INSERT INTO v3_runbooks(document_id,source_kind,source_ref,conversation_id,steps) VALUES($1,$2,$3,NULLIF($4,''),$5)`, id, in.Source, in.From, binding.ConversationID, stepsJSON)
 		}
 		if err == nil {
-			snapshot := knowledge.Document{ID: id, Title: in.Title, Body: body, Source: "runbook://v3/" + id, Version: 1, ContentHash: store.Hash(body), Lifecycle: status, Metadata: metadata, CreatedAt: created, EvidenceIDs: []string{}}
+			snapshot := knowledge.Document{ID: id, ApplicationID: binding.ApplicationID, Title: in.Title, Body: body, Source: "runbook://v3/" + id, Version: 1, ContentHash: store.Hash(body), Lifecycle: status, Metadata: metadata, CreatedAt: created, EvidenceIDs: []string{}}
 			_, err = tx.Exec(r.Context(), `INSERT INTO knowledge_revisions(document_id,version,snapshot,created_by) VALUES($1,1,$2,$3)`, id, snapshot, user.ID)
 		}
 		if err == nil {
 			_, err = tx.Exec(r.Context(), `INSERT INTO knowledge_history(document_id,version,actor_id,operation) VALUES($1,1,$2,'v3.runbook.created')`, id, user.ID)
 		}
 		if err == nil {
-			_, err = tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,action,target,outcome,changes) VALUES($1,'runbook.created',$2,'succeeded',$3)`, user.ID, id, map[string]any{"status": status, "source": in.Source})
+			_, err = tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes) VALUES($1,$2,'runbook.created',$3,'succeeded',$4)`, user.ID, binding.ApplicationID, id, map[string]any{"status": status, "source": in.Source, "environment_id": scopeIDs(r)[0]})
 		}
 		if err == nil {
 			err = tx.Commit(r.Context())
@@ -238,6 +269,10 @@ func (s *Service) createHandler(api *httpapi.Server) http.HandlerFunc {
 func (s *Service) submitHandler(api *httpapi.Server) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.ready(w) {
+			return
+		}
+		if len(scopeIDs(r)) != 1 {
+			httpapi.Error(w, 409, "env_view_only", "Select one environment for a Runbook")
 			return
 		}
 		id := r.PathValue("id")
@@ -316,7 +351,7 @@ func (s *Service) submitHandler(api *httpapi.Server) http.HandlerFunc {
 			_, err = tx.Exec(r.Context(), `INSERT INTO knowledge_history(document_id,version,actor_id,operation) VALUES($1,$2,$3,'lifecycle.review')`, id, current.Version, httpapi.CurrentUser(r).ID)
 		}
 		if err == nil {
-			_, err = tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes) VALUES($1,$2,'runbook.submitted',$3,'succeeded',$4)`, httpapi.CurrentUser(r).ID, current.ApplicationID, id, map[string]any{"version": current.Version})
+			_, err = tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes) VALUES($1,$2,'runbook.submitted',$3,'succeeded',$4)`, httpapi.CurrentUser(r).ID, current.ApplicationID, id, map[string]any{"version": current.Version, "environment_id": scopeIDs(r)[0]})
 		}
 		if err == nil {
 			err = tx.Commit(r.Context())
@@ -329,24 +364,47 @@ func (s *Service) submitHandler(api *httpapi.Server) http.HandlerFunc {
 	}
 }
 
-// Dry-run is a validation preview. It never invokes connectors, tools, models,
-// proposals, or the independent execution service.
+// Dry-run is a recorded validation preview. It never invokes connectors,
+// tools, models, proposals, or the independent execution service.
 func (s *Service) dryRunHandler(api *httpapi.Server) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.ready(w) {
 			return
 		}
-		doc, err := s.rawDocument(r.Context(), r.PathValue("id"))
+		if len(scopeIDs(r)) != 1 {
+			httpapi.Error(w, 409, "env_view_only", "Select one environment to validate a Runbook")
+			return
+		}
+		id := r.PathValue("id")
+		tx, err := s.DB.Begin(r.Context())
 		if err != nil {
 			knowledgeError(w, err)
 			return
 		}
-		if !isRunbook(doc.Source) || !documentInScope(r, doc) || s.authorizeDocument(r, doc, "view") != nil {
+		defer tx.Rollback(r.Context())
+		var doc knowledge.Document
+		doc.ID = id
+		err = tx.QueryRow(r.Context(), `SELECT COALESCE(application_id,''),source,version,lifecycle,metadata
+ FROM knowledge_documents WHERE id=$1 FOR SHARE`, id).
+			Scan(&doc.ApplicationID, &doc.Source, &doc.Version, &doc.Lifecycle, &doc.Metadata)
+		if errors.Is(err, pgx.ErrNoRows) || err == nil && (!isRunbook(doc.Source) || !documentInScope(r, doc)) {
 			httpapi.Error(w, 404, "not_found", "Runbook not found")
 			return
 		}
+		if err != nil {
+			knowledgeError(w, err)
+			return
+		}
+		if err = s.authorizeRunbookReadWithTx(r, tx, doc); err != nil {
+			if errors.Is(err, store.ErrForbidden) {
+				httpapi.Error(w, 404, "not_found", "Runbook not found")
+			} else {
+				httpapi.Error(w, 503, "authorization_unavailable", "Knowledge access could not be checked")
+			}
+			return
+		}
 		var steps []Step
-		err = s.DB.QueryRow(r.Context(), `SELECT steps FROM v3_runbooks WHERE document_id=$1`, doc.ID).Scan(&steps)
+		err = tx.QueryRow(r.Context(), `SELECT steps FROM v3_runbooks WHERE document_id=$1 FOR SHARE`, doc.ID).Scan(&steps)
 		if errors.Is(err, pgx.ErrNoRows) {
 			httpapi.Error(w, 422, "no_structured_steps", "This Runbook has no structured steps to validate")
 			return
@@ -356,7 +414,31 @@ func (s *Service) dryRunHandler(api *httpapi.Server) http.HandlerFunc {
 			return
 		}
 		checks, valid := previewSteps(steps)
-		httpapi.WriteJSON(w, 200, map[string]any{"steps": len(steps), "ok": valid, "mode": "validation_only", "checks": checks})
+		checkJSON, err := json.Marshal(checks)
+		if err != nil {
+			knowledgeError(w, err)
+			return
+		}
+		previewID := store.ID()
+		actor := httpapi.CurrentUser(r).ID
+		_, err = tx.Exec(r.Context(), `INSERT INTO v3_runbook_validation_previews
+ (id,document_id,document_version,actor_id,step_count,readonly_valid,checks)
+ VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)`, previewID, id, doc.Version, actor, len(steps), valid, checkJSON)
+		if err == nil {
+			_, err = tx.Exec(r.Context(), `INSERT INTO management_audit
+ (actor_id,application_id,action,target,outcome,changes)
+ VALUES($1,$2,'runbook.validation_preview',$3,'succeeded',
+  jsonb_build_object('environment_id',$4::text,'version',$5::int,'readonly_valid',$6::boolean,'steps',$7::int))`,
+				actor, doc.ApplicationID, id, scopeIDs(r)[0], doc.Version, valid, len(steps))
+		}
+		if err == nil {
+			err = tx.Commit(r.Context())
+		}
+		if err != nil {
+			knowledgeError(w, err)
+			return
+		}
+		httpapi.WriteJSON(w, 200, map[string]any{"id": previewID, "steps": len(steps), "ok": valid, "mode": "validation_only", "checks": checks})
 	}
 }
 
@@ -406,79 +488,114 @@ func previewSteps(steps []Step) ([]map[string]any, bool) {
 	return checks, valid
 }
 
-var (
-	errPostmortemUnavailable = errors.New("postmortem storage unavailable")
-	errSourceEmpty           = errors.New("source has no completed content")
-)
+var errSourceEmpty = errors.New("source has no completed content")
+
+type sourceBinding struct {
+	ConversationID string
+	ApplicationID  string
+	TeamID         string
+}
 
 // The source lookup and Runbook insert share one transaction. A key-share lock
 // prevents deleting the conversation before the new FK is committed. A plain
 // client-supplied source ID never establishes provenance by itself.
-func (s *Service) validateSource(r *http.Request, tx pgx.Tx, in createInput) (string, error) {
+func (s *Service) validateSource(r *http.Request, tx pgx.Tx, in createInput) (sourceBinding, error) {
 	switch in.Source {
 	case "postmortem":
-		return "", errPostmortemUnavailable
+		envs := scopeIDs(r)
+		if len(envs) != 1 {
+			return sourceBinding{}, store.ErrForbidden
+		}
+		var app, team, actualEnvironment string
+		err := tx.QueryRow(r.Context(), `SELECT pm.application_id,COALESCE(a.owner_team_id,''),pm.environment_id
+ FROM v3_postmortems pm
+ JOIN applications a ON a.id=pm.application_id AND NOT a.archived
+ JOIN v3_application_environments ae ON ae.application_id=pm.application_id AND ae.environment_id=pm.environment_id
+ WHERE (pm.id=$1 OR pm.incident_id=$1) AND pm.status='published'
+ FOR KEY SHARE OF pm,a,ae`, in.From).Scan(&app, &team, &actualEnvironment)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return sourceBinding{}, store.ErrNotFound
+		}
+		if err != nil {
+			return sourceBinding{}, err
+		}
+		if actualEnvironment != envs[0] {
+			return sourceBinding{}, store.ErrForbidden
+		}
+		for _, module := range []string{"knowledge", "events"} {
+			decision := rbac.V3Decision{Module: module, Action: "view", EnvironmentID: actualEnvironment, ApplicationID: app}
+			err = s.Policy.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), decision)
+			if errors.Is(err, store.ErrForbidden) && team != "" {
+				decision.ApplicationID = ""
+				decision.TeamID = team
+				err = s.Policy.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), decision)
+			}
+			if err != nil {
+				return sourceBinding{}, err
+			}
+		}
+		return sourceBinding{ApplicationID: app, TeamID: team}, nil
 	case "template":
 		for _, template := range knowledge.Templates() {
 			if template.ID == in.From && template.ID != "blank" {
-				return "", nil
+				return sourceBinding{}, nil
 			}
 		}
-		return "", store.ErrNotFound
+		return sourceBinding{}, store.ErrNotFound
 	case "import":
 		envs := scopeIDs(r)
 		if len(envs) != 1 {
-			return "", store.ErrForbidden
+			return sourceBinding{}, store.ErrForbidden
 		}
 		var owner, actualEnvironment, kind, mime, name string
 		var size int
 		err := tx.QueryRow(r.Context(), `SELECT owner_id,environment_id,kind,mime,name,size_bytes FROM v3_uploads WHERE id=$1 FOR KEY SHARE`, in.From).Scan(&owner, &actualEnvironment, &kind, &mime, &name, &size)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", store.ErrNotFound
+			return sourceBinding{}, store.ErrNotFound
 		}
 		if err != nil {
-			return "", err
+			return sourceBinding{}, err
 		}
 		if owner != httpapi.CurrentUser(r).ID || actualEnvironment != envs[0] {
-			return "", store.ErrForbidden
+			return sourceBinding{}, store.ErrForbidden
 		}
 		// Uploaded Markdown can be cited as an import source. A URL or a
 		// non-Markdown file is not yet a parsed Runbook source.
 		if kind != "file" || size == 0 || !(mime == "text/markdown" || mime == "text/plain") || !strings.HasSuffix(strings.ToLower(name), ".md") {
-			return "", errSourceEmpty
+			return sourceBinding{}, errSourceEmpty
 		}
-		return "", nil
+		return sourceBinding{}, nil
 	case "conversation":
 		envs := scopeIDs(r)
 		if len(envs) != 1 {
-			return "", store.ErrForbidden
+			return sourceBinding{}, store.ErrForbidden
 		}
 		var owner, actualEnvironment string
 		err := tx.QueryRow(r.Context(), `SELECT owner_id,environment_id FROM v3_conversations WHERE id=$1 FOR KEY SHARE`, in.From).Scan(&owner, &actualEnvironment)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", store.ErrNotFound
+			return sourceBinding{}, store.ErrNotFound
 		}
 		if err != nil {
-			return "", err
+			return sourceBinding{}, err
 		}
 		if owner != httpapi.CurrentUser(r).ID || actualEnvironment != envs[0] {
-			return "", store.ErrForbidden
+			return sourceBinding{}, store.ErrForbidden
 		}
 		err = s.Policy.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), rbac.V3Decision{Module: "conversation", Action: "view", EnvironmentID: actualEnvironment})
 		if err != nil {
-			return "", err
+			return sourceBinding{}, err
 		}
 		var hasContent bool
 		err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM v3_conversation_messages WHERE conversation_id=$1 AND state='completed' AND jsonb_array_length(parts)>0)`, in.From).Scan(&hasContent)
 		if err != nil {
-			return "", err
+			return sourceBinding{}, err
 		}
 		if !hasContent {
-			return "", errSourceEmpty
+			return sourceBinding{}, errSourceEmpty
 		}
-		return in.From, nil
+		return sourceBinding{ConversationID: in.From}, nil
 	default:
-		return "", nil
+		return sourceBinding{}, nil
 	}
 }
 
@@ -584,7 +701,9 @@ func documentInScope(r *http.Request, d knowledge.Document) bool {
 		return false
 	}
 	if len(d.Metadata.EnvironmentIDs) == 0 {
-		return true
+		// Legacy documents without an explicit environment cannot be safely
+		// projected into a V3 instance's environment boundary.
+		return false
 	}
 	for _, id := range ids {
 		if contains(d.Metadata.EnvironmentIDs, id) {

@@ -14,9 +14,11 @@ import (
 	"github.com/wans/aiops-canvas/internal/actions"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/knowledge"
 	"github.com/wans/aiops-canvas/internal/operations"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3knowledge"
 )
 
 func TestValidateCreateInput(t *testing.T) {
@@ -91,6 +93,10 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 	if err := st.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
+	know := knowledge.New(db, nil)
+	if err := know.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if err := operations.New(db, st, nil, nil, operations.Config{}).Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +160,11 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
 	New(db, policy).Register(api)
-	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev", "test"}}, policy, st.Session, nil); err != nil {
+	(&v3knowledge.Service{DB: db, Knowledge: know, Policy: policy}).Register(api)
+	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev", "test"}}, policy, st.Session,
+		func(ctx context.Context, u core.User, module, action, environment string) error {
+			return policy.Authorize(ctx, u, rbac.V3Decision{Module: module, Action: action, EnvironmentID: environment})
+		}); err != nil {
 		t.Fatal(err)
 	}
 	call := func(method, path, env, token, body string) *httptest.ResponseRecorder {
@@ -222,6 +232,15 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 	if teamCandidates.Code != 200 || !strings.Contains(teamCandidates.Body.String(), `"id":"ready"`) || strings.Contains(teamCandidates.Body.String(), `"id":"hidden-`) {
 		t.Fatalf("team scope: %d %s", teamCandidates.Code, teamCandidates.Body.String())
 	}
+	draft := call("GET", "/api/v1/postmortems/draft?incident=ready", "dev", teamToken, "")
+	if draft.Code != 200 || !strings.Contains(draft.Body.String(), `"draft_mode":"evidence_only"`) ||
+		!strings.Contains(draft.Body.String(), `"text":"investigation.closed"`) ||
+		!strings.Contains(draft.Body.String(), `"key":"root"`) ||
+		strings.Contains(draft.Body.String(), "connection_pool.max") {
+		t.Fatalf("draft invented incident details or missed evidence: %d %s", draft.Code, draft.Body.String())
+	}
+	assertError(call("GET", "/api/v1/postmortems/draft?incident=hidden-1", "dev", viewerToken, ""), 404, "not_found")
+	assertError(call("GET", "/api/v1/postmortems/draft?incident=open", "dev", teamToken, ""), 404, "not_found")
 	input := `{"incident_id":"ready","sections":[{"key":"cause","title":"Root cause","text":"Observed"}],"actions":[{"text":"Fix","owner":"SRE","due":"2026-10-01"}],"status":"review"}`
 	assertError(call("POST", "/api/v1/postmortems", "all", adminToken, input), 409, "env_view_only")
 	assertError(call("POST", "/api/v1/postmortems", "dev", viewerToken, input), 403, "forbidden")
@@ -293,7 +312,11 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	visible := call("GET", "/api/v1/postmortems/records", "all", viewerToken, "")
+	viewerRecords := call("GET", "/api/v1/postmortems/records", "all", viewerToken, "")
+	if viewerRecords.Code != 200 || !strings.Contains(viewerRecords.Body.String(), `"items":[]`) {
+		t.Fatalf("unpublished review leaked to ordinary viewer: %d %s", viewerRecords.Code, viewerRecords.Body.String())
+	}
+	visible := call("GET", "/api/v1/postmortems/records", "all", teamToken, "")
 	var visibleResult struct {
 		Items []Record `json:"items"`
 	}
@@ -302,4 +325,27 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 		t.Fatalf("visible records: %d %+v err=%v", visible.Code, visibleResult.Items, err)
 	}
 	assertError(call("GET", "/api/v1/postmortems/records", "dev", adminToken, ""), 413, "scope_too_large")
+	postmortemRunbook := `{"title":"Evidence based response","source":"postmortem","from":"ready","steps":[{"n":1,"kind":"check","title":"Inspect evidence","readonly":true}],"status":"draft"}`
+	assertError(call("POST", "/api/v1/runbooks", "dev", adminToken, postmortemRunbook), 422, "invalid_source")
+	assertError(call("POST", "/api/v1/postmortems/"+made.ID+"/publish", "dev", teamToken, ""), 403, "self_review_forbidden")
+	published := call("POST", "/api/v1/postmortems/"+made.ID+"/publish", "dev", adminToken, "")
+	if published.Code != 200 || !strings.Contains(published.Body.String(), `"status":"published"`) {
+		t.Fatalf("publish: %d %s", published.Code, published.Body.String())
+	}
+	assertError(call("POST", "/api/v1/postmortems/"+made.ID+"/publish", "dev", adminToken, ""), 409, "invalid_state")
+	runbook := call("POST", "/api/v1/runbooks", "dev", adminToken, postmortemRunbook)
+	if runbook.Code != 201 {
+		t.Fatalf("published postmortem source rejected: %d %s", runbook.Code, runbook.Body.String())
+	}
+	var runbookID struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(runbook.Body.Bytes(), &runbookID); err != nil || runbookID.ID == "" {
+		t.Fatalf("runbook id: %s (%v)", runbook.Body.String(), err)
+	}
+	var runbookApp, runbookEnv string
+	if err := db.QueryRow(ctx, `SELECT COALESCE(application_id,''),metadata->'environment_ids'->>0 FROM knowledge_documents WHERE id=$1`, runbookID.ID).
+		Scan(&runbookApp, &runbookEnv); err != nil || runbookApp != "app" || runbookEnv != "dev" {
+		t.Fatalf("postmortem-derived runbook scope app=%q env=%q err=%v", runbookApp, runbookEnv, err)
+	}
 }

@@ -123,7 +123,11 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 		}
 		// Deliberately misleading TeamID proves authorization resolves the
 		// application's real owner_team_id, not document metadata.
-		metadata, _ := json.Marshal(knowledge.Metadata{MaintainerID: owner, TeamID: "ops", ActorID: owner, Origin: "human", Visibility: "application", EnvironmentIDs: []string{env}})
+		environments := []string{env}
+		if env == "" {
+			environments = nil
+		}
+		metadata, _ := json.Marshal(knowledge.Metadata{MaintainerID: owner, TeamID: "ops", ActorID: owner, Origin: "human", Visibility: "application", EnvironmentIDs: environments})
 		stepJSON, _ := json.Marshal(steps)
 		if _, err := db.Exec(ctx, `INSERT INTO knowledge_documents(id,application_id,title,body,source,version,content_hash,created_by,lifecycle,metadata)
  VALUES($1,$2,$3,$4,$5,1,$6,$7,$8,$9)`, id, app, id, "# "+id, "runbook://v3/"+id, store.Hash(id), owner, lifecycle, metadata); err != nil {
@@ -139,6 +143,7 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	})
 	seed("runbook-other-app", "app-2", "dev", "draft", maintainer.ID, nil)
 	seed("runbook-other-env", "app-1", "test", "draft", maintainer.ID, nil)
+	seed("runbook-unknown-env", "app-1", "", "published", maintainer.ID, nil)
 	seed("runbook-review", "app-1", "dev", "review", maintainer.ID, nil)
 	seed("runbook-team", "app-1", "dev", "draft", teamMaintainer.ID, []Step{{N: 1, Kind: "query", Title: "Read metrics", Readonly: true, Connectors: []string{"prometheus"}}})
 	login := func(email, password string) string {
@@ -205,6 +210,17 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 		api.ServeHTTP(w, r)
 		return w
 	}
+	templateDraft := httptest.NewRequest(http.MethodGet, "/api/v1/runbooks/draft?source=template&from=investigation", nil)
+	templateDraft.Header.Set("X-AIOps-Environment", "dev")
+	templateDraft.AddCookie(&http.Cookie{Name: "aiops_session", Value: creatorToken})
+	templateResponse := httptest.NewRecorder()
+	api.ServeHTTP(templateResponse, templateDraft)
+	assert(templateResponse, 200, "")
+	if !strings.Contains(templateResponse.Body.String(), `"draft_mode":"template_outline"`) ||
+		!strings.Contains(templateResponse.Body.String(), `"steps":[]`) ||
+		strings.Contains(templateResponse.Body.String(), `"approval":true`) {
+		t.Fatalf("template outline invented executable steps: %s", templateResponse.Body.String())
+	}
 	assert(create("template", "fabricated", "dev", creatorToken), 422, "invalid_source")
 	assert(create("import", "upload-other", "dev", creatorToken), 422, "invalid_source")
 	assert(create("import", "upload-test", "dev", creatorToken), 422, "invalid_source")
@@ -234,11 +250,13 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	assert(request("runbook-main", "submit", "dev", teamToken), 403, "forbidden")
 	assert(request("runbook-other-app", "submit", "dev", teamToken), 403, "forbidden")
 	assert(request("runbook-other-app", "dry-run", "dev", teamToken), 404, "not_found")
+	assert(request("runbook-unknown-env", "dry-run", "dev", maintainerToken), 404, "not_found")
 	assert(request("runbook-other-env", "submit", "test", teamToken), 403, "forbidden")
 	assert(request("runbook-review", "submit", "dev", maintainerToken), 409, "invalid_state")
 	assert(request("runbook-team", "dry-run", "dev", teamToken), 200, "")
 	assert(request("runbook-team", "submit", "dev", teamToken), 200, "")
-	preview := request("runbook-main", "dry-run", "dev", readerToken)
+	assert(request("runbook-main", "dry-run", "dev", readerToken), 404, "not_found")
+	preview := request("runbook-main", "dry-run", "dev", maintainerToken)
 	assert(preview, 200, "")
 	var result struct {
 		Steps  int              `json:"steps"`
@@ -262,8 +280,12 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM knowledge_history WHERE document_id='runbook-main'`).Scan(&beforeHistory); err != nil {
 		t.Fatal(err)
 	}
-	if beforeAudit != 0 || beforeHistory != 0 {
-		t.Fatal("dry-run wrote audit or knowledge history")
+	if beforeAudit != 1 || beforeHistory != 0 {
+		t.Fatalf("validation preview must be audited without changing document history: %d/%d", beforeAudit, beforeHistory)
+	}
+	var previews int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_runbook_validation_previews WHERE document_id='runbook-main' AND readonly_valid=false`).Scan(&previews); err != nil || previews != 1 {
+		t.Fatalf("validation preview was not recorded: %d %v", previews, err)
 	}
 	submitted := request("runbook-main", "submit", "dev", maintainerToken)
 	assert(submitted, 200, "")
@@ -288,5 +310,38 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	}
 	if history != 1 || audits != 1 {
 		t.Fatalf("submit history/audit must be exactly once, got %d/%d", history, audits)
+	}
+	review := func(token, decision string) *httptest.ResponseRecorder {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/runbooks/runbook-main/reviews", strings.NewReader(`{"decision":"`+decision+`"}`))
+		r.Header.Set("X-AIOps-Environment", "dev")
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		return w
+	}
+	assert(review(maintainerToken, "approve"), 403, "self_review_forbidden")
+	assert(review(readerToken, "approve"), 404, "not_found")
+	assert(review(otherToken, "approve"), 200, "")
+	assert(review(otherToken, "approve"), 409, "invalid_state")
+	recordRequest := httptest.NewRequest(http.MethodGet, "/api/v1/runbooks/runbook-main/record", nil)
+	recordRequest.Header.Set("X-AIOps-Environment", "dev")
+	recordRequest.AddCookie(&http.Cookie{Name: "aiops_session", Value: readerToken})
+	record := httptest.NewRecorder()
+	api.ServeHTTP(record, recordRequest)
+	assert(record, 200, "")
+	if !strings.Contains(record.Body.String(), `"partial":true`) || !strings.Contains(record.Body.String(), `"status":"published"`) {
+		t.Fatalf("runbook record lacks real publication status or partial boundary: %s", record.Body.String())
+	}
+	historyRequest := httptest.NewRequest(http.MethodGet, "/api/v1/runbooks/runbook-main/history", nil)
+	historyRequest.Header.Set("X-AIOps-Environment", "dev")
+	historyRequest.AddCookie(&http.Cookie{Name: "aiops_session", Value: readerToken})
+	historyResponse := httptest.NewRecorder()
+	api.ServeHTTP(historyResponse, historyRequest)
+	assert(historyResponse, 200, "")
+	if !strings.Contains(historyResponse.Body.String(), `"decision":"approve"`) ||
+		!strings.Contains(historyResponse.Body.String(), `"readonly_valid":false`) ||
+		!strings.Contains(historyResponse.Body.String(), `"execution_verification_available":false`) {
+		t.Fatalf("runbook history omitted recorded review or mislabeled validation: %s", historyResponse.Body.String())
 	}
 }

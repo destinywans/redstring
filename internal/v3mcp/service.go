@@ -1,6 +1,6 @@
-// Package v3mcp exposes the metadata that can be proven from legacy MCP
-// registrations. Discovery, health, tool review and write-tool approval need
-// a V3-scoped trust record before they can be exposed as successful actions.
+// Package v3mcp exposes scoped MCP registration metadata. Discovery snapshots
+// are untrusted observations; health, tool review and execution require
+// separate V3-scoped trust decisions.
 package v3mcp
 
 import (
@@ -24,9 +24,14 @@ type Access interface {
 	AuthorizeWithTx(context.Context, pgx.Tx, core.User, rbac.V3Decision) error
 }
 
+// DiscoverFunc returns untrusted MCP tool declarations. The application wires
+// the shared bounded protocol client and its private credential root.
+type DiscoverFunc func(context.Context, aiextensions.MCPConfig) ([]aiextensions.ToolInfo, error)
+
 type Service struct {
-	DB     *pgxpool.Pool
-	Access Access
+	DB            *pgxpool.Pool
+	Access        Access
+	DiscoverTools DiscoverFunc
 }
 
 func New(db *pgxpool.Pool, access Access) *Service { return &Service{DB: db, Access: access} }
@@ -41,6 +46,7 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"GET /api/v1/mcp-servers/{id}", s.detail, "view"},
 		{"PATCH /api/v1/mcp-servers/{id}/tools/{name}", s.toolChange, "manage"},
 		{"POST /api/v1/mcp-servers/{id}/review", s.review, "manage"},
+		{"POST /api/v1/mcp-servers/{id}/discover", s.discover, "manage"},
 		{"PUT /api/v1/mcp-servers/{id}/environment-binding", s.bindEnvironment, "manage"},
 		{"DELETE /api/v1/mcp-servers/{id}/environment-binding", s.unbindEnvironment, "manage"},
 	} {

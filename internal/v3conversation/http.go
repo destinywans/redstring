@@ -50,6 +50,8 @@ func operationError(w http.ResponseWriter, err error) {
 		apiError(w, 503, "model_unavailable", "No configured model is available")
 	case errors.Is(err, ErrForbidden):
 		apiError(w, 403, "forbidden", "Environment access required")
+	case errors.Is(err, errListSessionRevoked):
+		apiError(w, 401, "unauthorized", "Login required")
 	default:
 		apiError(w, 503, "conversation_unavailable", "Conversation operation failed")
 	}
@@ -309,7 +311,11 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		operationError(w, err)
 		return
 	}
-	page, size := pagination(r)
+	page, size, pageError := pagination(r)
+	if pageError != "" {
+		apiError(w, 422, pageError, "Invalid pagination")
+		return
+	}
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	filter := r.URL.Query().Get("tab")
 	if filter == "" {
@@ -332,10 +338,9 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 422, "invalid_status", "Unknown conversation status")
 		return
 	}
-	// Team, triage and canvas entries have separate stores and grant models.
-	// Until they are joined into this owner-scoped index, an empty list would
-	// falsely tell the user that those conversations do not exist.
-	if filter == "team" || filter == "triage" || modeFilter == "canvas" {
+	// Legacy investigations have no persisted creator or participants. Team
+	// and triage cannot be treated as empty until their scoped sources are joined.
+	if filter == "team" || filter == "triage" {
 		apiError(w, 503, "conversation_source_unavailable", "This conversation source is not connected to the unified list")
 		return
 	}
@@ -343,67 +348,13 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 422, "invalid_query", "Search is too long")
 		return
 	}
-	var total int
-	err = s.db.QueryRow(r.Context(), `SELECT count(*) FROM v3_conversations WHERE owner_id=$1 AND environment_id=ANY($2) AND ($3='' OR aiops_search_match(concat_ws(' ',id,title,context_ref,environment_id),$3)) AND ($4='mine' AND status<>'archived' OR $4='archived' AND status='archived') AND ($5='' OR status=$5)`, u.ID, visible, q, filter, statusFilter).Scan(&total)
-	if err != nil {
-		operationError(w, err)
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil || cookie.Value == "" {
+		apiError(w, 401, "unauthorized", "Login required")
 		return
 	}
-	var mineCount, archivedCount int
-	err = s.db.QueryRow(r.Context(), `SELECT count(*) FILTER (WHERE status<>'archived'), count(*) FILTER (WHERE status='archived') FROM v3_conversations WHERE owner_id=$1 AND environment_id=ANY($2)`, u.ID, visible).Scan(&mineCount, &archivedCount)
+	items, total, mineCount, archivedCount, err := s.readOwnedList(r.Context(), cookie.Value, u, visible, filter, modeFilter, statusFilter, q, page, size, r.Header.Get("Accept-Language"))
 	if err != nil {
-		operationError(w, err)
-		return
-	}
-	rows, err := s.db.Query(r.Context(), `WITH selected AS MATERIALIZED (
-		SELECT id,title,status,environment_id,context_ref,updated_at FROM v3_conversations
-		WHERE owner_id=$1 AND environment_id=ANY($2)
-			AND ($3='' OR aiops_search_match(concat_ws(' ',id,title,context_ref,environment_id),$3))
-			AND ($4='mine' AND status<>'archived' OR $4='archived' AND status='archived')
-			AND ($5='' OR status=$5)
-		ORDER BY updated_at DESC,id LIMIT $6 OFFSET $7
-	) SELECT c.id,c.title,c.status,c.environment_id,c.context_ref,c.updated_at,
-		COALESCE(m.turns,0),COALESCE(m.assistants,0),
-		CASE WHEN COALESCE(m.unknown_usage,0)=0 THEN COALESCE(m.reported_tokens,0) END
-		FROM selected c LEFT JOIN LATERAL (
-			SELECT count(*) FILTER (WHERE role='user') AS turns,
-				count(*) FILTER (WHERE role='assistant' AND state='completed') AS assistants,
-				count(*) FILTER (WHERE role='assistant' AND state='completed'
-					AND (jsonb_typeof(run->'tokens')='number' AND run->>'tokens' ~ '^[0-9]{1,18}$') IS DISTINCT FROM TRUE) AS unknown_usage,
-				COALESCE(sum(CASE WHEN role='assistant' AND state='completed'
-					AND jsonb_typeof(run->'tokens')='number' AND run->>'tokens' ~ '^[0-9]{1,18}$'
-					THEN (run->>'tokens')::bigint ELSE 0 END),0) AS reported_tokens
-			FROM v3_conversation_messages WHERE conversation_id=c.id
-		) m ON true
-		ORDER BY c.updated_at DESC,c.id`, u.ID, visible, q, filter, statusFilter, size, (page-1)*size)
-	if err != nil {
-		operationError(w, err)
-		return
-	}
-	defer rows.Close()
-	items := []map[string]any{}
-	for rows.Next() {
-		var id, title, status, envID, contextRef string
-		var updated time.Time
-		var turns, assistants int64
-		var reportedTokens *int64
-		if err = rows.Scan(&id, &title, &status, &envID, &contextRef, &updated, &turns, &assistants, &reportedTokens); err != nil {
-			operationError(w, err)
-			return
-		}
-		participants := []string{u.Name}
-		if assistants > 0 {
-			participants = append(participants, "AI")
-		}
-		sizeLabel := fmt.Sprintf("%d 轮", turns)
-		if strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "en") {
-			sizeLabel = fmt.Sprintf("%d turns", turns)
-		}
-		// A partial sum is not the conversation's actual token usage. Old and
-		// provider-unknown replies keep this field explicitly unknown.
-		items = append(items, map[string]any{"id": id, "title": title, "mode": "chat", "status": status, "source": "manual", "scope": conversationScopeLabel(contextRef, envID), "participants": participants, "size": sizeLabel, "updated_at": updated, "tokens": reportedTokens})
-	}
-	if err = rows.Err(); err != nil {
 		operationError(w, err)
 		return
 	}
@@ -422,19 +373,23 @@ func conversationScopeLabel(refs, env string) string {
 	return env
 }
 
-func pagination(r *http.Request) (int, int) {
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page < 1 {
-		page = 1
+func pagination(r *http.Request) (int, int, string) {
+	page, size := 1, 50
+	if raw := r.URL.Query().Get("page"); raw != "" {
+		var err error
+		page, err = strconv.Atoi(raw)
+		if err != nil || page < 1 || page > 100000 {
+			return 0, 0, "invalid_page"
+		}
 	}
-	size, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
-	if size < 1 {
-		size = 50
+	if raw := r.URL.Query().Get("page_size"); raw != "" {
+		var err error
+		size, err = strconv.Atoi(raw)
+		if err != nil || size < 1 || size > 100 {
+			return 0, 0, "invalid_page_size"
+		}
 	}
-	if size > 100 {
-		size = 100
-	}
-	return page, size
+	return page, size, ""
 }
 
 func (s *Service) latestReply(ctx context.Context, conv string) (string, error) {

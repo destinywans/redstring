@@ -55,10 +55,23 @@ func TestModelSelectionConfiguredOnly(t *testing.T) {
 }
 
 func TestPageBounds(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/conversations?page=-1&page_size=99999", nil)
-	page, size := pagination(req)
-	if page != 1 || size != 100 {
-		t.Fatalf("page=%d size=%d", page, size)
+	for _, tc := range []struct {
+		query string
+		code  string
+	}{
+		{query: "?page=-1", code: "invalid_page"},
+		{query: "?page=9223372036854775807", code: "invalid_page"},
+		{query: "?page_size=99999", code: "invalid_page_size"},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/conversations"+tc.query, nil)
+		if _, _, code := pagination(req); code != tc.code {
+			t.Fatalf("query=%s code=%q, want %q", tc.query, code, tc.code)
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/conversations?page=100000&page_size=100", nil)
+	page, size, code := pagination(req)
+	if code != "" || page != 100000 || size != 100 {
+		t.Fatalf("page=%d size=%d code=%q", page, size, code)
 	}
 }
 

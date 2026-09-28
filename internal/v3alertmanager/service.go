@@ -60,7 +60,7 @@ func (s *Service) Register(api *httpapi.Server) {
 	api.Register("POST /api/v1/silences/preview", "viewer", s.Preview)
 	api.MarkV3ObjectRoute("POST /api/v1/silences/preview", "silences", "view")
 	api.Register("GET /api/v1/inhibitions", "viewer", s.Inhibitions)
-	api.MarkV3Route("GET /api/v1/inhibitions", "silences", "view")
+	api.MarkV3ObjectRoute("GET /api/v1/inhibitions", "silences", "view")
 }
 
 func (s *Service) List(w http.ResponseWriter, r *http.Request) {

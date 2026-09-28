@@ -71,6 +71,14 @@ func (s *Service) metricDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	targets, err := s.observationTargets(r.Context(), httpapi.CurrentUser(r), envs, "services", service, []string{"prometheus"})
 	if err != nil {
+		if errors.Is(err, errObservationScopeLimit) {
+			httpapi.Error(w, 422, "scope_limit", "Narrow the service or environment")
+			return
+		}
+		if errors.Is(err, errAmbiguousObservationBinding) {
+			httpapi.Error(w, 409, "ambiguous_binding", "Select one Prometheus binding for this service and environment")
+			return
+		}
 		if errors.Is(err, store.ErrForbidden) {
 			httpapi.Error(w, 403, "forbidden", "Service metrics are outside your authorized scope")
 			return

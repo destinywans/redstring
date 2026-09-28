@@ -191,6 +191,9 @@ INSERT INTO v3_application_environments(application_id,environment_id)
 	if first["solo"].OwnerHint != "Platform" || first["unowned"].OwnerHint != "未识别" || first["other"].OwnerHint != "Other" || first["private"].ID != "" {
 		t.Fatalf("collector or owner scope was misrepresented: %+v", response.Items)
 	}
+	if first["solo"].ResourceID != "single" || first["solo"].UID != "uid-single" || first["solo"].Cluster != "cluster-one" || first["solo"].Namespace != "a" || first["solo"].EnvironmentID != "dev" {
+		t.Fatalf("workload identity was lost: %+v", first["solo"])
+	}
 	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='admin' AND module='resources' AND action='view'`); err != nil {
 		t.Fatal(err)
 	}

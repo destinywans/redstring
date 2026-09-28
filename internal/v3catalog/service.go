@@ -57,10 +57,13 @@ type registration struct {
 type registerItem struct {
 	ID        string `json:"id"`
 	Namespace string `json:"namespace"`
-	Tier      string `json:"tier"`
-	Owner     string `json:"owner"`
-	SLO       string `json:"slo"`
-	P99       string `json:"p99"`
+	// ResourceID is the stable CMDB identity returned by service discovery.
+	// Older clients may omit it only when name and namespace resolve uniquely.
+	ResourceID string `json:"resource_id,omitempty"`
+	Tier       string `json:"tier"`
+	Owner      string `json:"owner"`
+	SLO        string `json:"slo"`
+	P99        string `json:"p99"`
 }
 
 var serviceName = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$`)
@@ -73,10 +76,13 @@ func validateItems(items []registerItem) ([]registerItem, error) {
 	seen := map[string]bool{}
 	for i := range items {
 		v := &items[i]
-		v.ID, v.Namespace, v.Tier, v.Owner = strings.TrimSpace(v.ID), strings.TrimSpace(v.Namespace), strings.TrimSpace(v.Tier), strings.TrimSpace(v.Owner)
+		v.ID, v.Namespace, v.ResourceID, v.Tier, v.Owner = strings.TrimSpace(v.ID), strings.TrimSpace(v.Namespace), strings.TrimSpace(v.ResourceID), strings.TrimSpace(v.Tier), strings.TrimSpace(v.Owner)
 		v.SLO, v.P99 = strings.TrimSpace(v.SLO), strings.TrimSpace(v.P99)
 		if !serviceName.MatchString(v.ID) || (v.Namespace != "" && !namespaceName.MatchString(v.Namespace)) || len(v.Owner) > 200 {
 			return nil, errors.New("invalid service name, namespace or owner")
+		}
+		if v.ResourceID != "" && (v.Namespace == "" || len(v.ResourceID) > 256 || strings.ContainsAny(v.ResourceID, " \t\r\n\x00")) {
+			return nil, errors.New("resource identity requires a namespace and valid resource ID")
 		}
 		if seen[strings.ToLower(v.ID)] {
 			return nil, errors.New("duplicate service in request")
@@ -150,6 +156,15 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
+	access, transactional := s.transactionAccess()
+	if !transactional {
+		httpapi.Error(w, 503, "authorization_unavailable", "Service policy unavailable")
+		return
+	}
+	if err = access.AuthorizeWithTx(r.Context(), tx, user, rbac.V3Decision{Module: "services", Action: "change", EnvironmentID: envs[0]}); err != nil {
+		policyError(w, err)
+		return
+	}
 	for _, item := range items {
 		// Serialize registrations of the same logical key, including case
 		// variants. Existing application identity and owner-team ACL are kept.
@@ -286,7 +301,7 @@ func (s *Service) register(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		changes, _ := json.Marshal(map[string]any{"environment": envs[0], "namespace": item.Namespace, "resource_linked": resourceID != "", "tier": item.Tier, "existing_service": found == 1})
+		changes, _ := json.Marshal(map[string]any{"environment": envs[0], "namespace": item.Namespace, "resource_id": resourceID, "resource_linked": resourceID != "", "tier": item.Tier, "existing_service": found == 1})
 		_, err = tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes)
  VALUES($1,$2,$3,$2,'success',$4)`, user.ID, appID, serviceAuditAction(found == 1), changes)
 		if err != nil {
@@ -315,10 +330,9 @@ type workloadMatchError struct {
 func (e *workloadMatchError) Error() string { return e.message }
 
 // registrationWorkload uses the discovery route's source, presence, UID and
-// freshness rules. The current POST DTO contains only name and namespace, so
-// every trusted namesake in an environment must be unique, even across
-// clusters. Locking the chosen row makes a concurrent inventory refresh wait
-// until the registration transaction commits.
+// freshness rules. A supplied resource ID disambiguates namesakes; without
+// one, every trusted namesake in the environment must be unique. Locking the
+// chosen row makes a concurrent inventory refresh wait until commit.
 func (s *Service) registrationWorkload(ctx context.Context, tx pgx.Tx, item registerItem, env string) (string, string, error) {
 	// Inventory refreshes lock their source before updating resource rows.
 	// Take the same order explicitly; a joined FOR UPDATE/FOR SHARE query does
@@ -354,8 +368,9 @@ func (s *Service) registrationWorkload(ctx context.Context, tx pgx.Tx, item regi
  AND r.external_id<>'' AND r.attributes->>'uid'=r.external_id
  AND r.attributes->>'resource_type' IN ('Deployment','StatefulSet','DaemonSet')
  AND r.attributes->>'namespace'<>'' AND r.attributes->>'cluster'<>''
+ AND ($3='' OR r.id=$3)
  AND NOT EXISTS (SELECT 1 FROM cmdb_resource_applications l WHERE l.resource_id=r.id)
- ORDER BY r.id LIMIT 2 FOR UPDATE OF r`, item.ID, env)
+ ORDER BY r.id LIMIT 2 FOR UPDATE OF r`, item.ID, env, item.ResourceID)
 	if err != nil {
 		return "", "", err
 	}
@@ -392,7 +407,8 @@ func (s *Service) registrationWorkload(ctx context.Context, tx pgx.Tx, item regi
  AND lower(r.name)=lower($1)
  AND ($2='' OR r.attributes->>'namespace'=$2)
  AND (src.environment_key=$3 OR r.attributes->>'environment_key'=$3)
- ORDER BY r.id LIMIT 2 FOR UPDATE OF r`, item.ID, item.Namespace, env)
+ AND ($4='' OR r.id=$4)
+ ORDER BY r.id LIMIT 2 FOR UPDATE OF r`, item.ID, item.Namespace, env, item.ResourceID)
 	if err != nil {
 		return "", "", err
 	}
@@ -412,7 +428,7 @@ func (s *Service) registrationWorkload(ctx context.Context, tx pgx.Tx, item regi
 		return "", "", err
 	}
 	if len(matches) == 0 {
-		if len(raw) > 0 {
+		if len(raw) > 0 || item.ResourceID != "" {
 			return "", "", &workloadMatchError{"workload_unavailable", "A matching workload exists but is not current, present or available for registration"}
 		}
 		return "", "", nil

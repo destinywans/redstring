@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
@@ -64,6 +65,8 @@ type catalogRow struct {
 	tier, owner, oncall, target                          string
 	bindings                                             []byte
 }
+
+const catalogPageSize = 128
 
 func value(v string) catalogValue {
 	if strings.TrimSpace(v) == "" {
@@ -150,46 +153,65 @@ const catalogQuery = `SELECT a.id,a.key,a.name,a.description,ve.environment_id,
  LEFT JOIN users u ON u.id=ep.oncall_user_id
  WHERE NOT a.archived AND ve.environment_id=ANY($1::text[])
  AND ($2='' OR a.id=$2) AND ($3='' OR ve.environment_id=$3)
- AND ($4='' OR a.key ILIKE '%' || $4 || '%' OR a.name ILIKE '%' || $4 || '%')
+ AND ($4='' OR position(lower($4) in lower(a.key))>0 OR position(lower($4) in lower(a.name))>0)
  AND ($5='' OR ep.tier=$5)
  AND ($6='' OR a.owner_team_id=$6 OR t.name=$6)
- ORDER BY a.key,ve.environment_id,a.id LIMIT 1001`
+ AND (a.key,ve.environment_id,a.id)>($7,$8,$9)
+ ORDER BY a.key,ve.environment_id,a.id LIMIT 128`
 
 func (s *Service) loadCatalog(ctx context.Context, user core.User, envs []string, appID, env, q, tier, team string) ([]catalogRecord, error) {
-	rows, err := s.Store.DB.Query(ctx, catalogQuery, envs, appID, env, q, tier, team)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+	// The authorized limit bounds output; the deadline also bounds repeated
+	// policy reads when many hidden rows precede a visible service.
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	items := []catalogRecord{}
-	count := 0
-	for rows.Next() {
-		count++
-		if count > 1000 {
-			return nil, errCatalogLimit
-		}
-		var row catalogRow
-		if err = rows.Scan(&row.appID, &row.key, &row.name, &row.description, &row.env,
-			&row.teamID, &row.teamName, &row.tier, &row.owner, &row.oncall, &row.target, &row.bindings); err != nil {
+	var cursorKey, cursorEnv, cursorID string
+	for {
+		rows, err := s.Store.DB.Query(ctx, catalogQuery, envs, appID, env, q, tier, team, cursorKey, cursorEnv, cursorID)
+		if err != nil {
 			return nil, err
 		}
-		allowed, authErr := s.canView(ctx, user, row)
-		if authErr != nil {
-			return nil, authErr
+		// Close the cursor before policy reads. This also supports a pool with
+		// one connection and keeps the in-memory batch bounded.
+		batch := make([]catalogRow, 0, catalogPageSize)
+		for rows.Next() {
+			var row catalogRow
+			if err = rows.Scan(&row.appID, &row.key, &row.name, &row.description, &row.env,
+				&row.teamID, &row.teamName, &row.tier, &row.owner, &row.oncall, &row.target, &row.bindings); err != nil {
+				break
+			}
+			batch = append(batch, row)
 		}
-		if !allowed {
-			continue
+		if err == nil {
+			err = rows.Err()
 		}
-		projected, projectionErr := projectCatalog(row)
-		if projectionErr != nil {
-			return nil, projectionErr
+		rows.Close()
+		if err != nil {
+			return nil, err
 		}
-		items = append(items, projected)
+		for _, row := range batch {
+			allowed, authErr := s.canView(ctx, user, row)
+			if authErr != nil {
+				return nil, authErr
+			}
+			if !allowed {
+				continue
+			}
+			if len(items) == 1000 {
+				return nil, errCatalogLimit
+			}
+			projected, projectionErr := projectCatalog(row)
+			if projectionErr != nil {
+				return nil, projectionErr
+			}
+			items = append(items, projected)
+		}
+		if len(batch) < catalogPageSize {
+			return items, nil
+		}
+		last := batch[len(batch)-1]
+		cursorKey, cursorEnv, cursorID = last.key, last.env, last.appID
 	}
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 var errCatalogLimit = errors.New("catalog result limit")

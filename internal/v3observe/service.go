@@ -34,9 +34,13 @@ type Service struct {
 type observationTarget struct {
 	ApplicationID string
 	EnvironmentID string
+	TeamID        string
 	Resource      string
 	Provider      string
 }
+
+var errAmbiguousObservationBinding = errors.New("multiple telemetry bindings for one application and environment")
+var errObservationScopeLimit = errors.New("authorized observation scope exceeds bound")
 
 func New(st *store.Store, access Access, telemetry Telemetry) *Service {
 	return &Service{Store: st, Access: access, Telemetry: telemetry}
@@ -82,51 +86,106 @@ func (s *Service) allowedEnvironments(w http.ResponseWriter, r *http.Request, mo
 // observationTargets use only persisted application/environment bindings. An
 // arbitrary query string never becomes a provider URL or an unbounded scope.
 func (s *Service) observationTargets(ctx context.Context, user core.User, environments []string, module, service string, providers []string) ([]observationTarget, error) {
-	rows, err := s.Store.DB.Query(ctx, `SELECT a.id,ve.environment_id,b.kind,b.resource
+	// A broad grant can scan many hidden bindings. Bound the full database and
+	// policy walk by elapsed time without treating hidden rows as a result cap.
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	result := []observationTarget{}
+	seen := map[string]observationTarget{}
+	var cursor observationTarget
+	hasCursor := false
+	hadCandidates := false
+	for {
+		// Release the query connection before authorization, which may need
+		// the same pool. The cursor covers the complete sort key; identical
+		// duplicate bindings are interchangeable and may be skipped at a page
+		// boundary. Hidden candidates never consume the authorized result cap.
+		batch, err := s.observationBatch(ctx, environments, service, providers, cursor, hasCursor)
+		if err != nil {
+			return nil, err
+		}
+		if len(batch) == 0 {
+			break
+		}
+		hadCandidates = true
+		for _, target := range batch {
+			cursor = target
+			hasCursor = true
+			if err = s.authorizeObservationTarget(ctx, user, module, target); err != nil {
+				if ctx.Err() != nil {
+					return nil, ctx.Err()
+				}
+				if errors.Is(err, store.ErrForbidden) {
+					continue
+				}
+				return nil, err
+			}
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			key := target.ApplicationID + "\x00" + target.EnvironmentID
+			if previous, exists := seen[key]; exists {
+				if previous.Provider != target.Provider || previous.Resource != target.Resource {
+					return nil, errAmbiguousObservationBinding
+				}
+				continue
+			}
+			seen[key] = target
+			result = append(result, target)
+			if len(result) > 100 {
+				return nil, errObservationScopeLimit
+			}
+		}
+		if len(batch) < 200 {
+			break
+		}
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if hadCandidates && len(result) == 0 {
+		return nil, store.ErrForbidden
+	}
+	return result, nil
+}
+
+func (s *Service) authorizeObservationTarget(ctx context.Context, user core.User, module string, target observationTarget) error {
+	err := s.Access.Authorize(ctx, user, rbac.V3Decision{Module: module, Action: "view", EnvironmentID: target.EnvironmentID, ApplicationID: target.ApplicationID})
+	if errors.Is(err, store.ErrForbidden) && target.TeamID != "" {
+		return s.Access.Authorize(ctx, user, rbac.V3Decision{Module: module, Action: "view", EnvironmentID: target.EnvironmentID, TeamID: target.TeamID})
+	}
+	return err
+}
+
+func (s *Service) observationBatch(ctx context.Context, environments []string, service string, providers []string, cursor observationTarget, hasCursor bool) ([]observationTarget, error) {
+	rows, err := s.Store.DB.Query(ctx, `SELECT a.id,ve.environment_id,COALESCE(a.owner_team_id,''),b.kind,b.resource
  FROM applications a JOIN v3_application_environments ve ON ve.application_id=a.id
  JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
  JOIN LATERAL jsonb_to_recordset(e.bindings) AS b(kind text, resource text) ON b.kind=ANY($3::text[])
  WHERE NOT a.archived AND ve.environment_id=ANY($1::text[]) AND ($2='' OR a.id=$2 OR a.key=$2)
- AND b.resource<>'' ORDER BY a.id,ve.environment_id,b.kind LIMIT 101`, environments, service, providers)
+ AND b.resource<>''
+ AND (NOT $4::boolean OR (a.id,ve.environment_id,b.kind,b.resource)>($5,$6,$7,$8))
+ ORDER BY a.id,ve.environment_id,b.kind,b.resource LIMIT 200`, environments, service, providers,
+		hasCursor, cursor.ApplicationID, cursor.EnvironmentID, cursor.Provider, cursor.Resource)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	result := []observationTarget{}
-	seen := map[string]bool{}
-	scanned := 0
+	batch := make([]observationTarget, 0, 200)
 	for rows.Next() {
-		scanned++
-		if scanned > 100 {
-			return nil, errors.New("observation scope exceeds bound")
-		}
 		var target observationTarget
-		if err = rows.Scan(&target.ApplicationID, &target.EnvironmentID, &target.Provider, &target.Resource); err != nil {
-			return nil, err
+		if err = rows.Scan(&target.ApplicationID, &target.EnvironmentID, &target.TeamID, &target.Provider, &target.Resource); err != nil {
+			break
 		}
-		if err = s.Access.Authorize(ctx, user, rbac.V3Decision{Module: module, Action: "view", EnvironmentID: target.EnvironmentID, ApplicationID: target.ApplicationID}); err != nil {
-			if errors.Is(err, store.ErrForbidden) {
-				continue
-			}
-			return nil, err
-		}
-		key := target.ApplicationID + "\x00" + target.EnvironmentID
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		result = append(result, target)
+		batch = append(batch, target)
 	}
-	if err = rows.Err(); err != nil {
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
 		return nil, err
 	}
-	if len(result) > 100 {
-		return nil, errors.New("observation scope exceeds bound")
-	}
-	if scanned > 0 && len(result) == 0 {
-		return nil, store.ErrForbidden
-	}
-	return result, nil
+	return batch, nil
 }
 
 func observationWindow(lookback time.Duration) connectors.TimeWindow {

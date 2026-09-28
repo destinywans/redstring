@@ -151,28 +151,38 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 		t.Fatal(err)
 	}
 	w := request("?service=app&levels=INFO&q=checkout")
-	if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" {
+	checkError(w, 503, "log_patterns_unavailable")
+	if w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("status=%d headers=%v body=%s", w.Code, w.Header(), w.Body.String())
 	}
 	var body struct {
-		Total     string    `json:"total"`
-		Errors    string    `json:"errors"`
-		Histogram [][]int64 `json:"histogram"`
-		Items     []logLine `json:"items"`
-		Patterns  []any     `json:"patterns"`
+		Available struct {
+			Total     string    `json:"total"`
+			Errors    string    `json:"errors"`
+			Histogram [][]int64 `json:"histogram"`
+			Items     []logLine `json:"items_sample"`
+		} `json:"available"`
+		Missing []string `json:"missing"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Total != "1" || body.Errors != "0" || len(body.Items) != 1 || body.Items[0].Level != "INFO" ||
-		body.Items[0].Service != "app" || body.Items[0].Message != "checkout accepted" || len(body.Histogram) != 1 ||
-		len(body.Histogram[0]) != 3 || body.Histogram[0][2] != 1 || len(body.Patterns) != 0 {
+	if body.Available.Total != "1" || body.Available.Errors != "0" || len(body.Available.Items) != 1 || body.Available.Items[0].Level != "INFO" ||
+		body.Available.Items[0].Service != "app" || body.Available.Items[0].Message != "checkout accepted" || len(body.Available.Histogram) != 1 ||
+		len(body.Available.Histogram[0]) != 3 || body.Available.Histogram[0][2] != 1 || len(body.Missing) == 0 {
 		t.Fatalf("unexpected scoped log result: %+v", body)
 	}
 	before := providerCalls.Load()
 	w = request("?service=app&levels=")
 	if w.Code != 200 || providerCalls.Load() != before || !strings.Contains(w.Body.String(), `"total":"0"`) {
 		t.Fatalf("empty explicit level selection queried provider: %d %s", w.Code, w.Body.String())
+	}
+	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"elasticsearch","resource":"registered-app"},{"kind":"loki","resource":"same-app-different-source"}]'::jsonb WHERE id='app-dev'`); err != nil {
+		t.Fatal(err)
+	}
+	checkError(request("?service=app&levels=INFO"), 409, "ambiguous_binding")
+	if providerCalls.Load() != before {
+		t.Fatal("ambiguous log providers must not be queried")
 	}
 	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='admin' AND module='logs' AND action='view'`); err != nil {
 		t.Fatal(err)

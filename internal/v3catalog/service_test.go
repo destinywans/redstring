@@ -19,6 +19,8 @@ func TestValidateItemsRejectsAmbiguousOrInvalidRegistration(t *testing.T) {
 		{"empty", nil},
 		{"duplicate names", []registerItem{{ID: "api"}, {ID: "API"}}},
 		{"invalid namespace", []registerItem{{ID: "api", Namespace: "prod/checkout"}}},
+		{"resource without namespace", []registerItem{{ID: "api", ResourceID: "resource-1"}}},
+		{"invalid resource identity", []registerItem{{ID: "api", Namespace: "test", ResourceID: "resource\n1"}}},
 		{"invalid tier", []registerItem{{ID: "api", Tier: "critical"}}},
 		{"invalid slo", []registerItem{{ID: "api", SLO: "101"}}},
 		{"invalid p99", []registerItem{{ID: "api", P99: "0"}}},

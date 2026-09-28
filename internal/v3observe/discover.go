@@ -18,6 +18,7 @@ type discoveredService struct {
 	// original name only when it is unambiguous among visible workloads.
 	ID             string   `json:"id"`
 	ResourceID     string   `json:"resource_id"`
+	UID            string   `json:"uid"`
 	EnvironmentID  string   `json:"environment_id"`
 	Cluster        string   `json:"cluster"`
 	Namespace      string   `json:"namespace"`
@@ -217,7 +218,7 @@ func projectWorkload(candidate workloadCandidate, attrs workloadAttributes) (dis
 		return discoveredService{}, false
 	}
 	item := discoveredService{
-		ID: candidate.Name, ResourceID: candidate.ResourceID, EnvironmentID: candidate.EnvironmentID,
+		ID: candidate.Name, ResourceID: candidate.ResourceID, UID: candidate.ExternalID, EnvironmentID: candidate.EnvironmentID,
 		Cluster: attrs.Cluster, Namespace: attrs.Namespace, Kind: attrs.ResourceType,
 		Replicas: attrs.Replicas, OwnerHint: "未识别", Matched: []string{}, Missing: []string{},
 	}

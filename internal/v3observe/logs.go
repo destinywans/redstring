@@ -73,6 +73,14 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 	}
 	targets, err := s.observationTargets(r.Context(), httpapi.CurrentUser(r), envs, "logs", service, []string{"loki", "elasticsearch"})
 	if err != nil {
+		if errors.Is(err, errObservationScopeLimit) {
+			httpapi.Error(w, 422, "scope_limit", "Narrow the service or environment")
+			return
+		}
+		if errors.Is(err, errAmbiguousObservationBinding) {
+			httpapi.Error(w, 409, "ambiguous_binding", "Select one log provider for this service and environment")
+			return
+		}
 		if errors.Is(err, store.ErrForbidden) {
 			httpapi.Error(w, 403, "forbidden", "Logs are outside your authorized scope")
 			return
@@ -139,9 +147,14 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 	for _, key := range keys {
 		histogram = append(histogram, buckets[key])
 	}
-	// The current providers return complete counts but only a bounded sample of
-	// individual lines. A pattern count or trend derived from that sample would
-	// misrepresent the 30-minute population; AI clustering is not connected.
-	httpapi.WriteJSON(w, 200, map[string]any{"total": fmt.Sprint(total), "errors": fmt.Sprint(errorsCount),
-		"histogram": histogram, "items": items, "patterns": []any{}})
+	// The providers return complete counts but only a bounded sample of lines.
+	// A pattern count or trend derived from that sample would misrepresent the
+	// 30-minute population. Fail the full LogSearch contract until a scoped
+	// clustering source supplies complete pattern counts and trends.
+	httpapi.WriteJSON(w, 503, map[string]any{
+		"error": map[string]string{"code": "log_patterns_unavailable", "message": "Complete log pattern counts and trends are not available from registered sources"},
+		"available": map[string]any{"total": fmt.Sprint(total), "errors": fmt.Sprint(errorsCount),
+			"histogram": histogram, "items_sample": items},
+		"missing": []string{"patterns", "pattern_counts", "pattern_trends"},
+	})
 }

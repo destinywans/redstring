@@ -1,12 +1,50 @@
 package v3observe
 
 import (
+	"context"
+	"errors"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/wans/aiops-canvas/internal/connectors"
+	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/wans/aiops-canvas/internal/rbac"
+	"github.com/wans/aiops-canvas/internal/store"
 )
+
+func TestObservationTeamFallbackOnlyAfterExplicitForbidden(t *testing.T) {
+	target := observationTarget{ApplicationID: "app", EnvironmentID: "dev", TeamID: "persisted-team"}
+	backendFailure := errors.New("policy backend unavailable")
+	for _, test := range []struct {
+		name      string
+		appResult error
+		wantCalls int
+		wantError error
+	}{
+		{"application grant", nil, 1, nil},
+		{"team grant", store.ErrForbidden, 2, nil},
+		{"backend failure", backendFailure, 1, backendFailure},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			calls := []rbac.V3Decision{}
+			s := &Service{Access: discoveryAccessFunc(func(d rbac.V3Decision) error {
+				calls = append(calls, d)
+				if d.ApplicationID != "" {
+					return test.appResult
+				}
+				return nil
+			})}
+			err := s.authorizeObservationTarget(context.Background(), core.User{ID: "u"}, "logs", target)
+			if !errors.Is(err, test.wantError) || len(calls) != test.wantCalls {
+				t.Fatalf("error=%v calls=%+v", err, calls)
+			}
+			if len(calls) == 2 && (calls[1].TeamID != "persisted-team" || calls[1].ApplicationID != "") {
+				t.Fatalf("team decision lost persisted owner: %+v", calls[1])
+			}
+		})
+	}
+}
 
 func TestRequestedLogLevels(t *testing.T) {
 	levels, ok := requestedLogLevels("WARN,ERROR,WARN")

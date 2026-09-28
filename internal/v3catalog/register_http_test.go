@@ -157,6 +157,14 @@ func TestRegisterServiceHTTPV3ScopePersistenceAndAudit(t *testing.T) {
 		assert(request("dev", writerToken, `{"items":[{"id":"`+name+`","namespace":"trade"}]}`), 409, "workload_unavailable")
 	}
 	assert(request("dev", writerToken, `{"items":[{"id":"duplicate-api","namespace":"trade"}]}`), 409, "ambiguous_workload")
+	assert(request("dev", writerToken, `{"items":[{"id":"stale-source-api","namespace":"trade","resource_id":"stale-source-workload"}]}`), 409, "workload_unavailable")
+	assert(request("dev", writerToken, `{"items":[{"id":"other-env-api","namespace":"trade","resource_id":"other-env-workload"}]}`), 409, "workload_unavailable")
+	assert(request("dev", writerToken, `{"items":[{"id":"duplicate-api","namespace":"trade","resource_id":"duplicate-a"}]}`), 201, "")
+	var explicitLink string
+	if err := db.QueryRow(ctx, `SELECT l.resource_id FROM cmdb_resource_applications l
+ JOIN applications a ON a.id=l.application_id WHERE a.key='duplicate-api'`).Scan(&explicitLink); err != nil || explicitLink != "duplicate-a" {
+		t.Fatalf("explicit resource identity was not linked: %q (%v)", explicitLink, err)
+	}
 	// The same name in another environment must not be linked into dev.
 	assert(request("dev", writerToken, `{"items":[{"id":"other-env-api","namespace":"trade"}]}`), 201, "")
 	created := request("dev", writerToken, body)

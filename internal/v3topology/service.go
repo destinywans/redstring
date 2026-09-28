@@ -186,8 +186,18 @@ LEFT JOIN LATERAL (
  JOIN application_environments e ON e.id=l.environment_id AND e.application_id=a.id AND NOT e.archived
  JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=e.key
  WHERE l.resource_id=r.id AND ve.environment_id=ANY($1::text[])
+ AND (r.source_kind='manual' OR EXISTS (SELECT 1 FROM cmdb_sync_sources src
+  WHERE src.id=r.source_id AND src.kind=r.source_kind AND src.environment_key=ve.environment_id))
 ) links ON true
 WHERE NOT r.is_mock AND r.kind NOT IN ('event','pod')
+ -- A collector record is an observation, not a timeless CMDB declaration.
+ -- Both the object and its source must have fresh successful evidence.
+ AND (r.source_kind='manual' OR (
+  r.source_kind IN ('kubernetes','docker','lima')
+  AND r.attributes->>'inventory_presence'='present'
+  AND r.observed_at BETWEEN now()-interval '5 minutes' AND now()+interval '1 minute'
+  AND EXISTS (SELECT 1 FROM cmdb_sync_sources src WHERE src.id=r.source_id AND src.kind=r.source_kind
+   AND src.last_success_at BETWEEN now()-interval '5 minutes' AND now()+interval '1 minute')))
  AND (links.items<>'[]'::jsonb OR (
   r.source_kind IN ('kubernetes','docker','lima') AND r.observed_at IS NOT NULL
   AND EXISTS (SELECT 1 FROM cmdb_sync_sources src WHERE src.id=r.source_id AND src.kind=r.source_kind
@@ -271,7 +281,7 @@ func (s *Service) canView(ctx context.Context, user core.User, item candidate, e
 	}
 	// A resource's own scoped team or a global/environment grant can authorize
 	// an unlinked infrastructure item; inferred topology edges cannot grant it.
-	if eligibleEnvironment(item, env) {
+	if len(item.Links) == 0 && eligibleEnvironment(item, env) {
 		decisions = append(decisions, rbac.V3Decision{Module: "resources", Action: "view", EnvironmentID: env, TeamID: item.TeamID})
 	}
 	for _, decision := range decisions {

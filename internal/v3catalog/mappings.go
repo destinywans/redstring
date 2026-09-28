@@ -1,13 +1,45 @@
 package v3catalog
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 )
+
+type mappingCatalogRow struct {
+	appID, key, env, teamID string
+	bindings                []byte
+}
+
+const mappingQuery = `SELECT a.id,a.key,ve.environment_id,COALESCE(a.owner_team_id,''),e.bindings
+ FROM applications a
+ JOIN v3_application_environments ve ON ve.application_id=a.id
+ JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
+ WHERE NOT a.archived AND ve.environment_id=ANY($1::text[])
+ AND (a.key,ve.environment_id,a.id)>($2,$3,$4)
+ ORDER BY a.key,ve.environment_id,a.id LIMIT 128`
+
+func (s *Service) mappingBatch(ctx context.Context, envs []string, key, env, id string) ([]mappingCatalogRow, error) {
+	rows, err := s.Store.DB.Query(ctx, mappingQuery, envs, key, env, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	batch := make([]mappingCatalogRow, 0, catalogPageSize)
+	for rows.Next() {
+		var row mappingCatalogRow
+		if err := rows.Scan(&row.appID, &row.key, &row.env, &row.teamID, &row.bindings); err != nil {
+			return nil, err
+		}
+		batch = append(batch, row)
+	}
+	return batch, rows.Err()
+}
 
 type mappingSystem struct {
 	ID    string `json:"id"`
@@ -62,78 +94,69 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := s.Store.DB.Query(r.Context(), `SELECT a.id,a.key,ve.environment_id,COALESCE(a.owner_team_id,''),e.bindings
- FROM applications a
- JOIN v3_application_environments ve ON ve.application_id=a.id
- JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
- WHERE NOT a.archived AND ve.environment_id=ANY($1::text[])
- ORDER BY a.key,ve.environment_id`, envs)
-	if err != nil {
-		httpapi.Error(w, 503, "catalog_unavailable", "Service mappings unavailable")
-		return
-	}
-	defer rows.Close()
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
 	byName := map[string]*mappingRow{}
 	order := []string{}
 	count := 0
-	for rows.Next() {
-		var appID, key, env, teamID string
-		var raw []byte
-		if err = rows.Scan(&appID, &key, &env, &teamID, &raw); err != nil {
-			break
-		}
-		visible, authErr := s.canView(r.Context(), httpapi.CurrentUser(r), catalogRow{appID: appID, env: env, teamID: teamID})
-		if authErr != nil {
-			err = authErr
-			break
-		}
-		if !visible {
-			continue
-		}
-		// The limit is on authorized mappings, not all catalog entries. An
-		// unrelated service must not truncate this user's result or disclose
-		// its existence through a result-limit error.
-		count++
-		if count > 1000 {
-			httpapi.Error(w, 422, "result_limit", "Narrow the environment scope")
+	var cursorKey, cursorEnv, cursorID string
+	for {
+		batch, err := s.mappingBatch(ctx, envs, cursorKey, cursorEnv, cursorID)
+		if err != nil {
+			httpapi.Error(w, 503, "catalog_unavailable", "Service mappings unavailable")
 			return
 		}
-		var bindings []core.Binding
-		if err = json.Unmarshal(raw, &bindings); err != nil {
-			break
-		}
-		row, found := byName[key]
-		if !found {
-			row = &mappingRow{Service: key, Cells: map[string]mappingCell{}}
-			byName[key] = row
-			order = append(order, key)
-		}
-		for _, b := range bindings {
-			id := mappingKind(b.Kind)
-			if id == "" || strings.TrimSpace(b.Resource) == "" {
+		for _, item := range batch {
+			visible, authErr := s.canView(ctx, httpapi.CurrentUser(r), catalogRow{appID: item.appID, env: item.env, teamID: item.teamID})
+			if authErr != nil {
+				httpapi.Error(w, 503, "catalog_unavailable", "Service mappings unavailable")
+				return
+			}
+			if !visible {
 				continue
 			}
-			value := b.Resource
-			if len(envs) > 1 {
-				value = env + ": " + value
+			// Hidden records cannot consume the visible result budget.
+			count++
+			if count > 1000 {
+				httpapi.Error(w, 422, "result_limit", "Narrow the environment scope")
+				return
 			}
-			cell := row.Cells[id]
-			if cell.State == "ok" {
-				if !strings.Contains("\n"+cell.Value+"\n", "\n"+value+"\n") {
-					cell.Value += ", " + value
+			var bindings []core.Binding
+			if err := json.Unmarshal(item.bindings, &bindings); err != nil {
+				httpapi.Error(w, 503, "catalog_unavailable", "Service mappings unavailable")
+				return
+			}
+			row, found := byName[item.key]
+			if !found {
+				row = &mappingRow{Service: item.key, Cells: map[string]mappingCell{}}
+				byName[item.key] = row
+				order = append(order, item.key)
+			}
+			for _, b := range bindings {
+				id := mappingKind(b.Kind)
+				if id == "" || strings.TrimSpace(b.Resource) == "" {
+					continue
 				}
-			} else {
-				cell = mappingCell{State: "ok", Value: value, Brand: b.Kind}
+				value := b.Resource
+				if len(envs) > 1 {
+					value = item.env + ": " + value
+				}
+				cell := row.Cells[id]
+				if cell.State == "ok" {
+					if !strings.Contains("\n"+cell.Value+"\n", "\n"+value+"\n") {
+						cell.Value += ", " + value
+					}
+				} else {
+					cell = mappingCell{State: "ok", Value: value, Brand: b.Kind}
+				}
+				row.Cells[id] = cell
 			}
-			row.Cells[id] = cell
 		}
-	}
-	if err == nil {
-		err = rows.Err()
-	}
-	if err != nil {
-		httpapi.Error(w, 503, "catalog_unavailable", "Service mappings unavailable")
-		return
+		if len(batch) < catalogPageSize {
+			break
+		}
+		last := batch[len(batch)-1]
+		cursorKey, cursorEnv, cursorID = last.key, last.env, last.appID
 	}
 	output := make([]mappingRow, 0, len(order))
 	for _, key := range order {

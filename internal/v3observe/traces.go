@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -49,8 +50,21 @@ func (s *Service) queryTraces(w http.ResponseWriter, r *http.Request, id string)
 		httpapi.Error(w, 422, "invalid_trace", "Trace ID must be 32 hexadecimal characters")
 		return nil, 0, false
 	}
-	targets, err := s.observationTargets(r.Context(), httpapi.CurrentUser(r), envs, "traces", r.URL.Query().Get("service"), []string{"tempo"})
+	service := strings.TrimSpace(r.URL.Query().Get("service"))
+	if len(service) > 200 {
+		httpapi.Error(w, 422, "invalid_service", "Service filter is too long")
+		return nil, 0, false
+	}
+	targets, err := s.observationTargets(r.Context(), httpapi.CurrentUser(r), envs, "traces", service, []string{"tempo"})
 	if err != nil {
+		if errors.Is(err, errObservationScopeLimit) {
+			httpapi.Error(w, 422, "scope_limit", "Narrow the service or environment")
+			return nil, 0, false
+		}
+		if errors.Is(err, errAmbiguousObservationBinding) {
+			httpapi.Error(w, 409, "ambiguous_binding", "Select one Tempo binding for this service and environment")
+			return nil, 0, false
+		}
 		if errors.Is(err, store.ErrForbidden) {
 			httpapi.Error(w, 403, "forbidden", "Traces are outside your authorized scope")
 			return nil, 0, false
@@ -144,66 +158,45 @@ func rowsFromSpans(spans []connectors.TraceSpan) []traceRow {
 	return rows
 }
 
+func traceHref(id, service string) string {
+	href := "/traces/" + id
+	if service != "" {
+		href += "?" + url.Values{"service": {service}}.Encode()
+	}
+	return href
+}
+
 func (s *Service) traces(w http.ResponseWriter, r *http.Request) {
+	view := r.URL.Query().Get("view")
+	if view != "" && view != "all" && view != "errors" && view != "slow" {
+		httpapi.Error(w, 422, "invalid_view", "Unknown saved trace view")
+		return
+	}
 	spans, took, ok := s.queryTraces(w, r, "")
 	if !ok {
 		return
 	}
 	rows := rowsFromSpans(spans)
-	view := r.URL.Query().Get("view")
 	filtered := make([]traceRow, 0, len(rows))
 	for _, row := range rows {
 		if view == "errors" && row.Errors == 0 || view == "slow" && row.DurationMS <= 1000 {
 			continue
 		}
+		row.Href = traceHref(row.ID, strings.TrimSpace(r.URL.Query().Get("service")))
 		filtered = append(filtered, row)
 	}
-	if view != "" && view != "all" && view != "errors" && view != "slow" {
-		httpapi.Error(w, 422, "invalid_view", "Unknown saved trace view")
-		return
-	}
-	facetCounts := map[string]int{}
-	scatter := make([]map[string]any, 0, len(filtered))
-	for i, row := range filtered {
-		for _, service := range row.Services {
-			facetCounts[service]++
-		}
-		scatter = append(scatter, map[string]any{"x": i, "y": row.DurationMS, "error": row.Errors > 0, "id": row.ID})
-	}
-	services := make([]string, 0, len(facetCounts))
-	for service := range facetCounts {
-		services = append(services, service)
-	}
-	sort.Strings(services)
-	facetItems := make([]map[string]any, 0, len(services))
-	for _, service := range services {
-		facetItems = append(facetItems, map[string]any{"value": service, "count": facetCounts[service]})
-	}
-	counts := make([][2]int, 0, 12)
-	axis := make([]string, 0, 12)
-	for i := 0; i < 12; i++ {
-		counts = append(counts, [2]int{})
-		axis = append(axis, time.Now().UTC().Add(time.Duration(i-11)*5*time.Minute).Format("15:04"))
-	}
-	// Counts are an actual returned trace sample, not a claim about all traffic.
-	for _, row := range filtered {
-		t, err := time.Parse(time.RFC3339Nano, row.Time)
-		if err != nil {
-			continue
-		}
-		bucket := 11 - int(time.Since(t).Minutes()/5)
-		if bucket >= 0 && bucket < len(counts) {
-			if row.Errors > 0 {
-				counts[bucket][1]++
-			} else {
-				counts[bucket][0]++
-			}
-		}
-	}
-	httpapi.WriteJSON(w, 200, map[string]any{"scope": "app", "total": len(filtered), "took": fmt.Sprintf("%.2f s", took.Seconds()),
-		"colors": map[string]string{}, "facets": []any{map[string]any{"key": "service", "label": "Service", "items": facetItems}},
-		"views":     []any{map[string]any{"id": "all", "label": "All", "query": ""}, map[string]any{"id": "errors", "label": "Errors", "query": ""}, map[string]any{"id": "slow", "label": "Slow > 1 s", "query": ""}},
-		"histogram": map[string]any{"counts": counts, "axis": axis}, "scatter": scatter, "items": filtered})
+	// Tempo search returns at most 20 traces across selected scopes. Neither a
+	// smaller search result nor an empty result proves a complete population:
+	// its query/index semantics do not supply an exact total, facets or time
+	// histogram. Keep observed rows explicitly marked as a sample and fail the
+	// full TraceList contract until a scoped aggregation source is connected.
+	w.Header().Set("Cache-Control", "no-store")
+	httpapi.WriteJSON(w, 503, map[string]any{
+		"error": map[string]string{"code": "trace_aggregation_unavailable", "message": "Complete trace counts, facets and histogram are not available from the registered source"},
+		"scope": "app", "view": view, "took": fmt.Sprintf("%.2f s", took.Seconds()),
+		"observed_sample": filtered,
+		"missing":         []string{"total", "facets", "histogram", "scatter_population"},
+	})
 }
 
 func (s *Service) traceDetail(w http.ResponseWriter, r *http.Request) {
@@ -293,5 +286,6 @@ func traceDetailPayload(id string, selected []connectors.TraceSpan) map[string]a
 	}
 	return map[string]any{"id": id, "trace_id": id, "op": root.Name, "duration_ms": last.Sub(selected[0].Start).Seconds() * 1000,
 		"time": selected[0].Start.UTC().Format(time.RFC3339Nano), "version": "", "colors": map[string]string{}, "spans": out,
+		"partial": true, "missing": []string{"complete_trace", "critical_path", "linked_logs", "linked_changes"},
 		"flame_note": "仅展示所选环境与服务授权范围内的 Span；跨服务链路可能不完整。", "graph": map[string]any{"nodes": nodes, "edges": edges}}
 }

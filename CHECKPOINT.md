@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-131 · 2026-09-29 · Alertmanager 静默创建意图台账
+
+- WAN-118 源提交 `dcdd789bfbf7ac1ed724b5b51af34ff7104b32f0` 在集成分支合入为 `a61d788`，只改 `internal/v3alertmanager` 并新增迁移 `100_v3_silence_operations.sql`。台账为创建操作持久保存操作者、环境/应用/团队归属、幂等键、规范化请求与固定时间窗、载荷哈希、上游 ID 和状态；保留/状态变更与管理审计同事务提交。保留和按键回查复核当前有效人类身份及作用域权限，宽范围需环境查看与管理双授权；外部写客户端对不确定结果作单独标记。没有生产调用者，也没有注册产品 `POST /silences` 或 `DELETE /silences/{id}`。
+- 独立只读审查确认没有当前可达的审批绕过，但 `beginCreate` 仍缺在同一事务核验具体持久提案及人工批准，故不得接入执行器或产品路由。超时/断线后缺按操作标记枚举上游并证明结果唯一性的生产对账，延迟执行前也缺剩余时间窗检查；删除仅有底层适配，反向代理 404 不能证明对象已删除。这些是产品写入的放行阻断，不是本次台账已完成的功能。
+- 集成分支在一次性 pgvector PG17 随机 schema 通过 `go test -p 1 ./internal/v3alertmanager -count=1 -timeout=180s`，容器已清理；`go vet ./internal/v3alertmanager ./cmd/aiops`、165 行主契约检查通过。未迁移现有业务库、写共享 Alertmanager、修改前端或完成产品验收；两条静默写主路由继续 `mock`，总数 **34/166 `implemented`**。本地提交尚未推送：此前向既有私有 GitHub 远端分支的两次推送被自动审批拒绝，须用户明确批准该目标后再正常推送，不能由其他会话代推。
+
 ## CP-130 · 2026-09-29 · 角色范围与公开 Web Markdown 来源增量
 
 - WAN-119 源提交 `86024e2` 在集成分支合入为 `bdb3984`，只改 `internal/v3admin`。角色/成员列表、详情和成员名按所选且已获准的环境筛选；只有兼具全局模块查看和全局 `environment.view` 才能盘点无环境归属记录。平面角色矩阵写入在事务内复核有效账号、全局 `roles.manage` 与全局 `environment.view`，最后管理者按同一有效人类资格计数；成功只返回 `{ok:true}`，避免写后重读角色详情。独立只读审查未见确定性越权，指出旧 OpenAPI 200 误写 `RoleDetail`，本轮已校正。无新增迁移。角色详情/编辑的五列矩阵仍不能表达独立 `execute` 和逐格作用域，也缺完整对象版本前置条件，主两行仍为 `mock`；`GET /roles` 的既有 `implemented` 状态不变。

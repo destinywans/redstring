@@ -133,12 +133,9 @@ func (s *Service) search(w http.ResponseWriter, r *http.Request) {
 			listError(w, err)
 			return
 		}
-		for _, item := range records {
+		for _, item := range balanced(records, 8) {
 			result = append(result, hit{Kind: item.Kind, ID: item.ID, Title: item.Title,
 				Subtitle: meta(r, item), Status: tone(item), Href: href(item)})
-			if len(result) == 8 {
-				break
-			}
 		}
 	}
 	// No persisted per-user navigation history exists yet. An empty recent list
@@ -160,7 +157,7 @@ func (s *Service) mentions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kind := strings.TrimSpace(r.URL.Query().Get("kind"))
-	if kind != "" && kind != "service" && kind != "incident" && kind != "conversation" {
+	if kind != "" && kind != "service" && kind != "incident" && kind != "investigation" && kind != "conversation" && kind != "person" {
 		httpapi.Error(w, 422, "unsupported_kind", "Mention kind is not available")
 		return
 	}
@@ -170,12 +167,9 @@ func (s *Service) mentions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := []candidate{}
-	for _, item := range records {
+	for _, item := range balanced(records, 30) {
 		items = append(items, candidate{Kind: item.Kind, ID: item.ID, Label: item.Title,
 			Meta: meta(r, item), Status: tone(item), Tier: item.Tier})
-		if len(items) == 30 {
-			break
-		}
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items})
 }
@@ -186,7 +180,7 @@ func (s *Service) preview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kind, id := r.PathValue("kind"), r.PathValue("id")
-	if kind != "service" && kind != "incident" && kind != "conversation" {
+	if kind != "service" && kind != "incident" && kind != "investigation" && kind != "conversation" && kind != "person" {
 		httpapi.Error(w, 503, "preview_unavailable", "This reference kind has no verified preview source")
 		return
 	}
@@ -253,11 +247,44 @@ func (s *Service) commands(w http.ResponseWriter, r *http.Request) {
 	httpapi.Error(w, 503, "commands_unavailable", "Command catalog is not configured")
 }
 
+// A scoped directory reader may mention only active human accounts whose
+// effective assignments overlap the selected environment. A global members
+// reader has the same unassigned-account visibility as GET /members. The
+// object read below repeats this predicate so a guessed ID cannot bypass it.
+const personSource = `SELECT DISTINCT ON (u.id) u.id,u.name,selected.env
+FROM users u CROSS JOIN unnest($1::text[]) AS selected(env)
+WHERE u.deleted_at IS NULL AND NOT u.disabled AND u.source<>'settings_demo'
+ AND u.v3_identity_kind='human'
+ AND ($3='' OR aiops_search_match(u.id||' '||u.name,$3))
+ AND ($4='' OR u.id=$4)
+ AND EXISTS (SELECT 1 FROM v3_effective_role_grants actor
+  WHERE actor.user_id=$2 AND actor.module='members' AND actor.action='view'
+  AND ((actor.scope_kind='global' AND actor.scope_id='*')
+    OR (actor.scope_kind='environment' AND actor.scope_id=selected.env)))
+ AND (EXISTS (SELECT 1 FROM v3_effective_role_grants actor
+       WHERE actor.user_id=$2 AND actor.module='members' AND actor.action='view'
+       AND actor.scope_kind='global' AND actor.scope_id='*')
+   OR EXISTS (SELECT 1 FROM v3_effective_role_grants target
+       WHERE target.user_id=u.id AND (
+        (target.scope_kind='global' AND target.scope_id='*')
+        OR (target.scope_kind='environment' AND target.scope_id=selected.env)
+        OR (target.scope_kind='application' AND EXISTS (
+         SELECT 1 FROM v3_application_environments vae
+         JOIN applications a ON a.id=vae.application_id AND NOT a.archived
+         JOIN application_environments ae ON ae.application_id=a.id AND ae.key=vae.environment_id AND NOT ae.archived
+         WHERE vae.application_id=target.scope_id AND vae.environment_id=selected.env))
+        OR (target.scope_kind='team' AND EXISTS (
+         SELECT 1 FROM applications a
+         JOIN v3_application_environments vae ON vae.application_id=a.id
+         JOIN application_environments ae ON ae.application_id=a.id AND ae.key=vae.environment_id AND NOT ae.archived
+         WHERE a.owner_team_id=target.scope_id AND NOT a.archived AND vae.environment_id=selected.env)))))
+ORDER BY u.id,selected.env LIMIT $5`
+
 // records uses the existing SQL pinyin matcher to narrow bounded persisted
 // candidates. The policy check happens before any candidate is serialized.
 func (s *Service) records(r *http.Request, envs []string, q, kind string) ([]record, error) {
 	items := []record{}
-	limit := 50 // A blank @ query shows the newest candidates, not an unbounded catalog.
+	limit := 50 // A blank @ query shows bounded persisted candidates.
 	if q != "" {
 		limit = 101
 	}
@@ -320,6 +347,7 @@ ORDER BY i.updated_at DESC,i.id LIMIT $3`, envs, q, limit, httpapi.CurrentUser(r
 		if err != nil {
 			return nil, err
 		}
+		count := 0
 		for rows.Next() {
 			var v record
 			v.Kind = "incident"
@@ -327,6 +355,7 @@ ORDER BY i.updated_at DESC,i.id LIMIT $3`, envs, q, limit, httpapi.CurrentUser(r
 				break
 			}
 			items = append(items, v)
+			count++
 		}
 		if err == nil {
 			err = rows.Err()
@@ -335,7 +364,45 @@ ORDER BY i.updated_at DESC,i.id LIMIT $3`, envs, q, limit, httpapi.CurrentUser(r
 		if err != nil {
 			return nil, err
 		}
-		if q != "" && len(items) > 100 {
+		if q != "" && count > 100 {
+			return nil, errTooBroad
+		}
+	}
+	if kind == "" || kind == "investigation" {
+		rows, err := s.DB.Query(r.Context(), `SELECT i.id,i.title,ae.key,i.application_id,COALESCE(a.owner_team_id,'')
+FROM investigations i
+JOIN applications a ON a.id=i.application_id AND NOT a.archived
+JOIN application_environments ae ON ae.id=i.environment_id AND ae.application_id=i.application_id AND NOT ae.archived
+JOIN v3_application_environments vae ON vae.application_id=i.application_id AND vae.environment_id=ae.key
+WHERE ae.key=ANY($1::text[]) AND ($2='' OR aiops_search_match(i.id||' '||i.title,$2))
+AND EXISTS (SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$4
+ AND g.module='canvas' AND g.action='view' AND (
+  (g.scope_kind='global' AND g.scope_id='*') OR
+  (g.scope_kind='environment' AND g.scope_id=ae.key) OR
+  (g.scope_kind='application' AND g.scope_id=i.application_id) OR
+  (a.owner_team_id IS NOT NULL AND g.scope_kind='team' AND g.scope_id=a.owner_team_id)))
+ORDER BY i.updated_at DESC,i.id LIMIT $3`, envs, q, limit, httpapi.CurrentUser(r).ID)
+		if err != nil {
+			return nil, err
+		}
+		count := 0
+		for rows.Next() {
+			var v record
+			v.Kind = "investigation"
+			if err = rows.Scan(&v.ID, &v.Title, &v.EnvironmentID, &v.ApplicationID, &v.TeamID); err != nil {
+				break
+			}
+			items = append(items, v)
+			count++
+		}
+		if err == nil {
+			err = rows.Err()
+		}
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		if q != "" && count > 100 {
 			return nil, errTooBroad
 		}
 	}
@@ -355,6 +422,32 @@ ORDER BY updated_at DESC,id LIMIT $4`, httpapi.CurrentUser(r).ID, envs, q, limit
 			var v record
 			v.Kind = "conversation"
 			if err = rows.Scan(&v.ID, &v.Title, &v.EnvironmentID, &v.State); err != nil {
+				break
+			}
+			items = append(items, v)
+			count++
+		}
+		if err == nil {
+			err = rows.Err()
+		}
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		if q != "" && count > 100 {
+			return nil, errTooBroad
+		}
+	}
+	if kind == "" || kind == "person" {
+		rows, err := s.DB.Query(r.Context(), personSource, envs, httpapi.CurrentUser(r).ID, q, "", limit)
+		if err != nil {
+			return nil, err
+		}
+		count := 0
+		for rows.Next() {
+			var v record
+			v.Kind = "person"
+			if err = rows.Scan(&v.ID, &v.Title, &v.EnvironmentID); err != nil {
 				break
 			}
 			items = append(items, v)
@@ -392,6 +485,44 @@ ORDER BY updated_at DESC,id LIMIT $4`, httpapi.CurrentUser(r).ID, envs, q, limit
 	return visible, nil
 }
 
+// Reserve a fair share of bounded palette slots for each visible kind, then
+// group the selected rows by kind as the Composer expects.
+func balanced(items []record, max int) []record {
+	if len(items) <= max {
+		return items
+	}
+	order := []string{}
+	buckets := make(map[string][]record)
+	for _, item := range items {
+		if _, ok := buckets[item.Kind]; !ok {
+			order = append(order, item.Kind)
+		}
+		buckets[item.Kind] = append(buckets[item.Kind], item)
+	}
+	selected := make(map[string][]record, len(order))
+	count := 0
+	for count < max {
+		progress := false
+		for _, kind := range order {
+			if count == max || len(buckets[kind]) == 0 {
+				continue
+			}
+			selected[kind] = append(selected[kind], buckets[kind][0])
+			buckets[kind] = buckets[kind][1:]
+			count++
+			progress = true
+		}
+		if !progress {
+			break
+		}
+	}
+	out := make([]record, 0, count)
+	for _, kind := range order {
+		out = append(out, selected[kind]...)
+	}
+	return out
+}
+
 func (s *Service) recordByID(r *http.Request, envs []string, kind, id string) (record, error) {
 	v := record{Kind: kind}
 	var err error
@@ -414,6 +545,15 @@ JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.
 JOIN v3_application_environments ve ON ve.application_id=i.application_id AND ve.environment_id=e.key
 JOIN applications a ON a.id=i.application_id AND NOT a.archived
 WHERE i.id=$1 AND e.key=ANY($2::text[])`, id, envs).Scan(&v.ID, &v.Title, &v.EnvironmentID, &v.ApplicationID, &v.State)
+	} else if kind == "investigation" {
+		err = s.DB.QueryRow(r.Context(), `SELECT i.id,i.title,ae.key,i.application_id,COALESCE(a.owner_team_id,'')
+FROM investigations i
+JOIN applications a ON a.id=i.application_id AND NOT a.archived
+JOIN application_environments ae ON ae.id=i.environment_id AND ae.application_id=i.application_id AND NOT ae.archived
+JOIN v3_application_environments vae ON vae.application_id=i.application_id AND vae.environment_id=ae.key
+WHERE i.id=$1 AND ae.key=ANY($2::text[])`, id, envs).Scan(&v.ID, &v.Title, &v.EnvironmentID, &v.ApplicationID, &v.TeamID)
+	} else if kind == "person" {
+		err = s.DB.QueryRow(r.Context(), personSource, envs, httpapi.CurrentUser(r).ID, "", id, 1).Scan(&v.ID, &v.Title, &v.EnvironmentID)
 	} else {
 		err = s.DB.QueryRow(r.Context(), `SELECT id,title,environment_id,status FROM v3_conversations
 WHERE id=$1 AND owner_id=$2 AND environment_id=ANY($3)`, id, httpapi.CurrentUser(r).ID, envs).Scan(&v.ID, &v.Title, &v.EnvironmentID, &v.State)
@@ -430,11 +570,16 @@ func (s *Service) authorize(r *http.Request, v record) error {
 		module = "conversation"
 	} else if v.Kind == "service" {
 		module = "services"
+	} else if v.Kind == "investigation" {
+		module = "canvas"
+	} else if v.Kind == "person" {
+		module = "members"
 	}
 	err := s.Access.Authorize(r.Context(), httpapi.CurrentUser(r), rbac.V3Decision{
 		Module: module, Action: "view", EnvironmentID: v.EnvironmentID, ApplicationID: v.ApplicationID,
 	})
-	if err == nil || !errors.Is(err, store.ErrForbidden) || v.Kind != "service" || v.TeamID == "" {
+	if err == nil || !errors.Is(err, store.ErrForbidden) ||
+		(v.Kind != "service" && v.Kind != "investigation") || v.TeamID == "" {
 		return err
 	}
 	return s.Access.Authorize(r.Context(), httpapi.CurrentUser(r), rbac.V3Decision{
@@ -485,6 +630,14 @@ func href(v record) string {
 	if v.Kind == "service" {
 		return "/services/" + url.PathEscape(v.ID)
 	}
+	if v.Kind == "investigation" {
+		// The current web router recognizes only demo INV-* IDs as investigation
+		// canvases. Real persisted IDs can still be found on the canvas list.
+		return "/canvases"
+	}
+	if v.Kind == "person" {
+		return "/settings/members"
+	}
 	return "/conversations/" + url.PathEscape(v.ID)
 }
 
@@ -502,6 +655,18 @@ func label(r *http.Request, kind string) string {
 		}
 		return "事件"
 	}
+	if kind == "investigation" {
+		if en {
+			return "Investigation"
+		}
+		return "调查"
+	}
+	if kind == "person" {
+		if en {
+			return "Person"
+		}
+		return "人员"
+	}
 	if en {
 		return "Conversation"
 	}
@@ -509,6 +674,9 @@ func label(r *http.Request, kind string) string {
 }
 
 func meta(r *http.Request, v record) string {
+	if v.Kind == "person" {
+		return label(r, v.Kind)
+	}
 	if v.EnvironmentID == "" {
 		return label(r, v.Kind)
 	}

@@ -358,3 +358,15 @@ html[data-v3-density="compact"] .v3-content {
   color: var(--text);
   background: var(--hover);
 }
+
+/* A flush page that renders plain content (no split) still needs to scroll. */
+.v3-page-body.flush > .v3-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+/* Cards in a content column keep their natural height; the column scrolls instead. */
+.v3-content > .v3-card,
+.v3-content > .v3-panel {
+  flex-shrink: 0;
+}

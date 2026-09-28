@@ -373,6 +373,10 @@
   gap: 12px;
   padding: 16px 24px 32px;
 }
+/* Panels keep their natural height; the body scrolls instead of squashing them. */
+.metrics-body > * {
+  flex-shrink: 0;
+}
 .metrics-row {
   display: flex;
   gap: 12px;

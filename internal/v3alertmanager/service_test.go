@@ -12,6 +12,7 @@ import (
 
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
@@ -22,6 +23,17 @@ func (fakeStore) Session(context.Context, string) (core.User, error) {
 }
 
 type fakeEnvAccess struct{ allowStaging bool }
+
+type fakeCatalog struct{}
+
+func (fakeCatalog) Applications(context.Context, []string) ([]Application, error) { return nil, nil }
+func (fakeCatalog) EnvironmentAdmin(context.Context, core.User, string) (bool, error) {
+	return true, nil
+}
+
+type fakeSilenceAccess struct{}
+
+func (fakeSilenceAccess) Authorize(context.Context, core.User, rbac.V3Decision) error { return nil }
 
 func (f fakeEnvAccess) AuthorizeEnvironment(_ context.Context, _ core.User, env string) error {
 	if env == "staging" && !f.allowStaging {
@@ -74,16 +86,16 @@ func testServerWithAccess(t *testing.T, source Source, allowStaging bool) *httpa
 	if err != nil {
 		t.Fatal(err)
 	}
-	(&Service{Source: source, EnvironmentLabels: map[string]string{"test": "environment", "staging": "environment"},
+	(&Service{Source: source, Catalog: fakeCatalog{}, Access: fakeSilenceAccess{}, EnvironmentLabels: map[string]string{"test": "environment", "staging": "environment"},
 		Now: func() time.Time { return time.Date(2026, 9, 28, 1, 0, 0, 0, time.UTC) }}).Register(api)
 	return api
 }
 
-func TestSilenceListAllReportsUnavailableEnvironmentWithoutZeroingIt(t *testing.T) {
+func TestSilenceListAllFailsWhenOneAuthorizedSourceIsUnavailable(t *testing.T) {
 	source := fakeSource{silences: map[string][]Silence{"test": {silence(t, "s1", "active", "test")}}, fail: map[string]bool{"staging": true}}
 	w := request(t, testServerWithAccess(t, source, true), "/api/v1/silences?state=all", "all")
-	if w.Code != 206 || !strings.Contains(w.Body.String(), `"unavailable_environments":["staging"]`) || !strings.Contains(w.Body.String(), `"id":"s1"`) {
-		t.Fatalf("partial source status=%d body=%s", w.Code, w.Body.String())
+	if w.Code != 503 || strings.Contains(w.Body.String(), `"counts"`) || strings.Contains(w.Body.String(), `"id":"s1"`) {
+		t.Fatalf("incomplete source status=%d body=%s", w.Code, w.Body.String())
 	}
 }
 
@@ -105,6 +117,48 @@ func silence(t *testing.T, id, state, matcher string) Silence {
 		t.Fatal(err)
 	}
 	return s
+}
+
+func TestMixedApplicationMatchersCannotEstablishOwnership(t *testing.T) {
+	for _, extra := range []Matcher{
+		{Name: "application", Value: "owned", IsEqual: false},
+		{Name: "application", Value: "owned|hidden", IsEqual: true, IsRegex: true},
+	} {
+		s := silence(t, "mixed-app", "active", "test")
+		s.Matchers = append(s.Matchers, Matcher{Name: "application", Value: "owned", IsEqual: true}, extra)
+		if id, exact, ambiguous := exactSilenceApplication(s); id != "" || exact || !ambiguous {
+			t.Fatalf("mixed application matcher was attributed: id=%q exact=%v ambiguous=%v", id, exact, ambiguous)
+		}
+	}
+}
+
+func TestMixedEnvironmentMatchersCannotEstablishOwnership(t *testing.T) {
+	for _, extra := range []Matcher{
+		{Name: "environment", Value: "test", IsEqual: false},
+		{Name: "environment", Value: "test|staging", IsEqual: true, IsRegex: true},
+	} {
+		s := silence(t, "mixed-env", "active", "test")
+		s.Matchers = append(s.Matchers, extra, Matcher{Name: "application", Value: "owned", IsEqual: true})
+		if got := classifySilence(s, "environment", "test", map[string]string{"test": "environment", "staging": "environment"}); got != scopeOther {
+			t.Fatalf("mixed environment matcher was attributed: scope=%v", got)
+		}
+	}
+}
+
+func TestVisibleSilenceAffectsUseApplicationKeyAndDeduplicatePerAlert(t *testing.T) {
+	alert := func(env, app string, ids ...string) Alert {
+		a := Alert{Labels: map[string]string{"environment": env, "application": app}}
+		a.Status.SilencedBy = ids
+		return a
+	}
+	counts := countVisibleSilencedAlerts([]Alert{
+		alert("test", "checkout", "app-silence", "app-silence", "wide", "hidden"),
+		alert("test", "other", "app-silence", "wide"),
+		alert("staging", "checkout", "app-silence", "wide"),
+	}, "environment", "test", map[string]string{"app-silence": "checkout", "wide": ""})
+	if counts["app-silence"] != 1 || counts["wide"] != 2 || counts["hidden"] != 0 || len(counts) != 2 {
+		t.Fatalf("incorrect visible affects: %+v", counts)
+	}
 }
 
 func TestSilenceListScopesFiltersAndCountsObservedAlerts(t *testing.T) {

@@ -282,18 +282,19 @@ S['V3ConnectorType'] = obj({**fieldnames('brand name kind version webhook_url'),
 v3_route('get','/connector-types/{type}','Read one supported connector type',response=ref('V3ConnectorType'))
 v3_route('get','/connectors','List configured connectors',role='admin',response=ref('V3ConnectorList'),
     query=[v3_query(x) for x in ['category','q']],
-    desc='Counts cover all currently authorized connector registrations before category or search filters. Status ok/error reflects a persisted connection test from the last 15 minutes, not continuous health; older results become unverified with their last-check time. More than 1000 visible registrations returns 413 instead of an incomplete unpaged result.')
+    desc='Counts cover all currently authorized connector registrations before category or search filters. Disabled registrations are unverified and identified in meta, with no enabled tools. Status ok/error reflects a persisted connection test from the last 15 minutes, not continuous health; older results become unverified with their last-check time. More than 1000 visible registrations returns 413 instead of an incomplete unpaged result.')
 v3_route('get','/connectors/{id}','Read connector configuration',role='admin',response=ref('V3ConnectorDetail'))
 v3_route('post','/connectors','Create a connector',role='admin',
     body=obj({'type':string(),'url':string(),'auth':string(),'credential_ref':string(),
         'tools':arr(string()),'webhook':v3_bool()},['type','url','auth']),
-    response=obj({'id':string()},['id']),status=201)
+    response=obj({'id':string()},['id']),status=201,
+    desc='Creates an audited environment-scoped registration. The current GitLab wizard omits Vault credential and project scope; its request is stored disabled and unverified. webhook=true records intent only and does not provision a remote Webhook. A disabled registration cannot be probed or have tools enabled; activation after credentials and explicit scope is a separate pending contract. Fully configured non-GitLab read-only registrations may be enabled on creation.')
 v3_route('patch','/connectors/{id}','Update connector configuration',role='admin',
     body=obj({'tools':arr(obj({'name':string(),'enabled':v3_bool()}))},['tools']),
     response=obj({'ok':v3_bool(),'tools':arr(obj({'name':string(),'desc':string(),'enabled':v3_bool()}))}))
 v3_route('post','/connectors/{id}/test','Probe configured connector',role='admin',
     response=obj({'ok':v3_bool(),'latency_ms':integer(),'error_code':string()}),
-    desc='Failure returns an explicit error; a configured adapter is not silently reported healthy.')
+    desc='Disabled registrations return 409 without contacting the provider. Other failures return an explicit error; a configured adapter is not silently reported healthy.')
 
 # MCP registrations are legacy application-bound records. Only an explicitly
 # reviewed registration/environment binding may appear in V3; the migration
@@ -423,7 +424,7 @@ v3_route('get','/silences','Read environment-scoped Alertmanager silences',
         'unscoped_present':v3_bool()},
         ['items','counts','partial','unavailable_environments','unscoped_present']),
     query=[v3_query('state',string(enum=['active','planned','expired','all']))],
-    desc='Only provider silences with an exact configured environment-label matcher are returned. Current affects is counted from provider alerts silenced by each ID, not inferred from matcher overlap. Other-environment records do not affect counts, status, or coverage; broad records set only unscoped_present. Unconfigured or failed sources return 503; broad records or partial environment failure return 206. More than 500 visible silences returns 503 without partial counts; the shared provider response is bounded to 2 MiB. Still incomplete for application/team-scoped grants and larger shared upstream responses.')
+    desc='Only provider silences with an exact positive non-regex environment matcher are returned. Application-scoped records also require an explicit server-owned application-label-to-persisted-ID binding to an active application in that environment and a current V3 application/team view grant. Exact environment silences with wider application scope require environment-wide silence view and manage grants. Ambiguous matchers are hidden. Affects comes from provider-observed alerts restricted to the authorized environment and application; counts cover the visible records. Broad records without exact environment binding are hidden and set unscoped_present for environment administrators (206). An authorized source failure, a duplicate visible ID or more than 500 visible records fails closed, without partial counts. Provider responses are bounded to 2 MiB.')
 P['/silences']['get']['responses']['206'] = P['/silences']['get']['responses']['200']
 v3_route('get','/inhibitions','Read environment-scoped Alertmanager inhibition configuration',
     response=obj({'items':arr(ref('V3InhibitionRead')),'partial':v3_bool(),

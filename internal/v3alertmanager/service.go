@@ -2,13 +2,17 @@ package v3alertmanager
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/rbac"
+	"github.com/wans/aiops-canvas/internal/store"
 )
 
 // Source is a trusted, environment-bound Alertmanager client. The service
@@ -20,11 +24,18 @@ type Source interface {
 }
 
 type Service struct {
-	Source Source
+	Source  Source
+	Catalog Catalog
+	Access  Access
 	// EnvironmentLabels maps a V3 environment to the Alertmanager label used
 	// for its exact scope. Values come from trusted server configuration.
 	EnvironmentLabels map[string]string
-	Now               func() time.Time
+	// ApplicationBindings maps environment -> exact Alertmanager application
+	// label value -> persisted application ID. A catalog key is mutable and
+	// cannot establish ownership of a silence by itself. Only explicit,
+	// server-owned bindings can attribute an exact application silence.
+	ApplicationBindings map[string]map[string]string
+	Now                 func() time.Time
 }
 
 type silenceView struct {
@@ -45,7 +56,7 @@ type remainingView struct {
 
 func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/silences", "viewer", s.List)
-	api.MarkV3Route("GET /api/v1/silences", "silences", "view")
+	api.MarkV3ObjectRoute("GET /api/v1/silences", "silences", "view")
 	api.Register("GET /api/v1/inhibitions", "viewer", s.Inhibitions)
 	api.MarkV3Route("GET /api/v1/inhibitions", "silences", "view")
 }
@@ -68,53 +79,156 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, http.StatusServiceUnavailable, "alertmanager_unconfigured", "Alertmanager is not configured")
 		return
 	}
+	if s.Catalog == nil || s.Access == nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, "silence_scope_unavailable", "Silence authorization is unavailable")
+		return
+	}
+	apps, err := s.Catalog.Applications(r.Context(), scope.EnvironmentIDs)
+	if err != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, "silence_catalog_unavailable", "Application catalog is unavailable")
+		return
+	}
+	user := httpapi.CurrentUser(r)
+	currentApps := make(map[string]map[string]Application)
+	for _, app := range apps {
+		if app.ID == "" || !containsSilenceEnvironment(scope.EnvironmentIDs, app.EnvironmentID) {
+			httpapi.Error(w, http.StatusServiceUnavailable, "silence_catalog_unavailable", "Application catalog contains invalid ownership")
+			return
+		}
+		if currentApps[app.EnvironmentID] == nil {
+			currentApps[app.EnvironmentID] = make(map[string]Application)
+		}
+		if _, duplicate := currentApps[app.EnvironmentID][app.ID]; duplicate {
+			httpapi.Error(w, http.StatusServiceUnavailable, "silence_catalog_unavailable", "Application identity is not unique in its environment")
+			return
+		}
+		currentApps[app.EnvironmentID][app.ID] = app
+	}
+	allowedApps := make(map[string]map[string]bool)
+	for _, env := range scope.EnvironmentIDs {
+		allowedApps[env] = make(map[string]bool)
+		for labelValue, applicationID := range s.ApplicationBindings[env] {
+			if labelValue == "" || applicationID == "" {
+				continue
+			}
+			app, active := currentApps[env][applicationID]
+			if !active {
+				// An old binding must not transfer to a newly created app
+				// just because the provider label has been reused.
+				continue
+			}
+			decision := rbac.V3Decision{Module: "silences", Action: "view", EnvironmentID: app.EnvironmentID, ApplicationID: app.ID}
+			allowed, authErr := silenceAllowed(r.Context(), s.Access, user, decision)
+			if authErr != nil {
+				httpapi.Error(w, http.StatusServiceUnavailable, "silence_authorization_unavailable", "Silence authorization is unavailable")
+				return
+			}
+			if !allowed && app.OwnerTeamID != "" {
+				decision.ApplicationID = ""
+				decision.TeamID = app.OwnerTeamID
+				allowed, authErr = silenceAllowed(r.Context(), s.Access, user, decision)
+				if authErr != nil {
+					httpapi.Error(w, http.StatusServiceUnavailable, "silence_authorization_unavailable", "Silence authorization is unavailable")
+					return
+				}
+			}
+			allowedApps[env][labelValue] = allowed
+		}
+	}
+	admin := make(map[string]bool)
+	readable := make(map[string]bool)
+	for _, env := range scope.EnvironmentIDs {
+		broadAllowed, authErr := silenceAllowed(r.Context(), s.Access, user,
+			rbac.V3Decision{Module: "silences", Action: "view", EnvironmentID: env})
+		if authErr != nil {
+			httpapi.Error(w, http.StatusServiceUnavailable, "silence_authorization_unavailable", "Silence authorization is unavailable")
+			return
+		}
+		grant, catalogErr := s.Catalog.EnvironmentAdmin(r.Context(), user, env)
+		if catalogErr != nil {
+			httpapi.Error(w, http.StatusServiceUnavailable, "silence_catalog_unavailable", "Silence grants are unavailable")
+			return
+		}
+		admin[env] = broadAllowed && grant
+		readable[env] = admin[env]
+		for _, allowed := range allowedApps[env] {
+			readable[env] = readable[env] || allowed
+		}
+	}
+	anyReadable := false
+	for _, canRead := range readable {
+		anyReadable = anyReadable || canRead
+	}
+	if !anyReadable {
+		httpapi.Error(w, http.StatusForbidden, "forbidden", "Silence access is denied")
+		return
+	}
 	now := time.Now()
 	if s.Now != nil {
 		now = s.Now()
 	}
 	all := []silenceView{}
-	unavailable := []string{}
+	seenVisibleIDs := make(map[string]bool)
 	unscopedPresent := false
 	for _, env := range scope.EnvironmentIDs {
+		if !readable[env] {
+			continue
+		}
 		label := s.EnvironmentLabels[env]
 		if label == "" {
-			unavailable = append(unavailable, env)
-			continue
+			httpapi.Error(w, http.StatusServiceUnavailable, "alertmanager_unavailable", "An authorized Alertmanager source is unavailable")
+			return
 		}
 		silences, err := s.Source.ListSilences(r.Context(), env)
 		if err != nil {
-			unavailable = append(unavailable, env)
-			continue
+			httpapi.Error(w, http.StatusServiceUnavailable, "alertmanager_unavailable", "An authorized Alertmanager source is unavailable")
+			return
 		}
-		scoped := make([]Silence, 0, len(silences))
+		type visibleSilence struct {
+			record         Silence
+			applicationKey string
+		}
+		scoped := make([]visibleSilence, 0, len(silences))
 		for _, silence := range silences {
 			switch classifySilence(silence, label, env, s.EnvironmentLabels) {
 			case scopeOwn:
-				scoped = append(scoped, silence)
+				appKey, exact, ambiguous := exactSilenceApplication(silence)
+				if exact && allowedApps[env][appKey] {
+					scoped = append(scoped, visibleSilence{silence, appKey})
+				} else if !exact && !ambiguous && admin[env] {
+					scoped = append(scoped, visibleSilence{record: silence})
+				}
 			case scopeBroad:
-				unscopedPresent = true
+				if admin[env] {
+					unscopedPresent = true
+				}
 			}
 		}
 		alerts := []Alert{}
+		if len(all)+len(scoped) > maxRecords {
+			httpapi.Error(w, http.StatusServiceUnavailable, "silence_limit", "Silence result exceeds limit")
+			return
+		}
+		visibleKeys := make(map[string]string, len(scoped))
+		for _, visible := range scoped {
+			if seenVisibleIDs[visible.record.ID] {
+				httpapi.Error(w, http.StatusServiceUnavailable, "alertmanager_invalid", "Alertmanager returned a duplicate visible silence")
+				return
+			}
+			seenVisibleIDs[visible.record.ID] = true
+			visibleKeys[visible.record.ID] = visible.applicationKey
+		}
 		if len(scoped) > 0 {
 			alerts, err = s.Source.ListAlerts(r.Context(), env)
 			if err != nil {
-				unavailable = append(unavailable, env)
-				continue
-			}
-		}
-		affects := countSilencedAlerts(alerts, label, env)
-		for _, silence := range scoped {
-			if len(all) == maxRecords {
-				httpapi.Error(w, http.StatusServiceUnavailable, "silence_limit", "Silence result exceeds limit")
+				httpapi.Error(w, http.StatusServiceUnavailable, "alertmanager_unavailable", "An authorized Alertmanager source is unavailable")
 				return
 			}
-			all = append(all, projectSilence(silence, affects[silence.ID], now, r.Header.Get("Accept-Language")))
 		}
-	}
-	if len(unavailable) == len(scope.EnvironmentIDs) {
-		httpapi.Error(w, http.StatusServiceUnavailable, "alertmanager_unavailable", "No authorized Alertmanager source is available")
-		return
+		affects := countVisibleSilencedAlerts(alerts, label, env, visibleKeys)
+		for _, visible := range scoped {
+			all = append(all, projectSilence(visible.record, affects[visible.record.ID], now, r.Header.Get("Accept-Language")))
+		}
 	}
 	counts := map[string]int{"active": 0, "planned": 0, "expired": 0}
 	items := []silenceView{}
@@ -126,13 +240,57 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	status := http.StatusOK
-	if len(unavailable) > 0 || unscopedPresent {
+	if unscopedPresent {
 		status = http.StatusPartialContent
 	}
 	// A foreign exact-environment record never changes the response status or
 	// coverage flag. Truly broad records only set a boolean, never a count.
 	httpapi.WriteJSON(w, status, map[string]any{"items": items, "counts": counts, "partial": status == http.StatusPartialContent,
-		"unavailable_environments": unavailable, "unscoped_present": unscopedPresent})
+		"unavailable_environments": []string{}, "unscoped_present": unscopedPresent})
+}
+
+func containsSilenceEnvironment(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func silenceAllowed(ctx context.Context, access Access, user core.User, decision rbac.V3Decision) (bool, error) {
+	err := access.Authorize(ctx, user, decision)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, store.ErrForbidden) {
+		return false, nil
+	}
+	return false, err
+}
+
+// A unique, positive equality matcher is the only trusted application link.
+// Once an exact application is present, any other matcher on that label makes
+// ownership ambiguous, including a regex or negative matcher.
+func exactSilenceApplication(s Silence) (id string, exact bool, ambiguous bool) {
+	otherConstraint := false
+	for _, matcher := range s.Matchers {
+		if matcher.Name != "application" {
+			continue
+		}
+		if !matcher.IsEqual || matcher.IsRegex || matcher.Value == "" {
+			otherConstraint = true
+			continue
+		}
+		if id != "" && id != matcher.Value {
+			return "", false, true
+		}
+		id = matcher.Value
+	}
+	if id != "" && otherConstraint {
+		return "", false, true
+	}
+	return id, id != "", false
 }
 
 type recordScope uint8
@@ -146,24 +304,29 @@ const (
 func classifySilence(s Silence, label, env string, labels map[string]string) recordScope {
 	own := false
 	other := false
+	mixed := false
 	for _, matcher := range s.Matchers {
-		if !matcher.IsEqual || matcher.IsRegex {
-			continue
-		}
 		if matcher.Name == label {
-			if matcher.Value == env {
+			switch {
+			case !matcher.IsEqual || matcher.IsRegex:
+				mixed = true
+			case matcher.Value == env:
 				own = true
-			} else {
+			default:
 				other = true
 			}
 		}
 		for otherEnv, otherLabel := range labels {
-			if otherEnv != env && matcher.Name == otherLabel && matcher.Value == otherEnv {
-				other = true
+			if otherEnv != env && matcher.Name == otherLabel {
+				if matcher.IsEqual && !matcher.IsRegex && matcher.Value == otherEnv {
+					other = true
+				} else if otherLabel != label {
+					mixed = true
+				}
 			}
 		}
 	}
-	if other {
+	if other || (own && mixed) {
 		return scopeOther
 	}
 	if own {
@@ -172,10 +335,11 @@ func classifySilence(s Silence, label, env string, labels map[string]string) rec
 	return scopeBroad
 }
 
-// Count only alerts in the requested environment and count a duplicate
-// silencedBy ID on one alert once. This avoids rescanning the full shared
-// upstream for every visible silence.
-func countSilencedAlerts(alerts []Alert, label, env string) map[string]int {
+// Scan the shared upstream once. A visible app-owned silence counts only
+// alerts with its exact application key; environment-wide admin records count
+// all alerts in the selected environment. Hidden silence IDs never enter the
+// aggregation map.
+func countVisibleSilencedAlerts(alerts []Alert, label, env string, visibleKeys map[string]string) map[string]int {
 	counts := make(map[string]int)
 	for _, alert := range alerts {
 		if alert.Labels[label] != env {
@@ -183,10 +347,12 @@ func countSilencedAlerts(alerts []Alert, label, env string) map[string]int {
 		}
 		seen := make(map[string]bool, len(alert.Status.SilencedBy))
 		for _, id := range alert.Status.SilencedBy {
-			if id != "" && !seen[id] {
-				counts[id]++
-				seen[id] = true
+			key, visible := visibleKeys[id]
+			if !visible || seen[id] || (key != "" && alert.Labels["application"] != key) {
+				continue
 			}
+			counts[id]++
+			seen[id] = true
 		}
 	}
 	return counts

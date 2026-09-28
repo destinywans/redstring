@@ -68,10 +68,10 @@ func TestConnectorListCompleteScopedCountsAndPersistedProbeState(t *testing.T) {
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
  ('viewer','environment','view','environment','dev'),
  ('viewer','connectors','view','environment','dev')`,
-		`INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,tools,status,last_checked_at) VALUES
- ('ok','dev','prometheus','Unique health connector','observe','http://127.0.0.1:9090','none','[]','ok',now()),
- ('failed','dev','loki','Loki','observe','http://127.0.0.1:3100','none','[]','error',now()),
- ('hidden','test','grafana','Grafana','observe','http://127.0.0.1:3000','none','[]','ok',now())`,
+		`INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,tools,status,last_checked_at,enabled) VALUES
+ ('ok','dev','prometheus','Unique health connector','observe','http://127.0.0.1:9090','none','[]','ok',now(),true),
+ ('failed','dev','loki','Loki','observe','http://127.0.0.1:3100','none','[]','error',now(),true),
+ ('hidden','test','grafana','Grafana','observe','http://127.0.0.1:3000','none','[]','ok',now(),true)`,
 		`INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method)
  SELECT 'dev-'||n,'dev','prometheus','Probe '||lpad(n::text,3,'0'),'observe','http://127.0.0.1:'||(10000+n),'none'
  FROM generate_series(1,202) n`,

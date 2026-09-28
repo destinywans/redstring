@@ -155,11 +155,14 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		return fmt.Errorf("bind V3 alert rule groups: %w", err)
 	}
 	ruleService.Register(api)
-	alertmanagerSource, alertmanagerLabels, err := loadV3AlertmanagerSource(os.Getenv("AIOPS_V3_ALERTMANAGER_CONFIG"), *info)
+	alertmanagerSource, alertmanagerLabels, alertmanagerBindings, err := loadV3AlertmanagerSource(os.Getenv("AIOPS_V3_ALERTMANAGER_CONFIG"), *info)
 	if err != nil {
 		return fmt.Errorf("load V3 Alertmanager source: %w", err)
 	}
-	(&v3alertmanager.Service{Source: alertmanagerSource, EnvironmentLabels: alertmanagerLabels}).Register(api)
+	(&v3alertmanager.Service{
+		Source: alertmanagerSource, Catalog: v3alertmanager.DatabaseCatalog{DB: s.DB}, Access: policy,
+		EnvironmentLabels: alertmanagerLabels, ApplicationBindings: alertmanagerBindings,
+	}).Register(api)
 
 	personalSettings := v3settings.New(s, runtime)
 	personalSettings.Register(api)

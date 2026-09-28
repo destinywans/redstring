@@ -46,6 +46,7 @@ type connector struct {
 	AuthMethod    string
 	CredentialRef string
 	Webhook       bool
+	Enabled       bool
 	Tools         []tool
 	Status        string
 	Checked       *time.Time
@@ -126,7 +127,7 @@ func (s *Service) connectorType(w http.ResponseWriter, r *http.Request) {
 func scanConnector(rows pgx.Row) (connector, error) {
 	var c connector
 	var raw []byte
-	err := rows.Scan(&c.ID, &c.EnvironmentID, &c.Provider, &c.Name, &c.Category, &c.Endpoint, &c.AuthMethod, &c.CredentialRef, &c.Webhook, &raw, &c.Status, &c.Checked, &c.LatencyMS, &c.ErrorCode)
+	err := rows.Scan(&c.ID, &c.EnvironmentID, &c.Provider, &c.Name, &c.Category, &c.Endpoint, &c.AuthMethod, &c.CredentialRef, &c.Webhook, &c.Enabled, &raw, &c.Status, &c.Checked, &c.LatencyMS, &c.ErrorCode)
 	if err != nil {
 		return c, err
 	}
@@ -136,7 +137,7 @@ func scanConnector(rows pgx.Row) (connector, error) {
 	return c, nil
 }
 
-const columns = "id,environment_id,provider,name,category,endpoint,auth_method,credential_ref,webhook_requested,tools,status,last_checked_at,last_latency_ms,last_error_code"
+const columns = "id,environment_id,provider,name,category,endpoint,auth_method,credential_ref,webhook_requested,enabled,tools,status,last_checked_at,last_latency_ms,last_error_code"
 
 // A connection test is a point-in-time probe, not ongoing health monitoring.
 // The list only calls it current for this short window; older results retain
@@ -295,6 +296,12 @@ func validConnectorProjection(c connector) bool {
 // status is never a claim that the upstream remains healthy between tests.
 // Call only after validConnectorProjection, which checks Checked before use.
 func observedSummary(c connector, lang string, now time.Time) map[string]any {
+	if !c.Enabled {
+		c.Status = "unverified"
+		result := summary(c, lang)
+		result["meta"] = localized(lang, "未启用 · 完成凭据和范围配置后可启用", "Disabled · configure credentials and scope before activation")
+		return result
+	}
 	if c.Status == "unverified" {
 		return summary(c, lang)
 	}
@@ -316,7 +323,7 @@ func observedSummary(c connector, lang string, now time.Time) map[string]any {
 func summary(c connector, lang string) map[string]any {
 	tags := make([]map[string]string, 0)
 	for _, t := range c.Tools {
-		if t.Enabled {
+		if c.Enabled && t.Enabled {
 			tags = append(tags, map[string]string{"label": t.Name, "tone": "accent"})
 		}
 	}
@@ -489,18 +496,21 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Auth != "none" {
-		if validateReference(in.CredentialRef) != nil {
-			httpapi.Error(w, 422, "credential_ref_required", "A Vault credential reference is required")
+		if in.CredentialRef != "" && validateReference(in.CredentialRef) != nil {
+			httpapi.Error(w, 422, "invalid_credential_ref", "Credential reference must use a Vault field")
 			return
 		}
 	} else if in.CredentialRef != "" {
 		httpapi.Error(w, 422, "invalid_connector", "Unauthenticated connectors do not take credentials")
 		return
 	}
-	if in.Webhook {
-		httpapi.Error(w, 422, "webhook_not_supported", "Webhook provisioning is not available for this connector type")
-		return
-	}
+	// GitLab's project scope is a separately reviewed target binding. The
+	// current wizard sends neither that scope nor a Vault reference, so its
+	// Webhook toggle only records intent; no upstream Webhook is created.
+	// A connector with an explicit environment scope and complete credentials
+	// can retain the existing read-only registration behavior for providers
+	// that do not require project enrollment.
+	enabled := d.Provider != "gitlab" && !in.Webhook && (in.Auth == "none" || in.CredentialRef != "")
 	seen := map[string]bool{}
 	tools := make([]tool, 0, len(in.Tools))
 	for _, name := range in.Tools {
@@ -509,7 +519,7 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		seen[name] = true
-		tools = append(tools, tool{Name: name, Desc: "Read-only", Enabled: true})
+		tools = append(tools, tool{Name: name, Desc: "Read-only", Enabled: enabled})
 	}
 	raw, _ := json.Marshal(tools)
 	id := store.ID()
@@ -522,7 +532,7 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 	if !s.authorizeWriteTx(w, r, tx, env[0]) {
 		return
 	}
-	_, err = tx.Exec(r.Context(), `INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,credential_ref,tools) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, id, env[0], d.Provider, d.Name, d.Category, strings.TrimRight(strings.TrimSpace(in.URL), "/"), in.Auth, in.CredentialRef, raw)
+	_, err = tx.Exec(r.Context(), `INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,credential_ref,webhook_requested,enabled,tools) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, id, env[0], d.Provider, d.Name, d.Category, strings.TrimRight(strings.TrimSpace(in.URL), "/"), in.Auth, in.CredentialRef, in.Webhook, enabled, raw)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -532,7 +542,7 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 		return
 	}
-	if err = audit(r.Context(), tx, "connector.created", id, map[string]any{"environment": env[0], "provider": d.Provider, "auth_method": in.Auth}); err != nil {
+	if err = audit(r.Context(), tx, "connector.created", id, map[string]any{"environment": env[0], "provider": d.Provider, "auth_method": in.Auth, "enabled": enabled, "webhook_requested": in.Webhook}); err != nil {
 		httpapi.Error(w, 503, "audit_unavailable", "Could not audit connector creation")
 		return
 	}
@@ -591,6 +601,10 @@ func (s *Service) patch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		seen[item.Name] = true
+		if item.Enabled && !c.Enabled {
+			httpapi.Error(w, 409, "connector_disabled", "Complete connector credentials and scope before enabling tools")
+			return
+		}
 		requested[item.Name] = item.Enabled
 	}
 	updated := make([]tool, 0, len(c.Tools)+len(requested))
@@ -655,6 +669,10 @@ func (s *Service) test(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
+		return
+	}
+	if !c.Enabled {
+		httpapi.Error(w, 409, "connector_disabled", "Complete connector credentials and scope before testing")
 		return
 	}
 	result, err := s.Prober.Check(r.Context(), c.Provider, c.Endpoint, c.AuthMethod, c.CredentialRef)

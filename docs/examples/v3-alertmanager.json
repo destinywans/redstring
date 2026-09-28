@@ -3,7 +3,10 @@
     "test": {
       "url": "https://alertmanager-test.example.invalid",
       "bearer_token_file": "/absolute/path/private/alertmanager-test.token",
-      "environment_label": "environment"
+      "environment_label": "environment",
+      "application_bindings": {
+        "checkout-api": "persisted-application-id"
+      }
     },
     "staging": {
       "url": "https://alertmanager-staging.example.invalid",

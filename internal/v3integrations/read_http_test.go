@@ -68,10 +68,10 @@ func TestConnectorReadsUsePersistedScopedRecords(t *testing.T) {
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
  ('viewer','environment','view','environment','dev'),
  ('viewer','connectors','view','environment','dev')`,
-		`INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,tools,status)
- VALUES ('metrics','dev','prometheus','监控指标','observe','http://127.0.0.1:9090','none','[{"name":"query_metrics","desc":"Read-only","enabled":true}]','unverified')`,
-		`INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,credential_ref,tools,status)
- VALUES ('code','test','gitlab','GitLab','delivery','https://gitlab.example.invalid','pat','vault://isolated/token#value','[]','error')`,
+		`INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,tools,status,enabled)
+ VALUES ('metrics','dev','prometheus','监控指标','observe','http://127.0.0.1:9090','none','[{"name":"query_metrics","desc":"Read-only","enabled":true}]','unverified',true)`,
+		`INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,credential_ref,tools,status,enabled)
+ VALUES ('code','test','gitlab','GitLab','delivery','https://gitlab.example.invalid','pat','vault://isolated/token#value','[]','error',true)`,
 	} {
 		if _, err := db.Exec(ctx, statement); err != nil {
 			t.Fatal(err)
@@ -167,8 +167,8 @@ func TestConnectorReadsUsePersistedScopedRecords(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer upstream.Close()
-	if _, err := db.Exec(ctx, `INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method)
- VALUES('local-probe','dev','prometheus','Local probe','observe',$1,'none')`, upstream.URL); err != nil {
+	if _, err := db.Exec(ctx, `INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,enabled)
+ VALUES('local-probe','dev','prometheus','Local probe','observe',$1,'none',true)`, upstream.URL); err != nil {
 		t.Fatal(err)
 	}
 	probe := func(env string) *httptest.ResponseRecorder {

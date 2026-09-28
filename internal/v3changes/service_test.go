@@ -177,8 +177,8 @@ func TestChangesRecordsHTTPPersistedBindingScopeAndRevocation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	_, err = db.Exec(ctx, `INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,credential_ref,tools)
- VALUES ('gitlab-dev','dev','gitlab','GitLab','delivery',$1,'pat','vault://isolated/gitlab#token','[{"name":"list_pipelines","enabled":true}]')`, gitlab.URL)
+	_, err = db.Exec(ctx, `INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,credential_ref,enabled,tools)
+ VALUES ('gitlab-dev','dev','gitlab','GitLab','delivery',$1,'pat','vault://isolated/gitlab#token',true,'[{"name":"list_pipelines","enabled":true}]')`, gitlab.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,6 +244,16 @@ func TestChangesRecordsHTTPPersistedBindingScopeAndRevocation(t *testing.T) {
 	}
 	if remoteCalls != 1 {
 		t.Fatalf("remoteCalls=%d; unauthorized request reached GitLab", remoteCalls)
+	}
+	if _, err := db.Exec(ctx, `UPDATE v3_connectors SET enabled=false WHERE id='gitlab-dev'`); err != nil {
+		t.Fatal(err)
+	}
+	assert(request(path, "dev", session), 404, "not_found")
+	if remoteCalls != 1 {
+		t.Fatalf("disabled connector reached GitLab: remoteCalls=%d", remoteCalls)
+	}
+	if _, err := db.Exec(ctx, `UPDATE v3_connectors SET enabled=true WHERE id='gitlab-dev'`); err != nil {
+		t.Fatal(err)
 	}
 	revokeDuringRead = true
 	assert(request(path, "dev", session), 404, "not_found")

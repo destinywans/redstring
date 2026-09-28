@@ -122,7 +122,7 @@
 | POST | `/alert-rules/{id}/dry-run` | `{ expr, for }` | `{ would_fire, windows }` | mock |
 | PUT | `/alert-rules/{id}` | `AlertRule` | `AlertRule` | mock |
 | GET | `/notification-routes` | | `{ root: RouteNode }` | mock |
-| GET | `/silences` | | 静默列表 | mock |
+| GET | `/silences` | `state: active\|planned\|expired\|all` | 静默列表及当前可见记录计数；应用标签需在服务端显式绑定到当前环境的有效应用 ID，再按应用/团队授权判断；环境明确但应用范围较宽的静默仅环境级静默管理员可见；无精确环境或匹配器歧义的静默不展示，宽范围只报告覆盖标志 | implemented |
 | GET | `/inhibitions` | | `{ items: Inhibition[] }` | mock |
 | POST | `/silences/preview` | 匹配器 | `{ affects, sample }` | mock |
 | POST | `/silences` | 匹配器 + 时长 | `{ id }` | mock |
@@ -207,7 +207,7 @@
 | GET | `/connectors/{id}` | | `ConnectorDetail` | mock |
 | POST | `/connectors/{id}/test` | | `{ ok, latency_ms }` | implemented |
 | PATCH | `/connectors/{id}` | 如 `{ tools: [{ name, enabled }] }` | 更新结果 | mock |
-| POST | `/connectors` | `{ type, url, auth, tools, webhook }`（凭据只传 Vault 引用） | `{ id }` | mock |
+| POST | `/connectors` | `{ type, url, auth, tools, webhook, credential_ref? }`；凭据仅传 Vault 引用，缺凭据/项目范围的 GitLab 创建请求保存为未启用登记，`webhook` 仅记录意图，不自动创建 Webhook | `{ id }`；未启用登记不可测试连接或启用工具，后续激活接口另行定义 | implemented |
 | GET | `/connector-types/{type}` | | `ConnectorType`（认证方式、权限范围、只读工具） | mock |
 | GET | `/mcp-servers` | | `McpList` | mock |
 | GET | `/mcp-servers/{id}` | | `McpDetail` | mock |

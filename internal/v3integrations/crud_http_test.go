@@ -3,10 +3,12 @@ package v3integrations
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -114,10 +116,46 @@ func TestConnectorCRUDHTTPV3ScopePersistenceAndAudit(t *testing.T) {
  VALUES('viewer','connectors','manage','environment','dev')`); err != nil {
 		t.Fatal(err)
 	}
-	assert(request(http.MethodPost, "/api/v1/connectors", "dev", token,
-		`{"type":"gitlab","url":"https://gitlab.example.invalid","auth":"pat"}`), 422, "credential_ref_required")
-	assert(request(http.MethodPost, "/api/v1/connectors", "dev", token,
-		`{"type":"gitlab","url":"https://gitlab.example.invalid","auth":"pat","credential_ref":"vault://isolated/gitlab#token","webhook":true}`), 422, "webhook_not_supported")
+	var upstreamCalls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+	wizard := request(http.MethodPost, "/api/v1/connectors", "dev", token,
+		fmt.Sprintf(`{"type":"gitlab","url":%q,"auth":"oauth","tools":["list_pipelines","get_pipeline"],"webhook":true}`, upstream.URL))
+	assert(wizard, 201, "")
+	var wizardResult struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(wizard.Body.Bytes(), &wizardResult); err != nil || wizardResult.ID == "" {
+		t.Fatalf("wizard registration: %s %v", wizard.Body.String(), err)
+	}
+	var draftCredential, draftStatus string
+	var draftWebhook, draftEnabled bool
+	var draftTools []byte
+	if err := db.QueryRow(ctx, `SELECT credential_ref,webhook_requested,enabled,status,tools FROM v3_connectors WHERE id=$1`, wizardResult.ID).
+		Scan(&draftCredential, &draftWebhook, &draftEnabled, &draftStatus, &draftTools); err != nil {
+		t.Fatal(err)
+	}
+	if draftCredential != "" || !draftWebhook || draftEnabled || draftStatus != "unverified" {
+		t.Fatalf("wizard registration was active: credential=%q webhook=%v enabled=%v status=%q", draftCredential, draftWebhook, draftEnabled, draftStatus)
+	}
+	var pendingTools []tool
+	if err := json.Unmarshal(draftTools, &pendingTools); err != nil || len(pendingTools) != 2 || pendingTools[0].Enabled || pendingTools[1].Enabled {
+		t.Fatalf("wizard tools were active: %s %v", draftTools, err)
+	}
+	assert(request(http.MethodPost, "/api/v1/connectors/"+wizardResult.ID+"/test", "dev", token, ""), 409, "connector_disabled")
+	if upstreamCalls.Load() != 0 {
+		t.Fatalf("disabled wizard contacted upstream %d times", upstreamCalls.Load())
+	}
+	assert(request(http.MethodPatch, "/api/v1/connectors/"+wizardResult.ID, "dev", token,
+		`{"tools":[{"name":"list_pipelines","enabled":true}]}`), 409, "connector_disabled")
+	draftList := request(http.MethodGet, "/api/v1/connectors?category=delivery&q="+wizardResult.ID, "dev", token, "")
+	assert(draftList, 200, "")
+	if !strings.Contains(draftList.Body.String(), "未启用") || strings.Contains(draftList.Body.String(), "list_pipelines") {
+		t.Fatalf("wizard registration was presented as active: %s", draftList.Body.String())
+	}
 	created := request(http.MethodPost, "/api/v1/connectors", "dev", token, createBody)
 	assert(created, 201, "")
 	var result struct {
@@ -128,12 +166,13 @@ func TestConnectorCRUDHTTPV3ScopePersistenceAndAudit(t *testing.T) {
 	}
 	assert(request(http.MethodPost, "/api/v1/connectors", "dev", token, createBody), 409, "connector_exists")
 	var environment, credential, status string
+	var enabled bool
 	var persistedTools []byte
-	if err := db.QueryRow(ctx, `SELECT environment_id,credential_ref,status,tools FROM v3_connectors WHERE id=$1`, result.ID).
-		Scan(&environment, &credential, &status, &persistedTools); err != nil {
+	if err := db.QueryRow(ctx, `SELECT environment_id,credential_ref,status,enabled,tools FROM v3_connectors WHERE id=$1`, result.ID).
+		Scan(&environment, &credential, &status, &enabled, &persistedTools); err != nil {
 		t.Fatal(err)
 	}
-	if environment != "dev" || credential != "vault://isolated/gitlab#token" || status != "unverified" || !strings.Contains(string(persistedTools), "get_pipeline") {
+	if environment != "dev" || credential != "vault://isolated/gitlab#token" || status != "unverified" || enabled || !strings.Contains(string(persistedTools), "get_pipeline") {
 		t.Fatalf("persisted connector mismatch: environment=%s status=%s tools=%s", environment, status, persistedTools)
 	}
 	listed := request(http.MethodGet, "/api/v1/connectors?category=delivery&q=gitlab", "all", token, "")
@@ -162,7 +201,7 @@ func TestConnectorCRUDHTTPV3ScopePersistenceAndAudit(t *testing.T) {
 	if err := db.QueryRow(ctx, `SELECT tools FROM v3_connectors WHERE id=$1`, result.ID).Scan(&persistedTools); err != nil {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal(persistedTools, &tools); err != nil || len(tools) != 2 || tools[0].Enabled || !tools[1].Enabled {
+	if err := json.Unmarshal(persistedTools, &tools); err != nil || len(tools) != 2 || tools[0].Enabled || tools[1].Enabled {
 		t.Fatalf("partial tool update lost other selection: %s %v", persistedTools, err)
 	}
 	assert(request(http.MethodPatch, "/api/v1/connectors/"+result.ID, "dev", token,

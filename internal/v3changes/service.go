@@ -145,7 +145,7 @@ func (s *Service) loadTarget(ctx context.Context, user core.User, app, env, serv
  JOIN applications a ON a.id=t.application_id AND NOT a.archived
  JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=t.environment_id
  JOIN application_environments e ON e.application_id=a.id AND e.key=t.environment_id AND NOT e.archived
- JOIN v3_connectors c ON c.id=t.connector_id AND c.environment_id=t.environment_id
+ JOIN v3_connectors c ON c.id=t.connector_id AND c.environment_id=t.environment_id AND c.enabled
  WHERE t.id=$1 AND t.application_id=$2 AND t.environment_id=$3
    AND t.target_kind='project' AND c.provider='gitlab'`, bindingID, app, env).
 		Scan(&t.BindingID, &t.ApplicationID, &t.EnvironmentID, &t.TeamID,

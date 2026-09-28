@@ -25023,7 +25023,7 @@
       "get": {
         "summary": "List configured connectors",
         "operationId": "get_connectors",
-        "description": "Minimum role: admin. V3 instance and environment scope apply. Counts cover all currently authorized connector registrations before category or search filters. Status ok/error reflects a persisted connection test from the last 15 minutes, not continuous health; older results become unverified with their last-check time. More than 1000 visible registrations returns 413 instead of an incomplete unpaged result.",
+        "description": "Minimum role: admin. V3 instance and environment scope apply. Counts cover all currently authorized connector registrations before category or search filters. Disabled registrations are unverified and identified in meta, with no enabled tools. Status ok/error reflects a persisted connection test from the last 15 minutes, not continuous health; older results become unverified with their last-check time. More than 1000 visible registrations returns 413 instead of an incomplete unpaged result.",
         "responses": {
           "200": {
             "description": "Success",
@@ -25132,7 +25132,7 @@
       "post": {
         "summary": "Create a connector",
         "operationId": "post_connectors",
-        "description": "Minimum role: admin. V3 instance and environment scope apply. ",
+        "description": "Minimum role: admin. V3 instance and environment scope apply. Creates an audited environment-scoped registration. The current GitLab wizard omits Vault credential and project scope; its request is stored disabled and unverified. webhook=true records intent only and does not provision a remote Webhook. A disabled registration cannot be probed or have tools enabled; activation after credentials and explicit scope is a separate pending contract. Fully configured non-GitLab read-only registrations may be enabled on creation.",
         "responses": {
           "201": {
             "description": "Success",
@@ -25540,7 +25540,7 @@
       "post": {
         "summary": "Probe configured connector",
         "operationId": "post_connectors_id_test",
-        "description": "Minimum role: admin. V3 instance and environment scope apply. Failure returns an explicit error; a configured adapter is not silently reported healthy.",
+        "description": "Minimum role: admin. V3 instance and environment scope apply. Disabled registrations return 409 without contacting the provider. Other failures return an explicit error; a configured adapter is not silently reported healthy.",
         "responses": {
           "200": {
             "description": "Success",
@@ -27213,7 +27213,7 @@
       "get": {
         "summary": "Read environment-scoped Alertmanager silences",
         "operationId": "get_silences",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Only provider silences with an exact configured environment-label matcher are returned. Current affects is counted from provider alerts silenced by each ID, not inferred from matcher overlap. Other-environment records do not affect counts, status, or coverage; broad records set only unscoped_present. Unconfigured or failed sources return 503; broad records or partial environment failure return 206. More than 500 visible silences returns 503 without partial counts; the shared provider response is bounded to 2 MiB. Still incomplete for application/team-scoped grants and larger shared upstream responses.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Only provider silences with an exact positive non-regex environment matcher are returned. Application-scoped records also require an explicit server-owned application-label-to-persisted-ID binding to an active application in that environment and a current V3 application/team view grant. Exact environment silences with wider application scope require environment-wide silence view and manage grants. Ambiguous matchers are hidden. Affects comes from provider-observed alerts restricted to the authorized environment and application; counts cover the visible records. Broad records without exact environment binding are hidden and set unscoped_present for environment administrators (206). An authorized source failure, a duplicate visible ID or more than 500 visible records fails closed, without partial counts. Provider responses are bounded to 2 MiB.",
         "responses": {
           "200": {
             "description": "Success",

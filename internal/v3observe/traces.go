@@ -88,6 +88,10 @@ func (s *Service) queryTraces(w http.ResponseWriter, r *http.Request, id string)
 			httpapi.Error(w, 503, "telemetry_unavailable", "One trace scope is unavailable")
 			return nil, 0, false
 		}
+		if id != "" && result.LimitReached {
+			httpapi.Error(w, 413, "trace_too_large", "Trace exceeds the scoped span limit")
+			return nil, 0, false
+		}
 		for _, span := range result.Spans {
 			key := span.TraceID + "\x00" + span.SpanID
 			if !seenSpan[key] {
@@ -218,12 +222,19 @@ func (s *Service) traceDetail(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 404, "not_found", "Trace not found in accessible scope")
 		return
 	}
+	httpapi.WriteJSON(w, 200, traceDetailPayload(id, selected))
+}
+
+func traceDetailPayload(id string, selected []connectors.TraceSpan) map[string]any {
 	sort.Slice(selected, func(i, j int) bool { return selected[i].Start.Before(selected[j].Start) })
 	root := selected[0]
+	last := root.Start.Add(time.Duration(root.DurationMS * float64(time.Millisecond)))
 	for _, span := range selected {
-		if span.ParentSpanID == "" {
+		if span.ParentSpanID == "" && root.ParentSpanID != "" {
 			root = span
-			break
+		}
+		if end := span.Start.Add(time.Duration(span.DurationMS * float64(time.Millisecond))); end.After(last) {
+			last = end
 		}
 	}
 	byID := map[string]connectors.TraceSpan{}
@@ -253,9 +264,24 @@ func (s *Service) traceDetail(w http.ResponseWriter, r *http.Request) {
 	edges := []map[string]any{}
 	serviceIndex := map[string]int{}
 	for _, span := range selected {
-		start := span.Start.Sub(root.Start).Seconds() * 1000
-		out = append(out, map[string]any{"id": span.SpanID, "depth": depth(span), "service": span.Service, "op": span.Name,
-			"start": start, "end": start + span.DurationMS, "status": map[bool]string{true: "error", false: "ok"}[span.Error]})
+		start := span.Start.Sub(selected[0].Start).Seconds() * 1000
+		item := map[string]any{"id": span.SpanID, "depth": depth(span), "service": span.Service, "op": span.Name,
+			"start": start, "end": start + span.DurationMS, "status": map[bool]string{true: "error", false: "ok"}[span.Error]}
+		if len(span.Attributes) > 0 {
+			attrs := make([]map[string]string, 0, len(span.Attributes))
+			for _, attr := range span.Attributes {
+				attrs = append(attrs, map[string]string{"k": attr.Key, "v": attr.Value})
+			}
+			item["attrs"] = attrs
+		}
+		if len(span.Events) > 0 {
+			events := make([]map[string]string, 0, len(span.Events))
+			for _, event := range span.Events {
+				events = append(events, map[string]string{"at": event.At.UTC().Format(time.RFC3339Nano), "name": event.Name, "text": event.Text})
+			}
+			item["events"] = events
+		}
+		out = append(out, item)
 		if _, seen := serviceIndex[span.Service]; !seen && span.Service != "" {
 			serviceIndex[span.Service] = len(nodes)
 			nodes = append(nodes, map[string]any{"id": span.Service, "x": 20 + 220*(len(nodes)%4), "y": 40 + 110*(len(nodes)/4),
@@ -265,7 +291,7 @@ func (s *Service) traceDetail(w http.ResponseWriter, r *http.Request) {
 			edges = append(edges, map[string]any{"from": parent.Service, "to": span.Service, "label": span.Name, "danger": span.Error})
 		}
 	}
-	httpapi.WriteJSON(w, 200, map[string]any{"id": id, "trace_id": id, "op": root.Name, "duration_ms": root.DurationMS,
-		"time": root.Start.UTC().Format(time.RFC3339Nano), "version": "", "colors": map[string]string{}, "spans": out,
-		"flame_note": "", "graph": map[string]any{"nodes": nodes, "edges": edges}})
+	return map[string]any{"id": id, "trace_id": id, "op": root.Name, "duration_ms": last.Sub(selected[0].Start).Seconds() * 1000,
+		"time": selected[0].Start.UTC().Format(time.RFC3339Nano), "version": "", "colors": map[string]string{}, "spans": out,
+		"flame_note": "仅展示所选环境与服务授权范围内的 Span；跨服务链路可能不完整。", "graph": map[string]any{"nodes": nodes, "edges": edges}}
 }

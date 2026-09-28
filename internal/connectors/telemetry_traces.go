@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,14 +14,25 @@ import (
 )
 
 type TraceSpan struct {
-	TraceID      string    `json:"trace_id"`
-	SpanID       string    `json:"span_id"`
-	ParentSpanID string    `json:"parent_span_id,omitempty"`
-	Service      string    `json:"service"`
-	Name         string    `json:"name"`
-	Start        time.Time `json:"start"`
-	DurationMS   float64   `json:"duration_ms"`
-	Error        bool      `json:"error"`
+	TraceID      string           `json:"trace_id"`
+	SpanID       string           `json:"span_id"`
+	ParentSpanID string           `json:"parent_span_id,omitempty"`
+	Service      string           `json:"service"`
+	Name         string           `json:"name"`
+	Start        time.Time        `json:"start"`
+	DurationMS   float64          `json:"duration_ms"`
+	Error        bool             `json:"error"`
+	Attributes   []TraceAttribute `json:"attributes,omitempty"`
+	Events       []TraceEvent     `json:"events,omitempty"`
+}
+type TraceAttribute struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+type TraceEvent struct {
+	At   time.Time `json:"at"`
+	Name string    `json:"name"`
+	Text string    `json:"text,omitempty"`
 }
 type TraceEvidence struct {
 	Source       TelemetrySource `json:"source"`
@@ -32,8 +44,15 @@ type TraceEvidence struct {
 type otelAttribute struct {
 	Key   string `json:"key"`
 	Value struct {
-		String string `json:"stringValue"`
+		String string          `json:"stringValue"`
+		Int    json.RawMessage `json:"intValue"`
+		Bool   *bool           `json:"boolValue"`
 	} `json:"value"`
+}
+type otelEvent struct {
+	Name       string          `json:"name"`
+	Time       string          `json:"timeUnixNano"`
+	Attributes []otelAttribute `json:"attributes"`
 }
 type otelSpan struct {
 	TraceID  string `json:"traceId"`
@@ -45,6 +64,8 @@ type otelSpan struct {
 	Status   struct {
 		Code json.RawMessage `json:"code"`
 	} `json:"status"`
+	Attributes []otelAttribute `json:"attributes"`
+	Events     []otelEvent     `json:"events"`
 }
 type otelScope struct {
 	Spans []otelSpan `json:"spans"`
@@ -55,6 +76,79 @@ type otelBatch struct {
 	} `json:"resource"`
 	Scopes       []otelScope `json:"scopeSpans"`
 	LegacyScopes []otelScope `json:"instrumentationLibrarySpans"`
+}
+
+// Trace attributes can include URLs, SQL, headers and user data. Only a small
+// set of low-cardinality diagnostic values is suitable for this shared view.
+var safeTraceValue = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,120}$`)
+var safeTraceKeys = map[string]bool{
+	"http.method": true, "http.request.method": true, "http.status_code": true,
+	"http.response.status_code": true, "db.system": true, "rpc.system": true,
+	"messaging.system": true,
+}
+
+func traceAttributeValue(attr otelAttribute) string {
+	if attr.Value.String != "" {
+		return attr.Value.String
+	}
+	if len(attr.Value.Int) != 0 {
+		var value string
+		if json.Unmarshal(attr.Value.Int, &value) != nil {
+			value = string(attr.Value.Int)
+		}
+		return value
+	}
+	if attr.Value.Bool != nil {
+		return strconv.FormatBool(*attr.Value.Bool)
+	}
+	return ""
+}
+
+func projectTraceAttributes(attrs []otelAttribute) []TraceAttribute {
+	out := []TraceAttribute{}
+	seen := map[string]bool{}
+	for _, attr := range attrs {
+		if !safeTraceKeys[attr.Key] || seen[attr.Key] {
+			continue
+		}
+		value := traceAttributeValue(attr)
+		if !safeTraceValue.MatchString(value) {
+			continue
+		}
+		out = append(out, TraceAttribute{Key: attr.Key, Value: value})
+		seen[attr.Key] = true
+		if len(out) == 8 {
+			break
+		}
+	}
+	return out
+}
+
+func projectTraceEvents(events []otelEvent, start, end int64) []TraceEvent {
+	out := []TraceEvent{}
+	for _, event := range events {
+		if event.Name != "exception" && event.Name != "error" {
+			continue
+		}
+		at, err := strconv.ParseInt(event.Time, 10, 64)
+		if err != nil || at < start || at > end {
+			continue
+		}
+		item := TraceEvent{At: time.Unix(0, at).UTC(), Name: event.Name}
+		for _, attr := range event.Attributes {
+			if attr.Key == "exception.type" {
+				if value := traceAttributeValue(attr); safeTraceValue.MatchString(value) {
+					item.Text = value
+				}
+				break
+			}
+		}
+		out = append(out, item)
+		if len(out) == 8 {
+			break
+		}
+	}
+	return out
 }
 
 func spanID(value string, size int) string {
@@ -302,7 +396,7 @@ func appendTraceSpans(out *TraceEvidence, a ApplicationTelemetry, id string, bat
 					out.LimitReached = true
 					continue
 				}
-				out.Spans = append(out.Spans, TraceSpan{TraceID: tid, SpanID: sid, ParentSpanID: pid, Service: a.TempoService, Name: sp.Name, Start: at, DurationMS: float64(end-start) / 1e6, Error: string(sp.Status.Code) == "2" || string(sp.Status.Code) == `"STATUS_CODE_ERROR"`})
+				out.Spans = append(out.Spans, TraceSpan{TraceID: tid, SpanID: sid, ParentSpanID: pid, Service: a.TempoService, Name: sp.Name, Start: at, DurationMS: float64(end-start) / 1e6, Error: string(sp.Status.Code) == "2" || string(sp.Status.Code) == `"STATUS_CODE_ERROR"`, Attributes: projectTraceAttributes(sp.Attributes), Events: projectTraceEvents(sp.Events, start, end)})
 			}
 		}
 	}

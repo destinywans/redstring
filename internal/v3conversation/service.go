@@ -285,6 +285,9 @@ func (s *Service) startTurn(ctx context.Context, id, owner, env, author, session
 	if active != nil {
 		return Message{}, "", ErrBusy
 	}
+	if err := s.authorizeLockedTurn(ctx, tx, owner, env, sessionHash); err != nil {
+		return Message{}, "", err
+	}
 	now := time.Now().UTC()
 	userID, assistantID, replyID := store.ID(), store.ID(), store.ID()
 	parts := marshal([]json.RawMessage{textPart(input.Text)})
@@ -350,10 +353,69 @@ func (s *Service) finish(ctx context.Context, conv, reply, claim, assistant stri
 	if err := lockReply(ctx, tx, conv, reply, claim, false); err != nil {
 		return err
 	}
+	// Recheck both successful and failed model calls. A provider error after
+	// streaming must not retain partial output if access was revoked meanwhile.
+	if err := s.authorizeTerminalTurn(ctx, tx, conv, reply); err != nil {
+		if !errors.Is(err, ErrForbidden) {
+			return err
+		}
+		runErr, run = ErrForbidden, nil
+	}
 	if err := s.finishLocked(ctx, tx, conv, reply, assistant, parts, run, runErr); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (s *Service) authorizeTerminalTurn(ctx context.Context, tx pgx.Tx, conv, reply string) error {
+	var owner, env, sessionHash string
+	if err := tx.QueryRow(ctx, `SELECT c.owner_id,c.environment_id,r.initiating_session_hash
+		FROM v3_conversation_replies r JOIN v3_conversations c ON c.id=r.conversation_id
+		WHERE r.id=$1 AND r.conversation_id=$2`, reply, conv).Scan(&owner, &env, &sessionHash); err != nil {
+		return err
+	}
+	return s.authorizeLockedTurn(ctx, tx, owner, env, sessionHash)
+}
+
+func (s *Service) authorizeLockedTurn(ctx context.Context, tx pgx.Tx, owner, env, sessionHash string) error {
+	// Lock the account and the assignment/grant tables before the policy read.
+	// Revocation then either commits first and is observed, or waits until this
+	// terminal transaction commits. This uses the same sources as the V3 view.
+	if err := lockConversationGrantSources(ctx, tx, owner); err != nil {
+		return err
+	}
+	var activeHash string
+	err := tx.QueryRow(ctx, `SELECT token_hash FROM sessions
+		WHERE token_hash=$1 AND user_id=$2 AND expires_at>clock_timestamp()
+		FOR SHARE`, sessionHash, owner).Scan(&activeHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrForbidden
+	}
+	if err != nil {
+		return err
+	}
+	return s.authorizeBackgroundTurnTx(ctx, tx, owner, env)
+}
+
+func lockConversationGrantSources(ctx context.Context, tx pgx.Tx, owner string) error {
+	var lockedOwner string
+	err := tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 FOR SHARE`, owner).Scan(&lockedOwner)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrForbidden
+	}
+	if err != nil {
+		return err
+	}
+	// Row locks alone cannot cover a role or grant inserted between this scan
+	// and the policy query under READ COMMITTED. These short transaction locks
+	// prevent inserts as well as updates/deletes until the terminal write commits.
+	if _, err := tx.Exec(ctx, `LOCK TABLE rbac_user_roles,rbac_department_roles,v3_role_grants IN SHARE MODE`); err != nil {
+		return err
+	}
+	// Role deletion must update assignment/grant tables through their foreign
+	// keys. Avoid also locking rbac_roles rows here: role writers take those
+	// rows before changing these tables, so the reverse order would deadlock.
+	return nil
 }
 
 // lockReply serializes all terminal writes with the worker's event/audit writes.
@@ -831,19 +893,19 @@ func (s *Service) recoverOne(ctx context.Context, conv, reply string) error {
 	if err = lockReply(ctx, tx, conv, reply, "", true); err != nil {
 		return err
 	}
-	var assistant, owner, env string
-	var sessionActive bool
-	err = tx.QueryRow(ctx, `SELECT r.assistant_message_id,c.owner_id,c.environment_id,
-        EXISTS(SELECT 1 FROM sessions ss WHERE ss.token_hash=r.initiating_session_hash
-            AND ss.user_id=c.owner_id AND ss.expires_at>clock_timestamp())
-        FROM v3_conversation_replies r JOIN v3_conversations c ON c.id=r.conversation_id
-        WHERE r.id=$1 AND r.conversation_id=$2`, reply, conv).Scan(&assistant, &owner, &env, &sessionActive)
+	var assistant string
+	err = tx.QueryRow(ctx, `SELECT assistant_message_id FROM v3_conversation_replies
+		WHERE id=$1 AND conversation_id=$2`, reply, conv).Scan(&assistant)
 	if err != nil {
 		return err
 	}
 	var parts []json.RawMessage
 	cause := error(ErrForbidden)
-	if sessionActive && s.authorizeBackgroundTurnTx(ctx, tx, owner, env) == nil {
+	authErr := s.authorizeTerminalTurn(ctx, tx, conv, reply)
+	if authErr != nil && !errors.Is(authErr, ErrForbidden) {
+		return authErr
+	}
+	if authErr == nil {
 		parts, err = s.recoveredParts(ctx, tx, reply)
 		if err != nil {
 			return err

@@ -170,7 +170,7 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Text = strings.TrimSpace(in.Text)
-	if in.Text == "" || len(in.Text) > 2<<20 {
+	if (in.Text == "" && len(in.Attachments) == 0) || len(in.Text) > 2<<20 {
 		apiError(w, 422, "invalid_text", "Enter a message under 2 MiB")
 		return
 	}
@@ -187,6 +187,11 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
+		// The current inference request contains only text messages. Accepting
+		// an upload reference here would save it while silently excluding its
+		// content from the model. Fail before a user turn is committed instead.
+		apiError(w, 422, "attachment_model_unsupported", "This model reply cannot read attachments yet")
+		return
 	}
 	if len(in.Reasoning) > 128 {
 		apiError(w, 422, "invalid_reasoning", "Invalid reasoning choice")

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/inference"
 )
@@ -96,6 +97,12 @@ func TestToolAuditPrecedesReadAndPersistsOutcome(t *testing.T) {
 			}
 			return nil
 		},
+		AuthorizeBackgroundTurnTx: func(_ context.Context, _ pgx.Tx, owner, env string) error {
+			if owner != "persisted-owner" || env != "test" {
+				return ErrForbidden
+			}
+			return nil
+		},
 		ToolsForTurn: func(_ context.Context, owner, env, modelID string) ([]inference.EvidenceTool, error) {
 			if owner != "persisted-owner" || env != "test" || modelID != "model" {
 				t.Fatalf("tool factory received request scope instead of persisted scope")
@@ -183,6 +190,12 @@ func TestToolCardUsesProviderUsageAndReadDuration(t *testing.T) {
 			return core.User{ID: "persisted-owner"}, nil
 		},
 		AuthorizeBackgroundTurn: func(_ context.Context, owner, env string) error {
+			if owner != "persisted-owner" || env != "test" {
+				return ErrForbidden
+			}
+			return nil
+		},
+		AuthorizeBackgroundTurnTx: func(_ context.Context, _ pgx.Tx, owner, env string) error {
 			if owner != "persisted-owner" || env != "test" {
 				return ErrForbidden
 			}

@@ -39,12 +39,12 @@ func TestConversationListRegisteredRouteUsesPersistedChatFacts(t *testing.T) {
 		ALTER TABLE v3_conversations ADD COLUMN title text NOT NULL DEFAULT '', ADD COLUMN status text NOT NULL DEFAULT 'active', ADD COLUMN context_ref text NOT NULL DEFAULT '', ADD COLUMN default_model_id text NOT NULL DEFAULT '';
 		CREATE TABLE v3_canvases (id text PRIMARY KEY,owner_id text NOT NULL,environment_id text NOT NULL,title text NOT NULL,status text NOT NULL,services text[] NOT NULL DEFAULT '{}',nodes jsonb NOT NULL DEFAULT '[]',updated_at timestamptz NOT NULL);
 		CREATE TABLE v3_canvas_node_exchanges (id text PRIMARY KEY,canvas_id text NOT NULL,state text NOT NULL);
-		CREATE TABLE users (id text PRIMARY KEY,email text NOT NULL,name text NOT NULL,role text NOT NULL,department_id text,disabled boolean NOT NULL DEFAULT false,deleted_at timestamptz);
+		CREATE TABLE IF NOT EXISTS users (id text PRIMARY KEY,email text NOT NULL,name text NOT NULL,role text NOT NULL,department_id text,disabled boolean NOT NULL DEFAULT false,deleted_at timestamptz);
 		CREATE TABLE rbac_platform_administrators (user_id text PRIMARY KEY);
-		CREATE TABLE rbac_user_roles (user_id text NOT NULL,role_id text NOT NULL);
-		CREATE TABLE rbac_department_roles (department_id text NOT NULL,role_id text NOT NULL);
-		CREATE TABLE rbac_roles (id text PRIMARY KEY);
-		CREATE TABLE v3_role_grants (role_id text NOT NULL,module text NOT NULL,action text NOT NULL,scope_kind text NOT NULL,scope_id text NOT NULL);
+		CREATE TABLE IF NOT EXISTS rbac_user_roles (user_id text NOT NULL,role_id text NOT NULL);
+		CREATE TABLE IF NOT EXISTS rbac_department_roles (department_id text NOT NULL,role_id text NOT NULL);
+		CREATE TABLE IF NOT EXISTS rbac_roles (id text PRIMARY KEY);
+		CREATE TABLE IF NOT EXISTS v3_role_grants (role_id text NOT NULL,module text NOT NULL,action text NOT NULL,scope_kind text NOT NULL,scope_id text NOT NULL);
 		CREATE VIEW v3_effective_role_grants AS
 		 SELECT a.user_id,g.module,g.action,g.scope_kind,g.scope_id FROM rbac_user_roles a
 		 JOIN rbac_roles r ON r.id=a.role_id JOIN v3_role_grants g ON g.role_id=r.id;

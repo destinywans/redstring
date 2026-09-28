@@ -19,6 +19,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3uploads"
 )
 
 type gatedStreamRuntime struct {
@@ -108,10 +109,13 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 		ALTER TABLE v3_conversation_messages ALTER COLUMN state SET DEFAULT 'completed';
 		ALTER TABLE v3_conversation_replies ADD COLUMN user_message_id text NOT NULL DEFAULT '', ADD COLUMN model_id text NOT NULL DEFAULT '', ADD COLUMN reasoning text NOT NULL DEFAULT '', ADD COLUMN started_at timestamptz NOT NULL DEFAULT now();
 		ALTER TABLE management_audit ALTER COLUMN actor_kind SET DEFAULT 'user';
-		CREATE TABLE users (id text PRIMARY KEY,email text NOT NULL,name text NOT NULL,role text NOT NULL,disabled boolean NOT NULL DEFAULT false,deleted_at timestamptz);
+		CREATE TABLE IF NOT EXISTS users (id text PRIMARY KEY,email text NOT NULL,name text NOT NULL,role text NOT NULL,disabled boolean NOT NULL DEFAULT false,deleted_at timestamptz);
 		CREATE TABLE rbac_platform_administrators (user_id text PRIMARY KEY);
-		CREATE TABLE rbac_user_roles (user_id text NOT NULL,role_id text NOT NULL);
+		CREATE TABLE IF NOT EXISTS rbac_user_roles (user_id text NOT NULL,role_id text NOT NULL);
+		CREATE TABLE v3_uploads (id text PRIMARY KEY,owner_id text NOT NULL,environment_id text NOT NULL,kind text NOT NULL,name text NOT NULL,size_bytes integer NOT NULL,mime text NOT NULL,url text NOT NULL DEFAULT '');
 		INSERT INTO users(id,email,name,role) VALUES('stream-owner','stream@local','Stream Owner','viewer');
+		INSERT INTO v3_uploads(id,owner_id,environment_id,kind,name,size_bytes,mime)
+			VALUES('upload-1','stream-owner','test','paste','log snippet',4,'text/plain');
 		INSERT INTO v3_conversations(id,owner_id,environment_id,default_model_id) VALUES('stream-conv','stream-owner','test','test-model');`)
 	if err != nil {
 		t.Fatal(err)
@@ -167,6 +171,7 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 			}
 			return ErrForbidden
 		},
+		ValidateAttachments: (&v3uploads.Service{DB: db}).ValidateAttachments,
 	})
 	chat.Register(server.Register)
 	server.MarkV3Route("POST /api/v1/conversations/{id}/messages", "conversation", "change")
@@ -217,6 +222,24 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 		if response.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(string(body), "invalid_model") {
 			t.Fatalf("invalid model: %d %s", response.StatusCode, body)
 		}
+	}
+	for _, payload := range []string{
+		`{"text":"","attachments":[{"id":"upload-1","kind":"paste","name":"log snippet","size":4,"mime":"text/plain"}]}`,
+		`{"text":"investigate","attachments":[{"id":"upload-1","kind":"paste","name":"log snippet","size":4,"mime":"text/plain"}]}`,
+	} {
+		response, err := client.Do(request(http.MethodPost, url+"/messages", "test", "", strings.NewReader(payload), true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(response.Body)
+		response.Body.Close()
+		if response.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(string(body), "attachment_model_unsupported") {
+			t.Fatalf("attachment must fail before turn commit: %d %s", response.StatusCode, body)
+		}
+	}
+	var rejectedMessages int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_conversation_messages WHERE conversation_id='stream-conv'`).Scan(&rejectedMessages); err != nil || rejectedMessages != 0 {
+		t.Fatalf("unsupported attachment persisted a turn: count=%d err=%v", rejectedMessages, err)
 	}
 	response, err := client.Do(request(http.MethodPost, url+"/messages", "test", "", strings.NewReader(`{"text":"investigate","reasoning":"high"}`), true))
 	if err != nil {

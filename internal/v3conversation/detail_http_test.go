@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
@@ -39,6 +40,12 @@ func TestRunTurnPersistsReportedUsageForConversationDetail(t *testing.T) {
 			return core.User{ID: "persisted-owner"}, nil
 		},
 		AuthorizeBackgroundTurn: func(_ context.Context, owner, env string) error {
+			if owner != "persisted-owner" || env != "test" {
+				return ErrForbidden
+			}
+			return nil
+		},
+		AuthorizeBackgroundTurnTx: func(_ context.Context, _ pgx.Tx, owner, env string) error {
 			if owner != "persisted-owner" || env != "test" {
 				return ErrForbidden
 			}
@@ -77,9 +84,9 @@ func TestConversationDetailRegisteredRouteReadsPersistedContext(t *testing.T) {
 	ctx := context.Background()
 	_, err := db.Exec(ctx, `
 		ALTER TABLE v3_conversations ADD COLUMN title text NOT NULL DEFAULT '', ADD COLUMN status text NOT NULL DEFAULT 'active', ADD COLUMN context_ref text NOT NULL DEFAULT '', ADD COLUMN default_model_id text NOT NULL DEFAULT '';
-		CREATE TABLE users (id text PRIMARY KEY,email text NOT NULL,name text NOT NULL,role text NOT NULL,disabled boolean NOT NULL DEFAULT false,deleted_at timestamptz);
+		CREATE TABLE IF NOT EXISTS users (id text PRIMARY KEY,email text NOT NULL,name text NOT NULL,role text NOT NULL,disabled boolean NOT NULL DEFAULT false,deleted_at timestamptz);
 		CREATE TABLE rbac_platform_administrators (user_id text PRIMARY KEY);
-		CREATE TABLE rbac_user_roles (user_id text NOT NULL,role_id text NOT NULL);
+		CREATE TABLE IF NOT EXISTS rbac_user_roles (user_id text NOT NULL,role_id text NOT NULL);
 		INSERT INTO users(id,email,name,role) VALUES('owner','owner@local','Owner','viewer'),('other','other@local','Other','viewer');
 		INSERT INTO v3_conversations(id,owner_id,environment_id,title,context_ref,default_model_id) VALUES
 		('c1','owner','test','Checkout review','alert:a1,service:checkout-api','model-1'),

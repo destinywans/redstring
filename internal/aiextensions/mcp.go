@@ -129,6 +129,25 @@ func list(ctx context.Context, session *mcp.ClientSession) ([]ToolInfo, error) {
 	}
 	return nil, ErrUnavailable
 }
+
+// DiscoverTools performs a bounded Streamable HTTP tools/list against a caller-
+// authorized registration. Callers must enforce their own application and
+// environment permissions before passing its configuration here. Discovery
+// does not review, enable or execute any advertised tool.
+func DiscoverTools(ctx context.Context, credentialRoot string, c MCPConfig) ([]ToolInfo, error) {
+	if e := validateMCPTransport(c); e != nil {
+		return nil, e
+	}
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	session, e := (&Service{CredentialRoot: credentialRoot}).connect(ctx, c)
+	if e != nil {
+		return nil, e
+	}
+	defer session.Close()
+	return list(ctx, session)
+}
+
 func (s *Service) Discover(ctx context.Context, id string) ([]ToolInfo, error) {
 	r, e := s.Get(ctx, id, 0)
 	if e != nil {
@@ -137,14 +156,7 @@ func (s *Service) Discover(ctx context.Context, id string) ([]ToolInfo, error) {
 	if r.Kind != "mcp" || r.MCP == nil {
 		return nil, ErrInvalid
 	}
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	session, e := s.connect(ctx, *r.MCP)
-	if e != nil {
-		return nil, e
-	}
-	defer session.Close()
-	return list(ctx, session)
+	return DiscoverTools(ctx, s.CredentialRoot, *r.MCP)
 }
 func toolName(id, binding string) string {
 	h := sha256.Sum256([]byte(id + ":" + binding))

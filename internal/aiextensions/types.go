@@ -114,15 +114,8 @@ func validate(r Record) error {
 		return ErrInvalid
 	}
 	c := r.MCP
-	u, e := url.Parse(c.Endpoint)
-	if e != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || len(c.Endpoint) > 2000 {
-		return ErrInvalid
-	}
-	if u.Scheme != "https" && !(u.Scheme == "http" && c.AllowHTTP && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost" || u.Hostname() == "::1")) {
-		return ErrInvalid
-	}
-	if c.CredentialRef != "" && (!ident.MatchString(c.CredentialRef) || c.CredentialRef == "." || c.CredentialRef == "..") {
-		return ErrInvalid
+	if e := validateMCPTransport(*c); e != nil {
+		return e
 	}
 	seen := map[string]bool{}
 	for _, b := range c.Bindings {
@@ -134,6 +127,20 @@ func validate(r Record) error {
 		if e != nil || len(raw) > 16384 {
 			return ErrInvalid
 		}
+	}
+	return nil
+}
+
+func validateMCPTransport(c MCPConfig) error {
+	u, e := url.Parse(c.Endpoint)
+	if e != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || len(c.Endpoint) > 2000 {
+		return ErrInvalid
+	}
+	if u.Scheme != "https" && !(u.Scheme == "http" && c.AllowHTTP && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost" || u.Hostname() == "::1")) {
+		return ErrInvalid
+	}
+	if c.CredentialRef != "" && (!ident.MatchString(c.CredentialRef) || c.CredentialRef == "." || c.CredentialRef == "..") {
+		return ErrInvalid
 	}
 	return nil
 }

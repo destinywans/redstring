@@ -1,5 +1,10 @@
 # AIOps Canvas 检查点
 
+## CP-107 · 2026-09-29 · MCP 发现协议共用 helper
+
+- 从 legacy `Service.Discover` 中抽出协议级 `aiextensions.DiscoverTools(ctx, credentialRoot, MCPConfig)`：传输配置先按既有端点与凭据引用规则验证，然后沿用 Streamable HTTP 连接、凭据文件权限、禁代理/重定向、超时、分页与工具数量上限。legacy 入口仍先执行原有账号/应用授权，再调用同一 helper；此处不赋予 V3 新权限或自动信任上游工具声明。
+- 本地 SDK Streamable HTTP 定向测试覆盖带私有文件凭据发现、不执行工具、非法端点/引用在外连前被拒、宽松文件权限拒绝以及不跟随重定向；`go test ./internal/aiextensions -count=1` 与差异检查通过。未连接真实 MCP、未持久化发现快照、未接 V3 路由；后续由 WAN-122 在单环境 `connectors.manage`、版本/摘要、前后复核与有界未信任结果的基础上接入。主契约仍 **32/166 `implemented`**。
+
 ## CP-106 · 2026-09-29 · SSE 游标绑定原回复与早期失败事件
 
 - WAN-121 `bec14ad` 合入为 `95bab40`。正数 `Last-Event-ID` 现在必须指向当前有权会话中的既有事件，续传该事件原属的回复，即使已开始新回合；未知或已删除游标返回 422，不借最新回复冒充旧流。缺省/0 游标仍选当前最新回复。模型在 `message.started` 之前失败时，持久化空助手开始事件，再输出状态与终止事件，保持事件顺序；有可信运行用量时带上配置模型品牌与推理档位。

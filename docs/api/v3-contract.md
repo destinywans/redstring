@@ -125,8 +125,8 @@
 | DELETE | `/silences/{id}` | | 204 | mock |
 | GET | `/proposals/{id}` | | `Proposal` | implemented |
 | POST | `/proposals/{id}/approve` | `{ comment? }`（需通行密钥二次验证） | `{ execution_id }` | mock |
-| POST | `/proposals/{id}/reject` | `{ comment? }` | 更新后的提案 | implemented |
-| POST | `/proposals/{id}/comments` | `{ text }` | 评论 | implemented |
+| POST | `/proposals/{id}/reject` | `{ comment? }`；仅待审提案，由人类身份执行 | 更新后的提案 | implemented |
+| POST | `/proposals/{id}/comments` | `{ text }`；可选 `Idempotency-Key` 请求头 | 评论 | implemented |
 | GET | `/executions/{id}` | | `Execution` | mock |
 | POST | `/executions/{id}/report/publish` | | 发布结果 | mock |
 
@@ -136,14 +136,14 @@
 | --- | --- | --- | --- | --- |
 | GET | `/runbooks` | `q`, `service` | Runbook 列表 | mock |
 | GET | `/runbooks/{id}` | | `Runbook` | mock |
-| POST | `/runbooks/{id}/dry-run` | 当前草稿 | 演练结果 | mock |
-| POST | `/runbooks/{id}/submit` | 草稿 | 提交审核 | mock |
+| POST | `/runbooks/{id}/dry-run` | 验证当前持久化步骤，不执行外部动作 | 演练结果 | implemented |
+| POST | `/runbooks/{id}/submit` | 当前持久化草稿，无请求体 | 提交审核 | implemented |
 | GET | `/postmortems` | | `PostmortemSummary` | mock |
 | GET | `/memory` | | `MemoryView` | mock |
 | POST | `/memory/facts/{id}/{action}` | `action: confirm\|reject\|expire` | 更新后的事实 | mock |
 | POST | `/memory/conflicts/resolve` | `{ keep, drop }` | 结果 | mock |
 | GET | `/knowledge-sources` | | 知识来源 | mock |
-| POST | `/knowledge/search` | `{ q }` | `{ hits: RetrievalHit[] }` | implemented |
+| POST | `/knowledge/search` | `{ q, service?, top_k? }` | `{ hits: RetrievalHit[] }` | implemented |
 
 ## 资源与观测（`observe.ts`）
 

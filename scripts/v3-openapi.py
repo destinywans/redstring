@@ -443,6 +443,7 @@ v3_route('get','/proposals/{id}','Read a scoped V3 proposal review record',respo
     desc='Only records created by a trusted V3 producer can appear; existing rollback action_plans are not relabeled.')
 v3_route('post','/proposals/{id}/comments','Append an audited proposal comment',
     body=obj({'text':string()},['text']),response=ref('V3ProposalComment'),status=201,
+    query=[{'name':'Idempotency-Key','in':'header','schema':string(maxLength=128)}],
     desc='Only pending proposals may be discussed. Idempotency-Key is optional and scoped to the actor/proposal.')
 P['/proposals/{id}/comments']['post']['responses']['200'] = P['/proposals/{id}/comments']['post']['responses']['201']
 v3_route('post','/proposals/{id}/reject','Reject a pending proposal without executing it',

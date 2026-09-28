@@ -74,8 +74,8 @@
 | 事件与告警 | POST | `/executions/{id}/report/publish` | 新增 | mock |
 | 知识与记忆 | GET | `/runbooks` | 新增 | mock |
 | 知识与记忆 | GET | `/runbooks/{id}` | 新增 | mock |
-| 知识与记忆 | POST | `/runbooks/{id}/dry-run` | 新增 | mock |
-| 知识与记忆 | POST | `/runbooks/{id}/submit` | 新增 | mock |
+| 知识与记忆 | POST | `/runbooks/{id}/dry-run` | 新增 | implemented |
+| 知识与记忆 | POST | `/runbooks/{id}/submit` | 新增 | implemented |
 | 知识与记忆 | GET | `/postmortems` | 新增 | mock |
 | 知识与记忆 | GET | `/memory` | 新增 | mock |
 | 知识与记忆 | POST | `/memory/facts/{id}/{action}` | 新增 | mock |

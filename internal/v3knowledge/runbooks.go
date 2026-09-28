@@ -268,15 +268,55 @@ func (s *Service) submitHandler(api *httpapi.Server) http.HandlerFunc {
 			return
 		}
 		defer tx.Rollback(r.Context())
-		result, err := tx.Exec(r.Context(), `UPDATE knowledge_documents SET lifecycle='review' WHERE id=$1 AND version=$2 AND lifecycle='draft'`, id, doc.Version)
+		// The document and its ownership/scope may change after the first read.
+		// Lock the current row and recheck both maintainer and matrix grants on
+		// this transaction before changing lifecycle or writing audit records.
+		var current knowledge.Document
+		var metadata knowledge.Metadata
+		err = tx.QueryRow(r.Context(), `SELECT COALESCE(application_id,''),source,version,lifecycle,metadata
+ FROM knowledge_documents WHERE id=$1 FOR UPDATE`, id).Scan(&current.ApplicationID, &current.Source, &current.Version, &current.Lifecycle, &metadata)
+		if errors.Is(err, pgx.ErrNoRows) {
+			httpapi.Error(w, 404, "not_found", "Runbook not found")
+			return
+		}
+		if err != nil {
+			httpapi.Error(w, 503, "knowledge_unavailable", "Runbook unavailable")
+			return
+		}
+		current.Metadata = metadata
+		if !isRunbook(current.Source) || !documentInScope(r, current) {
+			httpapi.Error(w, 404, "not_found", "Runbook not found")
+			return
+		}
+		if current.Version != doc.Version {
+			knowledgeError(w, store.ErrConflict)
+			return
+		}
+		if current.Lifecycle != "draft" {
+			httpapi.Error(w, 409, "invalid_state", "Only drafts can be submitted")
+			return
+		}
+		if current.Metadata.MaintainerID != httpapi.CurrentUser(r).ID {
+			httpapi.Error(w, 403, "forbidden", "Only the maintainer can submit this draft")
+			return
+		}
+		if err = s.authorizeDocumentWithTx(r, tx, current, "manage"); err != nil {
+			if errors.Is(err, store.ErrForbidden) {
+				httpapi.Error(w, 403, "forbidden", "Runbook management denied")
+			} else {
+				httpapi.Error(w, 503, "authorization_unavailable", "Knowledge access could not be checked")
+			}
+			return
+		}
+		result, err := tx.Exec(r.Context(), `UPDATE knowledge_documents SET lifecycle='review' WHERE id=$1 AND version=$2 AND lifecycle='draft'`, id, current.Version)
 		if err == nil && result.RowsAffected() != 1 {
 			err = store.ErrConflict
 		}
 		if err == nil {
-			_, err = tx.Exec(r.Context(), `INSERT INTO knowledge_history(document_id,version,actor_id,operation) VALUES($1,$2,$3,'lifecycle.review')`, id, doc.Version, httpapi.CurrentUser(r).ID)
+			_, err = tx.Exec(r.Context(), `INSERT INTO knowledge_history(document_id,version,actor_id,operation) VALUES($1,$2,$3,'lifecycle.review')`, id, current.Version, httpapi.CurrentUser(r).ID)
 		}
 		if err == nil {
-			_, err = tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes) VALUES($1,$2,'runbook.submitted',$3,'succeeded',$4)`, httpapi.CurrentUser(r).ID, doc.ApplicationID, id, map[string]any{"version": doc.Version})
+			_, err = tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes) VALUES($1,$2,'runbook.submitted',$3,'succeeded',$4)`, httpapi.CurrentUser(r).ID, current.ApplicationID, id, map[string]any{"version": current.Version})
 		}
 		if err == nil {
 			err = tx.Commit(r.Context())
@@ -438,6 +478,16 @@ func (s *Service) rawDocument(ctx context.Context, id string) (knowledge.Documen
 // This second check binds the decision to the persisted document's application
 // and its actual environment scope; client supplied service names cannot grant it.
 func (s *Service) authorizeDocument(r *http.Request, d knowledge.Document, action string) error {
+	return s.authorizeDocumentUsing(r, s.DB, d, action, func(decision rbac.V3Decision) error {
+		return s.Policy.Authorize(r.Context(), httpapi.CurrentUser(r), decision)
+	})
+}
+
+type runbookQueryRow interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func (s *Service) authorizeDocumentUsing(r *http.Request, q runbookQueryRow, d knowledge.Document, action string, authorize func(rbac.V3Decision) error) error {
 	if !documentInScope(r, d) {
 		return store.ErrForbidden
 	}
@@ -445,7 +495,33 @@ func (s *Service) authorizeDocument(r *http.Request, d knowledge.Document, actio
 		if len(d.Metadata.EnvironmentIDs) > 0 && !contains(d.Metadata.EnvironmentIDs, env) {
 			continue
 		}
-		err := s.Policy.Authorize(r.Context(), httpapi.CurrentUser(r), rbac.V3Decision{Module: "knowledge", Action: action, EnvironmentID: env, ApplicationID: d.ApplicationID})
+		teamID := ""
+		if d.ApplicationID != "" {
+			// Resolve the owning team from the persisted application and require
+			// an active mapping to this environment. Metadata.TeamID is a content
+			// field and never grants access to another application's Runbook.
+			err := q.QueryRow(r.Context(), `SELECT COALESCE(a.owner_team_id,'') FROM applications a
+ JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$2
+ JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
+ WHERE a.id=$1 AND NOT a.archived`, d.ApplicationID, env).Scan(&teamID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+		}
+		err := authorize(rbac.V3Decision{Module: "knowledge", Action: action, EnvironmentID: env, ApplicationID: d.ApplicationID})
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, store.ErrForbidden) {
+			return err
+		}
+		if teamID == "" {
+			continue
+		}
+		err = authorize(rbac.V3Decision{Module: "knowledge", Action: action, EnvironmentID: env, TeamID: teamID})
 		if err == nil {
 			return nil
 		}
@@ -454,6 +530,12 @@ func (s *Service) authorizeDocument(r *http.Request, d knowledge.Document, actio
 		}
 	}
 	return store.ErrForbidden
+}
+
+func (s *Service) authorizeDocumentWithTx(r *http.Request, tx pgx.Tx, d knowledge.Document, action string) error {
+	return s.authorizeDocumentUsing(r, tx, d, action, func(decision rbac.V3Decision) error {
+		return s.Policy.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), decision)
+	})
 }
 
 func scopeIDs(r *http.Request) []string {

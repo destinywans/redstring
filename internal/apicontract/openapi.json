@@ -27220,6 +27220,14 @@
             }
           },
           {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
             "name": "X-AIOps-Environment",
             "in": "header",
             "schema": {

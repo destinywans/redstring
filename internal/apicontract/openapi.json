@@ -25330,7 +25330,7 @@
       "get": {
         "summary": "List configured connectors",
         "operationId": "get_connectors",
-        "description": "Minimum role: admin. V3 instance and environment scope apply. Counts cover all currently authorized connector registrations before category or search filters. Disabled registrations are unverified and identified in meta, with no enabled tools. Status ok/error reflects a persisted connection test from the last 15 minutes, not continuous health; older results become unverified with their last-check time. More than 1000 visible registrations returns 413 instead of an incomplete unpaged result.",
+        "description": "Minimum role: admin. V3 instance and environment scope apply. Counts cover all currently authorized connector registrations before category or search filters. Disabled or credential-free registrations are unverified and identified in meta. Persisted tool preferences do not produce Agent capability tags. Status ok/error reflects a persisted connection test from the last 15 minutes, not continuous health; older results become unverified with their last-check time. More than 1000 visible registrations returns 413 instead of an incomplete unpaged result.",
         "responses": {
           "200": {
             "description": "Success",
@@ -25584,7 +25584,7 @@
       "get": {
         "summary": "Read connector configuration",
         "operationId": "get_connectors_id",
-        "description": "Minimum role: admin. V3 instance and environment scope apply. ",
+        "description": "Minimum role: admin. V3 instance and environment scope apply. Returns one persisted registration in the selected environment. Service names are included only after current target and application grants. Auth text distinguishes a missing credential from a registered Vault reference; it does not claim the secret was verified. Status is the most recent fresh connection probe, not continuous health; missing credentials are unverified even if an older successful check was stored. There is no connector-backed Agent executor or query binding, so tools, queries, and capability tags are empty even when registration preferences exist. More than 1000 visible target services returns 422 instead of truncation.",
         "responses": {
           "200": {
             "description": "Success",
@@ -25687,7 +25687,7 @@
       "patch": {
         "summary": "Update connector configuration",
         "operationId": "patch_connectors_id",
-        "description": "Minimum role: admin. V3 instance and environment scope apply. ",
+        "description": "Minimum role: admin. V3 instance and environment scope apply. Updates persisted connector tool preferences only. The enabled flag is not an Agent execution grant; connector-backed Agent execution is not wired. The V3 frontend toggle currently does not call this route.",
         "responses": {
           "200": {
             "description": "Success",
@@ -45966,7 +45966,10 @@
                 "type": "string"
               }
             },
-            "additionalProperties": false
+            "additionalProperties": false,
+            "required": [
+              "text"
+            ]
           },
           "services": {
             "type": "array",
@@ -45999,7 +46002,24 @@
             }
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "brand",
+          "name",
+          "kind",
+          "category",
+          "status",
+          "tags",
+          "meta",
+          "scope",
+          "address",
+          "auth",
+          "checked",
+          "services",
+          "queries",
+          "tools"
+        ]
       },
       "V3ConnectorList": {
         "type": "object",

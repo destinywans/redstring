@@ -394,6 +394,29 @@ func (s *Service) finishLocked(ctx context.Context, tx pgx.Tx, conv, reply, assi
 				return err
 			}
 		}
+		// A queued reply can fail before the worker publishes message.started.
+		// Revocation also removes the old stream, so recreate only its empty
+		// assistant shell before the status and terminal events.
+		var started bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_conversation_events
+			WHERE conversation_id=$1 AND reply_id=$2 AND payload->>'type'='message.started')`, conv, reply).Scan(&started); err != nil {
+			return err
+		}
+		if !started {
+			var createdAt time.Time
+			if err = tx.QueryRow(ctx, `SELECT created_at FROM v3_conversation_messages
+				WHERE id=$1 AND conversation_id=$2`, assistant, conv).Scan(&createdAt); err != nil {
+				return err
+			}
+			startedEvent := map[string]any{"type": "message.started", "message": Message{
+				ID: assistant, Role: "assistant", Author: "AI", CreatedAt: createdAt,
+				Parts: []json.RawMessage{}, Streaming: true,
+			}}
+			if _, err = tx.Exec(ctx, `INSERT INTO v3_conversation_events(conversation_id,reply_id,payload)
+				VALUES($1,$2,$3)`, conv, reply, marshal(startedEvent)); err != nil {
+				return err
+			}
+		}
 		// The frozen V3 stream understands only four event types. A status part
 		// exposes the failure while message.completed closes EventSource. The
 		// durable reply state and error still record that the model did not succeed.
@@ -667,6 +690,14 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 	var run any
 	if modelSteps > 0 && modelSteps == reportedModelSteps {
 		reported := map[string]any{"id": reply, "agent": "AI", "version": "v3", "model": model.Name, "model_id": model.ID, "reasoning": reasoning, "tokens": runTokens, "duration_s": time.Since(started).Seconds()}
+		// These values mirror the configured model catalog. The catalog labels
+		// each reasoning level with its ID; absent choices stay absent.
+		if model.Provider != "" {
+			reported["brand"] = model.Provider
+		}
+		if reasoning != "" {
+			reported["reasoning_label"] = reasoning
+		}
 		if model.InputBudget > 0 {
 			reported["context_input_tokens"] = contextInputTokens
 			reported["context_budget"] = model.InputBudget

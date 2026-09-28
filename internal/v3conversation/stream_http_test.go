@@ -28,7 +28,7 @@ type gatedStreamRuntime struct {
 }
 
 func (r *gatedStreamRuntime) Models() []inference.Model {
-	return []inference.Model{{ID: "test-model", Name: "Fake model", InputBudget: 8192, Streaming: true}, {ID: "preferred-model", Name: "Preferred fake model", InputBudget: 8192, Streaming: true}}
+	return []inference.Model{{ID: "test-model", Name: "Fake model", InputBudget: 8192, Streaming: true}, {ID: "preferred-model", Name: "Preferred fake model", Provider: "configured-provider", ReasoningLevels: []string{"high"}, InputBudget: 8192, Streaming: true}}
 }
 
 func (r *gatedStreamRuntime) Run(ctx context.Context, _ inference.Request, emit func(inference.Event) error) (string, error) {
@@ -218,7 +218,7 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 			t.Fatalf("invalid model: %d %s", response.StatusCode, body)
 		}
 	}
-	response, err := client.Do(request(http.MethodPost, url+"/messages", "test", "", strings.NewReader(`{"text":"investigate"}`), true))
+	response, err := client.Do(request(http.MethodPost, url+"/messages", "test", "", strings.NewReader(`{"text":"investigate","reasoning":"high"}`), true))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,9 +332,12 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 				t.Fatalf("completion event before full message commit: state=%q parts=%q err=%v", state, parts, err)
 			}
 			var completed, persisted struct {
-				Tokens int `json:"tokens"`
+				Tokens         int    `json:"tokens"`
+				Brand          string `json:"brand"`
+				Reasoning      string `json:"reasoning"`
+				ReasoningLabel string `json:"reasoning_label"`
 			}
-			if json.Unmarshal(item.run, &completed) != nil || json.Unmarshal([]byte(savedRun), &persisted) != nil || completed.Tokens != 22 || persisted.Tokens != 22 {
+			if json.Unmarshal(item.run, &completed) != nil || json.Unmarshal([]byte(savedRun), &persisted) != nil || completed.Tokens != 22 || persisted.Tokens != 22 || completed.Brand != "configured-provider" || persisted.Brand != completed.Brand || completed.Reasoning != "high" || completed.ReasoningLabel != "high" || persisted.ReasoningLabel != completed.ReasoningLabel {
 				t.Fatalf("completed usage differs from persisted provider usage: event=%s saved=%s", item.run, savedRun)
 			}
 		}

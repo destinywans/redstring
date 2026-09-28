@@ -465,7 +465,24 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 		operationError(w, err)
 		return
 	}
-	reply, err := s.latestReply(r.Context(), id)
+	cursor, ok := lastEventCursor(r.Header.Values("Last-Event-ID"))
+	if !ok {
+		apiError(w, 422, "invalid_event_cursor", "Last-Event-ID must be a nonnegative event ID")
+		return
+	}
+	var reply string
+	if cursor > 0 {
+		// Event IDs are global. Resolve a reconnect cursor to its own reply
+		// within the authorized conversation, even after a newer turn starts.
+		err = s.db.QueryRow(r.Context(), `SELECT reply_id FROM v3_conversation_events
+			WHERE seq=$1 AND conversation_id=$2`, cursor, id).Scan(&reply)
+		if errors.Is(err, pgx.ErrNoRows) {
+			apiError(w, 422, "invalid_event_cursor", "Last-Event-ID is unavailable for this conversation")
+			return
+		}
+	} else {
+		reply, err = s.latestReply(r.Context(), id)
+	}
 	if err != nil {
 		operationError(w, err)
 		return
@@ -473,11 +490,6 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		apiError(w, 503, "stream_unavailable", "Streaming unavailable")
-		return
-	}
-	cursor, ok := lastEventCursor(r.Header.Values("Last-Event-ID"))
-	if !ok {
-		apiError(w, 422, "invalid_event_cursor", "Last-Event-ID must be a nonnegative event ID")
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")

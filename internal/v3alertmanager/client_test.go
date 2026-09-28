@@ -47,6 +47,19 @@ func TestListSilencesUsesEnvironmentBoundEndpoint(t *testing.T) {
 	}
 }
 
+func TestListAlertsReadsObservedSilenceIDs(t *testing.T) {
+	client, _ := localClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/alertmanager/api/v2/alerts" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`[{"labels":{"environment":"test","alertname":"Down"},"status":{"silencedBy":["s1"],"state":"suppressed"}}]`))
+	}, "")
+	alerts, err := client.ListAlerts(context.Background(), "dev")
+	if err != nil || len(alerts) != 1 || alerts[0].Labels["environment"] != "test" || len(alerts[0].Status.SilencedBy) != 1 || alerts[0].Status.SilencedBy[0] != "s1" {
+		t.Fatalf("alerts=%+v err=%v", alerts, err)
+	}
+}
+
 func TestInhibitionRulesComeFromStatusWithoutReturningReceiverSecrets(t *testing.T) {
 	client, _ := localClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/alertmanager/api/v2/status" {
@@ -84,6 +97,8 @@ func TestRedirectAndOversizedResponseRejected(t *testing.T) {
 func TestNewRejectsUnsafeEndpoint(t *testing.T) {
 	for _, ep := range []Endpoint{
 		{URL: "http://example.com"},
+		{URL: "http://example.com", AllowHTTP: true, BearerTokenFile: "/private/token"},
+		{URL: "http://localhost:9093", AllowHTTP: true, BearerTokenFile: "/private/token"},
 		{URL: "https://user:pass@example.com"},
 		{URL: "https://example.com/?token=secret"},
 		{URL: "https://example.com", BearerTokenFile: "relative/token"},

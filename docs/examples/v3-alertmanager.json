@@ -1,0 +1,14 @@
+{
+  "environments": {
+    "test": {
+      "url": "https://alertmanager-test.example.invalid",
+      "bearer_token_file": "/absolute/path/private/alertmanager-test.token",
+      "environment_label": "environment"
+    },
+    "staging": {
+      "url": "https://alertmanager-staging.example.invalid",
+      "bearer_token_file": "/absolute/path/private/alertmanager-staging.token",
+      "environment_label": "environment"
+    }
+  }
+}

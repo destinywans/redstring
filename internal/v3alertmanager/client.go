@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -54,6 +55,15 @@ func New(endpoints map[string]Endpoint, client *http.Client) (*Client, error) {
 		if ep.BearerTokenFile != "" && !filepath.IsAbs(ep.BearerTokenFile) {
 			return nil, errors.New("Alertmanager token file must be absolute")
 		}
+		// HTTP with a bearer token is only permitted against a literal loopback
+		// address in an explicitly configured local test. A DNS name (including
+		// localhost) could resolve outside the host and disclose the token.
+		if u.Scheme == "http" && ep.BearerTokenFile != "" {
+			ip := net.ParseIP(u.Hostname())
+			if ip == nil || !ip.IsLoopback() {
+				return nil, errors.New("HTTP Alertmanager bearer tokens require a loopback IP")
+			}
+		}
 		copyEndpoints[env] = ep
 	}
 	if client == nil {
@@ -86,6 +96,39 @@ type Silence struct {
 	CreatedBy   string            `json:"createdBy"`
 	Comment     string            `json:"comment"`
 	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
+// Alert contains only the fields needed to count currently silenced alerts.
+// The complete upstream alert body can include unrelated annotations and is
+// deliberately not returned by this adapter.
+type Alert struct {
+	Labels map[string]string `json:"labels"`
+	Status struct {
+		SilencedBy []string `json:"silencedBy"`
+	} `json:"status"`
+}
+
+func (c *Client) ListAlerts(ctx context.Context, environment string) ([]Alert, error) {
+	body, err := c.get(ctx, environment, "/api/v2/alerts")
+	if err != nil {
+		return nil, err
+	}
+	var alerts []Alert
+	if err := decodeOne(body, &alerts); err != nil {
+		return nil, fmt.Errorf("invalid Alertmanager alerts: %w", err)
+	}
+	if len(alerts) > maxRecords {
+		return nil, errors.New("Alertmanager alert count exceeds limit")
+	}
+	for _, alert := range alerts {
+		if len(alert.Labels) == 0 || len(alert.Status.SilencedBy) > 100 {
+			return nil, errors.New("invalid Alertmanager alert record")
+		}
+	}
+	if alerts == nil {
+		alerts = []Alert{}
+	}
+	return alerts, nil
 }
 
 // ListSilences returns the exact upstream status, without calculating a

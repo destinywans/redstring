@@ -396,6 +396,33 @@ v3_route('get','/alert-rules/observed/{id}','Read one provider-observed alert ru
     response=ref('V3ObservedAlertRuleDetail'),
     desc='Auxiliary read-only backend endpoint. No historical preview, threshold condition, notification route or AI triage is inferred.')
 
+S['V3SilenceMatcher'] = obj(fieldnames('k v'), ['k','v'])
+S['V3SilenceRemaining'] = obj({'pct':integer(minimum=0,maximum=100),'text':string()},['pct','text'])
+S['V3SilenceRead'] = obj({**fieldnames('id window creator reason'),
+    'matchers':arr(ref('V3SilenceMatcher')),
+    'state':string(enum=['active','planned','expired']),
+    'remaining':ref('V3SilenceRemaining'),'affects':integer(minimum=0)},
+    ['id','matchers','state','window','affects','creator','reason'])
+S['V3InhibitionRead'] = obj({'id':string(),'source':arr(ref('V3SilenceMatcher')),
+    'target':arr(ref('V3SilenceMatcher')),'equal':arr(string()),'stat':string()},
+    ['id','source','target','equal','stat'])
+v3_route('get','/silences','Read environment-scoped Alertmanager silences',
+    response=obj({'items':arr(ref('V3SilenceRead')),
+        'counts':obj({k:integer(minimum=0) for k in ['active','planned','expired']},['active','planned','expired']),
+        'partial':v3_bool(),'unavailable_environments':arr(string()),
+        'unscoped_present':v3_bool()},
+        ['items','counts','partial','unavailable_environments','unscoped_present']),
+    query=[v3_query('state',string(enum=['active','planned','expired','all']))],
+    desc='Only provider silences with an exact configured environment-label matcher are returned. Current affects is counted from provider alerts silenced by each ID, not inferred from matcher overlap. Other-environment records do not affect counts, status, or coverage; broad records set only unscoped_present. Unconfigured or failed sources return 503; broad records or partial environment failure return 206. Still incomplete for application/team-scoped grants and very large shared upstream responses.')
+P['/silences']['get']['responses']['206'] = P['/silences']['get']['responses']['200']
+v3_route('get','/inhibitions','Read environment-scoped Alertmanager inhibition configuration',
+    response=obj({'items':arr(ref('V3InhibitionRead')),'partial':v3_bool(),
+        'unavailable':arr(string()),'unavailable_environments':arr(string()),
+        'unscoped_present':v3_bool()},
+        ['items','partial','unavailable','unavailable_environments','unscoped_present']),
+    desc='Partial projection: only rules with exact source and target environment matchers are returned. Other-environment rules do not affect status or coverage; broad rules set only unscoped_present. Alertmanager status does not expose per-rule active or hit counts, so active is omitted and stat explains unavailable data. Populated lists return 206, not a fabricated full V3 DTO. Unconfigured or failed sources return 503.')
+P['/inhibitions']['get']['responses']['206'] = P['/inhibitions']['get']['responses']['200']
+
 # V3 review records are separate from historical rollback action plans. A
 # trusted in-process producer must create one with complete sourced evidence;
 # approval and execution remain unavailable until passkey-bound authorization.

@@ -26612,6 +26612,403 @@
         ]
       }
     },
+    "/silences": {
+      "get": {
+        "summary": "Read environment-scoped Alertmanager silences",
+        "operationId": "get_silences",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Only provider silences with an exact configured environment-label matcher are returned. Current affects is counted from provider alerts silenced by each ID, not inferred from matcher overlap. Other-environment records do not affect counts, status, or coverage; broad records set only unscoped_present. Unconfigured or failed sources return 503; broad records or partial environment failure return 206. Still incomplete for application/team-scoped grants and very large shared upstream responses.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3SilenceRead"
+                      }
+                    },
+                    "counts": {
+                      "type": "object",
+                      "properties": {
+                        "active": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "planned": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "expired": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "active",
+                        "planned",
+                        "expired"
+                      ]
+                    },
+                    "partial": {
+                      "type": "boolean"
+                    },
+                    "unavailable_environments": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "unscoped_present": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "counts",
+                    "partial",
+                    "unavailable_environments",
+                    "unscoped_present"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3SilenceRead"
+                      }
+                    },
+                    "counts": {
+                      "type": "object",
+                      "properties": {
+                        "active": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "planned": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "expired": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "active",
+                        "planned",
+                        "expired"
+                      ]
+                    },
+                    "partial": {
+                      "type": "boolean"
+                    },
+                    "unavailable_environments": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "unscoped_present": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "counts",
+                    "partial",
+                    "unavailable_environments",
+                    "unscoped_present"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "silences"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "planned",
+                "expired",
+                "all"
+              ]
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/inhibitions": {
+      "get": {
+        "summary": "Read environment-scoped Alertmanager inhibition configuration",
+        "operationId": "get_inhibitions",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial projection: only rules with exact source and target environment matchers are returned. Other-environment rules do not affect status or coverage; broad rules set only unscoped_present. Alertmanager status does not expose per-rule active or hit counts, so active is omitted and stat explains unavailable data. Populated lists return 206, not a fabricated full V3 DTO. Unconfigured or failed sources return 503.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3InhibitionRead"
+                      }
+                    },
+                    "partial": {
+                      "type": "boolean"
+                    },
+                    "unavailable": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "unavailable_environments": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "unscoped_present": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "partial",
+                    "unavailable",
+                    "unavailable_environments",
+                    "unscoped_present"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3InhibitionRead"
+                      }
+                    },
+                    "partial": {
+                      "type": "boolean"
+                    },
+                    "unavailable": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "unavailable_environments": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "unscoped_present": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "partial",
+                    "unavailable",
+                    "unavailable_environments",
+                    "unscoped_present"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "inhibitions"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/proposals/{id}": {
       "get": {
         "summary": "Read a scoped V3 proposal review record",
@@ -37737,6 +38134,125 @@
           }
         },
         "additionalProperties": false
+      },
+      "V3SilenceMatcher": {
+        "type": "object",
+        "properties": {
+          "k": {
+            "type": "string"
+          },
+          "v": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "k",
+          "v"
+        ]
+      },
+      "V3SilenceRemaining": {
+        "type": "object",
+        "properties": {
+          "pct": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "pct",
+          "text"
+        ]
+      },
+      "V3SilenceRead": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "window": {
+            "type": "string"
+          },
+          "creator": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "matchers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3SilenceMatcher"
+            }
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "planned",
+              "expired"
+            ]
+          },
+          "remaining": {
+            "$ref": "#/components/schemas/V3SilenceRemaining"
+          },
+          "affects": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "matchers",
+          "state",
+          "window",
+          "affects",
+          "creator",
+          "reason"
+        ]
+      },
+      "V3InhibitionRead": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "source": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3SilenceMatcher"
+            }
+          },
+          "target": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3SilenceMatcher"
+            }
+          },
+          "equal": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "stat": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "source",
+          "target",
+          "equal",
+          "stat"
+        ]
       },
       "V3ProposalComment": {
         "type": "object",

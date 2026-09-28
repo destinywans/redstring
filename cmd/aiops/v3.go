@@ -21,6 +21,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3admin"
+	"github.com/wans/aiops-canvas/internal/v3alertmanager"
 	"github.com/wans/aiops-canvas/internal/v3alertrules"
 	"github.com/wans/aiops-canvas/internal/v3audit"
 	"github.com/wans/aiops-canvas/internal/v3canvas"
@@ -138,6 +139,11 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		return fmt.Errorf("bind V3 alert rule groups: %w", err)
 	}
 	ruleService.Register(api)
+	alertmanagerSource, alertmanagerLabels, err := loadV3AlertmanagerSource(os.Getenv("AIOPS_V3_ALERTMANAGER_CONFIG"), *info)
+	if err != nil {
+		return fmt.Errorf("load V3 Alertmanager source: %w", err)
+	}
+	(&v3alertmanager.Service{Source: alertmanagerSource, EnvironmentLabels: alertmanagerLabels}).Register(api)
 
 	personalSettings := v3settings.New(s, runtime)
 	personalSettings.Register(api)

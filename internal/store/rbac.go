@@ -59,19 +59,25 @@ func (s *Store) AuthorizeCapability(ctx context.Context, u core.User, action, sc
 	return nil
 }
 
-// Legacy application-wide reads may reach any linked resource. Fail closed unless
-// every linked infrastructure resource is viewable and at least one exists.
-// Writes and approvals always use the exact target, never application authority.
+// Legacy application-wide operations require the corresponding resource action
+// on every linked infrastructure resource. A view grant must not authorize an
+// investigation or other operator route. Writes and approvals still use the
+// exact target, never application authority.
 func (s *Store) authorizeApplicationRBAC(ctx context.Context, u core.User, app, action string) error {
 	if action != "view" && action != "operate" && action != "investigate" {
 		return ErrForbidden
+	}
+	required := "view"
+	if action != "view" {
+		required = "update"
 	}
 	var exists, allowed bool
 	err := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM applications WHERE id=$2),
  EXISTS(SELECT 1 FROM cmdb_resource_applications l JOIN cmdb_resources r ON r.id=l.resource_id WHERE l.application_id=$2 AND rbac_is_infrastructure_kind(r.kind))
  AND NOT EXISTS(SELECT 1 FROM cmdb_resource_applications l JOIN cmdb_resources r ON r.id=l.resource_id
  WHERE l.application_id=$2 AND rbac_is_infrastructure_kind(r.kind)
- AND NOT EXISTS(SELECT 1 FROM rbac_effective_permissions p WHERE p.user_id=$1 AND p.action='view' AND p.resource_id=r.id))`, u.ID, app).Scan(&exists, &allowed)
+ AND (NOT EXISTS(SELECT 1 FROM rbac_effective_permissions p WHERE p.user_id=$1 AND p.action='view' AND p.scope_type='resource' AND p.resource_id=r.id)
+ OR NOT EXISTS(SELECT 1 FROM rbac_effective_permissions p WHERE p.user_id=$1 AND p.action=$3 AND p.scope_type='resource' AND p.resource_id=r.id)))`, u.ID, app, required).Scan(&exists, &allowed)
 	if err != nil {
 		return err
 	}

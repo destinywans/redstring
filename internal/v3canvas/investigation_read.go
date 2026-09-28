@@ -70,7 +70,8 @@ func (s *Service) readInvestigationNodeMessages(w http.ResponseWriter, r *http.R
 	}
 	if err = s.authorizeInvestigationRead(ctx, tx, httpapi.CurrentUser(r), target); err != nil {
 		if errors.Is(err, store.ErrForbidden) {
-			investigationReadError(w, 403)
+			// Keep inaccessible object IDs indistinguishable from absent IDs.
+			investigationReadError(w, 404)
 		} else {
 			investigationReadError(w, 503)
 		}
@@ -78,7 +79,8 @@ func (s *Service) readInvestigationNodeMessages(w http.ResponseWriter, r *http.R
 	}
 	var revision int64
 	var raw []byte
-	// The SQL predicate prevents materializing an unbounded legacy context.
+	// The SQL predicate bounds the context transferred to Go. PostgreSQL still
+	// measures the stored JSONB value, so this does not bound database work.
 	err = tx.QueryRow(ctx, `SELECT b.revision,r.messages FROM branches b JOIN context_revisions r
  ON r.branch_id=b.id AND r.revision=b.revision WHERE b.id=$1 AND octet_length(r.messages::text)<=$2`,
 		node, maxNodeContextBytes).Scan(&revision, &raw)
@@ -98,8 +100,6 @@ func (s *Service) readInvestigationNodeMessages(w http.ResponseWriter, r *http.R
 
 func investigationReadError(w http.ResponseWriter, status int) {
 	switch status {
-	case 403:
-		httpapi.Error(w, 403, "forbidden", "Canvas permission required")
 	case 404:
 		httpapi.Error(w, 404, "not_found", "Investigation node not found")
 	default:

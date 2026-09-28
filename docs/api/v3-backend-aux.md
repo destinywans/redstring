@@ -4,6 +4,7 @@
 
 | 方法 | 路径 | 参数与含义 |
 | --- | --- | --- |
+| GET | `/api/v1/investigations/{id}/nodes/{node}/messages` | 只读当前持久化分支的 `{ branch_id, revision, messages }`，以持久化调查/应用/环境/所属团队核对当前 `canvas.view`。返回原始历史消息 JSON，旧记录的可选字段（包括 `created_at`）可能缺失，不合成图节点、时间、摘要或模型输出。上下文最大 24 KiB；对象不存在、路径不匹配或无访问权返回 404，当前上下文缺失、过大或损坏返回 503。完整调查图、节点写入和祖先回写仍未接通。 |
 | GET | `/api/v1/changes/records` | 必填 `service_id`、`binding_id`，可选 `page`（1–1000）；从已显式绑定的同环境 GitLab 项目读取每页 20 条流水线记录。调用前后均复核服务和连接器权限，缺少来源返回未接入，上游错误返回 502。只证明流水线自身状态与时间，不推断部署、风险或告警关联。 |
 | GET | `/api/v1/changes/merge-requests` | 必填 `service_id`、`binding_id`；可选 `page`（1–1000）、`state`（`all`/`opened`/`closed`/`locked`/`merged`）、`target_branch`。在同一明确绑定的 GitLab 项目按页读取 20 条合并请求身份、分支、状态、提交标识和上游时间；须启用 `list_merge_requests`。请求和上游响应均有界，读取前后复核来源和授权；非法筛选 422，变更 409，来源不可用 503，上游失败或损坏 502。无差异、部署或风险判定。 |
 | GET | `/api/v1/changes/commits/{sha}` | 必填 `service_id`、`binding_id` 和完整 40/64 位十六进制 SHA；从同一绑定项目读取标题、作者/提交时间及父 SHA，须单独启用 `get_commit`，不调用差异接口。读取前后复核来源和授权；目标无效 422，缺失 404，变更 409，来源不可用 503，上游失败或损坏 502。无正文、差异、邮箱、部署或风险判定。 |

@@ -150,10 +150,11 @@ func TestInvestigationNodeReadUsesPersistedScopeAndRevision(t *testing.T) {
 		name, token, env, inv, node string
 		want                        int
 	}{
-		{"no grant", deniedToken, "dev", one, "root-one", 403},
-		{"other application", appToken, "dev", two, "root-two", 403},
-		{"team cannot cross owner", teamToken, "dev", two, "root-two", 403},
+		{"no grant", deniedToken, "dev", one, "root-one", 404},
+		{"other application", appToken, "dev", two, "root-two", 404},
+		{"team cannot cross owner", teamToken, "dev", two, "root-two", 404},
 		{"wrong investigation", appToken, "dev", two, "root-one", 404},
+		{"unknown branch", appToken, "dev", one, "unknown-branch", 404},
 		{"wrong environment", appToken, "staging", one, "root-one", 403},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -166,7 +167,7 @@ func TestInvestigationNodeReadUsesPersistedScopeAndRevision(t *testing.T) {
 	if _, err = db.Exec(ctx, `UPDATE applications SET owner_team_id='team-two' WHERE id='app-one'`); err != nil {
 		t.Fatal(err)
 	}
-	if w := request(teamToken, "dev", one, "root-one"); w.Code != 403 {
+	if w := request(teamToken, "dev", one, "root-one"); w.Code != 404 {
 		t.Fatalf("stale team access: %d %s", w.Code, w.Body.String())
 	}
 	if _, err = db.Exec(ctx, `UPDATE context_revisions SET messages=jsonb_build_array(jsonb_build_object('id','huge','role','user','content',repeat('x',30000))) WHERE branch_id='root-one' AND revision=1`); err != nil {

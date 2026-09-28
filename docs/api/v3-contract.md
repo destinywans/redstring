@@ -297,6 +297,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 ## 后端辅助接口（不计入上述 166 项）
 
+- `GET /investigations/{id}/nodes/{node}/messages`：只读当前持久化调查分支的 `{ branch_id, revision, messages }`。服务端以分支记录核对调查、应用、环境和所属团队，再检查当前 `canvas.view`；消息保留历史 JSON 原貌，旧记录可能没有 `created_at`，不补造时间或 AI 摘要。当前上下文超过 24 KiB、损坏或缺失返回 503；不存在、路径不匹配或无对象访问权返回 404。完整调查图、节点写入和祖先回写仍为 `mock`。
 - `GET /changes/records?service_id=…&binding_id=…&page=1`：只读已显式绑定的 GitLab 项目流水线，要求当前环境的 `services.view` 与 `connectors.view`，每页 20 条，最多查询第 1000 页；前后复核授权与来源。只返回可核实的流水线身份、状态、分支、提交及上游时间，不包含变更风险、告警关联或看板 KPI，不替代主 `GET /changes`。
 - `GET /changes/merge-requests?service_id=…&binding_id=…&page=1&state=all&target_branch=…`：同一显式绑定的 GitLab 项目只读合并请求元数据；须单独启用 `list_merge_requests` 工具。每页 20 条，最多第 1000 页；返回分支、状态、提交标识及上游时间，不含差异、部署或风险推断。筛选非法为 422，来源或授权变化明确失败，不替代主 `GET /changes`。
 - `GET /changes/commits/{sha}?service_id=…&binding_id=…`：只读绑定项目中完整 40/64 位十六进制 SHA 的提交元数据；须单独启用 `get_commit` 工具，`get_commit_diff` 不等于授权。只返回标题、时间和父提交标识，不返回正文、差异或作者邮箱，也不推断部署或风险。两接口的 `service_id` 均为应用 ID、NUL 和环境 ID 拼接后的 base64url；服务端按当前环境及绑定再核对。

@@ -46,7 +46,7 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"POST /api/v1/canvas-templates", "change", s.saveTemplate},
 	} {
 		api.Register(route.pattern, "viewer", route.handler)
-		if route.pattern == "GET /api/v1/canvases" || strings.HasPrefix(route.pattern, "GET /api/v1/investigations/") {
+		if route.pattern == "GET /api/v1/canvases" || route.pattern == "GET /api/v1/investigations/{id}/nodes/{node}/messages" {
 			// These routes resolve their application and owner team from the
 			// persisted investigation before checking the corresponding grant.
 			api.MarkV3ObjectRoute(route.pattern, "canvas", route.action)

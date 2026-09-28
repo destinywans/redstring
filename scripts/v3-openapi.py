@@ -239,6 +239,13 @@ v3_route('post','/canvases/{id}/nodes/{node}/messages','Run a scoped general-can
     body=obj({'text':string(),'model':string(),'reasoning':string()},['text']),
     response=obj({'reply':string()},['reply']),
     desc='Owner-only general canvas node, one selected environment and current canvas.change grant. The synchronous response follows a durable assistant turn; user prompt, model choice, status and audit are persisted. One node reply runs at a time and returns 409 reply_in_progress for a concurrent run. The configured model receives only this node context and completed turns; tool invocations are rejected, and model failure returns 503 with the failed user prompt retained. A deleted session or revoked grant cannot commit a late reply. Investigation nodes are separate and remain unavailable here.')
+S['V3InvestigationBranchContext'] = obj({
+    'branch_id': string(), 'revision': integer(minimum=0),
+    'messages': arr({})}, ['branch_id','revision','messages'])
+v3_route('get','/investigations/{id}/nodes/{node}/messages',
+    'Read the current persisted investigation branch context',
+    response=ref('V3InvestigationBranchContext'),
+    desc='Auxiliary read-only route outside the 166 V3 page contracts. Resolves the branch, investigation, application, environment, and owner team from persisted records and requires current canvas.view for the application or owner team. Returns only the current branch revision and its historical JSON messages, preserving legacy optional fields as stored; it does not synthesize nodes, timestamps, summaries, or model output. The stored context is limited to 24 KiB. An absent, mismatched, or inaccessible branch returns 404; a missing, oversized, or malformed current context returns 503. The complete investigation graph, node write, and ancestor writeback remain unavailable.')
 v3_route('get','/canvas-templates','List available canvas structures',
     response=obj({'items':arr(ref('V3CanvasTemplate'))},['items']))
 v3_route('post','/canvas-templates','Save a safe canvas structure template',

@@ -349,8 +349,24 @@ func (s *Service) getMembers(ctx context.Context, envs []string, global bool, fi
  COALESCE(t.name,u.department,''),COALESCE(u.phone,''),u.source,u.disabled,u.v3_identity_kind
  FROM users u LEFT JOIN teams t ON t.id=u.department_id
  WHERE u.deleted_at IS NULL AND u.source<>'settings_demo'
- AND ($1 OR EXISTS (SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=u.id
- AND (g.scope_kind='global' OR (g.scope_kind='environment' AND g.scope_id=ANY($2::text[])))))
+ AND ($1 OR EXISTS (
+  SELECT 1 FROM (
+   SELECT ur.user_id,ur.role_id FROM rbac_user_roles ur
+   UNION SELECT u2.id,dr.role_id FROM users u2 JOIN rbac_department_roles dr ON dr.department_id=u2.department_id
+  ) assigned JOIN v3_role_grants g ON g.role_id=assigned.role_id
+  WHERE assigned.user_id=u.id AND (g.scope_kind='global'
+   OR (g.scope_kind='environment' AND g.scope_id=ANY($2::text[]))
+   OR (g.scope_kind='application' AND EXISTS (
+    SELECT 1 FROM v3_application_environments ae
+    JOIN applications a ON a.id=ae.application_id AND NOT a.archived
+    JOIN application_environments e ON e.application_id=a.id AND e.key=ae.environment_id AND NOT e.archived
+    WHERE ae.application_id=g.scope_id AND ae.environment_id=ANY($2::text[])))
+   OR (g.scope_kind='team' AND EXISTS (
+    SELECT 1 FROM applications a
+    JOIN v3_application_environments ae ON ae.application_id=a.id
+    JOIN application_environments e ON e.application_id=a.id AND e.key=ae.environment_id AND NOT e.archived
+    WHERE a.owner_team_id=g.scope_id AND NOT a.archived AND ae.environment_id=ANY($2::text[]))))
+ ))
  ORDER BY u.name,u.id`, global, envs)
 	if err != nil {
 		return v, err
@@ -397,7 +413,20 @@ func (s *Service) getMembers(ctx context.Context, envs []string, global bool, fi
 		roleRows, e := s.Store.DB.Query(ctx, `SELECT DISTINCT r.id,r.name FROM rbac_roles r
  JOIN (SELECT user_id,role_id FROM rbac_user_roles UNION
  SELECT u.id,dr.role_id FROM users u JOIN rbac_department_roles dr ON dr.department_id=u.department_id) a
- ON a.role_id=r.id WHERE a.user_id=$1 ORDER BY r.name,r.id`, all[i].ID)
+ ON a.role_id=r.id WHERE a.user_id=$1 AND EXISTS (
+  SELECT 1 FROM v3_role_grants g WHERE g.role_id=r.id AND (
+   g.scope_kind='global' OR (g.scope_kind='environment' AND g.scope_id=ANY($2::text[]))
+   OR (g.scope_kind='application' AND EXISTS (
+    SELECT 1 FROM v3_application_environments ae
+    JOIN applications app ON app.id=ae.application_id AND NOT app.archived
+    JOIN application_environments e ON e.application_id=app.id AND e.key=ae.environment_id AND NOT e.archived
+    WHERE ae.application_id=g.scope_id AND ae.environment_id=ANY($2::text[])))
+   OR (g.scope_kind='team' AND EXISTS (
+    SELECT 1 FROM applications app
+    JOIN v3_application_environments ae ON ae.application_id=app.id
+    JOIN application_environments e ON e.application_id=app.id AND e.key=ae.environment_id AND NOT e.archived
+    WHERE app.owner_team_id=g.scope_id AND NOT app.archived AND ae.environment_id=ANY($2::text[])))
+  )) ORDER BY r.name,r.id`, all[i].ID, envs)
 		if e != nil {
 			return v, e
 		}

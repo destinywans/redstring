@@ -106,10 +106,7 @@ func (s *Service) getProfile(r *http.Request) (profileView, error) {
 	}
 	v.Security.OrgRule = localize(r, "二次验证尚未接入", "Two-factor authentication is not configured")
 	v.Security.Tokens = localize(r, "个人令牌尚未接入", "Personal tokens are not configured")
-	current := r.URL.Query().Get("current_session")
-	if cookie, e := r.Cookie("aiops_session"); e == nil {
-		current = store.Hash(cookie.Value)
-	}
+	current := currentSessionHash(r)
 	rows, err := s.Store.DB.Query(ctx, `SELECT token_hash,expires_at FROM sessions WHERE user_id=$1 AND expires_at>now() ORDER BY expires_at DESC,token_hash LIMIT 100`, id)
 	if err != nil {
 		return v, err
@@ -124,6 +121,14 @@ func (s *Service) getProfile(r *http.Request) (profileView, error) {
 		v.Security.Sessions = append(v.Security.Sessions, profileSession{ID: sid, Device: localize(r, "浏览器会话", "Browser session"), Sub: expires.UTC().Format(time.RFC3339), Current: sid == current})
 	}
 	return v, rows.Err()
+}
+
+func currentSessionHash(r *http.Request) string {
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil {
+		return ""
+	}
+	return store.Hash(cookie.Value)
 }
 
 func validNotifications(items []profileNotification) bool {

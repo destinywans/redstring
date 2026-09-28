@@ -47,6 +47,8 @@ func (s *Service) Register(api *httpapi.Server) {
 	api.MarkV3ObjectRoute("GET /api/v1/changes/records", "services", "view")
 	api.Register("GET /api/v1/changes/merge-requests", "viewer", s.MergeRequests)
 	api.MarkV3ObjectRoute("GET /api/v1/changes/merge-requests", "services", "view")
+	api.Register("GET /api/v1/changes/commits/{sha}", "viewer", s.Commit)
+	api.MarkV3ObjectRoute("GET /api/v1/changes/commits/{sha}", "services", "view")
 }
 
 type target struct {

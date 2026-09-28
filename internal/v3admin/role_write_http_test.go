@@ -1,0 +1,319 @@
+package v3admin
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/rbac"
+	"github.com/wans/aiops-canvas/internal/store"
+)
+
+func TestRoleMatrixWriteHTTPAuthorizationPersistenceAndAudit(t *testing.T) {
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL required; creates and drops one random isolated schema")
+	}
+	ctx := t.Context()
+	adminDB, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := "v3_role_write_test_" + store.ID()
+	quoted := pgx.Identifier{schema}.Sanitize()
+	if _, err := adminDB.Exec(ctx, "CREATE SCHEMA "+quoted); err != nil {
+		adminDB.Close()
+		t.Fatal(err)
+	}
+	var db *pgxpool.Pool
+	t.Cleanup(func() {
+		if db != nil {
+			db.Close()
+		}
+		if _, err := adminDB.Exec(context.Background(), "DROP SCHEMA "+quoted+" CASCADE"); err != nil {
+			t.Error(err)
+		}
+		adminDB.Close()
+	})
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["application_name"] = schema
+	db, err = pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &store.Store{DB: db}
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Bootstrap(ctx, "admin@example.invalid", "isolated-admin-password"); err != nil {
+		t.Fatal(err)
+	}
+	scopedManager, err := st.CreateUser(ctx, core.User{Email: "scoped@example.invalid", Name: "Scoped Manager", Role: "viewer"}, "isolated-scoped-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	globalManager, err := st.CreateUser(ctx, core.User{Email: "global@example.invalid", Name: "Global Manager", Role: "viewer"}, "isolated-global-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`INSERT INTO rbac_roles(id,name,v3_kind) VALUES
+ ('ops-role','Operations','business'),('machine-role','Machine','machine'),
+ ('execute-role','Executor','business'),('mixed-role','Mixed','business'),
+	 ('scoped-manager','Scoped Manager','business'),('global-manager','Global Manager','business')`,
+		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
+ ('ops-role','events','view','global','*'),
+ ('execute-role','proposals','execute','global','*'),
+ ('mixed-role','events','view','environment','dev'),
+ ('mixed-role','events','change','environment','test'),
+ ('scoped-manager','environment','view','environment','dev'),
+	 ('scoped-manager','roles','manage','environment','dev'),
+	 ('global-manager','environment','view','global','*'),
+	 ('global-manager','roles','manage','global','*')`,
+	} {
+		if _, err := db.Exec(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'scoped-manager')`, scopedManager.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'global-manager')`, globalManager.ID); err != nil {
+		t.Fatal(err)
+	}
+	admin, adminToken, err := st.Login(ctx, "admin@example.invalid", "isolated-admin-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, scopedToken, err := st.Login(ctx, "scoped@example.invalid", "isolated-scoped-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, globalToken, err := st.Login(ctx, "global@example.invalid", "isolated-global-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := &rbac.V3Policy{Store: st}
+	api := httpapi.New(st, nil, true)
+	New(st).Register(api)
+	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{
+		Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev", "test"},
+	}, policy, st.Session, func(ctx context.Context, u core.User, module, action, environment string) error {
+		return policy.Authorize(ctx, u, rbac.V3Decision{Module: module, Action: action, EnvironmentID: environment})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	request := func(method, roleID, environment, token string, matrix []matrixRow) *httptest.ResponseRecorder {
+		var body []byte
+		if method == http.MethodPut {
+			encoded, marshalErr := json.Marshal(matrixUpdate{Matrix: matrix})
+			if marshalErr != nil {
+				t.Fatal(marshalErr)
+			}
+			body = encoded
+		}
+		r := httptest.NewRequest(method, "/api/v1/roles/"+roleID, bytes.NewReader(body))
+		r.Header.Set("X-AIOps-Environment", environment)
+		r.Header.Set("Accept-Language", "en-US")
+		if token != "" {
+			r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		}
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		return w
+	}
+	assertError := func(w *httptest.ResponseRecorder, status int, code string) {
+		t.Helper()
+		var body struct {
+			Error struct {
+				Code string `json:"code"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || w.Code != status || body.Error.Code != code {
+			t.Fatalf("status=%d body=%s; want %d %s", w.Code, w.Body.String(), status, code)
+		}
+	}
+	read := func(id, environment, token string) roleDetail {
+		t.Helper()
+		w := request(http.MethodGet, id, environment, token, nil)
+		if w.Code != 200 {
+			t.Fatalf("GET %s status=%d body=%s", id, w.Code, w.Body.String())
+		}
+		var detail roleDetail
+		if err := json.Unmarshal(w.Body.Bytes(), &detail); err != nil {
+			t.Fatal(err)
+		}
+		return detail
+	}
+
+	initial := read("ops-role", "dev", adminToken)
+	if initial.Scope[0] != "global" || initial.Matrix[1].Grants[0] != 1 {
+		t.Fatalf("initial matrix=%+v", initial)
+	}
+	assertError(request(http.MethodPut, "ops-role", "dev", "", initial.Matrix), 401, "unauthorized")
+	assertError(request(http.MethodPut, "ops-role", "dev", scopedToken, initial.Matrix), 403, "forbidden")
+	assertError(request(http.MethodPut, "ops-role", "all", adminToken, initial.Matrix), 409, "env_view_only")
+	initial.Matrix[1].Grants[1] = 1
+	initial.Matrix[4].Grants[3] = 1
+	w := request(http.MethodPut, "ops-role", "dev", adminToken, initial.Matrix)
+	if w.Code != 200 {
+		t.Fatalf("PUT status=%d body=%s", w.Code, w.Body.String())
+	}
+	var saved roleDetail
+	if err := json.Unmarshal(w.Body.Bytes(), &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.Matrix[1].Grants[1] != 1 || saved.Matrix[4].Grants[3] != 2 {
+		t.Fatalf("returned matrix does not show persisted passkey condition: %+v", saved.Matrix)
+	}
+	var grants, auditCount int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_role_grants WHERE role_id='ops-role' AND
+ ((module='events' AND action='change' AND assurance='standard') OR
+  (module='proposals' AND action='approve' AND assurance='passkey'))`).Scan(&grants); err != nil || grants != 2 {
+		t.Fatalf("persisted grants=%d err=%v", grants, err)
+	}
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE action='v3.role.matrix.updated' AND target='ops-role' AND actor_id=$1`, admin.ID).Scan(&auditCount); err != nil || auditCount != 1 {
+		t.Fatalf("audit count=%d err=%v", auditCount, err)
+	}
+	var changes []byte
+	if err := db.QueryRow(ctx, `SELECT changes FROM management_audit WHERE action='v3.role.matrix.updated' AND target='ops-role'`).Scan(&changes); err != nil {
+		t.Fatal(err)
+	}
+	var audited struct {
+		After map[string][]int `json:"after"`
+	}
+	if err := json.Unmarshal(changes, &audited); err != nil || len(audited.After["events"]) != 5 ||
+		len(audited.After["proposals"]) != 5 || audited.After["events"][1] != 1 || audited.After["proposals"][3] != 2 {
+		t.Fatalf("audit did not use persisted stable codes: %s err=%v", changes, err)
+	}
+	w = request(http.MethodPut, "ops-role", "dev", adminToken, saved.Matrix)
+	if w.Code != 200 {
+		t.Fatalf("no-op PUT status=%d body=%s", w.Code, w.Body.String())
+	}
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE action='v3.role.matrix.updated' AND target='ops-role'`).Scan(&auditCount); err != nil || auditCount != 1 {
+		t.Fatalf("no-op created audit: count=%d err=%v", auditCount, err)
+	}
+
+	assertError(request(http.MethodGet, "execute-role", "dev", adminToken, nil), 409, "matrix_editor_required")
+	assertError(request(http.MethodGet, "mixed-role", "all", adminToken, nil), 409, "matrix_editor_required")
+	assertError(request(http.MethodPut, "execute-role", "dev", adminToken, saved.Matrix), 409, "matrix_editor_required")
+	machine := read("machine-role", "dev", adminToken)
+	machine.Matrix[4].Grants[3] = 1
+	assertError(request(http.MethodPut, "machine-role", "dev", adminToken, machine.Matrix), 422, "machine_approval_forbidden")
+	var machineGrants int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_role_grants WHERE role_id='machine-role'`).Scan(&machineGrants); err != nil || machineGrants != 0 {
+		t.Fatalf("machine approval persisted: count=%d err=%v", machineGrants, err)
+	}
+	t.Run("queued matrix write cannot outlive legacy membership revocation", func(t *testing.T) {
+		legacyRole, err := (&rbac.Service{Store: st}).Role(ctx, "global-manager")
+		if err != nil {
+			t.Fatal(err)
+		}
+		candidate := read("ops-role", "dev", adminToken).Matrix
+		candidate[1].Grants[2] = 1
+		blocker, err := db.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer blocker.Rollback(context.Background())
+		if _, err := blocker.Exec(ctx, `SELECT pg_advisory_xact_lock(752018992)`); err != nil {
+			t.Fatal(err)
+		}
+		operationCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		legacyResult := make(chan error, 1)
+		go func() {
+			_, err := (&rbac.Service{Store: st}).SaveAssociations(
+				store.WithPrincipal(operationCtx, admin), "global-manager",
+				rbac.Associations{Revision: legacyRole.Revision, Users: rbac.Delta{Remove: []string{globalManager.ID}}},
+			)
+			legacyResult <- err
+		}()
+		waitForQueuedWriters := func(want int) {
+			t.Helper()
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) {
+				var waiting int
+				err := adminDB.QueryRow(operationCtx, `SELECT count(*) FROM pg_locks l
+ JOIN pg_stat_activity a ON a.pid=l.pid
+ WHERE l.locktype='advisory' AND NOT l.granted AND l.objid::bigint=$1
+ AND l.objsubid=1 AND a.application_name=$2`, int64(752018992), schema).Scan(&waiting)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if waiting >= want {
+					return
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			t.Fatalf("expected %d queued identity writers on advisory lock 992", want)
+		}
+		waitForQueuedWriters(1)
+		writeResult := make(chan *httptest.ResponseRecorder, 1)
+		go func() {
+			writeResult <- request(http.MethodPut, "ops-role", "dev", globalToken, candidate)
+		}()
+		// Both requests have reached their write transactions while the actor
+		// still holds the grant. The legacy writer entered the lock queue first.
+		waitForQueuedWriters(2)
+		if err := blocker.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case err := <-legacyResult:
+			if err != nil {
+				t.Fatalf("legacy association removal: %v", err)
+			}
+		case <-operationCtx.Done():
+			t.Fatal("legacy association removal timed out")
+		}
+		select {
+		case result := <-writeResult:
+			assertError(result, 403, "forbidden")
+		case <-operationCtx.Done():
+			t.Fatal("queued matrix write timed out")
+		}
+		var deletedGrant, targetAudits int
+		if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_role_grants WHERE role_id='ops-role' AND module='events' AND action='delete'`).Scan(&deletedGrant); err != nil || deletedGrant != 0 {
+			t.Fatalf("revoked actor changed matrix: grant=%d err=%v", deletedGrant, err)
+		}
+		if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE action='v3.role.matrix.updated' AND target='ops-role'`).Scan(&targetAudits); err != nil || targetAudits != 1 {
+			t.Fatalf("revoked actor wrote audit: count=%d err=%v", targetAudits, err)
+		}
+	})
+	administrator := read("admin", "dev", adminToken)
+	if !strings.Contains(administrator.Notes, "outside this matrix") {
+		t.Fatalf("platform grants omitted without a note: %q", administrator.Notes)
+	}
+	administrator.Matrix[10].Grants[4] = 0
+	assertError(request(http.MethodPut, "admin", "dev", adminToken, administrator.Matrix), 409, "last_role_manager")
+	var stillManager bool
+	if err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_role_grants WHERE role_id='admin' AND module='roles' AND action='manage')`).Scan(&stillManager); err != nil || !stillManager {
+		t.Fatalf("last-manager rollback failed: manager=%t err=%v", stillManager, err)
+	}
+
+	// Exercise the transaction recheck directly: the route middleware cannot
+	// protect a grant removed between its first check and the database write.
+	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='admin' AND module='roles' AND action='manage'`); err != nil {
+		t.Fatal(err)
+	}
+	ctx = store.WithPrincipal(ctx, admin)
+	if err := New(st).saveMatrix(ctx, "ops-role", "dev", map[string][]int{}); !errors.Is(err, store.ErrForbidden) {
+		t.Fatalf("revoked manager changed matrix: %v", err)
+	}
+}

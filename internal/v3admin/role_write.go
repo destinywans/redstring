@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
@@ -30,19 +31,7 @@ func (s *Service) putRole(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "environment_required", "Select one environment to change a role")
 		return
 	}
-	// The management grant may be scoped to a chosen environment, but a
-	// summary matrix has no scope editor. Such a caller cannot create global
-	// grants through this route.
-	global, err := s.hasGlobalGrant(r.Context(), httpapi.CurrentUser(r).ID, "roles", "manage")
-	if err != nil {
-		respond(w, nil, err)
-		return
-	}
-	if !global {
-		httpapi.Error(w, 403, "global_role_manager_required", "Global role management is required for the summary matrix")
-		return
-	}
-	err = s.saveMatrix(r.Context(), r.PathValue("id"), wanted)
+	err = s.saveMatrix(r.Context(), r.PathValue("id"), envs[0], wanted)
 	if err != nil {
 		respond(w, nil, err)
 		return
@@ -73,16 +62,46 @@ func loadGrants(ctx context.Context, db queryer, roleID string) ([]grant, error)
 	return grants, rows.Err()
 }
 
-func (s *Service) saveMatrix(ctx context.Context, roleID string, wanted map[string][]int) error {
+func (s *Service) saveMatrix(ctx context.Context, roleID, environment string, wanted map[string][]int) error {
 	tx, err := s.Store.DB.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	// Serializing all role matrix changes also protects the last-manager
-	// invariant when two different roles are edited concurrently.
-	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(752018998)`); err != nil {
+	// Account and legacy role-association writers take 992 then 995. Hold
+	// those locks before the matrix lock and authority reads, so a queued
+	// matrix write cannot use a role assignment revoked by either writer.
+	// The final lock serializes matrix writes for the last-manager invariant.
+	for _, key := range []int64{752018992, 752018995, 752018998} {
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, key); err != nil {
+			return err
+		}
+	}
+	// Middleware authorizes before entering this transaction. Recheck on the
+	// same connection after the write lock so a removed grant cannot authorize
+	// a later matrix change. The flat editor can only create global grants.
+	actor := store.Principal(ctx)
+	var activeActor string
+	err = tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 AND NOT disabled AND deleted_at IS NULL FOR SHARE`, actor.ID).Scan(&activeActor)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.ErrForbidden
+	}
+	if err != nil {
 		return err
+	}
+	if err = (&rbac.V3Policy{Store: s.Store}).AuthorizeWithTx(ctx, tx, actor, rbac.V3Decision{
+		Module: "roles", Action: "manage", EnvironmentID: environment,
+	}); err != nil {
+		return err
+	}
+	var global bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM v3_effective_role_grants
+ WHERE user_id=$1 AND module='roles' AND action='manage'
+ AND scope_kind='global' AND scope_id='*')`, actor.ID).Scan(&global); err != nil {
+		return err
+	}
+	if !global {
+		return store.ErrForbidden
 	}
 	var kind string
 	err = tx.QueryRow(ctx, `SELECT v3_kind FROM rbac_roles WHERE id=$1 FOR UPDATE`, roleID).Scan(&kind)
@@ -184,7 +203,46 @@ func validateMatrixEditable(grants []grant) error {
 			return errScopedCell
 		}
 	}
-	return validateMatrixGroups(grants)
+	return validateMatrixProjection(grants)
+}
+
+// The role detail has one scope list for the whole matrix and only five
+// operation columns. It cannot truthfully display an execute grant, a direct
+// approval without step-up, or cells with different scope sets. Reject these
+// roles instead of turning a partially visible matrix into an editor input.
+func validateMatrixProjection(grants []grant) error {
+	if err := validateMatrixGroups(grants); err != nil {
+		return err
+	}
+	var common map[string]bool
+	cellScopes := map[string]map[string]bool{}
+	for _, g := range grants {
+		if g.Action == "execute" || g.Action == "approve" && g.Assurance != "passkey" ||
+			g.Action != "approve" && g.Assurance != "standard" {
+			return errUnrepresentableMatrix
+		}
+		scope := g.ScopeKind + "\x00" + g.ScopeID
+		cell := g.Module + "\x00" + g.Action
+		if cellScopes[cell] == nil {
+			cellScopes[cell] = map[string]bool{}
+		}
+		cellScopes[cell][scope] = true
+	}
+	for _, scopes := range cellScopes {
+		if common == nil {
+			common = scopes
+			continue
+		}
+		if len(common) != len(scopes) {
+			return errUnrepresentableMatrix
+		}
+		for scope := range common {
+			if !scopes[scope] {
+				return errUnrepresentableMatrix
+			}
+		}
+	}
+	return nil
 }
 
 // A grouped cell is truthful only when every underlying module has the same

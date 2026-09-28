@@ -23,6 +23,7 @@ func New(s *store.Store) *Service { return &Service{Store: s} }
 var errInvalidMatrix = errors.New("invalid role matrix")
 var errScopedCell = errors.New("scoped grant cannot be edited in summary matrix")
 var errPartialMatrix = errors.New("role matrix cannot represent a partial resource group")
+var errUnrepresentableMatrix = errors.New("role grants cannot be represented by the summary matrix")
 var errMachineApproval = errors.New("machine identity cannot approve")
 var errLastRoleManager = errors.New("cannot remove last role manager")
 var errUnsupportedMemberSource = errors.New("member source is not represented in V3 contract")
@@ -35,6 +36,8 @@ func respond(w http.ResponseWriter, v any, err error) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		httpapi.Error(w, 404, "not_found", "Role not found")
+	case errors.Is(err, store.ErrForbidden):
+		httpapi.Error(w, 403, "forbidden", "Insufficient permission")
 	case errors.Is(err, errInvalidMatrix):
 		httpapi.Error(w, 422, "invalid_matrix", "Matrix must contain each known resource once with five valid operation cells")
 	case errors.Is(err, errMachineApproval):
@@ -43,6 +46,8 @@ func respond(w http.ResponseWriter, v any, err error) {
 		httpapi.Error(w, 409, "scope_editor_required", "Scoped grants cannot be changed by the summary matrix")
 	case errors.Is(err, errPartialMatrix):
 		httpapi.Error(w, 409, "matrix_editor_required", "Grouped resource grants differ and require a dedicated editor")
+	case errors.Is(err, errUnrepresentableMatrix):
+		httpapi.Error(w, 409, "matrix_editor_required", "Role grants cannot be represented by the summary matrix")
 	case errors.Is(err, errLastRoleManager):
 		httpapi.Error(w, 409, "last_role_manager", "At least one active human role manager is required")
 	case errors.Is(err, errUnsupportedMemberSource):
@@ -230,7 +235,7 @@ func (s *Service) getRole(ctx context.Context, id string, envs []string, global,
 	if err != nil {
 		return v, err
 	}
-	if err := validateMatrixGroups(grants); err != nil {
+	if err := validateMatrixProjection(grants); err != nil {
 		return v, err
 	}
 	scopes := map[string]bool{}
@@ -254,7 +259,33 @@ func (s *Service) getRole(ctx context.Context, id string, envs []string, global,
 	if english {
 		v.Notes = "Machine identities cannot approve. Approval remains unavailable until passkey step-up verification is implemented, and the author cannot approve their own proposal."
 	}
+	for _, g := range grants {
+		if !matrixModule(g.Module) {
+			if english {
+				v.Notes += " Other platform grants are managed outside this matrix."
+			} else {
+				v.Notes += " 其他平台授权不在此矩阵中管理。"
+			}
+			break
+		}
+	}
+	if !global {
+		if english {
+			v.Notes += " Only grants in your authorized environments are shown."
+		} else {
+			v.Notes += " 此处仅显示你有权访问的环境内的授权。"
+		}
+	}
 	return v, nil
+}
+
+func matrixModule(module string) bool {
+	for _, resource := range matrixCatalog {
+		if contains(resource.Modules, module) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) roleGrants(ctx context.Context, roleID string, envs []string, global bool) ([]grant, error) {

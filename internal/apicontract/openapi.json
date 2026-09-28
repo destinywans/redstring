@@ -22420,6 +22420,136 @@
         ]
       }
     },
+    "/uploads/{id}/content": {
+      "get": {
+        "summary": "Read an owned uploaded file or image",
+        "operationId": "get_uploads_id_content",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Browser reads may omit X-AIOps-Environment; the handler resolves the saved environment and rechecks the current conversation.view grant. Explicit environments must match the saved environment. Files download as opaque octet-stream; verified PNG, JPEG, GIF and WebP images may render inline. No cache; invalid stored images fail closed.",
+        "responses": {
+          "200": {
+            "description": "Owned attachment bytes",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/gif": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/webp": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "uploads"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/conversations": {
       "get": {
         "summary": "List scoped conversations",

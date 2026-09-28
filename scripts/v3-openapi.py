@@ -104,6 +104,15 @@ P['/uploads']['post']['requestBody']['content']['multipart/form-data'] = {'schem
 for upload_status, upload_description in [('413','Attachment too large'),('415','Unsupported media type')]:
     P['/uploads']['post']['responses'][upload_status] = {'description':upload_description,
         'content':{'application/json':{'schema':ref('Error')}}}
+v3_route('get','/uploads/{id}/content','Read an owned uploaded file or image',
+    desc='Browser reads may omit X-AIOps-Environment; the handler resolves the saved environment and rechecks the current conversation.view grant. Explicit environments must match the saved environment. Files download as opaque octet-stream; verified PNG, JPEG, GIF and WebP images may render inline. No cache; invalid stored images fail closed.')
+P['/uploads/{id}/content']['get']['responses']['200'] = {
+    'description':'Owned attachment bytes',
+    'content':{'application/octet-stream':{'schema':{'type':'string','format':'binary'}},
+               'image/png':{'schema':{'type':'string','format':'binary'}},
+               'image/jpeg':{'schema':{'type':'string','format':'binary'}},
+               'image/gif':{'schema':{'type':'string','format':'binary'}},
+               'image/webp':{'schema':{'type':'string','format':'binary'}}}}
 
 # Durable conversations; complete assistant parts are persisted before the
 # completion event is published. Part variants follow the types.ts tagged union.

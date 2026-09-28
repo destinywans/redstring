@@ -10,6 +10,7 @@
 | GET | `/api/v1/knowledge-sources/registrations` | 读取当前环境与授权范围内的来源登记配置，不返回 Vault 引用。连接、同步、文档数和索引状态仍未知；返回 `complete_v3_dto: false`。 |
 | POST | `/api/v1/knowledge-sources/registrations` | 在单一环境下登记来源及 Vault 引用，需要 `knowledge.manage`，审计与登记同事务。只返回 `unverified`，不启动同步。 |
 | POST | `/api/v1/knowledge-sources/test` | 当前仅校验参数和管理权限，缺少 Vault 来源连接器时返回 `501 source_connection_test_unavailable`，不会返回模拟成功。此路径在 166 项主契约内，状态仍为 `mock`。 |
+| GET | `/api/v1/uploads/{id}/content` | 下载本人上传的文件，或内联读取经重新验证格式的图片。可不传环境头；后端根据上传记录核对实例环境、当前 `conversation.view` 授权和所有者。普通文件以附件下载，响应禁缓存、禁 MIME 猜测；损坏图片拒绝返回。该辅助读取不改变 `POST /uploads` 的主契约状态。 |
 
 告警规则源由 `AIOPS_V3_ALERT_RULES_CONFIG` 指向私有 JSON，字段示例见 [v3-alert-rules.json](../examples/v3-alert-rules.json)。每个环境只可绑定一个 Prometheus 只读端点；还需把响应中的精确规则组 `file` + `name` 绑定到一个已登记的应用。标签中的 `environment` 和 `application` 只是交叉校验，不能单独决定归属。配置文件中的令牌文件路径为绝对路径，令牌值不写入配置、日志或仓库。未配置时辅助规则接口明确返回未接入，主页面接口仍保持 `mock`。
 

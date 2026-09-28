@@ -44,8 +44,9 @@ var ErrInvalidV3Instance = errors.New("invalid V3 instance configuration")
 
 // NewV3EnvironmentHandler guards every V3 API operation before its handler.
 // The returned scope is the only environment set that handlers and async work
-// should pass to queries or tools. A headerless SSE or audit export GET has no
-// request scope: its handler must bind to persisted scope and reauthorize it.
+// should pass to queries or tools. A headerless SSE, audit export or upload
+// content GET has no request scope: its handler must bind to persisted scope
+// and reauthorize it.
 func NewV3EnvironmentHandler(cfg V3InstanceConfig, authorizer V3EnvironmentAuthorizer, session V3SessionLookup, next http.Handler) (http.Handler, error) {
 	if authorizer == nil || session == nil || next == nil || (cfg.Tier != "production" && cfg.Tier != "nonprod") {
 		return nil, ErrInvalidV3Instance
@@ -187,5 +188,6 @@ func v3PersistedScopeRead(r *http.Request) bool {
 		return false
 	}
 	return (parts[2] == "conversations" && parts[4] == "events") ||
-		(parts[2] == "audit" && parts[3] == "exports" && parts[4] != "")
+		(parts[2] == "audit" && parts[3] == "exports" && parts[4] != "") ||
+		(parts[2] == "uploads" && parts[4] == "content")
 }

@@ -1,5 +1,10 @@
 # AIOps Canvas 检查点
 
+## CP-076 · 2026-09-28 · V3 附件持久读取
+
+- `POST /uploads` 的文件与图片响应现在返回 `/api/v1/uploads/{id}/content`，数据库仍只在链接附件的 `url` 列保存外部 URL；消息引用校验重建并核对完整的客户端元数据。新增 GET 内容读取按所有者、实例中已配置的环境及当前 `conversation.view` 授权限制；无环境头的浏览器 GET 先由入口校验会话，再从持久记录确定环境。先查元数据和授权，后按相同记录条件读取内容，避免撤权用户反复触发大文件读取。普通文件安全保留原文件名作为附件下载；重新验证 MIME 的 PNG/JPEG/GIF/WebP 图片可内联，响应禁缓存、禁 MIME 猜测并设置 CSP sandbox。
+- OpenAPI 和辅助接口说明已同步。`v3uploads`、`httpapi`、`cmd/aiops` 定向 Go 测试及两项契约脚本、差异检查通过。隔离 PostgreSQL 用例因 `TEST_DATABASE_URL` 未配置而跳过，实际 HTTP + 数据库 + RBAC 链路未验证。前端当前 XHR 上传不发送环境头，按既定后端边界仍会收到 422；本轮未改前端。主契约 `POST /uploads` 继续标为 `mock`，不能据此宣称附件端到端可用。
+
 ## CP-075 · 2026-09-28 · V3 Runbook 读取的未接入语义
 
 - V3 Runbook 列表和详情此前把未采集的引用量、解决率、审核/版本历史写成 0 或从创建时间推断。现在只要读取到可访问的 Runbook，就明确返回 `503 runbook_read_unavailable`；确实没有可访问记录时仍返回空列表。创建、提交和只读演练路径未变。OpenAPI 补充该错误与必需字段。

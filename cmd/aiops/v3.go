@@ -158,6 +158,13 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		api.MarkV3Route(pattern, "connectors", "manage")
 	}
 	uploads := v3uploads.New(s.DB)
+	uploads.ReadAuthorizer = func(ctx context.Context, user core.User, environmentID string) error {
+		return policy.Authorize(ctx, user, rbac.V3Decision{Module: "conversation", Action: "view", EnvironmentID: environmentID})
+	}
+	uploads.Environments = make(map[string]bool, len(cfg.EnvironmentIDs))
+	for _, environmentID := range cfg.EnvironmentIDs {
+		uploads.Environments[environmentID] = true
+	}
 	uploads.Register(api)
 
 	allowedConversationEnvs := func(ctx context.Context, u core.User) ([]string, error) {

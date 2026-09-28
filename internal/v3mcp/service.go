@@ -21,7 +21,7 @@ import (
 )
 
 type Access interface {
-	Authorize(context.Context, core.User, rbac.V3Decision) error
+	AuthorizeWithTx(context.Context, pgx.Tx, core.User, rbac.V3Decision) error
 }
 
 type Service struct {
@@ -105,8 +105,8 @@ func (s *Service) ready(w http.ResponseWriter, r *http.Request) ([]string, bool)
 	return scope.EnvironmentIDs, true
 }
 
-func (s *Service) allowed(r *http.Request, v registration, action string) error {
-	return s.Access.Authorize(r.Context(), httpapi.CurrentUser(r), rbac.V3Decision{
+func (s *Service) allowedTx(r *http.Request, tx pgx.Tx, v registration, action string) error {
+	return s.Access.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), rbac.V3Decision{
 		Module: "connectors", Action: action,
 		EnvironmentID: v.EnvironmentID, ApplicationID: v.ApplicationID,
 	})
@@ -117,42 +117,73 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := s.DB.Query(r.Context(), registeredMCP+" ORDER BY e.updated_at DESC,e.id,ae.environment_id LIMIT 1000", envs)
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	r = r.WithContext(ctx)
+	// Keep the registration and authorization reads in one snapshot. Materialize
+	// each bounded page and close it before policy queries use the same connection.
+	tx, err := s.DB.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		httpapi.Error(w, 503, "mcp_unavailable", "MCP registrations are unavailable")
 		return
 	}
-	defer rows.Close()
+	defer tx.Rollback(r.Context())
 	items := make([]map[string]any, 0)
 	seen := map[string]bool{}
 	toolCount := 0
-	for rows.Next() {
-		v, err := scan(rows)
-		if err != nil {
+	for offset := 0; ; offset += 200 {
+		rows, queryErr := tx.Query(r.Context(), registeredMCP+" ORDER BY e.updated_at DESC,e.id,b.environment_id LIMIT 200 OFFSET $2", envs, offset)
+		if queryErr != nil {
 			httpapi.Error(w, 503, "mcp_unavailable", "MCP registrations are unavailable")
 			return
 		}
-		if err := s.allowed(r, v, "view"); err != nil {
-			if errors.Is(err, store.ErrForbidden) {
+		batch := make([]registration, 0, 200)
+		for rows.Next() {
+			v, scanErr := scan(rows)
+			if scanErr != nil {
+				queryErr = scanErr
+				break
+			}
+			batch = append(batch, v)
+		}
+		if queryErr == nil {
+			queryErr = rows.Err()
+		}
+		rows.Close()
+		if queryErr != nil {
+			httpapi.Error(w, 503, "mcp_unavailable", "MCP registrations are unavailable")
+			return
+		}
+		for _, v := range batch {
+			if err := s.allowedTx(r, tx, v, "view"); err != nil {
+				if errors.Is(err, store.ErrForbidden) {
+					continue
+				}
+				httpapi.Error(w, 503, "authorization_unavailable", "MCP authorization is unavailable")
+				return
+			}
+			if err := v.validateRecord(); err != nil {
+				httpapi.Error(w, 503, "mcp_unavailable", "An accessible MCP registration is inconsistent")
+				return
+			}
+			if seen[v.ID] {
 				continue
 			}
-			httpapi.Error(w, 503, "authorization_unavailable", "MCP authorization is unavailable")
-			return
+			if len(items) == 1000 {
+				httpapi.Error(w, 413, "scope_too_large", "MCP registrations exceed the unpaged response limit")
+				return
+			}
+			seen[v.ID] = true
+			items = append(items, summary(v))
+			if v.Record.MCP != nil {
+				toolCount += len(v.Record.MCP.Bindings)
+			}
 		}
-		if err := v.validateRecord(); err != nil {
-			httpapi.Error(w, 503, "mcp_unavailable", "An accessible MCP registration is inconsistent")
-			return
-		}
-		if seen[v.ID] {
-			continue
-		}
-		seen[v.ID] = true
-		items = append(items, summary(v))
-		if v.Record.MCP != nil {
-			toolCount += len(v.Record.MCP.Bindings)
+		if len(batch) < 200 {
+			break
 		}
 	}
-	if rows.Err() != nil {
+	if err := tx.Commit(r.Context()); err != nil {
 		httpapi.Error(w, 503, "mcp_unavailable", "MCP registrations are unavailable")
 		return
 	}
@@ -186,20 +217,37 @@ func (s *Service) find(w http.ResponseWriter, r *http.Request, action string) (r
 	if !ok {
 		return registration{}, false
 	}
-	rows, err := s.DB.Query(r.Context(), registeredMCP+" AND e.id=$2 ORDER BY ae.environment_id", envs, r.PathValue("id"))
+	tx, err := s.DB.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		httpapi.Error(w, 503, "mcp_unavailable", "MCP registration is unavailable")
 		return registration{}, false
 	}
-	defer rows.Close()
-	var selected registration
+	defer tx.Rollback(r.Context())
+	rows, err := tx.Query(r.Context(), registeredMCP+" AND e.id=$2 ORDER BY b.environment_id", envs, r.PathValue("id"))
+	if err != nil {
+		httpapi.Error(w, 503, "mcp_unavailable", "MCP registration is unavailable")
+		return registration{}, false
+	}
+	registrations := make([]registration, 0, len(envs))
 	for rows.Next() {
-		v, err := scan(rows)
-		if err != nil {
-			httpapi.Error(w, 503, "mcp_unavailable", "MCP registration is unavailable")
-			return registration{}, false
+		v, scanErr := scan(rows)
+		if scanErr != nil {
+			err = scanErr
+			break
 		}
-		if err = s.allowed(r, v, action); err == nil {
+		registrations = append(registrations, v)
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
+		httpapi.Error(w, 503, "mcp_unavailable", "MCP registration is unavailable")
+		return registration{}, false
+	}
+	var selected registration
+	for _, v := range registrations {
+		if err = s.allowedTx(r, tx, v, action); err == nil {
 			if err = v.validateRecord(); err != nil {
 				httpapi.Error(w, 503, "mcp_unavailable", "MCP registration is inconsistent")
 				return registration{}, false
@@ -212,7 +260,7 @@ func (s *Service) find(w http.ResponseWriter, r *http.Request, action string) (r
 			return registration{}, false
 		}
 	}
-	if rows.Err() != nil {
+	if err := tx.Commit(r.Context()); err != nil {
 		httpapi.Error(w, 503, "mcp_unavailable", "MCP registration is unavailable")
 		return registration{}, false
 	}

@@ -70,7 +70,7 @@ func (s *Service) changeBinding(w http.ResponseWriter, r *http.Request, bind boo
 		httpapi.Error(w, http.StatusServiceUnavailable, "mcp_unavailable", "MCP registration is unavailable")
 		return
 	}
-	if err = s.allowed(r, v, "manage"); err != nil {
+	if err = s.allowedTx(r, tx, v, "manage"); err != nil {
 		if errors.Is(err, store.ErrForbidden) {
 			httpapi.Error(w, http.StatusForbidden, "forbidden", "Insufficient connector permission")
 		} else {

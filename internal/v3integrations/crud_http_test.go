@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -50,6 +51,7 @@ func TestConnectorCRUDHTTPV3ScopePersistenceAndAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["application_name"] = schema
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -164,6 +166,50 @@ func TestConnectorCRUDHTTPV3ScopePersistenceAndAudit(t *testing.T) {
 	if err := json.Unmarshal(created.Body.Bytes(), &result); err != nil || result.ID == "" {
 		t.Fatalf("create DTO: %s %v", created.Body.String(), err)
 	}
+	settingsPath := "/api/v1/connectors/" + result.ID + "/tool-settings"
+	assert(request(http.MethodGet, settingsPath, "dev", "", ""), 401, "unauthorized")
+	assert(request(http.MethodGet, "/api/v1/connectors/other-environment/tool-settings", "dev", token, ""), 404, "not_found")
+	settings := request(http.MethodGet, settingsPath, "dev", token, "")
+	assert(settings, 200, "")
+	var registered struct {
+		ConnectorID             string `json:"connector_id"`
+		EnvironmentID           string `json:"environment_id"`
+		ConnectorEnabled        bool   `json:"connector_enabled"`
+		AgentExecutionAvailable bool   `json:"agent_execution_available"`
+		RegisteredTools         []tool `json:"registered_tools"`
+	}
+	if err := json.Unmarshal(settings.Body.Bytes(), &registered); err != nil || registered.ConnectorID != result.ID ||
+		registered.EnvironmentID != "dev" || registered.ConnectorEnabled || registered.AgentExecutionAvailable ||
+		len(registered.RegisteredTools) != 2 || registered.RegisteredTools[0].Enabled || registered.RegisteredTools[1].Enabled ||
+		strings.Contains(settings.Body.String(), "vault://") {
+		t.Fatalf("tool settings misreported registration or Agent capability: %s %v", settings.Body.String(), err)
+	}
+	ready := request(http.MethodPost, "/api/v1/connectors", "dev", token,
+		`{"type":"prometheus","url":"https://metrics.example.invalid","auth":"none","tools":["query_metrics"]}`)
+	assert(ready, 201, "")
+	var readyResult struct{ ID string }
+	if err := json.Unmarshal(ready.Body.Bytes(), &readyResult); err != nil || readyResult.ID == "" {
+		t.Fatalf("ready registration: %s %v", ready.Body.String(), err)
+	}
+	readySettingsPath := "/api/v1/connectors/" + readyResult.ID + "/tool-settings"
+	readySettings := request(http.MethodGet, readySettingsPath, "dev", token, "")
+	assert(readySettings, 200, "")
+	var readyTools struct {
+		ConnectorEnabled        bool   `json:"connector_enabled"`
+		AgentExecutionAvailable bool   `json:"agent_execution_available"`
+		RegisteredTools         []tool `json:"registered_tools"`
+	}
+	if err := json.Unmarshal(readySettings.Body.Bytes(), &readyTools); err != nil || !readyTools.ConnectorEnabled ||
+		readyTools.AgentExecutionAvailable || len(readyTools.RegisteredTools) != 1 || !readyTools.RegisteredTools[0].Enabled {
+		t.Fatalf("enabled setting was not read back honestly: %s %v", readySettings.Body.String(), err)
+	}
+	assert(request(http.MethodPatch, "/api/v1/connectors/"+readyResult.ID, "dev", token,
+		`{"tools":[{"name":"query_metrics","enabled":false}]}`), 200, "")
+	readySettings = request(http.MethodGet, readySettingsPath, "dev", token, "")
+	assert(readySettings, 200, "")
+	if err := json.Unmarshal(readySettings.Body.Bytes(), &readyTools); err != nil || len(readyTools.RegisteredTools) != 1 || readyTools.RegisteredTools[0].Enabled {
+		t.Fatalf("disabled setting was not read back: %s %v", readySettings.Body.String(), err)
+	}
 	assert(request(http.MethodPost, "/api/v1/connectors", "dev", token, createBody), 409, "connector_exists")
 	var environment, credential, status string
 	var enabled bool
@@ -205,6 +251,10 @@ func TestConnectorCRUDHTTPV3ScopePersistenceAndAudit(t *testing.T) {
 		t.Fatalf("partial tool update lost other selection: %s %v", persistedTools, err)
 	}
 	assert(request(http.MethodPatch, "/api/v1/connectors/"+result.ID, "dev", token,
+		`{"tools":[{"name":"list_pipelines"}]}`), 422, "invalid_tools")
+	assert(request(http.MethodPatch, "/api/v1/connectors/"+result.ID, "dev", token,
+		`{"tools":[{"name":"list_pipelines","enabled":null}]}`), 422, "invalid_tools")
+	assert(request(http.MethodPatch, "/api/v1/connectors/"+result.ID, "dev", token,
 		`{"tools":[{"name":"unknown","enabled":true}]}`), 422, "invalid_tools")
 	var audits int
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE target=$1 AND action IN ('connector.created','connector.tools.updated')`, result.ID).Scan(&audits); err != nil || audits != 2 {
@@ -217,11 +267,82 @@ func TestConnectorCRUDHTTPV3ScopePersistenceAndAudit(t *testing.T) {
 	if strings.Contains(auditChanges, "vault://") || strings.Contains(auditChanges, "gitlab.example.invalid") {
 		t.Fatalf("audit leaked connection settings: %s", auditChanges)
 	}
+	// Hold the row until both PATCH transactions are waiting for its lock.
+	// Releasing it then proves that both partial updates merge in lock order.
+	lockTx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lockTx.Rollback(ctx)
+	var lockedID string
+	if err := lockTx.QueryRow(ctx, `SELECT id FROM v3_connectors WHERE id=$1 FOR UPDATE`, result.ID).Scan(&lockedID); err != nil || lockedID != result.ID {
+		t.Fatalf("hold connector lock: %s %v", lockedID, err)
+	}
+	responses := make(chan *httptest.ResponseRecorder, 2)
+	for _, name := range []string{"get_commit", "list_merge_requests"} {
+		go func(name string) {
+			responses <- request(http.MethodPatch, "/api/v1/connectors/"+result.ID, "dev", token,
+				fmt.Sprintf(`{"tools":[{"name":%q,"enabled":false}]}`, name))
+		}(name)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var waiting int
+		if err := adminDB.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+ WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE '%FROM v3_connectors%FOR UPDATE%'`, schema).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected two PATCH transactions waiting for row lock, saw %d", waiting)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := lockTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		assert(<-responses, 200, "")
+	}
+	settings = request(http.MethodGet, settingsPath, "dev", token, "")
+	assert(settings, 200, "")
+	if err := json.Unmarshal(settings.Body.Bytes(), &registered); err != nil || len(registered.RegisteredTools) != 4 {
+		t.Fatalf("concurrent settings were lost: %s %v", settings.Body.String(), err)
+	}
+	if _, err := db.Exec(ctx, `ALTER TABLE management_audit ADD CONSTRAINT reject_tool_update_audit
+ CHECK (action <> 'connector.tools.updated') NOT VALID`); err != nil {
+		t.Fatal(err)
+	}
+	assert(request(http.MethodPatch, "/api/v1/connectors/"+readyResult.ID, "dev", token,
+		`{"tools":[{"name":"query_metrics","enabled":true}]}`), 503, "audit_unavailable")
+	readySettings = request(http.MethodGet, readySettingsPath, "dev", token, "")
+	assert(readySettings, 200, "")
+	if err := json.Unmarshal(readySettings.Body.Bytes(), &readyTools); err != nil || len(readyTools.RegisteredTools) != 1 || readyTools.RegisteredTools[0].Enabled {
+		t.Fatalf("audit failure left a tool setting enabled: %s %v", readySettings.Body.String(), err)
+	}
+	if _, err := db.Exec(ctx, `ALTER TABLE management_audit DROP CONSTRAINT reject_tool_update_audit`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE v3_connectors SET tools=tools || '[{"name":"retired_tool","desc":"old catalog entry","enabled":true}]'::jsonb WHERE id=$1`, result.ID); err != nil {
+		t.Fatal(err)
+	}
+	assert(request(http.MethodGet, settingsPath, "dev", token, ""), 503, "connector_state_unavailable")
+	assert(request(http.MethodPatch, "/api/v1/connectors/"+result.ID, "dev", token,
+		`{"tools":[{"name":"list_pipelines","enabled":false}]}`), 409, "tool_catalog_changed")
+	if err := db.QueryRow(ctx, `SELECT tools FROM v3_connectors WHERE id=$1`, result.ID).Scan(&persistedTools); err != nil || !strings.Contains(string(persistedTools), "retired_tool") {
+		t.Fatalf("catalog drift silently erased stored settings: %s %v", persistedTools, err)
+	}
 	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='connectors' AND action='manage'`); err != nil {
 		t.Fatal(err)
 	}
 	assert(request(http.MethodPatch, "/api/v1/connectors/"+result.ID, "dev", token,
 		`{"tools":[{"name":"get_pipeline","enabled":false}]}`), 403, "forbidden")
+	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='connectors' AND action='view'`); err != nil {
+		t.Fatal(err)
+	}
+	assert(request(http.MethodGet, settingsPath, "dev", token, ""), 403, "forbidden")
 	assert(request(http.MethodPost, "/api/v1/connectors", "dev", token,
 		`{"type":"prometheus","url":"https://metrics.example.invalid","auth":"none"}`), 403, "forbidden")
 }

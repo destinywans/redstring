@@ -67,7 +67,7 @@ type createRequest struct {
 type patchRequest struct {
 	Tools []struct {
 		Name    string `json:"name"`
-		Enabled bool   `json:"enabled"`
+		Enabled *bool  `json:"enabled"`
 	} `json:"tools"`
 }
 
@@ -93,11 +93,12 @@ func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/connector-types/{type}", "viewer", s.connectorType)
 	api.Register("GET /api/v1/connectors", "admin", s.list)
 	api.Register("GET /api/v1/connectors/{id}", "admin", s.detail)
+	api.Register("GET /api/v1/connectors/{id}/tool-settings", "admin", s.toolSettings)
 	api.Register("POST /api/v1/connectors", "admin", s.create)
 	api.Register("POST /api/v1/connectors/{id}/activate", "admin", s.activate)
 	api.Register("PATCH /api/v1/connectors/{id}", "admin", s.patch)
 	api.Register("POST /api/v1/connectors/{id}/test", "admin", s.test)
-	for _, pattern := range []string{"GET /api/v1/connector-types/{type}", "GET /api/v1/connectors", "GET /api/v1/connectors/{id}"} {
+	for _, pattern := range []string{"GET /api/v1/connector-types/{type}", "GET /api/v1/connectors", "GET /api/v1/connectors/{id}", "GET /api/v1/connectors/{id}/tool-settings"} {
 		api.MarkV3Route(pattern, "connectors", "view")
 	}
 	for _, pattern := range []string{"POST /api/v1/connectors", "POST /api/v1/connectors/{id}/activate", "PATCH /api/v1/connectors/{id}", "POST /api/v1/connectors/{id}/test"} {
@@ -359,6 +360,20 @@ func displayTools(items []tool, lang string) []tool {
 	return tools
 }
 
+func validRegisteredTools(c connector, d descriptor) bool {
+	if c.Tools == nil {
+		return false
+	}
+	seen := make(map[string]bool, len(c.Tools))
+	for _, item := range c.Tools {
+		if seen[item.Name] || !knownTool(d, item.Name) {
+			return false
+		}
+		seen[item.Name] = true
+	}
+	return true
+}
+
 var errConnectorServiceLimit = errors.New("connector service result limit exceeded")
 
 // connectorServices projects only reviewed external targets belonging to this
@@ -487,6 +502,39 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, 200, result)
 }
 
+// toolSettings reads the stored connector tool switches separately from the
+// Agent-facing detail DTO. Some scoped source readers consult these switches;
+// they do not grant connector-backed Agent execution.
+func (s *Service) toolSettings(w http.ResponseWriter, r *http.Request) {
+	env, ok := s.scope(w, r, false)
+	if !ok {
+		return
+	}
+	if s.DB == nil {
+		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
+		return
+	}
+	c, err := s.lookup(r.Context(), r.PathValue("id"), env)
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpapi.Error(w, 404, "not_found", "Connector not found")
+		return
+	}
+	if err != nil {
+		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
+		return
+	}
+	d, known := descriptors[c.Provider]
+	if !known || !validRegisteredTools(c, d) {
+		httpapi.Error(w, 503, "connector_state_unavailable", "Connector tool settings are inconsistent with the current catalog")
+		return
+	}
+	httpapi.WriteJSON(w, 200, map[string]any{
+		"connector_id": c.ID, "environment_id": c.EnvironmentID, "connector_enabled": c.Enabled,
+		"registered_tools":          displayTools(c.Tools, r.Header.Get("Accept-Language")),
+		"agent_execution_available": false,
+	})
+}
+
 func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 	env, ok := s.scope(w, r, true)
 	if !ok {
@@ -607,25 +655,26 @@ func (s *Service) patch(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "invalid_connector", "Connector type is not supported")
 		return
 	}
+	if !validRegisteredTools(c, d) {
+		httpapi.Error(w, 409, "tool_catalog_changed", "Stored connector tools do not match the current catalog")
+		return
+	}
 	seen := map[string]bool{}
 	requested := make(map[string]bool, len(in.Tools))
 	for _, item := range in.Tools {
-		if seen[item.Name] || !knownTool(d, item.Name) {
+		if item.Enabled == nil || seen[item.Name] || !knownTool(d, item.Name) {
 			httpapi.Error(w, 422, "invalid_tools", "Choose distinct supported read-only tools")
 			return
 		}
 		seen[item.Name] = true
-		if item.Enabled && !c.Enabled {
+		if *item.Enabled && !c.Enabled {
 			httpapi.Error(w, 409, "connector_disabled", "Complete connector credentials and scope before enabling tools")
 			return
 		}
-		requested[item.Name] = item.Enabled
+		requested[item.Name] = *item.Enabled
 	}
 	updated := make([]tool, 0, len(c.Tools)+len(requested))
 	for _, item := range c.Tools {
-		if !knownTool(d, item.Name) {
-			continue
-		}
 		if enabled, ok := requested[item.Name]; ok {
 			item.Enabled = enabled
 			delete(requested, item.Name)

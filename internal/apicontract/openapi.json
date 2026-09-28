@@ -21642,7 +21642,7 @@
       "post": {
         "summary": "Export a sanitized canvas template to a GitLab merge request",
         "operationId": "post_promotions",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract operation: one selected non-production environment, an active source template owner and canvas.change grant are required. The source template contains only allowlisted graph structure; no content, evidence, execution state, credentials or account ID is exported. Creates or reuses a durable signed manifest and a merge request in the separately configured repository; an uncertain remote result returns 503. Production returns 409 already_production; all returns 409 env_view_only. Kinds other than template/templates return 501 promotion_kind_unavailable. Missing repository or signing configuration returns 501. The four-kind frontend workflow remains mock.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract operation: one selected non-production environment, an active source template owner and canvas.change grant are required. The signed manifest contains the user-provided template name, source identifiers, template kind and allowlisted graph layout; source node content, evidence, execution state, credentials and account ID are excluded. The current frontend may default the name to the source canvas title, so the name must be reviewed before export to the configuration repository. Creates or reuses a durable signed manifest and MR in the separately configured repository; an uncertain remote result returns 503. Production returns 409 already_production; all returns 409 env_view_only. Kinds other than template/templates return 501 promotion_kind_unavailable. Missing repository or signing configuration returns 501. The four-kind frontend workflow remains mock.",
         "responses": {
           "200": {
             "description": "Success",
@@ -24735,7 +24735,7 @@
       "get": {
         "summary": "List available canvas structures",
         "operationId": "get_canvas_templates",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. ",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Currently lists only private, persisted generic-canvas structure templates owned by the current user in authorized non-production environments. Investigation and team templates are unavailable; the full page contract remains mock.",
         "responses": {
           "200": {
             "description": "Success",
@@ -24842,7 +24842,7 @@
       "post": {
         "summary": "Save a safe canvas structure template",
         "operationId": "post_canvas_templates",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Only structure is accepted; steps, Runbooks and content return 422.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract operation: requires the current owner, selected source environment and canvas.change grant, rechecked with session and role sources inside the save transaction. Copies a user-chosen template name plus sanitized generic-canvas node/edge layout; node titles, blocks, artifacts and conversations are not copied. The graph is validated before template and audit commit together. keep.steps, keep.runbooks and keep.content return 422; the current frontend sends steps/runbooks by default and describes a team template, while this backend saves a private template. Investigation sources and read-only steps are unavailable, so the main route remains mock.",
         "responses": {
           "201": {
             "description": "Success",

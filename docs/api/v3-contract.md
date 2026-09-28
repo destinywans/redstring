@@ -99,7 +99,7 @@
 | GET | `/canvases/{id}` | | `CanvasDoc`（非调查类画布：通用节点块、边、产物、各节点对话） | mock |
 | POST | `/canvases/{id}/nodes/{node}/messages` | `{ text, model?, reasoning? }` | `{ reply }` | mock |
 | GET | `/canvas-templates` | | `{ items: CanvasTemplateOption[] }` | mock |
-| POST | `/canvas-templates` | `{ from_canvas, name, keep }`（只保存结构与只读步骤） | 模板 | mock |
+| POST | `/canvas-templates` | `{ from_canvas, name, keep }`；当前后端子路径只保存本人同环境通用画布的私有结构模板，`keep.steps/runbooks/content=true` 返回 422 | 模板 | mock |
 | GET | `/investigations/{id}/canvas` | | `CanvasGraph` | mock |
 | POST | `/investigations/{id}/branches` | `{ parent, title }` | `CanvasNode` | mock |
 | PATCH | `/investigations/{id}/nodes/{node}` | 位置、折叠、标题 | `CanvasNode` | mock |
@@ -108,6 +108,8 @@
 | POST | `/investigations/{id}/writeback` | `{ node, target, items }` | `{ version }` | mock |
 
 对话详情、后续模型上下文和最新回复使用持久 `sort_order`，同一事务写入的用户/助手消息按回合排序。有 `accepted` 审计的回合按序列化顺序；迁入或无审计的旧回合只按时间戳作确定性回填，不能据此证明原始提交顺序。迁移 085 在应用启动事务中回填整表并建索引，部署前须停旧回复 worker 并在代表性副本量测锁时。
+
+通用画布模板保存已在同一事务复核会话、本人同环境源画布和当前 `canvas.change`，只复制净化后的节点/边布局及用户提交的模板名称，排除源节点标题、内容块、产物与对话；图结构验证失败不保存模板或审计。模板名称仍是可持久化文本：当前前端名称留空时会沿用源画布标题，可能包含需用户检查的业务信息。前端默认提交 `steps=true`、`runbooks=true`，而后端明确 422；页面还称“团队模板”，但当前仅为私有模板，且列表不含调查模板。故 `GET/POST /canvas-templates` 仍为 `mock`。
 
 通用画布节点 `POST /canvases/{id}/nodes/{node}/messages` 的后端已接持久化同步回复：限定本人画布、单一环境和当前 `canvas.change`，一次只运行一条回复。模型上下文包含当前节点及沿有向边可达的祖先节点块与已完成回合，不包含兄弟或失败回合，超过 24 KiB 返回 413；工具调用被拒绝。失败的用户输入保留供刷新核对，不生成虚假助手消息。`GET /canvases/{id}` 校验节点、七种块、边和产物结构，在 `threads` 返回各节点完整已保存回合；历史超过 500 次交换、2 MiB 总量或单条助手消息 64 KiB 时返回 413，不截断。前端目前既无超限恢复/分页，也未在发送失败时清除 `busy`；真实 409/413/422/503 可卡住输入框，因此画布整页及这两条主路由仍为 `mock`，调查节点接口与通用节点分开。
 | GET | `/investigation-templates` | | 模板列表 | mock |

@@ -454,6 +454,9 @@ v3_route('post','/proposals/{id}/reject','Reject a pending proposal without exec
 S['V3RunbookStep'] = obj({'n':integer(),'kind':string(enum=['query','check','action','verify']),
     'title':string(),'body':string(),'connectors':arr(string()),'code':string(),
     'readonly':v3_bool(),'approval':v3_bool()})
+S['V3RunbookCreateStep'] = obj({'n':integer(),'kind':string(enum=['query','check','action','verify','act','judge']),
+    'title':string(),'body':string(),'connectors':arr(string()),'code':string(),
+    'readonly':v3_bool(),'approval':v3_bool()})
 S['V3RunbookSummary'] = obj({**fieldnames('id title scope owner version last_verified'),
     'tags':arr(string()),'status':string(enum=['published','review','draft']),
     'refs_30d':integer(),'resolve_rate':v3_num(),'stale':v3_bool()},
@@ -476,9 +479,10 @@ for _path in ['/runbooks','/runbooks/{id}']:
         'description':'Mandatory Runbook read fields lack an authoritative persisted source',
         'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('post','/runbooks','Create governed runbook draft',
-    body=obj({'title':string(),'source':string(),'from':string(),'steps':arr(ref('V3RunbookStep')),
-        'status':string(enum=['draft','review'])},['title']),response=obj({'id':string()},['id']),status=201,
-    desc='Requires scoped knowledge:manage grant.')
+    body=obj({'title':string(),'source':string(enum=['blank','template','postmortem','conversation','import']),
+        'from':string(),'steps':arr(ref('V3RunbookCreateStep')),
+        'status':string(enum=['draft','review'])},['title','source']),response=obj({'id':string()},['id']),status=201,
+    desc='Requires scoped knowledge:manage grant. A nonblank source requires a validated reference; blank forbids one. Template IDs are registered server-side; imports require a nonempty Markdown upload owned by the current user in the selected environment. Conversations are checked in the same transaction; postmortem source remains unavailable. No source reference is trusted solely because the client provided an ID.')
 v3_route('post','/runbooks/{id}/submit','Submit runbook for review',
     desc='Requires scoped knowledge:manage grant and maintainer ownership.',
     response=obj({'ok':v3_bool(),'status':string(enum=['review'])}))

@@ -38,6 +38,9 @@ func TestValidateCreateRejectsUnsafeRunbookInputs(t *testing.T) {
 		{Title: "", Source: "blank"},
 		{Title: "Inspect", Source: "unknown"},
 		{Title: "Inspect", Source: "postmortem"},
+		{Title: "Inspect", Source: "template"},
+		{Title: "Inspect", Source: "import"},
+		{Title: "Inspect", Source: "blank", From: "fabricated-source"},
 		{Title: "Inspect", Source: "blank", Status: "published"},
 		{Title: "Inspect", Source: "blank", Steps: []Step{{Kind: "execute", Title: "restart"}}},
 	}

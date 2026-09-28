@@ -1,6 +1,7 @@
 package v3knowledge
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -68,9 +69,10 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	}
 	for _, statement := range []string{
 		`DELETE FROM v3_role_grants WHERE role_id='viewer'`,
-		`INSERT INTO rbac_roles(id,name) VALUES('runbook-manager','Runbook Manager'),('runbook-reader','Runbook Reader'),('runbook-team-manager','Runbook Team Manager')`,
+		`INSERT INTO rbac_roles(id,name) VALUES('runbook-manager','Runbook Manager'),('runbook-reader','Runbook Reader'),('runbook-team-manager','Runbook Team Manager'),('runbook-creator','Runbook Creator')`,
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
  ('viewer','environment','view','environment','dev'),
+ ('runbook-creator','knowledge','manage','environment','dev'),
  ('runbook-manager','knowledge','manage','application','app-1'),
  ('runbook-manager','knowledge','view','application','app-1'),
 	 ('runbook-reader','knowledge','view','application','app-1'),
@@ -106,8 +108,12 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	creator, err := st.CreateUser(ctx, core.User{Email: "creator@example.invalid", Name: "Creator", Role: "viewer"}, "isolated-creator-password")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES
-	 ($1,'runbook-manager'),($2,'runbook-manager'),($3,'runbook-reader'),($4,'runbook-team-manager')`, maintainer.ID, otherManager.ID, reader.ID, teamMaintainer.ID); err != nil {
+	 ($1,'runbook-manager'),($2,'runbook-manager'),($3,'runbook-reader'),($4,'runbook-team-manager'),($5,'runbook-creator')`, maintainer.ID, otherManager.ID, reader.ID, teamMaintainer.ID, creator.ID); err != nil {
 		t.Fatal(err)
 	}
 	seed := func(id, app, env, lifecycle, owner string, steps []Step) {
@@ -147,6 +153,18 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	otherToken := login("other@example.invalid", "isolated-other-password")
 	readerToken := login("reader@example.invalid", "isolated-reader-password")
 	teamToken := login("team@example.invalid", "isolated-team-password")
+	creatorToken := login("creator@example.invalid", "isolated-creator-password")
+	for _, upload := range []struct{ id, owner, env string }{
+		{"upload-dev", creator.ID, "dev"},
+		{"upload-other", otherManager.ID, "dev"},
+		{"upload-test", creator.ID, "test"},
+	} {
+		content := []byte("# Imported source")
+		if _, err := db.Exec(ctx, `INSERT INTO v3_uploads(id,owner_id,environment_id,kind,name,size_bytes,mime,content)
+ VALUES($1,$2,$3,'file','source.md',$4,'text/markdown',$5)`, upload.id, upload.owner, upload.env, len(content), content); err != nil {
+			t.Fatal(err)
+		}
+	}
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
 	(&Service{DB: db, Knowledge: know, Policy: policy}).Register(api)
@@ -171,6 +189,38 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 		t.Helper()
 		if w.Code != status || (code != "" && !strings.Contains(w.Body.String(), `"code":"`+code+`"`)) {
 			t.Fatalf("status=%d body=%s; want status=%d code=%q", w.Code, w.Body.String(), status, code)
+		}
+	}
+	create := func(source, from, env, token string) *httptest.ResponseRecorder {
+		t.Helper()
+		body, _ := json.Marshal(createInput{Title: "Source checked", Source: source, From: from,
+			Steps: []Step{{N: 1, Kind: "query", Title: "Read source", Readonly: true, Connectors: []string{"prometheus"}}}})
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/runbooks", bytes.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-AIOps-Environment", env)
+		if token != "" {
+			r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		}
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		return w
+	}
+	assert(create("template", "fabricated", "dev", creatorToken), 422, "invalid_source")
+	assert(create("import", "upload-other", "dev", creatorToken), 422, "invalid_source")
+	assert(create("import", "upload-test", "dev", creatorToken), 422, "invalid_source")
+	assert(create("import", "upload-dev", "all", creatorToken), 409, "env_view_only")
+	for _, source := range []struct{ kind, ref string }{{"template", "investigation"}, {"import", "upload-dev"}} {
+		w := create(source.kind, source.ref, "dev", creatorToken)
+		assert(w, 201, "")
+		var saved struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &saved); err != nil || saved.ID == "" {
+			t.Fatalf("create response: %s (%v)", w.Body.String(), err)
+		}
+		var kind, ref string
+		if err := db.QueryRow(ctx, `SELECT source_kind,source_ref FROM v3_runbooks WHERE document_id=$1`, saved.ID).Scan(&kind, &ref); err != nil || kind != source.kind || ref != source.ref {
+			t.Fatalf("source provenance %q/%q: got %q/%q: %v", source.kind, source.ref, kind, ref, err)
 		}
 	}
 	assert(request("runbook-main", "submit", "dev", ""), 401, "")

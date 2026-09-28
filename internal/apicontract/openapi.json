@@ -27530,7 +27530,7 @@
       "post": {
         "summary": "Create governed runbook draft",
         "operationId": "post_runbooks",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires scoped knowledge:manage grant.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires scoped knowledge:manage grant. A nonblank source requires a validated reference; blank forbids one. Template IDs are registered server-side; imports require a nonempty Markdown upload owned by the current user in the selected environment. Conversations are checked in the same transaction; postmortem source remains unavailable. No source reference is trusted solely because the client provided an ID.",
         "responses": {
           "201": {
             "description": "Success",
@@ -27631,7 +27631,14 @@
                     "type": "string"
                   },
                   "source": {
-                    "type": "string"
+                    "type": "string",
+                    "enum": [
+                      "blank",
+                      "template",
+                      "postmortem",
+                      "conversation",
+                      "import"
+                    ]
                   },
                   "from": {
                     "type": "string"
@@ -27639,7 +27646,7 @@
                   "steps": {
                     "type": "array",
                     "items": {
-                      "$ref": "#/components/schemas/V3RunbookStep"
+                      "$ref": "#/components/schemas/V3RunbookCreateStep"
                     }
                   },
                   "status": {
@@ -27652,7 +27659,8 @@
                 },
                 "additionalProperties": false,
                 "required": [
-                  "title"
+                  "title",
+                  "source"
                 ]
               }
             }
@@ -38457,6 +38465,47 @@
               "check",
               "action",
               "verify"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "connectors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "code": {
+            "type": "string"
+          },
+          "readonly": {
+            "type": "boolean"
+          },
+          "approval": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "V3RunbookCreateStep": {
+        "type": "object",
+        "properties": {
+          "n": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "query",
+              "check",
+              "action",
+              "verify",
+              "act",
+              "judge"
             ]
           },
           "title": {

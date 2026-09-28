@@ -373,7 +373,10 @@ func validateCreate(in createInput) error {
 	if len(in.From) > 200 || len(in.Steps) > 100 {
 		return errors.New("source or step count exceeds limit")
 	}
-	if (in.Source == "postmortem" || in.Source == "conversation") && strings.TrimSpace(in.From) == "" {
+	if in.Source == "blank" && strings.TrimSpace(in.From) != "" {
+		return errors.New("blank Runbook cannot claim a source")
+	}
+	if in.Source != "blank" && strings.TrimSpace(in.From) == "" {
 		return errors.New("source reference is required")
 	}
 	for i, step := range in.Steps {
@@ -415,6 +418,36 @@ func (s *Service) validateSource(r *http.Request, tx pgx.Tx, in createInput) (st
 	switch in.Source {
 	case "postmortem":
 		return "", errPostmortemUnavailable
+	case "template":
+		for _, template := range knowledge.Templates() {
+			if template.ID == in.From && template.ID != "blank" {
+				return "", nil
+			}
+		}
+		return "", store.ErrNotFound
+	case "import":
+		envs := scopeIDs(r)
+		if len(envs) != 1 {
+			return "", store.ErrForbidden
+		}
+		var owner, actualEnvironment, kind, mime, name string
+		var size int
+		err := tx.QueryRow(r.Context(), `SELECT owner_id,environment_id,kind,mime,name,size_bytes FROM v3_uploads WHERE id=$1 FOR KEY SHARE`, in.From).Scan(&owner, &actualEnvironment, &kind, &mime, &name, &size)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", store.ErrNotFound
+		}
+		if err != nil {
+			return "", err
+		}
+		if owner != httpapi.CurrentUser(r).ID || actualEnvironment != envs[0] {
+			return "", store.ErrForbidden
+		}
+		// Uploaded Markdown can be cited as an import source. A URL or a
+		// non-Markdown file is not yet a parsed Runbook source.
+		if kind != "file" || size == 0 || !(mime == "text/markdown" || mime == "text/plain") || !strings.HasSuffix(strings.ToLower(name), ".md") {
+			return "", errSourceEmpty
+		}
+		return "", nil
 	case "conversation":
 		envs := scopeIDs(r)
 		if len(envs) != 1 {
@@ -431,7 +464,7 @@ func (s *Service) validateSource(r *http.Request, tx pgx.Tx, in createInput) (st
 		if owner != httpapi.CurrentUser(r).ID || actualEnvironment != envs[0] {
 			return "", store.ErrForbidden
 		}
-		err = s.Policy.Authorize(r.Context(), httpapi.CurrentUser(r), rbac.V3Decision{Module: "conversation", Action: "view", EnvironmentID: actualEnvironment})
+		err = s.Policy.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), rbac.V3Decision{Module: "conversation", Action: "view", EnvironmentID: actualEnvironment})
 		if err != nil {
 			return "", err
 		}

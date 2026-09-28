@@ -175,6 +175,23 @@ func TestSilenceListRegisteredHTTPUsesPersistedTeamAndAdministrativeScope(t *tes
 		api.ServeHTTP(w, r)
 		return w
 	}
+	preview := func(body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/silences/preview", strings.NewReader(body))
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		r.Header.Set("X-AIOps-Environment", "test")
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		return w
+	}
+	if p := preview(`{"matchers":[{"k":"application","op":"=","v":"owned"}]}`); p.Code != 200 || !strings.Contains(p.Body.String(), `"affects":1`) {
+		t.Fatalf("team preview status=%d body=%s", p.Code, p.Body.String())
+	}
+	if p := preview(`{"matchers":[{"k":"application","op":"=","v":"hidden"}]}`); p.Code != 404 || strings.Contains(p.Body.String(), `"affects"`) {
+		t.Fatalf("hidden app preview status=%d body=%s", p.Code, p.Body.String())
+	}
+	if p := preview(`{"matchers":[{"k":"alertname","op":"!=","v":"unmatched"}]}`); p.Code != 403 {
+		t.Fatalf("broad preview without environment grant status=%d body=%s", p.Code, p.Body.String())
+	}
 	w := request("test")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"id":"owned"`) || !strings.Contains(w.Body.String(), `"affects":1`) || !strings.Contains(w.Body.String(), `"active":1`) {
 		t.Fatalf("team visible status=%d body=%s", w.Code, w.Body.String())
@@ -244,6 +261,9 @@ func TestSilenceListRegisteredHTTPUsesPersistedTeamAndAdministrativeScope(t *tes
 	w = request("test")
 	if w.Code != 206 || !strings.Contains(w.Body.String(), `"active":4`) || !strings.Contains(w.Body.String(), `"unscoped_present":true`) {
 		t.Fatalf("admin visible status=%d body=%s", w.Code, w.Body.String())
+	}
+	if p := preview(`{"matchers":[{"k":"environment","op":"=","v":"test"}]}`); p.Code != 200 || !strings.Contains(p.Body.String(), `"affects":3`) {
+		t.Fatalf("environment-wide preview status=%d body=%s", p.Code, p.Body.String())
 	}
 	for _, visible := range []string{"owned", "hidden", "wide", "regex"} {
 		if !strings.Contains(w.Body.String(), `"id":"`+visible+`"`) {

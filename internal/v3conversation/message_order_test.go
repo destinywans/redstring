@@ -89,11 +89,14 @@ func TestMessageOrderMigrationBackfillsReplyPairsAndContinuesSequence(t *testing
 			VALUES('historical-reply','historical','z-historical-user','a-historical-assistant','completed');
 		INSERT INTO v3_conversations(id,owner_id,environment_id) VALUES('inverted','owner','test');
 		INSERT INTO v3_conversation_messages(id,conversation_id,role,author,parts,state,created_at) VALUES
+			('z-older-user','inverted','user','Owner','[]','completed',now()-interval '1 hour'),
+			('a-older-assistant','inverted','assistant','AI','[]','completed',now()-interval '1 hour'),
 			('z-first-user','inverted','user','Owner','[]','completed',now()+interval '2 minutes'),
 			('a-first-assistant','inverted','assistant','AI','[]','completed',now()+interval '2 minutes'),
 			('z-second-user','inverted','user','Owner','[]','completed',now()),
 			('a-second-assistant','inverted','assistant','AI','[]','completed',now());
 		INSERT INTO v3_conversation_replies(id,conversation_id,user_message_id,assistant_message_id,state,started_at) VALUES
+			('older-unlinked-reply','inverted','z-older-user','a-older-assistant','completed',now()-interval '1 hour'),
 			('first-reply','inverted','z-first-user','a-first-assistant','completed',now()+interval '2 minutes'),
 			('second-reply','inverted','z-second-user','a-second-assistant','completed',now());
 		INSERT INTO management_audit(actor_id,actor_kind,action,target,outcome,changes) VALUES
@@ -134,8 +137,14 @@ func TestMessageOrderMigrationBackfillsReplyPairsAndContinuesSequence(t *testing
 		t.Fatal(err)
 	}
 	rows.Close()
-	if len(ordered) != 4 || ordered[0] != "z-first-user" || ordered[1] != "a-first-assistant" || ordered[2] != "z-second-user" || ordered[3] != "a-second-assistant" {
-		t.Fatalf("audit order must beat inverted transaction timestamps: %v", ordered)
+	want := []string{"z-older-user", "a-older-assistant", "z-first-user", "a-first-assistant", "z-second-user", "a-second-assistant"}
+	if len(ordered) != len(want) {
+		t.Fatalf("mixed reply order: got %v, want %v", ordered, want)
+	}
+	for i, id := range want {
+		if ordered[i] != id {
+			t.Fatalf("mixed reply order at %d: got %v, want %v", i, ordered, want)
+		}
 	}
 	latest, err := New(db, nil, Options{}).latestReply(ctx, "inverted")
 	if err != nil || latest != "second-reply" {

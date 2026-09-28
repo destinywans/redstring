@@ -66,12 +66,15 @@ func TestMembersHTTPRespectsV3ScopeAndShowsDisabledAssignments(t *testing.T) {
 		`DELETE FROM v3_role_grants WHERE role_id='viewer'`,
 		`INSERT INTO rbac_roles(id,name) VALUES
  ('member-reader','Member Reader'),('dev-member','Dev Member'),('test-member','Test Member'),
- ('team-member','Team Member'),('app-member','App Member')`,
+	 ('team-member','Team Member'),('app-member','App Member'),('dev-admission','Dev Admission')`,
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
  ('member-reader','environment','view','environment','dev'),
- ('member-reader','members','view','environment','dev'),
+ ('member-reader','members','view','global','*'),
  ('dev-member','services','view','environment','dev'),
+	 ('dev-member','environment','view','environment','dev'),
  ('test-member','services','view','environment','test'),
+	 ('test-member','environment','view','environment','test'),
+	 ('dev-admission','environment','view','environment','dev'),
  ('team-member','services','view','team','ops'),
  ('app-member','services','view','application','app')`,
 		`INSERT INTO teams(id,name) VALUES('ops','运维部')`,
@@ -84,12 +87,16 @@ func TestMembersHTTPRespectsV3ScopeAndShowsDisabledAssignments(t *testing.T) {
  ('team-user','team@example.invalid','团队成员','viewer','','ops',false),
  ('department-user','department@example.invalid','部门成员','viewer','','ops',false),
  ('app-user','app@example.invalid','应用成员','viewer','',NULL,false),
- ('test-user','test@example.invalid','测试成员','viewer','',NULL,false)`,
-		`INSERT INTO rbac_department_roles(department_id,role_id) VALUES('ops','team-member')`,
+	 ('test-user','test@example.invalid','测试成员','viewer','',NULL,false),
+	 ('unassigned-user','unassigned@example.invalid','未分配成员','viewer','',NULL,false),
+	 ('legacy-only-user','legacy-only@example.invalid','待授权旧成员','viewer','',NULL,false)`,
+		`DELETE FROM rbac_user_roles WHERE user_id='unassigned-user' AND role_id='viewer'`,
+		`INSERT INTO rbac_department_roles(department_id,role_id) VALUES
+ ('ops','team-member'),('ops','dev-admission')`,
 		`INSERT INTO rbac_user_roles(user_id,role_id) VALUES
  ('dev-user','dev-member'),('dev-user','test-member'),
  ('disabled-user','dev-member'),('team-user','team-member'),
- ('app-user','app-member'),('test-user','test-member')`,
+	 ('app-user','app-member'),('app-user','dev-admission'),('test-user','test-member')`,
 	} {
 		if _, err := db.Exec(ctx, statement); err != nil {
 			t.Fatal(err)
@@ -99,6 +106,10 @@ func TestMembersHTTPRespectsV3ScopeAndShowsDisabledAssignments(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, token, err := st.Login(ctx, "reader@example.invalid", "isolated-reader-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, adminToken, err := st.Login(ctx, "admin@example.invalid", "isolated-admin-password")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,22 +141,43 @@ func TestMembersHTTPRespectsV3ScopeAndShowsDisabledAssignments(t *testing.T) {
 	assertStatus(request("/api/v1/members", "dev", ""), 401)
 	assertStatus(request("/api/v1/members", "test", token), 403)
 	assertStatus(request("/api/v1/members?filter=unknown", "dev", token), 422)
-	w := request("/api/v1/members", "dev", token)
-	assertStatus(w, 200)
 	var view membersView
+	var w *httptest.ResponseRecorder
+	for _, environment := range []string{"dev", "all"} {
+		w = request("/api/v1/members", environment, token)
+		assertStatus(w, 200)
+		if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil {
+			t.Fatal(err)
+		}
+		byID := map[string]member{}
+		for _, item := range view.Items {
+			byID[item.ID] = item
+		}
+		if len(byID) != 7 || byID["test-user"].ID != "" || byID["unassigned-user"].ID != "" || byID["legacy-only-user"].ID != "" ||
+			byID["team-user"].ID == "" || byID["department-user"].ID == "" || byID["app-user"].ID == "" ||
+			byID["disabled-user"].Status != "disabled" || view.Counts["all"] != 7 || view.Counts["disabled"] != 1 {
+			t.Fatalf("%s directory leaked test member: %+v, counts=%+v", environment, view.Items, view.Counts)
+		}
+		if len(byID["dev-user"].Roles) != 1 || byID["dev-user"].Roles[0] != "Dev Member" || byID["dev-user"].MFA != "na" {
+			t.Fatalf("%s leaked cross-environment role or guessed MFA: %+v", environment, byID["dev-user"])
+		}
+		w = request("/api/v1/members?q=test%40example.invalid", environment, token)
+		assertStatus(w, 200)
+		if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil || len(view.Items) != 0 {
+			t.Fatalf("%s search leaked test-only member: body=%s err=%v", environment, w.Body.String(), err)
+		}
+	}
+	w = request("/api/v1/members", "all", adminToken)
+	assertStatus(w, 200)
 	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil {
 		t.Fatal(err)
 	}
-	byID := map[string]member{}
+	globalIDs := map[string]bool{}
 	for _, item := range view.Items {
-		byID[item.ID] = item
+		globalIDs[item.ID] = true
 	}
-	if len(byID) != 7 || byID["test-user"].ID != "" || byID["team-user"].ID == "" || byID["department-user"].ID == "" || byID["app-user"].ID == "" ||
-		byID["disabled-user"].Status != "disabled" || view.Counts["disabled"] != 1 {
-		t.Fatalf("incorrect scoped members: %+v, counts=%+v", view.Items, view.Counts)
-	}
-	if len(byID["dev-user"].Roles) != 1 || byID["dev-user"].Roles[0] != "Dev Member" || byID["dev-user"].MFA != "na" {
-		t.Fatalf("leaked cross-environment role or guessed MFA: %+v", byID["dev-user"])
+	if !globalIDs["test-user"] || !globalIDs["unassigned-user"] || !globalIDs["legacy-only-user"] {
+		t.Fatalf("global reader could not inspect test-only or unadmitted member: %+v", view.Items)
 	}
 	w = request("/api/v1/members?filter=disabled", "dev", token)
 	assertStatus(w, 200)
@@ -165,9 +197,25 @@ func TestMembersHTTPRespectsV3ScopeAndShowsDisabledAssignments(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil {
 		t.Fatal(err)
 	}
+	byID := map[string]member{}
 	for _, item := range view.Items {
-		if item.ID == "app-user" || item.ID == "team-user" || item.ID == "department-user" {
-			t.Fatalf("archived app still exposed member %s", item.ID)
+		byID[item.ID] = item
+	}
+	if len(byID) != 7 || view.Counts["all"] != 7 || byID["app-user"].ID == "" ||
+		byID["team-user"].ID == "" || byID["department-user"].ID == "" {
+		t.Fatalf("archiving an app revoked independent dev admission: %+v counts=%+v", view.Items, view.Counts)
+	}
+	hasRole := func(roles []string, wanted string) bool {
+		for _, role := range roles {
+			if role == wanted {
+				return true
+			}
+		}
+		return false
+	}
+	for _, id := range []string{"app-user", "team-user", "department-user"} {
+		if !hasRole(byID[id].Roles, "Dev Admission") || hasRole(byID[id].Roles, "App Member") || hasRole(byID[id].Roles, "Team Member") {
+			t.Fatalf("%s retained an archived app/team role or lost dev admission: %+v", id, byID[id].Roles)
 		}
 	}
 	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='member-reader' AND module='members'`); err != nil {

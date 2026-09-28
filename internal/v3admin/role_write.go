@@ -36,8 +36,9 @@ func (s *Service) putRole(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, err)
 		return
 	}
-	v, err := s.getRole(r.Context(), r.PathValue("id"), envs, true, englishLanguage(r.Header.Get("Accept-Language")))
-	respond(w, v, err)
+	// A manager is not automatically a reader. Returning a fresh detail after
+	// commit could disclose member names or describe somebody else's later edit.
+	httpapi.WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 type queryer interface {
@@ -94,13 +95,17 @@ func (s *Service) saveMatrix(ctx context.Context, roleID, environment string, wa
 	}); err != nil {
 		return err
 	}
-	var global bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM v3_effective_role_grants
- WHERE user_id=$1 AND module='roles' AND action='manage'
- AND scope_kind='global' AND scope_id='*')`, actor.ID).Scan(&global); err != nil {
+	var globalManage, globalEnvironmentView bool
+	if err = tx.QueryRow(ctx, `SELECT
+ EXISTS (SELECT 1 FROM v3_effective_role_grants WHERE user_id=$1
+  AND module='roles' AND action='manage' AND scope_kind='global' AND scope_id='*'),
+ EXISTS (SELECT 1 FROM v3_effective_role_grants WHERE user_id=$1
+  AND module='environment' AND action='view' AND scope_kind='global' AND scope_id='*')`, actor.ID).Scan(&globalManage, &globalEnvironmentView); err != nil {
 		return err
 	}
-	if !global {
+	// The flat editor changes global grants, including environments outside
+	// the selected request scope. Require instance-wide environment admission.
+	if !globalManage || !globalEnvironmentView {
 		return store.ErrForbidden
 	}
 	var kind string
@@ -170,9 +175,12 @@ func (s *Service) saveMatrix(ctx context.Context, roleID, environment string, wa
 		return tx.Commit(ctx)
 	}
 	var managers int
-	err = tx.QueryRow(ctx, `SELECT count(DISTINCT user_id) FROM v3_effective_role_grants
- WHERE module='roles' AND action='manage' AND v3_identity_kind='human'
- AND scope_kind='global' AND scope_id='*'`).Scan(&managers)
+	err = tx.QueryRow(ctx, `SELECT count(DISTINCT manager.user_id) FROM v3_effective_role_grants manager
+ WHERE manager.module='roles' AND manager.action='manage' AND manager.v3_identity_kind='human'
+ AND manager.scope_kind='global' AND manager.scope_id='*'
+ AND EXISTS (SELECT 1 FROM v3_effective_role_grants admission
+  WHERE admission.user_id=manager.user_id AND admission.module='environment'
+   AND admission.action='view' AND admission.scope_kind='global' AND admission.scope_id='*')`).Scan(&managers)
 	if err != nil {
 		return err
 	}

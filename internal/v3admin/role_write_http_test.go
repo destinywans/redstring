@@ -71,11 +71,16 @@ func TestRoleMatrixWriteHTTPAuthorizationPersistenceAndAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	devGlobalManager, err := st.CreateUser(ctx, core.User{Email: "dev-global@example.invalid", Name: "Dev Global Manager", Role: "viewer"}, "isolated-dev-global-password")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, statement := range []string{
 		`INSERT INTO rbac_roles(id,name,v3_kind) VALUES
  ('ops-role','Operations','business'),('machine-role','Machine','machine'),
  ('execute-role','Executor','business'),('mixed-role','Mixed','business'),
-	 ('scoped-manager','Scoped Manager','business'),('global-manager','Global Manager','business')`,
+	 ('scoped-manager','Scoped Manager','business'),('global-manager','Global Manager','business'),
+	 ('dev-global-manager','Dev Global Manager','business')`,
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
  ('ops-role','events','view','global','*'),
  ('execute-role','proposals','execute','global','*'),
@@ -84,7 +89,9 @@ func TestRoleMatrixWriteHTTPAuthorizationPersistenceAndAudit(t *testing.T) {
  ('scoped-manager','environment','view','environment','dev'),
 	 ('scoped-manager','roles','manage','environment','dev'),
 	 ('global-manager','environment','view','global','*'),
-	 ('global-manager','roles','manage','global','*')`,
+	 ('global-manager','roles','manage','global','*'),
+	 ('dev-global-manager','environment','view','environment','dev'),
+	 ('dev-global-manager','roles','manage','global','*')`,
 	} {
 		if _, err := db.Exec(ctx, statement); err != nil {
 			t.Fatal(err)
@@ -96,6 +103,9 @@ func TestRoleMatrixWriteHTTPAuthorizationPersistenceAndAudit(t *testing.T) {
 	if _, err := db.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'global-manager')`, globalManager.ID); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'dev-global-manager')`, devGlobalManager.ID); err != nil {
+		t.Fatal(err)
+	}
 	admin, adminToken, err := st.Login(ctx, "admin@example.invalid", "isolated-admin-password")
 	if err != nil {
 		t.Fatal(err)
@@ -105,6 +115,10 @@ func TestRoleMatrixWriteHTTPAuthorizationPersistenceAndAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, globalToken, err := st.Login(ctx, "global@example.invalid", "isolated-global-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, devGlobalToken, err := st.Login(ctx, "dev-global@example.invalid", "isolated-dev-global-password")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,6 +174,13 @@ func TestRoleMatrixWriteHTTPAuthorizationPersistenceAndAudit(t *testing.T) {
 		}
 		return detail
 	}
+	assertWriteAck := func(w *httptest.ResponseRecorder) {
+		t.Helper()
+		var ack map[string]json.RawMessage
+		if err := json.Unmarshal(w.Body.Bytes(), &ack); err != nil || w.Code != 200 || len(ack) != 1 || string(ack["ok"]) != "true" {
+			t.Fatalf("expected minimal write acknowledgement; status=%d body=%s err=%v", w.Code, w.Body.String(), err)
+		}
+	}
 
 	initial := read("ops-role", "dev", adminToken)
 	if initial.Scope[0] != "global" || initial.Matrix[1].Grants[0] != 1 {
@@ -170,16 +191,19 @@ func TestRoleMatrixWriteHTTPAuthorizationPersistenceAndAudit(t *testing.T) {
 	assertError(request(http.MethodPut, "ops-role", "all", adminToken, initial.Matrix), 409, "env_view_only")
 	initial.Matrix[1].Grants[1] = 1
 	initial.Matrix[4].Grants[3] = 1
-	w := request(http.MethodPut, "ops-role", "dev", adminToken, initial.Matrix)
-	if w.Code != 200 {
-		t.Fatalf("PUT status=%d body=%s", w.Code, w.Body.String())
+	assertError(request(http.MethodPut, "ops-role", "dev", devGlobalToken, initial.Matrix), 403, "forbidden")
+	var unauthorizedGrant bool
+	if err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_role_grants WHERE role_id='ops-role' AND module='events' AND action='change')`).Scan(&unauthorizedGrant); err != nil || unauthorizedGrant {
+		t.Fatalf("dev-only admission changed global matrix: grant=%t err=%v", unauthorizedGrant, err)
 	}
-	var saved roleDetail
-	if err := json.Unmarshal(w.Body.Bytes(), &saved); err != nil {
+	if _, err := db.Exec(ctx, `DELETE FROM rbac_user_roles WHERE user_id=$1 AND role_id='dev-global-manager'`, devGlobalManager.ID); err != nil {
 		t.Fatal(err)
 	}
+	w := request(http.MethodPut, "ops-role", "dev", adminToken, initial.Matrix)
+	assertWriteAck(w)
+	saved := read("ops-role", "dev", adminToken)
 	if saved.Matrix[1].Grants[1] != 1 || saved.Matrix[4].Grants[3] != 2 {
-		t.Fatalf("returned matrix does not show persisted passkey condition: %+v", saved.Matrix)
+		t.Fatalf("independent GET did not show persisted passkey condition: %+v", saved.Matrix)
 	}
 	var grants, auditCount int
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_role_grants WHERE role_id='ops-role' AND
@@ -202,12 +226,60 @@ func TestRoleMatrixWriteHTTPAuthorizationPersistenceAndAudit(t *testing.T) {
 		t.Fatalf("audit did not use persisted stable codes: %s err=%v", changes, err)
 	}
 	w = request(http.MethodPut, "ops-role", "dev", adminToken, saved.Matrix)
-	if w.Code != 200 {
-		t.Fatalf("no-op PUT status=%d body=%s", w.Code, w.Body.String())
-	}
+	assertWriteAck(w)
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE action='v3.role.matrix.updated' AND target='ops-role'`).Scan(&auditCount); err != nil || auditCount != 1 {
 		t.Fatalf("no-op created audit: count=%d err=%v", auditCount, err)
 	}
+	t.Run("audit failure rolls back matrix and revision", func(t *testing.T) {
+		var revisionBefore int64
+		if err := db.QueryRow(ctx, `SELECT v3_matrix_revision FROM rbac_roles WHERE id='ops-role'`).Scan(&revisionBefore); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(ctx, `CREATE FUNCTION reject_v3_role_audit() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ IF NEW.action='v3.role.matrix.updated' AND NEW.target='ops-role' THEN
+  RAISE EXCEPTION 'forced audit insert failure';
+ END IF;
+ RETURN NEW;
+END
+$$`); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if _, err := db.Exec(context.Background(), `DROP FUNCTION reject_v3_role_audit()`); err != nil {
+				t.Error(err)
+			}
+		}()
+		if _, err := db.Exec(ctx, `CREATE TRIGGER reject_v3_role_audit_insert
+ BEFORE INSERT ON management_audit FOR EACH ROW EXECUTE FUNCTION reject_v3_role_audit()`); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if _, err := db.Exec(context.Background(), `DROP TRIGGER reject_v3_role_audit_insert ON management_audit`); err != nil {
+				t.Error(err)
+			}
+		}()
+		candidate := read("ops-role", "dev", adminToken).Matrix
+		candidate[1].Grants[2] = 1
+		assertError(request(http.MethodPut, "ops-role", "dev", adminToken, candidate), 503, "admin_unavailable")
+		var grantExists bool
+		var revisionAfter int64
+		if err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_role_grants WHERE role_id='ops-role' AND module='events' AND action='delete')`).Scan(&grantExists); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.QueryRow(ctx, `SELECT v3_matrix_revision FROM rbac_roles WHERE id='ops-role'`).Scan(&revisionAfter); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE action='v3.role.matrix.updated' AND target='ops-role'`).Scan(&auditCount); err != nil {
+			t.Fatal(err)
+		}
+		if grantExists || revisionAfter != revisionBefore || auditCount != 1 {
+			t.Fatalf("audit failure committed matrix: grant=%t revision=%d/%d audit=%d", grantExists, revisionAfter, revisionBefore, auditCount)
+		}
+		if got := read("ops-role", "dev", adminToken); got.Matrix[1].Grants[2] != 0 {
+			t.Fatalf("GET observed rolled-back grant: %+v", got.Matrix[1])
+		}
+	})
 
 	assertError(request(http.MethodGet, "execute-role", "dev", adminToken, nil), 409, "matrix_editor_required")
 	assertError(request(http.MethodGet, "mixed-role", "all", adminToken, nil), 409, "matrix_editor_required")
@@ -218,6 +290,14 @@ func TestRoleMatrixWriteHTTPAuthorizationPersistenceAndAudit(t *testing.T) {
 	var machineGrants int
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_role_grants WHERE role_id='machine-role'`).Scan(&machineGrants); err != nil || machineGrants != 0 {
 		t.Fatalf("machine approval persisted: count=%d err=%v", machineGrants, err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id,assurance)
+ VALUES('machine-role','proposals','approve','global','*','passkey')`); err != nil {
+		t.Fatal(err)
+	}
+	assertError(request(http.MethodGet, "machine-role", "dev", adminToken, nil), 503, "role_grants_invalid")
+	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='machine-role' AND module='proposals' AND action='approve'`); err != nil {
+		t.Fatal(err)
 	}
 	t.Run("queued matrix write cannot outlive legacy membership revocation", func(t *testing.T) {
 		legacyRole, err := (&rbac.Service{Store: st}).Role(ctx, "global-manager")
@@ -296,6 +376,11 @@ func TestRoleMatrixWriteHTTPAuthorizationPersistenceAndAudit(t *testing.T) {
 			t.Fatalf("revoked actor wrote audit: count=%d err=%v", targetAudits, err)
 		}
 	})
+	// This human can manage roles globally but lacks global environment
+	// admission. Keeping only this manager must still be rejected.
+	if _, err := db.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'dev-global-manager')`, devGlobalManager.ID); err != nil {
+		t.Fatal(err)
+	}
 	administrator := read("admin", "dev", adminToken)
 	if !strings.Contains(administrator.Notes, "outside this matrix") {
 		t.Fatalf("platform grants omitted without a note: %q", administrator.Notes)
@@ -305,6 +390,9 @@ func TestRoleMatrixWriteHTTPAuthorizationPersistenceAndAudit(t *testing.T) {
 	var stillManager bool
 	if err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_role_grants WHERE role_id='admin' AND module='roles' AND action='manage')`).Scan(&stillManager); err != nil || !stillManager {
 		t.Fatalf("last-manager rollback failed: manager=%t err=%v", stillManager, err)
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM rbac_user_roles WHERE user_id=$1 AND role_id='dev-global-manager'`, devGlobalManager.ID); err != nil {
+		t.Fatal(err)
 	}
 
 	// Exercise the transaction recheck directly: the route middleware cannot

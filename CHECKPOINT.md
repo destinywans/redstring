@@ -1,5 +1,10 @@
 # AIOps Canvas 检查点
 
+## CP-100 · 2026-09-28 · 迁移 030 的跨 schema 约束判断
+
+- 并行隔离 PG 测试暴露 `030_v3_knowledge.sql` 只按全库约束名判断存在；另一个随机 schema 的同名约束会使当前 `v3_runbooks` 跳过创建，随后 VALIDATE 失败。将判断限定到当前 `v3_runbooks` 的 `conrelid`。必须修正历史 030 本身，因为失败发生在后续 054 之前；已应用数据库按迁移名称跳过它，不会重跑或改动现有业务库。
+- 一次性 PG17 中 `TestMigrationsKeepConstraintsInEachSchema` 顺序保留两个随机 schema 验证各自有约束；并行执行 `internal/v3admin` 和 `internal/v3settings` 的 Role/Matrix/Workspace 定向用例也通过。临时容器已清理；未运行全量测试或现有库迁移，主契约仍 **32/166 `implemented`**。
+
 ## CP-099 · 2026-09-28 · 连接探测结果按当前配置与授权提交
 
 - 从 WAN-122 集成模型分支 `b4e937a` cherry-pick 为集成分支 `f3ce18e`：连接器上游探测完成后，在事务内锁定登记行，重新检查启用状态、探测所用端点/认证/Vault 引用/工具配置及当前环境与 `connectors.manage` 授权，才持久化探测结果与审计。期间配置变更返回 409、授权撤销返回 403，不保存过期结果。

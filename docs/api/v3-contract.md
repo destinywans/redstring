@@ -32,6 +32,8 @@
 
 `POST /conversations/{id}/messages` 提交用户消息，返回 `{ message, reply_id }`；随后 `GET /conversations/{id}/events`（SSE）推送 `StreamEvent`：
 
+服务端断线续传头 `Last-Event-ID` 只接受单个非负十进制事件 ID；空值、重复头、负数、非数字或溢出返回 `422 invalid_event_cursor`。这一严格校验已接入后端，但不改变该主路由的 `mock` 状态。
+
 | 事件 | 含义 |
 | --- | --- |
 | `message.started` | 助手消息开始，携带空 `parts` |

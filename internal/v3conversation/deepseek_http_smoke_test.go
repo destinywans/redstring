@@ -123,7 +123,7 @@ func TestV3DeepSeekHTTPPGSmoke(t *testing.T) {
 		ALTER TABLE v3_conversation_messages ALTER COLUMN state SET DEFAULT 'completed';
 		ALTER TABLE v3_conversation_replies ADD COLUMN user_message_id text NOT NULL DEFAULT '', ADD COLUMN model_id text NOT NULL DEFAULT '', ADD COLUMN reasoning text NOT NULL DEFAULT '', ADD COLUMN started_at timestamptz NOT NULL DEFAULT now();
 		ALTER TABLE management_audit ALTER COLUMN actor_kind SET DEFAULT 'user';
-		CREATE TABLE users (id text PRIMARY KEY,email text NOT NULL,name text NOT NULL,role text NOT NULL,disabled boolean NOT NULL DEFAULT false);
+		CREATE TABLE users (id text PRIMARY KEY,email text NOT NULL,name text NOT NULL,role text NOT NULL,disabled boolean NOT NULL DEFAULT false,deleted_at timestamptz);
 		CREATE TABLE rbac_platform_administrators (user_id text PRIMARY KEY);
 		CREATE TABLE rbac_user_roles (user_id text NOT NULL,role_id text NOT NULL);
 		INSERT INTO users(id,email,name,role) VALUES('smoke-owner','smoke@local','Smoke Owner','viewer');

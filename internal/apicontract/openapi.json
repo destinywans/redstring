@@ -23054,7 +23054,7 @@
       "get": {
         "summary": "List scoped conversations",
         "operationId": "get_conversations",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. ",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. The current manual-chat projection returns null for unknown total tokens and unconnected team/triage counts; it is not yet the complete frontend DTO.",
         "responses": {
           "200": {
             "description": "Success",
@@ -23591,7 +23591,7 @@
       "get": {
         "summary": "Resume ordered assistant events",
         "operationId": "get_conversations_id_events",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. SSE sequence IDs support reconnection. message.completed follows durable persistence.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. SSE sequence IDs support reconnection. Last-Event-ID must be one nonnegative decimal event ID; invalid or duplicate values return 422 invalid_event_cursor. message.completed follows durable persistence.",
         "responses": {
           "200": {
             "description": "Success",
@@ -23685,7 +23685,8 @@
             "name": "Last-Event-ID",
             "in": "header",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[0-9]+$"
             }
           }
         ]
@@ -23693,9 +23694,9 @@
     },
     "/canvases": {
       "get": {
-        "summary": "List owner-scoped general canvases",
+        "summary": "List scoped persisted canvases and investigations",
         "operationId": "get_canvases",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Investigation kind is not projected and returns 503; counts exclude investigation canvases.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Generic canvases are private to their owner; investigations use persisted environment and application/team grants. Legacy investigations have unknown participants (null), and their historical IDs do not yet route to a complete V3 detail page. This partial projection does not satisfy the frontend CanvasSummary contract.",
         "responses": {
           "200": {
             "description": "Success",
@@ -23724,12 +23725,6 @@
                     },
                     "page_size": {
                       "type": "integer"
-                    },
-                    "incomplete_kinds": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
                     }
                   },
                   "additionalProperties": false
@@ -38415,7 +38410,12 @@
             }
           },
           "tokens": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Null when any completed reply lacks trustworthy provider usage; the V3 frontend currently requires a number."
           }
         },
         "additionalProperties": false
@@ -38498,10 +38498,16 @@
                 "type": "object",
                 "properties": {
                   "used": {
-                    "type": "integer"
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
                   },
                   "budget": {
-                    "type": "integer"
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
                   },
                   "parts": {
                     "type": "array",
@@ -38580,10 +38586,16 @@
                 "type": "integer"
               },
               "team": {
-                "type": "integer"
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "triage": {
-                "type": "integer"
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "archived": {
                 "type": "integer"
@@ -38619,10 +38631,16 @@
             "type": "string"
           },
           "participants": {
-            "type": "array",
+            "type": [
+              "array",
+              "null"
+            ],
             "items": {
               "type": "string"
             }
+          },
+          "investigation_id": {
+            "type": "string"
           },
           "services": {
             "type": "array",

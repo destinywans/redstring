@@ -168,7 +168,13 @@ func TestCanvasTemplatesHTTPV3ScopeSanitizationAndBoundedList(t *testing.T) {
 	}
 	assert(canvasGet("/api/v1/canvases/CV-stage", "all", ownerToken), 200, "")
 	assert(canvasGet("/api/v1/canvases/CV-source", "all", otherToken), 404, "not_found")
-	assert(canvasGet("/api/v1/canvases?kind=investigation", "dev", ownerToken), 503, "investigation_canvas_unavailable")
+	// The persisted investigation list is now available; this fixture has no
+	// investigation in the owner's authorized environment.
+	investigationList := canvasGet("/api/v1/canvases?kind=investigation", "dev", ownerToken)
+	assert(investigationList, 200, "")
+	if !strings.Contains(investigationList.Body.String(), `"items":[]`) || !strings.Contains(investigationList.Body.String(), `"total":0`) {
+		t.Fatalf("unexpected investigation rows: %s", investigationList.Body.String())
+	}
 	assert(request(http.MethodGet, "dev", "", ""), 401, "")
 	assert(request(http.MethodPost, "dev", "", `{}`), 401, "")
 	assert(request(http.MethodPost, "dev", otherToken, `{}`), 403, "forbidden")

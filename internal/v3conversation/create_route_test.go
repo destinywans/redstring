@@ -30,7 +30,7 @@ func TestCreateConversationRegisteredV3Route(t *testing.T) {
 	_, err := db.Exec(ctx, `
 		ALTER TABLE v3_conversations ADD COLUMN title text NOT NULL DEFAULT '', ADD COLUMN context_ref text NOT NULL DEFAULT '', ADD COLUMN default_model_id text NOT NULL DEFAULT '';
 		ALTER TABLE management_audit ALTER COLUMN actor_kind SET DEFAULT 'user';
-		CREATE TABLE users (id text PRIMARY KEY,email text NOT NULL,name text NOT NULL,role text NOT NULL,disabled boolean NOT NULL DEFAULT false);
+		CREATE TABLE users (id text PRIMARY KEY,email text NOT NULL,name text NOT NULL,role text NOT NULL,disabled boolean NOT NULL DEFAULT false,deleted_at timestamptz);
 		CREATE TABLE rbac_platform_administrators (user_id text PRIMARY KEY);
 		CREATE TABLE rbac_user_roles (user_id text NOT NULL,role_id text NOT NULL);
 		INSERT INTO users(id,email,name,role) VALUES('route-owner','route@local','Route Owner','viewer');`)

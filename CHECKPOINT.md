@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-101 · 2026-09-28 · 对话未知值与调查画布列表接入
+
+- 从 WAN-121 业务分支按序 cherry-pick `cda4a3c`→`a0ac6ac` 和 `bde4001`→`5ba8ce1`，包含迁移 080。对话列表只在所有完成回复都有有效供应商 token 时汇总，否则返回 `null`；team/triage 尚无统一来源也返回 `null`。详情不再把默认模型预算套到未知用量的新回复；SSE 拒绝非法/重复 `Last-Event-ID`。画布列表从持久调查与私人通用画布投影并按环境、应用/团队或所有者授权过滤，调查的未知参与者保持 `null`，不伪造身份。
+- 集成复核首次发现两项测试夹具冲突：轻量会话测试表缺新认证门禁读取的 `deleted_at` 列，旧画布断言仍期待调查列表 503。已修正夹具/断言，随后一次性 PG17 随机 schema 的 `go test ./internal/v3conversation ./internal/v3canvas -count=1` 通过；OpenAPI 如实描述当前 nullable 字段、调查列表及 SSE 游标，旧/V3 契约和路由矩阵检查通过。测试容器已清理，现有业务库未迁移；迁移 080 在大 `branches` 表上的锁时仍未测。
+- 当前前端对 `null` token/context 可能显示 0/NaN，调查 `participants:null` 可能令列表崩溃，历史 32 位调查 ID 会路由到错误的通用画布详情；节点对话、调查详情与回写也未接通。按本轮禁改前端边界保留 `GET /conversations`、详情、`GET /canvases` 等主契约 `mock`，不启用整页 HTTP 模式，主契约仍 **32/166 `implemented`**。
+
 ## CP-100 · 2026-09-28 · 迁移 030 的跨 schema 约束判断
 
 - 并行隔离 PG 测试暴露 `030_v3_knowledge.sql` 只按全库约束名判断存在；另一个随机 schema 的同名约束会使当前 `v3_runbooks` 跳过创建，随后 VALIDATE 失败。将判断限定到当前 `v3_runbooks` 的 `conrelid`。必须修正历史 030 本身，因为失败发生在后续 054 之前；已应用数据库按迁移名称跳过它，不会重跑或改动现有业务库。

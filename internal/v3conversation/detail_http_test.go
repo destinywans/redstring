@@ -77,7 +77,7 @@ func TestConversationDetailRegisteredRouteReadsPersistedContext(t *testing.T) {
 	ctx := context.Background()
 	_, err := db.Exec(ctx, `
 		ALTER TABLE v3_conversations ADD COLUMN title text NOT NULL DEFAULT '', ADD COLUMN status text NOT NULL DEFAULT 'active', ADD COLUMN context_ref text NOT NULL DEFAULT '', ADD COLUMN default_model_id text NOT NULL DEFAULT '';
-		CREATE TABLE users (id text PRIMARY KEY,email text NOT NULL,name text NOT NULL,role text NOT NULL,disabled boolean NOT NULL DEFAULT false);
+		CREATE TABLE users (id text PRIMARY KEY,email text NOT NULL,name text NOT NULL,role text NOT NULL,disabled boolean NOT NULL DEFAULT false,deleted_at timestamptz);
 		CREATE TABLE rbac_platform_administrators (user_id text PRIMARY KEY);
 		CREATE TABLE rbac_user_roles (user_id text NOT NULL,role_id text NOT NULL);
 		INSERT INTO users(id,email,name,role) VALUES('owner','owner@local','Owner','viewer'),('other','other@local','Other','viewer');

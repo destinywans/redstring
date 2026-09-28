@@ -169,21 +169,25 @@ S['V3Message'] = obj({'id': string(), 'role': string(enum=['user','assistant']),
 S['V3ConversationSummary'] = v3_object('id title scope size updated_at incident_id', {
     'mode': string(enum=['chat','canvas']), 'status': string(enum=['active','waiting_approval','resolved','archived']),
     'source': string(enum=['manual','alert_triage','schedule','im']),
-    'participants': arr(string()), 'tokens': integer()})
+    'participants': arr(string()), 'tokens': {'type':['integer','null'],'minimum':0,
+        'description':'Null when any completed reply lacks trustworthy provider usage; the V3 frontend currently requires a number.'}})
 S['V3Conversation'] = obj({'id': string(), 'title': string(), 'mode': string(enum=['chat','canvas']),
     'status': string(enum=['active','waiting_approval','resolved','archived']),
     'scope': obj({'service': string(), 'env': string(), 'inferred': v3_bool()}),
     'investigation_id': string(), 'messages': arr(ref('V3Message')),
     'artifacts': arr({'type':'object','additionalProperties':True}),
     'side': obj({'connectors': arr(v3_object('name', {'calls': integer()})),
-        'context': obj({'used': integer(), 'budget': integer(), 'parts': arr(v3_object('label color', {'tokens': integer()}))}),
+        'context': obj({'used': {'type':['integer','null']}, 'budget': {'type':['integer','null']},
+            'parts': arr(v3_object('label color', {'tokens': integer()}))}),
         'recalled': arr(v3_object('kind title', {'score': v3_num()}))})})
 S['V3ConversationList'] = obj({'items': arr(ref('V3ConversationSummary')),
     'total': integer(), 'page': integer(), 'page_size': integer(),
     'stats': arr({'type':'object','additionalProperties':True}),
-    'counts': obj({k:integer() for k in ['mine','team','triage','archived']})})
+    'counts': obj({'mine':integer(),'team':{'type':['integer','null']},
+        'triage':{'type':['integer','null']},'archived':integer()})})
 v3_route('get','/conversations','List scoped conversations',response=ref('V3ConversationList'),
-    query=[v3_query(x) for x in ['filter','q','tab','status','mode','page','page_size']])
+    query=[v3_query(x) for x in ['filter','q','tab','status','mode','page','page_size']],
+    desc='The current manual-chat projection returns null for unknown total tokens and unconnected team/triage counts; it is not yet the complete frontend DTO.')
 v3_route('post','/conversations','Create conversation',body=obj({'text':string(minLength=1),'context':{'type':['string','null']},'model':{'type':['string','null']}},['text']),
     response=obj({'id':string()},['id']),status=201,
     desc='text must contain non-whitespace and fit within 2 MiB UTF-8; context is limited to 4096 bytes and model to 256 bytes. The selected default model and creation audit are persisted. The first message is submitted separately.')
@@ -194,14 +198,15 @@ v3_route('post','/conversations/{id}/messages','Start a durable assistant reply'
     response=obj({'message':ref('V3Message'),'reply_id':string()},['message','reply_id']),status=202,
     desc='A second concurrent reply is rejected with 409. The user message is durable before 202.')
 v3_route('get','/conversations/{id}/events','Resume ordered assistant events',
-    query=[{'name':'Last-Event-ID','in':'header','schema':string()}],
-    desc='SSE sequence IDs support reconnection. message.completed follows durable persistence.')
+    query=[{'name':'Last-Event-ID','in':'header','schema':string(pattern='^[0-9]+$')}],
+    desc='SSE sequence IDs support reconnection. Last-Event-ID must be one nonnegative decimal event ID; invalid or duplicate values return 422 invalid_event_cursor. message.completed follows durable persistence.')
 
-# General canvases are persisted separately from investigation branches.
-# Until the investigation projection exists, the list flags that kind as
-# incomplete and requests for it return 503, never an invented zero count.
+# General canvases are persisted separately from investigation branches. The
+# current list projects both, but legacy investigation routes and participant
+# evidence do not yet satisfy the frontend contract.
 S['V3CanvasSummary'] = obj({**fieldnames('id title kind status meta updated_at href'),
-    'participants':arr(string()),'services':arr(string()),
+    'participants':{'type':['array','null'],'items':string()},
+    'investigation_id':string(),'services':arr(string()),
     'thumb':obj({'nodes':arr(arr({})), 'edges':arr(string())})},
     ['id','title','kind','status','meta','participants','updated_at','href','services','thumb'])
 S['V3CanvasTemplate'] = obj({**fieldnames('id kind name desc nodes'),
@@ -212,11 +217,11 @@ S['V3CanvasDoc'] = obj({**fieldnames('id title kind status note env'),
     'artifacts':arr({'type':'object','additionalProperties':True}),
     'threads':v3_map({'type':'object','additionalProperties':True})},
     ['id','title','kind','status','participants','note','nodes','edges','artifacts','threads'])
-v3_route('get','/canvases','List owner-scoped general canvases',
+v3_route('get','/canvases','List scoped persisted canvases and investigations',
     response=obj({'items':arr(ref('V3CanvasSummary')),'counts':v3_map(integer()),
-      'total':integer(),'page':integer(),'page_size':integer(),'incomplete_kinds':arr(string())}),
+      'total':integer(),'page':integer(),'page_size':integer()}),
     query=[v3_query(x) for x in ['kind','q','page','page_size']],
-    desc='Investigation kind is not projected and returns 503; counts exclude investigation canvases.')
+    desc='Generic canvases are private to their owner; investigations use persisted environment and application/team grants. Legacy investigations have unknown participants (null), and their historical IDs do not yet route to a complete V3 detail page. This partial projection does not satisfy the frontend CanvasSummary contract.')
 v3_route('post','/canvases','Create a persisted general canvas',
     body=obj({**fieldnames('title kind template_id goal'),
       'services':arr(string()),'ai_draft':v3_bool()},['title','kind']),

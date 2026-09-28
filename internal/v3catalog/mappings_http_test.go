@@ -47,7 +47,7 @@ func TestServiceMappingsHTTPV3ObjectScopeAndPersistedBindings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	cfg.MaxConns = 1 // Catalog and mapping reads must close each page before policy checks.
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

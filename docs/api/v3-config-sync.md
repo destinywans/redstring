@@ -18,4 +18,8 @@
 
 生产 `GET /config-sync` 最多列 100 条**候选元数据**，尚未逐条验证签名和完整来源。`POST /config-sync/{id}/import` 只接受 `mr-<正整数 IID>`，要求当前人类平台管理员和全局 `workspace.manage`，写入事务内再次核权；导入与审计共同提交。服务端核对已合并 MR、固定提交与唯一预期文件、来源签名和模板白名单，并校验独立审批与当前目标分支保护证据。当前 API 查询无法证明**合并当时**的审批/保护策略；真实配置仓库上线前仍需保留治理配置和审查证据。不可验证的来源返回 503，不会导入部分配置；重复相同导入收敛，目标已变化返回 409。
 
-数据库迁移依次使用 `120_v3_config_promotion.sql` 与 `121_v3_config_export_attempt_fence.sql`。迁移和服务端流程已在一次性隔离 PostgreSQL、替身 GitLab 及定向 HTTP 测试中验证；另在本机独立私有 GitLab CE 测试项目验证适配器的 MR 创建、重复导出对账、冲突、另一账号审批合并、保护规则与合并文件读取，及只读令牌写入被拒绝。该测试项目已归档，短期令牌已撤销。CE 的 `/approvals` 响应可以省略冗余 MR 标识字段；若返回却与已验证 MR 不符仍拒绝。尚未对现有业务库执行迁移、将服务端生产导入连到实际配置仓库或验收前端页面；本机适配器联通不能证明合并当时的治理策略。`GET /config-sync`、`POST /promotions`、`POST /config-sync/{id}/import` 的精确请求、响应和错误见 [V3 页面契约](v3-contract.md) 与 [OpenAPI](../../internal/apicontract/openapi.json)。
+数据库迁移依次使用 `120_v3_config_promotion.sql` 与 `121_v3_config_export_attempt_fence.sql`。迁移和服务端流程已在一次性隔离 PostgreSQL、替身 GitLab 及定向 HTTP 测试中验证；另在本机独立私有 GitLab CE 测试项目验证适配器的 MR 创建、重复导出对账、冲突、另一账号审批合并、保护规则与合并文件读取，及只读令牌写入被拒绝。该测试项目已归档，短期令牌已撤销。CE 的 `/approvals` 响应可以省略冗余 MR 标识字段；若返回却与已验证 MR 不符仍拒绝。
+
+新增独立来源与生产 schema 的 HTTP 往返验证：模板导出后生产才可导入，重复导入只有一条台账和成功审计，新 PG 连接能读回导入模板；预占目标或导入台账唯一冲突返回 409，事务不留下目标或成功审计。正式迁移用例在两个隔离 schema 分别运行 `Store.Migrate`，但仓库仍为内存替身，并人为设置已合并状态。真实 GitLab CE 验证使用另一组定向夹具，两组证据未构成实际部署的端到端验收。另一账号审批不证明组织独立，事后 GitLab API 不证明合并当时的保护策略；当前生产信任配置也尚无按来源环境 ID 分别限定的允许列表。
+
+尚未对现有业务库执行迁移、将服务端生产导入连到实际配置仓库或验收前端页面。`GET /config-sync`、`POST /promotions`、`POST /config-sync/{id}/import` 的精确请求、响应和错误见 [V3 页面契约](v3-contract.md) 与 [OpenAPI](../../internal/apicontract/openapi.json)。

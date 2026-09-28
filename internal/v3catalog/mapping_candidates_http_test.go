@@ -96,7 +96,7 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	cfg.MaxConns = 4 // Concurrent accept uses the same connector across services.
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

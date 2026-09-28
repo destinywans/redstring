@@ -81,6 +81,8 @@
 
 配置提升后端当前只支持 `template` / `templates` 请求值对应的**已净化画布模板**，不支持本页其余三类；不支持的类型返回 `501 promotion_kind_unavailable`。非生产导出要求选定单一环境、模板本人所有且有 `canvas.change` 授权，生成签名清单并向独立 GitLab 配置仓库提交 MR；生产导入只接受 `mr-<正整数 IID>`，要求人类平台管理员及全局 `workspace.manage`，在事务中再次核权，并验证已合并 MR 的固定提交、单一预期文件、来源签名及净化结构。导入还查询当前 MR 审批已满足、最终差异形成后且合并前的独立非 bot 审批，以及当前目标分支保护配置；这些 API 不能证明**合并当时**的治理策略，真实仓库上线前仍须保留审核与分支策略的部署证据，不能仅凭 `merged` 声称已审核。生产 `GET /config-sync` 列出的至多 100 条是**待验证候选元数据**，完整来源验证只在显式导入时发生；非生产列表仅含当前操作者在有权环境导出的至多 100 条。超限返回 413；未配置仓库、签名密钥或可信公钥返回 501；不可验证来源返回 503；`all` 写操作返回 409。本机私有 GitLab CE 项目已验证适配器协议与拒绝边界，尚未完成实际部署仓库的服务端导入或页面联调；前端仍展示四类配置，因此三条主契约保持 `mock`。
 
+导入同一变更重复请求收敛为一条台账和成功审计；目标模板或导入台账发生唯一冲突时返回 409，事务不留下半成品。独立来源/生产 schema 的 HTTP 往返与新 PG 连接读回只验证本地持久化；仓库替身给出已合并状态，不能等同于真实 GitLab 的完整审批链。每来源环境 ID 的独立允许列表尚未配置。
+
 当前环境保存在浏览器本地（`aiops-v3-env`），并写入地址栏 `?env=`，这样分享链接时打开的是同一个环境。
 
 主题、语言、密度、减少动效保存在浏览器本地（`aiops-v3-preferences`），并尽力同步到 `PATCH /me/preferences`。
@@ -257,13 +259,13 @@ Agent Trace 后端目前只能读受信生产者上报的有界 Span 元数据�
 | GET | `/service-mappings` | | `ServiceMapping` | implemented |
 | POST | `/service-mappings/accept` | `{ cells: ["service:system"] }` | `{ accepted }` | mock |
 | POST | `/service-mappings/discover` | | `{ suggestions }` | mock |
-| PUT | `/service-mappings` | 完整映射 | 结果 | mock |
+| PUT | `/service-mappings` | 完整映射；当前没有可接受的稳定身份与修订请求体 | `501 v3_not_implemented`，不写入 | mock |
 | GET | `/coverage` | `app` | `CoverageView`（覆盖矩阵、对 Agent 的影响、修复建议） | mock |
 | GET | `/webhooks` | | `WebhookView`（入站、令牌、对外 MCP、出站） | mock |
 | POST | `/webhooks/{id}/redeliver` | | 结果 | mock |
 | POST | `/api-tokens` | `{ name, scopes, ttl }` | `{ id, secret_shown_once }` | mock |
 
-服务映射候选目前仅来自管理员显式绑定的单个 GitLab 数字项目目标，不按标签、名称或部署记录推断。`POST /service-mappings/discover` 在一个环境中核对服务与连接器授权、近期探测和绑定后的激活审计，保存 15 分钟候选，不直接改服务映射；超过 500 条可见未映射来源返回 422。`POST /service-mappings/accept` 在事务中复核候选唯一性、来源身份/修订、当前授权及绑定可用性，并将映射、候选状态与审计一同提交。V3 专用校验只允许与已登记来源完全相同的单个 GitLab 项目绑定，其余绑定继续交给原平台校验器；旧平台的全局 GitLab 拒绝规则没有扩大。迁移 `090_v3_service_mapping_candidates.sql` 保存候选；应用环境退役时候选会级联删除，管理审计另记接受决定。激活审计证明绑定时曾核验项目访问，近期通用探测不证明当前仍能访问项目。V3 实例拦截未迁移的旧环境编辑路由，旧模式也不能在已绑定 V3 的数据库上启动。隔离数据库 HTTP 测试覆盖候选、接受与审计，尚无正式进程对真实 GitLab 项目的端到端验收。前端发现后不刷新、接受前就乐观显示成功，且文案误称来自标签/命名/部署；`PUT` 仍未接通。因此这三条主路由保持 `mock`，不能把候选持久化当作页面完成。
+服务映射候选目前仅来自管理员显式绑定的单个 GitLab 数字项目目标，不按标签、名称或部署记录推断。`POST /service-mappings/discover` 在一个环境中核对服务与连接器授权、近期探测和绑定后的激活审计，保存 15 分钟候选，不直接改服务映射；超过 500 条可见未映射来源返回 422。`POST /service-mappings/accept` 在事务中复核候选唯一性、来源身份/修订、当前授权及绑定可用性，并将映射、候选状态与审计一同提交。V3 专用校验只允许与已登记来源完全相同的单个 GitLab 项目绑定，其余绑定继续交给原平台校验器；旧平台的全局 GitLab 拒绝规则没有扩大。迁移 `090_v3_service_mapping_candidates.sql` 保存候选；应用环境退役时候选会级联删除，管理审计另记接受决定。激活审计证明绑定时曾核验项目访问，近期通用探测不证明当前仍能访问项目。V3 实例拦截未迁移的旧环境编辑路由，旧模式也不能在已绑定 V3 的数据库上启动。隔离数据库 HTTP 测试覆盖候选、接受与审计，尚无正式进程对真实 GitLab 项目的端到端验收。当前前端保存调用不发送请求体，GET 映射格仅有展示值，缺少可写入的服务、环境、连接器、目标稳定 ID 和绑定修订；已登记的 PUT 在 V3 门禁中明确返回 501，空请求和展示值请求均不修改绑定或审计。前端发现后不刷新、接受前就乐观显示成功，且文案误称来自标签/命名/部署。因此三条写主路由保持 `mock`，不能把候选持久化或被拒绝的保存当作页面完成。
 
 Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v1/events/{alert|change|incident|resource|oncall}`，请求头 `Authorization: Bearer`、`Idempotency-Key`、`X-Signature` + `X-Timestamp`；返回 `202 / 409 / 422 / 401`。
 

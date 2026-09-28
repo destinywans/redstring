@@ -48,7 +48,7 @@ func TestRegisterServiceHTTPV3ScopePersistenceAndAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	// Registration must never borrow a second pool connection while holding
 	// its transaction and existing-service row lock.
 	cfg.MaxConns = 1

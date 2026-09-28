@@ -489,7 +489,7 @@ S['V3KnowledgeSearchHit'] = obj({**fieldnames('title snippet'),
 v3_route('post','/knowledge/search','Search scoped knowledge with keyword/vector ranking',
     body=obj({'q':string(),'service':string(),'top_k':integer(minimum=1,maximum=20)},['q']),
     response=obj({'hits':arr(ref('V3KnowledgeSearchHit')),
-        'mode':string(enum=['hybrid','keyword']),'degraded':v3_bool()}),
+        'mode':string(enum=['hybrid','keyword','none']),'degraded':v3_bool()}),
     desc='When embeddings are unavailable, returns a keyword result with degraded=true; an unavailable keyword index returns 503.')
 S['V3ObservedKnowledgeDocument'] = obj({**fieldnames('id name kind'),
     'docs':{'type':['integer','null']},

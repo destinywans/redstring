@@ -81,7 +81,7 @@
 | 知识与记忆 | POST | `/memory/facts/{id}/{action}` | 新增 | mock |
 | 知识与记忆 | POST | `/memory/conflicts/resolve` | 新增 | mock |
 | 知识与记忆 | GET | `/knowledge-sources` | 聚合 | mock |
-| 知识与记忆 | POST | `/knowledge/search` | 旧路径适配 | mock |
+| 知识与记忆 | POST | `/knowledge/search` | 旧路径适配 | implemented |
 | 资源与观测 | GET | `/services` | 聚合 | mock |
 | 资源与观测 | GET | `/services/{id}` | 聚合 | mock |
 | 资源与观测 | GET | `/services/{id}/resilience` | 聚合 | mock |

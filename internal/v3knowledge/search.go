@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/knowledge"
@@ -61,6 +62,10 @@ func (s *Service) SearchHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.Service != "" && len(apps) == 0 {
 		httpapi.Error(w, 404, "not_found", "Service is not accessible")
+		return
+	}
+	if len(apps) == 0 {
+		httpapi.WriteJSON(w, 200, map[string]any{"hits": []RetrievalHit{}, "mode": "none", "degraded": false})
 		return
 	}
 	var keyword, vector []knowledge.Hit
@@ -128,13 +133,32 @@ var errScopeTooLarge = errors.New("search scope too large")
 type appEnvironment struct{ app, env string }
 
 func (s *Service) searchableApplications(r *http.Request, service string) ([]appEnvironment, error) {
-	query := `SELECT id FROM applications WHERE NOT archived ORDER BY id LIMIT 201`
-	args := []any{}
-	if service != "" {
-		query = `SELECT id FROM applications WHERE NOT archived AND (id=$1 OR key=$1 OR name=$1) ORDER BY id LIMIT 2`
-		args = []any{service}
+	envs := scopeIDs(r)
+	user := httpapi.CurrentUser(r)
+	if len(envs) == 0 || user.ID == "" || user.Disabled {
+		return []appEnvironment{}, nil
 	}
-	rows, err := s.DB.Query(r.Context(), query, args...)
+	// Apply the same environment, module and application mapping rules as
+	// V3Policy before limiting the collection. Hidden applications must neither
+	// consume the 200-app budget nor reveal that a larger collection exists.
+	rows, err := s.DB.Query(r.Context(), `SELECT a.id FROM applications a
+WHERE NOT a.archived AND ($3='' OR a.id=$3 OR a.key=$3 OR a.name=$3)
+AND EXISTS (
+ SELECT 1 FROM unnest($2::text[]) requested(environment_id)
+ JOIN v3_application_environments ae ON ae.application_id=a.id AND ae.environment_id=requested.environment_id
+ WHERE EXISTS (
+  SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$1
+  AND g.module='environment' AND g.action='view'
+  AND ((g.scope_kind='global' AND g.scope_id='*') OR (g.scope_kind='environment' AND g.scope_id=requested.environment_id))
+ ) AND EXISTS (
+  SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$1
+  AND g.module='knowledge' AND g.action='view'
+  AND ((g.scope_kind='global' AND g.scope_id='*') OR (g.scope_kind='environment' AND g.scope_id=requested.environment_id)
+   OR (g.scope_kind='application' AND g.scope_id=a.id)
+   OR (a.owner_team_id IS NOT NULL AND g.scope_kind='team' AND g.scope_id=a.owner_team_id))
+ )
+)
+ORDER BY a.id LIMIT 201`, user.ID, envs, service)
 	if err != nil {
 		return nil, err
 	}
@@ -156,11 +180,29 @@ func (s *Service) searchableApplications(r *http.Request, service string) ([]app
 	if len(ids) > 200 {
 		return nil, errScopeTooLarge
 	}
-	all := append([]string{""}, ids...)
+	all := ids
+	if service == "" {
+		all = append([]string{""}, ids...)
+	}
 	out := []appEnvironment{}
 	for _, app := range all {
-		for _, env := range scopeIDs(r) {
-			authorizationErr := s.Policy.Authorize(r.Context(), httpapi.CurrentUser(r), rbac.V3Decision{Module: "knowledge", Action: "view", EnvironmentID: env, ApplicationID: app})
+		for _, env := range envs {
+			authorizationErr := s.Policy.Authorize(r.Context(), user, rbac.V3Decision{Module: "knowledge", Action: "view", EnvironmentID: env, ApplicationID: app})
+			if errors.Is(authorizationErr, store.ErrForbidden) && app != "" {
+				// V3Decision intentionally accepts either an application or a
+				// team, not both. Re-read the current owner and mapping before
+				// checking the team's grant against the persisted target.
+				var team string
+				lookupErr := s.DB.QueryRow(r.Context(), `SELECT COALESCE(a.owner_team_id,'')
+FROM applications a JOIN v3_application_environments ae ON ae.application_id=a.id
+WHERE a.id=$1 AND NOT a.archived AND ae.environment_id=$2`, app, env).Scan(&team)
+				if lookupErr != nil && !errors.Is(lookupErr, pgx.ErrNoRows) {
+					return nil, lookupErr
+				}
+				if lookupErr == nil && team != "" {
+					authorizationErr = s.Policy.Authorize(r.Context(), user, rbac.V3Decision{Module: "knowledge", Action: "view", EnvironmentID: env, TeamID: team})
+				}
+			}
 			if authorizationErr == nil {
 				out = append(out, appEnvironment{app, env})
 			} else if !errors.Is(authorizationErr, store.ErrForbidden) {

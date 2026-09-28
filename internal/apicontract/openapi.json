@@ -3366,7 +3366,8 @@
                       "type": "string",
                       "enum": [
                         "hybrid",
-                        "keyword"
+                        "keyword",
+                        "none"
                       ]
                     },
                     "degraded": {

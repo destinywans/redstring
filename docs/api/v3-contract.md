@@ -143,7 +143,7 @@
 | POST | `/memory/facts/{id}/{action}` | `action: confirm\|reject\|expire` | 更新后的事实 | mock |
 | POST | `/memory/conflicts/resolve` | `{ keep, drop }` | 结果 | mock |
 | GET | `/knowledge-sources` | | 知识来源 | mock |
-| POST | `/knowledge/search` | `{ q }` | `{ hits: RetrievalHit[] }` | mock |
+| POST | `/knowledge/search` | `{ q }` | `{ hits: RetrievalHit[] }` | implemented |
 
 ## 资源与观测（`observe.ts`）
 

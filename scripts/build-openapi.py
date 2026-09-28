@@ -90,7 +90,7 @@ route('get','/knowledge','List source documents and latest index status',respons
 route('get','/knowledge/{id}','Read an immutable source document',response=ref('Document'))
 route('post','/knowledge','Import Runbook and build index','operator',obj({**fieldnames('application_id title body source'),'version':integer(minimum=1)},['title','body']),ref('Document'),desc='Empty application_id means workspace-global. Embedding failure preserves original and reports failed index status; use reindex to recover.')
 route('post','/knowledge/{id}/reindex','Build a new embedding generation','operator',response=ref('Document'),desc='Old successful generation remains until new build commits. Current embedding identity controls retrieval.')
-route('post','/knowledge/search','Search application and global knowledge',body=obj({'application_id':string(),'query':string(),'limit':integer(minimum=1,maximum=20)},['application_id','query']),response=obj({'items':arr(ref('KnowledgeHit')),'embedding':obj(fieldnames('provider model'))}),desc='Filters scope, provider, model and dimensions before scoring. Citations include document version, chunk and generation.')
+route('post','/knowledge/search','Search scoped knowledge',body=obj({'q':string(),'service':string(),'top_k':integer(minimum=1,maximum=20)},['q']),response=obj({'hits':arr(ref('V3KnowledgeSearchHit')),'mode':string(enum=['hybrid','keyword','none']),'degraded':{'type':'boolean'}}),desc='Returns authorized keyword/vector hits; an unavailable embedding index is reported as keyword fallback.')
 route('get','/investigations/{id}/action-plans','List immutable action plans',response=listed('ActionPlan'))
 route('post','/investigations/{id}/action-plans','Propose rollback to an explicit owned revision','operator',obj(fieldnames('target_revision'),['target_revision']),ref('ActionPlan'))
 route('get','/action-plans/{id}','Review target, digests and approval',response=ref('ActionPlan'))
@@ -159,9 +159,6 @@ S['KnowledgeDraft']['properties'].update(fieldnames('origin generation_run_id ge
 body_at('/knowledge','post',obj({**fieldnames('application_id title body source'),'version':integer(),'metadata':ref('KnowledgeMetadata')},['title','body']))
 P['/knowledge']['post']['summary']='Create reviewable Runbook draft'
 P['/knowledge']['post']['description']='Operator with application permission; workspace sharing requires administrator. Draft creation never publishes knowledge or grants access.'
-P['/knowledge/search']['post']['requestBody']['content']['application/json']['schema']['properties']['environment_id']=string()
-P['/knowledge/search']['post']['responses']['200']['content']['application/json']['schema']=obj({'items':arr(ref('KnowledgeHit')),'mode':string(),'degraded':boolean,'embedding':obj(fieldnames('provider model'))})
-P['/knowledge/search']['post']['description']='Filter current ACL, publication state and environment before keyword/vector fusion. Embedding failure returns explicitly marked keyword fallback.'
 route('get','/knowledge/templates','List editable Runbook templates',response=obj({'items':arr(obj(fieldnames('id title body')))}))
 route('put','/knowledge/{id}','Save immutable Runbook revision','operator',obj({'expected_version':integer(),**fieldnames('title body source'),'metadata':ref('KnowledgeMetadata')},['expected_version','title','body']),ref('Document'))
 route('post','/knowledge/{id}/transition','Review, publish or archive knowledge','operator',obj({'expected_version':integer(),'state':string(enum=['draft','review','published','archived'])},['expected_version','state']),ref('Document'))

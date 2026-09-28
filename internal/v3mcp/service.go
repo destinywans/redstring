@@ -67,6 +67,10 @@ const registeredMCP = `SELECT e.id,e.application_id,a.name,b.environment_id,e.re
   AND app_env.key=b.environment_id AND NOT app_env.archived
  WHERE e.kind='mcp' AND b.environment_id=ANY($1::text[])`
 
+// Keep the work done inside one list request bounded even when most registered
+// servers are hidden by object policy. The response remains all-or-error.
+const maxListCandidates = 2000
+
 func scan(row pgx.Row) (registration, error) {
 	var out registration
 	err := row.Scan(&out.ID, &out.ApplicationID, &out.Application, &out.EnvironmentID, &out.raw)
@@ -131,6 +135,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	items := make([]map[string]any, 0)
 	seen := map[string]bool{}
 	toolCount := 0
+	candidates := 0
 	for offset := 0; ; offset += 200 {
 		rows, queryErr := tx.Query(r.Context(), registeredMCP+" ORDER BY e.updated_at DESC,e.id,b.environment_id LIMIT 200 OFFSET $2", envs, offset)
 		if queryErr != nil {
@@ -154,6 +159,11 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 			httpapi.Error(w, 503, "mcp_unavailable", "MCP registrations are unavailable")
 			return
 		}
+		if candidates+len(batch) > maxListCandidates {
+			httpapi.Error(w, 413, "candidate_scan_limit", "MCP registration candidates exceed the list scan limit")
+			return
+		}
+		candidates += len(batch)
 		for _, v := range batch {
 			if err := s.allowedTx(r, tx, v, "view"); err != nil {
 				if errors.Is(err, store.ErrForbidden) {

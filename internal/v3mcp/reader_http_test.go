@@ -175,4 +175,40 @@ func TestMCPReadsAndBindingUseSingleConnectionWithoutPartialLists(t *testing.T) 
 		!strings.Contains(w.Body.String(), `"code":"scope_too_large"`) || strings.Contains(w.Body.String(), `"items"`) {
 		t.Fatalf("truncated list: %d %s", w.Code, w.Body.String())
 	}
+	if _, err := db.Exec(ctx, `DELETE FROM v3_mcp_environment_bindings WHERE extension_id='mcp-1'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='connectors' AND action='view'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO ai_extensions(id,application_id,kind,version,record)
+ SELECT 'extra-'||g,'hidden','mcp',1,
+ jsonb_build_object('id','extra-'||g,'application_id','hidden','kind','mcp',
+  'title','Hidden','mcp',jsonb_build_object('bindings','[]'::jsonb))
+ FROM generate_series(1001,2000) g`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_mcp_environment_bindings(extension_id,application_id,environment_id,bound_by)
+ SELECT 'extra-'||g,'hidden','dev',(SELECT id FROM users WHERE email='admin@example.invalid')
+ FROM generate_series(1001,2000) g`); err != nil {
+		t.Fatal(err)
+	}
+	if w := request(http.MethodGet, "/api/v1/mcp-servers"); w.Code != http.StatusOK ||
+		!strings.Contains(w.Body.String(), `"items":[]`) {
+		t.Fatalf("exact candidate cap should allow an empty visible list: %d %s", w.Code, w.Body.String())
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO ai_extensions(id,application_id,kind,version,record)
+ VALUES('extra-2001','hidden','mcp',1,
+ jsonb_build_object('id','extra-2001','application_id','hidden','kind','mcp',
+  'title','Hidden','mcp',jsonb_build_object('bindings','[]'::jsonb)))`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_mcp_environment_bindings(extension_id,application_id,environment_id,bound_by)
+ SELECT 'extra-2001','hidden','dev',id FROM users WHERE email='admin@example.invalid'`); err != nil {
+		t.Fatal(err)
+	}
+	if w := request(http.MethodGet, "/api/v1/mcp-servers"); w.Code != http.StatusRequestEntityTooLarge ||
+		!strings.Contains(w.Body.String(), `"code":"candidate_scan_limit"`) || strings.Contains(w.Body.String(), `"items"`) {
+		t.Fatalf("candidate overflow should not return a partial list: %d %s", w.Code, w.Body.String())
+	}
 }

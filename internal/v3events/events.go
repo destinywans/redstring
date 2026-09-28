@@ -53,9 +53,11 @@ func (s *Service) RegisterNew(api *httpapi.Server) {
 type incidentRecord struct {
 	ID, ApplicationID, EnvironmentID, EnvironmentKey, Title, Severity, Status, AlertStatus, Summary, AssigneeID, Commander, InvestigationID string
 	StartsAt, UpdatedAt                                                                                                                     time.Time
+	ResolvedAt                                                                                                                              *time.Time
 }
 
-const incidentSelect = `SELECT i.id,i.application_id,i.environment_id,e.key,i.title,i.severity,i.status,i.alert_status,i.summary,i.assignee_id,COALESCE(u.name,''),i.investigation_id,i.starts_at,i.updated_at
+const incidentSelect = `SELECT i.id,i.application_id,i.environment_id,e.key,i.title,i.severity,i.status,i.alert_status,i.summary,i.assignee_id,COALESCE(u.name,''),i.investigation_id,i.starts_at,i.updated_at,
+ (SELECT MIN(closed.created_at) FROM events closed WHERE closed.investigation_id=i.investigation_id AND closed.type='investigation.closed')
  FROM ops_incidents i
  JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id AND NOT e.archived
  JOIN v3_application_environments ve ON ve.application_id=i.application_id AND ve.environment_id=e.key
@@ -64,7 +66,7 @@ const incidentSelect = `SELECT i.id,i.application_id,i.environment_id,e.key,i.ti
 
 func scanIncident(row pgx.Row) (incidentRecord, error) {
 	var v incidentRecord
-	err := row.Scan(&v.ID, &v.ApplicationID, &v.EnvironmentID, &v.EnvironmentKey, &v.Title, &v.Severity, &v.Status, &v.AlertStatus, &v.Summary, &v.AssigneeID, &v.Commander, &v.InvestigationID, &v.StartsAt, &v.UpdatedAt)
+	err := row.Scan(&v.ID, &v.ApplicationID, &v.EnvironmentID, &v.EnvironmentKey, &v.Title, &v.Severity, &v.Status, &v.AlertStatus, &v.Summary, &v.AssigneeID, &v.Commander, &v.InvestigationID, &v.StartsAt, &v.UpdatedAt, &v.ResolvedAt)
 	return v, err
 }
 
@@ -472,7 +474,19 @@ func duration(since, now time.Time) string {
 	return fmt.Sprintf("%dd %dh", int(d.Hours())/24, int(d.Hours())%24)
 }
 func summarize(v incidentRecord, now time.Time) incidentSummary {
-	return incidentSummary{ID: v.ID, Severity: severity(v.Severity), Title: v.Title, Status: incidentStatus(v), Duration: duration(v.StartsAt, now), Commander: v.Commander}
+	status := incidentStatus(v)
+	elapsed := duration(v.StartsAt, now)
+	if status == "resolved" {
+		// The operations relay resolves an incident from investigation.closed.
+		// updated_at may change later, and ends_at tracks the alert, not the
+		// incident. Historic resolved records without a close event have no
+		// trustworthy duration; expose that gap instead of inventing one.
+		elapsed = "未记录"
+		if v.ResolvedAt != nil {
+			elapsed = duration(v.StartsAt, *v.ResolvedAt)
+		}
+	}
+	return incidentSummary{ID: v.ID, Severity: severity(v.Severity), Title: v.Title, Status: status, Duration: elapsed, Commander: v.Commander}
 }
 
 func (s *Service) listVisible(r *http.Request) ([]incidentRecord, error) {

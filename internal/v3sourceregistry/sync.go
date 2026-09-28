@@ -83,7 +83,9 @@ WHERE id=$1 AND environment_id=$2`
 	return v, nil
 }
 
-func (s *Service) activeRegistration(ctx context.Context, tx pgx.Tx, v registration, lock bool) (bool, error) {
+func (s *Service) activeRegistration(ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, v registration, lock bool) (bool, error) {
 	if v.ApplicationID == "" {
 		return true, nil
 	}
@@ -95,7 +97,7 @@ WHERE a.id=$1 AND NOT a.archived AND ($3='' OR a.owner_team_id=$3)`
 	if lock {
 		query += " FOR SHARE OF a,ae,e"
 	}
-	err := tx.QueryRow(ctx, query, v.ApplicationID, v.EnvironmentID, v.TeamID).Scan(&activeID)
+	err := q.QueryRow(ctx, query, v.ApplicationID, v.EnvironmentID, v.TeamID).Scan(&activeID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -160,6 +162,19 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 501, "source_reader_unavailable", "No read-only reader is configured for this source type")
 		return
 	}
+	if initial.Type == "web" && initial.SecretRef == "" && initial.ApplicationID == "" {
+		httpapi.Error(w, 422, "source_application_required", "Public Web observation requires a registered application")
+		return
+	}
+	active, err := s.activeRegistration(ctx, s.DB, initial, false)
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	if !active {
+		httpapi.Error(w, 409, "source_scope_changed", "Source application or team is no longer active")
+		return
+	}
 	result, err := reader.Read(ctx, ReadSpec{SourceType: initial.Type, URL: initial.URL, SecretRef: initial.SecretRef,
 		EnvironmentID: initial.EnvironmentID, ApplicationID: initial.ApplicationID, TeamID: initial.TeamID,
 		Spaces: append([]string(nil), initial.Spaces...)})
@@ -208,7 +223,7 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 409, "source_changed", "Source changed during read")
 		return
 	}
-	active, err := s.activeRegistration(ctx, tx, current, true)
+	active, err = s.activeRegistration(ctx, tx, current, true)
 	if err != nil {
 		unavailable(w)
 		return

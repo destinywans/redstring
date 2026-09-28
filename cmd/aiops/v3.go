@@ -110,6 +110,10 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		return nil
 	}
 	policy := &rbac.V3Policy{Store: s}
+	sourceRegistry, err := configuredV3SourceRegistry(os.Getenv("AIOPS_V3_PUBLIC_WEB_READER_ENABLED"), s, policy)
+	if err != nil {
+		return err
+	}
 	if err := api.ConfigureV3Environment(cfg, policy, s.Session, func(ctx context.Context, u core.User, module, action, environmentID string) error {
 		return policy.Authorize(ctx, u, rbac.V3Decision{Module: module, Action: action, EnvironmentID: environmentID})
 	}); err != nil {
@@ -411,11 +415,24 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	knowledgeV3.RegisterSearch(api)
 	v3postmortems.New(s.DB, policy).Register(api)
 	v3knowledgesources.New(s.DB, policy).Register(api)
-	v3sourceregistry.New(s.DB, policy).Register(api)
+	sourceRegistry.Register(api)
 	v3memory.New(s.DB, policy).Register(api)
 	v3agents.New(s.DB, policy).Register(api)
 	go auditV3.CleanupExpired(ctx)
 	return nil
+}
+
+func configuredV3SourceRegistry(raw string, s *store.Store, policy *rbac.V3Policy) (*v3sourceregistry.Service, error) {
+	switch raw {
+	case "", "false":
+		return v3sourceregistry.New(s.DB, policy), nil
+	case "true":
+		return v3sourceregistry.NewWithReaders(s.DB, policy, map[string]v3sourceregistry.Reader{
+			"web": v3knowledgesources.PublicWebObservationReader{Fetcher: v3knowledgesources.WebFetcher{}},
+		}), nil
+	default:
+		return nil, fmt.Errorf("AIOPS_V3_PUBLIC_WEB_READER_ENABLED must be true or false")
+	}
 }
 
 func oidcEndpointOrigins(raw string) []string {

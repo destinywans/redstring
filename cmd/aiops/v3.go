@@ -135,7 +135,7 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	api.MarkV3Route("GET /api/v1/integrations/lower-sources", "connectors", "view")
 	auditV3 := v3audit.New(s.DB, cfg.EnvironmentIDs)
 	auditV3.Register(api)
-	v3canvas.New(s).Register(api)
+	v3canvas.NewWithRuntime(s, runtime).Register(api)
 	catalog := v3catalog.New(s, policy, cfg.EnvironmentIDs...)
 	catalog.Register(api)
 	v3proposals.New(s.DB, policy).Register(api)

@@ -23336,7 +23336,7 @@
       "get": {
         "summary": "Read conversation and saved messages",
         "operationId": "get_conversations_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. ",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Saved user and assistant messages use durable turn order, including messages written in one transaction with tied timestamps. Accepted audited turns follow the serialized audit chain. Imported or unlinked historical rows use a deterministic timestamp fallback whose original commit order cannot be proven.",
         "responses": {
           "200": {
             "description": "Success",
@@ -23991,7 +23991,7 @@
       "get": {
         "summary": "Read owner-scoped general canvas",
         "operationId": "get_canvases_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. ",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. General canvases return persisted per-node exchanges in threads. Failed user prompts remain visible without a fabricated assistant reply; only completed exchanges are used as later model context. Investigation canvas detail is not implemented by this route.",
         "responses": {
           "200": {
             "description": "Success",
@@ -24090,6 +24090,153 @@
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
         ]
+      }
+    },
+    "/canvases/{id}/nodes/{node}/messages": {
+      "post": {
+        "summary": "Run a scoped general-canvas node reply",
+        "operationId": "post_canvases_id_nodes_node_messages",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Owner-only general canvas node, one selected environment and current canvas.change grant. The synchronous response follows a durable assistant turn; user prompt, model choice, status and audit are persisted. One node reply runs at a time and returns 409 reply_in_progress for a concurrent run. The configured model receives only this node context and completed turns; tool invocations are rejected, and model failure returns 503 with the failed user prompt retained. A deleted session or revoked grant cannot commit a late reply. Investigation nodes are separate and remain unavailable here.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "reply": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "reply"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "canvases"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "node",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string"
+                  },
+                  "reasoning": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "text"
+                ]
+              }
+            }
+          }
+        }
       }
     },
     "/canvas-templates": {
@@ -30367,7 +30514,7 @@
       "get": {
         "summary": "Discover scoped workloads",
         "operationId": "get_services_discover",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Returns current, present Kubernetes workload inventory after resources.view and services.view checks. resource_id is the stable CMDB registration identity; uid is the source Kubernetes UID. Reusing the name-only id can be ambiguous even when only one namesake is visible.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Returns current, present Kubernetes workload inventory after resources.view and services.view checks. resource_id is the stable CMDB registration identity; uid is the source Kubernetes UID. The current discovery response omits visible same-name candidates and reports their count in ambiguous_workloads, even though registration can accept an explicit resource_id; the frontend does not yet send that identity.",
         "responses": {
           "200": {
             "description": "Success",
@@ -30387,9 +30534,18 @@
                     },
                     "registered": {
                       "type": "integer"
+                    },
+                    "ambiguous_workloads": {
+                      "type": "integer"
                     }
                   },
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "required": [
+                    "cluster",
+                    "items",
+                    "registered",
+                    "ambiguous_workloads"
+                  ]
                 }
               }
             }
@@ -39041,6 +39197,62 @@
           "nodes"
         ]
       },
+      "V3CanvasTurn": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "reasoning_label": {
+            "type": "string"
+          },
+          "brand": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "assistant"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "role",
+          "author",
+          "text"
+        ]
+      },
+      "V3CanvasThread": {
+        "type": "object",
+        "properties": {
+          "context": {
+            "type": "string"
+          },
+          "turns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3CanvasTurn"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "context",
+          "turns"
+        ]
+      },
       "V3CanvasDoc": {
         "type": "object",
         "properties": {
@@ -39092,8 +39304,7 @@
           "threads": {
             "type": "object",
             "additionalProperties": {
-              "type": "object",
-              "additionalProperties": true
+              "$ref": "#/components/schemas/V3CanvasThread"
             }
           }
         },

@@ -192,7 +192,8 @@ v3_route('get','/conversations','List scoped conversations',response=ref('V3Conv
 v3_route('post','/conversations','Create conversation',body=obj({'text':string(minLength=1),'context':{'type':['string','null']},'model':{'type':['string','null']}},['text']),
     response=obj({'id':string()},['id']),status=201,
     desc='text must contain non-whitespace and fit within 2 MiB UTF-8; context is limited to 4096 bytes and model to 256 bytes. The selected default model and creation audit are persisted. The first message is submitted separately.')
-v3_route('get','/conversations/{id}','Read conversation and saved messages',response=ref('V3Conversation'))
+v3_route('get','/conversations/{id}','Read conversation and saved messages',response=ref('V3Conversation'),
+    desc='Saved user and assistant messages use durable turn order, including messages written in one transaction with tied timestamps. Accepted audited turns follow the serialized audit chain. Imported or unlinked historical rows use a deterministic timestamp fallback whose original commit order cannot be proven.')
 v3_route('post','/conversations/{id}/messages','Start a durable assistant reply',
     body=obj({'text':string(),'model':string(),'reasoning':string(),
         'attachments':arr({'type':'object','additionalProperties':True})},['text']),
@@ -212,11 +213,15 @@ S['V3CanvasSummary'] = obj({**fieldnames('id title kind status meta updated_at h
     ['id','title','kind','status','meta','participants','updated_at','href','services','thumb'])
 S['V3CanvasTemplate'] = obj({**fieldnames('id kind name desc nodes'),
     'is_default':v3_bool()},['id','kind','name','desc','nodes'])
+S['V3CanvasTurn'] = obj({**fieldnames('id author text model reasoning_label brand'),
+    'role':string(enum=['user','assistant'])},['id','role','author','text'])
+S['V3CanvasThread'] = obj({'context':string(),'turns':arr(ref('V3CanvasTurn'))},
+    ['context','turns'])
 S['V3CanvasDoc'] = obj({**fieldnames('id title kind status note env'),
     'participants':arr(string()),'nodes':arr({'type':'object','additionalProperties':True}),
     'edges':arr({'type':'object','additionalProperties':True}),
     'artifacts':arr({'type':'object','additionalProperties':True}),
-    'threads':v3_map({'type':'object','additionalProperties':True})},
+    'threads':v3_map(ref('V3CanvasThread'))},
     ['id','title','kind','status','participants','note','nodes','edges','artifacts','threads'])
 v3_route('get','/canvases','List scoped persisted canvases and investigations',
     response=obj({'items':arr(ref('V3CanvasSummary')),'counts':v3_map(integer()),
@@ -228,7 +233,12 @@ v3_route('post','/canvases','Create a persisted general canvas',
       'services':arr(string()),'ai_draft':v3_bool()},['title','kind']),
     response=obj(fieldnames('id href'),['id','href']),status=201,
     desc='Investigation creation and AI drafting currently return 503; selected services must be mapped to the request environment.')
-v3_route('get','/canvases/{id}','Read owner-scoped general canvas',response=ref('V3CanvasDoc'))
+v3_route('get','/canvases/{id}','Read owner-scoped general canvas',response=ref('V3CanvasDoc'),
+    desc='General canvases return persisted per-node exchanges in threads. Failed user prompts remain visible without a fabricated assistant reply; only completed exchanges are used as later model context. Investigation canvas detail is not implemented by this route.')
+v3_route('post','/canvases/{id}/nodes/{node}/messages','Run a scoped general-canvas node reply',
+    body=obj({'text':string(),'model':string(),'reasoning':string()},['text']),
+    response=obj({'reply':string()},['reply']),
+    desc='Owner-only general canvas node, one selected environment and current canvas.change grant. The synchronous response follows a durable assistant turn; user prompt, model choice, status and audit are persisted. One node reply runs at a time and returns 409 reply_in_progress for a concurrent run. The configured model receives only this node context and completed turns; tool invocations are rejected, and model failure returns 503 with the failed user prompt retained. A deleted session or revoked grant cannot commit a late reply. Investigation nodes are separate and remain unavailable here.')
 v3_route('get','/canvas-templates','List available canvas structures',
     response=obj({'items':arr(ref('V3CanvasTemplate'))},['items']))
 v3_route('post','/canvas-templates','Save a safe canvas structure template',
@@ -637,9 +647,11 @@ S['V3DiscoveredService'] = obj({**fieldnames('id resource_id uid environment_id 
     ['id','resource_id','uid','environment_id','cluster','namespace','kind','image',
      'owner_hint','tier_hint','replicas','matched','missing'])
 v3_route('get','/services/discover','Discover scoped workloads',
-    response=obj({'cluster':string(),'items':arr(ref('V3DiscoveredService')),'registered':integer()}),
+    response=obj({'cluster':string(),'items':arr(ref('V3DiscoveredService')),
+                  'registered':integer(),'ambiguous_workloads':integer()},
+                 ['cluster','items','registered','ambiguous_workloads']),
     query=[v3_query('cluster')],
-    desc='Returns current, present Kubernetes workload inventory after resources.view and services.view checks. resource_id is the stable CMDB registration identity; uid is the source Kubernetes UID. Reusing the name-only id can be ambiguous even when only one namesake is visible.')
+    desc='Returns current, present Kubernetes workload inventory after resources.view and services.view checks. resource_id is the stable CMDB registration identity; uid is the source Kubernetes UID. The current discovery response omits visible same-name candidates and reports their count in ambiguous_workloads, even though registration can accept an explicit resource_id; the frontend does not yet send that identity.')
 S['V3ServiceRegistration'] = obj({'items':arr(obj({
     'id':string(), 'namespace':string(), 'resource_id':string(), 'tier':string(enum=['T0','T1','T2','T3']),
     'owner':string(), 'slo':string(), 'p99':string()},['id']))},['items'])

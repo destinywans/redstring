@@ -415,7 +415,7 @@ func (s *Service) completeNodeTurn(token string, user core.User, env, canvas, no
 		return store.ErrForbidden
 	}
 	var sessionUser string
-	err = tx.QueryRow(ctx, `SELECT s.user_id FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>clock_timestamp() AND NOT u.disabled`, store.Hash(token)).Scan(&sessionUser)
+	err = tx.QueryRow(ctx, `SELECT s.user_id FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>clock_timestamp() AND NOT u.disabled AND u.deleted_at IS NULL`, store.Hash(token)).Scan(&sessionUser)
 	if err != nil || sessionUser != user.ID {
 		return store.ErrForbidden
 	}

@@ -102,6 +102,10 @@
 | POST | `/investigations/{id}/nodes/{node}/messages` | `{ text, model?, reasoning? }` | `{ summary, new_branch? }`；`new_branch` 表示 AI 在该节点下派生了子分支（标题、副标题、摘要） | mock |
 | GET | `/investigations/{id}/writeback-preview` | `node` | 回写预览 | mock |
 | POST | `/investigations/{id}/writeback` | `{ node, target, items }` | `{ version }` | mock |
+
+对话详情、后续模型上下文和最新回复使用持久 `sort_order`，同一事务写入的用户/助手消息按回合排序。有 `accepted` 审计的回合按序列化顺序；迁入或无审计的旧回合只按时间戳作确定性回填，不能据此证明原始提交顺序。迁移 085 在应用启动事务中回填整表并建索引，部署前须停旧回复 worker 并在代表性副本量测锁时。
+
+通用画布节点 `POST /canvases/{id}/nodes/{node}/messages` 的后端已接持久化同步回复：限定本人画布、单一环境和当前 `canvas.change`，一次只运行一条回复，模型只能读取该节点已完成的历史回合且不能调用工具；失败的用户输入保留供刷新核对，不生成虚假助手消息。`GET /canvases/{id}` 在 `threads` 返回每个节点的已保存回合。当前前端发送失败未清除 `busy`，真实 409/422/503 会卡住输入框；画布整页及该主路由仍标 `mock`，调查节点接口与通用节点分开。
 | GET | `/investigation-templates` | | 模板列表 | mock |
 | POST | `/investigation-templates/{id}/start` | `{ inputs }` | `{ investigation_id }` | mock |
 

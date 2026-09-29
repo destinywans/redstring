@@ -34422,11 +34422,252 @@
         }
       }
     },
+    "/notification-routes": {
+      "get": {
+        "summary": "Read the scoped active Alertmanager route tree",
+        "operationId": "get_notification_routes",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires exactly one selected environment and environment-wide alert_rules.view plus alert_rules.manage. Reads configured Alertmanager status and exposes only a subtree proven to be selected by one exact environment matcher. Ambiguous shared routing, missing source, malformed or over-limit configuration fail closed. Matcher values and receiver names are redacted to opaque per-revision receiver refs; receiver definitions, channel targets, credentials and raw YAML are excluded. The quoted config_revision is also returned as the ETag for a conditional draft request. Hit counts, on-call, escalation and current interval activity remain unavailable. Current session and grants are rechecked after the provider read. The frozen frontend expects channel targets and numeric hits and is not accepted.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3NotificationRouteTree"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "No trusted environment route source is connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "notification-routes"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      },
+      "post": {
+        "summary": "Create a reviewed GitOps route draft",
+        "operationId": "post_notification_routes",
+        "description": "Minimum role: operator. V3 instance and environment scope apply. Requires one environment, environment-wide alert_rules.view/manage, a current active explicitly bound application, Idempotency-Key, and a quoted If-Match equal to the GET config_revision ETag. The server enforces environment/application scope, validates bounded route matchers and timing, and accepts only an existing opaque receiver ref from the observed route tree. A durable audited attempt exports an immutable JSON proposal to the configured GitLab project using a branch prefix and target branch distinct from config-sync promotions, and returns a verified open MR identity. Distinct targets avoid the config-sync global merged-MR page limit even in one GitOps project. pending_review is the local submission state, not a live MR-state query; current_mr_state and runtime_state remain null on later retries. The draft carries the source revision, exact environment/application matchers and a documented receiver-ref resolution strategy; sibling insertion order requires manual review. Retrying the same key reconciles the same branch/path/payload; conflicting keys or stale source versions fail closed. A timeout or untrusted MR result remains uncertain and never returns success. This endpoint does not change running Alertmanager, import or merge the MR, send a notification, or claim active routing. The proposal requires config-owner review and a separate, version-checked activation process. The frozen drawer omits receiver and timing inputs and cannot submit this request.",
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3NotificationRouteDraftResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Trusted GitOps route repository or exact Alertmanager source is not connected; no draft was exported",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "notification-routes"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3NotificationRouteDraftRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Quoted config_revision ETag from GET /notification-routes"
+            }
+          }
+        ]
+      }
+    },
     "/notification-routes/test": {
       "post": {
         "summary": "Evaluate current Alertmanager policy for a bound sample alert",
         "operationId": "post_notification_routes_test",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Read-only policy observation; does not save a route, send a notification or test a draft. Requires one selected environment and environment-wide alert_rules.view plus alert_rules.manage because arbitrary sample labels could reveal shared routing configuration. labels must contain an exact application provider label explicitly bound to a current active application; the configured environment label is enforced by the server. The environment grant, application binding and current owner are rechecked after the Alertmanager status read. Returns only sanitized receiver names and observed grouping/timing. Time-conditional or conflicting policy returns 503 instead of claiming a current receiver. Route path, 24-hour hits, receiver channels/targets and current time-interval activity are unknown/null. The frozen frontend sends a labels string and expects a path and receiver string, so page acceptance remains pending.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Read-only path evaluation against the current exactly scoped Alertmanager route tree; does not save a route, send a notification or test a draft. Requires one selected environment and environment-wide alert_rules.view plus alert_rules.manage because arbitrary sample labels could reveal shared routing configuration. labels must contain an exact application provider label explicitly bound to a current active application; the configured environment label is enforced by the server. The environment grant, application binding and current owner are rechecked after the Alertmanager status read. Returns each matching node-ID path with opaque receiver refs and inherited grouping/timing. Conditional time intervals or ambiguous shared routing return 503 rather than a claimed current path. Missing source returns 501 not_connected. 24-hour hits, receiver channels/targets and current time-interval activity remain unknown/null. The frozen frontend sends a labels string and expects a receiver string, so page acceptance remains pending.",
         "responses": {
           "200": {
             "description": "Success",
@@ -34490,6 +34731,16 @@
           },
           "503": {
             "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Exact Alertmanager route source is not connected",
             "content": {
               "application/json": {
                 "schema": {
@@ -64162,25 +64413,16 @@
           "labels"
         ]
       },
-      "V3NotificationRouteTestResult": {
+      "V3NotificationRoutePathLeaf": {
         "type": "object",
         "properties": {
-          "environment_id": {
-            "type": "string"
+          "node_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
-          "application_id": {
-            "type": "string"
-          },
-          "group_wait": {
-            "type": "string"
-          },
-          "group_interval": {
-            "type": "string"
-          },
-          "repeat_interval": {
-            "type": "string"
-          },
-          "receiver_names": {
+          "receiver_refs": {
             "type": "array",
             "items": {
               "type": "string"
@@ -64192,12 +64434,48 @@
               "type": "string"
             }
           },
+          "group_wait": {
+            "type": "string"
+          },
+          "group_interval": {
+            "type": "string"
+          },
+          "repeat_interval": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "node_ids",
+          "receiver_refs",
+          "group_by",
+          "group_wait",
+          "group_interval",
+          "repeat_interval"
+        ]
+      },
+      "V3NotificationRouteTestResult": {
+        "type": "object",
+        "properties": {
+          "environment_id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "config_revision": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3NotificationRoutePathLeaf"
+            }
+          },
           "observed_at": {
             "type": "string",
             "format": "date-time"
-          },
-          "path": {
-            "type": "null"
           },
           "hits": {
             "type": "null"
@@ -64219,17 +64497,303 @@
         "required": [
           "environment_id",
           "application_id",
-          "receiver_names",
-          "group_by",
-          "group_wait",
-          "group_interval",
-          "repeat_interval",
+          "config_revision",
+          "paths",
           "observed_at",
-          "path",
           "hits",
           "channel_targets",
           "partial",
           "unavailable"
+        ]
+      },
+      "V3NotificationRouteMatcher": {
+        "type": "object",
+        "properties": {
+          "k": {
+            "type": "string"
+          },
+          "op": {
+            "type": "string",
+            "enum": [
+              "=",
+              "!=",
+              "=~",
+              "!~"
+            ]
+          },
+          "value_redacted": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "k",
+          "op",
+          "value_redacted"
+        ]
+      },
+      "V3NotificationRouteNode": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "group_wait": {
+            "type": "string"
+          },
+          "group_interval": {
+            "type": "string"
+          },
+          "repeat_interval": {
+            "type": "string"
+          },
+          "matchers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3NotificationRouteMatcher"
+            }
+          },
+          "receiver_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "group_by": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "continue": {
+            "type": "boolean"
+          },
+          "conditional": {
+            "type": "boolean"
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3NotificationRouteNode"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "matchers",
+          "receiver_refs",
+          "group_by",
+          "group_wait",
+          "group_interval",
+          "repeat_interval",
+          "continue",
+          "conditional",
+          "children"
+        ]
+      },
+      "V3NotificationRouteTree": {
+        "type": "object",
+        "properties": {
+          "environment_id": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "alertmanager"
+            ]
+          },
+          "config_revision": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "root": {
+            "$ref": "#/components/schemas/V3NotificationRouteNode"
+          },
+          "partial": {
+            "type": "boolean"
+          },
+          "unavailable": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "environment_id",
+          "source",
+          "config_revision",
+          "observed_at",
+          "root",
+          "partial",
+          "unavailable"
+        ]
+      },
+      "V3NotificationRouteDraftMatcher": {
+        "type": "object",
+        "properties": {
+          "k": {
+            "type": "string",
+            "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
+          },
+          "op": {
+            "type": "string",
+            "enum": [
+              "=",
+              "!=",
+              "=~",
+              "!~"
+            ]
+          },
+          "v": {
+            "type": "string",
+            "maxLength": 256
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "k",
+          "op",
+          "v"
+        ]
+      },
+      "V3NotificationRouteDraftRequest": {
+        "type": "object",
+        "properties": {
+          "application_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "matchers": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/V3NotificationRouteDraftMatcher"
+            }
+          },
+          "receiver_ref": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 24
+          },
+          "group_by": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "type": "string"
+            }
+          },
+          "group_wait": {
+            "type": "string"
+          },
+          "group_interval": {
+            "type": "string"
+          },
+          "repeat_interval": {
+            "type": "string"
+          },
+          "continue": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "application_id",
+          "name",
+          "matchers",
+          "receiver_ref",
+          "group_by",
+          "group_wait",
+          "group_interval",
+          "repeat_interval",
+          "continue"
+        ]
+      },
+      "V3NotificationRouteDraftResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_review"
+            ]
+          },
+          "status_basis": {
+            "type": "string",
+            "enum": [
+              "local_submission"
+            ]
+          },
+          "effect": {
+            "type": "string",
+            "enum": [
+              "no_runtime_change_by_this_endpoint"
+            ]
+          },
+          "current_mr_state": {
+            "type": "null"
+          },
+          "runtime_state": {
+            "type": "null"
+          },
+          "source_revision": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "review": {
+            "type": "object",
+            "properties": {
+              "project_id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "merge_request_iid": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "project_id",
+              "merge_request_iid",
+              "url"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "status_basis",
+          "effect",
+          "current_mr_state",
+          "runtime_state",
+          "source_revision",
+          "review"
         ]
       },
       "V3SilenceMatcher": {

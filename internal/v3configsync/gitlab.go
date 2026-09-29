@@ -69,16 +69,32 @@ var (
 )
 
 const promotionLabel = "aiops-config-promotion"
+const notificationRouteDraftLabel = "aiops-notification-route-draft"
 
 type GitLabClient struct {
-	config Config
-	base   *url.URL
-	token  string
-	http   *http.Client
+	config  Config
+	base    *url.URL
+	token   string
+	http    *http.Client
+	mrLabel string
 }
 
 func (c *GitLabClient) ProjectID() int64     { return c.config.ProjectID }
 func (c *GitLabClient) BranchPrefix() string { return c.config.BranchPrefix }
+func (c *GitLabClient) TargetBranch() string { return c.config.TargetBranch }
+
+// ForNotificationDrafts keeps the reviewed GitLab endpoint, project and
+// credential while isolating route drafts by target, source prefix and label.
+func (c *GitLabClient) ForNotificationDrafts(target, prefix string) (*GitLabClient, error) {
+	if c == nil || !validBranch(target) || !validPrefix(prefix) {
+		return nil, errors.New("invalid GitLab draft target or branch prefix")
+	}
+	copy := *c
+	copy.config.TargetBranch = target
+	copy.config.BranchPrefix = prefix
+	copy.mrLabel = notificationRouteDraftLabel
+	return &copy, nil
+}
 
 func NewGitLabClient(config Config) (*GitLabClient, error) {
 	u, err := url.Parse(config.BaseURL)
@@ -120,7 +136,7 @@ func NewGitLabClient(config Config) (*GitLabClient, error) {
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
-	return &GitLabClient{config: config, base: u, token: token, http: &http.Client{
+	return &GitLabClient{config: config, base: u, token: token, mrLabel: promotionLabel, http: &http.Client{
 		Timeout: 8 * time.Second, Transport: transport,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}, nil
@@ -314,7 +330,11 @@ func (c *GitLabClient) Export(ctx context.Context, branch, path string, payload 
 		return MR{}, ErrConflict
 	}
 	if fileStatus == 404 {
-		body := map[string]string{"branch": branch, "content": string(payload), "commit_message": "Add validated AIOps configuration promotion"}
+		message := "Add validated AIOps configuration promotion"
+		if c.mrLabel == notificationRouteDraftLabel {
+			message = "Add reviewed AIOps notification route draft"
+		}
+		body := map[string]string{"branch": branch, "content": string(payload), "commit_message": message}
 		status, _, err = c.call(ctx, http.MethodPost, c.projectPath()+"/repository/files/"+url.PathEscape(path), nil, body, 201, nil)
 		if err != nil {
 			if status == 400 || status == 409 {
@@ -330,7 +350,7 @@ func (c *GitLabClient) Export(ctx context.Context, branch, path string, payload 
 	}
 	var m MR
 	body := map[string]string{"source_branch": branch, "target_branch": c.config.TargetBranch,
-		"title": title, "labels": promotionLabel}
+		"title": title, "labels": c.mrLabel}
 	status, _, err = c.call(ctx, http.MethodPost, c.projectPath()+"/merge_requests", nil, body, 201, &m)
 	if err != nil {
 		if status == 400 || status == 409 {

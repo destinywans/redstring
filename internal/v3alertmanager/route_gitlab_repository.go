@@ -22,6 +22,16 @@ func NewRouteGitLabRepository(config v3configsync.Config) (*RouteGitLabRepositor
 	return &RouteGitLabRepository{client: client, targetBranch: config.TargetBranch}, nil
 }
 
+// The product uses the same reviewed GitOps project and credential as config
+// promotion, with a separate target and source branch namespace for drafts.
+func NewRouteGitLabRepositoryFromPromotion(promotion *v3configsync.GitLabClient, target, prefix string) (*RouteGitLabRepository, error) {
+	client, err := promotion.ForNotificationDrafts(target, prefix)
+	if err != nil {
+		return nil, err
+	}
+	return &RouteGitLabRepository{client: client, targetBranch: target}, nil
+}
+
 func (r *RouteGitLabRepository) ProjectID() int64     { return r.client.ProjectID() }
 func (r *RouteGitLabRepository) BranchPrefix() string { return r.client.BranchPrefix() }
 func (r *RouteGitLabRepository) TargetBranch() string { return r.targetBranch }

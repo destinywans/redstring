@@ -355,10 +355,23 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	if err != nil {
 		return fmt.Errorf("load V3 Alertmanager source: %w", err)
 	}
-	(&v3alertmanager.Service{
+	routeDraftRepository, err := loadV3NotificationRouteRepository(configSync,
+		os.Getenv("AIOPS_V3_NOTIFICATION_ROUTE_TARGET_BRANCH"),
+		os.Getenv("AIOPS_V3_NOTIFICATION_ROUTE_BRANCH_PREFIX"))
+	if err != nil {
+		return fmt.Errorf("configure V3 notification route drafts: %w", err)
+	}
+	alertmanagerService := &v3alertmanager.Service{
 		Source: alertmanagerSource, Catalog: v3alertmanager.DatabaseCatalog{DB: s.DB}, Access: policy,
 		EnvironmentLabels: alertmanagerLabels, ApplicationBindings: alertmanagerBindings,
-	}).Register(api)
+		RouteRepository: routeDraftRepository,
+	}
+	if promotionRepository, ok := configSync.Repository.(*v3configsync.GitLabClient); ok && promotionRepository != nil {
+		alertmanagerService.ConfigPromotionProjectID = promotionRepository.ProjectID()
+		alertmanagerService.ConfigPromotionTargetBranch = promotionRepository.TargetBranch()
+		alertmanagerService.ConfigPromotionBranchPrefix = promotionRepository.BranchPrefix()
+	}
+	alertmanagerService.Register(api)
 
 	personalSettings := v3settings.New(s, modelRuntime)
 	personalSettings.MeEvidence = meEvidence

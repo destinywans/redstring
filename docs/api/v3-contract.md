@@ -164,7 +164,7 @@
 | GET | `/alert-rules/{id}` | | 当前受权 Prometheus 规则详情；编辑、通知和 AI 字段未知时可空 | implemented |
 | POST | `/alert-rules/{id}/dry-run` | `{ expr, for }` | `{ would_fire, windows }` | implemented |
 | PUT | `/alert-rules/{id}` | `AlertRule` | `AlertRule` | mock |
-| GET | `/notification-routes` | | `{ root: RouteNode }` | mock |
+| GET | `/notification-routes` | 单一所选环境；需环境级 `alert_rules.view/manage` | 当前生效 Alertmanager 环境子树、`config_revision`/ETag、匿名接收方引用；频道目标、命中数及值班未知 | implemented |
 | GET | `/silences` | `state: active\|planned\|expired\|all` | 静默列表及当前可见记录计数；应用标签需在服务端显式绑定到当前环境的有效应用 ID，再按应用/团队授权判断；环境明确但应用范围较宽的静默仅环境级静默管理员可见；无精确环境或匹配器歧义的静默不展示，宽范围只报告覆盖标志 | implemented |
 | GET | `/inhibitions` | | `{ items: Inhibition[] }` | mock |
 | POST | `/silences/preview` | `{ matchers: [{ k, op, v }] }`；单一环境 | `{ affects, sample }` | implemented |
@@ -185,7 +185,7 @@
 
 `POST /alert-rules/{id}/dry-run` 仅对当前环境中唯一绑定且有权查看的规则运行最近六小时 Prometheus 历史 `query_range` 采样模拟。请求 `expr` 必须与服务端当前规则表达式逐字一致，`for` 可在 0 到 1 小时内调整；规则、负责人、范围与授权在上游查询后复核。每条返回序列必须带精确的应用和环境标签，缺失或混合范围、数据不完整与超限均拒绝，不返回虚构计数。`would_fire` 和 `windows` 是满足持续时长的采样片段，不是历史通知或实际告警状态；`query_offset` 与 `keep_firing_for` 未复现，规则表达式及查询输入范围仍须由可信配置和部署隔离保证。冻结页面发送 `threshold/for_minutes`，与此请求体不符；真实 Prometheus 及页面尚未验收。
 
-`GET /alert-rules/{id}` 从当前唯一绑定、受权的 Prometheus 规则文件读取名称、表达式、标签、注解、持续时间与可得求值时间；编辑器草稿、阈值预览、通知路径、Runbook 和 AI 初查没有该规则的可信绑定时为 `null` 并列入 `unavailable`。`POST /notification-routes/test` 只接受当前所选单环境下、服务端精确绑定应用及环境标签的样例告警；具备环境级规则查看与管理权后，读取当前生效 Alertmanager 路由策略，返回接收者名称与分组时序，不包含接收目标或凭据。此接口不评估尚未保存的路由草稿，路径、命中统计及频道目标保持未知；冻结页面的草稿试算仍未验收。两条路由仅按后端有来源与明确未知字段计为 `implemented`。
+`GET /alert-rules/{id}` 从当前唯一绑定、受权的 Prometheus 规则文件读取名称、表达式、标签、注解、持续时间与可得求值时间；编辑器草稿、阈值预览、通知路径、Runbook 和 AI 初查没有该规则的可信绑定时为 `null` 并列入 `unavailable`。`GET /notification-routes` 只返回能证明由所选环境独占的当前 Alertmanager 路由子树，以配置摘要提供 ETag；接收方名称、目标、凭据、命中数、值班和升级均不泄露，接收方只用该修订内的匿名引用。`POST /notification-routes/test` 只接受当前所选单环境下、服务端精确绑定应用及环境标签的样例告警；具备环境级规则查看与管理权后，对当前生效策略返回命中节点路径、匿名接收方引用和继承后的分组时序，不发送通知，也不试算未保存草稿。条件时段或共享路由歧义失败关闭；冻结页面的草稿试算、接收方名称及频道目标仍未验收。这三条路由仅按后端有来源与明确未知字段计为 `implemented`，详见[通知路由草稿契约](v3-notification-route-drafts.md)。
 
 `POST /silences/preview` 按所选单一环境读取实时 Alertmanager 告警快照。请求支持 `=`、`!=`、`=~`、`!~`（1–20 条）；环境是隐含的精确匹配。精确 `application=` 值必须在服务端绑定到有效应用并有当前应用/团队 `silences.view`，无应用匹配则要求环境级 `silences.view` 与 `silences.manage`。Alertmanager 读取后再次核对当前授权和应用归属。`affects` 是此刻该环境匹配告警的完整条数，`sample` 仅为最多 5 个去重排序的真实 `alertname`；来源异常、超过 500 条该环境告警或异常 `null` 均返回 503，不给部分计数。预览不会创建静默。现有页面默认仅传 service/alertname，普通应用用户会因缺精确应用匹配收到 403，且页面尚未正确清除旧预览/失败状态；后端路由已闭合，页面和真实 Alertmanager 尚未验收。`GET /alerts/{id}` 从来源绑定的持久事件及本地通知传输台账返回有证据字段，来源、规则、曲线、分组、Runbook 等缺精确发生记录关联时为 `null` 并列入 `unavailable`；`source_id` 只标记入站身份，不证明当前上游健康。`POST /alerts/{id}/claim` 以 GET 的事件行修订作前置条件，事务内复核人类会话与查看/修改权、更新认领与审计，再返回修订后的详情；冻结前端仍传空请求体并假称外部升级已停止，页面未验收。
 
@@ -262,8 +262,8 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | POST | `/alert-rules/preview` | `{ query, op, threshold, for_minutes, range }` | 校验、曲线、触发区间、7 天回测、会命中的路由、相似规则 | mock |
 | POST | `/alert-rules` | `{ …, mode: draft\|dry_run\|enabled }` | `{ id, status }` | mock |
 | POST | `/alert-rules/import` | `{ yaml }` | 解析结果（新建 / 重复），导入后为草稿 | mock |
-| POST | `/notification-routes/test` | `{ labels }`：当前绑定应用与环境的精确样例告警 | 当前生效 Alertmanager 策略的接收者与分组时序；草稿试算、频道目标及命中统计未知 | implemented |
-| POST | `/notification-routes` | 匹配条件、接收方、分组、时段、升级 | `{ id }` | mock |
+| POST | `/notification-routes/test` | `{ labels }`：当前绑定应用与环境的精确样例告警 | 当前生效 Alertmanager 策略的节点路径、匿名接收方引用及分组时序；不发送通知或试算草稿 | implemented |
+| POST | `/notification-routes` | `Idempotency-Key`、GET ETag 的 `If-Match`；绑定应用、匹配条件、匿名接收方引用及分组时序 | `202 pending_review`、本地草稿 ID 与经核对的 GitLab MR；当前 MR/运行态为 `null`，不激活路由 | implemented |
 | POST | `/inhibitions/preview` | `{ source, target, equal }` | 过去 7 天会抑制的数量与样例 | mock |
 | POST | `/inhibitions` | `{ source, target, equal }`（P1 永不抑制） | `{ id }` | mock |
 | GET | `/runbooks/draft` | `source: template\|postmortem\|conversation\|import`, 必需 `from` | 有界、来源可核的确定性大纲及 `source_sha256`；不是 AI 生成或已核实操作步骤 | implemented |

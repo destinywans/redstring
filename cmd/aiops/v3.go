@@ -38,6 +38,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3coverage"
 	"github.com/wans/aiops-canvas/internal/v3discovery"
 	"github.com/wans/aiops-canvas/internal/v3events"
+	"github.com/wans/aiops-canvas/internal/v3executions"
 	"github.com/wans/aiops-canvas/internal/v3home"
 	"github.com/wans/aiops-canvas/internal/v3identity"
 	"github.com/wans/aiops-canvas/internal/v3ingestpull"
@@ -211,6 +212,11 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		return err
 	}
 	policy := &rbac.V3Policy{Store: s}
+	executions := v3executions.New(s.DB, policy)
+	if err := executions.Migrate(ctx); err != nil {
+		return fmt.Errorf("migrate V3 execution publication: %w", err)
+	}
+	executions.Register(api)
 	gitMarkdownBindings, err := v3knowledgesources.ParseGitMarkdownBindings(os.Getenv("AIOPS_V3_GIT_MARKDOWN_BINDINGS"))
 	if err != nil {
 		return fmt.Errorf("configure V3 Git Markdown bindings: %w", err)

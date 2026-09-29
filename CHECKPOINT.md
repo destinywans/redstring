@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-189 · 2026-09-29 · WAN-124 执行详情与本地报告发布
+
+- 从已推送 CP-188 `c4b8d6e` 接续，执行/报告领域来源 `8093faa` 合入 `bb8bc63`。正式 V3 入口在 `actions.Migrate` 之后建立 `v3_execution_report_publications`，注册新的受权 GET `/executions/{id}` 与 POST `/executions/{id}/report/publish`；V3 省略旧 actions 同路径 GET 以避免 HTTP mux 重复注册，非 V3 注册保持原样。独立 OpenAPI 片段在既有定义之后装入。迁移仅在源码启动顺序接线，未对现有业务库运行。
+- GET 读取旧动作的持久执行、计划、审批、调查事件和可得结案报告，在当前环境与应用/团队权限下返回有证据字段；`proposal_id`、图表、影响、编辑时间线和行动项无可信来源时为 `null` 并列入 `missing`。POST 要求单环境当前真人会话、提案查看与知识管理权、准确审批摘要、成功且有事件/恢复观察证明的执行及相符结案报告；只把报告摘要、操作者和时间写入本地发布台账及审计，同摘要重试不重复发布。不再次执行动作，不创建复盘，也不向外部发布。独立只读审查未发现确定的授权、SQL 或幂等阻断项。
+- 两条主路由按本阶段后端标准升 `implemented`，现 **145/166、21 mock**；OpenAPI **323 路径、387 操作、442 schema**。V3 关闭旧执行 Worker，新路由成功仍依赖已有合格历史记录；实际数据是否满足发布校验未验。冻结页面把本地记录称作“同步到复盘报告”，还要求非空提案、图表与展示字段，页面未验收。本批仅最小 Go 编译、OpenAPI 生成、路由矩阵/readiness 与差异静态检查；按当前限制未跑测试、真实数据库/迁移/HTTP、前端或浏览器。无 PR、合并或部署；后续接剩余受限领域路由。
+
 ## CP-188 · 2026-09-29 · WAN-118 通知路由读取与待审草稿
 
 - 从已推送 CP-187 `b3fa068` 接续，WAN-118 来源 `29247a5a` 合入 `125187e`。正式 V3 入口为 `GET /notification-routes`、`POST /notification-routes/test` 和 `POST /notification-routes` 注入现有受审 Alertmanager 来源及复用 GitLab 项目/凭据的草稿仓库；须另配 `AIOPS_V3_NOTIFICATION_ROUTE_TARGET_BRANCH` 和 `AIOPS_V3_NOTIFICATION_ROUTE_BRANCH_PREFIX`，与配置提升的目标和前缀隔离。草稿 MR 使用独立标签；两项未配置时 POST 明确不可用，配置不完整或重叠时启动失败。迁移 `138_v3_notification_route_drafts.sql` 未在现有库执行。

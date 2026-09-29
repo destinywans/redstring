@@ -49,6 +49,7 @@ for _v3_domain in (
     'agent-runs',
     'eval-detail',
     'agent-lifecycle',
+    'executions',
     'observability',
     'roles',
     'audit',

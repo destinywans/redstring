@@ -134,7 +134,11 @@ func run() error {
 	if e = acts.Migrate(ctx); e != nil {
 		return e
 	}
-	acts.Register(api)
+	if v3Info != nil {
+		acts.RegisterWithoutExecutionDetail(api)
+	} else {
+		acts.Register(api)
+	}
 	actionDone := make(chan struct{})
 
 	worker := httpapi.NewWorker(s, runtime)

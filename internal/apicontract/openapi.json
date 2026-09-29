@@ -4531,16 +4531,16 @@
     },
     "/executions/{id}": {
       "get": {
-        "summary": "Get execution and recovery evidence",
+        "summary": "Read persisted execution and recovery evidence",
         "operationId": "get_executions_id",
-        "description": "Minimum role: viewer. succeeded requires 180 seconds of traffic, healthy probes and converged approved Deployment; command success alone is insufficient.",
+        "description": "Minimum role: viewer with scoped proposals.view. V3 instance and environment scope apply. Reads the legacy execution, its approved action plan and investigation, up to 100 persisted events, optional recovery summary and optional closed report. Current application, environment and owner-team grants are checked. status_source distinguishes the authoritative legacy status from any missing derived evidence. proposal_id is null because no V3 proposal link exists. Steps contain persisted event sequence, type and timestamp only; an editorial timeline is not fabricated. Chart arrays, thresholds, report severity and action items have no producer and are null with missing reasons. A succeeded status is the legacy executor result and is not by itself proof that a report exists or is published. The frozen frontend Execution DTO expects populated mock fields and requires a null-aware adapter.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Execution"
+                  "$ref": "#/components/schemas/V3ExecutionDetail"
                 }
               }
             }
@@ -4556,7 +4556,7 @@
             }
           },
           "403": {
-            "description": "Forbidden or cross-origin request",
+            "description": "Selected environment access was denied",
             "content": {
               "application/json": {
                 "schema": {
@@ -4566,7 +4566,7 @@
             }
           },
           "404": {
-            "description": "Not found",
+            "description": "Execution is unknown or its object-scoped proposals.view grant is missing",
             "content": {
               "application/json": {
                 "schema": {
@@ -4596,7 +4596,7 @@
             }
           },
           "503": {
-            "description": "Dependency unavailable",
+            "description": "Execution source or policy is unavailable",
             "content": {
               "application/json": {
                 "schema": {
@@ -4622,6 +4622,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
           }
         ]
       }
@@ -44183,6 +44191,111 @@
         }
       }
     },
+    "/executions/{id}/report/publish": {
+      "post": {
+        "summary": "Publish an approved completed execution report to the local ledger",
+        "operationId": "post_executions_id_report_publish",
+        "description": "Minimum role: human with scoped proposals.view and knowledge.manage. V3 instance and environment scope apply. Requires one selected environment, a current human Cookie session, active application and environment, current team or application grants, an approved exact plan digest, a succeeded execution with persisted verified recovery, and a closed report matching the execution and investigation events. The local publication record and audit commit together. A repeat with unchanged report digest returns the original publication; changed report content or missing prerequisites return conflict. This endpoint performs no infrastructure write, notification or external postmortem publication. The current mock POST response {ok:true} needs an adapter.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3ExecutionPublication"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The current Cookie session was revoked or expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A current human identity and selected environment access are required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Execution is unknown or an object-scoped proposals.view or knowledge.manage grant is missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Execution is not eligible, required evidence is absent, or the published report digest changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Publication storage or policy is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "executions"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/services": {
       "get": {
         "summary": "Read complete source-backed authorized service catalog",
@@ -67950,6 +68063,357 @@
           "success",
           "tokens",
           "routing_connected"
+        ]
+      },
+      "V3ExecutionApproval": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "revoked"
+            ]
+          },
+          "approved_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "digest_match": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "decision",
+          "approved_by",
+          "digest_match"
+        ]
+      },
+      "V3ExecutionStep": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "type": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "seq",
+          "type",
+          "time"
+        ]
+      },
+      "V3ExecutionObservation": {
+        "type": "object",
+        "properties": {
+          "recovered": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "samples": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "requests": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "values": {
+            "type": "null"
+          },
+          "threshold": {
+            "type": "null"
+          },
+          "labels": {
+            "type": "null"
+          },
+          "band": {
+            "type": "null"
+          },
+          "marker": {
+            "type": "null"
+          },
+          "checks": {
+            "type": "null"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "recovered",
+          "started_at",
+          "finished_at",
+          "samples",
+          "requests",
+          "reason",
+          "values",
+          "threshold",
+          "labels",
+          "band",
+          "marker",
+          "checks"
+        ]
+      },
+      "V3ExecutionReport": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "closed_by": {
+            "type": "string"
+          },
+          "approved_by": {
+            "type": "string"
+          },
+          "closed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "published": {
+            "type": "boolean"
+          },
+          "published_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "published_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "severity": {
+            "type": "null"
+          },
+          "impact": {
+            "type": "null"
+          },
+          "timeline": {
+            "type": "null"
+          },
+          "actions": {
+            "type": "null"
+          },
+          "refs": {
+            "type": "null"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "title",
+          "summary",
+          "closed_by",
+          "closed_at",
+          "approved_by",
+          "published",
+          "published_by",
+          "published_at",
+          "severity",
+          "impact",
+          "timeline",
+          "actions",
+          "refs"
+        ]
+      },
+      "V3ExecutionDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "plan_id": {
+            "type": "string"
+          },
+          "investigation_id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "status_source": {
+            "type": "string"
+          },
+          "proposal_id": {
+            "type": "null"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "executing",
+              "verifying",
+              "succeeded",
+              "failed",
+              "needs_attention"
+            ]
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "approval": {
+            "$ref": "#/components/schemas/V3ExecutionApproval"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3ExecutionStep"
+            }
+          },
+          "steps_truncated": {
+            "type": "boolean"
+          },
+          "observation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/V3ExecutionObservation"
+              }
+            ]
+          },
+          "report": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/V3ExecutionReport"
+              }
+            ]
+          },
+          "partial": {
+            "type": "boolean"
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "plan_id",
+          "proposal_id",
+          "investigation_id",
+          "application_id",
+          "environment_id",
+          "status",
+          "status_source",
+          "attempt",
+          "error",
+          "created_at",
+          "updated_at",
+          "approval",
+          "steps",
+          "steps_truncated",
+          "observation",
+          "report",
+          "partial",
+          "missing"
+        ]
+      },
+      "V3ExecutionPublication": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "published"
+            ]
+          },
+          "destination": {
+            "type": "string",
+            "enum": [
+              "local"
+            ]
+          },
+          "published_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "published_by": {
+            "type": "string"
+          },
+          "report_digest": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "destination",
+          "published_at",
+          "published_by",
+          "report_digest"
         ]
       },
       "V3ServiceKpi": {

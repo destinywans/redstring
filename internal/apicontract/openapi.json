@@ -29961,7 +29961,7 @@
       "get": {
         "summary": "Read complete authorized alert rule summaries",
         "operationId": "get_alert_rules",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Rules come from configured Prometheus sources and exact server-owned file/group application bindings, with matching environment/application labels and V3 authorization. Counts describe the complete authorized result. Missing configuration, upstream failure or a result above the bound returns an error rather than synthetic or partial counts. Scheduled is zero until a trusted schedule source is connected.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Rules come from configured Prometheus sources and exact server-owned file/group application bindings, with matching environment/application labels and current application or owner-team alert_rules.view. Application/team scope and grants are rechecked after provider reads; changed scope does not return the old result. Counts describe the complete authorized result. Missing configuration, upstream failure or a result above the bound returns an error rather than synthetic or partial counts. Scheduled is zero until a trusted schedule source is connected.",
         "responses": {
           "200": {
             "description": "Success",
@@ -30058,7 +30058,7 @@
       "get": {
         "summary": "Read provider-observed alert rule summaries",
         "operationId": "get_alert_rules_observed",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read-only backend endpoint, not the V3 AlertRule DTO. Rule groups require explicit server-side application/environment binding and matching provider labels. Unconfigured sources return 503; partial source failure returns 206.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read-only backend endpoint, not the V3 AlertRule DTO. Rule groups require explicit server-side application/environment binding, matching provider labels and current application or owner-team alert_rules.view. Scope and grants are rechecked after provider reads; changed scope does not return old summaries. Unconfigured sources return 503; partial source failure returns 206.",
         "responses": {
           "200": {
             "description": "Success",
@@ -30213,7 +30213,7 @@
       "get": {
         "summary": "Read one provider-observed alert rule",
         "operationId": "get_alert_rules_observed_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read-only backend endpoint. The rule must be uniquely identified within the currently authorized provider result; duplicate visible stable IDs return 503 alert_rule_identity_conflict rather than an arbitrary expression or state. An unknown ID with a failed in-scope provider returns 503 rule_source_partial; a complete miss returns 404. No historical preview, threshold condition, notification route or AI triage is inferred.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read-only backend endpoint. The rule must be uniquely identified within the currently authorized application or owner-team provider result, with scope rechecked after upstream reads. Duplicate visible stable IDs return 503 alert_rule_identity_conflict rather than an arbitrary expression or state. An unknown ID with a failed in-scope provider returns 503 rule_source_partial; a complete miss returns 404. No historical preview, threshold condition, notification route or AI triage is inferred.",
         "responses": {
           "200": {
             "description": "Success",
@@ -36573,7 +36573,7 @@
       "get": {
         "summary": "Read one stored Agent evaluation experiment",
         "operationId": "get_evals_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial stored evaluation record. Dataset, radar and case detail are unavailable; a passed status is a persisted trusted-producer report, not proof that this service ran quality thresholds.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial stored evaluation record. The read locks and checks the persisted evaluation, Agent, active application/environment and current grants; missing creation-audit origin or later Agent reassignment hides the record. Dataset, radar and case detail are unavailable; a passed status is a persisted trusted-producer report, not proof that this service ran quality thresholds. The creation-audit target lookup lacks a dedicated index for large per-application histories.",
         "responses": {
           "200": {
             "description": "Success",

@@ -136,7 +136,7 @@
 | GET | `/incidents` | `status: active\|resolved\|all` | `{ items, counts }` | implemented |
 | GET | `/incidents/{id}` | | `Incident` | mock |
 | POST | `/incidents/{id}/timeline` | `{ text }` | 时间线条目 | implemented |
-| GET | `/alert-rules` | | `AlertRuleSummary[]` 与完整可见范围的 `all/firing/scheduled` 计数；仅展示服务端按 Prometheus 规则文件和组明确绑定到应用、且标签和环境均匹配的规则；来源失败或超限明确报错，不返回部分计数；无可信周期来源时 `scheduled=0` | implemented |
+| GET | `/alert-rules` | | `AlertRuleSummary[]` 与完整可见范围的 `all/firing/scheduled` 计数；仅展示服务端按 Prometheus 规则文件和组明确绑定到应用、标签和环境均匹配，且当前应用或其负责团队有 `alert_rules.view` 的规则；上游读取后复核负责人和授权，范围变化不返回旧列表。来源失败或超限明确报错，不返回部分计数；无可信周期来源时 `scheduled=0` | implemented |
 | GET | `/alert-rules/{id}` | | `AlertRule` | mock |
 | POST | `/alert-rules/{id}/dry-run` | `{ expr, for }` | `{ would_fire, windows }` | mock |
 | PUT | `/alert-rules/{id}` | `AlertRule` | `AlertRule` | mock |
@@ -303,6 +303,8 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评测、发布意图、反馈和护栏设置；尚无评测执行器、流量路由消费者、Prompt trial 或完整运行/护栏观测生产者。Prompt 列表只返回有真实版本的已授权记录，支持最多 160 字符的 `q`，超过 200 条可见项返回 413；详情在同一读取事务中核对 Agent、归属、授权和正文，真实正文与 `vN` 可回读，但发布状态、运行时使用关系和说明均明确为部分/未知，不冒充完整前端 DTO。`POST /prompts/{id}/versions` 对已登记且当前有权的 Prompt 原样保存非空白文本，按 `vN` 返回版本，审计与修订同事务；生产构造尚未登记 Prompt，前端默认 ID 在新库无法成功写入，因此读写主路由仍为 `mock`。`POST /prompts/{id}/trial` 明确返回 `503 prompt_trial_unavailable`，`POST /evals` 只创建 `pending` 元数据，发布和回滚不改变真实流量。部分读取返回 `null`、`partial: true` 或“未接入”；现有前端对 `score`、发布 token/门禁、评测、Trace、运行统计的 DTO 与请求体尚不兼容，不能直接切换 HTTP 模式。管理员门禁放行另需非空 `override_reason`，现有前端未提交；相关主契约行继续为 `mock`。
 
+`GET /evals/{id}` 现在只读已保存的部分评测记录：同一事务锁定评测、Agent、有效应用/环境和当前授权，并以创建审计核对原始归属；缺审计或 Agent 改属的历史记录隐藏。`metrics` 仅在有可信结果记录时返回已保存值，待执行状态不合成分数；`radar`、用例输出和数据集仍无生产者，所以完整 `EvalExperiment` 继续 `mock`。大量同应用审计记录的目标查找尚缺专用索引和规模验证。
+
 ## 设置（`settings.ts`）
 
 `GET /members` 当前只提供部分真实读取：在读取事务中重核账号及当前环境授权，以单条查询取成员与角色快照。响应有 `complete_v3_dto: false` 和 `unavailable_fields`；未核实的 `last_login`、`counts.no_mfa`、`mfa_grace_days` 为 `null`，`items[].mfa: "na"` 表示未知，不表示未启用。组层级、目录同步来源和 MFA 策略也无可信来源；`filter=no_mfa` 返回 `503 member_mfa_unavailable`，不会以空结果冒充筛选成功。冻结前端仍按数字显示 MFA 数量和宽限期并显示确定的安全提示，因此主接口仍为 `mock`。
@@ -332,6 +334,8 @@ Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评�
 | GET | `/audit` | `filter: all\|user\|agent\|system`, `q` | `AuditView` | implemented |
 | GET | `/audit/{id}` | | `AuditDetail`（含哈希链校验结果） | implemented |
 | POST | `/audit/export` | 过滤条件 | `{ url }` | implemented |
+
+`GET/PUT /me/profile` 仍返回 `503 identity_evidence_unavailable`：联系人验证、MFA 因子/状态和设备来源未有可信生产者，服务端保留未知值，PUT 不保存不完整的 `ProfileView` 或产生成功审计；会话删除是独立的已实现接口。完整资料页继续 `mock`。
 
 `GET /workspace` 在读取事务内复核当前有效账号与所选环境 `workspace.view`，读取持久化记录；缺失或损坏时返回 `503 workspace_unavailable`，不会合成默认值。`data_region` 是已保存的部署配置声明，不能证明实际数据驻留；slug、默认值和留存天数也尚未驱动链接、新成员设置或清理行为。该单条 GET 满足后端专用的 `implemented` 判据，冻结前端工作区页仍使用示意数据，整页尚未验收。`PUT /workspace` 严格校验单个 JSON 对象、已知字段和值，在服务端事务内复核当前账号、平台管理员身份及全局 `workspace.manage` 授权，并返回持久化结果；`data_region` 与品牌素材由部署配置管理，尚无版本前置条件。角色/成员列表与详情只展示所选且已授权环境内的对象与成员；只有同时具备全局模块查看和全局 `environment.view` 的管理员可盘点无环境归属的旧记录。`GET/PUT /roles/{id}` 对平面五列矩阵无法无损表达的授权返回 `409 matrix_editor_required`；写入时在事务内复核当前有效账号、全局 `roles.manage` 与全局 `environment.view`，保护最后一位有效人类管理员。PUT 成功仅返回 `{ ok: true }`，不在提交后重读并泄露角色详情。除上述工作区 GET 外，设置与角色页面的主契约行仍维持 `mock`。
 

@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-144 · 2026-09-29 · MCP 审核会话栅栏与三项读取证据
+
+- WAN-122 来源 `b451893`、`f8b88e5`、`a15e2c3` 和本地修复 `81ea197` 加入迁移 `071_v3_mcp_tool_reviews.sql` 及三个辅助接口：最新未信任发现的候选详情、逐工具版本审核、按摘要/修订控制的已审核工具开关。审核必须由当前有 `connectors.manage` 的人类身份完成全部决定，允许的只读工具默认关闭；远端只读提示和开启开关均不授予 Agent 执行权。候选 GET 在新事务中重核账号、会话、授权、有效登记/绑定、最新快照与决定，持锁至有界写出。独立复审发现初始写路径可在注销已提交后仍落库；集成修复在写事务中按账号→当前 cookie 会话→角色/授权来源加锁。注销先提交的 POST/PATCH 不写审核、开关或审计；写入先持锁时注销等待，写入提交后再次注销可成功。主无版本 `POST /mcp-servers/{id}/review` 与 `PATCH /mcp-servers/{id}/tools/{name}` 仍返回不可用，主契约继续 `mock`；公共契约和 OpenAPI 为 `1df82a6`。没有真实 MCP 连接或 Agent 工具执行联调。
+- WAN-118 来源 `b14bb13` 将规则绑定应用的负责人团队纳入 `alert_rules.view` 判定，Prometheus 读取后复核授权/负责人，不在范围变化后返回旧列表或详情。主 `GET /alert-rules` 原 `implemented` 状态不变，完整 `GET /alert-rules/{id}` 仍缺阈值/通知等可信字段而 `mock`。WAN-124 来源 `5632d5c` 保留个人资料联系人验证、MFA、设备等未知证据：GET/PUT `/me/profile` 明确 `503 identity_evidence_unavailable`，PUT 不写不完整资料或成功审计；`5dfc9b4` 校正 503 文案，两个主行继续 `mock`。WAN-123 来源 `9de0a96` 对 `GET /evals/{id}` 在事务内核评测、Agent、有效应用/环境、创建审计原始归属与当前授权；缺审计/改属隐藏，返回部分持久值而不伪造数据集、雷达或用例输出。大量同应用审计查目标暂无专用索引/规模验证，完整评测详情仍 `mock`。
+- 集成隔离 pgvector PG17 的 `internal/v3mcp` 全包通过，包括来源候选、写入注销双顺序和迁移 071；首次全包的四个旧随机 schema 夹具因缺 `public.pgcrypto.digest` 失败，仅补 `search_path=schema,public` 后重跑通过，未改生产搜索路径。`internal/v3alertrules` 规则列表/来源、`internal/v3settings` 个人资料证据、`internal/v3agents` 评测创建/详情的受影响定向测试，以及上述包与 `cmd/aiops` 的 `go vet` 均通过。公共契约为 333 个注册 OpenAPI 操作、241 schema、165 行主契约，生成/校验、路由矩阵和差异检查通过。无现有业务库迁移、真实 MCP/Prometheus/评测执行、前端或浏览器产品验收；主状态仍 **37/166 `implemented`**。本地分支未推送、无 PR/合并/部署；私有分支推送此前已被自动审批拒绝，本轮未重试。
+
 ## CP-143 · 2026-09-29 · 静默提案、来源证据、工具回执与待执行评测
 
 - WAN-118 受信进程内静默提案来源 `c9c4fbf`、授权修正 `132717c`、锁序修正 `9ba4ef2` 和重放预锁 `d3db95c` 已合入本地集成；迁移 `102_v3_silence_proposal_actions.sql` 保存固定动作、摘要和人类可读内容，要求当前人类身份、同环境未关闭调查、有效应用及当下的静默/提案授权，幂等重放核对原始动作。它没有产品 POST 调用者，不创建 Alertmanager 静默，也不授予执行权。集成修复 `7b25285` 将详情/评论/驳回的当前团队归属和权限放入同一事务，最终授权前以表级 SHARE 锁序列化角色关联与 grant 写入；`3b20af9` 让有管理授权的机器身份在读取驳回讨论前就被拒绝。独立复审未见剩余阻断锁环；讨论列表仍无条数/总字节上限，可能延长单提案与账号锁等待，后续需分页或明确上限。`POST /silences`、提案批准和执行继续 `mock`。

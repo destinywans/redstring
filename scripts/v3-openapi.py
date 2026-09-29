@@ -681,16 +681,16 @@ S['V3AlertRuleList'] = obj({'items':arr(ref('V3AlertRuleSummary')),
         ['all','firing','scheduled'])}, ['items','counts'])
 v3_route('get','/alert-rules','Read complete authorized alert rule summaries',
     response=ref('V3AlertRuleList'),
-    desc='Rules come from configured Prometheus sources and exact server-owned file/group application bindings, with matching environment/application labels and V3 authorization. Counts describe the complete authorized result. Missing configuration, upstream failure or a result above the bound returns an error rather than synthetic or partial counts. Scheduled is zero until a trusted schedule source is connected.')
+    desc='Rules come from configured Prometheus sources and exact server-owned file/group application bindings, with matching environment/application labels and current application or owner-team alert_rules.view. Application/team scope and grants are rechecked after provider reads; changed scope does not return the old result. Counts describe the complete authorized result. Missing configuration, upstream failure or a result above the bound returns an error rather than synthetic or partial counts. Scheduled is zero until a trusted schedule source is connected.')
 v3_route('get','/alert-rules/observed','Read provider-observed alert rule summaries',
     response=obj({'items':arr(ref('V3ObservedAlertRuleSummary')),
         'counts':v3_map(integer()),'partial':v3_bool(),
         'unavailable_environments':arr(string())}),
-    desc='Auxiliary read-only backend endpoint, not the V3 AlertRule DTO. Rule groups require explicit server-side application/environment binding and matching provider labels. Unconfigured sources return 503; partial source failure returns 206.')
+    desc='Auxiliary read-only backend endpoint, not the V3 AlertRule DTO. Rule groups require explicit server-side application/environment binding, matching provider labels and current application or owner-team alert_rules.view. Scope and grants are rechecked after provider reads; changed scope does not return old summaries. Unconfigured sources return 503; partial source failure returns 206.')
 P['/alert-rules/observed']['get']['responses']['206'] = P['/alert-rules/observed']['get']['responses']['200']
 v3_route('get','/alert-rules/observed/{id}','Read one provider-observed alert rule',
     response=ref('V3ObservedAlertRuleDetail'),
-    desc='Auxiliary read-only backend endpoint. The rule must be uniquely identified within the currently authorized provider result; duplicate visible stable IDs return 503 alert_rule_identity_conflict rather than an arbitrary expression or state. An unknown ID with a failed in-scope provider returns 503 rule_source_partial; a complete miss returns 404. No historical preview, threshold condition, notification route or AI triage is inferred.')
+    desc='Auxiliary read-only backend endpoint. The rule must be uniquely identified within the currently authorized application or owner-team provider result, with scope rechecked after upstream reads. Duplicate visible stable IDs return 503 alert_rule_identity_conflict rather than an arbitrary expression or state. An unknown ID with a failed in-scope provider returns 503 rule_source_partial; a complete miss returns 404. No historical preview, threshold condition, notification route or AI triage is inferred.')
 
 S['V3SilenceMatcher'] = obj(fieldnames('k v'), ['k','v'])
 S['V3SilencePreviewMatcher'] = obj({'k':string(),'op':string(enum=['=','!=','=~','!~']),
@@ -1125,7 +1125,7 @@ v3_route('get','/evals/{id}','Read one stored Agent evaluation experiment',
         'missing':arr(string()),'partial':v3_bool()},
         ['id','title','dataset','meta','status','baseline_version','candidate_version',
          'metrics','radar','cases','datasets','evaluators','result_ref','created_at','missing','partial']),
-    desc='Partial stored evaluation record. Dataset, radar and case detail are unavailable; a passed status is a persisted trusted-producer report, not proof that this service ran quality thresholds.')
+    desc='Partial stored evaluation record. The read locks and checks the persisted evaluation, Agent, active application/environment and current grants; missing creation-audit origin or later Agent reassignment hides the record. Dataset, radar and case detail are unavailable; a passed status is a persisted trusted-producer report, not proof that this service ran quality thresholds. The creation-audit target lookup lacks a dedicated index for large per-application histories.')
 v3_route('post','/evals','Create pending Agent evaluation metadata',
     role='viewer with scoped agents.change',
     body=obj({**fieldnames('agent_id title baseline_version candidate_version')},

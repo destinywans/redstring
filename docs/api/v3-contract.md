@@ -168,8 +168,8 @@
 | GET | `/silences` | `state: active\|planned\|expired\|all` | 静默列表及当前可见记录计数；应用标签需在服务端显式绑定到当前环境的有效应用 ID，再按应用/团队授权判断；环境明确但应用范围较宽的静默仅环境级静默管理员可见；无精确环境或匹配器歧义的静默不展示，宽范围只报告覆盖标志 | implemented |
 | GET | `/inhibitions` | 当前所选环境与应用/团队可见范围 | 当前 Alertmanager 抑制配置的受权子集；匹配值脱敏，`active`/`hits_7d` 未知，返回 `206 partial` | implemented |
 | POST | `/silences/preview` | `{ matchers: [{ k, op, v }] }`；单一环境 | `{ affects, sample }` | implemented |
-| POST | `/silences` | 匹配器 + 时长 | `{ id }` | mock |
-| DELETE | `/silences/{id}` | | 204 | mock |
+| POST | `/silences` | 单环境、开放调查、`Idempotency-Key`、`{ investigation_id, matchers: [{ name, op, value }], duration_seconds, comment }` | 批准与独立执行链就绪时仅 `202 pending_review` 提案回执、`effect=no_upstream_write`；当前 `501 not_connected` | mock |
+| DELETE | `/silences/{id}` | 已由本系统确认创建的上游 UUID；`Idempotency-Key`、`{ investigation_id, reason }` | 精确归属及上游读回通过、批准与独立执行链就绪时仅 `202 pending_review` 取消提案；当前 `501 not_connected` | mock |
 | GET | `/proposals/{id}` | | `Proposal` | implemented |
 | POST | `/proposals/{id}/approve` | `{ comment? }`（需通行密钥二次验证） | `{ execution_id }` | mock |
 | POST | `/proposals/{id}/reject` | `{ comment? }`；仅待审提案，由人类身份执行 | 更新后的提案 | implemented |

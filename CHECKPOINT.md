@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-201 · 2026-09-30 · WAN-118 静默提案与一次性执行基础（未启用）
+
+- 从已推送 CP-200 `97d8e56` 接续，按依赖顺序把 WAN-118 来源 `f8c85a1`、`a210900` 合入为 `49982c6`、`d3fd6ff`。领域模块现注册 `POST /silences`、`DELETE /silences/{id}` 并包含不可变待审提案、取消意图、一次性执行声明、未知结果只读对账及迁移 `140_v3_silence_cancel_intents.sql`、`141_v3_silence_execution_claims.sql`；这两项迁移及审批迁移均未在现有业务库执行。主程序没有注入提案生产者、审批权威或运行中的独立执行 worker；两路由在提案写入前返回 `501 not_connected`，不调用 Alertmanager 写接口，主契约继续 **162/166、4 mock**。
+- 独立源码复核确认，若未来接线，必须在同事务验证绑定提案摘要、两名非创建者真人的新鲜 Passkey 证明与当前权限，批准状态/撤销需与一次性执行领取串行；worker 只能走已批准执行器并对不确定结果只读对账。现有提案 Passkey 断言仍拒绝、持久状态缺 `approved`，仅合入领域源码不能形成 `202` 成功路径。取消还要求本系统确认的创建操作和完整新鲜上游读回；批量告警组静默因缺来源 ID+指纹的精确 matcher 继续 `not_connected`。未来成功的产品语义是 `202 pending_review`、`effect=no_upstream_write`，已修正文档表格原 `{id}`/`204` 预期；机器 OpenAPI 片段等工作流就绪再聚合。
+- 本批仅 Go build、受影响 vet、路由矩阵/readiness/契约与差异静态检查；依当前限制未跑测试、迁移、真实 HTTP/Alertmanager、浏览器或第三方验收。当前 Alertmanager 私有配置文件权限及令牌轮换后的绑定身份仍需在真正启用写链前审查。无 PR、合并或部署；下一步等待可审的提案批准领域提交并核对依赖，再接生产者、批准权威、worker 与配置。
+
 ## CP-200 · 2026-09-29 · WAN-118 告警规则隔离试运行正式接线
 
 - 从已推送 CP-199 `747c00b` 接续。正式 V3 将 `POST /alert-rules` 的 `mode=dry_run` 接入可选 `AIOPS_V3_ALERT_RULE_TRIAL_CONFIG`、持久 `PrometheusTrialRuntime` 和 `GET /alert-rules/dry-runs/{id}`；所有启动配置成功后以主服务 context 启动 worker。配置和各令牌文件须为绝对路径 0600 普通文件，限定当前实例环境、已绑定的应用规则组、HTTPS 与具名隔离审核；拒绝复用任何环境的共享规则源 URL 或凭据。缺配置、worker 未就绪/停止、来源不完整均失败关闭。创建成功仅表示 24 小时有界、只读、无通知试运行已持久入队，结果缺采样为 `inconclusive`，不创建或启用生效规则。

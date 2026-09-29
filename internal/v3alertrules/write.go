@@ -200,7 +200,7 @@ func (s *WriteService) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if result, found, err := s.replay(r.Context(), actor, "create", key, digest, env, input.ApplicationID); err != nil {
+	if result, found, err := s.replay(r, actor, "create", key, digest, env, input.ApplicationID); err != nil {
 		writeError(w, err)
 		return
 	} else if found {
@@ -237,7 +237,7 @@ func (s *WriteService) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	result, err = s.export(r.Context(), actor, "create", key, digest, result)
+	result, err = s.export(r, actor, "create", key, digest, result)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -278,7 +278,7 @@ func (s *WriteService) Update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if result, found, err := s.replay(r.Context(), actor, "update", key, digest, env, input.Rule.ApplicationID); err != nil {
+	if result, found, err := s.replay(r, actor, "update", key, digest, env, input.Rule.ApplicationID); err != nil {
 		writeError(w, err)
 		return
 	} else if found {
@@ -317,7 +317,7 @@ func (s *WriteService) Update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	result, err = s.export(r.Context(), actor, "update", key, digest, result)
+	result, err = s.export(r, actor, "update", key, digest, result)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -353,7 +353,7 @@ func (s *WriteService) Import(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if result, found, err := s.replay(r.Context(), actor, "import", key, digest, env, input.ApplicationID); err != nil {
+	if result, found, err := s.replay(r, actor, "import", key, digest, env, input.ApplicationID); err != nil {
 		writeError(w, err)
 		return
 	} else if found {
@@ -396,7 +396,7 @@ func (s *WriteService) Import(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteJSON(w, http.StatusOK, result)
 		return
 	}
-	result, err = s.export(r.Context(), actor, "import", key, digest, result)
+	result, err = s.export(r, actor, "import", key, digest, result)
 	if err != nil {
 		writeError(w, err)
 		return

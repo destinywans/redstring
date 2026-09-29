@@ -1,6 +1,6 @@
 # V3 告警规则写入与试运行（WAN-118）
 
-本文件描述领域后端代码的真实边界。当前正式入口尚未装配这些模式，主 `POST /alert-rules` 不能据此标为已完成。迁移 141–143 未在现有业务库执行，也未运行真实 Prometheus、GitLab 或 Argo CD 联调。
+本文件描述领域后端代码的真实边界。正式入口已装配 `draft` 创建、修订和导入；仅在受信 Prometheus 规则来源、独立 GitLab 草稿目标和迁移就绪时存在条件式成功路径。`dry_run` 与 `enabled` 仍未在正式入口接入所需来源和执行链。迁移 141–143 未在现有业务库执行，也未运行真实 Prometheus、GitLab 或 Argo CD 联调。
 
 ## 路由与状态
 
@@ -9,6 +9,8 @@
 - `mode=enabled`：除上述条件外要求当前 `proposals.change`、同应用环境的开放调查，以及受信部署计划。先导出不可部署草稿 MR，再在一笔数据库事务中保存与完整动作、审查内容、目标 YAML 摘要绑定的不可变提案；返回 `202 pending_approval`。**POST 本身不启用规则。** 拒绝后同键重试返回原提案状态。
 
 三个模式使用 `Idempotency-Key`。同一创建者、同一操作、同一键的请求身份绑定完整请求与环境；冲突返回 409。试运行容量由数据库唯一索引限制为全局一个活跃任务，超额返回 429。远端写入不确定时按固定操作 ID 对账，不另建 MR。草稿导出后如当前授权、来源或提案键变化，MR 标为 `stale_remote`，需人工检查。
+
+草稿导出仅在配置提升仓库已受信配置，且 `AIOPS_V3_ALERT_RULE_DRAFT_TARGET_BRANCH` 与 `AIOPS_V3_ALERT_RULE_DRAFT_BRANCH_PREFIX` 成对设置时启用；后者必须精确为 `aiops-alert-rule-drafts/`。目标分支与源前缀都须避开配置提升、通知路由及抑制草稿。单独的 `aiops-alert-rule-draft` MR 标签不能触发配置提升导入、自动合并或规则部署；部署时仍须核实目标仓库的自动化策略。两项不设时正式路由返回 `not_connected`，配置不完整或重叠时启动失败。
 
 ## 试运行的启用门槛
 
@@ -33,4 +35,4 @@ WAN-117 需要装配两个服务端接口，不能由浏览器请求伪造实现
 
 独立 worker 在批准后调用 `ExecuteApproved`，领取持久执行 ID 与租约；当前授权、批准、调查、绑定、来源规则和 YAML 计划均需在远端动作前复核，远端动作后再核。状态先为 `pending_review`。合并与同步后调用 `ObserveEnabled`；只有当前绑定 Prometheus 组中唯一规则的表达式、持续时间、全部标签与注解精确匹配，才记录 `enabled`。观察是只读对账：即使创建者之后撤权或调查结案，仍须能准确记录已生效规则，不能把不可读等同于未启用。证据不完整时保持待观察或失败关闭，不能报告 `enabled`。
 
-`cmd/aiops` 目前没有上述隔离查询源、批准证明、规则应用器和 worker 接线。`v3passkey` 的现有提案断言仍显式拒绝，`v3_proposals` 本身只有审查/拒绝状态。接线前 `dry_run`、`enabled` 不应升主路由 `implemented`；冻结新建页仍发送 `query/op/threshold/for_minutes`，与后端的完整规则输入不一致，页面提示也会把待批准误写成已启用，须由 WAN-117 对齐。
+`cmd/aiops` 目前没有上述隔离查询源、批准证明、规则应用器和 worker 接线。`v3passkey` 的现有提案断言仍显式拒绝，`v3_proposals` 本身只有审查/拒绝状态。主 POST 仅按 `draft` 条件式成功路径计数，不代表 `dry_run`、`enabled` 或启用流程完成；冻结新建页仍发送 `query/op/threshold/for_minutes`，与后端的完整规则输入不一致，页面提示也会把待批准误写成已启用，须由 WAN-117 对齐。

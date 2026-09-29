@@ -59,7 +59,7 @@
 | 事件与告警 | GET | `/alert-rules` | 新增 | implemented |
 | 事件与告警 | GET | `/alert-rules/{id}` | 新增 | implemented |
 | 事件与告警 | POST | `/alert-rules/{id}/dry-run` | 新增 | implemented |
-| 事件与告警 | PUT | `/alert-rules/{id}` | 新增 | mock |
+| 事件与告警 | PUT | `/alert-rules/{id}` | 新增 | implemented |
 | 事件与告警 | GET | `/notification-routes` | 新增 | implemented |
 | 事件与告警 | GET | `/silences` | 新增 | implemented |
 | 事件与告警 | GET | `/inhibitions` | 新增 | implemented |
@@ -99,8 +99,8 @@
 | v4 新建流程 | POST | `/incidents` | 新增 | implemented |
 | v4 新建流程 | POST | `/alert-rules/generate` | 新增 | implemented |
 | v4 新建流程 | POST | `/alert-rules/preview` | 新增 | implemented |
-| v4 新建流程 | POST | `/alert-rules` | 新增 | mock |
-| v4 新建流程 | POST | `/alert-rules/import` | 新增 | mock |
+| v4 新建流程 | POST | `/alert-rules` | 新增 | implemented |
+| v4 新建流程 | POST | `/alert-rules/import` | 新增 | implemented |
 | v4 新建流程 | POST | `/notification-routes/test` | 新增 | implemented |
 | v4 新建流程 | POST | `/notification-routes` | 新增 | implemented |
 | v4 新建流程 | POST | `/inhibitions/preview` | 新增 | implemented |

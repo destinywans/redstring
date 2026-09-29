@@ -13,14 +13,14 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3alertrules"
+	"github.com/wans/aiops-canvas/internal/v3rulemodel"
 )
 
 // AlertRuleResolver only accepts the process-owned Prometheus source and exact
 // file/group bindings used by the observed alert-rule API. Provider labels can
 // corroborate ownership, but cannot assign a rule to an application.
 type AlertRuleResolver struct {
-	source   v3alertrules.Source
+	source   v3rulemodel.Source
 	bindings map[string]string
 }
 
@@ -31,7 +31,7 @@ type alertRuleCandidate struct {
 
 var safeAlertExpressionRE = regexp.MustCompile(`^[A-Za-z0-9_:.{}\[\](),+*/%<>=!^ -]+$`)
 
-func NewAlertRuleResolver(source v3alertrules.Source, bindings []v3alertrules.RuleGroupBinding) (*AlertRuleResolver, error) {
+func NewAlertRuleResolver(source v3rulemodel.Source, bindings []v3rulemodel.RuleGroupBinding) (*AlertRuleResolver, error) {
 	if source == nil || len(bindings) == 0 {
 		return nil, errUnavailable
 	}
@@ -103,7 +103,7 @@ func (r *AlertRuleResolver) Resolve(ctx context.Context, environment, observedID
 	return result, nil
 }
 
-func alertSnapshot(rule v3alertrules.ObservedRule, environment, app string, identity [32]byte) (readAlertSnapshot, error) {
+func alertSnapshot(rule v3rulemodel.ObservedRule, environment, app string, identity [32]byte) (readAlertSnapshot, error) {
 	if !boundedText(rule.Name, 200) || !boundedText(rule.Expression, 4096) ||
 		!safeAlertExpressionRE.MatchString(rule.Expression) || !boundedText(rule.Group, 200) ||
 		rule.Duration < 0 || rule.Duration > 86400 || math.Trunc(rule.Duration) != rule.Duration ||

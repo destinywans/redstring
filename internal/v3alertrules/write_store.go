@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"time"
 
@@ -415,9 +416,9 @@ func (s *WriteService) reserveImport(ctx context.Context, actor core.User, env, 
 	return result, tx.Commit(ctx)
 }
 
-func (s *WriteService) replay(ctx context.Context, actor core.User, operation, key, digest, env, app string) (map[string]any, bool, error) {
+func (s *WriteService) replay(r *http.Request, actor core.User, operation, key, digest, env, app string) (map[string]any, bool, error) {
 	var storedDigest, storedEnv, storedApp string
-	err := s.DB.QueryRow(ctx, `SELECT request_digest,environment_id,application_id FROM v3_alert_rule_draft_operations
+	err := s.DB.QueryRow(r.Context(), `SELECT request_digest,environment_id,application_id FROM v3_alert_rule_draft_operations
  WHERE actor_id=$1 AND operation=$2 AND idempotency_key=$3`, actor.ID, operation, key).
 		Scan(&storedDigest, &storedEnv, &storedApp)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -429,7 +430,7 @@ func (s *WriteService) replay(ctx context.Context, actor core.User, operation, k
 	if storedDigest != digest || storedEnv != env || storedApp != app {
 		return nil, true, problem(409, "idempotency_conflict", "Idempotency key was used for another request")
 	}
-	result, err := s.export(ctx, actor, operation, key, digest, nil)
+	result, err := s.export(r, actor, operation, key, digest, nil)
 	return result, true, err
 }
 
@@ -503,27 +504,15 @@ func (s *WriteService) claim(ctx context.Context, actor core.User, operation, ke
 	return record, false, tx.Commit(ctx)
 }
 
-func (s *WriteService) export(ctx context.Context, actor core.User, operation, key, digest string,
+func (s *WriteService) export(r *http.Request, actor core.User, operation, key, digest string,
 	_ map[string]any) (map[string]any, error) {
+	ctx := r.Context()
 	record, done, err := s.claim(ctx, actor, operation, key, digest)
 	if err != nil {
 		return nil, err
 	}
 	if done {
 		return parseResponse(record.Response)
-	}
-	// These checks are adjacent to the external write. A provider or grant can
-	// still change during GitLab I/O; the post-write checks record that race.
-	if err := s.authorize(ctx, actor, record.EnvironmentID, record.ApplicationID); err != nil {
-		var p *writeProblem
-		if errors.As(err, &p) && (p.status == 403 || p.status == 404) {
-			if markErr := s.markInvalid(ctx, actor, record, "rejected", nil, "authorization_changed_before_export"); markErr != nil {
-				return nil, markErr
-			}
-		} else if markErr := s.releaseBeforeExport(ctx, actor, record); markErr != nil {
-			return nil, markErr
-		}
-		return nil, err
 	}
 	if err := s.recheckManifestSources(ctx, record); err != nil {
 		var p *writeProblem
@@ -538,7 +527,18 @@ func (s *WriteService) export(ctx context.Context, actor core.User, operation, k
 		}
 		return nil, err
 	}
-	mr, err := s.Repository.ExportDraft(ctx, record.Branch, record.Path, record.Payload, "Review alert rule draft "+record.ID)
+	mr, attempted, err := s.exportAuthorized(r, actor, record)
+	if !attempted {
+		var p *writeProblem
+		if errors.As(err, &p) && (p.status == 403 || p.status == 404) {
+			if markErr := s.markInvalid(ctx, actor, record, "rejected", nil, "authorization_changed_before_export"); markErr != nil {
+				return nil, markErr
+			}
+		} else if markErr := s.releaseBeforeExport(ctx, actor, record); markErr != nil {
+			return nil, markErr
+		}
+		return nil, err
+	}
 	if err != nil {
 		if markErr := s.markUnknown(ctx, actor, record); markErr != nil {
 			return nil, markErr
@@ -577,6 +577,80 @@ func (s *WriteService) export(ctx context.Context, actor core.User, operation, k
 		return nil, err
 	}
 	return result, nil
+}
+
+// Keep the current session, grant tables, application binding and operation
+// locked while GitLab creates the review MR. A grant revoke, logout or draft
+// reclaim must serialize after this export. Provider changes are checked
+// separately before and after I/O because the provider is not in this DB.
+func (s *WriteService) exportAuthorized(r *http.Request, actor core.User, record operationRecord) (DraftMR, bool, error) {
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	tx, err := s.DB.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return DraftMR{}, false, err
+	}
+	defer func() {
+		cleanup, stop := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
+		defer stop()
+		_ = tx.Rollback(cleanup)
+	}()
+	var state, branch, path string
+	var attempt, projectID int64
+	var active, payloadMatches bool
+	err = tx.QueryRow(ctx, `SELECT state,attempt_generation,branch,path,project_id,
+ COALESCE(lease_until>clock_timestamp(),false),payload=$3::jsonb
+ FROM v3_alert_rule_draft_operations WHERE id=$1 AND actor_id=$2 FOR UPDATE`,
+		record.ID, actor.ID, string(record.Payload)).
+		Scan(&state, &attempt, &branch, &path, &projectID, &active, &payloadMatches)
+	if err != nil {
+		return DraftMR{}, false, err
+	}
+	if state != "exporting" || attempt != record.Attempt || !active || !payloadMatches ||
+		branch != record.Branch || path != record.Path || projectID != record.ProjectID {
+		return DraftMR{}, false, problem(409, "draft_conflict", "Draft export attempt changed")
+	}
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil {
+		return DraftMR{}, false, problem(401, "unauthorized", "Session expired")
+	}
+	if err = store.LockActiveSession(ctx, tx, cookie.Value, actor.ID); err != nil {
+		if errors.Is(err, store.ErrSessionRevoked) {
+			return DraftMR{}, false, problem(401, "unauthorized", "Session expired")
+		}
+		return DraftMR{}, false, err
+	}
+	if _, err = tx.Exec(ctx, `LOCK TABLE rbac_user_roles,rbac_department_roles,rbac_roles,v3_role_grants IN SHARE MODE`); err != nil {
+		return DraftMR{}, false, err
+	}
+	if err = s.authorizeTx(ctx, tx, actor, record.EnvironmentID, record.ApplicationID); err != nil {
+		return DraftMR{}, false, err
+	}
+	// Row locks cannot stop natural expiry. Leave enough time for the bounded
+	// remote call, then confirm the session again before releasing the locks.
+	var longEnough bool
+	err = tx.QueryRow(ctx, `SELECT expires_at>clock_timestamp()+interval '31 seconds'
+ FROM sessions WHERE token_hash=$1 AND user_id=$2`, store.Hash(cookie.Value), actor.ID).Scan(&longEnough)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && !longEnough {
+		return DraftMR{}, false, problem(401, "unauthorized", "Session expires too soon for draft export")
+	}
+	if err != nil {
+		return DraftMR{}, false, err
+	}
+	mr, exportErr := s.Repository.ExportDraft(ctx, record.Branch, record.Path, record.Payload, "Review alert rule draft "+record.ID)
+	var stillActive bool
+	checkErr := tx.QueryRow(ctx, `SELECT expires_at>clock_timestamp() FROM sessions
+ WHERE token_hash=$1 AND user_id=$2`, store.Hash(cookie.Value), actor.ID).Scan(&stillActive)
+	if checkErr != nil || !stillActive {
+		if checkErr == nil || errors.Is(checkErr, pgx.ErrNoRows) {
+			checkErr = problem(401, "unauthorized", "Session expired during draft export")
+		}
+		return mr, true, checkErr
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return mr, true, err
+	}
+	return mr, true, exportErr
 }
 
 func (s *WriteService) releaseBeforeExport(ctx context.Context, actor core.User, record operationRecord) error {

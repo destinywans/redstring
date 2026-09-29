@@ -1,5 +1,12 @@
 # AIOps Canvas 检查点
 
+## CP-194 · 2026-09-29 · WAN-118 告警规则待审草稿
+
+- 从已推送 CP-193 `d32a5e7` 接续，来源 `ef6e360`/`2ec3109` 合入为 `f79f709`/`f5a5616`；本批正式入口注册 `POST /alert-rules`、`PUT /alert-rules/{id}`、`POST /alert-rules/import`。受信当前 Prometheus 规则来源和绑定用于检查应用/环境/组及重复身份；草稿版本、幂等键、审计和导出尝试存入持久表。三条只在 `draft` 模式有条件成功路径，导出不可部署 JSON 到独立 GitLab 待审 MR，不启用规则。迁移 `141_v3_alert_rule_drafts.sql`、`142_v3_alert_rule_trials.sql` 和 `143_v3_alert_rule_enable_intents.sql` 尚未在现有业务库执行。
+- 独立源码审查发现原导出在授权事务提交后才调用 GitLab，撤权期间仍可能写 MR。已改为最长 30 秒的事务，锁草稿尝试、当前会话/用户、RBAC 来源与应用/环境；会话剩余不足 31 秒先拒绝，远端结果不明保留同身份对账。专用 `aiops-alert-rule-drafts/` 源前缀、目标分支和 `aiops-alert-rule-draft` 标签与配置提升、通知、抑制隔离；两项环境配置未同时设置时导出关闭，重叠时启动失败。复核未见草稿条件路径的确定阻断。为消除源提交引入的包依赖环，规则观察类型下沉到独立 `v3rulemodel`，原公共类型名保留别名。
+- `dry_run` 的应用隔离查询源/持久 worker、`enabled` 的提案绑定 Passkey 批准、受信 YAML 计划/独立执行器及合并同步后的精确观察均未接入正式入口，模式请求明确不可用；GET 试运行辅助接口也未注册。冻结规则新建页提交的是阈值请求而非完整规则，且把待批准误显示为启用，页面未验收。已将三条主路由按仅 `draft` 有条件成功路径升为 `implemented`，现 **155/166、11 mock**；此数不是全部模式或产品页面完成数。OpenAPI **329 路径、396 操作、471 schema**。
+- 本批最小 `go build ./cmd/aiops`、OpenAPI 生成、主契约/路由矩阵/readiness 与差异静态检查通过；按当前限制未运行测试、现有库迁移、真实 Prometheus/GitLab/Argo CD、HTTP 或浏览器。无 PR、合并或部署；下一步继续剩余 11 条，Webhook 出站重投维持停用。
+
 ## CP-193 · 2026-09-29 · WAN-118 告警分组批量认领与调查
 
 - 从已推送 CP-192 归属纠正 `0e347c9` 接续，WAN-118 来源 `0faeab8` 合入 `0c3036d`。正式 V3 入口注册 `POST /alert-groups/bulk`，聚合 OpenAPI 在告警片段后加入领域定义。输入为单环境、1–20 个不同的当前 GET 分组 ID，以及 `claim`、`investigate` 或 `silence`；结果逐项保留请求顺序，全成功 200、部分失败 207。`matched` 是受权当前持久成员数，`changed` 是实际改动行数。该路由不调用外部平台。

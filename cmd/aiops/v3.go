@@ -381,6 +381,13 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	if err != nil {
 		return fmt.Errorf("configure V3 inhibition drafts: %w", err)
 	}
+	alertRuleDraftRepository, err := loadV3AlertRuleDraftRepository(configSync, routeDraftRepository, inhibitionRepository,
+		os.Getenv("AIOPS_V3_ALERT_RULE_DRAFT_TARGET_BRANCH"),
+		os.Getenv("AIOPS_V3_ALERT_RULE_DRAFT_BRANCH_PREFIX"))
+	if err != nil {
+		return fmt.Errorf("configure V3 alert rule drafts: %w", err)
+	}
+	v3alertrules.NewWriteService(s.DB, policy, ruleService, alertRuleDraftRepository).Register(api)
 	inhibitionHistory, err := loadV3InhibitionHistory(os.Getenv("AIOPS_V3_INHIBITION_HISTORY_CONFIG"),
 		*info, alertmanagerPolicyBindings)
 	if err != nil {

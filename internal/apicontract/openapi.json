@@ -33948,6 +33948,152 @@
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
         ]
+      },
+      "post": {
+        "summary": "Create a governed alert-rule draft, isolated trial, or enable proposal",
+        "operationId": "post_alert_rules",
+        "description": "Minimum role: operator. V3 instance and environment scope apply. Requires one selected environment, one active application, alert_rules.change and a safe Idempotency-Key. draft creates an immutable nondeployable GitOps JSON revision and pending GitLab MR; no rule is applied. dry_run requires an explicitly reviewed, hard application-isolated Prometheus query view plus a running durable worker; it records one bounded 24-hour non-notifying trial and returns 202, or 503/429 when unavailable or full. enabled requires an open investigation, current human and proposals.change, a trusted exact deployable YAML plan, and persists a digest-bound proposal action with pending_approval status after exporting a nondeployable draft MR; it returns 202 and does not enable the rule. A separate passkey-bound human approval, independent executor, protected deployable MR and observed GitOps sync plus exact Prometheus rule readback are required before enabled is recorded. No current application-isolated trial source, approval producer or rule applier is wired into the product entrypoint.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3AlertRuleCreateResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Isolated trial queued or enable intent pending human approval",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/V3AlertRuleDraftResult"
+                    },
+                    {
+                      "$ref": "#/components/schemas/V3AlertRuleTrialResult"
+                    },
+                    {
+                      "$ref": "#/components/schemas/V3AlertRuleEnabledIntentResult"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Serialized draft exceeds the bounded GitOps payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "alert-rules"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3AlertRuleCreateSpec"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": "Unique per actor and operation; replay with the same payload returns the original result."
+          }
+        ]
       }
     },
     "/alert-rules/{id}": {
@@ -34053,6 +34199,150 @@
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
         ]
+      },
+      "put": {
+        "summary": "Revise a governed alert-rule draft",
+        "operationId": "put_alert_rules_id",
+        "description": "Minimum role: operator. V3 instance and environment scope apply. The path id identifies the governed draft. expected_version must match its current revision. When the draft references a provider-observed rule, observed_rule and rule.observed_rule_id must preserve that identity. A confirmed pending-review revision rejects provider content drift; rejected or stale-remote revisions may be explicitly superseded against the current observed content. The replacement remains in one selected environment/application/group with exact scope labels and mode=draft. A successful update writes a new immutable, nondeployable GitOps JSON revision to a pending GitLab MR; it never enables, merges or applies a rule. Same-key same-payload retry returns the same result; changed payload conflicts. Validation returns 422; missing or uncertain GitLab connectivity returns 503 not_connected/upstream.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3AlertRuleDraftResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Serialized draft exceeds the bounded GitOps payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Only draft mode is supported for update and import",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "alert-rules"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": "Unique per actor and operation; replay with the same payload returns the original result."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3AlertRuleUpdateDraftRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/alert-rules/observed": {
@@ -35426,6 +35716,259 @@
               "type": "string",
               "description": "Quoted config_revision ETag from GET /inhibitions"
             }
+          }
+        ]
+      }
+    },
+    "/alert-rules/import": {
+      "post": {
+        "summary": "Import bounded rule YAML as review drafts",
+        "operationId": "post_alert_rules_import",
+        "description": "Minimum role: operator. V3 instance and environment scope apply. Requires one selected environment and an active application with alert_rules.change. Parse at most 10 groups and 20 rules from one YAML document; never trust a caller-supplied group override, and require every rule to carry exact application/environment labels matching the selected binding. Reject malformed, unsafe, over-limit or cross-scope YAML with 422. Compare each candidate with currently authorized identities: report new/pending_review or duplicate/duplicate_skipped explicitly. An all-duplicate input returns 200 duplicates_only with no MR; new candidates return 201 and become immutable, nondeployable GitOps draft JSON in one pending GitLab MR. Duplicates are not written. No rule is enabled, merged or applied. Same-key same-payload retry returns the same pending draft/MR; changed payload conflicts. Missing or uncertain GitLab connectivity returns 503 not_connected/upstream.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3AlertRuleImportResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Serialized draft exceeds the bounded GitOps payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Only draft mode is supported for update and import",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "All input rules are duplicates; no GitOps MR was created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3AlertRuleImportResult"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "alert-rules"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3AlertRuleImportRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "description": "Unique per actor and operation; replay with the same payload returns the original result."
+          }
+        ]
+      }
+    },
+    "/alert-rules/dry-runs/{id}": {
+      "get": {
+        "summary": "Read one isolated alert-rule trial",
+        "operationId": "get_alert_rules_dry_runs_id",
+        "description": "Minimum role: operator. V3 instance and environment scope apply. Reads only the creating actor's trial in the selected environment after current alert_rules.change and active application access. Status stalled is derived when a queued/running worker has not updated the row for over two minutes. Completed requires all 1440 one-minute evaluations; missed or failed evaluations are inconclusive rather than zero firing. This route and the worker require a deployment-reviewed, application-isolated query source and are not connected by default.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3AlertRuleTrialResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "alert-rules"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
           }
         ]
       }
@@ -65750,6 +66293,453 @@
           "stat",
           "active",
           "hits_7d"
+        ]
+      },
+      "V3AlertRuleDraftSpec": {
+        "type": "object",
+        "properties": {
+          "application_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "environment_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "group": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "expr": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "for": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "annotations": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "draft"
+            ]
+          },
+          "observed_rule_id": {
+            "type": "string",
+            "description": "Optional provider-observed rule ID when proposing a change to an existing bound rule."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "application_id",
+          "environment_id",
+          "group",
+          "name",
+          "expr",
+          "for",
+          "labels",
+          "annotations",
+          "mode"
+        ]
+      },
+      "V3AlertRuleCreateSpec": {
+        "type": "object",
+        "properties": {
+          "application_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "environment_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "group": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "expr": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "for": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "annotations": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "dry_run",
+              "enabled"
+            ]
+          },
+          "observed_rule_id": {
+            "type": "string",
+            "description": "Optional provider-observed rule ID when proposing a change to an existing bound rule."
+          },
+          "investigation_id": {
+            "type": "string",
+            "description": "Required for enabled mode: an open investigation in the selected application and environment."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "application_id",
+          "environment_id",
+          "group",
+          "name",
+          "expr",
+          "for",
+          "labels",
+          "annotations",
+          "mode"
+        ]
+      },
+      "V3AlertRuleObservedIdentity": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "group": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "group",
+          "name"
+        ]
+      },
+      "V3AlertRuleUpdateDraftRequest": {
+        "type": "object",
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "observed_rule": {
+            "$ref": "#/components/schemas/V3AlertRuleObservedIdentity"
+          },
+          "rule": {
+            "$ref": "#/components/schemas/V3AlertRuleDraftSpec"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "expected_version",
+          "rule"
+        ]
+      },
+      "V3AlertRulePendingMR": {
+        "type": "object",
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "iid": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "project_id",
+          "iid",
+          "url"
+        ]
+      },
+      "V3AlertRuleDraftResult": {
+        "type": "object",
+        "properties": {
+          "draft_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_review"
+            ]
+          },
+          "mr": {
+            "$ref": "#/components/schemas/V3AlertRulePendingMR"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "draft_id",
+          "version",
+          "status",
+          "mr"
+        ]
+      },
+      "V3AlertRuleTrialResult": {
+        "type": "object",
+        "properties": {
+          "trial_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "dispatch_pending",
+              "queued",
+              "running",
+              "completed",
+              "inconclusive",
+              "stopped",
+              "stalled"
+            ]
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_update": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "evaluated_points": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1440
+          },
+          "missing_points": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1440
+          },
+          "would_fire": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500
+          },
+          "windows": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "trial_id",
+          "status",
+          "started_at",
+          "expires_at",
+          "last_update",
+          "evaluated_points",
+          "missing_points",
+          "would_fire",
+          "windows"
+        ]
+      },
+      "V3AlertRuleEnabledIntentResult": {
+        "type": "object",
+        "properties": {
+          "draft_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "proposal_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_approval",
+              "rejected"
+            ]
+          },
+          "mr": {
+            "$ref": "#/components/schemas/V3AlertRulePendingMR"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "draft_id",
+          "version",
+          "proposal_id",
+          "status",
+          "mr"
+        ]
+      },
+      "V3AlertRuleCreateResult": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/V3AlertRuleDraftResult"
+          },
+          {
+            "$ref": "#/components/schemas/V3AlertRuleTrialResult"
+          },
+          {
+            "$ref": "#/components/schemas/V3AlertRuleEnabledIntentResult"
+          }
+        ]
+      },
+      "V3AlertRuleImportRequest": {
+        "type": "object",
+        "properties": {
+          "application_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "yaml": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 131072,
+            "description": "At most 128 KiB UTF-8, with a bounded number of groups and rules. The server parses and validates rule groups, labels, expressions and durations."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "draft"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "application_id",
+          "yaml",
+          "mode"
+        ]
+      },
+      "V3AlertRuleImportCandidate": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "new",
+              "duplicate"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_review",
+              "duplicate_skipped"
+            ]
+          },
+          "draft_id": {
+            "type": "string",
+            "description": "Present only for a new candidate."
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Present only for a new candidate."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "group",
+          "name",
+          "outcome",
+          "status"
+        ]
+      },
+      "V3AlertRuleImportResult": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_review",
+              "duplicates_only"
+            ]
+          },
+          "mr": {
+            "$ref": "#/components/schemas/V3AlertRulePendingMR"
+          },
+          "candidates": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/V3AlertRuleImportCandidate"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "candidates"
         ]
       },
       "V3AlertGroupBulkRequest": {

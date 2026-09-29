@@ -91,7 +91,7 @@ func (s *WriteService) handleEnable(w http.ResponseWriter, r *http.Request, env 
 		writeError(w, err)
 		return
 	}
-	if result, found, err := s.replay(r.Context(), actor, "enable", key, digest, env, spec.ApplicationID); err != nil {
+	if result, found, err := s.replay(r, actor, "enable", key, digest, env, spec.ApplicationID); err != nil {
 		writeError(w, err)
 		return
 	} else if found {
@@ -120,7 +120,7 @@ func (s *WriteService) handleEnable(w http.ResponseWriter, r *http.Request, env 
 		writeError(w, err)
 		return
 	}
-	result, err = s.export(r.Context(), actor, "enable", key, digest, result)
+	result, err = s.export(r, actor, "enable", key, digest, result)
 	if err != nil {
 		writeError(w, err)
 		return

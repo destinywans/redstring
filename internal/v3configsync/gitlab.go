@@ -71,6 +71,7 @@ var (
 const promotionLabel = "aiops-config-promotion"
 const notificationRouteDraftLabel = "aiops-notification-route-draft"
 const inhibitionDraftLabel = "aiops-inhibition-draft"
+const alertRuleDraftLabel = "aiops-alert-rule-draft"
 
 type GitLabClient struct {
 	config  Config
@@ -107,6 +108,21 @@ func (c *GitLabClient) ForInhibitionDrafts(target, prefix string) (*GitLabClient
 	copy.config.TargetBranch = target
 	copy.config.BranchPrefix = prefix
 	copy.mrLabel = inhibitionDraftLabel
+	return &copy, nil
+}
+
+// ForAlertRuleDrafts exports review-only JSON records. Its target, source
+// namespace and label are separate from importable configuration promotions.
+func (c *GitLabClient) ForAlertRuleDrafts(target, prefix string) (*GitLabClient, error) {
+	if c == nil || !validBranch(target) || prefix != "aiops-alert-rule-drafts/" ||
+		target == c.config.TargetBranch || strings.HasPrefix(prefix, c.config.BranchPrefix) ||
+		strings.HasPrefix(c.config.BranchPrefix, prefix) {
+		return nil, errors.New("invalid GitLab alert rule draft target or branch prefix")
+	}
+	copy := *c
+	copy.config.TargetBranch = target
+	copy.config.BranchPrefix = prefix
+	copy.mrLabel = alertRuleDraftLabel
 	return &copy, nil
 }
 
@@ -349,6 +365,8 @@ func (c *GitLabClient) Export(ctx context.Context, branch, path string, payload 
 			message = "Add reviewed AIOps notification route draft"
 		} else if c.mrLabel == inhibitionDraftLabel {
 			message = "Add reviewed AIOps inhibition rule draft"
+		} else if c.mrLabel == alertRuleDraftLabel {
+			message = "Add reviewed AIOps alert rule draft"
 		}
 		body := map[string]string{"branch": branch, "content": string(payload), "commit_message": message}
 		status, _, err = c.call(ctx, http.MethodPost, c.projectPath()+"/repository/files/"+url.PathEscape(path), nil, body, 201, nil)

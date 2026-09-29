@@ -18,6 +18,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3rulemodel"
 )
 
 type Access interface {
@@ -63,25 +64,10 @@ func (c DatabaseCatalog) Applications(ctx context.Context, environments []string
 	return apps, rows.Err()
 }
 
-// Source is trusted process configuration. List must read a real provider and
-// return only its observed rules. The service still enforces labels and RBAC.
-type Source interface {
-	List(context.Context, string) ([]ObservedRule, error)
-}
-
-type ObservedRule struct {
-	GroupIdentity      string // exact provider file + NUL + group name
-	Group              string
-	Name               string
-	Expression         string
-	State              string
-	Duration           float64
-	EvaluationInterval time.Duration // group evaluation interval; zero when provider omits it
-	Labels             map[string]string
-	Annotations        map[string]string
-	LastEvaluation     time.Time
-	EvaluationTime     float64
-}
+// Aliases preserve the public read API while keeping shared observation types
+// below both the alert-rule and configuration-promotion packages.
+type Source = v3rulemodel.Source
+type ObservedRule = v3rulemodel.ObservedRule
 
 type Summary struct {
 	ID            string `json:"id"`
@@ -116,14 +102,7 @@ type Service struct {
 	bindings map[string]string // environment + provider group identity -> application ID
 }
 
-// RuleGroupBinding is trusted process configuration, reviewed alongside the
-// provider rule file. Labels from Prometheus cannot create or change ownership.
-type RuleGroupBinding struct {
-	EnvironmentID string
-	ApplicationID string
-	File          string
-	Group         string
-}
+type RuleGroupBinding = v3rulemodel.RuleGroupBinding
 
 func New(catalog Catalog, access Access, source Source, bindings []RuleGroupBinding) (*Service, error) {
 	index := make(map[string]string, len(bindings))

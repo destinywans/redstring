@@ -181,16 +181,20 @@ v3_route('get','/knowledge-sources/registered-evidence','Read registered source 
     response=obj({'items':{'type':'array','items':ref('V3RegisteredSourceEvidence'),'maxItems':200},
         'index':{'type':'null'},'complete_v3_dto':{'const':False},
         'partial':{'const':True},'reason':string(enum=['scoped_source_evidence_partial']),
-        'truncated':v3_bool(),'unknown_fields':arr(string())},
-        ['items','index','complete_v3_dto','partial','reason','truncated','unknown_fields']),
+        'truncated':v3_bool(),'unknown_fields':arr(string()),
+        'unconfigured_external_bindings':arr(string(enum=['git_markdown','confluence','notion','feishu']))},
+        ['items','index','complete_v3_dto','partial','reason','truncated','unknown_fields',
+         'unconfigured_external_bindings']),
     desc='Auxiliary current-scope projection, not the full KnowledgeSource DTO. The configured registration is unverified; last_read is a completed observation. A public Web keyword_content requires a matching latest body/hash/revision. Git Markdown, Confluence, Notion, Feishu and local-upload document_count and last_sync_at require matching latest private documents, hashes, source versions, scope and observations. Local-upload proof additionally requires the original owned file to remain present, unchanged and not revoked. Zero is reported only for an actual empty read. No connected vector index, connection or sync health is claimed. No body or credentials are returned. Current grants and source evidence are rechecked in a fresh final statement; changed state returns 409.')
 v3_route('get','/knowledge-sources','Read registered knowledge sources and verified observation evidence',
     response=obj({'items':{'type':'array','items':ref('V3RegisteredSourceEvidence'),'maxItems':200},
         'index':{'type':'null'},'complete_v3_dto':{'const':False},
         'partial':{'const':True},'reason':string(enum=['scoped_source_evidence_partial']),
-        'truncated':v3_bool(),'unknown_fields':arr(string())},
-        ['items','index','complete_v3_dto','partial','reason','truncated','unknown_fields']),
-    desc='Backend partial main-route projection of actual persisted registrations. It shares the current-scope and fresh final recheck of /knowledge-sources/registered-evidence. Completed public Web, Git Markdown, Confluence, Notion, Feishu and local-upload reads can supply observed_at/count. Document count and last sync time require matching private document, version, scope and observation proof; local upload also requires the original owned file to remain available, unchanged and not revoked. Connection health, scheduled sync, vector chunks and index settings remain unknown. No synthetic catalog cards are emitted; null means unknown or unindexed, never zero or connected.')
+        'truncated':v3_bool(),'unknown_fields':arr(string()),
+        'unconfigured_external_bindings':arr(string(enum=['git_markdown','confluence','notion','feishu']))},
+        ['items','index','complete_v3_dto','partial','reason','truncated','unknown_fields',
+         'unconfigured_external_bindings']),
+    desc='Backend partial main-route projection of actual persisted registrations. It shares the current-scope and fresh final recheck of /knowledge-sources/registered-evidence. Completed public Web, Git Markdown, Confluence, Notion, Feishu and local-upload reads can supply observed_at/count. Document count and last sync time require matching private document, version, scope and observation proof; local upload also requires the original owned file to remain present, unchanged and not revoked. Unconfigured external binding types are named at process level; this does not reveal hidden registrations or prove connectivity for any configured type. Connection health, scheduled sync, vector chunks and index settings remain unknown. No synthetic catalog cards are emitted; null means unknown or unindexed, never zero or connected.')
 for status, description in [('409','Selected source state, authorization or content changed; retry'),
                             ('413','Candidate scope exceeds 10000 registrations'),
                             ('503','Source registry or authorization is unavailable')]:

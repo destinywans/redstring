@@ -61,13 +61,32 @@ type KeywordContent struct {
 }
 
 type registeredEvidenceResponse struct {
-	Items         []RegisteredEvidence `json:"items"`
-	Index         any                  `json:"index"`
-	CompleteV3DTO bool                 `json:"complete_v3_dto"`
-	Partial       bool                 `json:"partial"`
-	Reason        string               `json:"reason"`
-	Truncated     bool                 `json:"truncated"`
-	UnknownFields []string             `json:"unknown_fields"`
+	Items                        []RegisteredEvidence `json:"items"`
+	Index                        any                  `json:"index"`
+	CompleteV3DTO                bool                 `json:"complete_v3_dto"`
+	Partial                      bool                 `json:"partial"`
+	Reason                       string               `json:"reason"`
+	Truncated                    bool                 `json:"truncated"`
+	UnknownFields                []string             `json:"unknown_fields"`
+	UnconfiguredExternalBindings []string             `json:"unconfigured_external_bindings"`
+}
+
+// This describes process configuration, not connection health. A configured
+// source type still needs an exact per-registration binding, a successful
+// read and separate index evidence. The response omits credentials and URLs.
+func (s *Service) unconfiguredExternalBindings() []string {
+	configured := map[string]bool{"git_markdown": len(s.gitMarkdownBindings) > 0}
+	for _, binding := range s.externalBindings {
+		configured[binding.Type] = true
+	}
+	configured["feishu"] = len(s.feishuBindings) > 0
+	missing := make([]string, 0, 4)
+	for _, kind := range []string{"git_markdown", "confluence", "notion", "feishu"} {
+		if !configured[kind] {
+			missing = append(missing, kind)
+		}
+	}
+	return missing
 }
 
 const registeredEvidenceCandidates = `SELECT src.id,src.name,src.source_type,src.environment_id,
@@ -317,7 +336,8 @@ func (s *Service) registeredEvidence(w http.ResponseWriter, r *http.Request) {
 	}
 	httpapi.WriteJSON(w, 200, registeredEvidenceResponse{Items: items, Index: nil,
 		Partial: true, Reason: "scoped_source_evidence_partial",
-		Truncated: truncated, UnknownFields: unknownFields})
+		Truncated: truncated, UnknownFields: unknownFields,
+		UnconfiguredExternalBindings: s.unconfiguredExternalBindings()})
 }
 
 type evidenceRows interface {

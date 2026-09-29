@@ -33,6 +33,8 @@ type Service struct {
 func New(db *pgxpool.Pool, access Access) *Service { return &Service{DB: db, Access: access} }
 
 func (s *Service) Register(api *httpapi.Server) {
+	api.Register("GET /api/v1/postmortems", "viewer", s.Summary)
+	api.MarkV3ObjectRoute("GET /api/v1/postmortems", "knowledge", "view")
 	api.Register("GET /api/v1/postmortems/candidates", "viewer", s.Candidates)
 	api.MarkV3ObjectRoute("GET /api/v1/postmortems/candidates", "knowledge", "view")
 	api.Register("GET /api/v1/postmortems/draft", "viewer", s.Draft)

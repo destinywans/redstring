@@ -115,6 +115,30 @@ v3_route('get','/runbooks/{id}/history','Read bounded Runbook governance history
 P['/runbooks/{id}/history']['get']['responses']['413'] = {
     'description':'Runbook history exceeds 100 rows in any unpaged collection',
     'content':{'application/json':{'schema':ref('Error')}}}
+S['V3PostmortemDashboardKPI'] = obj({'id':string(),'label':string(),'value':string(),
+    'unit':string(),'series':arr(v3_num())},['id','label','value','series'])
+S['V3PostmortemDashboardItem'] = obj({**fieldnames('id title date duration cause root_cause actions incident_id'),
+    'severity':string(enum=['P1','P2','P3','P4']),
+    'status':string(enum=['draft','published']),
+    'workflow_status':string(enum=['draft','review','published'])},
+    ['id','title','severity','date','duration','cause','actions','status','workflow_status','incident_id'])
+v3_route('get','/postmortems','Read scoped persisted postmortem dashboard evidence',
+    query=[v3_query('tab',string(enum=['all','draft','review','published'])),v3_query('q'),
+           v3_query('page',integer(minimum=1,maximum=1000)),
+           v3_query('page_size',integer(minimum=1,maximum=1000))],
+    response=obj({'kpis':arr(ref('V3PostmortemDashboardKPI')),
+        'items':arr(ref('V3PostmortemDashboardItem')),
+        'causes':arr({'type':'object','additionalProperties':True}),
+        'impact_by_service':arr({'type':'object','additionalProperties':True}),
+        'followups':arr({'type':'object','additionalProperties':True}),
+        'complete_v3_dto':{'const':False},'unknown_fields':arr(string()),
+        'page':integer(minimum=1),'page_size':integer(minimum=1),'total':integer(minimum=0)},
+        ['kpis','items','causes','impact_by_service','followups','complete_v3_dto',
+         'unknown_fields','page','page_size','total']),
+    desc='Reads persisted reports, registered incident scope and exact closing event, then checks current events:view and knowledge:view on each object; unpublished reports additionally require the author or knowledge:manage. Visible records supply title, severity, close date, duration, action count and recorded root text. The unknown cause category is labeled Unknown, never inferred from prose. KPIs count visible reports and mean resolution time only for those reported incidents. Cause categories, action completion, impact minutes, MTTA and recurrence lack producers, so arrays remain empty and complete_v3_dto=false. This partial main-route response does not meet the frozen dashboard DTO. More than 1000 visible records returns 413.')
+P['/postmortems']['get']['responses']['413'] = {
+    'description':'More than 1000 visible reports exceed the bounded dashboard view',
+    'content':{'application/json':{'schema':ref('Error')}}}
 S['V3PostmortemCandidate'] = obj({**fieldnames('id title resolved duration'),
     'severity':string(enum=['P1','P2','P3','P4']), 'evidence':integer(minimum=0)},
     ['id','title','severity','resolved','duration','evidence'])

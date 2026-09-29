@@ -43,11 +43,27 @@ type BulkSilenceSource struct {
 	ApplicationBindings map[string]map[string]string
 	EnvironmentLabels   map[string]string
 	IngressSources      []operations.Source
+	// GroupIdentityBindings are operator-reviewed assertions about a dedicated
+	// label produced upstream and preserved in authenticated webhook labels.
+	// The value must be unique to the full local group tuple across every alert
+	// on the bound Alertmanager endpoint, including future alerts, and must not
+	// be reused while a resulting silence can remain active. A fingerprint
+	// field in an inbound envelope is not this label.
+	GroupIdentityBindings map[string]map[string]map[string]BulkGroupIdentityBinding // environment -> ingress source -> application
 	// AlertRangeCovered is the operator-attested source binding from the
 	// oldest active occurrence through now. It must honor context cancellation
 	// and use only local/configured storage reads, never network I/O. A
 	// nil/empty result fails closed.
 	AlertRangeCovered func(context.Context, string, string, time.Time, time.Time) string
+}
+
+type BulkGroupIdentityBinding struct {
+	LabelName                  string
+	ConfigRevision             string    // Reviewed producer/forwarder configuration revision.
+	AttestationDigest          string    // SHA-256 of the reviewed uniqueness and propagation contract.
+	EndpointBindingFingerprint string    // Must match the current silence proposal endpoint binding.
+	Attestation                string    // Exact value: upstream-equality-unique-stable-v1.
+	ExpiresAt                  time.Time // Must cover at least the next one-hour silence.
 }
 
 type BulkService struct {

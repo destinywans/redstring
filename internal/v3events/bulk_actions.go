@@ -17,6 +17,7 @@ type bulkMember struct {
 	ID, SourceID, Fingerprint, Title, Status, AlertStatus, AssigneeID, InvestigationID string
 	StartsAt                                                                           time.Time
 	Suspected                                                                          bool
+	Labels                                                                             map[string]string
 }
 
 type lockedBulkGroup struct {
@@ -34,7 +35,7 @@ func lockBulkGroup(ctx context.Context, tx pgx.Tx, env, id string, key groupKey)
 		return group, store.ErrNotFound
 	}
 	rows, err := tx.Query(ctx, `SELECT i.id,i.source_id,i.fingerprint,i.title,i.status,i.alert_status,
-	 i.assignee_id,i.investigation_id,i.starts_at,i.suspected,COALESCE(a.owner_team_id,''),e.id
+	 i.assignee_id,i.investigation_id,i.starts_at,i.suspected,i.labels,COALESCE(a.owner_team_id,''),e.id
  FROM ops_incidents i
  JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id AND NOT e.archived
  JOIN applications a ON a.id=i.application_id AND NOT a.archived
@@ -52,7 +53,8 @@ func lockBulkGroup(ctx context.Context, tx pgx.Tx, env, id string, key groupKey)
 		var team, environmentID string
 		if err = rows.Scan(&member.ID, &member.SourceID, &member.Fingerprint, &member.Title,
 			&member.Status, &member.AlertStatus, &member.AssigneeID,
-			&member.InvestigationID, &member.StartsAt, &member.Suspected, &team, &environmentID); err != nil {
+			&member.InvestigationID, &member.StartsAt, &member.Suspected, &member.Labels,
+			&team, &environmentID); err != nil {
 			return group, err
 		}
 		if len(group.Members) != 0 && (team != group.OwnerTeam || environmentID != group.EnvironmentID) {
@@ -176,10 +178,19 @@ func (b *BulkService) applyBulkGroup(r *http.Request, env, id string, key groupK
 	case "investigate":
 		result, err = investigateBulkGroup(r.Context(), tx, httpapi.CurrentUser(r), id, env, key, group)
 	case "silence":
-		// Local group IDs include a source and fingerprint, but the current
-		// proposal matches only application and alertname. It could silence a
-		// different fingerprint group, so no proposal is created.
-		return bulkFailed(id, "not_connected", matched)
+		plan, prepareErr := b.prepareBulkSilence(r.Context(), tx, httpapi.CurrentUser(r), id, env, key, group)
+		if prepareErr != nil {
+			return safeBulkError(id, matched, prepareErr)
+		}
+		if err = bulkSessionCanCoverProposal(r.Context(), tx, token, httpapi.CurrentUser(r).ID); err != nil {
+			return safeBulkError(id, matched, err)
+		}
+		// The proposal producer uses its own transaction and can prelock an
+		// existing proposal. Release group and grant locks before invoking it.
+		if err = tx.Commit(r.Context()); err != nil {
+			return safeBulkError(id, matched, err)
+		}
+		return b.createBulkSilenceProposal(r, id, env, key, matched, plan)
 	}
 	if err != nil {
 		return safeBulkError(id, matched, err)

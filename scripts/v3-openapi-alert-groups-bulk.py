@@ -11,7 +11,7 @@ S['V3AlertGroupBulkRequest'] = obj({
 S['V3AlertGroupBulkItem'] = obj({
     'id':string(pattern='^group:[0-9a-f]{24}$'),
     'outcome':string(enum=['claimed','already_claimed','investigating',
-                           'already_investigating',
+                           'already_investigating','pending_approval',
                            'not_found','conflict','not_connected',
                            'investigation_required','group_too_large',
                            'session_revoked','human_required','unavailable']),
@@ -30,7 +30,7 @@ S['V3AlertGroupBulkResult'] = obj({
 v3_route('post','/alert-groups/bulk','Apply bounded actions to persisted alert groups',
     role='operator with current application or owner-team grants',
     body=ref('V3AlertGroupBulkRequest'),response=ref('V3AlertGroupBulkResult'),
-    desc='Requires exactly one selected environment. Each group ID is recomputed using the same persisted environment row ID, application ID, source ID and fingerprint as GET /alert-groups; the handler locks only that current group and checks its current application or owner-team grant. Investigate also requires canvas.change. Input order and one result per ID are preserved. A missing or hidden group returns not_found; per-group failures do not erase successful groups. Claim changes platform assignees only, with same-user retries idempotent. Investigate creates or reuses a real persisted investigation and root branch for the locked group snapshot, returning the real ID. Silence always returns item-level not_connected and creates no proposal because the available Alertmanager matcher cannot prove exact fingerprint scope. changed counts incident rows changed. A response with only successful item outcomes is 200; any per-item failure yields 207 with all item results.')
+    desc='Requires exactly one selected environment. Each group ID is recomputed using the same persisted environment row ID, application ID, source ID and fingerprint as GET /alert-groups; the handler locks only that current group and checks its current application or owner-team grant. Investigate also requires canvas.change. Input order and one result per ID are preserved. A missing or hidden group returns not_found; per-group failures do not erase successful groups. Claim changes platform assignees only, with same-user retries idempotent. Investigate creates or reuses a real persisted investigation and root branch for the locked group snapshot, returning the real ID. Silence requires an operator-attested dedicated exact group identity label in every immutable persisted member label set, plus source and fingerprint evidence for the local group. Its proposed Alertmanager silence uses exact equality matchers for environment, application and that dedicated identity. Missing configuration or proof returns item-level not_connected. Complete evidence creates a pending review proposal, returning pending_approval, proposal_id and changed=0; this route does not write upstream or claim that alerts are silenced. Two-person approval and an independent worker with group-evidence revalidation are required before execution. For other actions, changed counts incident rows changed. A response with only successful item outcomes is 200; any per-item failure yields 207 with all item results.')
 P['/alert-groups/bulk']['post']['responses']['207'] = {
     'description':'At least one item failed; inspect every ordered result',
     'content':{'application/json':{'schema':ref('V3AlertGroupBulkResult')}}}

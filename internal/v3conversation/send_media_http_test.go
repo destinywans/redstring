@@ -130,6 +130,14 @@ func mediaSendDatabase(t *testing.T) *pgxpool.Pool {
 	if err := (&store.Store{DB: db}).Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
+	var applied int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM schema_migrations
+ WHERE name IN ('133_v3_conversation_media_snapshot.sql','133_v3_push_ingress.sql')`).Scan(&applied); err != nil {
+		t.Fatal(err)
+	}
+	if applied != 2 {
+		t.Fatalf("both distinct 133 migrations must apply by full filename, got %d", applied)
+	}
 	return db
 }
 

@@ -43,7 +43,7 @@
 | `text.delta` | 向第 `index` 个 `text` 部件追加 `delta` |
 | `message.completed` | 结束，前端关闭 EventSource |
 
-**按轮选择模型（v4）**：请求体可带 `model`（`provider:model`，来自 `GET /models`）与 `reasoning`（该模型声明的档位 id）；缺省时用 `GET /models` 的 `default`。一轮只用一个模型，回复进行中切换只影响下一轮。`message.completed.run` 仅在取得可信模型用量时出现；存在时才记录 `model_id`、`model`、`reasoning`、`reasoning_label`、`brand`，不能为缺失用量补零。冻结前端约定附件先经 `POST /uploads` 上传，再以 `attachments: Upload[]` 随消息提交，附件作为数据处理。当前后端只支持本人、当前环境的粘贴纯文本及 `.txt/.log/.md/.csv/.json/.yaml/.yml` 文本文件：开始回合事务复核完整引用、内容类型与最多 16 KiB 的来源正文，将有界原文快照保存在仅供模型读取的字段，后续回合不重新抓取附件；对外消息只返回引用，不返回正文。图片、链接、PDF 等有效但不支持的类型在建回合前返回 `422 attachment_model_unsupported`；无效或越界引用返回 `422 invalid_attachment`，附件或模型上下文过大返回 413。带历史附件快照的后续纯文本回合也在建回合前检查所选模型预算。迁移 `086_v3_conversation_attachment_context.sql` 为历史消息设置空快照，不将旧引用推断为已读正文。冻结前端的超长粘贴会改写上传响应的 `name` 展示值，后端完整引用核验会拒绝它；文件上传 XHR 未带环境头，也会被上传接口拒绝。`POST` 尚未覆盖冻结前端可发送的全部 Upload 类型，主状态保持 `mock`；SSE 的后端状态另按其独立读取语义和验证证据判断。产品前端的附件发送与错误恢复尚未验收。
+**按轮选择模型（v4）**：请求体可带 `model`（`provider:model`，来自 `GET /models`）与 `reasoning`（该模型声明的档位 id）；缺省时用 `GET /models` 的 `default`。一轮只用一个模型，回复进行中切换只影响下一轮。`message.completed.run` 仅在取得可信模型用量时出现；存在时才记录 `model_id`、`model`、`reasoning`、`reasoning_label`、`brand`，不能为缺失用量补零。冻结前端先经 `POST /uploads` 上传，再以 `attachments: Upload[]` 随消息提交。后端在接受事务中复核本人、当前环境、完整引用及内容，将粘贴和安全 UTF-8 文本文件（`.txt/.log/.conf/.toml/.md/.csv/.json/.yaml/.yml`）存为有界私有快照；符合安全 URL 规则的公开 HTTPS Markdown 链接（不超过 1000 字节、无查询/片段、只用 443 端口）在接受前安全抓取一次并冻结正文，重试及后续回合不重新抓取。PNG/JPEG/GIF/WebP 图片和 PDF 只交给明确支持相应媒体输入的 OpenAI Responses 模型，原始字节在同一事务保存为私有媒体快照；对外消息及 SSE 只返回附件引用，不返回正文或媒体字节。无效或越界引用返回 `422 invalid_attachment`，不支持的媒体/模型或不可公开读取的链接在建回合前明确 422。上传接口允许更宽的 HTTP/HTTPS URL，上传成功不保证链接可用于发送；内部 Grafana/Kibana/GitLab 链接也不能当作公开 Markdown 读取。超出来源、媒体或已知模型预算返回 413，上游链接暂时不可用返回 503；已接受回合的供应商错误保留失败状态并可重试。历史媒体及文本在后续回合按快照恢复，模型切换时也先检查能力与已知预算；媒体 token 成本和完整系统/工具输入仍以供应商为准，可能在接受后失败。迁移 `086_v3_conversation_attachment_context.sql` 不将旧引用推断为已读正文；`133_v3_conversation_media_snapshot.sql` 保存新媒体快照。冻结前端的粘贴展示别名现可按严格格式规范化；文件上传 XHR 仍缺环境头，页面附件发送与错误恢复未验收。`POST` 仅按后端处理、鉴权、契约和定向检查计为 `implemented`；SSE 按其独立读取语义判断，不表示真实供应商或整页已验收。
 
 调查画布节点对话仍规划复用富消息部件与事件；当前通用画布节点 `POST /canvases/{id}/nodes/{node}/messages` 是持久化同步 `{ reply }`，不使用上述 SSE 流。
 
@@ -104,7 +104,7 @@
 | GET | `/conversations` | `filter`, `q`, 分页 | 四标签页同一授权快照中的 `ConversationList`；未知用量与来源为 `null` | implemented |
 | GET | `/conversations/{id}` | | 本人对话或私人通用画布的持久 `Conversation`；纯调查 ID 用调查图读取，返回 404 | implemented |
 | POST | `/conversations` | `{ text, context?, model? }` | `{ id }` | implemented |
-| POST | `/conversations/{id}/messages` | `{ text, model?, reasoning?, attachments? }` | `{ message, reply_id }`，随后由事件流推送回复 | mock |
+| POST | `/conversations/{id}/messages` | `{ text, model?, reasoning?, attachments? }` | `{ message, reply_id }`，随后由事件流推送回复 | implemented |
 | GET | `/conversations/{id}/events` | `reply_id?`、`Last-Event-ID?` | SSE：`StreamEvent`（见「流式对话」）；回复结束后服务端保存完整消息 | implemented |
 | GET | `/canvases` | `kind`, `q`, 分页 | `{ items: CanvasSummary[], counts }`；`kind`：investigation / plan / review / analysis / custom | implemented |
 | POST | `/canvases` | `{ title, kind, template_id, goal, services, ai_draft }` | `{ id, href }`；调查类返回 `INV-*` | implemented |

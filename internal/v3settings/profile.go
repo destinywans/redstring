@@ -29,7 +29,7 @@ type profileContact struct {
 	Kind     string `json:"kind"`
 	Label    string `json:"label"`
 	Value    string `json:"value"`
-	Verified bool   `json:"verified"`
+	Verified *bool  `json:"verified"`
 }
 type profileSession struct {
 	ID      string `json:"id"`
@@ -44,7 +44,7 @@ type profileFactor struct {
 }
 type profileSecurity struct {
 	PasswordChanged string           `json:"password_changed"`
-	MFAEnabled      bool             `json:"mfa_enabled"`
+	MFAEnabled      *bool            `json:"mfa_enabled"`
 	OrgRule         string           `json:"org_rule"`
 	Factors         []profileFactor  `json:"factors"`
 	Sessions        []profileSession `json:"sessions"`
@@ -72,7 +72,6 @@ func (s *Service) getProfile(r *http.Request) (profileView, error) {
 	ctx := r.Context()
 	id := httpapi.CurrentUser(r).ID
 	v := profileView{Contacts: []profileContact{}, Notifications: []profileNotification{}}
-	v.Security.Factors = []profileFactor{}
 	v.Security.Sessions = []profileSession{}
 	var email, phone *string
 	err := s.Store.DB.QueryRow(ctx, `SELECT u.name,u.v3_display_name,u.department,u.job_title,u.v3_timezone,u.email,u.phone FROM users u WHERE u.id=$1 AND NOT u.disabled AND u.deleted_at IS NULL`, id).Scan(&v.Name, &v.DisplayName, &v.Department, &v.Title, &v.Timezone, &email, &phone)
@@ -104,7 +103,7 @@ func (s *Service) getProfile(r *http.Request) (profileView, error) {
 	if changed != nil {
 		v.Security.PasswordChanged = changed.UTC().Format(time.RFC3339)
 	}
-	v.Security.OrgRule = localize(r, "二次验证尚未接入", "Two-factor authentication is not configured")
+	v.Security.OrgRule = localize(r, "组织 MFA 策略状态不可用", "Organization MFA policy status unavailable")
 	v.Security.Tokens = localize(r, "个人令牌尚未接入", "Personal tokens are not configured")
 	current := currentSessionHash(r)
 	rows, err := s.Store.DB.Query(ctx, `SELECT token_hash,expires_at FROM sessions WHERE user_id=$1 AND expires_at>now() ORDER BY expires_at DESC,token_hash LIMIT 100`, id)
@@ -118,9 +117,17 @@ func (s *Service) getProfile(r *http.Request) (profileView, error) {
 		if err = rows.Scan(&sid, &expires); err != nil {
 			return v, err
 		}
-		v.Security.Sessions = append(v.Security.Sessions, profileSession{ID: sid, Device: localize(r, "浏览器会话", "Browser session"), Sub: expires.UTC().Format(time.RFC3339), Current: sid == current})
+		v.Security.Sessions = append(v.Security.Sessions, profileSession{ID: sid, Device: localize(r, "设备信息未记录", "Device not recorded"), Sub: localize(r, "到期时间 ", "Expires ") + expires.UTC().Format(time.RFC3339), Current: sid == current})
 	}
-	return v, rows.Err()
+	if err := rows.Err(); err != nil {
+		return v, err
+	}
+	// The persisted user and session rows do not establish contact verification,
+	// usable MFA factors, or a session's login method/device. Their nil values are
+	// explicitly unknown. ProfileView requires booleans, so this projection must
+	// not be served or used as the basis of a partial PUT until the evidence and
+	// permission checks are connected.
+	return v, errIdentityUnavailable
 }
 
 func currentSessionHash(r *http.Request) string {
@@ -187,7 +194,11 @@ func equalContacts(a, b []profileContact) bool {
 		return false
 	}
 	for i := range a {
-		if a[i] != b[i] {
+		if a[i].Kind != b[i].Kind || a[i].Label != b[i].Label || a[i].Value != b[i].Value {
+			return false
+		}
+		av, bv := a[i].Verified, b[i].Verified
+		if (av == nil) != (bv == nil) || (av != nil && *av != *bv) {
 			return false
 		}
 	}
@@ -218,8 +229,8 @@ func (s *Service) endSession(ctx context.Context, userID, currentHash, targetHas
 }
 
 func (s *Service) registerProfile(api *httpapi.Server) {
-	// ProfileView requires an authoritative MFA state. Until factor enrollment
-	// is connected, do not report the Go zero value (false) as proof of no MFA.
+	// ProfileView requires authoritative identity evidence. The partial
+	// projection above returns errIdentityUnavailable until its gaps are closed.
 	api.Register("GET /api/v1/me/profile", "viewer", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, errIdentityUnavailable)
 	})

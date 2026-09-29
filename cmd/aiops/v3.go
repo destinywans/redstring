@@ -189,14 +189,6 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		return err
 	}
 	policy := &rbac.V3Policy{Store: s}
-	pushCfg, err := loadV3PushSources(os.Getenv("AIOPS_V3_PUSH_SOURCES_CONFIG"))
-	if err != nil {
-		return fmt.Errorf("load V3 Push sources: %w", err)
-	}
-	pushService, err := v3ingestpush.New(s.DB, cfg, pushCfg, policy)
-	if err != nil {
-		return fmt.Errorf("configure V3 Push ingress: %w", err)
-	}
 	gitMarkdownBindings, err := v3knowledgesources.ParseGitMarkdownBindings(os.Getenv("AIOPS_V3_GIT_MARKDOWN_BINDINGS"))
 	if err != nil {
 		return fmt.Errorf("configure V3 Git Markdown bindings: %w", err)
@@ -210,6 +202,14 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	sourceRegistry, err := configuredV3SourceRegistryWithGit(os.Getenv("AIOPS_V3_PUBLIC_WEB_READER_ENABLED"), s, policy, activeGitMarkdownBindings)
 	if err != nil {
 		return err
+	}
+	pushCfg, err := loadV3PushSources(os.Getenv("AIOPS_V3_PUSH_SOURCES_CONFIG"))
+	if err != nil {
+		return fmt.Errorf("load V3 Push sources: %w", err)
+	}
+	pushService, err := v3ingestpush.New(s.DB, cfg, pushCfg, policy)
+	if err != nil {
+		return fmt.Errorf("configure V3 Push ingress: %w", err)
 	}
 	if err := api.ConfigureV3Environment(cfg, policy, s.Session, func(ctx context.Context, u core.User, module, action, environmentID string) error {
 		return policy.Authorize(ctx, u, rbac.V3Decision{Module: module, Action: action, EnvironmentID: environmentID})

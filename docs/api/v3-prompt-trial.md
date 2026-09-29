@@ -1,0 +1,13 @@
+# V3 Prompt trial
+
+`POST /api/v1/prompts/{id}/trial` 比较同一个已登记 Prompt 的两个持久版本。请求保留 `{case,a,b}`；`a`、`b` 是不同的 `vN`，且必须属于该 Prompt。请求还必须带 `Idempotency-Key`。当前会话、单一应用/环境、活动 Agent 归属与 `agents.change` 权限在执行前核对；写入结果与审计时重新核对，不能凭客户端版本名或案例 ID 读取其他作用域的内容。
+
+案例登记只保存 `expected_ref` 等引用，不等于可执行输入。试运行须取得可信生产者登记的**有版本、不可变的案例输入正文**，将其版本或摘要与本次试运行绑定；只有引用或缺少输入正文时返回 409。不能从页面 Mock、标题、预期答案或历史模型输出补造输入。请求中使用的 Prompt 正文分别从指定的持久版本读取，不能改用当前版本指针。结果记录包含 Prompt/Agent/应用/环境、案例输入版本或摘要、A/B 版本与正文摘要、模型提供者和模型名、调用参数、每次调用状态和时间、尽力取得的提供者请求 ID、用量来源、发起人及幂等键；审计记录元数据，不复制敏感正文。提供者请求 ID 可以为空，当前不保存原始响应正文或其引用。
+
+成功返回原始的两个元素数组，按 A、B 顺序各返回 `version`、实际 `text`、`trial_id`、`model:{provider,model}`、`tokens`、`duration`、`usage_source`，以及 `score:null`、`good:null`、`score_status:"unknown"`。`tokens` 仅在提供者报告完整用量时为字符串，否则为 `null` 且 `usage_source:"unknown"`；`duration` 是服务端测得的调用耗时字符串。目前没有自动评分生产者，不能把模型输出、人工标签或启发式比较填成分数或好坏。两个结果须来自同一可信案例输入和同一受限模型配置，且成功持久化后才返回 200；失败、超时或结果不确定时不返回单边成功数组。
+
+运行适配器必须显式配置。每次请求最多两次无工具模型调用，每个版本一次；固定输入、输出、超时和费用准入预算，不允许同一幂等键重放模型调用，也不允许模型访问写工具或基础设施。模型未配置返回 503 `prompt_trial_not_connected`；确定的上游失败返回 502 `prompt_trial_upstream_failed`；请求可能已送达后发生超时、响应异常或存储失败则返回 502 `prompt_trial_ambiguous`，并保留能够取得的请求 ID 和用量。缺少可信案例输入、幂等冲突或相同请求仍在执行时返回 409；案例或版本不可见时返回 404。相同幂等键和相同范围、输入、版本在成功记录存在时重放已保存结果；不同请求不得共用键。进程中断、网络超时或存储失败后，无法凭本地记录证明上游是否已计费；同一键只读取或标记不确定状态，不能自动再次调用。用**新**幂等键重新执行可能产生额外费用，必须先核对上游账单或请求记录。准入预算由受限适配器的调用次数、字节/token 上限和运维审查单价估算，不能由请求方放宽，也不是提供者保证的硬账单上限。
+
+配置示例在 `docs/api/examples/prompt-trial-model.json`。部署接线从受保护的配置文件读取 JSON，另给 `NewPromptTrialOpenAIAdapter(configJSON, allowedHosts)` 提供经审核的精确 DNS 主机名单；API key 只从配置指定的环境变量读取。随后对同一个 `v3agents.Service` 调用 `SetPromptTrialModelAdapter(adapter)`，再调用 `Register(api)`。输入由受信任的进程内生产者调用 `RecordPromptTrialCaseInput` 登记，公开请求不能自行提供或改写用例正文。本领域批次不修改 `cmd/aiops`，所以 WAN-117 接线前真实入口会返回 `prompt_trial_not_connected`；示例文件本身不会自动启用模型。配置内的 token 单价是运维审查的预算上界，不是提供者已核对的账单价格；实际费用仍须按上游账单核验。
+
+本片段在 `scripts/v3-openapi-agent-prompt-trial.py`，须由 WAN-117 在现有 `v3-openapi-agents.py` **之后**执行，仅覆盖 `POST /prompts/{id}/trial`。冻结前端 `PromptTrial` 把 `score`、`tokens`、`duration` 规定为字符串且 `good` 为布尔值，不接受这里如实返回的 `null`/`unknown`；页面仍有示意案例和试运行数据。WAN-117 需更新公共契约及页面兼容性后才可把主路由标为产品就绪。静态契约或 Go 编译不证明模型可用、费用约束生效或真实试运行成功。

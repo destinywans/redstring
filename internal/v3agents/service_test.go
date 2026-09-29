@@ -190,6 +190,9 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 		t.Helper()
 		r := httptest.NewRequest(method, path, strings.NewReader(body))
 		r.Header.Set("X-AIOps-Environment", env)
+		if strings.HasSuffix(path, "/trial") {
+			r.Header.Set("Idempotency-Key", "isolated-prompt-trial-0001")
+		}
 		if language != "" {
 			r.Header.Set("Accept-Language", language)
 		}
@@ -464,7 +467,7 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 		t.Fatal(err)
 	}
 	assert(request("GET", "/api/v1/prompts/triage.system", adminToken, "dev", ""), 200, `"version":"v3"`)
-	assert(request("POST", "/api/v1/prompts/p1/trial", adminToken, "dev", `{"case":"c1","a":"v1","b":"v2"}`), 503, `"code":"prompt_trial_unavailable"`)
+	assert(request("POST", "/api/v1/prompts/p1/trial", adminToken, "dev", `{"case":"c1","a":"v1","b":"v2"}`), 404, `"code":"not_found"`)
 	assert(request("GET", "/api/v1/prompts", adminToken, "dev", ""), 200, `"id":"p1"`)
 	if _, err = db.Exec(ctx, `INSERT INTO v3_agent_prompts(id,agent_id,name,current_version)
  SELECT 'bulk-p-'||g,'triage','Bulk Prompt '||lpad(g::text,3,'0'),1

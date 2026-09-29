@@ -1,0 +1,15 @@
+{
+  "environments": {
+    "dev": {
+      "provider": "openai-compatible",
+      "model": "replace-with-approved-model",
+      "endpoint": "https://api.example.com/v1/chat/completions",
+      "api_key_env": "AIOPS_PROMPT_TRIAL_DEV_API_KEY",
+      "max_input_bytes": 8192,
+      "max_output_tokens": 256,
+      "max_cost_micro_usd": 20000,
+      "input_price_micro_usd_per_million": 1000000,
+      "output_price_micro_usd_per_million": 2000000
+    }
+  }
+}

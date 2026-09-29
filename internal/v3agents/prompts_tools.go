@@ -458,26 +458,6 @@ func (s *Service) PromptVersion(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, 201, map[string]any{"version": promptDisplayVersion(next)})
 }
 
-func (s *Service) PromptTrial(w http.ResponseWriter, r *http.Request) {
-	_, _, ok := s.promptAgent(w, r, r.PathValue("id"), "change")
-	if !ok {
-		return
-	}
-	var body struct {
-		Case string `json:"case"`
-		A    string `json:"a"`
-		B    string `json:"b"`
-	}
-	if !httpapi.Decode(w, r, &body) {
-		return
-	}
-	if !bounded(body.Case, 128) || !bounded(body.A, 80) || !bounded(body.B, 80) {
-		invalid(w, "Case and versions are required")
-		return
-	}
-	httpapi.Error(w, 503, "prompt_trial_unavailable", "A scoped evaluation runner is not connected")
-}
-
 func (s *Service) Tools(w http.ResponseWriter, r *http.Request) {
 	s.readTools(w, r)
 }

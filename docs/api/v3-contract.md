@@ -3,7 +3,7 @@
 - 状态：**契约冻结 v1（2026-09-28）**。前端已按本契约用 Mock 实现；后端按接口逐项迁移，`mock` 仍表示尚未达到后端完成标准，即使已有部分处理逻辑。历史：2026-09-24 初版；v4 增补模型与推理强度、附件、通用画布、各"新建"流程、链路 v2；2026-09-28 增补实例与环境。
 - 表格每行只写一个方法和一个路径。`scripts/check-v3-contract.py` 会核对本文件和 Mock 路由是否一致，改契约后运行它。
 - 冻结后的修改流程：先改本文件和 `types.ts`，再改 Mock 与后端；破坏性修改（删字段、改语义）在「变更记录」里写明。
-- 类型真相源：`web/src/v3/api/types.ts`。本文件只描述路径、参数和语义，字段以该文件为准。
+- 冻结页面的类型真相源：`web/src/v3/api/types.ts`。本文件描述路径、参数和语义；本批后端安全字段（服务映射候选身份与修订）先由本文件及 OpenAPI 定义，前端类型/Mock 尚待同一契约适配，不能据此宣称页面已接通。
 - Mock 实现：`web/src/v3/mock/domains/*.ts`，每个文件对应下面一节；`VITE_API_MODE=http` 时前端直接请求真实后端。
 - 与既有 `docs/api-contract.md` / `internal/apicontract/openapi.json` 的关系：v3 为新 UI 所需的读模型。后端落地时优先复用既有资源（调查、分支、提案、执行、Runbook、连接器）；能直接对齐的路径就对齐，对不齐的在 OpenAPI 中新增，再同步 `scripts/build-openapi.py`。本文件的"状态"列在后端实现后改为 `implemented`。
 - `scripts/check-v3-contract.py` 核对的 165 条 Mock 路由，加上前端模拟而无 Mock 路由的 SSE `GET /conversations/{id}/events`，共 166 条。`implemented` 只表示后端真实处理、范围鉴权、契约和定向检查具备；不表示外部系统已实连或前端 HTTP 模式已验收。阶段进展与未完成项见 [后端实施记录](../plans/2026-09-28-v3-backend-implementation.md)。
@@ -81,11 +81,13 @@
 | --- | --- | --- | --- | --- |
 | GET | `/instance` | | `InstanceInfo`：`tier`（`production` \| `nonprod`）、`name`、`domain`、`environments[]`（id、名称、分组、集群、回收时间）、`default_env`，以及另一个平台的链接 `other` | implemented |
 | GET | `/integrations/lower-sources` | | `{ items: LowerSource[] }`，只有生产实例提供；非生产实例返回 404。仅返回服务端显式配置的来源元数据，不代表连接已验证 | implemented |
-| GET | `/config-sync` | | `{ direction: "import" \| "export", items: SyncItem[] }`：生产实例列出待导入项，非生产实例列出已导出项 | mock |
+| GET | `/config-sync` | | `{ direction: "import" \| "export", items: SyncItem[] }`：生产实例列出已合并候选，非生产实例列出本人已导出项 | implemented |
 | POST | `/config-sync/{id}/import` | | `SyncItem`；只允许生产实例导入已合并的变更 | mock |
 | POST | `/promotions` | `{ kind, id }` | `{ mr, path }`：写入配置仓库并发起合并请求；生产实例返回 `409 already_production` | mock |
 
-配置提升后端当前只支持 `template` / `templates` 请求值对应的**已净化画布模板**，不支持本页其余三类；不支持的类型返回 `501 promotion_kind_unavailable`。非生产导出要求选定单一环境、模板本人所有且有 `canvas.change` 授权，生成签名清单并向独立 GitLab 配置仓库提交 MR；生产导入只接受 `mr-<正整数 IID>`，要求人类平台管理员及全局 `workspace.manage`，在事务中再次核权，并验证已合并 MR 的固定提交、单一预期文件、来源签名及净化结构。导入还查询当前 MR 审批已满足、最终差异形成后且合并前的独立非 bot 审批，以及当前目标分支保护配置；这些 API 不能证明**合并当时**的治理策略，真实仓库上线前仍须保留审核与分支策略的部署证据，不能仅凭 `merged` 声称已审核。生产 `GET /config-sync` 列出的至多 100 条是**待验证候选元数据**，完整来源验证只在显式导入时发生；非生产列表仅含当前操作者在有权环境导出的至多 100 条。超限返回 413；未配置仓库、签名密钥或可信公钥返回 501；不可验证来源返回 503；`all` 写操作返回 409。本机私有 GitLab CE 项目已验证适配器协议与拒绝边界，尚未完成实际部署仓库的服务端导入或页面联调；前端仍展示四类配置，因此三条主契约保持 `mock`。
+`GET /config-sync` 已按后端读取契约支持 `runbook`、`alert_rule`、`agent_version` 和已净化 `template` 四类。非生产只列当前操作者在有权环境导出的签名记录，远端读取后重新检查对象、团队或应用范围及来源版本；生产要求当前人类平台管理员和全局 `workspace.manage`，从有界的已合并 MR 清单读取固定提交的唯一预期文件并验证签名、清单结构、导入台账和目标记录，远端读取后再核当前管理员授权。`merged` 是已验证的来源状态，不证明合并时的审批或分支策略；`imported` 当前只可能用于模板。两端最多返回 100 项，超限 413；未配置仓库、签名密钥或可信公钥返回 501，不可验证来源返回 503。真实部署仓库与冻结页面尚未联调；页面只在 `pending` 时展示导入入口，而后端生产读取返回 `merged`，因此页面未验收。
+
+`POST /promotions` 和 `POST /config-sync/{id}/import` 当前仍只支持 `template` / `templates` 对应的**已净化画布模板**，其余三类写入返回 `501 promotion_kind_unavailable`。非生产导出要求选定单一环境、模板本人所有且有 `canvas.change` 授权，生成签名清单并向独立 GitLab 配置仓库提交 MR；生产导入只接受 `mr-<正整数 IID>`，要求人类平台管理员及全局 `workspace.manage`，在事务中再次核权，并验证已合并 MR 的固定提交、单一预期文件、来源签名及净化结构。导入还查询当前 MR 审批已满足、最终差异形成后且合并前的独立非 bot 审批，以及当前目标分支保护配置；这些 API 不能证明**合并当时**的治理策略，真实仓库上线前仍须保留审核与分支策略的部署证据，不能仅凭 `merged` 声称已审核。`all` 写操作返回 409。本机私有 GitLab CE 项目已验证适配器协议与拒绝边界，尚未完成实际部署仓库的服务端导入或页面联调；两条写主契约保持 `mock`。
 
 导入同一变更重复请求收敛为一条台账和成功审计；目标模板或导入台账发生唯一冲突时返回 409，事务不留下半成品。独立来源/生产 schema 的 HTTP 往返与新 PG 连接读回只验证本地持久化；仓库替身给出已合并状态，不能等同于真实 GitLab 的完整审批链。每来源环境 ID 的独立允许列表尚未配置。
 
@@ -102,8 +104,8 @@
 | POST | `/conversations` | `{ text, context?, model? }` | `{ id }` | implemented |
 | POST | `/conversations/{id}/messages` | `{ text, model?, reasoning?, attachments? }` | `{ message, reply_id }`，随后由事件流推送回复 | mock |
 | GET | `/conversations/{id}/events` | `reply_id?`、`Last-Event-ID?` | SSE：`StreamEvent`（见「流式对话」）；回复结束后服务端保存完整消息 | implemented |
-| GET | `/canvases` | `kind`, `q`, 分页 | `{ items: CanvasSummary[], counts }`；`kind`：investigation / plan / review / analysis / custom | mock |
-| POST | `/canvases` | `{ title, kind, template_id, goal, services, ai_draft }` | `{ id, href }`；调查类返回 `INV-*` | mock |
+| GET | `/canvases` | `kind`, `q`, 分页 | `{ items: CanvasSummary[], counts }`；`kind`：investigation / plan / review / analysis / custom | implemented |
+| POST | `/canvases` | `{ title, kind, template_id, goal, services, ai_draft }` | `{ id, href }`；调查类返回 `INV-*` | implemented |
 | GET | `/canvases/{id}` | | `CanvasDoc`（非调查类画布：通用节点块、边、产物、各节点对话） | implemented |
 | POST | `/canvases/{id}/nodes/{node}/messages` | `{ text, model?, reasoning? }` | `{ reply }` | implemented |
 | GET | `/canvas-templates` | | `{ items: CanvasTemplateOption[] }` | mock |
@@ -118,6 +120,8 @@
 对话详情、后续模型上下文和最新回复使用持久 `sort_order`，同一事务写入的用户/助手消息按回合排序。有 `accepted` 审计的回合按序列化顺序；迁入或无审计的旧回合只按时间戳作确定性回填，不能据此证明原始提交顺序。迁移 085 在应用启动事务中回填整表并建索引，部署前须停旧回复 worker 并在代表性副本量测锁时。
 
 `GET /conversations` 的 `mine` 与 `archived` 现在在同一授权快照中合并本人持久对话和私人通用画布，按当前会话、角色来源、环境及各模块查看权限复核，搜索、分页、总数与已知分面保持一致。`team`/`triage` 缺可靠统一来源时返回 503；相应 `counts` 为 `null`，`stats` 为空。历史调查缺可靠的本人/参与者归属，画布回合缺用量时 `tokens` 为 `null`，不以部分数字冒充总用量。当前前端将 `tokens` 当数字且列表入口只核 `conversation.view`，画布专属用户及未知用量的页面体验仍未接通；主读取路由保持 `mock`。
+
+`GET /canvases` 在同一数据库快照中合并本人私人通用画布与当前应用/团队、环境有权的持久调查，按 `kind`、搜索和分页给出列表与完整计数。调查状态由持久 `open/closed` 映射；历史调查无记录的创建者返回空参与者数组，不编造人员。`POST /canvases` 在单一环境中创建通用画布，调查类要求恰好一个有效且已映射的服务；保存时重核当前 Cookie、画布权限、服务及负责人团队，画布/调查、初始节点与审计共同提交。可选 AI 草稿只用用户标题、目标和服务 ID，拒绝工具及非结构化结果；模型不可用则 503 且不创建。列表中的调查链接不代表完整调查详情已接通；冻结新建页会发送三个固定服务，调查创建会返回 422，页面仍待适配。
 
 通用画布模板保存已在同一事务复核会话、本人同环境源画布和当前 `canvas.change`，只复制净化后的节点/边布局及用户提交的模板名称，排除源节点标题、内容块、产物与对话；图结构验证失败不保存模板或审计。模板名称仍是可持久化文本：当前前端名称留空时会沿用源画布标题，可能包含需用户检查的业务信息。前端默认提交 `steps=true`、`runbooks=true`，而后端明确 422；页面还称“团队模板”，但当前仅为私有模板，且列表不含调查模板。故 `GET/POST /canvas-templates` 仍为 `mock`。
 
@@ -142,7 +146,7 @@
 | POST | `/incidents/{id}/timeline` | `{ text }` | 时间线条目 | implemented |
 | GET | `/alert-rules` | | `AlertRuleSummary[]` 与完整可见范围的 `all/firing/scheduled` 计数；仅展示服务端按 Prometheus 规则文件和组明确绑定到应用、标签和环境均匹配，且当前应用或其负责团队有 `alert_rules.view` 的规则；上游读取后复核负责人和授权，范围变化不返回旧列表。来源失败或超限明确报错，不返回部分计数；无可信周期来源时 `scheduled=0` | implemented |
 | GET | `/alert-rules/{id}` | | `AlertRule` | mock |
-| POST | `/alert-rules/{id}/dry-run` | `{ expr, for }` | `{ would_fire, windows }` | mock |
+| POST | `/alert-rules/{id}/dry-run` | `{ expr, for }` | `{ would_fire, windows }` | implemented |
 | PUT | `/alert-rules/{id}` | `AlertRule` | `AlertRule` | mock |
 | GET | `/notification-routes` | | `{ root: RouteNode }` | mock |
 | GET | `/silences` | `state: active\|planned\|expired\|all` | 静默列表及当前可见记录计数；应用标签需在服务端显式绑定到当前环境的有效应用 ID，再按应用/团队授权判断；环境明确但应用范围较宽的静默仅环境级静默管理员可见；无精确环境或匹配器歧义的静默不展示，宽范围只报告覆盖标志 | implemented |
@@ -156,6 +160,8 @@
 | POST | `/proposals/{id}/comments` | `{ text }`；可选 `Idempotency-Key` 请求头 | 评论 | implemented |
 | GET | `/executions/{id}` | | `Execution` | mock |
 | POST | `/executions/{id}/report/publish` | | 发布结果 | mock |
+
+`POST /alert-rules/{id}/dry-run` 仅对当前环境中唯一绑定且有权查看的规则运行最近六小时 Prometheus 历史 `query_range` 采样模拟。请求 `expr` 必须与服务端当前规则表达式逐字一致，`for` 可在 0 到 1 小时内调整；规则、负责人、范围与授权在上游查询后复核。每条返回序列必须带精确的应用和环境标签，缺失或混合范围、数据不完整与超限均拒绝，不返回虚构计数。`would_fire` 和 `windows` 是满足持续时长的采样片段，不是历史通知或实际告警状态；`query_offset` 与 `keep_firing_for` 未复现，规则表达式及查询输入范围仍须由可信配置和部署隔离保证。冻结页面发送 `threshold/for_minutes`，与此请求体不符；真实 Prometheus 及页面尚未验收。
 
 `POST /silences/preview` 按所选单一环境读取实时 Alertmanager 告警快照。请求支持 `=`、`!=`、`=~`、`!~`（1–20 条）；环境是隐含的精确匹配。精确 `application=` 值必须在服务端绑定到有效应用并有当前应用/团队 `silences.view`，无应用匹配则要求环境级 `silences.view` 与 `silences.manage`。Alertmanager 读取后再次核对当前授权和应用归属。`affects` 是此刻该环境匹配告警的完整条数，`sample` 仅为最多 5 个去重排序的真实 `alertname`；来源异常、超过 500 条该环境告警或异常 `null` 均返回 503，不给部分计数。预览不会创建静默。现有页面默认仅传 service/alertname，普通应用用户会因缺精确应用匹配收到 403，且页面尚未正确清除旧预览/失败状态；后端路由已闭合，页面和真实 Alertmanager 尚未验收。`POST /alerts/{id}/claim` 已改为持有事件行锁时复核当前授权，仍只返回 `{ id, assignee_id }`，不等于完整告警详情。
 
@@ -265,15 +271,15 @@ MCP 审核另有按不可变发现版本执行的三个辅助接口：`GET /mcp-
 | GET | `/ingest/push` | | `PushView`（事件类型、接口说明、投递记录、配套栈） | mock |
 | POST | `/ingest/push/test` | `{ type }` | `{ code }` | mock |
 | GET | `/service-mappings` | | `ServiceMapping` | implemented |
-| POST | `/service-mappings/accept` | `{ cells: ["service:system"] }` | `{ accepted }` | mock |
-| POST | `/service-mappings/discover` | | `{ suggestions }` | mock |
+| POST | `/service-mappings/accept` | `{ candidates: [{ id, version, service_id, environment_id, system_id, binding_revision }] }` | `{ accepted, items }` | implemented |
+| POST | `/service-mappings/discover` | | `{ suggestions, source_state, candidates }` | implemented |
 | PUT | `/service-mappings` | 完整映射；当前没有可接受的稳定身份与修订请求体 | `501 v3_not_implemented`，不写入 | mock |
 | GET | `/coverage` | `app` | `CoverageView`（覆盖矩阵、对 Agent 的影响、修复建议） | mock |
 | GET | `/webhooks` | | `WebhookView`（入站、令牌、对外 MCP、出站） | mock |
 | POST | `/webhooks/{id}/redeliver` | | 结果 | mock |
 | POST | `/api-tokens` | `{ name, scopes, ttl }` | `{ id, secret_shown_once }` | mock |
 
-服务映射候选目前仅来自管理员显式绑定的单个 GitLab 数字项目目标，不按标签、名称或部署记录推断。`POST /service-mappings/discover` 在一个环境中核对服务与连接器授权、近期探测和绑定后的激活审计，保存 15 分钟候选，不直接改服务映射；超过 500 条可见未映射来源返回 422。`POST /service-mappings/accept` 在事务中复核候选唯一性、来源身份/修订、当前授权及绑定可用性，并将映射、候选状态与审计一同提交。V3 专用校验只允许与已登记来源完全相同的单个 GitLab 项目绑定，其余绑定继续交给原平台校验器；旧平台的全局 GitLab 拒绝规则没有扩大。迁移 `090_v3_service_mapping_candidates.sql` 保存候选；应用环境退役时候选会级联删除，管理审计另记接受决定。激活审计证明绑定时曾核验项目访问，近期通用探测不证明当前仍能访问项目。V3 实例拦截未迁移的旧环境编辑路由，旧模式也不能在已绑定 V3 的数据库上启动。隔离数据库 HTTP 测试覆盖候选、接受与审计，尚无正式进程对真实 GitLab 项目的端到端验收。当前前端保存调用不发送请求体，GET 映射格仅有展示值，缺少可写入的服务、环境、连接器、目标稳定 ID 和绑定修订；已登记的 PUT 在 V3 门禁中明确返回 501，空请求和展示值请求均不修改绑定或审计。前端发现后不刷新、接受前就乐观显示成功，且文案误称来自标签/命名/部署。因此三条写主路由保持 `mock`，不能把候选持久化或被拒绝的保存当作页面完成。
+服务映射候选目前仅来自管理员显式绑定的单个 GitLab 数字项目目标，不按标签、名称或部署记录推断。`POST /service-mappings/discover` 在一个环境中核对服务与连接器授权、近期探测和绑定后的激活审计，保存 15 分钟候选并返回 `source_state` 与可复核的候选身份，不直接改服务映射；超过 500 条可见未映射来源返回 422。`POST /service-mappings/accept` 只接受发现或 GET 映射格给出的候选 `id/version/service_id/environment_id/system_id/binding_revision`，在事务中复核候选唯一性、来源身份/修订、当前授权及绑定可用性，并将映射、候选状态与审计一同提交。旧的 `{ cells: ["service:system"] }` 只有展示字符串，无法约束来源和修订，已由候选请求体取代；冻结前端及 `types.ts` 尚未适配。V3 专用校验只允许与已登记来源完全相同的单个 GitLab 项目绑定，其余绑定继续交给原平台校验器；旧平台的全局 GitLab 拒绝规则没有扩大。迁移 `090_v3_service_mapping_candidates.sql` 保存候选；应用环境退役时候选会级联删除，管理审计另记接受决定。激活审计证明绑定时曾核验项目访问，近期通用探测不证明当前仍能访问项目。V3 实例拦截未迁移的旧环境编辑路由，旧模式也不能在已绑定 V3 的数据库上启动。隔离数据库 HTTP 测试覆盖候选、接受与审计，尚无正式进程对真实 GitLab 项目的端到端验收。当前前端保存调用不发送请求体，GET 映射格仅有展示值；已登记的 PUT 在 V3 门禁中明确返回 501，空请求和展示值请求均不修改绑定或审计。前端发现后不刷新、接受前就乐观显示成功，且文案误称来自标签/命名/部署。因此完整 PUT 仍为 `mock`，这两条窄后端路由的 `implemented` 不表示页面完成。
 
 Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v1/events/{alert|change|incident|resource|oncall}`，请求头 `Authorization: Bearer`、`Idempotency-Key`、`X-Signature` + `X-Timestamp`；返回 `202 / 409 / 422 / 401`。
 
@@ -362,11 +368,12 @@ Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评�
 
 | 日期 | 变更 |
 | --- | --- |
+| 2026-09-29 | 后端单路由证据使 `GET/POST /canvases`、`GET /config-sync`、告警规则 dry-run、服务映射 discover/accept 标为 `implemented`；页面仍待适配和实连。服务映射接受体由展示字符串 `{ cells }` 改为稳定候选身份、版本和绑定修订 `{ candidates }`，以防过期/错绑；本批按后端范围先更新本契约与 OpenAPI，冻结 `types.ts`、Mock 和页面尚未同步，页面继续使用 Mock 模式。 |
 | 2026-09-28 | 冻结 v1。拆分合并行；补 `GET /conversations/{id}/events` 行；画布节点对话请求加 `model`、`reasoning`，响应加 `new_branch`；新增实例与环境一节和 `X-AIOps-Environment`。 |
 
 ## 后端实现提示
 
 - 后端实现一个端点后，把状态改成 `implemented`，并删除或保留对应的 Mock（保留时仅用于开发）。
-- 字段有分歧时先改 `types.ts`，再让 Mock 和后端同时跟进；前端 `npx tsc -b` 会暴露所有受影响的页面。
+- 页面接线时须将服务映射候选请求/响应同步到 `types.ts`、Mock 与调用页面，再用前端 `npx tsc -b` 核对受影响页面；当前后端优先采用可复核候选身份，原因与临时分歧见变更记录。
 - 推理强度（v4）：后端目前支持 OpenAI 兼容 Chat Completions（含 Ollama）与 Claude Messages，尚无 Responses API 与强度透传。`GET /models` 的档位由后端按模型声明返回；映射为 `reasoning.effort`（Responses）、`reasoning_effort`（Chat Completions）、Claude 的 thinking 参数或 Ollama 的 `think` 开关。
 - 示意数据只在 Mock 模式下出现，页面顶部有"示意数据"标记；真实模式下缺失的能力应返回空列表或明确的"待接入"状态，不能用示意数据代替。

@@ -23,7 +23,7 @@
 | 身份与全局 | POST | `/uploads` | 新增 | implemented |
 | 身份与全局 | GET | `/instance` | 新增 | implemented |
 | 身份与全局 | GET | `/integrations/lower-sources` | 新增 | implemented |
-| 身份与全局 | GET | `/config-sync` | 新增 | mock |
+| 身份与全局 | GET | `/config-sync` | 新增 | implemented |
 | 身份与全局 | POST | `/config-sync/{id}/import` | 新增 | mock |
 | 身份与全局 | POST | `/promotions` | 新增 | mock |
 | 对话、画布与模板 | GET | `/conversations` | 聚合 | mock |
@@ -31,8 +31,8 @@
 | 对话、画布与模板 | POST | `/conversations` | 新增 | implemented |
 | 对话、画布与模板 | POST | `/conversations/{id}/messages` | 新增 | mock |
 | 对话、画布与模板 | GET | `/conversations/{id}/events` | 新增 | implemented |
-| 对话、画布与模板 | GET | `/canvases` | 聚合 | mock |
-| 对话、画布与模板 | POST | `/canvases` | 新增 | mock |
+| 对话、画布与模板 | GET | `/canvases` | 聚合 | implemented |
+| 对话、画布与模板 | POST | `/canvases` | 新增 | implemented |
 | 对话、画布与模板 | GET | `/canvases/{id}` | 聚合 | implemented |
 | 对话、画布与模板 | POST | `/canvases/{id}/nodes/{node}/messages` | 新增 | implemented |
 | 对话、画布与模板 | GET | `/canvas-templates` | 新增 | mock |
@@ -58,7 +58,7 @@
 | 事件与告警 | POST | `/incidents/{id}/timeline` | 新增 | implemented |
 | 事件与告警 | GET | `/alert-rules` | 新增 | implemented |
 | 事件与告警 | GET | `/alert-rules/{id}` | 新增 | mock |
-| 事件与告警 | POST | `/alert-rules/{id}/dry-run` | 新增 | mock |
+| 事件与告警 | POST | `/alert-rules/{id}/dry-run` | 新增 | implemented |
 | 事件与告警 | PUT | `/alert-rules/{id}` | 新增 | mock |
 | 事件与告警 | GET | `/notification-routes` | 新增 | mock |
 | 事件与告警 | GET | `/silences` | 新增 | implemented |
@@ -128,8 +128,8 @@
 | 集成中心 | GET | `/ingest/push` | 聚合 | mock |
 | 集成中心 | POST | `/ingest/push/test` | 新增 | mock |
 | 集成中心 | GET | `/service-mappings` | 聚合 | implemented |
-| 集成中心 | POST | `/service-mappings/accept` | 新增 | mock |
-| 集成中心 | POST | `/service-mappings/discover` | 新增 | mock |
+| 集成中心 | POST | `/service-mappings/accept` | 新增 | implemented |
+| 集成中心 | POST | `/service-mappings/discover` | 新增 | implemented |
 | 集成中心 | PUT | `/service-mappings` | 新增 | mock |
 | 集成中心 | GET | `/coverage` | 聚合 | mock |
 | 集成中心 | GET | `/webhooks` | 聚合 | mock |

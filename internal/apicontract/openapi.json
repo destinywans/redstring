@@ -21525,7 +21525,7 @@
       "get": {
         "summary": "List configuration promotion records or merged candidates",
         "operationId": "get_config_sync",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract operation: only sanitized canvas templates are supported. Non-production lists up to 100 exports by the current authenticated actor in selected authorized environments; each still requires canvas.change. Production requires a human platform administrator with global workspace.manage and lists up to 100 merged MR candidates. Candidate title, author and status are repository metadata, not verified provenance; the signed manifest, single changed file and merge commit are checked on explicit import. A missing repository or source signing/trust configuration returns 501. An over-limit list returns 413. The four-kind frontend page remains mock.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Read-only four-kind list for runbook, alert_rule, agent_version and sanitized canvas template. Non-production lists up to 100 signed persisted exports by the current authenticated actor in selected authorized environments. Current kind-specific access is rechecked after remote reads: Runbooks require the governed document lifecycle, team scope and recorded source revision; application-bound items require active application/environment bindings, and alert rules also allow the owner-team grant. Exported means a recorded open MR. Production requires a human platform administrator with global workspace.manage and reads a bounded, complete target-branch merged MR page, including promotions whose mutable label was removed. After remote reads, production rechecks global manager authority; both tiers recheck the exact live Cookie session and active account before returning the list. Before status merged or imported is reported, the exact single changed file at the immutable merge commit must match its kind-specific allowlisted path and trusted signed manifest; non-production merged status must also match the local export record. Imported is currently reachable only for templates and requires a matching import ledger, production target content and successful audit. This read does not enable promotion/import writes for the other three kinds or prove branch governance at merge time. Missing repository or source signing/trust configuration returns 501; unverifiable provenance returns 503; an over-limit list returns 413. Frontend state text and navigation require separate integration.",
         "responses": {
           "200": {
             "description": "Success",
@@ -30595,6 +30595,121 @@
         ]
       }
     },
+    "/alert-rules/{id}/dry-run": {
+      "post": {
+        "summary": "Simulate one authorized rule from real Prometheus range samples",
+        "operationId": "post_alert_rules_id_dry_run",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Read-only, exactly one selected environment. Resolve a unique active rule using the server-owned file/group-to-application binding, matching provider labels and current application or owner-team alert_rules.view; unknown or hidden rules do not expose a result. The submitted expr must exactly equal that current rule expression, which must itself be reviewed as trusted configuration. The for duration may vary from 0s to 1h. Query the configured environment Prometheus query_range over the last six hours plus bounded pre-roll at the observed rule-group interval (15s to 5m, or a disclosed 1m fallback when omitted). Every returned vector series must itself carry the exact bound environment and application labels; missing or mixed scope fails closed. A vector element is active by its presence, including numeric zero. would_fire counts distinct series episodes that newly reach for within those six hours; windows contains one sorted UTC start/end interval per episode, at most 500. This is a sampled simulation from real query data, not persisted historical alert state or a notification replay; provider query_offset and keep_firing_for are not reproduced. The rule, owner, scope, and grants are rechecked after query_range; changed scope fails closed. Missing source or partial/malformed/over-limit provider data returns 503 without synthetic counts. The frozen frontend still sends threshold/for_minutes rather than expr/for; page acceptance remains pending.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3RuleDryRunResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "alert-rules"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3RuleDryRunRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/silences": {
       "get": {
         "summary": "Read environment-scoped Alertmanager silences",
@@ -39300,7 +39415,7 @@
       "get": {
         "summary": "Read persisted service connector mappings",
         "operationId": "get_service_mappings",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Shows only bindings for authorized applications and environments; missing means no persisted binding, not a health check. Pending suggestions are shown only if their explicit GitLab project target, activation evidence and binding revision remain current. A V3-only validator permits exactly that source-derived GitLab binding while passing every other binding to the unchanged platform validator. Activation is historical project-access evidence; a recent generic connector probe does not prove current project access. More than 1000 visible services returns 422 result_limit instead of an incomplete map.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Shows only bindings for authorized applications and environments; missing means no persisted binding, not a health check. A suggested code cell carries the exact candidate ID, review version, target identity and binding revision needed for accept. Pending suggestions are shown only if their explicit GitLab project target, activation evidence and binding revision remain current. A V3-only validator permits exactly that source-derived GitLab binding while passing every other binding to the unchanged platform validator. Activation is historical project-access evidence; a recent generic connector probe does not prove current project access. More than 1000 visible services returns 422 result_limit instead of an incomplete map.",
         "responses": {
           "200": {
             "description": "Success",
@@ -39395,7 +39510,7 @@
       "put": {
         "summary": "Reject unavailable full mapping save",
         "operationId": "put_service_mappings",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. The frozen page sends no request body, and GET cells contain display values without stable service, environment, connector, target identities or binding revisions. This registered route remains outside the V3 allowed-route table and returns 501 v3_not_implemented before its fallback handler; it writes no binding or audit. No accepted full-save request schema or success response is claimed.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. The frozen page sends no request body. Suggested code cells expose review identity for the separate accept operation, but the full matrix still lacks an accepted all-system save request and revision contract. This registered route remains outside the V3 allowed-route table and returns 501 v3_not_implemented before its fallback handler; it writes no binding or audit. No accepted full-save success response is claimed.",
         "responses": {
           "501": {
             "description": "Full mapping save is unavailable in V3",
@@ -39492,7 +39607,7 @@
       "post": {
         "summary": "Stage scoped service mapping candidates",
         "operationId": "post_service_mappings_discover",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial operation in exactly one selected environment. Requires current services.change on each visible service and environment connectors.view/manage. Only a single explicitly enrolled numeric GitLab project target per service is eligible; connector activation evidence must postdate the target binding and a recent successful check must exist. The 15-minute candidate is saved without changing the service binding. A V3-only validator checks the exact source-derived GitLab binding and delegates all other bindings to the unchanged platform validator. More than 500 visible unmapped source rows returns 422. No label, name or deployment inference is performed; the frontend does not refresh the list after discovery.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. In exactly one selected environment, stages reviewable code mapping candidates only from explicitly enrolled numeric GitLab project targets after current services view/change, connectors view/manage, post-bind project activation and recent connector checks. The exact Cookie session and active account are locked and rechecked before commit. Each candidate includes an opaque ID, monotonic review version, exact service/environment/connector/target identity, binding revision and expiry; no binding is changed. source_state=not_configured distinguishes an absent supported source from a configured source with zero candidates. A V3-only validator checks the exact source-derived GitLab binding and delegates other bindings to the unchanged platform validator. More than 500 visible unmapped source rows returns 422. Prometheus metric resources and other matrix systems have no safe mapping producer here; names, labels and deployments are never inferred. The frozen frontend does not refresh after discovery.",
         "responses": {
           "200": {
             "description": "Success",
@@ -39504,11 +39619,26 @@
                     "suggestions": {
                       "type": "integer",
                       "minimum": 0
+                    },
+                    "source_state": {
+                      "type": "string",
+                      "enum": [
+                        "configured",
+                        "not_configured"
+                      ]
+                    },
+                    "candidates": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3MappingCandidate"
+                      }
                     }
                   },
                   "additionalProperties": false,
                   "required": [
-                    "suggestions"
+                    "suggestions",
+                    "source_state",
+                    "candidates"
                   ]
                 }
               }
@@ -39599,7 +39729,7 @@
       "post": {
         "summary": "Accept current scoped service mapping candidates",
         "operationId": "post_service_mappings_accept",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial operation in exactly one selected environment. Only service:code cells are accepted after transaction-local services.view/change and connectors.view/manage checks, a unique unexpired candidate, current source identity, activation evidence, sole GitLab project target, binding revision and V3-only exact GitLab binding validation. All other bindings still use the unchanged platform validator. Binding, accepted candidate and audit commit together; a verified repeat can return accepted=0. The frontend marks accepted before response and does not recover on failure; the page contract remains incomplete.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. In exactly one selected environment, accepts only explicitly identified, reviewed GitLab code candidates. The request must match candidate ID, monotonic version, service/environment/system and expected binding revision; stale or changed review snapshots return 409 and old service:system cell requests are rejected. Transaction-local services view/change and connectors view/manage checks, exact source identity, activation, unique target, binding CAS, a final wall-clock expiry check, the current Cookie session and active account, and V3-only binding validation precede an atomic binding/candidate/audit commit. Each success item returns the persisted binding and post-write revision; a verified repeat may return status=already_accepted and accepted=0. The frozen frontend sends the old cell shape and marks success before response, so page integration remains pending.",
         "responses": {
           "200": {
             "description": "Success",
@@ -39611,11 +39741,18 @@
                     "accepted": {
                       "type": "integer",
                       "minimum": 0
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3MappingAcceptItem"
+                      }
                     }
                   },
                   "additionalProperties": false,
                   "required": [
-                    "accepted"
+                    "accepted",
+                    "items"
                   ]
                 }
               }
@@ -39697,17 +39834,18 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "cells": {
+                  "candidates": {
                     "type": "array",
                     "items": {
-                      "type": "string"
+                      "$ref": "#/components/schemas/V3MappingCandidateSelection"
                     },
-                    "maxItems": 1000
+                    "minItems": 1,
+                    "maxItems": 500
                   }
                 },
                 "additionalProperties": false,
                 "required": [
-                  "cells"
+                  "candidates"
                 ]
               }
             }
@@ -47372,6 +47510,9 @@
           "kind": {
             "type": "string",
             "enum": [
+              "runbook",
+              "alert_rule",
+              "agent_version",
               "template"
             ]
           },
@@ -47380,7 +47521,8 @@
             "enum": [
               "pending",
               "imported",
-              "exported"
+              "exported",
+              "merged"
             ]
           }
         },
@@ -51001,6 +51143,51 @@
           "counts"
         ]
       },
+      "V3RuleDryRunRequest": {
+        "type": "object",
+        "properties": {
+          "expr": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192,
+            "description": "Must exactly equal the current authorized provider-observed rule expression; arbitrary PromQL is rejected."
+          },
+          "for": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 32,
+            "description": "Go duration from 0s to 1h, for example 5m."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "expr",
+          "for"
+        ]
+      },
+      "V3RuleDryRunResult": {
+        "type": "object",
+        "properties": {
+          "would_fire": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500
+          },
+          "windows": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "type": "string",
+              "description": "UTC ISO-8601 interval start/end for one newly firing series episode in the last six hours."
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "would_fire",
+          "windows"
+        ]
+      },
       "V3SilenceMatcher": {
         "type": "object",
         "properties": {
@@ -52594,6 +52781,177 @@
           "items"
         ]
       },
+      "V3MappingCandidate": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "service_id": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "system_id": {
+            "type": "string",
+            "enum": [
+              "code"
+            ]
+          },
+          "connector_id": {
+            "type": "string"
+          },
+          "target_id": {
+            "type": "string"
+          },
+          "external_id": {
+            "type": "string"
+          },
+          "binding_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "service_id",
+          "service",
+          "environment_id",
+          "system_id",
+          "connector_id",
+          "target_id",
+          "external_id",
+          "binding_revision",
+          "expires_at"
+        ]
+      },
+      "V3MappingCandidateSelection": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "service_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "system_id": {
+            "type": "string",
+            "enum": [
+              "code"
+            ]
+          },
+          "binding_revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "service_id",
+          "environment_id",
+          "system_id",
+          "binding_revision"
+        ]
+      },
+      "V3MappingAcceptItem": {
+        "type": "object",
+        "properties": {
+          "candidate_id": {
+            "type": "string"
+          },
+          "service_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "system_id": {
+            "type": "string",
+            "enum": [
+              "code"
+            ]
+          },
+          "connector_id": {
+            "type": "string"
+          },
+          "target_id": {
+            "type": "string"
+          },
+          "external_id": {
+            "type": "string"
+          },
+          "binding_revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "binding": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "gitlab"
+                ]
+              },
+              "connector_id": {
+                "type": "string"
+              },
+              "resource": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "connector_id",
+              "resource"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "already_accepted"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "candidate_id",
+          "service_id",
+          "environment_id",
+          "system_id",
+          "connector_id",
+          "target_id",
+          "external_id",
+          "binding_revision",
+          "binding",
+          "status"
+        ]
+      },
       "V3MappingCell": {
         "type": "object",
         "properties": {
@@ -52610,6 +52968,9 @@
           },
           "brand": {
             "type": "string"
+          },
+          "candidate": {
+            "$ref": "#/components/schemas/V3MappingCandidate"
           }
         },
         "additionalProperties": false,

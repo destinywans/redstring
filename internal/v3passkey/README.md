@@ -1,0 +1,47 @@
+# WAN-124 passkey foundation
+
+This package implements self-service WebAuthn registration, account-scoped
+assertion, and credential deletion for a logged-in human member. It is an
+independent backend slice and is not wired into `cmd/aiops` or the public
+OpenAPI contract yet. The integration branch owns those surfaces.
+
+The integration must construct `New(Config{...})` using a server-managed
+instance ID, RP ID, display name, tier, and exact HTTPS origin from deployment
+configuration. Do not derive these values from request headers. Without a
+stable trusted domain and HTTPS origin, `New` returns `ErrUnavailable`.
+Only an explicit nonproduction localhost fixture may use HTTP. Registration
+and deletion require a session issued within ten minutes and a selected V3
+environment grant; all operations recheck human account, session, tier, and
+grant in the same transaction.
+
+For the existing HTTP backend behind a TLS-terminating proxy, passkey write
+routes require both `api.AllowedOrigin` equal to the configured HTTPS origin
+and `api.SecureCookies=true`. Direct TLS also works. Request-supplied forwarded
+protocol headers are not accepted as proof of secure transport.
+
+`Register` mounts only self-account routes. Its JSON creation/request options
+are passed to the browser WebAuthn API; finish endpoints accept the resulting
+credential JSON. Credential IDs in the account API are base64url. The package
+uses `go-webauthn` for protocol parsing, origin/RP/challenge and signature
+verification. Challenges live server-side for five minutes and are consumed
+on the first completion attempt. Issuance is capped at ten ceremonies per
+account per minute. New issuances opportunistically prune at most 100 challenge
+rows older than 24 hours; exact retention in an idle deployment needs a
+scheduled maintenance path during integration. Successful assertions persist counter and
+backup state; clone warnings revoke the affected credential and fail.
+Registration uses no attestation trust policy, so a verified credential proves
+possession and user verification, not a particular hardware model.
+
+**Approval is still denied.** Current `v3_proposals.content` has no durable,
+immutable digest. `BeginProposalAssertion` returns
+`ErrProposalDigestUnavailable`, no proposal challenge/proof table exists, and
+the V3 approval policy remains a deny gate. Integration must first persist a
+canonical proposal digest and bind the challenge to the exact proposal ID,
+digest, user, session, instance, environment and RP. It then needs same-transaction
+proof consumption with the actual approval authorization checks. Account
+`AssertionResult` must never be treated as `assurance=passkey` for a proposal.
+
+The full `webauthn.Credential` JSON is persisted because assertion validation
+and future metadata review require it. It includes public key and authenticator
+metadata, and may disclose device characteristics; restrict database access
+and backups accordingly. No private authenticator key is stored.

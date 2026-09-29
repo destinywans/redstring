@@ -29,10 +29,12 @@ type proposal struct {
 func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targets []target, envs []string, now time.Time, out *Summary) error {
 	incidents := make([]incident, 0)
 	proposals := make([]proposal, 0)
+	serviceViews, eventViews, proposalViews := 0, 0, 0
 	for _, row := range targets {
 		if allowed, err := s.allowed(ctx, tx, user, "services", row); err != nil {
 			return err
 		} else if allowed {
+			serviceViews++
 			out.Services = append(out.Services, ServiceItem{
 				ID:   base64.RawURLEncoding.EncodeToString([]byte(row.AppID + "\x00" + row.Env)),
 				Name: row.Name, Env: row.Env, Tier: frontendTier(row.Tier),
@@ -42,6 +44,7 @@ func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targe
 		if allowed, err := s.allowed(ctx, tx, user, "events", row); err != nil {
 			return err
 		} else if allowed {
+			eventViews++
 			items, e := loadIncidents(ctx, tx, row)
 			if e != nil {
 				return e
@@ -54,6 +57,7 @@ func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targe
 		if allowed, err := s.allowed(ctx, tx, user, "proposals", row); err != nil {
 			return err
 		} else if allowed {
+			proposalViews++
 			items, e := loadProposals(ctx, tx, row)
 			if e != nil {
 				return e
@@ -84,22 +88,36 @@ func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targe
 		}
 	}
 	pending := len(proposals)
-	out.Greeting.Summary = displaySummary(len(active), pending)
-	out.KPIs = append(out.KPIs,
-		KPI{ID: "incidents", Label: "未解决事件", Value: strconv.Itoa(len(active)), Series: []float64{}},
-		KPI{ID: "reviews", Label: "待复核提案", Value: strconv.Itoa(pending), Series: []float64{}},
-		KPI{ID: "registered_services", Label: "可见服务登记", Value: strconv.Itoa(len(out.Services)), Series: []float64{}},
-	)
-	out.Availability["incidents"] = "persisted_scoped"
-	out.Availability["proposals"] = "persisted_scoped"
-	out.Availability["services"] = "registered_without_health"
-	buildActivity(incidents, proposals, now, out)
-	trend, err := loadTrend(ctx, tx, incidents, now)
-	if err != nil {
-		return err
+	out.Greeting.Summary = displaySummary(len(active), pending, eventViews > 0, proposalViews > 0)
+	if eventViews > 0 {
+		out.KPIs = append(out.KPIs, KPI{ID: "incidents", Label: "可见未解决事件", Value: strconv.Itoa(len(active)), Series: []float64{}})
+		out.Availability["incidents"] = "persisted_scoped"
+	} else {
+		out.Availability["incidents"] = "no_authorized_target"
 	}
-	out.AlertTrend = trend
-	out.Availability["alert_trend"] = "persisted_occurrences_only_ingest_unverified"
+	if proposalViews > 0 {
+		out.KPIs = append(out.KPIs, KPI{ID: "reviews", Label: "可见待复核提案", Value: strconv.Itoa(pending), Series: []float64{}})
+		out.Availability["proposals"] = "persisted_scoped"
+	} else {
+		out.Availability["proposals"] = "no_authorized_target"
+	}
+	if serviceViews > 0 {
+		out.KPIs = append(out.KPIs, KPI{ID: "registered_services", Label: "可见服务登记", Value: strconv.Itoa(len(out.Services)), Series: []float64{}})
+		out.Availability["services"] = "registered_without_health"
+	} else {
+		out.Availability["services"] = "no_authorized_target"
+	}
+	buildActivity(incidents, proposals, now, out)
+	if eventViews > 0 {
+		trend, err := loadTrend(ctx, tx, incidents, now)
+		if err != nil {
+			return err
+		}
+		out.AlertTrend = trend
+		out.Availability["alert_trend"] = "persisted_occurrences_only_ingest_unverified"
+	} else {
+		out.Availability["alert_trend"] = "no_authorized_target"
+	}
 	if err := s.recentConversations(ctx, tx, user, envs, out); err != nil {
 		return err
 	}

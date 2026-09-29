@@ -272,8 +272,17 @@ func readError(w http.ResponseWriter, err error) {
 	}
 }
 
-func displaySummary(incidents, proposals int) string {
-	return fmt.Sprintf("%d 个未解决事件，%d 个待复核提案。未接入的健康指标不计入。", incidents, proposals)
+func displaySummary(incidents, proposals int, eventsVisible, reviewsVisible bool) string {
+	switch {
+	case eventsVisible && reviewsVisible:
+		return fmt.Sprintf("可见记录中有 %d 个未解决事件、%d 个待复核提案；未接入的健康指标不计入。", incidents, proposals)
+	case eventsVisible:
+		return fmt.Sprintf("可见记录中有 %d 个未解决事件；当前范围没有可见提案。", incidents)
+	case reviewsVisible:
+		return fmt.Sprintf("可见记录中有 %d 个待复核提案；当前范围没有可见事件。", proposals)
+	default:
+		return "当前范围没有可见的事件或提案记录，状态未知。"
+	}
 }
 
 func cleanTitle(title string) string { return strings.TrimSpace(title) }

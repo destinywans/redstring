@@ -243,7 +243,7 @@ Agent Trace 后端目前只能读受信生产者上报的有界 Span 元数据�
 | GET | `/connectors` | `category`, `q`（名称、标识和供应商支持中文及拼音检索） | `ConnectorList`；计数基于当前可见全集，筛选只影响 `items`；`ok/error` 是最近 15 分钟的连接探测结果，不代表持续健康，过期或缺凭据显示 `unverified`；登记工具偏好不生成 Agent 能力标签；未分页的可见记录超过 1000 条返回 413 | implemented |
 | GET | `/connectors/{id}` | | `ConnectorDetail`：只返回当前有权的服务绑定；凭据文案区分未配置与已登记 Vault 引用，最近探测不代表持续健康；没有 Agent 执行器或查询绑定时 `tools`、`queries` 与能力标签为空，服务超过 1000 条返回 422 | implemented |
 | POST | `/connectors/{id}/test` | | `{ ok, latency_ms }` | implemented |
-| PATCH | `/connectors/{id}` | `{ tools: [{ name, enabled }] }`；至少一项，`enabled` 必须是显式布尔值 | 在行锁下部分合并工具偏好并同事务审计；旧目录工具冲突返回 409，不静默删除；`enabled` 仅门控部分只读来源，不授予 Agent 执行能力；前端开关尚未发起此请求 | mock |
+| PATCH | `/connectors/{id}` | `{ tools: [{ name, enabled }] }`；至少一项，`enabled` 必须是显式布尔值 | `{ ok: true, tools: [{ name, desc, enabled }] }`；在行锁下部分合并工具偏好并同事务审计；旧目录工具冲突返回 409，不静默删除；`enabled` 仅门控部分只读来源，不授予 Agent 执行能力；前端开关尚未发起此请求 | implemented |
 | POST | `/connectors` | `{ type, url, auth, tools, webhook, credential_ref? }`；凭据仅传 Vault 引用，缺凭据/项目范围的 GitLab 创建请求保存为未启用登记，`webhook` 仅记录意图，不自动创建 Webhook | `{ id }`；未启用登记不可测试连接或启用工具，补齐凭据及项目绑定后可通过辅助接口激活 | implemented |
 | GET | `/connector-types/{type}` | | `ConnectorType`（真实探测器支持的认证方式；暂无类型级权限范围与可执行 Agent 工具时返回空数组） | implemented |
 | GET | `/mcp-servers` | | `McpList` | mock |
@@ -275,7 +275,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 连接器辅助激活接口（不计入 166 项页面契约）：`POST /connectors/{id}/activate`，在单一环境下传 `{ credential_ref: "vault://mount/path#field" }`。当前仅支持 GitLab：须先通过服务环境的显式目标绑定登记至少一个数字项目 ID；后端用 Vault 凭据对每个项目发起 GET 验证，再复核权限、连接器配置和绑定集合，成功后启用连接器。验证并不证明令牌本身只有只读权限。工具仍保持关闭，`webhook` 仅记录意图；上游项目验证失败返回 502 且不启用，项目绑定变化须重新激活。返回 `{ enabled: true, status: "ok", verified_projects, webhook_active: false }`，表示一次验证结果，不代表持续健康。
 
-辅助 `GET /connectors/{id}/tool-settings` 在当前 `connectors.view` 与环境范围内读取登记工具开关，返回 `connector_enabled`、`registered_tools` 和固定 `agent_execution_available: false`，不暴露端点或凭据。它只证明持久偏好；主 `ConnectorDetail.tools` 仍为空，因为没有可执行的连接器 Agent 工具。前端目前不读取该辅助接口，也不调用上述 PATCH，故主 PATCH 保持 `mock`。
+辅助 `GET /connectors/{id}/tool-settings` 在当前 `connectors.view` 与环境范围内读取登记工具开关，返回 `connector_enabled`、`registered_tools` 和固定 `agent_execution_available: false`，不暴露端点或凭据。它只证明持久偏好；主 `ConnectorDetail.tools` 仍为空，因为没有可执行的连接器 Agent 工具。主 PATCH 已有配置完成的连接器写入、响应和持久回读路径，按后端专用判据标为 `implemented`；前端目前不读取该辅助接口，也不调用 PATCH，页面和 Agent 工具执行均未验收。非 GitLab 草稿配置/激活仍是独立待闭合链路。
 
 ## Agent 运行台（`agents.ts`）
 

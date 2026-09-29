@@ -49,6 +49,8 @@ func New(st *store.Store, access Access, telemetry Telemetry) *Service {
 func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/services/discover", "viewer", s.discover)
 	api.Register("GET /api/v1/metrics/dashboard", "viewer", s.metricDashboard)
+	api.Register("GET /api/v1/metrics/samples", "viewer", s.metricSamples)
+	api.MarkV3ObjectRoute("GET /api/v1/metrics/samples", "services", "view")
 	api.Register("GET /api/v1/logs", "viewer", s.logs)
 	api.Register("GET /api/v1/traces", "viewer", s.traces)
 	api.Register("GET /api/v1/traces/{id}", "viewer", s.traceDetail)

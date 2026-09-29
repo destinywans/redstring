@@ -115,9 +115,14 @@ type Summary struct {
 type target struct {
 	AppID, Env, Name, TeamID string
 	Tier                     *string
+	ServicesView             bool
+	EventsView               bool
+	ProposalsView            bool
 }
 
 const maxTargets = 100
+const targetBatchSize = 128
+const maxCandidateRows = 5000
 const maxIncidents = 1000
 const maxProposals = 500
 
@@ -227,36 +232,70 @@ func (s *Service) allowed(ctx context.Context, tx pgx.Tx, user core.User, module
 }
 
 func (s *Service) targets(ctx context.Context, tx pgx.Tx, user core.User, envs []string) ([]target, error) {
-	rows, err := tx.Query(ctx, `SELECT a.id,ve.environment_id,a.name,COALESCE(a.owner_team_id,''),ep.tier
+	const query = `SELECT a.id,ve.environment_id,a.name,COALESCE(a.owner_team_id,''),ep.tier
 	 FROM applications a JOIN v3_application_environments ve ON ve.application_id=a.id
 	 JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
 	 LEFT JOIN v3_service_environment_profiles ep ON ep.application_id=a.id AND ep.environment_id=ve.environment_id
 	 WHERE NOT a.archived AND ve.environment_id=ANY($1::text[])
-	 ORDER BY a.id,ve.environment_id LIMIT 101`, envs)
-	if err != nil {
-		return nil, err
-	}
-	candidates := []target{}
-	for rows.Next() {
-		var row target
-		if err = rows.Scan(&row.AppID, &row.Env, &row.Name, &row.TeamID, &row.Tier); err != nil {
-			break
+	 AND (a.id,ve.environment_id)>($2,$3)
+	 ORDER BY a.id,ve.environment_id LIMIT $4`
+	visible := make([]target, 0)
+	lastID, lastEnv, scanned := "", "", 0
+	for {
+		rows, err := tx.Query(ctx, query, envs, lastID, lastEnv, targetBatchSize)
+		if err != nil {
+			return nil, err
 		}
-		candidates = append(candidates, row)
+		batch := make([]target, 0, targetBatchSize)
+		for rows.Next() {
+			var row target
+			if err = rows.Scan(&row.AppID, &row.Env, &row.Name, &row.TeamID, &row.Tier); err != nil {
+				break
+			}
+			batch = append(batch, row)
+		}
+		if err == nil {
+			err = rows.Err()
+		}
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		if len(batch) == 0 {
+			return visible, nil
+		}
+		// Hidden rows consume scan work but never the result cap. If the full
+		// authorized view cannot be established within the bound, fail instead
+		// of returning a misleading partial dashboard.
+		scanned += len(batch)
+		if scanned > maxCandidateRows {
+			return nil, errTooMany
+		}
+		for _, row := range batch {
+			row.ServicesView, err = s.allowed(ctx, tx, user, "services", row)
+			if err != nil {
+				return nil, err
+			}
+			row.EventsView, err = s.allowed(ctx, tx, user, "events", row)
+			if err != nil {
+				return nil, err
+			}
+			row.ProposalsView, err = s.allowed(ctx, tx, user, "proposals", row)
+			if err != nil {
+				return nil, err
+			}
+			if row.ServicesView || row.EventsView || row.ProposalsView {
+				visible = append(visible, row)
+				if len(visible) > maxTargets {
+					return nil, errTooMany
+				}
+			}
+			lastID, lastEnv = row.AppID, row.Env
+		}
+		if len(batch) < targetBatchSize {
+			return visible, nil
+		}
 	}
-	if err == nil {
-		err = rows.Err()
-	}
-	rows.Close()
-	if err != nil {
-		return nil, err
-	}
-	if len(candidates) > maxTargets {
-		return nil, errTooMany
-	}
-	// Every section has its own module grant. Filtering here by services.view
-	// would incorrectly hide an event from a user with only events.view.
-	return candidates, nil
 }
 
 func readError(w http.ResponseWriter, err error) {

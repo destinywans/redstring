@@ -31,9 +31,7 @@ func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targe
 	proposals := make([]proposal, 0)
 	serviceViews, eventViews, proposalViews := 0, 0, 0
 	for _, row := range targets {
-		if allowed, err := s.allowed(ctx, tx, user, "services", row); err != nil {
-			return err
-		} else if allowed {
+		if row.ServicesView {
 			serviceViews++
 			out.Services = append(out.Services, ServiceItem{
 				ID:   base64.RawURLEncoding.EncodeToString([]byte(row.AppID + "\x00" + row.Env)),
@@ -41,9 +39,7 @@ func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targe
 				Status: nil, BudgetPct: nil, P99: nil, ErrorRate: nil, Series: []float64{},
 			})
 		}
-		if allowed, err := s.allowed(ctx, tx, user, "events", row); err != nil {
-			return err
-		} else if allowed {
+		if row.EventsView {
 			eventViews++
 			items, e := loadIncidents(ctx, tx, row)
 			if e != nil {
@@ -54,9 +50,7 @@ func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targe
 				return errTooMany
 			}
 		}
-		if allowed, err := s.allowed(ctx, tx, user, "proposals", row); err != nil {
-			return err
-		} else if allowed {
+		if row.ProposalsView {
 			proposalViews++
 			items, e := loadProposals(ctx, tx, row)
 			if e != nil {

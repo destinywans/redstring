@@ -285,37 +285,43 @@ P['/logs']['get']['responses']['503'] = {
     'description':'Complete log patterns unavailable or configured provider failed',
     'content':{'application/json':{'schema':{'oneOf':[ref('Error'),ref('V3IncompleteLogs')]}}}}
 S['V3TraceRow'] = obj({**fieldnames('id time op href'),
-    'services':arr(string()),'duration_ms':v3_num(),'spans':integer(),'errors':integer()})
-S['V3TraceList'] = obj({'scope':string(enum=['app','agent']),'total':integer(),'took':string(),
-    'colors':v3_map(string()),'facets':arr({'type':'object','additionalProperties':True}),
-    'views':arr({'type':'object','additionalProperties':True}),
-    'histogram':obj({'counts':arr(arr(integer())),'axis':arr(string())}),
-    'scatter':arr(obj({'x':integer(),'y':v3_num(),'error':v3_bool(),'id':string()})),
-    'items':arr(ref('V3TraceRow'))})
+    'services':arr(string()),'duration_ms':v3_num(),'spans':integer(),'errors':integer()},
+    ['id','time','op','href','services','duration_ms','spans','errors'])
+S['V3TraceFacet'] = obj({'key':string(),'label':string(),'items':arr(obj({
+    'value':string(),'count':integer(minimum=0)},['value','count']))},['key','label','items'])
+S['V3TraceList'] = obj({'scope':string(enum=['app','agent']),'total':integer(minimum=0),'took':string(),
+    'colors':v3_map(string()),'facets':arr(ref('V3TraceFacet')),
+    'views':arr(obj({'id':string(),'label':string(),'count':integer(minimum=0),'query':string()},
+        ['id','label','query'])),
+    'histogram':obj({'counts':arr(arr(integer(minimum=0))),'axis':arr(string())},['counts','axis']),
+    'scatter':arr(obj({'x':v3_num(),'y':v3_num(),'error':v3_bool(),'id':string()},
+        ['x','y','error'])),
+    'items':arr(ref('V3TraceRow'))},
+    ['scope','total','took','colors','facets','views','histogram','scatter','items'])
+S['V3TraceSpan'] = obj({**fieldnames('id service op'),'depth':integer(),'start':v3_num(),'end':v3_num(),
+    'status':string(enum=['ok','error']),'critical':v3_bool(),
+    'attrs':arr(obj(fieldnames('k v'),['k','v'])),
+    'events':arr(obj({'at':string(format='date-time'),**fieldnames('name text')},['at','name','text']))},
+    ['id','depth','service','op','start','end','status'])
+S['V3TraceGraphNode'] = obj({'id':string(),'x':v3_num(),'y':v3_num(),'sub':string(),
+    'danger':v3_bool()},['id','x','y','sub'])
+S['V3TraceGraphEdge'] = obj({'from':string(),'to':string(),'label':string(),
+    'danger':v3_bool()},['from','to','label'])
 S['V3TraceView'] = obj({**fieldnames('id trace_id op time version flame_note'),
-    'duration_ms':v3_num(),'colors':v3_map(string()),
-    'spans':arr(obj({**fieldnames('id service op'),'depth':integer(),'start':v3_num(),'end':v3_num(),
-        'status':string(enum=['ok','error']),
-        'attrs':arr(obj(fieldnames('k v'),['k','v'])),
-        'events':arr(obj({'at':string(format='date-time'),**fieldnames('name text')},['at','name']))})),
-    'graph':obj({'nodes':arr({'type':'object','additionalProperties':True}),
-        'edges':arr({'type':'object','additionalProperties':True})}),
-    'partial':{'type':'boolean','const':True},'missing':arr(string())},
-    ['partial','missing'])
-S['V3IncompleteTraceList'] = obj({'error':obj({'code':string(),'message':string()},['code','message']),
-    'scope':string(enum=['app']),'view':string(),'took':string(),
-    'observed_sample':arr(ref('V3TraceRow')),'missing':arr(string())},
-    ['error','scope','view','took','observed_sample','missing'])
+    'duration_ms':v3_num(),'colors':v3_map(string()),'spans':arr(ref('V3TraceSpan')),
+    'graph':obj({'nodes':arr(ref('V3TraceGraphNode')),
+        'edges':arr(ref('V3TraceGraphEdge'))},['nodes','edges'])},
+    ['id','trace_id','op','duration_ms','time','version','colors','spans','flame_note','graph'])
 v3_route('get','/traces','Query scoped traces',
-    query=[v3_query(x) for x in ['scope','view','service']],
-    desc='Requires explicit persisted service/environment/owner-team Tempo binding and current traces.view. A bounded trace sample cannot establish full totals, facets, histogram or scatter population, so returns 503 trace_aggregation_unavailable with observed_sample and missing sections even for an empty sample. Agent scope is not configured; TraceQL q returns 422. Distinct authorized bindings return 409 ambiguous_binding; more than 6 targets or other excessive authorized scope returns 422 scope_limit.')
-P['/traces']['get']['responses'].pop('200')
-P['/traces']['get']['responses']['503'] = {
-    'description':'Complete trace aggregation unavailable or scoped provider failed',
-    'content':{'application/json':{'schema':{'oneOf':[ref('Error'),ref('V3IncompleteTraceList')]}}}}
+    response=ref('V3TraceList'),
+    query=[v3_query(x) for x in ['scope','view','service','q']],
+    desc='Requires persisted service/environment/owner-team Tempo binding and current traces.view. App scope exhausts a one-hour search by bounded window splitting; all 200 counts, facets, histogram and scatter refer to that full result set. At most 40 traces, 64 searches, 6 targets and 500 spans per trace; a reached cap returns 413 rather than a sampled 200. q accepts one bounded TraceQL span selector with simple comparisons and inner AND/OR, but no regex, pipeline or outer union. Complete counts require a server-attested fail-closed Tempo search configuration; otherwise 503. Agent scope has no complete provider and returns 503. Source and grants are rechecked before response.')
+P['/traces']['get']['responses']['413'] = {
+    'description':'Complete trace population exceeds the bounded query budget',
+    'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('get','/traces/{id}','Read scoped trace',response=ref('V3TraceView'),
     query=[v3_query('service')],
-    desc='Requires explicit persisted service/environment/owner-team Tempo binding and current traces.view. Returns only scoped spans, partial=true and missing complete-trace, critical-path and correlation sections. The href from the list preserves an encoded service filter. A trace exceeding the bounded span limit returns 413 trace_too_large; distinct authorized bindings return 409 ambiguous_binding and excessive authorized scope returns 422 scope_limit.')
+    desc='Reads the stored Tempo trace without a time bound, requiring every returned resource to match an authorized persisted binding and exactly one closed parent tree. Projects only safe attributes and exception types; absent version is rendered as unknown, and unproven logs or links are omitted. The highlighted path follows the latest finishing descendant. A trace exceeding 500 spans returns 413; incomplete trees return 503. Source and grants are rechecked before response.')
 P['/traces/{id}']['get']['responses']['413'] = {
     'description':'Trace exceeds the scoped span limit',
     'content':{'application/json':{'schema':ref('Error')}}}

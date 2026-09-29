@@ -9,8 +9,8 @@
 
 | 分组 | 方法 | 路径 | 实施方式 | 契约状态 |
 | --- | --- | --- | --- | --- |
-| 身份与全局 | GET | `/me` | 新增 | mock |
-| 身份与全局 | PATCH | `/me` | 新增 | mock |
+| 身份与全局 | GET | `/me` | 新增 | implemented |
+| 身份与全局 | PATCH | `/me` | 新增 | implemented |
 | 身份与全局 | PATCH | `/me/preferences` | 新增 | implemented |
 | 身份与全局 | GET | `/me/watched-services` | 新增 | mock |
 | 身份与全局 | GET | `/search` | 新增 | mock |
@@ -63,7 +63,7 @@
 | 事件与告警 | GET | `/notification-routes` | 新增 | mock |
 | 事件与告警 | GET | `/silences` | 新增 | implemented |
 | 事件与告警 | GET | `/inhibitions` | 新增 | mock |
-| 事件与告警 | POST | `/silences/preview` | 新增 | mock |
+| 事件与告警 | POST | `/silences/preview` | 新增 | implemented |
 | 事件与告警 | POST | `/silences` | 新增 | mock |
 | 事件与告警 | DELETE | `/silences/{id}` | 新增 | mock |
 | 事件与告警 | GET | `/proposals/{id}` | 新增 | implemented |
@@ -78,8 +78,8 @@
 | 知识与记忆 | POST | `/runbooks/{id}/submit` | 新增 | implemented |
 | 知识与记忆 | GET | `/postmortems` | 新增 | mock |
 | 知识与记忆 | GET | `/memory` | 新增 | mock |
-| 知识与记忆 | POST | `/memory/facts/{id}/{action}` | 新增 | mock |
-| 知识与记忆 | POST | `/memory/conflicts/resolve` | 新增 | mock |
+| 知识与记忆 | POST | `/memory/facts/{id}/{action}` | 新增 | implemented |
+| 知识与记忆 | POST | `/memory/conflicts/resolve` | 新增 | implemented |
 | 知识与记忆 | GET | `/knowledge-sources` | 聚合 | mock |
 | 知识与记忆 | POST | `/knowledge/search` | 旧路径适配 | implemented |
 | 资源与观测 | GET | `/services` | 聚合 | mock |
@@ -93,7 +93,7 @@
 | 资源与观测 | GET | `/traces/{id}` | 聚合 | mock |
 | 资源与观测 | GET | `/services/discover` | 新增 | mock |
 | 资源与观测 | POST | `/services` | 新增 | implemented |
-| 资源与观测 | GET | `/logs` | 聚合 | mock |
+| 资源与观测 | GET | `/logs` | 聚合 | implemented |
 | 资源与观测 | GET | `/changes` | 聚合 | mock |
 | v4 新建流程 | GET | `/incidents/draft` | 新增 | mock |
 | v4 新建流程 | POST | `/incidents` | 新增 | mock |

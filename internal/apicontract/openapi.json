@@ -30596,7 +30596,7 @@
       "post": {
         "summary": "Count currently matching Alertmanager alerts without creating a silence",
         "operationId": "post_silences_preview",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Read-only live snapshot in exactly one selected environment; all is rejected with 409. The selected environment is an implicit exact matcher. An exact application= provider label must be bound by server configuration to an active persisted application and requires current silences.view on that application or owner team; unknown and hidden bindings both return 404. Without an exact application matcher, current environment-wide silences.view and silences.manage are required. Affects counts all matching current alerts in that selected environment, not historical or future alerts. Sample contains at most five distinct sorted real alertname values, not representative alert records. More than 500 current-environment alerts, an upstream error, or malformed upstream null returns 503 without partial counts. No silence is created. The current frontend form and stale-result handling are not compatible with the authorization/refresh semantics, so page acceptance remains pending.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Read-only live snapshot in exactly one selected environment; all is rejected with 409. The selected environment is an implicit exact matcher. An exact application= provider label must be bound by server configuration to an active persisted application and requires current silences.view on that application or owner team; unknown and hidden bindings both return 404. Without an exact application matcher, current environment-wide silences.view and silences.manage are required. Scope, grants, and application ownership are rechecked after the Alertmanager read; changed scope does not return old counts. Affects counts all matching current alerts in that selected environment, not historical or future alerts. Sample contains at most five distinct sorted real alertname values, not representative alert records. More than 500 current-environment alerts, an upstream error, or malformed upstream null returns 503 without partial counts. No silence is created. The current frontend form and stale-result handling are not compatible with the authorization/refresh semantics, so page acceptance remains pending.",
         "responses": {
           "200": {
             "description": "Success",
@@ -34709,39 +34709,14 @@
       "post": {
         "summary": "Confirm, reject or expire a source-backed memory fact",
         "operationId": "post_memory_facts_id_action",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract operation. Only confirm, reject and expire are supported; no forget action. Requires knowledge.manage, a current published source and a valid state transition. Rejected or expired fact text is redacted in the response; frontend action semantics remain mock.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Persists a valid source-backed fact state transition and audit in one transaction. Only confirm, reject and expire are supported; no forget action. Requires current account, environment, application/team knowledge.manage. Confirm requires a current published source and matching version; reject and expire may clean up a stale source under its original still-active scope and redact fact text and source identity. Confidence, recall and expiry metrics remain unavailable. The frozen frontend forget action is incompatible.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "fact": {
-                      "type": "object",
-                      "additionalProperties": true
-                    },
-                    "fact_redacted": {
-                      "type": "boolean"
-                    },
-                    "partial": {
-                      "type": "boolean"
-                    },
-                    "unavailable_fields": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "fact",
-                    "fact_redacted",
-                    "partial",
-                    "unavailable_fields"
-                  ]
+                  "$ref": "#/components/schemas/V3MemoryFactDecision"
                 }
               }
             }
@@ -34829,7 +34804,12 @@
             "in": "path",
             "required": true,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "confirm",
+                "reject",
+                "expire"
+              ]
             }
           },
           {
@@ -34847,7 +34827,7 @@
       "post": {
         "summary": "Resolve an open conflict between two persisted facts",
         "operationId": "post_memory_conflicts_resolve",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract operation. Requires actual distinct fact IDs for both keep and drop, an open conflict, current sources and knowledge.manage. The current frontend does not submit this body, so its interaction remains mock.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Atomically resolves an existing open conflict, updates both distinct source-backed facts and writes an audit. Requires actual fact IDs, current source provenance/version and current account, environment, application/team knowledge.manage. The frozen frontend sends a display choice without both IDs, so its interaction remains unavailable.",
         "responses": {
           "200": {
             "description": "Success",
@@ -34960,10 +34940,14 @@
                 "type": "object",
                 "properties": {
                   "keep": {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
                   },
                   "drop": {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
                   }
                 },
                 "additionalProperties": false,
@@ -40234,10 +40218,10 @@
       "get": {
         "summary": "Search configured log provider",
         "operationId": "get_logs",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires explicit persisted service/environment/owner-team binding and current logs.view. A normal query returns 503 log_patterns_unavailable with exact available counts, histogram and bounded line sample; no pattern counts or trends are inferred from that sample. Only an explicitly empty levels selection returns a complete 200 empty result. Distinct authorized bindings return 409 ambiguous_binding; more than 3 targets or other excessive authorized scope returns 422 scope_limit.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires explicit persisted service/environment/owner-team binding and current logs.view. A single provider may be selected when more than one source is bound; arbitrary endpoints or unbound sources are never accepted. A complete 200 requires exact full-window counts and complete pattern trends from the configured source, including an exact zero-match window, or an explicitly empty levels selection with no upstream query. Elasticsearch accepts only a registered message_template.keyword field or its existing categorize_text path on one concrete index. Configured Loki patterns require trusted top-level JSON level and message_template fields and a declared complete historical lookback covering the requested start. Missing, truncated, approximate or unavailable aggregations return 503 rather than inferring patterns from a bounded line sample. Distinct authorized bindings return 409 ambiguous_binding; changed source or grant is rechecked before response. More than 3 targets or other excessive authorized scope returns 422 scope_limit.",
         "responses": {
           "200": {
-            "description": "Explicitly empty levels selection; no upstream log query",
+            "description": "Complete scoped LogSearch, including exact zero matches, or explicitly empty levels selection without an upstream query",
             "content": {
               "application/json": {
                 "schema": {
@@ -40267,12 +40251,18 @@
                     "patterns": {
                       "type": "array",
                       "items": {
-                        "type": "object",
-                        "additionalProperties": true
+                        "$ref": "#/components/schemas/V3LogPattern"
                       }
                     }
                   },
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "required": [
+                    "total",
+                    "errors",
+                    "histogram",
+                    "items",
+                    "patterns"
+                  ]
                 }
               }
             }
@@ -40373,6 +40363,17 @@
             "in": "query",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "loki",
+                "elasticsearch"
+              ]
             }
           },
           {
@@ -50710,7 +50711,8 @@
         "type": "object",
         "properties": {
           "k": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
           },
           "op": {
             "type": "string",
@@ -50724,7 +50726,8 @@
           "v": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 256
+            "maxLength": 256,
+            "description": "The server enforces a 256 UTF-8 byte maximum."
           }
         },
         "additionalProperties": false,
@@ -51787,6 +51790,109 @@
           "revision"
         ]
       },
+      "V3MemoryFactRedacted": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "rejected",
+              "expired"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "confirmed": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "state",
+          "revision",
+          "confirmed"
+        ]
+      },
+      "V3MemoryFactDecision": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "fact": {
+                "$ref": "#/components/schemas/V3MemoryFactEvidence"
+              },
+              "fact_redacted": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              },
+              "partial": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              },
+              "unavailable_fields": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "fact",
+              "fact_redacted",
+              "partial",
+              "unavailable_fields"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "fact": {
+                "$ref": "#/components/schemas/V3MemoryFactRedacted"
+              },
+              "fact_redacted": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              },
+              "partial": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              },
+              "unavailable_fields": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "fact",
+              "fact_redacted",
+              "partial",
+              "unavailable_fields"
+            ]
+          }
+        ]
+      },
       "V3AgentEvidenceSummary": {
         "type": "object",
         "properties": {
@@ -52666,6 +52772,38 @@
           }
         },
         "additionalProperties": false
+      },
+      "V3LogPattern": {
+        "type": "object",
+        "properties": {
+          "template": {
+            "type": "string"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "ERROR",
+              "WARN",
+              "INFO"
+            ]
+          },
+          "count": {
+            "type": "string"
+          },
+          "trend": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "template",
+          "level",
+          "count",
+          "trend"
+        ]
       },
       "V3IncompleteLogs": {
         "type": "object",

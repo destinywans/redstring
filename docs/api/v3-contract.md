@@ -51,8 +51,8 @@
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
-| GET | `/me` | | `Me` | mock |
-| PATCH | `/me` | `Partial<Me>` | `Me` | mock |
+| GET | `/me` | | `Me`；须配置当前权威值班来源 | implemented |
+| PATCH | `/me` | `{ name?, title?, timezone?, preferences? }`；只允许本人可编辑字段 | `Me`；账号、偏好与审计原子保存 | implemented |
 | PATCH | `/me/preferences` | `{ theme?, locale?, density?, reduce_motion? }` | 偏好 | implemented |
 | GET | `/me/watched-services` | | `{ items: WatchedService[] }` | mock |
 | GET | `/search` | `q` | ⌘K 搜索结果 | mock |
@@ -63,6 +63,8 @@
 | GET | `/models` | | `ModelCatalog`：当前用户可用的模型、接口类型、推理强度档位与默认值 | implemented |
 | GET | `/models/admin` | | `ModelAdminView`（集成中心 › 模型） | mock |
 | POST | `/uploads` | multipart `file` + `kind`；链接与折叠粘贴用 JSON `{ kind, name, url \| text }` | `Upload`；单个 ≤ 20 MB，超出返回 413 | implemented |
+
+`GET/PATCH /me` 按当前真人账号、有效 Cookie 会话及授权环境投影完整 `Me`。团队、部门、角色、偏好和本实例已登记的 TOTP/passkey 来自持久记录；MFA 字段只表示登记状态，不证明登录或审批时已完成二次验证。值班状态必须由运维配置的 HTTPS 权威来源对请求环境给出新鲜、完整且无歧义的回答，未配置或失效返回 503，不能把未知写成未值班。`PATCH` 只接受名称、职务、时区及支持的偏好字段，须选定单一环境；邮箱、电话、团队、角色、MFA 与值班均由服务端管理。账号、会话、授权与值班证据在写入时复核，资料、偏好和审计一起提交。后端接口已闭合；实际权威值班服务接入与前端整页验收仍需单独完成。
 
 发现路由当前可按真实持久来源检索有权服务、事件、调查、有效人员与本人对话，支持中文与拼音，并分别将查询结果限制为 8 条搜索命中或 30 条提及候选；非空查询中任一来源类型匹配过宽时返回 413，不返回不完整成功结果。“最近访问”无真实行为记录，告警组、产物和 Runbook 预览无可用独立来源。调查结果暂链接画布列表，前端提及页签也尚未按类型重新查询；这三条主路由仍为 `mock`。
 
@@ -143,7 +145,7 @@
 | GET | `/notification-routes` | | `{ root: RouteNode }` | mock |
 | GET | `/silences` | `state: active\|planned\|expired\|all` | 静默列表及当前可见记录计数；应用标签需在服务端显式绑定到当前环境的有效应用 ID，再按应用/团队授权判断；环境明确但应用范围较宽的静默仅环境级静默管理员可见；无精确环境或匹配器歧义的静默不展示，宽范围只报告覆盖标志 | implemented |
 | GET | `/inhibitions` | | `{ items: Inhibition[] }` | mock |
-| POST | `/silences/preview` | 匹配器 | `{ affects, sample }` | mock |
+| POST | `/silences/preview` | `{ matchers: [{ k, op, v }] }`；单一环境 | `{ affects, sample }` | implemented |
 | POST | `/silences` | 匹配器 + 时长 | `{ id }` | mock |
 | DELETE | `/silences/{id}` | | 204 | mock |
 | GET | `/proposals/{id}` | | `Proposal` | implemented |
@@ -153,7 +155,7 @@
 | GET | `/executions/{id}` | | `Execution` | mock |
 | POST | `/executions/{id}/report/publish` | | 发布结果 | mock |
 
-`POST /silences/preview` 的后端现按所选单一环境读取实时 Alertmanager 告警快照。请求为 `{ matchers: [{ k, op, v }] }`，支持 `=`、`!=`、`=~`、`!~`（1–20 条）；环境是隐含的精确匹配。精确 `application=` 值必须在服务端绑定到有效应用并有当前应用/团队 `silences.view`，无应用匹配则要求环境级 `silences.view` 与 `silences.manage`。`affects` 是此刻该环境匹配告警的完整条数，`sample` 仅为最多 5 个去重排序的真实 `alertname`；来源异常、超过 500 条该环境告警或异常 `null` 均返回 503，不给部分计数。预览不会创建静默。现有页面默认仅传 service/alertname，普通应用用户会因缺精确应用匹配收到 403，且页面尚未正确清除旧预览/失败状态，故该主契约继续 `mock`。`POST /alerts/{id}/claim` 已改为持有事件行锁时复核当前授权，仍只返回 `{ id, assignee_id }`，不等于完整告警详情。
+`POST /silences/preview` 按所选单一环境读取实时 Alertmanager 告警快照。请求支持 `=`、`!=`、`=~`、`!~`（1–20 条）；环境是隐含的精确匹配。精确 `application=` 值必须在服务端绑定到有效应用并有当前应用/团队 `silences.view`，无应用匹配则要求环境级 `silences.view` 与 `silences.manage`。Alertmanager 读取后再次核对当前授权和应用归属。`affects` 是此刻该环境匹配告警的完整条数，`sample` 仅为最多 5 个去重排序的真实 `alertname`；来源异常、超过 500 条该环境告警或异常 `null` 均返回 503，不给部分计数。预览不会创建静默。现有页面默认仅传 service/alertname，普通应用用户会因缺精确应用匹配收到 403，且页面尚未正确清除旧预览/失败状态；后端路由已闭合，页面和真实 Alertmanager 尚未验收。`POST /alerts/{id}/claim` 已改为持有事件行锁时复核当前授权，仍只返回 `{ id, assignee_id }`，不等于完整告警详情。
 
 底层 Alertmanager 适配器可按 v2 协议创建和过期静默：创建不带客户端 ID，校验返回 UUID；过期使用单数 `/silence/{id}` 路径；超时等结果不确定的写入单独标记。创建台账现能持久保留当前有权人类操作者的环境/应用作用域、固定载荷、幂等键和审计；另有仅供受信进程内调用的静默提案生产者，将同环境未关闭调查、当前应用/团队和权限核对后的固定动作快照、摘要及供人阅读的内容原子保存，并不创建上游静默或开放产品写路由。提案的查看、评论、驳回在事务内复核当前权限；驳回仍须人类身份。私有对账会枚举一个配置端点的完整静默列表：零条标记保持未知且不重发，唯一完整匹配才确认，重复或失配进入人工复核；过期时间窗会在保留后执行与低层发送前拒发。单端点快照不能证明 HA 集群最终收敛后的全局唯一。生产执行前仍须在同一事务核验具体持久提案及人工批准，并由独立执行器按明确的未发送/不确定结果路径调度。删除还缺对象归属、授权和持久意图；反向代理的 404 不能证明对象已删除。未注册 `POST /silences` 或 `DELETE /silences/{id}` 产品路由，两条主契约继续 `mock`。
 
@@ -169,12 +171,12 @@
 | POST | `/runbooks/{id}/submit` | 当前持久化草稿，无请求体 | 提交审核 | implemented |
 | GET | `/postmortems` | | `PostmortemSummary` | mock |
 | GET | `/memory` | | `MemoryView` | mock |
-| POST | `/memory/facts/{id}/{action}` | `action: confirm\|reject\|expire` | 更新后的事实 | mock |
-| POST | `/memory/conflicts/resolve` | `{ keep, drop }` | 结果 | mock |
+| POST | `/memory/facts/{id}/{action}` | `action: confirm\|reject\|expire` | `{ fact, fact_redacted, partial, unavailable_fields }`；清理旧来源时事实正文脱敏 | implemented |
+| POST | `/memory/conflicts/resolve` | `{ keep, drop }`；均为真实事实 ID | `{ id, state, keep, drop }` | implemented |
 | GET | `/knowledge-sources` | | 知识来源 | mock |
 | POST | `/knowledge/search` | `{ q, service?, top_k? }` | `{ hits: RetrievalHit[] }`；关键词与向量共用当前显式环境、有效应用绑定和 V3 授权过滤，团队标记另需匹配当前负责人及团队查看权限；输出前按文档 ID/版本重核。历史归属不明、异常元数据和未验证登记来源不进入结果；独立存储的公开 Web 正文仅在最新观察、哈希、修订和当前授权一致时进入有界关键词片段，全部可见应用/环境合计超过 80 个数据库匹配来源返回 413；整次搜索限时 30 秒 | implemented |
 
-知识治理另有部分证据与人工审核辅助接口，详见 [V3 后端辅助接口](v3-backend-aux.md)。`GET /knowledge-sources/registered-evidence` 只证明受权来源登记、最近读取观察和精确归因的单页公开 Web 正文版本；连接、同步、总数与索引状态仍未知，不能组成前端完整来源页，主 `/knowledge-sources` 继续 `mock`。`GET /runbooks/{id}` 在同一只读快照中核对文档范围、当前对象授权与结构化步骤：隐藏或非 Runbook 为 404；有权旧文档缺步骤为 `503 structured_steps_unavailable`；有步骤但缺完整用量、事件处置、审核来源与执行核验时为 `503 runbook_read_unavailable`，不补零冒充完整 DTO。已落库字段可从 `/runbooks/{id}/record` 读取，主详情继续 `mock`。`GET /memory` 当前明确返回 `503 memory_view_unavailable`，只提供 `/memory/facts` 的受权、当前来源事实列表；没有可信的层级、置信度、召回次数与过期值。事实状态操作仅支持 `confirm`、`reject`、`expire`，冲突裁决须传入两个真实事实 ID。现有前端的 `forget` 和冲突请求体不符合此接口，因此上述主页面行保持 `mock`。
+知识治理另有部分证据与人工审核辅助接口，详见 [V3 后端辅助接口](v3-backend-aux.md)。`GET /knowledge-sources/registered-evidence` 只证明受权来源登记、最近读取观察和精确归因的单页公开 Web 正文版本；连接、同步、总数与索引状态仍未知，不能组成前端完整来源页，主 `/knowledge-sources` 继续 `mock`。`GET /runbooks/{id}` 在同一只读快照中核对文档范围、当前对象授权与结构化步骤：隐藏或非 Runbook 为 404；有权旧文档缺步骤为 `503 structured_steps_unavailable`；有步骤但缺完整用量、事件处置、审核来源与执行核验时为 `503 runbook_read_unavailable`，不补零冒充完整 DTO。已落库字段可从 `/runbooks/{id}/record` 读取，主详情继续 `mock`。`GET /memory` 当前明确返回 `503 memory_view_unavailable`，只提供 `/memory/facts` 的受权、当前来源事实列表；没有可信的层级、置信度、召回次数与过期值。事实状态操作仅支持 `confirm`、`reject`、`expire`，冲突裁决须传入两个真实事实 ID；写入在事务中复核会话、当前授权、来源版本与对象归属并保存审计。清理陈旧来源的 `reject/expire` 回包脱敏，`confirm` 和冲突裁决要求当前发布来源。两条写路由按后端接口标为 `implemented`；现有前端的 `forget`、冲突请求体和整个记忆页仍未对齐，`GET /memory` 继续 `mock`。
 
 V3 知识正文读取按持久环境、有效应用与当前授权失败关闭；带 `team_id` 的文档还要求该值与应用当前负责人一致并有团队查看权限。历史 `knowledge_documents` 中标记了 `source_registration_id` 的来源文档在来源证明链闭合前不参加 V3 检索或来源投影。另设的公开 Web 正文/修订表只接受有持久应用归属、无凭据的单页 HTTPS Markdown 同次抓取；关键词检索在候选及输出前复核最新观察、内容哈希、修订和当前环境/应用/团队授权；不进入旧文档详情/导出或向量索引。可选的 `search_knowledge` Agent 证据组件尚未在正式进程注册；V3 实例关闭旧 Worker，不能把旧检索工具当作当前 V3 调用路径。其他来源正文同步、索引归属与完整页面 DTO 仍待接入。
 
@@ -195,12 +197,12 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | GET | `/traces/{id}` | | `TraceView`：Span（关键路径、属性、事件、日志、关联）、火焰图说明、服务调用图 | mock |
 | GET | `/services/discover` | 单个可选 `cluster`；重复参数返回 422 | 只读发现经授权的现存工作负载、稳定资源 ID 和未经核实的负责人提示；同名歧义候选不返回 | mock |
 | POST | `/services` | `{ items: [{ id, namespace, resource_id?, tier, owner, slo, p99 }] }`；`resource_id` 为发现接口返回的稳定 CMDB 标识，提供时必须有 namespace | `{ created }` | implemented |
-| GET | `/logs` | `q`, `levels` | `LogSearch`（含 AI 聚类的日志模式） | mock |
+| GET | `/logs` | `q`, `levels`, `service?`, `provider?` | `LogSearch`；完整来源模式计数与趋势 | implemented |
 | GET | `/changes` | `range`, `sources` | `ChangesView`（CI/CD 与 GitOps 事件，只读） | mock |
 
 资源发现现在返回 `resource_id`、Kubernetes `uid`、环境与集群；单集群条件在 2000 个候选扫描上限之前执行，整次请求共用 20 秒预算。选定集群之外的可信同名资源，以及同环境、同命名空间中陈旧、缺失或已关联的原始同名身份，均会阻止当前只按名称登记的候选进入结果；`ambiguous_workloads` 只给出数量，不泄露阻挡对象。`registered` 是授权环境内的登记数，不是所示集群的登记数。负责人和等级只作来源提示，`replicas` 可为空，`matched`/`missing` 尚无可信线索。注册时按当前环境、采集新鲜度、存在状态、UID、命名空间、是否已关联及 `resources.view` 重新核对。旧客户端只传名称时仅可匹配唯一工作负载；同名、过期或已关联身份返回 409，不会静默关联。当前前端未传 `cluster`/`resource_id`，并固定展示负责人、SLO、P99 与系统映射，发现到注册交互尚未接通。服务列表和系统映射超过 1000 条可见记录会返回 `422 result_limit`，不会返回不完整总数。拓扑仅显示五分钟内成功采集且环境吻合的现存节点，关联应用不会替资源借用其团队授权。
 
-观测查询只使用持久化应用、环境、负责人团队及已配置的外部目标绑定；不同来源绑定冲突返回 `409 ambiguous_binding`，范围过大返回 `422 scope_limit`。`GET /metrics/samples` 辅助接口可在单环境、唯一显式 V3 Prometheus 指标目标和操作者审查过精确范围的查询目录下返回有界真实标量样本；可见服务缺 `connectors.view` 在目标查询前返回 403，隐藏或不存在的服务同样返回资源不存在，读取中撤权不返回样本。它不提供看板 KPI、SLO、关联变更或完整 `MetricsDashboard`。普通日志查询返回 `503 log_patterns_unavailable`，其中 `available` 仅包含真实总数、错误数、直方图和有界样本，`missing` 标明模式计数与趋势；只有显式空 `levels` 返回完整空结果。Trace 列表返回 `503 trace_aggregation_unavailable`，只提供 `observed_sample` 与缺失的总数/分面/直方图字段；详情 `200` 标记 `partial: true` 和 `missing`，不能把受权 Span 样本当成完整链路。指标、日志、Trace 主页面均保持 `mock`。
+观测查询只使用持久化应用、环境、负责人团队及已配置的外部目标绑定；不同来源绑定冲突返回 `409 ambiguous_binding`，范围过大返回 `422 scope_limit`。`GET /metrics/samples` 辅助接口可在单环境、唯一显式 V3 Prometheus 指标目标和操作者审查过精确范围的查询目录下返回有界真实标量样本；可见服务缺 `connectors.view` 在目标查询前返回 403，隐藏或不存在的服务同样返回资源不存在，读取中撤权不返回样本。它不提供看板 KPI、SLO、关联变更或完整 `MetricsDashboard`。`GET /logs` 在唯一授权目标及已配置的 Elasticsearch 或 Loki 范围内，分别查询所选等级的全窗总数、错误数、直方图、限量日志行和完整模板模式聚合；逐桶守恒、来源配置及当前授权/绑定均核对后才返回 `200 LogSearch`，包括精确零结果。缺少完整聚合返回 `503 log_patterns_unavailable` 和真实的部分证据；显式空 `levels` 返回空结果。模式来自受信采集模板或 Elasticsearch 类别聚合，不声称 AI 聚类；真实目标的历史映射/租户覆盖、脱敏和查询性能验收见 [日志来源接线](v3-logs-source.md)。Trace 列表返回 `503 trace_aggregation_unavailable`，只提供 `observed_sample` 与缺失的总数/分面/直方图字段；详情 `200` 标记 `partial: true` 和 `missing`，不能把受权 Span 样本当成完整链路。指标与 Trace 主页面仍保持 `mock`，日志页面尚未真实联调。
 
 ## v4 新建流程（`create.ts`）
 

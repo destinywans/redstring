@@ -112,32 +112,38 @@ func (s *Service) Preview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := httpapi.CurrentUser(r)
+	var authorizedApp Application
 	if providerApp == "" {
-		// Without an exact application matcher, this request could affect any
-		// application in the environment, including one with no current alerts.
-		// Require the environment-wide view AND manage grant.
-		allowed, authErr := silenceAllowed(r.Context(), s.Access, user,
-			rbac.V3Decision{Module: "silences", Action: "view", EnvironmentID: env})
-		if authErr != nil {
-			httpapi.Error(w, http.StatusServiceUnavailable, "silence_authorization_unavailable", "Silence authorization is unavailable")
+		if !s.previewEnvironmentAllowed(r.Context(), user, env, w) {
 			return
 		}
-		admin, catalogErr := s.Catalog.EnvironmentAdmin(r.Context(), user, env)
-		if catalogErr != nil {
-			httpapi.Error(w, http.StatusServiceUnavailable, "silence_catalog_unavailable", "Silence grants are unavailable")
+	} else {
+		var allowed bool
+		authorizedApp, allowed = s.previewApplicationAllowed(r.Context(), user, env, providerApp, w)
+		if !allowed {
 			return
 		}
-		if !allowed || !admin {
-			httpapi.Error(w, http.StatusForbidden, "silence_scope_forbidden", "Exact application matcher or environment-wide silence grant required")
-			return
-		}
-	} else if !s.previewApplicationAllowed(r.Context(), user, env, providerApp, w) {
-		return
 	}
 	alerts, err := s.Source.ListAlerts(r.Context(), env)
 	if err != nil {
 		httpapi.Error(w, http.StatusServiceUnavailable, "alertmanager_unavailable", "Current Alertmanager alerts are unavailable")
 		return
+	}
+	// Provider reads can take long enough for a grant or application owner to
+	// change. Recheck the same scope before returning any observed counts.
+	if providerApp == "" {
+		if !s.previewEnvironmentAllowed(r.Context(), user, env, w) {
+			return
+		}
+	} else {
+		currentApp, allowed := s.previewApplicationAllowed(r.Context(), user, env, providerApp, w)
+		if !allowed {
+			return
+		}
+		if currentApp != authorizedApp {
+			httpapi.Error(w, http.StatusServiceUnavailable, "silence_scope_changed", "Application scope changed during preview")
+			return
+		}
 	}
 	affects := 0
 	inEnvironment := 0
@@ -171,16 +177,38 @@ func (s *Service) Preview(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"affects": affects, "sample": names})
 }
 
-func (s *Service) previewApplicationAllowed(ctx context.Context, user core.User, env, providerApp string, w http.ResponseWriter) bool {
+func (s *Service) previewEnvironmentAllowed(ctx context.Context, user core.User, env string, w http.ResponseWriter) bool {
+	// Without an exact application matcher, this request could affect any
+	// application in the environment, including one with no current alerts.
+	// Require the environment-wide view AND manage grant.
+	allowed, authErr := silenceAllowed(ctx, s.Access, user,
+		rbac.V3Decision{Module: "silences", Action: "view", EnvironmentID: env})
+	if authErr != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, "silence_authorization_unavailable", "Silence authorization is unavailable")
+		return false
+	}
+	admin, catalogErr := s.Catalog.EnvironmentAdmin(ctx, user, env)
+	if catalogErr != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, "silence_catalog_unavailable", "Silence grants are unavailable")
+		return false
+	}
+	if !allowed || !admin {
+		httpapi.Error(w, http.StatusForbidden, "silence_scope_forbidden", "Exact application matcher or environment-wide silence grant required")
+		return false
+	}
+	return true
+}
+
+func (s *Service) previewApplicationAllowed(ctx context.Context, user core.User, env, providerApp string, w http.ResponseWriter) (Application, bool) {
 	appID := s.ApplicationBindings[env][providerApp]
 	if appID == "" {
 		httpapi.Error(w, http.StatusNotFound, "application_not_found", "Application is not bound to this alert source")
-		return false
+		return Application{}, false
 	}
 	apps, err := s.Catalog.Applications(ctx, []string{env})
 	if err != nil {
 		httpapi.Error(w, http.StatusServiceUnavailable, "silence_catalog_unavailable", "Application catalog is unavailable")
-		return false
+		return Application{}, false
 	}
 	var app Application
 	found := false
@@ -188,14 +216,14 @@ func (s *Service) previewApplicationAllowed(ctx context.Context, user core.User,
 		if current.ID == appID && current.EnvironmentID == env {
 			if found {
 				httpapi.Error(w, http.StatusServiceUnavailable, "silence_catalog_unavailable", "Application identity is ambiguous")
-				return false
+				return Application{}, false
 			}
 			app, found = current, true
 		}
 	}
 	if !found {
-		httpapi.Error(w, http.StatusNotFound, "application_not_found", "Application is not active in this environment")
-		return false
+		httpapi.Error(w, http.StatusNotFound, "application_not_found", "Application is not bound to this alert source")
+		return Application{}, false
 	}
 	decision := rbac.V3Decision{Module: "silences", Action: "view", EnvironmentID: env, ApplicationID: app.ID}
 	allowed, err := silenceAllowed(ctx, s.Access, user, decision)
@@ -206,14 +234,14 @@ func (s *Service) previewApplicationAllowed(ctx context.Context, user core.User,
 	}
 	if err != nil {
 		httpapi.Error(w, http.StatusServiceUnavailable, "silence_authorization_unavailable", "Silence authorization is unavailable")
-		return false
+		return Application{}, false
 	}
 	if !allowed {
 		// Do not distinguish a hidden bound application from an unknown
 		// provider label. The route-level object marker has no application
 		// identity until this function resolves the binding.
 		httpapi.Error(w, http.StatusNotFound, "application_not_found", "Application is not bound to this alert source")
-		return false
+		return Application{}, false
 	}
-	return true
+	return app, true
 }

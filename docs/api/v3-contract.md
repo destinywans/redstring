@@ -331,8 +331,8 @@ Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评�
 | POST | `/members/sync` | | `{ added, updated }` | mock |
 | POST | `/members/mfa-reminders` | | `{ sent }` | mock |
 | GET | `/roles` | | `{ items: Role[] }` | implemented |
-| GET | `/roles/{id}` | | `RoleDetail` | mock |
-| PUT | `/roles/{id}` | `{ matrix }`（机器身份的"批准"列必须拒绝） | 结果 | mock |
+| GET | `/roles/{id}` | | `RoleDetail` 与响应头 `X-Role-Matrix-Revision` | implemented |
+| PUT | `/roles/{id}` | `{ matrix }` 和 GET 返回的 `If-Role-Matrix-Revision`；机器身份的“批准”列必须拒绝 | `{ ok: true }` 与新矩阵版本响应头 | implemented |
 | GET | `/security` | | `SecurityView` | mock |
 | PUT | `/security` | `SecurityView` | `SecurityView` | mock |
 | GET | `/me/notification-settings` | | `{ quiet: { enabled, from, to }, digest: off\|daily\|weekly, subscriptions }`；只读取当前账号已保存偏好，无记录时返回平台默认值，不代表通知渠道已接通 | implemented |
@@ -347,7 +347,9 @@ Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评�
 
 `GET/PUT /me/profile` 仍返回 `503 identity_evidence_unavailable`：联系人验证、MFA 因子/状态和设备来源未有可信生产者，服务端保留未知值，PUT 不保存不完整的 `ProfileView` 或产生成功审计；会话删除是独立的已实现接口。完整资料页继续 `mock`。
 
-`GET /workspace` 在读取事务内复核当前有效账号与所选环境 `workspace.view`，读取持久化记录；缺失或损坏时返回 `503 workspace_unavailable`，不会合成默认值。`PUT /workspace` 严格校验单个 JSON 对象、已知字段和值，使用该记录与旧设置接口共用的 `revision` 比较 `If-Match`，在事务中复核账号、平台管理员身份和全局 `workspace.manage`，保存与审计一起提交；`data_region` 和品牌字段为只读部署声明，提交值必须与已存值相同。新建本地或目录导入成员现在继承已保存的 `timezone`、`locale`；已有成员不被改写。slug、`week_start` 和留存天数仍只是保存配置，尚未驱动链接、日历或清理行为；`data_region` 不能证明物理驻留。冻结前端工作区页尚未传递 GET 的 ETag，真实 PUT 会返回 428，整页未验收。角色/成员列表与详情只展示所选且已授权环境内的对象与成员；只有同时具备全局模块查看和全局 `environment.view` 的管理员可盘点无环境归属的旧记录。`GET/PUT /roles/{id}` 对平面五列矩阵无法无损表达的授权返回 `409 matrix_editor_required`；写入时在事务内复核当前有效账号、全局 `roles.manage` 与全局 `environment.view`，保护最后一位有效人类管理员。PUT 成功仅返回 `{ ok: true }`，不在提交后重读并泄露角色详情。除上述工作区读写外，设置与角色页面的主契约行仍维持 `mock`。
+`GET /workspace` 在读取事务内复核当前有效账号与所选环境 `workspace.view`，读取持久化记录；缺失或损坏时返回 `503 workspace_unavailable`，不会合成默认值。`PUT /workspace` 严格校验单个 JSON 对象、已知字段和值，使用该记录与旧设置接口共用的 `revision` 比较 `If-Match`，在事务中复核账号、平台管理员身份和全局 `workspace.manage`，保存与审计一起提交；`data_region` 和品牌字段为只读部署声明，提交值必须与已存值相同。新建本地或目录导入成员现在继承已保存的 `timezone`、`locale`；已有成员不被改写。slug、`week_start` 和留存天数仍只是保存配置，尚未驱动链接、日历或清理行为；`data_region` 不能证明物理驻留。冻结前端工作区页尚未传递 GET 的 ETag，真实 PUT 会返回 428，整页未验收。
+
+角色/成员列表与详情只展示所选且已授权环境内的对象与成员；只有同时具备全局模块查看和全局 `environment.view` 的管理员可盘点无环境归属的旧记录。`GET /roles/{id}` 在同一授权事务快照中读取角色、成员和授权；平面五列矩阵无法无损表达的授权返回 `409 matrix_editor_required`，不将部分授权伪装成可编辑单元格。响应头 `X-Role-Matrix-Revision` 只版本化授权矩阵，不版本化描述或成员。`PUT /roles/{id}` 要求该版本的精确十进制 `If-Role-Matrix-Revision`，缺失 428、旧版 409；所选单一环境只用于鉴权，提交的是跨所有环境的全局授权，因此要求全局 `roles.manage` 和全局 `environment.view`。读写事务均在角色授权锁之后复核并锁定发起请求的精确 Cookie 会话与有效账号；写入还在角色行锁下复核权限和版本，拒绝机器身份审批，保护最后一位有效人类管理员，授权、版本与审计共同提交。PUT 仅返回 `{ ok: true }` 与新版本头，不在提交后重读并泄露角色详情。冻结页面不读取或发送版本头，真实保存会 428，默认选择的 `approver` 也可能与持久角色 ID 不符；后端两条路由已闭合，角色整页尚未验收。其他设置主契约仍按各行状态判断。
 
 ## 后端辅助接口（不计入上述 166 项）
 
@@ -368,6 +370,7 @@ Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评�
 
 | 日期 | 变更 |
 | --- | --- |
+| 2026-09-29 | WAN-119 角色详情 GET/PUT 按后端单路由判据标为 `implemented`；矩阵写入新增 `If-Role-Matrix-Revision` 强前置条件，版本随 GET/PUT 响应头返回，用于防止旧页面覆盖持久授权。冻结页面尚未传递该头，页面验收另列。 |
 | 2026-09-29 | 后端单路由证据使 `GET/POST /canvases`、`GET /config-sync`、告警规则 dry-run、服务映射 discover/accept 标为 `implemented`；页面仍待适配和实连。服务映射接受体由展示字符串 `{ cells }` 改为稳定候选身份、版本和绑定修订 `{ candidates }`，以防过期/错绑；本批按后端范围先更新本契约与 OpenAPI，冻结 `types.ts`、Mock 和页面尚未同步，页面继续使用 Mock 模式。 |
 | 2026-09-28 | 冻结 v1。拆分合并行；补 `GET /conversations/{id}/events` 行；画布节点对话请求加 `model`、`reasoning`，响应加 `new_branch`；新增实例与环境一节和 `X-AIOps-Environment`。 |
 

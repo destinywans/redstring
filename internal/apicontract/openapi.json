@@ -41100,7 +41100,7 @@
       "get": {
         "summary": "Read role matrix and associations",
         "operationId": "get_roles_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Visible grants and member names are limited to the selected authorized environments. A role whose grants cannot be represented by the flat five-column matrix returns 409 matrix_editor_required. Other platform grants are described in notes, not projected into matrix cells.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Rechecks the active account, current roles.view and selected-environment admission in one read transaction. Role, visible members and grants form one authorized snapshot. A role whose grants cannot be represented by the flat five-column matrix returns 409 matrix_editor_required; no unrepresentable grant is silently projected into a cell. Other platform grants are described in notes, not projected into matrix cells. X-Role-Matrix-Revision versions matrix writes only, not the entire detail representation.",
         "responses": {
           "200": {
             "description": "Success",
@@ -41108,6 +41108,15 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/V3RoleDetail"
+                }
+              }
+            },
+            "headers": {
+              "X-Role-Matrix-Revision": {
+                "description": "Decimal version of this role matrix; it does not version membership or descriptive role fields.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$"
                 }
               }
             }
@@ -41203,7 +41212,7 @@
       "put": {
         "summary": "Update role matrix",
         "operationId": "put_roles_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires an active account with global roles.manage and global environment.view, rechecked inside the write transaction. Success returns only {ok:true}; a manager is not automatically authorized to read role detail after the write. Unrepresentable or scoped grants return 409 rather than being silently overwritten. Rejects removal of the last eligible global human role manager.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment as authorization context, an active account with global roles.manage and global environment.view, and the exact decimal matrix revision returned by GET /roles/{id} in If-Role-Matrix-Revision. A successful edit changes global role grants across every environment, not just the selected environment. Rechecks authority and revision under the write lock; stale revisions return 409 role_changed. Success returns only {ok:true} plus the new matrix revision header; a manager is not automatically authorized to read role detail after the write. Unrepresentable or scoped grants return 409 rather than being silently overwritten. Machine identities cannot approve. Rejects removal of the last eligible global human role manager. The frozen frontend does not yet forward the revision header, so its real-mode save receives 428 until adapted.",
         "responses": {
           "200": {
             "description": "Success",
@@ -41220,6 +41229,15 @@
                   "required": [
                     "ok"
                   ]
+                }
+              }
+            },
+            "headers": {
+              "X-Role-Matrix-Revision": {
+                "description": "Decimal version of this role matrix; it does not version membership or descriptive role fields.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$"
                 }
               }
             }
@@ -41255,7 +41273,7 @@
             }
           },
           "409": {
-            "description": "Conflict or stale version",
+            "description": "Stale matrix revision (role_changed), unrepresentable or scoped grants, or last eligible human role manager",
             "content": {
               "application/json": {
                 "schema": {
@@ -41276,6 +41294,26 @@
           },
           "503": {
             "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or multiple If-Role-Matrix-Revision values",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Role matrix revision precondition required",
             "content": {
               "application/json": {
                 "schema": {
@@ -41309,6 +41347,16 @@
               "type": "string"
             },
             "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "If-Role-Matrix-Revision",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            },
+            "description": "Exactly one decimal matrix revision returned by GET /roles/{id}."
           }
         ],
         "requestBody": {
@@ -41320,6 +41368,8 @@
                 "properties": {
                   "matrix": {
                     "type": "array",
+                    "minItems": 13,
+                    "maxItems": 13,
                     "items": {
                       "type": "object",
                       "properties": {
@@ -41328,6 +41378,8 @@
                         },
                         "grants": {
                           "type": "array",
+                          "minItems": 5,
+                          "maxItems": 5,
                           "items": {
                             "type": "integer",
                             "enum": [
@@ -41338,7 +41390,11 @@
                           }
                         }
                       },
-                      "additionalProperties": false
+                      "additionalProperties": false,
+                      "required": [
+                        "resource",
+                        "grants"
+                      ]
                     }
                   }
                 },
@@ -53868,11 +53924,17 @@
           "name": {
             "type": "string"
           },
-          "kind": {
-            "type": "string"
-          },
           "members": {
-            "type": "integer"
+            "type": "integer",
+            "minimum": 0
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "system",
+              "business",
+              "machine"
+            ]
           }
         },
         "additionalProperties": false,
@@ -53892,11 +53954,17 @@
           "name": {
             "type": "string"
           },
-          "kind": {
-            "type": "string"
-          },
           "members": {
-            "type": "integer"
+            "type": "integer",
+            "minimum": 0
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "system",
+              "business",
+              "machine"
+            ]
           },
           "desc": {
             "type": "string"
@@ -53924,6 +53992,8 @@
           },
           "matrix": {
             "type": "array",
+            "minItems": 13,
+            "maxItems": 13,
             "items": {
               "type": "object",
               "properties": {
@@ -53932,6 +54002,8 @@
                 },
                 "grants": {
                   "type": "array",
+                  "minItems": 5,
+                  "maxItems": 5,
                   "items": {
                     "type": "integer",
                     "enum": [
@@ -53942,11 +54014,27 @@
                   }
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "required": [
+                "resource",
+                "grants"
+              ]
             }
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "members",
+          "kind",
+          "desc",
+          "member_names",
+          "scope",
+          "actions",
+          "matrix",
+          "notes"
+        ]
       },
       "V3Member": {
         "type": "object",

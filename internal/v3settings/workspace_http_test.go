@@ -13,6 +13,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
+	"github.com/wans/aiops-canvas/internal/settings"
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
@@ -51,9 +52,13 @@ func TestWorkspaceAuthenticatedHTTPPersistenceAndAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	workspaceTag := ""
 	requestWithLanguage := func(method, token, env, language, body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, "/api/v1/workspace", strings.NewReader(body))
 		r.Header.Set("X-AIOps-Environment", env)
+		if method == http.MethodPut && workspaceTag != "" {
+			r.Header.Set("If-Match", workspaceTag)
+		}
 		if language != "" {
 			r.Header.Set("Accept-Language", language)
 		}
@@ -74,6 +79,11 @@ func TestWorkspaceAuthenticatedHTTPPersistenceAndAudit(t *testing.T) {
 	if initial.Code != http.StatusOK {
 		t.Fatalf("viewer read: %d %s", initial.Code, initial.Body.String())
 	}
+	workspaceTag = initial.Header().Get("ETag")
+	if workspaceTag == "" {
+		t.Fatal("GET did not expose workspace revision ETag")
+	}
+	initialTag := workspaceTag
 	var original workspace
 	if err := json.Unmarshal(initial.Body.Bytes(), &original); err != nil {
 		t.Fatal(err)
@@ -103,6 +113,15 @@ func TestWorkspaceAuthenticatedHTTPPersistenceAndAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, invalid := range []string{
+		strings.Replace(string(payload), `"logo":null,`, "", 1),
+		strings.Replace(string(payload), `"brand":{"name":`, `"brand":{"name":"duplicate","name":`, 1),
+		strings.Replace(string(payload), `"data_region":"local"`, `"data_region":null`, 1),
+	} {
+		if w := request(http.MethodPut, adminToken, "dev", invalid); w.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("missing, duplicate or null field accepted: %d %s", w.Code, w.Body.String())
+		}
+	}
 	if w := request(http.MethodPut, viewerToken, "dev", string(payload)); w.Code != http.StatusForbidden {
 		t.Fatalf("environment-scoped workspace manager changed instance settings: %d %s", w.Code, w.Body.String())
 	}
@@ -115,7 +134,7 @@ func TestWorkspaceAuthenticatedHTTPPersistenceAndAudit(t *testing.T) {
 	if w := request(http.MethodPut, adminToken, "all", string(payload)); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "env_view_only") {
 		t.Fatalf("all write: %d %s", w.Code, w.Body.String())
 	}
-	for _, invalid := range []string{`{}`, `null`, `{"name":"bad","unknown":true}`} {
+	for _, invalid := range []string{`{}`, `null`, `{"name":"bad","unknown":true}`, `{"name":"a","name":"b"}`} {
 		if w := request(http.MethodPut, adminToken, "dev", invalid); w.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("invalid body %s: %d %s", invalid, w.Code, w.Body.String())
 		}
@@ -141,16 +160,36 @@ func TestWorkspaceAuthenticatedHTTPPersistenceAndAudit(t *testing.T) {
 			t.Fatalf("immutable %s: %d %s", change.name, w.Code, w.Body.String())
 		}
 	}
-	if w := requestWithLanguage(http.MethodPut, adminToken, "dev", "zh-CN", `{"unknown":true}`); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "工作区字段无效或未知") {
+	if w := requestWithLanguage(http.MethodPut, adminToken, "dev", "zh-CN", `{"unknown":true}`); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "工作区字段缺失、重复或无效") {
 		t.Fatalf("localized unknown-field error: %d %s", w.Code, w.Body.String())
 	}
-	if w := requestWithLanguage(http.MethodPut, adminToken, "dev", "en-US", `{"unknown":true}`); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "Invalid or unknown workspace field") {
+	if w := requestWithLanguage(http.MethodPut, adminToken, "dev", "en-US", `{"unknown":true}`); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "Missing, duplicate, or invalid workspace field") {
 		t.Fatalf("English unknown-field error: %d %s", w.Code, w.Body.String())
 	}
 	saved := request(http.MethodPut, adminToken, "dev", string(payload))
 	if saved.Code != http.StatusOK {
 		t.Fatalf("admin write: %d %s", saved.Code, saved.Body.String())
 	}
+	if saved.Header().Get("ETag") == workspaceTag {
+		t.Fatalf("workspace revision did not advance: %s", workspaceTag)
+	}
+	workspaceTag = saved.Header().Get("ETag")
+	for _, tc := range []struct {
+		tag  string
+		code int
+	}{
+		{"", http.StatusPreconditionRequired},
+		{`W/` + workspaceTag, http.StatusBadRequest},
+		{"*", http.StatusBadRequest},
+		{workspaceTag + "," + workspaceTag, http.StatusBadRequest},
+		{initialTag, http.StatusPreconditionFailed},
+	} {
+		workspaceTag = tc.tag
+		if w := request(http.MethodPut, adminToken, "dev", string(payload)); w.Code != tc.code {
+			t.Fatalf("If-Match %q: got %d %s, want %d", tc.tag, w.Code, w.Body.String(), tc.code)
+		}
+	}
+	workspaceTag = saved.Header().Get("ETag")
 	got := request(http.MethodGet, viewerToken, "dev", "")
 	if got.Code != http.StatusOK || got.Body.String() != saved.Body.String() {
 		t.Fatalf("read-after-write: %d %s; saved=%s", got.Code, got.Body.String(), saved.Body.String())
@@ -159,6 +198,23 @@ func TestWorkspaceAuthenticatedHTTPPersistenceAndAudit(t *testing.T) {
 	if err := s.DB.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE actor_id='one' AND action='v3.workspace.updated' AND target='default' AND outcome='success'`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("audit count=%d err=%v", count, err)
 	}
+	// Legacy settings changes the same revision even when the visible name is
+	// unchanged. A V3 editor holding the earlier ETag must not overwrite it.
+	legacyRevision, ok := parseWorkspaceIfMatch(workspaceTag)
+	if !ok {
+		t.Fatalf("invalid saved ETag: %q", workspaceTag)
+	}
+	if _, err := settings.New(s, "").UpdateWorkspace(store.WithPrincipal(ctx, core.User{ID: "one", Role: "admin"}), settings.WorkspacePatch{Revision: legacyRevision, Name: &updated.Name}); err != nil {
+		t.Fatalf("legacy workspace write: %v", err)
+	}
+	if w := request(http.MethodPut, adminToken, "dev", string(payload)); w.Code != http.StatusPreconditionFailed {
+		t.Fatalf("stale V3 write after legacy update: %d %s", w.Code, w.Body.String())
+	}
+	refreshed := request(http.MethodGet, adminToken, "dev", "")
+	if refreshed.Code != http.StatusOK || refreshed.Body.String() != saved.Body.String() || refreshed.Header().Get("ETag") == workspaceTag {
+		t.Fatalf("legacy revision/read mismatch: %d %s etag=%q", refreshed.Code, refreshed.Body.String(), refreshed.Header().Get("ETag"))
+	}
+	workspaceTag = refreshed.Header().Get("ETag")
 	if _, err := s.DB.Exec(ctx, `CREATE FUNCTION fail_workspace_audit() RETURNS trigger LANGUAGE plpgsql AS $$
  BEGIN IF NEW.action='v3.workspace.updated' THEN RAISE EXCEPTION 'audit unavailable'; END IF; RETURN NEW; END $$`); err != nil {
 		t.Fatal(err)
@@ -215,7 +271,7 @@ func TestWorkspaceWriteRechecksRevokedManageGrantInTransaction(t *testing.T) {
 	if _, err := s.DB.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='admin' AND module='workspace' AND action='manage'`); err != nil {
 		t.Fatal(err)
 	}
-	_, err = New(s, nil).putWorkspace(ctx, core.User{ID: "one", Role: "admin"}, "dev", input)
+	_, _, err = New(s, nil).putWorkspace(ctx, core.User{ID: "one", Role: "admin"}, "dev", 1, input)
 	if err != store.ErrForbidden {
 		t.Fatalf("revoked grant: got %v, want forbidden", err)
 	}
@@ -342,7 +398,7 @@ func TestWorkspaceWriteWaitsForMatrixRevocationBeforeCheckingAuthority(t *testin
 	}
 	done := make(chan error, 1)
 	go func() {
-		_, writeErr := New(s, nil).putWorkspace(ctx, core.User{ID: "one", Role: "admin"}, "dev", input)
+		_, _, writeErr := New(s, nil).putWorkspace(ctx, core.User{ID: "one", Role: "admin"}, "dev", 1, input)
 		done <- writeErr
 	}()
 	select {

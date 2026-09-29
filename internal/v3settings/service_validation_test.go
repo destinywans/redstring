@@ -46,7 +46,7 @@ func TestWorkspaceRejectsInvalidInputBeforeStorage(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			input := valid
 			tc.change(&input)
-			_, err := (&Service{}).putWorkspace(t.Context(), core.User{ID: "user"}, "dev", input)
+			_, _, err := (&Service{}).putWorkspace(t.Context(), core.User{ID: "user"}, "dev", 1, input)
 			if !errors.Is(err, errInvalid) {
 				t.Fatalf("invalid %s: got %v, want invalid settings", tc.name, err)
 			}

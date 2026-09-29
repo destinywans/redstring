@@ -15,6 +15,7 @@ import (
 )
 
 var errWorkspaceUnavailable = errors.New("workspace settings record is missing or invalid")
+var errWorkspaceRevisionConflict = errors.New("workspace settings revision changed")
 
 func validEditableWorkspace(v workspace) bool {
 	return strings.TrimSpace(v.Name) != "" && utf8.RuneCountInString(v.Name) <= 120 &&
@@ -48,6 +49,15 @@ func decodeWorkspace(w http.ResponseWriter, r *http.Request) (workspace, bool) {
 		httpapi.Error(w, http.StatusUnprocessableEntity, "invalid_body", localize(r, "请求正文必须是工作区对象", "Expected a workspace object"))
 		return workspace{}, false
 	}
+	fields, err := requiredWorkspaceFields(raw, []string{"name", "slug", "timezone", "locale", "week_start", "retention_days", "data_region", "brand"})
+	if err != nil {
+		httpapi.Error(w, http.StatusUnprocessableEntity, "invalid_body", localize(r, "工作区字段缺失、重复或无效", "Missing, duplicate, or invalid workspace field"))
+		return workspace{}, false
+	}
+	if _, err := requiredWorkspaceFields(fields["brand"], []string{"name", "logo", "pending"}); err != nil {
+		httpapi.Error(w, http.StatusUnprocessableEntity, "invalid_body", localize(r, "品牌字段缺失、重复或无效", "Missing, duplicate, or invalid brand field"))
+		return workspace{}, false
+	}
 	var v workspace
 	strict := json.NewDecoder(bytes.NewReader(raw))
 	strict.DisallowUnknownFields()
@@ -58,6 +68,45 @@ func decodeWorkspace(w http.ResponseWriter, r *http.Request) (workspace, bool) {
 	return v, true
 }
 
+// The PUT body is the complete frozen DTO, including the read-only deployment
+// fields that the server compares against the current row. Explicit presence
+// matters: zero values must not silently stand in for omitted fields.
+func requiredWorkspaceFields(raw []byte, names []string) (map[string]json.RawMessage, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	open, err := decoder.Token()
+	if err != nil || open != json.Delim('{') {
+		return nil, errInvalid
+	}
+	allowed := make(map[string]bool, len(names))
+	for _, name := range names {
+		allowed[name] = true
+	}
+	fields := make(map[string]json.RawMessage, len(names))
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return nil, errInvalid
+		}
+		key, ok := keyToken.(string)
+		if !ok || !allowed[key] || fields[key] != nil {
+			return nil, errInvalid
+		}
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil || bytes.Equal(bytes.TrimSpace(value), []byte("null")) && key != "logo" {
+			return nil, errInvalid
+		}
+		fields[key] = value
+	}
+	close, err := decoder.Token()
+	if err != nil || close != json.Delim('}') || len(fields) != len(names) {
+		return nil, errInvalid
+	}
+	if decoder.Decode(new(any)) != io.EOF {
+		return nil, errInvalid
+	}
+	return fields, nil
+}
+
 func respondWorkspace(w http.ResponseWriter, r *http.Request, v workspace, err error) {
 	if err == nil {
 		httpapi.WriteJSON(w, http.StatusOK, v)
@@ -66,6 +115,8 @@ func respondWorkspace(w http.ResponseWriter, r *http.Request, v workspace, err e
 	switch {
 	case errors.Is(err, errInvalid):
 		httpapi.Error(w, http.StatusUnprocessableEntity, "invalid_settings", localize(r, "请检查提交的工作区设置；部署管理字段不能在此修改", "Check the workspace settings; deployment-managed fields cannot be changed here"))
+	case errors.Is(err, errWorkspaceRevisionConflict):
+		httpapi.Error(w, http.StatusPreconditionFailed, "workspace_changed", localize(r, "工作区设置已被他人修改，请刷新后重试", "Workspace settings changed; refresh and try again"))
 	case errors.Is(err, store.ErrForbidden):
 		if r.Method == http.MethodGet {
 			httpapi.Error(w, http.StatusForbidden, "forbidden", localize(r, "没有读取工作区设置的权限", "Permission to view workspace settings denied"))

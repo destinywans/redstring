@@ -46,9 +46,15 @@ type TelemetryEndpoint struct {
 type ApplicationTelemetry struct {
 	// Every expression is reviewed and registered for this application by an admin.
 	// Arbitrary PromQL is intentionally absent from the public request interface.
-	PrometheusQueries  map[string]string `json:"prometheus_queries"`
-	LokiLabels         map[string]string `json:"loki_labels"`
-	ElasticsearchIndex string            `json:"elasticsearch_index"`
+	PrometheusQueries map[string]string `json:"prometheus_queries"`
+	LokiLabels        map[string]string `json:"loki_labels"`
+	// A trusted ingestion pipeline must put a reviewed, sanitized template in
+	// each JSON log line. The registered effective tenant query lookback and
+	// retention must both cover this many seconds; Loki may silently trim older
+	// data when max_query_lookback is shorter than the requested window.
+	LokiPatternField            string `json:"loki_pattern_field,omitempty"`
+	LokiCompleteLookbackSeconds int    `json:"loki_complete_lookback_seconds,omitempty"`
+	ElasticsearchIndex          string `json:"elasticsearch_index"`
 	// Only message_template.keyword is accepted. The trusted ingestion pipeline
 	// must supply a stable, reviewed, sanitized template on every log document.
 	// Empty preserves the categorize_text path.
@@ -206,6 +212,11 @@ func NewTelemetry(config TelemetryConfig) (*Telemetry, error) {
 			if !telemetryLabelName.MatchString(key) || value == "" || len(value) > 1024 {
 				return nil, fmt.Errorf("invalid Loki scope for %s", app)
 			}
+		}
+		if a.LokiPatternField != "" && a.LokiPatternField != "message_template" ||
+			a.LokiCompleteLookbackSeconds < 0 || a.LokiCompleteLookbackSeconds > 366*86400 ||
+			(a.LokiPatternField == "") != (a.LokiCompleteLookbackSeconds == 0) {
+			return nil, fmt.Errorf("invalid registered Loki pattern source for %s", app)
 		}
 	}
 	t := &Telemetry{config: c, now: time.Now}
@@ -563,7 +574,16 @@ func (t *Telemetry) queryLokiOptions(ctx context.Context, appID string, w TimeWi
 			if len(out.Entries) >= limit {
 				return out, failure(s, "limit", "Loki returned more entries than requested", nil)
 			}
-			out.Entries = append(out.Entries, enrichLogEntry(LogEntry{Timestamp: at, Line: pair[1], Labels: stream.Stream}))
+			entry := enrichLogEntry(LogEntry{Timestamp: at, Line: pair[1], Labels: stream.Stream})
+			if level != "" {
+				canonical, e := canonicalLokiLevel(pair[1])
+				if e != nil || canonical != level {
+					return out, failure(s, "scope", "Loki sample level differs from the selected top-level JSON level", e)
+				}
+				// Do not let an older stream label override the parsed line level.
+				entry.Level = canonical
+			}
+			out.Entries = append(out.Entries, entry)
 		}
 	}
 	sort.SliceStable(out.Entries, func(i, j int) bool { return out.Entries[i].Timestamp.Before(out.Entries[j].Timestamp) })

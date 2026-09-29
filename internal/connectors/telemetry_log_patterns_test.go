@@ -259,8 +259,8 @@ func TestElasticsearchRegisteredKeywordPatterns(t *testing.T) {
 	}
 	response["aggregations"].(map[string]any)["patterns"].(map[string]any)["buckets"] = []any{}
 	out = read()
-	if out.Summary == nil || out.Summary.Total != 0 || out.PatternSummary != nil || out.PatternError == "" {
-		t.Fatalf("empty indexed result must remain incomplete until source coverage is proven: %+v", out)
+	if out.Summary == nil || out.Summary.Total != 0 || out.PatternSummary == nil || len(out.PatternSummary.Patterns) != 0 || out.PatternError != "" {
+		t.Fatalf("verified empty indexed result should have complete empty patterns: %+v", out)
 	}
 }
 

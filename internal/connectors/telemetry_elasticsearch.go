@@ -201,11 +201,6 @@ func (t *Telemetry) queryElasticsearchOptionsInternal(ctx context.Context, appID
 	if patterns {
 		if out.Summary == nil {
 			out.PatternError = "Exact log total is unavailable"
-		} else if out.Summary.Total == 0 {
-			// Current mappings cannot prove that older documents were backfilled
-			// after a keyword field or ignore_above setting changed. An empty
-			// selected-level query must not become a false complete response.
-			out.PatternError = "Empty log population cannot prove source coverage"
 		} else {
 			out.PatternSummary, err = decodeElasticsearchPatterns(raw, s.Window, out.Summary, a.ElasticsearchPatternField != "")
 			if err != nil {

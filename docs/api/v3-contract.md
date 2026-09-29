@@ -104,7 +104,7 @@
 | GET | `/conversations` | `filter`, `q`, 分页 | 四标签页同一授权快照中的 `ConversationList`；未知用量与来源为 `null` | implemented |
 | GET | `/conversations/{id}` | | 本人对话或私人通用画布的持久 `Conversation`；纯调查 ID 用调查图读取，返回 404 | implemented |
 | POST | `/conversations` | `{ text, context?, model? }` | `{ id }` | implemented |
-| POST | `/conversations/{id}/messages` | `{ text, model?, reasoning?, attachments? }` | `{ message, reply_id }`，随后由事件流推送回复 | implemented |
+| POST | `/conversations/{id}/messages` | `{ text?, model?, reasoning?, attachments? }`；非空文本或至少一项附件 | `{ message, reply_id }`，随后由事件流推送回复 | implemented |
 | GET | `/conversations/{id}/events` | `reply_id?`、`Last-Event-ID?` | SSE：`StreamEvent`（见「流式对话」）；回复结束后服务端保存完整消息 | implemented |
 | GET | `/canvases` | `kind`, `q`, 分页 | `{ items: CanvasSummary[], counts }`；`kind`：investigation / plan / review / analysis / custom | implemented |
 | POST | `/canvases` | `{ title, kind, template_id, goal, services, ai_draft }` | `{ id, href }`；调查类返回 `INV-*` | implemented |
@@ -122,6 +122,8 @@
 | POST | `/investigation-templates/{id}/start` | `{ inputs: { application_id, template_version, request_id } }` | `{ investigation_id }`；新建 201、同用户同参数重试 200 | implemented |
 
 对话详情、后续模型上下文和最新回复使用持久 `sort_order`，同一事务写入的用户/助手消息按回合排序。有 `accepted` 审计的回合按序列化顺序；迁入或无审计的旧回合只按时间戳作确定性回填，不能据此证明原始提交顺序。迁移 085 在应用启动事务中回填整表并建索引，部署前须停旧回复 worker 并在代表性副本量测锁时。
+
+回复事件先持久化，再推进进程内文本和部件缓冲；租约中断后按事件序列恢复文本与已持久的非文本富部件，保留多个状态、工具和图表部件的原顺序，再保存失败状态。最终模型文本只在剩余 `text.delta` 持久化后进入完成消息；指标来源会话在这些事件与结束事务前继续复核当前来源授权。本阶段此修复仅完成源码集成与最小编译，未重跑恢复测试或真实模型、数据库联调。
 
 `GET /conversations` 在同一当前会话、角色、环境和对象授权快照中合并持久私人聊天、本人通用画布与应用调查。`mine` 使用持久所有者/创建者，`team` 使用当前应用团队成员资格，`triage` 要求关联调查的已持久自动初查运行；初查运行只证明发生初查，不推断调查创建来源。四标签、搜索、分页、总数与计数由同一可见集合计算。未知供应商用量、历史来源与无法映射的调查状态保持 `null`，不把部分数值推成完整值。`GET /conversations/{id}` 在同一读取快照复核精确会话、环境、对象所有者及查看权；私人聊天返回持久顺序的富消息和附件引用，运行/失败状态按已保存事实显示。通用画布交换以 `message.node_id` 关联节点，仅保留有证据的文本、模型和状态；不补造富消息或用量，纯 `INV-*` 无线性对话记录时返回 404，须读调查图/节点消息。历史超过 1000 条消息或 8 MiB 返回受控错误，不截断。冻结前端将列表 `tokens`、状态和详情 `context.used/budget` 当非空数值，调查条目入口亦依赖画布适配；两条仅按后端完成计入，页面仍未验收。
 

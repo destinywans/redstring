@@ -25538,7 +25538,7 @@
       "post": {
         "summary": "Start a durable assistant reply",
         "operationId": "post_conversations_id_messages",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. A second concurrent reply is rejected with 409. The user message, canonical Upload references, selected model/reasoning, acceptance audit and private image/PDF byte snapshots are durable in one transaction before 202. Persisted uploads are rechecked in that transaction for exact owner, environment, reference metadata, MIME and bytes. Paste and safe UTF-8 .txt/.log/.conf/.toml/.md/.csv/.json/.yaml/.yml files enter a private bounded text snapshot (16 KiB source, 32 KiB snapshot). A link is fetched before acceptance only when it is public HTTPS Markdown with at most 1000 URL bytes, no query or fragment, and port 443; SSRF-protected fetch rejects private addresses, redirects, other content and oversized text. The fetched body is frozen in the private text snapshot and never refetched for a model retry or later turn. Upload storage accepts broader HTTP/HTTPS URLs, so an uploaded link can still be rejected at send. Internal Grafana/Kibana/GitLab links are not parsed through connector credentials and return 422 when not publicly readable Markdown. PNG/JPEG/GIF/WebP images and PDFs are supplied as bounded media input on explicitly capable OpenAI Responses models (8 MiB aggregate raw bytes across the replayed conversation). An incapable model or unsupported type returns 422 before a turn is created, including when switching models with prior media in history. Invalid references or unsupported link content return 422; excessive attachment source/snapshot, media bytes or known text budget return 413; a genuine link fetch failure returns 503 before a turn exists. All turns precheck saved history plus the new message before 202; image/PDF token cost and the full system/tool request remain provider-authoritative and can still fail after acceptance. Start and terminal writes recheck the persisted owner, environment, initiating session and current V3 conversation authorization in their transactions. A revoked terminal turn drops partial output rather than saving it. SSE reply_id pins durable event replay; failures persist a terminal status and release the conversation for a new turn. Provider usage in message.completed.run is optional and must not be inferred when unavailable.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. A nonblank text or at least one attachment is required; attachment-only requests may omit text. A second concurrent reply is rejected with 409. The user message, canonical Upload references, selected model/reasoning, acceptance audit and private image/PDF byte snapshots are durable in one transaction before 202. Persisted uploads are rechecked in that transaction for exact owner, environment, reference metadata, MIME and bytes. Paste and safe UTF-8 .txt/.log/.conf/.toml/.md/.csv/.json/.yaml/.yml files enter a private bounded text snapshot (16 KiB source, 32 KiB snapshot). A link is fetched before acceptance only when it is public HTTPS Markdown with at most 1000 URL bytes, no query or fragment, and port 443; SSRF-protected fetch rejects private addresses, redirects and unsupported content. The default fetcher rejects a response above its 128 KiB ingress cap as unreadable (422); fetched content exceeding the stricter 16 KiB turn source limit returns 413. The fetched body is frozen in the private text snapshot and never refetched for a model retry or later turn. Upload storage accepts broader HTTP/HTTPS URLs, so an uploaded link can still be rejected at send. Internal Grafana/Kibana/GitLab links are not parsed through connector credentials and return 422 when not publicly readable Markdown. PNG/JPEG/GIF/WebP images and PDFs are supplied as bounded media input on explicitly capable OpenAI Responses models (8 MiB aggregate raw bytes across the replayed conversation). An incapable model or unsupported type returns 422 before a turn is created, including when switching models with prior media in history. Invalid references or unsupported link content return 422; excessive accepted attachment source/snapshot, media bytes or known text budget return 413; a genuine link fetch failure returns 503 before a turn exists. All turns precheck saved history plus the new message before 202; image/PDF token cost and the full system/tool request remain provider-authoritative and can still fail after acceptance. Start and terminal writes recheck the persisted owner, environment, initiating session and current V3 conversation authorization in their transactions. A revoked terminal turn drops partial output rather than saving it. SSE reply_id pins durable event replay; failures persist a terminal status and release the conversation for a new turn. Provider usage in message.completed.run is optional and must not be inferred when unavailable.",
         "responses": {
           "202": {
             "description": "Success",
@@ -25684,8 +25684,33 @@
                   }
                 },
                 "additionalProperties": false,
-                "required": [
-                  "text"
+                "anyOf": [
+                  {
+                    "required": [
+                      "text"
+                    ],
+                    "properties": {
+                      "text": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "\\S"
+                      }
+                    }
+                  },
+                  {
+                    "required": [
+                      "attachments"
+                    ],
+                    "properties": {
+                      "attachments": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                          "$ref": "#/components/schemas/V3Upload"
+                        }
+                      }
+                    }
+                  }
                 ]
               }
             }

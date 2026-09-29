@@ -1,10 +1,25 @@
-# Source-backed memory governance. These partial operations do not satisfy the
-# frozen MemoryView or frontend memory-action contract.
+# Source-backed memory governance. The write routes have their own persisted
+# result contracts; neither route supplies the complete frozen MemoryView.
 S['V3MemoryFactEvidence'] = obj({**fieldnames('id fact source state environment_id application_id team_id'),
     'source_version':integer(),'source_current':v3_bool(),
     'confirmed':{'type':['string','null'],'format':'date-time'},
     'created_at':string(format='date-time'),'revision':integer()},
     ['id','fact','source','source_version','state','environment_id','confirmed','created_at','revision'])
+S['V3MemoryFactRedacted'] = obj({'id':string(),
+    'state':string(enum=['rejected','expired']), 'revision':integer(minimum=1),
+    'confirmed':{'type':['string','null'],'format':'date-time'}},
+    ['id','state','revision','confirmed'])
+S['V3MemoryFactDecision'] = {'oneOf':[
+    obj({'fact':ref('V3MemoryFactEvidence'),
+        'fact_redacted':{'type':'boolean','enum':[False]},
+        'partial':{'type':'boolean','enum':[True]},
+        'unavailable_fields':arr(string())},
+        ['fact','fact_redacted','partial','unavailable_fields']),
+    obj({'fact':ref('V3MemoryFactRedacted'),
+        'fact_redacted':{'type':'boolean','enum':[True]},
+        'partial':{'type':'boolean','enum':[True]},
+        'unavailable_fields':arr(string())},
+        ['fact','fact_redacted','partial','unavailable_fields'])]}
 v3_route('get','/memory','Read the complete V3 memory view',status=503,
     desc='The complete MemoryView requires unavailable layer counts, policy, recall, confidence and expiry evidence. Always returns 503 memory_view_unavailable with partial_endpoint /api/v1/memory/facts; the main contract remains mock.')
 P['/memory']['get']['responses']['503'] = {
@@ -19,12 +34,11 @@ P['/memory/facts']['get']['responses']['413'] = {
     'description':'More than 500 candidate memory facts exceed the bounded view',
     'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('post','/memory/facts/{id}/{action}','Confirm, reject or expire a source-backed memory fact',
-    response=obj({'fact':{'type':'object','additionalProperties':True},
-        'fact_redacted':v3_bool(),'partial':v3_bool(),'unavailable_fields':arr(string())},
-        ['fact','fact_redacted','partial','unavailable_fields']),
-    desc='Partial main-contract operation. Only confirm, reject and expire are supported; no forget action. Requires knowledge.manage, a current published source and a valid state transition. Rejected or expired fact text is redacted in the response; frontend action semantics remain mock.')
+    response=ref('V3MemoryFactDecision'),
+    desc='Persists a valid source-backed fact state transition and audit in one transaction. Only confirm, reject and expire are supported; no forget action. Requires current account, environment, application/team knowledge.manage. Confirm requires a current published source and matching version; reject and expire may clean up a stale source under its original still-active scope and redact fact text and source identity. Confidence, recall and expiry metrics remain unavailable. The frozen frontend forget action is incompatible.')
+P['/memory/facts/{id}/{action}']['post']['parameters'][1]['schema'] = string(enum=['confirm','reject','expire'])
 v3_route('post','/memory/conflicts/resolve','Resolve an open conflict between two persisted facts',
-    body=obj({'keep':string(),'drop':string()},['keep','drop']),
+    body=obj({'keep':string(minLength=1,maxLength=128),'drop':string(minLength=1,maxLength=128)},['keep','drop']),
     response=obj({'id':string(),'state':string(enum=['resolved']),
         'keep':string(),'drop':string()},['id','state','keep','drop']),
-    desc='Partial main-contract operation. Requires actual distinct fact IDs for both keep and drop, an open conflict, current sources and knowledge.manage. The current frontend does not submit this body, so its interaction remains mock.')
+    desc='Atomically resolves an existing open conflict, updates both distinct source-backed facts and writes an audit. Requires actual fact IDs, current source provenance/version and current account, environment, application/team knowledge.manage. The frozen frontend sends a display choice without both IDs, so its interaction remains unavailable.')

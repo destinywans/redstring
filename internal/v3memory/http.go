@@ -2,7 +2,6 @@ package v3memory
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -30,6 +29,8 @@ func unavailable(w http.ResponseWriter) {
 }
 func failure(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, errMemorySession):
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
 	case errors.Is(err, store.ErrForbidden):
 		httpapi.Error(w, 403, "forbidden", "Memory access denied")
 	case errors.Is(err, store.ErrNotFound):
@@ -41,6 +42,47 @@ func failure(w http.ResponseWriter, err error) {
 	default:
 		unavailable(w)
 	}
+}
+
+var errMemorySession = errors.New("memory session expired")
+
+// Lock the active account/session and all physical grant sources before the
+// transactional policy check. A revoke that commits first is observed; one
+// that starts later waits until this short governance write commits.
+func lockWriteAuthority(ctx context.Context, tx pgx.Tx, r *http.Request) error {
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil {
+		return errMemorySession
+	}
+	var actor string
+	err = tx.QueryRow(ctx, `SELECT u.id FROM users u JOIN sessions s ON s.user_id=u.id
+ WHERE s.token_hash=$1 AND u.id=$2 AND s.expires_at>clock_timestamp()
+ AND NOT u.disabled AND u.deleted_at IS NULL AND u.source<>'settings_demo'
+ FOR SHARE OF u,s`, store.Hash(cookie.Value), httpapi.CurrentUser(r).ID).Scan(&actor)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errMemorySession
+	}
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `LOCK TABLE rbac_user_roles,rbac_department_roles,v3_role_grants IN SHARE MODE`)
+	return err
+}
+
+// Row locks cannot stop wall-clock expiry. Check it again immediately before
+// commit while still holding the session row and authorization-source locks.
+func currentWriteSession(ctx context.Context, tx pgx.Tx, r *http.Request) error {
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil {
+		return errMemorySession
+	}
+	var valid bool
+	err = tx.QueryRow(ctx, `SELECT expires_at>clock_timestamp() FROM sessions
+ WHERE token_hash=$1 AND user_id=$2`, store.Hash(cookie.Value), httpapi.CurrentUser(r).ID).Scan(&valid)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && !valid {
+		return errMemorySession
+	}
+	return err
 }
 func (s *Service) view(w http.ResponseWriter, r *http.Request) {
 	// MemoryView requires complete layer, recall, confidence and expiry
@@ -81,30 +123,14 @@ func lockCurrentSource(ctx context.Context, tx pgx.Tx, factID string) (bool, err
 	if err != nil {
 		return false, err
 	}
-	var meta struct {
-		EnvironmentIDs []string `json:"environment_ids"`
-		TeamID         string   `json:"team_id"`
-	}
-	if err = json.Unmarshal(metadata, &meta); err != nil {
-		return false, err
-	}
+	meta, valid := parseSourceAttribution(metadata)
 	if lifecycle != "published" || factVersion != sourceVersion || factHash != sourceHash ||
-		factApp != sourceApp || factTeam != meta.TeamID || !has(meta.EnvironmentIDs, env) ||
+		!valid || factApp != sourceApp || factTeam != meta.TeamID || !has(meta.EnvironmentIDs, env) ||
+		(factApp == "" && meta.Visibility != "workspace") ||
 		!strings.Contains(body, excerpt) {
 		return false, nil
 	}
-	if factApp != "" {
-		var mapped bool
-		err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_application_environments
- WHERE application_id=$1 AND environment_id=$2)`, factApp, env).Scan(&mapped)
-		if err != nil {
-			return false, err
-		}
-		if !mapped {
-			return false, nil
-		}
-	}
-	return true, nil
+	return lockCurrentBinding(ctx, tx, factApp, factTeam, env)
 }
 
 const factSelect = `SELECT f.id,f.fact,f.source_document_id,f.source_version,f.state,f.environment_id,f.application_id,f.team_id,
@@ -133,12 +159,27 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
  WHERE f.environment_id=ANY($1::text[])
  AND d.lifecycle='published' AND d.version=f.source_version AND d.content_hash=f.source_content_hash
  AND COALESCE(d.application_id,'')=f.application_id
+ AND jsonb_typeof(d.metadata)='object' AND NOT (d.metadata ? 'source_registration_id')
  AND COALESCE(d.metadata->>'team_id','')=f.team_id
- AND jsonb_typeof(d.metadata->'environment_ids')='array'
- AND d.metadata->'environment_ids' ? f.environment_id
+ AND (NOT (d.metadata ? 'team_id') OR
+   (jsonb_typeof(d.metadata->'team_id')='string' AND btrim(d.metadata->>'team_id')<>''
+    AND btrim(d.metadata->>'team_id')=d.metadata->>'team_id'))
+ AND (NOT (d.metadata ? 'visibility') OR jsonb_typeof(d.metadata->'visibility') IN ('string','null'))
+ AND CASE WHEN jsonb_typeof(d.metadata->'environment_ids')='array' THEN
+   jsonb_array_length(d.metadata->'environment_ids')>0
+   AND d.metadata->'environment_ids' ? f.environment_id
+   AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(d.metadata->'environment_ids') env_item
+     WHERE jsonb_typeof(env_item)<>'string' OR btrim(env_item #>> '{}')=''
+       OR btrim(env_item #>> '{}')<>(env_item #>> '{}') OR (env_item #>> '{}')='all')
+   ELSE false END
  AND position(f.fact in d.body)>0
- AND (f.application_id='' OR EXISTS (SELECT 1 FROM v3_application_environments ae
-   WHERE ae.application_id=f.application_id AND ae.environment_id=f.environment_id))
+ AND ((f.application_id<>'' AND EXISTS (SELECT 1 FROM applications a
+   JOIN v3_application_environments ae ON ae.application_id=a.id AND ae.environment_id=f.environment_id
+   JOIN application_environments e ON e.application_id=a.id AND e.key=f.environment_id
+   WHERE a.id=f.application_id AND NOT a.archived AND NOT e.archived
+   AND (f.team_id='' OR a.owner_team_id=f.team_id)))
+   OR (f.application_id='' AND d.application_id IS NULL AND f.team_id=''
+   AND d.metadata->>'visibility'='workspace' AND NOT (d.metadata ? 'team_id')))
  AND (f.application_id='' OR EXISTS (
    SELECT 1 FROM v3_effective_role_grants g
    WHERE g.user_id=$2 AND g.module='knowledge' AND g.action='view'
@@ -247,8 +288,23 @@ func (s *Service) decide(w http.ResponseWriter, r *http.Request) {
 		failure(w, store.ErrNotFound)
 		return
 	}
+	bound, err := lockCurrentBinding(r.Context(), tx, f.ApplicationID, f.TeamID, f.EnvironmentID)
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	// Acquire the catalog row lock before the grant-source locks, but do not
+	// reveal its state until current authority over the fact is established.
+	if err = lockWriteAuthority(r.Context(), tx, r); err != nil {
+		failure(w, err)
+		return
+	}
 	if err = s.authorizeTx(r.Context(), tx, user, f.EnvironmentID, f.ApplicationID, f.TeamID, "manage"); err != nil {
 		failure(w, err)
+		return
+	}
+	if !bound {
+		failure(w, store.ErrConflict)
 		return
 	}
 	state, allowed := transition(f.State, action)
@@ -281,6 +337,10 @@ func (s *Service) decide(w http.ResponseWriter, r *http.Request) {
 	f.State = state
 	if err = audit(r.Context(), tx, user.ID, f.ApplicationID, "memory.fact."+action, id, map[string]any{"environment_id": f.EnvironmentID, "from": previous, "to": state, "source_document_id": f.Source, "source_version": f.SourceVersion}); err != nil {
 		unavailable(w)
+		return
+	}
+	if err = currentWriteSession(r.Context(), tx, r); err != nil {
+		failure(w, err)
 		return
 	}
 	if err = tx.Commit(r.Context()); err != nil {
@@ -358,17 +418,39 @@ func (s *Service) resolve(w http.ResponseWriter, r *http.Request) {
 		failure(w, store.ErrNotFound)
 		return
 	}
-	if !scoped(r, sides[0].env) {
+	if !scoped(r, sides[0].env) || !scoped(r, sides[1].env) {
 		failure(w, store.ErrNotFound)
+		return
+	}
+	bindingsCurrent := true
+	for _, side := range sides {
+		bound, bindingErr := lockCurrentBinding(r.Context(), tx, side.app, side.team, side.env)
+		if bindingErr != nil {
+			unavailable(w)
+			return
+		}
+		bindingsCurrent = bindingsCurrent && bound
+	}
+	// Defer the catalog-state response until both objects' current grants have
+	// been checked. An actor with no manage grant cannot probe archive or owner
+	// changes by comparing 403 with 409.
+	if err = lockWriteAuthority(r.Context(), tx, r); err != nil {
+		failure(w, err)
+		return
+	}
+	for _, side := range sides {
+		if err = s.authorizeTx(r.Context(), tx, user, side.env, side.app, side.team, "manage"); err != nil {
+			failure(w, err)
+			return
+		}
+	}
+	if !bindingsCurrent {
+		failure(w, store.ErrConflict)
 		return
 	}
 	if sides[0].env != sides[1].env || sides[0].app != sides[1].app || sides[0].team != sides[1].team ||
 		!active(sides[0].state) || !active(sides[1].state) {
 		failure(w, store.ErrConflict)
-		return
-	}
-	if err = s.authorizeTx(r.Context(), tx, user, sides[0].env, sides[0].app, sides[0].team, "manage"); err != nil {
-		failure(w, err)
 		return
 	}
 	var conflictID, conflictEnv, conflictApp, conflictTeam string
@@ -387,17 +469,19 @@ func (s *Service) resolve(w http.ResponseWriter, r *http.Request) {
 		failure(w, store.ErrConflict)
 		return
 	}
-	// Resolving in favor of a fact also confirms it. A revised or archived
-	// source cannot be silently promoted by the conflict path.
-	var sourceCurrent bool
-	sourceCurrent, err = lockCurrentSource(r.Context(), tx, in.Keep)
-	if err != nil {
-		unavailable(w)
-		return
-	}
-	if !sourceCurrent {
-		failure(w, store.ErrConflict)
-		return
+	// Both sides must still come from the exact published versions that were
+	// reviewed when the conflict was recorded. Lock in fact-ID order so two
+	// reversed resolution requests cannot deadlock on distinct sources.
+	for _, side := range sides {
+		current, sourceErr := lockCurrentSource(r.Context(), tx, side.id)
+		if sourceErr != nil {
+			unavailable(w)
+			return
+		}
+		if !current {
+			failure(w, store.ErrConflict)
+			return
+		}
 	}
 	_, err = tx.Exec(r.Context(), `UPDATE v3_memory_facts SET state=CASE WHEN id=$1 THEN 'confirmed' ELSE 'rejected' END,
  decided_by=$3,decided_at=now(),revision=revision+1,
@@ -416,6 +500,10 @@ func (s *Service) resolve(w http.ResponseWriter, r *http.Request) {
 	}
 	if err = audit(r.Context(), tx, user.ID, sides[0].app, "memory.conflict.resolved", conflictID, map[string]any{"environment_id": sides[0].env, "keep_fact_id": in.Keep, "drop_fact_id": in.Drop}); err != nil {
 		unavailable(w)
+		return
+	}
+	if err = currentWriteSession(r.Context(), tx, r); err != nil {
+		failure(w, err)
 		return
 	}
 	if err = tx.Commit(r.Context()); err != nil {

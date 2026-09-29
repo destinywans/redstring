@@ -56,6 +56,64 @@ type Conflict struct {
 }
 type CandidateInput struct{ DocumentID, EnvironmentID, ExactExcerpt string }
 
+type sourceAttribution struct {
+	EnvironmentIDs []string
+	TeamID         string
+	Visibility     string
+}
+
+// Source attribution is security data. A permissive struct decode would turn
+// a null or empty team into an unscoped fact and accept malformed environment
+// lists that the V3 knowledge reader deliberately excludes.
+func parseSourceAttribution(raw []byte) (sourceAttribution, bool) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil || fields["source_registration_id"] != nil {
+		return sourceAttribution{}, false
+	}
+	var out sourceAttribution
+	if err := json.Unmarshal(fields["environment_ids"], &out.EnvironmentIDs); err != nil || len(out.EnvironmentIDs) == 0 {
+		return sourceAttribution{}, false
+	}
+	for _, env := range out.EnvironmentIDs {
+		if env == "" || env == "all" || strings.TrimSpace(env) != env {
+			return sourceAttribution{}, false
+		}
+	}
+	if team, present := fields["team_id"]; present {
+		if err := json.Unmarshal(team, &out.TeamID); err != nil || out.TeamID == "" || strings.TrimSpace(out.TeamID) != out.TeamID {
+			return sourceAttribution{}, false
+		}
+	}
+	if visibility, present := fields["visibility"]; present {
+		if err := json.Unmarshal(visibility, &out.Visibility); err != nil {
+			return sourceAttribution{}, false
+		}
+	}
+	return out, true
+}
+
+// Pin the current catalog relationship as well as the V3 environment mapping.
+// The latter is historical when an application or its concrete environment is
+// archived. SHARE row locks hold owner and archive changes until commit.
+func lockCurrentBinding(ctx context.Context, tx pgx.Tx, app, team, env string) (bool, error) {
+	if app == "" {
+		return team == "", nil
+	}
+	var owner string
+	err := tx.QueryRow(ctx, `SELECT COALESCE(a.owner_team_id,'') FROM applications a
+ JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$2
+ JOIN application_environments e ON e.application_id=a.id AND e.key=$2
+ WHERE a.id=$1 AND NOT a.archived AND NOT e.archived
+ FOR SHARE OF a,ve,e`, app, env).Scan(&owner)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return team == "" || team == owner, nil
+}
+
 var ErrInvalid = errors.New("invalid memory input")
 
 func active(state string) bool { return state == "candidate" || state == "confirmed" }
@@ -157,25 +215,17 @@ func (s *Service) ProposeFromDocument(ctx context.Context, user core.User, in Ca
 	if err != nil {
 		return Fact{}, err
 	}
-	var meta struct {
-		EnvironmentIDs []string `json:"environment_ids"`
-		TeamID         string   `json:"team_id"`
-	}
-	if err = json.Unmarshal(metadata, &meta); err != nil {
-		return Fact{}, err
-	}
-	if lifecycle != "published" || !has(meta.EnvironmentIDs, in.EnvironmentID) || !strings.Contains(body, in.ExactExcerpt) {
+	meta, valid := parseSourceAttribution(metadata)
+	if lifecycle != "published" || !valid || !has(meta.EnvironmentIDs, in.EnvironmentID) || !strings.Contains(body, in.ExactExcerpt) ||
+		(app == "" && meta.Visibility != "workspace") {
 		return Fact{}, ErrInvalid
 	}
-	if app != "" {
-		var mapped bool
-		err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_application_environments WHERE application_id=$1 AND environment_id=$2)`, app, in.EnvironmentID).Scan(&mapped)
-		if err != nil {
-			return Fact{}, err
-		}
-		if !mapped {
-			return Fact{}, ErrInvalid
-		}
+	bound, err := lockCurrentBinding(ctx, tx, app, meta.TeamID, in.EnvironmentID)
+	if err != nil {
+		return Fact{}, err
+	}
+	if !bound {
+		return Fact{}, ErrInvalid
 	}
 	if err = s.authorizeTx(ctx, tx, user, in.EnvironmentID, app, meta.TeamID, "manage"); err != nil {
 		return Fact{}, err

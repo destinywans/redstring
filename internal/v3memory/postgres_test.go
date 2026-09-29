@@ -74,11 +74,14 @@ func TestPersistedFactProvenanceScopeAndAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
-		`CREATE TABLE users(id text PRIMARY KEY,email text,name text,role text,password_hash text,disabled boolean NOT NULL DEFAULT false,deleted_at timestamptz)`,
+		`CREATE TABLE users(id text PRIMARY KEY,email text,name text,role text,password_hash text,source text NOT NULL DEFAULT 'local',disabled boolean NOT NULL DEFAULT false,deleted_at timestamptz)`,
 		`CREATE TABLE sessions(token_hash text PRIMARY KEY,user_id text,expires_at timestamptz)`,
 		`CREATE TABLE rbac_platform_administrators(user_id text)`,
 		`CREATE TABLE rbac_user_roles(user_id text,role_id text)`,
-		`CREATE TABLE applications(id text PRIMARY KEY)`,
+		`CREATE TABLE rbac_department_roles(user_id text,role_id text)`,
+		`CREATE TABLE v3_role_grants(user_id text)`,
+		`CREATE TABLE applications(id text PRIMARY KEY,owner_team_id text,archived boolean NOT NULL DEFAULT false)`,
+		`CREATE TABLE application_environments(application_id text NOT NULL,key text NOT NULL,archived boolean NOT NULL DEFAULT false)`,
 		`CREATE TABLE v3_application_environments(application_id text,environment_id text)`,
 		`CREATE TABLE v3_effective_role_grants(user_id text,module text,action text,scope_kind text,scope_id text)`,
 		`CREATE TABLE knowledge_documents(id text PRIMARY KEY,application_id text,body text,version integer,content_hash text,lifecycle text,metadata jsonb)`,
@@ -101,7 +104,8 @@ func TestPersistedFactProvenanceScopeAndAudit(t *testing.T) {
 		`INSERT INTO users(id,email,name,role,password_hash) VALUES('editor','editor@example.invalid','Editor','viewer',''),('stranger','stranger@example.invalid','Stranger','viewer','')`,
 		`INSERT INTO sessions(token_hash,user_id,expires_at) VALUES('` + store.Hash("test-token") + `','editor',now()+interval '1 hour')`,
 		`INSERT INTO v3_effective_role_grants(user_id,module,action,scope_kind,scope_id) VALUES('editor','knowledge','view','global','*')`,
-		`INSERT INTO applications(id) VALUES('app')`,
+		`INSERT INTO applications(id,owner_team_id) VALUES('app','ops')`,
+		`INSERT INTO application_environments(application_id,key) VALUES('app','dev')`,
 		`INSERT INTO v3_application_environments(application_id,environment_id) VALUES('app','dev')`,
 		`INSERT INTO knowledge_documents(id,application_id,body,version,content_hash,lifecycle,metadata)
 		  VALUES('doc','app','Rollback restored traffic. Latency normalized.',2,'source-hash','published',

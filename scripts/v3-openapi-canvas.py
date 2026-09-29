@@ -1,10 +1,14 @@
 # General canvases are persisted separately from investigation branches. The
-# current list projects both, but legacy investigation routes and participant
-# evidence do not yet satisfy the frontend contract.
-S['V3CanvasSummary'] = obj({**fieldnames('id title kind status meta updated_at href'),
-    'participants':{'type':['array','null'],'items':string()},
+# list projects both from their durable sources; unrecorded historical creators
+# yield an empty participant list.
+S['V3CanvasSummary'] = obj({**fieldnames('id title meta href'),
+    'kind':string(enum=['investigation','plan','review','analysis','custom']),
+    'status':string(enum=['draft','active','waiting_approval','done','resolved']),
+    'participants':arr(string()),
+    'updated_at':string(format='date-time'),
     'investigation_id':string(),'services':arr(string()),
-    'thumb':obj({'nodes':arr(arr({})), 'edges':arr(string())})},
+    'thumb':obj({'nodes':arr({'type':'array','prefixItems':[integer(),integer(),integer(),integer(),string()],
+        'minItems':5,'maxItems':5}), 'edges':arr(string())},['nodes','edges'])},
     ['id','title','kind','status','meta','participants','updated_at','href','services','thumb'])
 S['V3CanvasTemplate'] = obj({**fieldnames('id kind name desc nodes'),
     'is_default':v3_bool()},['id','kind','name','desc','nodes'])
@@ -61,12 +65,12 @@ v3_route('get','/canvases','List scoped persisted canvases and investigations',
     response=obj({'items':arr(ref('V3CanvasSummary')),'counts':v3_map(integer()),
       'total':integer(),'page':integer(),'page_size':integer()}),
     query=[v3_query(x) for x in ['kind','q','page','page_size']],
-    desc='Generic canvases are private to their owner; investigations use persisted environment and application/team grants. Legacy investigations have unknown participants (null), and their historical IDs do not yet route to a complete V3 detail page. This partial projection does not satisfy the frontend CanvasSummary contract.')
-v3_route('post','/canvases','Create a persisted general canvas',
+    desc='Generic canvases are private to their owner; investigations use persisted environment and application/team grants. Current sessions and role sources are checked before a single database snapshot supplies counts and page items. Historical investigations without a recorded creator return an empty participants array. The complete investigation detail page is a separate route and remains unavailable.')
+v3_route('post','/canvases','Create a persisted canvas or investigation',
     body=obj({**fieldnames('title kind template_id goal'),
       'services':arr(string()),'ai_draft':v3_bool()},['title','kind']),
     response=obj(fieldnames('id href'),['id','href']),status=201,
-    desc='Investigation creation and AI drafting currently return 503; selected services must be mapped to the request environment.')
+    desc='Requires one selected environment and a current canvas.change grant. Generic canvases are private and require an environment grant; investigations require exactly one active mapped application and accept environment, application or owner-team grants. Investigation IDs are persisted INV-* IDs with an initial branch and context. Canvas/branch records and creation audit commit together. Optional AI drafting uses one configured model, no tools, and a validated one-to-three-node JSON outline; it is explicitly unverified and a failure leaves no creation. Missing model returns 503 canvas_draft_unavailable. Investigation templates return 422 invalid_template. The separate investigation detail page remains unavailable.')
 v3_route('get','/canvases/{id}','Read owner-scoped general canvas',response=ref('V3CanvasDoc'),
     desc='General canvases return validated typed nodes, seven block variants, edges and artifacts plus persisted per-node exchanges in threads. Failed user prompts remain visible without a fabricated assistant reply; only completed exchanges are used as later model context. More than 500 exchanges, 2 MiB of thread history, or one assistant answer over 64 KiB returns 413 canvas_history_too_large. Invalid persisted canvas structure returns 503 canvas_unavailable. Investigation canvas detail is not implemented by this route.')
 P['/canvases/{id}']['get']['responses']['413'] = {

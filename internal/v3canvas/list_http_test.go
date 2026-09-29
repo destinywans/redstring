@@ -20,6 +20,7 @@ import (
 func TestCanvasListIncludesOnlyVisiblePersistedInvestigations(t *testing.T) {
 	// The legacy store generates 32-hex investigation IDs, not INV-* aliases.
 	const visibleID = "11111111111111111111111111111111"
+	const createdID = "33333333333333333333333333333333"
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL required; creates and drops one isolated schema")
@@ -72,6 +73,8 @@ func TestCanvasListIncludesOnlyVisiblePersistedInvestigations(t *testing.T) {
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
  ('canvas-owner','environment','view','environment','dev'),
  ('canvas-owner','canvas','view','environment','dev'),
+ ('canvas-owner','environment','view','environment','staging'),
+ ('canvas-owner','canvas','view','environment','staging'),
  ('canvas-app-reader','environment','view','environment','dev'),
 	('canvas-app-reader','canvas','view','application','app-visible'),
 	('canvas-team-reader','environment','view','environment','dev'),
@@ -112,7 +115,18 @@ func TestCanvasListIncludesOnlyVisiblePersistedInvestigations(t *testing.T) {
 	if _, err = db.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES ($1,'canvas-owner'),($2,'canvas-app-reader'),($3,'canvas-team-reader')`, owner.ID, reader.ID, teamReader.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.Exec(ctx, `INSERT INTO v3_canvases(id,owner_id,environment_id,title,kind) VALUES ('CV-owner',$1,'dev','Private plan','plan')`, owner.ID); err != nil {
+	if _, err = db.Exec(ctx, `INSERT INTO investigations(id,application_id,title,status,environment_id,created_by)
+ VALUES ($1,'app-visible','Created investigation','open','ae-visible',$2)`, createdID, owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO branches(id,investigation_id,title) VALUES ('root-created',$1,'Main')`, createdID); err != nil {
+		t.Fatal(err)
+	}
+	planNodes := []Node{{ID: "plan-root", X: 8, Y: 12, W: 120, Tone: "info"}, {ID: "plan-next", X: 150, Y: 12, W: 120, Tone: "ok"}}
+	planEdges := []Edge{{From: "plan-root", To: "plan-next"}}
+	if _, err = db.Exec(ctx, `INSERT INTO v3_canvases(id,owner_id,environment_id,title,kind,nodes,edges) VALUES
+ ('CV-owner',$1,'dev','Private plan','plan',$2::jsonb,$3::jsonb),
+ ('CV-stage',$1,'staging','Staging plan','plan','[]'::jsonb,'[]'::jsonb)`, owner.ID, mustJSON(planNodes), mustJSON(planEdges)); err != nil {
 		t.Fatal(err)
 	}
 	_, readerToken, err := st.Login(ctx, "reader@example.invalid", "isolated-reader-password")
@@ -136,13 +150,16 @@ func TestCanvasListIncludesOnlyVisiblePersistedInvestigations(t *testing.T) {
 		}); err != nil {
 		t.Fatal(err)
 	}
-	request := func(token, path string) *httptest.ResponseRecorder {
+	requestInEnv := func(token, environment, path string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(http.MethodGet, path, nil)
-		r.Header.Set("X-AIOps-Environment", "dev")
+		r.Header.Set("X-AIOps-Environment", environment)
 		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
 		w := httptest.NewRecorder()
 		api.ServeHTTP(w, r)
 		return w
+	}
+	request := func(token, path string) *httptest.ResponseRecorder {
+		return requestInEnv(token, "dev", path)
 	}
 	decode := func(w *httptest.ResponseRecorder) struct {
 		Items  []summary      `json:"items"`
@@ -164,18 +181,45 @@ func TestCanvasListIncludesOnlyVisiblePersistedInvestigations(t *testing.T) {
 		return result
 	}
 	appResponse := request(readerToken, "/api/v1/canvases?kind=investigation")
-	if !strings.Contains(appResponse.Body.String(), `"participants":null`) {
-		t.Fatalf("unknown investigation participants were projected as known: %s", appResponse.Body.String())
-	}
 	visible := decode(appResponse)
-	if visible.Total != 1 || visible.Counts["all"] != 1 || visible.Counts["investigation"] != 1 ||
-		len(visible.Items) != 1 || visible.Items[0].ID != visibleID || visible.Items[0].Status != "active" ||
-		visible.Items[0].Href != "/canvas/"+visibleID || visible.Items[0].InvestigationID != visibleID ||
-		visible.Items[0].Meta != "2 个节点" || len(visible.Items[0].Thumb.Nodes) != 2 || len(visible.Items[0].Thumb.Edges) != 1 {
+	if visible.Total != 2 || visible.Counts["all"] != 2 || visible.Counts["investigation"] != 2 || len(visible.Items) != 2 {
 		t.Fatalf("incorrect investigation projection: %+v", visible)
 	}
+	byID := map[string]summary{}
+	for _, item := range visible.Items {
+		byID[item.ID] = item
+	}
+	legacy := byID[visibleID]
+	if legacy.ID != visibleID || legacy.Status != "active" || legacy.Href != "/canvas/"+visibleID ||
+		legacy.InvestigationID != visibleID || legacy.Meta != "2 个节点" ||
+		len(legacy.Thumb.Nodes) != 2 || len(legacy.Thumb.Edges) != 1 ||
+		legacy.Participants == nil || len(*legacy.Participants) != 0 ||
+		strings.Contains(appResponse.Body.String(), `"participants":null`) {
+		t.Fatalf("legacy investigation must have an empty participants array: %s", appResponse.Body.String())
+	}
+	created := byID[createdID]
+	if created.ID != createdID || created.Participants == nil || len(*created.Participants) != 1 ||
+		(*created.Participants)[0] != "Owner" || created.Meta != "1 个节点" {
+		t.Fatalf("persisted creator was not projected from current user: %+v", created)
+	}
+	pageOne := decode(request(readerToken, "/api/v1/canvases?kind=investigation&page_size=1&page=1"))
+	pageTwo := decode(request(readerToken, "/api/v1/canvases?kind=investigation&page_size=1&page=2"))
+	if pageOne.Total != 2 || pageTwo.Total != 2 || pageOne.Counts["all"] != 2 || pageTwo.Counts["all"] != 2 ||
+		len(pageOne.Items) != 1 || len(pageTwo.Items) != 1 || pageOne.Items[0].ID == pageTwo.Items[0].ID {
+		t.Fatalf("investigation paging/counts do not reflect persisted rows: page1=%+v page2=%+v", pageOne, pageTwo)
+	}
+	if _, err = db.Exec(ctx, `UPDATE users SET name='Owner Renamed' WHERE id=$1`, owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	renamed := decode(request(readerToken, "/api/v1/canvases?kind=investigation&q=Created"))
+	if renamed.Total != 1 || len(renamed.Items) != 1 || renamed.Items[0].ID != createdID ||
+		renamed.Items[0].Participants == nil || len(*renamed.Items[0].Participants) != 1 ||
+		(*renamed.Items[0].Participants)[0] != "Owner Renamed" {
+		t.Fatalf("list did not resolve the creator's current name: %+v", renamed)
+	}
 	teamVisible := decode(request(teamToken, "/api/v1/canvases?kind=investigation"))
-	if teamVisible.Total != 1 || len(teamVisible.Items) != 1 || teamVisible.Items[0].ID != visibleID {
+	if teamVisible.Total != 2 || len(teamVisible.Items) != 2 ||
+		teamVisible.Items[0].ID == "22222222222222222222222222222222" || teamVisible.Items[1].ID == "22222222222222222222222222222222" {
 		t.Fatalf("team grant exposed an unrelated application or hid its own: %+v", teamVisible)
 	}
 	if _, err = db.Exec(ctx, `UPDATE applications SET owner_team_id='team-hidden' WHERE id='app-visible'`); err != nil {
@@ -189,12 +233,36 @@ func TestCanvasListIncludesOnlyVisiblePersistedInvestigations(t *testing.T) {
 		t.Fatal(err)
 	}
 	ownerList := decode(request(ownerToken, "/api/v1/canvases?page_size=1"))
-	if ownerList.Total != 3 || ownerList.Counts["investigation"] != 2 || ownerList.Counts["plan"] != 1 || len(ownerList.Items) != 1 {
+	if ownerList.Total != 4 || ownerList.Counts["investigation"] != 3 || ownerList.Counts["plan"] != 1 || len(ownerList.Items) != 1 {
 		t.Fatalf("incorrect combined pagination: %+v", ownerList)
+	}
+	plans := decode(request(ownerToken, "/api/v1/canvases?kind=plan"))
+	if plans.Total != 1 || len(plans.Items) != 1 || plans.Items[0].ID != "CV-owner" ||
+		len(plans.Items[0].Thumb.Nodes) != 2 || len(plans.Items[0].Thumb.Edges) != 1 || plans.Items[0].Thumb.Edges[0] == "" {
+		t.Fatalf("generic thumbnail omitted persisted edge: %+v", plans)
+	}
+	staging := decode(requestInEnv(ownerToken, "staging", "/api/v1/canvases"))
+	if staging.Total != 1 || staging.Counts["plan"] != 1 || len(staging.Items) != 1 || staging.Items[0].ID != "CV-stage" {
+		t.Fatalf("selected environment leaked dev canvases: %+v", staging)
+	}
+	all := decode(requestInEnv(ownerToken, "all", "/api/v1/canvases"))
+	if all.Total != 5 || all.Counts["investigation"] != 3 || all.Counts["plan"] != 2 || len(all.Items) != 5 {
+		t.Fatalf("all scope did not return exactly the authorized environments: %+v", all)
 	}
 	closed := decode(request(ownerToken, "/api/v1/canvases?kind=investigation&q=Hidden"))
 	if closed.Total != 1 || len(closed.Items) != 1 || closed.Items[0].Status != "resolved" {
 		t.Fatalf("closed investigation mapping is incorrect: %+v", closed)
+	}
+	// The preview is bounded, but root and its connected children must survive
+	// even when random child IDs sort before the root ID.
+	if _, err = db.Exec(ctx, `INSERT INTO branches(id,investigation_id,parent_id,title)
+ SELECT 'a-child-'||n,$1,'root-visible','Branch' FROM generate_series(1,9) n`, visibleID); err != nil {
+		t.Fatal(err)
+	}
+	branched := decode(request(readerToken, "/api/v1/canvases?kind=investigation&q=Visible"))
+	if branched.Total != 1 || len(branched.Items) != 1 ||
+		len(branched.Items[0].Thumb.Nodes) != 8 || len(branched.Items[0].Thumb.Edges) != 7 {
+		t.Fatalf("large investigation preview lost root or connected children: %+v", branched)
 	}
 	if _, err = db.Exec(ctx, `UPDATE investigations SET status='unknown' WHERE id=$1`, visibleID); err != nil {
 		t.Fatal(err)

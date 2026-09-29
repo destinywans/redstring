@@ -51,7 +51,7 @@ func (s *Service) Register(api *httpapi.Server) {
 		pattern, action string
 		handler         http.HandlerFunc
 	}{
-		{"GET /api/v1/runbooks", "view", s.listHandler(api)},
+		{"GET /api/v1/runbooks", "view", s.listHandler()},
 		{"GET /api/v1/runbooks/draft", "view", s.draftHandler()},
 		{"GET /api/v1/runbooks/{id}", "view", s.getHandler()},
 		{"POST /api/v1/runbooks", "manage", s.createHandler(api)},
@@ -69,104 +69,6 @@ func (s *Service) Register(api *httpapi.Server) {
 		} else {
 			api.MarkV3ObjectRoute(route.pattern, "knowledge", route.action)
 		}
-	}
-}
-
-func (s *Service) listHandler(api *httpapi.Server) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !s.ready(w) {
-			return
-		}
-		q := strings.TrimSpace(r.URL.Query().Get("q"))
-		service := strings.TrimSpace(r.URL.Query().Get("service"))
-		tab := r.URL.Query().Get("tab")
-		if len(q) > 200 || len(service) > 200 || (tab != "" && tab != "all" && tab != "mine" && tab != "review" && tab != "stale") {
-			httpapi.Error(w, 422, "invalid_query", "Invalid Runbook filter")
-			return
-		}
-		rows, err := s.DB.Query(r.Context(), `SELECT d.id
-FROM knowledge_documents d LEFT JOIN v3_runbooks v ON v.document_id=d.id
-WHERE (d.source LIKE 'runbook://%' OR v.document_id IS NOT NULL)
-ORDER BY d.created_at DESC LIMIT 1001`)
-		if err != nil {
-			httpapi.Error(w, 503, "knowledge_unavailable", "Runbooks unavailable")
-			return
-		}
-		candidates := []string{}
-		for rows.Next() {
-			var id string
-			if err = rows.Scan(&id); err != nil {
-				break
-			}
-			candidates = append(candidates, id)
-		}
-		if err == nil {
-			err = rows.Err()
-		}
-		rows.Close()
-		if err != nil {
-			httpapi.Error(w, 503, "knowledge_unavailable", "Runbooks unavailable")
-			return
-		}
-		if len(candidates) > 1000 {
-			httpapi.Error(w, 413, "scope_too_large", "Runbook collection exceeds the unpaged V3 response limit")
-			return
-		}
-		for _, id := range candidates {
-			doc, getErr := s.rawDocument(r.Context(), id)
-			if errors.Is(getErr, knowledge.ErrForbidden) || errors.Is(getErr, store.ErrForbidden) || errors.Is(getErr, store.ErrNotFound) {
-				continue
-			}
-			if getErr != nil {
-				httpapi.Error(w, 503, "knowledge_unavailable", "Runbooks unavailable")
-				return
-			}
-			if !documentInScope(r, doc) || (service != "" && doc.ApplicationID != service && !contains(doc.Metadata.SharedApplicationIDs, service)) {
-				continue
-			}
-			if authErr := s.authorizeRunbookRead(r, doc); authErr != nil {
-				if errors.Is(authErr, store.ErrForbidden) {
-					continue
-				}
-				httpapi.Error(w, 503, "authorization_unavailable", "Knowledge access could not be checked")
-				return
-			}
-			if publicStatus(doc.Lifecycle) == "" {
-				continue
-			}
-			// The response requires references, verification and stale state for
-			// every item, plus counts across tabs. No complete usage/verification
-			// producer exists, so even a filtered collection cannot claim zeros.
-			writeRunbookReadUnavailable(w)
-			return
-		}
-		httpapi.WriteJSON(w, 200, map[string]any{"items": []any{}, "counts": map[string]int{"all": 0, "mine": 0, "review": 0, "stale": 0}, "kpis": []any{}, "suggestions": []any{}})
-	}
-}
-
-func (s *Service) getHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		tx, doc, ok := s.readableRunbook(w, r)
-		if !ok {
-			return
-		}
-		defer tx.Rollback(r.Context())
-		// Check the structured record in the same snapshot as lifecycle,
-		// environment scope and authorization. Legacy documents are not a
-		// substitute for persisted V3 steps.
-		if _, err := readStructuredRunbook(r.Context(), tx, doc.ID); err != nil {
-			structuredRunbookError(w, err)
-			return
-		}
-		if err := tx.Commit(r.Context()); err != nil {
-			knowledgeError(w, err)
-			return
-		}
-		// Runbook.usage is mandatory in the V3 DTO. The current repository
-		// records neither complete references nor resolved outcomes. Review
-		// assignments, base lineage and incident associations also lack a
-		// complete producer, so this route cannot return the full DTO yet.
-		writeRunbookReadUnavailable(w)
 	}
 }
 
@@ -749,9 +651,18 @@ type runbookQueryRow interface {
 }
 
 func (s *Service) authorizeDocumentUsing(r *http.Request, q runbookQueryRow, d knowledge.Document, action string, authorize func(rbac.V3Decision) error) error {
+	_, err := s.authorizedDocumentEnvironmentsUsing(r, q, d, action, authorize)
+	return err
+}
+
+// Return only environments for which this exact object and the current
+// principal pass every scope and grant check. A multi-environment response
+// must not reveal other environment IDs merely because one ID was readable.
+func (s *Service) authorizedDocumentEnvironmentsUsing(r *http.Request, q runbookQueryRow, d knowledge.Document, action string, authorize func(rbac.V3Decision) error) ([]string, error) {
 	if !documentInScope(r, d) {
-		return store.ErrForbidden
+		return nil, store.ErrForbidden
 	}
+	allowed := make([]string, 0, len(scopeIDs(r)))
 	for _, env := range scopeIDs(r) {
 		if !contains(d.Metadata.EnvironmentIDs, env) {
 			continue
@@ -785,14 +696,14 @@ func (s *Service) authorizeDocumentUsing(r *http.Request, q runbookQueryRow, d k
 			continue
 		}
 		if err != nil {
-			return err
+			return nil, err
 		}
 		err = authorize(rbac.V3Decision{Module: "knowledge", Action: action, EnvironmentID: env, ApplicationID: d.ApplicationID})
 		if errors.Is(err, store.ErrForbidden) {
 			continue
 		}
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if teamScoped {
 			err = authorize(rbac.V3Decision{Module: "knowledge", Action: action, EnvironmentID: env, TeamID: teamID})
@@ -800,12 +711,15 @@ func (s *Service) authorizeDocumentUsing(r *http.Request, q runbookQueryRow, d k
 				continue
 			}
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
-		return nil
+		allowed = append(allowed, env)
 	}
-	return store.ErrForbidden
+	if len(allowed) == 0 {
+		return nil, store.ErrForbidden
+	}
+	return allowed, nil
 }
 
 func (s *Service) authorizeDocumentWithTx(r *http.Request, tx pgx.Tx, d knowledge.Document, action string) error {

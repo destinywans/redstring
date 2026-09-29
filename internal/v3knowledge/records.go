@@ -15,15 +15,16 @@ import (
 
 type structuredRunbook struct {
 	SourceKind string
+	SourceRef  string
 	WhenText   string
 	Steps      []Step
 }
 
 func readStructuredRunbook(ctx context.Context, tx pgx.Tx, id string) (structuredRunbook, error) {
 	var record structuredRunbook
-	err := tx.QueryRow(ctx, `SELECT source_kind,when_text,steps
+	err := tx.QueryRow(ctx, `SELECT source_kind,source_ref,when_text,steps
  FROM v3_runbooks WHERE document_id=$1`, id).
-		Scan(&record.SourceKind, &record.WhenText, &record.Steps)
+		Scan(&record.SourceKind, &record.SourceRef, &record.WhenText, &record.Steps)
 	if record.Steps == nil {
 		record.Steps = []Step{}
 	}

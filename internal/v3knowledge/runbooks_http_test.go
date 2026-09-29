@@ -227,6 +227,17 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 		api.ServeHTTP(w, r)
 		return w
 	}
+	list := func(query, env, token string) *httptest.ResponseRecorder {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/runbooks?"+query, nil)
+		r.Header.Set("X-AIOps-Environment", env)
+		if token != "" {
+			r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		}
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		return w
+	}
 	assert := func(w *httptest.ResponseRecorder, status int, code string) {
 		t.Helper()
 		if w.Code != status || (code != "" && !strings.Contains(w.Body.String(), `"code":"`+code+`"`)) {
@@ -481,14 +492,29 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM knowledge_documents WHERE created_by=$1 AND source LIKE 'runbook://v3/%'`, creator.ID).Scan(&afterDocs); err != nil || afterDocs != beforeDocs {
 		t.Fatalf("grant revocation left a Runbook: docs=%d before=%d err=%v", afterDocs, beforeDocs, err)
 	}
-	// The main detail route checks document, current scope and structured
-	// steps together, but cannot claim the full usage/incident DTO yet.
-	assert(get("runbook-main", "", "dev", maintainerToken), 503, "runbook_read_unavailable")
+	// The main detail route projects persisted fields without inventing
+	// citation or incident measurements.
+	mainDetail := get("runbook-main", "", "dev", maintainerToken)
+	assert(mainDetail, 200, "")
+	if !strings.Contains(mainDetail.Body.String(), `"complete_v3_dto":false`) ||
+		!strings.Contains(mainDetail.Body.String(), `"refs":null`) ||
+		!strings.Contains(mainDetail.Body.String(), `"incidents":null`) ||
+		!strings.Contains(mainDetail.Body.String(), `"kind":"action"`) {
+		t.Fatalf("Runbook detail lost persisted content or claimed unknown metrics: %s", mainDetail.Body.String())
+	}
 	assert(get("runbook-main", "", "dev", otherToken), 404, "not_found")
 	assert(get("runbook-main", "", "dev", readerToken), 404, "not_found")
-	assert(get("runbook-review", "", "dev", otherToken), 503, "runbook_read_unavailable")
+	assert(get("runbook-review", "", "dev", otherToken), 200, "")
 	assert(get("runbook-review", "", "dev", readerToken), 404, "not_found")
-	assert(get("runbook-public", "", "dev", readerToken), 503, "runbook_read_unavailable")
+	assert(get("runbook-public", "", "dev", readerToken), 200, "")
+	listed := list("q=runbook-public&page=1&per_page=1", "dev", readerToken)
+	assert(listed, 200, "")
+	if !strings.Contains(listed.Body.String(), `"id":"runbook-public"`) ||
+		!strings.Contains(listed.Body.String(), `"total":1`) ||
+		!strings.Contains(listed.Body.String(), `"refs_30d":null`) ||
+		!strings.Contains(listed.Body.String(), `"complete_v3_dto":false`) {
+		t.Fatalf("Runbook list lost scoped item or claimed unknown usage: %s", listed.Body.String())
+	}
 	assert(get("runbook-other-app", "", "dev", maintainerToken), 404, "not_found")
 	assert(get("runbook-other-env", "", "dev", maintainerToken), 404, "not_found")
 	assert(get("runbook-unknown-env", "", "dev", maintainerToken), 404, "not_found")
@@ -496,7 +522,7 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	assert(get("missing", "", "dev", readerToken), 404, "not_found")
 	assert(get("runbook-unstructured", "", "dev", readerToken), 503, "structured_steps_unavailable")
 	assert(get("runbook-unstructured", "/record", "dev", readerToken), 503, "structured_steps_unavailable")
-	assert(get("runbook-alias", "", "dev", readerToken), 503, "runbook_read_unavailable")
+	assert(get("runbook-alias", "", "dev", readerToken), 200, "")
 	aliasRecord := get("runbook-alias", "/record", "dev", readerToken)
 	assert(aliasRecord, 200, "")
 	if !strings.Contains(aliasRecord.Body.String(), `"kind":"act"`) || !strings.Contains(aliasRecord.Body.String(), `"approval":true`) {
@@ -529,6 +555,11 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='runbook-reader' AND module='knowledge' AND scope_kind='team'`); err != nil {
 		t.Fatal(err)
 	}
+	if revokedList := list("q=runbook-public", "dev", readerToken); revokedList.Code != 200 ||
+		!strings.Contains(revokedList.Body.String(), `"items":[]`) ||
+		!strings.Contains(revokedList.Body.String(), `"all":0`) {
+		t.Fatalf("revoked team grant leaked a Runbook list item: %d %s", revokedList.Code, revokedList.Body.String())
+	}
 	for _, suffix := range []string{"", "/record", "/history"} {
 		assert(get("runbook-public", suffix, "dev", readerToken), 404, "not_found")
 	}
@@ -543,7 +574,7 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	if _, err := db.Exec(ctx, `UPDATE applications SET owner_team_id='ops' WHERE id='app-1'`); err != nil {
 		t.Fatal(err)
 	}
-	assert(get("runbook-main", "", "all", maintainerToken), 503, "runbook_read_unavailable")
+	assert(get("runbook-main", "", "all", maintainerToken), 200, "")
 	assert(request("runbook-main", "submit", "dev", ""), 401, "")
 	assert(request("runbook-main", "submit", "all", maintainerToken), 409, "env_view_only")
 	assert(request("runbook-main", "dry-run", "all", maintainerToken), 409, "env_view_only")
@@ -655,7 +686,7 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	if !strings.Contains(record.Body.String(), `"kind":"action"`) || !strings.Contains(record.Body.String(), `"approval":true`) {
 		t.Fatalf("runbook record lost persisted action approval: %s", record.Body.String())
 	}
-	assert(get("runbook-main", "", "dev", readerToken), 503, "runbook_read_unavailable")
+	assert(get("runbook-main", "", "dev", readerToken), 200, "")
 	historyRequest := httptest.NewRequest(http.MethodGet, "/api/v1/runbooks/runbook-main/history", nil)
 	historyRequest.Header.Set("X-AIOps-Environment", "dev")
 	historyRequest.AddCookie(&http.Cookie{Name: "aiops_session", Value: readerToken})

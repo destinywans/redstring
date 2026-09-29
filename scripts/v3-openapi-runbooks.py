@@ -7,32 +7,51 @@ S['V3RunbookStep'] = obj({'n':integer(),'kind':string(enum=['query','check','act
 S['V3RunbookCreateStep'] = obj({'n':integer(),'kind':string(enum=['query','check','action','verify','act','judge']),
     'title':string(),'body':string(),'connectors':arr(string()),'code':string(),
     'readonly':v3_bool(),'approval':v3_bool(),'tool':ref('V3RunbookToolDisplay')})
-S['V3RunbookSummary'] = obj({**fieldnames('id title scope owner version last_verified'),
+S['V3RunbookSummary'] = obj({**fieldnames('id title scope owner version application_id team_id'),
     'tags':arr(string()),'status':string(enum=['published','review','draft']),
-    'refs_30d':integer(),'resolve_rate':v3_num(),'stale':v3_bool()},
-    ['id','title','tags','scope','owner','version','status','refs_30d','last_verified','stale'])
-S['V3Runbook'] = obj({**fieldnames('id title version base owner scope when'),
+    'environment_ids':arr(string()),
+    'refs_30d':{'type':['integer','null']},'resolve_rate':{'type':['number','null']},
+    'last_verified':{'type':['string','null']},'stale':v3_bool()},
+    ['id','title','tags','scope','owner','version','status','refs_30d','resolve_rate',
+     'last_verified','stale','environment_ids','application_id','team_id'])
+S['V3Runbook'] = obj({**fieldnames('id title version base owner scope when status source_kind source_ref application_id team_id'),
     'tags':arr(string()),'steps':arr(ref('V3RunbookStep')),
-    'reviewers':arr(v3_object('name state')),'versions':arr(v3_object('v who when')),
-    'usage':obj({'refs':integer(),'resolve_rate':v3_num(),'weekly':arr(integer()),'highlight':integer()}),
-    'incidents':arr(v3_object('id title'))},
-    ['id','title','version','base','owner','scope','tags','when','steps','reviewers','versions','usage','incidents'])
+    'environment_ids':arr(string()),'last_verified':{'type':['string','null']},
+    'reviewers':arr(obj({'name':string(),'state':string(enum=['approved'])},['name','state'])),
+    'versions':arr(v3_object('v who when')),
+    'usage':obj({'refs':{'type':['integer','null']},'resolve_rate':{'type':['number','null']},
+                 'weekly':{'oneOf':[arr(integer()),{'type':'null'}]},
+                 'highlight':{'type':['integer','null']}},
+                ['refs','resolve_rate','weekly','highlight']),
+    'incidents':{'oneOf':[arr(v3_object('id title')),{'type':'null'}]},
+    'complete_v3_dto':{'const':False},'partial':{'const':True},'unknown_fields':arr(string())},
+    ['id','title','version','base','owner','scope','tags','when','steps','reviewers','versions','usage',
+     'incidents','status','source_kind','source_ref','environment_ids','application_id','team_id',
+     'last_verified','complete_v3_dto','partial','unknown_fields'])
 v3_route('get','/runbooks','List accessible runbooks',response=obj({'items':arr(ref('V3RunbookSummary')),
     'counts':v3_map(integer()),'kpis':arr({'type':'object','additionalProperties':True}),
-    'suggestions':arr({'type':'object','additionalProperties':True})}),
-    query=[v3_query(x) for x in ['q','service','tab']],
-    desc='Returns 503 runbook_read_unavailable when an accessible runbook exists: complete reference and verification history is not persisted. An empty accessible collection returns empty items and counts.')
+    'suggestions':arr({'type':'object','additionalProperties':True}),
+    'page':integer(minimum=1),'per_page':integer(minimum=1,maximum=100),
+    'total':integer(minimum=0),'has_next':v3_bool(),
+    'complete_v3_dto':{'const':False},'partial':{'const':True},'unknown_fields':arr(string())},
+    ['items','counts','kpis','suggestions','page','per_page','total','has_next',
+     'complete_v3_dto','partial','unknown_fields']),
+    query=[v3_query(x) for x in ['q','service','tab','page','per_page']],
+    desc='Scoped persisted Runbook inventory. A repeatable-read snapshot checks each document, current environment/application/team binding and object grant before counting, filtering and paging. Counts reflect visible q/service matches before tab paging; at most 10000 visible matches are accepted. Reference, outcome, KPI and suggestion producers are absent, so their values are null or empty with explicit unknown_fields and complete_v3_dto=false. This partial main-route response does not meet the frozen frontend DTO yet.')
 P['/runbooks']['get']['responses']['413'] = {
-    'description':'More than 1000 candidate Runbooks exceed the unpaged response limit',
+    'description':'More than 10000 visible Runbooks match the bounded collection',
     'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('get','/runbooks/{id}','Read governed runbook',response=ref('V3Runbook'),
-    desc='Reads the Runbook document, current object authorization and structured V3 steps in one read-only snapshot. Hidden, out-of-scope or non-Runbook objects return 404. An authorized document without a structured record returns 503 structured_steps_unavailable; an authorized structured Runbook returns 503 runbook_read_unavailable until complete usage, outcome, review lineage and execution verification are persisted. No zero usage or fabricated version timestamp is returned; persisted partial fields are available at /runbooks/{id}/record.')
+    desc='Reads the persisted Runbook, current object authorization, structured steps, revisions and recorded approvals in one read-only snapshot. Hidden, out-of-scope or non-Runbook objects return 404; a missing or unrepresentable structured record returns 503. Usage, incident association and pending reviewer assignment have no complete producer and remain explicitly unknown. A stored last_verified_at is shown only as a recorded timestamp, not proof of execution. complete_v3_dto=false means this partial main-route response does not meet the frozen frontend DTO yet.')
 for _path in ['/runbooks','/runbooks/{id}']:
     P[_path]['get']['responses']['503'] = {
-        'description':'Mandatory Runbook read fields lack an authoritative persisted source',
+        'description':'Runbook storage, structured steps, or authorization is unavailable',
         'content':{'application/json':{'schema':ref('Error')}}}
 P['/runbooks/{id}']['get']['responses']['503']['description'] = (
-    'Structured V3 steps are missing, or mandatory full-detail fields lack an authoritative persisted source')
+    'Structured V3 steps are missing or cannot be represented, or storage or authorization is unavailable')
+P['/runbooks/{id}']['get']['responses']['413'] = {
+    'description':'Runbook revision or recorded approval history exceeds 100 entries',
+    'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('post','/runbooks','Create governed runbook draft',
     body=obj({'title':string(),'source':string(enum=['blank','template','postmortem','conversation','import']),
         'from':string(),'expected_source_sha256':string(pattern='^[0-9a-f]{64}$'),

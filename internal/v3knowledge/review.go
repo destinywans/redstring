@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/knowledge"
+	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
@@ -28,16 +29,25 @@ func (s *Service) authorizeRunbookRead(r *http.Request, doc knowledge.Document) 
 }
 
 func (s *Service) authorizeRunbookReadWithTx(r *http.Request, tx pgx.Tx, doc knowledge.Document) error {
+	_, err := s.authorizedRunbookEnvironmentsWithTx(r, tx, doc)
+	return err
+}
+
+func (s *Service) authorizedRunbookEnvironmentsWithTx(r *http.Request, tx pgx.Tx, doc knowledge.Document) ([]string, error) {
 	if doc.Lifecycle == "published" {
-		return s.authorizeDocumentWithTx(r, tx, doc, "view")
+		return s.authorizedDocumentEnvironmentsUsing(r, tx, doc, "view", func(decision rbac.V3Decision) error {
+			return s.Policy.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), decision)
+		})
 	}
 	if doc.Lifecycle != "draft" && doc.Lifecycle != "review" {
-		return store.ErrForbidden
+		return nil, store.ErrForbidden
 	}
 	if doc.Lifecycle == "draft" && doc.Metadata.MaintainerID != httpapi.CurrentUser(r).ID {
-		return store.ErrForbidden
+		return nil, store.ErrForbidden
 	}
-	return s.authorizeDocumentWithTx(r, tx, doc, "manage")
+	return s.authorizedDocumentEnvironmentsUsing(r, tx, doc, "manage", func(decision rbac.V3Decision) error {
+		return s.Policy.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), decision)
+	})
 }
 
 type reviewInput struct {

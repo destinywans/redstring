@@ -634,9 +634,59 @@ func (s *Service) templates(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := s.Store.DB.Query(r.Context(), `SELECT id,kind,name,description,jsonb_array_length(nodes),is_default
+	owner := httpapi.CurrentUser(r).ID
+	cookie, cookieErr := r.Cookie("aiops_session")
+	if cookieErr != nil || cookie.Value == "" {
+		httpapi.Error(w, 401, "unauthorized", "Login required")
+		return
+	}
+	// Keep the session, role sources and visible template rows in one snapshot.
+	// This also prevents an all-environment list from retaining a revoked
+	// environment or canvas grant accepted by the earlier route gate.
+	tx, err := s.Store.DB.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		httpapi.Error(w, 503, "template_unavailable", "Templates unavailable")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	var sessionUser string
+	err = tx.QueryRow(r.Context(), `SELECT s.user_id FROM sessions s JOIN users u ON u.id=s.user_id
+ WHERE s.token_hash=$1 AND s.user_id=$2 AND s.expires_at>clock_timestamp()
+ AND NOT u.disabled AND u.deleted_at IS NULL FOR SHARE OF s,u`, store.Hash(cookie.Value), owner).Scan(&sessionUser)
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpapi.Error(w, 401, "unauthorized", "Login required")
+		return
+	}
+	if err != nil || lockCanvasGrantSources(r.Context(), tx, sessionUser) != nil {
+		httpapi.Error(w, 503, "template_unavailable", "Template authorization unavailable")
+		return
+	}
+	currentEnvs := make([]string, 0, len(envs))
+	for _, env := range envs {
+		var permitted bool
+		err = tx.QueryRow(r.Context(), `SELECT
+ EXISTS(SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$1
+  AND g.module='environment' AND g.action='view'
+  AND ((g.scope_kind='global' AND g.scope_id='*') OR (g.scope_kind='environment' AND g.scope_id=$2)))
+ AND EXISTS(SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$1
+  AND g.module='canvas' AND g.action='view'
+  AND ((g.scope_kind='global' AND g.scope_id='*') OR (g.scope_kind='environment' AND g.scope_id=$2)))`,
+			sessionUser, env).Scan(&permitted)
+		if err != nil {
+			httpapi.Error(w, 503, "template_unavailable", "Template authorization unavailable")
+			return
+		}
+		if permitted {
+			currentEnvs = append(currentEnvs, env)
+		}
+	}
+	if len(currentEnvs) == 0 {
+		httpapi.Error(w, 403, "forbidden", "Canvas view permission is required")
+		return
+	}
+	rows, err := tx.Query(r.Context(), `SELECT id,kind,name,description,jsonb_array_length(nodes),is_default
  FROM v3_canvas_templates WHERE owner_id IS NULL OR (owner_id=$1 AND environment_id=ANY($2::text[]))
- ORDER BY kind,is_default DESC,created_at,id LIMIT $3`, httpapi.CurrentUser(r).ID, envs, maxTemplateItems+1)
+ ORDER BY kind,is_default DESC,created_at,id LIMIT $3`, owner, currentEnvs, maxTemplateItems+1)
 	if err != nil {
 		httpapi.Error(w, 503, "template_unavailable", "Templates unavailable")
 		return
@@ -663,8 +713,11 @@ func (s *Service) templates(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "template_scope_too_broad", "Template list exceeds the bounded result")
 		return
 	}
-	// Only persisted generic templates are returned. Investigation templates
-	// have a separate domain and no V3 template projection here yet.
+	if err = tx.Commit(r.Context()); err != nil {
+		httpapi.Error(w, 503, "template_unavailable", "Templates unavailable")
+		return
+	}
+	// System blank and owner-private generic templates share this list.
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items})
 }
 
@@ -672,10 +725,10 @@ type saveTemplateRequest struct {
 	FromCanvas string `json:"from_canvas"`
 	Name       string `json:"name"`
 	Keep       *struct {
-		Nodes    bool `json:"nodes"`
-		Steps    bool `json:"steps"`
-		Runbooks bool `json:"runbooks"`
-		Content  bool `json:"content"`
+		Nodes    *bool `json:"nodes"`
+		Steps    bool  `json:"steps"`
+		Runbooks bool  `json:"runbooks"`
+		Content  bool  `json:"content"`
 	} `json:"keep"`
 }
 
@@ -692,8 +745,8 @@ func (s *Service) saveTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Name = strings.TrimSpace(in.Name)
-	if in.Name == "" || len([]rune(in.Name)) > 200 || in.FromCanvas == "" || in.Keep == nil {
-		httpapi.Error(w, 422, "invalid_template", "Select a canvas and a template name")
+	if in.Name == "" || len([]rune(in.Name)) > 200 || in.FromCanvas == "" || in.Keep == nil || in.Keep.Nodes == nil {
+		httpapi.Error(w, 422, "invalid_template", "Select a canvas, template name and whether to keep nodes")
 		return
 	}
 	if in.Keep.Steps || in.Keep.Runbooks || in.Keep.Content {
@@ -748,24 +801,26 @@ func (s *Service) saveTemplate(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if len(rawNodes) > 1<<20 || len(rawEdges) > 1<<20 {
-		httpapi.Error(w, 422, "unsafe_template_structure", "Canvas structure exceeds template limits")
-		return
-	}
-	nodes, err := decodeNodes(rawNodes)
-	if err != nil {
-		httpapi.Error(w, 503, "canvas_unavailable", "Invalid source structure")
-		return
-	}
-	edges, err := decodeEdges(rawEdges)
-	if err != nil {
-		httpapi.Error(w, 503, "canvas_unavailable", "Invalid source structure")
-		return
-	}
-	if !in.Keep.Nodes {
+	var nodes []Node
+	var edges []Edge
+	if !*in.Keep.Nodes {
 		nodes = []Node{}
 		edges = []Edge{}
 	} else {
+		if len(rawNodes) > 1<<20 || len(rawEdges) > 1<<20 {
+			httpapi.Error(w, 422, "unsafe_template_structure", "Canvas structure exceeds template limits")
+			return
+		}
+		nodes, err = decodeNodes(rawNodes)
+		if err != nil {
+			httpapi.Error(w, 503, "canvas_unavailable", "Invalid source structure")
+			return
+		}
+		edges, err = decodeEdges(rawEdges)
+		if err != nil {
+			httpapi.Error(w, 503, "canvas_unavailable", "Invalid source structure")
+			return
+		}
 		nodes, edges, err = sanitizeTemplateStructure(nodes, edges)
 		if err != nil {
 			httpapi.Error(w, 422, "unsafe_template_structure", "Canvas graph cannot be saved as a structural template")
@@ -776,6 +831,36 @@ func (s *Service) saveTemplate(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "unsafe_template_structure", "Canvas graph cannot be saved as a structural template")
 		return
 	}
+	// Serialize all template saves for this owner, including different names
+	// and environments, so duplicate checks and the bounded list capacity are
+	// reliable across concurrent API instances without rewriting old records.
+	_, err = tx.Exec(r.Context(), `SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))`, "v3.canvas.template.owner:"+owner.ID)
+	if err != nil {
+		httpapi.Error(w, 503, "template_unavailable", "Template save failed")
+		return
+	}
+	var duplicate bool
+	err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM v3_canvas_templates
+ WHERE owner_id=$1 AND environment_id=$2 AND kind=$3 AND lower(name)=lower($4))`,
+		owner.ID, envs[0], kind, in.Name).Scan(&duplicate)
+	if err != nil {
+		httpapi.Error(w, 503, "template_unavailable", "Template save failed")
+		return
+	}
+	if duplicate {
+		httpapi.Error(w, 409, "duplicate_template", "A template with this name already exists in this environment and kind")
+		return
+	}
+	var total int
+	err = tx.QueryRow(r.Context(), `SELECT count(*) FROM v3_canvas_templates WHERE owner_id IS NULL OR owner_id=$1`, owner.ID).Scan(&total)
+	if err != nil {
+		httpapi.Error(w, 503, "template_unavailable", "Template save failed")
+		return
+	}
+	if total >= maxTemplateItems {
+		httpapi.Error(w, 422, "template_scope_too_broad", "Template list exceeds the bounded result")
+		return
+	}
 	id := "CT-" + store.ID()
 	_, err = tx.Exec(r.Context(), `INSERT INTO v3_canvas_templates(id,owner_id,environment_id,kind,name,description,nodes,edges)
 		VALUES($1,$2,$3,$4,$5,'', $6::jsonb,$7::jsonb)`, id, owner.ID, envs[0], kind, in.Name, mustJSON(nodes), mustJSON(edges))
@@ -783,7 +868,8 @@ func (s *Service) saveTemplate(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "template_unavailable", "Template save failed")
 		return
 	}
-	auditChanges := mustJSON(map[string]string{"environment_id": envs[0], "source_canvas_id": in.FromCanvas})
+	auditChanges := mustJSON(map[string]any{"environment_id": envs[0], "source_canvas_id": in.FromCanvas,
+		"kind": kind, "keep_nodes": *in.Keep.Nodes, "node_count": len(nodes), "edge_count": len(edges)})
 	_, err = tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,action,target,outcome,changes)
 	 VALUES($1,'v3.canvas_template.saved',$2,'success',$3::jsonb)`,
 		owner.ID, id, auditChanges)

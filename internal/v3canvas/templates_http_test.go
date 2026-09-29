@@ -281,6 +281,11 @@ func TestCanvasTemplatesHTTPV3ScopeSanitizationAndBoundedList(t *testing.T) {
 	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-other","name":"Unsafe","keep":{"nodes":true}}`), 404, "not_found")
 	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":{"nodes":true,"steps":true}}`), 422, "unsafe_template_content")
 	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":{"nodes":true,"runbooks":true}}`), 422, "unsafe_template_content")
+	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":{"nodes":true,"content":true}}`), 422, "unsafe_template_content")
+	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":{"nodes":true,"evidence":true}}`), 422, "invalid_body")
+	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":null}`), 422, "invalid_template")
+	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":{}}`), 422, "invalid_template")
+	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":{"steps":false}}`), 422, "invalid_template")
 	if _, err = db.Exec(ctx, `UPDATE v3_canvases SET artifacts=$2::jsonb WHERE id=$1`, "CV-source",
 		mustJSON([]CanvasArtifact{{ID: "secret-artifact", Title: secret, Sub: secret}})); err != nil {
 		t.Fatal(err)
@@ -314,6 +319,19 @@ func TestCanvasTemplatesHTTPV3ScopeSanitizationAndBoundedList(t *testing.T) {
 	}
 	if auditCount != 1 {
 		t.Fatalf("save must have one audit record, got %d", auditCount)
+	}
+	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":" safe LAYOUT ","keep":{"nodes":true}}`), 409, "duplicate_template")
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM v3_canvas_templates WHERE owner_id=$1`, owner.ID).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("duplicate name wrote a second template, count=%d", auditCount)
+	}
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE actor_id=$1 AND action='v3.canvas_template.saved'`, owner.ID).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("duplicate name wrote a second audit record, count=%d", auditCount)
 	}
 	listed := request(http.MethodGet, "dev", ownerToken, "")
 	assert(listed, 200, "")
@@ -455,9 +473,11 @@ func TestCanvasTemplatesHTTPV3ScopeSanitizationAndBoundedList(t *testing.T) {
 	}
 	assert(request(http.MethodPost, "dev", ownerToken,
 		fmt.Sprintf(`{"from_canvas":%q,"name":"After revoke","keep":{"nodes":true}}`, canvasResult.ID)), 403, "forbidden")
+	assert(request(http.MethodGet, "dev", ownerToken, ""), 403, "forbidden")
 	if _, err = db.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'canvas-editor')`, owner.ID); err != nil {
 		t.Fatal(err)
 	}
+	assert(request(http.MethodGet, "dev", ownerToken, ""), 200, "")
 	// A large but valid graph is rejected before any template or audit write.
 	large := make([]Node, 101)
 	for i := range large {
@@ -479,10 +499,80 @@ func TestCanvasTemplatesHTTPV3ScopeSanitizationAndBoundedList(t *testing.T) {
 	if auditCount != 2 {
 		t.Fatalf("oversize graph wrote an audit record, count=%d", auditCount)
 	}
-	// Do not silently truncate a template list beyond its documented bound.
+	// Explicitly keeping no nodes produces a private blank structural template,
+	// even when the source itself exceeds the node-copy limit.
+	blank := request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Blank structure","keep":{"nodes":false}}`)
+	assert(blank, 201, "")
+	var blankTemplate template
+	if err = json.Unmarshal(blank.Body.Bytes(), &blankTemplate); err != nil || blankTemplate.ID == "" || blankTemplate.Nodes != "0 个节点" {
+		t.Fatalf("blank template response mismatch: %s (%v)", blank.Body.String(), err)
+	}
+	var rawEdges string
+	if err = db.QueryRow(ctx, `SELECT nodes::text,edges::text FROM v3_canvas_templates WHERE id=$1 AND owner_id=$2 AND environment_id='dev'`, blankTemplate.ID, owner.ID).Scan(&rawNodes, &rawEdges); err != nil {
+		t.Fatal(err)
+	}
+	if rawNodes != "[]" || rawEdges != "[]" {
+		t.Fatalf("blank keep copied source structure: nodes=%s edges=%s", rawNodes, rawEdges)
+	}
+	// Names are private to one owner, environment, and canvas kind.
+	assert(request(http.MethodPost, "staging", ownerToken, `{"from_canvas":"CV-stage","name":"Safe layout","keep":{"nodes":true}}`), 201, "")
+	if _, err = db.Exec(ctx, `INSERT INTO v3_canvases(id,owner_id,environment_id,title,kind)
+ VALUES('CV-review-template-source',$1,'dev','Review source','review')`, owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-review-template-source","name":"Safe layout","keep":{"nodes":true}}`), 201, "")
+	// Concurrent duplicate saves must have one winner and one conflict, with
+	// exactly one persisted template and one success audit.
+	const raceName = "Race layout"
+	parallel := make(chan *httptest.ResponseRecorder, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			parallel <- request(http.MethodPost, "staging", ownerToken,
+				`{"from_canvas":"CV-stage","name":"`+raceName+`","keep":{"nodes":true}}`)
+		}()
+	}
+	first, second := <-parallel, <-parallel
+	if first.Code == second.Code || (first.Code != 201 && second.Code != 201) || (first.Code != 409 && second.Code != 409) {
+		t.Fatalf("duplicate race must produce one save and one conflict: first=%d %s second=%d %s", first.Code, first.Body.String(), second.Code, second.Body.String())
+	}
+	for _, response := range []*httptest.ResponseRecorder{first, second} {
+		if response.Code == 409 {
+			assert(response, 409, "duplicate_template")
+		}
+	}
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM v3_canvas_templates WHERE owner_id=$1 AND environment_id='staging' AND kind='plan' AND name=$2`, owner.ID, raceName).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("concurrent duplicate save wrote %d templates", auditCount)
+	}
+	winner := first
+	if winner.Code != 201 {
+		winner = second
+	}
+	var winnerTemplate template
+	if err = json.Unmarshal(winner.Body.Bytes(), &winnerTemplate); err != nil || winnerTemplate.ID == "" {
+		t.Fatalf("concurrent winner omitted template ID: %s (%v)", winner.Body.String(), err)
+	}
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE actor_id=$1
+ AND action='v3.canvas_template.saved' AND target=$2`, owner.ID, winnerTemplate.ID).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("concurrent duplicate save wrote %d winner audits", auditCount)
+	}
+	// Read authorization must reflect an expired session, even when the role
+	// grants and template rows still exist.
+	if _, err = db.Exec(ctx, `UPDATE sessions SET expires_at=clock_timestamp()-interval '1 second' WHERE token_hash=$1`, store.Hash(otherToken)); err != nil {
+		t.Fatal(err)
+	}
+	assert(request(http.MethodGet, "dev", otherToken, ""), 401, "")
+	// Do not silently truncate a template list beyond its documented bound,
+	// or allow another save whose result would immediately be unreadable.
 	if _, err = db.Exec(ctx, `INSERT INTO v3_canvas_templates(id,owner_id,environment_id,kind,name)
  SELECT 'bulk-' || gs::text,$1,'dev','plan','Bulk' FROM generate_series(1,$2) AS gs`, owner.ID, maxTemplateItems); err != nil {
 		t.Fatal(err)
 	}
 	assert(request(http.MethodGet, "dev", ownerToken, ""), 422, "template_scope_too_broad")
+	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-review-template-source","name":"After capacity","keep":{"nodes":true}}`), 422, "template_scope_too_broad")
 }

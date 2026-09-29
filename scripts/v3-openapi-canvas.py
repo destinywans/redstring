@@ -223,9 +223,15 @@ P['/investigations/{id}/writeback']['post']['responses']['413'] = {
     'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('get','/canvas-templates','List available canvas structures',
     response=obj({'items':arr(ref('V3CanvasTemplate'))},['items']),
-    desc='Currently lists only private, persisted generic-canvas structure templates owned by the current user in authorized non-production environments. Investigation and team templates are unavailable; the full page contract remains mock.')
+    desc='Lists persisted generic-canvas system blank templates plus the current owner private templates in currently authorized environments. The session, environment.view and canvas.view grants are rechecked against one bounded database snapshot; more than 500 visible items returns 422. A private template has no team scope, and investigation templates belong to a separate page; the frozen Templates page does not consume this list.')
+P['/canvas-templates']['get']['responses']['422'] = {
+    'description':'Visible template list exceeds 500 items',
+    'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('post','/canvas-templates','Save a safe canvas structure template',
     body=obj({'from_canvas':string(),'name':string(),
-      'keep':obj({k:v3_bool() for k in ['nodes','steps','runbooks','content']})},
-      ['from_canvas','name']),response=ref('V3CanvasTemplate'),status=201,
-    desc='Partial main-contract operation: requires the current owner, selected source environment and canvas.change grant, rechecked with session and role sources inside the save transaction. Copies a user-chosen template name plus sanitized generic-canvas node/edge layout; node titles, blocks, artifacts and conversations are not copied. The graph is validated before template and audit commit together. keep.steps, keep.runbooks and keep.content return 422; the current frontend sends steps/runbooks by default and describes a team template, while this backend saves a private template. Investigation sources and read-only steps are unavailable, so the main route remains mock.')
+      'keep':obj({k:v3_bool() for k in ['nodes','steps','runbooks','content']},['nodes'])},
+      ['from_canvas','name','keep']),response=ref('V3CanvasTemplate'),status=201,
+    desc='Requires one selected environment, the current owner of a generic source canvas, and current canvas.change grant; session, role sources, source and authorization are rechecked in the save transaction. keep.nodes must be explicit; true copies sanitized node/edge layout and false saves an empty structure. A user-chosen name is retained, while node titles, blocks, artifacts, evidence, conversation turns and identifiers are not copied. The graph is validated before template and audit commit together. A case-insensitive duplicate name in the same owner/environment/kind returns 409; API saves serialize per owner and check the 500-item combined system/private list capacity. A separate system-template import path does not share this lock and can cause a later list to return 422; that integration requires a shared capacity policy. keep.steps, keep.runbooks and keep.content true return 422 because no safe persisted source exists. The current frontend sends steps/runbooks by default and describes a team template; it needs a separate safe page adaptation. Investigation/team template creation remains unavailable.')
+P['/canvas-templates']['post']['responses']['422'] = {
+    'description':'Unsupported keep option, invalid structure, or template list capacity exceeded',
+    'content':{'application/json':{'schema':ref('Error')}}}

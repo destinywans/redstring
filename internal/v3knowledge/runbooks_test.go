@@ -51,6 +51,45 @@ func TestValidateCreateRejectsUnsafeRunbookInputs(t *testing.T) {
 	}
 }
 
+func TestDraftGeneratedStepsMeetCreateByteLimits(t *testing.T) {
+	if validSourceBody(strings.Repeat("汉", 6000)) {
+		t.Fatal("a multibyte source body over 16000 bytes must not become a draft step")
+	}
+	if !validSourceBody(strings.Repeat("汉", 5000)) {
+		t.Fatal("a multibyte source body below 16000 bytes should fit")
+	}
+	title := "Review: " + strings.Repeat("中", 190)
+	if err := validateCreate(createInput{Title: "Draft", Source: "blank", Steps: []Step{{Kind: "check", Title: title, Body: strings.Repeat("汉", 5000), Readonly: true}}}); err != nil {
+		t.Fatalf("generated section must round trip through create validation: %v", err)
+	}
+}
+
+func TestRunbookStepAliasesRequireHumanApprovalForToolsAndActions(t *testing.T) {
+	steps := []Step{
+		{Kind: "judge", Title: "Check state"},
+		{Kind: "act", Title: "Restart", Readonly: true},
+		{Kind: "check", Title: "Inspect query", Tool: &StepTool{Brand: "prometheus", Text: "up"}, Readonly: true},
+		{Kind: "query", Title: "Read known safe data", Readonly: true, Connectors: []string{"prometheus"}},
+	}
+	if err := validateCreate(createInput{Title: "Draft", Source: "blank", Steps: steps}); err != nil {
+		t.Fatal(err)
+	}
+	got := normalizeSteps(steps)
+	if got[0].N != 1 || got[0].Kind != "check" || got[0].Readonly || got[0].Approval ||
+		got[1].N != 2 || got[1].Kind != "action" || got[1].Readonly || !got[1].Approval ||
+		got[2].N != 3 || got[2].Readonly || !got[2].Approval ||
+		got[3].N != 4 || !got[3].Readonly || got[3].Approval {
+		t.Fatalf("unsafe alias normalization: %+v", got)
+	}
+	checks, valid := previewSteps(got[:3])
+	if valid || checks[0]["validated"] != false {
+		t.Fatalf("unchecked or write-capable alias was treated as safe: %+v", checks)
+	}
+	if validateCreate(createInput{Title: "Draft", Source: "blank", Steps: []Step{{N: 9, Kind: "check", Title: "Bad numbering"}}}) == nil {
+		t.Fatal("client numbering should be sequential when provided")
+	}
+}
+
 func TestDryRunPreviewNeverExecutesAction(t *testing.T) {
 	checks, ok := previewSteps([]Step{
 		{N: 1, Kind: "query", Title: "Read metrics", Readonly: true, Connectors: []string{"prometheus"}},

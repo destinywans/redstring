@@ -115,7 +115,7 @@ func (s *Service) Register(api *httpapi.Server, v3Search ...bool) {
 		respond(w, map[string]any{"items": items}, e)
 	})
 	api.Register("GET /api/v1/knowledge/{id}", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		d, e := s.Get(r.Context(), r.PathValue("id"))
+		d, e := s.legacyGet(r.Context(), r.PathValue("id"))
 		respond(w, d, e)
 	})
 	api.Register("POST /api/v1/knowledge", "operator", func(w http.ResponseWriter, r *http.Request) {
@@ -127,6 +127,10 @@ func (s *Service) Register(api *httpapi.Server, v3Search ...bool) {
 		respond(w, d, e)
 	})
 	api.Register("POST /api/v1/knowledge/{id}/reindex", "operator", func(w http.ResponseWriter, r *http.Request) {
+		if _, e := s.legacyGet(r.Context(), r.PathValue("id")); e != nil {
+			respond(w, nil, e)
+			return
+		}
 		e := s.Index(r.Context(), r.PathValue("id"))
 		if e != nil {
 			respond(w, nil, e)

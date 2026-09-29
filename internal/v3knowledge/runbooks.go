@@ -27,14 +27,21 @@ type Service struct {
 }
 
 type Step struct {
-	N          int      `json:"n"`
-	Kind       string   `json:"kind"`
-	Title      string   `json:"title"`
-	Body       string   `json:"body,omitempty"`
-	Connectors []string `json:"connectors,omitempty"`
-	Code       string   `json:"code,omitempty"`
-	Readonly   bool     `json:"readonly,omitempty"`
-	Approval   bool     `json:"approval,omitempty"`
+	N          int       `json:"n"`
+	Kind       string    `json:"kind"`
+	Title      string    `json:"title"`
+	Body       string    `json:"body,omitempty"`
+	Connectors []string  `json:"connectors,omitempty"`
+	Code       string    `json:"code,omitempty"`
+	Readonly   bool      `json:"readonly,omitempty"`
+	Approval   bool      `json:"approval,omitempty"`
+	Tool       *StepTool `json:"tool,omitempty"`
+}
+
+// Tool is source/editor display data, never a connector invocation contract.
+type StepTool struct {
+	Brand string `json:"brand"`
+	Text  string `json:"text"`
 }
 
 // Register adds routes that do not conflict with the old knowledge module.
@@ -164,11 +171,12 @@ func (s *Service) getHandler() http.HandlerFunc {
 }
 
 type createInput struct {
-	Title  string `json:"title"`
-	Source string `json:"source"`
-	From   string `json:"from"`
-	Steps  []Step `json:"steps"`
-	Status string `json:"status"`
+	Title                string `json:"title"`
+	Source               string `json:"source"`
+	From                 string `json:"from"`
+	ExpectedSourceSHA256 string `json:"expected_source_sha256,omitempty"`
+	Steps                []Step `json:"steps"`
+	Status               string `json:"status"`
 }
 
 func (s *Service) createHandler(api *httpapi.Server) http.HandlerFunc {
@@ -188,12 +196,7 @@ func (s *Service) createHandler(api *httpapi.Server) http.HandlerFunc {
 			httpapi.Error(w, 422, "invalid_runbook", err.Error())
 			return
 		}
-		for i := range in.Steps {
-			if in.Steps[i].Kind == "action" || in.Steps[i].Kind == "act" {
-				in.Steps[i].Approval = true
-				in.Steps[i].Readonly = false
-			}
-		}
+		in.Steps = normalizeSteps(in.Steps)
 		user := httpapi.CurrentUser(r)
 		id := store.ID()
 		body := renderBody(in)
@@ -209,9 +212,13 @@ func (s *Service) createHandler(api *httpapi.Server) http.HandlerFunc {
 			return
 		}
 		defer tx.Rollback(r.Context())
-		binding, sourceErr := s.validateSource(r, tx, in)
+		binding, sourceErr := s.loadDraftSource(r, tx, in)
 		if sourceErr != nil {
-			if errors.Is(sourceErr, store.ErrForbidden) || errors.Is(sourceErr, store.ErrNotFound) || errors.Is(sourceErr, errSourceEmpty) {
+			if errors.Is(sourceErr, errSourceTooLarge) {
+				httpapi.Error(w, 413, "source_too_large", "Source exceeds the bounded Runbook draft limit")
+				return
+			}
+			if errors.Is(sourceErr, store.ErrForbidden) || errors.Is(sourceErr, store.ErrNotFound) || errors.Is(sourceErr, pgx.ErrNoRows) || errors.Is(sourceErr, errSourceEmpty) {
 				httpapi.Error(w, 422, "invalid_source", "Source was not found or is not accessible in this environment")
 				return
 			}
@@ -237,11 +244,58 @@ func (s *Service) createHandler(api *httpapi.Server) http.HandlerFunc {
 				return
 			}
 		}
+		cookie, cookieErr := r.Cookie("aiops_session")
+		if cookieErr != nil {
+			httpapi.Error(w, 401, "unauthorized", "Login required")
+			return
+		}
+		if err = store.LockActiveSession(r.Context(), tx, cookie.Value, user.ID); err != nil {
+			if errors.Is(err, store.ErrSessionRevoked) {
+				httpapi.Error(w, 401, "unauthorized", "Session expired")
+			} else {
+				httpapi.Error(w, 503, "authorization_unavailable", "Session could not be checked")
+			}
+			return
+		}
+		if err = lockRunbookGrantSources(r.Context(), tx, user.ID); err != nil {
+			httpapi.Error(w, 503, "authorization_unavailable", "Role grants could not be checked")
+			return
+		}
+		if err = s.Policy.AuthorizeWithTx(r.Context(), tx, user, rbac.V3Decision{Module: "knowledge", Action: "manage", EnvironmentID: scopeIDs(r)[0], ApplicationID: binding.ApplicationID}); err != nil {
+			knowledgeError(w, err)
+			return
+		}
+		if binding.TeamID != "" {
+			if err = s.Policy.AuthorizeWithTx(r.Context(), tx, user, rbac.V3Decision{Module: "knowledge", Action: "manage", EnvironmentID: scopeIDs(r)[0], TeamID: binding.TeamID}); err != nil {
+				knowledgeError(w, err)
+				return
+			}
+		}
+		// Re-read state and source grants after the source lock and session
+		// wait. The persisted digest identifies the exact content considered.
+		binding, sourceErr = s.loadDraftSource(r, tx, in)
+		if sourceErr != nil {
+			if errors.Is(sourceErr, errSourceTooLarge) {
+				httpapi.Error(w, 413, "source_too_large", "Source exceeds the bounded Runbook draft limit")
+				return
+			}
+			if errors.Is(sourceErr, store.ErrForbidden) || errors.Is(sourceErr, store.ErrNotFound) || errors.Is(sourceErr, pgx.ErrNoRows) || errors.Is(sourceErr, errSourceEmpty) {
+				httpapi.Error(w, 422, "invalid_source", "Source was not found or is not accessible in this environment")
+			} else {
+				httpapi.Error(w, 503, "source_unavailable", "Source validation failed")
+			}
+			return
+		}
+		if in.ExpectedSourceSHA256 != "" && in.ExpectedSourceSHA256 != binding.ContentHash {
+			httpapi.Error(w, 409, "source_changed", "Runbook source changed; load a new draft")
+			return
+		}
+		snapshotJSON, _ := json.Marshal(map[string]string{"source_id": binding.SourceID, "source_kind": in.Source, "content_sha256": binding.ContentHash})
 		metaJSON, _ := json.Marshal(metadata)
 		var created time.Time
 		err = tx.QueryRow(r.Context(), `INSERT INTO knowledge_documents(id,application_id,title,body,source,version,content_hash,created_by,lifecycle,metadata) VALUES($1,NULLIF($2,''),$3,$4,$5,1,$6,$7,$8,$9) RETURNING created_at`, id, binding.ApplicationID, in.Title, body, "runbook://v3/"+id, store.Hash(body), user.ID, status, metaJSON).Scan(&created)
 		if err == nil {
-			_, err = tx.Exec(r.Context(), `INSERT INTO v3_runbooks(document_id,source_kind,source_ref,conversation_id,steps) VALUES($1,$2,$3,NULLIF($4,''),$5)`, id, in.Source, in.From, binding.ConversationID, stepsJSON)
+			_, err = tx.Exec(r.Context(), `INSERT INTO v3_runbooks(document_id,source_kind,source_ref,conversation_id,steps,source_snapshot) VALUES($1,$2,$3,NULLIF($4,''),$5,$6::jsonb)`, id, in.Source, binding.SourceID, binding.ConversationID, stepsJSON, snapshotJSON)
 		}
 		if err == nil {
 			snapshot := knowledge.Document{ID: id, ApplicationID: binding.ApplicationID, Title: in.Title, Body: body, Source: "runbook://v3/" + id, Version: 1, ContentHash: store.Hash(body), Lifecycle: status, Metadata: metadata, CreatedAt: created, EvidenceIDs: []string{}}
@@ -252,6 +306,13 @@ func (s *Service) createHandler(api *httpapi.Server) http.HandlerFunc {
 		}
 		if err == nil {
 			_, err = tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes) VALUES($1,$2,'runbook.created',$3,'succeeded',$4)`, user.ID, binding.ApplicationID, id, map[string]any{"status": status, "source": in.Source, "environment_id": scopeIDs(r)[0]})
+		}
+		if err == nil {
+			err = store.LockActiveSession(r.Context(), tx, cookie.Value, user.ID)
+		}
+		if errors.Is(err, store.ErrSessionRevoked) {
+			httpapi.Error(w, 401, "unauthorized", "Session expired")
+			return
 		}
 		if err == nil {
 			err = tx.Commit(r.Context())
@@ -453,6 +514,9 @@ func validateCreate(in createInput) error {
 	if in.Status != "" && in.Status != "draft" && in.Status != "review" {
 		return errors.New("Runbook status must be draft or review")
 	}
+	if in.Status == "review" && len(in.Steps) == 0 {
+		return errors.New("Runbook review requires at least one human-reviewed step")
+	}
 	if len(in.From) > 200 || len(in.Steps) > 100 {
 		return errors.New("source or step count exceeds limit")
 	}
@@ -462,7 +526,20 @@ func validateCreate(in createInput) error {
 	if in.Source != "blank" && strings.TrimSpace(in.From) == "" {
 		return errors.New("source reference is required")
 	}
+	if in.ExpectedSourceSHA256 != "" {
+		if in.Source == "blank" || len(in.ExpectedSourceSHA256) != 64 {
+			return errors.New("invalid expected source digest")
+		}
+		for _, character := range in.ExpectedSourceSHA256 {
+			if character < '0' || character > '9' && character < 'a' || character > 'f' {
+				return errors.New("invalid expected source digest")
+			}
+		}
+	}
 	for i, step := range in.Steps {
+		if step.N != 0 && step.N != i+1 {
+			return fmt.Errorf("invalid step number %d", i+1)
+		}
 		if strings.TrimSpace(step.Title) == "" || len([]rune(step.Title)) > 200 || len(step.Body) > 16000 || len(step.Code) > 16000 {
 			return fmt.Errorf("invalid step %d", i+1)
 		}
@@ -472,8 +549,28 @@ func validateCreate(in createInput) error {
 		if len(step.Connectors) > 10 {
 			return fmt.Errorf("too many connectors in step %d", i+1)
 		}
+		if step.Tool != nil && (len(step.Tool.Brand) > 80 || len(step.Tool.Text) > 4096) {
+			return fmt.Errorf("tool display exceeds limit in step %d", i+1)
+		}
 	}
 	return nil
+}
+
+func normalizeSteps(steps []Step) []Step {
+	for i := range steps {
+		steps[i].N = i + 1
+		switch steps[i].Kind {
+		case "act":
+			steps[i].Kind = "action"
+		case "judge":
+			steps[i].Kind = "check"
+		}
+		if steps[i].Kind == "action" || steps[i].Code != "" || steps[i].Tool != nil {
+			steps[i].Approval = true
+			steps[i].Readonly = false
+		}
+	}
+	return steps
 }
 
 func previewSteps(steps []Step) ([]map[string]any, bool) {
@@ -495,6 +592,11 @@ type sourceBinding struct {
 	ConversationID string
 	ApplicationID  string
 	TeamID         string
+	SourceID       string
+	ContentHash    string
+	Title          string
+	Outline        string
+	Steps          []Step
 }
 
 // The source lookup and Runbook insert share one transaction. A key-share lock
@@ -512,8 +614,16 @@ func (s *Service) validateSource(r *http.Request, tx pgx.Tx, in createInput) (so
  FROM v3_postmortems pm
  JOIN applications a ON a.id=pm.application_id AND NOT a.archived
  JOIN v3_application_environments ae ON ae.application_id=pm.application_id AND ae.environment_id=pm.environment_id
+ JOIN ops_incidents i ON i.id=pm.incident_id AND i.application_id=pm.application_id
+  AND i.investigation_id=pm.investigation_id AND i.status='resolved'
+ JOIN application_environments app_env ON app_env.id=i.environment_id
+  AND app_env.application_id=pm.application_id AND app_env.key=pm.environment_id AND NOT app_env.archived
+ JOIN investigations inv ON inv.id=pm.investigation_id AND inv.application_id=pm.application_id AND inv.status='closed'
+ JOIN investigation_reports report ON report.investigation_id=inv.id
+ JOIN events closed ON closed.seq=pm.close_event_seq AND closed.investigation_id=inv.id AND closed.type='investigation.closed'
  WHERE (pm.id=$1 OR pm.incident_id=$1) AND pm.status='published'
- FOR KEY SHARE OF pm,a,ae`, in.From).Scan(&app, &team, &actualEnvironment)
+ ORDER BY CASE WHEN pm.id=$1 THEN 0 ELSE 1 END LIMIT 1
+ FOR SHARE OF pm,a,ae,i,app_env,inv,report,closed`, in.From).Scan(&app, &team, &actualEnvironment)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return sourceBinding{}, store.ErrNotFound
 		}
@@ -550,7 +660,7 @@ func (s *Service) validateSource(r *http.Request, tx pgx.Tx, in createInput) (so
 		}
 		var owner, actualEnvironment, kind, mime, name string
 		var size int
-		err := tx.QueryRow(r.Context(), `SELECT owner_id,environment_id,kind,mime,name,size_bytes FROM v3_uploads WHERE id=$1 FOR KEY SHARE`, in.From).Scan(&owner, &actualEnvironment, &kind, &mime, &name, &size)
+		err := tx.QueryRow(r.Context(), `SELECT owner_id,environment_id,kind,mime,name,size_bytes FROM v3_uploads WHERE id=$1 FOR SHARE`, in.From).Scan(&owner, &actualEnvironment, &kind, &mime, &name, &size)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return sourceBinding{}, store.ErrNotFound
 		}
@@ -572,7 +682,7 @@ func (s *Service) validateSource(r *http.Request, tx pgx.Tx, in createInput) (so
 			return sourceBinding{}, store.ErrForbidden
 		}
 		var owner, actualEnvironment string
-		err := tx.QueryRow(r.Context(), `SELECT owner_id,environment_id FROM v3_conversations WHERE id=$1 FOR KEY SHARE`, in.From).Scan(&owner, &actualEnvironment)
+		err := tx.QueryRow(r.Context(), `SELECT owner_id,environment_id FROM v3_conversations WHERE id=$1 FOR SHARE`, in.From).Scan(&owner, &actualEnvironment)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return sourceBinding{}, store.ErrNotFound
 		}

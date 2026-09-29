@@ -1,10 +1,12 @@
 # Governed runbooks and scoped knowledge search.
+S['V3RunbookToolDisplay'] = obj(fieldnames('brand text'),['brand','text'])
+S['V3RunbookToolDisplay']['description'] = 'Optional editor display text only; it does not bind or execute a connector.'
 S['V3RunbookStep'] = obj({'n':integer(),'kind':string(enum=['query','check','action','verify']),
     'title':string(),'body':string(),'connectors':arr(string()),'code':string(),
-    'readonly':v3_bool(),'approval':v3_bool()})
+    'readonly':v3_bool(),'approval':v3_bool(),'tool':ref('V3RunbookToolDisplay')})
 S['V3RunbookCreateStep'] = obj({'n':integer(),'kind':string(enum=['query','check','action','verify','act','judge']),
     'title':string(),'body':string(),'connectors':arr(string()),'code':string(),
-    'readonly':v3_bool(),'approval':v3_bool()})
+    'readonly':v3_bool(),'approval':v3_bool(),'tool':ref('V3RunbookToolDisplay')})
 S['V3RunbookSummary'] = obj({**fieldnames('id title scope owner version last_verified'),
     'tags':arr(string()),'status':string(enum=['published','review','draft']),
     'refs_30d':integer(),'resolve_rate':v3_num(),'stale':v3_bool()},
@@ -33,9 +35,10 @@ P['/runbooks/{id}']['get']['responses']['503']['description'] = (
     'Structured V3 steps are missing, or mandatory full-detail fields lack an authoritative persisted source')
 v3_route('post','/runbooks','Create governed runbook draft',
     body=obj({'title':string(),'source':string(enum=['blank','template','postmortem','conversation','import']),
-        'from':string(),'steps':arr(ref('V3RunbookCreateStep')),
+        'from':string(),'expected_source_sha256':string(pattern='^[0-9a-f]{64}$'),
+        'steps':arr(ref('V3RunbookCreateStep')),
         'status':string(enum=['draft','review'])},['title','source']),response=obj({'id':string()},['id']),status=201,
-    desc='Requires scoped knowledge:manage grant. A nonblank source requires a validated reference; blank forbids one. Template IDs are registered server-side; imports require a nonempty Markdown upload owned by the current user in the selected environment. Conversations are checked in the same transaction. A published postmortem in the selected environment has a creation-source path with current source access checks, while the separate postmortem draft generator still returns 501. The frozen creation flow and transaction authorization/source-state checks remain incomplete, so this main operation stays mock. No source reference is trusted solely because the client provided an ID.')
+    desc='Requires one selected environment and current scoped knowledge:manage. A nonblank source requires an explicit authorized reference; blank forbids one. A current session, source state and permissions are rechecked inside the creation transaction. The bounded source identity and content digest saved with structured steps are an observation at save time. A client may pass expected_source_sha256 from GET /runbooks/draft to reject source drift with 409 source_changed; without it, submitted steps are not proven to derive from the saved digest. Initial version, revision history and audit are saved atomically; source text remains in its governed source table. An action step requires approval; review status requires at least one step. A draft is visible only to its maintainer with manage permission; review is visible to current knowledge managers. Neither status publishes or executes a Runbook. The frozen frontend creation payload still needs reconciliation with this request schema.')
 v3_route('post','/runbooks/{id}/submit','Submit runbook for review',
     desc='Requires scoped knowledge:manage grant and maintainer ownership.',
     response=obj({'ok':v3_bool(),'status':string(enum=['review'])}))
@@ -43,16 +46,17 @@ v3_route('post','/runbooks/{id}/dry-run','Validate runbook without execution',
     role='viewer with scoped knowledge.manage',
     response=obj({'steps':integer(),'ok':v3_bool(),'mode':string(enum=['validation_only']),
         'checks':arr({'type':'object','additionalProperties':True})}),
-    desc='Requires knowledge.manage because the validation preview and audit are persisted. Validates persisted steps without a request body and never runs external write steps.')
+    desc='Requires knowledge.manage because the validation preview and audit are persisted. Performs structural checks on persisted step kind, declared readonly flag and connector presence without a request body. It does not verify a connector capability or execute any external step.')
 v3_route('get','/runbooks/draft','Read a source-validated Runbook outline',
     query=[v3_query('source',string(enum=['template','postmortem','conversation','import'])),v3_query('from')],
     response=obj({'title':string(),'applies_to':arr(string()),'trigger':string(),
         'steps':arr(ref('V3RunbookStep')),'sources':arr(string()),'outline':string(),
-        'draft_mode':string(enum=['template_outline']),'missing':arr(string())},
-        ['title','applies_to','trigger','steps','sources','outline','draft_mode','missing']),
-    desc='Partial main-contract operation: only a registered template and explicit from ID return an outline with empty steps. Other validated sources return 501 draft_generator_unavailable. The complete AI-drafted page remains mock.')
-P['/runbooks/draft']['get']['responses']['501'] = {
-    'description':'Source-backed Runbook draft generator is not configured',
+        'draft_mode':string(enum=['template_outline','source_outline']),'missing':arr(string()),
+        'source_sha256':string(pattern='^[0-9a-f]{64}$')},
+        ['title','applies_to','trigger','steps','sources','outline','draft_mode','missing','source_sha256']),
+    desc='Requires one selected environment and a valid explicit source ID. Registered code templates return a truthful outline with empty steps until a person supplies operational details. Published postmortem, owned completed conversation and owned Markdown import return bounded, source-backed structured outlines only after current source authorization. source_sha256 identifies the exact source content consumed by this response and can bind a later create request. Source text is treated as untrusted data, not model instructions or verified remediation; explicit write actions require approval. The response is a deterministic source outline, not proof of AI generation or a validated recovery procedure. It does not create a Runbook.')
+P['/runbooks/draft']['get']['responses']['413'] = {
+    'description':'The selected source exceeds the bounded draft input limit',
     'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('post','/runbooks/{id}/reviews','Review a submitted Runbook',
     body=obj({'decision':string(enum=['approve','request_changes']),'note':string()},['decision']),

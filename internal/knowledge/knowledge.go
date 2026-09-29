@@ -108,6 +108,33 @@ func (s *Service) Get(ctx context.Context, id string) (Document, error) {
 	}
 	return d, err
 }
+
+// legacyGet is used only by the historical Knowledge API. V3 review and
+// indexing still use Get for their own, stricter authorization flow.
+func (s *Service) legacyGet(ctx context.Context, id string) (Document, error) {
+	d, err := s.Repository.Get(ctx, id)
+	if err != nil {
+		return Document{}, err
+	}
+	if strings.HasPrefix(d.Source, "runbook://v3/") {
+		return Document{}, store.ErrNotFound
+	}
+	if repo, ok := s.Repository.(interface {
+		IsV3Runbook(context.Context, string) (bool, error)
+	}); ok {
+		v3, err := repo.IsV3Runbook(ctx, id)
+		if err != nil {
+			return Document{}, err
+		}
+		if v3 {
+			return Document{}, store.ErrNotFound
+		}
+	}
+	if err := s.access(ctx, d, "view"); err != nil {
+		return Document{}, err
+	}
+	return d, nil
+}
 func (s *Service) List(ctx context.Context, app string) ([]Document, error) {
 	if app != "" {
 		if err := s.authorize(ctx, app, "view"); err != nil {
@@ -136,6 +163,9 @@ func (s *Service) List(ctx context.Context, app string) ([]Document, error) {
 	}
 	out := []Document{}
 	for _, d := range ds {
+		if strings.HasPrefix(d.Source, "runbook://v3/") {
+			continue
+		}
 		if s.access(ctx, d, "view") == nil {
 			out = append(out, d)
 		}
@@ -162,6 +192,9 @@ func (s *Service) Import(ctx context.Context, d Document, user string) (Document
 	d.Lifecycle = "draft"
 	d.Title = strings.TrimSpace(d.Title)
 	d.Body = strings.TrimSpace(d.Body)
+	if strings.HasPrefix(d.Source, "runbook://v3/") {
+		return d, fmt.Errorf("%w: reserved source", ErrInvalid)
+	}
 	if d.Title == "" || d.Body == "" || len(d.Title) > 200 || len(d.Body) > 128*1024 || len(d.Source) > 2048 {
 		return d, fmt.Errorf("%w: title and body are required; body limit 128 KiB", ErrInvalid)
 	}

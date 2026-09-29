@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -278,7 +279,12 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	// A team-only manager may read the postmortem source, but cannot create
 	// an app-scoped Runbook that the same actor would immediately lose.
 	for _, statement := range []string{
+		`CREATE TABLE IF NOT EXISTS ops_incidents(id text PRIMARY KEY,application_id text NOT NULL,environment_id text NOT NULL,investigation_id text NOT NULL,status text NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS investigation_reports(investigation_id text PRIMARY KEY)`,
 		`INSERT INTO investigations(id,application_id,title,status) VALUES('runbook-source-inv','app-1','Source','closed')`,
+		`INSERT INTO investigation_reports(investigation_id) VALUES('runbook-source-inv')`,
+		`INSERT INTO ops_incidents(id,application_id,environment_id,investigation_id,status)
+ VALUES('runbook-source-incident','app-1','app-1-dev','runbook-source-inv','resolved')`,
 		`INSERT INTO events(investigation_id,type,payload) VALUES('runbook-source-inv','investigation.closed','{}')`,
 		`INSERT INTO v3_postmortems(id,incident_id,investigation_id,application_id,environment_id,close_event_seq,sections,actions,status,created_by)
  SELECT 'runbook-source-pm','runbook-source-incident','runbook-source-inv','app-1','dev',seq,'[]','[]','published',(SELECT id FROM users WHERE email='team@example.invalid')
@@ -296,6 +302,184 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
  VALUES('runbook-team-manager','knowledge','view','application','app-1'),
  ('runbook-team-manager','knowledge','manage','application','app-1')`); err != nil {
 		t.Fatal(err)
+	}
+	// Four real sources produce drafts. Only the published postmortem's
+	// explicit action becomes an approval step; arbitrary imported commands
+	// and conversation prose remain inert text for human review.
+	for _, statement := range []string{
+		`UPDATE v3_postmortems SET sections='[{"key":"evidence","title":"Observed wait","text":"P95 wait rose"}]',
+ actions='[{"text":"Restart worker","owner":"SRE","due":""}]' WHERE id='runbook-source-pm'`,
+		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
+ ('runbook-creator','events','view','application','app-1'),
+ ('runbook-creator','knowledge','view','application','app-1'),
+ ('runbook-creator','conversation','view','environment','dev')`,
+	} {
+		if _, err := db.Exec(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_conversations(id,owner_id,environment_id,title)
+ VALUES('runbook-conversation',$1,'dev','Observed rollback')`, creator.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_conversation_messages(id,conversation_id,role,author,parts,state)
+ VALUES('runbook-message','runbook-conversation','user','Owner','[{"type":"text","markdown":"Look at queue depth before changing replicas"}]','completed')`); err != nil {
+		t.Fatal(err)
+	}
+	draft := func(source, from, token string) *httptest.ResponseRecorder {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/runbooks/draft?source="+source+"&from="+from, nil)
+		r.Header.Set("X-AIOps-Environment", "dev")
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		return w
+	}
+	for _, source := range []struct{ kind, ref, token, want string }{
+		{"template", "investigation", creatorToken, `"draft_mode":"template_outline"`},
+		{"postmortem", "runbook-source-pm", creatorToken, `"approval":true`},
+		{"conversation", "runbook-conversation", creatorToken, `"Look at queue depth`},
+		{"import", "upload-dev", creatorToken, `"Review imported Markdown"`},
+	} {
+		w := draft(source.kind, source.ref, source.token)
+		assert(w, 200, "")
+		if !strings.Contains(w.Body.String(), source.want) {
+			t.Fatalf("%s draft missing source evidence %s: %s", source.kind, source.want, w.Body.String())
+		}
+		var generated struct {
+			Title        string `json:"title"`
+			Steps        []Step `json:"steps"`
+			SourceSHA256 string `json:"source_sha256"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &generated); err != nil {
+			t.Fatal(err)
+		}
+		body, _ := json.Marshal(createInput{Title: generated.Title, Source: source.kind, From: source.ref, Steps: generated.Steps, ExpectedSourceSHA256: generated.SourceSHA256})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/runbooks", bytes.NewReader(body))
+		req.Header.Set("X-AIOps-Environment", "dev")
+		req.AddCookie(&http.Cookie{Name: "aiops_session", Value: source.token})
+		w = httptest.NewRecorder()
+		api.ServeHTTP(w, req)
+		assert(w, 201, "")
+		var created struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil || created.ID == "" {
+			t.Fatalf("%s create response: %s (%v)", source.kind, w.Body.String(), err)
+		}
+		var snapshot map[string]string
+		if err := db.QueryRow(ctx, `SELECT source_snapshot FROM v3_runbooks WHERE document_id=$1`, created.ID).Scan(&snapshot); err != nil || snapshot["content_sha256"] == "" || snapshot["source_kind"] != source.kind {
+			t.Fatalf("%s source snapshot=%v err=%v", source.kind, snapshot, err)
+		}
+		var version, revisions, history, audit int
+		var state string
+		if err := db.QueryRow(ctx, `SELECT version,lifecycle FROM knowledge_documents WHERE id=$1`, created.ID).Scan(&version, &state); err != nil || version != 1 || state != "draft" {
+			t.Fatalf("%s document version=%d state=%q err=%v", source.kind, version, state, err)
+		}
+		if err := db.QueryRow(ctx, `SELECT count(*) FROM knowledge_revisions WHERE document_id=$1`, created.ID).Scan(&revisions); err != nil || revisions != 1 {
+			t.Fatalf("%s revision count=%d err=%v", source.kind, revisions, err)
+		}
+		if err := db.QueryRow(ctx, `SELECT count(*) FROM knowledge_history WHERE document_id=$1 AND operation='v3.runbook.created'`, created.ID).Scan(&history); err != nil || history != 1 {
+			t.Fatalf("%s history count=%d err=%v", source.kind, history, err)
+		}
+		if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE target=$1 AND action='runbook.created'`, created.ID).Scan(&audit); err != nil || audit != 1 {
+			t.Fatalf("%s audit count=%d err=%v", source.kind, audit, err)
+		}
+		if source.kind == "postmortem" {
+			var sections, actions []byte
+			if err := db.QueryRow(ctx, `SELECT sections,actions FROM v3_postmortems WHERE id=$1`, source.ref).Scan(&sections, &actions); err != nil {
+				t.Fatal(err)
+			}
+			if snapshot["content_sha256"] != store.Hash(string(sections)+"\n"+string(actions)) {
+				t.Fatalf("postmortem digest does not match exact consumed source")
+			}
+			var steps []Step
+			if err := db.QueryRow(ctx, `SELECT steps FROM v3_runbooks WHERE document_id=$1`, created.ID).Scan(&steps); err != nil || len(steps) != 2 || steps[0].N != 1 || steps[0].Kind != "check" || !steps[0].Readonly || steps[1].N != 2 || steps[1].Kind != "action" || !steps[1].Approval || steps[1].Readonly {
+				t.Fatalf("postmortem persisted steps=%+v err=%v", steps, err)
+			}
+		}
+		if source.kind == "conversation" || source.kind == "import" {
+			assert(get(created.ID, "/record", "dev", otherToken), 404, "not_found")
+		}
+	}
+	assert(draft("postmortem", "runbook-source-pm", otherToken), 422, "invalid_source")
+	assert(draft("conversation", "runbook-conversation", otherToken), 422, "invalid_source")
+	assert(draft("import", "upload-other", creatorToken), 422, "invalid_source")
+	var previousDraft struct {
+		Title        string `json:"title"`
+		Steps        []Step `json:"steps"`
+		SourceSHA256 string `json:"source_sha256"`
+	}
+	if err := json.Unmarshal(draft("conversation", "runbook-conversation", creatorToken).Body.Bytes(), &previousDraft); err != nil || previousDraft.SourceSHA256 == "" {
+		t.Fatalf("conversation draft did not expose source digest: %+v %v", previousDraft, err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE v3_conversation_messages SET parts='[{"type":"text","markdown":"Observed changed source"}]' WHERE id='runbook-message'`); err != nil {
+		t.Fatal(err)
+	}
+	staleBody, _ := json.Marshal(createInput{Title: previousDraft.Title, Source: "conversation", From: "runbook-conversation", Steps: previousDraft.Steps, ExpectedSourceSHA256: previousDraft.SourceSHA256})
+	staleRequest := httptest.NewRequest(http.MethodPost, "/api/v1/runbooks", bytes.NewReader(staleBody))
+	staleRequest.Header.Set("X-AIOps-Environment", "dev")
+	staleRequest.AddCookie(&http.Cookie{Name: "aiops_session", Value: creatorToken})
+	staleResponse := httptest.NewRecorder()
+	api.ServeHTTP(staleResponse, staleRequest)
+	assert(staleResponse, 409, "source_changed")
+	var beforeDocs, beforeAudits int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM knowledge_documents WHERE created_by=$1 AND source LIKE 'runbook://v3/%'`, creator.ID).Scan(&beforeDocs); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE actor_id=$1 AND action='runbook.created'`, creator.ID).Scan(&beforeAudits); err != nil {
+		t.Fatal(err)
+	}
+	blocked, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := blocked.Exec(ctx, `UPDATE v3_postmortems SET status='review' WHERE id='runbook-source-pm'`); err != nil {
+		t.Fatal(err)
+	}
+	finished := make(chan *httptest.ResponseRecorder, 1)
+	go func() { finished <- create("postmortem", "runbook-source-pm", "dev", creatorToken) }()
+	select {
+	case early := <-finished:
+		t.Fatalf("create bypassed source state lock: %d %s", early.Code, early.Body.String())
+	case <-time.After(100 * time.Millisecond):
+	}
+	if err := blocked.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assert(<-finished, 422, "invalid_source")
+	var afterDocs, afterAudits int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM knowledge_documents WHERE created_by=$1 AND source LIKE 'runbook://v3/%'`, creator.ID).Scan(&afterDocs); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE actor_id=$1 AND action='runbook.created'`, creator.ID).Scan(&afterAudits); err != nil {
+		t.Fatal(err)
+	}
+	if afterDocs != beforeDocs || afterAudits != beforeAudits {
+		t.Fatalf("source state change left partial document or success audit: docs %d->%d audits %d->%d", beforeDocs, afterDocs, beforeAudits, afterAudits)
+	}
+	blocked, err = db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := blocked.Exec(ctx, `UPDATE v3_conversations SET title=title WHERE id='runbook-conversation'`); err != nil {
+		t.Fatal(err)
+	}
+	go func() { finished <- create("conversation", "runbook-conversation", "dev", creatorToken) }()
+	select {
+	case early := <-finished:
+		t.Fatalf("create bypassed conversation lock: %d %s", early.Code, early.Body.String())
+	case <-time.After(100 * time.Millisecond):
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='runbook-creator' AND module='conversation' AND action='view'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := blocked.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assert(<-finished, 422, "invalid_source")
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM knowledge_documents WHERE created_by=$1 AND source LIKE 'runbook://v3/%'`, creator.ID).Scan(&afterDocs); err != nil || afterDocs != beforeDocs {
+		t.Fatalf("grant revocation left a Runbook: docs=%d before=%d err=%v", afterDocs, beforeDocs, err)
 	}
 	// The main detail route checks document, current scope and structured
 	// steps together, but cannot claim the full usage/incident DTO yet.

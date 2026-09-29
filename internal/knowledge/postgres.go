@@ -53,6 +53,17 @@ func (s *PGRepository) Migrate(ctx context.Context) error {
 
 const selectDoc = `SELECT d.id,COALESCE(d.application_id,''),d.title,d.body,d.source,d.version,d.content_hash,d.created_at,COALESCE(g.id,0),COALESCE(g.provider,''),COALESCE(g.model,''),COALESCE(g.dimensions,0),COALESCE(g.status,'unindexed'),COALESCE(g.error,''),COALESCE(d.investigation_id,''),d.evidence_ids,d.lifecycle,d.metadata FROM knowledge_documents d LEFT JOIN LATERAL (SELECT * FROM knowledge_generations WHERE document_id=d.id AND document_version=d.version ORDER BY id DESC LIMIT 1) g ON true `
 
+// V3 Runbook ACLs are enforced by their own routes. Historical Knowledge
+// projections must exclude both the source namespace and linked rows whose
+// source may have been changed before this guard was installed.
+const legacyV3RunbookFilter = `NOT (d.source LIKE 'runbook://v3/%' OR EXISTS (SELECT 1 FROM v3_runbooks vr WHERE vr.document_id=d.id))`
+
+func (s *PGRepository) IsV3Runbook(ctx context.Context, id string) (bool, error) {
+	var found bool
+	err := s.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM v3_runbooks WHERE document_id=$1)`, id).Scan(&found)
+	return found, err
+}
+
 func scanDoc(row pgx.Row) (Document, error) {
 	var d Document
 	e := row.Scan(&d.ID, &d.ApplicationID, &d.Title, &d.Body, &d.Source, &d.Version, &d.ContentHash, &d.CreatedAt, &d.GenerationID, &d.EmbeddingProvider, &d.EmbeddingModel, &d.Dimensions, &d.Status, &d.Error, &d.InvestigationID, &d.EvidenceIDs, &d.Lifecycle, &d.Metadata)
@@ -65,7 +76,7 @@ func (s *PGRepository) Get(ctx context.Context, id string) (Document, error) {
 	return scanDoc(s.DB.QueryRow(ctx, selectDoc+" WHERE d.id=$1", id))
 }
 func (s *PGRepository) List(ctx context.Context, app string) ([]Document, error) {
-	rows, e := s.DB.Query(ctx, selectDoc+" WHERE ($1='' OR d.application_id=$1 OR d.metadata->>'visibility'='workspace' OR COALESCE(d.metadata->'shared_application_ids','[]'::jsonb) ? $1) ORDER BY d.created_at DESC LIMIT 200", app)
+	rows, e := s.DB.Query(ctx, selectDoc+" WHERE "+legacyV3RunbookFilter+" AND ($1='' OR d.application_id=$1 OR d.metadata->>'visibility'='workspace' OR COALESCE(d.metadata->'shared_application_ids','[]'::jsonb) ? $1) ORDER BY d.created_at DESC LIMIT 200", app)
 	if e != nil {
 		return nil, e
 	}
@@ -171,7 +182,7 @@ func (p PGVector) SearchScoped(ctx context.Context, app, environment string, des
 	// million-vector latency budget until a workload-specific ANN benchmark exists.
 	// Legacy callers have no V3 team principal. Keep team-scoped passages out
 	// even when an old Worker searches without an environment selection.
-	rows, e := p.DB.Query(ctx, `WITH eligible AS MATERIALIZED (SELECT d.id,COALESCE(d.application_id,'') application_id,d.title,d.source,d.version,c.ordinal,c.content,c.embedding,g.id generation_id FROM knowledge_documents d JOIN knowledge_generations g ON g.id=d.active_generation JOIN knowledge_chunks c ON c.generation_id=g.id WHERE (d.application_id=$1 OR d.metadata->>'visibility'='workspace' OR COALESCE(d.metadata->'shared_application_ids','[]'::jsonb) ? $1) AND d.lifecycle='published' AND NOT (d.metadata ? 'source_registration_id') AND NOT (d.metadata ? 'team_id') AND (NOT (d.metadata ? 'environment_ids') OR CASE WHEN jsonb_typeof(d.metadata->'environment_ids')='array' THEN NOT EXISTS (SELECT 1 FROM jsonb_array_elements(d.metadata->'environment_ids') env_item WHERE jsonb_typeof(env_item)<>'string' OR btrim(env_item #>> '{}')='') ELSE false END) AND g.document_version=d.version AND g.status='ready' AND g.provider=$2 AND g.model=$3 AND g.dimensions=$4 AND ($7='' OR COALESCE(d.metadata->'environment_ids','[]'::jsonb)='[]'::jsonb OR d.metadata->'environment_ids' ? $7)) SELECT id,application_id,title,source,version,ordinal,content,1-(embedding <=> $5::vector),generation_id FROM eligible ORDER BY embedding <=> $5::vector,id,ordinal LIMIT $6`, app, desc.Provider, desc.Model, len(v), encoded, limit, environment)
+	rows, e := p.DB.Query(ctx, `WITH eligible AS MATERIALIZED (SELECT d.id,COALESCE(d.application_id,'') application_id,d.title,d.source,d.version,c.ordinal,c.content,c.embedding,g.id generation_id FROM knowledge_documents d JOIN knowledge_generations g ON g.id=d.active_generation JOIN knowledge_chunks c ON c.generation_id=g.id WHERE `+legacyV3RunbookFilter+` AND (d.application_id=$1 OR d.metadata->>'visibility'='workspace' OR COALESCE(d.metadata->'shared_application_ids','[]'::jsonb) ? $1) AND d.lifecycle='published' AND NOT (d.metadata ? 'source_registration_id') AND NOT (d.metadata ? 'team_id') AND (NOT (d.metadata ? 'environment_ids') OR CASE WHEN jsonb_typeof(d.metadata->'environment_ids')='array' THEN NOT EXISTS (SELECT 1 FROM jsonb_array_elements(d.metadata->'environment_ids') env_item WHERE jsonb_typeof(env_item)<>'string' OR btrim(env_item #>> '{}')='') ELSE false END) AND g.document_version=d.version AND g.status='ready' AND g.provider=$2 AND g.model=$3 AND g.dimensions=$4 AND ($7='' OR COALESCE(d.metadata->'environment_ids','[]'::jsonb)='[]'::jsonb OR d.metadata->'environment_ids' ? $7)) SELECT id,application_id,title,source,version,ordinal,content,1-(embedding <=> $5::vector),generation_id FROM eligible ORDER BY embedding <=> $5::vector,id,ordinal LIMIT $6`, app, desc.Provider, desc.Model, len(v), encoded, limit, environment)
 	if e != nil {
 		return nil, e
 	}

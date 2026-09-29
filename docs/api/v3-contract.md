@@ -101,8 +101,8 @@
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
-| GET | `/conversations` | `filter`, `q`, 分页 | `ConversationList` | mock |
-| GET | `/conversations/{id}` | | `Conversation` | mock |
+| GET | `/conversations` | `filter`, `q`, 分页 | 四标签页同一授权快照中的 `ConversationList`；未知用量与来源为 `null` | implemented |
+| GET | `/conversations/{id}` | | 本人对话或私人通用画布的持久 `Conversation`；纯调查 ID 用调查图读取，返回 404 | implemented |
 | POST | `/conversations` | `{ text, context?, model? }` | `{ id }` | implemented |
 | POST | `/conversations/{id}/messages` | `{ text, model?, reasoning?, attachments? }` | `{ message, reply_id }`，随后由事件流推送回复 | mock |
 | GET | `/conversations/{id}/events` | `reply_id?`、`Last-Event-ID?` | SSE：`StreamEvent`（见「流式对话」）；回复结束后服务端保存完整消息 | implemented |
@@ -121,7 +121,7 @@
 
 对话详情、后续模型上下文和最新回复使用持久 `sort_order`，同一事务写入的用户/助手消息按回合排序。有 `accepted` 审计的回合按序列化顺序；迁入或无审计的旧回合只按时间戳作确定性回填，不能据此证明原始提交顺序。迁移 085 在应用启动事务中回填整表并建索引，部署前须停旧回复 worker 并在代表性副本量测锁时。
 
-`GET /conversations` 的 `mine` 与 `archived` 现在在同一授权快照中合并本人持久对话和私人通用画布，按当前会话、角色来源、环境及各模块查看权限复核，搜索、分页、总数与已知分面保持一致。`team`/`triage` 缺可靠统一来源时返回 503；相应 `counts` 为 `null`，`stats` 为空。历史调查缺可靠的本人/参与者归属，画布回合缺用量时 `tokens` 为 `null`，不以部分数字冒充总用量。当前前端将 `tokens` 当数字且列表入口只核 `conversation.view`，画布专属用户及未知用量的页面体验仍未接通；主读取路由保持 `mock`。
+`GET /conversations` 在同一当前会话、角色、环境和对象授权快照中合并持久私人聊天、本人通用画布与应用调查。`mine` 使用持久所有者/创建者，`team` 使用当前应用团队成员资格，`triage` 要求关联调查的已持久自动初查运行；初查运行只证明发生初查，不推断调查创建来源。四标签、搜索、分页、总数与计数由同一可见集合计算。未知供应商用量、历史来源与无法映射的调查状态保持 `null`，不把部分数值推成完整值。`GET /conversations/{id}` 在同一读取快照复核精确会话、环境、对象所有者及查看权；私人聊天返回持久顺序的富消息和附件引用，运行/失败状态按已保存事实显示。通用画布交换以 `message.node_id` 关联节点，仅保留有证据的文本、模型和状态；不补造富消息或用量，纯 `INV-*` 无线性对话记录时返回 404，须读调查图/节点消息。历史超过 1000 条消息或 8 MiB 返回受控错误，不截断。冻结前端将列表 `tokens`、状态和详情 `context.used/budget` 当非空数值，调查条目入口亦依赖画布适配；两条仅按后端完成计入，页面仍未验收。
 
 `GET /canvases` 在同一数据库快照中合并本人私人通用画布与当前应用/团队、环境有权的持久调查，按 `kind`、搜索和分页给出列表与完整计数。调查状态由持久 `open/closed` 映射；历史调查无记录的创建者返回空参与者数组，不编造人员。`POST /canvases` 在单一环境中创建通用画布，调查类要求恰好一个有效且已映射的服务；保存时重核当前 Cookie、画布权限、服务及负责人团队，画布/调查、初始节点与审计共同提交。可选 AI 草稿只用用户标题、目标和服务 ID，拒绝工具及非结构化结果；模型不可用则 503 且不创建。列表中的调查链接不代表完整调查详情已接通；冻结新建页会发送三个固定服务，调查创建会返回 422，页面仍待适配。
 
@@ -236,15 +236,17 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | POST | `/notification-routes` | 匹配条件、接收方、分组、时段、升级 | `{ id }` | mock |
 | POST | `/inhibitions/preview` | `{ source, target, equal }` | 过去 7 天会抑制的数量与样例 | mock |
 | POST | `/inhibitions` | `{ source, target, equal }`（P1 永不抑制） | `{ id }` | mock |
-| GET | `/runbooks/draft` | `source: template\|postmortem\|conversation\|import`, `from` | Runbook 草稿（写操作步骤标记 `approval`） | mock |
-| POST | `/runbooks` | `{ title, source, from?, steps, status: draft\|review }`；非空白来源需验证已有引用，空白来源不得填写引用 | `{ id }`；复核通过前 Agent 不使用 | mock |
+| GET | `/runbooks/draft` | `source: template\|postmortem\|conversation\|import`, 必需 `from` | 有界、来源可核的确定性大纲及 `source_sha256`；不是 AI 生成或已核实操作步骤 | implemented |
+| POST | `/runbooks` | `{ title, source, from?, expected_source_sha256?, steps, status: draft\|review }`；非空白来源必需引用，空白来源不得填写 | `{ id }`；来源变更 409，写动作步骤必需 `approval`，不发布或执行 | implemented |
 | GET | `/postmortems/candidates` | | 有真实结案证据、尚无复盘且当前有权访问的事件；含实际证据数与持续时长 | implemented |
 | GET | `/postmortems/draft` | `incident` | 复盘草稿 | mock |
 | POST | `/postmortems` | `{ incident_id, sections, actions, status: draft\|review }` | `{ id }`；同事务锁定已解决事件并写入复盘与审计，不触发外部动作 | implemented |
 | POST | `/knowledge-sources/test` | `{ type, url, secret_ref?, application_id, team_id? }`；当前仅公开 Web Markdown 和服务端精确绑定的 GitLab Markdown 可探测 | 即时只读连接结果；不证明持续健康、同步或索引 | mock |
 | POST | `/knowledge-sources` | `{ name, type, url, secret_ref?, application_id, team_id?, spaces, schedule, chunk, inherit_acl }`；当前仅公开 Web Markdown 和服务端精确绑定的 GitLab Markdown 可登记 | `{ id, status }`；登记不自动同步 | mock |
 
-`GET /runbooks/draft` 目前只有传入真实模板 ID 的 `template` 来源可返回无步骤大纲；对话、复盘和导入来源通过验证后返回 `501 draft_generator_unavailable`。前端尚未为模板、对话和导入入口传 `from`，草稿页仍为 `mock`。`GET /postmortems/draft` 仅拼接有结案证据的事件信息与时间线，影响、根因、行动建议均留空，不是 AI 生成稿；主契约同样保持 `mock`。公开 Web 来源只支持持久应用绑定、无凭据单页 HTTPS Markdown 的即时探测、登记及手动观察；V3 实例须显式设置 `AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true`，未开启时相应读取返回 501。Git Markdown 只支持服务端配置的精确 GitLab HTTPS 仓库、数字项目、分支和 Markdown 路径前缀，凭据由 Vault 绑定读取；`/knowledge-sources/test` 先检查提交的应用/团队身份和当前授权再读取凭据，登记保存不含密钥的绑定指纹，手动同步将固定提交 SHA 的正文与证据一同持久保存，配置漂移、上游失败和读取后撤权均拒绝，详见 [Git Markdown 来源边界](v3-git-markdown-source.md)。两种来源的探测不表示持续健康；登记不自动同步，读取证据不表示向量索引或完整来源页。其余四种冻结来源类型目前明确 501，前端真实模式已禁用相应创建；主 POST 两行及部分 GET 继续 `mock`，真实 GitLab/Vault、浏览器和索引生产者尚未联调。
+`GET /runbooks/draft` 从已登记代码模板、已发布复盘、本人已完成对话或本人 Markdown 导入生成有界、来源可核的确定性大纲；模板在人工补充前没有操作步骤。来源文本作为不可信数据，响应 `source_sha256` 可供后续保存时比较，不能证明 AI 生成或恢复操作正确。`POST /runbooks` 在同一事务重核精确会话、单环境、当前知识管理权、来源状态与可选摘要；来源变化返回 409，初版、结构化步骤、来源快照、修订历史与审计原子提交，动作步骤必须要求人工批准，创建本身不发布或执行。未审核草稿只向维护者开放，review 向当前知识管理员开放；旧 Knowledge 和 Memory 读写入口同时以 `runbook://v3/` 来源前缀及持久 Runbook 关联阻断旁路，来源字段被旧路径改写亦不能绕过。冻结新建页缺 `from`、来源摘要及编辑步骤/动作请求绑定，页面未验。`GET /postmortems/draft` 仅拼接有结案证据的事件信息与时间线，影响、根因、行动建议均留空，不是 AI 生成稿；主契约仍为 `mock`。
+
+公开 Web 来源只支持持久应用绑定、无凭据单页 HTTPS Markdown 的即时探测、登记及手动观察；V3 实例须显式设置 `AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true`，未开启时相应读取返回 501。Git Markdown 只支持服务端配置的精确 GitLab HTTPS 仓库、数字项目、分支和 Markdown 路径前缀，凭据由 Vault 绑定读取；`/knowledge-sources/test` 先检查提交的应用/团队身份和当前授权再读取凭据，登记保存不含密钥的绑定指纹，手动同步将固定提交 SHA 的正文与证据一同持久保存，配置漂移、上游失败和读取后撤权均拒绝，详见 [Git Markdown 来源边界](v3-git-markdown-source.md)。两种来源的探测不表示持续健康；登记不自动同步，读取证据不表示向量索引或完整来源页。其余四种冻结来源类型目前明确 501，前端真实模式已禁用相应创建；主 POST 两行及部分 GET 继续 `mock`，真实 GitLab/Vault、浏览器和索引生产者尚未联调。
 
 ## Agent 链路（`traces.ts`）
 

@@ -25151,7 +25151,7 @@
       "get": {
         "summary": "List scoped conversations",
         "operationId": "get_conversations",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. The mine/archived projection merges privately owned manual chats and generic canvases in one authorized snapshot with consistent search, page, total and known counts. Team and triage have no reliable unified source and return 503 rather than an empty list; their counts are null, stats is empty and unknown provider usage is null. Historical investigations lack trustworthy mine/participants attribution. The current frontend expects numeric tokens and a conversation-view entry gate also excludes canvas-only users, so this is not the complete page contract.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Private chats and generic canvases plus application investigations are projected in one current-session, role, environment and object-scope authorization snapshot. Mine uses recorded ownership/creator, team uses current application-team membership, and triage requires a persisted initial-automation run linked to an investigation; an automation run proves triage work, not investigation creation origin. Filters, pagination, total and four counts use the same visible source set. Unknown provider usage, historical creation source and unmapped investigation status are null, never inferred from partial totals or incident links. The frozen frontend still assumes numeric tokens and a conversation-view entry gate, so full page acceptance remains pending.",
         "responses": {
           "200": {
             "description": "Success",
@@ -25433,7 +25433,7 @@
       "get": {
         "summary": "Read conversation and saved messages",
         "operationId": "get_conversations_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. The persisted owner, selected instance environment scope, current session and conversation view grants are checked with metadata and messages in one read snapshot. Saved user and assistant messages use durable turn order, including messages written in one transaction with tied timestamps. Accepted audited turns follow the serialized audit chain. Imported or unlinked historical rows use a deterministic timestamp fallback whose original commit order cannot be proven. A streaming or failed assistant reply remains visible. Provider usage is not synthesized: run is absent and side.context.used/budget may be null when trustworthy usage is unavailable; the frozen frontend still assumes numeric context.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. The current session, selected instance environment, object owner and effective view grant are checked with persisted metadata and messages in one read snapshot. Private chats expose durable ordered rich parts and attachment references, including streaming or failed assistant state. Message.state disambiguates terminal failure from active streaming; a legacy failed row lacking a saved status part gets one derived from its persisted state. Generic canvas exchanges are node-scoped via message.node_id and have only their persisted text/model/state; a failed or running exchange yields its saved user prompt with that state and no invented assistant turn. Rich parts or provider usage cannot be reconstructed for canvas exchanges. A pure investigation ID has no linear conversation record and returns 404; its branch context must be read through the graph and per-node messages routes. Provider usage is not synthesized: run is absent and side.context.used/budget may be null when trustworthy usage is unavailable. The frozen frontend still assumes numeric context.",
         "responses": {
           "200": {
             "description": "Success",
@@ -32821,7 +32821,7 @@
       "post": {
         "summary": "Create governed runbook draft",
         "operationId": "post_runbooks",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires scoped knowledge:manage grant. A nonblank source requires a validated reference; blank forbids one. Template IDs are registered server-side; imports require a nonempty Markdown upload owned by the current user in the selected environment. Conversations are checked in the same transaction. A published postmortem in the selected environment has a creation-source path with current source access checks, while the separate postmortem draft generator still returns 501. The frozen creation flow and transaction authorization/source-state checks remain incomplete, so this main operation stays mock. No source reference is trusted solely because the client provided an ID.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment and current scoped knowledge:manage. A nonblank source requires an explicit authorized reference; blank forbids one. A current session, source state and permissions are rechecked inside the creation transaction. The bounded source identity and content digest saved with structured steps are an observation at save time. A client may pass expected_source_sha256 from GET /runbooks/draft to reject source drift with 409 source_changed; without it, submitted steps are not proven to derive from the saved digest. Initial version, revision history and audit are saved atomically; source text remains in its governed source table. An action step requires approval; review status requires at least one step. A draft is visible only to its maintainer with manage permission; review is visible to current knowledge managers. Neither status publishes or executes a Runbook. The frozen frontend creation payload still needs reconciliation with this request schema.",
         "responses": {
           "201": {
             "description": "Success",
@@ -32933,6 +32933,10 @@
                   },
                   "from": {
                     "type": "string"
+                  },
+                  "expected_source_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
                   },
                   "steps": {
                     "type": "array",
@@ -33195,7 +33199,7 @@
       "post": {
         "summary": "Validate runbook without execution",
         "operationId": "post_runbooks_id_dry_run",
-        "description": "Minimum role: viewer with scoped knowledge.manage. V3 instance and environment scope apply. Requires knowledge.manage because the validation preview and audit are persisted. Validates persisted steps without a request body and never runs external write steps.",
+        "description": "Minimum role: viewer with scoped knowledge.manage. V3 instance and environment scope apply. Requires knowledge.manage because the validation preview and audit are persisted. Performs structural checks on persisted step kind, declared readonly flag and connector presence without a request body. It does not verify a connector capability or execute any external step.",
         "responses": {
           "200": {
             "description": "Success",
@@ -33322,7 +33326,7 @@
       "get": {
         "summary": "Read a source-validated Runbook outline",
         "operationId": "get_runbooks_draft",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract operation: only a registered template and explicit from ID return an outline with empty steps. Other validated sources return 501 draft_generator_unavailable. The complete AI-drafted page remains mock.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment and a valid explicit source ID. Registered code templates return a truthful outline with empty steps until a person supplies operational details. Published postmortem, owned completed conversation and owned Markdown import return bounded, source-backed structured outlines only after current source authorization. source_sha256 identifies the exact source content consumed by this response and can bind a later create request. Source text is treated as untrusted data, not model instructions or verified remediation; explicit write actions require approval. The response is a deterministic source outline, not proof of AI generation or a validated recovery procedure. It does not create a Runbook.",
         "responses": {
           "200": {
             "description": "Success",
@@ -33361,7 +33365,8 @@
                     "draft_mode": {
                       "type": "string",
                       "enum": [
-                        "template_outline"
+                        "template_outline",
+                        "source_outline"
                       ]
                     },
                     "missing": {
@@ -33369,6 +33374,10 @@
                       "items": {
                         "type": "string"
                       }
+                    },
+                    "source_sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
                     }
                   },
                   "additionalProperties": false,
@@ -33380,7 +33389,8 @@
                     "sources",
                     "outline",
                     "draft_mode",
-                    "missing"
+                    "missing",
+                    "source_sha256"
                   ]
                 }
               }
@@ -33446,8 +33456,8 @@
               }
             }
           },
-          "501": {
-            "description": "Source-backed Runbook draft generator is not configured",
+          "413": {
+            "description": "The selected source exceeds the bounded draft input limit",
             "content": {
               "application/json": {
                 "schema": {
@@ -50045,6 +50055,18 @@
           },
           "streaming": {
             "type": "boolean"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "streaming",
+              "running",
+              "failed"
+            ]
           }
         },
         "additionalProperties": false,
@@ -50181,22 +50203,32 @@
             ]
           },
           "status": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "enum": [
               "active",
               "waiting_approval",
               "resolved",
-              "archived"
-            ]
+              "archived",
+              null
+            ],
+            "description": "Null for a persisted historical investigation state without a V3 status mapping."
           },
           "source": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "enum": [
               "manual",
               "alert_triage",
               "schedule",
-              "im"
-            ]
+              "im",
+              null
+            ],
+            "description": "Null for historical or derived records without trustworthy creation provenance."
           },
           "participants": {
             "type": "array",
@@ -50381,16 +50413,10 @@
                 "type": "integer"
               },
               "team": {
-                "type": [
-                  "integer",
-                  "null"
-                ]
+                "type": "integer"
               },
               "triage": {
-                "type": [
-                  "integer",
-                  "null"
-                ]
+                "type": "integer"
               },
               "archived": {
                 "type": "integer"
@@ -53775,6 +53801,23 @@
           "discussion"
         ]
       },
+      "V3RunbookToolDisplay": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "brand",
+          "text"
+        ],
+        "description": "Optional editor display text only; it does not bind or execute a connector."
+      },
       "V3RunbookStep": {
         "type": "object",
         "properties": {
@@ -53810,6 +53853,9 @@
           },
           "approval": {
             "type": "boolean"
+          },
+          "tool": {
+            "$ref": "#/components/schemas/V3RunbookToolDisplay"
           }
         },
         "additionalProperties": false
@@ -53851,6 +53897,9 @@
           },
           "approval": {
             "type": "boolean"
+          },
+          "tool": {
+            "$ref": "#/components/schemas/V3RunbookToolDisplay"
           }
         },
         "additionalProperties": false

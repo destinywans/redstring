@@ -26,8 +26,8 @@
 | 身份与全局 | GET | `/config-sync` | 新增 | implemented |
 | 身份与全局 | POST | `/config-sync/{id}/import` | 新增 | mock |
 | 身份与全局 | POST | `/promotions` | 新增 | mock |
-| 对话、画布与模板 | GET | `/conversations` | 聚合 | mock |
-| 对话、画布与模板 | GET | `/conversations/{id}` | 聚合 | mock |
+| 对话、画布与模板 | GET | `/conversations` | 聚合 | implemented |
+| 对话、画布与模板 | GET | `/conversations/{id}` | 聚合 | implemented |
 | 对话、画布与模板 | POST | `/conversations` | 新增 | implemented |
 | 对话、画布与模板 | POST | `/conversations/{id}/messages` | 新增 | mock |
 | 对话、画布与模板 | GET | `/conversations/{id}/events` | 新增 | implemented |
@@ -105,8 +105,8 @@
 | v4 新建流程 | POST | `/notification-routes` | 新增 | mock |
 | v4 新建流程 | POST | `/inhibitions/preview` | 新增 | mock |
 | v4 新建流程 | POST | `/inhibitions` | 新增 | mock |
-| v4 新建流程 | GET | `/runbooks/draft` | 新增 | mock |
-| v4 新建流程 | POST | `/runbooks` | 新增 | mock |
+| v4 新建流程 | GET | `/runbooks/draft` | 新增 | implemented |
+| v4 新建流程 | POST | `/runbooks` | 新增 | implemented |
 | v4 新建流程 | GET | `/postmortems/candidates` | 新增 | implemented |
 | v4 新建流程 | GET | `/postmortems/draft` | 新增 | mock |
 | v4 新建流程 | POST | `/postmortems` | 新增 | implemented |

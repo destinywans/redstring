@@ -100,14 +100,6 @@ func (s *Service) saveMatrix(ctx context.Context, roleID, environment, sessionTo
 	// same connection after the write lock so a removed grant cannot authorize
 	// a later matrix change. The flat editor can only create global grants.
 	actor := store.Principal(ctx)
-	var activeActor string
-	err = tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 AND NOT disabled AND deleted_at IS NULL FOR SHARE`, actor.ID).Scan(&activeActor)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, store.ErrForbidden
-	}
-	if err != nil {
-		return 0, err
-	}
 	if err = store.LockActiveSession(ctx, tx, sessionToken, actor.ID); err != nil {
 		return 0, err
 	}
@@ -197,6 +189,9 @@ func (s *Service) saveMatrix(ctx context.Context, roleID, environment, sessionTo
 		}
 	}
 	if !changed {
+		if err = store.LockActiveSession(ctx, tx, sessionToken, actor.ID); err != nil {
+			return 0, err
+		}
 		return revision, tx.Commit(ctx)
 	}
 	var managers int
@@ -222,6 +217,9 @@ func (s *Service) saveMatrix(ctx context.Context, roleID, environment, sessionTo
 	// Use stable operation and resource codes in audit records, so language
 	// changes never rewrite the meaning of an earlier decision.
 	if err = auditMatrixCodes(ctx, tx, roleID, before, matrixForRole(afterGrants)); err != nil {
+		return 0, err
+	}
+	if err = store.LockActiveSession(ctx, tx, sessionToken, actor.ID); err != nil {
 		return 0, err
 	}
 	return revision, tx.Commit(ctx)

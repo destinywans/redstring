@@ -219,15 +219,15 @@ func (s *Service) getRole(ctx context.Context, id string, actor core.User, sessi
 			return v, 0, err
 		}
 	}
-	var active string
-	if err = tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 AND NOT disabled AND deleted_at IS NULL AND source<>'settings_demo' FOR SHARE`, actor.ID).Scan(&active); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return v, 0, store.ErrForbidden
-		}
-		return v, 0, err
-	}
 	if err = store.LockActiveSession(ctx, tx, sessionToken, actor.ID); err != nil {
 		return v, 0, err
+	}
+	var eligible bool
+	if err = tx.QueryRow(ctx, `SELECT source<>'settings_demo' FROM users WHERE id=$1`, actor.ID).Scan(&eligible); err != nil {
+		return v, 0, err
+	}
+	if !eligible {
+		return v, 0, store.ErrForbidden
 	}
 	policy := &rbac.V3Policy{Store: s.Store}
 	for _, env := range envs {
@@ -347,6 +347,10 @@ func (s *Service) getRole(ctx context.Context, id string, actor core.User, sessi
 		v.Notes += " Only grants in the selected authorized environments are shown."
 	} else {
 		v.Notes += " 此处仅显示所选且已获授权环境内的授权。"
+	}
+	// A later role or grant read may outlive the Cookie's expiry instant.
+	if err := store.LockActiveSession(ctx, tx, sessionToken, actor.ID); err != nil {
+		return v, 0, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return v, 0, err

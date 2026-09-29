@@ -132,3 +132,52 @@ func TestLockActiveSessionRevocationAndLogoutSerialization(t *testing.T) {
 		t.Fatalf("disabled user accepted: %v", err)
 	}
 }
+
+func TestLockActiveSessionWaitsForAccountDisable(t *testing.T) {
+	s := isolated(t)
+	ctx := t.Context()
+	const userID = "session-disable-user"
+	const token = "raw-session-disable-token"
+	if _, err := s.DB.Exec(ctx, `INSERT INTO users(id,email,name,role,password_hash)
+		VALUES($1,'session-disable@example.invalid','Session disable','viewer','unused')`, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,expires_at)
+		VALUES($1,$2,clock_timestamp()+interval '1 hour')`, Hash(token), userID); err != nil {
+		t.Fatal(err)
+	}
+	accountTx, err := s.DB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer accountTx.Rollback(context.Background())
+	if _, err := accountTx.Exec(ctx, `UPDATE users SET disabled=true WHERE id=$1`, userID); err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	go func() {
+		requestTx, beginErr := s.DB.Begin(ctx)
+		if beginErr != nil {
+			result <- beginErr
+			return
+		}
+		defer requestTx.Rollback(context.Background())
+		result <- LockActiveSession(ctx, requestTx, token, userID)
+	}()
+	select {
+	case err := <-result:
+		t.Fatalf("session check completed before account update: %v", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+	if err := accountTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-result:
+		if !errors.Is(err, ErrSessionRevoked) {
+			t.Fatalf("disabled user retained active session: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("session check did not resume after account update")
+	}
+}

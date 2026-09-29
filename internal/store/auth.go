@@ -19,19 +19,28 @@ var ErrSessionRevoked = errors.New("session revoked")
 // LockActiveSession rechecks the current request's raw Cookie token and
 // authenticated actor within tx. Call it after domain lock waits, immediately
 // before the final authorization check and write or commit. It holds both the
-// session and user rows until tx ends, so logout or user disable cannot commit
-// concurrently. Expiry is checked at this query's wall-clock instant; callers
+// user and session rows until tx ends, so logout or user disable cannot commit
+// concurrently. Lock the user before the session, matching account updates
+// that update users before deleting their sessions. Expiry is checked at the
+// session query's wall-clock instant; callers
 // with long transactions must check it again before committing if needed.
 func LockActiveSession(ctx context.Context, tx pgx.Tx, token, actorID string) error {
 	if token == "" || actorID == "" {
 		return ErrSessionRevoked
 	}
 	var activeID string
-	err := tx.QueryRow(ctx, `SELECT u.id FROM sessions s
-		JOIN users u ON u.id=s.user_id
-		WHERE s.token_hash=$1 AND s.user_id=$2 AND s.expires_at>clock_timestamp()
-		AND NOT u.disabled AND u.deleted_at IS NULL
-		FOR SHARE OF s,u`, Hash(token), actorID).Scan(&activeID)
+	err := tx.QueryRow(ctx, `SELECT id FROM users
+		WHERE id=$1 AND NOT disabled AND deleted_at IS NULL
+		FOR SHARE`, actorID).Scan(&activeID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrSessionRevoked
+	}
+	if err != nil {
+		return err
+	}
+	err = tx.QueryRow(ctx, `SELECT user_id FROM sessions
+		WHERE token_hash=$1 AND user_id=$2 AND expires_at>clock_timestamp()
+		FOR SHARE`, Hash(token), actorID).Scan(&activeID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrSessionRevoked
 	}

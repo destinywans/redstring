@@ -545,6 +545,75 @@ $$`); err != nil {
 	if _, err := db.Exec(ctx, `DELETE FROM rbac_user_roles WHERE user_id=$1 AND role_id='dev-global-manager'`, devGlobalManager.ID); err != nil {
 		t.Fatal(err)
 	}
+	t.Run("queued role requests reject disabled session with 401", func(t *testing.T) {
+		_, queuedToken, err := st.Login(ctx, "admin@example.invalid", "isolated-admin-password")
+		if err != nil {
+			t.Fatal(err)
+		}
+		baseline := read("ops-role", "dev", queuedToken)
+		var revision int64
+		if err := db.QueryRow(ctx, `SELECT v3_matrix_revision FROM rbac_roles WHERE id='ops-role'`).Scan(&revision); err != nil {
+			t.Fatal(err)
+		}
+		blocker, err := db.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer blocker.Rollback(context.Background())
+		if _, err := blocker.Exec(ctx, `SELECT pg_advisory_xact_lock(752018992)`); err != nil {
+			t.Fatal(err)
+		}
+		readResult := make(chan *httptest.ResponseRecorder, 1)
+		writeResult := make(chan *httptest.ResponseRecorder, 1)
+		go func() { readResult <- request(http.MethodGet, "ops-role", "dev", queuedToken, nil) }()
+		go func() {
+			writeResult <- request(http.MethodPut, "ops-role", "dev", queuedToken, baseline.Matrix, strconv.FormatInt(revision, 10))
+		}()
+		operationCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			var waiting int
+			err := adminDB.QueryRow(operationCtx, `SELECT count(*) FROM pg_locks l
+ JOIN pg_stat_activity a ON a.pid=l.pid
+ WHERE l.locktype='advisory' AND NOT l.granted AND l.objid::bigint=$1
+ AND l.objsubid=1 AND a.application_name=$2`, int64(752018992), schema).Scan(&waiting)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if waiting >= 2 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("expected queued GET and PUT; found %d advisory waiters", waiting)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if _, err := db.Exec(ctx, `UPDATE users SET disabled=true WHERE id=$1`, admin.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := blocker.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		for _, result := range []<-chan *httptest.ResponseRecorder{readResult, writeResult} {
+			select {
+			case response := <-result:
+				assertError(response, 401, "unauthorized")
+			case <-operationCtx.Done():
+				t.Fatal("queued role request timed out")
+			}
+		}
+		if _, err := db.Exec(ctx, `UPDATE users SET disabled=false WHERE id=$1`, admin.ID); err != nil {
+			t.Fatal(err)
+		}
+		var after int64
+		if err := db.QueryRow(ctx, `SELECT v3_matrix_revision FROM rbac_roles WHERE id='ops-role'`).Scan(&after); err != nil {
+			t.Fatal(err)
+		}
+		if after != revision {
+			t.Fatalf("disabled session changed role revision: %d to %d", revision, after)
+		}
+	})
 
 	// Exercise the transaction recheck directly: the route middleware cannot
 	// protect a grant removed between its first check and the database write.

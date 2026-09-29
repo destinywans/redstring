@@ -35,8 +35,8 @@
 | 对话、画布与模板 | POST | `/canvases` | 新增 | implemented |
 | 对话、画布与模板 | GET | `/canvases/{id}` | 聚合 | implemented |
 | 对话、画布与模板 | POST | `/canvases/{id}/nodes/{node}/messages` | 新增 | implemented |
-| 对话、画布与模板 | GET | `/canvas-templates` | 新增 | mock |
-| 对话、画布与模板 | POST | `/canvas-templates` | 新增 | mock |
+| 对话、画布与模板 | GET | `/canvas-templates` | 新增 | implemented |
+| 对话、画布与模板 | POST | `/canvas-templates` | 新增 | implemented |
 | 对话、画布与模板 | GET | `/investigations/{id}/canvas` | 新增 | implemented |
 | 对话、画布与模板 | POST | `/investigations/{id}/branches` | 新增 | implemented |
 | 对话、画布与模板 | PATCH | `/investigations/{id}/nodes/{node}` | 新增 | implemented |
@@ -89,8 +89,8 @@
 | 资源与观测 | GET | `/topology` | 聚合 | mock |
 | 资源与观测 | GET | `/metrics/dashboard` | 聚合 | implemented |
 | 资源与观测 | POST | `/metrics/ask` | 新增 | mock |
-| 资源与观测 | GET | `/traces` | 聚合 | mock |
-| 资源与观测 | GET | `/traces/{id}` | 聚合 | mock |
+| 资源与观测 | GET | `/traces` | 聚合 | implemented |
+| 资源与观测 | GET | `/traces/{id}` | 聚合 | implemented |
 | 资源与观测 | GET | `/services/discover` | 新增 | mock |
 | 资源与观测 | POST | `/services` | 新增 | implemented |
 | 资源与观测 | GET | `/logs` | 聚合 | implemented |
@@ -130,7 +130,7 @@
 | 集成中心 | GET | `/service-mappings` | 聚合 | implemented |
 | 集成中心 | POST | `/service-mappings/accept` | 新增 | implemented |
 | 集成中心 | POST | `/service-mappings/discover` | 新增 | implemented |
-| 集成中心 | PUT | `/service-mappings` | 新增 | mock |
+| 集成中心 | PUT | `/service-mappings` | 新增 | implemented |
 | 集成中心 | GET | `/coverage` | 聚合 | mock |
 | 集成中心 | GET | `/webhooks` | 聚合 | mock |
 | 集成中心 | POST | `/webhooks/{id}/redeliver` | 新增 | mock |

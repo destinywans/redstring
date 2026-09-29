@@ -1,6 +1,6 @@
 # V3 Trace 来源与完整性边界
 
-WAN-120 的 `internal/v3traces` 为 `/traces` 与 `/traces/{id}` 准备独立处理器。WAN-117 集成时应注册此模块替换 `v3observe` 中的旧 Trace 路由；同一路径只能注册一次。生成总 OpenAPI 仍由集成分支负责。本分支不连接真实 Tempo。
+WAN-120 的 `internal/v3traces` 负责 `/traces` 与 `/traces/{id}`；WAN-117 集成已用该模块替换 `v3observe` 的两条旧 Trace 注册，并在上游读取后复核原始 Cookie 会话。总 OpenAPI 由集成分支生成。当前尚未连接真实 Tempo。
 
 ## 来源与范围
 
@@ -34,6 +34,6 @@ WAN-120 的 `internal/v3traces` 为 `/traces` 与 `/traces/{id}` 准备独立处
 
 ## 接线与验证
 
-`v3traces.New(store, policy, telemetry).Register(api)` 需要替换旧 `v3observe` Trace 路由注册。前端目前未把查询框的 `q` 发送到 API，散点点击也未保留 `service`；这两处需在前端集成批次接线。
+`v3traces.New(store, policy, telemetry).Register(api)` 已替换旧 `v3observe` Trace 路由注册。前端目前未把查询框的 `q` 发送到 API，散点点击也未保留 `service`；这两处需在前端集成批次接线。
 
 定向验证包括受控 Tempo HTTP 测试（搜索拆窗、越权资源、缺失父 Span）、投影守恒检查，以及独立 PG schema 中的 HTTP 授权与读取后撤权测试。尚无真实 Tempo 联调证据。

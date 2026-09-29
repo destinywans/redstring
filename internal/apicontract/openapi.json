@@ -27480,7 +27480,7 @@
       "get": {
         "summary": "List available canvas structures",
         "operationId": "get_canvas_templates",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Currently lists only private, persisted generic-canvas structure templates owned by the current user in authorized non-production environments. Investigation and team templates are unavailable; the full page contract remains mock.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Lists persisted generic-canvas system blank templates plus the current owner private templates in currently authorized environments. The session, environment.view and canvas.view grants are rechecked against one bounded database snapshot; more than 500 visible items returns 422. A private template has no team scope, and investigation templates belong to a separate page; the frozen Templates page does not consume this list.",
         "responses": {
           "200": {
             "description": "Success",
@@ -27545,7 +27545,7 @@
             }
           },
           "422": {
-            "description": "Invalid input",
+            "description": "Visible template list exceeds 500 items",
             "content": {
               "application/json": {
                 "schema": {
@@ -27587,7 +27587,7 @@
       "post": {
         "summary": "Save a safe canvas structure template",
         "operationId": "post_canvas_templates",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract operation: requires the current owner, selected source environment and canvas.change grant, rechecked with session and role sources inside the save transaction. Copies a user-chosen template name plus sanitized generic-canvas node/edge layout; node titles, blocks, artifacts and conversations are not copied. The graph is validated before template and audit commit together. keep.steps, keep.runbooks and keep.content return 422; the current frontend sends steps/runbooks by default and describes a team template, while this backend saves a private template. Investigation sources and read-only steps are unavailable, so the main route remains mock.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment, the current owner of a generic source canvas, and current canvas.change grant; session, role sources, source and authorization are rechecked in the save transaction. keep.nodes must be explicit; true copies sanitized node/edge layout and false saves an empty structure. A user-chosen name is retained, while node titles, blocks, artifacts, evidence, conversation turns and identifiers are not copied. The graph is validated before template and audit commit together. A case-insensitive duplicate name in the same owner/environment/kind returns 409; API saves serialize per owner and check the 500-item combined system/private list capacity. A separate system-template import path does not share this lock and can cause a later list to return 422; that integration requires a shared capacity policy. keep.steps, keep.runbooks and keep.content true return 422 because no safe persisted source exists. The current frontend sends steps/runbooks by default and describes a team template; it needs a separate safe page adaptation. Investigation/team template creation remains unavailable.",
         "responses": {
           "201": {
             "description": "Success",
@@ -27640,7 +27640,7 @@
             }
           },
           "422": {
-            "description": "Invalid input",
+            "description": "Unsupported keep option, invalid structure, or template list capacity exceeded",
             "content": {
               "application/json": {
                 "schema": {
@@ -27697,13 +27697,17 @@
                         "type": "boolean"
                       }
                     },
-                    "additionalProperties": false
+                    "additionalProperties": false,
+                    "required": [
+                      "nodes"
+                    ]
                   }
                 },
                 "additionalProperties": false,
                 "required": [
                   "from_canvas",
-                  "name"
+                  "name",
+                  "keep"
                 ]
               }
             }
@@ -35048,7 +35052,7 @@
       "get": {
         "summary": "Read registered source and observed content evidence",
         "operationId": "get_knowledge_sources_registered_evidence",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary current-scope projection, not the main KnowledgeSource DTO. The configured registration is unverified; last_read is only a completed observation, and keyword_content proves one public Web Markdown body matched the latest read, hash and revision. Connection, sync, total document/chunk counts, index status and error remain null; no body or credentials are returned. Up to 200 visible sources are emitted, with truncated=true if more are visible. More than 10000 candidate rows returns 413. Selected records are rechecked against current grants, active account/application/team binding and body version in a final fresh SQL statement after the initial read; a changed selection returns 409 without source metadata. Revocation committed after that final statement snapshot begins may still precede response delivery.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary current-scope projection, not the full KnowledgeSource DTO. The configured registration is unverified; last_read is a completed observation. A public Web keyword_content requires a matching latest body/hash/revision. Git Markdown document_count and last_sync_at are reported only for a latest commit-pinned read whose immutable document set, hashes, scope and observations match; zero is reported only for an actual empty read. Git files have no connected vector index, so chunk_count and index_status remain null. Connection/sync health and error remain unknown; no body or credentials are returned. Current grants and source evidence are rechecked in a fresh final statement; changed state returns 409.",
         "responses": {
           "200": {
             "description": "Success",
@@ -35076,7 +35080,7 @@
                     "reason": {
                       "type": "string",
                       "enum": [
-                        "registration_and_observation_evidence_only"
+                        "scoped_source_evidence_partial"
                       ]
                     },
                     "truncated": {
@@ -35182,6 +35186,298 @@
             "sessionCookie": []
           }
         ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/knowledge-sources": {
+      "get": {
+        "summary": "Read registered knowledge sources and verified observation evidence",
+        "operationId": "get_knowledge_sources",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Backend partial main-route projection of actual persisted registrations. It shares the current-scope and fresh final recheck of /knowledge-sources/registered-evidence. Completed public Web and Git Markdown reads give observed_at/count; Git Markdown document_count and last_sync_at require matching immutable commit/document/observation proof. Connection health, scheduled sync, vector chunks and index settings remain unknown. Other source types appear only if registered, with unverified evidence; no synthetic catalog cards are emitted. The page must render null as unknown or unindexed, never as zero or connected.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3RegisteredSourceEvidence"
+                      },
+                      "maxItems": 200
+                    },
+                    "index": {
+                      "type": "null"
+                    },
+                    "complete_v3_dto": {
+                      "const": false
+                    },
+                    "partial": {
+                      "const": true
+                    },
+                    "reason": {
+                      "type": "string",
+                      "enum": [
+                        "scoped_source_evidence_partial"
+                      ]
+                    },
+                    "truncated": {
+                      "type": "boolean"
+                    },
+                    "unknown_fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "index",
+                    "complete_v3_dto",
+                    "partial",
+                    "reason",
+                    "truncated",
+                    "unknown_fields"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Selected source state, authorization or content changed; retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Source registry or authorization is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Candidate scope exceeds 10000 registrations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "knowledge-sources"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      },
+      "post": {
+        "summary": "Register one configured application-bound Markdown source",
+        "operationId": "post_knowledge_sources",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment, explicit active application_id and current knowledge.manage for the application and optional matching owner team. Public Web accepts one credential-free HTTPS Markdown URL; git_markdown requires an exact server-configured GitLab HTTPS repository URL, environment/application/team and vault://mount/path#field binding. The GitLab project, branch and Markdown path prefix come only from server configuration. Both families require empty spaces, manual schedule, heading/fixed setting and inherited ACL. Registration and audit commit together after current session/scope/grant checks; no read, sync or index starts. Unconfigured types/bindings return 501, malformed requests 422.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "registration_status": {
+                      "type": "string",
+                      "enum": [
+                        "unverified"
+                      ]
+                    },
+                    "sync_started": {
+                      "const": false
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "registration_status",
+                    "sync_started"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Select exactly one environment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid source URL, options or application/team scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Source registry, authorization or audit unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "No reader/importer for this source type or credentialed Web",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "knowledge-sources"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/V3PublicWebSourceCreateInput"
+                  },
+                  {
+                    "$ref": "#/components/schemas/V3GitMarkdownSourceCreateInput"
+                  }
+                ]
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "name": "X-AIOps-Environment",
@@ -35447,7 +35743,7 @@
       "post": {
         "summary": "Observe one registered source through a configured read-only reader",
         "operationId": "post_knowledge_sources_registrations_id_sync",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary lineage operation requiring one environment and knowledge.manage. Explicit AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true configures only the application-bound, credential-free, single-page public HTTPS Markdown reader. An environment-only public Web registration returns 422 source_application_required before network access; unset/false or another unconfigured source type returns 501 source_reader_unavailable; a credentialed Web source is not supported by this reader. Application/team liveness is checked before network access and again under transaction before persistence. A successful same-fetch observation imports at most 128 KiB of UTF-8 body into separate V3 public Web document/revision tables with matching hash and read identity; version advances only when content changes. The response does not claim indexing or complete V3 source DTO.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary manual lineage operation requiring one environment and knowledge.manage for the saved application/team scope. Explicit AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true configures the single-page public Web reader. A server-configured git_markdown reader pins the saved GitLab project/branch/path binding to one commit SHA and imports at most 32 bounded UTF-8 Markdown files using the exact Vault binding. Application/team liveness and saved binding identity are checked before network access and again under transaction before persistence. The read, observations, private bodies, binding snapshot, commit version and audit commit together. Git responses include commit_sha and document_count; public Web responses include keyword_content_persisted and content_version. No vector chunk or index is claimed; absent reader returns 501. Legacy vault: references are rejected for new Git Markdown registration.",
         "responses": {
           "200": {
             "description": "Success",
@@ -35471,6 +35767,22 @@
                     },
                     "complete_v3_dto": {
                       "type": "boolean"
+                    },
+                    "keyword_content_persisted": {
+                      "type": "boolean"
+                    },
+                    "content_version": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "commit_sha": {
+                      "type": "string",
+                      "pattern": "^([a-f0-9]{40}|[a-f0-9]{64})$"
+                    },
+                    "document_count": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 32
                     }
                   },
                   "additionalProperties": false,
@@ -35587,7 +35899,7 @@
       "get": {
         "summary": "Read observed source lineage and attributed index evidence",
         "operationId": "get_knowledge_sources_registrations_id_evidence",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read of current authorized registration. An absent read returns null evidence; attributed ready documents and chunks are reported only for an observed item and never imply a complete source index. No source content is returned.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read of current authorized registration. An absent read returns null evidence. A Git Markdown response includes git_markdown with commit_sha, document_count and content_persisted only when the latest read has matching private documents, hashes, scope and observations; otherwise it is null. Public Web keyword evidence and generic attributed ready documents/chunks never imply a complete source index. No source content is returned.",
         "responses": {
           "200": {
             "description": "Success",
@@ -35606,6 +35918,18 @@
                       ]
                     },
                     "index": {
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    },
+                    "keyword": {
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    },
+                    "git_markdown": {
                       "type": [
                         "object",
                         "null"
@@ -35722,7 +36046,7 @@
       "post": {
         "summary": "Test a knowledge source connection",
         "operationId": "post_knowledge_sources_test",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. A configured source-specific read-only prober can return a point-in-time successful access observation only after validation and knowledge.manage. Production AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true configures an application-bound observation Reader, not a Prober: an unsaved public Web test still returns 501 source_connection_test_unavailable. Other source kinds require a Vault reference and return 501 without a configured Prober. Any future successful probe would not prove persisted sync, indexing, user-wide access or application/team scope.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. With AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true, a credential-free public HTTPS Markdown Web URL receives one bounded read-only fetch after validation and environment-scoped knowledge.manage. A configured Git Markdown probe requires application_id and optional matching team_id; current app/team knowledge.manage and active scope are checked before and after the credentialed read. A committed attempt audit precedes Vault/GitLab access; a bounded outcome audit follows. Success proves only point-in-time readability. Nothing is registered, synchronized or indexed. Source kinds without a configured prober return 501 source_connection_test_unavailable; malformed URLs or missing required Vault references return 422. A configured failed read returns 503 source_connection_failed. A credentialed Web URL has no supported prober. Successful probe does not authorize a subsequent create or prove future availability.",
         "responses": {
           "200": {
             "description": "Success",
@@ -35863,6 +36187,12 @@
                     "type": "string"
                   },
                   "secret_ref": {
+                    "type": "string"
+                  },
+                  "application_id": {
+                    "type": "string"
+                  },
+                  "team_id": {
                     "type": "string"
                   }
                 },
@@ -40500,7 +40830,7 @@
       "get": {
         "summary": "Read persisted service connector mappings",
         "operationId": "get_service_mappings",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Shows only bindings for authorized applications and environments; missing means no persisted binding, not a health check. A suggested code cell carries the exact candidate ID, review version, target identity and binding revision needed for accept. Pending suggestions are shown only if their explicit GitLab project target, activation evidence and binding revision remain current. A V3-only validator permits exactly that source-derived GitLab binding while passing every other binding to the unchanged platform validator. Activation is historical project-access evidence; a recent generic connector probe does not prove current project access. More than 1000 visible services returns 422 result_limit instead of an incomplete map.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Shows only bindings for authorized applications and environments; missing means no persisted binding, not a health check. A single-environment row includes an additive save snapshot with exact service/environment IDs, binding revision and persisted binding identities only for callers with current services view/change and connectors view/manage; unsupported or duplicate stored categories set editable=false. An all-environment aggregate has no save snapshot. A suggested code cell carries the exact candidate ID, review version, target identity and binding revision needed for accept. Pending suggestions are shown only if their explicit GitLab project target, activation evidence and binding revision remain current. A V3-only validator permits exactly that source-derived GitLab binding while passing every other binding to the unchanged platform validator. Activation is historical project-access evidence; a recent generic connector probe does not prove current project access. More than 1000 visible services returns 422 result_limit instead of an incomplete map.",
         "responses": {
           "200": {
             "description": "Success",
@@ -40593,16 +40923,16 @@
         ]
       },
       "put": {
-        "summary": "Reject unavailable full mapping save",
+        "summary": "Replace versioned service connector mappings",
         "operationId": "put_service_mappings",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. The frozen page sends no request body. Suggested code cells expose review identity for the separate accept operation, but the full matrix still lacks an accepted all-system save request and revision contract. This registered route remains outside the V3 allowed-route table and returns 501 v3_not_implemented before its fallback handler; it writes no binding or audit. No accepted full-save success response is claimed.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment matching environment_id. Each of 1-50 distinct service and service-environment identities replaces its complete mapping set using a current binding_revision; stale or changed identities return 409. Changed items, their revision increments and audit are committed atomically; an identical item returns its current revision. Empty body, display-only cells and duplicate or unknown system IDs are rejected. A code GitLab binding may only be retained when identical to the persisted binding; new or changed GitLab mappings must use discover/accept. Other bindings must pass the configured runtime binding validator. Current services view/change and connectors view/manage grants and the active session are rechecked in the transaction. The response contains persisted binding identities and post-write revisions. The frozen frontend still sends an empty PUT and cannot use this route until it submits the versioned request.",
         "responses": {
-          "501": {
-            "description": "Full mapping save is unavailable in V3",
+          "200": {
+            "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Error"
+                  "$ref": "#/components/schemas/V3MappingSaveResult"
                 }
               }
             }
@@ -40676,6 +41006,16 @@
             "sessionCookie": []
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3MappingSaveRequest"
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "name": "X-AIOps-Environment",
@@ -41850,8 +42190,18 @@
       "get": {
         "summary": "Query scoped traces",
         "operationId": "get_traces",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires explicit persisted service/environment/owner-team Tempo binding and current traces.view. A bounded trace sample cannot establish full totals, facets, histogram or scatter population, so returns 503 trace_aggregation_unavailable with observed_sample and missing sections even for an empty sample. Agent scope is not configured; TraceQL q returns 422. Distinct authorized bindings return 409 ambiguous_binding; more than 6 targets or other excessive authorized scope returns 422 scope_limit.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires persisted service/environment/owner-team Tempo binding and current traces.view. App scope exhausts a one-hour search by bounded window splitting; all 200 counts, facets, histogram and scatter refer to that full result set. At most 40 traces, 64 searches, 6 targets and 500 spans per trace; a reached cap returns 413 rather than a sampled 200. q accepts one bounded TraceQL span selector with simple comparisons and inner AND/OR, but no regex, pipeline or outer union. Complete counts require a server-attested fail-closed Tempo search configuration; otherwise 503. Agent scope has no complete provider and returns 503. Source and grants are rechecked before response.",
         "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3TraceList"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Authentication required",
             "content": {
@@ -41903,18 +42253,21 @@
             }
           },
           "503": {
-            "description": "Complete trace aggregation unavailable or scoped provider failed",
+            "description": "Dependency unavailable",
             "content": {
               "application/json": {
                 "schema": {
-                  "oneOf": [
-                    {
-                      "$ref": "#/components/schemas/Error"
-                    },
-                    {
-                      "$ref": "#/components/schemas/V3IncompleteTraceList"
-                    }
-                  ]
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Complete trace population exceeds the bounded query budget",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -41951,6 +42304,13 @@
             }
           },
           {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "X-AIOps-Environment",
             "in": "header",
             "schema": {
@@ -41965,7 +42325,7 @@
       "get": {
         "summary": "Read scoped trace",
         "operationId": "get_traces_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires explicit persisted service/environment/owner-team Tempo binding and current traces.view. Returns only scoped spans, partial=true and missing complete-trace, critical-path and correlation sections. The href from the list preserves an encoded service filter. A trace exceeding the bounded span limit returns 413 trace_too_large; distinct authorized bindings return 409 ambiguous_binding and excessive authorized scope returns 422 scope_limit.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Reads the stored Tempo trace without a time bound, requiring every returned resource to match an authorized persisted binding and exactly one closed parent tree. Projects only safe attributes and exception types; absent version is rendered as unknown, and unproven logs or links are omitted. The highlighted path follows the latest finishing descendant. A trace exceeding 500 spans returns 413; incomplete trees return 503. Source and grants are rechecked before response.",
         "responses": {
           "200": {
             "description": "Success",
@@ -53985,19 +54345,27 @@
               }
             ]
           },
+          "document_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "last_sync_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "connection_status": {
             "type": "null"
           },
           "sync_status": {
             "type": "null"
           },
-          "document_count": {
-            "type": "null"
-          },
           "chunk_count": {
-            "type": "null"
-          },
-          "last_sync_at": {
             "type": "null"
           },
           "index_status": {
@@ -54131,6 +54499,129 @@
           "type",
           "url",
           "spaces",
+          "schedule",
+          "chunk",
+          "inherit_acl"
+        ]
+      },
+      "V3PublicWebSourceCreateInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "web"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "secret_ref": {
+            "const": ""
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "team_id": {
+            "type": "string"
+          },
+          "spaces": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 0
+          },
+          "schedule": {
+            "type": "string",
+            "enum": [
+              "manual"
+            ]
+          },
+          "chunk": {
+            "type": "string",
+            "enum": [
+              "heading",
+              "fixed"
+            ]
+          },
+          "inherit_acl": {
+            "const": true
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "type",
+          "url",
+          "application_id",
+          "schedule",
+          "chunk",
+          "inherit_acl"
+        ]
+      },
+      "V3GitMarkdownSourceCreateInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "git_markdown"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "secret_ref": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "team_id": {
+            "type": "string"
+          },
+          "spaces": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 0
+          },
+          "schedule": {
+            "type": "string",
+            "enum": [
+              "manual"
+            ]
+          },
+          "chunk": {
+            "type": "string",
+            "enum": [
+              "heading",
+              "fixed"
+            ]
+          },
+          "inherit_acl": {
+            "const": true
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "type",
+          "url",
+          "secret_ref",
+          "application_id",
           "schedule",
           "chunk",
           "inherit_acl"
@@ -54919,6 +55410,9 @@
                   "additionalProperties": {
                     "$ref": "#/components/schemas/V3MappingCell"
                   }
+                },
+                "save": {
+                  "$ref": "#/components/schemas/V3MappingReadSave"
                 }
               },
               "additionalProperties": false,
@@ -54938,6 +55432,168 @@
           "systems",
           "rows",
           "suggestions"
+        ]
+      },
+      "V3MappingSaveBinding": {
+        "type": "object",
+        "properties": {
+          "system_id": {
+            "type": "string",
+            "enum": [
+              "metrics",
+              "logs",
+              "traces",
+              "code",
+              "deploy",
+              "dash",
+              "workload"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "connector_id": {
+            "type": "string"
+          },
+          "resource": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "system_id",
+          "kind",
+          "connector_id",
+          "resource"
+        ]
+      },
+      "V3MappingReadBinding": {
+        "type": "object",
+        "properties": {
+          "system_id": {
+            "type": "string",
+            "description": "Unknown stored kinds appear as an empty string and make the save snapshot non-editable."
+          },
+          "kind": {
+            "type": "string"
+          },
+          "connector_id": {
+            "type": "string"
+          },
+          "resource": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "system_id",
+          "kind",
+          "connector_id",
+          "resource"
+        ]
+      },
+      "V3MappingSaveItem": {
+        "type": "object",
+        "properties": {
+          "service_id": {
+            "type": "string"
+          },
+          "service_environment_id": {
+            "type": "string"
+          },
+          "binding_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "bindings": {
+            "type": "array",
+            "maxItems": 7,
+            "items": {
+              "$ref": "#/components/schemas/V3MappingSaveBinding"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "service_id",
+          "service_environment_id",
+          "binding_revision",
+          "bindings"
+        ]
+      },
+      "V3MappingReadSave": {
+        "type": "object",
+        "properties": {
+          "service_id": {
+            "type": "string"
+          },
+          "service_environment_id": {
+            "type": "string"
+          },
+          "binding_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "bindings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3MappingReadBinding"
+            }
+          },
+          "editable": {
+            "type": "boolean"
+          },
+          "unavailable_reason": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "service_id",
+          "service_environment_id",
+          "binding_revision",
+          "bindings",
+          "editable"
+        ]
+      },
+      "V3MappingSaveRequest": {
+        "type": "object",
+        "properties": {
+          "environment_id": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "items": {
+              "$ref": "#/components/schemas/V3MappingSaveItem"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "environment_id",
+          "items"
+        ]
+      },
+      "V3MappingSaveResult": {
+        "type": "object",
+        "properties": {
+          "environment_id": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3MappingSaveItem"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "environment_id",
+          "items"
         ]
       },
       "V3GitLabPipelineRecord": {
@@ -55857,7 +56513,54 @@
             "type": "integer"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "time",
+          "op",
+          "href",
+          "services",
+          "duration_ms",
+          "spans",
+          "errors"
+        ]
+      },
+      "V3TraceFacet": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "value",
+                "count"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "label",
+          "items"
+        ]
       },
       "V3TraceList": {
         "type": "object",
@@ -55870,7 +56573,8 @@
             ]
           },
           "total": {
-            "type": "integer"
+            "type": "integer",
+            "minimum": 0
           },
           "took": {
             "type": "string"
@@ -55884,15 +56588,34 @@
           "facets": {
             "type": "array",
             "items": {
-              "type": "object",
-              "additionalProperties": true
+              "$ref": "#/components/schemas/V3TraceFacet"
             }
           },
           "views": {
             "type": "array",
             "items": {
               "type": "object",
-              "additionalProperties": true
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "query": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "label",
+                "query"
+              ]
             }
           },
           "histogram": {
@@ -55903,7 +56626,8 @@
                 "items": {
                   "type": "array",
                   "items": {
-                    "type": "integer"
+                    "type": "integer",
+                    "minimum": 0
                   }
                 }
               },
@@ -55914,7 +56638,11 @@
                 }
               }
             },
-            "additionalProperties": false
+            "additionalProperties": false,
+            "required": [
+              "counts",
+              "axis"
+            ]
           },
           "scatter": {
             "type": "array",
@@ -55922,7 +56650,7 @@
               "type": "object",
               "properties": {
                 "x": {
-                  "type": "integer"
+                  "type": "number"
                 },
                 "y": {
                   "type": "number"
@@ -55934,7 +56662,12 @@
                   "type": "string"
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "required": [
+                "x",
+                "y",
+                "error"
+              ]
             }
           },
           "items": {
@@ -55944,7 +56677,154 @@
             }
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "required": [
+          "scope",
+          "total",
+          "took",
+          "colors",
+          "facets",
+          "views",
+          "histogram",
+          "scatter",
+          "items"
+        ]
+      },
+      "V3TraceSpan": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "service": {
+            "type": "string"
+          },
+          "op": {
+            "type": "string"
+          },
+          "depth": {
+            "type": "integer"
+          },
+          "start": {
+            "type": "number"
+          },
+          "end": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "error"
+            ]
+          },
+          "critical": {
+            "type": "boolean"
+          },
+          "attrs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "k": {
+                  "type": "string"
+                },
+                "v": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "k",
+                "v"
+              ]
+            }
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "at",
+                "name",
+                "text"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "depth",
+          "service",
+          "op",
+          "start",
+          "end",
+          "status"
+        ]
+      },
+      "V3TraceGraphNode": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "sub": {
+            "type": "string"
+          },
+          "danger": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "x",
+          "y",
+          "sub"
+        ]
+      },
+      "V3TraceGraphEdge": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "danger": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to",
+          "label"
+        ]
       },
       "V3TraceView": {
         "type": "object",
@@ -55979,77 +56859,7 @@
           "spans": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string"
-                },
-                "service": {
-                  "type": "string"
-                },
-                "op": {
-                  "type": "string"
-                },
-                "depth": {
-                  "type": "integer"
-                },
-                "start": {
-                  "type": "number"
-                },
-                "end": {
-                  "type": "number"
-                },
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "ok",
-                    "error"
-                  ]
-                },
-                "attrs": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "k": {
-                        "type": "string"
-                      },
-                      "v": {
-                        "type": "string"
-                      }
-                    },
-                    "additionalProperties": false,
-                    "required": [
-                      "k",
-                      "v"
-                    ]
-                  }
-                },
-                "events": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "at": {
-                        "type": "string",
-                        "format": "date-time"
-                      },
-                      "name": {
-                        "type": "string"
-                      },
-                      "text": {
-                        "type": "string"
-                      }
-                    },
-                    "additionalProperties": false,
-                    "required": [
-                      "at",
-                      "name"
-                    ]
-                  }
-                }
-              },
-              "additionalProperties": false
+              "$ref": "#/components/schemas/V3TraceSpan"
             }
           },
           "graph": {
@@ -56058,89 +56868,35 @@
               "nodes": {
                 "type": "array",
                 "items": {
-                  "type": "object",
-                  "additionalProperties": true
+                  "$ref": "#/components/schemas/V3TraceGraphNode"
                 }
               },
               "edges": {
                 "type": "array",
                 "items": {
-                  "type": "object",
-                  "additionalProperties": true
+                  "$ref": "#/components/schemas/V3TraceGraphEdge"
                 }
-              }
-            },
-            "additionalProperties": false
-          },
-          "partial": {
-            "type": "boolean",
-            "const": true
-          },
-          "missing": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "partial",
-          "missing"
-        ]
-      },
-      "V3IncompleteTraceList": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string"
-              },
-              "message": {
-                "type": "string"
               }
             },
             "additionalProperties": false,
             "required": [
-              "code",
-              "message"
+              "nodes",
+              "edges"
             ]
-          },
-          "scope": {
-            "type": "string",
-            "enum": [
-              "app"
-            ]
-          },
-          "view": {
-            "type": "string"
-          },
-          "took": {
-            "type": "string"
-          },
-          "observed_sample": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/V3TraceRow"
-            }
-          },
-          "missing": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
           }
         },
         "additionalProperties": false,
         "required": [
-          "error",
-          "scope",
-          "view",
-          "took",
-          "observed_sample",
-          "missing"
+          "id",
+          "trace_id",
+          "op",
+          "duration_ms",
+          "time",
+          "version",
+          "colors",
+          "spans",
+          "flame_note",
+          "graph"
         ]
       },
       "V3Role": {

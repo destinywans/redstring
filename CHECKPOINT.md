@@ -1,5 +1,13 @@
 # AIOps Canvas 检查点
 
+## CP-158 · 2026-09-29 · WAN-122 映射、WAN-120 Trace、WAN-121 模板、WAN-123 知识来源
+
+- WAN-122 来源 `346cc2006e4ad9731e3230b17854892b8058bb7d` 合入为 `e65b3cf`。单环境 `GET /service-mappings` 对有当前服务和连接器权限的行增加稳定身份、绑定修订与 `save.editable` 快照；`PUT /service-mappings` 以 1–50 项完整替换、版本比较、逐对象/连接器授权和精确 Cookie 会话复核，绑定、修订及审计原子提交。GitLab 仅可原样保留，新增/修改走 discover/accept；历史无法安全转换的绑定不允许覆盖。冻结页面仍发送空 PUT，页面保存未验收。隔离 PG17 的映射保存、旧绑定形状与候选路径 `-race` 及领域 vet 通过。
+- WAN-120 来源 `a979add` 合入为 `ed15b68`，`4a56b6e` 将两条 Trace GET 的注册从旧观测模块切换至 `v3traces`，并在 Tempo 与持久目标重读之后复核原 Cookie 会话。应用范围搜索在 64 次/40 Trace/6 目标/500 Span 上限内拆分触顶时间窗，逐 Trace 验证父链闭合，从同一结果集计算列表分面；缺口、歧义、预算超限均失败关闭。列表要求服务端 `tempo_search_fail_closed` 显式开启并先核目标 Tempo 的 `fail_on_high_lag=true`；本地配置不是运行时证明。Agent 范围 503；真实 Tempo、采样遗漏、前端 `q`/散点服务参数未验。隔离 PG17 的新旧观测包 `-race`、阻塞读取时注销的列表/详情回归、cmd 编译和 vet 通过。
+- WAN-121 私人模板来源 `66c3ee74bfea078971d77c7a70ba09119b9097d8` 的三个文件经 OpenAPI 片段合并落为 `678269c`。GET 在同一快照复核会话、环境和画布查看权；POST 显式 `keep.nodes`，保留净化结构或空结构，重复名称和本人容量串行核对、模板与审计同事务。系统模板导入仍可把列表推过 500，GET/POST 会受控 422；统一容量策略留 WAN-124。冻结页面默认 steps/runbooks=true 且称团队模板，两路由只计后端完成，页面未验。隔离 PG17 往返 `-race`、模板单测、vet、OpenAPI 源语法通过。
+- WAN-123 来源 `7e3d28231b2461b1b2c0f85e41c5c0829cd837a2` 和 `3489de18ca4927e0fa578366291e06424665e147` 按文件范围合入为 `aa4d2e1`，保留现有模型和 Trace 启动接线。公开 HTTPS 单页 Markdown 可即时探测、登记和手动观察；Git Markdown 只使用服务端精确绑定的 GitLab 仓库/项目/分支/路径及 Vault 引用，登记存无凭据指纹，手动同步持久固定提交正文与观察证据，配置漂移、来源失败、撤权失败关闭。冻结知识来源页面获准最小改动，真实模式显示未知状态并禁用不支持的来源。主 GET 仍 `complete_v3_dto=false`、索引/分块/连接状态未知；POST 探测与创建仅支持两类，其余四类 501，三条主路由继续 `mock`。领域隔离 PG17 `-race`、cmd 注册 HTTP GitLab/Vault 受控替身 `-race`、Web build、cmd/领域 vet 通过；真实 GitLab/Vault、向量索引及浏览器未验。
+- 主契约 **68/166 implemented、98 mock**；OpenAPI **287 路径、345 操作、280 schema**。受影响 OpenAPI、契约/就绪/路由矩阵与差异检查用于本批收尾；迁移 124 仅在隔离 PG 中运行，现有业务库未迁移。无全量测试、真实第三方、合并或部署。下一步接收 WAN-120 服务目录读视图及 WAN-123 Runbook/其旧知识读取守卫，先核跨路由安全和冻结 ID/未知值限制，再逐条判主状态。
+
 ## CP-157 · 2026-09-29 · WAN-121 调查节点回复与祖先回写
 
 - 来源 `codex/wan-121-investigation-writeback` 的 `84857b76b14d01240f0651a2df9a37d68b2e9b4e` 基于已合入的 `a977f43`，九个领域、测试、迁移和 OpenAPI 源文件补齐调查节点消息、回写预览及提交，合入为 `6811e23`。集成修正 `16640f2` 使节点回复按调查环境选择受限模型并将 `EnvironmentID` 传至推理请求；回复开始/完成及回写预览/提交在事务末复核原始 Cookie 的精确会话。迁移 132 只在隔离测试库执行。

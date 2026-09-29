@@ -110,8 +110,8 @@
 | POST | `/canvases` | `{ title, kind, template_id, goal, services, ai_draft }` | `{ id, href }`；调查类返回 `INV-*` | implemented |
 | GET | `/canvases/{id}` | | `CanvasDoc`（非调查类画布：通用节点块、边、产物、各节点对话） | implemented |
 | POST | `/canvases/{id}/nodes/{node}/messages` | `{ text, model?, reasoning? }` | `{ reply }` | implemented |
-| GET | `/canvas-templates` | | `{ items: CanvasTemplateOption[] }` | mock |
-| POST | `/canvas-templates` | `{ from_canvas, name, keep }`；当前后端子路径只保存本人同环境通用画布的私有结构模板，`keep.steps/runbooks/content=true` 返回 422 | 模板 | mock |
+| GET | `/canvas-templates` | | `{ items: CanvasTemplateOption[] }`；系统空白模板与当前本人有权环境中的私有通用画布模板，超过 500 项受控 422 | implemented |
+| POST | `/canvas-templates` | `{ from_canvas, name, keep: { nodes, steps?, runbooks?, content? } }`；`nodes` 必须显式给出，其他保留项为 true 时 422 | 本人私有通用画布结构模板 | implemented |
 | GET | `/investigations/{id}/canvas` | | `CanvasGraph`；持久分支、上下文修订、证据及布局，未知 token 用量为 `null` | implemented |
 | POST | `/investigations/{id}/branches` | `{ parent_id?, parent?, title, x?, y?, expected_parent_revision? }`；至少一个父 ID | `CanvasNode`；锁定父修订后复制上下文，分支、布局、事件、审计同事务 | implemented |
 | PATCH | `/investigations/{id}/nodes/{node}` | `{ x?, y?, collapsed?, title?, expected_layout_version, expected_title? }`；改标题必带 `expected_title` | `CanvasNode`；版本冲突 409、缺前置条件 428 | implemented |
@@ -125,7 +125,7 @@
 
 `GET /canvases` 在同一数据库快照中合并本人私人通用画布与当前应用/团队、环境有权的持久调查，按 `kind`、搜索和分页给出列表与完整计数。调查状态由持久 `open/closed` 映射；历史调查无记录的创建者返回空参与者数组，不编造人员。`POST /canvases` 在单一环境中创建通用画布，调查类要求恰好一个有效且已映射的服务；保存时重核当前 Cookie、画布权限、服务及负责人团队，画布/调查、初始节点与审计共同提交。可选 AI 草稿只用用户标题、目标和服务 ID，拒绝工具及非结构化结果；模型不可用则 503 且不创建。列表中的调查链接不代表完整调查详情已接通；冻结新建页会发送三个固定服务，调查创建会返回 422，页面仍待适配。
 
-通用画布模板保存已在同一事务复核会话、本人同环境源画布和当前 `canvas.change`，只复制净化后的节点/边布局及用户提交的模板名称，排除源节点标题、内容块、产物与对话；图结构验证失败不保存模板或审计。模板名称仍是可持久化文本：当前前端名称留空时会沿用源画布标题，可能包含需用户检查的业务信息。前端默认提交 `steps=true`、`runbooks=true`，而后端明确 422；页面还称“团队模板”，但当前仅为私有模板，且列表不含调查模板。故 `GET/POST /canvas-templates` 仍为 `mock`。
+通用画布模板 GET 在同一有界快照中重核精确会话、当前环境与 `canvas.view`，只列系统空白模板和本人有权环境中的私有结构模板；超过 500 项明确返回 422，不截断。POST 在同一事务复核会话、本人同环境源画布和当前 `canvas.change`，`keep.nodes=true` 只复制净化后的节点/边布局，false 保存空结构，均排除源节点标题、内容块、产物与对话；按本人串行化重复名称与容量检查，模板和审计原子提交。系统模板的独立导入尚不共用该容量锁，可能使列表达到上限，后续 GET/POST 将受控 422；统一容量策略留 WAN-124。模板名称仍是可持久化文本：当前前端名称留空时会沿用源画布标题，可能包含需用户检查的业务信息。前端默认提交 `steps=true`、`runbooks=true`，而后端明确 422；页面还称“团队模板”，但当前仅为私有模板，列表不含调查模板。两条路由只按后端接口标准计入，页面未验收。
 
 通用画布节点 `POST /canvases/{id}/nodes/{node}/messages` 的后端已接持久化同步回复：限定本人画布、单一环境和当前 `canvas.change`，一次只运行一条回复。模型上下文包含当前节点及沿有向边可达的祖先节点块与已完成回合，不包含兄弟或失败回合，超过 24 KiB 返回 413；工具调用被拒绝。运行期间约每 2 秒检查当前会话与授权，失败时取消模型请求；完成事务再次核对原会话、画布归属与当前 `canvas.change`，完成时无权限则不保存助手回复。若撤权又恢复全部落在两次检查之间，不能保证取消本轮。失败的用户输入保留供刷新核对，不生成虚假助手消息。`GET /canvases/{id}` 校验节点、七种块、边和产物结构，在 `threads` 返回各节点完整已保存回合；历史超过 500 次交换、2 MiB 总量或单条助手消息 64 KiB 时返回 413，不截断。写入仍可继续，故达到上限后详情会持续 413，当前没有分页或归档恢复。两条主路由按后端判据标为 `implemented`，仅适用于私人通用画布；调查节点接口仍分开。前端尚无超限恢复/分页，发送失败也未清除 `busy`，真实 409/413/422/503 可卡住输入框，因此画布整页尚未验收。
 
@@ -207,8 +207,8 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | GET | `/topology` | `cluster`, `around`, `depth`, `group_by` | `Topology`；当前后端仅返回经授权的 CMDB 节点、关系和缺失字段清单，完整 DTO 尚未实现 | mock |
 | GET | `/metrics/dashboard` | `service`, `range=1h`, `align?` | `MetricsDashboard`；单环境、单服务、唯一持久 Prometheus 目标和经审查的精确范围查询，完整面板与来源核对后返回 | implemented |
 | POST | `/metrics/ask` | `{ view, question }` | `{ conversation_id }` | mock |
-| GET | `/traces` | `scope: app\|agent`, `view`, `q`（TraceQL / 过滤表达式）, `service` | `TraceList`：分面计数、保存的视图、按状态直方图、耗时散点、表格 | mock |
-| GET | `/traces/{id}` | | `TraceView`：Span（关键路径、属性、事件、日志、关联）、火焰图说明、服务调用图 | mock |
+| GET | `/traces` | `scope: app\|agent`, `view`, `q`（有界 TraceQL 选择器）, `service` | 应用范围 `TraceList`：同一完整来源集上的计数、分面、直方图、散点与表格；Agent 范围 503 | implemented |
+| GET | `/traces/{id}` | | 应用范围 `TraceView`：已存储且闭合的 Span 树、关键路径说明与服务调用图；无可靠关联时省略日志/链接 | implemented |
 | GET | `/services/discover` | 单个可选 `cluster`；重复参数返回 422 | 只读发现经授权的现存工作负载、稳定资源 ID 和未经核实的负责人提示；同名歧义候选不返回 | mock |
 | POST | `/services` | `{ items: [{ id, namespace, resource_id?, tier, owner, slo, p99 }] }`；`resource_id` 为发现接口返回的稳定 CMDB 标识，提供时必须有 namespace | `{ created }` | implemented |
 | GET | `/logs` | `q`, `levels`, `service?`, `provider?` | `LogSearch`；完整来源模式计数与趋势 | implemented |
@@ -216,7 +216,9 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 
 资源发现现在返回 `resource_id`、Kubernetes `uid`、环境与集群；单集群条件在 2000 个候选扫描上限之前执行，整次请求共用 20 秒预算。选定集群之外的可信同名资源，以及同环境、同命名空间中陈旧、缺失或已关联的原始同名身份，均会阻止当前只按名称登记的候选进入结果；`ambiguous_workloads` 只给出数量，不泄露阻挡对象。`registered` 是授权环境内的登记数，不是所示集群的登记数。负责人和等级只作来源提示，`replicas` 可为空，`matched`/`missing` 尚无可信线索。注册时按当前环境、采集新鲜度、存在状态、UID、命名空间、是否已关联及 `resources.view` 重新核对。旧客户端只传名称时仅可匹配唯一工作负载；同名、过期或已关联身份返回 409，不会静默关联。当前前端未传 `cluster`/`resource_id`，并固定展示负责人、SLO、P99 与系统映射，发现到注册交互尚未接通。服务列表和系统映射超过 1000 条可见记录会返回 `422 result_limit`，不会返回不完整总数。拓扑仅显示五分钟内成功采集且环境吻合的现存节点，关联应用不会替资源借用其团队授权。
 
-观测查询只使用持久化应用、环境、负责人团队及已配置的外部目标绑定；不同来源绑定冲突返回 `409 ambiguous_binding`，范围过大返回 `422 scope_limit`。`GET /metrics/samples` 辅助接口可在单环境、唯一显式 V3 Prometheus 指标目标和操作者审查过精确范围的查询目录下返回有界真实标量样本；可见服务缺 `connectors.view` 在目标查询前返回 403，隐藏或不存在的服务同样返回资源不存在，读取中撤权不返回样本。完整 `GET /metrics/dashboard` 另要求经审查的 `dashboard` 查询目录一次返回 37 个时间点及请求、延迟、CPU、SLO、热力和排名等全部受信面板，再从持久发布、回滚和事件记录取得时间标记；缺项返回 503，不以样本补推。读取后复核精确 Cookie 会话、当前授权、目标绑定和 SLO 配置。图上的时间重合只表示并列证据，不证明发布引发事件。冻结指标页仍硬编码多处标签/版本/SLO/分析文案，且对齐开关未发送 `align`；真实 Prometheus 尚未联调，因此页面和产品未验收。`GET /logs` 在唯一授权目标及已配置的 Elasticsearch 或 Loki 范围内，分别查询所选等级的全窗总数、错误数、直方图、限量日志行和完整模板模式聚合；逐桶守恒、来源配置及当前授权/绑定均核对后才返回 `200 LogSearch`，包括精确零结果。缺少完整聚合返回 `503 log_patterns_unavailable` 和真实的部分证据；显式空 `levels` 返回空结果。模式来自受信采集模板或 Elasticsearch 类别聚合，不声称 AI 聚类；真实目标的历史映射/租户覆盖、脱敏和查询性能验收见 [日志来源接线](v3-logs-source.md)。Trace 列表返回 `503 trace_aggregation_unavailable`，只提供 `observed_sample` 与缺失的总数/分面/直方图字段；详情 `200` 标记 `partial: true` 和 `missing`，不能把受权 Span 样本当成完整链路。指标与 Trace 主页面仍保持 `mock`，日志页面尚未真实联调。
+观测查询只使用持久化应用、环境、负责人团队及已配置的外部目标绑定；不同来源绑定冲突返回 `409 ambiguous_binding`，范围过大返回 `422 scope_limit`。`GET /metrics/samples` 辅助接口可在单环境、唯一显式 V3 Prometheus 指标目标和操作者审查过精确范围的查询目录下返回有界真实标量样本；可见服务缺 `connectors.view` 在目标查询前返回 403，隐藏或不存在的服务同样返回资源不存在，读取中撤权不返回样本。完整 `GET /metrics/dashboard` 另要求经审查的 `dashboard` 查询目录一次返回 37 个时间点及请求、延迟、CPU、SLO、热力和排名等全部受信面板，再从持久发布、回滚和事件记录取得时间标记；缺项返回 503，不以样本补推。读取后复核精确 Cookie 会话、当前授权、目标绑定和 SLO 配置。图上的时间重合只表示并列证据，不证明发布引发事件。冻结指标页仍硬编码多处标签/版本/SLO/分析文案，且对齐开关未发送 `align`；真实 Prometheus 尚未联调，因此页面和产品未验收。`GET /logs` 在唯一授权目标及已配置的 Elasticsearch 或 Loki 范围内，分别查询所选等级的全窗总数、错误数、直方图、限量日志行和完整模板模式聚合；逐桶守恒、来源配置及当前授权/绑定均核对后才返回 `200 LogSearch`，包括精确零结果。缺少完整聚合返回 `503 log_patterns_unavailable` 和真实的部分证据；显式空 `levels` 返回空结果。模式来自受信采集模板或 Elasticsearch 类别聚合，不声称 AI 聚类；真实目标的历史映射/租户覆盖、脱敏和查询性能验收见 [日志来源接线](v3-logs-source.md)。
+
+应用范围 Trace 由单环境持久 Tempo 目标绑定及当前 `traces.view` 确定；同一静态目标跨隐藏范围复用、选择器重叠或目标修订变化均拒绝。列表把最近一小时搜索触顶窗口继续拆分，最多 64 次查询、40 条 Trace、6 个目标，每条无时间界限拉取最多 500 个 Span 并验证唯一根、父链闭合与无环；超预算或来源失败返回 413/503，不用部分样本推总量。`200 TraceList` 的分面、十二个时间桶和散点来自同一返回全集。列表要求服务端 `tempo_search_fail_closed` 配置，设置前需核目标 Tempo 的 `fail_on_high_lag=true`；该配置默认关闭，不是运行时证明。详情的操作名称仅显示服务端白名单或路由模板，缺可靠日志/变更/Runbook 关联时省略链接。Agent 范围缺完整来源而返回 503。完整性仅指当次 Tempo 返回的已存储且闭合的 Trace，不证明采样遗漏或未插桩 Span；真实 Tempo、延迟配置及冻结页面 `q`/散点 `service` 接线尚未验收，见 [Trace 来源边界](v3-traces-source.md)。
 
 ## v4 新建流程（`create.ts`）
 
@@ -239,10 +241,10 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | GET | `/postmortems/candidates` | | 有真实结案证据、尚无复盘且当前有权访问的事件；含实际证据数与持续时长 | implemented |
 | GET | `/postmortems/draft` | `incident` | 复盘草稿 | mock |
 | POST | `/postmortems` | `{ incident_id, sections, actions, status: draft\|review }` | `{ id }`；同事务锁定已解决事件并写入复盘与审计，不触发外部动作 | implemented |
-| POST | `/knowledge-sources/test` | `{ type, url, secret_ref? }`；公开 HTTPS 单页 Markdown 可无凭据，其他类型需 Vault 引用 | 连接结果 | mock |
-| POST | `/knowledge-sources` | `{ type, url, secret_ref?, spaces, schedule, chunk, inherit_acl }`；公开 HTTPS 单页 Markdown 可无凭据，其他类型需 Vault 引用 | `{ id, status }` | mock |
+| POST | `/knowledge-sources/test` | `{ type, url, secret_ref?, application_id, team_id? }`；当前仅公开 Web Markdown 和服务端精确绑定的 GitLab Markdown 可探测 | 即时只读连接结果；不证明持续健康、同步或索引 | mock |
+| POST | `/knowledge-sources` | `{ name, type, url, secret_ref?, application_id, team_id?, spaces, schedule, chunk, inherit_acl }`；当前仅公开 Web Markdown 和服务端精确绑定的 GitLab Markdown 可登记 | `{ id, status }`；登记不自动同步 | mock |
 
-`GET /runbooks/draft` 目前只有传入真实模板 ID 的 `template` 来源可返回无步骤大纲；对话、复盘和导入来源通过验证后返回 `501 draft_generator_unavailable`。前端尚未为模板、对话和导入入口传 `from`，草稿页仍为 `mock`。`GET /postmortems/draft` 仅拼接有结案证据的事件信息与时间线，影响、根因、行动建议均留空，不是 AI 生成稿；主契约同样保持 `mock`。公开 Web 来源仅支持持久应用绑定、无凭据单页 HTTPS Markdown 的手动观察；其他类型仍需 Vault 引用。V3 实例须显式设置 `AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true` 才能同次保存公开页的有界 UTF-8 正文、哈希、观察身份和修订，未开启时同步返回 501；没有应用归属的登记返回 422。无登记的 `/knowledge-sources/test` 缺持久应用范围，即使开关开启也返回 501。登记、正文切片与归属证据不代表对所有用户公开、向量索引或完整知识来源页接通；前端完整来源 DTO 未接通。
+`GET /runbooks/draft` 目前只有传入真实模板 ID 的 `template` 来源可返回无步骤大纲；对话、复盘和导入来源通过验证后返回 `501 draft_generator_unavailable`。前端尚未为模板、对话和导入入口传 `from`，草稿页仍为 `mock`。`GET /postmortems/draft` 仅拼接有结案证据的事件信息与时间线，影响、根因、行动建议均留空，不是 AI 生成稿；主契约同样保持 `mock`。公开 Web 来源只支持持久应用绑定、无凭据单页 HTTPS Markdown 的即时探测、登记及手动观察；V3 实例须显式设置 `AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true`，未开启时相应读取返回 501。Git Markdown 只支持服务端配置的精确 GitLab HTTPS 仓库、数字项目、分支和 Markdown 路径前缀，凭据由 Vault 绑定读取；`/knowledge-sources/test` 先检查提交的应用/团队身份和当前授权再读取凭据，登记保存不含密钥的绑定指纹，手动同步将固定提交 SHA 的正文与证据一同持久保存，配置漂移、上游失败和读取后撤权均拒绝，详见 [Git Markdown 来源边界](v3-git-markdown-source.md)。两种来源的探测不表示持续健康；登记不自动同步，读取证据不表示向量索引或完整来源页。其余四种冻结来源类型目前明确 501，前端真实模式已禁用相应创建；主 POST 两行及部分 GET 继续 `mock`，真实 GitLab/Vault、浏览器和索引生产者尚未联调。
 
 ## Agent 链路（`traces.ts`）
 
@@ -279,13 +281,15 @@ MCP 审核另有按不可变发现版本执行的三个辅助接口：`GET /mcp-
 | GET | `/service-mappings` | | `ServiceMapping` | implemented |
 | POST | `/service-mappings/accept` | `{ candidates: [{ id, version, service_id, environment_id, system_id, binding_revision }] }` | `{ accepted, items }` | implemented |
 | POST | `/service-mappings/discover` | | `{ suggestions, source_state, candidates }` | implemented |
-| PUT | `/service-mappings` | 完整映射；当前没有可接受的稳定身份与修订请求体 | `501 v3_not_implemented`，不写入 | mock |
+| PUT | `/service-mappings` | `{ environment_id, items: [{ service_id, service_environment_id, binding_revision, bindings }] }`；1–50 个完整替换项 | `{ environment_id, items }`；返回持久身份、绑定及写后修订号 | implemented |
 | GET | `/coverage` | `app` | `CoverageView`（覆盖矩阵、对 Agent 的影响、修复建议） | mock |
 | GET | `/webhooks` | | `WebhookView`（入站、令牌、对外 MCP、出站） | mock |
 | POST | `/webhooks/{id}/redeliver` | | 结果 | mock |
 | POST | `/api-tokens` | `{ name, scopes, ttl }` | `{ id, secret_shown_once }` | mock |
 
-服务映射候选目前仅来自管理员显式绑定的单个 GitLab 数字项目目标，不按标签、名称或部署记录推断。`POST /service-mappings/discover` 在一个环境中核对服务与连接器授权、近期探测和绑定后的激活审计，保存 15 分钟候选并返回 `source_state` 与可复核的候选身份，不直接改服务映射；超过 500 条可见未映射来源返回 422。`POST /service-mappings/accept` 只接受发现或 GET 映射格给出的候选 `id/version/service_id/environment_id/system_id/binding_revision`，在事务中复核候选唯一性、来源身份/修订、当前授权及绑定可用性，并将映射、候选状态与审计一同提交。旧的 `{ cells: ["service:system"] }` 只有展示字符串，无法约束来源和修订，已由候选请求体取代；冻结前端及 `types.ts` 尚未适配。V3 专用校验只允许与已登记来源完全相同的单个 GitLab 项目绑定，其余绑定继续交给原平台校验器；旧平台的全局 GitLab 拒绝规则没有扩大。迁移 `090_v3_service_mapping_candidates.sql` 保存候选；应用环境退役时候选会级联删除，管理审计另记接受决定。激活审计证明绑定时曾核验项目访问，近期通用探测不证明当前仍能访问项目。V3 实例拦截未迁移的旧环境编辑路由，旧模式也不能在已绑定 V3 的数据库上启动。隔离数据库 HTTP 测试覆盖候选、接受与审计，尚无正式进程对真实 GitLab 项目的端到端验收。当前前端保存调用不发送请求体，GET 映射格仅有展示值；已登记的 PUT 在 V3 门禁中明确返回 501，空请求和展示值请求均不修改绑定或审计。前端发现后不刷新、接受前就乐观显示成功，且文案误称来自标签/命名/部署。因此完整 PUT 仍为 `mock`，这两条窄后端路由的 `implemented` 不表示页面完成。
+服务映射候选目前仅来自管理员显式绑定的单个 GitLab 数字项目目标，不按标签、名称或部署记录推断。`POST /service-mappings/discover` 在一个环境中核对服务与连接器授权、近期探测和绑定后的激活审计，保存 15 分钟候选并返回 `source_state` 与可复核的候选身份，不直接改服务映射；超过 500 条可见未映射来源返回 422。`POST /service-mappings/accept` 只接受发现或 GET 映射格给出的候选 `id/version/service_id/environment_id/system_id/binding_revision`，在事务中复核候选唯一性、来源身份/修订、当前授权及绑定可用性，并将映射、候选状态与审计一同提交。旧的 `{ cells: ["service:system"] }` 只有展示字符串，无法约束来源和修订，已由候选请求体取代；冻结前端及 `types.ts` 尚未适配。V3 专用校验只允许与已登记来源完全相同的单个 GitLab 项目绑定，其余绑定继续交给原平台校验器；旧平台的全局 GitLab 拒绝规则没有扩大。迁移 `090_v3_service_mapping_candidates.sql` 保存候选；应用环境退役时候选会级联删除，管理审计另记接受决定。激活审计证明绑定时曾核验项目访问，近期通用探测不证明当前仍能访问项目。V3 实例拦截未迁移的旧环境编辑路由，旧模式也不能在已绑定 V3 的数据库上启动。隔离数据库 HTTP 测试覆盖候选、接受与审计，尚无正式进程对真实 GitLab 项目的端到端验收。
+
+单环境 `GET /service-mappings` 在调用者有当前服务查看/修改及连接器查看/管理权时，为可见行附上包含稳定服务 ID、服务环境 ID、绑定修订和精确绑定的 `save` 快照；不安全的历史绑定仍可展示，但 `save.editable=false`，`all` 视图不提供保存快照。`PUT /service-mappings` 要求一个选定环境、1–50 个不同服务的完整绑定集合，缺失或 `null` 的绑定数组、展示格、重复/未知系统、跨环境对象及过期修订都拒绝；`bindings: []` 明确清空。服务/连接器授权、对象身份和精确 Cookie 会话在事务内复核，变化项的绑定、修订和审计一同提交，无变化项不新增审计。GitLab `code` 绑定仅可原样保留；新增/修改项目必须走候选发现与接受。其他绑定仍需运行时校验，示例见 `docs/examples/v3-service-mapping-save.md`。冻结前端目前发送空 PUT，且发现后不刷新、接受前乐观显示成功，文案误称来自标签/命名/部署；页面保存仍未验收。
 
 Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v1/events/{alert|change|incident|resource|oncall}`，请求头 `Authorization: Bearer`、`Idempotency-Key`、`X-Signature` + `X-Timestamp`；返回 `202 / 409 / 422 / 401`。
 

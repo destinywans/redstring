@@ -1,5 +1,13 @@
 # AIOps Canvas 检查点
 
+## CP-152 · 2026-09-29 · 六条 V3 主路由后端闭合与撤权竞态修复
+
+- 集成分支 `codex/wan-117-v3-integration` 从已推送的 `02ad9f6` 接续。WAN-121 画布列表/创建来源 `7308ac7` 合入 `f6c6ee9`，OpenAPI `875fede`；WAN-118 规则 dry-run 来源 `d512eb8` 合入 `920ccde`；WAN-120 映射候选来源 `b505394` 合入 `5a3e519`；WAN-124 四类只读配置同步来源 `528f1ba` 合入 `43b4bf9`。独立复核后的 WAN-121 调查归属并发读锁 `592b469`、WAN-124 远端读取后全局管理员及 Cookie 会话重核 `78654db`、WAN-120 接受候选最终实时过期检查和发现/接受的会话锁 `6daac5b` 已提交。OpenAPI、主契约、就绪矩阵与实施计划提交 `b984fba59b5f561c2bb58ebb52df84604bac6b38` 已普通推送到原私有分支，`git ls-remote` 回读一致；这不表示合并或部署。
+- `GET/POST /canvases` 合并本人私人画布与按当前应用/团队、环境授权的持久调查，并创建带审计的通用画布或单服务调查；历史调查缺创建者时不编造参与者。调查负责人团队变更期间的列表读取以同一事务锁定来源行；可选 AI 草稿只读用户输入并拒绝工具，不代表真实取证。冻结新建页发送三个固定服务，调查创建会 422；调查详情仍缺。
+- `POST /alert-rules/{id}/dry-run` 对当前有权、服务端绑定规则的精确表达式执行六小时 Prometheus `query_range` 采样模拟；输出序列必须自带精确应用/环境标签，查询后复核规则、负责人和授权。它不复现 `query_offset`、`keep_firing_for` 或实际历史通知，也不能单靠输出标签证明 PromQL 输入隔离；部署仍需可信规则配置和上游租户边界。冻结页发送 `threshold/for_minutes`，当前后端要求 `expr/for`。
+- `POST /service-mappings/discover` 仅把明确登记的单个 GitLab 数字项目写成 15 分钟可复核候选；`accept` 要求候选 ID、版本、服务/环境/系统和绑定修订，过期/错绑拒绝，并在事务内提交绑定、候选状态与审计。旧 `{ cells }` 展示字符串已由安全请求体取代；冻结前端类型/Mock/页面尚未适配，完整映射 PUT 仍 501。`GET /config-sync` 四类只读列表逐条核签名清单与来源，远端读取后重核权限和会话；其余三类导出/导入仍 501，生产模板导入及实际配置仓库治理仍待验收。生产 `merged` 状态与冻结页面仅对 `pending` 显示导入入口不符。
+- 一次性 `pgvector/pgvector:0.8.6-pg17` 随机端口中，`v3canvas` 列表/创建、`v3configsync` 远端读取撤权、`v3catalog` 映射过期/会话锁等待、`v3alertrules` dry-run 及 `cmd/aiops` 的受影响 `go test -p 1 -race` 均通过，容器已清理；受影响 Go vet 用隔离 GOCACHE 通过。OpenAPI 重建为 **280 路径、336 操作、254 schema**；`check-contract.py`、`check-v3-contract.py`、`check-v3-readiness.py`、路由矩阵及差异检查通过。主契约 **53/166 `implemented`、113 `mock`**。未运行全量测试、前端构建、现有业务库迁移、真实 Prometheus/GitLab 或产品浏览器验收。下一步按独立来源 SHA 收拢 WAN-119 角色详情，WAN-122 模型环境绑定须核实际对话/画布/后台执行接线；每批仍先看源和定向证据。
+
 ## CP-151 · 2026-09-29 · 六条主路由后端闭合与模型观察辅助接口
 
 - 集成分支 `codex/wan-117-v3-integration` 从上次远端 `5b04931` 接续。WAN-119 `/me` 来源 `151e4cf`、`8c2f2a3`、`e6ad636` 合入为 `9a610de`、`f6fab2c`、`28718ce`；集成 `f2d310b` 将本实例 MFA/passkey 命名空间和可选 HTTPS 权威值班源真正注入 V3 启动。GET/PATCH 返回账号、组织、角色、已登记因子、偏好与新鲜值班证据；PATCH 仅允许本人资料白名单，事务内重核会话/授权并原子保存审计。未配置或失效的权威值班源返回 503，现有部署还没有真实值班服务接线，页面未验收。

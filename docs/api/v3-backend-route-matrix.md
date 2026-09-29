@@ -146,7 +146,7 @@
 | Agent 运行台 | POST | `/prompts/{id}/versions` | 新增 | mock |
 | Agent 运行台 | GET | `/agent-tools` | 新增 | mock |
 | Agent 运行台 | GET | `/evals/{id}` | 新增 | mock |
-| Agent 运行台 | POST | `/evals` | 新增 | mock |
+| Agent 运行台 | POST | `/evals` | 新增 | implemented |
 | Agent 运行台 | GET | `/eval-cases/{id}` | 新增 | mock |
 | Agent 运行台 | POST | `/eval-cases/{id}/labels` | 新增 | mock |
 | Agent 运行台 | GET | `/agent-runs` | 聚合 | mock |

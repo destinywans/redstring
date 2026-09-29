@@ -292,7 +292,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | POST | `/prompts/{id}/versions` | `{ text }` | `{ version }`（`vN`） | mock |
 | GET | `/agent-tools` | `kind: all\|read\|write` | `ToolsView` | mock |
 | GET | `/evals/{id}` | | `EvalExperiment` | mock |
-| POST | `/evals` | `{ agent_id, title, baseline_version, candidate_version }` | `{ id, status: "pending", execution_available: false }`，未启动评测 | mock |
+| POST | `/evals` | `{ agent_id, title, baseline_version, candidate_version }` | `{ id, status: "pending", execution_available: false }`，未启动评测 | implemented |
 | GET | `/eval-cases/{id}` | | `EvalCase` | mock |
 | POST | `/eval-cases/{id}/labels` | `{ next: correct\|incorrect\|partial\|unsure, note? }` | `{ next, id }` | mock |
 | GET | `/agent-runs` | `filter: all\|failed\|blocked\|negative` | `RunsView` | mock |
@@ -301,7 +301,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | GET | `/guardrails` | `filter: all\|blocked\|masked` | `GuardrailsView` | mock |
 | PATCH | `/guardrails/{id}` | `{ enabled }`（强制规则不可关闭） | 结果 | mock |
 
-Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评测、发布意图、反馈和护栏设置；尚无评测执行器、流量路由消费者、Prompt trial 或完整运行/护栏观测生产者。Prompt 列表只返回有真实版本的已授权记录，支持最多 160 字符的 `q`，超过 200 条可见项返回 413；详情在同一读取事务中核对 Agent、归属、授权和正文，真实正文与 `vN` 可回读，但发布状态、运行时使用关系和说明均明确为部分/未知，不冒充完整前端 DTO。`POST /prompts/{id}/versions` 对已登记且当前有权的 Prompt 原样保存非空白文本，按 `vN` 返回版本，审计与修订同事务；生产构造尚未登记 Prompt，前端默认 ID 在新库无法成功写入，因此读写主路由仍为 `mock`。`POST /prompts/{id}/trial` 明确返回 `503 prompt_trial_unavailable`，`POST /evals` 只创建 `pending` 元数据，发布和回滚不改变真实流量。部分读取返回 `null`、`partial: true` 或“未接入”；现有前端对 `score`、发布 token/门禁、评测、Trace、运行统计的 DTO 与请求体尚不兼容，不能直接切换 HTTP 模式。管理员门禁放行另需非空 `override_reason`，现有前端未提交；相关主契约行继续为 `mock`。
+Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评测、发布意图、反馈和护栏设置；尚无评测执行器、流量路由消费者、Prompt trial 或完整运行/护栏观测生产者。Prompt 列表只返回有真实版本的已授权记录，支持最多 160 字符的 `q`，超过 200 条可见项返回 413；详情在同一读取事务中核对 Agent、归属、授权和正文，真实正文与 `vN` 可回读，但发布状态、运行时使用关系和说明均明确为部分/未知，不冒充完整前端 DTO。`POST /prompts/{id}/versions` 对已登记且当前有权的 Prompt 原样保存非空白文本，按 `vN` 返回版本，审计与修订同事务；生产构造尚未登记 Prompt，前端默认 ID 在新库无法成功写入，因此读写主路由仍为 `mock`。`POST /prompts/{id}/trial` 明确返回 `503 prompt_trial_unavailable`；发布和回滚不改变真实流量。`POST /evals` 的主契约仅要求保存 `pending` 元数据：后端已校验目标 Agent、两条已登记且不同的版本、当前应用/环境与授权，并在同一事务保存记录及审计，返回 `{ id, status: "pending", execution_available: false }`，故按后端接口判据标为 `implemented`。它不排队或执行评测；冻结前端重跑发送空请求体却提示“已排队”，不能切换 HTTP 或视为页面验收。创建事务锁定账号与授权来源，但未锁当前 Cookie 会话，并发注销与在途创建的顺序尚未专测，不能承诺注销后立即取消所有在途请求。其他部分读取返回 `null`、`partial: true` 或“未接入”；现有前端对 `score`、发布 token/门禁、评测详情、Trace、运行统计的 DTO 与请求体尚不兼容。管理员门禁放行另需非空 `override_reason`，现有前端未提交；这些未闭合主行继续为 `mock`。
 
 `GET /evals/{id}` 现在只读已保存的部分评测记录：同一事务锁定评测、Agent、有效应用/环境和当前授权，并以创建审计核对原始归属；缺审计或 Agent 改属的历史记录隐藏。`metrics` 仅在有可信结果记录时返回已保存值，待执行状态不合成分数；`radar`、用例输出和数据集仍无生产者，所以完整 `EvalExperiment` 继续 `mock`。大量同应用审计记录的目标查找尚缺专用索引和规模验证。
 

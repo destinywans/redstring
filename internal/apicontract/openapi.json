@@ -31336,7 +31336,7 @@
       "post": {
         "summary": "Create governed runbook draft",
         "operationId": "post_runbooks",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires scoped knowledge:manage grant. A nonblank source requires a validated reference; blank forbids one. Template IDs are registered server-side; imports require a nonempty Markdown upload owned by the current user in the selected environment. Conversations are checked in the same transaction; postmortem source remains unavailable. No source reference is trusted solely because the client provided an ID.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires scoped knowledge:manage grant. A nonblank source requires a validated reference; blank forbids one. Template IDs are registered server-side; imports require a nonempty Markdown upload owned by the current user in the selected environment. Conversations are checked in the same transaction. A published postmortem in the selected environment has a creation-source path with current source access checks, while the separate postmortem draft generator still returns 501. The frozen creation flow and transaction authorization/source-state checks remain incomplete, so this main operation stays mock. No source reference is trusted solely because the client provided an ID.",
         "responses": {
           "201": {
             "description": "Success",

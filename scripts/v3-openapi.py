@@ -792,7 +792,7 @@ v3_route('post','/runbooks','Create governed runbook draft',
     body=obj({'title':string(),'source':string(enum=['blank','template','postmortem','conversation','import']),
         'from':string(),'steps':arr(ref('V3RunbookCreateStep')),
         'status':string(enum=['draft','review'])},['title','source']),response=obj({'id':string()},['id']),status=201,
-    desc='Requires scoped knowledge:manage grant. A nonblank source requires a validated reference; blank forbids one. Template IDs are registered server-side; imports require a nonempty Markdown upload owned by the current user in the selected environment. Conversations are checked in the same transaction; postmortem source remains unavailable. No source reference is trusted solely because the client provided an ID.')
+    desc='Requires scoped knowledge:manage grant. A nonblank source requires a validated reference; blank forbids one. Template IDs are registered server-side; imports require a nonempty Markdown upload owned by the current user in the selected environment. Conversations are checked in the same transaction. A published postmortem in the selected environment has a creation-source path with current source access checks, while the separate postmortem draft generator still returns 501. The frozen creation flow and transaction authorization/source-state checks remain incomplete, so this main operation stays mock. No source reference is trusted solely because the client provided an ID.')
 v3_route('post','/runbooks/{id}/submit','Submit runbook for review',
     desc='Requires scoped knowledge:manage grant and maintainer ownership.',
     response=obj({'ok':v3_bool(),'status':string(enum=['review'])}))

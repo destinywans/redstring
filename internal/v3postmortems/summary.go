@@ -1,6 +1,7 @@
 package v3postmortems
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -22,6 +23,7 @@ type PostmortemSummary struct {
 	ImpactByService []any         `json:"impact_by_service"`
 	Followups       []any         `json:"followups"`
 	CompleteV3DTO   bool          `json:"complete_v3_dto"`
+	Partial         bool          `json:"partial"`
 	UnknownFields   []string      `json:"unknown_fields"`
 	Page            int           `json:"page"`
 	PageSize        int           `json:"page_size"`
@@ -37,17 +39,17 @@ type summaryKPI struct {
 }
 
 type summaryItem struct {
-	ID             string `json:"id"`
-	Title          string `json:"title"`
-	Severity       string `json:"severity"`
-	Date           string `json:"date"`
-	Duration       string `json:"duration"`
-	Cause          string `json:"cause"`
-	RootCause      string `json:"root_cause,omitempty"`
-	Actions        string `json:"actions"`
-	Status         string `json:"status"`
-	WorkflowStatus string `json:"workflow_status"`
-	IncidentID     string `json:"incident_id"`
+	ID             string  `json:"id"`
+	Title          string  `json:"title"`
+	Severity       *string `json:"severity"`
+	Date           string  `json:"date"`
+	Duration       *string `json:"duration"`
+	Cause          string  `json:"cause"`
+	RootCause      *string `json:"root_cause"`
+	Actions        string  `json:"actions"`
+	Status         string  `json:"status"`
+	WorkflowStatus string  `json:"workflow_status"`
+	IncidentID     string  `json:"incident_id"`
 }
 
 const summarySQL = `SELECT pm.id,pm.incident_id,pm.status,pm.created_by,
@@ -64,7 +66,8 @@ const summarySQL = `SELECT pm.id,pm.incident_id,pm.status,pm.created_by,
    AND closed.type='investigation.closed'
  WHERE pm.environment_id=ANY($1::text[])
    AND ($2::timestamptz IS NULL OR (pm.created_at,pm.id)<($2::timestamptz,$3::text))
- ORDER BY pm.created_at DESC,pm.id DESC LIMIT 256`
+ ORDER BY pm.created_at DESC,pm.id DESC LIMIT 256
+ FOR SHARE OF pm,i,a,e,ve,closed`
 
 type summaryRow struct {
 	id, incident, status, author, app, team, env, title, rawSeverity string
@@ -100,11 +103,20 @@ func (s *Service) Summary(w http.ResponseWriter, r *http.Request) {
 	all := make([]summaryItem, 0)
 	filtered := make([]summaryItem, 0)
 	var resolutionSeconds float64
+	validDurations := 0
+	unknownSeverity, unknownDuration, unknownRootCause := false, false, false
 	var cursor *time.Time
 	cursorID := ""
 	user := httpapi.CurrentUser(r)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	tx, ok := s.beginPostmortemRead(w, r, ctx)
+	if !ok {
+		return
+	}
+	defer tx.Rollback(ctx)
 	for {
-		rows, err := s.DB.Query(r.Context(), summarySQL, scope.EnvironmentIDs, cursor, cursorID)
+		rows, err := tx.Query(ctx, summarySQL, scope.EnvironmentIDs, cursor, cursorID)
 		if err != nil {
 			httpapi.Error(w, 503, "postmortems_unavailable", "Postmortem records unavailable")
 			return
@@ -128,7 +140,7 @@ func (s *Service) Summary(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, v := range batch {
-			if err = s.authorize(r.Context(), user, v.app, v.team, v.env, "view"); err != nil {
+			if err = s.authorizeTx(ctx, tx, user, v.app, v.team, v.env, "view"); err != nil {
 				if errors.Is(err, store.ErrForbidden) {
 					continue
 				}
@@ -136,7 +148,7 @@ func (s *Service) Summary(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if v.status != "published" && v.author != user.ID {
-				if err = s.authorizeModule(r.Context(), user, v.app, v.team, v.env, "knowledge", "manage"); err != nil {
+				if err = s.authorizeModuleTx(ctx, tx, user, v.app, v.team, v.env, "knowledge", "manage"); err != nil {
 					if errors.Is(err, store.ErrForbidden) {
 						continue
 					}
@@ -145,36 +157,50 @@ func (s *Service) Summary(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			sev, valid := severity(v.rawSeverity)
-			if !valid || v.closed.Before(v.started) {
-				httpapi.Error(w, 503, "source_unavailable", "Incident severity or close time cannot be represented")
-				return
+			var visibleSeverity *string
+			if valid {
+				visibleSeverity = &sev
+			} else {
+				unknownSeverity = true
+			}
+			var visibleDuration *string
+			if !v.closed.Before(v.started) {
+				value := duration(v.started, v.closed)
+				visibleDuration = &value
+				resolutionSeconds += v.closed.Sub(v.started).Seconds()
+				validDurations++
+			} else {
+				unknownDuration = true
 			}
 			var sections []Section
-			var actions []Action
-			if json.Unmarshal(v.sections, &sections) != nil || json.Unmarshal(v.actions, &actions) != nil || sections == nil || actions == nil {
-				httpapi.Error(w, 503, "source_unavailable", "Postmortem sections or actions are invalid")
-				return
+			var rootCause *string
+			if json.Unmarshal(v.sections, &sections) != nil || sections == nil {
+				unknownRootCause = true
 			}
-			rootCause := ""
 			for _, section := range sections {
 				if section.Key == "root" && strings.TrimSpace(section.Text) != "" {
-					rootCause = section.Text
+					text := section.Text
+					rootCause = &text
 					break
 				}
 			}
-			actionStatus := "unknown / " + strconv.Itoa(len(actions))
-			if len(actions) == 0 {
-				actionStatus = "0 / 0"
+			if rootCause == nil {
+				unknownRootCause = true
 			}
+			var actions []json.RawMessage
+			if json.Unmarshal(v.actions, &actions) != nil || actions == nil {
+				httpapi.Error(w, 503, "source_unavailable", "Postmortem action count is unavailable")
+				return
+			}
+			actionStatus := "unknown / " + strconv.Itoa(len(actions))
 			status := v.status
 			if status == "review" {
 				status = "draft" // V3's two-state display treats unapproved review as unpublished.
 			}
-			item := summaryItem{ID: v.id, IncidentID: v.incident, Title: v.title, Severity: sev,
-				Date: v.closed.UTC().Format(time.RFC3339), Duration: duration(v.started, v.closed),
+			item := summaryItem{ID: v.id, IncidentID: v.incident, Title: v.title, Severity: visibleSeverity,
+				Date: v.closed.UTC().Format(time.RFC3339), Duration: visibleDuration,
 				Cause: "Unknown", RootCause: rootCause, Actions: actionStatus, Status: status, WorkflowStatus: v.status}
 			all = append(all, item)
-			resolutionSeconds += v.closed.Sub(v.started).Seconds()
 			if len(all) > 1000 {
 				httpapi.Error(w, 413, "scope_too_large", "Postmortem collection exceeds the dashboard response limit")
 				return
@@ -190,6 +216,14 @@ func (s *Service) Summary(w http.ResponseWriter, r *http.Request) {
 		cursor = &last.created
 		cursorID = last.id
 	}
+	if err := postmortemReadSession(ctx, tx, r); err != nil {
+		postmortemReadError(w, err)
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		httpapi.Error(w, 503, "postmortems_unavailable", "Postmortem snapshot could not be completed")
+		return
+	}
 	start := (page - 1) * pageSize
 	if start > len(filtered) {
 		start = len(filtered)
@@ -198,15 +232,33 @@ func (s *Service) Summary(w http.ResponseWriter, r *http.Request) {
 	if end > len(filtered) {
 		end = len(filtered)
 	}
-	kpis := []summaryKPI{{ID: "postmortem_count", Label: "Visible postmortems", Value: strconv.Itoa(len(all)), Series: []float64{}}}
-	if len(all) > 0 {
+	// Values are computed from this authorized snapshot. No time-series
+	// producer exists, so each KPI's series remains null.
+	kpis := []summaryKPI{{ID: "postmortem_count", Label: "Visible postmortems", Value: strconv.Itoa(len(all))}}
+	if validDurations > 0 {
 		kpis = append(kpis, summaryKPI{ID: "reported_mttr", Label: "Mean resolution, reported incidents",
-			Value: strconv.FormatFloat(resolutionSeconds/60/float64(len(all)), 'f', 1, 64), Unit: "min", Series: []float64{}})
+			Value: strconv.FormatFloat(resolutionSeconds/60/float64(validDurations), 'f', 1, 64), Unit: "min"})
+	}
+	unknown := []string{"kpis.series", "cause_category_distribution", "impact_minutes_by_service", "action_completion", "outstanding_followups", "mtta", "recurrence_rate"}
+	if validDurations == 0 {
+		unknown = append(unknown, "reported_mttr")
+	}
+	if validDurations != len(all) {
+		unknown = append(unknown, "reported_mttr_coverage")
+	}
+	if unknownSeverity {
+		unknown = append(unknown, "items.severity")
+	}
+	if unknownDuration {
+		unknown = append(unknown, "items.duration")
+	}
+	if unknownRootCause {
+		unknown = append(unknown, "items.root_cause")
 	}
 	httpapi.WriteJSON(w, 200, PostmortemSummary{
-		KPIs: kpis, Items: filtered[start:end], Causes: []any{}, ImpactByService: []any{}, Followups: []any{},
-		CompleteV3DTO: false,
-		UnknownFields: []string{"cause_category_distribution", "impact_minutes_by_service", "action_completion", "outstanding_followups", "mtta", "recurrence_rate"},
+		KPIs: kpis, Items: filtered[start:end], Causes: nil, ImpactByService: nil, Followups: nil,
+		CompleteV3DTO: false, Partial: true,
+		UnknownFields: unknown,
 		Page:          page, PageSize: pageSize, Total: len(filtered),
 	})
 }

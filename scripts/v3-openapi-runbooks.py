@@ -116,26 +116,27 @@ P['/runbooks/{id}/history']['get']['responses']['413'] = {
     'description':'Runbook history exceeds 100 rows in any unpaged collection',
     'content':{'application/json':{'schema':ref('Error')}}}
 S['V3PostmortemDashboardKPI'] = obj({'id':string(),'label':string(),'value':string(),
-    'unit':string(),'series':arr(v3_num())},['id','label','value','series'])
+    'unit':string(),'series':{'oneOf':[arr(v3_num()),{'type':'null'}]}},['id','label','value','series'])
 S['V3PostmortemDashboardItem'] = obj({**fieldnames('id title date duration cause root_cause actions incident_id'),
-    'severity':string(enum=['P1','P2','P3','P4']),
+    'severity':{'oneOf':[string(enum=['P1','P2','P3','P4']),{'type':'null'}]},
+    'duration':{'type':['string','null']},'root_cause':{'type':['string','null']},
     'status':string(enum=['draft','published']),
     'workflow_status':string(enum=['draft','review','published'])},
-    ['id','title','severity','date','duration','cause','actions','status','workflow_status','incident_id'])
+    ['id','title','severity','date','duration','cause','root_cause','actions','status','workflow_status','incident_id'])
 v3_route('get','/postmortems','Read scoped persisted postmortem dashboard evidence',
     query=[v3_query('tab',string(enum=['all','draft','review','published'])),v3_query('q'),
            v3_query('page',integer(minimum=1,maximum=1000)),
            v3_query('page_size',integer(minimum=1,maximum=1000))],
     response=obj({'kpis':arr(ref('V3PostmortemDashboardKPI')),
         'items':arr(ref('V3PostmortemDashboardItem')),
-        'causes':arr({'type':'object','additionalProperties':True}),
-        'impact_by_service':arr({'type':'object','additionalProperties':True}),
-        'followups':arr({'type':'object','additionalProperties':True}),
-        'complete_v3_dto':{'const':False},'unknown_fields':arr(string()),
+        'causes':{'oneOf':[arr({'type':'object','additionalProperties':True}),{'type':'null'}]},
+        'impact_by_service':{'oneOf':[arr({'type':'object','additionalProperties':True}),{'type':'null'}]},
+        'followups':{'oneOf':[arr({'type':'object','additionalProperties':True}),{'type':'null'}]},
+        'complete_v3_dto':{'const':False},'partial':{'const':True},'unknown_fields':arr(string()),
         'page':integer(minimum=1),'page_size':integer(minimum=1),'total':integer(minimum=0)},
-        ['kpis','items','causes','impact_by_service','followups','complete_v3_dto',
+        ['kpis','items','causes','impact_by_service','followups','complete_v3_dto','partial',
          'unknown_fields','page','page_size','total']),
-    desc='Reads persisted reports, registered incident scope and exact closing event, then checks current events:view and knowledge:view on each object; unpublished reports additionally require the author or knowledge:manage. Visible records supply title, severity, close date, duration, action count and recorded root text. The unknown cause category is labeled Unknown, never inferred from prose. KPIs count visible reports and mean resolution time only for those reported incidents. Cause categories, action completion, impact minutes, MTTA and recurrence lack producers, so arrays remain empty and complete_v3_dto=false. This partial main-route response does not meet the frozen dashboard DTO. More than 1000 visible records returns 413.')
+    desc='Reads persisted reports, registered incident scope and exact closing event in one repeatable snapshot with current session and role grant locks, then checks events:view and knowledge:view on each object; unpublished reports additionally require the author or knowledge:manage. Visible records supply title, close date, recorded workflow status and action total; invalid severity or duration and absent root text are nullable instead of blocking other valid reports. The unknown cause category is labeled Unknown, never inferred from prose. KPI values count visible reports and mean resolution time only for valid reported durations; time series have no producer and remain null. Cause categories, action completion, impact minutes, MTTA and recurrence lack producers, so those collections are null and complete_v3_dto=false. This partial main-route response does not meet the frozen dashboard DTO. More than 1000 visible records returns 413.')
 P['/postmortems']['get']['responses']['413'] = {
     'description':'More than 1000 visible reports exceed the bounded dashboard view',
     'content':{'application/json':{'schema':ref('Error')}}}
@@ -175,9 +176,12 @@ v3_route('get','/postmortems/draft','Read an evidence-only postmortem starting p
         'sections':arr(ref('V3PostmortemSectionInput')),
         'timeline':arr(obj({**fieldnames('at text tone')},['at','text','tone'])),
         'actions':arr(ref('V3PostmortemActionInput')),
-        'draft_mode':string(enum=['evidence_only']),'missing':arr(string())},
-        ['incident','sections','timeline','actions','draft_mode','missing']),
-    desc='Partial main-contract operation. Uses a resolved incident and persisted close/report evidence, leaving impact, root cause and action recommendations blank. It does not generate the AI-drafted page. More than 200 timeline rows returns 413.')
+        'source_close_event_seq':integer(minimum=1),
+        'draft_mode':string(enum=['evidence_only']),'complete_v3_dto':{'const':False},
+        'partial':{'const':True},'missing':arr(string())},
+        ['incident','sections','timeline','actions','source_close_event_seq','draft_mode',
+         'complete_v3_dto','partial','missing']),
+    desc='Partial main-contract operation. A repeatable snapshot with session and role grant locks uses a resolved incident and the earliest exact persisted close event plus its investigation report. source_close_event_seq identifies the observed closing event; saving rechecks the current source independently. Impact, root cause and action recommendations remain blank. This does not generate the AI-drafted page. More than 200 timeline rows returns 413.')
 P['/postmortems/draft']['get']['responses']['413'] = {
     'description':'Incident evidence timeline exceeds 200 events',
     'content':{'application/json':{'schema':ref('Error')}}}

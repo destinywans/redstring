@@ -330,6 +330,13 @@ func (s *Service) startTurn(ctx context.Context, id, owner, env, author, session
 		return Message{}, "", err
 	}
 	attachmentSnapshot := ""
+	hasAttachmentContext := len(input.Attachments) > 0
+	if !hasAttachmentContext {
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_conversation_messages
+			WHERE conversation_id=$1 AND attachment_context<>'')`, id).Scan(&hasAttachmentContext); err != nil {
+			return Message{}, "", err
+		}
+	}
 	if len(input.Attachments) > 0 {
 		texts, err := v3uploads.LoadTextAttachmentsTx(ctx, tx, owner, env, input.Attachments, maxAttachmentSourceBytes)
 		if err != nil {
@@ -339,6 +346,10 @@ func (s *Service) startTurn(ctx context.Context, id, owner, env, author, session
 		if err != nil {
 			return Message{}, "", err
 		}
+	}
+	// A later text-only turn still replays earlier private attachment snapshots.
+	// Reject it before 202 if a smaller selected model cannot fit that history.
+	if hasAttachmentContext {
 		if model.InputBudget <= modelInputReserveBytes {
 			return Message{}, "", v3uploads.ErrAttachmentContextTooLarge
 		}

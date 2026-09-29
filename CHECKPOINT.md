@@ -1,5 +1,12 @@
 # AIOps Canvas 检查点
 
+## CP-140 · 2026-09-29 · WAN-121 私有文本附件快照与对话窄链路
+
+- WAN-121 来源 `a8e8deae43972c61931f42e4fe2dcd8dcbc9334a` 在本地集成分支 `codex/wan-117-v3-integration` 合入为 `b5cfc89`；仅改 `internal/v3conversation`、`internal/v3uploads`、对应测试及迁移 `086_v3_conversation_attachment_context.sql`，未改前端。`cmd/aiops/v3.go` 原已把 `uploads.ValidateAttachments` 接到对话选项，合入后沿用此接线。迁移给旧消息空附件快照，新回合在同一事务复核会话、所有者、环境、完整上传引用、文本类型与总正文上限，再把原文限制为仅供模型读取的有界私有快照；公开消息仍只有正文与引用，后续模型回合使用已保存快照而不重抓上传。图片、链接、PDF 等有效附件明确 422，非法/越界引用 422，预算过大 413，不会在失败时持久化用户回合。
+- 独立只读审查发现带附件的回合有入队预算预检，但后续纯文本回合会重放旧快照而未预检。集成在有历史附件快照时也按当前选定模型预算于建回合前拒绝，并将切换小模型的回归加入现有注册 HTTP/SSE 测试。对话 SSE 的 `authorizeReplay` 连接与逐批核权来自已有集成提交，合入时保持，未回退。冻结前端长粘贴会改写上传响应 `name`，与后端完整引用核对冲突；文件上传 XHR 没带必需的环境头；图片、链接和 PDF 未进入模型，前端失败收尾未验收。这些均未在本轮后端范围修改。主消息 POST 与 SSE 均保留 `mock`，总数仍 **36/166 `implemented`**；不把文本附件局部能力当作全部 Upload 契约或页面验收。
+- 一次性隔离 PG17 中 `TestLoadTextAttachmentsTx`、`TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect`（含断线、模型输入、下一轮快照和预算回归）及调用正式 `Store.Migrate` 的 `TestConversationListRealMigrationGrantAndPinyin` 定向通过；`cmd/aiops` 编译，`v3uploads`/`v3conversation`/`cmd/aiops` 的 `go vet`、322 个注册 OpenAPI 操作、165 行主契约、V3 路由矩阵及差异检查通过。容器已清理；未对现有业务库执行迁移、调用真实模型或做浏览器/产品验收。OpenAPI 与文字契约已把原先“所有附件 422”的过时表述更新为准确的文本子集和错误边界。
+- 同一公共接线文档批次校正 `internal/v3mfa/README.md` 已注册可选路由的事实，以及指标样本查询对 `connectors.view` 的显式要求。WAN-122 领域会话仍在处理独立复核指出的“有权服务但无 `connectors.view` 被当作无来源”的错误映射，本检查点不声称该修复已经合入。私有 GitHub 推送既有自动审批阻断，本轮不推送或通过跨会话消息代传非公开代码；本地与远端状态以实际 Git 回读为准。
+
 ## CP-139 · 2026-09-29 · WAN-120/122 指标窄链路与 WAN-124 可选账户 TOTP
 
 - 本地集成分支 `codex/wan-117-v3-integration` 顺序合入 WAN-122 来源 `75420ed` 为 `fcb949b`、WAN-120 来源 `2512144` 为 `8df6223`、WAN-124 来源 `c23f962` 为 `121e7f1`。迁移 `060_v3_prometheus_metric_targets.sql` 允许显式 Prometheus `metric_resource` 目标，迁移 `122_v3_mfa_totp.sql` 保存加密 TOTP 因子与哈希恢复码；两者只在一次性隔离 PG17 中执行验证，未迁移现有业务库。

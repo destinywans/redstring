@@ -24457,7 +24457,7 @@
       "post": {
         "summary": "Start a durable assistant reply",
         "operationId": "post_conversations_id_messages",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. A second concurrent reply is rejected with 409. The user message is durable before 202. Current model requests contain text only: any valid attachment reference returns 422 attachment_model_unsupported before a turn is created; invalid references also fail before persistence. Start and terminal writes recheck the persisted owner, environment, initiating session and current V3 conversation authorization in their transactions. A revoked terminal turn drops partial output rather than saving it. Provider usage in message.completed.run is optional and must not be inferred when unavailable.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. A second concurrent reply is rejected with 409. The user message is durable before 202. Persisted uploads are rechecked inside the turn transaction for exact reference metadata, owner, environment, supported text type, UTF-8 content and an aggregate 16 KiB source limit. Paste and .txt/.log/.md/.csv/.json/.yaml/.yml files enter a private bounded model-only text snapshot; public message parts keep references without uploaded bytes. Images, links, PDFs and other unsupported types return 422 before a turn is created; invalid references return 422 and excessive attachment or model context returns 413. The snapshot remains in later model context without refetching the upload; a later text-only turn with attachment history also checks the selected model budget before persistence. Start and terminal writes recheck the persisted owner, environment, initiating session and current V3 conversation authorization in their transactions. A revoked terminal turn drops partial output rather than saving it. Provider usage in message.completed.run is optional and must not be inferred when unavailable. This text-only slice does not establish support for every frontend Upload kind.",
         "responses": {
           "202": {
             "description": "Success",
@@ -24541,6 +24541,16 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "Attachment source or model input budget exceeded before turn persistence",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -24588,8 +24598,7 @@
                   "attachments": {
                     "type": "array",
                     "items": {
-                      "type": "object",
-                      "additionalProperties": true
+                      "$ref": "#/components/schemas/V3Upload"
                     }
                   }
                 },
@@ -38629,7 +38638,7 @@
       "get": {
         "summary": "Read bounded registered Prometheus metric samples",
         "operationId": "get_metrics_samples",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read for one selected environment and a persisted service with exactly one explicit V3 Prometheus metric-resource target. Requires current services.view and an enabled query_metrics tool. The query ID maps to an operator-reviewed exact connector/application/environment/resource PromQL catalog entry; identifiers do not prove expression data scope. A bounded 15-minute, 30-second-step scalar range read rechecks binding and authorization after the provider returns. Returns at most 32 samples with no labels, raw expression, endpoint or credential. Missing source/catalog returns 503; ambiguous or changed binding returns 409; invalid request/environment returns 422. This does not complete the MetricsDashboard page.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read for one selected environment and a persisted service with exactly one explicit V3 Prometheus metric-resource target. Requires current services.view and connectors.view plus an enabled query_metrics tool. The query ID maps to an operator-reviewed exact connector/application/environment/resource PromQL catalog entry; identifiers do not prove expression data scope. A bounded 15-minute, 30-second-step scalar range read rechecks binding and authorization after the provider returns. Returns at most 32 samples with no labels, raw expression, endpoint or credential. Missing source/catalog returns 503; ambiguous or changed binding returns 409; invalid request/environment returns 422. This does not complete the MetricsDashboard page.",
         "responses": {
           "200": {
             "description": "Success",

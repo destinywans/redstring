@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -374,6 +375,12 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 			t.Fatalf("worker did not complete after SSE disconnect: %s", state)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	// Even without a new attachment, a smaller model must reject the replayed
+	// private snapshot before accepting a durable turn.
+	if _, _, err := chat.startTurn(ctx, "stream-conv", "stream-owner", "test", "Stream Owner",
+		store.Hash("stream-session"), TurnInput{Text: "next"}, inference.Model{ID: "test-model", InputBudget: modelInputReserveBytes + 1}); !errors.Is(err, v3uploads.ErrAttachmentContextTooLarge) {
+		t.Fatalf("text-only follow-up with oversized attachment history: %v", err)
 	}
 	response, err = client.Do(request(http.MethodGet, url+"/events", "", fmt.Sprint(cursor), nil, true))
 	if err != nil {

@@ -2,11 +2,10 @@
 
 This package owns migration `122_v3_mfa_totp.sql` and optional self-account HTTP
 routes. It does not authenticate a login, issue a step-up token, or satisfy
-`assurance=passkey` for approvals. The integration layer must explicitly create
-`Service`, configure V3 instance/environment middleware, and call `Register`
-before serving requests. Until then, these routes are not served by
-`cmd/aiops`, and the V3 `/me`, `/security`, and `/members` contracts remain
-unchanged.
+`assurance=passkey` for approvals. `cmd/aiops` registers the six auxiliary
+routes only when V3 is enabled and `AIOPS_V3_MFA_KEY_FILE` points to a valid
+persistent key; an invalid configured key prevents V3 startup. The V3 `/me`,
+`/security`, and `/members` contracts remain unchanged.
 
 ## Key and storage contract
 
@@ -54,11 +53,10 @@ from access logs and telemetry.
 | `POST /api/v1/me/mfa/verify` | `{ "code": "..." }`; consumes one TOTP step or recovery code, returns per-call verification only. |
 | `DELETE /api/v1/me/mfa/totp` | `{ "code": "..." }`; fresh login plus valid TOTP or recovery code removes the active factor. |
 
-The caller should integrate the key through a private file path in V3 startup
-configuration, then add the route and OpenAPI contract. These shared files are
-owned by the integration task. Do not claim `/me` or `/security` is complete
-just because this factor service exists. Enrollment is optional at this layer;
-no MFA login policy is installed here.
+The V3 startup configuration loads the key from a private file path and the
+OpenAPI contract records these optional routes. Do not claim `/me` or
+`/security` is complete just because this factor service exists. Enrollment
+is optional at this layer; no MFA login policy is installed here.
 
 ## Targeted verification
 

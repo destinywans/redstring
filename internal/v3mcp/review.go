@@ -177,6 +177,13 @@ func (s *Service) reviewCurrent(w http.ResponseWriter, r *http.Request, write bo
 		httpapi.Error(w, http.StatusServiceUnavailable, "mcp_unavailable", "MCP registration is unavailable")
 		return nil, discoveryRegistration{}, reviewSnapshot{}, false
 	}
+	if write {
+		if err = lockReviewerGrantSources(r.Context(), tx, httpapi.CurrentUser(r).ID); err != nil {
+			_ = tx.Rollback(r.Context())
+			writeDiscoveryAuthorizationError(w, err, true)
+			return nil, discoveryRegistration{}, reviewSnapshot{}, false
+		}
+	}
 	if err = s.allowedTx(r, tx, current.registration, "manage"); err != nil {
 		_ = tx.Rollback(r.Context())
 		writeDiscoveryAuthorizationError(w, err, true)

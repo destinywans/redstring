@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wans/aiops-canvas/internal/aiextensions"
 	"github.com/wans/aiops-canvas/internal/core"
@@ -55,6 +57,21 @@ func TestMCPVersionReviewHTTPIsolated(t *testing.T) {
 	}
 	cfg.ConnConfig.RuntimeParams["search_path"] = schema
 	cfg.MaxConns = 1
+	insertReached := make(chan struct{}, 1)
+	toggleReached := make(chan struct{}, 1)
+	cfg.ConnConfig.OnNotice = func(_ *pgconn.PgConn, notice *pgconn.Notice) {
+		if notice.Message == "mcp_review_insert_barrier" {
+			select {
+			case insertReached <- struct{}{}:
+			default:
+			}
+		} else if notice.Message == "mcp_toggle_update_barrier" {
+			select {
+			case toggleReached <- struct{}{}:
+			default:
+			}
+		}
+	}
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -519,5 +536,223 @@ func TestMCPVersionReviewHTTPIsolated(t *testing.T) {
 	if err := db.QueryRow(ctx, `SELECT enabled FROM v3_mcp_tool_review_decisions
  WHERE snapshot_id=$1 AND tool_name='read_app'`, partialID).Scan(&enabled); err != nil || enabled {
 		t.Fatalf("incomplete review changed switch: enabled=%t err=%v", enabled, err)
+	}
+
+	// Pause exactly after the service's transaction-local object authorization.
+	// The revoker uses another connection. If its DELETE commits while this
+	// transaction is paused, the later review write must fail closed.
+	if w := managerCall(http.MethodPost, base+"/discover", nil); w.Code != http.StatusOK {
+		t.Fatalf("discover concurrency candidate: %d %s", w.Code, w.Body.String())
+	}
+	w = managerCall(http.MethodGet, base+"/review-candidate", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("concurrency candidate: %d %s", w.Code, w.Body.String())
+	}
+	concurrentCandidate := decode(w)
+	concurrentTools, ok := concurrentCandidate["tools"].([]any)
+	if !ok || len(concurrentTools) != 2 {
+		t.Fatalf("concurrency candidate tools: %s", w.Body.String())
+	}
+	concurrentDecisions := make([]map[string]any, 0, len(concurrentTools))
+	for _, item := range concurrentTools {
+		tool, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("invalid concurrency tool: %v", item)
+		}
+		concurrentDecisions = append(concurrentDecisions, map[string]any{
+			"name": tool["name"], "tool_hash": tool["tool_hash"], "decision": "allow_read_only",
+		})
+	}
+	concurrentReview := map[string]any{
+		"snapshot_id":          concurrentCandidate["snapshot_id"],
+		"registration_version": concurrentCandidate["registration_version"],
+		"registration_hash":    concurrentCandidate["registration_hash"],
+		"tools_hash":           concurrentCandidate["tools_hash"],
+		"decisions":            concurrentDecisions,
+	}
+	if _, err := db.Exec(ctx, `CREATE FUNCTION mcp_review_insert_barrier() RETURNS trigger LANGUAGE plpgsql AS $$
+ BEGIN
+  RAISE NOTICE 'mcp_review_insert_barrier';
+  PERFORM pg_advisory_xact_lock(8675309);
+  RETURN NEW;
+ END $$`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `CREATE TRIGGER mcp_review_insert_barrier
+ BEFORE INSERT ON v3_mcp_tool_reviews FOR EACH ROW EXECUTE FUNCTION mcp_review_insert_barrier()`); err != nil {
+		t.Fatal(err)
+	}
+	lockTx, err := adminDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockHeld := true
+	defer func() {
+		if lockHeld {
+			_ = lockTx.Rollback(context.Background())
+		}
+	}()
+	if _, err := lockTx.Exec(ctx, `SELECT pg_advisory_xact_lock(8675309)`); err != nil {
+		t.Fatal(err)
+	}
+	priorConcurrentReviewAudit := countAudit("v3.mcp.tool_version_reviewed")
+	response := make(chan *httptest.ResponseRecorder, 1)
+	go func() { response <- managerCall(http.MethodPost, base+"/review-version", concurrentReview) }()
+	select {
+	case <-insertReached:
+	case <-time.After(5 * time.Second):
+		t.Fatal("review did not reach post-human-check insert barrier")
+	}
+	type revokeResult struct {
+		committed bool
+		err       error
+	}
+	revokeManage := func() revokeResult {
+		revokeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		tx, err := adminDB.Begin(revokeCtx)
+		if err != nil {
+			return revokeResult{err: err}
+		}
+		defer tx.Rollback(revokeCtx)
+		if _, err = tx.Exec(revokeCtx, `SET LOCAL lock_timeout = '500ms'`); err == nil {
+			_, err = tx.Exec(revokeCtx, `DELETE FROM `+quoted+`.v3_role_grants
+ WHERE role_id='viewer' AND module='connectors' AND action='manage'`)
+		}
+		if err == nil {
+			err = tx.Commit(revokeCtx)
+		}
+		return revokeResult{committed: err == nil, err: err}
+	}
+	revoked := make(chan revokeResult, 1)
+	go func() { revoked <- revokeManage() }()
+	var revoke revokeResult
+	select {
+	case revoke = <-revoked:
+	case <-time.After(3 * time.Second):
+		t.Fatal("role-grant revoke did not finish within its bounded context")
+	}
+	if revoke.err != nil {
+		var pgErr *pgconn.PgError
+		if !errors.As(revoke.err, &pgErr) || pgErr.Code != "55P03" {
+			t.Fatalf("unexpected revoke failure: %v", revoke.err)
+		}
+	}
+	if err := lockTx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	lockHeld = false
+	var reviewResponse *httptest.ResponseRecorder
+	select {
+	case reviewResponse = <-response:
+	case <-time.After(5 * time.Second):
+		t.Fatal("review did not finish after authorization barrier release")
+	}
+	t.Logf("revoke committed=%t err=%v; review status=%d", revoke.committed, revoke.err, reviewResponse.Code)
+	if revoke.committed {
+		var persisted int
+		if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_mcp_tool_reviews WHERE snapshot_id=$1`,
+			concurrentCandidate["snapshot_id"]).Scan(&persisted); err != nil {
+			t.Fatal(err)
+		}
+		auditCount := countAudit("v3.mcp.tool_version_reviewed")
+		if reviewResponse.Code == http.StatusOK || persisted != 0 || auditCount != priorConcurrentReviewAudit {
+			t.Fatalf("revocation committed before review, but write succeeded: status=%d body=%s persisted=%d audit_delta=%d",
+				reviewResponse.Code, reviewResponse.Body.String(), persisted, auditCount-priorConcurrentReviewAudit)
+		}
+	} else if reviewResponse.Code != http.StatusOK {
+		t.Fatalf("revoke was blocked until review committed, but review failed: %d %s",
+			reviewResponse.Code, reviewResponse.Body.String())
+	}
+	if revoke.committed {
+		return // No reviewed switch exists when the review correctly fails.
+	}
+	var concurrentReadAppHash string
+	for _, item := range concurrentTools {
+		tool := item.(map[string]any)
+		if tool["name"] == "read_app" {
+			concurrentReadAppHash, _ = tool["tool_hash"].(string)
+		}
+	}
+	if concurrentReadAppHash == "" {
+		t.Fatal("concurrent read_app hash is missing")
+	}
+	if _, err := db.Exec(ctx, `CREATE FUNCTION mcp_toggle_update_barrier() RETURNS trigger LANGUAGE plpgsql AS $$
+ BEGIN
+  RAISE NOTICE 'mcp_toggle_update_barrier';
+  PERFORM pg_advisory_xact_lock(8675310);
+  RETURN NEW;
+ END $$`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `CREATE TRIGGER mcp_toggle_update_barrier
+ BEFORE UPDATE ON v3_mcp_tool_review_decisions FOR EACH ROW EXECUTE FUNCTION mcp_toggle_update_barrier()`); err != nil {
+		t.Fatal(err)
+	}
+	toggleLockTx, err := adminDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	toggleLockHeld := true
+	defer func() {
+		if toggleLockHeld {
+			_ = toggleLockTx.Rollback(context.Background())
+		}
+	}()
+	if _, err := toggleLockTx.Exec(ctx, `SELECT pg_advisory_xact_lock(8675310)`); err != nil {
+		t.Fatal(err)
+	}
+	priorConcurrentToggleAudit := countAudit("v3.mcp.reviewed_tool_changed")
+	toggleResponse := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		toggleResponse <- managerCall(http.MethodPatch, base+"/reviewed-tools/read_app", map[string]any{
+			"snapshot_id": concurrentCandidate["snapshot_id"], "tools_hash": concurrentCandidate["tools_hash"],
+			"tool_hash": concurrentReadAppHash, "expected_revision": 1, "enabled": true,
+		})
+	}()
+	select {
+	case <-toggleReached:
+	case <-time.After(5 * time.Second):
+		t.Fatal("tool switch did not reach post-human-check update barrier")
+	}
+	toggleRevoked := make(chan revokeResult, 1)
+	go func() { toggleRevoked <- revokeManage() }()
+	var toggleRevoke revokeResult
+	select {
+	case toggleRevoke = <-toggleRevoked:
+	case <-time.After(3 * time.Second):
+		t.Fatal("role-grant revoke during toggle did not finish within its bounded context")
+	}
+	if toggleRevoke.err != nil {
+		var pgErr *pgconn.PgError
+		if !errors.As(toggleRevoke.err, &pgErr) || pgErr.Code != "55P03" {
+			t.Fatalf("unexpected toggle revoke failure: %v", toggleRevoke.err)
+		}
+	}
+	if err := toggleLockTx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	toggleLockHeld = false
+	var toggleResult *httptest.ResponseRecorder
+	select {
+	case toggleResult = <-toggleResponse:
+	case <-time.After(5 * time.Second):
+		t.Fatal("tool switch did not finish after update barrier release")
+	}
+	var finalEnabled bool
+	if err := db.QueryRow(ctx, `SELECT enabled FROM v3_mcp_tool_review_decisions
+ WHERE snapshot_id=$1 AND tool_name='read_app'`, concurrentCandidate["snapshot_id"]).Scan(&finalEnabled); err != nil {
+		t.Fatal(err)
+	}
+	toggleAuditDelta := countAudit("v3.mcp.reviewed_tool_changed") - priorConcurrentToggleAudit
+	t.Logf("toggle revoke committed=%t err=%v; status=%d", toggleRevoke.committed, toggleRevoke.err, toggleResult.Code)
+	if toggleRevoke.committed {
+		if toggleResult.Code == http.StatusOK || finalEnabled || toggleAuditDelta != 0 {
+			t.Fatalf("revocation committed before tool update, but switch succeeded: status=%d body=%s enabled=%t audit_delta=%d",
+				toggleResult.Code, toggleResult.Body.String(), finalEnabled, toggleAuditDelta)
+		}
+	} else if toggleResult.Code != http.StatusOK || !finalEnabled || toggleAuditDelta != 1 {
+		t.Fatalf("revoke was blocked until tool update committed, but switch failed: status=%d body=%s enabled=%t audit_delta=%d",
+			toggleResult.Code, toggleResult.Body.String(), finalEnabled, toggleAuditDelta)
 	}
 }

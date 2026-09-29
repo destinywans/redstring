@@ -169,6 +169,8 @@ func TestConversationMediaSendRegisteredRoundTripAndRecovery(t *testing.T) {
 	ctx := t.Context()
 	const linkURL = "https://docs.example.com/fixture.md"
 	const unreadableURL = "https://docs.example.com/unreadable.md"
+	const oversizedURL = "https://docs.example.com/oversized.md"
+	const unavailableURL = "https://docs.example.com/unavailable.md"
 	const linkedMarkdown = "# Fixture handbook\nOnly controlled fixture content."
 	var linkHits atomic.Int32
 	st := &store.Store{DB: db}
@@ -229,6 +231,12 @@ func TestConversationMediaSendRegisteredRoundTripAndRecovery(t *testing.T) {
 		FetchLink: func(_ context.Context, address string) (string, error) {
 			if address == unreadableURL {
 				return "", v3knowledgesources.ErrWebContent
+			}
+			if address == oversizedURL {
+				return strings.Repeat("x", maxAttachmentSourceBytes+1), nil
+			}
+			if address == unavailableURL {
+				return "", errors.New("fixture upstream unavailable")
 			}
 			if address != linkURL {
 				return "", fmt.Errorf("unexpected fixture link %q", address)
@@ -385,6 +393,8 @@ func TestConversationMediaSendRegisteredRoundTripAndRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	unreadableLink := uploadJSON("test", ownerToken, string(unreadablePayload))
+	oversizedLink := uploadJSON("test", ownerToken, `{"kind":"link","name":"oversized fixture","url":"`+oversizedURL+`"}`)
+	unavailableLink := uploadJSON("test", ownerToken, `{"kind":"link","name":"unavailable fixture","url":"`+unavailableURL+`"}`)
 	foreign := uploadJSON("test", otherToken, `{"kind":"paste","name":"foreign","text":"private"}`)
 	crossEnv := uploadJSON("dev", ownerToken, `{"kind":"paste","name":"dev note","text":"dev-only"}`)
 	status, body := call(http.MethodPost, "/api/v1/conversations", "test", ownerToken, "application/json", []byte(`{"text":"inspect fixture","model":"fixture:text"}`))
@@ -396,17 +406,20 @@ func TestConversationMediaSendRegisteredRoundTripAndRecovery(t *testing.T) {
 	}
 	for _, rejection := range []struct {
 		name, model, code string
+		status            int
 		attachment        v3uploads.Upload
 	}{
-		{"text model image", "fixture:text", "attachment_model_unsupported", image},
-		{"image model PDF", "fixture:image", "attachment_model_unsupported", pdf},
-		{"unreadable link", "fixture:media", "attachment_link_unreadable", unreadableLink},
-		{"foreign owner", "fixture:media", "invalid_attachment", foreign},
-		{"other environment", "fixture:media", "invalid_attachment", crossEnv},
+		{"text model image", "fixture:text", "attachment_model_unsupported", http.StatusUnprocessableEntity, image},
+		{"image model PDF", "fixture:image", "attachment_model_unsupported", http.StatusUnprocessableEntity, pdf},
+		{"unreadable link", "fixture:media", "attachment_link_unreadable", http.StatusUnprocessableEntity, unreadableLink},
+		{"oversized link", "fixture:media", "attachment_context_too_large", http.StatusRequestEntityTooLarge, oversizedLink},
+		{"unavailable link", "fixture:media", "attachment_link_unavailable", http.StatusServiceUnavailable, unavailableLink},
+		{"foreign owner", "fixture:media", "invalid_attachment", http.StatusUnprocessableEntity, foreign},
+		{"other environment", "fixture:media", "invalid_attachment", http.StatusUnprocessableEntity, crossEnv},
 	} {
 		t.Run(rejection.name, func(t *testing.T) {
 			status, response := postMessage(created.ID, "test", ownerToken, "rejected fixture", rejection.model, rejection.attachment)
-			if status != http.StatusUnprocessableEntity || !strings.Contains(string(response), rejection.code) {
+			if status != rejection.status || !strings.Contains(string(response), rejection.code) {
 				t.Fatalf("rejection status=%d body=%s", status, response)
 			}
 			assertNoTurns(created.ID)
@@ -579,11 +592,43 @@ func TestConversationMediaSendRegisteredRoundTripAndRecovery(t *testing.T) {
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE actor_id=$1 AND action='v3.upload.created' AND outcome='success'`, owner.ID).Scan(&uploadAudits); err != nil {
 		t.Fatal(err)
 	}
-	if acceptedAudits != 3 || successfulReplies != 2 || failedReplies != 1 || uploadAudits != 7 {
+	if acceptedAudits != 3 || successfulReplies != 2 || failedReplies != 1 || uploadAudits != 9 {
 		t.Fatalf("audit counts: accepted=%d completed=%d failed=%d uploads=%d", acceptedAudits, successfulReplies, failedReplies, uploadAudits)
 	}
 	var leakedAudit bool
 	if err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM management_audit WHERE actor_id=$1 AND changes::text LIKE '%Fixture handbook%')`, owner.ID).Scan(&leakedAudit); err != nil || leakedAudit {
 		t.Fatalf("private fetched Markdown leaked into audit: leaked=%t err=%v", leakedAudit, err)
+	}
+
+	// A composer may send only an attachment; text is optional in that case.
+	// Keep the registered handler and domain OpenAPI aligned on this shape.
+	status, body = call(http.MethodPost, "/api/v1/conversations", "test", ownerToken, "application/json", []byte(`{"text":"attachment-only fixture"}`))
+	var attachmentOnlyConversation struct {
+		ID string `json:"id"`
+	}
+	if status != http.StatusCreated || json.Unmarshal(body, &attachmentOnlyConversation) != nil || attachmentOnlyConversation.ID == "" {
+		t.Fatalf("attachment-only conversation create: %d %s", status, body)
+	}
+	attachmentOnlyPayload, err := json.Marshal(map[string]any{"attachments": []v3uploads.Upload{paste}, "model": "fixture:text"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, body = call(http.MethodPost, "/api/v1/conversations/"+attachmentOnlyConversation.ID+"/messages", "test", ownerToken, "application/json", attachmentOnlyPayload)
+	var attachmentOnlyTurn struct {
+		Message Message `json:"message"`
+		ReplyID string  `json:"reply_id"`
+	}
+	if status != http.StatusAccepted || json.Unmarshal(body, &attachmentOnlyTurn) != nil || attachmentOnlyTurn.ReplyID == "" || len(attachmentOnlyTurn.Message.Attachments) != 1 {
+		t.Fatalf("attachment-only send: %d %s", status, body)
+	}
+	if events, err := readReply(attachmentOnlyConversation.ID, ownerToken, attachmentOnlyTurn.ReplyID); err != nil || events[len(events)-1].typ != "message.completed" {
+		t.Fatalf("attachment-only completion: events=%+v err=%v", events, err)
+	}
+	status, body = call(http.MethodGet, "/api/v1/conversations/"+attachmentOnlyConversation.ID, "test", ownerToken, "", nil)
+	var attachmentOnlyDetail struct {
+		Messages []Message `json:"messages"`
+	}
+	if status != http.StatusOK || json.Unmarshal(body, &attachmentOnlyDetail) != nil || len(attachmentOnlyDetail.Messages) != 2 || len(attachmentOnlyDetail.Messages[0].Attachments) != 1 {
+		t.Fatalf("attachment-only refresh: %d %s", status, body)
 	}
 }

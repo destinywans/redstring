@@ -836,8 +836,11 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 			if err := s.authorizeActiveMetricsTurn(ctx, conv, owner, env, sessionToken); err != nil {
 				return err
 			}
+			if err := s.appendEvent(ctx, conv, reply, claimID, map[string]any{"type": "text.delta", "message_id": assistant, "index": 0, "delta": e.Delta}); err != nil {
+				return err
+			}
 			streamed.WriteString(e.Delta)
-			return s.appendEvent(ctx, conv, reply, claimID, map[string]any{"type": "text.delta", "message_id": assistant, "index": 0, "delta": e.Delta})
+			return nil
 		case "tool_invocation":
 			if e.Invocation == nil || e.Invocation.StepID != e.StepID {
 				return errToolInvocation
@@ -887,8 +890,11 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 			calls = append(calls, map[string]any{"id": e.StepID, "connector": e.Evidence.Source, "tool": invocation.Name, "args": "", "duration_ms": invocation.DurationMS, "status": "ok"})
 			toolDurationMS += invocation.DurationMS
 			evidencePart := map[string]any{"type": "status", "text": e.Evidence.Title, "detail": e.Evidence.Content}
+			if err := s.appendEvent(ctx, conv, reply, claimID, map[string]any{"type": "part.added", "message_id": assistant, "part": evidencePart}); err != nil {
+				return err
+			}
 			parts = append(parts, marshal(evidencePart))
-			return s.appendEvent(ctx, conv, reply, claimID, map[string]any{"type": "part.added", "message_id": assistant, "part": evidencePart})
+			return nil
 		}
 		return nil
 	}
@@ -923,6 +929,7 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 		return
 	}
 	if answer == "" {
+		parts[0] = textPart(streamed.String())
 		s.failTurn(conv, reply, claimID, assistant, parts, errors.New("empty model response"))
 		return
 	}
@@ -935,7 +942,7 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 		s.failTurn(conv, reply, claimID, assistant, parts, err)
 		return
 	}
-	parts[0] = textPart(answer)
+	parts[0] = textPart(streamedText)
 	// The provider may emit a final accumulated chunk rather than individual deltas.
 	if suffix != "" {
 		if err := s.authorizeActiveMetricsTurn(ctx, conv, owner, env, sessionToken); err != nil {
@@ -947,6 +954,7 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 			return
 		}
 	}
+	parts[0] = textPart(answer)
 	if err := s.authorizeActiveMetricsTurn(ctx, conv, owner, env, sessionToken); err != nil {
 		s.failTurn(conv, reply, claimID, assistant, nil, err)
 		return
@@ -956,11 +964,11 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 	// than showing a fabricated zero; the evidence and tool audit still persist.
 	if len(calls) > 0 && toolModelSteps > 0 && toolModelSteps == reportedToolModelSteps {
 		part := map[string]any{"type": "tool_calls", "summary": fmt.Sprintf("%d tool calls", len(calls)), "calls": calls, "tokens": toolTokens, "duration_s": float64(toolDurationMS) / 1000}
-		parts = append(parts, marshal(part))
 		if err := s.appendEvent(ctx, conv, reply, claimID, map[string]any{"type": "part.added", "message_id": assistant, "part": part}); err != nil {
 			s.failTurn(conv, reply, claimID, assistant, parts, err)
 			return
 		}
+		parts = append(parts, marshal(part))
 	}
 	// Message.run is optional in the V3 contract. Omitting it preserves the
 	// complete numeric shape when some providers do not report token usage.
@@ -1143,8 +1151,7 @@ func (s *Service) recoveredParts(ctx context.Context, tx pgx.Tx, reply string) (
 	}
 	defer rows.Close()
 	var text strings.Builder
-	var calls json.RawMessage
-	var evidenceParts []json.RawMessage
+	var nonTextParts []json.RawMessage
 	for rows.Next() {
 		var raw []byte
 		if err = rows.Scan(&raw); err != nil {
@@ -1165,13 +1172,8 @@ func (s *Service) recoveredParts(ctx context.Context, tx pgx.Tx, reply string) (
 			var marker struct {
 				Type string `json:"type"`
 			}
-			if json.Unmarshal(event.Part, &marker) == nil {
-				switch marker.Type {
-				case "tool_calls":
-					calls = event.Part
-				case "status":
-					evidenceParts = append(evidenceParts, event.Part)
-				}
+			if json.Unmarshal(event.Part, &marker) == nil && marker.Type != "" && marker.Type != "text" {
+				nonTextParts = append(nonTextParts, event.Part)
 			}
 		}
 	}
@@ -1179,10 +1181,7 @@ func (s *Service) recoveredParts(ctx context.Context, tx pgx.Tx, reply string) (
 		return nil, err
 	}
 	parts := []json.RawMessage{textPart(text.String())}
-	if len(calls) > 0 {
-		parts = append(parts, calls)
-	}
-	parts = append(parts, evidenceParts...)
+	parts = append(parts, nonTextParts...)
 	return parts, nil
 }
 

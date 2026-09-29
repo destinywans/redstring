@@ -1,5 +1,12 @@
 # AIOps Canvas 检查点
 
+## CP-186 · 2026-09-29 · WAN-124 配置提升与 WAN-119 成员来源
+
+- 从已推送 CP-185 `8339eb8` 接续，WAN-124 来源 `f0869b0` 合入 `2b15797`；WAN-119 成员详情 `eced48d`、同步/MFA 适配 `e49016b` 分别合入 `c9043c0`、`bf0e675`。两次成员 cherry-pick 仅合并独立路由和 OpenAPI，保留已接通的邀请及公开接受流程；已有 `memberIdentityLocks` 与来源重复，保留原共享实现。正式 V3 入口把配置提升的告警规则解析器绑定到与正式告警规则 GET 相同的 Prometheus 来源和受审规则组清单。新增迁移 `125_v3_config_sync_import_targets.sql`、`137_v3_member_revision.sql`、`139_v3_feishu_member_sync.sql`、`140_v3_mfa_reminder_attempts.sql` 均未在现有库执行。
+- 非生产 `POST /promotions` 对净化画布模板、已发布 Runbook、精确绑定告警规则及稳定 Agent 版本按当前授权导出签名清单并向独立 GitLab 配置仓库建 MR；生产 `POST /config-sync/{id}/import` 只接已合并、固定提交、单一预期文件、签名可信且经当前独立审批/保护检查的清单，在事务内导入并审计。Runbook 仅成可审草稿、告警为 `not_applied` 记录、Agent 不切流，不执行目标能力。GitLab API 不能证明合并当时的治理配置，真实仓库及迁移未验；两条只按显式可信配置下的后端成功路径升 `implemented`。`GET /members` 在当前账号、环境及成员权限下读持久成员/角色，登录、MFA、组与目录未知字段保持可空，`filter=no_mfa` 明确 503；按本阶段口径升 `implemented`。现 **130/166、36 mock**；OpenAPI **321 路径、384 操作、415 schema**。
+- 成员辅助详情/联系方式 PATCH 已接持久修订及对象授权，但正式入口未注入 Feishu 目录、MFA 证据和提醒发送器，主 `/members/sync` 与 `/members/mfa-reminders` 当前 503，继续 `mock`。`POST /api-tokens` 来源分支只有签发，缺精确只读 Bearer 消费及令牌续用处理，暂不合入/不计完成。用户已明确决定 `POST /webhooks/{id}/redeliver` 暂不启用：保持 `mock`，不读取签名凭据、不接出站发送器、不向外部地址投递内部事件。
+- 本批最小 `go build`、生成 OpenAPI、路由矩阵/readiness 与差异静态检查通过；按当前阶段约束未跑测试、现有库迁移、真实 GitLab/Feishu/MFA 或浏览器，前端/Mock 未改。无 PR、合并或部署；下一批接已完成的 Agent 运行记录与评测来源，并继续梳理设置证据接线。
+
 ## CP-185 · 2026-09-29 · WAN-123 复盘读取与 WAN-124 护栏配置
 
 - 从已推送 CP-184 `2f1d6e8` 接续，WAN-123 复盘前置来源 `09e98cd` 与最新 `9700632` 按顺序合入 `6d53f27`、`9ff6b76`；WAN-124 护栏来源 `2c8f328` 独立合入 `e033d45`，不需先合其配置提升/设置祖先提交。现有领域 `Register` 已注册相关 GET/PATCH，无额外正式入口接线。护栏索引迁移 `136_v3_agent_guard_reported_window.sql` 未在现有库执行；它依赖已有策略/运行表，不登记策略。

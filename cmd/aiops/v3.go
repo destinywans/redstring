@@ -33,6 +33,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3catalog"
 	"github.com/wans/aiops-canvas/internal/v3changes"
 	"github.com/wans/aiops-canvas/internal/v3changeview"
+	"github.com/wans/aiops-canvas/internal/v3configsync"
 	"github.com/wans/aiops-canvas/internal/v3conversation"
 	"github.com/wans/aiops-canvas/internal/v3coverage"
 	"github.com/wans/aiops-canvas/internal/v3discovery"
@@ -341,6 +342,12 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	ruleService, err := v3alertrules.New(v3alertrules.DatabaseCatalog{DB: s.DB}, policy, ruleSource, ruleBindings)
 	if err != nil {
 		return fmt.Errorf("bind V3 alert rule groups: %w", err)
+	}
+	if ruleSource != nil && len(ruleBindings) > 0 {
+		configSync.AlertRules, err = v3configsync.NewAlertRuleResolver(ruleSource, ruleBindings)
+		if err != nil {
+			return fmt.Errorf("bind V3 configuration promotion alert rules: %w", err)
+		}
 	}
 	ruleService.Register(api)
 	alertmanagerSource, alertmanagerLabels, alertmanagerBindings, alertmanagerPolicyBindings, err :=

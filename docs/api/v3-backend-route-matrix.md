@@ -24,8 +24,8 @@
 | 身份与全局 | GET | `/instance` | 新增 | implemented |
 | 身份与全局 | GET | `/integrations/lower-sources` | 新增 | implemented |
 | 身份与全局 | GET | `/config-sync` | 新增 | implemented |
-| 身份与全局 | POST | `/config-sync/{id}/import` | 新增 | mock |
-| 身份与全局 | POST | `/promotions` | 新增 | mock |
+| 身份与全局 | POST | `/config-sync/{id}/import` | 新增 | implemented |
+| 身份与全局 | POST | `/promotions` | 新增 | implemented |
 | 对话、画布与模板 | GET | `/conversations` | 聚合 | implemented |
 | 对话、画布与模板 | GET | `/conversations/{id}` | 聚合 | implemented |
 | 对话、画布与模板 | POST | `/conversations` | 新增 | implemented |
@@ -157,7 +157,7 @@
 | 设置 | GET | `/me/profile` | 聚合 | mock |
 | 设置 | PUT | `/me/profile` | 新增 | mock |
 | 设置 | DELETE | `/me/sessions/{id}` | 新增 | implemented |
-| 设置 | GET | `/members` | 聚合 | mock |
+| 设置 | GET | `/members` | 聚合 | implemented |
 | 设置 | POST | `/members/invitations` | 新增 | implemented |
 | 设置 | POST | `/members/sync` | 新增 | mock |
 | 设置 | POST | `/members/mfa-reminders` | 新增 | mock |

@@ -21772,7 +21772,7 @@
       "get": {
         "summary": "List configuration promotion records or merged candidates",
         "operationId": "get_config_sync",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Read-only four-kind list for runbook, alert_rule, agent_version and sanitized canvas template. Non-production lists up to 100 signed persisted exports by the current authenticated actor in selected authorized environments. Current kind-specific access is rechecked after remote reads: Runbooks require the governed document lifecycle, team scope and recorded source revision; application-bound items require active application/environment bindings, and alert rules also allow the owner-team grant. Exported means a recorded open MR. Production requires a human platform administrator with global workspace.manage and reads a bounded, complete target-branch merged MR page, including promotions whose mutable label was removed. After remote reads, production rechecks global manager authority; both tiers recheck the exact live Cookie session and active account before returning the list. Before status merged or imported is reported, the exact single changed file at the immutable merge commit must match its kind-specific allowlisted path and trusted signed manifest; non-production merged status must also match the local export record. Imported is currently reachable only for templates and requires a matching import ledger, production target content and successful audit. This read does not enable promotion/import writes for the other three kinds or prove branch governance at merge time. Missing repository or source signing/trust configuration returns 501; unverifiable provenance returns 503; an over-limit list returns 413. Frontend state text and navigation require separate integration.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Read-only four-kind list for runbook, alert_rule, agent_version and sanitized canvas template. Non-production lists up to 100 signed persisted exports by the current authenticated actor in selected authorized environments. Current kind-specific access is rechecked after remote reads: Runbooks require the governed document lifecycle, team scope and recorded source revision; application-bound items require active application/environment bindings, and alert rules also allow the owner-team grant. Exported means a recorded open MR. Production requires a human platform administrator with global workspace.manage and reads a bounded, complete target-branch merged MR page, including promotions whose mutable label was removed. After remote reads, production rechecks global manager authority; both tiers recheck the exact live Cookie session and active account before returning the list. Before status merged or imported is reported, the exact single changed file at the immutable merge commit must match its kind-specific allowlisted path and trusted signed manifest; non-production merged status must also match the local export record. Imported requires a matching import ledger, persisted production target and successful audit for all four kinds. This read does not prove branch governance at merge time. Missing repository or source signing/trust configuration returns 501; unverifiable provenance returns 503; an over-limit list returns 413. Frontend state text and navigation require separate integration.",
         "responses": {
           "200": {
             "description": "Success",
@@ -21845,7 +21845,7 @@
             }
           },
           "501": {
-            "description": "Configuration repository or source trust is unavailable, or requested promotion kind is unsupported",
+            "description": "Configuration repository, signing or source trust is unavailable; an observed kind source may be unconnected or the requested promotion kind unsupported",
             "content": {
               "application/json": {
                 "schema": {
@@ -21887,9 +21887,9 @@
     },
     "/promotions": {
       "post": {
-        "summary": "Export a sanitized canvas template to a GitLab merge request",
+        "summary": "Export a versioned sanitized configuration snapshot to a GitLab merge request",
         "operationId": "post_promotions",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract operation: one selected non-production environment, an active source template owner and canvas.change grant are required. The signed manifest contains the user-provided template name, source identifiers, template kind and allowlisted graph layout; source node content, evidence, execution state, credentials and account ID are excluded. The current frontend may default the name to the source canvas title, so the name must be reviewed before export to the configuration repository. Creates or reuses a durable signed manifest and MR in the separately configured repository; an uncertain remote result returns 503. Production returns 409 already_production; all returns 409 env_view_only. Kinds other than template/templates return 501 promotion_kind_unavailable. Missing repository or signing configuration returns 501. The four-kind frontend workflow remains mock.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. One selected non-production environment and current kind-specific source authorization are required. Template requires the active owner and canvas.change; runbook requires governed current published document/revision and knowledge.manage, including team scope; alert_rule requires an explicitly configured observed rule source and alert_rules.manage on its active application or owner team; agent_version requires agents.change and exports the source agent stable version. Each active application/environment binding is checked where applicable. The durable Ed25519-signed manifest contains source instance, environment, application, object ID, explicit source version and digest, plus only its bounded kind-specific safe snapshot. Template excludes node content and investigation evidence; runbook excludes body, command text and connectors; alert_rule excludes runtime state; agent_version includes a digest-pinned artifact reference but not prompt, tools or independently verified artifact bytes. Creates or reuses a fixed path, branch and MR in the separate configuration repository, with an audit record. An uncertain remote result returns 503 and a concurrent or changed export returns 409. Production returns 409 already_production; all returns 409 env_view_only. Unsupported kinds return 501 promotion_kind_unavailable; a missing alert source returns 501 promotion_source_unavailable; missing repository or signing configuration returns 501. This operation does not apply an alert rule or activate an agent.",
         "responses": {
           "200": {
             "description": "Success",
@@ -21962,7 +21962,7 @@
             }
           },
           "501": {
-            "description": "Configuration repository or source trust is unavailable, or requested promotion kind is unsupported",
+            "description": "Configuration repository, signing or source trust is unavailable; an observed kind source may be unconnected or the requested promotion kind unsupported",
             "content": {
               "application/json": {
                 "schema": {
@@ -22004,9 +22004,9 @@
     },
     "/config-sync/{id}/import": {
       "post": {
-        "summary": "Import a merged signed canvas template",
+        "summary": "Import a reviewed merged signed configuration snapshot",
         "operationId": "post_config_sync_id_import",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract operation: id is mr-<positive IID>. Requires the production prod environment and a human platform administrator with global workspace.manage, rechecked inside the import transaction. The repository must prove the MR is merged with exactly one expected changed file at its fixed merge commit; the bounded allowlisted manifest must verify against a configured trusted source public key. Import also requires current satisfied MR approval state, a distinct non-bot approver after the final diff version and before merge, and currently verifiable protected target-branch policy. API reads cannot prove the governance policy in force at merge time; deployment must retain that evidence. Import and audit commit together; repeated identical imports converge, target drift returns 409. Non-production and all return 409. Missing repository or trust configuration returns 501. Unverifiable provenance returns 503. The four-kind frontend workflow remains mock. A unique target or import-ledger conflict returns 409 without persisting a partial import.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. id is mr-<positive IID>. Requires the production prod environment and a human platform administrator with global workspace.manage, rechecked inside the import transaction. The repository must prove the MR is merged with exactly one expected kind-specific changed file at its fixed merge commit; the bounded allowlisted manifest must verify against a configured trusted source public key. Import also requires current satisfied MR approval state, a distinct non-bot approver after the final diff version and before merge, and currently verifiable protected target-branch policy. API reads cannot prove the governance policy in force at merge time; deployment must retain that evidence. Template persists a sanitized canvas template; runbook persists a production governed draft without executable step content; alert_rule persists a declarative not_applied record without changing Prometheus; agent_version adds a catalog version without activating or changing rollout. Target, import ledger and success audit commit together. Repeated identical imports converge; target drift, unique conflicts and changed MR identity return 409 without partial import. Non-production and all return 409. Missing repository or trust configuration returns 501; unverifiable provenance returns 503.",
         "responses": {
           "200": {
             "description": "Success",
@@ -22079,7 +22079,7 @@
             }
           },
           "501": {
-            "description": "Configuration repository or source trust is unavailable, or requested promotion kind is unsupported",
+            "description": "Configuration repository, signing or source trust is unavailable; an observed kind source may be unconnected or the requested promotion kind unsupported",
             "content": {
               "application/json": {
                 "schema": {
@@ -47814,7 +47814,7 @@
       "get": {
         "summary": "List scoped members",
         "operationId": "get_members",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Rechecks the current account and selected-environment grants in a read transaction, then derives the visible members and roles from one database statement. This is a partial DTO (complete_v3_dto=false): groups, full organization hierarchy, MFA enrollment, successful last login, MFA grace policy and directory synchronization source are not verified. Member mfa=na means unknown, not unenrolled; last_login, counts.no_mfa and mfa_grace_days are null. filter=no_mfa returns 503 member_mfa_unavailable rather than a misleading list.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Rechecks the exact current session and selected-environment grants in a read transaction, then derives the complete visible account/role set from one database statement. Accepted invitation provenance is shown as source=invite. This is a partial DTO (complete_v3_dto=false): external groups and hierarchy, MFA enrollment and policy, successful last login, and directory sync state are not verified by the account store. Member mfa=na means unknown, not unenrolled; last_login, counts.no_mfa and mfa_grace_days are null. filter=no_mfa returns 503 member_mfa_unavailable instead of a misleading list. The read path does not wait for external MFA evidence while holding the account and role locks.",
         "responses": {
           "200": {
             "description": "Success",
@@ -48047,6 +48047,235 @@
         ]
       }
     },
+    "/members/sync": {
+      "post": {
+        "summary": "Synchronize reviewed Feishu directory members",
+        "operationId": "post_members_sync",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected configured environment, a current human account and exact session, global members.manage, global environment.view and current-environment members.manage. A configured Feishu directory app reads every page of its reviewed address-book scope; empty, incomplete or invalid snapshots return 503 before database writes. Stable app binding plus external open_id prevents cross-binding collisions; changed or conflicting email cannot take over another account. The transaction rechecks authorization and the editable viewer role, creates new imported human viewer accounts disabled and without environment/application/team grants, updates only same-binding names and department text, and commits counts with a PII-free audit. A complete unchanged observed snapshot returns {added:0,updated:0}. Absence from a scoped directory snapshot never disables or deletes a member. Synchronization does not grant login or build the complete organization tree.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "added": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "updated": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "added",
+                    "updated"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "External identity or email conflicts with an existing account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "members"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/members/mfa-reminders": {
+      "post": {
+        "summary": "Remind verified unenrolled members through Feishu",
+        "operationId": "post_members_mfa_reminders",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment and the same current human/global-and-environment member-management authority as invitations. A trusted HTTPS MFA service must return a fresh complete exact-scope enrollment snapshot, grace policy and current Feishu open_id bindings for every active visible human. Only verified unenrolled recipients are eligible. More than 20 eligible people returns 429 before sending any message. Every Feishu API-accepted message has a durable attempt and an audit row; accepted attempts within 24 hours are skipped. An incomplete source, missing binding, uncertain delivery or partial batch returns 503, never a fabricated success count. sent counts newly Feishu-accepted messages in this request; Feishu acceptance does not prove the recipient read them.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sent": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "sent"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Bounded batch or actor rate limit reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "members"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/auth/invitations/accept": {
       "post": {
         "summary": "Accept a one-time member invitation",
@@ -48160,6 +48389,224 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/V3MemberInvitationAcceptance"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/members/{id}": {
+      "get": {
+        "summary": "Read one visible member record",
+        "operationId": "get_members_id",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary backend route outside the frozen 166-page Mock contract. Rechecks the active account, members.view and selected-environment admission after account/role locks, then reads the target and visible roles in one database snapshot. Unassigned historical accounts require global members.view and global environment.view. Unknown, deleted, demo and out-of-scope targets are indistinguishable 404. recorded_source is the stored origin marker, not proof of current directory synchronization; MFA, successful last login and directory sync state are unknown. The decimal revision versions only name and phone edits.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MemberDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "members"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      },
+      "patch": {
+        "summary": "Change saved member contact display fields",
+        "operationId": "patch_members_id",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary backend route outside the frozen 166-page Mock contract. Requires one selected environment, an active human account with members.view for that environment, global members.manage and global environment.view, and a visible locally owned target (recorded source=local). External or uncertain sources return 409 member_source_managed rather than overwriting directory-owned values. Changes only the globally stored name and phone; it cannot modify roles, department, status, email, MFA or external identity. expected_revision is a canonical decimal string; concurrent name/phone updates from this or other account writers return 409 member_changed. Strict nonempty patch, no unknown or duplicate fields, trimmed nonblank name up to 120 Unicode characters and trimmed nonblank phone up to 64 characters; null clears phone. The write and audit of changed field names commit together, then return the authorized persisted detail. The frozen frontend does not call this route.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MemberDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Member name or phone revision changed (member_changed), or external source owns the target (member_source_managed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "members"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3MemberContactPatch"
               }
             }
           }
@@ -54838,11 +55285,14 @@
             "enum": [
               "template",
               "templates",
+              "runbook",
               "runbooks",
+              "alert_rule",
               "alert-rules",
+              "agent_version",
               "agents"
             ],
-            "description": "Only template/templates are currently supported; other kinds return 501 promotion_kind_unavailable."
+            "description": "Canonical kinds are template, runbook, alert_rule and agent_version; plural UI aliases are accepted."
           },
           "id": {
             "type": "string",
@@ -70190,6 +70640,155 @@
           "mfa_grace_days",
           "complete_v3_dto",
           "unavailable_fields"
+        ]
+      },
+      "V3MemberDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "recorded_source": {
+            "type": "string"
+          },
+          "department": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "name"
+              ]
+            }
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "disabled"
+            ]
+          },
+          "identity_kind": {
+            "type": "string",
+            "enum": [
+              "human",
+              "machine"
+            ]
+          },
+          "mfa": {
+            "type": "string",
+            "enum": [
+              "unknown"
+            ]
+          },
+          "last_login": {
+            "type": "null"
+          },
+          "directory_sync_state": {
+            "type": "string",
+            "enum": [
+              "unknown"
+            ]
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$",
+            "description": "Decimal revision of editable name and phone fields."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "email",
+          "department",
+          "roles",
+          "phone",
+          "status",
+          "identity_kind",
+          "recorded_source",
+          "mfa",
+          "last_login",
+          "directory_sync_state",
+          "revision"
+        ]
+      },
+      "V3MemberContactPatch": {
+        "type": "object",
+        "properties": {
+          "expected_revision": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$",
+            "description": "Decimal revision of editable name and phone fields."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 64
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "expected_revision"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "name"
+            ]
+          },
+          {
+            "required": [
+              "phone"
+            ]
+          }
         ]
       },
       "V3MemberInvitationRequest": {

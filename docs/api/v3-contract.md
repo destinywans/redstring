@@ -90,14 +90,14 @@
 | GET | `/instance` | | `InstanceInfo`：`tier`（`production` \| `nonprod`）、`name`、`domain`、`environments[]`（id、名称、分组、集群、回收时间）、`default_env`，以及另一个平台的链接 `other` | implemented |
 | GET | `/integrations/lower-sources` | | `{ items: LowerSource[] }`，只有生产实例提供；非生产实例返回 404。仅返回服务端显式配置的来源元数据，不代表连接已验证 | implemented |
 | GET | `/config-sync` | | `{ direction: "import" \| "export", items: SyncItem[] }`：生产实例列出已合并候选，非生产实例列出本人已导出项 | implemented |
-| POST | `/config-sync/{id}/import` | | `SyncItem`；只允许生产实例导入已合并的变更 | mock |
-| POST | `/promotions` | `{ kind, id }` | `{ mr, path }`：写入配置仓库并发起合并请求；生产实例返回 `409 already_production` | mock |
+| POST | `/config-sync/{id}/import` | `id=mr-<正整数 IID>`；只允许生产实例 | 验证已合并、签名且独立审核的四类配置并持久导入；不执行目标能力 | implemented |
+| POST | `/promotions` | `{ kind: template\|runbook\|alert_rule\|agent_version, id }`；单一非生产环境 | `{ mr, path }`：净化快照签名后写入独立配置仓库并发起 MR；生产实例返回 409 | implemented |
 
-`GET /config-sync` 已按后端读取契约支持 `runbook`、`alert_rule`、`agent_version` 和已净化 `template` 四类。非生产只列当前操作者在有权环境导出的签名记录，远端读取后重新检查对象、团队或应用范围及来源版本；生产要求当前人类平台管理员和全局 `workspace.manage`，从有界的已合并 MR 清单读取固定提交的唯一预期文件并验证签名、清单结构、导入台账和目标记录，远端读取后再核当前管理员授权。`merged` 是已验证的来源状态，不证明合并时的审批或分支策略；`imported` 当前只可能用于模板。两端最多返回 100 项，超限 413；未配置仓库、签名密钥或可信公钥返回 501，不可验证来源返回 503。真实部署仓库与冻结页面尚未联调；页面只在 `pending` 时展示导入入口，而后端生产读取返回 `merged`，因此页面未验收。
+`GET /config-sync` 在非生产列出当前操作者有权导出的签名记录，在生产仅向当前人类平台管理员列出已合并的候选；四类 `template`、`runbook`、`alert_rule`、`agent_version` 均按目标记录、导入台账和成功审计核对后可显示 `imported`。两端均核固定提交、唯一文件、签名、当前来源版本和权限，最多返回 100 项；超限 413，仓库或信任未配置 501，来源无法核实 503。`merged` 表示此刻可验证的合并状态，不证明合并当时的审批或分支保护。冻结页面只在 `pending` 展示导入入口，而生产读取返回 `merged`，页面未验收，详见[配置提升证据边界](v3-config-sync.md)。
 
-`POST /promotions` 和 `POST /config-sync/{id}/import` 当前仍只支持 `template` / `templates` 对应的**已净化画布模板**，其余三类写入返回 `501 promotion_kind_unavailable`。非生产导出要求选定单一环境、模板本人所有且有 `canvas.change` 授权，生成签名清单并向独立 GitLab 配置仓库提交 MR；生产导入只接受 `mr-<正整数 IID>`，要求人类平台管理员及全局 `workspace.manage`，在事务中再次核权，并验证已合并 MR 的固定提交、单一预期文件、来源签名及净化结构。导入还查询当前 MR 审批已满足、最终差异形成后且合并前的独立非 bot 审批，以及当前目标分支保护配置；这些 API 不能证明**合并当时**的治理策略，真实仓库上线前仍须保留审核与分支策略的部署证据，不能仅凭 `merged` 声称已审核。`all` 写操作返回 409。本机私有 GitLab CE 项目已验证适配器协议与拒绝边界，尚未完成实际部署仓库的服务端导入或页面联调；两条写主契约保持 `mock`。
+`POST /promotions` 在单一非生产环境对已净化模板、当前已发布 Runbook、精确绑定的 Prometheus 告警规则或当前稳定 Agent 版本读取受权来源，记录版本、环境、应用、净化摘要及 Ed25519 签名，再向独立 GitLab 配置仓库创建 MR；仅模板保留净化图结构，其他类型不携带原始正文、工具、连接器、注解或运行态。告警规则来源复用正式 V3 的同一受审规则组绑定；未配置时该种类明确不可用。`POST /config-sync/{id}/import` 只在生产以当前人类平台管理员和全局 `workspace.manage`，核已合并 MR 的固定提交、唯一预期文件、来源签名、独立审批与当前目标分支保护，并在写入事务内重核授权及保存目标、台账和审计。Runbook 导入为待审核草稿，告警为 `not_applied` 记录，Agent 不改变现有发布状态；导入不执行 Runbook、不应用规则、不切换 Agent 流量。配置、签名或仓库未接返回 501/503；既有同一导入收敛，目标漂移或冲突返回 409。GitLab 当前 API 不能证明**合并当时**的审批/保护状态，真实配置仓库上线仍需部署治理证据；迁移 125 与真实仓库/页面本轮未验收。两条仅按本阶段有条件的真实后端成功路径计 `implemented`。
 
-导入同一变更重复请求收敛为一条台账和成功审计；目标模板或导入台账发生唯一冲突时返回 409，事务不留下半成品。独立来源/生产 schema 的 HTTP 往返与新 PG 连接读回只验证本地持久化；仓库替身给出已合并状态，不能等同于真实 GitLab 的完整审批链。每来源环境 ID 的独立允许列表尚未配置。
+原有已净化模板在隔离 schema 与替身 GitLab 的往返及新连接读回，只验证当时的模板持久化；新增 Runbook、告警规则、Agent 三类写入、迁移 125 和真实 GitLab 仓库尚无本轮运行证据。重复导入同一变更应收敛为一条台账和成功审计，目标或台账唯一冲突返回 409；不要把来源分支既有测试当成本集成组合的实测证明。每来源环境 ID 的独立允许列表尚未配置。
 
 当前环境保存在浏览器本地（`aiops-v3-env`），并写入地址栏 `?env=`，这样分享链接时打开的是同一个环境。
 
@@ -333,7 +333,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 `GET /webhooks` 在当前环境、连接器和应用/团队服务查看授权下展示已配置的通用 Push 来源，以及已有 Operations Alertmanager 和 Delivery GitLab 入站接收器中当前可见的登记。通用 Push 的过去 24 小时真实、非合成收据保留在 `deliveries`；Alertmanager 的次数/最近时间仅取同来源、同应用环境的已入库告警接收记录，不证明发送端持续健康。GitLab 历史收据未持久保存应用环境身份，重新绑定项目后无法安全归属，故原生 GitLab 的次数和最近时间保持 `unknown`。原生状态保持 `unverified`，不把通用 Push 收据冒充供应商投递。原生 GitLab POST 在 V3 中只对精确来源路由豁免浏览器会话/环境头；由已有来源令牌和项目绑定鉴权，并在同一事务内锁定当前未归档应用、应用环境、V3 环境绑定和本实例环境范围，才写入收据身份。这不开放相邻路由。未配置、没有可见来源及尚未接入的 API 令牌、对外 MCP、出站能力通过 `availability` 区分；V3 概览不读取凭据、不探测上游，也不启用出站发送。
 
-通用 Push 请求最多纳入 50 个来源和每来源 5 类事件、返回 30 条收据；整个列表有 12 秒超时。原生来源按私有配置逐项核对当前持久应用环境与权限，来源过多可导致超时并返回 503；通用聚合查询尚无独立扫描行数上限，公开容量仍需评估。冻结前端不识别 `unverified` 和 `availability`，选中原生来源时仍显示汇总的通用 Push 收据，页面尚未验收。`POST /webhooks/{id}/redeliver` 按用户决定暂不启用，`POST /api-tokens` 仍是独立 `mock`；入站收据 ID 不可用于出站重投。
+通用 Push 请求最多纳入 50 个来源和每来源 5 类事件、返回 30 条收据；整个列表有 12 秒超时。原生来源按私有配置逐项核对当前持久应用环境与权限，来源过多可导致超时并返回 503；通用聚合查询尚无独立扫描行数上限，公开容量仍需评估。冻结前端不识别 `unverified` 和 `availability`，选中原生来源时仍显示汇总的通用 Push 收据，页面尚未验收。`POST /webhooks/{id}/redeliver` 按用户决定暂不启用并保持 `mock`：不读取签名凭据、不接出站 HTTPS 发送器、不向外部地址投递内部事件；`POST /api-tokens` 仍是独立 `mock`，入站收据 ID 不可用于出站重投。
 
 连接器辅助激活接口（不计入 166 项页面契约）：`POST /connectors/{id}/activate`，单一环境下传 `{ credential_ref?: "vault://mount/path#field" }`。所有凭据读取须先匹配由部署方配置的层级、环境、连接器 ID、供应商、端点和引用；缺绑定返回 503 `credential_not_authorized`，不读取 Vault 或探测上游。GitLab 须先通过服务环境的显式目标绑定登记至少一个数字项目 ID；后端用 Vault 凭据对每个项目发起 GET 验证，再复核权限、连接器配置和绑定集合，成功后启用。其他已登记类型使用有界只读探测，成功后启用登记但工具仍关闭；无认证类型可传 `{}`，已保存 Vault 引用也可省略请求中的引用。通用探测只证明指定地址一次返回 2xx，健康端点可能不校验凭据，所以通用激活另返回 `credential_verified: false`；GitLab 的项目验证也不证明令牌只有只读权限。`webhook` 仅记录意图，`webhook_active` 始终为 `false`；探测失败返回 502 且不启用，GitLab 项目绑定变化须重新激活。`status: "ok"` 表示一次探测结果，不代表持续健康。配置和恢复见 [连接器凭据绑定](v3-connector-credentials.md)。
 
@@ -373,7 +373,7 @@ Prompt 列表只返回有真实版本的已授权记录，支持最多 160 字�
 
 ## 设置（`settings.ts`）
 
-`GET /members` 当前只提供部分真实读取：在读取事务中重核账号及当前环境授权，以单条查询取成员与角色快照。响应有 `complete_v3_dto: false` 和 `unavailable_fields`；未核实的 `last_login`、`counts.no_mfa`、`mfa_grace_days` 为 `null`，`items[].mfa: "na"` 表示未知，不表示未启用。组层级、目录同步来源和 MFA 策略也无可信来源；`filter=no_mfa` 返回 `503 member_mfa_unavailable`，不会以空结果冒充筛选成功。冻结前端仍按数字显示 MFA 数量和宽限期并显示确定的安全提示，因此主接口仍为 `mock`。
+`GET /members` 在当前账号、所选环境与 `members.view` 权限下从持久成员/角色表读取可见成员，并在读取事务中复核当前授权。`last_login`、`counts.no_mfa`、`mfa_grace_days` 缺可信来源时为 `null`，`items[].mfa="na"` 表示未知，不代表未启用；`filter=no_mfa` 返回 `503 member_mfa_unavailable`，不以空集合冒充筛选。组层级和目录同步状态也未知，`complete_v3_dto=false`。主 GET 仅按本阶段受权真实读取与可空字段标准计 `implemented`，冻结前端仍将未知当确定数值显示，页面未验收。新增辅助成员详情/联系方式 PATCH 只改本地持久姓名和电话，不触及角色、MFA 或外部目录身份；同步与 MFA 提醒虽有领域适配器，正式入口尚未注入受信 Feishu/MFA 来源，主 POST 继续 `mock` 并返回 503。
 
 `POST /members/invitations` 只由当前真人会话在单环境、全局 `members.manage` 与 `environment.view` 下发出本地只读 `viewer` 邀请。发送前与接受时复核该可编辑角色的实际权限，禁用环境准入、应用/团队范围及任何写权限；邀请码有 256 位随机熵，只存哈希，24 小时且 SMTP relay 接受 DATA 后才可用于公开的 `POST /auth/invitations/accept`。接受事务创建本地账号与审计，但不自动授予环境或应用访问。发送只在完整配置的证书验证 TLS 465 SMTP、受保护密码文件、与实例域一致的 HTTPS 产品入口和安全 Cookie 下启用；未配置返回 503，半配置或错域在启动时失败。Relay 接受不证明最终邮箱送达；匿名接受在进程内限速，部署多副本仍需入口共享限速。迁移 `138_v3_member_invitations.sql` 尚未在现有库执行；当前产品没有接受页，真实邮件与浏览器未验。本阶段只做代码、契约和最小编译，未跑测试或发送邮件。
 
@@ -384,7 +384,7 @@ Prompt 列表只返回有真实版本的已授权记录，支持最多 160 字�
 | GET | `/me/profile` | | `ProfileView` | mock |
 | PUT | `/me/profile` | `ProfileView` | `ProfileView` | mock |
 | DELETE | `/me/sessions/{id}` | | 204 | implemented |
-| GET | `/members` | `filter: all\|admin\|no_mfa\|disabled`, `q` | `MembersView` | mock |
+| GET | `/members` | `filter: all\|admin\|no_mfa\|disabled`, `q`；`no_mfa` 缺证据时 503 | 当前受权持久成员与角色；登录、MFA、组与目录来源未知时可空 | implemented |
 | POST | `/members/invitations` | `{ email, role?: "viewer" }` | `{ ok: true }`；仅 SMTP relay 接受且状态落库后成功 | implemented |
 | POST | `/members/sync` | | `{ added, updated }` | mock |
 | POST | `/members/mfa-reminders` | | `{ sent }` | mock |

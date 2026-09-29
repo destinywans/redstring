@@ -24,7 +24,7 @@ const silenceProposalSource = "human_request"
 var silenceProposalKey = regexp.MustCompile(`^[A-Za-z0-9._:-]{8,128}$`)
 
 // SilenceProposalRequest is accepted only from a trusted in-process caller
-// with an authenticated human actor. No product POST route uses it yet.
+// with an authenticated human actor.
 type SilenceProposalRequest struct {
 	InvestigationID string
 	Silence         v3alertmanager.SilenceCreateInput
@@ -129,6 +129,23 @@ func silenceReviewContent(action SilenceActionSnapshot) Content {
 // creates no write reservation. The caller must supply the authenticated user.
 func (s *Service) CreateSilenceProposal(ctx context.Context, actor core.User, in SilenceProposalRequest,
 	ledger *v3alertmanager.DatabaseSilenceLedger, client *v3alertmanager.Client) (SilenceProposalResult, error) {
+	return s.createSilenceProposal(ctx, actor, "", in, ledger, client)
+}
+
+// CreateSilenceProposalForSession binds a product request to the current
+// browser session in the same transaction as the proposal and its audit.
+func (s *Service) CreateSilenceProposalForSession(ctx context.Context, actor core.User, sessionTokenHash string,
+	in SilenceProposalRequest, ledger *v3alertmanager.DatabaseSilenceLedger,
+	client *v3alertmanager.Client) (SilenceProposalResult, error) {
+	if !silenceProductSessionHash.MatchString(sessionTokenHash) {
+		return SilenceProposalResult{}, store.ErrSessionRevoked
+	}
+	return s.createSilenceProposal(ctx, actor, sessionTokenHash, in, ledger, client)
+}
+
+func (s *Service) createSilenceProposal(ctx context.Context, actor core.User, sessionTokenHash string,
+	in SilenceProposalRequest, ledger *v3alertmanager.DatabaseSilenceLedger,
+	client *v3alertmanager.Client) (SilenceProposalResult, error) {
 	var zero SilenceProposalResult
 	if s == nil || s.DB == nil || s.Access == nil || ledger == nil || ledger.DB != s.DB || client == nil ||
 		!bounded(in.InvestigationID, 128) || !silenceProposalKey.MatchString(in.Silence.IdempotencyKey) {
@@ -186,6 +203,11 @@ func (s *Service) CreateSilenceProposal(ctx context.Context, actor core.User, in
 	if err = lockSilenceProposalGrantSources(ctx, tx, actor); err != nil {
 		return zero, err
 	}
+	if sessionTokenHash != "" {
+		if err = lockSilenceProductSession(ctx, tx, actor.ID, sessionTokenHash); err != nil {
+			return zero, err
+		}
+	}
 	prepared, err := ledger.PrepareCreateProposalWithTx(ctx, tx, actor, in.Silence, client)
 	if err != nil {
 		return zero, err
@@ -236,6 +258,11 @@ func (s *Service) CreateSilenceProposal(ctx context.Context, actor core.User, in
 		if !reflect.DeepEqual(stored.Silence, prepared) || storedRequestHash != requestHash {
 			return zero, store.ErrConflict
 		}
+		if sessionTokenHash != "" {
+			if err = recheckSilenceProductSession(ctx, tx, actor.ID, sessionTokenHash); err != nil {
+				return zero, err
+			}
+		}
 		if err = tx.Commit(ctx); err != nil {
 			return zero, err
 		}
@@ -263,16 +290,20 @@ func (s *Service) CreateSilenceProposal(ctx context.Context, actor core.User, in
 	if err != nil {
 		return zero, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO v3_proposal_actions
+	tag, err := tx.Exec(ctx, `INSERT INTO v3_proposal_actions
  (proposal_id,action_kind,schema_version,action,action_digest,review_content_digest,request_hash,
   binding_fingerprint,creator_id,environment_id,application_id,investigation_id,
   investigation_updated_at,idempotency_key,source_kind)
- VALUES($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+ VALUES($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+ ON CONFLICT DO NOTHING`,
 		id, prepared.Kind, prepared.SchemaVersion, actionRaw, actionDigest, contentDigest, requestHash,
 		prepared.BindingFingerprint, actor.ID, prepared.EnvironmentID, prepared.ApplicationID,
 		action.InvestigationID, investigationUpdatedAt, prepared.IdempotencyKey, action.SourceKind)
 	if err != nil {
 		return zero, err
+	}
+	if tag.RowsAffected() != 1 {
+		return zero, store.ErrConflict
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,actor_kind,application_id,action,target,outcome,changes)
  VALUES($1,'user',$2,'v3.proposal.silence_create_requested',$3,'success',
@@ -281,6 +312,11 @@ func (s *Service) CreateSilenceProposal(ctx context.Context, actor core.User, in
 	if err != nil {
 		return zero, err
 	}
+	if sessionTokenHash != "" {
+		if err = recheckSilenceProductSession(ctx, tx, actor.ID, sessionTokenHash); err != nil {
+			return zero, err
+		}
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return zero, err
 	}
@@ -288,12 +324,15 @@ func (s *Service) CreateSilenceProposal(ctx context.Context, actor core.User, in
 }
 
 func prelockExistingSilenceAction(ctx context.Context, tx pgx.Tx, actorID, key string) (string, error) {
-	var proposalID string
-	err := tx.QueryRow(ctx, `SELECT a.proposal_id FROM v3_proposal_actions a
+	var proposalID, actionKind string
+	err := tx.QueryRow(ctx, `SELECT a.proposal_id,a.action_kind FROM v3_proposal_actions a
  JOIN v3_proposals p ON p.id=a.proposal_id
- WHERE a.creator_id=$1 AND a.idempotency_key=$2 FOR SHARE OF a,p`, actorID, key).Scan(&proposalID)
+ WHERE a.creator_id=$1 AND a.idempotency_key=$2 FOR SHARE OF a,p`, actorID, key).Scan(&proposalID, &actionKind)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
+	}
+	if err == nil && actionKind != v3alertmanager.ProposedSilenceCreateKind {
+		return "", store.ErrConflict
 	}
 	return proposalID, err
 }

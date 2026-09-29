@@ -34,10 +34,13 @@ type RouteRepository interface {
 }
 
 type Service struct {
-	Source               Source
-	RouteRepository      RouteRepository
-	InhibitionRepository RouteRepository
-	InhibitionHistory    InhibitionHistorySource
+	Source                 Source
+	SilenceWorkflow        SilenceWorkflowReadiness
+	SilenceCreateProposals SilenceCreateProposalProducer
+	SilenceCancelProposals SilenceCancelProposalProducer
+	RouteRepository        RouteRepository
+	InhibitionRepository   RouteRepository
+	InhibitionHistory      InhibitionHistorySource
 	// ConfigPromotionBranchPrefix is the active config-sync import namespace.
 	// Route draft MRs must use a disjoint branch namespace so config-sync never
 	// mistakes their JSON proposals for importable promotions.
@@ -79,6 +82,10 @@ type remainingView struct {
 func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/silences", "viewer", s.List)
 	api.MarkV3ObjectRoute("GET /api/v1/silences", "silences", "view")
+	api.Register("POST /api/v1/silences", "operator", s.CreateSilenceProduct)
+	api.MarkV3ObjectRoute("POST /api/v1/silences", "silences", "manage")
+	api.Register("DELETE /api/v1/silences/{id}", "operator", s.CancelSilenceProduct)
+	api.MarkV3ObjectRoute("DELETE /api/v1/silences/{id}", "silences", "manage")
 	api.Register("POST /api/v1/silences/preview", "viewer", s.Preview)
 	api.MarkV3ObjectRoute("POST /api/v1/silences/preview", "silences", "view")
 	api.Register("GET /api/v1/inhibitions", "viewer", s.Inhibitions)

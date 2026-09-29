@@ -19,6 +19,13 @@ import (
 // Legacy association writers lock a role before deleting its assignments.
 // Keep that role-before-assignment order here to avoid a lock cycle with them.
 func lockReviewerGrantSources(ctx context.Context, tx pgx.Tx, actorID string) error {
+	if err := lockReviewerAccount(ctx, tx, actorID); err != nil {
+		return err
+	}
+	return lockReviewerRoleGrantSources(ctx, tx, actorID)
+}
+
+func lockReviewerAccount(ctx context.Context, tx pgx.Tx, actorID string) error {
 	var activeID string
 	err := tx.QueryRow(ctx, `SELECT id FROM users
  WHERE id=$1 AND NOT disabled AND deleted_at IS NULL AND source<>'settings_demo'
@@ -29,6 +36,10 @@ func lockReviewerGrantSources(ctx context.Context, tx pgx.Tx, actorID string) er
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+func lockReviewerRoleGrantSources(ctx context.Context, tx pgx.Tx, actorID string) error {
 	before, err := reviewerRoleIDs(ctx, tx, actorID, false)
 	if err != nil {
 		return err

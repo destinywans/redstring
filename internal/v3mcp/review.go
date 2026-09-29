@@ -179,7 +179,14 @@ func (s *Service) reviewCurrent(w http.ResponseWriter, r *http.Request, write bo
 		return nil, discoveryRegistration{}, reviewSnapshot{}, false
 	}
 	if write {
-		if err = lockReviewerGrantSources(r.Context(), tx, httpapi.CurrentUser(r).ID); err != nil {
+		actorID := httpapi.CurrentUser(r).ID
+		if err = lockReviewerAccount(r.Context(), tx, actorID); err == nil {
+			err = lockReviewerWriteSession(r, tx, actorID)
+		}
+		if err == nil {
+			err = lockReviewerRoleGrantSources(r.Context(), tx, actorID)
+		}
+		if err != nil {
 			_ = tx.Rollback(r.Context())
 			writeDiscoveryAuthorizationError(w, err, true)
 			return nil, discoveryRegistration{}, reviewSnapshot{}, false
@@ -212,6 +219,24 @@ func (s *Service) reviewCurrent(w http.ResponseWriter, r *http.Request, write bo
 		return nil, discoveryRegistration{}, reviewSnapshot{}, false
 	}
 	return tx, current, snap, true
+}
+
+// Lock the request's persisted session in the same write transaction as the
+// review. A logout that commits first removes the row; a later logout waits
+// until the review transaction commits. Account locks are acquired first.
+func lockReviewerWriteSession(r *http.Request, tx pgx.Tx, actorID string) error {
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil || cookie.Value == "" {
+		return store.ErrForbidden
+	}
+	var sessionUserID string
+	err = tx.QueryRow(r.Context(), `SELECT user_id FROM sessions
+ WHERE token_hash=$1 AND user_id=$2 AND expires_at>clock_timestamp()
+ FOR SHARE`, store.Hash(cookie.Value), actorID).Scan(&sessionUserID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.ErrForbidden
+	}
+	return err
 }
 
 func (s *Service) reviewCandidate(w http.ResponseWriter, r *http.Request) {

@@ -65,7 +65,7 @@ func TestMCPReviewCandidateRevocationHTTPIsolated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	cfg.MaxConns = 1
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -253,7 +253,7 @@ func TestMCPVersionReviewHTTPIsolated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	cfg.MaxConns = 1
 	insertReached := make(chan struct{}, 1)
 	toggleReached := make(chan struct{}, 1)
@@ -957,4 +957,324 @@ func TestMCPVersionReviewHTTPIsolated(t *testing.T) {
 		t.Fatalf("revoke was blocked until tool update committed, but switch failed: status=%d body=%s enabled=%t audit_delta=%d",
 			toggleResult.Code, toggleResult.Body.String(), finalEnabled, toggleAuditDelta)
 	}
+}
+
+// Account row contention pauses the write after middleware has resolved the
+// cookie, before the transaction-local session check. The second barrier is
+// after that check and verifies logout waits through the write and audit.
+func TestMCPReviewWriteSessionLogoutIsolated(t *testing.T) {
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL required; creates and drops a random isolated schema")
+	}
+	ctx := t.Context()
+	adminDB, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := "v3_mcp_session_race_" + store.ID()
+	quoted := pgx.Identifier{schema}.Sanitize()
+	if _, err := adminDB.Exec(ctx, "CREATE SCHEMA "+quoted); err != nil {
+		adminDB.Close()
+		t.Fatal(err)
+	}
+	var db *pgxpool.Pool
+	t.Cleanup(func() {
+		if db != nil {
+			db.Close()
+		}
+		if _, err := adminDB.Exec(context.Background(), "DROP SCHEMA "+quoted+" CASCADE"); err != nil {
+			t.Error(err)
+		}
+		adminDB.Close()
+	})
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
+	cfg.MaxConns = 1
+	db, err = pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &store.Store{DB: db}
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := aiextensions.New(db, "").Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Bootstrap(ctx, "admin@example.invalid", "isolated-admin-password"); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := st.CreateUser(ctx, core.User{Email: "manager@example.invalid", Name: "Manager", Role: "viewer"}, "isolated-manager-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	login := func() string {
+		t.Helper()
+		_, token, err := st.Login(ctx, manager.Email, "isolated-manager-password")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return token
+	}
+	token := login()
+	for _, statement := range []string{
+		`DELETE FROM v3_role_grants WHERE role_id='viewer'`,
+		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
+ ('viewer','environment','view','environment','dev'),
+ ('viewer','connectors','view','application','app'),
+ ('viewer','connectors','manage','application','app')`,
+		`INSERT INTO applications(id,key,name,environment,archived) VALUES ('app','app','App','dev',false)`,
+		`INSERT INTO application_environments(id,application_id,key,name,archived) VALUES ('app-dev','app','dev','Dev',false)`,
+		`INSERT INTO v3_application_environments(application_id,environment_id) VALUES ('app','dev')`,
+	} {
+		if _, err := db.Exec(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record := aiextensions.Record{ID: "mcp-1", ApplicationID: "app", Kind: "mcp", Title: "App MCP",
+		Maintainer: "platform", Enabled: true, Version: 1, UpdatedAt: time.Now().UTC(),
+		MCP: &aiextensions.MCPConfig{Endpoint: "https://private.example.invalid/mcp", CredentialRef: "private-ref",
+			Bindings: []aiextensions.Binding{{Name: "read_app", Tool: "read_app", ReadOnlyConfirmed: true, Arguments: map[string]any{}}}},
+	}
+	raw, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO ai_extensions(id,application_id,kind,version,record)
+ VALUES('mcp-1','app','mcp',1,$1)`, raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_mcp_environment_bindings(extension_id,application_id,environment_id,bound_by)
+ SELECT 'mcp-1','app','dev',id FROM users WHERE email='admin@example.invalid'`); err != nil {
+		t.Fatal(err)
+	}
+	policy := &rbac.V3Policy{Store: st}
+	api := httpapi.New(st, nil, true)
+	service := New(db, policy)
+	service.DiscoverTools = func(context.Context, aiextensions.MCPConfig) ([]aiextensions.ToolInfo, error) {
+		return []aiextensions.ToolInfo{{Name: "read_app", Description: "read only", ReadOnlyHint: true,
+			InputSchema: map[string]any{"type": "object"}}}, nil
+	}
+	service.Register(api)
+	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"}},
+		policy, st.Session, func(ctx context.Context, user core.User, module, action, environment string) error {
+			return policy.Authorize(ctx, user, rbac.V3Decision{Module: module, Action: action, EnvironmentID: environment})
+		}); err != nil {
+		t.Fatal(err)
+	}
+	base := "/api/v1/mcp-servers/mcp-1"
+	call := func(token, method, path string, body any) *httptest.ResponseRecorder {
+		var payload []byte
+		if body != nil {
+			payload, _ = json.Marshal(body)
+		}
+		callCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		r := httptest.NewRequest(method, path, bytes.NewReader(payload)).WithContext(callCtx)
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-AIOps-Environment", "dev")
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		w := httptest.NewRecorder()
+		if method == http.MethodGet && strings.HasSuffix(path, "/review-candidate") {
+			api.ServeHTTP(&candidateDeadlineRecorder{w}, r)
+		} else {
+			api.ServeHTTP(w, r)
+		}
+		return w
+	}
+	if w := call(token, http.MethodPost, base+"/discover", nil); w.Code != http.StatusOK {
+		t.Fatalf("discover: %d %s", w.Code, w.Body.String())
+	}
+	w := call(token, http.MethodGet, base+"/review-candidate", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("candidate: %d %s", w.Code, w.Body.String())
+	}
+	var candidate struct {
+		SnapshotID          string `json:"snapshot_id"`
+		RegistrationVersion int    `json:"registration_version"`
+		RegistrationHash    string `json:"registration_hash"`
+		ToolsHash           string `json:"tools_hash"`
+		Tools               []struct {
+			Name     string `json:"name"`
+			ToolHash string `json:"tool_hash"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &candidate); err != nil || len(candidate.Tools) != 1 {
+		t.Fatalf("candidate tools: %v %s", err, w.Body.String())
+	}
+	reviewBody := map[string]any{
+		"snapshot_id": candidate.SnapshotID, "registration_version": candidate.RegistrationVersion,
+		"registration_hash": candidate.RegistrationHash, "tools_hash": candidate.ToolsHash,
+		"decisions": []map[string]any{{"name": candidate.Tools[0].Name,
+			"tool_hash": candidate.Tools[0].ToolHash, "decision": "allow_read_only"}},
+	}
+	toggleBody := map[string]any{
+		"snapshot_id": candidate.SnapshotID, "tools_hash": candidate.ToolsHash,
+		"tool_hash": candidate.Tools[0].ToolHash, "expected_revision": 1, "enabled": true,
+	}
+	count := func(query string) int {
+		t.Helper()
+		var n int
+		if err := db.QueryRow(ctx, query).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	await := func(label string, signal <-chan struct{}) {
+		t.Helper()
+		select {
+		case <-signal:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s did not reach barrier", label)
+		}
+	}
+	logoutMustWait := func(token string) {
+		t.Helper()
+		lockCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		tx, err := adminDB.Begin(lockCtx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(lockCtx)
+		if _, err := tx.Exec(lockCtx, `SET LOCAL lock_timeout = '300ms'`); err != nil {
+			t.Fatal(err)
+		}
+		_, err = tx.Exec(lockCtx, `DELETE FROM `+quoted+`.sessions WHERE token_hash=$1`, store.Hash(token))
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "55P03" {
+			t.Fatalf("logout should wait on review session lock: %v", err)
+		}
+	}
+	logoutAfterWrite := func(token string) {
+		t.Helper()
+		tag, err := adminDB.Exec(ctx, `DELETE FROM `+quoted+`.sessions WHERE token_hash=$1`, store.Hash(token))
+		if err != nil || tag.RowsAffected() != 1 {
+			t.Fatalf("logout after write did not commit: tag=%v err=%v", tag, err)
+		}
+		var exists bool
+		if err := adminDB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM `+quoted+`.sessions WHERE token_hash=$1)`,
+			store.Hash(token)).Scan(&exists); err != nil || exists {
+			t.Fatalf("session survived committed logout: exists=%t err=%v", exists, err)
+		}
+	}
+	for _, tc := range []struct {
+		name, method, path string
+		body               any
+		wantReview         int
+		wantToggle         int
+	}{
+		{"review", http.MethodPost, base + "/review-version", reviewBody, 0, 0},
+		{"toggle", http.MethodPatch, base + "/reviewed-tools/read_app", toggleBody, 1, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logoutTx, err := adminDB.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer logoutTx.Rollback(context.Background())
+			if _, err := logoutTx.Exec(ctx, `SELECT id FROM `+quoted+`.users WHERE id=$1 FOR UPDATE`, manager.ID); err != nil {
+				t.Fatal(err)
+			}
+			result := make(chan *httptest.ResponseRecorder, 1)
+			go func() { result <- call(token, tc.method, tc.path, tc.body) }()
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				var waiting bool
+				err := adminDB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+ WHERE wait_event_type='Lock' AND query LIKE '%NOT disabled AND deleted_at IS NULL%')`).Scan(&waiting)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if waiting {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("%s did not reach write account lock", tc.name)
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			tag, err := logoutTx.Exec(ctx, `DELETE FROM `+quoted+`.sessions WHERE token_hash=$1`, store.Hash(token))
+			if err != nil || tag.RowsAffected() != 1 {
+				t.Fatalf("logout did not delete session: tag=%v err=%v", tag, err)
+			}
+			if err := logoutTx.Commit(ctx); err != nil {
+				t.Fatal(err)
+			}
+			w := <-result
+			if w.Code != http.StatusNotFound ||
+				count(`SELECT count(*) FROM v3_mcp_tool_reviews`) != tc.wantReview ||
+				count(`SELECT count(*) FROM management_audit WHERE action='v3.mcp.tool_version_reviewed'`) != tc.wantReview ||
+				count(`SELECT count(*) FROM management_audit WHERE action='v3.mcp.reviewed_tool_changed'`) != tc.wantToggle ||
+				count(`SELECT count(*) FROM v3_mcp_tool_review_decisions WHERE enabled`) != 0 {
+				t.Fatalf("revocation-first write: status=%d body=%s", w.Code, w.Body.String())
+			}
+			token = login()
+			if tc.name == "review" {
+				if w := call(token, tc.method, tc.path, tc.body); w.Code != http.StatusOK {
+					t.Fatalf("baseline review: %d %s", w.Code, w.Body.String())
+				}
+			}
+		})
+	}
+	for _, tc := range []struct {
+		name, method, path string
+		body               any
+	}{
+		{"toggle", http.MethodPatch, base + "/reviewed-tools/read_app", toggleBody},
+	} {
+		t.Run(tc.name+"-write-first", func(t *testing.T) {
+			barrier := &reviewReadAuthorizationBarrier{policy: policy, reached: make(chan struct{}, 1), release: make(chan struct{})}
+			service.Access = barrier
+			result := make(chan *httptest.ResponseRecorder, 1)
+			go func() { result <- call(token, tc.method, tc.path, tc.body) }()
+			await(tc.name+" authorization", barrier.reached)
+			logoutMustWait(token)
+			close(barrier.release)
+			w := <-result
+			service.Access = policy
+			if w.Code != http.StatusOK ||
+				count(`SELECT count(*) FROM management_audit WHERE action='v3.mcp.reviewed_tool_changed'`) != 1 {
+				t.Fatalf("write-first toggle: %d %s", w.Code, w.Body.String())
+			}
+			logoutAfterWrite(token)
+			token = login()
+		})
+	}
+	// A new discovery version gives the review route a fresh write while the
+	// preceding toggle remains available as the separate switch case.
+	if w := call(token, http.MethodPost, base+"/discover", nil); w.Code != http.StatusOK {
+		t.Fatalf("discover second review: %d %s", w.Code, w.Body.String())
+	}
+	w = call(token, http.MethodGet, base+"/review-candidate", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("second review candidate: %d %s", w.Code, w.Body.String())
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &candidate); err != nil || len(candidate.Tools) != 1 {
+		t.Fatalf("second review candidate tools: %v %s", err, w.Body.String())
+	}
+	reviewBody = map[string]any{
+		"snapshot_id": candidate.SnapshotID, "registration_version": candidate.RegistrationVersion,
+		"registration_hash": candidate.RegistrationHash, "tools_hash": candidate.ToolsHash,
+		"decisions": []map[string]any{{"name": candidate.Tools[0].Name,
+			"tool_hash": candidate.Tools[0].ToolHash, "decision": "allow_read_only"}},
+	}
+	barrier := &reviewReadAuthorizationBarrier{policy: policy, reached: make(chan struct{}, 1), release: make(chan struct{})}
+	service.Access = barrier
+	result := make(chan *httptest.ResponseRecorder, 1)
+	go func() { result <- call(token, http.MethodPost, base+"/review-version", reviewBody) }()
+	await("review authorization", barrier.reached)
+	logoutMustWait(token)
+	close(barrier.release)
+	w = <-result
+	service.Access = policy
+	if w.Code != http.StatusOK || count(`SELECT count(*) FROM v3_mcp_tool_reviews`) != 2 ||
+		count(`SELECT count(*) FROM management_audit WHERE action='v3.mcp.tool_version_reviewed'`) != 2 {
+		t.Fatalf("write-first review: %d %s", w.Code, w.Body.String())
+	}
+	logoutAfterWrite(token)
 }

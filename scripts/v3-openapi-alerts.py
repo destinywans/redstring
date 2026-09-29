@@ -169,6 +169,23 @@ S['V3AlertRuleList'] = obj({'items':arr(ref('V3AlertRuleSummary')),
 v3_route('get','/alert-rules','Read complete authorized alert rule summaries',
     response=ref('V3AlertRuleList'),
     desc='Rules come from configured Prometheus sources and exact server-owned file/group application bindings, with matching environment/application labels and current application or owner-team alert_rules.view. Application/team scope and grants are rechecked after provider reads; changed scope does not return the old result. Counts describe the complete authorized result. Missing configuration, upstream failure or a result above the bound returns an error rather than synthetic or partial counts. Scheduled is zero until a trusted schedule source is connected.')
+S['V3AlertRuleDetail'] = obj({
+    **fieldnames('id folder name environment_id application_id datasource expr'),
+    'state':string(enum=['firing','pending','ok']),
+    'query_ref':{'type':'null'},'for_seconds':v3_num(),
+    **{name:{'type':'null'} for name in ['preview','condition','evaluation','runbook','route_path','ai_triage']},
+    'evaluation_interval_seconds':{'type':['number','null']},'evaluation_ms':{'type':['number','null']},
+    'labels':arr(obj(fieldnames('k v'), ['k','v'])),
+    'annotations':v3_map(string()),'annotation':{'type':['string','null']},
+    'last_eval':{'type':['string','null'],'format':'date-time'},
+    'partial':v3_bool(),'unavailable':arr(string())},
+    ['id','folder','name','state','environment_id','application_id','datasource',
+     'query_ref','expr','for_seconds','preview','condition','evaluation',
+     'evaluation_interval_seconds','evaluation_ms','labels','annotations','annotation',
+     'runbook','route_path','ai_triage','last_eval','partial','unavailable'])
+v3_route('get','/alert-rules/{id}','Read one configured provider alert rule',
+    response=ref('V3AlertRuleDetail'),
+    desc='Returns one uniquely identified Prometheus rule observed from a configured environment and server-owned file/group application binding, with exact matching environment/application labels and current alert_rules.view on the application or owner team. Scope and grants are rechecked after provider reads. The response contains the observed expression, duration, labels, annotations, last evaluation and group interval when available; absent provider values and editor-only preview, threshold condition, query registry, evaluation policy, runbook, notification route and AI triage are null and listed in unavailable. Evaluation time is null unless there is a last evaluation and a positive observed duration. A missing rule with an unavailable in-scope source returns 503 instead of a false 404. Duplicate visible stable IDs return 503. The frozen frontend assumes non-null editor fields and a fixed mock ID, so page acceptance remains pending.')
 v3_route('get','/alert-rules/observed','Read provider-observed alert rule summaries',
     response=obj({'items':arr(ref('V3ObservedAlertRuleSummary')),
         'counts':v3_map(integer()),'partial':v3_bool(),

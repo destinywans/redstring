@@ -148,6 +148,8 @@ func bindingKey(env, identity string) string {
 func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/alert-rules", "viewer", s.MainList)
 	api.MarkV3ObjectRoute("GET /api/v1/alert-rules", "alert_rules", "view")
+	api.Register("GET /api/v1/alert-rules/{id}", "viewer", s.MainDetail)
+	api.MarkV3ObjectRoute("GET /api/v1/alert-rules/{id}", "alert_rules", "view")
 	api.Register("GET /api/v1/alert-rules/observed", "viewer", s.List)
 	api.MarkV3ObjectRoute("GET /api/v1/alert-rules/observed", "alert_rules", "view")
 	api.Register("GET /api/v1/alert-rules/observed/{id}", "viewer", s.Detail)

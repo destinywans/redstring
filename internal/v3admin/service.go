@@ -21,8 +21,11 @@ import (
 )
 
 type Service struct {
-	Store       *store.Store
-	Invitations *InvitationService
+	Store        *store.Store
+	Invitations  *InvitationService
+	MemberSync   *MemberSyncService
+	MFAEvidence  MFAEvidenceSource
+	MFAReminders *MFAReminderService
 }
 
 func New(s *store.Store) *Service { return &Service{Store: s} }
@@ -87,6 +90,8 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"POST /api/v1/members/invitations", "members", "manage"},
 		{"GET /api/v1/members/{id}", "members", "view"},
 		{"PATCH /api/v1/members/{id}", "members", "view"},
+		{"POST /api/v1/members/sync", "members", "manage"},
+		{"POST /api/v1/members/mfa-reminders", "members", "manage"},
 	} {
 		api.MarkV3Route(route.pattern, route.module, route.action)
 	}
@@ -95,6 +100,8 @@ func (s *Service) Register(api *httpapi.Server) {
 	api.Register("PUT /api/v1/roles/{id}", "viewer", s.putRole)
 	api.Register("GET /api/v1/members", "viewer", s.members)
 	api.Register("POST /api/v1/members/invitations", "viewer", s.inviteMember)
+	api.Register("POST /api/v1/members/sync", "viewer", s.syncMembers)
+	api.Register("POST /api/v1/members/mfa-reminders", "viewer", s.remindMembersMFA)
 	api.RegisterPublic("POST /api/v1/auth/invitations/accept", s.acceptMemberInvitation)
 	api.Register("GET /api/v1/members/{id}", "viewer", s.memberDetail)
 	api.Register("PATCH /api/v1/members/{id}", "viewer", s.patchMember)
@@ -478,7 +485,11 @@ func (s *Service) getMembers(ctx context.Context, actor core.User, sessionToken 
 	// roles. Counts and the flat organization list derive from those same rows,
 	// so an app/team update cannot mix two different list snapshots.
 	rows, err := tx.Query(ctx, `SELECT u.id,u.name,u.email,COALESCE(t.id,''),
- COALESCE(t.name,u.department,''),COALESCE(u.phone,''),u.source,u.disabled,u.v3_identity_kind,
+ COALESCE(t.name,u.department,''),COALESCE(u.phone,''),
+ CASE WHEN u.source='local' AND EXISTS(
+  SELECT 1 FROM v3_member_invitations invitation
+  WHERE invitation.account_id=u.id AND invitation.status='accepted')
+ THEN 'invite' ELSE u.source END,u.disabled,u.v3_identity_kind,
  COALESCE(visible_role.id,''),COALESCE(visible_role.name,'')
  FROM users u LEFT JOIN teams t ON t.id=u.department_id
  LEFT JOIN LATERAL (

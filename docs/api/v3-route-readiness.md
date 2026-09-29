@@ -1,6 +1,6 @@
 # V3 剩余主路由就绪清单
 
-- 基线：`codex/wan-117-v3-integration` 的 WAN-120 服务视图 `381a6b0`、WAN-122 Push 审计与读取修正 `850ac8d`、WAN-121 发送与媒体快照 `3699165` 及本批契约更新；`docs/api/v3-contract.md` SHA-256 `9e37390703e34f84d8dfaeb4514740f21f490e99843f678b63038fa9fb6b9376`；`web/src/v3/api/types.ts` SHA-256 `185e26b8fa7a306c2f23e2a3a7c014617b8227549b85da8b5bd0c550f6676701`。
+- 基线：`codex/wan-117-v3-integration` 的 WAN-120 服务视图 `381a6b0`、WAN-122 Push 审计与读取修正 `850ac8d`、WAN-121 发送与媒体快照 `3699165`、WAN-123 Confluence/Notion 受限来源 `8b25fc8` 及本批契约更新；`docs/api/v3-contract.md` SHA-256 `32886680992c8bdeadc074d96ca64a8d8a254ed125330a783f6bfa036796370e`；`web/src/v3/api/types.ts` SHA-256 `185e26b8fa7a306c2f23e2a3a7c014617b8227549b85da8b5bd0c550f6676701`。
 - 口径：主契约 166 行中 `implemented` 77 行；下表覆盖全部 89 条 `mock`。路由存在、辅助接口、部分 DTO、206 或 501 均不提升主状态。标签是当前阻断/调查线索，不是排期或实现承诺；可多选。WAN-120 服务详情复合 ID 到指标/日志/链路跳转、接受候选及 Trace 查询 UI，WAN-119 角色矩阵版本头、WAN-121 对话未知值/调查入口、调查画布 token/布局版本、回写请求及模板页、WAN-122 Push 测试体/签名 curl、模型页硬编码及映射保存请求、WAN-123 Runbook 创建页均待冻结前端适配；这些路由只按后端标准计入。指标页冻结文案和对齐请求亦未适配。
 - 标签：**真实来源可闭合**＝已有明确可信来源或窄实现，仍需全 DTO/授权/错误与定向核验；**需生产者或外部适配**＝某必需字段/行为缺可靠来源或执行链；**冻结前端限制**＝现有请求或呈现与后端语义不符；**待评估**＝本版证据不足，不臆测可闭合。
 - 维护：领域会话先按本表核对来源与前端请求，更新“证据/下一依赖”并完成纵向切片；集成合入后，只有主契约达到既定后端标准才改 `implemented`，并从本表移除该行。契约、DTO、路线状态或标签变更后更新基线信息与两个文件哈希，再运行 `python3 scripts/check-v3-readiness.py`。哈希仅锁定契约与前端类型版本，不能证明后端代码或生产者未变；每个领域批次仍须人工重核源码、真实来源与受影响检查。`POST /evals` 现按后端窄契约只持久保存 `pending` 元数据并返回 `execution_available: false`，不表示有评测执行器或结果；冻结前端空请求体重跑与“已排队”提示仍待单独对齐。`PUT /workspace` 要求强 ETag，当前页面请求层尚未传递，整页仍未验收。证据指向本基线的 `v3-contract.md` 相应章节或所列检查点；未核实项仅有该行契约定义，不表示代码已审查。
@@ -39,7 +39,7 @@
 | 知识与记忆 | GET | `/runbooks/{id}` | 真实来源可闭合、需生产者或外部适配 | 契约“知识治理”：结构化记录可读，完整用量/事件处置/审核/执行证据缺失 | 补真实来源与完整 Runbook DTO |
 | 知识与记忆 | GET | `/postmortems` | 真实来源可闭合、需生产者或外部适配 | 契约辅助 records 有持久复盘摘要子集，根因分类/行动完成率等不推断 | 对齐 PostmortemSummary 所需字段及真实生产者 |
 | 知识与记忆 | GET | `/memory` | 需生产者或外部适配 | 契约“知识治理”：主读返回 503，只有来源锚定事实列表，缺层级/置信度/召回/过期 | 建立可信 MemoryView 来源 |
-| 知识与记忆 | GET | `/knowledge-sources` | 真实来源可闭合、需生产者或外部适配 | 公开 Web 与绑定 Git Markdown 的登记/人工读取证据可读，但 `complete_v3_dto=false`，连接/索引/分块未知 | 接其余来源及完整同步/索引生产者与页面 DTO |
+| 知识与记忆 | GET | `/knowledge-sources` | 真实来源可闭合、需生产者或外部适配 | 公开 Web、绑定 Git Markdown、Confluence、Notion 的登记/人工读取证据可读，但 `complete_v3_dto=false`，连接/索引/分块未知 | 接其余来源及完整同步/索引生产者与页面 DTO |
 | 资源与观测 | GET | `/services/{id}/resilience` | 需生产者或外部适配 | WAN-120 核对：灰度发布、熔断、限流、开关及 HPA 尚无授权只读适配器 | 逐项建立只读适配及环境/应用范围证明 |
 | 资源与观测 | POST | `/services/{id}/resilience/proposals` | 需生产者或外部适配、冻结前端限制 | WAN-120 核对：主处理器不存在；前端仅本地 toast，不发提案请求 | 建立固定动作提案及审批边界；接前端提交/状态 |
 | 资源与观测 | GET | `/topology` | 真实来源可闭合、需生产者或外部适配 | WAN-120 核对：已有 ACL 约束的 CMDB 节点与边，布局、状态和影响范围仍缺 | 补有证据的布局/状态/影响来源并核完整 Topology |
@@ -57,8 +57,8 @@
 | v4 新建流程 | POST | `/inhibitions/preview` | 需生产者或外部适配 | 契约“新建流程”要求过去 7 天抑制数与样例；当前抑制读取缺可信命中数 | 接历史告警/规则命中来源并核范围 |
 | v4 新建流程 | POST | `/inhibitions` | 待评估 | 主契约仅定义该路由；尚无逐项来源/DTO 闭合证据 | 领域会话核对真实来源、授权、冻结请求与错误语义 |
 | v4 新建流程 | GET | `/postmortems/draft` | 真实来源可闭合、需生产者或外部适配 | 契约“新建流程”：仅结案事件/时间线，根因/影响/行动建议为空 | 接有证据的草稿生成或调整产品契约 |
-| v4 新建流程 | POST | `/knowledge-sources/test` | 需生产者或外部适配、冻结前端限制 | 提交应用/团队身份的公开 Web 与服务端绑定 Git Markdown 可即时探测；其他四类型 501，探测不证明持续健康 | 接其他来源并完成页面/真实 GitLab/Vault 联调 |
-| v4 新建流程 | POST | `/knowledge-sources` | 真实来源可闭合、需生产者或外部适配 | 公开 Web 与精确绑定 Git Markdown 可登记和手动读取；其他四类型 501、无自动同步/索引 | 补其余类型及完整创建/同步/索引语义 |
+| v4 新建流程 | POST | `/knowledge-sources/test` | 需生产者或外部适配、冻结前端限制 | 提交应用/团队身份的公开 Web 与服务端绑定 Git Markdown、Confluence、Notion 可即时探测；Feishu/Git/upload 未闭合，探测不证明持续健康 | 接余下来源并完成页面/真实 GitLab/Confluence/Notion/Vault 联调 |
+| v4 新建流程 | POST | `/knowledge-sources` | 真实来源可闭合、需生产者或外部适配 | 公开 Web 与精确绑定 Git Markdown、Confluence、Notion 可登记和手动读取；Feishu/Git/upload 未闭合，无自动同步/索引 | 补其余类型及完整创建/同步/索引语义 |
 | Agent 链路 | GET | `/agent-runs/{id}/trace` | 需生产者或外部适配 | 契约“Agent Trace”：只有受信 Span 元数据，模型消息/工具结果/评分/回合缺生产者 | 接完整受信运行与 Trace 事件链 |
 | 集成中心 | GET | `/mcp-servers` | 真实来源可闭合、需生产者或外部适配、冻结前端限制 | 契约“MCP”：登记元数据可读，健康/版本/调用/数量未知，前端将未知显示为零/成功 | 补真实 MCP 连接和调用来源；前端处理未知值 |
 | 集成中心 | GET | `/mcp-servers/{id}` | 真实来源可闭合、需生产者或外部适配、冻结前端限制 | 契约“MCP”：登记元数据可读，健康/版本/调用/数量未知，前端将未知显示为零/成功 | 补真实 MCP 连接和调用来源；前端处理未知值 |

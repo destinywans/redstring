@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-162 · 2026-09-29 · WAN-123 Confluence/Notion 受限来源
+
+- 集成分支 `codex/wan-117-v3-integration` 从 CP-161 的已推送 `de029b8` 接续。WAN-123 来源 `17b684948154160d845ae4852d83198e412379a3` 合入为 `8b25fc8`；唯一冲突是文档索引，同时保留既有 Push/服务视图链接与新增来源链接。主程序只安装当前实例 tier 的服务端精确绑定；Confluence 限一个数字空间，Notion 限一个页面 UUID，凭据从 Vault 通过 provider/endpoint/ref/环境/连接器绑定读取。探测、登记、手动读取和证据辅助路由重核应用/团队、当前授权与配置指纹；网络读取有固定只读 API、分页及字节/文档/时间上限，正文、版本、观察与审计同事务。历史成功读取不代表当前连接健康、定时同步、向量分块或索引。
+- 主契约保持 **77/166 `implemented`、89 `mock`**。`GET /knowledge-sources` 仍是部分 DTO，`POST /knowledge-sources/test` 与 `POST /knowledge-sources` 尚缺冻结来源的 Feishu、Git、upload，故不因四类窄适配提升状态。OpenAPI **294 路径、352 操作、303 schema**。新增 `133_v3_external_sources.sql` 与已有媒体和 Push 两个 `133_*.sql` 按完整文件名共存，隔离 PG17 测试夹具检查三者均登记。
+- 一次性隔离 pgvector PG17 中，Confluence/Notion 读取、主创建/证据、来源注册/同步失败回滚、迁移及会话媒体的定向 `-race` 通过。集成修复一个来源测试未传新版 `configureV3` 的 `operations.Config`；新来源凭据绑定和 cmd 接线定向测试、受影响包 vet、OpenAPI/契约/就绪/矩阵与差异检查用于收尾。首次宽测试选择到旧 `v3integrations` 目标夹具，因隔离 schema 缺 `public.pgcrypto.digest` 而失败；该旧夹具不计为本批通过，也未修改生产搜索路径。无真实 Confluence/Notion 租户/Vault 联调、现有业务库迁移、前端或浏览器验收；无 PR、合并或部署。下一步按依赖接 WAN-123 Feishu/upload，再核两个 POST 主路由。
+
 ## CP-161 · 2026-09-29 · WAN-121 会话发送、媒体快照与附件安全边界
 
 - 集成分支 `codex/wan-117-v3-integration` 从 CP-160 的已推送 `10a4693` 接续。WAN-121 来源 `9dd47193dd557af1c6c6ce70d50251d7e1a4b546` 合入为 `3699165`，提供五类实际附件输入（粘贴、文本文件、图片、PDF、链接）、模型媒体能力检查、公开 Markdown 安全抓取、接受事务中的精确附件/授权复核与持久私有快照。对外仅返标准引用；首次接受、后续回合和失败恢复不重新读取已冻结链接或上传字节。严格接受冻结 Composer 的中英粘贴展示别名；不兼容模型、非公开或非 Markdown 链接及越界输入在建回合前明确 422/413/503。上传可接受的 HTTP/HTTPS URL 比发送允许的公开 HTTPS Markdown 更宽，上传成功不保证链接可用于发送；内部 Grafana/Kibana/GitLab 链接不走连接器凭据解析。真实供应商媒体能力仅是进程配置声明，未获外部确认。

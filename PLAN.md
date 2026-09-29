@@ -1,5 +1,7 @@
 # AIOps Canvas 实施计划
 
+**2026-09-29 Confluence/Notion 受限知识来源（CP-162）：** WAN-123 服务端精确空间/页面、环境/应用/团队和 Vault 绑定的只读探测、登记、手动观察及持久证据已接主程序；无自动同步或索引。主契约仍 **77/166 `implemented`、89 `mock`**：`GET /knowledge-sources` 缺完整连接/索引 DTO，两个 POST 仍缺冻结来源的 Feishu、Git、upload。新增第三个不同文件名的 `133_*.sql` 已在隔离迁移检查中覆盖；详见 [CP-162](CHECKPOINT.md)。真实租户、现有库迁移及页面验收待后续。下一步按依赖接 WAN-123 Feishu/upload 完整批次，再逐行复核主 POST。
+
 **2026-09-29 会话发送与媒体快照（CP-161）：** WAN-121 `POST /conversations/{id}/messages` 已接入文本、粘贴、受限公开 Markdown 链接及能力匹配的图片/PDF，接受前失败关闭、私有快照、持久回合、SSE 与恢复由隔离 PG17 验证。主契约现 **77/166 `implemented`、89 `mock`**。上传成功的宽 URL 仍可能在发送时 422；真实公开链接与模型供应商、现有库迁移、冻结前端文件 XHR 环境头及浏览器尚未验收。两个不同文件名的 `133_*.sql` 在同一次隔离迁移均登记；见 [CP-161](CHECKPOINT.md)。下一批核 WAN-120 变更视图的人类审核持久生产者和整窗告警覆盖证据。
 
 **2026-09-29 服务视图与签名 Push 批次（CP-160）：** WAN-120 `GET /services`、`GET /services/{id}` 已按显式完整来源绑定及多来源隔离闭合；WAN-122 通用 Push 的五条签名公开事件入口、GET 真实可见计数和 POST synthetic 测试已接主程序、审计与当前范围授权。主契约现 **76/166 `implemented`、90 `mock`**。服务覆盖是运维声明，外部持续投递、现有库迁移、Push 入口限流/留存、冻结前端测试体/签名 curl 和服务详情跨页面 ID 均未验收；见 [CP-160](CHECKPOINT.md)。下一批核 WAN-121 会话发送和同编号但不同文件名的两项 133 迁移。

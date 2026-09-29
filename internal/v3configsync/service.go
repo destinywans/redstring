@@ -1,6 +1,6 @@
 // Package v3configsync promotes reviewed configuration through a dedicated
-// GitLab repository. Read-only, signed promotion records cover four kinds;
-// writing and importing are currently supported for sanitized canvas templates.
+// GitLab repository. Its signed manifests carry bounded configuration only;
+// importing an object never executes a Runbook, applies a rule, or runs an Agent.
 package v3configsync
 
 import (
@@ -42,9 +42,10 @@ type Service struct {
 	DB         *pgxpool.Pool
 	Access     Access
 	Repository Repository
+	AlertRules *AlertRuleResolver
 	// Secret material is supplied by the composition root (for example a
 	// Vault-mounted file). Production receives public keys only. An unsigned
-	// or untrusted manifest cannot become a production template.
+	// or untrusted manifest cannot become production configuration.
 	SourceInstanceID string
 	SigningKey       ed25519.PrivateKey
 	TrustedSources   map[string]ed25519.PublicKey
@@ -60,7 +61,7 @@ func (s *Service) Register(api *httpapi.Server) {
 		handler                 http.HandlerFunc
 	}{
 		{"GET /api/v1/config-sync", "workspace", "view", s.list},
-		{"POST /api/v1/promotions", "canvas", "change", s.promote},
+		{"POST /api/v1/promotions", "environment", "view", s.promote},
 		{"POST /api/v1/config-sync/{id}/import", "workspace", "manage", s.importMerged},
 	} {
 		api.Register(route.pattern, "viewer", route.handler)
@@ -177,18 +178,21 @@ func (s *Service) authorizeCurrentListSession(r *http.Request) error {
 }
 
 var (
-	errResultLimit        = errors.New("configuration list exceeds limit")
-	errInvalid            = errors.New("invalid configuration promotion request")
-	errUntrusted          = errors.New("configuration source is untrusted")
-	errUnavailable        = errors.New("configuration source unavailable")
-	errBusy               = errors.New("configuration export already in progress")
-	errListSessionRevoked = errors.New("configuration list session revoked")
+	errResultLimit           = errors.New("configuration list exceeds limit")
+	errInvalid               = errors.New("invalid configuration promotion request")
+	errUntrusted             = errors.New("configuration source is untrusted")
+	errUnavailable           = errors.New("configuration source unavailable")
+	errBusy                  = errors.New("configuration export already in progress")
+	errListSessionRevoked    = errors.New("configuration list session revoked")
+	errKindSourceUnavailable = errors.New("configuration kind source unavailable")
 )
 
 func (s *Service) writeError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, errListSessionRevoked):
 		problem(w, r, 401, "unauthorized", "请重新登录", "Sign in again")
+	case errors.Is(err, errKindSourceUnavailable):
+		problem(w, r, 501, "promotion_source_unavailable", "配置来源未接入", "Configuration source is not connected")
 	case errors.Is(err, store.ErrForbidden):
 		problem(w, r, 403, "forbidden", "没有配置提升权限", "Configuration promotion denied")
 	case errors.Is(err, store.ErrNotFound), errors.Is(err, pgx.ErrNoRows):
@@ -516,8 +520,12 @@ func (s *Service) importItems(r *http.Request) ([]SyncItem, error) {
 		}
 		status := "merged"
 		if imported {
-			if summary.Kind != "template" || importTarget != "CTP-"+id ||
-				s.verifyImportedTemplate(r.Context(), raw, verifiedMR, importTarget, importActor) != nil {
+			if summary.Kind == "template" {
+				if importTarget != "CTP-"+id ||
+					s.verifyImportedTemplate(r.Context(), raw, verifiedMR, importTarget, importActor) != nil {
+					return nil, errUntrusted
+				}
+			} else if s.verifyImportedKind(r.Context(), raw, verifiedMR, summary.Kind, importTarget, importActor) != nil {
 				return nil, errUntrusted
 			}
 			status = "imported"
@@ -638,7 +646,8 @@ func (s *Service) promote(w http.ResponseWriter, r *http.Request) {
 	if !httpapi.Decode(w, r, &input) {
 		return
 	}
-	if input.Kind != "template" && input.Kind != "templates" {
+	kind, supported := normalizePromotionKind(input.Kind)
+	if !supported {
 		problem(w, r, 501, "promotion_kind_unavailable", "该配置类型尚未接入提升流程", "This configuration kind is not connected for promotion")
 		return
 	}
@@ -646,7 +655,14 @@ func (s *Service) promote(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, r, errInvalid)
 		return
 	}
-	mr, path, err := s.exportTemplate(r, scope.EnvironmentIDs[0], input.ID)
+	var mr MR
+	var path string
+	var err error
+	if kind == "template" {
+		mr, path, err = s.exportTemplate(r, scope.EnvironmentIDs[0], input.ID)
+	} else {
+		mr, path, err = s.exportKind(r, kind, scope.EnvironmentIDs[0], input.ID)
+	}
 	if err != nil {
 		s.writeError(w, r, err)
 		return
@@ -677,19 +693,44 @@ func (s *Service) importMerged(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, r, err)
 		return
 	}
-	// The branch name, changed file path and merge commit are checked by the
-	// repository adapter. Never fetch from the moving target branch HEAD.
-	mr, path, manifest, err := s.readImport(r.Context(), iid)
+	// The adapter verifies review, exact path and immutable merge commit before
+	// any production target is changed. The signed kind selects the importer.
+	mr, raw, summary, err := s.readAnyImport(r.Context(), iid)
 	if err != nil {
 		s.writeError(w, r, err)
 		return
 	}
-	_ = path
-	if err = s.saveImport(r.Context(), user, mr, manifest); err != nil {
+	if err = s.authorizeCurrentListSession(r); err != nil {
 		s.writeError(w, r, err)
 		return
 	}
-	httpapi.WriteJSON(w, 200, mergedItem(r, mr, manifest, true))
+	if summary.Kind == "template" {
+		var manifest Manifest
+		if decodeStrict(raw, &manifest) != nil || manifest.verifyTrusted(manifest.PromotionID, s.TrustedSources) != nil {
+			s.writeError(w, r, errUntrusted)
+			return
+		}
+		if err = s.saveImport(r.Context(), user, mr, manifest); err != nil {
+			s.writeError(w, r, err)
+			return
+		}
+		httpapi.WriteJSON(w, 200, mergedItem(r, mr, manifest, true))
+		return
+	}
+	var manifest readManifestV2
+	if !noDuplicateKeys(raw) || decodeStrict(raw, &manifest) != nil {
+		s.writeError(w, r, errUntrusted)
+		return
+	}
+	if _, err = manifest.verify(manifest.PromotionID, s.TrustedSources); err != nil {
+		s.writeError(w, r, errUntrusted)
+		return
+	}
+	if err = s.saveKindImport(r.Context(), user, mr, manifest); err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	httpapi.WriteJSON(w, 200, importedKindItem(r, mr, summary))
 }
 
 func parseMRID(id string) (int64, error) {

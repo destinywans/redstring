@@ -35,12 +35,10 @@ func TestConfigPromotionIndependentStoresRoundTrip(t *testing.T) {
 	nonprodHTTP := configServer(t, source, repo, "nonprod")
 	prodHTTP := configServer(t, production, repo, "production")
 
-	for _, kind := range []string{"runbook", "alert_rule", "agent_version"} {
-		response := configRequest(nonprodHTTP, "POST", "/api/v1/promotions", "test", "owner-token",
-			`{"kind":"`+kind+`","id":"CT-source"}`)
-		if response.Code != 501 || !strings.Contains(response.Body.String(), "promotion_kind_unavailable") {
-			t.Fatalf("unsupported %s export: %d %s", kind, response.Code, response.Body.String())
-		}
+	if response := configRequest(nonprodHTTP, "POST", "/api/v1/promotions", "test", "owner-token",
+		`{"kind":"alert_rule","id":"CT-source"}`); response.Code != 501 ||
+		!strings.Contains(response.Body.String(), "promotion_source_unavailable") {
+		t.Fatalf("unconfigured alert source: %d %s", response.Code, response.Body.String())
 	}
 	if response := configRequest(prodHTTP, "POST", "/api/v1/promotions", "prod", "admin-token",
 		`{"kind":"templates","id":"CT-source"}`); response.Code != 409 || !strings.Contains(response.Body.String(), "already_production") {

@@ -125,7 +125,7 @@ func fourKindFixtures(t *testing.T) []readFixture {
 					SourceIdentityDigest: strings.Repeat("a", 64)}
 			case "agent_version":
 				m.AgentVersion = &readAgentSnapshot{Name: def.title, Version: def.version,
-					ArtifactRef: "registry.example.invalid/triage@sha256:abcd"}
+					ArtifactRef: "registry.example.invalid/triage@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 			}
 			snapshot, _, err := m.snapshot()
 			if err != nil {

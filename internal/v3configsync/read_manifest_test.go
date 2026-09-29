@@ -36,7 +36,7 @@ func signedReadFixture(t *testing.T, kind string) ([]byte, readManifestV2, map[s
 			SourceIdentityDigest: strings.Repeat("a", 64)}
 	case "agent_version":
 		m.SourceVersion = "v3"
-		m.AgentVersion = &readAgentSnapshot{Name: "Triage", Version: "v3", ArtifactRef: "registry.local/triage:v3"}
+		m.AgentVersion = &readAgentSnapshot{Name: "Triage", Version: "v3", ArtifactRef: "registry.local/triage@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 	default:
 		t.Fatalf("unknown fixture kind %s", kind)
 	}

@@ -297,7 +297,7 @@ func TestConfigTemplatePromotionAndImportRegisteredHTTP(t *testing.T) {
 	if w := configRequest(prod, "POST", "/api/v1/promotions", "prod", "admin-token", `{"kind":"templates","id":"CT-source"}`); w.Code != 409 || !strings.Contains(w.Body.String(), "already_production") {
 		t.Fatalf("production export: %d %s", w.Code, w.Body.String())
 	}
-	if w := configRequest(nonprod, "POST", "/api/v1/promotions", "test", "owner-token", `{"kind":"runbooks","id":"CT-source"}`); w.Code != 501 {
+	if w := configRequest(nonprod, "POST", "/api/v1/promotions", "test", "owner-token", `{"kind":"workflows","id":"CT-source"}`); w.Code != 501 {
 		t.Fatalf("unsupported kind: %d %s", w.Code, w.Body.String())
 	}
 	if w := configRequest(nonprod, "POST", "/api/v1/promotions", "test", "owner-token", `{"kind":"templates","id":"missing"}`); w.Code != 404 {

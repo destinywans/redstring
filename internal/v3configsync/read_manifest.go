@@ -108,15 +108,16 @@ func (m readManifestV2) snapshot() (any, string, error) {
 			break
 		}
 		v := m.Runbook
-		if !boundedText(v.Title, 200) || v.Version <= 0 || v.Version > 1000000000 ||
-			m.SourceVersion != strconv.Itoa(v.Version) || len(v.When) > 1000 ||
-			!utf8.ValidString(v.When) || strings.ContainsAny(v.When, "\x00\r") ||
-			v.Steps == nil || len(v.Steps) > 100 {
+		if !safeRunbookLabel(v.Title, 200) || v.Version <= 0 || v.Version > 1000000000 ||
+			m.SourceVersion != strconv.Itoa(v.Version) ||
+			(v.When != "" && !safeRunbookLabel(v.When, 1000)) ||
+			len(v.Steps) == 0 || len(v.Steps) > 100 {
 			break
 		}
 		for i, step := range v.Steps {
 			if step.N != i+1 || !oneOf(step.Kind, "query", "check", "action", "verify", "act", "judge") ||
-				!boundedText(step.Title, 200) || (step.Readonly && step.Approval) {
+				!safeRunbookLabel(step.Title, 200) || step.Readonly && step.Approval ||
+				(oneOf(step.Kind, "action", "act") && (!step.Approval || step.Readonly)) {
 				return nil, "", errInvalidManifest
 			}
 		}
@@ -139,7 +140,7 @@ func (m readManifestV2) snapshot() (any, string, error) {
 		}
 		v := m.AgentVersion
 		if !boundedText(v.Name, 160) || v.Version != m.SourceVersion ||
-			!boundedText(v.ArtifactRef, 500) || !artifactRE.MatchString(v.ArtifactRef) {
+			!safeAgentArtifactRef(v.ArtifactRef) {
 			break
 		}
 		return *v, v.Name, nil

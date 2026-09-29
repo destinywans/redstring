@@ -65,12 +65,12 @@ v3_route('get','/canvases','List scoped persisted canvases and investigations',
     response=obj({'items':arr(ref('V3CanvasSummary')),'counts':v3_map(integer()),
       'total':integer(),'page':integer(),'page_size':integer()}),
     query=[v3_query(x) for x in ['kind','q','page','page_size']],
-    desc='Generic canvases are private to their owner; investigations use persisted environment and application/team grants. Current sessions and role sources are checked before a single database snapshot supplies counts and page items. Historical investigations without a recorded creator return an empty participants array. The complete investigation detail page is a separate route and remains unavailable.')
+    desc='Generic canvases are private to their owner; investigations use persisted environment and application/team grants. Current sessions and role sources are checked before a single database snapshot supplies counts and page items. Historical investigations without a recorded creator return an empty participants array. Persisted investigation graph detail is available at /investigations/{id}/canvas; this list does not include graph nodes.')
 v3_route('post','/canvases','Create a persisted canvas or investigation',
     body=obj({**fieldnames('title kind template_id goal'),
       'services':arr(string()),'ai_draft':v3_bool()},['title','kind']),
     response=obj(fieldnames('id href'),['id','href']),status=201,
-    desc='Requires one selected environment and a current canvas.change grant. Generic canvases are private and require an environment grant; investigations require exactly one active mapped application and accept environment, application or owner-team grants. Investigation IDs are persisted INV-* IDs with an initial branch and context. Canvas/branch records and creation audit commit together. Optional AI drafting uses one configured model, no tools, and a validated one-to-three-node JSON outline; it is explicitly unverified and a failure leaves no creation. Missing model returns 503 canvas_draft_unavailable. Investigation templates return 422 invalid_template. The separate investigation detail page remains unavailable.')
+    desc='Requires one selected environment and a current canvas.change grant. Generic canvases are private and require an environment grant; investigations require exactly one active mapped application and accept environment, application or owner-team grants. Investigation IDs are persisted INV-* IDs with an initial branch and context. Canvas/branch records and creation audit commit together. Optional AI drafting uses one configured model, no tools, and a validated one-to-three-node JSON outline; it is explicitly unverified and a failure leaves no creation. Missing model returns 503 canvas_draft_unavailable. Investigation templates return 422 invalid_template. Persisted investigation graph detail is available at /investigations/{id}/canvas.')
 v3_route('get','/canvases/{id}','Read owner-scoped general canvas',response=ref('V3CanvasDoc'),
     desc='General canvases return validated typed nodes, seven block variants, edges and artifacts plus persisted per-node exchanges in threads. Failed user prompts remain visible without a fabricated assistant reply; only completed exchanges are used as later model context. More than 500 exchanges, 2 MiB of thread history, or one assistant answer over 64 KiB returns 413 canvas_history_too_large. Invalid persisted canvas structure returns 503 canvas_unavailable. Investigation canvas detail is not implemented by this route.')
 P['/canvases/{id}']['get']['responses']['413'] = {
@@ -86,13 +86,75 @@ v3_route('post','/canvases/{id}/nodes/{node}/messages','Run a scoped general-can
 P['/canvases/{id}/nodes/{node}/messages']['post']['responses']['413'] = {
     'description':'Current and inherited node context exceeds the 24 KiB model budget',
     'content':{'application/json':{'schema':ref('Error')}}}
+S['V3InvestigationCanvasContext'] = obj({
+    'version':string(),'inherits':string(),
+    'tokens':{'type':['integer','null'],'minimum':0,
+        'description':'Current context token occupancy is unknown until measured for this exact context. Null means unknown; historical provider usage is not a current occupancy estimate. The frontend must render an unknown state instead of a numeric total.'},
+    'messages':integer(minimum=0),'excludes':arr(string())},
+    ['version','tokens','messages','excludes'])
+S['V3InvestigationCanvasVersion'] = obj({
+    'v':string(),'text':string(),'at':string(format='date-time')},['v','text','at'])
+S['V3InvestigationCanvasNode'] = obj({
+    **fieldnames('id parent title subtitle'),
+    'kind':string(enum=['root','branch','evidence']),
+    'status':string(enum=['active','running','ruled_out','confirmed']),
+    'x':integer(minimum=-100000,maximum=100000),'y':integer(minimum=-100000,maximum=100000),
+    'w':integer(minimum=120,maximum=2000),
+    'collapsed':v3_bool(),'layout_version':integer(minimum=0),
+    'context':ref('V3InvestigationCanvasContext'),
+    'versions':arr(ref('V3InvestigationCanvasVersion')),
+    'evidence_refs':arr(string())},
+    ['id','kind','title','subtitle','status','x','y','w','collapsed','layout_version','context','versions'])
+S['V3InvestigationEvidenceTrayItem'] = obj({
+    **fieldnames('id title source'),
+    'kind':string(enum=['table']),
+    'body':obj({'type':string(enum=['table']),'rows':arr(arr(string()))},['type','rows'])},
+    ['id','kind','title','source','body'])
+S['V3InvestigationCanvasGraph'] = obj({
+    'investigation':obj({**fieldnames('id title'),
+        'status':string(enum=['active','resolved']),
+        'env':string(enum=['prod','staging','test']),
+        'participants':arr(string())},['id','title','status','env','participants']),
+    'loop':arr({}), 'nodes':arr(ref('V3InvestigationCanvasNode')),
+    'tray':arr(ref('V3InvestigationEvidenceTrayItem'))},
+    ['investigation','loop','nodes','tray'])
+v3_route('get','/investigations/{id}/canvas','Read a persisted investigation graph',
+    response=ref('V3InvestigationCanvasGraph'),
+    desc='Current session, environment and canvas.view for the persisted application or owner team are rechecked in one snapshot. Both INV-* and historical IDs use actual branch IDs. Nodes are real branches with current message counts and immutable revision history; layout rows or deterministic legacy drawing coordinates supply positions. Context tokens is null because current context token occupancy is unknown; historical provider usage is not summed as occupancy. Evidence is shown as exact recorded kind/content/source table rows; untyped workflow loop data yields an empty array. No AI conclusion or status is inferred. A source environment outside the frozen prod/staging/test DTO returns 422 canvas_environment_unsupported; invalid/oversized graph data returns 503 or 413. The current frontend must handle actual root IDs, nullable tokens, and persisted inspector data.')
+P['/investigations/{id}/canvas']['get']['responses']['413'] = {
+    'description':'Investigation graph exceeds bounded node, revision, or evidence limits',
+    'content':{'application/json':{'schema':ref('Error')}}}
+v3_route('post','/investigations/{id}/branches','Fork an investigation branch from its current context',
+    body={**obj({'parent_id':string(),'parent':string(),'title':string(minLength=1,maxLength=200),
+      'x':integer(minimum=-100000,maximum=100000),'y':integer(minimum=-100000,maximum=100000),
+      'expected_parent_revision':integer(minimum=0)},['title']),
+      'anyOf':[{'required':['parent_id']},{'required':['parent']}]},
+    response=ref('V3InvestigationCanvasNode'),status=201,
+    desc='At least one of parent_id (current frontend) or parent (contract spelling) identifies a persisted branch in this investigation. Both aliases may be sent when equal; conflicting values are rejected. A supplied expected_parent_revision must match the locked parent; omitted revision forks the latest committed parent snapshot under a row lock. The child receives its own immutable revision-zero context, layout, event and management audit in one transaction. Only an open investigation with current canvas.change for its persisted environment/application/team may fork. No model call or inference occurs.')
+P['/investigations/{id}/branches']['post']['responses']['413'] = {
+    'description':'Graph or parent context exceeds the bounded fork limit',
+    'content':{'application/json':{'schema':ref('Error')}}}
+v3_route('patch','/investigations/{id}/nodes/{node}','Update an investigation branch layout or title',
+    body=obj({'x':integer(minimum=-100000,maximum=100000),
+      'y':integer(minimum=-100000,maximum=100000),'title':string(minLength=1,maxLength=200),
+      'collapsed':v3_bool(),'collapse':v3_bool(),
+      'expected_layout_version':integer(minimum=0),'expected_title':string()},['expected_layout_version']),
+    response=ref('V3InvestigationCanvasNode'),
+    desc='A locked concrete branch and current canvas.change grant protect a single-environment open investigation. expected_layout_version is always required; a title edit also requires expected_title from the last read. Missing preconditions return 428; stale layout version or mismatched title returns 409, including a title changed through the legacy API. Position, collapse and optional title update atomically with a version increment, branch event and management audit. Context revision and parent/child topology are unchanged. collapsed and layout_version are additive server fields; the frozen frontend drag call lacks the required version and needs integration.')
+P['/investigations/{id}/nodes/{node}']['patch']['requestBody']['content']['application/json']['schema']['dependentRequired'] = {'title':['expected_title']}
+P['/investigations/{id}/nodes/{node}']['patch']['responses']['428'] = {
+    'description':'Expected layout version, or expected title for a title edit, is required',
+    'content':{'application/json':{'schema':ref('Error')}}}
+P['/investigations/{id}/nodes/{node}']['patch']['responses']['413'] = {
+    'description':'Investigation graph exceeds bounded display limits',
+    'content':{'application/json':{'schema':ref('Error')}}}
 S['V3InvestigationBranchContext'] = obj({
     'branch_id': string(), 'revision': integer(minimum=0),
     'messages': arr({})}, ['branch_id','revision','messages'])
 v3_route('get','/investigations/{id}/nodes/{node}/messages',
     'Read the current persisted investigation branch context',
     response=ref('V3InvestigationBranchContext'),
-    desc='Auxiliary read-only route outside the 166 V3 page contracts. Resolves the branch, investigation, application, environment, and owner team from persisted records and requires current canvas.view for the application or owner team. Returns only the current branch revision and its historical JSON messages, preserving legacy optional fields as stored; it does not synthesize nodes, timestamps, summaries, or model output. The stored context is limited to 24 KiB. An absent, mismatched, or inaccessible branch returns 404; a missing, oversized, or malformed current context returns 503. The complete investigation graph, node write, and ancestor writeback remain unavailable.')
+    desc='Auxiliary read-only route outside the 166 V3 page contracts. Resolves the branch, investigation, application, environment, and owner team from persisted records and requires current canvas.view for the application or owner team. Returns only the current branch revision and its historical JSON messages, preserving legacy optional fields as stored; it does not synthesize nodes, timestamps, summaries, or model output. The stored context is limited to 24 KiB. An absent, mismatched, or inaccessible branch returns 404; a missing, oversized, or malformed current context returns 503. The graph and layout/branch writes have separate routes; ancestor writeback and investigation node model replies remain unavailable.')
 v3_route('get','/canvas-templates','List available canvas structures',
     response=obj({'items':arr(ref('V3CanvasTemplate'))},['items']),
     desc='Currently lists only private, persisted generic-canvas structure templates owned by the current user in authorized non-production environments. Investigation and team templates are unavailable; the full page contract remains mock.')

@@ -76,13 +76,20 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"GET /api/v1/canvases", "view", s.list},
 		{"POST /api/v1/canvases", "change", s.createCanvas},
 		{"GET /api/v1/canvases/{id}", "view", s.get},
+		{"GET /api/v1/investigations/{id}/canvas", "view", s.investigationCanvas},
+		{"POST /api/v1/investigations/{id}/branches", "change", s.createInvestigationBranch},
+		{"PATCH /api/v1/investigations/{id}/nodes/{node}", "change", s.patchInvestigationNode},
 		{"POST /api/v1/canvases/{id}/nodes/{node}/messages", "change", s.sendNodeMessage},
 		{"GET /api/v1/investigations/{id}/nodes/{node}/messages", "view", s.readInvestigationNodeMessages},
 		{"GET /api/v1/canvas-templates", "view", s.templates},
 		{"POST /api/v1/canvas-templates", "change", s.saveTemplate},
 	} {
 		api.Register(route.pattern, "viewer", route.handler)
-		if route.pattern == "GET /api/v1/canvases" || route.pattern == "POST /api/v1/canvases" || route.pattern == "GET /api/v1/investigations/{id}/nodes/{node}/messages" {
+		if route.pattern == "GET /api/v1/canvases" || route.pattern == "POST /api/v1/canvases" ||
+			route.pattern == "GET /api/v1/investigations/{id}/canvas" ||
+			route.pattern == "POST /api/v1/investigations/{id}/branches" ||
+			route.pattern == "PATCH /api/v1/investigations/{id}/nodes/{node}" ||
+			route.pattern == "GET /api/v1/investigations/{id}/nodes/{node}/messages" {
 			// The handlers resolve application/team scope from persisted
 			// investigations or the active service catalog before checking grants.
 			api.MarkV3ObjectRoute(route.pattern, "canvas", route.action)

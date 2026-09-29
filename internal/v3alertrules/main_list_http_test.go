@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -48,7 +49,7 @@ func TestMainAlertRuleListRegisteredHTTPAndProviderScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	cfg.MaxConns = 1
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -66,6 +67,7 @@ func TestMainAlertRuleListRegisteredHTTPAndProviderScope(t *testing.T) {
 	}
 	for _, statement := range []string{
 		`DELETE FROM v3_role_grants WHERE role_id='viewer'`,
+		`INSERT INTO teams(id,name) VALUES ('team-a','Team A'),('team-b','Team B')`,
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
  ('viewer','environment','view','environment','test'),
  ('viewer','environment','view','environment','staging'),
@@ -75,12 +77,20 @@ func TestMainAlertRuleListRegisteredHTTPAndProviderScope(t *testing.T) {
  ('allowed','allowed','Allowed','test',false),
  ('hidden','hidden','Hidden','test',false),
  ('stage-app','stage-app','Stage App','staging',false)`,
+		`INSERT INTO applications(id,key,name,environment,owner_team_id,archived) VALUES
+ ('team-owned','team-owned','Team Owned','test','team-a',false),
+ ('team-hidden','team-hidden','Team Hidden','test','team-b',false),
+ ('team-unowned','team-unowned','Team Unowned','test',NULL,false)`,
 		`INSERT INTO application_environments(id,application_id,key,name,archived) VALUES
  ('allowed-test','allowed','test','Test',false),
  ('hidden-test','hidden','test','Test',false),
- ('stage-staging','stage-app','staging','Staging',false)`,
+ ('stage-staging','stage-app','staging','Staging',false),
+ ('team-owned-test','team-owned','test','Test',false),
+ ('team-hidden-test','team-hidden','test','Test',false),
+ ('team-unowned-test','team-unowned','test','Test',false)`,
 		`INSERT INTO v3_application_environments(application_id,environment_id) VALUES
- ('allowed','test'),('hidden','test'),('stage-app','staging')`,
+ ('allowed','test'),('hidden','test'),('stage-app','staging'),
+ ('team-owned','test'),('team-hidden','test'),('team-unowned','test')`,
 	} {
 		if _, err := db.Exec(ctx, statement); err != nil {
 			t.Fatal(err)
@@ -90,7 +100,9 @@ func TestMainAlertRuleListRegisteredHTTPAndProviderScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var stagingFails, tooMany, duplicateVisible atomic.Bool
+	var stagingFails, tooMany, duplicateVisible, pauseProvider atomic.Bool
+	providerEntered := make(chan struct{}, 1)
+	providerRelease := make(chan struct{})
 	rule := func(name, env, app string) map[string]any {
 		labels := map[string]string{}
 		if env != "" {
@@ -109,6 +121,10 @@ func TestMainAlertRuleListRegisteredHTTPAndProviderScope(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
+		if pauseProvider.Load() {
+			providerEntered <- struct{}{}
+			<-providerRelease
+		}
 		if strings.HasPrefix(r.URL.Path, "/staging/") && stagingFails.Load() {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
@@ -120,6 +136,11 @@ func TestMainAlertRuleListRegisteredHTTPAndProviderScope(t *testing.T) {
 				group("hidden-group", rule("HiddenRule", "test", "hidden")),
 				group("unlabeled-group", rule("NoOwner", "", "")),
 				group("unbound-group", rule("NoBinding", "test", "allowed")),
+				group("team-owned-group", rule("TeamOwnedRule", "test", "team-owned")),
+				group("team-hidden-group", rule("TeamHiddenRule", "test", "team-hidden")),
+				group("team-unowned-group", rule("TeamUnownedRule", "test", "team-unowned")),
+				group("team-mismatch-group", rule("TeamMismatchedRule", "test", "team-hidden")),
+				group("team-unbound-group", rule("TeamUnboundRule", "test", "team-owned")),
 			}
 			if duplicateVisible.Load() {
 				second := rule("AllowedRule", "test", "allowed")
@@ -157,6 +178,10 @@ func TestMainAlertRuleListRegisteredHTTPAndProviderScope(t *testing.T) {
 		{EnvironmentID: "test", ApplicationID: "allowed", File: "/etc/prometheus/rules.yml", Group: "allowed-group"},
 		{EnvironmentID: "test", ApplicationID: "hidden", File: "/etc/prometheus/rules.yml", Group: "hidden-group"},
 		{EnvironmentID: "test", ApplicationID: "allowed", File: "/etc/prometheus/rules.yml", Group: "unlabeled-group"},
+		{EnvironmentID: "test", ApplicationID: "team-owned", File: "/etc/prometheus/rules.yml", Group: "team-owned-group"},
+		{EnvironmentID: "test", ApplicationID: "team-hidden", File: "/etc/prometheus/rules.yml", Group: "team-hidden-group"},
+		{EnvironmentID: "test", ApplicationID: "team-unowned", File: "/etc/prometheus/rules.yml", Group: "team-unowned-group"},
+		{EnvironmentID: "test", ApplicationID: "team-owned", File: "/etc/prometheus/rules.yml", Group: "team-mismatch-group"},
 		{EnvironmentID: "staging", ApplicationID: "stage-app", File: "/etc/prometheus/rules.yml", Group: "stage-group"},
 	})
 	if err != nil {
@@ -219,6 +244,10 @@ func TestMainAlertRuleListRegisteredHTTPAndProviderScope(t *testing.T) {
 	}
 	duplicateVisible.Store(false)
 	stagingFails.Store(true)
+	w = request(detailPath, "all")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"name":"AllowedRule"`) || !strings.Contains(w.Body.String(), `"expr":"up == 0"`) {
+		t.Fatalf("known detail was lost while another authorized provider was unavailable: %d %s", w.Code, w.Body.String())
+	}
 	w = request("/api/v1/alert-rules/observed/nonexistent", "all")
 	if w.Code != 503 || !strings.Contains(w.Body.String(), "rule_source_partial") {
 		t.Fatalf("unknown detail with unavailable provider was treated as absent: %d %s", w.Code, w.Body.String())
@@ -255,4 +284,99 @@ func TestMainAlertRuleListRegisteredHTTPAndProviderScope(t *testing.T) {
 	if w.Code != 403 || strings.Contains(w.Body.String(), "AllowedRule") || strings.Contains(w.Body.String(), "up ==") {
 		t.Fatalf("revoked application grant still disclosed detail: %d %s", w.Code, w.Body.String())
 	}
+	teamOwnedID := toDetail("test", "team-owned", ObservedRule{GroupIdentity: "/etc/prometheus/rules.yml\x00team-owned-group", Group: "team-owned-group", Name: "TeamOwnedRule"}).ID
+	teamHiddenID := toDetail("test", "team-hidden", ObservedRule{GroupIdentity: "/etc/prometheus/rules.yml\x00team-hidden-group", Group: "team-hidden-group", Name: "TeamHiddenRule"}).ID
+	teamUnownedID := toDetail("test", "team-unowned", ObservedRule{GroupIdentity: "/etc/prometheus/rules.yml\x00team-unowned-group", Group: "team-unowned-group", Name: "TeamUnownedRule"}).ID
+	teamMismatchID := toDetail("test", "team-owned", ObservedRule{GroupIdentity: "/etc/prometheus/rules.yml\x00team-mismatch-group", Group: "team-mismatch-group", Name: "TeamMismatchedRule"}).ID
+	teamUnboundID := toDetail("test", "team-owned", ObservedRule{GroupIdentity: "/etc/prometheus/rules.yml\x00team-unbound-group", Group: "team-unbound-group", Name: "TeamUnboundRule"}).ID
+	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES ('viewer','alert_rules','view','team','team-a')`); err != nil {
+		t.Fatal(err)
+	}
+	w = request("/api/v1/alert-rules", "test")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"name":"TeamOwnedRule"`) || !strings.Contains(w.Body.String(), `"all":1`) {
+		t.Fatalf("team-only grant did not list its owned rule: %d %s", w.Code, w.Body.String())
+	}
+	for _, denied := range []string{"AllowedRule", "TeamHiddenRule", "TeamUnownedRule", "TeamMismatchedRule", "TeamUnboundRule"} {
+		if strings.Contains(w.Body.String(), denied) {
+			t.Fatalf("team-only list disclosed %s: %s", denied, w.Body.String())
+		}
+	}
+	w = request("/api/v1/alert-rules/observed/"+teamOwnedID, "test")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"name":"TeamOwnedRule"`) || !strings.Contains(w.Body.String(), `"expr":"up == 0"`) {
+		t.Fatalf("team-only observed detail status=%d body=%s", w.Code, w.Body.String())
+	}
+	for _, id := range []string{teamHiddenID, teamUnownedID, teamMismatchID, teamUnboundID} {
+		w = request("/api/v1/alert-rules/observed/"+id, "test")
+		if w.Code != 404 || strings.Contains(w.Body.String(), "Rule") || strings.Contains(w.Body.String(), "up ==") {
+			t.Fatalf("non-owned or unbound observed detail disclosed: %d %s", w.Code, w.Body.String())
+		}
+	}
+	if _, err := db.Exec(ctx, `UPDATE applications SET owner_team_id='team-b' WHERE id='team-owned'`); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/api/v1/alert-rules", "/api/v1/alert-rules/observed/" + teamOwnedID} {
+		w = request(path, "test")
+		if w.Code != 403 || strings.Contains(w.Body.String(), "TeamOwnedRule") || strings.Contains(w.Body.String(), "up ==") {
+			t.Fatalf("changed owner retained team access on %s: %d %s", path, w.Code, w.Body.String())
+		}
+	}
+	if _, err := db.Exec(ctx, `UPDATE applications SET owner_team_id='team-a' WHERE id='team-owned'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='alert_rules' AND scope_kind='team'`); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/api/v1/alert-rules", "/api/v1/alert-rules/observed/" + teamOwnedID} {
+		w = request(path, "test")
+		if w.Code != 403 || strings.Contains(w.Body.String(), "TeamOwnedRule") || strings.Contains(w.Body.String(), "up ==") {
+			t.Fatalf("revoked team grant retained access on %s: %d %s", path, w.Code, w.Body.String())
+		}
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES ('viewer','alert_rules','view','application','allowed')`); err != nil {
+		t.Fatal(err)
+	}
+	checkList(request("/api/v1/alert-rules", "test"), 1, 0)
+	w = request(detailPath, "test")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"name":"AllowedRule"`) {
+		t.Fatalf("direct application grant regressed: %d %s", w.Code, w.Body.String())
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='alert_rules' AND scope_kind='application' AND scope_id='allowed'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES ('viewer','alert_rules','view','team','team-a')`); err != nil {
+		t.Fatal(err)
+	}
+	checkDuringProviderRead := func(path string, change func() error) {
+		t.Helper()
+		pauseProvider.Store(true)
+		result := make(chan *httptest.ResponseRecorder, 1)
+		go func() { result <- request(path, "test") }()
+		select {
+		case <-providerEntered:
+		case <-time.After(5 * time.Second):
+			close(providerRelease)
+			t.Fatal("request did not reach Prometheus provider")
+		}
+		if err := change(); err != nil {
+			close(providerRelease)
+			t.Fatal(err)
+		}
+		providerRelease <- struct{}{}
+		w := <-result
+		pauseProvider.Store(false)
+		if w.Code != 403 || strings.Contains(w.Body.String(), "TeamOwnedRule") || strings.Contains(w.Body.String(), "up ==") || strings.Contains(w.Body.String(), `"counts"`) {
+			t.Fatalf("stale team access escaped after provider returned on %s: %d %s", path, w.Code, w.Body.String())
+		}
+	}
+	checkDuringProviderRead("/api/v1/alert-rules", func() error {
+		_, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='alert_rules' AND scope_kind='team'`)
+		return err
+	})
+	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES ('viewer','alert_rules','view','team','team-a')`); err != nil {
+		t.Fatal(err)
+	}
+	checkDuringProviderRead("/api/v1/alert-rules/observed/"+teamOwnedID, func() error {
+		_, err := db.Exec(ctx, `UPDATE applications SET owner_team_id='team-b' WHERE id='team-owned'`)
+		return err
+	})
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -30,7 +31,7 @@ type Catalog interface {
 }
 
 type Application struct {
-	ID, EnvironmentID string
+	ID, EnvironmentID, OwnerTeamID string
 }
 
 type DatabaseCatalog struct{ DB *pgxpool.Pool }
@@ -39,7 +40,7 @@ func (c DatabaseCatalog) Applications(ctx context.Context, environments []string
 	if c.DB == nil {
 		return nil, errors.New("application catalog unavailable")
 	}
-	rows, err := c.DB.Query(ctx, `SELECT a.id,ve.environment_id FROM applications a
+	rows, err := c.DB.Query(ctx, `SELECT a.id,ve.environment_id,COALESCE(a.owner_team_id,'') FROM applications a
  JOIN v3_application_environments ve ON ve.application_id=a.id
  JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
  WHERE NOT a.archived AND ve.environment_id=ANY($1::text[])
@@ -54,7 +55,7 @@ func (c DatabaseCatalog) Applications(ctx context.Context, environments []string
 			return nil, errors.New("application catalog exceeds 500-row bound")
 		}
 		var app Application
-		if err := rows.Scan(&app.ID, &app.EnvironmentID); err != nil {
+		if err := rows.Scan(&app.ID, &app.EnvironmentID, &app.OwnerTeamID); err != nil {
 			return nil, err
 		}
 		apps = append(apps, app)
@@ -193,29 +194,10 @@ func (s *Service) visible(r *http.Request) ([]Detail, []string, int, error) {
 	if !ok || len(scope.EnvironmentIDs) == 0 || s.Catalog == nil || s.Access == nil {
 		return nil, nil, http.StatusServiceUnavailable, errors.New("environment scope, catalog or policy unavailable")
 	}
-	apps, err := s.Catalog.Applications(r.Context(), scope.EnvironmentIDs)
+	user := httpapi.CurrentUser(r)
+	allowed, status, err := s.authorizedApplications(r.Context(), user, scope.EnvironmentIDs)
 	if err != nil {
-		return nil, nil, http.StatusServiceUnavailable, err
-	}
-	allowed := map[string]map[string]bool{}
-	for _, app := range apps {
-		if !contains(scope.EnvironmentIDs, app.EnvironmentID) || app.ID == "" {
-			continue
-		}
-		err := s.Access.Authorize(r.Context(), httpapi.CurrentUser(r), rbac.V3Decision{Module: "alert_rules", Action: "view", EnvironmentID: app.EnvironmentID, ApplicationID: app.ID})
-		if errors.Is(err, store.ErrForbidden) {
-			continue
-		}
-		if err != nil {
-			return nil, nil, http.StatusServiceUnavailable, err
-		}
-		if allowed[app.EnvironmentID] == nil {
-			allowed[app.EnvironmentID] = map[string]bool{}
-		}
-		allowed[app.EnvironmentID][app.ID] = true
-	}
-	if len(allowed) == 0 {
-		return nil, nil, http.StatusForbidden, store.ErrForbidden
+		return nil, nil, status, err
 	}
 	if s.Source == nil || len(s.bindings) == 0 {
 		return nil, nil, http.StatusServiceUnavailable, errors.New("alert rule provider or group bindings not configured")
@@ -236,17 +218,60 @@ func (s *Service) visible(r *http.Request) ([]Detail, []string, int, error) {
 		}
 		for _, rule := range rules {
 			app, bound := s.bindings[bindingKey(env, rule.GroupIdentity)]
-			if !bound || rule.Labels["environment"] != env || rule.Labels["application"] != app || !allowed[env][app] || rule.Name == "" || rule.Group == "" {
+			if _, authorized := allowed[env][app]; !bound || rule.Labels["environment"] != env || rule.Labels["application"] != app || !authorized || rule.Name == "" || rule.Group == "" {
 				continue
 			}
 			items = append(items, toDetail(env, app, rule))
 		}
+	}
+	// A provider read can wait long enough for a grant, catalog mapping or team
+	// owner to change. Refuse to publish a list built from a different scope.
+	current, status, err := s.authorizedApplications(r.Context(), user, scope.EnvironmentIDs)
+	if err != nil {
+		return nil, nil, status, err
+	}
+	if !reflect.DeepEqual(allowed, current) {
+		return nil, nil, http.StatusServiceUnavailable, errors.New("alert rule scope changed while reading provider")
 	}
 	if len(unavailable) > 0 && len(unavailable) == len(allowed) {
 		return nil, nil, http.StatusServiceUnavailable, errors.New("all authorized rule providers unavailable")
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	return items, unavailable, http.StatusOK, nil
+}
+
+func (s *Service) authorizedApplications(ctx context.Context, user core.User, environments []string) (map[string]map[string]Application, int, error) {
+	apps, err := s.Catalog.Applications(ctx, environments)
+	if err != nil {
+		return nil, http.StatusServiceUnavailable, err
+	}
+	allowed := map[string]map[string]Application{}
+	for _, app := range apps {
+		if !contains(environments, app.EnvironmentID) || app.ID == "" {
+			continue
+		}
+		decision := rbac.V3Decision{Module: "alert_rules", Action: "view", EnvironmentID: app.EnvironmentID, ApplicationID: app.ID}
+		err := s.Access.Authorize(ctx, user, decision)
+		if errors.Is(err, store.ErrForbidden) && app.OwnerTeamID != "" {
+			decision.ApplicationID = ""
+			decision.TeamID = app.OwnerTeamID
+			err = s.Access.Authorize(ctx, user, decision)
+		}
+		if errors.Is(err, store.ErrForbidden) {
+			continue
+		}
+		if err != nil {
+			return nil, http.StatusServiceUnavailable, err
+		}
+		if allowed[app.EnvironmentID] == nil {
+			allowed[app.EnvironmentID] = map[string]Application{}
+		}
+		allowed[app.EnvironmentID][app.ID] = app
+	}
+	if len(allowed) == 0 {
+		return nil, http.StatusForbidden, store.ErrForbidden
+	}
+	return allowed, http.StatusOK, nil
 }
 
 func contains(values []string, wanted string) bool {

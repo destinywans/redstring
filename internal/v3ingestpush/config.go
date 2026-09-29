@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/wans/aiops-canvas/internal/delivery"
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/operations"
 	"github.com/wans/aiops-canvas/internal/rbac"
 )
 
@@ -36,12 +38,14 @@ type Config struct {
 }
 
 type Service struct {
-	db         *pgxpool.Pool
-	policy     *rbac.V3Policy
-	sources    map[string]Source
-	envs       map[string]bool
-	publicHost string
-	now        func() time.Time
+	db            *pgxpool.Pool
+	policy        *rbac.V3Policy
+	sources       map[string]Source
+	envs          map[string]bool
+	publicHost    string
+	now           func() time.Time
+	nativeAlerts  []operations.Source
+	nativeGitLabs []delivery.GitLabConfig
 }
 
 var sourceIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)

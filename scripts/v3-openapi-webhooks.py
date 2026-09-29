@@ -1,5 +1,5 @@
-# Browser Webhook overview currently has one independently verifiable inbound
-# source family: the generic, application-bound V3 Push ingress.
+# Browser Webhook overview combines the generic Push ingress with optional
+# metadata from already-installed native Alertmanager and GitLab receivers.
 S['V3WebhookInbound'] = obj({
     **fieldnames('id source_id event_type brand name url verify count last status_basis'),
     'status':string(enum=['ok','error','unverified']),
@@ -20,11 +20,12 @@ S['V3WebhookView'] = obj({
 }, ['inbound','deliveries','tokens','mcp','outbound','availability'])
 v3_route('get','/webhooks','Read scoped Webhook and API integration overview',
     role='viewer with scoped connectors.view and services.view',response=ref('V3WebhookView'),
-    desc='Shows only configured generic V3 Push source/event routes whose application and environment are currently visible. '
-    'The count is accepted, non-synthetic ingress receipts in the past 24 hours; last and status reflect only the latest receipt in that window, not continuous source health. '
-    'An unobserved route has status=unverified. Delivery rows are inbound receipts, not outbound notification delivery. '
-    'No visible generic source is reported as no_visible_sources; this does not claim no source exists in another environment. '
-    'API tokens, native vendor receivers, public MCP serving and outbound delivery lack one connected V3 registry here; their arrays are empty and availability explicitly says not_connected. '
+    desc='Shows only configured generic V3 Push routes and optionally injected native Alertmanager/GitLab receivers whose application and environment are currently visible. '
+    'The generic count is accepted, non-synthetic ingress receipts in the past 24 hours; its last and status reflect only the latest receipt in that window, not continuous source health. '
+    'Alertmanager count and last derive from accepted deduplicated occurrences in the past 24 hours; its status stays unverified because acceptance does not prove ongoing sender health. '
+    'GitLab historical receipts lack persisted application/environment attribution and may predate a project rebind, so its count and last are unknown and status remains unverified. '
+    'Delivery rows are generic Push inbound receipts only, not vendor receipts or outbound delivery. No visible source is reported as no_visible_sources without exposing other environments. '
+    'API tokens, public MCP serving and outbound delivery are not connected; their arrays are empty and availability states disclose that limit. Outbound redelivery is disabled. '
     'No credential or source secret is returned. The frozen frontend only types ok/error for inbound status and may need to render unverified and availability.')
 
 # The V3 Alertmanager receiver replaces the historical browser-independent

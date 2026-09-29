@@ -14,10 +14,9 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
-// WebhookView only projects the generic, source-bound ingress owned by this
-// service. Native vendor receivers, user API tokens, public MCP serving and
-// outbound delivery do not have a shared V3 registry here; an empty array for
-// those categories is paired with an explicit unavailable state.
+// WebhookView projects generic Push ingress and optionally injected native
+// receiver registrations. User API tokens, public MCP serving and outbound
+// delivery do not have a connected V3 registry here.
 type webhookView struct {
 	Inbound      []webhookInbound    `json:"inbound"`
 	Deliveries   []webhookReceipt    `json:"deliveries"`
@@ -166,6 +165,19 @@ func (s *Service) webhooks(w http.ResponseWriter, r *http.Request) {
 			}
 			view.Inbound = append(view.Inbound, item)
 		}
+	}
+	if len(s.nativeAlerts) > 0 || len(s.nativeGitLabs) > 0 {
+		view.Availability.NativeInbound = "no_visible_sources"
+	}
+	native, err := s.nativeWebhookView(ctx, tx, httpapi.CurrentUser(r), allowed)
+	if err != nil {
+		webhooksUnavailable(w)
+		return
+	}
+	if len(native) > 0 {
+		view.Inbound = append(view.Inbound, native...)
+		view.Availability.Inbound = "configured"
+		view.Availability.NativeInbound = "configured_health_unverified"
 	}
 	if err = store.LockActiveSession(ctx, tx, cookie.Value, httpapi.CurrentUser(r).ID); err != nil {
 		webhookSessionError(w, err)

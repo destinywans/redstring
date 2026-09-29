@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-169 · 2026-09-29 · WAN-117 真实 Kubernetes 服务发现
+
+- 从已推送 CP-168 `ed6fba3` 接续，选取来源 `bcd0e2792180ce1dd786de3dcaaeb67696d8ce14` 合入为 `ab355ea`。只处理 `GET /services/discover` 的完整后端切片；与指标问答的就绪清单冲突按两边真实状态合并，保留两条 `implemented`，并重新生成聚合 OpenAPI。主契约现 **90/166、76 mock**，OpenAPI **302 路径、360 操作、345 schema**。
+- 正式 V3 路由只读最近五分钟成功的 Kubernetes collector/CMDB 快照，核对当前环境、`services.view` 与 `resources.view`、未关联身份、来源 UID 和同名歧义。每个结果给稳定 `resource_id`、Kubernetes UID、namespace、镜像、可得副本数，以及来源 ID、观察/最近成功时间和 `unavailable_fields`；负责人/等级仅为提示，健康、SLO、系统匹配不由采集推断。来源分支报告已用专用 demo 集群和隔离环境取得正式 HTTP 200/真实工作负载并对照 Kubernetes UID；本集成没有重跑现场链路。
+- 用户本阶段要求不运行测试；本批仅重新生成契约/矩阵并对共享入口做最小 `go build`，编译退出 0 且生成二进制，模块缓存仍提示沙箱写入权限警告。未运行现有业务库迁移、浏览器或前端适配。冻结前端尚未发送 `cluster/resource_id`，并把负责人、健康与映射当确定值；该页面不能因单路由完成而视为验收。无 PR、合并或部署；下一批接来源化告警与 Webhook，再合 WAN-121 对话富消息恢复。
+
 ## CP-168 · 2026-09-29 · WAN-120 指标快照提问正式入口
 
 - 集成分支 `codex/wan-117-v3-integration` 在已推送 `d74ca08` 后合入来源 `eae0c8d6a4ae0334b2143039a69b2fd84fe9207e` 为 `76db330`。`configureV3` 先创建精确来源的 `PrometheusReader`，把非事务与事务来源版本复核接入 `v3conversation.Options`，再把对话服务注入 `v3observe.Service.MetricsConversation`；保留原有连接器、模型和对话接线。来源迁移 `135_v3_metrics_questions.sql` 与既有两个不同文件名的 135 迁移共存，本批未在现有或隔离数据库执行迁移。

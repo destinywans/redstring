@@ -8949,10 +8949,20 @@
     },
     "/incidents/{id}": {
       "get": {
-        "summary": "Read incident detail when impact is available",
+        "summary": "Read persisted incident facts and manual notes",
         "operationId": "get_incidents_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Currently always returns 503 impact_unavailable after identity and scope checks; required SLO impact data is not connected.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Resolves a persisted incident ID under current V3 environment, application, owner-team, session and events.view authorization in one transaction. Returns the recorded work/alert status, strict severity, summary, assigned user when present, and up to 500 explicitly appended v3_incident_timeline notes; actor kind and current name come from the users row. Investigation linkage and close time are accepted only when the referenced investigation belongs to the same application/environment. The alert start is reported separately; incident duration has no established lifecycle start and remains null. Commander, five-step stage, SLO peak/error-budget/series, system/AI timeline, and proposal/change links are unknown and explicitly listed in unavailable. More than 500 notes or inconsistent persisted references fail closed. The frozen page still assumes non-null duration, stage and impact and expects other actor kinds, so page acceptance is pending.",
         "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3IncidentDetail"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Authentication required",
             "content": {
@@ -32529,31 +32539,16 @@
     },
     "/inbox": {
       "get": {
-        "summary": "Read scoped inbox",
+        "summary": "Read persisted alert portion of scoped inbox",
         "operationId": "get_inbox",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Currently includes recent incident-backed alerts; other inbox kinds are not yet connected. tab remains an alias for filter.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Returns currently authorized non-suspected persisted alert incidents updated during today or yesterday in the configured server timezone; AI patrol suspected incidents are outside this alert-only projection. All and mine count only this bounded portion; mine means assignee_id equals the current user. A transaction holds incident, current app/environment/team/session and V3 grant locks through the response snapshot. The system has no durable read receipt, mention membership or subscription ledger: unread and those counts are null, while mentions/subscribed filters return 503 rather than a fabricated empty result. Other inbox event types and older incidents are unavailable. More than 5000 selected recent incident rows returns 503 instead of incomplete totals. Frozen frontend assumes unread is boolean, uses a Mock selected ID and marks read only in component state, so page acceptance remains pending.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "items": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/V3InboxItem"
-                      }
-                    },
-                    "counts": {
-                      "type": "object",
-                      "additionalProperties": {
-                        "type": "integer"
-                      }
-                    }
-                  },
-                  "additionalProperties": false
+                  "$ref": "#/components/schemas/V3InboxPartial"
                 }
               }
             }
@@ -32893,29 +32888,14 @@
       "get": {
         "summary": "Read incident-backed alert groups",
         "operationId": "get_alert_groups",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. severity accepts repeated query keys (form/explode) and matches each group's highest severity; all must stand alone. Partial: pending/silenced/inhibited states, metric series, and full notification grouping are not connected; no synthetic signal values are emitted.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. A bounded local aggregation by persisted environment ID, application ID, webhook source ID and alert fingerprint, not an Alertmanager group. Count means persisted incident occurrences; source_id and fingerprint are stored identities. Only currently authorized events.view records are included, under incident/session/mapping/grant locks. Unknown current values, metric series, inhibition and provider grouping are null or named in unavailable. Notify reports only the latest local platform queue transport state and never claims upstream delivery. Counts are before state filtering; silenced count is null because exact silence state is unknown. state=silenced or show_inhibited=false returns 503 rather than a false empty result. Severity accepts repeated form keys. More than 5000 selected incidents returns 503 instead of incomplete totals. Frozen frontend assumes non-null instance metrics and cannot yet render this nullable response.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "items": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/V3AlertGroupPartial"
-                      }
-                    },
-                    "counts": {
-                      "type": "object",
-                      "additionalProperties": {
-                        "type": "integer"
-                      }
-                    }
-                  },
-                  "additionalProperties": false
+                  "$ref": "#/components/schemas/V3AlertGroupList"
                 }
               }
             }
@@ -33027,6 +33007,124 @@
           {
             "name": "state",
             "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "firing",
+                "pending",
+                "silenced",
+                "resolved"
+              ]
+            }
+          },
+          {
+            "name": "show_inhibited",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/alert-groups/{id}/policy": {
+      "get": {
+        "summary": "Read configured policy for one authorized local alert group",
+        "operationId": "get_alert_groups_id_policy",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. The ID resolves only currently authorized persisted incident members. When all members have the same exact captured webhook labels, and an explicit server-owned source/environment/application binding agrees, a trusted environment Alertmanager /api/v2/status read evaluates the matching route tree, inherited group_by and timing, and all matching receiver names without returning raw YAML or receiver secrets. Provider I/O occurs outside database locks; member contents and current session/grants are rechecked afterward. Missing binding, historical labels or ambiguous route return null policy fields with unavailable; malformed or failed configured provider and scope mismatch fail closed. Timeline contains only up to 500 local platform notification rows, with current queue status and done=null; it is not Alertmanager delivery history. Inhibition and current silence remain unknown. Frozen frontend assumes non-null policy fields and a Mock group ID, so page acceptance remains pending.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3AlertGroupPolicy"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "alert-groups"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -59399,28 +59497,19 @@
           "kind": {
             "type": "string",
             "enum": [
-              "alert",
-              "approval",
-              "mention",
-              "runbook",
-              "report",
-              "access",
-              "agent"
+              "alert"
             ]
           },
           "tone": {
             "type": "string",
             "enum": [
               "neutral",
-              "accent",
-              "ok",
               "warn",
-              "danger",
-              "info"
+              "danger"
             ]
           },
           "unread": {
-            "type": "boolean"
+            "type": "null"
           },
           "day": {
             "type": "string",
@@ -59430,7 +59519,102 @@
             ]
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "tone",
+          "title",
+          "sub",
+          "time",
+          "unread",
+          "day",
+          "href",
+          "alert_id"
+        ]
+      },
+      "V3InboxPartial": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3InboxItem"
+            }
+          },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "all": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "mine": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "mentions": {
+                "type": "null"
+              },
+              "subscribed": {
+                "type": "null"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "all",
+              "mine",
+              "mentions",
+              "subscribed"
+            ]
+          },
+          "partial": {
+            "type": "boolean"
+          },
+          "window": {
+            "type": "string",
+            "enum": [
+              "today_and_yesterday"
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "all_scope": {
+            "type": "string",
+            "enum": [
+              "persisted_alert_incident_updates"
+            ]
+          },
+          "mine_scope": {
+            "type": "string",
+            "enum": [
+              "assigned_alert_incidents"
+            ]
+          },
+          "unavailable": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "counts",
+          "partial",
+          "window",
+          "timezone",
+          "as_of",
+          "all_scope",
+          "mine_scope",
+          "unavailable"
+        ]
       },
       "V3IncidentSummary": {
         "type": "object",
@@ -59504,9 +59688,6 @@
             ]
           },
           "text": {
-            "type": "string"
-          },
-          "sub": {
             "type": "string"
           }
         },
@@ -59696,7 +59877,43 @@
           "unavailable"
         ]
       },
-      "V3AlertGroupPartial": {
+      "V3AlertGroupInstance": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "value": {
+            "type": "null"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "firing",
+              "pending"
+            ]
+          },
+          "duration": {
+            "type": "string"
+          },
+          "series": {
+            "type": "null"
+          },
+          "pending": {
+            "type": "null"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "value",
+          "state",
+          "duration",
+          "series",
+          "pending"
+        ]
+      },
+      "V3AlertGroupLocal": {
         "type": "object",
         "properties": {
           "id": {
@@ -59705,10 +59922,25 @@
           "service": {
             "type": "string"
           },
-          "since": {
+          "source_id": {
             "type": "string"
           },
-          "owner": {
+          "fingerprint": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "environment_key": {
+            "type": "string"
+          },
+          "count_kind": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "since": {
             "type": "string"
           },
           "severity": {
@@ -59736,28 +59968,41 @@
             }
           },
           "count": {
-            "type": "integer"
-          },
-          "state": {
-            "type": "string",
-            "enum": [
-              "firing",
-              "pending",
-              "silenced",
-              "resolved"
-            ]
+            "type": "integer",
+            "minimum": 1
           },
           "notify": {
             "type": "object",
             "properties": {
               "channel": {
-                "type": "string"
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "text": {
                 "type": "string"
+              },
+              "status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "platform_queue"
+                ]
               }
             },
-            "additionalProperties": false
+            "additionalProperties": false,
+            "required": [
+              "channel",
+              "text",
+              "status",
+              "scope"
+            ]
           },
           "badges": {
             "type": "array",
@@ -59774,35 +60019,600 @@
               "additionalProperties": false
             }
           },
+          "owner": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "inhibited": {
+            "type": "null"
+          },
           "instances": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string"
-                },
-                "value": {
-                  "type": "string"
-                },
-                "state": {
-                  "type": "string"
-                },
-                "duration": {
-                  "type": "string"
-                },
-                "series": {
-                  "type": "array",
-                  "items": {
-                    "type": "number"
-                  }
-                }
-              },
-              "additionalProperties": false
+              "$ref": "#/components/schemas/V3AlertGroupInstance"
+            }
+          },
+          "local_grouping": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "partial": {
+            "type": "boolean"
+          },
+          "unavailable": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "severity",
+          "labels",
+          "service",
+          "source_id",
+          "fingerprint",
+          "environment_id",
+          "environment_key",
+          "count",
+          "count_kind",
+          "state",
+          "since",
+          "notify",
+          "badges",
+          "owner",
+          "inhibited",
+          "instances",
+          "local_grouping",
+          "partial",
+          "unavailable"
+        ]
+      },
+      "V3AlertGroupList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3AlertGroupLocal"
+            }
+          },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "all": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "firing": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "pending": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "resolved": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "silenced": {
+                "type": "null"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "all",
+              "firing",
+              "pending",
+              "resolved",
+              "silenced"
+            ]
+          },
+          "partial": {
+            "type": "boolean"
+          },
+          "aggregation": {
+            "type": "string",
+            "enum": [
+              "local_persisted_incidents"
+            ]
+          },
+          "unavailable": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "counts",
+          "partial",
+          "aggregation",
+          "unavailable"
+        ]
+      },
+      "V3AlertGroupPolicyTimelineEntry": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "incident_id": {
+            "type": "string"
+          },
+          "done": {
+            "type": "null"
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "time",
+          "channel",
+          "text",
+          "done",
+          "status",
+          "attempts",
+          "incident_id"
+        ]
+      },
+      "V3AlertGroupPolicyTiming": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": [
+              "group_wait",
+              "group_interval",
+              "repeat_interval"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "help": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "label",
+          "value",
+          "help"
+        ]
+      },
+      "V3AlertGroupPolicy": {
+        "type": "object",
+        "properties": {
+          "group_by": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "route": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timing": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/V3AlertGroupPolicyTiming"
+            }
+          },
+          "timeline": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/V3AlertGroupPolicyTimelineEntry"
+            }
+          },
+          "inhibition": {
+            "type": "null"
+          },
+          "group_id": {
+            "type": "string"
+          },
+          "receivers": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "policy_source": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "policy_observed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "local_grouping": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "timeline_scope": {
+            "type": "string",
+            "enum": [
+              "platform_queue"
+            ]
+          },
+          "timeline_truncated": {
+            "type": "boolean"
+          },
+          "partial": {
+            "type": "boolean"
+          },
+          "unavailable": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "group_by",
+          "route",
+          "timing",
+          "timeline",
+          "inhibition",
+          "group_id",
+          "receivers",
+          "policy_source",
+          "policy_observed_at",
+          "local_grouping",
+          "timeline_scope",
+          "timeline_truncated",
+          "partial",
+          "unavailable"
+        ]
+      },
+      "V3IncidentDetailAssignee": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name"
+        ]
+      },
+      "V3IncidentDetailNote": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "actor": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "machine"
+                ]
+              },
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "id",
+              "name"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "time",
+          "actor",
+          "text"
+        ]
+      },
+      "V3IncidentDetailImpact": {
+        "type": "object",
+        "properties": {
+          "peak": {
+            "type": "null"
+          },
+          "budget_used": {
+            "type": "null"
+          },
+          "budget_left": {
+            "type": "null"
+          },
+          "note": {
+            "type": "null"
+          },
+          "series": {
+            "type": "null"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "peak",
+          "budget_used",
+          "budget_left",
+          "note",
+          "series"
+        ]
+      },
+      "V3IncidentDetailRole": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "assignee"
+            ]
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "role",
+          "name"
+        ]
+      },
+      "V3IncidentDetailLink": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "href": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "label",
+          "href"
+        ]
+      },
+      "V3IncidentDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "environment_key": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "assignee_id": {
+            "type": "string"
+          },
+          "investigation_id": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "P1",
+              "P2",
+              "P3",
+              "P4"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "mitigated",
+              "resolved"
+            ]
+          },
+          "work_status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "investigating",
+              "resolved"
+            ]
+          },
+          "alert_status": {
+            "type": "string",
+            "enum": [
+              "firing",
+              "pending",
+              "resolved"
+            ]
+          },
+          "alert_started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resolved_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "duration": {
+            "type": "null"
+          },
+          "duration_basis": {
+            "type": "null"
+          },
+          "assignee": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/V3IncidentDetailAssignee"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "commander": {
+            "type": "null"
+          },
+          "stage": {
+            "type": "null"
+          },
+          "timeline": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/V3IncidentDetailNote"
+            }
+          },
+          "timeline_scope": {
+            "type": "string",
+            "enum": [
+              "manual_only"
+            ]
+          },
+          "impact": {
+            "$ref": "#/components/schemas/V3IncidentDetailImpact"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3IncidentDetailRole"
+            }
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3IncidentDetailLink"
+            }
+          },
+          "partial": {
+            "type": "boolean"
+          },
+          "unavailable": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "application_id",
+          "environment_id",
+          "environment_key",
+          "source_id",
+          "severity",
+          "title",
+          "status",
+          "work_status",
+          "alert_status",
+          "summary",
+          "alert_started_at",
+          "updated_at",
+          "resolved_at",
+          "duration",
+          "duration_basis",
+          "assignee_id",
+          "assignee",
+          "commander",
+          "stage",
+          "timeline",
+          "timeline_scope",
+          "impact",
+          "roles",
+          "links",
+          "investigation_id",
+          "partial",
+          "unavailable"
+        ]
       },
       "V3ObservedAlertRuleSummary": {
         "type": "object",

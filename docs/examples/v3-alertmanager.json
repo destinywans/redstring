@@ -6,7 +6,8 @@
       "environment_label": "environment",
       "application_bindings": {
         "checkout-api": "persisted-application-id"
-      }
+      },
+      "source_ids": ["reviewed-operations-webhook-source-id"]
     },
     "staging": {
       "url": "https://alertmanager-staging.example.invalid",

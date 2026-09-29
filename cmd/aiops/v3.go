@@ -335,7 +335,8 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		return fmt.Errorf("bind V3 alert rule groups: %w", err)
 	}
 	ruleService.Register(api)
-	alertmanagerSource, alertmanagerLabels, alertmanagerBindings, err := loadV3AlertmanagerSource(os.Getenv("AIOPS_V3_ALERTMANAGER_CONFIG"), *info)
+	alertmanagerSource, alertmanagerLabels, alertmanagerBindings, alertmanagerPolicyBindings, err :=
+		loadV3AlertmanagerSourceWithPolicies(os.Getenv("AIOPS_V3_ALERTMANAGER_CONFIG"), *info, opsConfig, s.DB)
 	if err != nil {
 		return fmt.Errorf("load V3 Alertmanager source: %w", err)
 	}
@@ -597,6 +598,8 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	events.AuthorizeTeamTx = func(ctx context.Context, tx pgx.Tx, user core.User, team, env, action string) error {
 		return policy.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{Module: "events", Action: action, TeamID: team, EnvironmentID: env})
 	}
+	events.GroupPolicySource = alertmanagerSource
+	events.GroupPolicyBindings = alertmanagerPolicyBindings
 	events.RegisterNew(api)
 	events.RegisterV3Incidents(api)
 	pushService.Register(api)

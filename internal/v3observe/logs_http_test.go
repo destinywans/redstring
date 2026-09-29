@@ -105,8 +105,14 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 			t.Errorf("incomplete or unbounded provider query: %+v", request)
 		}
 		aggregations, ok := request["aggs"].(map[string]any)
-		if !ok || aggregations["patterns"] == nil {
+		if !ok || aggregations["patterns"] == nil || aggregations["missing_patterns"] == nil {
 			t.Errorf("missing full-population pattern aggregation: %+v", request["aggs"])
+		}
+		if patterns, ok := aggregations["patterns"].(map[string]any); ok {
+			terms, _ := patterns["terms"].(map[string]any)
+			if terms["field"] != "message_template.keyword" {
+				t.Errorf("missing registered template field: %+v", patterns)
+			}
 		}
 		filters := request["query"].(map[string]any)["bool"].(map[string]any)["filter"].([]any)
 		startText := filters[0].(map[string]any)["range"].(map[string]any)["@timestamp"].(map[string]any)["gte"].(string)
@@ -136,11 +142,11 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 					"message": "checkout accepted", "cluster": "lab", "level": "info"}}},
 			},
 			"aggregations": map[string]any{"volume": map[string]any{"buckets": volume},
-				"errors": map[string]any{"doc_count": 0}},
+				"errors": map[string]any{"doc_count": 0}, "missing_patterns": map[string]any{"doc_count": 0}},
 		}
 		if completePatterns.Load() {
-			response["aggregations"].(map[string]any)["patterns"] = map[string]any{"buckets": []any{
-				map[string]any{"key": "checkout accepted", "doc_count": 1, "trend": map[string]any{"buckets": trend}},
+			response["aggregations"].(map[string]any)["patterns"] = map[string]any{"sum_other_doc_count": 0, "doc_count_error_upper_bound": 0, "buckets": []any{
+				map[string]any{"key": "checkout accepted", "doc_count": 1, "doc_count_error_upper_bound": 0, "trend": map[string]any{"buckets": trend}},
 			}}
 		}
 		_ = json.NewEncoder(w).Encode(response)
@@ -149,7 +155,7 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	telemetry, err := connectors.NewTelemetry(connectors.TelemetryConfig{
 		Elasticsearch: connectors.TelemetryEndpoint{URL: upstream.URL, AllowHTTP: true},
 		Applications: map[string]connectors.ApplicationTelemetry{"registered-app": {
-			ElasticsearchIndex: "app-logs", ElasticsearchFilters: map[string]string{"cluster": "lab"},
+			ElasticsearchIndex: "app-logs", ElasticsearchPatternField: "message_template.keyword", ElasticsearchFilters: map[string]string{"cluster": "lab"},
 		}},
 	})
 	if err != nil {
@@ -158,7 +164,6 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
 	New(st, policy, telemetry).Register(api)
-	api.MarkV3ObjectRoute("GET /api/v1/logs", "logs", "view")
 	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{
 		Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"},
 	}, policy, st.Session, nil); err != nil {
@@ -261,6 +266,17 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	checkError(request("?service=app&levels=INFO"), 409, "ambiguous_binding")
 	if providerCalls.Load() != before {
 		t.Fatal("ambiguous log providers must not be queried")
+	}
+	w = request("?service=app&levels=INFO&q=checkout&provider=elasticsearch")
+	if w.Code != 200 || providerCalls.Load() != before+1 {
+		t.Fatalf("explicit persisted Elasticsearch source failed: status=%d calls=%d body=%s", w.Code, providerCalls.Load(), w.Body.String())
+	}
+	before = providerCalls.Load()
+	checkError(request("?service=app&levels=INFO&provider=loki"), 503, "not_configured")
+	checkError(request("?service=app&levels=INFO&provider=unknown"), 422, "invalid_provider")
+	checkError(request("?service=app&levels=INFO&provider=loki&provider=elasticsearch"), 422, "invalid_provider")
+	if providerCalls.Load() != before {
+		t.Fatal("unconfigured or invalid source queried Elasticsearch")
 	}
 	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"elasticsearch","resource":"registered-app"}]'::jsonb WHERE id='app-dev'`); err != nil {
 		t.Fatal(err)

@@ -14,10 +14,15 @@ import (
 var telemetryField = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_.]*$`)
 var telemetryIndex = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]*$`)
 
+const elasticsearchTemplateField = "message_template.keyword"
+
 func validateExtendedTelemetry(c TelemetryConfig) error {
 	for _, a := range c.Applications {
 		if a.ElasticsearchIndex != "" && (!telemetryIndex.MatchString(a.ElasticsearchIndex) || len(a.ElasticsearchFilters) == 0) {
 			return errors.New("Elasticsearch requires a literal index and exact application scope filters")
+		}
+		if a.ElasticsearchPatternField != "" && (a.ElasticsearchIndex == "" || a.ElasticsearchPatternField != elasticsearchTemplateField) {
+			return errors.New("Elasticsearch pattern field must be the dedicated message_template.keyword field on a scoped index")
 		}
 		for _, m := range []map[string]string{a.ElasticsearchFilters, a.ElasticsearchPrefixes, a.TempoAttributes} {
 			for k, v := range m {
@@ -112,7 +117,10 @@ func (t *Telemetry) queryElasticsearchOptionsInternal(ctx context.Context, appID
 		request["aggs"] = elasticsearchLogAggregations(s.Window)
 	}
 	if patterns {
-		request["aggs"].(map[string]any)["patterns"] = elasticsearchPatternAggregation(s.Window)
+		request["aggs"].(map[string]any)["patterns"] = elasticsearchPatternAggregation(s.Window, a.ElasticsearchPatternField)
+		if a.ElasticsearchPatternField != "" {
+			request["aggs"].(map[string]any)["missing_patterns"] = map[string]any{"missing": map[string]string{"field": a.ElasticsearchPatternField}}
+		}
 	}
 	body, _ := json.Marshal(request)
 	s.Query = string(body)
@@ -181,7 +189,7 @@ func (t *Telemetry) queryElasticsearchOptionsInternal(ctx context.Context, appID
 		if out.Summary == nil {
 			out.PatternError = "Exact log total is unavailable"
 		} else {
-			out.PatternSummary, err = decodeElasticsearchPatterns(raw, s.Window, out.Summary)
+			out.PatternSummary, err = decodeElasticsearchPatterns(raw, s.Window, out.Summary, a.ElasticsearchPatternField != "")
 			if err != nil {
 				out.PatternError = "Complete log patterns are unavailable"
 			}

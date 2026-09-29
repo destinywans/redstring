@@ -128,17 +128,21 @@ func elasticsearchLogAggregations(w TimeWindow) map[string]any {
 		"errors": map[string]any{"filter": map[string]any{"terms": map[string]any{"aiops_level": []string{"error", "fatal"}}}},
 	}
 }
-func elasticsearchPatternAggregation(w TimeWindow) map[string]any {
-	return map[string]any{
-		"categorize_text": map[string]any{"field": "message", "size": 64, "shard_size": 128, "min_doc_count": 1},
-		"aggs":            map[string]any{"trend": map[string]any{"date_histogram": elasticsearchLogAggregations(w)["volume"].(map[string]any)["date_histogram"]}},
+func elasticsearchPatternAggregation(w TimeWindow, keywordField string) map[string]any {
+	result := map[string]any{"aggs": map[string]any{"trend": map[string]any{"date_histogram": elasticsearchLogAggregations(w)["volume"].(map[string]any)["date_histogram"]}}}
+	if keywordField == "" {
+		result["categorize_text"] = map[string]any{"field": "message", "size": 64, "shard_size": 128, "min_doc_count": 1}
+	} else {
+		result["terms"] = map[string]any{"field": keywordField, "size": 64, "shard_size": 128, "min_doc_count": 1,
+			"order": map[string]string{"_count": "desc"}, "show_term_doc_count_error": true}
 	}
+	return result
 }
 
-// A category may be omitted by the upstream size/shard_size limit. Only an
-// exact conservation proof across all returned categories and time buckets is
-// accepted; otherwise this optional producer fails closed.
-func decodeElasticsearchPatterns(raw []byte, w TimeWindow, summary *LogSummary) (*LogPatternSummary, error) {
+// A category or term may be omitted by upstream size/shard_size limits. The
+// registered keyword path additionally requires zero missing documents and
+// zero term count errors. Both paths must conserve exact totals and buckets.
+func decodeElasticsearchPatterns(raw []byte, w TimeWindow, summary *LogSummary, exactTerms bool) (*LogPatternSummary, error) {
 	var data struct {
 		TimedOut        *bool `json:"timed_out"`
 		TerminatedEarly bool  `json:"terminated_early"`
@@ -149,11 +153,17 @@ func decodeElasticsearchPatterns(raw []byte, w TimeWindow, summary *LogSummary) 
 			Failed     int `json:"failed"`
 		} `json:"_shards"`
 		Aggregations *struct {
+			MissingPatterns *struct {
+				Count int64 `json:"doc_count"`
+			} `json:"missing_patterns"`
 			Patterns *struct {
-				Buckets []struct {
-					Key   string `json:"key"`
-					Count int64  `json:"doc_count"`
-					Trend *struct {
+				SumOtherDocCount        *int64 `json:"sum_other_doc_count"`
+				DocCountErrorUpperBound *int64 `json:"doc_count_error_upper_bound"`
+				Buckets                 []struct {
+					Key                     string `json:"key"`
+					Count                   int64  `json:"doc_count"`
+					DocCountErrorUpperBound *int64 `json:"doc_count_error_upper_bound"`
+					Trend                   *struct {
 						Buckets []struct {
 							Key   int64 `json:"key"`
 							Count int64 `json:"doc_count"`
@@ -169,6 +179,11 @@ func decodeElasticsearchPatterns(raw []byte, w TimeWindow, summary *LogSummary) 
 		data.Aggregations == nil || data.Aggregations.Patterns == nil || data.Aggregations.Patterns.Buckets == nil ||
 		len(data.Aggregations.Patterns.Buckets) > 64 || summary == nil || summary.Total < 0 {
 		return nil, errors.New("incomplete Elasticsearch pattern aggregation")
+	}
+	if exactTerms && (data.Aggregations.Patterns.SumOtherDocCount == nil || *data.Aggregations.Patterns.SumOtherDocCount != 0 ||
+		data.Aggregations.Patterns.DocCountErrorUpperBound == nil || *data.Aggregations.Patterns.DocCountErrorUpperBound != 0 ||
+		data.Aggregations.MissingPatterns == nil || data.Aggregations.MissingPatterns.Count != 0) {
+		return nil, errors.New("approximate or truncated Elasticsearch pattern terms")
 	}
 	if w.Start.UnixNano()%int64(time.Millisecond) != 0 || w.End.UnixNano()%int64(time.Millisecond) != 0 {
 		return nil, errors.New("pattern histogram requires millisecond timestamps")
@@ -195,7 +210,10 @@ func decodeElasticsearchPatterns(raw []byte, w TimeWindow, summary *LogSummary) 
 	var categoryTotal int64
 	trendTotals := make([]int64, wantBuckets)
 	for _, category := range data.Aggregations.Patterns.Buckets {
-		if category.Key == "" || seen[category.Key] || category.Count < 1 || category.Count > summary.Total-categoryTotal ||
+		if exactTerms && (category.DocCountErrorUpperBound == nil || *category.DocCountErrorUpperBound != 0) {
+			return nil, errors.New("approximate Elasticsearch pattern term count")
+		}
+		if strings.TrimSpace(category.Key) == "" || (exactTerms && len(category.Key) > 1024) || seen[category.Key] || category.Count < 1 || category.Count > summary.Total-categoryTotal ||
 			category.Trend == nil || len(category.Trend.Buckets) != wantBuckets {
 			return nil, errors.New("incomplete Elasticsearch pattern category")
 		}

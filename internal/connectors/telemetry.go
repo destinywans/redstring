@@ -46,13 +46,17 @@ type TelemetryEndpoint struct {
 type ApplicationTelemetry struct {
 	// Every expression is reviewed and registered for this application by an admin.
 	// Arbitrary PromQL is intentionally absent from the public request interface.
-	PrometheusQueries     map[string]string `json:"prometheus_queries"`
-	LokiLabels            map[string]string `json:"loki_labels"`
-	ElasticsearchIndex    string            `json:"elasticsearch_index"`
-	ElasticsearchFilters  map[string]string `json:"elasticsearch_filters"`
-	ElasticsearchPrefixes map[string]string `json:"elasticsearch_prefixes"`
-	TempoService          string            `json:"tempo_service"`
-	TempoAttributes       map[string]string `json:"tempo_attributes"`
+	PrometheusQueries  map[string]string `json:"prometheus_queries"`
+	LokiLabels         map[string]string `json:"loki_labels"`
+	ElasticsearchIndex string            `json:"elasticsearch_index"`
+	// Only message_template.keyword is accepted. The trusted ingestion pipeline
+	// must supply a stable, reviewed, sanitized template on every log document.
+	// Empty preserves the categorize_text path.
+	ElasticsearchPatternField string            `json:"elasticsearch_pattern_field,omitempty"`
+	ElasticsearchFilters      map[string]string `json:"elasticsearch_filters"`
+	ElasticsearchPrefixes     map[string]string `json:"elasticsearch_prefixes"`
+	TempoService              string            `json:"tempo_service"`
+	TempoAttributes           map[string]string `json:"tempo_attributes"`
 }
 type TimeWindow struct {
 	Start       time.Time `json:"start"`

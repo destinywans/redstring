@@ -87,6 +87,14 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "invalid_service", "Service filter is too long")
 		return
 	}
+	providers := []string{"loki", "elasticsearch"}
+	if selected, specified := r.URL.Query()["provider"]; specified {
+		if len(selected) != 1 || (selected[0] != "loki" && selected[0] != "elasticsearch") {
+			httpapi.Error(w, 422, "invalid_provider", "Choose one registered log provider")
+			return
+		}
+		providers = selected
+	}
 	// An omitted levels parameter uses the default set. An explicitly empty
 	// selection (all UI level chips disabled) must not query every level.
 	noLevels := r.URL.Query().Has("levels") && r.URL.Query().Get("levels") == ""
@@ -95,7 +103,7 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "invalid_levels", "Choose ERROR, WARN or INFO")
 		return
 	}
-	targets, err := s.observationTargets(r.Context(), httpapi.CurrentUser(r), envs, "logs", service, []string{"loki", "elasticsearch"})
+	targets, err := s.observationTargets(r.Context(), httpapi.CurrentUser(r), envs, "logs", service, providers)
 	if err != nil {
 		if errors.Is(err, errObservationScopeLimit) {
 			httpapi.Error(w, 422, "scope_limit", "Narrow the service or environment")
@@ -142,9 +150,17 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 			} else {
 				result, err = s.Telemetry.QueryLogsOptions(r.Context(), target.Resource, target.Provider, search, level, true, window, 100)
 			}
-			if err != nil || result.Source.Failure != nil || result.Summary == nil || result.SummaryError != "" {
+			var telemetryError *connectors.TelemetryError
+			if errors.As(err, &telemetryError) && telemetryError.Kind == "configuration" {
+				httpapi.Error(w, 503, "not_configured", "Selected log provider is not configured")
+				return
+			}
+			if err != nil || result.Source.Failure != nil || result.Summary == nil || result.SummaryError != "" || result.Summary.Total < 0 {
 				httpapi.Error(w, 503, "telemetry_unavailable", "Log query or complete count is unavailable")
 				return
+			}
+			if result.PatternError != "" {
+				patternsComplete = false
 			}
 			total += result.Summary.Total
 			if level == "error" {
@@ -185,7 +201,7 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 	// An external aggregation can outlive a grant or binding revision. Resolve
 	// the same persisted target set again before returning either full results
 	// or partial evidence, so a changed scope cannot leak old-source lines.
-	currentTargets, err := s.observationTargets(r.Context(), httpapi.CurrentUser(r), envs, "logs", service, []string{"loki", "elasticsearch"})
+	currentTargets, err := s.observationTargets(r.Context(), httpapi.CurrentUser(r), envs, "logs", service, providers)
 	if err != nil {
 		if errors.Is(err, store.ErrForbidden) {
 			httpapi.Error(w, 403, "forbidden", "Logs are outside your authorized scope")

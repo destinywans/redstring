@@ -38,6 +38,7 @@
 - [V3 Prometheus Pull 入站](examples/v3-pull-ingress.md)：固定指标来源、有界实时读取、映射测试与凭据边界。
 - [V3 服务目录与详情](api/v3-service-views.md)：数据来源、完整性和页面限制。
 - [V3 服务与人员悬浮卡](api/v3-peeks.md)：持久对象预览、未知值与冻结前端差异。
+- [V3 记忆主视图](api/v3-memory-view.md)：持久事实的证据、受权范围、未知字段与冻结前端差异。
 - [V3 服务告警覆盖绑定](examples/v3-service-alert-coverage.md)：逐应用、环境的完整来源声明及撤销方式。
 - [V3 Confluence 与 Notion 知识来源](api/v3-confluence-notion-sources.md)：精确空间/页面绑定、受限只读同步和证据边界。
 - [V3 飞书 Docx 知识来源](api/v3-feishu-source.md)：单篇文档绑定、纯文本读取与版本证据边界。

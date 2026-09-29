@@ -80,11 +80,12 @@ func TestPersistedFactProvenanceScopeAndAudit(t *testing.T) {
 		`CREATE TABLE rbac_user_roles(user_id text,role_id text)`,
 		`CREATE TABLE rbac_department_roles(user_id text,role_id text)`,
 		`CREATE TABLE v3_role_grants(user_id text)`,
-		`CREATE TABLE applications(id text PRIMARY KEY,owner_team_id text,archived boolean NOT NULL DEFAULT false)`,
+		`CREATE TABLE applications(id text PRIMARY KEY,key text NOT NULL DEFAULT '',name text NOT NULL DEFAULT '',owner_team_id text,archived boolean NOT NULL DEFAULT false)`,
 		`CREATE TABLE application_environments(application_id text NOT NULL,key text NOT NULL,archived boolean NOT NULL DEFAULT false)`,
 		`CREATE TABLE v3_application_environments(application_id text,environment_id text)`,
 		`CREATE TABLE v3_effective_role_grants(user_id text,module text,action text,scope_kind text,scope_id text)`,
-		`CREATE TABLE knowledge_documents(id text PRIMARY KEY,application_id text,body text,version integer,content_hash text,lifecycle text,metadata jsonb)`,
+		`CREATE TABLE knowledge_documents(id text PRIMARY KEY,application_id text,body text,source text NOT NULL DEFAULT '',version integer,content_hash text,lifecycle text,metadata jsonb)`,
+		`CREATE TABLE v3_runbooks(document_id text PRIMARY KEY)`,
 		`CREATE TABLE management_audit(id bigserial PRIMARY KEY,actor_id text,actor_kind text,application_id text,action text,target text,outcome text,changes jsonb)`,
 	} {
 		if _, err = db.Exec(ctx, statement); err != nil {
@@ -186,8 +187,9 @@ func TestPersistedFactProvenanceScopeAndAudit(t *testing.T) {
 	if err = json.Unmarshal(facts.Body.Bytes(), &listed); err != nil || len(listed.Items) != 2 {
 		t.Fatalf("fact projection: %+v %v", listed, err)
 	}
-	if w := call("GET", "/api/v1/memory", ""); w.Code != 503 || !strings.Contains(w.Body.String(), "memory_view_unavailable") {
-		t.Fatalf("full view must remain unavailable: %d %s", w.Code, w.Body.String())
+	if w := call("GET", "/api/v1/memory", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"partial":true`) ||
+		!strings.Contains(w.Body.String(), `"fact_ids"`) || !strings.Contains(w.Body.String(), `"conflicts"`) {
+		t.Fatalf("source-backed view unavailable: %d %s", w.Code, w.Body.String())
 	}
 	if w := call("POST", "/api/v1/memory/facts/"+a.ID+"/confirm", ""); w.Code != 200 {
 		t.Fatalf("confirm: %d %s", w.Code, w.Body.String())

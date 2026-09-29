@@ -73,11 +73,12 @@ func newActionsFixture(t *testing.T) *actionsFixture {
 		`CREATE TABLE rbac_user_roles(user_id text,role_id text)`,
 		`CREATE TABLE rbac_department_roles(user_id text,role_id text)`,
 		`CREATE TABLE v3_role_grants(user_id text)`,
-		`CREATE TABLE applications(id text PRIMARY KEY,owner_team_id text,archived boolean NOT NULL DEFAULT false)`,
+		`CREATE TABLE applications(id text PRIMARY KEY,key text NOT NULL DEFAULT '',name text NOT NULL DEFAULT '',owner_team_id text,archived boolean NOT NULL DEFAULT false)`,
 		`CREATE TABLE application_environments(application_id text NOT NULL,key text NOT NULL,archived boolean NOT NULL DEFAULT false)`,
 		`CREATE TABLE v3_application_environments(application_id text,environment_id text)`,
 		`CREATE TABLE v3_effective_role_grants(user_id text,module text,action text,scope_kind text,scope_id text,v3_identity_kind text NOT NULL DEFAULT 'human',role_kind text NOT NULL DEFAULT 'human')`,
-		`CREATE TABLE knowledge_documents(id text PRIMARY KEY,application_id text,body text,version integer,content_hash text,lifecycle text,metadata jsonb)`,
+		`CREATE TABLE knowledge_documents(id text PRIMARY KEY,application_id text,body text,source text NOT NULL DEFAULT '',version integer,content_hash text,lifecycle text,metadata jsonb)`,
+		`CREATE TABLE v3_runbooks(document_id text PRIMARY KEY)`,
 		`CREATE TABLE management_audit(id bigserial PRIMARY KEY,actor_id text,actor_kind text,application_id text,action text,target text,outcome text,changes jsonb)`,
 	} {
 		f.exec(statement)

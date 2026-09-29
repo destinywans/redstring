@@ -207,8 +207,10 @@ func (s *Service) ProposeFromDocument(ctx context.Context, user core.User, in Ca
 	var app, body, hash, lifecycle string
 	var version int
 	var metadata []byte
-	err = tx.QueryRow(ctx, `SELECT COALESCE(application_id,''),body,version,content_hash,lifecycle,metadata
- FROM knowledge_documents WHERE id=$1 FOR SHARE`, in.DocumentID).Scan(&app, &body, &version, &hash, &lifecycle, &metadata)
+	err = tx.QueryRow(ctx, `SELECT COALESCE(d.application_id,''),d.body,d.version,d.content_hash,d.lifecycle,d.metadata
+ FROM knowledge_documents d WHERE d.id=$1 AND d.source NOT LIKE 'runbook://v3/%'
+ AND NOT EXISTS (SELECT 1 FROM v3_runbooks vr WHERE vr.document_id=d.id)
+ FOR SHARE OF d`, in.DocumentID).Scan(&app, &body, &version, &hash, &lifecycle, &metadata)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Fact{}, store.ErrNotFound
 	}
@@ -320,10 +322,6 @@ func (s *Service) Register(api *httpapi.Server) {
 	}
 	for _, r := range routes {
 		api.Register(r.pattern, "viewer", r.handler)
-		if r.pattern == "GET /api/v1/memory" {
-			api.MarkV3Route(r.pattern, "knowledge", r.action)
-		} else {
-			api.MarkV3ObjectRoute(r.pattern, "knowledge", r.action)
-		}
+		api.MarkV3ObjectRoute(r.pattern, "knowledge", r.action)
 	}
 }

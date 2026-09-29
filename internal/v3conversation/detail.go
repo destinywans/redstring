@@ -1,9 +1,104 @@
 package v3conversation
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/wans/aiops-canvas/internal/store"
 )
+
+// readOwnedDetail keeps the account, current grants, conversation and messages
+// in one authorized snapshot. A terminal worker commit is then entirely
+// before or after this read, never half reflected in the response.
+func (s *Service) readOwnedDetail(ctx context.Context, sessionToken string, user core.User, id, selectedEnv string, selectedEnvironmentIDs []string) (Conversation, error) {
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		return Conversation{}, err
+	}
+	defer tx.Rollback(ctx)
+	var sessionUser string
+	err = tx.QueryRow(ctx, `SELECT s.user_id FROM sessions s JOIN users u ON u.id=s.user_id
+		WHERE s.token_hash=$1 AND s.user_id=$2 AND s.expires_at>clock_timestamp()
+		AND NOT u.disabled AND u.deleted_at IS NULL FOR SHARE OF s,u`, store.Hash(sessionToken), user.ID).Scan(&sessionUser)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Conversation{}, errListSessionRevoked
+	}
+	if err != nil {
+		return Conversation{}, err
+	}
+	if err = lockConversationListGrants(ctx, tx, sessionUser); err != nil {
+		return Conversation{}, err
+	}
+	var title, status, actual, contextRef, defaultModel string
+	err = tx.QueryRow(ctx, `SELECT title,status,environment_id,context_ref,default_model_id
+		FROM v3_conversations WHERE id=$1 AND owner_id=$2 AND environment_id=ANY($3)`, id, sessionUser, selectedEnvironmentIDs).
+		Scan(&title, &status, &actual, &contextRef, &defaultModel)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Conversation{}, ErrNotFound
+	}
+	if err != nil {
+		return Conversation{}, err
+	}
+	if selectedEnv != "all" && selectedEnv != actual || selectedEnv == "all" && actual == "prod" {
+		return Conversation{}, ErrNotFound
+	}
+	var permitted bool
+	err = tx.QueryRow(ctx, `SELECT
+		EXISTS (SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$1
+			AND g.module='environment' AND g.action='view'
+			AND ((g.scope_kind='global' AND g.scope_id='*') OR
+				(g.scope_kind='environment' AND g.scope_id=$2)))
+		AND EXISTS (SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$1
+			AND g.module='conversation' AND g.action='view'
+			AND ((g.scope_kind='global' AND g.scope_id='*') OR
+				(g.scope_kind='environment' AND g.scope_id=$2)))`, sessionUser, actual).Scan(&permitted)
+	if err != nil {
+		return Conversation{}, err
+	}
+	if !permitted {
+		return Conversation{}, ErrForbidden
+	}
+	rows, err := tx.Query(ctx, `SELECT id,role,author,parts,attachments,run,state,created_at
+		FROM v3_conversation_messages WHERE conversation_id=$1 ORDER BY sort_order`, id)
+	if err != nil {
+		return Conversation{}, err
+	}
+	messages := []Message{}
+	for rows.Next() {
+		var m Message
+		var parts, attachments, run []byte
+		var state string
+		if err = rows.Scan(&m.ID, &m.Role, &m.Author, &parts, &attachments, &run, &state, &m.CreatedAt); err != nil {
+			break
+		}
+		if err = json.Unmarshal(parts, &m.Parts); err != nil {
+			break
+		}
+		if err = json.Unmarshal(attachments, &m.Attachments); err != nil {
+			break
+		}
+		if len(run) > 0 && string(run) != "null" {
+			m.Run = run
+		}
+		m.Streaming = state == "streaming"
+		messages = append(messages, m)
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
+		return Conversation{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Conversation{}, err
+	}
+	return s.conversationDetail(id, title, status, actual, contextRef, defaultModel, messages), nil
+}
 
 // conversationDetail derives the side panel from saved conversation data. In
 // particular, a connector is counted only after its source was recorded by a

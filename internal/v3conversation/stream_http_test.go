@@ -274,7 +274,7 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 	} else {
 		body, _ := io.ReadAll(response.Body)
 		response.Body.Close()
-		if response.StatusCode != http.StatusRequestEntityTooLarge || !strings.Contains(string(body), "attachment_context_too_large") {
+		if response.StatusCode != http.StatusRequestEntityTooLarge || !strings.Contains(string(body), "model_input_too_large") {
 			t.Fatalf("oversized model context must fail before turn commit: %d %s", response.StatusCode, body)
 		}
 	}
@@ -376,11 +376,11 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	// Even without a new attachment, a smaller model must reject the replayed
-	// private snapshot before accepting a durable turn.
+	// A later text-only turn also prechecks the combined saved history,
+	// including the private attachment snapshot, before accepting a turn.
 	if _, _, err := chat.startTurn(ctx, "stream-conv", "stream-owner", "test", "Stream Owner",
-		store.Hash("stream-session"), TurnInput{Text: "next"}, inference.Model{ID: "test-model", InputBudget: modelInputReserveBytes + 1}); !errors.Is(err, v3uploads.ErrAttachmentContextTooLarge) {
-		t.Fatalf("text-only follow-up with oversized attachment history: %v", err)
+		store.Hash("stream-session"), TurnInput{Text: strings.Repeat("x", 1500)}, inference.Model{ID: "test-model", InputBudget: 2048}); !errors.Is(err, ErrModelInputTooLarge) {
+		t.Fatalf("text-only follow-up with oversized saved context: %v", err)
 	}
 	response, err = client.Do(request(http.MethodGet, url+"/events", "", fmt.Sprint(cursor), nil, true))
 	if err != nil {

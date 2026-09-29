@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,14 @@ import (
 )
 
 type journeyEnvironmentAuthorizer struct{}
+
+type journeyRuntime struct{ *gatedStreamRuntime }
+
+func (r *journeyRuntime) Models() []inference.Model {
+	return append(r.gatedStreamRuntime.Models(), inference.Model{
+		ID: "small-model", Name: "Small fake model", InputBudget: 2048, Tools: true, Streaming: true,
+	})
+}
 
 func (journeyEnvironmentAuthorizer) AuthorizeEnvironment(_ context.Context, user core.User, env string) error {
 	if (user.ID == "journey-owner" || user.ID == "journey-other") && env == "test" {
@@ -67,7 +76,7 @@ func TestConversationRegisteredJourneyPersistsReplayAndReads(t *testing.T) {
 	}
 
 	repository := &store.Store{DB: db}
-	runtime := &gatedStreamRuntime{first: make(chan struct{}), release: make(chan struct{})}
+	runtime := &journeyRuntime{&gatedStreamRuntime{first: make(chan struct{}), release: make(chan struct{})}}
 	t.Cleanup(func() {
 		runtime.once.Do(func() { close(runtime.first) })
 		select {
@@ -127,12 +136,25 @@ func TestConversationRegisteredJourneyPersistsReplayAndReads(t *testing.T) {
 		},
 	})
 	chat.RegisterV3(server)
+	var policyMu sync.Mutex
+	var policyCalls []string
 	policy := func(_ context.Context, user core.User, module, action, env string) error {
+		policyMu.Lock()
+		policyCalls = append(policyCalls, module+":"+action)
+		policyMu.Unlock()
 		if (user.ID == "journey-owner" || user.ID == "journey-other") && module == "conversation" &&
 			(action == "view" || action == "change") && env == "test" {
 			return nil
 		}
 		return store.ErrForbidden
+	}
+	assertPolicy := func(want string) {
+		t.Helper()
+		policyMu.Lock()
+		defer policyMu.Unlock()
+		if len(policyCalls) == 0 || policyCalls[len(policyCalls)-1] != want {
+			t.Fatalf("last V3 policy call=%v, want %s", policyCalls, want)
+		}
 	}
 	if err := server.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "test", EnvironmentIDs: []string{"test"}},
 		journeyEnvironmentAuthorizer{}, repository.Session, policy); err != nil {
@@ -182,6 +204,7 @@ func TestConversationRegisteredJourneyPersistsReplayAndReads(t *testing.T) {
 	if status != http.StatusCreated || json.Unmarshal(body, &created) != nil || created.ID == "" {
 		t.Fatalf("create: %d %s", status, body)
 	}
+	assertPolicy("conversation:change")
 	path := base + "/" + created.ID
 	if status, _ := call(http.MethodPost, path+"/messages", "test", "journey-other-session", "", strings.NewReader(`{"text":"private"}`)); status != http.StatusNotFound {
 		t.Fatalf("other owner send: %d", status)
@@ -209,6 +232,7 @@ func TestConversationRegisteredJourneyPersistsReplayAndReads(t *testing.T) {
 	if status != http.StatusAccepted || json.Unmarshal(body, &accepted) != nil || accepted.ReplyID == "" || accepted.Message.ID == "" {
 		t.Fatalf("send: %d %s", status, body)
 	}
+	assertPolicy("conversation:change")
 	select {
 	case <-runtime.first:
 	case <-time.After(3 * time.Second):
@@ -293,11 +317,13 @@ func TestConversationRegisteredJourneyPersistsReplayAndReads(t *testing.T) {
 	if status != http.StatusOK || json.Unmarshal(body, &page) != nil || page.Total != 1 || len(page.Items) != 1 || page.Items[0].ID != created.ID || page.Items[0].Tokens == nil || *page.Items[0].Tokens != 22 {
 		t.Fatalf("same owner list: %d %s", status, body)
 	}
+	assertPolicy("conversation:view")
 	status, body = call(http.MethodGet, path, "test", "journey-owner-session", "", nil)
 	var detail Conversation
 	if status != http.StatusOK || json.Unmarshal(body, &detail) != nil || detail.ID != created.ID || detail.Scope["service"] != "checkout-api" || len(detail.Messages) != 2 || detail.Messages[0].ID != accepted.Message.ID || detail.Messages[1].Role != "assistant" {
 		t.Fatalf("same owner detail: %d %s", status, body)
 	}
+	assertPolicy("conversation:view")
 	contextSide, ok := detail.Side["context"].(map[string]any)
 	if !ok || contextSide["used"] != float64(20) || contextSide["budget"] != float64(8192) {
 		t.Fatalf("reported context: %s", body)
@@ -311,12 +337,16 @@ func TestConversationRegisteredJourneyPersistsReplayAndReads(t *testing.T) {
 	}
 	// A later turn changes the default /events target. A second tab must still
 	// be able to identify the original reply without remembering an event ID.
-	status, body = call(http.MethodPost, path+"/messages", "test", "journey-owner-session", "", strings.NewReader(`{"text":"follow up"}`))
+	status, body = call(http.MethodPost, path+"/messages", "test", "journey-owner-session", "", strings.NewReader(`{"text":"follow up","model":"small-model"}`))
 	var next struct {
 		ReplyID string `json:"reply_id"`
 	}
 	if status != http.StatusAccepted || json.Unmarshal(body, &next) != nil || next.ReplyID == "" {
 		t.Fatalf("follow-up send: %d %s", status, body)
+	}
+	var selectedModel string
+	if err := db.QueryRow(ctx, `SELECT model_id FROM v3_conversation_replies WHERE id=$1`, next.ReplyID).Scan(&selectedModel); err != nil || selectedModel != "small-model" {
+		t.Fatalf("2048-budget model selection=%q err=%v", selectedModel, err)
 	}
 	deadline = time.Now().Add(3 * time.Second)
 	for {
@@ -330,6 +360,28 @@ func TestConversationRegisteredJourneyPersistsReplayAndReads(t *testing.T) {
 			t.Fatalf("follow-up reply not completed: %s", state)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	var beforeMessages, beforeReplies int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_conversation_messages WHERE conversation_id=$1`, created.ID).Scan(&beforeMessages); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_conversation_replies WHERE conversation_id=$1`, created.ID).Scan(&beforeReplies); err != nil {
+		t.Fatal(err)
+	}
+	status, body = call(http.MethodPost, path+"/messages", "test", "journey-owner-session", "",
+		strings.NewReader(`{"text":"`+strings.Repeat("x", 1500)+`","model":"small-model"}`))
+	if status != http.StatusRequestEntityTooLarge || !strings.Contains(string(body), "model_input_too_large") {
+		t.Fatalf("oversized dynamic model budget: %d %s", status, body)
+	}
+	var afterMessages, afterReplies int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_conversation_messages WHERE conversation_id=$1`, created.ID).Scan(&afterMessages); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_conversation_replies WHERE conversation_id=$1`, created.ID).Scan(&afterReplies); err != nil {
+		t.Fatal(err)
+	}
+	if afterMessages != beforeMessages || afterReplies != beforeReplies {
+		t.Fatalf("dynamic budget rejection persisted messages=%d->%d replies=%d->%d", beforeMessages, afterMessages, beforeReplies, afterReplies)
 	}
 	response, err = client.Do(request(http.MethodGet, path+"/events?reply_id="+accepted.ReplyID, "", "journey-owner-session", "", nil))
 	if err != nil {

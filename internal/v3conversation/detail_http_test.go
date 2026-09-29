@@ -84,14 +84,23 @@ func TestConversationDetailRegisteredRouteReadsPersistedContext(t *testing.T) {
 	ctx := context.Background()
 	_, err := db.Exec(ctx, `
 		ALTER TABLE v3_conversations ADD COLUMN title text NOT NULL DEFAULT '', ADD COLUMN status text NOT NULL DEFAULT 'active', ADD COLUMN context_ref text NOT NULL DEFAULT '', ADD COLUMN default_model_id text NOT NULL DEFAULT '';
-		CREATE TABLE IF NOT EXISTS users (id text PRIMARY KEY,email text NOT NULL,name text NOT NULL,role text NOT NULL,disabled boolean NOT NULL DEFAULT false,deleted_at timestamptz);
 		CREATE TABLE rbac_platform_administrators (user_id text PRIMARY KEY);
-		CREATE TABLE IF NOT EXISTS rbac_user_roles (user_id text NOT NULL,role_id text NOT NULL);
+		CREATE VIEW v3_effective_role_grants AS
+			SELECT a.user_id,g.module,g.action,g.scope_kind,g.scope_id FROM rbac_user_roles a
+			JOIN rbac_roles r ON r.id=a.role_id JOIN v3_role_grants g ON g.role_id=r.id;
 		INSERT INTO users(id,email,name,role) VALUES('owner','owner@local','Owner','viewer'),('other','other@local','Other','viewer');
+		INSERT INTO rbac_roles(id) VALUES('detail-reader');
+		INSERT INTO rbac_user_roles(user_id,role_id) VALUES('owner','detail-reader');
+		INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
+		('detail-reader','environment','view','environment','test'),
+		('detail-reader','conversation','view','environment','test'),
+		('detail-reader','environment','view','environment','dev'),
+		('detail-reader','conversation','view','environment','dev');
 		INSERT INTO v3_conversations(id,owner_id,environment_id,title,context_ref,default_model_id) VALUES
 		('c1','owner','test','Checkout review','alert:a1,service:checkout-api','model-1'),
 		('c2','other','test','Private review','service:private-api','model-1'),
-		('c3','owner','prod','Production review','service:production-api','model-1');
+		('c3','owner','prod','Production review','service:production-api','model-1'),
+		('c4','owner','dev','Development review','service:dev-api','model-1');
 		INSERT INTO v3_conversation_messages(id,conversation_id,role,author,parts,run,state) VALUES
 		('m1','c1','user','Owner','[{"type":"text","markdown":"question"}]',NULL,'completed'),
 		('m2','c1','assistant','AI','[{"type":"text","markdown":"answer"},{"type":"tool_calls","summary":"2 calls","tokens":8,"duration_s":1,"calls":[{"id":"a","connector":"prometheus","tool":"metrics","args":"","duration_ms":2,"status":"ok"},{"id":"b","connector":"loki","tool":"logs","args":"","duration_ms":3,"status":"ok"}]}]','{"id":"r1","model":"test","tokens":44,"duration_s":1,"context_input_tokens":32,"context_budget":8192}','completed'),
@@ -122,7 +131,7 @@ func TestConversationDetailRegisteredRouteReadsPersistedContext(t *testing.T) {
 			if !granted {
 				return nil, nil
 			}
-			return []string{"test"}, nil
+			return []string{"test", "dev"}, nil
 		},
 	})
 	chat.Register(server.Register)
@@ -175,8 +184,19 @@ func TestConversationDetailRegisteredRouteReadsPersistedContext(t *testing.T) {
 	if rr := get("c3", "test", "owner-session"); rr.Code != http.StatusNotFound {
 		t.Fatalf("other env: %d %s", rr.Code, rr.Body.String())
 	}
+	// This instance exposes only test. An all-scope request must not reveal
+	// the owner's dev conversation even though the owner has current dev grants.
+	if rr := get("c4", "all", "owner-session"); rr.Code != http.StatusNotFound {
+		t.Fatalf("all scope leaked environment outside instance: %d %s", rr.Code, rr.Body.String())
+	}
 	if rr := get("c1", "test", "other-session"); rr.Code != http.StatusNotFound {
 		t.Fatalf("other session: %d %s", rr.Code, rr.Body.String())
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='detail-reader' AND module='conversation'`); err != nil {
+		t.Fatal(err)
+	}
+	if rr := get("c1", "test", "owner-session"); rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), "forbidden") {
+		t.Fatalf("persisted grant revoked: %d %s", rr.Code, rr.Body.String())
 	}
 	granted = false
 	if rr := get("c1", "test", "owner-session"); rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), "forbidden") {

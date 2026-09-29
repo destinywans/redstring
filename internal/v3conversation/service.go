@@ -270,9 +270,12 @@ func marshal(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
 const maxAttachmentSourceBytes = 16 << 10
 const maxAttachmentSnapshotBytes = 32 << 10
 
-// Leave room for system instructions and the optional read-tool schema. The
-// provider still checks its exact wire request if those inputs change later.
+// Leave room for system instructions and optional read-tool schemas. Small
+// configured input budgets still need enough space for an ordinary prompt;
+// the provider checks the exact serialized request after tools are selected.
 const modelInputReserveBytes = 4096
+
+func modelInputReserve(budget int) int { return min(modelInputReserveBytes, budget/2) }
 
 // The snapshot is private model context. The public message retains the user's
 // own text and attachment references, without exposing the uploaded bytes.
@@ -300,11 +303,11 @@ func attachmentContext(items []v3uploads.TextAttachment) (string, error) {
 }
 
 func withinModelInputBudget(messages []inference.Message, budget int) bool {
-	if budget <= modelInputReserveBytes {
+	if budget <= 0 {
 		return false
 	}
 	raw, err := json.Marshal(messages)
-	return err == nil && len(raw)+modelInputReserveBytes <= budget
+	return err == nil && len(raw)+modelInputReserve(budget) <= budget
 }
 
 func (s *Service) startTurn(ctx context.Context, id, owner, env, author, sessionHash string, input TurnInput, model inference.Model) (Message, string, error) {
@@ -331,13 +334,6 @@ func (s *Service) startTurn(ctx context.Context, id, owner, env, author, session
 		return Message{}, "", err
 	}
 	attachmentSnapshot := ""
-	hasAttachmentContext := len(input.Attachments) > 0
-	if !hasAttachmentContext {
-		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_conversation_messages
-			WHERE conversation_id=$1 AND attachment_context<>'')`, id).Scan(&hasAttachmentContext); err != nil {
-			return Message{}, "", err
-		}
-	}
 	if len(input.Attachments) > 0 {
 		texts, err := v3uploads.LoadTextAttachmentsTx(ctx, tx, owner, env, input.Attachments, maxAttachmentSourceBytes)
 		if err != nil {
@@ -348,27 +344,17 @@ func (s *Service) startTurn(ctx context.Context, id, owner, env, author, session
 			return Message{}, "", err
 		}
 	}
-	// Every accepted turn replays the prior completed history. Check the
-	// selected model's known input budget before committing the user message,
-	// including text-only turns and history with older attachment snapshots.
+	// Every accepted turn replays the prior completed history. Precheck its
+	// known message budget before committing the user message. The provider
+	// checks the exact request again after system/tool content is added.
 	if model.InputBudget > 0 {
-		budgetErr := error(ErrModelInputTooLarge)
-		if hasAttachmentContext {
-			budgetErr = v3uploads.ErrAttachmentContextTooLarge
-		}
-		if model.InputBudget <= modelInputReserveBytes {
-			return Message{}, "", budgetErr
-		}
-		prior, err := contextMessagesQuery(ctx, tx, id, model.InputBudget-modelInputReserveBytes)
+		prior, err := contextMessagesQuery(ctx, tx, id, model.InputBudget-modelInputReserve(model.InputBudget))
 		if err != nil {
-			if errors.Is(err, v3uploads.ErrAttachmentContextTooLarge) {
-				return Message{}, "", budgetErr
-			}
 			return Message{}, "", err
 		}
 		messages := append(prior, inference.Message{Role: "user", Content: input.Text + attachmentSnapshot})
 		if !withinModelInputBudget(messages, model.InputBudget) {
-			return Message{}, "", budgetErr
+			return Message{}, "", ErrModelInputTooLarge
 		}
 	}
 	now := time.Now().UTC()
@@ -1094,7 +1080,7 @@ func contextMessagesQuery(ctx context.Context, db contextMessageQueryer, conv st
 		content := text.String() + attached
 		contentBytes += len(content)
 		if maxBytes > 0 && contentBytes > maxBytes {
-			return nil, v3uploads.ErrAttachmentContextTooLarge
+			return nil, ErrModelInputTooLarge
 		}
 		msgs = append(msgs, inference.Message{Role: role, Content: content})
 	}

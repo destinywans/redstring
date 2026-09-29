@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/migrations"
 )
 
@@ -21,11 +23,24 @@ func TestConversationMessagesUseDurableOrder(t *testing.T) {
 			ADD COLUMN status text NOT NULL DEFAULT 'active',
 			ADD COLUMN context_ref text NOT NULL DEFAULT '',
 			ADD COLUMN default_model_id text NOT NULL DEFAULT '';
+		CREATE TABLE rbac_platform_administrators (user_id text PRIMARY KEY);
+		CREATE VIEW v3_effective_role_grants AS
+			SELECT a.user_id,g.module,g.action,g.scope_kind,g.scope_id FROM rbac_user_roles a
+			JOIN rbac_roles r ON r.id=a.role_id JOIN v3_role_grants g ON g.role_id=r.id;
+		INSERT INTO users(id,email,name,role) VALUES('owner','owner@local','Owner','viewer');
+		INSERT INTO rbac_roles(id) VALUES('order-reader');
+		INSERT INTO rbac_user_roles(user_id,role_id) VALUES('owner','order-reader');
+		INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
+			('order-reader','environment','view','environment','test'),
+			('order-reader','conversation','view','environment','test');
 		INSERT INTO v3_conversations(id,owner_id,environment_id,title) VALUES('ordered','owner','test','Ordered');
 		INSERT INTO v3_conversation_messages(id,conversation_id,role,author,parts,state) VALUES
 			('z-user','ordered','user','Owner','[{"type":"text","markdown":"question"}]','completed'),
 			('a-assistant','ordered','assistant','AI','[{"type":"text","markdown":"answer"}]','completed');`)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,'owner',now()+interval '1 hour')`, store.Hash("order-session")); err != nil {
 		t.Fatal(err)
 	}
 	var userAt, assistantAt string
@@ -35,17 +50,37 @@ func TestConversationMessagesUseDurableOrder(t *testing.T) {
 	if err := db.QueryRow(ctx, `SELECT created_at::text FROM v3_conversation_messages WHERE id='a-assistant'`).Scan(&assistantAt); err != nil || userAt != assistantAt {
 		t.Fatalf("test requires tied timestamps: user=%s assistant=%s err=%v", userAt, assistantAt, err)
 	}
+	repository := &store.Store{DB: db}
+	server := httpapi.New(repository, nil, true)
 	svc := New(db, nil, Options{
-		CurrentUser: func(*http.Request) core.User { return core.User{ID: "owner"} },
+		CurrentUser: httpapi.CurrentUser,
+		Environment: func(r *http.Request) (string, error) {
+			scope, ok := httpapi.V3ScopeFromContext(r.Context())
+			if !ok || len(scope.EnvironmentIDs) != 1 || scope.All {
+				return "", ErrEnvironment
+			}
+			return scope.EnvironmentIDs[0], nil
+		},
 		AllowedEnvironments: func(context.Context, core.User) ([]string, error) {
 			return []string{"test"}, nil
 		},
 	})
+	svc.RegisterV3(server)
+	policy := func(_ context.Context, user core.User, module, action, env string) error {
+		if user.ID == "owner" && module == "conversation" && action == "view" && env == "test" {
+			return nil
+		}
+		return store.ErrForbidden
+	}
+	if err := server.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "test", EnvironmentIDs: []string{"test"}},
+		detailRouteEnvironmentAuthorizer{}, repository.Session, policy); err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/conversations/ordered", nil)
-	req.SetPathValue("id", "ordered")
 	req.Header.Set("X-AIOps-Environment", "test")
+	req.AddCookie(&http.Cookie{Name: "aiops_session", Value: "order-session"})
 	w := httptest.NewRecorder()
-	svc.get(w, req)
+	server.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("GET status=%d body=%s", w.Code, w.Body.String())
 	}

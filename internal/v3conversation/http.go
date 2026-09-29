@@ -29,20 +29,6 @@ func (s *Service) Register(register func(string, string, http.HandlerFunc)) {
 	register("GET /api/v1/conversations/{id}/events", "viewer", s.events)
 }
 
-// RegisterV3 registers each route with its V3 permission. The event stream
-// resolves the conversation's persisted environment because EventSource does
-// not send the selectable environment header.
-func (s *Service) RegisterV3(api *httpapi.Server) {
-	s.Register(api.Register)
-	for _, pattern := range []string{"GET /api/v1/conversations", "GET /api/v1/conversations/{id}"} {
-		api.MarkV3Route(pattern, "conversation", "view")
-	}
-	for _, pattern := range []string{"POST /api/v1/conversations", "POST /api/v1/conversations/{id}/messages"} {
-		api.MarkV3Route(pattern, "conversation", "change")
-	}
-	api.MarkV3Route("GET /api/v1/conversations/{id}/events", "", "")
-}
-
 func write(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -248,7 +234,7 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, v3uploads.ErrAttachmentContextTooLarge):
 			apiError(w, 413, "attachment_context_too_large", "Attachment text exceeds this model's input budget")
 		case errors.Is(err, ErrModelInputTooLarge):
-			apiError(w, 413, "model_input_too_large", "Conversation text exceeds this model's input budget")
+			apiError(w, 413, "model_input_too_large", "Conversation input exceeds this model's input budget")
 		default:
 			operationError(w, err)
 		}
@@ -269,57 +255,42 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) {
 		operationError(w, err)
 		return
 	}
-	id := r.PathValue("id")
-	actual, _, err := s.owned(r.Context(), id, u.ID, env)
+	scope, ok := httpapi.V3ScopeFromContext(r.Context())
+	if !ok || len(scope.EnvironmentIDs) == 0 ||
+		(env == "all" && !scope.All) ||
+		(env != "all" && (scope.All || len(scope.EnvironmentIDs) != 1 || scope.EnvironmentIDs[0] != env)) {
+		operationError(w, ErrForbidden)
+		return
+	}
+	visible, err := s.allowed(r.Context(), u, env)
 	if err != nil {
 		operationError(w, err)
 		return
 	}
-	if _, err = s.allowed(r.Context(), u, actual); err != nil {
-		operationError(w, err)
+	selected := make([]string, 0, len(visible))
+	for _, environmentID := range visible {
+		for _, scopedID := range scope.EnvironmentIDs {
+			if environmentID == scopedID {
+				selected = append(selected, environmentID)
+				break
+			}
+		}
+	}
+	if len(selected) == 0 {
+		operationError(w, ErrForbidden)
 		return
 	}
-	var title, status, contextRef, defaultModel string
-	err = s.db.QueryRow(r.Context(), `SELECT title,status,context_ref,default_model_id FROM v3_conversations WHERE id=$1 AND owner_id=$2 AND environment_id=$3`, id, u.ID, actual).Scan(&title, &status, &contextRef, &defaultModel)
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil || cookie.Value == "" {
+		apiError(w, 401, "unauthorized", "Login required")
+		return
+	}
+	detail, err := s.readOwnedDetail(r.Context(), cookie.Value, u, r.PathValue("id"), env, selected)
 	if err != nil {
 		operationError(w, err)
 		return
 	}
-	rows, err := s.db.Query(r.Context(), `SELECT id,role,author,parts,attachments,run,state,created_at FROM v3_conversation_messages WHERE conversation_id=$1 ORDER BY sort_order`, id)
-	if err != nil {
-		operationError(w, err)
-		return
-	}
-	defer rows.Close()
-	messages := []Message{}
-	for rows.Next() {
-		var m Message
-		var parts, attachments []byte
-		var run []byte
-		var state string
-		if err = rows.Scan(&m.ID, &m.Role, &m.Author, &parts, &attachments, &run, &state, &m.CreatedAt); err != nil {
-			operationError(w, err)
-			return
-		}
-		if err = json.Unmarshal(parts, &m.Parts); err != nil {
-			operationError(w, err)
-			return
-		}
-		if err = json.Unmarshal(attachments, &m.Attachments); err != nil {
-			operationError(w, err)
-			return
-		}
-		if len(run) > 0 && string(run) != "null" {
-			m.Run = run
-		}
-		m.Streaming = state == "streaming"
-		messages = append(messages, m)
-	}
-	if err = rows.Err(); err != nil {
-		operationError(w, err)
-		return
-	}
-	write(w, 200, s.conversationDetail(id, title, status, actual, contextRef, defaultModel, messages))
+	write(w, 200, detail)
 }
 
 func (s *Service) list(w http.ResponseWriter, r *http.Request) {

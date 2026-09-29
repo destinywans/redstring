@@ -1,0 +1,109 @@
+# Alerts and incidents: document the real partial responses explicitly, while
+# completion status remains tracked separately in the human contract.
+S['V3InboxItem'] = obj({**fieldnames('id title sub time href alert_id'),
+    'kind':string(enum=['alert','approval','mention','runbook','report','access','agent']),
+    'tone':string(enum=['neutral','accent','ok','warn','danger','info']),
+    'unread':v3_bool(),'day':string(enum=['today','yesterday'])})
+S['V3IncidentSummary'] = obj({**fieldnames('id title duration commander'),
+    'severity':string(enum=['P1','P2','P3','P4']),
+    'status':string(enum=['active','mitigated','resolved'])},
+    ['id','severity','title','status','duration','commander'])
+S['V3IncidentTimelineEntry'] = obj({'time':string(format='date-time'),
+    'actor':obj({'kind':string(enum=['brand','ai','person']),'name':string()},['kind','name']),
+    'text':string(),'sub':string()},['time','actor','text'])
+v3_route('get','/inbox','Read scoped inbox',response=obj({'items':arr(ref('V3InboxItem')),
+    'counts':v3_map(integer())}),query=[v3_query('filter',string(enum=['all','mine','mentions','subscribed'])),v3_query('tab')],
+    desc='Currently includes recent incident-backed alerts; other inbox kinds are not yet connected. tab remains an alias for filter.')
+v3_route('post','/alerts/{id}/claim','Claim a persisted active alert',role='operator',
+    response=obj({'id':string(),'assignee_id':string()},['id','assignee_id']),
+    desc='Partial V3 behavior: rechecks the current application/environment change grant while the incident row is locked, then transactionally sets platform ownership and audits the change; '
+         'same-user retry is idempotent. The full AlertDetail response, metric series, and '
+         'grouping policy are not available yet; no external escalation is stopped.')
+S['V3AlertGroupPartial'] = obj({**fieldnames('id service since owner'),
+    'severity':string(enum=['P1','P2','P3','P4']),
+    'labels':arr(v3_object('k v')),'count':integer(),
+    'state':string(enum=['firing','pending','silenced','resolved']),
+    'notify':v3_object('channel text'),'badges':arr(v3_object('text tone')),
+    'instances':arr(obj({**fieldnames('id value state duration'), 'series':arr(v3_num())}))})
+v3_route('get','/alert-groups','Read incident-backed alert groups',
+    response=obj({'items':arr(ref('V3AlertGroupPartial')),'counts':v3_map(integer())}),
+    query=[v3_query('q'),v3_query('severity',{'type':'array','items':string(enum=['P1','P2','P3','P4','all']),'uniqueItems':True}),v3_query('env'),v3_query('state')],
+    desc='severity accepts repeated query keys (form/explode) and matches each group\'s highest severity; all must stand alone. Partial: pending/silenced/inhibited states, metric series, and full notification grouping are not connected; no synthetic signal values are emitted.')
+for v3_parameter in P['/alert-groups']['get']['parameters']:
+    if v3_parameter['name'] == 'severity':
+        v3_parameter.update({'style':'form','explode':True})
+v3_route('get','/incidents','List scoped incidents',response=obj({'items':arr(ref('V3IncidentSummary')),
+    'counts':obj({k:integer(minimum=0) for k in ['active','resolved','all']},
+        ['active','resolved','all'])}, ['items','counts']),
+    query=[v3_query('status',string(enum=['active','resolved','all'],default='active'))],
+    desc='Counts cover all visible incidents regardless of the selected status. A mitigated incident remains active until work is resolved. Duplicate, empty, or unknown status values return 422.')
+v3_route('get','/incidents/{id}','Read incident detail when impact is available',
+    desc='Currently always returns 503 impact_unavailable after identity and scope checks; required SLO impact data is not connected.')
+P['/incidents/{id}']['get']['responses'].pop('200')
+v3_route('post','/incidents/{id}/timeline','Append a durable incident note',
+    role='operator',body=obj({'text':string()},['text']),response=ref('V3IncidentTimelineEntry'),status=201)
+v3_route('get','/incidents/{id}/timeline/manual','Read persisted human incident notes',
+    response=obj({'items':{'type':'array','items':ref('V3IncidentTimelineEntry'),'maxItems':500},
+        'scope':string(enum=['manual_only'])}, ['items','scope']),
+    desc='Auxiliary read outside the 166 V3 page contracts. Resolves the incident application and environment from persisted records and checks current events.view before reading its manually authored v3_incident_timeline rows. Items are ordered by persisted created_at and ID; the actor name comes from the current user record. The response contains no inferred system or AI entries, impact, error budget, or complete incident detail. An absent or inaccessible incident returns 404; more than 500 manual entries or storage failure returns 503 without a partial list. This route does not replace GET /incidents/{id}.')
+S['V3ObservedAlertRuleSummary'] = obj({**fieldnames('id folder name environment_id application_id'),
+    'state':string(enum=['firing','pending','ok'])},
+    ['id','folder','name','state','environment_id','application_id'])
+S['V3ObservedAlertRuleDetail'] = obj({**S['V3ObservedAlertRuleSummary']['properties'],
+    **fieldnames('datasource expr last_evaluation'), 'for_seconds':v3_num(),
+    'labels':v3_map(string()),'annotations':v3_map(string()),
+    'evaluation_ms':v3_num(),'partial':v3_bool(),'unavailable':arr(string())})
+S['V3AlertRuleSummary'] = obj({**fieldnames('id folder name'),
+    'state':string(enum=['firing','pending','ok']), 'schedule':string()},
+    ['id','folder','name','state'])
+S['V3AlertRuleList'] = obj({'items':arr(ref('V3AlertRuleSummary')),
+    'counts':obj({k:integer(minimum=0) for k in ['all','firing','scheduled']},
+        ['all','firing','scheduled'])}, ['items','counts'])
+v3_route('get','/alert-rules','Read complete authorized alert rule summaries',
+    response=ref('V3AlertRuleList'),
+    desc='Rules come from configured Prometheus sources and exact server-owned file/group application bindings, with matching environment/application labels and current application or owner-team alert_rules.view. Application/team scope and grants are rechecked after provider reads; changed scope does not return the old result. Counts describe the complete authorized result. Missing configuration, upstream failure or a result above the bound returns an error rather than synthetic or partial counts. Scheduled is zero until a trusted schedule source is connected.')
+v3_route('get','/alert-rules/observed','Read provider-observed alert rule summaries',
+    response=obj({'items':arr(ref('V3ObservedAlertRuleSummary')),
+        'counts':v3_map(integer()),'partial':v3_bool(),
+        'unavailable_environments':arr(string())}),
+    desc='Auxiliary read-only backend endpoint, not the V3 AlertRule DTO. Rule groups require explicit server-side application/environment binding, matching provider labels and current application or owner-team alert_rules.view. Scope and grants are rechecked after provider reads; changed scope does not return old summaries. Unconfigured sources return 503; partial source failure returns 206.')
+P['/alert-rules/observed']['get']['responses']['206'] = P['/alert-rules/observed']['get']['responses']['200']
+v3_route('get','/alert-rules/observed/{id}','Read one provider-observed alert rule',
+    response=ref('V3ObservedAlertRuleDetail'),
+    desc='Auxiliary read-only backend endpoint. The rule must be uniquely identified within the currently authorized application or owner-team provider result, with scope rechecked after upstream reads. Duplicate visible stable IDs return 503 alert_rule_identity_conflict rather than an arbitrary expression or state. An unknown ID with a failed in-scope provider returns 503 rule_source_partial; a complete miss returns 404. No historical preview, threshold condition, notification route or AI triage is inferred.')
+
+S['V3SilenceMatcher'] = obj(fieldnames('k v'), ['k','v'])
+S['V3SilencePreviewMatcher'] = obj({'k':string(),'op':string(enum=['=','!=','=~','!~']),
+    'v':string(minLength=1,maxLength=256)}, ['k','op','v'])
+S['V3SilenceRemaining'] = obj({'pct':integer(minimum=0,maximum=100),'text':string()},['pct','text'])
+S['V3SilenceRead'] = obj({**fieldnames('id window creator reason'),
+    'matchers':arr(ref('V3SilenceMatcher')),
+    'state':string(enum=['active','planned','expired']),
+    'remaining':ref('V3SilenceRemaining'),'affects':integer(minimum=0)},
+    ['id','matchers','state','window','affects','creator','reason'])
+S['V3InhibitionRead'] = obj({'id':string(),'source':arr(ref('V3SilenceMatcher')),
+    'target':arr(ref('V3SilenceMatcher')),'equal':arr(string()),'stat':string()},
+    ['id','source','target','equal','stat'])
+v3_route('get','/silences','Read environment-scoped Alertmanager silences',
+    response=obj({'items':arr(ref('V3SilenceRead')),
+        'counts':obj({k:integer(minimum=0) for k in ['active','planned','expired']},['active','planned','expired']),
+        'partial':v3_bool(),'unavailable_environments':arr(string()),
+        'unscoped_present':v3_bool()},
+        ['items','counts','partial','unavailable_environments','unscoped_present']),
+    query=[v3_query('state',string(enum=['active','planned','expired','all']))],
+    desc='Only provider silences with an exact positive non-regex environment matcher are returned. Application-scoped records also require an explicit server-owned application-label-to-persisted-ID binding to an active application in that environment and a current V3 application/team view grant. Exact environment silences with wider application scope require environment-wide silence view and manage grants. Ambiguous matchers are hidden. Affects comes from provider-observed alerts restricted to the authorized environment and application; counts cover the visible records. Broad records without exact environment binding are hidden and set unscoped_present for environment administrators (206). An authorized source failure, a duplicate visible ID or more than 500 visible records fails closed, without partial counts. Provider responses are bounded to 2 MiB.')
+P['/silences']['get']['responses']['206'] = P['/silences']['get']['responses']['200']
+v3_route('post','/silences/preview','Count currently matching Alertmanager alerts without creating a silence',
+    body=obj({'matchers':{'type':'array','items':ref('V3SilencePreviewMatcher'),
+        'minItems':1,'maxItems':20}}, ['matchers']),
+    response=obj({'affects':integer(minimum=0),'sample':{'type':'array','items':string(),'maxItems':5}}, ['affects','sample']),
+    desc='Read-only live snapshot in exactly one selected environment; all is rejected with 409. The selected environment is an implicit exact matcher. An exact application= provider label must be bound by server configuration to an active persisted application and requires current silences.view on that application or owner team; unknown and hidden bindings both return 404. Without an exact application matcher, current environment-wide silences.view and silences.manage are required. Affects counts all matching current alerts in that selected environment, not historical or future alerts. Sample contains at most five distinct sorted real alertname values, not representative alert records. More than 500 current-environment alerts, an upstream error, or malformed upstream null returns 503 without partial counts. No silence is created. The current frontend form and stale-result handling are not compatible with the authorization/refresh semantics, so page acceptance remains pending.')
+v3_route('get','/inhibitions','Read authorized Alertmanager inhibition configuration',
+    response=obj({'items':arr(ref('V3InhibitionRead')),'partial':v3_bool(),
+        'unavailable':arr(string()),'unavailable_environments':arr(string()),
+        'unscoped_present':v3_bool()},
+        ['items','partial','unavailable','unavailable_environments','unscoped_present']),status=206,
+    desc='Always 206 partial when successful, including an empty list: only rules with exact source and target environment matchers are considered. An application-scoped rule also needs a server-owned application-label-to-active-ID binding and current application or owner-team silences.view grant for every exact application matcher. Wider application scope requires both current environment-wide silences.view and silences.manage. Cross-environment, inactive, unbound, hidden, mixed, and ambiguous rules are omitted; only authorized environment administrators may receive unscoped_present=true. Alertmanager status has no per-rule activity or hit counts, so active is omitted and stat explains unavailable data. Authorization is checked before reading upstream; unconfigured or failed upstream returns 503 without partial results.')
+P['/inhibitions']['get']['responses']['503'] = {
+    'description':'Authorized inhibition source, scope, or application catalog is unavailable',
+    'content':{'application/json':{'schema':ref('Error')}}}

@@ -1,0 +1,182 @@
+# Persisted Agent governance and reported observations. The runtime router,
+# evaluator, prompt trial, trace producer and tool executor are not connected.
+S['V3AgentEvidenceSummary'] = obj({**fieldnames('id icon name desc version level status runs_7d success avg_tokens status_source'),
+    'score':{'type':'null'},'routing_connected':v3_bool(),
+    'available':obj({'evaluation':v3_bool(),'usage':v3_bool()},['evaluation','usage'])},
+    ['id','icon','name','desc','version','level','status','score','runs_7d',
+     'success','avg_tokens','available','status_source','routing_connected'])
+v3_route('get','/agents/lifecycle','Read bounded persisted Agent lifecycle evidence',
+    response=obj({'stages':arr({'type':'object','additionalProperties':True}),
+        'agents':arr(ref('V3AgentEvidenceSummary')),
+        'todos':arr({'type':'object','additionalProperties':True}),
+        'missing':arr(string()),'partial':v3_bool(),'truncated':v3_bool()},
+        ['stages','agents','todos','missing','partial','truncated']),
+    desc='Partial main-contract projection, at most 200 Agents. Score is null and usage/routing are unavailable; the current frontend requires a number and must not render this as a complete Lifecycle.')
+v3_route('get','/agents/{id}','Read one persisted Agent and version metadata',
+    response=obj({**S['V3AgentEvidenceSummary']['properties'], **fieldnames('owner account summary'),
+        'versions':arr({'type':'object','additionalProperties':True}),
+        'truncated':v3_bool(),
+        'release':obj({**fieldnames('from to'), 'target':integer(),
+            'configured_canary_percent':integer(),
+            'observed_traffic':{'type':'null'},
+            'current':{'type':'null'},'tokens':{'type':'null'},
+            'gates':arr({'type':'object','additionalProperties':True}),
+            'routing_connected':v3_bool(),'missing':arr(string())},
+            ['from','to','target','configured_canary_percent','observed_traffic',
+             'current','tokens','gates','routing_connected','missing']),
+        'diff':arr({'type':'object','additionalProperties':True}),
+        'config':arr({'type':'object','additionalProperties':True}),
+        'scope':{'type':'object','additionalProperties':True}},
+        S['V3AgentEvidenceSummary']['required'] +
+        ['owner','account','summary','versions','truncated','release','diff','config','scope']),
+    desc='Partial main-contract projection: at most 100 versions are returned and truncated reports whether more exist. Version status may be draft; actual traffic and token counts are unavailable. Null release fields are incompatible with the current Agent page; no live routing is implied.')
+v3_route('post','/agents/{id}/rollout','Save a gated Agent release configuration',
+    role='viewer with scoped agents.manage',
+    body=obj({'to':string(),'percent':integer(minimum=1,maximum=100),
+        'override':v3_bool(),'override_reason':string()},['to','percent']),
+    response=obj({'id':string(),'to':string(),'configured_percent':integer(),
+        'observed_traffic':{'type':'null'},'routing_connected':v3_bool(),
+        'gate_experiment_id':string(),'override':v3_bool()},
+        ['id','to','configured_percent','observed_traffic','routing_connected','override']),
+    desc='Persists requested release configuration only; no traffic router is connected. Requires the latest passing evaluation for current stable to candidate. Override requires an enabled human administrator, a nonempty override_reason and audit; machine identities cannot override. The current frontend omits that reason. Observed traffic remains null.')
+v3_route('post','/agents/{id}/rollback','Save a rollback release configuration',
+    role='viewer with scoped agents.manage',
+    response=obj({'id':string(),'to':string()},['id','to']),
+    desc='Requires a prior persisted release target. Saves governance metadata only; no traffic router is connected and no actual traffic change is claimed.')
+v3_route('patch','/agents/{id}/level','Change an Agent permission level within its environment cap',
+    role='viewer with scoped agents.manage',
+    body=obj({'level':string(enum=['L0','L1','L2','L3'])},['level']),
+    response=obj({'level':string(),'max_level':string()},['level','max_level']),
+    desc='Requires scoped agents.manage; a requested level above the persisted environment maximum returns 409. This metadata does not grant an unconnected runtime tool execution path.')
+v3_route('get','/prompts','List bounded persisted Prompt versions',
+    query=[v3_query('q',string(maxLength=160))],
+    response=obj({'items':arr(obj({**fieldnames('id kind name version')},
+        ['id','kind','name','version'])),'truncated':v3_bool(),
+        'partial':v3_bool(),'unavailable_fields':arr(string())},
+        ['items','truncated','partial','unavailable_fields']),
+    desc='At most 200 visible persisted Prompt identities with a nonzero version. Optional q matches ID or name, trimmed and bounded to 160 Unicode characters; excess returns localized 422. More than 200 visible matches returns 413 prompt_list_too_large rather than silent truncation. Skills and publication status are unavailable fields; runtime binding is not attested. The full Prompt page remains mock.')
+P['/prompts']['get']['responses']['413'] = {
+    'description':'More than 200 visible Prompt identities; narrow q',
+    'content':{'application/json':{'schema':ref('Error')}}}
+P['/prompts']['get']['responses']['422'] = {
+    'description':'Search term exceeds 160 Unicode characters; message follows Accept-Language zh/en',
+    'content':{'application/json':{'schema':ref('Error')}}}
+v3_route('get','/prompts/{id}','Read one stored Prompt version',
+    response=obj({**fieldnames('id name version notes'),
+        'variables':arr(string()),
+        'used_by':string(),'lines':arr(obj({'text':string()},['text'])),
+        'registered_agent':obj(fieldnames('id name'),['id','name']),
+        'scope':obj(fieldnames('application_id environment_id'),['application_id','environment_id']),
+        'partial':v3_bool(),'unavailable_fields':arr(string())},
+        ['id','name','version','variables','used_by','lines','notes','registered_agent','scope','partial','unavailable_fields']),
+    desc='Reads the current persisted Prompt version and registered Agent under one scoped, authorized transaction. Variables are parsed from persisted text; lines preserve the text for the frontend editor. Publication status, release notes and runtime usage are unavailable, with localized explanatory used_by and notes. Unknown or hidden Prompt returns 404; a Prompt with no version returns 409; storage or policy failure returns 503. This does not prove a runtime-bound Prompt or complete frontend page.')
+for _status, _description in {
+    '404':'Unknown or hidden Prompt identity',
+    '409':'Registered Prompt has no persisted version',
+    '503':'Prompt storage, authorization policy, or current version is unavailable',
+}.items():
+    P['/prompts/{id}']['get']['responses'][_status] = {
+        'description':_description,'content':{'application/json':{'schema':ref('Error')}}}
+v3_route('post','/prompts/{id}/versions','Store a new Prompt text revision',
+    role='viewer with scoped agents.change',
+    body=obj({'text':string()},['text']),response=obj({'version':string(pattern=r'^v[1-9][0-9]*$')},['version']),status=201,
+    desc='Stores a nonblank text revision of at most 20000 Unicode characters with original whitespace and transactional audit, returning its vN display version. Invalid JSON, multiple JSON objects or invalid text return 422 with an Accept-Language zh/en message. Requires a registered Prompt under the current scoped Agent; it does not publish or execute the Prompt.')
+P['/prompts/{id}/versions']['post']['responses']['422'] = {
+    'description':'Invalid JSON body or Prompt text; message follows Accept-Language zh/en',
+    'content':{'application/json':{'schema':ref('Error')}}}
+v3_route('post','/prompts/{id}/trial','Run a Prompt comparison trial',
+    role='viewer with scoped agents.change',
+    body=obj({'case':string(),'a':string(),'b':string()},['case','a','b']),status=503,
+    desc='Always returns 503 prompt_trial_unavailable after request and authorization validation; no trial runner or model execution is configured.')
+P['/prompts/{id}/trial']['post']['responses']['503'] = {
+    'description':'Prompt trial runner is unavailable',
+    'content':{'application/json':{'schema':ref('Error')}}}
+v3_route('get','/agent-tools','Read persisted Agent tool governance metadata',
+    query=[v3_query('kind',string(enum=['all','read','write']))],
+    response=obj({'items':arr({'type':'object','additionalProperties':True}),
+        'levels':arr({'type':'object','additionalProperties':True}),
+        'env_limits':arr(obj(fieldnames('env max note'),['env','max','note'])),
+        'rules':arr(string()),
+        'missing':arr(string()),'truncated':v3_bool()},
+        ['items','levels','env_limits','rules','missing','truncated']),
+    desc='At most 200 registered tools. Calls/errors are unavailable and executable is false; no live tool executor is connected. The full ToolsView remains mock.')
+v3_route('get','/evals/{id}','Read one stored Agent evaluation experiment',
+    response=obj({**fieldnames('id title status baseline_version candidate_version result_ref created_at'),
+        'dataset':string(),'meta':string(),
+        'metrics':{'type':['object','null'],'additionalProperties':True},
+        'radar':{'type':'null'},'cases':arr({'type':'object','additionalProperties':True}),
+        'datasets':arr({'type':'object','additionalProperties':True}),
+        'evaluators':arr({'type':'object','additionalProperties':True}),
+        'missing':arr(string()),'partial':v3_bool()},
+        ['id','title','dataset','meta','status','baseline_version','candidate_version',
+         'metrics','radar','cases','datasets','evaluators','result_ref','created_at','missing','partial']),
+    desc='Partial stored evaluation record. The read locks and checks the persisted evaluation, Agent, active application/environment and current grants; missing creation-audit origin or later Agent reassignment hides the record. Dataset, radar and case detail are unavailable; a passed status is a persisted trusted-producer report, not proof that this service ran quality thresholds. The creation-audit target lookup lacks a dedicated index for large per-application histories.')
+v3_route('post','/evals','Create pending Agent evaluation metadata',
+    role='viewer with scoped agents.change',
+    body=obj({**fieldnames('agent_id title baseline_version candidate_version')},
+        ['agent_id','title','baseline_version','candidate_version']),
+    response=obj({'id':string(),'status':string(enum=['pending']),
+        'execution_available':v3_bool()},['id','status','execution_available']),status=201,
+    desc='Requires two distinct known versions. Stores a pending experiment only; it does not queue or execute evaluation, and execution_available is false. The current frontend rerun request has no matching body.')
+v3_route('get','/eval-cases/{id}','Read one partially evidenced evaluation case',
+    response=obj({**fieldnames('id title queue expected_ref'),
+        'labels':arr({'type':'object','additionalProperties':True}),
+        **{key:{'type':'null'} for key in ['alert','evidence','expected','output','baseline','auto']},
+        'missing':arr(string()),'partial':v3_bool()},
+        ['id','title','queue','expected_ref','labels','alert','evidence','expected',
+         'output','baseline','auto','missing','partial']),
+    desc='At most 50 human labels; input evidence, expected output, baseline and automatic scoring are unavailable. This does not satisfy the frontend EvalCase DTO.')
+v3_route('post','/eval-cases/{id}/labels','Record one human evaluation label',
+    role='viewer with scoped agents.change',
+    body=obj({'next':string(enum=['correct','incorrect','partial','unsure']),
+        'note':string()},['next']),
+    response=obj({'next':string(),'id':string()},['next','id']),
+    desc='Requires an explicit next label and optional note up to 2000 runes; saved with audit. The current frontend sends different fields and would receive 422.')
+v3_route('get','/agent-runs','Read bounded reported Agent runs',
+    query=[v3_query('filter',string(enum=['all','failed','blocked','negative']))],
+    response=obj({'kpis':arr({'type':'object','additionalProperties':True}),
+        'trend':{'type':'null'},'durations':{'type':'null'},
+        'items':arr({'type':'object','additionalProperties':True}),
+        'counts':{'type':'null'},'partial':v3_bool(),'truncated':v3_bool(),
+        'missing':arr(string())},
+        ['kpis','trend','durations','items','counts','partial','truncated','missing']),
+    desc='At most 200 persisted run reports. Complete steps, aggregate KPIs, trends and counts are unavailable; no live runtime producer is connected.')
+v3_route('get','/agent-runs/{id}','Read one reported Agent run and bounded spans',
+    response=obj({'id':string(),'chain':arr(obj(fieldnames('label value icon'),
+            ['label','value','icon'])),
+        'stats':arr(obj(fieldnames('k v'),['k','v'])),
+        'steps':arr({'type':'object','additionalProperties':True}),
+        'total':{'type':['number','null']},'context':{'type':'null'},
+        'budget':string(),'isolated':arr({'type':'object','additionalProperties':True}),
+        'memory':{'type':'null'},'partial':v3_bool(),'missing':arr(string())},
+        ['id','chain','stats','steps','total','context','budget','isolated','memory','partial','missing']),
+    desc='At most 500 reported spans, without complete conversation, context, memory or token accounting. Does not satisfy the RunDetail page DTO.')
+v3_route('get','/agent-runs/{id}/trace','Read bounded reported Agent trace metadata',
+    response=obj({'id':string(),'agent':string(),'status':string(),
+        'stats':arr({'type':'object','additionalProperties':True}),
+        'scores':arr({'type':'object','additionalProperties':True}),
+        'session':string(),'turns':arr({'type':'object','additionalProperties':True}),
+        'total':{'type':['number','null']},
+        'spans':arr({'type':'object','additionalProperties':True}),
+        'partial':v3_bool(),'missing':arr(string())},
+        ['id','agent','status','stats','scores','session','turns','total','spans','partial','missing']),
+    desc='At most 500 producer-reported spans; LLM messages, tool arguments/results, scores and complete session turns are unavailable. Reported tool spans do not prove two-phase executor audit. The full AgentTrace remains mock.')
+v3_route('post','/agent-runs/{id}/feedback','Save a user vote for a completed Agent run',
+    role='viewer with scoped agents.change',
+    body=obj({'vote':string(enum=['up','down'])},['vote']),
+    response=obj({'vote':string(enum=['up','down'])},['vote']),
+    desc='One current-user vote is upserted on a completed run with transactional audit. An active run returns 409; this does not derive evaluation quality metrics.')
+v3_route('get','/guardrails','Read persisted Agent guardrail policies and reported events',
+    query=[v3_query('filter',string(enum=['all','blocked','masked']))],
+    response=obj({'policies':arr({'type':'object','additionalProperties':True}),
+        'trend':{'type':'null'},'events':arr({'type':'object','additionalProperties':True}),
+        'counts':{'type':'null'},'detail':{'type':'null'},
+        'partial':v3_bool(),'truncated':v3_bool(),'missing':arr(string())},
+        ['policies','trend','events','counts','detail','partial','truncated','missing']),
+    desc='At most 200 policies and events. Runtime enforcement, trend, counts and detail are unproven; events rely on a trusted reporting hook and the full GuardrailsView remains mock.')
+v3_route('patch','/guardrails/{id}','Change one persisted guardrail policy setting',
+    role='viewer with scoped agents.manage',
+    body=obj({'enabled':v3_bool()},['enabled']),
+    response=obj({'id':string(),'enabled':v3_bool(),'revision':integer()},
+        ['id','enabled','revision']),
+    desc='Scoped agents.manage setting with audit and a persisted policy revision; a forced guardrail cannot be disabled. This does not prove a live runtime consumes the policy.')

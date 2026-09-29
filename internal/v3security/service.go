@@ -263,9 +263,10 @@ func (s *Service) applyPrepared(ctx context.Context, actor core.User, token stri
 	if s.Authority == nil {
 		return RuntimeSnapshot{}, ErrAuthorityUnavailable
 	}
-	receipt, err := s.Authority.Apply(ctx, RuntimeApply{InstanceID: scope.InstanceID,
+	request := RuntimeApply{InstanceID: scope.InstanceID,
 		EnvironmentID: scope.EnvironmentID, ExpectedRevision: expected,
-		OperationID: operationID, Controls: desired})
+		OperationID: operationID, Controls: desired}
+	receipt, err := s.Authority.Apply(ctx, request)
 	if err != nil {
 		status, code := "unknown", "apply_outcome_unknown"
 		if errors.Is(err, ErrRuntimeConflict) {
@@ -284,7 +285,10 @@ func (s *Service) applyPrepared(ctx context.Context, actor core.User, token stri
 		}
 		return RuntimeSnapshot{}, ErrAuthorityUnavailable
 	}
-	if !receipt.Durable || !receipt.Enforced || receipt.Revision <= expected {
+	if receipt.InstanceID != request.InstanceID || receipt.EnvironmentID != request.EnvironmentID ||
+		receipt.ExpectedRevision != request.ExpectedRevision || receipt.OperationID != request.OperationID ||
+		receipt.ControlsSHA256 != controlsDigest(request.Controls) ||
+		!receipt.Durable || !receipt.Enforced || receipt.Revision <= expected {
 		if finishFailure(ctx, tx, actor.ID, operationID, scope, "unknown", "apply_unverified") != nil {
 			return RuntimeSnapshot{}, errOperationPending
 		}

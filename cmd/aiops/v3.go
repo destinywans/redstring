@@ -54,6 +54,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3proposals"
 	"github.com/wans/aiops-canvas/internal/v3resilience"
 	"github.com/wans/aiops-canvas/internal/v3ruleassistant"
+	"github.com/wans/aiops-canvas/internal/v3security"
 	"github.com/wans/aiops-canvas/internal/v3serviceviews"
 	"github.com/wans/aiops-canvas/internal/v3settings"
 	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
@@ -307,6 +308,12 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	admin.MFAEvidence = memberSources.MFAEvidence
 	admin.MFAReminders = memberSources.MFAReminders
 	admin.Register(api)
+	securityAuthority, err := loadV3SecurityAuthority(
+		os.Getenv("AIOPS_V3_SECURITY_AUTHORITY_URL"), os.Getenv("AIOPS_V3_SECURITY_AUTHORITY_TOKEN_FILE"))
+	if err != nil {
+		return fmt.Errorf("configure V3 security authority: %w", err)
+	}
+	v3security.New(s, info.Domain, securityAuthority).Register(api)
 	lowerSources, err := loadV3LowerSources(os.Getenv("AIOPS_V3_LOWER_SOURCES_CONFIG"), cfg.Tier)
 	if err != nil {
 		return fmt.Errorf("load V3 lower-environment sources: %w", err)

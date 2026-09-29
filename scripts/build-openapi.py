@@ -329,6 +329,18 @@ exec(Path('scripts/rbac-openapi.py').read_text())
 v3_contract_source = Path('scripts/v3-openapi.py')
 exec(compile(v3_contract_source.read_text(encoding='utf-8'), str(v3_contract_source), 'exec'))
 
-spec={'openapi':'3.1.0','info':{'title':'AIOps Canvas Backend API','version':'0.7.0','description':'Single-workspace multi-application SRE API. All business history is server authoritative; application authorization is enforced beyond minimum workspace role.','license':{'name':'Apache-2.0','identifier':'Apache-2.0'}},'servers':[{'url':'/api/v1'}],'security':[{'sessionCookie':[]}],'paths':P,'components':{'schemas':S,'securitySchemes':{'sessionCookie':{'type':'apiKey','in':'cookie','name':'aiops_session'},'alertSourceToken':{'type':'http','scheme':'bearer'},'pushSourceToken':{'type':'http','scheme':'bearer'},'gitlabWebhookToken':{'type':'apiKey','in':'header','name':'X-Gitlab-Token'}}}}
+security_domain = json.loads(Path('internal/v3security/openapi.json').read_text(encoding='utf-8'))
+for security_path, operations in security_domain['paths'].items():
+    if security_path in P:
+        raise ValueError(f'duplicate V3 security path: {security_path}')
+    P[security_path] = operations
+for security_name, schema in security_domain['components']['schemas'].items():
+    if security_name == 'Error':
+        continue  # The aggregate already defines the shared error envelope.
+    if security_name in S:
+        raise ValueError(f'duplicate V3 security schema: {security_name}')
+    S[security_name] = schema
+
+spec={'openapi':'3.1.0','info':{'title':'AIOps Canvas Backend API','version':'0.7.0','description':'Single-workspace multi-application SRE API. All business history is server authoritative; application authorization is enforced beyond minimum workspace role.','license':{'name':'Apache-2.0','identifier':'Apache-2.0'}},'servers':[{'url':'/api/v1'}],'security':[{'sessionCookie':[]}],'paths':P,'components':{'schemas':S,'parameters':security_domain['components']['parameters'],'responses':security_domain['components']['responses'],'securitySchemes':{'sessionCookie':{'type':'apiKey','in':'cookie','name':'aiops_session'},'alertSourceToken':{'type':'http','scheme':'bearer'},'pushSourceToken':{'type':'http','scheme':'bearer'},'gitlabWebhookToken':{'type':'apiKey','in':'header','name':'X-Gitlab-Token'}}}}
 Path('internal/apicontract/openapi.json').write_text(json.dumps(spec,ensure_ascii=False,indent=2)+'\n')
 print(f'Generated {len(P)} paths, {sum(len(x) for x in P.values())} operations, {len(S)} schemas.')

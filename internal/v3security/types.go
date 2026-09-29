@@ -95,9 +95,14 @@ type RuntimeApply struct {
 }
 
 type RuntimeApplyReceipt struct {
-	Revision int64 `json:"revision"`
-	Durable  bool  `json:"durable"`
-	Enforced bool  `json:"enforced"`
+	InstanceID       string `json:"instance_id"`
+	EnvironmentID    string `json:"environment_id"`
+	ExpectedRevision int64  `json:"expected_revision"`
+	OperationID      string `json:"operation_id"`
+	ControlsSHA256   string `json:"controls_sha256"`
+	Revision         int64  `json:"revision"`
+	Durable          bool   `json:"durable"`
+	Enforced         bool   `json:"enforced"`
 }
 
 // RuntimeController must report the actual applied policy of this instance

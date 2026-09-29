@@ -137,6 +137,11 @@ func validateEditableView(current, desired SecurityView) (SecurityControls, erro
 
 func sameControls(a, b SecurityControls) bool { return reflect.DeepEqual(a, b) }
 
+func controlsDigest(controls SecurityControls) string {
+	digest := sha256.Sum256(marshal(controls))
+	return hex.EncodeToString(digest[:])
+}
+
 func scopeDigest(scope RuntimeScope) [32]byte {
 	return sha256.Sum256(marshal(scope))
 }

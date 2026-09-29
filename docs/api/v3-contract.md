@@ -401,8 +401,8 @@ Prompt 列表只返回有真实版本的已授权记录，支持最多 160 字�
 | GET | `/roles` | | `{ items: Role[] }` | implemented |
 | GET | `/roles/{id}` | | `RoleDetail` 与响应头 `X-Role-Matrix-Revision` | implemented |
 | PUT | `/roles/{id}` | `{ matrix }` 和 GET 返回的 `If-Role-Matrix-Revision`；机器身份的“批准”列必须拒绝 | `{ ok: true }` 与新矩阵版本响应头 | implemented |
-| GET | `/security` | | `SecurityView` | mock |
-| PUT | `/security` | `SecurityView` | `SecurityView` | mock |
+| GET | `/security` | 单环境、当前人类平台管理员和全局 `workspace.manage` | 仅受审权威控制器提供完整、新鲜、同实例/环境且实际生效的 `SecurityView` 与强 ETag；缺来源或待对账 503 | implemented |
+| PUT | `/security` | GET 的强 `If-Match` 与完整 `SecurityView`；只允许受支持的策略开关变动 | 同一操作 ID 的权威 apply 回执和完整同修订读回均验证后记录台账/审计，返回新视图与 ETag；未知结果不报成功 | implemented |
 | GET | `/me/notification-settings` | | `{ quiet: { enabled, from, to }, digest: off\|daily\|weekly, subscriptions }`；只读取当前账号已保存偏好，无记录时返回平台默认值，不代表通知渠道已接通 | implemented |
 | PUT | `/me/notification-settings` | 部分更新 `{ quiet?: boolean\|{enabled,from,to}, digest?, subscriptions?: { [existing_id]: boolean }\|现有订阅完整列表 }` | 保存并返回当前账号合并后的完整通知偏好；订阅标识与文案不能在此接口新建或修改，不代表通知已投递 | implemented |
 | GET | `/me/ai-preferences` | | `{ default: ModelChoice, canvas_inherit, show_reasoning, auto_context, memory, budget_warn_tokens }`；`GET /models` 的 `default` 取自这里 | implemented |
@@ -420,6 +420,8 @@ Prompt 列表只返回有真实版本的已授权记录，支持最多 160 字�
 `GET /workspace` 在读取事务内复核当前有效账号与所选环境 `workspace.view`，读取持久化记录；缺失或损坏时返回 `503 workspace_unavailable`，不会合成默认值。`PUT /workspace` 严格校验单个 JSON 对象、已知字段和值，使用该记录与旧设置接口共用的 `revision` 比较 `If-Match`，在事务中复核账号、平台管理员身份和全局 `workspace.manage`，保存与审计一起提交；`data_region` 和品牌字段为只读部署声明，提交值必须与已存值相同。新建本地或目录导入成员现在继承已保存的 `timezone`、`locale`；已有成员不被改写。slug、`week_start` 和留存天数仍只是保存配置，尚未驱动链接、日历或清理行为；`data_region` 不能证明物理驻留。冻结前端工作区页尚未传递 GET 的 ETag，真实 PUT 会返回 428，整页未验收。
 
 角色/成员列表与详情只展示所选且已授权环境内的对象与成员；只有同时具备全局模块查看和全局 `environment.view` 的管理员可盘点无环境归属的旧记录。`GET /roles/{id}` 在同一授权事务快照中读取角色、成员和授权；平面五列矩阵无法无损表达的授权返回 `409 matrix_editor_required`，不将部分授权伪装成可编辑单元格。响应头 `X-Role-Matrix-Revision` 只版本化授权矩阵，不版本化描述或成员。`PUT /roles/{id}` 要求该版本的精确十进制 `If-Role-Matrix-Revision`，缺失 428、旧版 409；所选单一环境只用于鉴权，提交的是跨所有环境的全局授权，因此要求全局 `roles.manage` 和全局 `environment.view`。读写事务均在角色授权锁之后复核并锁定发起请求的精确 Cookie 会话与有效账号；写入还在角色行锁下复核权限和版本，拒绝机器身份审批，保护最后一位有效人类管理员，授权、版本与审计共同提交。PUT 仅返回 `{ ok: true }` 与新版本头，不在提交后重读并泄露角色详情。冻结页面不读取或发送版本头，真实保存会 428，默认选择的 `approver` 也可能与持久角色 ID 不符；后端两条路由已闭合，角色整页尚未验收。其他设置主契约仍按各行状态判断。
+
+`GET/PUT /security` 仅在显式配置受审的 HTTPS 运行权威控制器且该来源能证明**全部**安全字段当前生效时有条件成功。两条都要求当前真人平台管理员、全局 `workspace.manage`、单一已授权环境和活动 Cookie 会话；GET 的快照须完整、新鲜、实例/环境绑定并有单调修订。PUT 要求 GET 的强 `If-Match`，只可修改 SCIM、MFA 策略与方法开关、批准 Passkey、IP 白名单和新设备通知；其余字段必须与当前权威快照一致。外部 apply 回执需回显精确操作、范围、前序修订及控制摘要，随后同修订完整读回才将持久操作台账与审计记为成功。`pending`/`unknown` 保留并阻断后续读写，不自动重试或清除；启用真实写入前需部署方具备按操作 ID 审计的人工对账流程。默认未配置来源返回 503；仓库没有能证明整套 SSO/SCIM/MFA/Vault 等策略实际生效的权威服务，新增迁移 `142_v3_security_policy.sql` 未在现有业务库执行。两条仅按代码中的条件式后端成功路径计 `implemented`；冻结安全页没有传 `If-Match`，并含未证实的静态安全文案，页面与真实运行态未验收。详见[安全策略领域边界](../../internal/v3security/README.md)。
 
 ## 后端辅助接口（不计入上述 166 项）
 

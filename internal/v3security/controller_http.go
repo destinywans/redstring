@@ -72,10 +72,15 @@ func (c *httpRuntimeController) Apply(ctx context.Context, apply RuntimeApply) (
 	if err != nil || status != http.StatusOK {
 		return receipt, ErrAuthorityUnavailable
 	}
-	if _, err := requiredObject(payload, "revision", "durable", "enforced"); err != nil || decodeStrict(payload, &receipt) != nil {
+	if _, err := requiredObject(payload, "instance_id", "environment_id", "expected_revision",
+		"operation_id", "controls_sha256", "revision", "durable", "enforced"); err != nil ||
+		decodeStrict(payload, &receipt) != nil {
 		return RuntimeApplyReceipt{}, ErrAuthorityUnavailable
 	}
-	if receipt.Revision <= apply.ExpectedRevision || !receipt.Durable || !receipt.Enforced {
+	if receipt.InstanceID != apply.InstanceID || receipt.EnvironmentID != apply.EnvironmentID ||
+		receipt.ExpectedRevision != apply.ExpectedRevision || receipt.OperationID != apply.OperationID ||
+		receipt.ControlsSHA256 != controlsDigest(apply.Controls) ||
+		receipt.Revision <= apply.ExpectedRevision || !receipt.Durable || !receipt.Enforced {
 		return RuntimeApplyReceipt{}, ErrAuthorityUnavailable
 	}
 	return receipt, nil

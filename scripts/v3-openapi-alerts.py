@@ -125,7 +125,7 @@ S['V3IncidentDraft'] = obj({
     'title':string(), 'severity':string(enum=['P1','P2','P3','P4']), 'severity_hint':string(),
     'env':string(), 'services':arr(obj({'id':string(),'tier':{'type':'null'}},['id','tier'])),
     'impact':{'type':'null'}, 'alerts':{'type':'array','minItems':1,'maxItems':20,'items':ref('V3IncidentDraftAlert')},
-    'commander':{'type':'null'}, 'participants':arr(string()), 'war_room':{'type':'null'},
+    'commander':{'type':'null'}, 'participants':{'type':'null'}, 'war_room':{'type':'null'},
     'source':string(enum=['persisted_alerts']), 'partial':v3_bool(), 'unavailable':arr(string())},
     ['title','severity','severity_hint','env','services','impact','alerts','commander','participants','war_room','source','partial','unavailable'])
 v3_route('get','/incidents/draft','Prefill an incident from selected persisted alerts',

@@ -520,7 +520,7 @@ func incidentListWithCases(alerts []incidentRecord, cases []caseRecord, filter s
 		items = append(items, datedIncidentSummary{v.UpdatedAt, v.ID, v.Status,
 			caseSummary{ID: v.ID, Severity: v.Severity, Title: v.Title, Status: v.Status,
 				Commander: v.CommanderText, RecordKind: "case", ApplicationID: v.ApplicationID,
-				EnvironmentID: v.EnvironmentKey}})
+				EnvironmentID: v.EnvironmentID}})
 	}
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].updated.Equal(items[j].updated) {

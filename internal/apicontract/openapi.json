@@ -8805,7 +8805,7 @@
       "get": {
         "summary": "List scoped incidents",
         "operationId": "get_incidents",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Counts cover all visible incidents regardless of the selected status. A mitigated incident remains active until work is resolved. Duplicate, empty, or unknown status values return 422.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Counts cover all visible persisted alert occurrences not linked to a case plus current authorized human-confirmed cases, regardless of the selected status. The link table is locked across both reads to avoid a duplicate case and alert entry. Case summaries identify record_kind=case and leave unknown duration/commander null. A mitigated incident remains active until work is resolved. More than 5000 entries returns 503; duplicate, empty, or unknown status values return 422.",
         "responses": {
           "200": {
             "description": "Success",
@@ -8817,7 +8817,14 @@
                     "items": {
                       "type": "array",
                       "items": {
-                        "$ref": "#/components/schemas/V3IncidentSummary"
+                        "oneOf": [
+                          {
+                            "$ref": "#/components/schemas/V3IncidentSummary"
+                          },
+                          {
+                            "$ref": "#/components/schemas/V3IncidentCaseSummary"
+                          }
+                        ]
                       }
                     },
                     "counts": {
@@ -8945,20 +8952,153 @@
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
         ]
+      },
+      "post": {
+        "summary": "Create a human-confirmed incident from persisted alerts",
+        "operationId": "post_incidents",
+        "description": "Minimum role: operator. V3 instance and environment scope apply. Requires an Idempotency-Key header (8–128 ASCII identifier characters). Selected alerts must be active, unlinked, currently authorized for events.view and events.change, and bound to one current application/environment mapping. The human-confirmed incident, alert links, optional blank investigation and audit commit in one transaction; the same key/body retry returns 200, a changed body or already-linked alert returns 409. open_canvas requires independent canvas.view and canvas.change and supports prod/staging/test only. war_room, notify and status_page currently return 503 when requested because V3 has no configured and running executor for those external actions. No delivery or AI inference is claimed. The frozen frontend defaults to unavailable external actions and sends no idempotency key; page acceptance remains pending.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3IncidentCreateResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Idempotent retry with the same request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3IncidentCreateResult"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "incidents"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3IncidentCreateRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+            }
+          }
+        ]
       }
     },
     "/incidents/{id}": {
       "get": {
         "summary": "Read persisted incident facts and manual notes",
         "operationId": "get_incidents_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Resolves a persisted incident ID under current V3 environment, application, owner-team, session and events.view authorization in one transaction. Returns the recorded work/alert status, strict severity, summary, assigned user when present, and up to 500 explicitly appended v3_incident_timeline notes; actor kind and current name come from the users row. Investigation linkage and close time are accepted only when the referenced investigation belongs to the same application/environment. The alert start is reported separately; incident duration has no established lifecycle start and remains null. Commander, five-step stage, SLO peak/error-budget/series, system/AI timeline, and proposal/change links are unknown and explicitly listed in unavailable. More than 500 notes or inconsistent persisted references fail closed. The frozen page still assumes non-null duration, stage and impact and expects other actor kinds, so page acceptance is pending.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Resolves either a persisted alert occurrence or a human-confirmed case under current V3 application, environment, owner-team, session and events.view authorization in one transaction. Case details include exact linked alert IDs, human-entered impact/commander with provenance, creation time, and nullable alert-only facts; every link and optional investigation is checked against the persisted application/environment. Existing alert-occurrence details retain their earlier partial contract. More than 500 notes, over 64 links, or inconsistent persisted references fail closed. The frozen page still assumes non-null duration, stage and SLO impact, so page acceptance is pending.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/V3IncidentDetail"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/V3IncidentDetail"
+                    },
+                    {
+                      "$ref": "#/components/schemas/V3IncidentCaseDetail"
+                    }
+                  ]
                 }
               }
             }
@@ -32868,7 +33008,7 @@
       "get": {
         "summary": "Read evidence-backed persisted alert detail",
         "operationId": "get_alerts_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Resolves a persisted ops_incidents ID in the selected V3 environment. Current session, mapped application, current owner team, and events.view are checked under transaction locks before returning. revision is the incident-row xmin action token, not a representation ETag: notification status can change independently. Notification rows report local enqueue time and transport status only; at most the latest 500 are returned, with notifications_truncated and unavailable when more exist. The nonempty source_id is the persisted ingress identity, not proof that its configuration remains active. Provider name, original alert labels, metric series and threshold, rule, triage, runbook, real notification group, inhibition and change association have no exact occurrence binding; these fields are null and named in unavailable. The persisted incident ID is the only established grouping link. Malformed severity/state or cross-scope notification records return 503, not a synthetic value. This is a backend nullable contract; the frozen AlertDetail page requires non-null fields and is not yet accepted.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Resolves a persisted ops_incidents ID in the selected V3 environment. Current session, mapped application, current owner team, and events.view are checked under transaction locks before returning. revision is the incident-row xmin action token, not a representation ETag: notification status can change independently. Notification rows report local enqueue time and transport status only; at most the latest 500 are returned, with notifications_truncated and unavailable when more exist. The nonempty source_id is the persisted ingress identity, not proof that its configuration remains active. Provider name, original alert labels, metric series and threshold, rule, triage, runbook, real notification group, inhibition and change association have no exact occurrence binding; these fields are null and named in unavailable. grouping.incident.id is the linked human case when one is recorded for this exact alert and application/environment, otherwise the original persisted alert occurrence ID. Malformed severity/state or cross-scope records return 503, not a synthetic value. This is a backend nullable contract; the frozen AlertDetail page requires non-null fields and is not yet accepted.",
         "responses": {
           "200": {
             "description": "Success",
@@ -33350,11 +33490,117 @@
         ]
       }
     },
+    "/incidents/draft": {
+      "get": {
+        "summary": "Prefill an incident from selected persisted alerts",
+        "operationId": "get_incidents_draft",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires explicit alert IDs. Every active alert must be currently visible, unlinked, and bound to the same application and environment. The title and highest severity come from persisted alerts; impact, service tier, commander, participants, war room and AI analysis are unknown. A current session and V3 events.view are checked under transaction locks. The frozen page sends no alerts query and expects fabricated non-null values; frontend acceptance remains pending.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3IncidentDraft"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "incidents"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "alerts",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "Comma-separated 1–20 distinct persisted alert IDs"
+            },
+            "required": true
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/incidents/{id}/timeline": {
       "post": {
         "summary": "Append a durable incident note",
         "operationId": "post_incidents_id_timeline",
-        "description": "Minimum role: operator. V3 instance and environment scope apply. ",
+        "description": "Minimum role: operator. V3 instance and environment scope apply. Human-confirmed cases accept manual notes under current V3 events.change, application/environment/team and session locks. The note, case updated_at and audit commit atomically; linked alert occurrences are not mutated. The historical alert-backed path retains its existing behavior.",
         "responses": {
           "201": {
             "description": "Success",
@@ -33478,7 +33724,7 @@
       "get": {
         "summary": "Read persisted human incident notes",
         "operationId": "get_incidents_id_timeline_manual",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read outside the 166 V3 page contracts. Resolves the incident application and environment from persisted records and checks current events.view before reading its manually authored v3_incident_timeline rows. Items are ordered by persisted created_at and ID; the actor name comes from the current user record. The response contains no inferred system or AI entries, impact, error budget, or complete incident detail. An absent or inaccessible incident returns 404; more than 500 manual entries or storage failure returns 503 without a partial list. This route does not replace GET /incidents/{id}.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read outside the 166 V3 page contracts. Resolves either a human-confirmed case or the historical alert occurrence, checks current events.view, and reads manually authored v3_incident_timeline rows. Case reads recheck current application/environment/team, session and grants in one transaction. Items are ordered by persisted created_at and ID; actor names come from current user records. The response contains no inferred system or AI entries, impact, error budget, or complete incident detail. An absent or inaccessible incident returns 404; more than 500 manual entries or storage failure returns 503 without a partial list. This route does not replace GET /incidents/{id}.",
         "responses": {
           "200": {
             "description": "Success",
@@ -33685,6 +33931,111 @@
           }
         ],
         "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/alert-rules/{id}": {
+      "get": {
+        "summary": "Read one configured provider alert rule",
+        "operationId": "get_alert_rules_id",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Returns one uniquely identified Prometheus rule observed from a configured environment and server-owned file/group application binding, with exact matching environment/application labels and current alert_rules.view on the application or owner team. Scope and grants are rechecked after provider reads. The response contains the observed expression, duration, labels, annotations, last evaluation and group interval when available; absent provider values and editor-only preview, threshold condition, query registry, evaluation policy, runbook, notification route and AI triage are null and listed in unavailable. Evaluation time is null unless there is a last evaluation and a positive observed duration. A missing rule with an unavailable in-scope source returns 503 instead of a false 404. Duplicate visible stable IDs return 503. The frozen frontend assumes non-null editor fields and a fixed mock ID, so page acceptance remains pending.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3AlertRuleDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "alert-rules"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "X-AIOps-Environment",
             "in": "header",
@@ -34069,6 +34420,113 @@
             }
           }
         }
+      }
+    },
+    "/notification-routes/test": {
+      "post": {
+        "summary": "Evaluate current Alertmanager policy for a bound sample alert",
+        "operationId": "post_notification_routes_test",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Read-only policy observation; does not save a route, send a notification or test a draft. Requires one selected environment and environment-wide alert_rules.view plus alert_rules.manage because arbitrary sample labels could reveal shared routing configuration. labels must contain an exact application provider label explicitly bound to a current active application; the configured environment label is enforced by the server. The environment grant, application binding and current owner are rechecked after the Alertmanager status read. Returns only sanitized receiver names and observed grouping/timing. Time-conditional or conflicting policy returns 503 instead of claiming a current receiver. Route path, 24-hour hits, receiver channels/targets and current time-interval activity are unknown/null. The frozen frontend sends a labels string and expects a path and receiver string, so page acceptance remains pending.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3NotificationRouteTestResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "notification-routes"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3NotificationRouteTestRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
       }
     },
     "/silences": {
@@ -38750,42 +39208,16 @@
     },
     "/memory": {
       "get": {
-        "summary": "Read the complete V3 memory view",
+        "summary": "Read authorized source-backed memory view",
         "operationId": "get_memory",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. The complete MemoryView requires unavailable layer counts, policy, recall, confidence and expiry evidence. Always returns 503 memory_view_unavailable with partial_endpoint /api/v1/memory/facts; the main contract remains mock.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Returns only candidate or confirmed facts from exact current published document versions and current environment/application/team knowledge.view scope. Layer counts derive from returned bounded facts; services is the visible service-fact directory across current scope. Service and workspace are evidence categories, not claims of a complete memory system. Optional service must resolve exactly to a visible stable service ID, application ID or key; stable IDs take precedence over aliases. It filters facts and conflicts to that application/environment, while workspace layer count becomes zero. Ambiguous aliases return 409, no visible match 404. Open conflicts appear only when both fact sides remain visible. Facts are capped at 500 and open conflicts at 100; excess returns 413. Confidence, recall, expiry and policy are unknown, represented as null. This partial response differs from the frozen frontend MemoryView.",
         "responses": {
-          "503": {
-            "description": "Complete MemoryView is unavailable; response identifies the partial fact endpoint",
+          "200": {
+            "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "object",
-                      "properties": {
-                        "code": {
-                          "type": "string"
-                        },
-                        "message": {
-                          "type": "string"
-                        },
-                        "partial_endpoint": {
-                          "type": "string"
-                        }
-                      },
-                      "additionalProperties": false,
-                      "required": [
-                        "code",
-                        "message",
-                        "partial_endpoint"
-                      ]
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "error"
-                  ]
+                  "$ref": "#/components/schemas/V3MemoryView"
                 }
               }
             }
@@ -38839,6 +39271,26 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "More than 500 visible facts or 100 visible open conflicts exceed the bounded view",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -38850,6 +39302,13 @@
           }
         ],
         "parameters": [
+          {
+            "name": "service",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "X-AIOps-Environment",
             "in": "header",
@@ -38865,7 +39324,7 @@
       "get": {
         "summary": "Read current scoped source-backed memory facts",
         "operationId": "get_memory_facts",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary partial facts. Only current published source versions and current knowledge.view scope are returned. Confidence, recall, expiry, layer counts and policy are unavailable; more than 500 candidate facts returns 413.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary partial fact-governance list including candidate, confirmed, rejected and expired states. Only current published source versions and current knowledge.view scope are returned. Confidence, recall, expiry, layer counts and policy are unavailable; more than 500 qualifying facts returns 413.",
         "responses": {
           "200": {
             "description": "Success",
@@ -38961,7 +39420,7 @@
             }
           },
           "413": {
-            "description": "More than 500 candidate memory facts exceed the bounded view",
+            "description": "More than 500 qualifying memory facts exceed the bounded view",
             "content": {
               "application/json": {
                 "schema": {
@@ -61027,6 +61486,67 @@
           "commander"
         ]
       },
+      "V3IncidentCaseSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "P1",
+              "P2",
+              "P3",
+              "P4"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "mitigated",
+              "resolved"
+            ]
+          },
+          "duration": {
+            "type": "null"
+          },
+          "commander": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "record_kind": {
+            "type": "string",
+            "enum": [
+              "case"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "severity",
+          "title",
+          "status",
+          "duration",
+          "commander",
+          "record_kind",
+          "application_id",
+          "environment_id"
+        ]
+      },
       "V3IncidentTimelineEntry": {
         "type": "object",
         "properties": {
@@ -61683,6 +62203,218 @@
           "unavailable"
         ]
       },
+      "V3IncidentDraftAlert": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "P1",
+              "P2",
+              "P3",
+              "P4"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "severity",
+          "text",
+          "at"
+        ]
+      },
+      "V3IncidentDraft": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "P1",
+              "P2",
+              "P3",
+              "P4"
+            ]
+          },
+          "severity_hint": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "services": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "tier": {
+                  "type": "null"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "tier"
+              ]
+            }
+          },
+          "impact": {
+            "type": "null"
+          },
+          "alerts": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/V3IncidentDraftAlert"
+            }
+          },
+          "commander": {
+            "type": "null"
+          },
+          "participants": {
+            "type": "null"
+          },
+          "war_room": {
+            "type": "null"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "persisted_alerts"
+            ]
+          },
+          "partial": {
+            "type": "boolean"
+          },
+          "unavailable": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "title",
+          "severity",
+          "severity_hint",
+          "env",
+          "services",
+          "impact",
+          "alerts",
+          "commander",
+          "participants",
+          "war_room",
+          "source",
+          "partial",
+          "unavailable"
+        ]
+      },
+      "V3IncidentCreateRequest": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "P1",
+              "P2",
+              "P3",
+              "P4"
+            ]
+          },
+          "impact": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 2000
+          },
+          "env": {
+            "type": "string"
+          },
+          "services": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "alert_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            }
+          },
+          "commander": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "war_room": {
+            "type": "boolean"
+          },
+          "notify": {
+            "type": "boolean"
+          },
+          "status_page": {
+            "type": "boolean"
+          },
+          "open_canvas": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "title",
+          "severity",
+          "env",
+          "services",
+          "alert_ids"
+        ]
+      },
+      "V3IncidentCreateResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "investigation_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ]
+      },
       "V3IncidentDetailAssignee": {
         "type": "object",
         "properties": {
@@ -61982,6 +62714,228 @@
           "unavailable"
         ]
       },
+      "V3IncidentCaseImpact": {
+        "type": "object",
+        "properties": {
+          "peak": {
+            "type": "null"
+          },
+          "budget_used": {
+            "type": "null"
+          },
+          "budget_left": {
+            "type": "null"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "series": {
+            "type": "null"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "peak",
+          "budget_used",
+          "budget_left",
+          "note",
+          "series"
+        ]
+      },
+      "V3IncidentCaseDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "environment_key": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "record_kind": {
+            "type": "string",
+            "enum": [
+              "case"
+            ]
+          },
+          "source_id": {
+            "type": "null"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "P1",
+              "P2",
+              "P3",
+              "P4"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "mitigated",
+              "resolved"
+            ]
+          },
+          "work_status": {
+            "type": "null"
+          },
+          "alert_status": {
+            "type": "null"
+          },
+          "summary": {
+            "type": "null"
+          },
+          "alert_started_at": {
+            "type": "null"
+          },
+          "resolved_at": {
+            "type": "null"
+          },
+          "duration": {
+            "type": "null"
+          },
+          "duration_basis": {
+            "type": "null"
+          },
+          "assignee_id": {
+            "type": "null"
+          },
+          "assignee": {
+            "type": "null"
+          },
+          "stage": {
+            "type": "null"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "commander": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "commander_provenance": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "human_confirmed"
+            ]
+          },
+          "timeline": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/V3IncidentDetailNote"
+            }
+          },
+          "timeline_scope": {
+            "type": "string",
+            "enum": [
+              "manual_only"
+            ]
+          },
+          "impact": {
+            "$ref": "#/components/schemas/V3IncidentCaseImpact"
+          },
+          "impact_provenance": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "human_confirmed"
+            ]
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3IncidentDetailRole"
+            }
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3IncidentDetailLink"
+            }
+          },
+          "investigation_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "alert_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "items": {
+              "type": "string"
+            }
+          },
+          "partial": {
+            "type": "boolean"
+          },
+          "unavailable": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "record_kind",
+          "application_id",
+          "environment_id",
+          "environment_key",
+          "source_id",
+          "severity",
+          "title",
+          "status",
+          "work_status",
+          "alert_status",
+          "summary",
+          "created_at",
+          "alert_started_at",
+          "updated_at",
+          "resolved_at",
+          "duration",
+          "duration_basis",
+          "assignee_id",
+          "assignee",
+          "commander",
+          "commander_provenance",
+          "stage",
+          "timeline",
+          "timeline_scope",
+          "impact",
+          "impact_provenance",
+          "roles",
+          "links",
+          "investigation_id",
+          "alert_ids",
+          "partial",
+          "unavailable"
+        ]
+      },
       "V3ObservedAlertRuleSummary": {
         "type": "object",
         "properties": {
@@ -62155,6 +63109,150 @@
           "counts"
         ]
       },
+      "V3AlertRuleDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "folder": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "datasource": {
+            "type": "string"
+          },
+          "expr": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "firing",
+              "pending",
+              "ok"
+            ]
+          },
+          "query_ref": {
+            "type": "null"
+          },
+          "for_seconds": {
+            "type": "number"
+          },
+          "preview": {
+            "type": "null"
+          },
+          "condition": {
+            "type": "null"
+          },
+          "evaluation": {
+            "type": "null"
+          },
+          "runbook": {
+            "type": "null"
+          },
+          "route_path": {
+            "type": "null"
+          },
+          "ai_triage": {
+            "type": "null"
+          },
+          "evaluation_interval_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "evaluation_ms": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "k": {
+                  "type": "string"
+                },
+                "v": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "k",
+                "v"
+              ]
+            }
+          },
+          "annotations": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "annotation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_eval": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "partial": {
+            "type": "boolean"
+          },
+          "unavailable": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "folder",
+          "name",
+          "state",
+          "environment_id",
+          "application_id",
+          "datasource",
+          "query_ref",
+          "expr",
+          "for_seconds",
+          "preview",
+          "condition",
+          "evaluation",
+          "evaluation_interval_seconds",
+          "evaluation_ms",
+          "labels",
+          "annotations",
+          "annotation",
+          "runbook",
+          "route_path",
+          "ai_triage",
+          "last_eval",
+          "partial",
+          "unavailable"
+        ]
+      },
       "V3RuleDryRunRequest": {
         "type": "object",
         "properties": {
@@ -62198,6 +63296,108 @@
         "required": [
           "would_fire",
           "windows"
+        ]
+      },
+      "V3NotificationRouteTestRequest": {
+        "type": "object",
+        "properties": {
+          "labels": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 100,
+            "propertyNames": {
+              "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
+            },
+            "properties": {
+              "application": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            },
+            "required": [
+              "application"
+            ],
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "Values are limited to 1024 UTF-8 bytes and cannot contain NUL or line breaks. The configured environment label is enforced server-side; application must have an exact active binding."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "labels"
+        ]
+      },
+      "V3NotificationRouteTestResult": {
+        "type": "object",
+        "properties": {
+          "environment_id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "group_wait": {
+            "type": "string"
+          },
+          "group_interval": {
+            "type": "string"
+          },
+          "repeat_interval": {
+            "type": "string"
+          },
+          "receiver_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "group_by": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "path": {
+            "type": "null"
+          },
+          "hits": {
+            "type": "null"
+          },
+          "channel_targets": {
+            "type": "null"
+          },
+          "partial": {
+            "type": "boolean"
+          },
+          "unavailable": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "environment_id",
+          "application_id",
+          "receiver_names",
+          "group_by",
+          "group_wait",
+          "group_interval",
+          "repeat_interval",
+          "observed_at",
+          "path",
+          "hits",
+          "channel_targets",
+          "partial",
+          "unavailable"
         ]
       },
       "V3SilenceMatcher": {
@@ -63918,6 +65118,333 @@
               "unavailable_fields"
             ]
           }
+        ]
+      },
+      "V3MemoryLayerEvidence": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "current_published_facts"
+            ]
+          },
+          "fact_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "fact_ids"
+        ]
+      },
+      "V3MemoryLayer": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "service",
+              "workspace"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "description": {
+            "type": "string"
+          },
+          "evidence": {
+            "$ref": "#/components/schemas/V3MemoryLayerEvidence"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "count",
+          "description",
+          "evidence"
+        ]
+      },
+      "V3MemoryService": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "fact_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "application_id",
+          "environment_id",
+          "name",
+          "key",
+          "count",
+          "fact_ids"
+        ]
+      },
+      "V3MemoryViewFactEvidence": {
+        "type": "object",
+        "properties": {
+          "document_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "document_id",
+          "version"
+        ]
+      },
+      "V3MemoryViewFact": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "fact": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "candidate",
+              "confirmed"
+            ]
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "team_id": {
+            "type": "string"
+          },
+          "source_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "source_current": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "confirmed": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "confidence": {
+            "type": "null"
+          },
+          "recalls": {
+            "type": "null"
+          },
+          "expires": {
+            "type": "null"
+          },
+          "evidence": {
+            "$ref": "#/components/schemas/V3MemoryViewFactEvidence"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "fact",
+          "source",
+          "source_version",
+          "source_current",
+          "state",
+          "environment_id",
+          "confirmed",
+          "created_at",
+          "revision",
+          "confidence",
+          "recalls",
+          "expires",
+          "evidence"
+        ]
+      },
+      "V3MemoryConflictSide": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "text",
+          "source"
+        ]
+      },
+      "V3MemoryConflict": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open"
+            ]
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "team_id": {
+            "type": "string"
+          },
+          "a": {
+            "$ref": "#/components/schemas/V3MemoryConflictSide"
+          },
+          "b": {
+            "$ref": "#/components/schemas/V3MemoryConflictSide"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "state",
+          "environment_id",
+          "a",
+          "b"
+        ]
+      },
+      "V3MemoryView": {
+        "type": "object",
+        "properties": {
+          "layers": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "$ref": "#/components/schemas/V3MemoryLayer"
+            }
+          },
+          "services": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3MemoryService"
+            }
+          },
+          "service": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "facts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3MemoryViewFact"
+            }
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3MemoryConflict"
+            }
+          },
+          "conflict": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/V3MemoryConflict"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "policy": {
+            "type": "null"
+          },
+          "partial": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "unavailable_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "layers",
+          "services",
+          "service",
+          "facts",
+          "conflicts",
+          "conflict",
+          "policy",
+          "partial",
+          "unavailable_fields"
         ]
       },
       "V3AgentEvidenceSummary": {

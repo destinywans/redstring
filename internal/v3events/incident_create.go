@@ -109,14 +109,14 @@ func (s *Service) selectedIncidentAlertsTx(r *http.Request, tx pgx.Tx, ids []str
 		if err != nil {
 			return nil, err
 		}
+		if err := s.authorizeAlertTx(r, tx, v, action); err != nil {
+			return nil, err
+		}
 		if v.AlertStatus != "firing" && v.AlertStatus != "pending" || v.Status == "resolved" || v.SourceID == "ai-patrol" {
 			return nil, store.ErrConflict
 		}
 		if _, valid := alertDetailSeverity(v.Severity); !valid || v.ID == "" || v.ApplicationID == "" || v.EnvironmentID == "" || v.EnvironmentKey == "" || strings.TrimSpace(v.Title) == "" {
 			return nil, store.ErrInvalidReference
-		}
-		if err := s.authorizeAlertTx(r, tx, v, action); err != nil {
-			return nil, err
 		}
 		if len(alerts) > 0 && (alerts[0].ApplicationID != v.ApplicationID || alerts[0].EnvironmentID != v.EnvironmentID || alerts[0].EnvironmentKey != v.EnvironmentKey) {
 			return nil, store.ErrConflict
@@ -193,7 +193,7 @@ func (s *Service) IncidentDraft(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, 200, map[string]any{
 		"title": alerts[0].Title, "severity": chosenSeverity, "severity_hint": "Highest severity among selected persisted alerts",
 		"env": alerts[0].EnvironmentKey, "services": []map[string]any{{"id": alerts[0].ApplicationID, "tier": nil}},
-		"impact": nil, "alerts": items, "commander": nil, "participants": []string{}, "war_room": nil,
+		"impact": nil, "alerts": items, "commander": nil, "participants": nil, "war_room": nil,
 		"source": "persisted_alerts", "partial": true,
 		"unavailable": []string{"impact", "service.tier", "commander", "participants", "war_room", "ai_analysis"},
 	})

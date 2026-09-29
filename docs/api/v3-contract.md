@@ -161,7 +161,7 @@
 | GET | `/incidents/{id}` | | 当前授权的持久事件及人工时间线；时长、影响与系统/AI 时间线未知 | implemented |
 | POST | `/incidents/{id}/timeline` | `{ text }` | 时间线条目 | implemented |
 | GET | `/alert-rules` | | `AlertRuleSummary[]` 与完整可见范围的 `all/firing/scheduled` 计数；仅展示服务端按 Prometheus 规则文件和组明确绑定到应用、标签和环境均匹配，且当前应用或其负责团队有 `alert_rules.view` 的规则；上游读取后复核负责人和授权，范围变化不返回旧列表。来源失败或超限明确报错，不返回部分计数；无可信周期来源时 `scheduled=0` | implemented |
-| GET | `/alert-rules/{id}` | | `AlertRule` | mock |
+| GET | `/alert-rules/{id}` | | 当前受权 Prometheus 规则详情；编辑、通知和 AI 字段未知时可空 | implemented |
 | POST | `/alert-rules/{id}/dry-run` | `{ expr, for }` | `{ would_fire, windows }` | implemented |
 | PUT | `/alert-rules/{id}` | `AlertRule` | `AlertRule` | mock |
 | GET | `/notification-routes` | | `{ root: RouteNode }` | mock |
@@ -179,11 +179,13 @@
 
 两条悬浮卡 GET 从当前有权的持久服务/真人目录读取 ID、名称、环境及可得档案；服务 key 或应用 ID 在当前可见环境中不唯一、同名人员不唯一时返回 409，不任取一条。服务健康、KPI、当前值班、变更及人员负载尚无完整授权来源，显式可空或空数组；资料职务不是 RBAC 角色。冻结悬浮卡会把未知状态显示为正常或非值班，页面需单独适配；字段证据与差异见[悬浮卡来源](v3-peeks.md)。
 
-`GET /inbox` 仅聚合当前有权、今天与昨天更新的非疑似持久告警事件；`all/mine` 为此窗口中的可见记录数，`mine` 按当前负责人判断。已读回执、提及、订阅和其他收件类型没有可信成员账本，相关值保持 `null`，`mentions/subscribed` 筛选返回 503；超过 5000 个候选明确失败，不把不完整总数当完整。`GET /incidents/{id}` 在事件行、当前归属与会话授权下读取持久状态和至多 500 条人工备注；告警开始不推断事件处置时长，指挥官、阶段、影响、系统/AI 时间线及跨对象链接无来源时保持 `null`、空值和 `unavailable`。
+`GET /inbox` 仅聚合当前有权、今天与昨天更新的非疑似持久告警事件；`all/mine` 为此窗口中的可见记录数，`mine` 按当前负责人判断。已读回执、提及、订阅和其他收件类型没有可信成员账本，相关值保持 `null`，`mentions/subscribed` 筛选返回 503；超过 5000 个候选明确失败，不把不完整总数当完整。`GET /incidents/{id}` 在当前归属与会话授权下读取持久告警事件或人工确认的独立事件及至多 500 条人工备注；人工事件的告警关联从持久关联表读取。告警开始不推断处置时长；指挥官、阶段、影响、系统/AI 时间线及跨对象链接无来源时保持 `null`、空值和 `unavailable`。新增人工事件表在真实读取前须迁移，本阶段未执行现有库迁移。
 
 `GET /alert-groups` 只按当前授权的环境、应用、Webhook 来源与指纹聚合持久事件，`count` 是本地接收次数，`notify` 只代表平台队列状态，不是原生 Alertmanager 分组或最终送达。未知指标、静默/抑制与外部状态保持可空，`state=silenced` 和 `show_inhibited=false` 明确 503；超过 5000 个候选不返回截断总数。`GET /alert-groups/{id}/policy` 仅在历史事件保存同一组真实标签，且私有配置的 `source_ids`、环境标签与应用映射均与当前持久范围一致时读取固定环境 Alertmanager `/api/v2/status`，返回继承后的分组/时序和接收者名称，不返回原始配置或凭据；读取后重核组成员与授权。未配置或历史标签缺失时返回可空策略与 `unavailable`，已配置来源失败或范围错配则失败关闭；时间线仅为本地通知队列。`ops_incidents.labels` 的启动迁移尚未在现有库执行，历史记录不会自动补标签。四条路由此处只按后端有来源的可空/不可用契约计为 `implemented`；冻结前端仍要求已读、分组指标、策略和事件影响等字段非空，真实页面未验收。
 
 `POST /alert-rules/{id}/dry-run` 仅对当前环境中唯一绑定且有权查看的规则运行最近六小时 Prometheus 历史 `query_range` 采样模拟。请求 `expr` 必须与服务端当前规则表达式逐字一致，`for` 可在 0 到 1 小时内调整；规则、负责人、范围与授权在上游查询后复核。每条返回序列必须带精确的应用和环境标签，缺失或混合范围、数据不完整与超限均拒绝，不返回虚构计数。`would_fire` 和 `windows` 是满足持续时长的采样片段，不是历史通知或实际告警状态；`query_offset` 与 `keep_firing_for` 未复现，规则表达式及查询输入范围仍须由可信配置和部署隔离保证。冻结页面发送 `threshold/for_minutes`，与此请求体不符；真实 Prometheus 及页面尚未验收。
+
+`GET /alert-rules/{id}` 从当前唯一绑定、受权的 Prometheus 规则文件读取名称、表达式、标签、注解、持续时间与可得求值时间；编辑器草稿、阈值预览、通知路径、Runbook 和 AI 初查没有该规则的可信绑定时为 `null` 并列入 `unavailable`。`POST /notification-routes/test` 只接受当前所选单环境下、服务端精确绑定应用及环境标签的样例告警；具备环境级规则查看与管理权后，读取当前生效 Alertmanager 路由策略，返回接收者名称与分组时序，不包含接收目标或凭据。此接口不评估尚未保存的路由草稿，路径、命中统计及频道目标保持未知；冻结页面的草稿试算仍未验收。两条路由仅按后端有来源与明确未知字段计为 `implemented`。
 
 `POST /silences/preview` 按所选单一环境读取实时 Alertmanager 告警快照。请求支持 `=`、`!=`、`=~`、`!~`（1–20 条）；环境是隐含的精确匹配。精确 `application=` 值必须在服务端绑定到有效应用并有当前应用/团队 `silences.view`，无应用匹配则要求环境级 `silences.view` 与 `silences.manage`。Alertmanager 读取后再次核对当前授权和应用归属。`affects` 是此刻该环境匹配告警的完整条数，`sample` 仅为最多 5 个去重排序的真实 `alertname`；来源异常、超过 500 条该环境告警或异常 `null` 均返回 503，不给部分计数。预览不会创建静默。现有页面默认仅传 service/alertname，普通应用用户会因缺精确应用匹配收到 403，且页面尚未正确清除旧预览/失败状态；后端路由已闭合，页面和真实 Alertmanager 尚未验收。`GET /alerts/{id}` 从来源绑定的持久事件及本地通知传输台账返回有证据字段，来源、规则、曲线、分组、Runbook 等缺精确发生记录关联时为 `null` 并列入 `unavailable`；`source_id` 只标记入站身份，不证明当前上游健康。`POST /alerts/{id}/claim` 以 GET 的事件行修订作前置条件，事务内复核人类会话与查看/修改权、更新认领与审计，再返回修订后的详情；冻结前端仍传空请求体并假称外部升级已停止，页面未验收。
 
@@ -200,13 +202,13 @@
 | POST | `/runbooks/{id}/dry-run` | 当前对象需 `knowledge.manage`；验证持久化步骤并保存预览/审计，不执行外部动作 | 演练结果 | implemented |
 | POST | `/runbooks/{id}/submit` | 当前持久化草稿，无请求体 | 提交审核 | implemented |
 | GET | `/postmortems` | | `PostmortemSummary` | mock |
-| GET | `/memory` | | `MemoryView` | mock |
+| GET | `/memory` | `service?` | 当前受权、发布来源锚定的事实与真实冲突；置信度、召回和过期未知时可空 | implemented |
 | POST | `/memory/facts/{id}/{action}` | `action: confirm\|reject\|expire` | `{ fact, fact_redacted, partial, unavailable_fields }`；清理旧来源时事实正文脱敏 | implemented |
 | POST | `/memory/conflicts/resolve` | `{ keep, drop }`；均为真实事实 ID | `{ id, state, keep, drop }` | implemented |
 | GET | `/knowledge-sources` | | 当前授权登记与经证明的手动读取；连接、持续同步、分块和索引未知，完整可空证据 DTO | implemented |
 | POST | `/knowledge/search` | `{ q, service?, top_k? }` | `{ hits: RetrievalHit[] }`；关键词与向量共用当前显式环境、有效应用绑定和 V3 授权过滤，团队标记另需匹配当前负责人及团队查看权限；输出前按文档 ID/版本重核。历史归属不明、异常元数据和未验证登记来源不进入结果；独立存储的公开 Web 正文仅在最新观察、哈希、修订和当前授权一致时进入有界关键词片段，全部可见应用/环境合计超过 80 个数据库匹配来源返回 413；整次搜索限时 30 秒 | implemented |
 
-知识治理另有证据与人工审核辅助接口，详见 [V3 后端辅助接口](v3-backend-aux.md)。`GET /knowledge-sources` 与辅助 `registered-evidence` 读取当前有权来源登记和最近经版本、正文哈希、作用域及读取观察核对的证据；Git Markdown、Confluence、Notion 和飞书 Docx 必须仍匹配当前精确服务端绑定，本人上传须仍有原文件。主 GET 现提供完整的可空证据 DTO，`partial: true` 描述证据覆盖范围，不表示响应缺字段；连接健康、持续同步、片段与向量索引仍未知，不能从零或空值推断健康。最终返回前复核会话、来源和授权；前端仍假定确定连接与索引值，页面未验收。`GET /runbooks` 在同一事务快照中锁定当前会话与角色授权来源，逐项核文档环境、应用、团队及对象权限后过滤、计数与分页；至多接受 10000 条可见匹配。未记录核验时间时 `stale` 为 `null` 且计入 `verification_unknown`，引用、处置率、KPI 与建议保持可空。`GET /runbooks/{id}` 在同样的授权快照中读取结构化步骤、修订与已记录批准：隐藏或非 Runbook 为 404，有权旧文档缺结构化记录为 `503 structured_steps_unavailable`；用量、事件关联、待审人员与执行核验缺可信来源时返回可空字段及 `unknown_fields`，不补零。两条主 GET 均只按本阶段后端真实来源与诚实未知口径计为 `implemented`，`complete_v3_dto=false` 和 `partial=true` 明确冻结页面 DTO 未闭合、页面未验收；`last_verified_at` 仅是记录时间，不证明执行成功。`GET /memory` 当前明确返回 `503 memory_view_unavailable`，只提供 `/memory/facts` 的受权、当前来源事实列表；没有可信的层级、置信度、召回次数与过期值。事实状态操作仅支持 `confirm`、`reject`、`expire`，冲突裁决须传入两个真实事实 ID；写入在事务中复核会话、当前授权、来源版本与对象归属并保存审计。清理陈旧来源的 `reject/expire` 回包脱敏，`confirm` 和冲突裁决要求当前发布来源。两条写路由按后端接口标为 `implemented`；现有前端的 `forget`、冲突请求体和整个记忆页仍未对齐，`GET /memory` 继续 `mock`。
+知识治理另有证据与人工审核辅助接口，详见 [V3 后端辅助接口](v3-backend-aux.md)。`GET /knowledge-sources` 与辅助 `registered-evidence` 读取当前有权来源登记和最近经版本、正文哈希、作用域及读取观察核对的证据；Git Markdown、Confluence、Notion 和飞书 Docx 必须仍匹配当前精确服务端绑定，本人上传须仍有原文件。主 GET 现提供完整的可空证据 DTO，`partial: true` 描述证据覆盖范围，不表示响应缺字段；连接健康、持续同步、片段与向量索引仍未知，不能从零或空值推断健康。最终返回前复核会话、来源和授权；前端仍假定确定连接与索引值，页面未验收。`GET /runbooks` 在同一事务快照中锁定当前会话与角色授权来源，逐项核文档环境、应用、团队及对象权限后过滤、计数与分页；至多接受 10000 条可见匹配。未记录核验时间时 `stale` 为 `null` 且计入 `verification_unknown`，引用、处置率、KPI 与建议保持可空。`GET /runbooks/{id}` 在同样的授权快照中读取结构化步骤、修订与已记录批准：隐藏或非 Runbook 为 404，有权旧文档缺结构化记录为 `503 structured_steps_unavailable`；用量、事件关联、待审人员与执行核验缺可信来源时返回可空字段及 `unknown_fields`，不补零。两条主 GET 均只按本阶段后端真实来源与诚实未知口径计为 `implemented`，`complete_v3_dto=false` 和 `partial=true` 明确冻结页面 DTO 未闭合、页面未验收；`last_verified_at` 仅是记录时间，不证明执行成功。`GET /memory` 现从当前有权、仍发布且版本/正文锚定的持久事实投影服务与工作区计数及双方可见的人工记录冲突；`confidence`、`recalls`、`expires`、`policy` 为 `null`，不推断工作、情景或语义召回。超过有界事实/冲突数返回 413，来源或授权不可用返回 503；冻结页面仍按非空 Mock 类型渲染，需另行适配，详见[记忆主视图证据边界](v3-memory-view.md)。事实状态操作仅支持 `confirm`、`reject`、`expire`，冲突裁决须传入两个真实事实 ID；写入在事务中复核会话、当前授权、来源版本与对象归属并保存审计。清理陈旧来源的 `reject/expire` 回包脱敏，`confirm` 和冲突裁决要求当前发布来源。两条写路由按后端接口标为 `implemented`；现有前端的 `forget`、冲突请求体和整个记忆页仍未对齐，`GET /memory` 继续 `mock`。
 
 V3 知识正文读取按持久环境、有效应用与当前授权失败关闭；带 `team_id` 的文档还要求该值与应用当前负责人一致并有团队查看权限。历史 `knowledge_documents` 中标记了 `source_registration_id` 的来源文档在来源证明链闭合前不参加 V3 检索或来源投影。另设的公开 Web 正文/修订表只接受有持久应用归属、无凭据的单页 HTTPS Markdown 同次抓取；关键词检索在候选及输出前复核最新观察、内容哈希、修订和当前环境/应用/团队授权；不进入旧文档详情/导出或向量索引。可选的 `search_knowledge` Agent 证据组件尚未在正式进程注册；V3 实例关闭旧 Worker，不能把旧检索工具当作当前 V3 调用路径。其他来源正文同步、索引归属与完整页面 DTO 仍待接入。
 
@@ -252,13 +254,13 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
-| GET | `/incidents/draft` | `alerts` | 由告警预填的事件草稿 | mock |
-| POST | `/incidents` | `{ title, severity, impact, env, services, alert_ids, commander, war_room, notify, status_page, open_canvas }` | `{ id, investigation_id? }`；作战群、通知、状态页属外部动作，后端按各自审批规则执行 | mock |
+| GET | `/incidents/draft` | 必需 `alerts`：1–20 个当前受权、同应用环境的活跃告警 ID | 持久告警预填的部分草稿；未知影响、人员与作战群可空 | implemented |
+| POST | `/incidents` | `Idempotency-Key` 头及 `{ title, severity, impact?, env, services: [id], alert_ids, commander?, war_room?, notify?, status_page?, open_canvas? }` | 持久人工事件、告警关联、审计及可选空白调查；外部动作标志请求返回 503，不发送或发布 | implemented |
 | POST | `/alert-rules/generate` | `{ text }` | PromQL 与阈值草稿 | mock |
 | POST | `/alert-rules/preview` | `{ query, op, threshold, for_minutes, range }` | 校验、曲线、触发区间、7 天回测、会命中的路由、相似规则 | mock |
 | POST | `/alert-rules` | `{ …, mode: draft\|dry_run\|enabled }` | `{ id, status }` | mock |
 | POST | `/alert-rules/import` | `{ yaml }` | 解析结果（新建 / 重复），导入后为草稿 | mock |
-| POST | `/notification-routes/test` | 路由草稿 + 样例告警 | 命中路径 | mock |
+| POST | `/notification-routes/test` | `{ labels }`：当前绑定应用与环境的精确样例告警 | 当前生效 Alertmanager 策略的接收者与分组时序；草稿试算、频道目标及命中统计未知 | implemented |
 | POST | `/notification-routes` | 匹配条件、接收方、分组、时段、升级 | `{ id }` | mock |
 | POST | `/inhibitions/preview` | `{ source, target, equal }` | 过去 7 天会抑制的数量与样例 | mock |
 | POST | `/inhibitions` | `{ source, target, equal }`（P1 永不抑制） | `{ id }` | mock |
@@ -269,6 +271,8 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | POST | `/postmortems` | `{ incident_id, sections, actions, status: draft\|review }` | `{ id }`；同事务锁定已解决事件并写入复盘与审计，不触发外部动作 | implemented |
 | POST | `/knowledge-sources/test` | `{ type, url, secret_ref?, application_id, team_id?, spaces? }`；`type` 限受支持的公开 Web Markdown、绑定 GitLab Markdown/Confluence/Notion/飞书 Docx 或本人上传文本 | 即时受限只读探测；不证明持续健康、同步或索引 | implemented |
 | POST | `/knowledge-sources` | `{ name, type, url, secret_ref?, application_id, team_id?, spaces, schedule: "manual", chunk: "heading"\|"fixed", inherit_acl: true }`；类型与探测相同 | `{ id, status }`；登记不自动同步或索引 | implemented |
+
+`GET /incidents/draft` 要求显式选择 1–20 条当前受权、同应用环境且未关联人工事件的活跃持久告警，按事实预填标题和最高严重度；影响、指挥官、参与者、作战群与 AI 分析未知。`POST /incidents` 要求人类会话、事件查看和修改权、单一服务与有效 `Idempotency-Key`；独立人工事件、告警关联、可选空白调查与审计在同一事务提交，重试同键同体返回既有结果，不发送外部通知。`war_room`、`notify`、`status_page` 请求在缺执行器时返回 503；`open_canvas` 另须画布查看与修改权。新增 `137_v3_incident_cases.sql` 未在现有库执行，案例相关的既有读取同样依赖它；人工事件目前无状态转移写入，而现有复盘只从已解决的 `ops_incidents` 选择，故不能宣称人工事件到复盘的端到端流程已闭合。冻结页面缺选中告警和幂等键，页面未验收。
 
 `GET /runbooks/draft` 从已登记代码模板、已发布复盘、本人已完成对话或本人 Markdown 导入生成有界、来源可核的确定性大纲；模板在人工补充前没有操作步骤。来源文本作为不可信数据，响应 `source_sha256` 可供后续保存时比较，不能证明 AI 生成或恢复操作正确。`POST /runbooks` 在同一事务重核精确会话、单环境、当前知识管理权、来源状态与可选摘要；来源变化返回 409，初版、结构化步骤、来源快照、修订历史与审计原子提交，动作步骤必须要求人工批准，创建本身不发布或执行。未审核草稿只向维护者开放，review 向当前知识管理员开放；旧 Knowledge 和 Memory 读写入口同时以 `runbook://v3/` 来源前缀及持久 Runbook 关联阻断旁路，来源字段被旧路径改写亦不能绕过。冻结新建页缺 `from`、来源摘要及编辑步骤/动作请求绑定，页面未验。`GET /postmortems/draft` 仅拼接有结案证据的事件信息与时间线，影响、根因、行动建议均留空，不是 AI 生成稿；主契约仍为 `mock`。
 

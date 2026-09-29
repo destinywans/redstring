@@ -167,12 +167,51 @@ S['V3MetricProbe'] = obj({'status':string(enum=['observed','no_samples','not_reg
 S['V3IncompleteMetrics'] = obj({'error':obj({'code':string(),'message':string()},['code','message']),
     'service':string(),'environment_id':string(),'available':v3_map(ref('V3MetricProbe')),
     'missing':arr(string())},['error','service','environment_id','available','missing'])
-v3_route('get','/metrics/dashboard','Inspect scoped metric dashboard readiness',
+_dashboard_points = {'type':'array','items':{'type':'number','minimum':0},'minItems':36,'maxItems':36}
+_dashboard_intensities = {'type':'array','items':{'type':'number','minimum':0,'maximum':1},'minItems':36,'maxItems':36}
+_dashboard_labels = {'type':'array','items':string(),'minItems':36,'maxItems':36}
+_dashboard_tone = string(enum=['neutral','accent','ok','warn','danger','info'])
+S['V3MetricsKpi'] = obj({'id':string(enum=['rps','err','p99','wait','cpu']),
+    'label':string(),'value':string(),'unit':string(),'delta':string(),
+    'delta_good':v3_bool(),'tone':_dashboard_tone,'sub':string(),
+    'series':_dashboard_points},['id','label','value','series'])
+S['V3MetricsBurn'] = obj({'window':string(),
+    'value':string(),'tone':_dashboard_tone,'pct':{'type':'number','minimum':0,'maximum':100}},
+    ['window','value','tone','pct'])
+S['V3MetricsDashboard'] = obj({
+    'window':obj({'labels':_dashboard_labels,
+        'ticks':{'type':'array','items':string(),'minItems':5,'maxItems':5},
+        'release_at':integer(minimum=0,maximum=35),
+        'rollback_at':integer(minimum=0,maximum=35),
+        'incident':{'type':'array','items':integer(minimum=0,maximum=35),'minItems':2,'maxItems':2},
+        'incident_label':string()},
+        ['labels','ticks','release_at','rollback_at','incident','incident_label']),
+    'kpis':{'type':'array','items':ref('V3MetricsKpi'),'minItems':5,'maxItems':5},
+    'requests':obj({'ok':_dashboard_points,'client':_dashboard_points,
+        'server':_dashboard_points},['ok','client','server']),
+    'slo':obj({'remaining':{'type':'number','minimum':0,'maximum':100},'availability':string(),'delta':string(),
+        'burn':{'type':'array','items':ref('V3MetricsBurn'),'minItems':3,'maxItems':3},
+        'note':string()},['remaining','availability','delta','burn','note']),
+    'latency':obj({'p50':_dashboard_points,'p95':_dashboard_points,
+        'p99':_dashboard_points,
+        'heat':{'type':'array','items':_dashboard_intensities,'minItems':8,'maxItems':8},
+        'buckets':{'type':'array','items':string(),'minItems':8,'maxItems':8}},
+        ['p50','p95','p99','heat','buckets']),
+    'endpoints':{'type':'array','minItems':1,'maxItems':12,'items':obj({
+        'label':string(),'value':{'type':'number','minimum':0},'tone':_dashboard_tone},['label','value'])},
+    'instances':{'type':'array','minItems':1,'maxItems':12,'items':obj({
+        'label':string(),'values':_dashboard_points,'tone':_dashboard_tone},
+        ['label','values'])}},
+    ['window','kpis','requests','slo','latency','endpoints','instances'])
+v3_route('get','/metrics/dashboard','Read a complete scoped Prometheus metrics dashboard',
     query=[v3_query('service'),v3_query('range',string(enum=['1h'])),v3_query('align',string(enum=['true','false']))],
-    desc='Requires exactly one persisted service/environment Prometheus binding and current services.view. Ambiguous distinct bindings return 409 ambiguous_binding; excessive authorized scope returns 422 scope_limit. The currently registered queries cannot fill the required V3 MetricsDashboard; when scoped data is available, returns 503 dashboard_unavailable with observed query availability and missing sections. No KPI or SLO values are fabricated.')
-P['/metrics/dashboard']['get']['responses'].pop('200')
+    response=ref('V3MetricsDashboard'),
+    desc='Requires one selected environment, current services.view, environment connectors.view and incident events.view, exactly one persisted V3 Prometheus metric-resource binding, and an operator-reviewed exact-scope dashboard query. Distinct metric bindings return 409 ambiguous_binding. One bounded one-hour source read must cover the baseline plus 36 visible bin ends for every labeled panel. Request total must conserve 2xx/4xx/5xx and independently observed other statuses must be zero; SLO budget must agree with monthly availability and persisted request-based target; heat intensities must be normalized to 0..1. Empty, partial or conflicting data returns 503, never invented zeroes or trends. Release, rollback and incident markers require matching persisted success/event records within the window; absent evidence returns 503. These are independent timestamps, not proof that one rollback reversed the displayed release. Source, binding and authorization are rechecked after the external read and local marker reads. align requests an incident-anchored window; the frozen frontend currently does not send it and still hardcodes version, causal and analysis text that must be corrected before page acceptance.')
+for _parameter in P['/metrics/dashboard']['get']['parameters']:
+    if _parameter['name'] == 'service':
+        _parameter['required'] = True
 P['/metrics/dashboard']['get']['responses']['503'] = {
-    'description':'Complete V3 dashboard unavailable from registered sources',
+    'description':'Complete V3 dashboard unavailable from configured source, complete series or persisted markers',
     'content':{'application/json':{'schema':{'oneOf':[ref('Error'),ref('V3IncompleteMetrics')]}}}}
 S['V3RegisteredMetricWindow'] = obj({'start':string(format='date-time'),
     'end':string(format='date-time'),'step_seconds':integer(minimum=30,maximum=30)},

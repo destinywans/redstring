@@ -49,6 +49,8 @@ func operationError(w http.ResponseWriter, err error) {
 		apiError(w, 422, "environment_required", "Select an environment")
 	case errors.Is(err, ErrModel):
 		apiError(w, 503, "model_unavailable", "No configured model is available")
+	case errors.Is(err, errMetricsListSourceLimit):
+		apiError(w, 503, "metrics_list_scope_limit", "Too many metric conversations to authorize in one list")
 	case errors.Is(err, ErrForbidden):
 		apiError(w, 403, "forbidden", "Environment access required")
 	case errors.Is(err, errListSessionRevoked):
@@ -611,6 +613,9 @@ func (s *Service) authorizeReplay(ctx context.Context, conv, reply, owner, env s
 		return ErrNotFound
 	}
 	if err != nil {
+		return err
+	}
+	if err := s.authorizeMetricsSource(ctx, conv, owner, env); err != nil {
 		return err
 	}
 	if state == "completed" || state == "failed" {

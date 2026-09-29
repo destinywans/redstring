@@ -124,6 +124,12 @@ func (s *Service) readOwnedDetail(ctx context.Context, sessionToken string, user
 	if err = tx.Commit(ctx); err != nil {
 		return Conversation{}, err
 	}
+	// The coherent detail snapshot can predate a newly inserted competing
+	// metric source. Recheck that source in a fresh READ COMMITTED transaction
+	// before any response data leaves this process.
+	if err := s.authorizeMetricsSource(ctx, id, sessionUser, actual); err != nil {
+		return Conversation{}, err
+	}
 	detail := s.conversationDetail(id, title, status, actual, contextRef, defaultModel, messages)
 	for i := range detail.Messages {
 		detail.Messages[i].Run = publicConversationRun(detail.Messages[i].Run)

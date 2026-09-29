@@ -256,10 +256,11 @@ func isolatedConversationDBWithConns(t *testing.T, maxConns int32) *pgxpool.Pool
 		t.Fatal(err)
 	}
 	_, err = db.Exec(ctx, `
-		CREATE TABLE v3_conversations (id text PRIMARY KEY, owner_id text NOT NULL, environment_id text NOT NULL, active_reply_id text, updated_at timestamptz);
+		CREATE TABLE v3_conversations (id text PRIMARY KEY, owner_id text NOT NULL, environment_id text NOT NULL, active_reply_id text, updated_at timestamptz, metrics_source_required boolean NOT NULL DEFAULT false);
 		CREATE SEQUENCE v3_conversation_message_order_seq;
 		CREATE TABLE v3_conversation_messages (id text PRIMARY KEY, conversation_id text NOT NULL, role text NOT NULL, author text NOT NULL, parts jsonb NOT NULL, attachments jsonb NOT NULL DEFAULT '[]', attachment_context text NOT NULL DEFAULT '', run jsonb, state text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), sort_order bigint NOT NULL DEFAULT nextval('v3_conversation_message_order_seq'), UNIQUE(conversation_id,sort_order));
 		CREATE TABLE v3_conversation_replies (id text PRIMARY KEY, conversation_id text NOT NULL, assistant_message_id text NOT NULL, initiating_session_hash text NOT NULL DEFAULT '', worker_claim_id text NOT NULL DEFAULT '', lease_expires_at timestamptz, state text NOT NULL, error text NOT NULL DEFAULT '', finished_at timestamptz);
+		CREATE TABLE v3_metrics_questions (owner_id text NOT NULL,request_id text NOT NULL,conversation_id text NOT NULL UNIQUE,initial_reply_id text NOT NULL,environment_id text NOT NULL,application_id text NOT NULL,view_id text NOT NULL,range_id text NOT NULL,payload_hash text NOT NULL,binding_id text NOT NULL,connector_id text NOT NULL,resource_id text NOT NULL,query_id text NOT NULL,source_fingerprint text NOT NULL,window_start timestamptz NOT NULL,window_end timestamptz NOT NULL,evidence_sha256 text NOT NULL,PRIMARY KEY(owner_id,request_id));
 		CREATE TABLE v3_conversation_events (seq bigserial PRIMARY KEY, conversation_id text NOT NULL, reply_id text NOT NULL, payload jsonb NOT NULL);
 		CREATE TABLE sessions (token_hash text PRIMARY KEY, user_id text NOT NULL, expires_at timestamptz NOT NULL);
 		CREATE TABLE users (id text PRIMARY KEY,email text NOT NULL DEFAULT '',name text NOT NULL DEFAULT '',role text NOT NULL DEFAULT '',department_id text,disabled boolean NOT NULL DEFAULT false,deleted_at timestamptz);

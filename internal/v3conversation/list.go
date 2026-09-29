@@ -15,6 +15,13 @@ import (
 
 var errListSessionRevoked = errors.New("conversation list session revoked")
 
+// ErrSessionRevoked is returned when the Cookie session expires or is
+// revoked between HTTP authentication and the durable conversation write.
+var ErrSessionRevoked = errListSessionRevoked
+var errMetricsListSourceLimit = errors.New("too many metric conversations to authorize in one list request")
+
+const maxMetricsListSources = 1000
+
 // Private chats and generic canvases have a durable owner. Investigations
 // belong to their recorded creator and to the application's current owner
 // team; an incident or a user-supplied service/context string does not prove
@@ -27,6 +34,7 @@ const ownedConversationSources = `WITH owned AS MATERIALIZED (
         ''::text AS creator_name,NULL::text AS incident_id
  FROM v3_conversations c
  WHERE c.owner_id=$1 AND c.environment_id=ANY($2::text[])
+ AND (NOT c.metrics_source_required OR c.id=ANY($7::text[]))
  AND EXISTS (SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$1
    AND g.module='conversation' AND g.action='view'
    AND ((g.scope_kind='global' AND g.scope_id='*')
@@ -113,6 +121,12 @@ type conversationListCounts struct {
 
 func (s *Service) readOwnedList(ctx context.Context, sessionToken string, user core.User, envs []string, tab, mode, status, query string, page, size int, language string) ([]map[string]any, int, conversationListCounts, error) {
 	empty := conversationListCounts{}
+	// Source authorization uses fresh READ COMMITTED transactions. The list
+	// itself retains its existing coherent REPEATABLE READ snapshot.
+	preauthorizedMetrics, err := s.visibleMetricsConversations(ctx, user.ID, envs)
+	if err != nil {
+		return nil, 0, empty, err
+	}
 	// Counts, selected IDs and row statistics use one snapshot. Row locks hold
 	// the session and grant sources until the response has been read, so a
 	// concurrent revocation cannot commit between authorization and the page.
@@ -183,7 +197,18 @@ func (s *Service) readOwnedList(ctx context.Context, sessionToken string, user c
 	if err = lockConversationListObjects(ctx, tx, user.ID, envs); err != nil {
 		return nil, 0, empty, err
 	}
-	args := []any{user.ID, envs, tab, mode, status, query}
+	visibleMetrics := make([]string, 0, len(preauthorizedMetrics))
+	metricEnvironments := make(map[string]string, len(preauthorizedMetrics))
+	for _, candidate := range preauthorizedMetrics {
+		for _, env := range envs {
+			if candidate.env == env {
+				visibleMetrics = append(visibleMetrics, candidate.id)
+				metricEnvironments[candidate.id] = candidate.env
+				break
+			}
+		}
+	}
+	args := []any{user.ID, envs, tab, mode, status, query, visibleMetrics}
 	countQuery := filteredOwnedConversationSources + ` SELECT
 	 (SELECT count(*) FROM owned WHERE is_mine AND status IS DISTINCT FROM 'archived'),
 	 (SELECT count(*) FROM owned WHERE is_team AND status IS DISTINCT FROM 'archived'),
@@ -199,7 +224,7 @@ func (s *Service) readOwnedList(ctx context.Context, sessionToken string, user c
  SELECT id,title,mode,status,environment_id,context_ref,services,updated_at,node_count,
    branch_count,record_kind,source,creator_name,incident_id
 	FROM filtered
- ORDER BY updated_at DESC,id LIMIT $7 OFFSET $8
+ ORDER BY updated_at DESC,id LIMIT $8 OFFSET $9
 ) SELECT c.id,c.title,c.mode,c.status,c.environment_id,c.context_ref,c.services,c.updated_at,
  c.node_count,c.branch_count,c.record_kind,c.source,c.creator_name,c.incident_id,
  COALESCE(m.turns,0),COALESCE(m.assistants,0),COALESCE(n.assistants,0),
@@ -315,6 +340,14 @@ func (s *Service) readOwnedList(ctx context.Context, sessionToken string, user c
 	if err = tx.Commit(ctx); err != nil {
 		return nil, 0, empty, err
 	}
+	// A target inserted after the repeatable-read snapshot is invisible to
+	// that transaction. Verify every source included in counts and filtering
+	// once more with a fresh snapshot before returning the materialized page.
+	for _, id := range visibleMetrics {
+		if err := s.authorizeMetricsSource(ctx, id, user.ID, metricEnvironments[id]); err != nil {
+			return nil, 0, empty, err
+		}
+	}
 	return items, total, counts, nil
 }
 
@@ -409,4 +442,52 @@ func lockConversationListGrants(ctx context.Context, tx pgx.Tx, userID string) e
 		}
 	}
 	return nil
+}
+
+// Evaluate metric source callbacks before list counts and page selection so
+// revoked source conversations are absent from both, not just hidden rows.
+type metricsListCandidate struct {
+	id, env string
+	source  MetricsSource
+}
+
+func (s *Service) visibleMetricsConversations(ctx context.Context, owner string, envs []string) ([]metricsListCandidate, error) {
+	rows, err := s.db.Query(ctx, `SELECT conversation_id,environment_id,application_id,binding_id,connector_id,resource_id,query_id,source_fingerprint
+		FROM v3_metrics_questions WHERE owner_id=$1 AND environment_id=ANY($2::text[])
+		LIMIT $3`, owner, envs, maxMetricsListSources+1)
+	if err != nil {
+		return nil, err
+	}
+	candidates := []metricsListCandidate{}
+	for rows.Next() {
+		var r metricsListCandidate
+		if err = rows.Scan(&r.id, &r.env, &r.source.ApplicationID, &r.source.BindingID,
+			&r.source.ConnectorID, &r.source.ResourceID, &r.source.QueryID, &r.source.Fingerprint); err != nil {
+			break
+		}
+		candidates = append(candidates, r)
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if len(candidates) > maxMetricsListSources {
+		return nil, errMetricsListSourceLimit
+	}
+	visible := make([]metricsListCandidate, 0, len(candidates))
+	for _, r := range candidates {
+		if s.opts.AuthorizeMetricsSource == nil {
+			return nil, ErrMetricsSourceUnavailable
+		}
+		authErr := metricAuthorizationError(s.opts.AuthorizeMetricsSource(ctx, owner, r.env, r.source))
+		if authErr == nil {
+			visible = append(visible, r)
+		} else if !errors.Is(authErr, ErrForbidden) {
+			return nil, authErr
+		}
+	}
+	return visible, nil
 }

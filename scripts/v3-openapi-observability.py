@@ -394,6 +394,20 @@ for _status, _description in [('409','Metric binding is ambiguous or changed'),
     ('422','Invalid metric request or environment')]:
     P['/metrics/samples']['get']['responses'][_status] = {
         'description':_description,'content':{'application/json':{'schema':ref('Error')}}}
+S['V3MetricsAskRequest'] = obj({
+    'service':string(description='Canonical persisted application ID, not a display name or service key.'),
+    'view':string(enum=['request_rate','http_p95_seconds']),
+    'range':string(enum=['15m','1h']),
+    'question':string(minLength=1,maxLength=4000),
+    'request_id':string(minLength=16,maxLength=128,pattern='^[A-Za-z0-9_-]{16,128}$')},
+    ['service','view','range','question','request_id'])
+S['V3MetricsAskAccepted'] = obj({'conversation_id':string()},['conversation_id'])
+v3_route('post','/metrics/ask','Ask a model about one verified metric snapshot',
+    body=ref('V3MetricsAskRequest'),response=ref('V3MetricsAskAccepted'),status=201,
+    desc='Requires one selected environment, live Cookie, conversation.change and conversation.view, services.view for the persisted application or owner team, connectors.view, exactly one enabled V3 Prometheus metric-resource target and an operator-reviewed exact-scope query. The service field must be its stable application ID. The server captures one successful bounded scalar range response (1 to 32 observed samples) for the selected view over 15m/30s or 1h/120s; samples may be sparse and do not prove continuous window coverage or trend. An empty or provider-partial result is unavailable. Metric values and provenance are stored as bounded private untrusted model context, not instructions or client-supplied evidence. Conversation, user turn, queued reply, source binding and audit commit atomically; the environment-bound model then runs under current grants. A per-owner request_id deduplicates identical concurrent/retried submissions; changed payload returns 409. Successful retry returns 200 with the original conversation_id, including when the metric provider is temporarily unavailable. SSE /conversations/{id}/events and detail recover the persisted reply; service/source revocation blocks subsequent model work and reads. This metric-backed conversation offers no generic model tools or external write access.')
+P['/metrics/ask']['post']['responses']['200'] = {
+    'description':'Previously accepted identical request; returns its original conversation ID',
+    'content':{'application/json':{'schema':ref('V3MetricsAskAccepted')}}}
 S['V3LogLine'] = obj({**fieldnames('time service message trace'),
     'level':string(enum=['ERROR','WARN','INFO'])})
 S['V3LogPattern'] = obj({'template':string(),'level':string(enum=['ERROR','WARN','INFO']),

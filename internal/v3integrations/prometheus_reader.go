@@ -2,6 +2,8 @@ package v3integrations
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -54,6 +56,10 @@ type PrometheusMetricEvidence struct {
 	CapturedAt    time.Time                 `json:"captured_at"`
 	Series        []connectors.MetricSeries `json:"series"`
 	Empty         bool                      `json:"empty"`
+	// SourceFingerprint binds private connector configuration and the
+	// reviewed expression to an observed snapshot. It is deliberately
+	// omitted from public evidence JSON.
+	SourceFingerprint string `json:"-"`
 }
 
 // PrometheusReadError has a stable, non-sensitive code for callers. It never
@@ -83,6 +89,14 @@ func NewPrometheusReader(db *pgxpool.Pool, tier string, resolver CredentialResol
 type prometheusSource struct {
 	BindingID, ConnectorID, ResourceID  string
 	Endpoint, AuthMethod, CredentialRef string
+	ConfigFingerprint                   string
+}
+
+func prometheusFingerprint(fields ...string) string {
+	// JSON encoding is length-delimited, unlike concatenating raw identifiers.
+	encoded, _ := json.Marshal(fields)
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:])
 }
 
 func (p *PrometheusReader) loadSource(ctx context.Context, user core.User, app, env, bindingID string) (prometheusSource, error) {
@@ -132,6 +146,8 @@ func (p *PrometheusReader) loadSource(ctx context.Context, user core.User, app, 
 		(source.AuthMethod == "bearer" && validateReference(source.CredentialRef) != nil) {
 		return prometheusSource{}, metricReadError("source_unhealthy")
 	}
+	source.ConfigFingerprint = prometheusFingerprint(source.Endpoint, source.AuthMethod, source.CredentialRef,
+		string(tools))
 	if err = tx.Commit(ctx); err != nil {
 		return prometheusSource{}, metricReadError("storage_unavailable")
 	}
@@ -214,7 +230,8 @@ func (p *PrometheusReader) Query(ctx context.Context, scope httpapi.V3Environmen
 	}
 	out = PrometheusMetricEvidence{ApplicationID: app, EnvironmentID: env,
 		BindingID: bindingID, ConnectorID: source.ConnectorID, ResourceID: source.ResourceID,
-		QueryID: queryID, CapturedAt: time.Now().UTC(), Series: series, Empty: true}
+		QueryID: queryID, CapturedAt: time.Now().UTC(), Series: series, Empty: true,
+		SourceFingerprint: prometheusFingerprint(source.ConfigFingerprint, expression)}
 	for _, item := range series {
 		if len(item.Samples) > 0 {
 			out.Empty = false

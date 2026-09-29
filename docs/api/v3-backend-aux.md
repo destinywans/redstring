@@ -53,6 +53,8 @@ Passkey 七条辅助路由须显式设置 `AIOPS_V3_PASSKEY_ENABLED=true`，使�
 
 指标样本辅助接口只读取迁移 `060_v3_prometheus_metric_targets.sql` 允许的显式 V3 Prometheus `metric_resource` 目标，不使用旧 CMDB 遥测绑定。部署方用 `AIOPS_V3_PROMETHEUS_QUERIES_CONFIG` 指向私有 JSON：`{"queries":[{"connector_id":"...","application_id":"...","environment_id":"...","resource_id":"...","query_id":"request_rate","expression":"..."}]}`。每个查询须由操作者审查表达式本身确实限定至该应用、环境与资源；目录键相等不能证明 PromQL 的数据范围。文件缺省时辅助接口返回 503，显式文件无效则 V3 启动失败。查询前后复核当前服务、授权和绑定；真实只读 Prometheus 返回异常、截断、多条序列或结果无从证明完整时明确报错，不把无样本等同健康。未连接真实生产 Prometheus，也未执行现有业务库迁移。
 
+`POST /metrics/ask` 复用该受审查来源的一条有限指标快照，交给持久对话与模型回复；其增量请求、重试、撤权和前端缺口见 [指标提问后端契约](v3-metrics-ask.md)。
+
 告警规则源由 `AIOPS_V3_ALERT_RULES_CONFIG` 指向私有 JSON，字段示例见 [v3-alert-rules.json](../examples/v3-alert-rules.json)。每个环境只可绑定一个 Prometheus 只读端点；还需把响应中的精确规则组 `file` + `name` 绑定到一个已登记的应用。标签中的 `environment` 和 `application` 只是交叉校验，不能单独决定归属。配置文件中的令牌文件路径为绝对路径，令牌值不写入配置、日志或仓库。未配置时辅助规则接口明确返回未接入，主页面接口仍保持 `mock`。
 
 来源登记由迁移 `045_v3_knowledge_source_registry.sql` 单独保存，迁移 `119_v3_public_web_source.sql` 放宽公开 Web 的空凭据规则，独立正文/修订表由迁移 `119_z_v3_public_web_documents.sql` 建立；旧知识文档与索引不读取这些正文。`AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true` 仅在 V3 实例中启用持久应用绑定、无凭据的公开单页 HTTPS Markdown 手动观察；严格使用系统 DNS 与信任根，不接收代理、私网地址或自定义凭据。同次抓取至多 128 KiB UTF-8 正文、哈希与观察身份原子保存，内容变化才增版。V3 关键词搜索只返回有界片段，要求最新观察、对应修订、哈希、应用/环境/团队当前授权一致，在候选与输出前复核；全部可见应用/环境合计超过 80 个数据库匹配来源明确返回 413，整次搜索限时 30 秒。尚无向量索引、Agent 工具和完整来源页 DTO，不能把单页导入视为完整索引或来源连接。新增迁移只在一次性隔离 PostgreSQL 中验证，尚未在现有业务库执行。

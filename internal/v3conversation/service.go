@@ -62,6 +62,12 @@ type Options struct {
 	// transaction connection that holds an expired reply lock. A missing
 	// callback fails recovery closed and discards partial model output.
 	AuthorizeBackgroundTurnTx func(context.Context, pgx.Tx, string, string) error
+	// AuthorizeMetricsSource and its transactional variant revalidate the
+	// persisted service, reviewed query and connector binding of metric-backed
+	// conversations. Nil fails those conversations closed. The callback must
+	// derive current grants and source state from storage, not request claims.
+	AuthorizeMetricsSource   func(context.Context, string, string, MetricsSource) error
+	AuthorizeMetricsSourceTx func(context.Context, pgx.Tx, string, string, MetricsSource) error
 	// ToolsForTurn binds read-only tools to the persisted owner and environment.
 	// Each tool must independently recheck its target's V3 scope when Read runs.
 	// Nil means no tools are offered to the model.
@@ -298,6 +304,13 @@ func (s *Service) authorizeActiveTurn(ctx context.Context, owner, env, sessionTo
 	return s.authorizeBackgroundTurn(ctx, owner, env)
 }
 
+func (s *Service) authorizeActiveMetricsTurn(ctx context.Context, conversationID, owner, env, sessionToken string) error {
+	if err := s.authorizeActiveTurn(ctx, owner, env, sessionToken); err != nil {
+		return err
+	}
+	return s.authorizeMetricsSource(ctx, conversationID, owner, env)
+}
+
 func (s *Service) create(ctx context.Context, sessionToken, owner, env, title, contextRef, model string) (string, error) {
 	id := store.ID()
 	tx, err := s.db.Begin(ctx)
@@ -439,6 +452,9 @@ func (s *Service) startTurn(ctx context.Context, id, owner, env, author, session
 	if err := s.authorizeLockedTurn(ctx, tx, owner, env, sessionHash); err != nil {
 		return Message{}, "", err
 	}
+	if err := s.authorizeMetricsConversationTx(ctx, tx, id, owner, env); err != nil {
+		return Message{}, "", err
+	}
 	attachmentSnapshot := ""
 	canonical := []json.RawMessage{}
 	var currentMedia []inference.Media
@@ -538,7 +554,7 @@ func (s *Service) finish(ctx context.Context, conv, reply, claim, assistant stri
 	// Recheck both successful and failed model calls. A provider error after
 	// streaming must not retain partial output if access was revoked meanwhile.
 	if err := s.authorizeTerminalTurn(ctx, tx, conv, reply); err != nil {
-		if !errors.Is(err, ErrForbidden) {
+		if !errors.Is(err, ErrForbidden) && !errors.Is(err, ErrMetricsSourceUnavailable) {
 			return err
 		}
 		runErr, run = ErrForbidden, nil
@@ -556,7 +572,10 @@ func (s *Service) authorizeTerminalTurn(ctx context.Context, tx pgx.Tx, conv, re
 		WHERE r.id=$1 AND r.conversation_id=$2`, reply, conv).Scan(&owner, &env, &sessionHash); err != nil {
 		return err
 	}
-	return s.authorizeLockedTurn(ctx, tx, owner, env, sessionHash)
+	if err := s.authorizeLockedTurn(ctx, tx, owner, env, sessionHash); err != nil {
+		return err
+	}
+	return s.authorizeMetricsConversationTx(ctx, tx, conv, owner, env)
 }
 
 func (s *Service) authorizeLockedTurn(ctx context.Context, tx pgx.Tx, owner, env, sessionHash string) error {
@@ -741,13 +760,18 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 	}
 	ctx, cancel := context.WithTimeout(s.opts.Shutdown, s.opts.RunTimeout)
 	defer cancel()
-	stopRenewal := s.renewWhileRunning(ctx, cancel, conv, reply, claimID)
+	metricsBacked, err := s.metricsBackedConversation(ctx, conv)
+	if err != nil {
+		s.failTurn(conv, reply, claimID, assistant, nil, err)
+		return
+	}
+	stopRenewal := s.renewWhileRunning(ctx, cancel, conv, reply, claimID, owner, env, sessionToken, metricsBacked, replyRenewInterval)
 	defer stopRenewal()
 	if sessionToken == "" || sessionHash == "" || store.Hash(sessionToken) != sessionHash {
 		s.failTurn(conv, reply, claimID, assistant, nil, ErrForbidden)
 		return
 	}
-	if err := s.authorizeActiveTurn(ctx, owner, env, sessionToken); err != nil {
+	if err := s.authorizeActiveMetricsTurn(ctx, conv, owner, env, sessionToken); err != nil {
 		s.failTurn(conv, reply, claimID, assistant, nil, err)
 		return
 	}
@@ -809,7 +833,7 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 			if e.Delta == "" {
 				return nil
 			}
-			if err := s.authorizeActiveTurn(ctx, owner, env, sessionToken); err != nil {
+			if err := s.authorizeActiveMetricsTurn(ctx, conv, owner, env, sessionToken); err != nil {
 				return err
 			}
 			streamed.WriteString(e.Delta)
@@ -828,7 +852,7 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 				if _, duplicate := invocations[e.StepID]; duplicate {
 					return errToolInvocation
 				}
-				if err := s.authorizeActiveTurn(ctx, owner, env, sessionToken); err != nil {
+				if err := s.authorizeActiveMetricsTurn(ctx, conv, owner, env, sessionToken); err != nil {
 					return err
 				}
 			}
@@ -845,12 +869,12 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 				toolDurationMS += e.Invocation.DurationMS
 				return nil
 			}
-			return s.authorizeActiveTurn(ctx, owner, env, sessionToken)
+			return s.authorizeActiveMetricsTurn(ctx, conv, owner, env, sessionToken)
 		case "evidence":
 			if e.Evidence == nil {
 				return nil
 			}
-			if err := s.authorizeActiveTurn(ctx, owner, env, sessionToken); err != nil {
+			if err := s.authorizeActiveMetricsTurn(ctx, conv, owner, env, sessionToken); err != nil {
 				return err
 			}
 			invocation, ok := invocations[e.StepID]
@@ -869,7 +893,9 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 		return nil
 	}
 	var tools []inference.EvidenceTool
-	if model.Tools && s.opts.ToolsForTurn != nil {
+	// The saved metric snapshot is the complete evidence scope for this
+	// conversation. Generic read tools could query another service.
+	if !metricsBacked && model.Tools && s.opts.ToolsForTurn != nil {
 		tools, err = s.opts.ToolsForTurn(ctx, owner, env, model.ID)
 		if err != nil {
 			s.failTurn(conv, reply, claimID, assistant, parts, err)
@@ -880,7 +906,7 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 	for i := range tools {
 		read := tools[i].Read
 		tools[i].Read = func(toolCtx context.Context, query string) (inference.Evidence, error) {
-			if err := s.authorizeActiveTurn(toolCtx, owner, env, sessionToken); err != nil {
+			if err := s.authorizeActiveMetricsTurn(toolCtx, conv, owner, env, sessionToken); err != nil {
 				return inference.Evidence{}, err
 			}
 			return read(toolCtx, query)
@@ -912,7 +938,7 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 	parts[0] = textPart(answer)
 	// The provider may emit a final accumulated chunk rather than individual deltas.
 	if suffix != "" {
-		if err := s.authorizeActiveTurn(ctx, owner, env, sessionToken); err != nil {
+		if err := s.authorizeActiveMetricsTurn(ctx, conv, owner, env, sessionToken); err != nil {
 			s.failTurn(conv, reply, claimID, assistant, nil, err)
 			return
 		}
@@ -921,7 +947,7 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 			return
 		}
 	}
-	if err := s.authorizeActiveTurn(ctx, owner, env, sessionToken); err != nil {
+	if err := s.authorizeActiveMetricsTurn(ctx, conv, owner, env, sessionToken); err != nil {
 		s.failTurn(conv, reply, claimID, assistant, nil, err)
 		return
 	}
@@ -996,12 +1022,12 @@ func (s *Service) failTurn(conv, reply, claim, assistant string, parts []json.Ra
 // renewWhileRunning cancels the model as soon as ownership cannot be renewed.
 // Every durable write still checks the lease independently, so cancellation is
 // a resource bound rather than the ownership fence.
-func (s *Service) renewWhileRunning(ctx context.Context, cancel context.CancelFunc, conv, reply, claim string) func() {
+func (s *Service) renewWhileRunning(ctx context.Context, cancel context.CancelFunc, conv, reply, claim, owner, env, sessionToken string, metricsBacked bool, interval time.Duration) func() {
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		ticker := time.NewTicker(replyRenewInterval)
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -1010,13 +1036,16 @@ func (s *Service) renewWhileRunning(ctx context.Context, cancel context.CancelFu
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				renewCtx, end := context.WithTimeout(ctx, replyRenewInterval)
+				renewCtx, end := context.WithTimeout(ctx, interval)
 				result, err := s.db.Exec(renewCtx, `UPDATE v3_conversation_replies AS r
 					SET lease_expires_at=clock_timestamp()+$4::double precision * interval '1 second'
 					FROM v3_conversations AS c
 					WHERE r.id=$2 AND r.conversation_id=$1 AND r.worker_claim_id=$3
 						AND r.state='running' AND r.lease_expires_at>clock_timestamp()
 						AND c.id=r.conversation_id AND c.active_reply_id=r.id`, conv, reply, claim, replyLease.Seconds())
+				if err == nil && result.RowsAffected() == 1 && metricsBacked {
+					err = s.authorizeActiveMetricsTurn(renewCtx, conv, owner, env, sessionToken)
+				}
 				end()
 				if err != nil || result.RowsAffected() != 1 {
 					cancel()
@@ -1091,7 +1120,7 @@ func (s *Service) recoverOne(ctx context.Context, conv, reply string) error {
 	var parts []json.RawMessage
 	cause := error(ErrForbidden)
 	authErr := s.authorizeTerminalTurn(ctx, tx, conv, reply)
-	if authErr != nil && !errors.Is(authErr, ErrForbidden) {
+	if authErr != nil && !errors.Is(authErr, ErrForbidden) && !errors.Is(authErr, ErrMetricsSourceUnavailable) {
 		return authErr
 	}
 	if authErr == nil {

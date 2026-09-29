@@ -13,6 +13,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3conversation"
 	"github.com/wans/aiops-canvas/internal/v3integrations"
 )
 
@@ -31,11 +32,20 @@ type MetricSamplesReader interface {
 		connectors.TimeWindow) (v3integrations.PrometheusMetricEvidence, error)
 }
 
+// MetricsConversation accepts a verified, bounded metric snapshot as one
+// durable conversation turn. Its implementation rechecks source access before
+// model execution and every later read of this metrics-backed conversation.
+type MetricsConversation interface {
+	FindMetricsQuestion(context.Context, v3conversation.MetricsQuestionLookup) (v3conversation.MetricsQuestionResult, bool, error)
+	StartMetricsQuestion(context.Context, v3conversation.MetricsQuestionInput) (v3conversation.MetricsQuestionResult, error)
+}
+
 type Service struct {
-	Store        *store.Store
-	Access       Access
-	Telemetry    Telemetry
-	MetricReader MetricSamplesReader
+	Store               *store.Store
+	Access              Access
+	Telemetry           Telemetry
+	MetricReader        MetricSamplesReader
+	MetricsConversation MetricsConversation
 }
 
 type observationTarget struct {
@@ -60,6 +70,8 @@ func (s *Service) Register(api *httpapi.Server) {
 	api.MarkV3ObjectRoute("GET /api/v1/metrics/dashboard", "services", "view")
 	api.Register("GET /api/v1/metrics/samples", "viewer", s.metricSamples)
 	api.MarkV3ObjectRoute("GET /api/v1/metrics/samples", "services", "view")
+	api.Register("POST /api/v1/metrics/ask", "viewer", s.metricsAsk)
+	api.MarkV3ObjectRoute("POST /api/v1/metrics/ask", "conversation", "change")
 	api.Register("GET /api/v1/logs", "viewer", s.logs)
 	api.MarkV3ObjectRoute("GET /api/v1/logs", "logs", "view")
 }

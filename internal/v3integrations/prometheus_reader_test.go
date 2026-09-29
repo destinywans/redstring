@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
@@ -264,8 +266,239 @@ func TestPrometheusRegistrationBindingVaultAndScopedQuery(t *testing.T) {
 	if err != nil || evidence.Empty || len(evidence.Series) != 1 || evidence.Series[0].Samples[0].Value != "2.5" || queryCalls.Load() != 2 || vaultCalls.Load() < 3 {
 		t.Fatalf("real query evidence=%+v err=%v calls=%d vault=%d", evidence, err, queryCalls.Load(), vaultCalls.Load())
 	}
+	checkEvidence := func() error {
+		return reader.AuthorizeMetricSourceVersion(ctx, readerUser.ID, "dev", evidence.ApplicationID,
+			evidence.BindingID, evidence.ConnectorID, evidence.ResourceID, evidence.QueryID, evidence.SourceFingerprint)
+	}
+	if evidence.SourceFingerprint == "" {
+		t.Fatal("query omitted private source fingerprint")
+	}
+	if err := checkEvidence(); err != nil {
+		t.Fatalf("captured source should be authorized: %v", err)
+	}
+	reader.Resolver = NewBoundResolver(resolver, []CredentialBinding{{
+		Tier: "nonprod", EnvironmentID: "dev", ConnectorID: evidence.ConnectorID,
+		Provider: "prometheus", Endpoint: upstream.URL, CredentialRef: "vault://isolated/prom#token",
+	}})
+	if err := checkEvidence(); err != nil {
+		t.Fatalf("exact credential binding should authorize source: %v", err)
+	}
+	reader.Resolver = NewBoundResolver(resolver, nil)
+	if got := code(checkEvidence()); got != "source_unhealthy" {
+		t.Fatalf("revoked credential binding: code=%q", got)
+	}
+	reader.Resolver = resolver
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.AuthorizeMetricSourceVersionTx(ctx, tx, readerUser.ID, "dev", evidence.ApplicationID,
+		evidence.BindingID, evidence.ConnectorID, evidence.ResourceID, evidence.QueryID, evidence.SourceFingerprint); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("source authorization in conversation transaction: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	staleTx, err := db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := code(reader.AuthorizeMetricSourceVersionTx(ctx, staleTx, readerUser.ID, "dev", evidence.ApplicationID,
+		evidence.BindingID, evidence.ConnectorID, evidence.ResourceID, evidence.QueryID, evidence.SourceFingerprint)); got != "invalid_scope" {
+		_ = staleTx.Rollback(ctx)
+		t.Fatalf("stale snapshot isolation accepted: code=%q", got)
+	}
+	if err := staleTx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Repeatable Read cannot be used for source reauthorization: a new
+	// binding is a phantom in its old snapshot even after the mapping row is
+	// locked. Detail/list readers need a fresh transaction for this check.
+	staleTx, err = db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var beforeCount int
+	if err := staleTx.QueryRow(ctx, `SELECT count(*) FROM v3_connector_targets
+ WHERE application_id='checkout' AND environment_id='dev' AND target_kind='metric_resource'`).Scan(&beforeCount); err != nil {
+		t.Fatal(err)
+	}
+	if beforeCount != 1 {
+		t.Fatalf("unexpected target fixture count: %d", beforeCount)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_connector_targets
+ (id,application_id,environment_id,connector_id,target_kind,external_id,bound_by)
+ VALUES ('rr-phantom','checkout','dev',$1,'metric_resource','rr-resource',$2)`, evidence.ConnectorID, admin.ID); err != nil {
+		t.Fatal(err)
+	}
+	svc := Service{DB: db}
+	if _, err := svc.targetServiceTx(ctx, staleTx, "checkout", "dev", true); err != nil {
+		t.Fatalf("RR mapping lock changed behavior: %v", err)
+	}
+	var staleCount int
+	if err := staleTx.QueryRow(ctx, `SELECT count(*) FROM v3_connector_targets
+ WHERE application_id='checkout' AND environment_id='dev' AND target_kind='metric_resource'`).Scan(&staleCount); err != nil {
+		t.Fatal(err)
+	}
+	if staleCount != 1 {
+		t.Fatalf("RR phantom premise changed: stale count=%d", staleCount)
+	}
+	if err := staleTx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM v3_connector_targets WHERE id='rr-phantom'`); err != nil {
+		t.Fatal(err)
+	}
+	staleTx, err = db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var grantRole string
+	if err := staleTx.QueryRow(ctx, `SELECT role_id FROM v3_role_grants
+ WHERE role_id='viewer' AND module='connectors' AND action='view'
+ AND scope_kind='environment' AND scope_id='dev'`).Scan(&grantRole); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer'
+ AND module='connectors' AND action='view' AND scope_kind='environment' AND scope_id='dev'`); err != nil {
+		t.Fatal(err)
+	}
+	var staleRole string
+	err = staleTx.QueryRow(ctx, `SELECT role_id FROM v3_role_grants
+ WHERE role_id='viewer' AND module='connectors' AND action='view'
+ AND scope_kind='environment' AND scope_id='dev' FOR SHARE`).Scan(&staleRole)
+	var serialization *pgconn.PgError
+	if !errors.As(err, &serialization) || serialization.Code != "40001" {
+		t.Fatalf("RR revoked-grant lock must fail serialization, got %v", err)
+	}
+	if err := staleTx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES ('viewer','connectors','view','environment','dev')`); err != nil {
+		t.Fatal(err)
+	}
+	// A conversation transaction must pin both the binding and permission
+	// witness until its message/reply rows commit.
+	tx, err = db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.AuthorizeMetricSourceVersionTx(ctx, tx, readerUser.ID, "dev", evidence.ApplicationID,
+		evidence.BindingID, evidence.ConnectorID, evidence.ResourceID, evidence.QueryID, evidence.SourceFingerprint); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	writeTxs := make([]pgx.Tx, 0, 2)
+	writeResults := make([]chan error, 0, 2)
+	for _, statement := range []string{
+		`UPDATE v3_connector_targets SET external_id='different-resource' WHERE id=$1`,
+		`DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='connectors' AND action='view' AND scope_kind='environment' AND scope_id='dev' AND $1<>''`,
+	} {
+		writer, beginErr := db.Begin(ctx)
+		if beginErr != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatal(beginErr)
+		}
+		writeTxs = append(writeTxs, writer)
+		result := make(chan error, 1)
+		writeResults = append(writeResults, result)
+		go func() {
+			_, writeErr := writer.Exec(ctx, statement, evidence.BindingID)
+			result <- writeErr
+		}()
+	}
+	for _, result := range writeResults {
+		select {
+		case writeErr := <-result:
+			_ = tx.Rollback(ctx)
+			t.Fatalf("source or grant write was not blocked: %v", writeErr)
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for i, result := range writeResults {
+		select {
+		case writeErr := <-result:
+			if writeErr != nil {
+				t.Fatal(writeErr)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("blocked writer did not resume")
+		}
+		if err := writeTxs[i].Rollback(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := checkEvidence(); err != nil {
+		t.Fatalf("source changed during rolled-back lock check: %v", err)
+	}
+	if code(reader.AuthorizeMetricSource(ctx, readerUser.ID, "dev", evidence.ApplicationID,
+		evidence.BindingID, evidence.ConnectorID, evidence.ResourceID, "not_reviewed")) != "query_unregistered" {
+		t.Fatal("unreviewed query was accepted")
+	}
+	if _, err := db.Exec(ctx, `UPDATE v3_connector_targets SET external_id='different-resource' WHERE id=$1`, evidence.BindingID); err != nil {
+		t.Fatal(err)
+	}
+	if got := code(checkEvidence()); got != "source_changed" {
+		t.Fatalf("rebound resource: code=%q", got)
+	}
+	if _, err := db.Exec(ctx, `UPDATE v3_connector_targets SET external_id=$2 WHERE id=$1`, evidence.BindingID, evidence.ResourceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_connectors
+ (id,environment_id,provider,name,category,endpoint,auth_method,tools,enabled)
+ VALUES ('vm-metrics','dev','victoriametrics','VM','observe','http://127.0.0.1:19090','none','[]',true)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_connector_targets
+ (id,application_id,environment_id,connector_id,target_kind,external_id,bound_by)
+ VALUES ('other-provider-metric','checkout','dev','vm-metrics','metric_resource','other-resource',$1)`, admin.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkEvidence(); err != nil {
+		t.Fatalf("other provider should not change selected Prometheus target: %v", err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_connector_targets
+ (id,application_id,environment_id,connector_id,target_kind,external_id,bound_by)
+ VALUES ('another-metric-target','checkout','dev',$1,'metric_resource','another-resource',$2)`, evidence.ConnectorID, admin.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := code(checkEvidence()); got != "source_ambiguous" {
+		t.Fatalf("two metric targets: code=%q", got)
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM v3_connector_targets WHERE id='another-metric-target'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE v3_connectors SET auth_method='none',credential_ref='' WHERE id=$1`, evidence.ConnectorID); err != nil {
+		t.Fatal(err)
+	}
+	if got := code(checkEvidence()); got != "source_changed" {
+		t.Fatalf("connector settings changed under stable IDs: code=%q", got)
+	}
+	if _, err := db.Exec(ctx, `UPDATE v3_connectors SET auth_method='bearer',credential_ref='vault://isolated/prom#token' WHERE id=$1`, evidence.ConnectorID); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkEvidence(); err != nil {
+		t.Fatalf("restored connector settings: %v", err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE users SET disabled=true WHERE id=$1`, readerUser.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := code(checkEvidence()); got != "forbidden" {
+		t.Fatalf("disabled owner: code=%q", got)
+	}
+	if _, err := db.Exec(ctx, `UPDATE users SET disabled=false WHERE id=$1`, readerUser.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkEvidence(); err != nil {
+		t.Fatalf("restored source: %v", err)
+	}
 	raw, err := json.Marshal(evidence)
-	if err != nil || strings.Contains(string(raw), "test-prom-bearer") || strings.Contains(string(raw), "vault://") || strings.Contains(string(raw), expression) || strings.Contains(string(raw), upstream.URL) {
+	if err != nil || strings.Contains(string(raw), "test-prom-bearer") || strings.Contains(string(raw), "vault://") || strings.Contains(string(raw), expression) || strings.Contains(string(raw), upstream.URL) || strings.Contains(string(raw), evidence.SourceFingerprint) {
 		t.Fatalf("query evidence leaked private source data: %v", err)
 	}
 	queryUnavailable.Store(true)
@@ -303,5 +536,8 @@ func TestPrometheusRegistrationBindingVaultAndScopedQuery(t *testing.T) {
 	close(releaseQuery)
 	if err := <-result; code(err) != "forbidden" {
 		t.Fatalf("grant revoked during query: code=%q", code(err))
+	}
+	if got := code(checkEvidence()); got != "forbidden" {
+		t.Fatalf("revoked connector access: code=%q", got)
 	}
 }

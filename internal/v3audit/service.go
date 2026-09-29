@@ -124,7 +124,9 @@ func requestScope(r *http.Request) ([]string, error) {
 // instance-wide events require an explicit global audit grant. Application
 // rows without a recorded environment are intentionally omitted.
 const visibleCTE = `WITH visible AS (
- SELECT a.id,a.chain_seq,a.actor_id,a.actor_kind,a.application_id,a.action,
+ SELECT a.id,a.chain_seq,a.actor_id,
+        CASE WHEN a.actor_kind='integration' THEN 'system' ELSE a.actor_kind END AS actor_kind,
+        a.application_id,a.action,
         a.target,a.outcome,a.changes,a.created_at,COALESCE(u.name,'') AS actor_name
  FROM management_audit a LEFT JOIN users u ON u.id=a.actor_id
  WHERE (
@@ -162,9 +164,9 @@ func resultKind(outcome string) (string, error) {
 	// These values record a successful request or a persisted lifecycle event.
 	// "accepted" and "pending_manual_cleanup" do not mean the downstream work
 	// completed; the action name retains that distinction in the audit row.
-	case "success", "succeeded", "ok", "completed", "accepted", "recorded", "pending_manual_cleanup":
+	case "success", "succeeded", "ok", "completed", "accepted", "test_accepted", "recorded", "pending_manual_cleanup":
 		return "ok", nil
-	case "blocked", "denied", "rejected":
+	case "blocked", "denied", "rejected", "duplicate", "invalid_event":
 		return "blocked", nil
 	case "failed", "failure", "error", "unknown":
 		return "failed", nil

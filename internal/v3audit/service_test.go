@@ -18,7 +18,8 @@ func TestAuditFilterAndOutcomeMapping(t *testing.T) {
 	}
 	for value, want := range map[string]string{
 		"success": "ok", "succeeded": "ok", "completed": "ok", "accepted": "ok",
-		"recorded": "ok", "pending_manual_cleanup": "ok", "denied": "blocked", "failed": "failed",
+		"recorded": "ok", "pending_manual_cleanup": "ok", "test_accepted": "ok",
+		"denied": "blocked", "duplicate": "blocked", "invalid_event": "blocked", "failed": "failed",
 	} {
 		got, err := resultKind(value)
 		if err != nil || got != want {

@@ -441,7 +441,7 @@ func TestPushTestIsSyntheticAndSecretRotation(t *testing.T) {
 	if err := json.Unmarshal(viewResponse.Body.Bytes(), &view); err != nil {
 		t.Fatal(err)
 	}
-	if view.Types[1].Today != "0" || len(view.Deliveries) != 1 || view.Deliveries[0].Result != "test_accepted" {
+	if view.Types[1].Today != "0" || len(view.Deliveries) != 1 || view.Deliveries[0].Result != "测试已接收" {
 		t.Fatalf("test event masquerades as real event: %+v", view)
 	}
 	tokenPath := f.s.sources["source-a"].TokenFile

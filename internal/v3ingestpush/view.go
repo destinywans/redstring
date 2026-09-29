@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -88,7 +89,13 @@ func (s *Service) authorize(w http.ResponseWriter, r *http.Request, module, acti
 
 // visibleSources filters static config through current mapping and app/team
 // grants. Stale and unauthorized sources never enter counts or delivery rows.
-func (s *Service) visibleSources(ctx context.Context, user core.User, envs []string, action string) ([]Source, error) {
+func (s *Service) visibleSources(ctx context.Context, tx pgx.Tx, user core.User, envs []string, action string) ([]Source, error) {
+	var q interface {
+		QueryRow(context.Context, string, ...any) pgx.Row
+	} = s.db
+	if tx != nil {
+		q = tx
+	}
 	visible := []Source{}
 	for _, source := range s.sources {
 		selected := false
@@ -99,10 +106,10 @@ func (s *Service) visibleSources(ctx context.Context, user core.User, envs []str
 			continue
 		}
 		var ownerTeam string
-		err := s.db.QueryRow(ctx, `SELECT COALESCE(a.owner_team_id,'') FROM applications a
+		err := q.QueryRow(ctx, `SELECT COALESCE(a.owner_team_id,'') FROM applications a
  JOIN application_environments e ON e.application_id=a.id AND e.key=$2 AND NOT e.archived
  JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=e.key
- WHERE a.id=$1 AND NOT a.archived`, source.ApplicationID, source.EnvironmentID).Scan(&ownerTeam)
+ WHERE a.id=$1 AND NOT a.archived FOR SHARE OF a,e,ve`, source.ApplicationID, source.EnvironmentID).Scan(&ownerTeam)
 		if errors.Is(err, pgx.ErrNoRows) {
 			continue
 		}
@@ -110,17 +117,25 @@ func (s *Service) visibleSources(ctx context.Context, user core.User, envs []str
 			return nil, err
 		}
 		var boundApp, boundEnv, boundProvider string
-		bindErr := s.db.QueryRow(ctx, `SELECT application_id,environment_id,provider
- FROM v3_push_source_bindings WHERE source_id=$1`, source.ID).Scan(&boundApp, &boundEnv, &boundProvider)
+		bindErr := q.QueryRow(ctx, `SELECT application_id,environment_id,provider
+ FROM v3_push_source_bindings WHERE source_id=$1 FOR SHARE`, source.ID).Scan(&boundApp, &boundEnv, &boundProvider)
 		if bindErr != nil && !errors.Is(bindErr, pgx.ErrNoRows) {
 			return nil, bindErr
 		}
 		if bindErr == nil && (boundApp != source.ApplicationID || boundEnv != source.EnvironmentID || boundProvider != source.Provider) {
 			continue
 		}
-		err = s.policy.Authorize(ctx, user, rbac.V3Decision{Module: "services", Action: action, EnvironmentID: source.EnvironmentID, ApplicationID: source.ApplicationID})
+		decision := rbac.V3Decision{Module: "services", Action: action, EnvironmentID: source.EnvironmentID, ApplicationID: source.ApplicationID}
+		authorize := func() error {
+			if tx != nil {
+				return s.policy.AuthorizeWithTx(ctx, tx, user, decision)
+			}
+			return s.policy.Authorize(ctx, user, decision)
+		}
+		err = authorize()
 		if errors.Is(err, store.ErrForbidden) && ownerTeam != "" {
-			err = s.policy.Authorize(ctx, user, rbac.V3Decision{Module: "services", Action: action, EnvironmentID: source.EnvironmentID, TeamID: ownerTeam})
+			decision.ApplicationID, decision.TeamID = "", ownerTeam
+			err = authorize()
 		}
 		if errors.Is(err, store.ErrForbidden) {
 			continue
@@ -135,13 +150,48 @@ func (s *Service) visibleSources(ctx context.Context, user core.User, envs []str
 }
 
 func (s *Service) view(w http.ResponseWriter, r *http.Request) {
+	english := strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "en")
+	say := func(zh, en string) string {
+		if english {
+			return en
+		}
+		return zh
+	}
 	envs, ok := s.scope(w, r, false)
 	if !ok {
 		return
 	}
+	tx, err := s.db.Begin(r.Context())
+	if err != nil {
+		httpapi.Error(w, 503, "push_unavailable", "Push view unavailable")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	// Keep all scope, source and receipt reads in one transaction. Shared
+	// governance locks make a queued role/member change finish before our
+	// authority check or wait until the response has been written.
+	for _, key := range []int64{752018992, 752018995, 752018998} {
+		if _, err = tx.Exec(r.Context(), `SELECT pg_advisory_xact_lock_shared($1)`, key); err != nil {
+			httpapi.Error(w, 503, "push_unavailable", "Push view unavailable")
+			return
+		}
+	}
+	cookie, cookieErr := r.Cookie("aiops_session")
+	if cookieErr != nil {
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		return
+	}
+	if err = store.LockActiveSession(r.Context(), tx, cookie.Value, httpapi.CurrentUser(r).ID); err != nil {
+		if errors.Is(err, store.ErrSessionRevoked) {
+			httpapi.Error(w, 401, "unauthorized", "Session expired")
+		} else {
+			httpapi.Error(w, 503, "push_unavailable", "Push view unavailable")
+		}
+		return
+	}
 	allowedEnvs := []string{}
 	for _, env := range envs {
-		err := s.policy.Authorize(r.Context(), httpapi.CurrentUser(r), rbac.V3Decision{Module: "connectors", Action: "view", EnvironmentID: env})
+		err := s.policy.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), rbac.V3Decision{Module: "connectors", Action: "view", EnvironmentID: env})
 		if errors.Is(err, store.ErrForbidden) && len(envs) > 1 {
 			continue
 		}
@@ -160,7 +210,7 @@ func (s *Service) view(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	envs = allowedEnvs
-	sources, err := s.visibleSources(r.Context(), httpapi.CurrentUser(r), envs, "view")
+	sources, err := s.visibleSources(r.Context(), tx, httpapi.CurrentUser(r), envs, "view")
 	if err != nil {
 		httpapi.Error(w, 503, "push_unavailable", "Push view unavailable")
 		return
@@ -174,7 +224,7 @@ func (s *Service) view(w http.ResponseWriter, r *http.Request) {
 	type counts struct{ accepted, rejected int64 }
 	byType := map[string]counts{}
 	if len(appIDs) > 0 {
-		rows, err := s.db.Query(r.Context(), `WITH visible AS (SELECT * FROM unnest($1::text[],$2::text[],$3::text[]) AS v(source_id,environment_id,application_id))
+		rows, err := tx.Query(r.Context(), `WITH visible AS (SELECT * FROM unnest($1::text[],$2::text[],$3::text[]) AS v(source_id,environment_id,application_id))
  SELECT e.event_type,count(*) FROM v3_push_events e JOIN visible v
  ON (e.source_id,e.environment_id,e.application_id)=(v.source_id,v.environment_id,v.application_id)
  WHERE NOT e.synthetic AND e.created_at >= date_trunc('day',now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
@@ -201,7 +251,7 @@ func (s *Service) view(w http.ResponseWriter, r *http.Request) {
 			httpapi.Error(w, 503, "push_unavailable", "Push counts unavailable")
 			return
 		}
-		rows, err = s.db.Query(r.Context(), `WITH visible AS (SELECT * FROM unnest($1::text[],$2::text[],$3::text[]) AS v(source_id,environment_id,application_id))
+		rows, err = tx.Query(r.Context(), `WITH visible AS (SELECT * FROM unnest($1::text[],$2::text[],$3::text[]) AS v(source_id,environment_id,application_id))
  SELECT p.event_type,count(*) FROM v3_push_receipts p JOIN visible v
  ON (p.source_id,p.environment_id,p.application_id)=(v.source_id,v.environment_id,v.application_id)
  WHERE p.code=422 AND NOT p.synthetic AND p.created_at >= date_trunc('day',now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
@@ -230,7 +280,11 @@ func (s *Service) view(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	view := pushView{Types: []pushTypeView{}, Deliveries: []pushDeliveryView{}, Stack: pushStackView{Enabled: false, Components: []interface{}{}}, Availability: "configured_unverified"}
-	labels := map[string]struct{ icon, name string }{"alert": {"bell", "Alerts"}, "change": {"branch", "Changes"}, "incident": {"alert", "Incidents"}, "resource": {"box", "Resource changes"}, "oncall": {"user", "On-call"}}
+	labels := map[string]struct{ icon, name string }{
+		"alert": {"bell", say("告警", "Alerts")}, "change": {"branch", say("变更", "Changes")},
+		"incident": {"alert", say("故障", "Incidents")}, "resource": {"box", say("资源变更", "Resource changes")},
+		"oncall": {"user", say("值班", "On-call")},
+	}
 	for _, typ := range []string{"alert", "change", "incident", "resource", "oncall"} {
 		c := byType[typ]
 		pct := "0%"
@@ -248,26 +302,26 @@ func (s *Service) view(w http.ResponseWriter, r *http.Request) {
 	} else if s.publicHost == "" {
 		view.Availability = "endpoint_host_unconfigured"
 	}
-	example, _ := json.MarshalIndent(map[string]any{"schema": "change.v1", "event_id": "deploy-812", "occurred_at": s.now().UTC().Format(time.RFC3339), "subject": "checkout-api", "title": "Deploy v2.8.1", "state": "succeeded", "attributes": map[string]string{"version": "v2.8.1"}}, "", "  ")
+	example, _ := json.MarshalIndent(map[string]any{"schema": "change.v1", "event_id": "deploy-812", "occurred_at": s.now().UTC().Format(time.RFC3339), "subject": "checkout-api", "title": say("部署 v2.8.1", "Deploy v2.8.1"), "state": "succeeded", "attributes": map[string]string{"version": "v2.8.1"}}, "", "  ")
 	view.Endpoint = pushEndpointView{
 		Method: "POST", Path: "/api/v1/events/change", Host: s.publicHost, Example: string(example),
 		Headers: []map[string]string{
-			{"k": "X-AIOps-Source", "v": "<configured source id>", "note": "Fixed source-to-application/environment mapping"},
-			{"k": "Authorization", "v": "Bearer <token>", "note": "Token from this source's configured token file"},
-			{"k": "Idempotency-Key", "v": "<unique key>", "note": "24-hour key fence; stable event_id remains unique"},
-			{"k": "X-Timestamp", "v": "<Unix seconds>", "note": "Clock skew at most five minutes"},
+			{"k": "X-AIOps-Source", "v": say("<已配置来源 ID>", "<configured source id>"), "note": say("来源与应用、环境固定绑定", "Fixed source-to-application/environment mapping")},
+			{"k": "Authorization", "v": say("Bearer <令牌>", "Bearer <token>"), "note": say("使用该来源配置的令牌文件", "Token from this source's configured token file")},
+			{"k": "Idempotency-Key", "v": say("<唯一键>", "<unique key>"), "note": say("幂等键保留 24 小时；event_id 始终唯一", "24-hour key fence; stable event_id remains unique")},
+			{"k": "X-Timestamp", "v": say("<Unix 秒>", "<Unix seconds>"), "note": say("时钟偏差最多五分钟", "Clock skew at most five minutes")},
 			{"k": "X-Signature", "v": "sha256=<hex HMAC>", "note": "HMAC-SHA256(timestamp\\nsource_id\\ntype\\nidempotency_key\\nraw_body)"},
 		},
 		Responses: []map[string]string{
-			{"code": "202", "tone": "ok", "text": "Accepted and persisted"},
-			{"code": "409", "tone": "neutral", "text": "Duplicate key or event identity"},
-			{"code": "422", "tone": "danger", "text": "Invalid canonical event"},
-			{"code": "401", "tone": "danger", "text": "Invalid token, timestamp or signature"},
-			{"code": "503", "tone": "danger", "text": "Source, mapping or storage unavailable"},
+			{"code": "202", "tone": "ok", "text": say("已接收并持久化", "Accepted and persisted")},
+			{"code": "409", "tone": "neutral", "text": say("幂等键或事件 ID 重复", "Duplicate key or event identity")},
+			{"code": "422", "tone": "danger", "text": say("事件不符合规范", "Invalid canonical event")},
+			{"code": "401", "tone": "danger", "text": say("令牌、时间戳或签名无效", "Invalid token, timestamp or signature")},
+			{"code": "503", "tone": "danger", "text": say("来源、映射或存储不可用", "Source, mapping or storage unavailable")},
 		},
 	}
 	if len(appIDs) > 0 {
-		rows, err := s.db.Query(r.Context(), `WITH visible AS (SELECT * FROM unnest($1::text[],$2::text[],$3::text[]) AS v(source_id,environment_id,application_id))
+		rows, err := tx.Query(r.Context(), `WITH visible AS (SELECT * FROM unnest($1::text[],$2::text[],$3::text[]) AS v(source_id,environment_id,application_id))
  SELECT p.created_at,p.source_id,p.key_hash,p.code,p.result,p.latency_ms
  FROM v3_push_receipts p JOIN visible v
  ON (p.source_id,p.environment_id,p.application_id)=(v.source_id,v.environment_id,v.application_id)
@@ -293,7 +347,14 @@ func (s *Service) view(w http.ResponseWriter, r *http.Request) {
 			if len(keyHash) >= 12 {
 				key = "sha256:" + keyHash[:12]
 			}
-			view.Deliveries = append(view.Deliveries, pushDeliveryView{Time: at.UTC().Format(time.RFC3339), Source: sourceID, Key: key, Code: fmt.Sprint(code), Tone: tone, Result: result, MS: fmt.Sprintf("%d ms", ms)})
+			resultLabels := map[string]string{
+				"accepted": say("已接收", "Accepted"), "test_accepted": say("测试已接收", "Test accepted"),
+				"duplicate": say("重复事件", "Duplicate event"), "invalid_event": say("无效事件", "Invalid event"),
+			}
+			if label, ok := resultLabels[result]; ok {
+				result = label
+			}
+			view.Deliveries = append(view.Deliveries, pushDeliveryView{Time: at.UTC().Format("2006-01-02 15:04 UTC"), Source: sourceID, Key: key, Code: fmt.Sprint(code), Tone: tone, Result: result, MS: fmt.Sprintf("%d ms", ms)})
 		}
 		if err == nil {
 			err = rows.Err()
@@ -303,6 +364,14 @@ func (s *Service) view(w http.ResponseWriter, r *http.Request) {
 			httpapi.Error(w, 503, "push_unavailable", "Push deliveries unavailable")
 			return
 		}
+	}
+	if err = store.LockActiveSession(r.Context(), tx, cookie.Value, httpapi.CurrentUser(r).ID); err != nil {
+		if errors.Is(err, store.ErrSessionRevoked) {
+			httpapi.Error(w, 401, "unauthorized", "Session expired")
+		} else {
+			httpapi.Error(w, 503, "push_unavailable", "Push view unavailable")
+		}
+		return
 	}
 	httpapi.WriteJSON(w, 200, view)
 }
@@ -332,7 +401,7 @@ func (s *Service) test(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "invalid_body", "Select a supported Push event type")
 		return
 	}
-	sources, err := s.visibleSources(r.Context(), httpapi.CurrentUser(r), []string{env}, "change")
+	sources, err := s.visibleSources(r.Context(), nil, httpapi.CurrentUser(r), []string{env}, "change")
 	if err != nil {
 		httpapi.Error(w, 503, "push_unavailable", "Push source selection unavailable")
 		return

@@ -25,6 +25,7 @@ import (
 var idempotencyKey = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`)
 var errMappingUnavailable = errors.New("push source mapping unavailable")
 var errRateLimited = errors.New("push source rate limited")
+var errSourceSelectionChanged = errors.New("push test source selection changed")
 
 func oneHeader(r *http.Request, key string) string {
 	values := r.Header.Values(key)
@@ -186,6 +187,10 @@ func writePersistError(w http.ResponseWriter, err error) {
 		httpapi.Error(w, 503, "mapping_unavailable", "Source mapping is not active")
 		return
 	}
+	if errors.Is(err, errSourceSelectionChanged) {
+		httpapi.Error(w, 409, "source_selection_changed", "Push test source selection changed; retry")
+		return
+	}
 	httpapi.Error(w, 503, "push_unavailable", "Push persistence or audit unavailable")
 }
 
@@ -242,7 +247,9 @@ func limitSource(ctx context.Context, tx pgx.Tx, source Source) error {
 }
 
 func audit(ctx context.Context, tx pgx.Tx, source Source, actor, actorKind, action, typ, outcome string, receiptID int64) error {
-	changes, _ := json.Marshal(map[string]any{"source_id": source.ID, "event_type": typ, "receipt_id": receiptID})
+	// Audit visibility requires the exact persisted environment. No request
+	// headers, event body or credential material are part of this evidence.
+	changes, _ := json.Marshal(map[string]any{"environment_id": source.EnvironmentID, "source_id": source.ID, "event_type": typ, "receipt_id": receiptID})
 	_, err := tx.Exec(ctx, `INSERT INTO management_audit(actor_id,actor_kind,application_id,action,target,outcome,changes)
  VALUES($1,$2,$3,$4,$5,$6,$7)`, actor, actorKind, source.ApplicationID, action, source.ID, outcome, changes)
 	return err
@@ -310,6 +317,24 @@ func (s *Service) persistAccepted(ctx context.Context, source Source, typ, keyHa
 		if err != nil {
 			return 0, false, err
 		}
+		// The initial source list is only a hint. A grant or mapping may have
+		// changed while this request waited for the governance locks.
+		current, selectErr := s.visibleSources(ctx, tx, httpapi.CurrentUser(testRequest), []string{source.EnvironmentID}, "change")
+		if selectErr != nil {
+			return 0, false, selectErr
+		}
+		selected := ""
+		for _, candidate := range current {
+			if sourceAllows(candidate, typ) {
+				if selected != "" {
+					return 0, false, errSourceSelectionChanged
+				}
+				selected = candidate.ID
+			}
+		}
+		if selected != source.ID {
+			return 0, false, errSourceSelectionChanged
+		}
 	}
 	if err = limitSource(ctx, tx, source); err != nil {
 		return 0, false, err
@@ -356,6 +381,12 @@ func (s *Service) persistAccepted(ctx context.Context, source Source, typ, keyHa
 	}
 	if err = audit(ctx, tx, source, actor, actorKind, action, typ, result, receiptID); err != nil {
 		return 0, false, err
+	}
+	if testRequest != nil {
+		cookie, _ := testRequest.Cookie("aiops_session")
+		if err = store.LockActiveSession(ctx, tx, cookie.Value, actor); err != nil {
+			return 0, false, err
+		}
 	}
 	return receiptID, duplicate, tx.Commit(ctx)
 }

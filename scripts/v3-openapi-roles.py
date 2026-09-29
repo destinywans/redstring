@@ -23,6 +23,24 @@ S['V3MembersView'] = obj({'org':arr(obj({**fieldnames('id name kind'),'count':in
     'mfa_grace_days':{'type':['integer','null'],'description':'Null: no verified MFA policy source is connected.'},
     'complete_v3_dto':v3_bool(),'unavailable_fields':arr(string())},
     ['org','groups','items','counts','mfa_grace_days','complete_v3_dto','unavailable_fields'])
+_member_revision = string(pattern=r'^[1-9][0-9]*$',description='Decimal revision of editable name and phone fields.')
+S['V3MemberDetail'] = obj({**fieldnames('id name email recorded_source'),
+    'department':{'type':['object','null'],'properties':fieldnames('id name'),
+        'required':['id','name'],'additionalProperties':False},
+    'roles':arr(obj(fieldnames('id name'),['id','name'])),
+    'phone':{'type':['string','null']},
+    'status':string(enum=['active','disabled']),
+    'identity_kind':string(enum=['human','machine']),
+    'mfa':string(enum=['unknown']),
+    'last_login':{'type':'null'},
+    'directory_sync_state':string(enum=['unknown']),
+    'revision':_member_revision},
+    ['id','name','email','department','roles','phone','status','identity_kind',
+     'recorded_source','mfa','last_login','directory_sync_state','revision'])
+S['V3MemberContactPatch'] = {**obj({'expected_revision':_member_revision,
+    'name':string(minLength=1,maxLength=120),
+    'phone':{'type':['string','null'],'maxLength':64}},['expected_revision']),
+    'anyOf':[{'required':['name']},{'required':['phone']}]}
 v3_route('get','/roles','List scoped roles',response=listed('V3Role'),
     desc='Members and role grants are limited to the selected authorized environments. Only a reader with global roles.view and global environment.view can inventory unassigned historical roles and accounts.')
 v3_route('get','/roles/{id}','Read role matrix and associations',response=ref('V3RoleDetail'),
@@ -72,3 +90,9 @@ route('post','/auth/invitations/accept','Accept a one-time member invitation',ro
 P['/auth/invitations/accept']['post']['responses']['429'] = {
     'description':'Anonymous acceptance rate limit reached',
     'content':{'application/json':{'schema':ref('Error')}}}
+v3_route('get','/members/{id}','Read one visible member record',response=ref('V3MemberDetail'),
+    desc='Auxiliary backend route outside the frozen 166-page Mock contract. Rechecks the active account, members.view and selected-environment admission after account/role locks, then reads the target and visible roles in one database snapshot. Unassigned historical accounts require global members.view and global environment.view. Unknown, deleted, demo and out-of-scope targets are indistinguishable 404. recorded_source is the stored origin marker, not proof of current directory synchronization; MFA, successful last login and directory sync state are unknown. The decimal revision versions only name and phone edits.')
+v3_route('patch','/members/{id}','Change saved member contact display fields',
+    body=ref('V3MemberContactPatch'),response=ref('V3MemberDetail'),
+    desc='Auxiliary backend route outside the frozen 166-page Mock contract. Requires one selected environment, an active human account with members.view for that environment, global members.manage and global environment.view, and a visible locally owned target (recorded source=local). External or uncertain sources return 409 member_source_managed rather than overwriting directory-owned values. Changes only the globally stored name and phone; it cannot modify roles, department, status, email, MFA or external identity. expected_revision is a canonical decimal string; concurrent name/phone updates from this or other account writers return 409 member_changed. Strict nonempty patch, no unknown or duplicate fields, trimmed nonblank name up to 120 Unicode characters and trimmed nonblank phone up to 64 characters; null clears phone. The write and audit of changed field names commit together, then return the authorized persisted detail. The frozen frontend does not call this route.')
+P['/members/{id}']['patch']['responses']['409']['description'] = 'Member name or phone revision changed (member_changed), or external source owns the target (member_source_managed)'

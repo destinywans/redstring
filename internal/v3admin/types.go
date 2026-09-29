@@ -44,6 +44,29 @@ type member struct {
 	Agent      bool     `json:"agent,omitempty"`
 }
 
+type memberRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// memberDetail exposes only fields the account and association stores can
+// prove. External sync, MFA, and login evidence remain explicit unknowns.
+type memberDetail struct {
+	ID                 string      `json:"id"`
+	Name               string      `json:"name"`
+	Email              string      `json:"email"`
+	Department         *memberRef  `json:"department"`
+	Roles              []memberRef `json:"roles"`
+	Phone              *string     `json:"phone"`
+	Status             string      `json:"status"`
+	IdentityKind       string      `json:"identity_kind"`
+	RecordedSource     string      `json:"recorded_source"`
+	MFA                string      `json:"mfa"`
+	LastLogin          *string     `json:"last_login"`
+	DirectorySyncState string      `json:"directory_sync_state"`
+	Revision           string      `json:"revision"`
+}
+
 type memberCounts struct {
 	All      int  `json:"all"`
 	Admin    int  `json:"admin"`

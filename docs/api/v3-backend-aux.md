@@ -5,6 +5,8 @@
 | 方法 | 路径 | 参数与含义 |
 | --- | --- | --- |
 | POST | `/api/v1/auth/invitations/accept` | 公开的 JSON 辅助接口。受邀人提交 `{ code, name, password }`；一次性 256 位随机码只放请求体，数据库仅保存哈希，24 小时内且邮件投递方已接受后才可使用。接受与创建本地 `viewer` 账号、消费邀请码及无资料值审计在同一事务；新账号不自动取得环境或应用授权。共享 V3 环境与身份门禁仅对这一精确 POST 路由豁免；产品目前没有接受邀请的页面。 |
+| GET | `/api/v1/members/{id}` | 选定且已授权的环境内，当前有效账号具 `members.view` 时读取单个可见成员的 `MemberDetail`。返回持久账号字段、关联团队、该环境可见的角色 ID/名称和姓名/电话修订；`recorded_source` 只是保存的来源标记，不证明当前同步。`mfa` 与 `directory_sync_state` 为 `unknown`，`last_login` 为 `null`，不合成未登记或从未登录。调用者缺少权限返回 403；目标已删除、属于演示数据或在所选环境不可见时统一返回 404。账号或授权在读取排队中撤销时拒绝。 |
+| PATCH | `/api/v1/members/{id}` | 单一环境；当前有效人类账号须有该环境的 `members.view`、全局 `members.manage` 和全局 `environment.view`，目标须在所选环境可见且来源标记为本地 `local`。外部/未确认来源不由此接口覆盖，返回 409 `member_source_managed`。严格对象 `{ expected_revision: "十进制正整数", name?: string, phone?: string \| null }`，至少提交一个可编辑字段；姓名去空白后须非空且最多 120 字符，电话去空白后须非空且最多 64 字符，`null` 清除电话。写入只影响全局账号的姓名/电话，不授予跨环境角色或修改目录来源；事务内复核权限、对象范围与修订，保存及仅记录字段名的审计原子提交，返回当前 `MemberDetail`。旧修订为 409 `member_changed`，无效正文 422；其他账号/本人资料路径变更姓名/电话也推进修订。冻结成员页未调用此辅助接口。 |
 | GET | `/api/v1/me/mfa/totp` | 可选账户辅助接口；单一授权环境内读取本人 TOTP 状态 `none/pending/expired/active` 与剩余恢复码数，不返回种子或码。仅配置持久的 `AIOPS_V3_MFA_KEY_FILE` 后注册。 |
 | POST | `/api/v1/me/mfa/totp/enrollment` | 空请求体；同源浏览器信号、近 10 分钟登录和当前人类账号。返回一次性的种子、`otpauth_url` 与 10 分钟到期时间；待确认记录绑定原会话、实例层级与环境。 |
 | POST | `/api/v1/me/mfa/totp/confirm` | `{ code }` 确认待登记 TOTP，消费该时间步并仅在本次响应返回一次性恢复码；服务端只留独立加盐哈希。 |

@@ -85,6 +85,8 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"PUT /api/v1/roles/{id}", "roles", "manage"},
 		{"GET /api/v1/members", "members", "view"},
 		{"POST /api/v1/members/invitations", "members", "manage"},
+		{"GET /api/v1/members/{id}", "members", "view"},
+		{"PATCH /api/v1/members/{id}", "members", "view"},
 	} {
 		api.MarkV3Route(route.pattern, route.module, route.action)
 	}
@@ -94,6 +96,8 @@ func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/members", "viewer", s.members)
 	api.Register("POST /api/v1/members/invitations", "viewer", s.inviteMember)
 	api.RegisterPublic("POST /api/v1/auth/invitations/accept", s.acceptMemberInvitation)
+	api.Register("GET /api/v1/members/{id}", "viewer", s.memberDetail)
+	api.Register("PATCH /api/v1/members/{id}", "viewer", s.patchMember)
 }
 
 func scoped(r *http.Request) ([]string, bool) {

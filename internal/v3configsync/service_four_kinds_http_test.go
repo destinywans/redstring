@@ -407,6 +407,84 @@ func TestConfigSyncReadRechecksRevocationAfterRemoteCall(t *testing.T) {
 	}
 }
 
+func TestConfigSyncProductionReadRechecksGlobalManagerAfterRemoteCall(t *testing.T) {
+	fixture := fourKindFixtures(t)[3] // signed canvas template; no local export scope involved
+	s := seedReadFixtures(t, []readFixture{fixture})
+	repo := &readFixtureRepository{fakeRepository: &fakeRepository{}, fixtures: []readFixture{fixture}}
+	api := configServer(t, s, repo, "production")
+	if baseline := configRequest(api, "GET", "/api/v1/config-sync", "prod", "admin-token", ""); baseline.Code != 200 ||
+		!strings.Contains(baseline.Body.String(), fixture.title) {
+		t.Fatalf("production baseline: %d %s", baseline.Code, baseline.Body.String())
+	}
+	called := false
+	var callbackErr error
+	repo.onRead = func() {
+		called = true
+		_, callbackErr = s.DB.Exec(t.Context(), `DELETE FROM v3_effective_role_grants
+			WHERE user_id='admin' AND module='workspace' AND action='manage' AND scope_kind='global'`)
+	}
+	response := configRequest(api, "GET", "/api/v1/config-sync", "prod", "admin-token", "")
+	if !called || callbackErr != nil {
+		t.Fatalf("remote read callback: called=%v err=%v", called, callbackErr)
+	}
+	if response.Code != 403 || !strings.Contains(response.Body.String(), `"code":"forbidden"`) ||
+		strings.Contains(response.Body.String(), fixture.title) {
+		t.Fatalf("revoked production read leaked imported item: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestConfigSyncListRechecksSessionAfterRemoteCall(t *testing.T) {
+	for _, scenario := range []struct {
+		name, tier, token, userID, mutation string
+	}{
+		{"production_deleted", "production", "admin-token", "admin", "delete"},
+		{"nonprod_deleted", "nonprod", "owner-token", "owner", "delete"},
+		{"production_expired", "production", "admin-token", "admin", "expire"},
+		{"nonprod_disabled", "nonprod", "owner-token", "owner", "disable"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			fixture := fourKindFixtures(t)[3]
+			s := seedReadFixtures(t, []readFixture{fixture})
+			repo := &readFixtureRepository{fakeRepository: &fakeRepository{}, fixtures: []readFixture{fixture}}
+			api := configServer(t, s, repo, scenario.tier)
+			env := "test"
+			if scenario.tier == "production" {
+				env = "prod"
+			}
+			if baseline := configRequest(api, "GET", "/api/v1/config-sync", env, scenario.token, ""); baseline.Code != 200 ||
+				!strings.Contains(baseline.Body.String(), fixture.title) {
+				t.Fatalf("baseline: %d %s", baseline.Code, baseline.Body.String())
+			}
+			called := false
+			var callbackErr error
+			revoke := func() {
+				called = true
+				switch scenario.mutation {
+				case "delete":
+					_, callbackErr = s.DB.Exec(t.Context(), `DELETE FROM sessions WHERE token_hash=$1`, store.Hash(scenario.token))
+				case "expire":
+					_, callbackErr = s.DB.Exec(t.Context(), `UPDATE sessions SET expires_at=clock_timestamp()-interval '1 second' WHERE token_hash=$1`, store.Hash(scenario.token))
+				case "disable":
+					_, callbackErr = s.DB.Exec(t.Context(), `UPDATE users SET disabled=true WHERE id=$1`, scenario.userID)
+				}
+			}
+			if scenario.tier == "production" {
+				repo.onRead = revoke
+			} else {
+				repo.onLookup = revoke
+			}
+			response := configRequest(api, "GET", "/api/v1/config-sync", env, scenario.token, "")
+			if !called || callbackErr != nil {
+				t.Fatalf("remote callback: called=%v err=%v", called, callbackErr)
+			}
+			if response.Code != 401 || !strings.Contains(response.Body.String(), `"code":"unauthorized"`) ||
+				strings.Contains(response.Body.String(), fixture.title) {
+				t.Fatalf("revoked session leaked configuration item: %d %s", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
 func TestConfigSyncHistoricalPublishedRunbookExportStillVisible(t *testing.T) {
 	fixture := fourKindFixtures(t)[0]
 	s := seedReadFixtures(t, []readFixture{fixture})

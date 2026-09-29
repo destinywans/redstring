@@ -134,6 +134,11 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		direction = "import"
 		if err = s.authorizeGlobalManager(r.Context(), httpapi.CurrentUser(r), "prod", nil); err == nil {
 			items, err = s.importItems(r)
+			if err == nil {
+				// GitLab reads can outlive a global-manager grant. Recheck the
+				// current policy before returning any imported titles or metadata.
+				err = s.authorizeGlobalManager(r.Context(), httpapi.CurrentUser(r), "prod", nil)
+			}
 		}
 	} else {
 		items, err = s.exportItems(r, scope.EnvironmentIDs)
@@ -142,19 +147,48 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, r, err)
 		return
 	}
+	if err = s.authorizeCurrentListSession(r); err != nil {
+		s.writeError(w, r, err)
+		return
+	}
 	httpapi.WriteJSON(w, 200, map[string]any{"direction": direction, "items": items})
 }
 
+// The environment middleware authenticates at request entry, before remote
+// GitLab reads. Recheck the exact Cookie session and account immediately before
+// returning either list; a revoked or expired session must not receive items.
+func (s *Service) authorizeCurrentListSession(r *http.Request) error {
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil || cookie.Value == "" {
+		return errListSessionRevoked
+	}
+	var active bool
+	err = s.DB.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM sessions sess
+		JOIN users u ON u.id=sess.user_id
+		WHERE sess.token_hash=$1 AND sess.user_id=$2 AND sess.expires_at>clock_timestamp()
+		AND NOT u.disabled AND u.deleted_at IS NULL)`, store.Hash(cookie.Value), httpapi.CurrentUser(r).ID).Scan(&active)
+	if err != nil {
+		return err
+	}
+	if !active {
+		return errListSessionRevoked
+	}
+	return nil
+}
+
 var (
-	errResultLimit = errors.New("configuration list exceeds limit")
-	errInvalid     = errors.New("invalid configuration promotion request")
-	errUntrusted   = errors.New("configuration source is untrusted")
-	errUnavailable = errors.New("configuration source unavailable")
-	errBusy        = errors.New("configuration export already in progress")
+	errResultLimit        = errors.New("configuration list exceeds limit")
+	errInvalid            = errors.New("invalid configuration promotion request")
+	errUntrusted          = errors.New("configuration source is untrusted")
+	errUnavailable        = errors.New("configuration source unavailable")
+	errBusy               = errors.New("configuration export already in progress")
+	errListSessionRevoked = errors.New("configuration list session revoked")
 )
 
 func (s *Service) writeError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
+	case errors.Is(err, errListSessionRevoked):
+		problem(w, r, 401, "unauthorized", "请重新登录", "Sign in again")
 	case errors.Is(err, store.ErrForbidden):
 		problem(w, r, 403, "forbidden", "没有配置提升权限", "Configuration promotion denied")
 	case errors.Is(err, store.ErrNotFound), errors.Is(err, pgx.ErrNoRows):

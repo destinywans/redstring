@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3alertmanager"
@@ -619,6 +620,162 @@ func TestCreateSilenceProposalDoesNotBlockUnrelatedRoleRevocation(t *testing.T) 
 	var remaining int
 	if err := f.db.QueryRow(ctx, `SELECT count(*) FROM rbac_user_roles WHERE user_id=$1 AND role_id='viewer' AND origin='direct'`, other.ID).Scan(&remaining); err != nil || remaining != 0 {
 		t.Fatalf("unrelated role assignments remaining=%d err=%v", remaining, err)
+	}
+}
+
+// The old replay loaded its immutable parent after locking the grant table.
+// Reject holds the parent before reading the reviewer row; UpdateMember holds
+// that row before its role-sync trigger needs the grant table. Prelocking the
+// parent before grant sources breaks this three-transaction cycle. The session
+// advisory lock below is only a deterministic barrier in a disposable schema.
+func TestSilenceReplayRejectMemberUpdateDoesNotDeadlock(t *testing.T) {
+	f := newSilenceProposalFixture(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 12*time.Second)
+	defer cancel()
+	st := &store.Store{DB: f.db}
+	first, err := f.svc.CreateSilenceProposal(ctx, f.actor,
+		silenceProposalInput("replay-review-member-cycle"), f.ledger, f.client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+		VALUES('viewer','proposals','manage','application','app-1')`); err != nil {
+		t.Fatal(err)
+	}
+	reviewer, err := st.CreateUser(ctx, core.User{Email: "review-cycle@example.invalid", Name: "Review Cycle", Role: "viewer"}, "isolated-review-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, reviewerToken, err := st.Login(ctx, reviewer.Email, "isolated-review-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin, _, err := st.Login(ctx, "admin@example.invalid", "isolated-admin-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := httpapi.New(st, nil, true)
+	f.svc.Register(api)
+	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "test", EnvironmentIDs: []string{"test"}},
+		&rbac.V3Policy{Store: st}, st.Session, nil); err != nil {
+		t.Fatal(err)
+	}
+	// Every UpdateMember statement sets role, even when this test only disables
+	// the account. Its existing role-sync trigger will then write rbac_user_roles.
+	if _, err := f.db.Exec(ctx, `CREATE FUNCTION pause_review_member_update() RETURNS trigger LANGUAGE plpgsql AS $$
+	BEGIN
+	 IF NEW.id = '`+reviewer.ID+`' THEN PERFORM pg_advisory_xact_lock(hashtextextended(current_schema(), 0)); END IF;
+	 RETURN NEW;
+	END $$`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.Exec(ctx, `CREATE TRIGGER pause_review_member_update BEFORE UPDATE OF role ON users
+		FOR EACH ROW EXECUTE FUNCTION pause_review_member_update()`); err != nil {
+		t.Fatal(err)
+	}
+	barrier, err := f.db.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer barrier.Release()
+	if _, err := barrier.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended(current_schema(), 0))`); err != nil {
+		t.Fatal(err)
+	}
+	barrierHeld := true
+	defer func() {
+		if barrierHeld {
+			_, _ = barrier.Exec(context.Background(), `SELECT pg_advisory_unlock(hashtextextended(current_schema(), 0))`)
+		}
+	}()
+	memberDone := make(chan error, 1)
+	go func() {
+		disabled := true
+		_, err := st.UpdateMember(store.WithPrincipal(ctx, admin), reviewer.ID,
+			store.MemberUpdate{AccountUpdate: store.AccountUpdate{Disabled: &disabled}})
+		memberDone <- err
+	}()
+	waitForSilenceCycleLock(t, f.db, `UPDATE users SET email=`, memberDone)
+
+	rejectDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		r := httptest.NewRequest("POST", "/api/v1/proposals/"+first.ProposalID+"/reject",
+			strings.NewReader(`{"comment":"Unsafe"}`)).WithContext(ctx)
+		r.Header.Set("X-AIOps-Environment", "test")
+		r.Header.Set("Content-Type", "application/json")
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: reviewerToken})
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		rejectDone <- w
+	}()
+	waitForSilenceCycleLock(t, f.db, `SELECT v3_identity_kind='human' FROM users`, rejectDone)
+
+	replayDone := make(chan silenceCreateResult, 1)
+	go func() {
+		proposal, err := f.svc.CreateSilenceProposal(ctx, f.actor,
+			silenceProposalInput("replay-review-member-cycle"), f.ledger, f.client)
+		replayDone <- silenceCreateResult{proposal, err}
+	}()
+	// Both the old loader and the corrected prelock wait on the parent here.
+	waitForSilenceCycleLock(t, f.db, `FROM v3_proposal_actions`, replayDone)
+	if _, err := barrier.Exec(ctx, `SELECT pg_advisory_unlock(hashtextextended(current_schema(), 0))`); err != nil {
+		t.Fatal(err)
+	}
+	barrierHeld = false
+	select {
+	case err := <-memberDone:
+		if err != nil {
+			t.Fatalf("member disable after barrier: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("member disable did not finish")
+	}
+	select {
+	case response := <-rejectDone:
+		if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), `"code":"forbidden"`) {
+			t.Fatalf("disabled reviewer rejection status=%d body=%s", response.Code, response.Body.String())
+		}
+	case <-ctx.Done():
+		t.Fatal("reject did not finish")
+	}
+	select {
+	case result := <-replayDone:
+		if result.err != nil || result.proposal != first {
+			t.Fatalf("immutable replay=%+v err=%v; want %+v", result.proposal, result.err, first)
+		}
+	case <-ctx.Done():
+		t.Fatal("replay did not finish")
+	}
+	var status string
+	var rejects int
+	if err := f.db.QueryRow(ctx, `SELECT status FROM v3_proposals WHERE id=$1`, first.ProposalID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE target=$1 AND action='v3.proposal.rejected'`, first.ProposalID).Scan(&rejects); err != nil {
+		t.Fatal(err)
+	}
+	if status != "pending" || rejects != 0 || f.requests.Load() != 0 {
+		t.Fatalf("disabled reviewer changed proposal or called upstream: status=%s reject audits=%d requests=%d",
+			status, rejects, f.requests.Load())
+	}
+}
+
+func waitForSilenceCycleLock[T any](t *testing.T, db *pgxpool.Pool, query string, done <-chan T) {
+	t.Helper()
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-done:
+			t.Fatalf("operation finished before waiting for lock: %s", query)
+		case <-ticker.C:
+			if pgQueryWaitingForLock(t, db, query) {
+				return
+			}
+		case <-deadline.C:
+			t.Fatalf("operation did not wait for lock: %s", query)
+		}
 	}
 }
 

@@ -176,6 +176,13 @@ func (s *Service) CreateSilenceProposal(ctx context.Context, actor core.User, in
 	if err != nil {
 		return zero, err
 	}
+	// A retry may wait for a reviewer holding the proposal row. Acquire that
+	// row before locking the global grant sources: reviewers can wait for a
+	// member row while member updates wait for grant-table writes.
+	existingID, err := prelockExistingSilenceAction(ctx, tx, actor.ID, in.Silence.IdempotencyKey)
+	if err != nil {
+		return zero, err
+	}
 	if err = lockSilenceProposalGrantSources(ctx, tx, actor); err != nil {
 		return zero, err
 	}
@@ -217,10 +224,7 @@ func (s *Service) CreateSilenceProposal(ctx context.Context, actor core.User, in
 	if err != nil {
 		return zero, err
 	}
-	var existingID string
-	err = tx.QueryRow(ctx, `SELECT proposal_id FROM v3_proposal_actions
- WHERE creator_id=$1 AND idempotency_key=$2 FOR UPDATE`, actor.ID, prepared.IdempotencyKey).Scan(&existingID)
-	if err == nil {
+	if existingID != "" {
 		stored, result, loadErr := loadSilenceActionWithTx(ctx, tx, existingID)
 		if loadErr != nil {
 			return zero, loadErr
@@ -236,9 +240,6 @@ func (s *Service) CreateSilenceProposal(ctx context.Context, actor core.User, in
 			return zero, err
 		}
 		return result, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return zero, err
 	}
 	actionRaw, err := canonicalProposalJSON(action)
 	if err != nil {
@@ -284,6 +285,17 @@ func (s *Service) CreateSilenceProposal(ctx context.Context, actor core.User, in
 		return zero, err
 	}
 	return SilenceProposalResult{ProposalID: id, ActionDigest: actionDigest, Status: "pending"}, nil
+}
+
+func prelockExistingSilenceAction(ctx context.Context, tx pgx.Tx, actorID, key string) (string, error) {
+	var proposalID string
+	err := tx.QueryRow(ctx, `SELECT a.proposal_id FROM v3_proposal_actions a
+ JOIN v3_proposals p ON p.id=a.proposal_id
+ WHERE a.creator_id=$1 AND a.idempotency_key=$2 FOR SHARE OF a,p`, actorID, key).Scan(&proposalID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return proposalID, err
 }
 
 func preauthorizeSilenceProposalActor(ctx context.Context, tx pgx.Tx, actor core.User) error {

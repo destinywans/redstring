@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -162,28 +163,39 @@ func (s *Service) remindMembersMFA(w http.ResponseWriter, r *http.Request) {
 		if skip {
 			continue // A recent accepted send is not counted again.
 		}
-		receipt, sendErr := s.MFAReminders.Sender.SendMFAReminder(r.Context(), FeishuMFAReminder{
-			OpenID: snapshot.Members[id].FeishuOpenID, Environment: envs[0], DeliveryID: attemptID,
-		})
-		if sendErr != nil || receipt.MessageID == "" {
-			if errors.Is(sendErr, errMFAReminderUnavailable) {
-				// The concrete sender uses this only before issuing the Feishu
-				// message request (for example, tenant-token acquisition).
+		started, sendErr := s.sendAuthorizedMFAReminder(r.Context(), actor, token, envs[0], id,
+			attemptID, snapshot.ObservedAt, snapshot.Members[id].FeishuOpenID)
+		if sendErr != nil {
+			if !started || errors.Is(sendErr, errMFAReminderUnavailable) {
+				// The concrete sender returns unavailable only before issuing
+				// the Feishu message request.
 				s.markMFAReminderFailed(attemptID)
-				mfaReminderError(w, errMFAReminderUnavailable)
+				mfaReminderError(w, sendErr)
 				return
 			}
 			s.markMFAReminderUncertain(attemptID)
 			mfaReminderError(w, errMFAReminderUncertain)
 			return
 		}
-		if err := s.confirmMFAReminder(r.Context(), actor, token, envs[0], id, attemptID, receipt.MessageID); err != nil {
-			// A Feishu-accepted send whose audit could not commit remains pending.
-			// Retrying it would risk duplicate delivery.
-			mfaReminderError(w, errMFAReminderUncertain)
+		sent++
+	}
+	if sent == 0 {
+		// The source read may have taken time even when nobody needs a
+		// message. Do not return an authorized-looking success for a revoked
+		// actor or a changed visible population.
+		if time.Since(snapshot.ObservedAt) > 5*time.Minute {
+			mfaReminderError(w, errMFAReminderUnavailable)
 			return
 		}
-		sent++
+		latest, err := s.mfaReminderTargets(r.Context(), actor, token, envs[0])
+		if err != nil {
+			mfaReminderError(w, err)
+			return
+		}
+		if !slices.Equal(ids, latest) {
+			mfaReminderError(w, errMFAReminderUnavailable)
+			return
+		}
 	}
 	httpapi.WriteJSON(w, 200, map[string]int{"sent": sent})
 }
@@ -349,34 +361,103 @@ func (s *Service) markMFAReminderFailed(id string) {
  WHERE id=$1 AND status='pending'`, id)
 }
 
-func (s *Service) confirmMFAReminder(ctx context.Context, actor core.User, token, env, target, id, messageID string) error {
-	tx, err := s.Store.DB.Begin(ctx)
+// sendAuthorizedMFAReminder keeps the current actor, role matrix, target, and
+// pending attempt locked across the external send. A revocation that commits
+// after prepare but before these locks is observed before Feishu is called;
+// one that races after the locks waits until the send and audit finish.
+// started means the sender was invoked, so an unknown outcome must not be
+// retried. The concrete sender's unavailable error is a pre-message failure.
+func (s *Service) sendAuthorizedMFAReminder(ctx context.Context, actor core.User, token, env, target, id string,
+	evidenceAt time.Time, openID string) (started bool, err error) {
+	operationCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	tx, err := s.Store.DB.Begin(operationCtx)
 	if err != nil {
-		return err
+		return false, err
 	}
-	defer tx.Rollback(ctx)
-	if err = memberIdentityLocks(ctx, tx, false); err != nil {
-		return err
+	defer tx.Rollback(operationCtx)
+	if err = memberIdentityLocks(operationCtx, tx, false); err != nil {
+		return false, err
 	}
-	if err = s.authorizeInvitation(ctx, tx, actor, token, env); err != nil {
-		return err
+	if err = s.authorizeInvitation(operationCtx, tx, actor, token, env); err != nil {
+		return false, err
+	}
+	// Lock the concrete recipient account as well as the actor account.
+	// Identity writers take the advisory locks above; direct disable/delete
+	// writers also have to wait for this row lock.
+	var activeID string
+	err = tx.QueryRow(operationCtx, `SELECT u.id FROM users u
+ WHERE u.id=$1 AND u.deleted_at IS NULL AND NOT u.disabled
+ AND u.v3_identity_kind='human' AND u.source<>'settings_demo'
+ AND (NOT EXISTS(SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=u.id
+  AND g.module='environment' AND g.action='view'
+  AND g.scope_kind IN ('global','environment'))
+ OR EXISTS(SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=u.id
+  AND g.module='environment' AND g.action='view'
+  AND (g.scope_kind='global' OR (g.scope_kind='environment' AND g.scope_id=$2))))
+ FOR SHARE OF u`, target, env).Scan(&activeID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, store.ErrForbidden
+	}
+	if err != nil {
+		return false, err
+	}
+	var recordedAt time.Time
+	err = tx.QueryRow(operationCtx, `SELECT mfa_observed_at FROM v3_mfa_reminder_attempts
+ WHERE id=$1 AND environment_id=$2 AND target_id=$3 AND actor_id=$4 AND status='pending'
+ FOR UPDATE`, id, env, target, actor.ID).Scan(&recordedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, errMFAReminderUncertain
+	}
+	if err != nil {
+		return false, err
+	}
+	deadline, _ := operationCtx.Deadline()
+	if !recordedAt.Equal(evidenceAt) || evidenceAt.IsZero() || time.Since(evidenceAt) > 5*time.Minute ||
+		!feishuOpenIDPattern.MatchString(openID) || time.Until(deadline) < 9*time.Second {
+		return false, errMFAReminderUnavailable
+	}
+	// A session expiring during the bounded send cannot authorize that send.
+	// The extra margin covers audit/commit and is checked again afterwards.
+	var sessionLongEnough bool
+	if err = tx.QueryRow(operationCtx, `SELECT expires_at>clock_timestamp()+interval '10 seconds'
+ FROM sessions WHERE token_hash=$1 AND user_id=$2 FOR SHARE`, store.Hash(token), actor.ID).Scan(&sessionLongEnough); err != nil {
+		return false, err
+	}
+	if !sessionLongEnough {
+		return false, store.ErrSessionRevoked
+	}
+	sendCtx, stopSend := context.WithTimeout(operationCtx, 8*time.Second)
+	defer stopSend()
+	started = true
+	receipt, sendErr := s.MFAReminders.Sender.SendMFAReminder(sendCtx, FeishuMFAReminder{
+		OpenID: openID, Environment: env, DeliveryID: id,
+	})
+	if sendErr != nil {
+		return true, sendErr
+	}
+	if receipt.MessageID == "" {
+		return true, errMFAReminderUncertain
 	}
 	var changed string
-	if err = tx.QueryRow(ctx, `UPDATE v3_mfa_reminder_attempts
+	if err = tx.QueryRow(operationCtx, `UPDATE v3_mfa_reminder_attempts
  SET status='accepted',accepted_at=clock_timestamp(),feishu_message_id=$1
  WHERE id=$2 AND environment_id=$3 AND target_id=$4 AND actor_id=$5 AND status='pending'
- RETURNING id`, messageID, id, env, target, actor.ID).Scan(&changed); err != nil {
-		return err
+	 RETURNING id`, receipt.MessageID, id, env, target, actor.ID).Scan(&changed); err != nil {
+		return true, errMFAReminderUncertain
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes)
+	if _, err = tx.Exec(operationCtx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes)
  VALUES($1,'v3.member.mfa_reminder.feishu_accepted',$2,'success',
  jsonb_build_object('environment',$3,'attempt_id',$4,'feishu_message_id',$5,
  'mfa_observed_at',(SELECT mfa_observed_at FROM v3_mfa_reminder_attempts WHERE id=$4)))`,
-		actor.ID, target, env, id, messageID); err != nil {
-		return err
+		actor.ID, target, env, id, receipt.MessageID); err != nil {
+		return true, errMFAReminderUncertain
 	}
-	if err = store.LockActiveSession(ctx, tx, token, actor.ID); err != nil {
-		return err
+	if err = store.LockActiveSession(operationCtx, tx, token, actor.ID); err != nil {
+		return true, errMFAReminderUncertain
 	}
-	return tx.Commit(ctx)
+	if err = tx.Commit(operationCtx); err != nil {
+		return true, errMFAReminderUncertain
+	}
+	return true, nil
 }

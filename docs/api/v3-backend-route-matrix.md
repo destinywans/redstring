@@ -159,8 +159,8 @@
 | 设置 | DELETE | `/me/sessions/{id}` | 新增 | implemented |
 | 设置 | GET | `/members` | 聚合 | implemented |
 | 设置 | POST | `/members/invitations` | 新增 | implemented |
-| 设置 | POST | `/members/sync` | 新增 | mock |
-| 设置 | POST | `/members/mfa-reminders` | 新增 | mock |
+| 设置 | POST | `/members/sync` | 新增 | implemented |
+| 设置 | POST | `/members/mfa-reminders` | 新增 | implemented |
 | 设置 | GET | `/roles` | 新增 | implemented |
 | 设置 | GET | `/roles/{id}` | 聚合 | implemented |
 | 设置 | PUT | `/roles/{id}` | 新增 | implemented |

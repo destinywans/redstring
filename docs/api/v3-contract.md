@@ -383,7 +383,7 @@ Prompt 列表只返回有真实版本的已授权记录，支持最多 160 字�
 
 ## 设置（`settings.ts`）
 
-`GET /members` 在当前账号、所选环境与 `members.view` 权限下从持久成员/角色表读取可见成员，并在读取事务中复核当前授权。`last_login`、`counts.no_mfa`、`mfa_grace_days` 缺可信来源时为 `null`，`items[].mfa="na"` 表示未知，不代表未启用；`filter=no_mfa` 返回 `503 member_mfa_unavailable`，不以空集合冒充筛选。组层级和目录同步状态也未知，`complete_v3_dto=false`。主 GET 仅按本阶段受权真实读取与可空字段标准计 `implemented`，冻结前端仍将未知当确定数值显示，页面未验收。新增辅助成员详情/联系方式 PATCH 只改本地持久姓名和电话，不触及角色、MFA 或外部目录身份；同步与 MFA 提醒虽有领域适配器，正式入口尚未注入受信 Feishu/MFA 来源，主 POST 继续 `mock` 并返回 503。
+`GET /members` 在当前账号、所选环境与 `members.view` 权限下从持久成员/角色表读取可见成员，并在读取事务中复核当前授权。`last_login`、`counts.no_mfa`、`mfa_grace_days` 缺可信来源时为 `null`，`items[].mfa="na"` 表示未知，不代表未启用；`filter=no_mfa` 返回 `503 member_mfa_unavailable`，不以空集合冒充筛选。组层级和目录同步状态也未知，`complete_v3_dto=false`。主 GET 仅按本阶段受权真实读取与可空字段标准计 `implemented`，冻结前端仍将未知当确定数值显示，页面未验收。新增辅助成员详情/联系方式 PATCH 只改本地持久姓名和电话，不触及角色、MFA 或外部目录身份；同步与 MFA 提醒已接默认关闭的受信来源配置：只有私有配置精确绑定当前实例、单环境及经审定的飞书租户时才存在条件式成功路径；未配置或选择其他环境明确不可用。MFA 证据请求与响应均需回证实例、租户和环境，且完整覆盖当前可见真人及已核实 open ID；提醒须有专用飞书 bot，成功仅证明 API 接受并落库，批次中途失败时已送达者不能回滚。不因本地 TOTP 或目录缺席推断 MFA/离职。两条主 POST 只按条件式后端成功路径计 `implemented`；同租户权限、真实凭据、迁移、发送及冻结页面未验收，见[成员来源与提醒配置](v3-member-sources.md)。
 
 `POST /members/invitations` 只由当前真人会话在单环境、全局 `members.manage` 与 `environment.view` 下发出本地只读 `viewer` 邀请。发送前与接受时复核该可编辑角色的实际权限，禁用环境准入、应用/团队范围及任何写权限；邀请码有 256 位随机熵，只存哈希，24 小时且 SMTP relay 接受 DATA 后才可用于公开的 `POST /auth/invitations/accept`。接受事务创建本地账号与审计，但不自动授予环境或应用访问。发送只在完整配置的证书验证 TLS 465 SMTP、受保护密码文件、与实例域一致的 HTTPS 产品入口和安全 Cookie 下启用；未配置返回 503，半配置或错域在启动时失败。Relay 接受不证明最终邮箱送达；匿名接受在进程内限速，部署多副本仍需入口共享限速。迁移 `138_v3_member_invitations.sql` 尚未在现有库执行；当前产品没有接受页，真实邮件与浏览器未验。本阶段只做代码、契约和最小编译，未跑测试或发送邮件。
 
@@ -396,8 +396,8 @@ Prompt 列表只返回有真实版本的已授权记录，支持最多 160 字�
 | DELETE | `/me/sessions/{id}` | | 204 | implemented |
 | GET | `/members` | `filter: all\|admin\|no_mfa\|disabled`, `q`；`no_mfa` 缺证据时 503 | 当前受权持久成员与角色；登录、MFA、组与目录来源未知时可空 | implemented |
 | POST | `/members/invitations` | `{ email, role?: "viewer" }` | `{ ok: true }`；仅 SMTP relay 接受且状态落库后成功 | implemented |
-| POST | `/members/sync` | | `{ added, updated }` | mock |
-| POST | `/members/mfa-reminders` | | `{ sent }` | mock |
+| POST | `/members/sync` | 单环境、空请求体；当前人类成员管理员 | 受审、完整的单环境飞书目录快照落库后返回 `{ added, updated }`；新成员默认禁用 viewer，不自动授应用/环境权限，身份冲突失败 | implemented |
+| POST | `/members/mfa-reminders` | 单环境、空请求体；当前人类成员管理员 | 同实例、租户与环境绑定的完整新鲜 MFA/飞书收件人证据下，受限向未登记成员发送；飞书接受并保存回执后返回 `{ sent }`，部分发送或不确定结果明确报错 | implemented |
 | GET | `/roles` | | `{ items: Role[] }` | implemented |
 | GET | `/roles/{id}` | | `RoleDetail` 与响应头 `X-Role-Matrix-Revision` | implemented |
 | PUT | `/roles/{id}` | `{ matrix }` 和 GET 返回的 `If-Role-Matrix-Revision`；机器身份的“批准”列必须拒绝 | `{ ok: true }` 与新矩阵版本响应头 | implemented |
@@ -414,6 +414,8 @@ Prompt 列表只返回有真实版本的已授权记录，支持最多 160 字�
 | POST | `/audit/export` | 过滤条件 | `{ url }` | implemented |
 
 `GET/PUT /me/profile` 已接可选受信 HTTPS 身份证据来源：只有当前真人账号、活动 Cookie 会话、单环境查看权、完整且新鲜的联系人验证、MFA 因子及全部会话设备/登录方式证据与本实例持久登记一致时才返回完整 `ProfileView`。PUT 只改可编辑资料和通知偏好，事务内复核并审计；不允许借完整提交改写联系人、部门或安全事实。两条仅按有条件后端路径计 `implemented`；默认未配置来源时返回 `503 identity_evidence_unavailable`，仓库尚无可提供全部设备/登录方式的权威生产者，真实来源与冻结页面未验收；见[本人资料证据边界](v3-profile-evidence.md)。会话删除是独立接口。
+
+`POST /members/sync` 与 `POST /members/mfa-reminders` 可通过受保护的单环境成员来源配置接入飞书目录、权威 MFA/收件人证据及专用提醒机器人，默认不配置时明确 503。同步在读取完整目录后于写入事务重核管理员、会话和成员归属；新成员默认禁用且不授环境/应用权限，也不因快照缺席自动离职。提醒要求同实例、租户和环境绑定的五分钟内完整证据，单次最多 20 人、每位收件人 24 小时及每位管理员每小时最多 100 条；外发前再次锁定管理员、会话、目标和待发送台账，发送与回执审计保持同一限时授权事务。部分或未知发送结果不能当作全部失败并自动重试。两条只按受审来源齐备时的后端条件成功路径计 `implemented`；仓库未提供实际 MFA 权威服务，飞书租户/权限、现有库迁移、真实发送与冻结页面均未验收；见[成员来源配置](v3-member-sources.md)。
 
 `GET /workspace` 在读取事务内复核当前有效账号与所选环境 `workspace.view`，读取持久化记录；缺失或损坏时返回 `503 workspace_unavailable`，不会合成默认值。`PUT /workspace` 严格校验单个 JSON 对象、已知字段和值，使用该记录与旧设置接口共用的 `revision` 比较 `If-Match`，在事务中复核账号、平台管理员身份和全局 `workspace.manage`，保存与审计一起提交；`data_region` 和品牌字段为只读部署声明，提交值必须与已存值相同。新建本地或目录导入成员现在继承已保存的 `timezone`、`locale`；已有成员不被改写。slug、`week_start` 和留存天数仍只是保存配置，尚未驱动链接、日历或清理行为；`data_region` 不能证明物理驻留。冻结前端工作区页尚未传递 GET 的 ETag，真实 PUT 会返回 428，整页未验收。
 

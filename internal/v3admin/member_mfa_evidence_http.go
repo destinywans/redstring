@@ -20,10 +20,23 @@ type HTTPMFAEvidenceConfig struct {
 	BearerToken string
 }
 
+// BoundHTTPMFAEvidenceConfig is the formal deployment binding. The upstream
+// must attest the exact instance, tenant binding and environment on each
+// response; operator configuration alone cannot establish response ownership.
+type BoundHTTPMFAEvidenceConfig struct {
+	HTTPMFAEvidenceConfig
+	InstanceID      string
+	TenantBindingID string
+	EnvironmentID   string
+}
+
 type HTTPMFAEvidenceSource struct {
-	endpoint string
-	token    string
-	client   *http.Client
+	endpoint        string
+	token           string
+	client          *http.Client
+	instanceID      string
+	tenantBindingID string
+	environmentID   string
 }
 
 func NewHTTPMFAEvidenceSource(config HTTPMFAEvidenceConfig) (*HTTPMFAEvidenceSource, error) {
@@ -40,15 +53,34 @@ func NewHTTPMFAEvidenceSource(config HTTPMFAEvidenceConfig) (*HTTPMFAEvidenceSou
 		}}}, nil
 }
 
+func NewBoundHTTPMFAEvidenceSource(config BoundHTTPMFAEvidenceConfig) (*HTTPMFAEvidenceSource, error) {
+	if config.InstanceID == "" || strings.TrimSpace(config.InstanceID) != config.InstanceID ||
+		config.TenantBindingID == "" || strings.TrimSpace(config.TenantBindingID) != config.TenantBindingID ||
+		config.EnvironmentID == "" || strings.TrimSpace(config.EnvironmentID) != config.EnvironmentID {
+		return nil, errMFAReminderUnavailable
+	}
+	source, err := NewHTTPMFAEvidenceSource(config.HTTPMFAEvidenceConfig)
+	if err != nil {
+		return nil, err
+	}
+	source.instanceID = config.InstanceID
+	source.tenantBindingID = config.TenantBindingID
+	source.environmentID = config.EnvironmentID
+	return source, nil
+}
+
 func (s *HTTPMFAEvidenceSource) Snapshot(ctx context.Context, environment string, userIDs []string) (MFASnapshot, error) {
 	var empty MFASnapshot
-	if s == nil || environment == "" || len(userIDs) > 1000 {
+	if s == nil || environment == "" || len(userIDs) > 1000 ||
+		(s.instanceID != "" && environment != s.environmentID) {
 		return empty, errMFAReminderUnavailable
 	}
 	requestBody, err := json.Marshal(struct {
-		Environment string   `json:"environment_id"`
-		UserIDs     []string `json:"user_ids"`
-	}{environment, userIDs})
+		InstanceID      string   `json:"instance_id,omitempty"`
+		TenantBindingID string   `json:"tenant_binding_id,omitempty"`
+		Environment     string   `json:"environment_id"`
+		UserIDs         []string `json:"user_ids"`
+	}{s.instanceID, s.tenantBindingID, environment, userIDs})
 	if err != nil {
 		return empty, errMFAReminderUnavailable
 	}
@@ -67,13 +99,20 @@ func (s *HTTPMFAEvidenceSource) Snapshot(ctx context.Context, environment string
 	if res.StatusCode != http.StatusOK {
 		return empty, errMFAReminderUnavailable
 	}
-	decoder := json.NewDecoder(io.LimitReader(res.Body, 1<<20))
+	content, err := io.ReadAll(io.LimitReader(res.Body, (1<<20)+1))
+	if err != nil || len(content) > 1<<20 {
+		return empty, errMFAReminderUnavailable
+	}
+	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()
 	var payload struct {
-		Environment string      `json:"environment_id"`
-		Snapshot    MFASnapshot `json:"snapshot"`
+		InstanceID      string      `json:"instance_id"`
+		TenantBindingID string      `json:"tenant_binding_id"`
+		Environment     string      `json:"environment_id"`
+		Snapshot        MFASnapshot `json:"snapshot"`
 	}
-	if err = decoder.Decode(&payload); err != nil || payload.Environment != environment {
+	if err = decoder.Decode(&payload); err != nil || payload.Environment != environment ||
+		(s.instanceID != "" && (payload.InstanceID != s.instanceID || payload.TenantBindingID != s.tenantBindingID)) {
 		return empty, errMFAReminderUnavailable
 	}
 	if err = decoder.Decode(new(any)); !errors.Is(err, io.EOF) {

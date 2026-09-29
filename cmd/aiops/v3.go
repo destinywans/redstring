@@ -297,8 +297,15 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	if err != nil {
 		return fmt.Errorf("configure V3 member invitations: %w", err)
 	}
+	memberSources, err := loadV3MemberSources(os.Getenv("AIOPS_V3_MEMBER_SOURCES_CONFIG"), *info, s)
+	if err != nil {
+		return fmt.Errorf("configure V3 member sources: %w", err)
+	}
 	admin := v3admin.New(s)
 	admin.Invitations = invitations
+	admin.MemberSync = memberSources.MemberSync
+	admin.MFAEvidence = memberSources.MFAEvidence
+	admin.MFAReminders = memberSources.MFAReminders
 	admin.Register(api)
 	lowerSources, err := loadV3LowerSources(os.Getenv("AIOPS_V3_LOWER_SOURCES_CONFIG"), cfg.Tier)
 	if err != nil {

@@ -19,6 +19,12 @@ S['V3IncidentSummary'] = obj({**fieldnames('id title duration commander'),
     'severity':string(enum=['P1','P2','P3','P4']),
     'status':string(enum=['active','mitigated','resolved'])},
     ['id','severity','title','status','duration','commander'])
+S['V3IncidentCaseSummary'] = obj({**fieldnames('id title application_id environment_id'),
+    'severity':string(enum=['P1','P2','P3','P4']),
+    'status':string(enum=['active','mitigated','resolved']),
+    'duration':{'type':'null'},'commander':{'type':['string','null']},
+    'record_kind':string(enum=['case'])},
+    ['id','severity','title','status','duration','commander','record_kind','application_id','environment_id'])
 S['V3IncidentTimelineEntry'] = obj({'time':string(format='date-time'),
     'actor':obj({'kind':string(enum=['brand','ai','person']),'name':string()},['kind','name']),
     'text':string()},['time','actor','text'])
@@ -47,7 +53,7 @@ S['V3AlertDetail'] = obj({
      'grouping','assignee_id','investigation_id','unavailable'])
 v3_route('get','/alerts/{id}','Read evidence-backed persisted alert detail',
     response=ref('V3AlertDetail'),
-    desc='Resolves a persisted ops_incidents ID in the selected V3 environment. Current session, mapped application, current owner team, and events.view are checked under transaction locks before returning. revision is the incident-row xmin action token, not a representation ETag: notification status can change independently. Notification rows report local enqueue time and transport status only; at most the latest 500 are returned, with notifications_truncated and unavailable when more exist. The nonempty source_id is the persisted ingress identity, not proof that its configuration remains active. Provider name, original alert labels, metric series and threshold, rule, triage, runbook, real notification group, inhibition and change association have no exact occurrence binding; these fields are null and named in unavailable. The persisted incident ID is the only established grouping link. Malformed severity/state or cross-scope notification records return 503, not a synthetic value. This is a backend nullable contract; the frozen AlertDetail page requires non-null fields and is not yet accepted.')
+    desc='Resolves a persisted ops_incidents ID in the selected V3 environment. Current session, mapped application, current owner team, and events.view are checked under transaction locks before returning. revision is the incident-row xmin action token, not a representation ETag: notification status can change independently. Notification rows report local enqueue time and transport status only; at most the latest 500 are returned, with notifications_truncated and unavailable when more exist. The nonempty source_id is the persisted ingress identity, not proof that its configuration remains active. Provider name, original alert labels, metric series and threshold, rule, triage, runbook, real notification group, inhibition and change association have no exact occurrence binding; these fields are null and named in unavailable. grouping.incident.id is the linked human case when one is recorded for this exact alert and application/environment, otherwise the original persisted alert occurrence ID. Malformed severity/state or cross-scope records return 503, not a synthetic value. This is a backend nullable contract; the frozen AlertDetail page requires non-null fields and is not yet accepted.')
 v3_route('post','/alerts/{id}/claim','Claim a persisted alert with an incident revision',role='operator',
     body=obj({'expected_revision':string(pattern='^[1-9][0-9]{0,9}$')},['expected_revision']),
     response=ref('V3AlertDetail'),
@@ -108,11 +114,40 @@ for v3_parameter in P['/alert-groups']['get']['parameters']:
 v3_route('get','/alert-groups/{id}/policy','Read configured policy for one authorized local alert group',
     response=ref('V3AlertGroupPolicy'),
     desc='The ID resolves only currently authorized persisted incident members. When all members have the same exact captured webhook labels, and an explicit server-owned source/environment/application binding agrees, a trusted environment Alertmanager /api/v2/status read evaluates the matching route tree, inherited group_by and timing, and all matching receiver names without returning raw YAML or receiver secrets. Provider I/O occurs outside database locks; member contents and current session/grants are rechecked afterward. Missing binding, historical labels or ambiguous route return null policy fields with unavailable; malformed or failed configured provider and scope mismatch fail closed. Timeline contains only up to 500 local platform notification rows, with current queue status and done=null; it is not Alertmanager delivery history. Inhibition and current silence remain unknown. Frozen frontend assumes non-null policy fields and a Mock group ID, so page acceptance remains pending.')
-v3_route('get','/incidents','List scoped incidents',response=obj({'items':arr(ref('V3IncidentSummary')),
+v3_route('get','/incidents','List scoped incidents',response=obj({'items':arr({'oneOf':[ref('V3IncidentSummary'),ref('V3IncidentCaseSummary')]}),
     'counts':obj({k:integer(minimum=0) for k in ['active','resolved','all']},
         ['active','resolved','all'])}, ['items','counts']),
     query=[v3_query('status',string(enum=['active','resolved','all'],default='active'))],
-    desc='Counts cover all visible incidents regardless of the selected status. A mitigated incident remains active until work is resolved. Duplicate, empty, or unknown status values return 422.')
+    desc='Counts cover all visible persisted alert occurrences not linked to a case plus current authorized human-confirmed cases, regardless of the selected status. The link table is locked across both reads to avoid a duplicate case and alert entry. Case summaries identify record_kind=case and leave unknown duration/commander null. A mitigated incident remains active until work is resolved. More than 5000 entries returns 503; duplicate, empty, or unknown status values return 422.')
+S['V3IncidentDraftAlert'] = obj({'id':string(), 'severity':string(enum=['P1','P2','P3','P4']),
+    'text':string(), 'at':string(format='date-time')}, ['id','severity','text','at'])
+S['V3IncidentDraft'] = obj({
+    'title':string(), 'severity':string(enum=['P1','P2','P3','P4']), 'severity_hint':string(),
+    'env':string(), 'services':arr(obj({'id':string(),'tier':{'type':'null'}},['id','tier'])),
+    'impact':{'type':'null'}, 'alerts':{'type':'array','minItems':1,'maxItems':20,'items':ref('V3IncidentDraftAlert')},
+    'commander':{'type':'null'}, 'participants':arr(string()), 'war_room':{'type':'null'},
+    'source':string(enum=['persisted_alerts']), 'partial':v3_bool(), 'unavailable':arr(string())},
+    ['title','severity','severity_hint','env','services','impact','alerts','commander','participants','war_room','source','partial','unavailable'])
+v3_route('get','/incidents/draft','Prefill an incident from selected persisted alerts',
+    response=ref('V3IncidentDraft'),query=[v3_query('alerts',string(description='Comma-separated 1–20 distinct persisted alert IDs'))],
+    desc='Requires explicit alert IDs. Every active alert must be currently visible, unlinked, and bound to the same application and environment. The title and highest severity come from persisted alerts; impact, service tier, commander, participants, war room and AI analysis are unknown. A current session and V3 events.view are checked under transaction locks. The frozen page sends no alerts query and expects fabricated non-null values; frontend acceptance remains pending.')
+P['/incidents/draft']['get']['parameters'][0]['required'] = True
+S['V3IncidentCreateRequest'] = obj({
+    'title':string(minLength=1,maxLength=300),'severity':string(enum=['P1','P2','P3','P4']),
+    'impact':{'type':['string','null'],'maxLength':2000},'env':string(),
+    'services':{'type':'array','minItems':1,'maxItems':1,'items':string()},
+    'alert_ids':{'type':'array','minItems':1,'maxItems':20,'uniqueItems':True,'items':string()},
+    'commander':{'type':['string','null'],'maxLength':200},
+    **{name:v3_bool() for name in ['war_room','notify','status_page','open_canvas']}},
+    ['title','severity','env','services','alert_ids'])
+S['V3IncidentCreateResult'] = obj({'id':string(),'investigation_id':string()}, ['id'])
+v3_route('post','/incidents','Create a human-confirmed incident from persisted alerts',role='operator',
+    body=ref('V3IncidentCreateRequest'),response=ref('V3IncidentCreateResult'),status=201,
+    desc='Requires an Idempotency-Key header (8–128 ASCII identifier characters). Selected alerts must be active, unlinked, currently authorized for events.view and events.change, and bound to one current application/environment mapping. The human-confirmed incident, alert links, optional blank investigation and audit commit in one transaction; the same key/body retry returns 200, a changed body or already-linked alert returns 409. open_canvas requires independent canvas.view and canvas.change and supports prod/staging/test only. war_room, notify and status_page currently return 503 when requested because V3 has no configured and running executor for those external actions. No delivery or AI inference is claimed. The frozen frontend defaults to unavailable external actions and sends no idempotency key; page acceptance remains pending.')
+P['/incidents']['post'].setdefault('parameters', []).append({'name':'Idempotency-Key','in':'header','required':True,
+    'schema':string(minLength=8,maxLength=128,pattern='^[A-Za-z0-9][A-Za-z0-9._:-]*$')})
+P['/incidents']['post']['responses']['200'] = {'description':'Idempotent retry with the same request body',
+    'content':{'application/json':{'schema':ref('V3IncidentCreateResult')}}}
 S['V3IncidentDetailAssignee'] = obj({'id':string(),'name':string()},['id','name'])
 S['V3IncidentDetailNote'] = obj({'id':string(),'time':string(format='date-time'),
     'actor':obj({'kind':string(enum=['human','machine']),'id':string(),'name':string()},
@@ -144,15 +179,43 @@ S['V3IncidentDetail'] = obj({
      'work_status','alert_status','summary','alert_started_at','updated_at','resolved_at','duration',
      'duration_basis','assignee_id','assignee','commander','stage','timeline','timeline_scope',
      'impact','roles','links','investigation_id','partial','unavailable'])
+S['V3IncidentCaseImpact'] = obj({
+    'peak':{'type':'null'},'budget_used':{'type':'null'},'budget_left':{'type':'null'},
+    'note':{'type':['string','null']},'series':{'type':'null'}},
+    ['peak','budget_used','budget_left','note','series'])
+S['V3IncidentCaseDetail'] = obj({
+    **fieldnames('id application_id environment_id environment_key title'),
+    'record_kind':string(enum=['case']),
+    'source_id':{'type':'null'},'severity':string(enum=['P1','P2','P3','P4']),
+    'status':string(enum=['active','mitigated','resolved']),
+    **{name:{'type':'null'} for name in ['work_status','alert_status','summary','alert_started_at',
+        'resolved_at','duration','duration_basis','assignee_id','assignee','stage']},
+    'created_at':string(format='date-time'),'updated_at':string(format='date-time'),
+    'commander':{'type':['string','null']},
+    'commander_provenance':string(enum=['unknown','human_confirmed']),
+    'timeline':{'type':'array','maxItems':500,'items':ref('V3IncidentDetailNote')},
+    'timeline_scope':string(enum=['manual_only']),
+    'impact':ref('V3IncidentCaseImpact'),
+    'impact_provenance':string(enum=['unknown','human_confirmed']),
+    'roles':arr(ref('V3IncidentDetailRole')),'links':arr(ref('V3IncidentDetailLink')),
+    'investigation_id':{'type':['string','null']},
+    'alert_ids':{'type':'array','minItems':1,'maxItems':64,'items':string()},
+    'partial':v3_bool(),'unavailable':arr(string())},
+    ['id','record_kind','application_id','environment_id','environment_key','source_id','severity','title',
+     'status','work_status','alert_status','summary','created_at','alert_started_at','updated_at',
+     'resolved_at','duration','duration_basis','assignee_id','assignee','commander',
+     'commander_provenance','stage','timeline','timeline_scope','impact','impact_provenance',
+     'roles','links','investigation_id','alert_ids','partial','unavailable'])
 v3_route('get','/incidents/{id}','Read persisted incident facts and manual notes',
-    response=ref('V3IncidentDetail'),
-    desc='Resolves a persisted incident ID under current V3 environment, application, owner-team, session and events.view authorization in one transaction. Returns the recorded work/alert status, strict severity, summary, assigned user when present, and up to 500 explicitly appended v3_incident_timeline notes; actor kind and current name come from the users row. Investigation linkage and close time are accepted only when the referenced investigation belongs to the same application/environment. The alert start is reported separately; incident duration has no established lifecycle start and remains null. Commander, five-step stage, SLO peak/error-budget/series, system/AI timeline, and proposal/change links are unknown and explicitly listed in unavailable. More than 500 notes or inconsistent persisted references fail closed. The frozen page still assumes non-null duration, stage and impact and expects other actor kinds, so page acceptance is pending.')
+    response={'oneOf':[ref('V3IncidentDetail'),ref('V3IncidentCaseDetail')]},
+    desc='Resolves either a persisted alert occurrence or a human-confirmed case under current V3 application, environment, owner-team, session and events.view authorization in one transaction. Case details include exact linked alert IDs, human-entered impact/commander with provenance, creation time, and nullable alert-only facts; every link and optional investigation is checked against the persisted application/environment. Existing alert-occurrence details retain their earlier partial contract. More than 500 notes, over 64 links, or inconsistent persisted references fail closed. The frozen page still assumes non-null duration, stage and SLO impact, so page acceptance is pending.')
 v3_route('post','/incidents/{id}/timeline','Append a durable incident note',
-    role='operator',body=obj({'text':string()},['text']),response=ref('V3IncidentTimelineEntry'),status=201)
+    role='operator',body=obj({'text':string()},['text']),response=ref('V3IncidentTimelineEntry'),status=201,
+    desc='Human-confirmed cases accept manual notes under current V3 events.change, application/environment/team and session locks. The note, case updated_at and audit commit atomically; linked alert occurrences are not mutated. The historical alert-backed path retains its existing behavior.')
 v3_route('get','/incidents/{id}/timeline/manual','Read persisted human incident notes',
     response=obj({'items':{'type':'array','items':ref('V3IncidentTimelineEntry'),'maxItems':500},
         'scope':string(enum=['manual_only'])}, ['items','scope']),
-    desc='Auxiliary read outside the 166 V3 page contracts. Resolves the incident application and environment from persisted records and checks current events.view before reading its manually authored v3_incident_timeline rows. Items are ordered by persisted created_at and ID; the actor name comes from the current user record. The response contains no inferred system or AI entries, impact, error budget, or complete incident detail. An absent or inaccessible incident returns 404; more than 500 manual entries or storage failure returns 503 without a partial list. This route does not replace GET /incidents/{id}.')
+    desc='Auxiliary read outside the 166 V3 page contracts. Resolves either a human-confirmed case or the historical alert occurrence, checks current events.view, and reads manually authored v3_incident_timeline rows. Case reads recheck current application/environment/team, session and grants in one transaction. Items are ordered by persisted created_at and ID; actor names come from current user records. The response contains no inferred system or AI entries, impact, error budget, or complete incident detail. An absent or inaccessible incident returns 404; more than 500 manual entries or storage failure returns 503 without a partial list. This route does not replace GET /incidents/{id}.')
 S['V3ObservedAlertRuleSummary'] = obj({**fieldnames('id folder name environment_id application_id'),
     'state':string(enum=['firing','pending','ok'])},
     ['id','folder','name','state','environment_id','application_id'])

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -47,6 +48,10 @@ func New(db *pgxpool.Pool, authorize Authorize, authorizeTx AuthorizeWithTx) *Se
 func (s *Service) RegisterNew(api *httpapi.Server) {
 	api.Register("GET /api/v1/inbox", "viewer", s.Inbox)
 	api.MarkV3ObjectRoute("GET /api/v1/inbox", "events", "view")
+	api.Register("GET /api/v1/incidents/draft", "viewer", s.IncidentDraft)
+	api.MarkV3ObjectRoute("GET /api/v1/incidents/draft", "events", "view")
+	api.Register("POST /api/v1/incidents", "operator", s.CreateIncident)
+	api.MarkV3ObjectRoute("POST /api/v1/incidents", "events", "change")
 	api.Register("GET /api/v1/alert-groups", "viewer", s.AlertGroups)
 	api.MarkV3ObjectRoute("GET /api/v1/alert-groups", "events", "view")
 	api.Register("GET /api/v1/alert-groups/{id}/policy", "viewer", s.AlertGroupPolicy)
@@ -90,6 +95,51 @@ func scanIncident(row pgx.Row) (incidentRecord, error) {
 	var v incidentRecord
 	err := row.Scan(&v.ID, &v.SourceID, &v.Fingerprint, &v.Labels, &v.ApplicationID, &v.EnvironmentID, &v.EnvironmentKey, &v.Title, &v.Severity, &v.Status, &v.AlertStatus, &v.Summary, &v.AssigneeID, &v.Commander, &v.InvestigationID, &v.StartsAt, &v.UpdatedAt, &v.ResolvedAt)
 	return v, err
+}
+
+// A V3 case is a human-confirmed incident, distinct from an incoming alert
+// occurrence. Nullable fields have no verified value when they were not set.
+type caseRecord struct {
+	ID, ApplicationID, EnvironmentID, EnvironmentKey, Title, Severity, Status, ActorID string
+	Impact, CommanderText, InvestigationID                                             *string
+	CreatedAt, UpdatedAt                                                               time.Time
+}
+
+const caseSelect = `SELECT c.id,c.application_id,c.environment_id,c.environment_key,
+ c.title,c.severity,c.impact,c.commander_text,c.status,c.actor_id,c.investigation_id,
+ c.created_at,c.updated_at
+ FROM v3_incident_cases c
+ JOIN application_environments e ON e.id=c.environment_id AND e.application_id=c.application_id
+   AND e.key=c.environment_key AND NOT e.archived
+ JOIN v3_application_environments ve ON ve.application_id=c.application_id
+   AND ve.environment_id=c.environment_key
+ JOIN applications a ON a.id=c.application_id AND NOT a.archived`
+
+func scanCase(row pgx.Row) (caseRecord, error) {
+	var v caseRecord
+	err := row.Scan(&v.ID, &v.ApplicationID, &v.EnvironmentID, &v.EnvironmentKey,
+		&v.Title, &v.Severity, &v.Impact, &v.CommanderText, &v.Status,
+		&v.ActorID, &v.InvestigationID, &v.CreatedAt, &v.UpdatedAt)
+	return v, err
+}
+
+func validCase(v caseRecord) bool {
+	if v.ID == "" || v.ApplicationID == "" || v.EnvironmentID == "" || v.EnvironmentKey == "" ||
+		v.ActorID == "" || strings.TrimSpace(v.Title) == "" || v.CreatedAt.IsZero() || v.UpdatedAt.IsZero() ||
+		v.UpdatedAt.Before(v.CreatedAt) {
+		return false
+	}
+	switch v.Severity {
+	case "P1", "P2", "P3", "P4":
+	default:
+		return false
+	}
+	switch v.Status {
+	case "active", "mitigated", "resolved":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) scoped(r *http.Request, app, env, action string) error {
@@ -272,29 +322,48 @@ func summarize(v incidentRecord, now time.Time) incidentSummary {
 	return incidentSummary{ID: v.ID, Severity: severity(v.Severity), Title: v.Title, Status: status, Duration: elapsed, Commander: v.Commander}
 }
 
-func (s *Service) listVisible(r *http.Request) ([]incidentRecord, error) {
+func (s *Service) listVisible(r *http.Request, tx pgx.Tx) ([]incidentRecord, error) {
 	scope, ok := httpapi.V3ScopeFromContext(r.Context())
-	if !ok || len(scope.EnvironmentIDs) == 0 || s.DB == nil || s.Authorize == nil {
+	if !ok || len(scope.EnvironmentIDs) == 0 || tx == nil || (s.Authorize == nil && s.AuthorizeTx == nil) {
 		return nil, store.ErrForbidden
 	}
-	rows, err := s.DB.Query(r.Context(), incidentSelect+` WHERE e.key=ANY($1::text[]) ORDER BY i.updated_at DESC,i.id DESC LIMIT 5001`, scope.EnvironmentIDs)
+	rows, err := tx.Query(r.Context(), incidentSelect+` WHERE e.key=ANY($1::text[])
+ AND NOT EXISTS (SELECT 1 FROM v3_incident_case_alerts linked WHERE linked.alert_id=i.id)
+ ORDER BY i.updated_at DESC,i.id DESC LIMIT 5001 FOR SHARE OF i`, scope.EnvironmentIDs)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	out := make([]incidentRecord, 0)
+	candidates := make([]incidentRecord, 0)
 	scanned := 0
 	for rows.Next() {
 		scanned++
 		// A bounded query must never be mistaken for complete totals.
 		if scanned > 5000 {
+			rows.Close()
 			return nil, errTooManyIncidents
 		}
 		v, err := scanIncident(rows)
 		if err != nil {
+			rows.Close()
 			return nil, err
 		}
-		if err = s.scoped(r, v.ApplicationID, v.EnvironmentKey, "view"); err != nil {
+		candidates = append(candidates, v)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range candidates {
+		if s.AuthorizeTx != nil {
+			err = s.authorizeAlertTx(r, tx, v, "view")
+		} else {
+			// Older callers without transaction-aware V3 policy keep their
+			// existing read behavior; created cases remain unavailable to them.
+			err = s.scoped(r, v.ApplicationID, v.EnvironmentKey, "view")
+		}
+		if err != nil {
 			if errors.Is(err, store.ErrForbidden) || errors.Is(err, store.ErrNotFound) {
 				continue
 			}
@@ -302,7 +371,59 @@ func (s *Service) listVisible(r *http.Request) ([]incidentRecord, error) {
 		}
 		out = append(out, v)
 	}
-	return out, rows.Err()
+	return out, nil
+}
+
+func (s *Service) listVisibleCases(r *http.Request, tx pgx.Tx) ([]caseRecord, error) {
+	scope, ok := httpapi.V3ScopeFromContext(r.Context())
+	if !ok || len(scope.EnvironmentIDs) == 0 || tx == nil {
+		return nil, store.ErrForbidden
+	}
+	rows, err := tx.Query(r.Context(), caseSelect+` WHERE c.environment_key=ANY($1::text[])
+ ORDER BY c.updated_at DESC,c.id DESC LIMIT 5001 FOR SHARE OF c`, scope.EnvironmentIDs)
+	if err != nil {
+		return nil, err
+	}
+	candidates := make([]caseRecord, 0)
+	for rows.Next() {
+		if len(candidates) == 5000 {
+			rows.Close()
+			return nil, errTooManyIncidents
+		}
+		v, scanErr := scanCase(rows)
+		if scanErr != nil {
+			rows.Close()
+			return nil, scanErr
+		}
+		candidates = append(candidates, v)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if len(candidates) > 0 && s.AuthorizeTx == nil {
+		return nil, store.ErrInvalidReference
+	}
+	out := make([]caseRecord, 0, len(candidates))
+	for _, v := range candidates {
+		// authorizeAlertTx uses only the persisted application/environment
+		// identity. It also locks the current owner, session and V3 grant rows.
+		identity := incidentRecord{ApplicationID: v.ApplicationID,
+			EnvironmentID: v.EnvironmentID, EnvironmentKey: v.EnvironmentKey}
+		err = s.authorizeAlertTx(r, tx, identity, "view")
+		if errors.Is(err, store.ErrForbidden) || errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !validCase(v) {
+			return nil, store.ErrInvalidReference
+		}
+		out = append(out, v)
+	}
+	return out, nil
 }
 
 var errTooManyIncidents = errors.New("V3 incident list exceeds unpaginated safety limit")
@@ -313,13 +434,108 @@ func (s *Service) Incidents(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "invalid_status", "Use active, resolved, or all")
 		return
 	}
-	values, err := s.listVisible(r)
+	if s == nil || s.DB == nil {
+		respondErr(w, store.ErrInvalidReference)
+		return
+	}
+	// Read committed lets the final V3 grant check observe a concurrent revoke.
+	// The link table lock serializes creation with both list reads, so one alert
+	// cannot appear both alone and inside a newly committed case.
+	tx, err := s.DB.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		respondErr(w, err)
 		return
 	}
-	items, counts := incidentList(values, filter, time.Now())
+	defer tx.Rollback(r.Context())
+	if _, err = tx.Exec(r.Context(), `LOCK TABLE v3_incident_case_alerts IN SHARE MODE`); err != nil {
+		respondErr(w, err)
+		return
+	}
+	values, err := s.listVisible(r, tx)
+	if err != nil {
+		respondErr(w, err)
+		return
+	}
+	cases, err := s.listVisibleCases(r, tx)
+	if err != nil {
+		respondErr(w, err)
+		return
+	}
+	if len(values)+len(cases) > 5000 {
+		respondErr(w, errTooManyIncidents)
+		return
+	}
+	if err = activeAlertReadSession(r.Context(), tx, r); err != nil {
+		respondErr(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		respondErr(w, err)
+		return
+	}
+	items, counts := incidentListWithCases(values, cases, filter, time.Now())
+	w.Header().Set("Cache-Control", "no-store")
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items, "counts": counts})
+}
+
+type caseSummary struct {
+	ID            string  `json:"id"`
+	Severity      string  `json:"severity"`
+	Title         string  `json:"title"`
+	Status        string  `json:"status"`
+	Duration      *string `json:"duration"`
+	Commander     *string `json:"commander"`
+	RecordKind    string  `json:"record_kind"`
+	ApplicationID string  `json:"application_id"`
+	EnvironmentID string  `json:"environment_id"`
+}
+
+type datedIncidentSummary struct {
+	updated time.Time
+	id      string
+	status  string
+	value   any
+}
+
+func incidentListWithCases(alerts []incidentRecord, cases []caseRecord, filter string, now time.Time) ([]any, map[string]int) {
+	items := make([]datedIncidentSummary, 0, len(alerts)+len(cases))
+	counts := map[string]int{"all": 0, "active": 0, "resolved": 0}
+	for _, v := range alerts {
+		status := incidentStatus(v)
+		counts["all"]++
+		if status == "resolved" {
+			counts["resolved"]++
+		} else {
+			counts["active"]++
+		}
+		items = append(items, datedIncidentSummary{v.UpdatedAt, v.ID, status, summarize(v, now)})
+	}
+	for _, v := range cases {
+		counts["all"]++
+		if v.Status == "resolved" {
+			counts["resolved"]++
+		} else {
+			counts["active"]++
+		}
+		items = append(items, datedIncidentSummary{v.UpdatedAt, v.ID, v.Status,
+			caseSummary{ID: v.ID, Severity: v.Severity, Title: v.Title, Status: v.Status,
+				Commander: v.CommanderText, RecordKind: "case", ApplicationID: v.ApplicationID,
+				EnvironmentID: v.EnvironmentKey}})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].updated.Equal(items[j].updated) {
+			return items[i].id > items[j].id
+		}
+		return items[i].updated.After(items[j].updated)
+	})
+	visible := make([]any, 0, len(items))
+	for _, item := range items {
+		if filter == "active" && item.status == "resolved" || filter == "resolved" && item.status != "resolved" {
+			continue
+		}
+		visible = append(visible, item.value)
+	}
+	return visible, counts
 }
 
 func incidentFilter(query url.Values) (string, bool) {
@@ -384,6 +600,15 @@ func (s *Service) AppendTimeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
+	caseValue, caseErr := scanCase(tx.QueryRow(r.Context(), caseSelect+` WHERE c.id=$1 FOR UPDATE OF c`, r.PathValue("id")))
+	if caseErr == nil {
+		s.appendCaseTimeline(w, r, tx, caseValue, input.Text)
+		return
+	}
+	if !errors.Is(caseErr, pgx.ErrNoRows) {
+		respondErr(w, caseErr)
+		return
+	}
 	v, err := scanIncident(tx.QueryRow(r.Context(), incidentSelect+` WHERE i.id=$1 FOR UPDATE OF i`, r.PathValue("id")))
 	if err != nil {
 		respondErr(w, err)
@@ -423,6 +648,8 @@ func (s *Service) AppendTimeline(w http.ResponseWriter, r *http.Request) {
 
 func respondErr(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, store.ErrSessionRevoked):
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
 	case errors.Is(err, pgx.ErrNoRows), errors.Is(err, store.ErrNotFound):
 		httpapi.Error(w, 404, "not_found", "Event not found")
 	case errors.Is(err, store.ErrForbidden):

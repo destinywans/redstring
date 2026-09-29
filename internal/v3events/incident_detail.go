@@ -12,6 +12,7 @@ import (
 )
 
 var errTooManyIncidentNotes = errors.New("incident manual timeline exceeds read limit")
+var errTooManyCaseAlerts = errors.New("incident case alert links exceed read limit")
 
 // IncidentDetailResponse reports only facts bound to the persisted incident.
 // In particular, an alert's start time is not an incident lifecycle event,
@@ -82,6 +83,153 @@ type incidentDetailLink struct {
 	Href  string `json:"href"`
 }
 
+// CaseIncidentDetailResponse keeps alert-only facts nullable. The commander
+// text is human-confirmed display data, not an assigned or verified role.
+type CaseIncidentDetailResponse struct {
+	ID                  string                  `json:"id"`
+	RecordKind          string                  `json:"record_kind"`
+	ApplicationID       string                  `json:"application_id"`
+	EnvironmentID       string                  `json:"environment_id"`
+	EnvironmentKey      string                  `json:"environment_key"`
+	SourceID            *string                 `json:"source_id"`
+	Severity            string                  `json:"severity"`
+	Title               string                  `json:"title"`
+	Status              string                  `json:"status"`
+	WorkStatus          *string                 `json:"work_status"`
+	AlertStatus         *string                 `json:"alert_status"`
+	Summary             *string                 `json:"summary"`
+	CreatedAt           string                  `json:"created_at"`
+	AlertStartedAt      *string                 `json:"alert_started_at"`
+	UpdatedAt           string                  `json:"updated_at"`
+	ResolvedAt          *string                 `json:"resolved_at"`
+	Duration            *string                 `json:"duration"`
+	DurationBasis       *string                 `json:"duration_basis"`
+	AssigneeID          *string                 `json:"assignee_id"`
+	Assignee            *incidentDetailAssignee `json:"assignee"`
+	Commander           *string                 `json:"commander"`
+	CommanderProvenance string                  `json:"commander_provenance"`
+	Stage               *int                    `json:"stage"`
+	Timeline            []incidentDetailNote    `json:"timeline"`
+	TimelineScope       string                  `json:"timeline_scope"`
+	Impact              incidentDetailImpact    `json:"impact"`
+	ImpactProvenance    string                  `json:"impact_provenance"`
+	Roles               []incidentDetailRole    `json:"roles"`
+	Links               []incidentDetailLink    `json:"links"`
+	InvestigationID     *string                 `json:"investigation_id"`
+	AlertIDs            []string                `json:"alert_ids"`
+	Partial             bool                    `json:"partial"`
+	Unavailable         []string                `json:"unavailable"`
+}
+
+// A link has no FK to ops_incidents because that table is created after the
+// store migrations. Validate every target against the case's persisted scope
+// before reporting it as an associated alert ID.
+func readCaseAlertIDs(r *http.Request, tx pgx.Tx, v caseRecord) ([]string, error) {
+	rows, err := tx.Query(r.Context(), `SELECT link.alert_id,i.application_id,i.environment_id
+		FROM v3_incident_case_alerts link
+		LEFT JOIN ops_incidents i ON i.id=link.alert_id
+		WHERE link.case_id=$1 ORDER BY link.alert_id LIMIT 65`, v.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]string, 0)
+	for rows.Next() {
+		if len(items) == 64 {
+			return nil, errTooManyCaseAlerts
+		}
+		var id string
+		var app, env *string
+		if err := rows.Scan(&id, &app, &env); err != nil {
+			return nil, err
+		}
+		if id == "" || app == nil || env == nil || *app != v.ApplicationID || *env != v.EnvironmentID {
+			return nil, store.ErrInvalidReference
+		}
+		items = append(items, id)
+	}
+	return items, rows.Err()
+}
+
+func (s *Service) caseIncidentDetail(w http.ResponseWriter, r *http.Request, tx pgx.Tx, v caseRecord) {
+	if s.AuthorizeTx == nil {
+		respondIncidentDetailError(w, store.ErrInvalidReference)
+		return
+	}
+	if err := s.authorizeAlertTx(r, tx, incidentRecord{ApplicationID: v.ApplicationID,
+		EnvironmentID: v.EnvironmentID, EnvironmentKey: v.EnvironmentKey}, "view"); err != nil {
+		respondIncidentDetailError(w, err)
+		return
+	}
+	if !validCase(v) {
+		respondIncidentDetailError(w, store.ErrInvalidReference)
+		return
+	}
+	if v.InvestigationID != nil {
+		var app string
+		var env *string
+		err := tx.QueryRow(r.Context(), `SELECT application_id,environment_id FROM investigations
+			WHERE id=$1 FOR SHARE`, *v.InvestigationID).Scan(&app, &env)
+		if err != nil || app != v.ApplicationID || env == nil || *env != v.EnvironmentID {
+			if errors.Is(err, pgx.ErrNoRows) || err == nil {
+				err = store.ErrInvalidReference
+			}
+			respondIncidentDetailError(w, err)
+			return
+		}
+	}
+	alertIDs, err := readCaseAlertIDs(r, tx, v)
+	if err != nil {
+		respondIncidentDetailError(w, err)
+		return
+	}
+	if len(alertIDs) == 0 {
+		respondIncidentDetailError(w, store.ErrInvalidReference)
+		return
+	}
+	timeline, err := readIncidentManualTimeline(r, tx, v.ID)
+	if err != nil {
+		respondIncidentDetailError(w, err)
+		return
+	}
+	result := CaseIncidentDetailResponse{
+		ID: v.ID, RecordKind: "case", ApplicationID: v.ApplicationID,
+		EnvironmentID: v.EnvironmentID, EnvironmentKey: v.EnvironmentKey,
+		Severity: v.Severity, Title: v.Title, Status: v.Status,
+		CreatedAt: v.CreatedAt.UTC().Format(time.RFC3339Nano),
+		UpdatedAt: v.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		Commander: v.CommanderText, CommanderProvenance: "unknown",
+		Timeline: timeline, TimelineScope: "manual_only",
+		Impact: incidentDetailImpact{Note: v.Impact}, ImpactProvenance: "unknown",
+		Roles: []incidentDetailRole{}, Links: []incidentDetailLink{},
+		InvestigationID: v.InvestigationID, AlertIDs: alertIDs, Partial: true,
+		Unavailable: []string{"source_id", "work_status", "alert_status", "summary", "alert_started_at",
+			"resolved_at", "duration", "duration_basis", "assignee", "stage", "impact.peak",
+			"impact.budget_used", "impact.budget_left", "impact.series", "timeline.system_events",
+			"links.alert_group", "links.proposal", "links.change"},
+	}
+	if v.CommanderText != nil {
+		result.CommanderProvenance = "human_confirmed"
+	} else {
+		result.Unavailable = append(result.Unavailable, "commander")
+	}
+	if v.Impact != nil {
+		result.ImpactProvenance = "human_confirmed"
+	} else {
+		result.Unavailable = append(result.Unavailable, "impact.note")
+	}
+	if err = activeAlertReadSession(r.Context(), tx, r); err != nil {
+		respondIncidentDetailError(w, err)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		respondIncidentDetailError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	httpapi.WriteJSON(w, http.StatusOK, result)
+}
+
 func incidentDetailState(v incidentRecord) (string, bool) {
 	switch v.Status {
 	case "open", "investigating", "resolved":
@@ -148,6 +296,15 @@ func (s *Service) Incident(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
+	caseValue, err := scanCase(tx.QueryRow(r.Context(), caseSelect+` WHERE c.id=$1 FOR SHARE OF c`, r.PathValue("id")))
+	if err == nil {
+		s.caseIncidentDetail(w, r, tx, caseValue)
+		return
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		respondIncidentDetailError(w, err)
+		return
+	}
 	v, err := scanIncident(tx.QueryRow(r.Context(), incidentSelect+` WHERE i.id=$1 FOR SHARE OF i`, r.PathValue("id")))
 	if err != nil {
 		respondIncidentDetailError(w, err)
@@ -245,6 +402,8 @@ func respondIncidentDetailError(w http.ResponseWriter, err error) {
 		httpapi.Error(w, http.StatusUnauthorized, "unauthorized", "Session expired")
 	case errors.Is(err, errTooManyIncidentNotes):
 		httpapi.Error(w, http.StatusServiceUnavailable, "pagination_required", "Manual timeline exceeds the current read limit")
+	case errors.Is(err, errTooManyCaseAlerts):
+		httpapi.Error(w, http.StatusServiceUnavailable, "pagination_required", "Incident alert links exceed the current read limit")
 	case errors.Is(err, store.ErrInvalidReference):
 		httpapi.Error(w, http.StatusServiceUnavailable, "incident_detail_unavailable", "Persisted incident data is inconsistent")
 	default:

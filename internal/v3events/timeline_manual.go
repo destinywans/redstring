@@ -17,6 +17,9 @@ func (s *Service) ManualTimeline(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, http.StatusServiceUnavailable, "events_unavailable", "Event storage unavailable")
 		return
 	}
+	if s.caseManualTimeline(w, r) {
+		return
+	}
 	v, err := s.incident(r.Context(), r.PathValue("id"))
 	if errors.Is(err, pgx.ErrNoRows) {
 		httpapi.Error(w, http.StatusNotFound, "not_found", "Event not found")

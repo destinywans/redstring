@@ -144,6 +144,20 @@ func (s *Service) alertDetailTx(ctx context.Context, tx pgx.Tx, v incidentRecord
 		result.Unavailable = append(result.Unavailable, "notifications_complete")
 	}
 	result.Grouping.Incident.ID = v.ID
+	var caseID, caseApp, caseEnv *string
+	err = tx.QueryRow(ctx, `SELECT c.id,c.application_id,c.environment_id
+		FROM v3_incident_case_alerts link
+		LEFT JOIN v3_incident_cases c ON c.id=link.case_id
+		WHERE link.alert_id=$1`, v.ID).Scan(&caseID, &caseApp, &caseEnv)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return AlertDetailResponse{}, err
+	}
+	if err == nil {
+		if caseID == nil || caseApp == nil || caseEnv == nil || *caseApp != v.ApplicationID || *caseEnv != v.EnvironmentID {
+			return AlertDetailResponse{}, store.ErrInvalidReference
+		}
+		result.Grouping.Incident.ID = *caseID
+	}
 	return result, nil
 }
 

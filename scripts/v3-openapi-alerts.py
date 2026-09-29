@@ -206,6 +206,25 @@ v3_route('post','/alert-rules/{id}/dry-run','Simulate one authorized rule from r
     body=ref('V3RuleDryRunRequest'), response=ref('V3RuleDryRunResult'),
     desc='Read-only, exactly one selected environment. Resolve a unique active rule using the server-owned file/group-to-application binding, matching provider labels and current application or owner-team alert_rules.view; unknown or hidden rules do not expose a result. The submitted expr must exactly equal that current rule expression, which must itself be reviewed as trusted configuration. The for duration may vary from 0s to 1h. Query the configured environment Prometheus query_range over the last six hours plus bounded pre-roll at the observed rule-group interval (15s to 5m, or a disclosed 1m fallback when omitted). Every returned vector series must itself carry the exact bound environment and application labels; missing or mixed scope fails closed. A vector element is active by its presence, including numeric zero. would_fire counts distinct series episodes that newly reach for within those six hours; windows contains one sorted UTC start/end interval per episode, at most 500. This is a sampled simulation from real query data, not persisted historical alert state or a notification replay; provider query_offset and keep_firing_for are not reproduced. The rule, owner, scope, and grants are rechecked after query_range; changed scope fails closed. Missing source or partial/malformed/over-limit provider data returns 503 without synthetic counts. The frozen frontend still sends threshold/for_minutes rather than expr/for; page acceptance remains pending.')
 
+S['V3NotificationRouteTestRequest'] = obj({
+    'labels':{'type':'object','minProperties':1,'maxProperties':100,
+        'propertyNames':{'pattern':'^[a-zA-Z_][a-zA-Z0-9_]*$'},
+        'properties':{'application':string(minLength=1,maxLength=256)},
+        'required':['application'],'additionalProperties':string(maxLength=1024),
+        'description':'Values are limited to 1024 UTF-8 bytes and cannot contain NUL or line breaks. The configured environment label is enforced server-side; application must have an exact active binding.'}}, ['labels'])
+S['V3NotificationRouteTestResult'] = obj({
+    **fieldnames('environment_id application_id group_wait group_interval repeat_interval'),
+    'receiver_names':arr(string()),'group_by':arr(string()),
+    'observed_at':string(format='date-time'),
+    **{name:{'type':'null'} for name in ['path','hits','channel_targets']},
+    'partial':v3_bool(),'unavailable':arr(string())},
+    ['environment_id','application_id','receiver_names','group_by','group_wait',
+     'group_interval','repeat_interval','observed_at','path','hits',
+     'channel_targets','partial','unavailable'])
+v3_route('post','/notification-routes/test','Evaluate current Alertmanager policy for a bound sample alert',
+    body=ref('V3NotificationRouteTestRequest'), response=ref('V3NotificationRouteTestResult'),
+    desc='Read-only policy observation; does not save a route, send a notification or test a draft. Requires one selected environment and environment-wide alert_rules.view plus alert_rules.manage because arbitrary sample labels could reveal shared routing configuration. labels must contain an exact application provider label explicitly bound to a current active application; the configured environment label is enforced by the server. The environment grant, application binding and current owner are rechecked after the Alertmanager status read. Returns only sanitized receiver names and observed grouping/timing. Time-conditional or conflicting policy returns 503 instead of claiming a current receiver. Route path, 24-hour hits, receiver channels/targets and current time-interval activity are unknown/null. The frozen frontend sends a labels string and expects a path and receiver string, so page acceptance remains pending.')
+
 S['V3SilenceMatcher'] = obj(fieldnames('k v'), ['k','v'])
 S['V3SilencePreviewMatcher'] = obj({'k':string(pattern='^[a-zA-Z_][a-zA-Z0-9_]*$'),'op':string(enum=['=','!=','=~','!~']),
     'v':string(minLength=1,maxLength=256,description='The server enforces a 256 UTF-8 byte maximum.')}, ['k','op','v'])

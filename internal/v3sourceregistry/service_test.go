@@ -20,7 +20,7 @@ func TestConnectionValidationRejectsCredentialsAndUnprovenSchemes(t *testing.T) 
 			}
 		})
 	}
-	if err := validateConnection("confluence", "https://wiki.example.test", "vault:kv/readonly"); err != nil {
+	if err := validateConnection("confluence", "https://wiki.example.test", "vault://kv/readonly#token"); err != nil {
 		t.Fatalf("rejected valid registration reference: %v", err)
 	}
 	if err := validateConnection("web", "https://docs.example.test/guide.md", ""); err != nil {
@@ -43,7 +43,7 @@ func TestConnectionValidationRejectsCredentialsAndUnprovenSchemes(t *testing.T) 
 func TestRegistrationRequiresExplicitBoundedConfig(t *testing.T) {
 	yes := true
 	v := request{Name: "SRE wiki", Type: "confluence", URL: "https://wiki.example.test",
-		SecretRef: "vault:kv/readonly", Spaces: []string{"SRE"}, Schedule: "manual", Chunk: "heading", InheritACL: &yes}
+		SecretRef: "vault://kv/readonly#token", Spaces: []string{"SRE"}, Schedule: "manual", Chunk: "heading", InheritACL: &yes}
 	if err := validateCreate(v); err != nil {
 		t.Fatalf("valid registration: %v", err)
 	}

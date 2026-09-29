@@ -198,8 +198,24 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 	}
 	const address = "https://example.com/guide.md"
 	probe := request("/api/v1/knowledge-sources/test", `{"type":"web","url":"`+address+`","secret_ref":""}`)
-	if probe.Code != http.StatusNotImplemented || !strings.Contains(probe.Body.String(), `"code":"source_connection_test_unavailable"`) || fetches.Load() != 0 {
-		t.Fatalf("unscoped public Web probe unexpectedly reached the page: %d %s fetches=%d", probe.Code, probe.Body.String(), fetches.Load())
+	if probe.Code != http.StatusOK || !strings.Contains(probe.Body.String(), `"ok":true`) ||
+		!strings.Contains(probe.Body.String(), `"scope_verified":false`) || fetches.Load() != 1 {
+		t.Fatalf("public Web probe did not read the page exactly once: %d %s fetches=%d", probe.Code, probe.Body.String(), fetches.Load())
+	}
+	unsupportedProbe := request("/api/v1/knowledge-sources/test", `{"type":"notion","url":"https://notion.example.com","secret_ref":"vault://kv/notion#token"}`)
+	if unsupportedProbe.Code != http.StatusNotImplemented ||
+		!strings.Contains(unsupportedProbe.Body.String(), `"code":"source_connection_test_unavailable"`) || fetches.Load() != 1 {
+		t.Fatalf("unconfigured source type claimed a probe: %d %s fetches=%d", unsupportedProbe.Code, unsupportedProbe.Body.String(), fetches.Load())
+	}
+	missingCredential := request("/api/v1/knowledge-sources/test", `{"type":"notion","url":"https://notion.example.com","secret_ref":""}`)
+	if missingCredential.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(missingCredential.Body.String(), `"code":"invalid_source_connection"`) || fetches.Load() != 1 {
+		t.Fatalf("missing private-source credential claimed a probe: %d %s fetches=%d", missingCredential.Code, missingCredential.Body.String(), fetches.Load())
+	}
+	credentialedWeb := request("/api/v1/knowledge-sources/test", `{"type":"web","url":"`+address+`","secret_ref":"vault://kv/web#token"}`)
+	if credentialedWeb.Code != http.StatusServiceUnavailable ||
+		!strings.Contains(credentialedWeb.Body.String(), `"code":"source_connection_failed"`) || fetches.Load() != 1 {
+		t.Fatalf("credentialed Web reached the public reader: %d %s fetches=%d", credentialedWeb.Code, credentialedWeb.Body.String(), fetches.Load())
 	}
 	for _, invalidAddress := range []string{"https://example.com/guide.md?", "https://example.com/guide.md#",
 		"https://example.com:8443/guide.md", "https://example.com/" + strings.Repeat("a", v3sourceregistry.MaxPublicWebURLBytes)} {
@@ -250,7 +266,7 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_public_web_documents`).Scan(&publicDocuments); err != nil {
 		t.Fatal(err)
 	}
-	if documents != 0 || publicDocuments != 1 || observations != 1 || fetches.Load() != 1 {
+	if documents != 0 || publicDocuments != 1 || observations != 1 || fetches.Load() != 2 {
 		t.Fatalf("public content escaped legacy knowledge or disappeared: legacy=%d public=%d observations=%d fetches=%d",
 			documents, publicDocuments, observations, fetches.Load())
 	}
@@ -263,6 +279,19 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 		observedState.LastSyncAt != nil || observedState.IndexStatus != nil ||
 		strings.Contains(observedResponse.Body.String(), "Check status.") || strings.Contains(observedResponse.Body.String(), address) {
 		t.Fatalf("registered source evidence lost provenance or claimed full DTO: %d %s", observedResponse.Code, observedResponse.Body.String())
+	}
+	mainRequest := httptest.NewRequest(http.MethodGet, "/api/v1/knowledge-sources", nil)
+	mainRequest.Header.Set("X-AIOps-Environment", "dev")
+	mainRequest.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+	mainResponse := httptest.NewRecorder()
+	api.ServeHTTP(mainResponse, mainRequest)
+	var mainStates registeredEvidenceResponse
+	if mainResponse.Code != http.StatusOK || json.Unmarshal(mainResponse.Body.Bytes(), &mainStates) != nil ||
+		mainStates.CompleteV3DTO || !mainStates.Partial || mainStates.Index != nil || len(mainStates.Items) != 1 ||
+		findState(mainStates.Items, saved.ID) == nil ||
+		findState(mainStates.Items, saved.ID).KeywordContent == nil ||
+		findState(mainStates.Items, saved.ID).KeywordContent.PersistedDocumentCount != 1 {
+		t.Fatalf("main list lost real registration/read evidence or claimed a complete DTO: %d %s", mainResponse.Code, mainResponse.Body.String())
 	}
 	var content, hash, sourceURL, applicationID, environmentID, lastReadID string
 	var version int
@@ -293,7 +322,7 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 		t.Fatalf("environment-only registration ID: %s %v", unscoped.Body.String(), err)
 	}
 	blocked := request("/api/v1/knowledge-sources/registrations/"+unscopedSaved.ID+"/sync", "")
-	if blocked.Code != http.StatusUnprocessableEntity || !strings.Contains(blocked.Body.String(), `"code":"source_application_required"`) || fetches.Load() != 1 {
+	if blocked.Code != http.StatusUnprocessableEntity || !strings.Contains(blocked.Body.String(), `"code":"source_application_required"`) || fetches.Load() != 2 {
 		t.Fatalf("environment-only source reached external page: %d %s fetches=%d", blocked.Code, blocked.Body.String(), fetches.Load())
 	}
 

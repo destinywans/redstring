@@ -127,11 +127,11 @@ func TestSourceRegistrySingleConnectionAndRevokedGrants(t *testing.T) {
  ('app','dev'),('hidden','dev')`,
 		`INSERT INTO v3_knowledge_source_registrations
  (id,environment_id,application_id,name,source_type,source_url,secret_ref,spaces,schedule,chunk,inherit_acl,created_by)
- SELECT 'visible-source','dev','app','Visible','web','https://wiki.example.invalid','vault:kv/read',
+ SELECT 'visible-source','dev','app','Visible','web','https://wiki.example.invalid','vault://kv/read#token',
  '[]'::jsonb,'manual','heading',true,id FROM users WHERE email='admin@example.invalid'`,
 		`INSERT INTO v3_knowledge_source_registrations
  (id,environment_id,application_id,name,source_type,source_url,secret_ref,spaces,schedule,chunk,inherit_acl,created_by)
- SELECT 'hidden-source','dev','hidden','Hidden','web','https://hidden.example.invalid','vault:kv/read',
+ SELECT 'hidden-source','dev','hidden','Hidden','web','https://hidden.example.invalid','vault://kv/read#token',
  '[]'::jsonb,'manual','heading',true,id FROM users WHERE email='admin@example.invalid'`,
 	} {
 		if _, err := db.Exec(ctx, statement); err != nil {
@@ -163,7 +163,7 @@ func TestSourceRegistrySingleConnectionAndRevokedGrants(t *testing.T) {
 	}
 	w := request(http.MethodGet, "")
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"id":"visible-source"`) ||
-		strings.Contains(w.Body.String(), "hidden-source") || strings.Contains(w.Body.String(), "vault:kv/read") {
+		strings.Contains(w.Body.String(), "hidden-source") || strings.Contains(w.Body.String(), "vault://kv/read#token") {
 		t.Fatalf("initial list: %d %s", w.Code, w.Body.String())
 	}
 	var listed struct {
@@ -173,7 +173,7 @@ func TestSourceRegistrySingleConnectionAndRevokedGrants(t *testing.T) {
 		t.Fatalf("unexpected visible registry: %v %s", err, w.Body.String())
 	}
 	createBody := `{"name":"New source","type":"web","url":"https://wiki.example.invalid",` +
-		`"secret_ref":"vault:kv/read","spaces":[],"schedule":"manual","chunk":"heading",` +
+		`"secret_ref":"vault://kv/read#token","spaces":[],"schedule":"manual","chunk":"heading",` +
 		`"inherit_acl":true,"application_id":"app"}`
 	if w := request(http.MethodPost, createBody); w.Code != http.StatusCreated ||
 		!strings.Contains(w.Body.String(), `"registration_status":"unverified"`) {
@@ -184,7 +184,7 @@ func TestSourceRegistrySingleConnectionAndRevokedGrants(t *testing.T) {
 		t.Fatalf("admin test session: %v", err)
 	}
 	probe := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge-sources/test", strings.NewReader(
-		`{"type":"web","url":"https://wiki.example.invalid","secret_ref":"vault:kv/read"}`))
+		`{"type":"web","url":"https://wiki.example.invalid","secret_ref":"vault://kv/read#token"}`))
 	probe.Header.Set("X-AIOps-Environment", "dev")
 	probe.AddCookie(&http.Cookie{Name: "aiops_session", Value: adminSession})
 	probeResponse := httptest.NewRecorder()
@@ -206,7 +206,7 @@ func TestSourceRegistrySingleConnectionAndRevokedGrants(t *testing.T) {
 		!strings.Contains(w.Body.String(), `"observed_count":1`) || strings.Contains(w.Body.String(), "private/page-1") {
 		t.Fatalf("source sync evidence: %d %s", w.Code, w.Body.String())
 	}
-	if reader.last.SourceType != "web" || reader.last.SecretRef != "vault:kv/read" || reader.last.ApplicationID != "app" ||
+	if reader.last.SourceType != "web" || reader.last.SecretRef != "vault://kv/read#token" || reader.last.ApplicationID != "app" ||
 		reader.last.EnvironmentID != "dev" {
 		t.Fatalf("reader received wrong source configuration: %+v", reader.last)
 	}
@@ -260,7 +260,7 @@ VALUES($1,0,'private text','[0.1,0.2,0.3]'::vector)`, generation); err != nil {
 	if _, err := db.Exec(ctx, `INSERT INTO v3_knowledge_source_registrations
  (id,environment_id,name,source_type,source_url,secret_ref,spaces,schedule,chunk,inherit_acl,created_by)
  SELECT 'environment-source','dev','Environment source','web','https://workspace.example.invalid',
- 'vault:kv/read','[]'::jsonb,'manual','heading',true,id FROM users WHERE email='admin@example.invalid'`); err != nil {
+ 'vault://kv/read#token','[]'::jsonb,'manual','heading',true,id FROM users WHERE email='admin@example.invalid'`); err != nil {
 		t.Fatal(err)
 	}
 	reader.items = []Observation{{ExternalID: "workspace/page", ContentHash: strings.Repeat("c", 64), EnvironmentID: "dev", ACLVerified: true}}

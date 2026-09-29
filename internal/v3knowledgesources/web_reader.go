@@ -19,15 +19,28 @@ type PublicWebReader struct {
 var _ v3sourceregistry.Reader = PublicWebReader{}
 var _ v3sourceregistry.ConnectionTester = PublicWebReader{}
 
-// PublicWebObservationReader is the production adapter. A saved registration
-// supplies the application scope before any network read. It intentionally
-// has no Probe method because an unsaved test request has no application scope.
+// PublicWebObservationReader is the production adapter. Saved registrations
+// supply application scope for reads. Its unsaved connection probe verifies
+// only that one public Markdown page is readable at that instant; it does not
+// infer application or team scope, persist content, or index the page.
 type PublicWebObservationReader struct {
 	Fetcher WebFetcher
 }
 
 var _ v3sourceregistry.Reader = PublicWebObservationReader{}
 var _ v3sourceregistry.ContentReader = PublicWebObservationReader{}
+var _ v3sourceregistry.ConnectionTester = PublicWebObservationReader{}
+
+func (r PublicWebObservationReader) Probe(ctx context.Context, spec v3sourceregistry.ReadSpec) error {
+	if err := validPublicWebSpec(spec); err != nil {
+		return err
+	}
+	if spec.ApplicationID != "" || spec.TeamID != "" {
+		return ErrUnsupportedWebScope
+	}
+	_, err := r.Fetcher.Fetch(ctx, spec.URL)
+	return err
+}
 
 func (r PublicWebObservationReader) Read(ctx context.Context, spec v3sourceregistry.ReadSpec) (v3sourceregistry.ReadResult, error) {
 	result, err := r.ReadContent(ctx, spec)

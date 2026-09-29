@@ -24,6 +24,7 @@ const maxObservedItems = 500
 // must use read-only upstream methods and must not log the spec or response.
 type ReadSpec struct {
 	SourceType, URL, SecretRef, EnvironmentID, ApplicationID, TeamID string
+	BindingFingerprint                                               string
 	Spaces                                                           []string
 }
 
@@ -59,6 +60,30 @@ type ContentReader interface {
 	ReadContent(context.Context, ReadSpec) (ContentReadResult, error)
 }
 
+// GitMarkdownFile carries one bounded body tied to an observation from the
+// same pinned repository commit. Its path is relative to the configured repo.
+type GitMarkdownFile struct {
+	Observation Observation
+	Path        string
+	Body        string
+}
+
+type GitMarkdownReadResult struct {
+	CommitSHA string
+	Files     []GitMarkdownFile
+	Complete  bool
+}
+
+type GitMarkdownContentReader interface {
+	ReadGitMarkdown(context.Context, ReadSpec) (GitMarkdownReadResult, error)
+}
+
+// RegistrationBinding verifies that a client-proposed registration matches a
+// server-owned source configuration before any saved row is created.
+type RegistrationBindingEvidence interface {
+	BindingEvidenceForCreate(ReadSpec) (string, json.RawMessage, bool)
+}
+
 // ConnectionTester is optional because an ordinary read may require a saved
 // registration's spaces and ACL scope that the unsaved test request lacks.
 type ConnectionTester interface {
@@ -70,13 +95,16 @@ type registration struct {
 	Schedule, Chunk                                                      string
 	Spaces                                                               []string
 	InheritACL                                                           bool
+	BindingFingerprint                                                   string
+	BindingSnapshot                                                      json.RawMessage
 }
 
 func loadRegistration(ctx context.Context, q interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, id, env string, lock bool) (registration, error) {
 	query := `SELECT id,environment_id,COALESCE(application_id,''),COALESCE(team_id,''),name,source_type,
-source_url,secret_ref,spaces,schedule,chunk,inherit_acl FROM v3_knowledge_source_registrations
+source_url,secret_ref,spaces,schedule,chunk,inherit_acl,COALESCE(binding_fingerprint,''),
+COALESCE(binding_snapshot,'{}'::jsonb) FROM v3_knowledge_source_registrations
 WHERE id=$1 AND environment_id=$2`
 	if lock {
 		query += " FOR UPDATE"
@@ -84,7 +112,8 @@ WHERE id=$1 AND environment_id=$2`
 	var v registration
 	var spaces []byte
 	err := q.QueryRow(ctx, query, id, env).Scan(&v.ID, &v.EnvironmentID, &v.ApplicationID, &v.TeamID,
-		&v.Name, &v.Type, &v.URL, &v.SecretRef, &spaces, &v.Schedule, &v.Chunk, &v.InheritACL)
+		&v.Name, &v.Type, &v.URL, &v.SecretRef, &spaces, &v.Schedule, &v.Chunk, &v.InheritACL,
+		&v.BindingFingerprint, &v.BindingSnapshot)
 	if err != nil {
 		return v, err
 	}
@@ -130,6 +159,45 @@ func validObservation(v registration, o Observation) bool {
 	return err == nil && strings.ToLower(o.ContentHash) == o.ContentHash
 }
 
+var errSourceSyncSession = errors.New("source sync session expired")
+
+// Revalidate the active session and serialize grant revocation with the write
+// transaction after the upstream read. The HTTP session validated before the
+// slow network operation is not sufficient authority for persistence.
+func lockSourceSyncAuthority(ctx context.Context, tx pgx.Tx, r *http.Request) error {
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil {
+		return errSourceSyncSession
+	}
+	var actor string
+	err = tx.QueryRow(ctx, `SELECT u.id FROM users u JOIN sessions s ON s.user_id=u.id
+ WHERE s.token_hash=$1 AND u.id=$2 AND s.expires_at>clock_timestamp()
+ AND NOT u.disabled AND u.deleted_at IS NULL AND u.source<>'settings_demo'
+ FOR SHARE OF u,s`, store.Hash(cookie.Value), httpapi.CurrentUser(r).ID).Scan(&actor)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errSourceSyncSession
+	}
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `LOCK TABLE rbac_user_roles,rbac_department_roles,v3_role_grants IN SHARE MODE`)
+	return err
+}
+
+func currentSourceSyncSession(ctx context.Context, tx pgx.Tx, r *http.Request) error {
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil {
+		return errSourceSyncSession
+	}
+	var active bool
+	err = tx.QueryRow(ctx, `SELECT expires_at>clock_timestamp() FROM sessions
+ WHERE token_hash=$1 AND user_id=$2`, store.Hash(cookie.Value), httpapi.CurrentUser(r).ID).Scan(&active)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && !active {
+		return errSourceSyncSession
+	}
+	return err
+}
+
 func (s *Service) sync(w http.ResponseWriter, r *http.Request) {
 	user, envs, ok := s.ready(w, r, true)
 	if !ok {
@@ -173,6 +241,13 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "source_config_invalid", "Saved public Web scope is invalid")
 		return
 	}
+	if initial.Type == "git_markdown" &&
+		(initial.ApplicationID == "" || initial.Schedule != "manual" || len(initial.Spaces) != 0 ||
+			len(initial.BindingFingerprint) != 64 || len(initial.BindingSnapshot) == 0 ||
+			string(initial.BindingSnapshot) == "{}") {
+		httpapi.Error(w, 503, "source_config_invalid", "Saved Git Markdown scope is invalid")
+		return
+	}
 	reader := s.Readers[initial.Type]
 	if reader == nil {
 		httpapi.Error(w, 501, "source_reader_unavailable", "No read-only reader is configured for this source type")
@@ -193,9 +268,10 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) {
 	}
 	spec := ReadSpec{SourceType: initial.Type, URL: initial.URL, SecretRef: initial.SecretRef,
 		EnvironmentID: initial.EnvironmentID, ApplicationID: initial.ApplicationID, TeamID: initial.TeamID,
-		Spaces: append([]string(nil), initial.Spaces...)}
+		BindingFingerprint: initial.BindingFingerprint, Spaces: append([]string(nil), initial.Spaces...)}
 	var result ReadResult
 	var content *ContentReadResult
+	var gitContent *GitMarkdownReadResult
 	if initial.Type == "web" && initial.SecretRef == "" {
 		contentReader, available := reader.(ContentReader)
 		if !available {
@@ -210,6 +286,26 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) {
 		}
 		result = ReadResult{Items: []Observation{fetched.Observation}, Complete: true}
 		content = &fetched
+	} else if initial.Type == "git_markdown" {
+		contentReader, available := reader.(GitMarkdownContentReader)
+		if !available {
+			httpapi.Error(w, 501, "source_content_reader_unavailable", "No bounded Git Markdown reader is configured")
+			return
+		}
+		fetched, readErr := contentReader.ReadGitMarkdown(ctx, spec)
+		err = readErr
+		if err == nil && !validGitMarkdownContent(initial, fetched) {
+			httpapi.Error(w, 422, "source_content_invalid", "Git Markdown content or lineage could not be verified")
+			return
+		}
+		if err == nil {
+			items := make([]Observation, len(fetched.Files))
+			for i, file := range fetched.Files {
+				items[i] = file.Observation
+			}
+			result = ReadResult{Items: items, Complete: fetched.Complete}
+			gitContent = &fetched
+		}
 	} else {
 		result, err = reader.Read(ctx, spec)
 	}
@@ -245,6 +341,13 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(ctx)
+	if err = lockSourceSyncAuthority(ctx, tx, r); errors.Is(err, errSourceSyncSession) {
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		return
+	} else if err != nil {
+		unavailable(w)
+		return
+	}
 	current, err := loadRegistration(ctx, tx, id, envs[0], true)
 	if errors.Is(err, pgx.ErrNoRows) {
 		httpapi.Error(w, 409, "source_changed", "Source changed during read")
@@ -300,13 +403,31 @@ VALUES($1,$2,$3,$4,NULLIF($5,''),NULLIF($6,''))`, readID, hashID(item.ExternalID
 			return
 		}
 	}
+	if gitContent != nil {
+		if err = importGitMarkdownContent(ctx, tx, current, readID, *gitContent); err != nil {
+			unavailable(w)
+			return
+		}
+	}
+	gitSHA := ""
+	if gitContent != nil {
+		gitSHA = gitContent.CommitSHA
+	}
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes)
-VALUES($1,$2,'v3.knowledge_source.read',$3,'success',
-jsonb_build_object('environment_id',$4::text,'source_type',$5::text,'observed_count',$6::integer,
-'keyword_content_persisted',$7::boolean,'content_version',NULLIF($8::integer,0)))`,
-		user.ID, current.ApplicationID, id, current.EnvironmentID, current.Type, len(items), content != nil, contentVersion)
+ VALUES($1,$2,'v3.knowledge_source.read',$3,'success',
+ jsonb_build_object('environment_id',$4::text,'source_type',$5::text,'observed_count',$6::integer,
+'keyword_content_persisted',$7::boolean,'content_version',NULLIF($8::integer,0))
+ || CASE WHEN $9::text<>'' THEN jsonb_build_object('git_commit_sha',$9::text) ELSE '{}'::jsonb END)`,
+		user.ID, current.ApplicationID, id, current.EnvironmentID, current.Type, len(items), content != nil, contentVersion, gitSHA)
 	if err != nil {
 		httpapi.Error(w, 503, "audit_unavailable", "Source read audit is unavailable")
+		return
+	}
+	if err = currentSourceSyncSession(ctx, tx, r); errors.Is(err, errSourceSyncSession) {
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		return
+	} else if err != nil {
+		unavailable(w)
 		return
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -318,6 +439,10 @@ jsonb_build_object('environment_id',$4::text,'source_type',$5::text,'observed_co
 	if content != nil {
 		response["keyword_content_persisted"] = true
 		response["content_version"] = contentVersion
+	}
+	if gitContent != nil {
+		response["commit_sha"] = gitContent.CommitSHA
+		response["document_count"] = len(gitContent.Files)
 	}
 	httpapi.WriteJSON(w, 200, response)
 }
@@ -427,6 +552,51 @@ WHERE registration_id=$1 AND environment_id=$2 ORDER BY observed_at DESC,id DESC
 			httpapi.WriteJSON(w, 200, map[string]any{"id": id,
 				"last_read": map[string]any{"id": readID, "observed_at": at, "observed_count": count},
 				"keyword":   keyword, "index": nil, "reason": "semantic_index_unavailable", "complete_v3_dto": false})
+			return
+		}
+		if v.Type == "git_markdown" {
+			var commitSHA string
+			var documentCount int
+			readErr = tx.QueryRow(ctx, `SELECT s.commit_sha,s.document_count
+FROM v3_git_markdown_syncs s
+JOIN v3_knowledge_source_reads rr ON rr.id=s.read_id
+WHERE s.read_id=$1 AND s.registration_id=$2 AND s.environment_id=$3
+ AND s.binding_fingerprint=$7 AND s.binding_snapshot=$8::jsonb
+ AND rr.registration_id=s.registration_id AND rr.environment_id=s.environment_id
+ AND rr.reader_type='git_markdown' AND rr.observed_count=s.document_count
+ AND s.document_count=$4 AND s.indexed_chunk_count IS NULL
+ AND (SELECT count(*) FROM v3_git_markdown_documents d WHERE d.read_id=s.read_id)=s.document_count
+ AND (SELECT count(*) FROM v3_knowledge_source_observations o WHERE o.read_id=s.read_id)=s.document_count
+ AND NOT EXISTS (
+  SELECT 1 FROM v3_git_markdown_documents d
+  WHERE d.read_id=s.read_id AND (
+   d.environment_id<>s.environment_id OR d.application_id<>$5
+   OR COALESCE(d.team_id,'')<>$6
+   OR d.item_hash<>encode(sha256(convert_to(d.path,'UTF8')),'hex')
+   OR d.content_hash<>encode(sha256(convert_to(d.body,'UTF8')),'hex')
+   OR NOT EXISTS (SELECT 1 FROM v3_knowledge_source_observations o
+    WHERE o.read_id=s.read_id AND o.item_hash=d.item_hash
+     AND o.content_hash=d.content_hash AND o.environment_id=d.environment_id
+     AND o.application_id=d.application_id
+     AND COALESCE(o.team_id,'')=COALESCE(d.team_id,''))))`,
+				readID, id, env, count, v.ApplicationID, v.TeamID,
+				v.BindingFingerprint, string(v.BindingSnapshot)).Scan(&commitSHA, &documentCount)
+			if readErr != nil && !errors.Is(readErr, pgx.ErrNoRows) {
+				unavailable(w)
+				return
+			}
+			if err := tx.Commit(ctx); err != nil {
+				unavailable(w)
+				return
+			}
+			var git any
+			if readErr == nil {
+				git = map[string]any{"commit_sha": commitSHA, "document_count": documentCount,
+					"content_persisted": true}
+			}
+			httpapi.WriteJSON(w, 200, map[string]any{"id": id,
+				"last_read":    map[string]any{"id": readID, "observed_at": at, "observed_count": count},
+				"git_markdown": git, "index": nil, "reason": "semantic_index_unavailable", "complete_v3_dto": false})
 			return
 		}
 		// Only matching, ready generations attributed to an observed item count.

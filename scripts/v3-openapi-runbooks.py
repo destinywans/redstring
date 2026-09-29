@@ -166,22 +166,33 @@ S['V3RegisteredSourceEvidence'] = obj({**fieldnames('id name kind environment_id
     'registration_status':string(enum=['unverified']),
     'last_read':{'oneOf':[ref('V3RegisteredSourceRead'),{'type':'null'}]},
     'keyword_content':{'oneOf':[ref('V3RegisteredSourceKeywordContent'),{'type':'null'}]},
-    **{key:{'type':'null'} for key in ['connection_status','sync_status','document_count',
-        'chunk_count','last_sync_at','index_status','error']}},
+    'document_count':{'type':['integer','null'],'minimum':0},
+    'last_sync_at':{'type':['string','null'],'format':'date-time'},
+    **{key:{'type':'null'} for key in ['connection_status','sync_status',
+        'chunk_count','index_status','error']}},
     ['id','name','kind','environment_id','schedule','chunk_strategy','registration_status',
      'last_read','keyword_content','connection_status','sync_status','document_count',
      'chunk_count','last_sync_at','index_status','error'])
 v3_route('get','/knowledge-sources/registered-evidence','Read registered source and observed content evidence',
     response=obj({'items':{'type':'array','items':ref('V3RegisteredSourceEvidence'),'maxItems':200},
         'index':{'type':'null'},'complete_v3_dto':{'const':False},
-        'partial':{'const':True},'reason':string(enum=['registration_and_observation_evidence_only']),
+        'partial':{'const':True},'reason':string(enum=['scoped_source_evidence_partial']),
         'truncated':v3_bool(),'unknown_fields':arr(string())},
         ['items','index','complete_v3_dto','partial','reason','truncated','unknown_fields']),
-    desc='Auxiliary current-scope projection, not the main KnowledgeSource DTO. The configured registration is unverified; last_read is only a completed observation, and keyword_content proves one public Web Markdown body matched the latest read, hash and revision. Connection, sync, total document/chunk counts, index status and error remain null; no body or credentials are returned. Up to 200 visible sources are emitted, with truncated=true if more are visible. More than 10000 candidate rows returns 413. Selected records are rechecked against current grants, active account/application/team binding and body version in a final fresh SQL statement after the initial read; a changed selection returns 409 without source metadata. Revocation committed after that final statement snapshot begins may still precede response delivery.')
+    desc='Auxiliary current-scope projection, not the full KnowledgeSource DTO. The configured registration is unverified; last_read is a completed observation. A public Web keyword_content requires a matching latest body/hash/revision. Git Markdown document_count and last_sync_at are reported only for a latest commit-pinned read whose immutable document set, hashes, scope and observations match; zero is reported only for an actual empty read. Git files have no connected vector index, so chunk_count and index_status remain null. Connection/sync health and error remain unknown; no body or credentials are returned. Current grants and source evidence are rechecked in a fresh final statement; changed state returns 409.')
+v3_route('get','/knowledge-sources','Read registered knowledge sources and verified observation evidence',
+    response=obj({'items':{'type':'array','items':ref('V3RegisteredSourceEvidence'),'maxItems':200},
+        'index':{'type':'null'},'complete_v3_dto':{'const':False},
+        'partial':{'const':True},'reason':string(enum=['scoped_source_evidence_partial']),
+        'truncated':v3_bool(),'unknown_fields':arr(string())},
+        ['items','index','complete_v3_dto','partial','reason','truncated','unknown_fields']),
+    desc='Backend partial main-route projection of actual persisted registrations. It shares the current-scope and fresh final recheck of /knowledge-sources/registered-evidence. Completed public Web and Git Markdown reads give observed_at/count; Git Markdown document_count and last_sync_at require matching immutable commit/document/observation proof. Connection health, scheduled sync, vector chunks and index settings remain unknown. Other source types appear only if registered, with unverified evidence; no synthetic catalog cards are emitted. The page must render null as unknown or unindexed, never as zero or connected.')
 for status, description in [('409','Selected source state, authorization or content changed; retry'),
                             ('413','Candidate scope exceeds 10000 registrations'),
                             ('503','Source registry or authorization is unavailable')]:
     P['/knowledge-sources/registered-evidence']['get']['responses'][status] = {
+        'description':description,'content':{'application/json':{'schema':ref('Error')}}}
+    P['/knowledge-sources']['get']['responses'][status] = {
         'description':description,'content':{'application/json':{'schema':ref('Error')}}}
 S['V3KnowledgeSourceRegistration'] = obj({**fieldnames('id environment_id application_id team_id name type url schedule chunk registration_status created_at'),
     'spaces':arr(string()),'inherit_acl':v3_bool()},
@@ -198,26 +209,54 @@ v3_route('post','/knowledge-sources/registrations','Register scoped source confi
     body=ref('V3KnowledgeSourceRegistrationInput'),status=201,
     response=obj({'id':string(),'registration_status':string(enum=['unverified'])},['id','registration_status']),
     desc='Auxiliary operation. A single public HTTPS Markdown Web page may omit secret_ref, use no spaces, manual schedule and inherited source access; other source kinds still require a Vault reference, never a plaintext credential. Registration does not prove connection or begin ingestion. Requires one environment and knowledge.manage; audit is transactional.')
+S['V3PublicWebSourceCreateInput'] = obj({'name':string(maxLength=160),
+    'type':string(enum=['web']),'url':string(maxLength=1000),
+    'secret_ref':{'const':''},'application_id':string(), 'team_id':string(),
+    'spaces':{'type':'array','items':string(),'maxItems':0},
+    'schedule':string(enum=['manual']),'chunk':string(enum=['heading','fixed']),
+    'inherit_acl':{'const':True}},
+    ['name','type','url','application_id','schedule','chunk','inherit_acl'])
+S['V3GitMarkdownSourceCreateInput'] = obj({'name':string(maxLength=160),
+    'type':string(enum=['git_markdown']),'url':string(maxLength=2000),
+    'secret_ref':string(),'application_id':string(),'team_id':string(),
+    'spaces':{'type':'array','items':string(),'maxItems':0},
+    'schedule':string(enum=['manual']),'chunk':string(enum=['heading','fixed']),
+    'inherit_acl':{'const':True}},
+    ['name','type','url','secret_ref','application_id','schedule','chunk','inherit_acl'])
+v3_route('post','/knowledge-sources','Register one configured application-bound Markdown source',
+    body={'oneOf':[ref('V3PublicWebSourceCreateInput'),ref('V3GitMarkdownSourceCreateInput')]},status=201,
+    response=obj({'id':string(),'registration_status':string(enum=['unverified']),
+        'sync_started':{'const':False}},['id','registration_status','sync_started']),
+    desc='Requires one selected environment, explicit active application_id and current knowledge.manage for the application and optional matching owner team. Public Web accepts one credential-free HTTPS Markdown URL; git_markdown requires an exact server-configured GitLab HTTPS repository URL, environment/application/team and vault://mount/path#field binding. The GitLab project, branch and Markdown path prefix come only from server configuration. Both families require empty spaces, manual schedule, heading/fixed setting and inherited ACL. Registration and audit commit together after current session/scope/grant checks; no read, sync or index starts. Unconfigured types/bindings return 501, malformed requests 422.')
+for status, description in [('409','Select exactly one environment'),
+                            ('422','Invalid source URL, options or application/team scope'),
+                            ('501','No reader/importer for this source type or credentialed Web'),
+                            ('503','Source registry, authorization or audit unavailable')]:
+    P['/knowledge-sources']['post']['responses'][status] = {
+        'description':description,'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('post','/knowledge-sources/registrations/{id}/sync','Observe one registered source through a configured read-only reader',
     response=obj({'read_id':string(),'observed_count':integer(minimum=0),
-        'index_state':string(enum=['not_proven']),'complete_v3_dto':v3_bool()},
+        'index_state':string(enum=['not_proven']),'complete_v3_dto':v3_bool(),
+        'keyword_content_persisted':v3_bool(),'content_version':integer(minimum=1),
+        'commit_sha':string(pattern='^([a-f0-9]{40}|[a-f0-9]{64})$'),'document_count':integer(minimum=0,maximum=32)},
         ['read_id','observed_count','index_state','complete_v3_dto']),
-    desc='Auxiliary lineage operation requiring one environment and knowledge.manage. Explicit AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true configures only the application-bound, credential-free, single-page public HTTPS Markdown reader. An environment-only public Web registration returns 422 source_application_required before network access; unset/false or another unconfigured source type returns 501 source_reader_unavailable; a credentialed Web source is not supported by this reader. Application/team liveness is checked before network access and again under transaction before persistence. A successful same-fetch observation imports at most 128 KiB of UTF-8 body into separate V3 public Web document/revision tables with matching hash and read identity; version advances only when content changes. The response does not claim indexing or complete V3 source DTO.')
+    desc='Auxiliary manual lineage operation requiring one environment and knowledge.manage for the saved application/team scope. Explicit AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true configures the single-page public Web reader. A server-configured git_markdown reader pins the saved GitLab project/branch/path binding to one commit SHA and imports at most 32 bounded UTF-8 Markdown files using the exact Vault binding. Application/team liveness and saved binding identity are checked before network access and again under transaction before persistence. The read, observations, private bodies, binding snapshot, commit version and audit commit together. Git responses include commit_sha and document_count; public Web responses include keyword_content_persisted and content_version. No vector chunk or index is claimed; absent reader returns 501. Legacy vault: references are rejected for new Git Markdown registration.')
 P['/knowledge-sources/registrations/{id}/sync']['post']['responses']['501'] = {
     'description':'No read-only source reader is configured',
     'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('get','/knowledge-sources/registrations/{id}/evidence','Read observed source lineage and attributed index evidence',
     response=obj({'id':string(),'last_read':{'type':['object','null']},
-        'index':{'type':['object','null']},'reason':string(),'complete_v3_dto':v3_bool()},
+        'index':{'type':['object','null']},'keyword':{'type':['object','null']},
+        'git_markdown':{'type':['object','null']},'reason':string(),'complete_v3_dto':v3_bool()},
         ['id','last_read','index','complete_v3_dto']),
-    desc='Auxiliary read of current authorized registration. An absent read returns null evidence; attributed ready documents and chunks are reported only for an observed item and never imply a complete source index. No source content is returned.')
+    desc='Auxiliary read of current authorized registration. An absent read returns null evidence. A Git Markdown response includes git_markdown with commit_sha, document_count and content_persisted only when the latest read has matching private documents, hashes, scope and observations; otherwise it is null. Public Web keyword evidence and generic attributed ready documents/chunks never imply a complete source index. No source content is returned.')
 v3_route('post','/knowledge-sources/test','Test a knowledge source connection',
-    body=obj(fieldnames('type url secret_ref'),['type','url']),
+    body=obj(fieldnames('type url secret_ref application_id team_id'),['type','url']),
     response=obj({'ok':v3_bool(),'message':string(),'connected':v3_bool(),
         'observed_at':string(format='date-time'),'persistent':v3_bool(),
         'scope_verified':v3_bool(),'spaces':arr(string())},
         ['ok','message','connected','observed_at','persistent','scope_verified']),
-    desc='A configured source-specific read-only prober can return a point-in-time successful access observation only after validation and knowledge.manage. Production AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true configures an application-bound observation Reader, not a Prober: an unsaved public Web test still returns 501 source_connection_test_unavailable. Other source kinds require a Vault reference and return 501 without a configured Prober. Any future successful probe would not prove persisted sync, indexing, user-wide access or application/team scope.')
+    desc='With AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true, a credential-free public HTTPS Markdown Web URL receives one bounded read-only fetch after validation and environment-scoped knowledge.manage. A configured Git Markdown probe requires application_id and optional matching team_id; current app/team knowledge.manage and active scope are checked before and after the credentialed read. A committed attempt audit precedes Vault/GitLab access; a bounded outcome audit follows. Success proves only point-in-time readability. Nothing is registered, synchronized or indexed. Source kinds without a configured prober return 501 source_connection_test_unavailable; malformed URLs or missing required Vault references return 422. A configured failed read returns 503 source_connection_failed. A credentialed Web URL has no supported prober. Successful probe does not authorize a subsequent create or prove future availability.')
 P['/knowledge-sources/test']['post']['responses']['501'] = {
     'description':'No source-specific read-only connection prober is configured',
     'content':{'application/json':{'schema':ref('Error')}}}

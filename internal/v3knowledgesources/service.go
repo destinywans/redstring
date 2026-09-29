@@ -1,5 +1,5 @@
-// Package v3knowledgesources exposes the document lineage that is actually
-// persisted today. Source registrations and reads do not prove full sync state.
+// Package v3knowledgesources exposes persisted source registration, read and
+// content lineage. A registration or read does not prove full sync state.
 package v3knowledgesources
 
 import (
@@ -35,16 +35,32 @@ type repository interface {
 }
 
 type Service struct {
-	db         *pgxpool.Pool
-	repository repository
-	access     Access
+	db                  *pgxpool.Pool
+	repository          repository
+	access              Access
+	gitMarkdownBindings []GitMarkdownBinding
 }
 
 func New(db *pgxpool.Pool, access Access) *Service {
 	return &Service{db: db, repository: pgRepository{db}, access: access}
 }
 
+// NewWithGitMarkdownBindings accepts only server-validated Git source
+// bindings. Registrations cannot select a project, branch, path or credential
+// outside these bindings.
+func NewWithGitMarkdownBindings(db *pgxpool.Pool, access Access, bindings []GitMarkdownBinding) *Service {
+	s := New(db, access)
+	s.gitMarkdownBindings = append([]GitMarkdownBinding(nil), bindings...)
+	return s
+}
+
 func (s *Service) Register(api *httpapi.Server) {
+	const mainReadRoute = "GET /api/v1/knowledge-sources"
+	api.Register(mainReadRoute, "viewer", s.registeredEvidence)
+	api.MarkV3ObjectRoute(mainReadRoute, "knowledge", "view")
+	const mainCreateRoute = "POST /api/v1/knowledge-sources"
+	api.Register(mainCreateRoute, "viewer", s.createMain)
+	api.MarkV3ObjectRoute(mainCreateRoute, "knowledge", "manage")
 	const route = "GET /api/v1/knowledge-sources/observed-documents"
 	api.Register(route, "viewer", s.list)
 	api.MarkV3ObjectRoute(route, "knowledge", "view")

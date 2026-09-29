@@ -157,7 +157,17 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		return err
 	}
 	policy := &rbac.V3Policy{Store: s}
-	sourceRegistry, err := configuredV3SourceRegistry(os.Getenv("AIOPS_V3_PUBLIC_WEB_READER_ENABLED"), s, policy)
+	gitMarkdownBindings, err := v3knowledgesources.ParseGitMarkdownBindings(os.Getenv("AIOPS_V3_GIT_MARKDOWN_BINDINGS"))
+	if err != nil {
+		return fmt.Errorf("configure V3 Git Markdown bindings: %w", err)
+	}
+	activeGitMarkdownBindings := make([]v3knowledgesources.GitMarkdownBinding, 0, len(gitMarkdownBindings))
+	for _, binding := range gitMarkdownBindings {
+		if binding.Tier == cfg.Tier {
+			activeGitMarkdownBindings = append(activeGitMarkdownBindings, binding)
+		}
+	}
+	sourceRegistry, err := configuredV3SourceRegistryWithGit(os.Getenv("AIOPS_V3_PUBLIC_WEB_READER_ENABLED"), s, policy, activeGitMarkdownBindings)
 	if err != nil {
 		return err
 	}
@@ -454,7 +464,7 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	knowledgeV3.Register(api)
 	knowledgeV3.RegisterSearch(api)
 	v3postmortems.New(s.DB, policy).Register(api)
-	v3knowledgesources.New(s.DB, policy).Register(api)
+	v3knowledgesources.NewWithGitMarkdownBindings(s.DB, policy, activeGitMarkdownBindings).Register(api)
 	sourceRegistry.Register(api)
 	v3memory.New(s.DB, policy).Register(api)
 	v3agents.New(s.DB, policy).Register(api)
@@ -463,16 +473,38 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 }
 
 func configuredV3SourceRegistry(raw string, s *store.Store, policy *rbac.V3Policy) (*v3sourceregistry.Service, error) {
+	return configuredV3SourceRegistryWithGit(raw, s, policy, nil)
+}
+
+func configuredV3SourceRegistryWithGit(raw string, s *store.Store, policy *rbac.V3Policy,
+	gitMarkdownBindings []v3knowledgesources.GitMarkdownBinding) (*v3sourceregistry.Service, error) {
+	readers := map[string]v3sourceregistry.Reader{}
 	switch raw {
 	case "", "false":
-		return v3sourceregistry.New(s.DB, policy), nil
 	case "true":
-		return v3sourceregistry.NewWithReaders(s.DB, policy, map[string]v3sourceregistry.Reader{
-			"web": v3knowledgesources.PublicWebObservationReader{Fetcher: v3knowledgesources.WebFetcher{}},
-		}), nil
+		readers["web"] = v3knowledgesources.PublicWebObservationReader{Fetcher: v3knowledgesources.WebFetcher{}}
 	default:
 		return nil, fmt.Errorf("AIOPS_V3_PUBLIC_WEB_READER_ENABLED must be true or false")
 	}
+	if len(gitMarkdownBindings) > 0 {
+		credentialBindings := make([]v3integrations.CredentialBinding, 0, len(gitMarkdownBindings))
+		for _, binding := range gitMarkdownBindings {
+			credentialBindings = append(credentialBindings, v3integrations.CredentialBinding{
+				Tier: binding.Tier, EnvironmentID: binding.EnvironmentID,
+				ConnectorID: binding.ConnectorID, Provider: "gitlab",
+				Endpoint: binding.Endpoint, CredentialRef: binding.CredentialRef,
+			})
+		}
+		resolver := v3integrations.NewBoundResolver(
+			v3integrations.NewVaultResolver(os.Getenv("AIOPS_VAULT_URL"), os.Getenv("AIOPS_VAULT_TOKEN")),
+			credentialBindings)
+		reader, err := v3knowledgesources.NewGitMarkdownReader(gitMarkdownBindings, resolver, nil)
+		if err != nil {
+			return nil, fmt.Errorf("configure V3 Git Markdown reader: %w", err)
+		}
+		readers["git_markdown"] = reader
+	}
+	return v3sourceregistry.NewWithReaders(s.DB, policy, readers), nil
 }
 
 func oidcEndpointOrigins(raw string) []string {

@@ -64,7 +64,7 @@ type registeredEvidenceResponse struct {
 const registeredEvidenceCandidates = `SELECT src.id,src.name,src.source_type,src.environment_id,
  COALESCE(src.application_id,''),COALESCE(src.team_id,''),src.schedule,src.chunk,
  read.id,read.observed_at,read.observed_count,read.reader_type,
- keyword.version
+ keyword.version,git.document_count,git.created_at
 FROM v3_knowledge_source_registrations src
 LEFT JOIN LATERAL (
  SELECT r.id,r.observed_at,r.observed_count,r.reader_type
@@ -102,6 +102,37 @@ LEFT JOIN LATERAL (
    AND revision_observation.application_id=d.application_id
    AND COALESCE(revision_observation.team_id,'')=COALESCE(d.team_id,'')
 ) keyword ON true
+LEFT JOIN LATERAL (
+ SELECT g.document_count,g.created_at
+ FROM v3_git_markdown_syncs g
+ WHERE src.source_type='git_markdown' AND src.application_id IS NOT NULL
+   AND src.inherit_acl AND src.schedule='manual' AND src.spaces='[]'::jsonb
+   AND read.id IS NOT NULL AND read.reader_type='git_markdown'
+   AND g.read_id=read.id AND g.registration_id=src.id
+   AND g.environment_id=src.environment_id
+   AND g.binding_fingerprint=src.binding_fingerprint
+   AND g.binding_snapshot=src.binding_snapshot
+   AND g.document_count=read.observed_count
+   AND g.document_count=(SELECT count(*) FROM v3_knowledge_source_observations o
+     WHERE o.read_id=read.id)
+   AND g.document_count=(SELECT count(*) FROM v3_git_markdown_documents d
+     WHERE d.read_id=read.id)
+   AND g.document_count=(SELECT count(*) FROM v3_knowledge_source_observations o
+     WHERE o.read_id=read.id AND o.environment_id=src.environment_id
+       AND o.application_id=src.application_id
+       AND COALESCE(o.team_id,'')=COALESCE(src.team_id,''))
+   AND g.document_count=(SELECT count(*) FROM v3_git_markdown_documents d
+     JOIN v3_knowledge_source_observations o
+       ON o.read_id=d.read_id AND o.item_hash=d.item_hash
+     WHERE d.read_id=read.id AND d.environment_id=src.environment_id
+       AND d.application_id=src.application_id
+       AND COALESCE(d.team_id,'')=COALESCE(src.team_id,'')
+       AND o.environment_id=d.environment_id AND o.application_id=d.application_id
+       AND COALESCE(o.team_id,'')=COALESCE(d.team_id,'')
+       AND d.item_hash=encode(sha256(convert_to(d.path,'UTF8')),'hex')
+       AND d.content_hash=o.content_hash
+       AND d.content_hash=encode(sha256(convert_to(d.body,'UTF8')),'hex'))
+) git ON true
 WHERE src.environment_id=ANY($1::text[])
  AND (src.application_id IS NULL OR EXISTS (
   SELECT 1 FROM applications a
@@ -216,10 +247,23 @@ func (s *Service) registeredEvidence(w http.ResponseWriter, r *http.Request) {
 		}
 		items = current
 	}
+	unknownFields := []string{"connection_status", "sync_status", "chunk_count",
+		"index_status", "error", "index_settings"}
+	for _, item := range items {
+		if item.DocumentCount == nil {
+			unknownFields = append(unknownFields, "document_count")
+			break
+		}
+	}
+	for _, item := range items {
+		if item.LastSyncAt == nil {
+			unknownFields = append(unknownFields, "last_sync_at")
+			break
+		}
+	}
 	httpapi.WriteJSON(w, 200, registeredEvidenceResponse{Items: items, Index: nil,
-		Partial: true, Reason: "registration_and_observation_evidence_only",
-		Truncated: truncated, UnknownFields: []string{"connection_status", "sync_status", "document_count",
-			"chunk_count", "last_sync_at", "index_status", "error", "index_settings"}})
+		Partial: true, Reason: "scoped_source_evidence_partial",
+		Truncated: truncated, UnknownFields: unknownFields})
 }
 
 type evidenceRows interface {
@@ -237,10 +281,12 @@ func registeredEvidenceBatch(ctx context.Context, db evidenceRows, user core.Use
 		var item RegisteredEvidence
 		var readID, readerType sql.NullString
 		var observedAt sql.NullTime
-		var observedCount, keywordVersion sql.NullInt64
+		var observedCount, keywordVersion, gitDocumentCount sql.NullInt64
+		var gitSyncedAt sql.NullTime
 		if err := rows.Scan(&item.ID, &item.Name, &item.Kind, &item.EnvironmentID,
 			&item.ApplicationID, &item.TeamID, &item.Schedule, &item.ChunkStrategy,
-			&readID, &observedAt, &observedCount, &readerType, &keywordVersion); err != nil {
+			&readID, &observedAt, &observedCount, &readerType, &keywordVersion,
+			&gitDocumentCount, &gitSyncedAt); err != nil {
 			return nil, err
 		}
 		item.RegistrationStatus = "unverified"
@@ -249,6 +295,12 @@ func registeredEvidenceBatch(ctx context.Context, db evidenceRows, user core.Use
 			if keywordVersion.Valid && item.Kind == "web" && keywordVersion.Int64 > 0 {
 				item.KeywordContent = &KeywordContent{PersistedDocumentCount: 1,
 					Version: int(keywordVersion.Int64), ReadID: readID.String}
+			}
+			if item.Kind == "git_markdown" && gitDocumentCount.Valid && gitSyncedAt.Valid {
+				count := int(gitDocumentCount.Int64)
+				at := gitSyncedAt.Time
+				item.DocumentCount = &count
+				item.LastSyncAt = &at
 			}
 		}
 		items = append(items, item)

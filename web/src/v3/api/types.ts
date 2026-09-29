@@ -367,7 +367,28 @@ export type MemoryView = {
   facts: MemoryFact[];
   policy: string;
 };
-export type KnowledgeSource = { id: string; brand?: string; name: string; kind: string; sync: string; docs: number; chunks: string; last: string; status: "connected" | "error"; error?: string };
+export type KnowledgeSourceMock = { id: string; brand?: string; name: string; kind: string; sync: string; docs: number; chunks: string; last: string; status: "connected" | "error"; error?: string };
+export type KnowledgeSourceEvidence = {
+  id: string;
+  name: string;
+  kind: string;
+  environment_id: string;
+  application_id?: string;
+  team_id?: string;
+  schedule: string;
+  chunk_strategy: string;
+  registration_status: string;
+  last_read: { id: string; observed_at: string; observed_count: number } | null;
+  keyword_content: { persisted_document_count: number; version: number; read_id: string } | null;
+  connection_status: string | null;
+  sync_status: string | null;
+  document_count: number | null;
+  chunk_count: number | null;
+  last_sync_at: string | null;
+  index_status: string | null;
+  error: string | null;
+};
+export type KnowledgeSource = KnowledgeSourceMock | KnowledgeSourceEvidence;
 export type RetrievalHit = { brand?: string; title: string; snippet: string; keyword: number; vector: number; score: number };
 
 /* ---------------- resources & observability ---------------- */

@@ -79,17 +79,19 @@ type request struct {
 }
 
 type connectionRequest struct {
-	Type      string `json:"type"`
-	URL       string `json:"url"`
-	SecretRef string `json:"secret_ref"`
+	Type          string `json:"type"`
+	URL           string `json:"url"`
+	SecretRef     string `json:"secret_ref"`
+	ApplicationID string `json:"application_id"`
+	TeamID        string `json:"team_id"`
 }
 
-var vaultReference = regexp.MustCompile(`^vault:[A-Za-z0-9_-]+(?:/[A-Za-z0-9_.-]+)+$`)
+var vaultReference = regexp.MustCompile(`^vault://[A-Za-z0-9_-]+/[A-Za-z0-9_./-]+#[A-Za-z0-9_-]+$`)
 var identifier = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,100}$`)
 
 func validateConnection(kind, address, secretRef string) error {
 	switch kind {
-	case "confluence", "notion", "feishu", "git", "web", "upload":
+	case "confluence", "notion", "feishu", "git", "git_markdown", "web", "upload":
 	default:
 		return errors.New("unsupported source type")
 	}
@@ -107,13 +109,11 @@ func validateConnection(kind, address, secretRef string) error {
 		u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
 		return errors.New("source URL must be HTTPS without credentials, query or fragment")
 	}
-	// Other source types, including private Web endpoints, still require an
-	// opaque Vault ref.
 	if len(secretRef) > 300 || !vaultReference.MatchString(secretRef) {
-		return errors.New("secret_ref must be a Vault reference")
+		return errors.New("secret_ref must use vault://mount/path#field; migrate legacy vault: references")
 	}
-	for _, segment := range strings.Split(strings.TrimPrefix(secretRef, "vault:"), "/") {
-		if segment == "." || segment == ".." {
+	for _, segment := range strings.Split(strings.TrimPrefix(strings.SplitN(secretRef, "#", 2)[0], "vault://"), "/") {
+		if segment == "." || segment == ".." || segment == "" {
 			return errors.New("invalid Vault path")
 		}
 	}
@@ -142,6 +142,9 @@ func validateCreate(v request) error {
 	if v.Type == "web" && v.SecretRef == "" &&
 		(len(v.Spaces) != 0 || v.Schedule != "manual" || !*v.InheritACL) {
 		return errors.New("public Web Markdown requires one page, manual sync and inherited source access")
+	}
+	if v.Type == "git_markdown" && (v.ApplicationID == "" || len(v.Spaces) != 0 || v.Schedule != "manual" || !*v.InheritACL) {
+		return errors.New("git_markdown requires one active application, manual sync and inherited source access")
 	}
 	seen := map[string]bool{}
 	for _, space := range v.Spaces {
@@ -210,6 +213,17 @@ func authorizationError(w http.ResponseWriter, err error) {
 	}
 }
 
+// A credentialed probe records its attempt before any Vault or GitLab call.
+// Audit details deliberately exclude source URL, reference, token and body.
+func (s *Service) auditGitConnectionTest(ctx context.Context, user core.User, env, app, team, outcome string) error {
+	_, err := s.DB.Exec(ctx, `INSERT INTO management_audit
+ (actor_id,application_id,action,target,outcome,changes)
+ VALUES($1,$2,'v3.knowledge_source.connection.test','git_markdown',$3,
+ jsonb_build_object('environment_id',$4::text,'team_id',$5::text))`,
+		user.ID, app, outcome, env, team)
+	return err
+}
+
 // Test fails closed until a source-specific read-only prober is installed.
 // The result is a point-in-time probe, not a persisted sync or index status.
 func (s *Service) testConnection(w http.ResponseWriter, r *http.Request) {
@@ -217,17 +231,38 @@ func (s *Service) testConnection(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := s.authorized(r.Context(), user, "manage", envs[0], "", ""); err != nil {
-		authorizationError(w, err)
-		return
-	}
 	var v connectionRequest
 	if !httpapi.Decode(w, r, &v) {
+		return
+	}
+	app, team := "", ""
+	if v.Type == "git_markdown" {
+		if !identifier.MatchString(v.ApplicationID) ||
+			(v.TeamID != "" && !identifier.MatchString(v.TeamID)) {
+			httpapi.Error(w, 422, "invalid_source_scope", "Git Markdown test requires a valid application and team")
+			return
+		}
+		app, team = v.ApplicationID, v.TeamID
+	}
+	if err := s.authorized(r.Context(), user, "manage", envs[0], app, team); err != nil {
+		authorizationError(w, err)
 		return
 	}
 	if err := validateConnection(v.Type, v.URL, v.SecretRef); err != nil {
 		httpapi.Error(w, 422, "invalid_source_connection", err.Error())
 		return
+	}
+	if app != "" {
+		active, err := s.activeRegistration(r.Context(), s.DB, registration{
+			EnvironmentID: envs[0], ApplicationID: app, TeamID: team}, false)
+		if err != nil {
+			unavailable(w)
+			return
+		}
+		if !active {
+			httpapi.Error(w, 422, "invalid_source_scope", "Application/team is not active in the selected environment")
+			return
+		}
 	}
 	prober, ok := s.Readers[v.Type].(ConnectionTester)
 	if !ok {
@@ -236,12 +271,50 @@ func (s *Service) testConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	if err := prober.Probe(ctx, ReadSpec{SourceType: v.Type, URL: v.URL, SecretRef: v.SecretRef, EnvironmentID: envs[0]}); err != nil {
-		httpapi.Error(w, 503, "source_connection_failed", "Read-only source connection failed")
+	if v.Type == "git_markdown" {
+		if err := s.auditGitConnectionTest(ctx, user, envs[0], app, team, "attempted"); err != nil {
+			httpapi.Error(w, 503, "audit_unavailable", "Source test audit is unavailable")
+			return
+		}
+	}
+	probeErr := prober.Probe(ctx, ReadSpec{SourceType: v.Type, URL: v.URL, SecretRef: v.SecretRef,
+		EnvironmentID: envs[0], ApplicationID: app, TeamID: team})
+	authErr := s.authorized(ctx, user, "manage", envs[0], app, team)
+	var scopeErr error
+	active := true
+	if app != "" && authErr == nil {
+		active, scopeErr = s.activeRegistration(ctx, s.DB, registration{
+			EnvironmentID: envs[0], ApplicationID: app, TeamID: team}, false)
+	}
+	if v.Type == "git_markdown" {
+		outcome := "success"
+		switch {
+		case authErr != nil:
+			outcome = "authorization_failed"
+		case scopeErr != nil || !active:
+			outcome = "scope_changed"
+		case probeErr != nil:
+			outcome = "failure"
+		}
+		if err := s.auditGitConnectionTest(ctx, user, envs[0], app, team, outcome); err != nil {
+			httpapi.Error(w, 503, "audit_unavailable", "Source test audit is unavailable")
+			return
+		}
+	}
+	if authErr != nil {
+		authorizationError(w, authErr)
 		return
 	}
-	if err := s.authorized(ctx, user, "manage", envs[0], "", ""); err != nil {
-		authorizationError(w, err)
+	if scopeErr != nil {
+		unavailable(w)
+		return
+	}
+	if !active {
+		httpapi.Error(w, 409, "source_scope_changed", "Application/team changed during source test")
+		return
+	}
+	if probeErr != nil {
+		httpapi.Error(w, 503, "source_connection_failed", "Read-only source connection failed")
 		return
 	}
 	result := map[string]any{"ok": true, "message": "Read-only source access succeeded",
@@ -390,12 +463,22 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 	}
 	env := envs[0]
 	spaces, _ := json.Marshal(v.Spaces)
+	bindingFingerprint, bindingSnapshot := "", json.RawMessage(`{}`)
 	tx, err := s.DB.Begin(r.Context())
 	if err != nil {
 		unavailable(w)
 		return
 	}
 	defer tx.Rollback(r.Context())
+	if v.Type == "git_markdown" {
+		if err = lockSourceSyncAuthority(r.Context(), tx, r); errors.Is(err, errSourceSyncSession) {
+			httpapi.Error(w, 401, "unauthorized", "Session expired")
+			return
+		} else if err != nil {
+			unavailable(w)
+			return
+		}
+	}
 	if v.ApplicationID != "" {
 		var activeID string
 		err = tx.QueryRow(r.Context(), `SELECT a.id FROM applications a
@@ -416,13 +499,26 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 		authorizationError(w, err)
 		return
 	}
+	if v.Type == "git_markdown" {
+		binding, ok := s.Readers[v.Type].(RegistrationBindingEvidence)
+		matched := false
+		if ok {
+			bindingFingerprint, bindingSnapshot, matched = binding.BindingEvidenceForCreate(ReadSpec{
+				SourceType: v.Type, URL: v.URL, SecretRef: v.SecretRef, EnvironmentID: env,
+				ApplicationID: v.ApplicationID, TeamID: v.TeamID, Spaces: v.Spaces})
+		}
+		if !matched {
+			httpapi.Error(w, 422, "source_binding_unavailable", "Git Markdown source is not configured for this scope")
+			return
+		}
+	}
 	id := uuid.NewString()
 	_, err = tx.Exec(r.Context(), `INSERT INTO v3_knowledge_source_registrations
  (id,environment_id,application_id,team_id,name,source_type,source_url,secret_ref,
-  spaces,schedule,chunk,inherit_acl,created_by)
- VALUES($1,$2,NULLIF($3,''),NULLIF($4,''),$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+  spaces,schedule,chunk,inherit_acl,created_by,binding_fingerprint,binding_snapshot)
+ VALUES($1,$2,NULLIF($3,''),NULLIF($4,''),$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb)`,
 		id, env, v.ApplicationID, v.TeamID, v.Name, v.Type, v.URL, v.SecretRef,
-		spaces, v.Schedule, v.Chunk, *v.InheritACL, user.ID)
+		spaces, v.Schedule, v.Chunk, *v.InheritACL, user.ID, bindingFingerprint, string(bindingSnapshot))
 	if err != nil {
 		unavailable(w)
 		return
@@ -435,6 +531,15 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		httpapi.Error(w, 503, "audit_unavailable", "Source registration audit is unavailable")
 		return
+	}
+	if v.Type == "git_markdown" {
+		if err = currentSourceSyncSession(r.Context(), tx, r); errors.Is(err, errSourceSyncSession) {
+			httpapi.Error(w, 401, "unauthorized", "Session expired")
+			return
+		} else if err != nil {
+			unavailable(w)
+			return
+		}
 	}
 	if err := tx.Commit(r.Context()); err != nil {
 		unavailable(w)

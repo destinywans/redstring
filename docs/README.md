@@ -33,6 +33,7 @@
 - [架构](architecture.md)、[API 语义](api-contract.md)、[OpenAPI](../internal/apicontract/openapi.json)。
 - [V3 配置提升接线与验证边界](api/v3-config-sync.md)：私有配置、签名信任、GitLab 审核与迁移 120–121。
 - [V3 连接器凭据绑定](api/v3-connector-credentials.md)：服务端精确授权、激活和恢复步骤。
+- [V3 Git Markdown 知识来源](api/v3-git-markdown-source.md)：服务端固定仓库范围、Vault 引用、手动读取和证据边界。
 - [视觉与交互检查](../design-qa.md)：概念图映射、已检查行为及差异。
 - [历史后端交接](backend-handoff.md)、[演示环境](demo.md)。
 - [实施计划](../PLAN.md)、[可恢复检查点](../CHECKPOINT.md)、[领域术语](../CONTEXT.md)。

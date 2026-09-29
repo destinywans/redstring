@@ -33,6 +33,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3changes"
 	"github.com/wans/aiops-canvas/internal/v3changeview"
 	"github.com/wans/aiops-canvas/internal/v3conversation"
+	"github.com/wans/aiops-canvas/internal/v3coverage"
 	"github.com/wans/aiops-canvas/internal/v3discovery"
 	"github.com/wans/aiops-canvas/internal/v3events"
 	"github.com/wans/aiops-canvas/internal/v3identity"
@@ -293,6 +294,7 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	configSync.Register(api)
 	v3proposals.New(s.DB, policy).Register(api)
 	v3discovery.New(s.DB, policy).Register(api)
+	v3coverage.New(s.DB, policy).Register(api)
 	mcpService := v3mcp.New(s.DB, policy)
 	credentialRoot := os.Getenv("AIOPS_MCP_CREDENTIAL_ROOT")
 	mcpService.DiscoverTools = func(ctx context.Context, config aiextensions.MCPConfig) ([]aiextensions.ToolInfo, error) {

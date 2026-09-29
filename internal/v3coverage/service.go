@@ -124,7 +124,8 @@ func (s *Service) coverage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query()
-	if len(query["app"]) > 1 || len(query) > 1 || len(strings.TrimSpace(query.Get("app"))) > 200 {
+	if len(query["app"]) > 1 || len(query) > 1 || (len(query) > 0 && !query.Has("app")) ||
+		len(strings.TrimSpace(query.Get("app"))) > 200 {
 		httpapi.Error(w, 422, "invalid_filter", "Choose at most one application")
 		return
 	}

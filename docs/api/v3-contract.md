@@ -300,10 +300,12 @@ Pull 仅使用服务端私有配置登记的 Prometheus `metric_resource` 目标
 | POST | `/service-mappings/accept` | `{ candidates: [{ id, version, service_id, environment_id, system_id, binding_revision }] }` | `{ accepted, items }` | implemented |
 | POST | `/service-mappings/discover` | | `{ suggestions, source_state, candidates }` | implemented |
 | PUT | `/service-mappings` | `{ environment_id, items: [{ service_id, service_environment_id, binding_revision, bindings }] }`；1–50 个完整替换项 | `{ environment_id, items }`；返回持久身份、绑定及写后修订号 | implemented |
-| GET | `/coverage` | `app` | `CoverageView`（覆盖矩阵、对 Agent 的影响、修复建议） | mock |
+| GET | `/coverage` | 单个可选 `app`（精确应用 ID 或 key） | 授权应用/环境的配置证据矩阵；实时覆盖、评分与 Agent 影响未知值为 `null` 或明确可用性 | implemented |
 | GET | `/webhooks` | | 当前授权通用 Push 入站的真实登记及 24 小时非合成收据；其他类别以 `availability: not_connected` 标为未接入，未知连接状态为 `unverified` | implemented |
 | POST | `/webhooks/{id}/redeliver` | | 结果 | mock |
 | POST | `/api-tokens` | `{ name, scopes, ttl }` | `{ id, secret_shown_once }` | mock |
+
+`GET /coverage` 最多返回 200 条当前有权应用/环境行，候选按稳定游标扫描，容量只计授权行。连接器、资源及 Runbook 单元格再各自核对查看权限；登记目标或 CMDB 关联只证明配置，不证明持续数据覆盖。现有 Runbook 文档缺精确环境和文档可见性证据，因此该格保持 `unknown`；评分、类型百分比、评测失败归因与 Agent 影响没有可信生产者，数值为 `null`，可用性显式标注。当前冻结 `CoverageView` 类型要求非空数值且页面把未知格显示成绿色勾，整页尚不可按真实数据验收；本批未修改前端。后端本阶段只完成源码、契约和最小编译，未运行数据库、测试或浏览器验证。
 
 服务映射候选目前仅来自管理员显式绑定的单个 GitLab 数字项目目标，不按标签、名称或部署记录推断。`POST /service-mappings/discover` 在一个环境中核对服务与连接器授权、近期探测和绑定后的激活审计，保存 15 分钟候选并返回 `source_state` 与可复核的候选身份，不直接改服务映射；超过 500 条可见未映射来源返回 422。`POST /service-mappings/accept` 只接受发现或 GET 映射格给出的候选 `id/version/service_id/environment_id/system_id/binding_revision`，在事务中复核候选唯一性、来源身份/修订、当前授权及绑定可用性，并将映射、候选状态与审计一同提交。旧的 `{ cells: ["service:system"] }` 只有展示字符串，无法约束来源和修订，已由候选请求体取代；冻结前端及 `types.ts` 尚未适配。V3 专用校验只允许与已登记来源完全相同的单个 GitLab 项目绑定，其余绑定继续交给原平台校验器；旧平台的全局 GitLab 拒绝规则没有扩大。迁移 `090_v3_service_mapping_candidates.sql` 保存候选；应用环境退役时候选会级联删除，管理审计另记接受决定。激活审计证明绑定时曾核验项目访问，近期通用探测不证明当前仍能访问项目。V3 实例拦截未迁移的旧环境编辑路由，旧模式也不能在已绑定 V3 的数据库上启动。隔离数据库 HTTP 测试覆盖候选、接受与审计，尚无正式进程对真实 GitLab 项目的端到端验收。
 

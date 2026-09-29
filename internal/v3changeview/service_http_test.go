@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -191,8 +192,11 @@ func TestChangesViewHTTPSourceBackedAndFailClosed(t *testing.T) {
 	policy := &rbac.V3Policy{Store: st}
 	reviews := &mutatingReviewSource{AuditReviewSource: AuditReviewSource{DB: db}, db: db}
 	api := httpapi.New(st, nil, true)
-	New(st, policy, reviews, func(app, env string, start, end time.Time) bool {
-		return app == "app" && env == "test" && !start.Before(now.Add(-24*time.Hour)) && !end.After(now.Add(time.Minute))
+	New(st, policy, reviews, func(_ context.Context, app, env string, start, end time.Time) string {
+		if app == "app" && env == "test" && !start.Before(now.Add(-24*time.Hour)) && !end.After(now.Add(time.Minute)) {
+			return "alert-source"
+		}
+		return ""
 	}).Register(api)
 	if err = api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "test", EnvironmentIDs: []string{"test"}},
 		policy, st.Session, func(ctx context.Context, user core.User, module, action, environment string) error {
@@ -318,6 +322,10 @@ func TestChangesViewHTTPSourceBackedAndFailClosed(t *testing.T) {
  WHERE application_id='app' AND target=$1 AND action='change.review.accepted'`, run.ID).Scan(&acceptedCount); err != nil || acceptedCount != 1 {
 		t.Fatalf("accepted review count=%d err=%v", acceptedCount, err)
 	}
+	if _, err = db.Exec(ctx, `INSERT INTO ops_incidents(id,source_id,application_id,environment_id,fingerprint,title,severity,status,alert_status,starts_at)
+ VALUES('wrong-source','other-alert-source','app','app-test','fp-other','Unreviewed source alert','warning','open','firing',$1)`, alertAt); err != nil {
+		t.Fatal(err)
+	}
 	w := request(path)
 	assert(w, 200)
 	var body struct {
@@ -335,6 +343,17 @@ func TestChangesViewHTTPSourceBackedAndFailClosed(t *testing.T) {
 		len(body.Lanes[0].Alerts) != 1 || body.Detail.Alert.Incident != "incident-1" ||
 		body.Detail.Risk.Text != "Potential capacity impact; causality not asserted." {
 		t.Fatalf("incorrect source projection: %s", w.Body.String())
+	}
+	coverageChecks := 0
+	revoked := &Service{Store: st, AlertCovered: func(_ context.Context, _, _ string, _, _ time.Time) string {
+		coverageChecks++
+		if coverageChecks == 1 {
+			return "alert-source"
+		}
+		return ""
+	}}
+	if _, err = revoked.loadAlerts(ctx, serviceRow{AppID: "app", EnvID: "app-test", EnvKey: "test"}, now.Add(-24*time.Hour), now); !errors.Is(err, errIncomplete) || coverageChecks != 2 {
+		t.Fatalf("revoked coverage survived incident read: checks=%d err=%v", coverageChecks, err)
 	}
 	// A deployment completed in this window still counts when its source run
 	// started before the window. It must not invalidate the selected run.

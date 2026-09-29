@@ -1,5 +1,12 @@
 # AIOps Canvas 检查点
 
+## CP-165 · 2026-09-29 · WAN-120 原生变更视图与人工审阅
+
+- 集成分支 `codex/wan-117-v3-integration` 从已推送 CP-164 `eb9a991` 接续。WAN-120 来源 `0cfcf877` 和 `86f6f45` 依次合入为 `1cbe8a6`、`0475d3c`；正式 `configureV3` 注册 GET `/changes` 与辅助 POST `/changes/{run_id}/review`，使用链式审计 `change.review.accepted` 作为人类审阅的持久生产者。无新增迁移；生成 OpenAPI **300 路径、358 操作、323 schema**。
+- GET 只接受单环境的复合服务 ID、原生 Argo Workflows 运行 ID、24 小时或 7 天窗口；从持久运行/节点状态、经运行/制品/计划摘要核对的 GitOps 发布、精确绑定告警来源及版本一致的人类审阅构造完整 `ChangesView`。POST 要求当前非机器会话及 `services.change`、运行/发布/事故版本，写入不可修改审计，同用户同请求重试不重复发布。来源、会话和对象授权在读写边界复核；缺证据、变更或过量明确 503/413。当前审阅 POST 可以接受另一告警来源的真实事故，但随后 GET 会安全地 503；审阅动作本身不保证视图可展示。
+- 既有服务告警绑定新增可选运维声明 `complete_from`。变更 GET 仅在声明覆盖整窗、当前令牌及应用环境映射有效时读取其精确 `source_id` 的事故，并在查询后及最终读取时重复核对；无声明、历史不足或撤销返回 503。该声明是运维对持续投递及保留历史的确认，系统不能从空事故表自动证明外部无漏报；修改配置文件需重启，令牌或应用映射撤销在运行时生效。
+- 一次性隔离 pgvector PG17 的 `v3changeview` 注册 HTTP、`v3serviceviews` 区间覆盖和 `cmd/aiops` 正式入口定向 `-race` 通过，覆盖人类 POST 201→GET 24h 200、未审阅/无声明/7d 历史不足 503、异来源排除与来源撤销；受影响 Go vet、OpenAPI/契约/就绪矩阵及差异检查用于收尾。主 GET 按后端标准升 `implemented`，主契约 **82/166、84 mock**。未连接真实 Argo/GitOps/Alertmanager、未迁移现有业务库或验证冻结浏览器页面；前端仍缺 `service_id/run_id` 请求和选中运行后详情刷新。无 PR、合并或部署。下一步接 WAN-123 Feishu/upload 完整来源。
+
 ## CP-164 · 2026-09-29 · WAN-121 调查模板目录与启动
 
 - 集成分支 `codex/wan-117-v3-integration` 从已推送 CP-163 `0345706` 接续。WAN-121 来源 `16b7f7c7e40814fc6668831f5c11901bbf55560b` 合入为 `57159ef`；v3canvas 已有主程序注册路径，新增 GET/POST 路由与权限登记。迁移 `134_v3_investigation_templates.sql` 不种演示记录，目录为空返回 200 空列表。另一个已存在的 `134_v3_pull_attempts.sql` 与之按完整文件名分别登记。

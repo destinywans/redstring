@@ -153,14 +153,15 @@ func (s *Service) loadDeployments(ctx context.Context, row serviceRow, start, en
 }
 
 func (s *Service) loadAlerts(ctx context.Context, row serviceRow, start, end time.Time) ([]alertRecord, error) {
-	if !s.AlertCovered(row.AppID, row.EnvKey, start, end) {
+	sourceID := s.AlertCovered(ctx, row.AppID, row.EnvKey, start, end)
+	if sourceID == "" {
 		return nil, errIncomplete
 	}
 	rows, err := s.Store.DB.Query(ctx, `SELECT i.id,i.title,i.alert_status,i.starts_at,i.ends_at,i.updated_at
  FROM ops_incidents i
- WHERE i.application_id=$1 AND i.environment_id=$2 AND NOT i.suspected
- AND i.starts_at<$4 AND (i.ends_at IS NULL OR i.ends_at>$3)
- ORDER BY i.starts_at,i.id LIMIT 201`, row.AppID, row.EnvID, start, end)
+ WHERE i.application_id=$1 AND i.environment_id=$2 AND i.source_id=$3 AND NOT i.suspected
+ AND i.starts_at<$5 AND (i.ends_at IS NULL OR i.ends_at>$4)
+ ORDER BY i.starts_at,i.id LIMIT 201`, row.AppID, row.EnvID, sourceID, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -182,7 +183,15 @@ func (s *Service) loadAlerts(ctx context.Context, row serviceRow, start, end tim
 			return nil, errLimit
 		}
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	// A source binding can be revoked while the query is in flight.
+	if s.AlertCovered(ctx, row.AppID, row.EnvKey, start, end) != sourceID {
+		return nil, errIncomplete
+	}
+	return out, nil
 }
 
 func findRun(rows []runRecord, id string) (runRecord, error) {

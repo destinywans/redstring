@@ -31,6 +31,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3canvas"
 	"github.com/wans/aiops-canvas/internal/v3catalog"
 	"github.com/wans/aiops-canvas/internal/v3changes"
+	"github.com/wans/aiops-canvas/internal/v3changeview"
 	"github.com/wans/aiops-canvas/internal/v3conversation"
 	"github.com/wans/aiops-canvas/internal/v3discovery"
 	"github.com/wans/aiops-canvas/internal/v3events"
@@ -526,6 +527,11 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		return fmt.Errorf("configure V3 service alert coverage: %w", err)
 	}
 	v3serviceviews.New(s, policy, metricReader, alertCoverage).Register(api)
+	changeAlertCoverage, err := v3serviceviews.LoadAlertRangeCoverage(os.Getenv("AIOPS_V3_SERVICE_ALERT_COVERAGE_CONFIG"), opsConfig, cfg, s.DB)
+	if err != nil {
+		return fmt.Errorf("configure V3 change alert coverage: %w", err)
+	}
+	v3changeview.New(s, policy, v3changeview.AuditReviewSource{DB: s.DB}, v3changeview.AlertCovered(changeAlertCoverage)).Register(api)
 	v3traces.New(s, policy, telemetry).Register(api)
 	events := v3events.New(s.DB, func(ctx context.Context, user core.User, app, env, action string) error {
 		return policy.Authorize(ctx, user, rbac.V3Decision{Module: "events", Action: action, ApplicationID: app, EnvironmentID: env})

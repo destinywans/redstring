@@ -26,7 +26,7 @@ type Access interface {
 // AlertCovered reports whether a reviewed operational source covers this exact
 // application/environment and full requested interval. Without coverage, an
 // empty alert band is unknown.
-type AlertCovered func(applicationID, environmentID string, start, end time.Time) bool
+type AlertCovered func(context.Context, string, string, time.Time, time.Time) string
 
 type Service struct {
 	Store        *store.Store

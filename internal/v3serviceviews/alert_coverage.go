@@ -29,6 +29,9 @@ type AlertCoverageBinding struct {
 	EnvironmentID string            `json:"environment_id"` // V3 environment key, not the legacy row ID
 	Labels        map[string]string `json:"labels"`
 	Complete      bool              `json:"complete"`
+	// CompleteFrom is the operator-attested beginning of uninterrupted ingress
+	// and retained incident history for this exact source and selector.
+	CompleteFrom *time.Time `json:"complete_from,omitempty"`
 }
 
 type AlertCoverageConfig struct {
@@ -36,15 +39,59 @@ type AlertCoverageConfig struct {
 }
 
 type verifiedAlertBinding struct {
-	source operations.Source
-	envRow string
+	source       operations.Source
+	envRow       string
+	completeFrom time.Time
 }
+
+// AlertRangeCovered returns the exact ingress source only when the operator's
+// historical completeness assertion spans the full requested interval.
+type AlertRangeCovered func(context.Context, string, string, time.Time, time.Time) string
 
 // LoadAlertCoverage loads server-owned completeness assertions. An absent
 // config gives nil coverage, so a zero incident count cannot be presented as
 // zero alerts. The callback rechecks token readability and the persisted
 // mapping on each read; removing a binding from the file requires restart.
 func LoadAlertCoverage(path string, ops operations.Config, instance httpapi.V3InstanceConfig, db *pgxpool.Pool) (AlertCovered, error) {
+	bindings, err := loadVerifiedAlertBindings(path, ops, instance, db)
+	if err != nil || bindings == nil {
+		return nil, err
+	}
+	return func(ctx context.Context, app, env string) string {
+		binding, ok := liveAlertBinding(ctx, bindings, db, app, env)
+		if !ok {
+			return ""
+		}
+		return binding.source.ID
+	}, nil
+}
+
+// LoadAlertRangeCoverage requires an explicit historical assertion in the
+// same server-owned config used by current service health. A missing date is
+// unknown history, even when current alert routing is complete.
+func LoadAlertRangeCoverage(path string, ops operations.Config, instance httpapi.V3InstanceConfig, db *pgxpool.Pool) (AlertRangeCovered, error) {
+	bindings, err := loadVerifiedAlertBindings(path, ops, instance, db)
+	if err != nil || bindings == nil {
+		return nil, err
+	}
+	return func(ctx context.Context, app, env string, start, end time.Time) string {
+		if start.IsZero() || !start.Before(end) || end.After(time.Now().UTC()) {
+			return ""
+		}
+		binding, ok := liveAlertBinding(ctx, bindings, db, app, env)
+		if !ok || binding.completeFrom.IsZero() || binding.completeFrom.After(start) {
+			return ""
+		}
+		return binding.source.ID
+	}, nil
+}
+
+func liveAlertBinding(ctx context.Context, bindings map[string]verifiedAlertBinding, db *pgxpool.Pool, app, env string) (verifiedAlertBinding, bool) {
+	binding, ok := bindings[app+"\x00"+env]
+	return binding, ok && readableAlertToken(binding.source.TokenFile) && activeAlertMapping(ctx, db, app, env, binding.envRow)
+}
+
+func loadVerifiedAlertBindings(path string, ops operations.Config, instance httpapi.V3InstanceConfig, db *pgxpool.Pool) (map[string]verifiedAlertBinding, error) {
 	if path == "" {
 		return nil, nil
 	}
@@ -113,15 +160,16 @@ func LoadAlertCoverage(path string, ops operations.Config, instance httpapi.V3In
 		if !active || !readableAlertToken(source.TokenFile) {
 			return nil, ErrInvalidAlertCoverage
 		}
-		bindings[key] = verifiedAlertBinding{source: source, envRow: mapping.EnvironmentID}
-	}
-	return func(ctx context.Context, app, env string) string {
-		binding, ok := bindings[app+"\x00"+env]
-		if !ok || !readableAlertToken(binding.source.TokenFile) || !activeAlertMapping(ctx, db, app, env, binding.envRow) {
-			return ""
+		if b.CompleteFrom != nil && (b.CompleteFrom.IsZero() || b.CompleteFrom.After(time.Now().UTC())) {
+			return nil, ErrInvalidAlertCoverage
 		}
-		return binding.source.ID
-	}, nil
+		verified := verifiedAlertBinding{source: source, envRow: mapping.EnvironmentID}
+		if b.CompleteFrom != nil {
+			verified.completeFrom = b.CompleteFrom.UTC()
+		}
+		bindings[key] = verified
+	}
+	return bindings, nil
 }
 
 func sameLabels(a, b map[string]string) bool {

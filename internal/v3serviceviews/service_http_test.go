@@ -469,6 +469,75 @@ func TestAlertCoverageRejectsAmbiguousOrUnassertedSource(t *testing.T) {
 	}
 }
 
+func TestAlertRangeCoverageRequiresAttestedCompleteInterval(t *testing.T) {
+	st, _ := serviceTestDB(t)
+	seedServiceViews(t, st, time.Date(2026, 9, 29, 8, 30, 15, 0, time.UTC))
+	dir := t.TempDir()
+	tokenPath := filepath.Join(dir, "token")
+	if err := os.WriteFile(tokenPath, []byte("fixture-alertmanager-token-at-least-24"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	source := operations.Source{ID: "range-alerts", TokenFile: tokenPath, Mappings: []operations.Mapping{
+		{Labels: map[string]string{"application": "checkout"}, ApplicationID: "checkout-app", EnvironmentID: "checkout-test"},
+	}}
+	instance := httpapi.V3InstanceConfig{Tier: "nonprod", EnvironmentIDs: []string{"test"}}
+	path := filepath.Join(dir, "coverage.json")
+	binding := AlertCoverageBinding{SourceID: source.ID, ApplicationID: "checkout-app", EnvironmentID: "test",
+		Labels: source.Mappings[0].Labels, Complete: true}
+	load := func() AlertRangeCovered {
+		t.Helper()
+		raw, err := json.Marshal(AlertCoverageConfig{Bindings: []AlertCoverageBinding{binding}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+		covered, err := LoadAlertRangeCoverage(path, operations.Config{Sources: []operations.Source{source}}, instance, st.DB)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return covered
+	}
+	if absent, err := LoadAlertRangeCoverage("", operations.Config{}, instance, st.DB); err != nil || absent != nil {
+		t.Fatalf("absent historical coverage must be unavailable: callback=%v err=%v", absent != nil, err)
+	}
+	now := time.Now().UTC()
+	start, end := now.Add(-24*time.Hour), now.Add(-time.Second)
+	if got := load()(t.Context(), "checkout-app", "test", start, end); got != "" {
+		t.Fatalf("missing complete_from claimed history from %q", got)
+	}
+	completeFrom := now.Add(-48 * time.Hour)
+	binding.CompleteFrom = &completeFrom
+	covered := load()
+	if got := covered(t.Context(), "checkout-app", "test", start, end); got != source.ID {
+		t.Fatalf("attested interval not covered by exact source: %q", got)
+	}
+	for _, span := range []struct{ start, end time.Time }{
+		{now.Add(-7 * 24 * time.Hour), end},
+		{now.Add(-time.Hour), now.Add(time.Hour)},
+		{end, start},
+	} {
+		if got := covered(t.Context(), "checkout-app", "test", span.start, span.end); got != "" {
+			t.Fatalf("uncovered interval claimed by %q", got)
+		}
+	}
+	completeFrom = now.Add(-8 * 24 * time.Hour)
+	covered = load()
+	if got := covered(t.Context(), "checkout-app", "test", now.Add(-7*24*time.Hour), end); got != source.ID {
+		t.Fatalf("attested seven-day interval not covered by exact source: %q", got)
+	}
+	if got := covered(t.Context(), "other-app", "test", start, end); got != "" {
+		t.Fatalf("other application claimed source %q", got)
+	}
+	if err := os.Remove(tokenPath); err != nil {
+		t.Fatal(err)
+	}
+	if got := covered(t.Context(), "checkout-app", "test", start, end); got != "" {
+		t.Fatalf("revoked token retained historical coverage %q", got)
+	}
+}
+
 type reassignReader struct {
 	completeReader
 	db      *pgxpool.Pool

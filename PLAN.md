@@ -1,5 +1,7 @@
 # AIOps Canvas 实施计划
 
+**2026-09-29 变更视图与人工审阅正式入口（CP-165）：** WAN-120 原生交付/GitOps/事故来源的单次运行 `GET /changes` 和辅助人工审阅 POST 已接主程序；运维声明 `complete_from` 必须覆盖 24 小时或 7 天整窗，事故只取精确告警来源，审阅/来源/授权在读取后复核。完整来源和人工审阅证据齐备时返回冻结 `ChangesView`；不足时明确 503。隔离 PG17 的领域、覆盖与正式入口 `-race` 定向证据见 [CP-165](CHECKPOINT.md)。主 GET 按后端标准升 `implemented`，现 **82/166、84 mock**，OpenAPI **300 路径、358 操作、323 schema**。运维须核实连续投递与历史保留，真实外部来源、现有库和冻结前端缺 `service_id/run_id` 仍待验。下一批接 WAN-123 Feishu/upload 来源。
+
 **2026-09-29 调查模板目录与启动（CP-164）：** WAN-121 持久调查模板 GET/POST 已接主程序；列表按当前环境、应用、团队、权限及有效引用过滤，启动在单事务内复核版本/依赖并建立调查、分支、冻结大纲、事件与审计，按用户请求 ID 幂等。隔离 PG17 `-race`、两个不同文件名的 `134_*.sql` 登记、主程序测试、vet 和契约检查通过。两条主路由按后端标准升为 `implemented`，现 **81/166、85 mock**，OpenAPI **298 路径、356 操作、316 schema**。迁移不种示例，真实部署可为空；冻结前端未发送启动 `inputs`，真实页面尚不可用。见 [CP-164](CHECKPOINT.md)。
 
 **2026-09-29 Prometheus Pull 正式入口（CP-163）：** WAN-122 服务端固定的 Prometheus `metric_resource` Pull 来源、真实有界预览与映射测试已接 V3 主程序；隔离 PG17 + 本地 Vault/Prometheus 入口 `-race` 与领域定向均通过。`GET /ingest/pull/{id}`、`POST /ingest/pull/{id}/test` 按后端标准升为 `implemented`，主契约现 **79/166、87 mock**，OpenAPI 296 路径、354 操作、314 schema。生产查询范围需运维审核，尝试留存/容量、真实上游和冻结前端控件仍待验；见 [CP-163](CHECKPOINT.md)。后续继续接已就绪的完整领域批次。

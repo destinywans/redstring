@@ -10,9 +10,9 @@
 
 完整 200 符合 `web/src/v3/api/types.ts` 的 `ChangesView`。`pipelines` 仅有被选中的一条运行，`detail.id` 对应同一 `run_id`。`stages/jobs` 来自该运行的持久化节点状态；不可把未运行的节点显示成 `ok`。`lanes/axis` 和 `sources` 限于本服务、本环境、本时间窗内已持久化且可见的事实。`sources.count` 是来源记录数，不是健康度；只有实际参与投影且完成来源核对的来源才可 `on=true`。
 
-`kpis` 只使用可复算的 `runs`、`succeeded`、`failed`、`deployments` 计数和对应序列。运行以 `delivery_runs` 的稳定身份、状态和时间为准；部署以经核验的 GitOps 事件及运行、环境和制品摘要关联为准，不能仅凭 Argo CD 历史、Kubernetes 健康或工作流成功推断发布。窗口内的告警带仅取有明确覆盖证明的 `ops_incidents` 时间段。覆盖证明必须包含所选应用、环境和完整的起止时间；没有完整告警来源覆盖时，零告警不能表示无告警，也不能返回完整视图。不会生成变更失败率、提交至生产前置时间、MTTR 或告警因果结论，因为此切片缺少这些指标所需的归因和起止事件链。
+`kpis` 只使用可复算的 `runs`、`succeeded`、`failed`、`deployments` 计数和对应序列。运行以 `delivery_runs` 的稳定身份、状态和时间为准；部署以经核验的 GitOps 事件及运行、环境和制品摘要关联为准，不能仅凭 Argo CD 历史、Kubernetes 健康或工作流成功推断发布。窗口内的告警带仅取服务端核验的精确 `source_id` 的 `ops_incidents` 时间段。覆盖声明须包含所选应用、环境和不晚于完整窗口起点的 `complete_from`；没有整窗声明时，零告警不能表示无告警，也不能返回完整视图。声明的运维确认与撤销要求见[服务告警覆盖绑定](../examples/v3-service-alert-coverage.md)；代码不会从空事故表推断外部持续投递。不会生成变更失败率、提交至生产前置时间、MTTR 或告警因果结论，因为此切片缺少这些指标所需的归因和起止事件链。
 
-冻结 DTO 中 `detail.diff`、`detail.risk`、`detail.alert` 均为必填非空对象。它们只能来自注入的已审阅 `ReviewSource`。`AuditReviewSource` 只读取不可修改的审计链中明确标为 `change.review.accepted`、`display_approved=true` 的最新人工审阅版本，并核对它指向前一个版本；按**精确运行 ID、运行快照摘要和更新时间、制品与提交摘要、发布计划、服务、GitOps 执行及真实事故身份和更新时间**交叉核对。审阅文字应标明观察或判断语义，不能将时间相邻自动解释为因果。`risk` 不从流水线状态、告警严重度或模型自由生成；`alert.incident` 必须指向可见的真实事故。主读取路由和审阅写入路由仍需 WAN-117 集成。缺审阅证据、摘要不符、GitOps 部署证据不全、事故覆盖未知、来源或授权读取中发生变化时返回 503，不以空字符串、示例文案或 mock 填补。
+冻结 DTO 中 `detail.diff`、`detail.risk`、`detail.alert` 均为必填非空对象。它们只能来自注入的已审阅 `ReviewSource`。`AuditReviewSource` 只读取不可修改的审计链中明确标为 `change.review.accepted`、`display_approved=true` 的最新人工审阅版本，并核对它指向前一个版本；按**精确运行 ID、运行快照摘要和更新时间、制品与提交摘要、发布计划、服务、GitOps 执行及真实事故身份和更新时间**交叉核对。审阅文字应标明观察或判断语义，不能将时间相邻自动解释为因果。`risk` 不从流水线状态、告警严重度或模型自由生成；`alert.incident` 必须指向可见的真实事故。主读取路由和审阅写入路由已在 WAN-117 主程序注册。缺审阅证据、摘要不符、GitOps 部署证据不全、事故覆盖未知、来源或授权读取中发生变化时返回 503，不以空字符串、示例文案或 mock 填补。
 
 ## 人工审阅写入
 

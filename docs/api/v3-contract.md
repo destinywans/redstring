@@ -214,7 +214,9 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | GET | `/services/discover` | 单个可选 `cluster`；重复参数返回 422 | 只读发现经授权的现存工作负载、稳定资源 ID 和未经核实的负责人提示；同名歧义候选不返回 | mock |
 | POST | `/services` | `{ items: [{ id, namespace, resource_id?, tier, owner, slo, p99 }] }`；`resource_id` 为发现接口返回的稳定 CMDB 标识，提供时必须有 namespace | `{ created }` | implemented |
 | GET | `/logs` | `q`, `levels`, `service?`, `provider?` | `LogSearch`；完整来源模式计数与趋势 | implemented |
-| GET | `/changes` | `range`, `sources` | `ChangesView`（CI/CD 与 GitOps 事件，只读） | mock |
+| GET | `/changes` | `service_id`, `run_id`, `range?=24h\|7d`, `sources?=native` | 单一有证据的原生交付运行及所选窗口的 `ChangesView` | implemented |
+
+`GET /changes` 仅投影已持久化且成功的原生 Argo Workflows 运行、经运行/制品/计划摘要核对的 GitOps 发布事件和精确来源的事故；`detail.diff/risk/alert` 来自有版本约束的人类审阅记录，不从流水线或时间相邻关系推断因果。`POST /changes/{run_id}/review` 辅助路由要求当前人类会话、`services.change` 及运行/发布/事故版本，写入不可修改的 `change.review.accepted` 审计；同一用户同参数重复提交不重复写入。GET 的 24 小时或 7 天告警带另要求服务端绑定的来源与运维确认的 `complete_from` 覆盖整个窗口，只读取该 `source_id` 的事故；缺少配置、历史不够、来源变更或审阅证据不全均返回 503。`complete_from` 是运维对持续投递和保留历史的声明，代码验证范围与当前绑定，不自动发现外部中断。冻结前端仍不发送 `service_id/run_id`，选中运行也不刷新详情；本批只按后端标准计入，真实来源与页面验收另做。接线和审阅请求详见[变更视图契约](v3-change-view.md)及[告警覆盖声明](../examples/v3-service-alert-coverage.md)。
 
 服务目录和详情使用未归档应用/环境及服务配置、经审查的精确 Prometheus 看板、同环境持久发布与调查证据构造完整 DTO。告警数和据此提升的状态只计入服务端完整覆盖声明指定的 Alertmanager 来源；声明需匹配实际运维入口的精确来源/标签及有效应用环境，缺少声明、来源、权限、值班、SLO、发布或 AI 调查等必填证据时整体返回 503，不把未知填成零或健康。读取来源后复核原 Cookie 会话、应用/团队归属、授权、指标目标与覆盖绑定。完整覆盖是运维对上游路由的显式声明，代码不证明外部持续投递；接入与撤销步骤见[服务告警覆盖绑定](../examples/v3-service-alert-coverage.md)。详情的复合服务 ID 尚不能直接作为指标、日志、链路页的 `service` 参数，冻结页面跳转及真实外部来源联调另行验收。
 

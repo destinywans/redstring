@@ -27,6 +27,11 @@ type Service struct {
 	Runtime inference.Runner
 	// MeEvidence supplies current, verifiable identity and on-call state.
 	MeEvidence MeEvidence
+	// ProfileEvidence supplies exact current contact, MFA and session-device
+	// evidence for the frozen ProfileView. ProfileInstanceID is the relying
+	// party boundary that the authority must echo in every snapshot.
+	ProfileEvidence   ProfileEvidenceSource
+	ProfileInstanceID string
 	// ToolModels is the operator-enabled V3 read-tool allowlist. Legacy model
 	// capabilities remain on Runtime and are not changed by this catalog.
 	ToolModels map[string]bool

@@ -27,11 +27,17 @@ S['V3InstanceInfo'] = v3_object('name domain default_env', {
 S['V3LowerSource'] = v3_object('id name brand env env_label purpose credential',
     required=['id','name','brand','env','env_label','purpose','credential'])
 S['V3ProfileView'] = v3_object('name display_name department title timezone', {
-    'contacts': arr(obj({'kind': string(enum=['email','phone','feishu']), **fieldnames('label value'), 'verified': v3_bool(), 'note': string()})),
-    'notifications': arr(obj({'event': string(), 'label': string(), 'channels': obj({k:v3_bool() for k in ['feishu','email','sms','phone']})})),
+    'contacts': arr(obj({'kind': string(enum=['email','phone','feishu']), **fieldnames('label value'), 'verified': v3_bool(), 'note': string()},
+                        ['kind','label','value','verified'])),
+    'notifications': arr(obj({'event': string(), 'label': string(),
+        'channels': obj({k:v3_bool() for k in ['feishu','email','sms','phone']}, ['feishu','email','sms','phone'])},
+        ['event','label','channels'])),
     'security': obj({'password_changed': string(), 'mfa_enabled': v3_bool(), 'org_rule': string(),
-        'factors': arr(v3_object('kind name sub')), 'sessions': arr(obj({**fieldnames('id device sub'), 'current': v3_bool()})),
-        'tokens': string()})})
+        'factors': arr(obj({'kind':string(enum=['passkey','totp','recovery']), **fieldnames('name sub')},
+                            ['kind','name','sub'])),
+        'sessions': arr(obj({**fieldnames('id device sub'), 'current': v3_bool()}, ['id','device','sub'])),
+        'tokens': string()}, ['password_changed','mfa_enabled','org_rule','factors','sessions','tokens'])},
+    ['name','display_name','department','title','timezone','contacts','notifications','security'])
 S['V3ModelChoice'] = obj({'model': string(), 'reasoning': string()}, ['model'])
 S['V3ModelInfo'] = v3_object('id name provider brand connector cost note unavailable_reason', {
     'api': string(enum=['responses','chat_completions','messages']),

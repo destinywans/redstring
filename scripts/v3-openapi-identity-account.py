@@ -124,8 +124,18 @@ v3_route('get','/models/observations','Read one model metadata observation',
     desc='Auxiliary models.view route for one selected environment. Missing checks and observations from another service process return configured_unverified with null checked_at and latency_ms; current verification is not shared across replicas. No endpoint, credentials, or upstream body is returned.')
 for _method in ('get','patch'):
     P['/me'][_method]['responses']['503']['description'] = 'Authoritative current on-call evidence is unavailable or stale'
-for _method in ('get','put'):
-    P['/me/profile'][_method]['description'] += ' Currently returns 503 identity_evidence_unavailable until its complete profile and security evidence is connected; writes are not partially applied.'
+P['/me/profile']['get']['description'] += (' Requires one selected authorized environment and a current human account/session. '
+    'An operator-configured trusted HTTPS source must return a fresh, complete, exact instance/user/environment/contact/session-bound '
+    'snapshot of contact verification, MFA enrollment and factors, organization rule, and device/login method for every active session. '
+    'Factor types and counts must agree with the same-instance TOTP/passkey registrations used by GET /me. '
+    'The account database supplies editable fields, notifications, password audit time and session expiry. Unknown, stale, incomplete '
+    'or unconfigured evidence returns 503 identity_evidence_unavailable; no security state is guessed.')
+P['/me/profile']['put']['description'] += (' Accepts one complete ProfileView in a selected authorized environment. Only name, display_name, '
+    'title, timezone and notifications are editable; department, contacts and every security field must exactly match the current '
+    'authoritative view. The source is called before database locks, then the transaction rechecks exact session, human account, '
+    'environment.view, source freshness and the complete contact/session set before writing fields and a secret-free audit atomically. '
+    'Unconfigured, stale or incomplete evidence returns 503 without a partial write. Production startup must inject both the trusted '
+    'source and instance ID; a configured source has not yet been verified against a real provider.')
 v3_route('post','/uploads','Store an inert conversation attachment',
     body=obj({'kind':string(enum=['link','paste']),'name':string(),
         'url':string(),'text':string(),'size':integer(),'mime':string()},['kind','name']),

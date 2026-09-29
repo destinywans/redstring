@@ -30,6 +30,7 @@ type profileContact struct {
 	Label    string `json:"label"`
 	Value    string `json:"value"`
 	Verified *bool  `json:"verified"`
+	Note     string `json:"note,omitempty"`
 }
 type profileSession struct {
 	ID      string `json:"id"`
@@ -153,40 +154,7 @@ func validNotifications(items []profileNotification) bool {
 }
 
 func (s *Service) putProfile(r *http.Request, input profileView) (profileView, error) {
-	if strings.TrimSpace(input.Name) == "" || utf8.RuneCountInString(input.Name) > 120 || utf8.RuneCountInString(input.DisplayName) > 120 || utf8.RuneCountInString(input.Title) > 120 || !validTimezone(input.Timezone) || !validNotifications(input.Notifications) {
-		return profileView{}, errInvalid
-	}
-	current, err := s.getProfile(r)
-	if err != nil {
-		return profileView{}, err
-	}
-	// Department, contacts and security are controlled by identity providers and
-	// dedicated account flows. A profile PUT cannot mutate them by substitution.
-	if input.Department != current.Department || !equalContacts(input.Contacts, current.Contacts) {
-		return profileView{}, errInvalid
-	}
-	id := httpapi.CurrentUser(r).ID
-	tx, err := s.Store.DB.Begin(r.Context())
-	if err != nil {
-		return profileView{}, err
-	}
-	defer tx.Rollback(r.Context())
-	_, err = tx.Exec(r.Context(), `UPDATE users SET name=$2,v3_display_name=$3,job_title=$4,v3_timezone=$5 WHERE id=$1 AND NOT disabled AND deleted_at IS NULL`, id, input.Name, input.DisplayName, input.Title, input.Timezone)
-	if err != nil {
-		return profileView{}, err
-	}
-	_, err = tx.Exec(r.Context(), `INSERT INTO v3_user_settings(user_id,profile_notifications) VALUES($1,$2) ON CONFLICT(user_id) DO UPDATE SET profile_notifications=EXCLUDED.profile_notifications,updated_at=now()`, id, mustJSON(input.Notifications))
-	if err != nil {
-		return profileView{}, err
-	}
-	_, err = tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,action,target,outcome,changes) VALUES($1,'v3.profile.updated',$1,'success',$2)`, id, mustJSON(map[string]any{"name": input.Name, "display_name": input.DisplayName, "title": input.Title, "timezone": input.Timezone, "notification_events": len(input.Notifications)}))
-	if err != nil {
-		return profileView{}, err
-	}
-	if err = tx.Commit(r.Context()); err != nil {
-		return profileView{}, err
-	}
-	return s.getProfile(r)
+	return s.profileLive(r, &input)
 }
 
 func equalContacts(a, b []profileContact) bool {
@@ -194,7 +162,7 @@ func equalContacts(a, b []profileContact) bool {
 		return false
 	}
 	for i := range a {
-		if a[i].Kind != b[i].Kind || a[i].Label != b[i].Label || a[i].Value != b[i].Value {
+		if a[i].Kind != b[i].Kind || a[i].Label != b[i].Label || a[i].Value != b[i].Value || a[i].Note != b[i].Note {
 			return false
 		}
 		av, bv := a[i].Verified, b[i].Verified
@@ -229,15 +197,21 @@ func (s *Service) endSession(ctx context.Context, userID, currentHash, targetHas
 }
 
 func (s *Service) registerProfile(api *httpapi.Server) {
-	// ProfileView requires authoritative identity evidence. The partial
-	// projection above returns errIdentityUnavailable until its gaps are closed.
 	api.Register("GET /api/v1/me/profile", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		respond(w, nil, errIdentityUnavailable)
+		v, err := s.profileLive(r, nil)
+		respondProfile(w, v, err)
 	})
 	api.Register("PUT /api/v1/me/profile", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		// No partial profile write followed by a response with fabricated
-		// security fields. The session-revocation route remains independent.
-		respond(w, nil, errIdentityUnavailable)
+		if s.ProfileEvidence == nil || s.ProfileInstanceID == "" {
+			respondProfile(w, profileView{}, errIdentityUnavailable)
+			return
+		}
+		input, ok := decodeProfile(w, r)
+		if !ok {
+			return
+		}
+		v, err := s.putProfile(r, input)
+		respondProfile(w, v, err)
 	})
 	api.Register("DELETE /api/v1/me/sessions/{id}", "viewer", func(w http.ResponseWriter, r *http.Request) {
 		cookie, e := r.Cookie("aiops_session")

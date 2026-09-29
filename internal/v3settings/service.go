@@ -62,7 +62,7 @@ type workspace struct {
 
 var slugPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,62}$`)
 var errInvalid = errors.New("invalid V3 settings")
-var errIdentityUnavailable = errors.New("verified MFA and on-call status are unavailable")
+var errIdentityUnavailable = errors.New("verified profile and security evidence are unavailable")
 var errModelCatalogUnavailable = errors.New("model protocol cannot be represented by the V3 catalog")
 
 func validTimezone(s string) bool { _, e := time.LoadLocation(s); return s != "" && e == nil }
@@ -76,7 +76,7 @@ func respond(w http.ResponseWriter, v any, err error) {
 		return
 	}
 	if errors.Is(err, errIdentityUnavailable) {
-		httpapi.Error(w, http.StatusServiceUnavailable, "identity_evidence_unavailable", "MFA and on-call status are not connected")
+		httpapi.Error(w, http.StatusServiceUnavailable, "identity_evidence_unavailable", "Profile and security evidence are not connected")
 		return
 	}
 	if errors.Is(err, errModelCatalogUnavailable) {

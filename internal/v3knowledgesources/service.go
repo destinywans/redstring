@@ -1,5 +1,5 @@
 // Package v3knowledgesources exposes the document lineage that is actually
-// persisted today. A connector/sync source registry does not yet exist.
+// persisted today. Source registrations and reads do not prove full sync state.
 package v3knowledgesources
 
 import (

@@ -33103,6 +33103,156 @@
         ]
       }
     },
+    "/knowledge-sources/registered-evidence": {
+      "get": {
+        "summary": "Read registered source and observed content evidence",
+        "operationId": "get_knowledge_sources_registered_evidence",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary current-scope projection, not the main KnowledgeSource DTO. The configured registration is unverified; last_read is only a completed observation, and keyword_content proves one public Web Markdown body matched the latest read, hash and revision. Connection, sync, total document/chunk counts, index status and error remain null; no body or credentials are returned. Up to 200 visible sources are emitted, with truncated=true if more are visible. More than 10000 candidate rows returns 413. Selected records are rechecked against current grants, active account/application/team binding and body version in a final fresh SQL statement after the initial read; a changed selection returns 409 without source metadata. Revocation committed after that final statement snapshot begins may still precede response delivery.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3RegisteredSourceEvidence"
+                      },
+                      "maxItems": 200
+                    },
+                    "index": {
+                      "type": "null"
+                    },
+                    "complete_v3_dto": {
+                      "const": false
+                    },
+                    "partial": {
+                      "const": true
+                    },
+                    "reason": {
+                      "type": "string",
+                      "enum": [
+                        "registration_and_observation_evidence_only"
+                      ]
+                    },
+                    "truncated": {
+                      "type": "boolean"
+                    },
+                    "unknown_fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "index",
+                    "complete_v3_dto",
+                    "partial",
+                    "reason",
+                    "truncated",
+                    "unknown_fields"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Selected source state, authorization or content changed; retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Source registry or authorization is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Candidate scope exceeds 10000 registrations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "knowledge-sources"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/knowledge-sources/registrations": {
       "get": {
         "summary": "Read scoped, unverified source registrations",
@@ -50467,6 +50617,145 @@
           "chunks",
           "last",
           "status"
+        ]
+      },
+      "V3RegisteredSourceRead": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "observed_count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "observed_at",
+          "observed_count"
+        ]
+      },
+      "V3RegisteredSourceKeywordContent": {
+        "type": "object",
+        "properties": {
+          "persisted_document_count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "read_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "persisted_document_count",
+          "version",
+          "read_id"
+        ]
+      },
+      "V3RegisteredSourceEvidence": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "team_id": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "chunk_strategy": {
+            "type": "string"
+          },
+          "registration_status": {
+            "type": "string",
+            "enum": [
+              "unverified"
+            ]
+          },
+          "last_read": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/V3RegisteredSourceRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "keyword_content": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/V3RegisteredSourceKeywordContent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "connection_status": {
+            "type": "null"
+          },
+          "sync_status": {
+            "type": "null"
+          },
+          "document_count": {
+            "type": "null"
+          },
+          "chunk_count": {
+            "type": "null"
+          },
+          "last_sync_at": {
+            "type": "null"
+          },
+          "index_status": {
+            "type": "null"
+          },
+          "error": {
+            "type": "null"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "environment_id",
+          "schedule",
+          "chunk_strategy",
+          "registration_status",
+          "last_read",
+          "keyword_content",
+          "connection_status",
+          "sync_status",
+          "document_count",
+          "chunk_count",
+          "last_sync_at",
+          "index_status",
+          "error"
         ]
       },
       "V3KnowledgeSourceRegistration": {

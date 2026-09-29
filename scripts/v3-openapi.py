@@ -875,6 +875,32 @@ v3_route('get','/knowledge-sources/observed-documents','Read scoped published do
         'truncated':v3_bool()},
         ['items','index','partial','reason','truncated']),
     desc='Auxiliary read-only backend endpoint, not the V3 KnowledgeSource DTO. Current document title, explicit environment, active application mapping, matching owner team and V3 grants are rechecked before output. Malformed or unknown scope and source_registration_id documents are excluded. This document-only projection does not join available source registrations, observed reads or index attribution, so reason is document_only_projection and sync/index fields remain unknown. No document body is returned.')
+S['V3RegisteredSourceRead'] = obj({'id':string(), 'observed_at':string(format='date-time'),
+    'observed_count':integer(minimum=0)}, ['id','observed_at','observed_count'])
+S['V3RegisteredSourceKeywordContent'] = obj({'persisted_document_count':integer(minimum=1),
+    'version':integer(minimum=1), 'read_id':string()},
+    ['persisted_document_count','version','read_id'])
+S['V3RegisteredSourceEvidence'] = obj({**fieldnames('id name kind environment_id application_id team_id schedule chunk_strategy'),
+    'registration_status':string(enum=['unverified']),
+    'last_read':{'oneOf':[ref('V3RegisteredSourceRead'),{'type':'null'}]},
+    'keyword_content':{'oneOf':[ref('V3RegisteredSourceKeywordContent'),{'type':'null'}]},
+    **{key:{'type':'null'} for key in ['connection_status','sync_status','document_count',
+        'chunk_count','last_sync_at','index_status','error']}},
+    ['id','name','kind','environment_id','schedule','chunk_strategy','registration_status',
+     'last_read','keyword_content','connection_status','sync_status','document_count',
+     'chunk_count','last_sync_at','index_status','error'])
+v3_route('get','/knowledge-sources/registered-evidence','Read registered source and observed content evidence',
+    response=obj({'items':{'type':'array','items':ref('V3RegisteredSourceEvidence'),'maxItems':200},
+        'index':{'type':'null'},'complete_v3_dto':{'const':False},
+        'partial':{'const':True},'reason':string(enum=['registration_and_observation_evidence_only']),
+        'truncated':v3_bool(),'unknown_fields':arr(string())},
+        ['items','index','complete_v3_dto','partial','reason','truncated','unknown_fields']),
+    desc='Auxiliary current-scope projection, not the main KnowledgeSource DTO. The configured registration is unverified; last_read is only a completed observation, and keyword_content proves one public Web Markdown body matched the latest read, hash and revision. Connection, sync, total document/chunk counts, index status and error remain null; no body or credentials are returned. Up to 200 visible sources are emitted, with truncated=true if more are visible. More than 10000 candidate rows returns 413. Selected records are rechecked against current grants, active account/application/team binding and body version in a final fresh SQL statement after the initial read; a changed selection returns 409 without source metadata. Revocation committed after that final statement snapshot begins may still precede response delivery.')
+for status, description in [('409','Selected source state, authorization or content changed; retry'),
+                            ('413','Candidate scope exceeds 10000 registrations'),
+                            ('503','Source registry or authorization is unavailable')]:
+    P['/knowledge-sources/registered-evidence']['get']['responses'][status] = {
+        'description':description,'content':{'application/json':{'schema':ref('Error')}}}
 S['V3KnowledgeSourceRegistration'] = obj({**fieldnames('id environment_id application_id team_id name type url schedule chunk registration_status created_at'),
     'spaces':arr(string()),'inherit_acl':v3_bool()},
     ['id','environment_id','name','type','url','spaces','schedule','chunk','inherit_acl','registration_status','created_at'])

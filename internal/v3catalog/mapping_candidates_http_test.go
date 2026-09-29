@@ -66,6 +66,24 @@ func TestMappingBindingSupportedUsesLegacyRuntimePolicy(t *testing.T) {
 	}
 }
 
+func waitForMappingServiceLock(t *testing.T, db *pgxpool.Pool, lockerPID int32) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		var waiting bool
+		if err := db.QueryRow(t.Context(), `SELECT EXISTS (
+ SELECT 1 FROM pg_stat_activity WHERE state='active' AND wait_event_type='Lock'
+ AND $1=ANY(pg_blocking_pids(pid)) AND query LIKE '%FOR UPDATE OF a,ve,e%')`, lockerPID).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("mapping writer did not reach the service lock")
+}
+
 func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
@@ -770,6 +788,113 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 			t.Fatalf("revoked discover refreshed candidate: before=%s after=%s err=%v", before, after, err)
 		}
 	})
+	t.Run("accept rejects candidate expired during service lock wait", func(t *testing.T) {
+		if w := request(http.MethodPost, "/service-mappings/discover", ""); w.Code != 200 {
+			t.Fatalf("prepare candidate status=%d body=%s", w.Code, w.Body.String())
+		}
+		candidate := selected("concurrent-b")
+		serviceLock, err := db.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer serviceLock.Rollback(context.Background())
+		var lockerPID int32
+		if err := serviceLock.QueryRow(ctx, `SELECT pg_backend_pid() FROM applications a
+ JOIN application_environments e ON e.application_id=a.id AND e.key='dev'
+ WHERE a.id='app-concurrent-b' FOR UPDATE OF a,e`).Scan(&lockerPID); err != nil {
+			t.Fatal(err)
+		}
+		result := make(chan *httptest.ResponseRecorder, 1)
+		go func() { result <- request(http.MethodPost, "/service-mappings/accept", acceptBody(candidate)) }()
+		waitForMappingServiceLock(t, adminDB, lockerPID)
+		// The request transaction started before this expiry, so now() would
+		// still consider the candidate live after the service lock releases.
+		if _, err := db.Exec(ctx, `UPDATE v3_service_mapping_candidates
+ SET expires_at=clock_timestamp() WHERE id=$1`, candidate.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := serviceLock.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case response := <-result:
+			if response.Code != 409 || !strings.Contains(response.Body.String(), `"candidate_unavailable"`) {
+				t.Fatalf("expired accept status=%d body=%s", response.Code, response.Body.String())
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("expired accept did not finish")
+		}
+		var raw []byte
+		if err := db.QueryRow(ctx, `SELECT bindings FROM application_environments WHERE id='env-concurrent-b'`).Scan(&raw); err != nil || string(raw) != "[]" {
+			t.Fatalf("expired accept changed bindings=%s err=%v", raw, err)
+		}
+	})
+	for _, method := range []string{"discover", "accept"} {
+		t.Run(method+" rejects revoked session during service lock wait", func(t *testing.T) {
+			if w := request(http.MethodPost, "/service-mappings/discover", ""); w.Code != 200 {
+				t.Fatalf("prepare candidate status=%d body=%s", w.Code, w.Body.String())
+			}
+			candidate := selected("concurrent-b")
+			var before time.Time
+			if err := db.QueryRow(ctx, `SELECT discovered_at FROM v3_service_mapping_candidates WHERE id=$1`, candidate.ID).Scan(&before); err != nil {
+				t.Fatal(err)
+			}
+			_, raceToken, err := st.Login(ctx, "admin@example.invalid", "isolated-mapping-password")
+			if err != nil {
+				t.Fatal(err)
+			}
+			serviceLock, err := db.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer serviceLock.Rollback(context.Background())
+			var lockerPID int32
+			if err := serviceLock.QueryRow(ctx, `SELECT pg_backend_pid() FROM applications a
+ JOIN application_environments e ON e.application_id=a.id AND e.key='dev'
+ WHERE a.id='app-concurrent-b' FOR UPDATE OF a,e`).Scan(&lockerPID); err != nil {
+				t.Fatal(err)
+			}
+			path, body := "/service-mappings/discover", ""
+			if method == "accept" {
+				path, body = "/service-mappings/accept", acceptBody(candidate)
+			}
+			result := make(chan *httptest.ResponseRecorder, 1)
+			go func() {
+				r := httptest.NewRequest(http.MethodPost, "/api/v1"+path, strings.NewReader(body))
+				r.Header.Set("X-AIOps-Environment", "dev")
+				if body != "" {
+					r.Header.Set("Content-Type", "application/json")
+				}
+				r.AddCookie(&http.Cookie{Name: "aiops_session", Value: raceToken})
+				w := httptest.NewRecorder()
+				api.ServeHTTP(w, r)
+				result <- w
+			}()
+			waitForMappingServiceLock(t, adminDB, lockerPID)
+			if _, err := db.Exec(ctx, `DELETE FROM sessions WHERE token_hash=$1`, store.Hash(raceToken)); err != nil {
+				t.Fatal(err)
+			}
+			if err := serviceLock.Commit(ctx); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case response := <-result:
+				if response.Code != 403 {
+					t.Fatalf("revoked %s status=%d body=%s", method, response.Code, response.Body.String())
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("revoked mapping write did not finish")
+			}
+			var after time.Time
+			if err := db.QueryRow(ctx, `SELECT discovered_at FROM v3_service_mapping_candidates WHERE id=$1`, candidate.ID).Scan(&after); err != nil || !after.Equal(before) {
+				t.Fatalf("revoked %s refreshed candidate: before=%s after=%s err=%v", method, before, after, err)
+			}
+			var raw []byte
+			if err := db.QueryRow(ctx, `SELECT bindings FROM application_environments WHERE id='env-concurrent-b'`).Scan(&raw); err != nil || string(raw) != "[]" {
+				t.Fatalf("revoked %s changed bindings=%s err=%v", method, raw, err)
+			}
+		})
+	}
 	if _, err := db.Exec(ctx, `DELETE FROM v3_connector_targets WHERE environment_id='dev'`); err != nil {
 		t.Fatal(err)
 	}

@@ -167,6 +167,24 @@ func authorizeMappingConnector(ctx context.Context, access transactionalAccess, 
 	return access.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{Module: "connectors", Action: action, EnvironmentID: env})
 }
 
+// Hold the authenticated session and account through commit. A logout or
+// account disable that commits while a mapping writer waits on another lock
+// must invalidate the write; a later revocation waits for this transaction.
+func lockMappingWriteSession(ctx context.Context, tx pgx.Tx, r *http.Request, userID string) error {
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil || cookie.Value == "" {
+		return store.ErrForbidden
+	}
+	var currentUserID string
+	err = tx.QueryRow(ctx, `SELECT s.user_id FROM sessions s JOIN users u ON u.id=s.user_id
+ WHERE s.token_hash=$1 AND s.user_id=$2 AND s.expires_at>clock_timestamp()
+ AND NOT u.disabled AND u.deleted_at IS NULL FOR SHARE OF s,u`, store.Hash(cookie.Value), userID).Scan(&currentUserID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.ErrForbidden
+	}
+	return err
+}
+
 // Activation records point-in-time verification of every enrolled GitLab
 // project. A generic probe only checks /api/v4/user, so recent connector
 // health does not assert current project access. Activation cannot be renewed
@@ -438,6 +456,10 @@ func (s *Service) mappingDiscover(w http.ResponseWriter, r *http.Request) {
 				BindingRevision: item.revision, ExpiresAt: expiresAt})
 		}
 	}
+	if err := lockMappingWriteSession(ctx, tx, r, user.ID); err != nil {
+		policyError(w, err)
+		return
+	}
 	if err := tx.Commit(ctx); err != nil {
 		httpapi.Error(w, 503, "catalog_unavailable", "Mapping storage unavailable")
 		return
@@ -526,6 +548,7 @@ func (s *Service) mappingAccept(w http.ResponseWriter, r *http.Request) {
 	user := httpapi.CurrentUser(r)
 	accepted := 0
 	items := []mappingAcceptItem{}
+	var earliestExpiry time.Time
 	// Object routes defer authorization to the handler. Check every requested
 	// service and the connector before taking any write lock; an unauthorized
 	// batch must not hold rows belonging to other services. Recheck below
@@ -634,7 +657,7 @@ func (s *Service) mappingAccept(w http.ResponseWriter, r *http.Request) {
 		err = tx.QueryRow(ctx, `SELECT id,service_key,source_id,source_bound_at,connector_id,external_id,binding_revision,discovered_at,expires_at
  FROM v3_service_mapping_candidates
  WHERE id=$1 AND application_id=$2 AND environment_id=$3 AND system_id='code'
- AND source_kind='explicit_target' AND accepted_at IS NULL AND expires_at>now()
+	 AND source_kind='explicit_target' AND accepted_at IS NULL AND expires_at>clock_timestamp()
 	 FOR UPDATE`, selected.ID, appID, envs[0]).Scan(&candidate.id, &candidate.serviceKey,
 			&candidate.sourceID, &candidate.boundAt, &candidate.connectorID, &candidate.externalID,
 			&candidate.revision, &candidate.discoveredAt, &candidate.expiresAt)
@@ -650,6 +673,9 @@ func (s *Service) mappingAccept(w http.ResponseWriter, r *http.Request) {
 			candidate.revision != selected.BindingRevision || mappingVersion(candidate.discoveredAt) != selected.Version {
 			httpapi.Error(w, 409, "stale_mapping", "Mapping changed after discovery")
 			return
+		}
+		if earliestExpiry.IsZero() || candidate.expiresAt.Before(earliestExpiry) {
+			earliestExpiry = candidate.expiresAt
 		}
 		var sourceApp, sourceEnv, sourceConnector, sourceKind, sourceExternal, provider string
 		var sourceBound time.Time
@@ -744,6 +770,21 @@ func (s *Service) mappingAccept(w http.ResponseWriter, r *http.Request) {
 			EnvironmentID: envs[0], SystemID: "code", ConnectorID: candidate.connectorID,
 			TargetID: candidate.sourceID, ExternalID: candidate.externalID, BindingRevision: nextRevision,
 			Binding: expected, Status: "accepted"})
+	}
+	if err := lockMappingWriteSession(ctx, tx, r, user.ID); err != nil {
+		policyError(w, err)
+		return
+	}
+	if !earliestExpiry.IsZero() {
+		var currentTime time.Time
+		if err := tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&currentTime); err != nil {
+			httpapi.Error(w, 503, "catalog_unavailable", "Mapping storage unavailable")
+			return
+		}
+		if !currentTime.Before(earliestExpiry) {
+			httpapi.Error(w, 409, "candidate_unavailable", "Mapping candidate expired or changed")
+			return
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		httpapi.Error(w, 503, "catalog_unavailable", "Mapping storage unavailable")

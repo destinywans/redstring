@@ -287,7 +287,7 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 	api.ServeHTTP(mainResponse, mainRequest)
 	var mainStates registeredEvidenceResponse
 	if mainResponse.Code != http.StatusOK || json.Unmarshal(mainResponse.Body.Bytes(), &mainStates) != nil ||
-		mainStates.CompleteV3DTO || !mainStates.Partial || mainStates.Index != nil || len(mainStates.Items) != 1 ||
+		!mainStates.CompleteV3DTO || !mainStates.Partial || mainStates.Index != nil || len(mainStates.Items) != 1 ||
 		findState(mainStates.Items, saved.ID) == nil ||
 		findState(mainStates.Items, saved.ID).KeywordContent == nil ||
 		findState(mainStates.Items, saved.ID).KeywordContent.PersistedDocumentCount != 1 {

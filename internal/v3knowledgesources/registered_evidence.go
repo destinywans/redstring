@@ -270,7 +270,7 @@ func (s *Service) registeredEvidence(w http.ResponseWriter, r *http.Request) {
 				registeredEvidenceUnavailable(w)
 				return
 			}
-			if isBoundDocumentKind(item.Kind) && !s.currentExternalBinding(item) {
+			if requiresExactReaderBinding(item.Kind) && !s.currentExternalBinding(item) {
 				continue
 			}
 			if len(items) == 200 {
@@ -318,6 +318,12 @@ func (s *Service) registeredEvidence(w http.ResponseWriter, r *http.Request) {
 			httpapi.Error(w, 409, "source_state_changed", "Source state or access changed; retry")
 			return
 		}
+		for _, item := range current {
+			if requiresExactReaderBinding(item.Kind) && !s.currentExternalBinding(item) {
+				httpapi.Error(w, 409, "source_state_changed", "Source state or access changed; retry")
+				return
+			}
+		}
 		items = current
 	}
 	unknownFields := []string{"connection_status", "sync_status", "chunk_count",
@@ -334,10 +340,44 @@ func (s *Service) registeredEvidence(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+	if err := s.currentRegisteredEvidenceSession(ctx, r, user); err != nil {
+		if errors.Is(err, store.ErrForbidden) {
+			httpapi.Error(w, 409, "source_state_changed", "Source state or access changed; retry")
+		} else {
+			registeredEvidenceUnavailable(w)
+		}
+		return
+	}
+	// The main route has every field in the relaxed evidence DTO. Partial
+	// describes the limits of the evidence, not a missing response field.
+	completeDTO := r.URL.Path == "/api/v1/knowledge-sources"
 	httpapi.WriteJSON(w, 200, registeredEvidenceResponse{Items: items, Index: nil,
-		Partial: true, Reason: "scoped_source_evidence_partial",
+		CompleteV3DTO: completeDTO,
+		Partial:       true, Reason: "scoped_source_evidence_partial",
 		Truncated: truncated, UnknownFields: unknownFields,
 		UnconfiguredExternalBindings: s.unconfiguredExternalBindings()})
+}
+
+// The final projection checks grants and source state; a logout can also
+// happen while that query runs. Recheck the authenticated session immediately
+// before disclosing registration metadata.
+func (s *Service) currentRegisteredEvidenceSession(ctx context.Context, r *http.Request, user core.User) error {
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil {
+		return store.ErrForbidden
+	}
+	var active bool
+	err = s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users u JOIN sessions sess ON sess.user_id=u.id
+ WHERE sess.token_hash=$1 AND u.id=$2 AND sess.expires_at>clock_timestamp()
+ AND NOT u.disabled AND u.deleted_at IS NULL AND u.source<>'settings_demo')`,
+		store.Hash(cookie.Value), user.ID).Scan(&active)
+	if err != nil {
+		return err
+	}
+	if !active {
+		return store.ErrForbidden
+	}
+	return nil
 }
 
 type evidenceRows interface {
@@ -398,6 +438,25 @@ func (s *Service) currentExternalBinding(item RegisteredEvidence) bool {
 	if s == nil || item.bindingFingerprint == "" {
 		return false
 	}
+	if item.Kind == "git_markdown" {
+		if len(item.spaces) != 0 || item.ApplicationID == "" || item.Schedule != "manual" {
+			return false
+		}
+		count := 0
+		for _, binding := range s.gitMarkdownBindings {
+			if !BindingMatchesCreate(binding, item.sourceURL, item.secretRef,
+				item.EnvironmentID, item.ApplicationID, item.TeamID) ||
+				GitMarkdownBindingFingerprint(binding) != item.bindingFingerprint {
+				continue
+			}
+			expected, err := SnapshotGitMarkdownBinding(binding)
+			if err != nil || !sameBindingSnapshot(item.bindingSnapshot, expected) {
+				continue
+			}
+			count++
+		}
+		return count == 1
+	}
 	if item.Kind == "upload" {
 		if _, ok := v3uploads.ParseSourceUploadURL(item.sourceURL); !ok || item.secretRef != "" ||
 			len(item.spaces) != 0 || item.sourceOwner == "" {
@@ -441,6 +500,17 @@ func isBoundDocumentKind(kind string) bool {
 	default:
 		return false
 	}
+}
+
+func requiresExactReaderBinding(kind string) bool {
+	return kind == "git_markdown" || isBoundDocumentKind(kind)
+}
+
+func sameBindingSnapshot(saved, expected json.RawMessage) bool {
+	var savedValue, expectedValue any
+	return json.Unmarshal(saved, &savedValue) == nil &&
+		json.Unmarshal(expected, &expectedValue) == nil &&
+		reflect.DeepEqual(savedValue, expectedValue)
 }
 
 func (s *Service) authorizeRegisteredEvidence(ctx context.Context, tx pgx.Tx, user core.User, item RegisteredEvidence) error {

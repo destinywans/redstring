@@ -17,6 +17,8 @@
 | `POST /api/v1/knowledge-sources/registrations/{id}/sync` | 人工触发一次读取；先检查已保存的配置指纹与当前绑定一致，再在远端读取前后核对应用/团队和授权，在事务中记录观察、绑定快照、固定提交 SHA、正文快照及审计。返回文档数和 `index_state=not_proven`。 |
 | `GET /api/v1/knowledge-sources` | 只在最新读取的提交、文档正文哈希、观察和范围互相吻合时报告 `document_count`、`last_sync_at`；无证据为 `null`。连接健康、同步健康、片段数和向量索引状态仍未知。 |
 
+辅助 `GET /api/v1/knowledge-sources/registrations/{id}/evidence` 在返回已保存的 Git 提交和文档数前，重新检查当前会话、应用/团队授权、精确服务端绑定、最新读取及正文证明；配置漂移或读取变化返回 `409 source_state_changed`。没有当前绑定时，不将历史读取当作现行来源证据。
+
 Reader 核对 GitLab 项目 ID 与仓库 URL，解析配置分支对应的提交 SHA，再以该 SHA 遍历配置路径并读取 Markdown 原文，逐文件比对 Git tree blob ID。一次最多 500 个树条目、32 个 Markdown 文件，单文件 128 KiB，总正文 4 MiB；响应、分页和超时均有限制。完整空目录可形成真实的零文档读取；上游失败或范围超限不会提交部分结果。正文留在独立 V3 表中，不进入权限语义不同的旧 `knowledge_documents`。当前没有 Git Markdown 的向量分块或知识检索消费者，页面必须显示未索引/未知。
 
 迁移 `124_v3_git_markdown_sources.sql` 增加来源类型和不可变读取/文档表。受控 GitLab/Vault 响应与隔离 PostgreSQL 测试只证明这条实现路径；真实服务连通与部署状态需另行验证。

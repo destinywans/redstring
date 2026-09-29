@@ -258,8 +258,11 @@ func TestGitMarkdownMainRoutesWithPinnedReadAndRevocation(t *testing.T) {
 		t.Fatalf("Git Markdown sync: %d %s", w.Code, w.Body.String())
 	}
 	if w := call(http.MethodGet, "/api/v1/knowledge-sources", "", viewerSession); w.Code != 200 ||
+		!strings.Contains(w.Body.String(), `"complete_v3_dto":true`) ||
+		!strings.Contains(w.Body.String(), `"partial":true`) ||
 		!strings.Contains(w.Body.String(), `"document_count":1`) ||
 		!strings.Contains(w.Body.String(), `"chunk_count":null`) ||
+		!strings.Contains(w.Body.String(), `"index_status":null`) ||
 		!strings.Contains(w.Body.String(), `"last_sync_at":"`) {
 		t.Fatalf("Git Markdown list evidence: %d %s", w.Code, w.Body.String())
 	}
@@ -295,6 +298,10 @@ func TestGitMarkdownMainRoutesWithPinnedReadAndRevocation(t *testing.T) {
 	}
 	registry.Readers["git_markdown"] = driftedReader
 	priorGitHits, priorVaultHits = gitHits.Load(), vaultHits.Load()
+	if w := call(http.MethodGet, "/api/v1/knowledge-sources/registrations/"+created.ID+"/evidence", "", viewerSession); w.Code != 409 ||
+		gitHits.Load() != priorGitHits || vaultHits.Load() != priorVaultHits {
+		t.Fatalf("changed binding exposed saved Git evidence: %d %s", w.Code, w.Body.String())
+	}
 	if w := call(http.MethodPost, "/api/v1/knowledge-sources/registrations/"+created.ID+"/sync", "", viewerSession); w.Code != 503 ||
 		gitHits.Load() != priorGitHits || vaultHits.Load() != priorVaultHits {
 		t.Fatalf("changed binding reached credential or GitLab: %d %s", w.Code, w.Body.String())

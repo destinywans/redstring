@@ -684,7 +684,12 @@ WHERE registration_id=$1 AND environment_id=$2 ORDER BY observed_at DESC,id DESC
 				unavailable(w)
 				return
 			}
-			if boundExternalType(v.Type) {
+			if v.Type == "git_markdown" {
+				if err := s.recheckGitMarkdownEvidence(ctx, r, user, v, gitMarkdownEvidenceState{}); err != nil {
+					externalEvidenceRecheckError(w, err)
+					return
+				}
+			} else if boundExternalType(v.Type) {
 				if err := s.recheckExternalEvidence(ctx, r, user, v, externalEvidenceState{}); err != nil {
 					externalEvidenceRecheckError(w, err)
 					return
@@ -746,48 +751,38 @@ WHERE registration_id=$1 AND environment_id=$2 ORDER BY observed_at DESC,id DESC
 			return
 		}
 		if v.Type == "git_markdown" {
-			var commitSHA string
-			var documentCount int
-			readErr = tx.QueryRow(ctx, `SELECT s.commit_sha,s.document_count
-FROM v3_git_markdown_syncs s
-JOIN v3_knowledge_source_reads rr ON rr.id=s.read_id
-WHERE s.read_id=$1 AND s.registration_id=$2 AND s.environment_id=$3
- AND s.binding_fingerprint=$7 AND s.binding_snapshot=$8::jsonb
- AND rr.registration_id=s.registration_id AND rr.environment_id=s.environment_id
- AND rr.reader_type='git_markdown' AND rr.observed_count=s.document_count
- AND s.document_count=$4 AND s.indexed_chunk_count IS NULL
- AND (SELECT count(*) FROM v3_git_markdown_documents d WHERE d.read_id=s.read_id)=s.document_count
- AND (SELECT count(*) FROM v3_knowledge_source_observations o WHERE o.read_id=s.read_id)=s.document_count
- AND NOT EXISTS (
-  SELECT 1 FROM v3_git_markdown_documents d
-  WHERE d.read_id=s.read_id AND (
-   d.environment_id<>s.environment_id OR d.application_id<>$5
-   OR COALESCE(d.team_id,'')<>$6
-   OR d.item_hash<>encode(sha256(convert_to(d.path,'UTF8')),'hex')
-   OR d.content_hash<>encode(sha256(convert_to(d.body,'UTF8')),'hex')
-   OR NOT EXISTS (SELECT 1 FROM v3_knowledge_source_observations o
-    WHERE o.read_id=s.read_id AND o.item_hash=d.item_hash
-     AND o.content_hash=d.content_hash AND o.environment_id=d.environment_id
-     AND o.application_id=d.application_id
-     AND COALESCE(o.team_id,'')=COALESCE(d.team_id,''))))`,
-				readID, id, env, count, v.ApplicationID, v.TeamID,
-				v.BindingFingerprint, string(v.BindingSnapshot)).Scan(&commitSHA, &documentCount)
+			if !s.gitMarkdownEvidenceBindingCurrent(v) {
+				httpapi.Error(w, 409, "source_state_changed", "Source state or access changed; retry")
+				return
+			}
+			commitSHA, documentCount, proofErr := gitMarkdownEvidenceProof(ctx, tx, v, readID, count)
+			readErr = proofErr
 			if readErr != nil && !errors.Is(readErr, pgx.ErrNoRows) {
 				unavailable(w)
 				return
 			}
+			proofPresent := readErr == nil
 			if err := tx.Commit(ctx); err != nil {
 				unavailable(w)
 				return
 			}
+			if err := s.recheckGitMarkdownEvidence(ctx, r, user, v, gitMarkdownEvidenceState{
+				readID: readID, observedCount: count, observedAt: at,
+				commitSHA: commitSHA, documentCount: documentCount, proofPresent: proofPresent,
+			}); err != nil {
+				externalEvidenceRecheckError(w, err)
+				return
+			}
 			var git any
-			if readErr == nil {
+			reason := "source_content_unverified"
+			if proofPresent {
 				git = map[string]any{"commit_sha": commitSHA, "document_count": documentCount,
 					"content_persisted": true}
+				reason = "semantic_index_unavailable"
 			}
 			httpapi.WriteJSON(w, 200, map[string]any{"id": id,
 				"last_read":    map[string]any{"id": readID, "observed_at": at, "observed_count": count},
-				"git_markdown": git, "index": nil, "reason": "semantic_index_unavailable", "complete_v3_dto": false})
+				"git_markdown": git, "index": nil, "reason": reason, "complete_v3_dto": false})
 			return
 		}
 		if boundExternalType(v.Type) {

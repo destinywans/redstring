@@ -44,6 +44,8 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"GET /api/v1/mentions", s.mentions},
 		{"GET /api/v1/mentions/{kind}/{id}/preview", s.preview},
 		{"GET /api/v1/commands", s.commands},
+		{"GET /api/v1/services/{id}/peek", s.servicePeek},
+		{"GET /api/v1/people/{name}/peek", s.personPeek},
 	} {
 		api.Register(route.pattern, "viewer", route.handler)
 		api.MarkV3Route(route.pattern, "", "")
@@ -272,6 +274,7 @@ WHERE u.deleted_at IS NULL AND NOT u.disabled AND u.source<>'settings_demo'
  AND u.v3_identity_kind='human'
  AND ($3='' OR aiops_search_match(u.id||' '||u.name,$3))
  AND ($4='' OR u.id=$4)
+ AND ($6='' OR u.name=$6)
  AND EXISTS (SELECT 1 FROM v3_effective_role_grants actor
   WHERE actor.user_id=$2 AND actor.module='members' AND actor.action='view'
   AND ((actor.scope_kind='global' AND actor.scope_id='*')
@@ -454,7 +457,7 @@ ORDER BY updated_at DESC,id LIMIT $4`, httpapi.CurrentUser(r).ID, envs, q, limit
 		}
 	}
 	if kind == "" || kind == "person" {
-		rows, err := s.DB.Query(r.Context(), personSource, envs, httpapi.CurrentUser(r).ID, q, "", limit)
+		rows, err := s.DB.Query(r.Context(), personSource, envs, httpapi.CurrentUser(r).ID, q, "", limit, "")
 		if err != nil {
 			return nil, err
 		}
@@ -568,7 +571,7 @@ JOIN application_environments ae ON ae.id=i.environment_id AND ae.application_id
 JOIN v3_application_environments vae ON vae.application_id=i.application_id AND vae.environment_id=ae.key
 WHERE i.id=$1 AND ae.key=ANY($2::text[])`, id, envs).Scan(&v.ID, &v.Title, &v.EnvironmentID, &v.ApplicationID, &v.TeamID)
 	} else if kind == "person" {
-		err = s.DB.QueryRow(r.Context(), personSource, envs, httpapi.CurrentUser(r).ID, "", id, 1).Scan(&v.ID, &v.Title, &v.EnvironmentID)
+		err = s.DB.QueryRow(r.Context(), personSource, envs, httpapi.CurrentUser(r).ID, "", id, 1, "").Scan(&v.ID, &v.Title, &v.EnvironmentID)
 	} else {
 		err = s.DB.QueryRow(r.Context(), `SELECT id,title,environment_id,status FROM v3_conversations
 WHERE id=$1 AND owner_id=$2 AND environment_id=ANY($3)`, id, httpapi.CurrentUser(r).ID, envs).Scan(&v.ID, &v.Title, &v.EnvironmentID, &v.State)

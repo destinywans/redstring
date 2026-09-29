@@ -39,3 +39,32 @@ S['V3TextCommandItem'] = obj({'id':string(),'group':string(enum=['command']),
 v3_route('get','/commands','Read configured text command suggestions',
     response=obj({'items':arr(ref('V3TextCommandItem'))},['items']),
     desc='A deployment may explicitly configure at most 32 environment-bound, permission-checked slash text suggestions. They insert literal text into the composer and do not execute an action or imply a model/tool capability. Only the command group is currently returned; skill, Runbook and template chips require a verified reference-send path. A configured empty catalog returns items:[]; an unconfigured catalog returns 503 commands_unavailable. Aggregate all-environment view returns no sendable suggestions.')
+
+# These hover cards intentionally expose partial, evidence-backed records. The
+# frozen frontend DTOs still require guessed health/load/duty strings; see
+# docs/api/v3-peeks.md for the exact consumer differences.
+v3_peek_nullable = lambda schema: {'anyOf':[schema,{'type':'null'}]}
+S['V3ServicePeekKpi'] = obj({'k':string(),'v':string(),
+    'tone':string(enum=['neutral','accent','ok','warn','danger','info'])},['k','v'])
+S['V3ServicePeekPartial'] = obj({
+    'id':string(), 'name':string(),
+    'tier':v3_peek_nullable(string(enum=['T0','T1','T2'])),
+    'team':v3_peek_nullable(string()), 'env':string(),
+    'status':v3_peek_nullable(string(enum=['ok','warn','danger'])),
+    'kpis':arr(ref('V3ServicePeekKpi')),
+    'owner':v3_peek_nullable(string()),
+    'oncall':v3_peek_nullable(string()),
+    'change':v3_peek_nullable(string())},
+    ['id','name','tier','team','env','status','kpis','owner','oncall','change'])
+S['V3PersonPeekPartial'] = obj({
+    'id':string(), 'name':string(),
+    'role':v3_peek_nullable(string()),
+    'oncall':v3_peek_nullable(string()),
+    'load':v3_peek_nullable(string())},
+    ['id','name','role','oncall','load'])
+v3_route('get','/services/{id}/peek','Preview a visible persisted service',
+    response=ref('V3ServicePeekPartial'),
+    desc='Accepts the composite service ID, the exact application ID used by persisted alert groups, or an exact application key within the selected environment scope. Multiple visible matches across applications or environments return 409; absent and unauthorized records both return 404. Identity, tier, team and configured owner label are persisted metadata. No live observation source is wired to this domain: status, current on-call and last change are null, and KPIs are empty. Null is unknown, never healthy or off duty. The frozen ServicePeek frontend type and card require adaptation before this is a truthful visible UI.')
+v3_route('get','/people/{name}/peek','Preview an exact visible human member name',
+    response=ref('V3PersonPeekPartial'),
+    desc='Exact display-name lookup uses the current selected-environment members.view scope and excludes disabled, deleted, demo and machine accounts. Multiple visible matching accounts return 409; absent and unauthorized accounts both return 404. Role is the persisted user-maintained job title, not an RBAC grant, and may be null. Current on-call and total workload are null without authorized complete sources. The frozen PersonPeek frontend type and card require adaptation so unknown duty is not presented as off duty.')

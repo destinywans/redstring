@@ -173,13 +173,14 @@ func v3EnvironmentExempt(r *http.Request) bool {
 	if v3SignedPushRoute(r) {
 		return true
 	}
-	// The one inbound Alertmanager route authenticates its configured source
-	// token and validates its fixed application/environment mapping in its own
-	// handler. It has no browser session or selectable environment header.
+	// Native inbound receivers authenticate their configured source tokens and
+	// bind payloads to server-owned targets. They have no browser session or
+	// selectable environment header. Use escaped path segments so a configured
+	// source ID containing a slash remains one route parameter.
 	if r.Method == http.MethodPost {
-		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		parts := strings.Split(strings.Trim(r.URL.EscapedPath(), "/"), "/")
 		return len(parts) == 5 && parts[0] == "api" && parts[1] == "v1" &&
-			parts[2] == "webhooks" && parts[3] == "alertmanager" && parts[4] != ""
+			parts[2] == "webhooks" && (parts[3] == "alertmanager" || parts[3] == "gitlab") && parts[4] != ""
 	}
 	return false
 }

@@ -22,14 +22,15 @@ type Config struct {
 	ArtifactURLPrefixes []string       `json:"artifact_url_prefixes,omitempty"`
 }
 type Service struct {
-	Repository          *PostgresRepository
-	GitLabs             map[string]*GitLabClient
-	Argo                *ArgoClient
-	Artifacts           ArtifactStore
-	ArtifactURLPrefixes []string
-	Release             ReleaseProvider
-	Authorize           func(context.Context, string, string, string) error
-	ValidateEnvironment func(context.Context, string, string) error
+	Repository            *PostgresRepository
+	GitLabs               map[string]*GitLabClient
+	V3WebhookEnvironments []string
+	Argo                  *ArgoClient
+	Artifacts             ArtifactStore
+	ArtifactURLPrefixes   []string
+	Release               ReleaseProvider
+	Authorize             func(context.Context, string, string, string) error
+	ValidateEnvironment   func(context.Context, string, string) error
 }
 
 func readCredential(path string) (string, error) {

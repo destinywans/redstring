@@ -1,5 +1,7 @@
 # AIOps Canvas 实施计划
 
+**2026-09-29 原生入站 Webhook 概览（CP-179）：** WAN-122 将已有 Operations Alertmanager 和 Delivery GitLab 接收器的当前授权登记补入既有 `GET /webhooks`；只读已入库 Alertmanager 接收次数，GitLab 历史收据因缺应用环境归属保持未知。交付配置只解析一次供两个服务共享，不开启出站发送或重投。主契约仍 **107/166、59 mock**，OpenAPI **311 路径、369 操作、387 schema**；最小编译通过，未跑测试、真实库或浏览器。见 [CP-179](CHECKPOINT.md)。
+
 **2026-09-29 告警读取四路由（CP-178）：** WAN-118 收件箱、事件详情、本地告警分组及显式来源绑定的策略读取已接持久事实、当前授权和可空契约。`source_ids` 须与固定 Webhook 来源和有效应用环境映射一致；未知已读、影响、抑制、外部送达不补造。主契约现 **107/166、59 mock**，OpenAPI **311 路径、369 操作、387 schema**。现有库 `ops_incidents.labels` 启动迁移、真实 Alertmanager 和页面均未验，本批仅最小编译、未跑测试；见 [CP-178](CHECKPOINT.md)。
 
 **2026-09-29 首页代码状态纠偏（CP-177）：** 用户明确本阶段以前端适配之外的后端真实读取、授权、错误与可空契约判断代码完成；缺来源字段标未知，不因页面或其他生产者未接而长期保留 `mock`。CP-176 的 `/home` 主状态据此改为 `implemented`，现 **103/166、63 mock**。冻结首页的空值解引用仍需单独产品适配；见 [CP-177](CHECKPOINT.md)。

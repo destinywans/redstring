@@ -408,7 +408,8 @@ func (s *Service) webhook(w http.ResponseWriter, r *http.Request) {
 	if project == 0 {
 		project = in.ProjectID
 	}
-	if _, ok := c.Binding(project); !ok {
+	binding, ok := c.Binding(project)
+	if !ok {
 		httpapi.Error(w, 403, "forbidden", "Project is not registered")
 		return
 	}
@@ -428,7 +429,15 @@ func (s *Service) webhook(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, ErrInvalid)
 		return
 	}
-	fresh, err := s.Repository.RecordWebhook(r.Context(), c.Config.ID, event, project, strconv.FormatInt(external, 10))
+	var fresh bool
+	if len(s.V3WebhookEnvironments) > 0 {
+		fresh, err = s.Repository.RecordV3Webhook(r.Context(), c.Config.ID, event, project,
+			strconv.FormatInt(external, 10), binding.ApplicationID, binding.EnvironmentID, s.V3WebhookEnvironments)
+	} else {
+		if err = s.validTarget(r.Context(), binding.ApplicationID, binding.EnvironmentID); err == nil {
+			fresh, err = s.Repository.RecordWebhook(r.Context(), c.Config.ID, event, project, strconv.FormatInt(external, 10))
+		}
+	}
 	if err != nil {
 		respond(w, nil, err)
 		return

@@ -309,7 +309,7 @@ Pull 仅使用服务端私有配置登记的 Prometheus `metric_resource` 目标
 | POST | `/service-mappings/discover` | | `{ suggestions, source_state, candidates }` | implemented |
 | PUT | `/service-mappings` | `{ environment_id, items: [{ service_id, service_environment_id, binding_revision, bindings }] }`；1–50 个完整替换项 | `{ environment_id, items }`；返回持久身份、绑定及写后修订号 | implemented |
 | GET | `/coverage` | 单个可选 `app`（精确应用 ID 或 key） | 授权应用/环境的配置证据矩阵；实时覆盖、评分与 Agent 影响未知值为 `null` 或明确可用性 | implemented |
-| GET | `/webhooks` | | 当前授权通用 Push 入站的真实登记及 24 小时非合成收据；其他类别以 `availability: not_connected` 标为未接入，未知连接状态为 `unverified` | implemented |
+| GET | `/webhooks` | | 当前授权通用 Push 与原生 Alertmanager/GitLab 入站登记；通用 Push 的 24 小时非合成收据、Alertmanager 的已入库接收次数，GitLab 历史次数未知；未接类别以 `availability: not_connected` 标记 | implemented |
 | POST | `/webhooks/{id}/redeliver` | | 结果 | mock |
 | POST | `/api-tokens` | `{ name, scopes, ttl }` | `{ id, secret_shown_once }` | mock |
 
@@ -321,7 +321,9 @@ Pull 仅使用服务端私有配置登记的 Prometheus `metric_resource` 目标
 
 Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v1/events/{alert|change|incident|resource|oncall}`。来源在私有配置中固定到一个应用、环境与允许类型；要求来源 ID、Bearer 令牌、`Idempotency-Key`、Unix `X-Timestamp` 和正文原始字节的 HMAC-SHA256 `X-Signature`。五条公开路由只豁免浏览器会话/环境门禁，由来源令牌与签名独立鉴权；未列出的相邻路由仍需浏览器会话。规范事件、24 小时幂等占用、净化收据与带精确环境的审计同事务持久化后返回 202；重复 409、无效规范体 422、鉴权失败 401、来源限流 429。已配置来源的 GET 只显示当前有权的应用/环境及其真实持久记录；管理测试生成 synthetic 记录，不证明外部发送端可用。配置、签名算法和恢复见[通用 Push 入站](../examples/v3-push-ingress.md)。此处只支持规范 `generic` 事件，不把供应商原生载荷当作已接入。冻结前端的测试请求尚未发送必需 `type`，复制的 curl 缺来源、时间戳和签名，配套栈按钮也未接部署控制器；页面未验收。公开部署前还需入口层无效令牌限流、数据留存及容量决策；本轮没有外部发送端、迁移现有业务库或页面浏览器实测。
 
-`GET /webhooks` 仅在当前环境和应用/团队授权下展示已配置的通用 Push 来源及过去 24 小时真实、非合成的持久收据；没有收据返回 `unverified`，不是健康或失败。原生入站、API 令牌、对外 MCP 和出站类别分别标记 `availability: not_connected`，不把通用收据冒充它们的投递。请求最多纳入 50 个来源和每来源 5 类事件、返回 30 条收据，整体 12 秒超时；聚合查询尚无独立扫描行数上限，公开容量仍需评估。冻结前端不识别 `unverified` 和 `availability`，选中来源时仍显示汇总收据；`POST /webhooks/{id}/redeliver` 与 `POST /api-tokens` 仍是独立 `mock`，不得把入站收据 ID 当成可重投出站消息。
+`GET /webhooks` 在当前环境、连接器和应用/团队服务查看授权下展示已配置的通用 Push 来源，以及已有 Operations Alertmanager 和 Delivery GitLab 入站接收器中当前可见的登记。通用 Push 的过去 24 小时真实、非合成收据保留在 `deliveries`；Alertmanager 的次数/最近时间仅取同来源、同应用环境的已入库告警接收记录，不证明发送端持续健康。GitLab 历史收据未持久保存应用环境身份，重新绑定项目后无法安全归属，故原生 GitLab 的次数和最近时间保持 `unknown`。原生状态保持 `unverified`，不把通用 Push 收据冒充供应商投递。原生 GitLab POST 在 V3 中只对精确来源路由豁免浏览器会话/环境头；由已有来源令牌和项目绑定鉴权，并在同一事务内锁定当前未归档应用、应用环境、V3 环境绑定和本实例环境范围，才写入收据身份。这不开放相邻路由。未配置、没有可见来源及尚未接入的 API 令牌、对外 MCP、出站能力通过 `availability` 区分；V3 概览不读取凭据、不探测上游，也不启用出站发送。
+
+通用 Push 请求最多纳入 50 个来源和每来源 5 类事件、返回 30 条收据；整个列表有 12 秒超时。原生来源按私有配置逐项核对当前持久应用环境与权限，来源过多可导致超时并返回 503；通用聚合查询尚无独立扫描行数上限，公开容量仍需评估。冻结前端不识别 `unverified` 和 `availability`，选中原生来源时仍显示汇总的通用 Push 收据，页面尚未验收。`POST /webhooks/{id}/redeliver` 按用户决定暂不启用，`POST /api-tokens` 仍是独立 `mock`；入站收据 ID 不可用于出站重投。
 
 连接器辅助激活接口（不计入 166 项页面契约）：`POST /connectors/{id}/activate`，单一环境下传 `{ credential_ref?: "vault://mount/path#field" }`。所有凭据读取须先匹配由部署方配置的层级、环境、连接器 ID、供应商、端点和引用；缺绑定返回 503 `credential_not_authorized`，不读取 Vault 或探测上游。GitLab 须先通过服务环境的显式目标绑定登记至少一个数字项目 ID；后端用 Vault 凭据对每个项目发起 GET 验证，再复核权限、连接器配置和绑定集合，成功后启用。其他已登记类型使用有界只读探测，成功后启用登记但工具仍关闭；无认证类型可传 `{}`，已保存 Vault 引用也可省略请求中的引用。通用探测只证明指定地址一次返回 2xx，健康端点可能不校验凭据，所以通用激活另返回 `credential_verified: false`；GitLab 的项目验证也不证明令牌只有只读权限。`webhook` 仅记录意图，`webhook_active` 始终为 `false`；探测失败返回 502 且不启用，GitLab 项目绑定变化须重新激活。`status: "ok"` 表示一次探测结果，不代表持续健康。配置和恢复见 [连接器凭据绑定](v3-connector-credentials.md)。
 

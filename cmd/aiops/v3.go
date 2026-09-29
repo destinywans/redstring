@@ -17,6 +17,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/aiextensions"
 	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/wans/aiops-canvas/internal/delivery"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/knowledge"
@@ -193,6 +194,10 @@ func configuredV3ModelRuntime(path string, cfg httpapi.V3InstanceConfig, runtime
 // configureV3 enables the new backend only with explicit instance
 // configuration. A partial deployment cannot silently claim production scope.
 func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, api *httpapi.Server, telemetry *connectors.Telemetry, know *knowledge.Service, info *v3Instance, cfg httpapi.V3InstanceConfig, opsConfig operations.Config) error {
+	return configureV3WithNativeSources(ctx, s, runtime, api, telemetry, know, info, cfg, opsConfig, nil)
+}
+
+func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime inference.Runner, api *httpapi.Server, telemetry *connectors.Telemetry, know *knowledge.Service, info *v3Instance, cfg httpapi.V3InstanceConfig, opsConfig operations.Config, gitLabs []delivery.GitLabConfig) error {
 	if info == nil {
 		return nil
 	}
@@ -251,6 +256,9 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	pushService, err := v3ingestpush.New(s.DB, cfg, pushCfg, policy)
 	if err != nil {
 		return fmt.Errorf("configure V3 Push ingress: %w", err)
+	}
+	if err := pushService.SetNativeWebhookSources(opsConfig.Sources, gitLabs); err != nil {
+		return fmt.Errorf("configure V3 native Webhook overview: %w", err)
 	}
 	if err := api.ConfigureV3Environment(cfg, policy, s.Session, func(ctx context.Context, u core.User, module, action, environmentID string) error {
 		return policy.Authorize(ctx, u, rbac.V3Decision{Module: module, Action: action, EnvironmentID: environmentID})

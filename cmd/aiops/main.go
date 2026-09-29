@@ -160,7 +160,11 @@ func run() error {
 	if e != nil {
 		return e
 	}
-	if e = configureV3(ctx, s, runtime, api, telemetryClient, know, v3Info, v3Scope, operationsConfig); e != nil {
+	deliveryConfig, e := loadDeliveryConfig(os.Getenv("AIOPS_DELIVERY_CONFIG"))
+	if e != nil {
+		return e
+	}
+	if e = configureV3WithNativeSources(ctx, s, runtime, api, telemetryClient, know, v3Info, v3Scope, operationsConfig, deliveryConfig.GitLabs); e != nil {
 		return e
 	}
 	registry, e := configurePlatform(ctx, s, api, acts, worker, connector, connectorConfig)
@@ -201,7 +205,7 @@ func run() error {
 		}
 		return append(base, extra...), nil
 	}
-	deliveryService, deploymentService, e := configureDelivery(ctx, s, api, acts)
+	deliveryService, deploymentService, e := configureDelivery(ctx, s, api, acts, deliveryConfig, operationsV3Scope)
 	if e != nil {
 		return e
 	}

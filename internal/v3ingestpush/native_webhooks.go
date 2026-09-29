@@ -3,6 +3,7 @@ package v3ingestpush
 import (
 	"context"
 	"errors"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -24,7 +25,7 @@ func (s *Service) SetNativeWebhookSources(alerts []operations.Source, gitlabs []
 	}
 	alertIDs := map[string]bool{}
 	for _, source := range alerts {
-		if !sourceIDPattern.MatchString(source.ID) || alertIDs[source.ID] || len(source.Mappings) == 0 {
+		if source.ID == "" || alertIDs[source.ID] {
 			return ErrInvalidConfiguration
 		}
 		alertIDs[source.ID] = true
@@ -36,7 +37,7 @@ func (s *Service) SetNativeWebhookSources(alerts []operations.Source, gitlabs []
 	}
 	gitlabIDs := map[string]bool{}
 	for _, source := range gitlabs {
-		if !sourceIDPattern.MatchString(source.ID) || gitlabIDs[source.ID] {
+		if source.ID == "" || gitlabIDs[source.ID] {
 			return ErrInvalidConfiguration
 		}
 		gitlabIDs[source.ID] = true
@@ -49,6 +50,19 @@ func (s *Service) SetNativeWebhookSources(alerts []operations.Source, gitlabs []
 	s.nativeAlerts = append([]operations.Source(nil), alerts...)
 	s.nativeGitLabs = append([]delivery.GitLabConfig(nil), gitlabs...)
 	return nil
+}
+
+func nativeWebhookPathID(id string) string {
+	// PathEscape leaves dot segments unchanged, while ServeMux normalizes
+	// literal "." and ".." before route matching.
+	switch id {
+	case ".":
+		return "%2E"
+	case "..":
+		return "%2E%2E"
+	default:
+		return url.PathEscape(id)
+	}
 }
 
 func (s *Service) nativeWebhookView(ctx context.Context, tx pgx.Tx, user core.User, envs []string) ([]webhookInbound, error) {
@@ -91,7 +105,7 @@ func (s *Service) nativeWebhookView(ctx context.Context, tx pgx.Tx, user core.Us
 			continue
 		}
 		item := webhookInbound{ID: "alertmanager:" + source.ID, SourceID: source.ID, EventType: "alert",
-			Brand: "prometheus", Name: source.ID, URL: "/api/v1/webhooks/alertmanager/" + source.ID,
+			Brand: "prometheus", Name: source.ID, URL: "/api/v1/webhooks/alertmanager/" + nativeWebhookPathID(source.ID),
 			Verify: "Bearer", Count: strconv.FormatInt(count, 10), Last: "unknown",
 			Status: "unverified", StatusBasis: "health_unverified"}
 		if last != nil {
@@ -122,7 +136,7 @@ func (s *Service) nativeWebhookView(ctx context.Context, tx pgx.Tx, user core.Us
 		// project binding could expose receipts from a former application, so
 		// historical counts cannot safely be attributed to this current scope.
 		items = append(items, webhookInbound{ID: "gitlab:" + source.ID, SourceID: source.ID, EventType: "pipeline",
-			Brand: "gitlab", Name: name, URL: "/api/v1/webhooks/gitlab/" + source.ID,
+			Brand: "gitlab", Name: name, URL: "/api/v1/webhooks/gitlab/" + nativeWebhookPathID(source.ID),
 			Verify: "X-Gitlab-Token", Count: "unknown", Last: "unknown",
 			Status: "unverified", StatusBasis: "historical_receipt_scope_unavailable"})
 	}

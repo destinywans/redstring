@@ -167,7 +167,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func v3AuthOrInstance(pattern string) bool {
 	switch pattern {
-	case "POST /api/v1/auth/login", "POST /api/v1/auth/logout", "GET /api/v1/auth/me", "GET /api/v1/instance", "GET /api/v1/auth/oidc/start", "GET /api/v1/auth/oidc/callback", "POST /api/v1/auth/invitations/accept", "POST /api/v1/webhooks/alertmanager/{source}":
+	case "POST /api/v1/auth/login", "POST /api/v1/auth/logout", "GET /api/v1/auth/me", "GET /api/v1/instance", "GET /api/v1/auth/oidc/start", "GET /api/v1/auth/oidc/callback", "POST /api/v1/auth/invitations/accept", "POST /api/v1/webhooks/alertmanager/{source}", "POST /api/v1/webhooks/gitlab/{source}":
 		return true
 	}
 	return false

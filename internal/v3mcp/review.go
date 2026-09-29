@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/store"
 )
 
 // These auxiliary routes deliberately require an explicit discovery version.
@@ -249,7 +250,7 @@ func (s *Service) reviewCandidate(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, http.StatusServiceUnavailable, "mcp_unavailable", "MCP review is unavailable")
 		return
 	}
-	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
+	payload, err := json.Marshal(map[string]any{
 		"snapshot_id": snap.id, "mcp_server_id": current.ID, "application_id": current.ApplicationID,
 		"environment_id": current.EnvironmentID, "registration_version": current.version,
 		"registration_hash": current.hash, "tools_hash": snap.toolsHash, "tool_count": len(tools),
@@ -257,6 +258,172 @@ func (s *Service) reviewCandidate(w http.ResponseWriter, r *http.Request) {
 		"trust": "untrusted_observation", "reviewed": reviewed,
 		"health_verified": false, "execution_available": false,
 	})
+	if err != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, "mcp_unavailable", "MCP candidate serialization failed")
+		return
+	}
+
+	// The first transaction provides a consistent candidate, but its old
+	// repeatable-read snapshot cannot decide whether disclosure is still
+	// authorized. Recheck on a new transaction and retain its actor/source
+	// locks until the bounded response write finishes.
+	// Install a deadline before acquiring locks so even an error response
+	// cannot strand them behind a client that stops reading.
+	controller := http.NewResponseController(w)
+	if err := controller.SetWriteDeadline(time.Now().Add(25 * time.Second)); err != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, "mcp_unavailable", "MCP candidate response is unavailable")
+		return
+	}
+	freshTx, ok := s.recheckCandidateRead(w, r, current, snap, reviewed, tools)
+	if !ok {
+		return
+	}
+	// A slow client must not hold the source and grant locks indefinitely.
+	if err := controller.SetWriteDeadline(time.Now().Add(15 * time.Second)); err != nil {
+		rollbackCandidateRead(freshTx)
+		httpapi.Error(w, http.StatusServiceUnavailable, "mcp_unavailable", "MCP candidate response is unavailable")
+		return
+	}
+	defer rollbackCandidateRead(freshTx)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(append(payload, '\n'))
+}
+
+func (s *Service) recheckCandidateRead(w http.ResponseWriter, r *http.Request, prior discoveryRegistration,
+	snap reviewSnapshot, reviewed bool, tools []observedTool) (pgx.Tx, bool) {
+	// Cap all lock waits while this transaction pins the application and actor.
+	// The transaction outlives this query context only for the bounded write.
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	r = r.WithContext(ctx)
+	tx, err := s.DB.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, "mcp_unavailable", "MCP review storage is unavailable")
+		return nil, false
+	}
+	valid := false
+	defer func() {
+		if !valid {
+			rollbackCandidateRead(tx)
+		}
+	}()
+
+	// The same registration lock is used by discovery and review writes. It
+	// also pins the application, explicit binding and environment mapping.
+	current, err := loadDiscoveryRegistration(ctx, tx, prior.ID, prior.EnvironmentID, true)
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpapi.Error(w, http.StatusNotFound, "not_found", "MCP server not found")
+		return nil, false
+	}
+	if err != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, "mcp_unavailable", "MCP registration is unavailable")
+		return nil, false
+	}
+
+	// Authentication middleware ran at request entry. A logout, account
+	// disable or grant revoke can commit while the first snapshot is read.
+	// Account writers lock users before deleting sessions, so preserve that
+	// order by locking the actor and grant sources before the live session.
+	actorID := httpapi.CurrentUser(r).ID
+	if err = lockReviewerGrantSources(ctx, tx, actorID); err != nil {
+		writeDiscoveryAuthorizationError(w, err, true)
+		return nil, false
+	}
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil || cookie.Value == "" {
+		httpapi.Error(w, http.StatusNotFound, "not_found", "MCP server not found")
+		return nil, false
+	}
+	sessionHash := store.Hash(cookie.Value)
+	var sessionUserID string
+	err = tx.QueryRow(ctx, `SELECT user_id FROM sessions
+ WHERE token_hash=$1 AND user_id=$2 AND expires_at>clock_timestamp()
+ FOR SHARE`, sessionHash, actorID).Scan(&sessionUserID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpapi.Error(w, http.StatusNotFound, "not_found", "MCP server not found")
+		return nil, false
+	}
+	if err != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, "authorization_unavailable", "MCP authorization is unavailable")
+		return nil, false
+	}
+	if err = s.allowedTx(r, tx, current.registration, "manage"); err != nil {
+		writeDiscoveryAuthorizationError(w, err, true)
+		return nil, false
+	}
+	if err = current.validateDiscoveryRegistration(); err != nil {
+		httpapi.Error(w, http.StatusConflict, "mcp_registration_changed", "MCP registration requires a new discovery")
+		return nil, false
+	}
+	if !snap.matches(current) {
+		httpapi.Error(w, http.StatusConflict, "mcp_discovery_stale", "MCP registration or environment binding changed; discover again")
+		return nil, false
+	}
+	latest, err := loadLatestReviewSnapshot(ctx, tx, current.ID, current.EnvironmentID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpapi.Error(w, http.StatusConflict, "mcp_discovery_stale", "MCP discovery changed; reload the candidate")
+		return nil, false
+	}
+	if err != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, "mcp_unavailable", "MCP discovery snapshot is unavailable")
+		return nil, false
+	}
+	if latest.id != snap.id || latest.toolsHash != snap.toolsHash || !latest.matches(current) {
+		httpapi.Error(w, http.StatusConflict, "mcp_discovery_stale", "MCP discovery changed; reload the candidate")
+		return nil, false
+	}
+	var currentReviewed bool
+	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_mcp_tool_reviews
+ WHERE snapshot_id=$1 AND extension_id=$2 AND binding_instance_id=$3 AND application_id=$4
+ AND environment_id=$5 AND registration_version=$6 AND registration_hash=$7 AND tools_hash=$8)`,
+		latest.id, current.ID, current.bindingInstanceID, current.ApplicationID, current.EnvironmentID,
+		current.version, current.hash, latest.toolsHash).Scan(&currentReviewed)
+	if err != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, "mcp_unavailable", "MCP review is unavailable")
+		return nil, false
+	}
+	if currentReviewed != reviewed {
+		httpapi.Error(w, http.StatusConflict, "mcp_review_changed", "MCP review changed; reload the candidate")
+		return nil, false
+	}
+	if reviewed {
+		decisions, decisionErr := loadCompleteReview(ctx, tx, latest.id, tools)
+		if decisionErr != nil {
+			httpapi.Error(w, http.StatusServiceUnavailable, "mcp_unavailable", "MCP review is inconsistent")
+			return nil, false
+		}
+		for _, tool := range tools {
+			item := decisions[tool.Name]
+			if item.Decision != tool.Decision || item.Enabled != tool.Enabled || item.Revision != tool.Revision {
+				httpapi.Error(w, http.StatusConflict, "mcp_review_changed", "MCP review changed; reload the candidate")
+				return nil, false
+			}
+		}
+	}
+	// Expiry advances independently of row locks, so check it again after
+	// any lock wait or review-state reads, immediately before disclosure.
+	var sessionUnexpired bool
+	err = tx.QueryRow(ctx, `SELECT expires_at>clock_timestamp() FROM sessions
+ WHERE token_hash=$1 AND user_id=$2`, sessionHash, actorID).Scan(&sessionUnexpired)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !sessionUnexpired) {
+		httpapi.Error(w, http.StatusNotFound, "not_found", "MCP server not found")
+		return nil, false
+	}
+	if err != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, "authorization_unavailable", "MCP authorization is unavailable")
+		return nil, false
+	}
+	valid = true
+	return tx, true
+}
+
+func rollbackCandidateRead(tx pgx.Tx) {
+	// A disconnected client cancels the request context. Use a bounded fresh
+	// context so its cancellation cannot strand authorization row locks.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = tx.Rollback(ctx)
 }
 
 type reviewVersionRequest struct {

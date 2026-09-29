@@ -22,6 +22,204 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
+type reviewReadAuthorizationBarrier struct {
+	policy  *rbac.V3Policy
+	reached chan struct{}
+	release chan struct{}
+}
+
+type candidateDeadlineRecorder struct{ *httptest.ResponseRecorder }
+
+func (*candidateDeadlineRecorder) SetWriteDeadline(time.Time) error { return nil }
+
+// This fixture is independent of the write-race scenarios in the other test. Both
+// revocations must commit before the paused candidate read continues, so a
+// prior write-path branch cannot silently skip the disclosure assertions.
+func TestMCPReviewCandidateRevocationHTTPIsolated(t *testing.T) {
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL required; creates and drops a random isolated schema")
+	}
+	ctx := t.Context()
+	adminDB, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := "v3_mcp_read_race_" + store.ID()
+	quoted := pgx.Identifier{schema}.Sanitize()
+	if _, err := adminDB.Exec(ctx, "CREATE SCHEMA "+quoted); err != nil {
+		adminDB.Close()
+		t.Fatal(err)
+	}
+	var db *pgxpool.Pool
+	t.Cleanup(func() {
+		if db != nil {
+			db.Close()
+		}
+		if _, err := adminDB.Exec(context.Background(), "DROP SCHEMA "+quoted+" CASCADE"); err != nil {
+			t.Error(err)
+		}
+		adminDB.Close()
+	})
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.MaxConns = 1
+	db, err = pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &store.Store{DB: db}
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := aiextensions.New(db, "").Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Bootstrap(ctx, "admin@example.invalid", "isolated-admin-password"); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := st.CreateUser(ctx, core.User{Email: "manager@example.invalid", Name: "Manager", Role: "viewer"}, "isolated-manager-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := st.Login(ctx, manager.Email, "isolated-manager-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`DELETE FROM v3_role_grants WHERE role_id='viewer'`,
+		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
+ ('viewer','environment','view','environment','dev'),
+ ('viewer','connectors','view','application','app'),
+ ('viewer','connectors','manage','application','app')`,
+		`INSERT INTO applications(id,key,name,environment,archived) VALUES ('app','app','App','dev',false)`,
+		`INSERT INTO application_environments(id,application_id,key,name,archived) VALUES ('app-dev','app','dev','Dev',false)`,
+		`INSERT INTO v3_application_environments(application_id,environment_id) VALUES ('app','dev')`,
+	} {
+		if _, err := db.Exec(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record := aiextensions.Record{ID: "mcp-1", ApplicationID: "app", Kind: "mcp", Title: "App MCP",
+		Maintainer: "platform", Enabled: true, Version: 1, UpdatedAt: time.Now().UTC(),
+		MCP: &aiextensions.MCPConfig{Endpoint: "https://private.example.invalid/mcp", CredentialRef: "private-ref",
+			Bindings: []aiextensions.Binding{{Name: "read_app", Tool: "read_app", ReadOnlyConfirmed: true, Arguments: map[string]any{}}}},
+	}
+	raw, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO ai_extensions(id,application_id,kind,version,record)
+ VALUES('mcp-1','app','mcp',1,$1)`, raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_mcp_environment_bindings(extension_id,application_id,environment_id,bound_by)
+ SELECT 'mcp-1','app','dev',id FROM users WHERE email='admin@example.invalid'`); err != nil {
+		t.Fatal(err)
+	}
+	policy := &rbac.V3Policy{Store: st}
+	api := httpapi.New(st, nil, true)
+	service := New(db, policy)
+	service.DiscoverTools = func(context.Context, aiextensions.MCPConfig) ([]aiextensions.ToolInfo, error) {
+		return []aiextensions.ToolInfo{{Name: "read_app", Description: "sensitive remote description",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"privateField": map[string]any{"type": "string"}}}}}, nil
+	}
+	service.Register(api)
+	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"}},
+		policy, st.Session, func(ctx context.Context, user core.User, module, action, environment string) error {
+			return policy.Authorize(ctx, user, rbac.V3Decision{Module: module, Action: action, EnvironmentID: environment})
+		}); err != nil {
+		t.Fatal(err)
+	}
+	call := func(method, path string) *httptest.ResponseRecorder {
+		callCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		r := httptest.NewRequest(method, path, nil).WithContext(callCtx)
+		r.Header.Set("X-AIOps-Environment", "dev")
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		w := httptest.NewRecorder()
+		if method == http.MethodGet && strings.HasSuffix(path, "/review-candidate") {
+			api.ServeHTTP(&candidateDeadlineRecorder{w}, r)
+		} else {
+			api.ServeHTTP(w, r)
+		}
+		return w
+	}
+	base := "/api/v1/mcp-servers/mcp-1"
+	if w := call(http.MethodPost, base+"/discover"); w.Code != http.StatusOK {
+		t.Fatalf("discover read candidate: %d %s", w.Code, w.Body.String())
+	}
+	if w := call(http.MethodGet, base+"/review-candidate"); w.Code != http.StatusOK ||
+		!strings.Contains(w.Body.String(), "sensitive remote description") || !strings.Contains(w.Body.String(), "privateField") {
+		t.Fatalf("expected sensitive candidate baseline: %d %s", w.Code, w.Body.String())
+	}
+	runRevocation := func(label, query string, args ...any) {
+		t.Helper()
+		barrier := &reviewReadAuthorizationBarrier{policy: policy, reached: make(chan struct{}, 1), release: make(chan struct{})}
+		service.Access = barrier
+		defer func() {
+			select {
+			case <-barrier.release:
+			default:
+				close(barrier.release)
+			}
+			service.Access = policy
+		}()
+		response := make(chan *httptest.ResponseRecorder, 1)
+		go func() { response <- call(http.MethodGet, base+"/review-candidate") }()
+		select {
+		case <-barrier.reached:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: candidate did not reach post-authorization barrier", label)
+		}
+		deleteCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		tag, err := adminDB.Exec(deleteCtx, query, args...)
+		if err != nil || tag.RowsAffected() != 1 {
+			t.Fatalf("%s: revocation did not commit before candidate resumed: tag=%v err=%v", label, tag, err)
+		}
+		close(barrier.release)
+		var result *httptest.ResponseRecorder
+		select {
+		case result = <-response:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: candidate did not finish after barrier release", label)
+		}
+		if result.Code != http.StatusNotFound || strings.Contains(result.Body.String(), "sensitive remote description") ||
+			strings.Contains(result.Body.String(), "privateField") {
+			t.Fatalf("%s: committed revocation leaked tool declaration: status=%d body=%s", label, result.Code, result.Body.String())
+		}
+	}
+	runRevocation("connector grant", `DELETE FROM `+quoted+`.v3_role_grants
+ WHERE role_id='viewer' AND module='connectors' AND action='manage'`)
+	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('viewer','connectors','manage','application','app')`); err != nil {
+		t.Fatal(err)
+	}
+	runRevocation("session logout", `DELETE FROM `+quoted+`.sessions WHERE token_hash=$1`, store.Hash(token))
+}
+
+func (b *reviewReadAuthorizationBarrier) AuthorizeWithTx(ctx context.Context, tx pgx.Tx, user core.User, decision rbac.V3Decision) error {
+	if err := b.policy.AuthorizeWithTx(ctx, tx, user, decision); err != nil {
+		return err
+	}
+	if decision.Module == "connectors" && decision.Action == "manage" {
+		select {
+		case b.reached <- struct{}{}:
+		default:
+		}
+		select {
+		case <-b.release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+
 // These routes store human review metadata only. In particular, successful
 // review or enablement must never turn the untrusted observation into an Agent
 // execution grant or make the public, unfenced routes available.
@@ -178,7 +376,11 @@ func TestMCPVersionReviewHTTPIsolated(t *testing.T) {
 		r.Header.Set("X-AIOps-Environment", env)
 		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
 		w := httptest.NewRecorder()
-		api.ServeHTTP(w, r)
+		if method == http.MethodGet && strings.HasSuffix(path, "/review-candidate") {
+			api.ServeHTTP(&candidateDeadlineRecorder{w}, r)
+		} else {
+			api.ServeHTTP(w, r)
+		}
 		return w
 	}
 	base := "/api/v1/mcp-servers/mcp-1"

@@ -56,25 +56,51 @@ v3_route('post','/services','Register scoped service metadata',
     role='admin',body=ref('V3ServiceRegistration'),
     response=obj({'created':integer(minimum=1)},['created']),status=201,
     desc='Atomically registers 1-50 service profiles. Optional resource_id must be the stable CMDB identity from discovery and requires namespace. It is revalidated in the selected environment for presence, UID, freshness, namespace, unclaimed state and resources.view authorization under transaction locks. Without resource_id, a name/namespace must resolve uniquely or remain a manual-only registration; stale, claimed, mismatched or ambiguous inventory returns 409. Registration is audited.')
+S['V3MappingCandidate'] = obj({
+    'id':string(),'version':string(format='date-time'),'service_id':string(),
+    'service':string(),'environment_id':string(),'system_id':string(enum=['code']),
+    'connector_id':string(),'target_id':string(),'external_id':string(),
+    'binding_revision':integer(minimum=0),'expires_at':string(format='date-time')},
+    ['id','version','service_id','service','environment_id','system_id','connector_id',
+     'target_id','external_id','binding_revision','expires_at'])
+S['V3MappingCandidateSelection'] = obj({
+    'id':string(),'version':string(format='date-time'),'service_id':string(),
+    'environment_id':string(),'system_id':string(enum=['code']),
+    'binding_revision':integer(minimum=0)},
+    ['id','version','service_id','environment_id','system_id','binding_revision'])
+S['V3MappingAcceptItem'] = obj({
+    'candidate_id':string(),'service_id':string(),'environment_id':string(),
+    'system_id':string(enum=['code']),'connector_id':string(),'target_id':string(),
+    'external_id':string(),'binding_revision':integer(minimum=0),
+    'binding':obj({'kind':string(enum=['gitlab']),'connector_id':string(),
+        'resource':string()},['kind','connector_id','resource']),
+    'status':string(enum=['accepted','already_accepted'])},
+    ['candidate_id','service_id','environment_id','system_id','connector_id','target_id',
+     'external_id','binding_revision','binding','status'])
 S['V3MappingCell'] = obj({'state':string(enum=['ok','suggested','missing']),
-    'value':string(),'brand':string()},['state'])
+    'value':string(),'brand':string(),'candidate':ref('V3MappingCandidate')},['state'])
 S['V3ServiceMapping'] = obj({'systems':arr(v3_object('id brand label')),
     'rows':arr(obj({'service':string(),'cells':v3_map(ref('V3MappingCell'))},['service','cells'])),
     'suggestions':integer(minimum=0)},['systems','rows','suggestions'])
 v3_route('get','/service-mappings','Read persisted service connector mappings',
     response=ref('V3ServiceMapping'),
-    desc='Shows only bindings for authorized applications and environments; missing means no persisted binding, not a health check. Pending suggestions are shown only if their explicit GitLab project target, activation evidence and binding revision remain current. A V3-only validator permits exactly that source-derived GitLab binding while passing every other binding to the unchanged platform validator. Activation is historical project-access evidence; a recent generic connector probe does not prove current project access. More than 1000 visible services returns 422 result_limit instead of an incomplete map.')
+    desc='Shows only bindings for authorized applications and environments; missing means no persisted binding, not a health check. A suggested code cell carries the exact candidate ID, review version, target identity and binding revision needed for accept. Pending suggestions are shown only if their explicit GitLab project target, activation evidence and binding revision remain current. A V3-only validator permits exactly that source-derived GitLab binding while passing every other binding to the unchanged platform validator. Activation is historical project-access evidence; a recent generic connector probe does not prove current project access. More than 1000 visible services returns 422 result_limit instead of an incomplete map.')
 v3_route('put','/service-mappings','Reject unavailable full mapping save',
     status=501,response=ref('Error'),
-    desc='The frozen page sends no request body, and GET cells contain display values without stable service, environment, connector, target identities or binding revisions. This registered route remains outside the V3 allowed-route table and returns 501 v3_not_implemented before its fallback handler; it writes no binding or audit. No accepted full-save request schema or success response is claimed.')
+    desc='The frozen page sends no request body. Suggested code cells expose review identity for the separate accept operation, but the full matrix still lacks an accepted all-system save request and revision contract. This registered route remains outside the V3 allowed-route table and returns 501 v3_not_implemented before its fallback handler; it writes no binding or audit. No accepted full-save success response is claimed.')
 P['/service-mappings']['put']['responses']['501']['description'] = 'Full mapping save is unavailable in V3'
 v3_route('post','/service-mappings/discover','Stage scoped service mapping candidates',
-    response=obj({'suggestions':integer(minimum=0)},['suggestions']),
-    desc='Partial operation in exactly one selected environment. Requires current services.change on each visible service and environment connectors.view/manage. Only a single explicitly enrolled numeric GitLab project target per service is eligible; connector activation evidence must postdate the target binding and a recent successful check must exist. The 15-minute candidate is saved without changing the service binding. A V3-only validator checks the exact source-derived GitLab binding and delegates all other bindings to the unchanged platform validator. More than 500 visible unmapped source rows returns 422. No label, name or deployment inference is performed; the frontend does not refresh the list after discovery.')
+    response=obj({'suggestions':integer(minimum=0),
+        'source_state':string(enum=['configured','not_configured']),
+        'candidates':arr(ref('V3MappingCandidate'))},
+        ['suggestions','source_state','candidates']),
+    desc='In exactly one selected environment, stages reviewable code mapping candidates only from explicitly enrolled numeric GitLab project targets after current services view/change, connectors view/manage, post-bind project activation and recent connector checks. Each candidate includes an opaque ID, monotonic review version, exact service/environment/connector/target identity, binding revision and expiry; no binding is changed. source_state=not_configured distinguishes an absent supported source from a configured source with zero candidates. A V3-only validator checks the exact source-derived GitLab binding and delegates other bindings to the unchanged platform validator. More than 500 visible unmapped source rows returns 422. Prometheus metric resources and other matrix systems have no safe mapping producer here; names, labels and deployments are never inferred. The frozen frontend does not refresh after discovery.')
 v3_route('post','/service-mappings/accept','Accept current scoped service mapping candidates',
-    body=obj({'cells':{'type':'array','items':string(),'maxItems':1000}},['cells']),
-    response=obj({'accepted':integer(minimum=0)},['accepted']),
-    desc='Partial operation in exactly one selected environment. Only service:code cells are accepted after transaction-local services.view/change and connectors.view/manage checks, a unique unexpired candidate, current source identity, activation evidence, sole GitLab project target, binding revision and V3-only exact GitLab binding validation. All other bindings still use the unchanged platform validator. Binding, accepted candidate and audit commit together; a verified repeat can return accepted=0. The frontend marks accepted before response and does not recover on failure; the page contract remains incomplete.')
+    body=obj({'candidates':{'type':'array','items':ref('V3MappingCandidateSelection'),
+        'minItems':1,'maxItems':500}},['candidates']),
+    response=obj({'accepted':integer(minimum=0),
+        'items':arr(ref('V3MappingAcceptItem'))},['accepted','items']),
+    desc='In exactly one selected environment, accepts only explicitly identified, reviewed GitLab code candidates. The request must match candidate ID, monotonic version, service/environment/system and expected binding revision; stale or changed review snapshots return 409 and old service:system cell requests are rejected. Transaction-local services view/change and connectors view/manage checks, exact source identity, activation, unique target, binding CAS and V3-only binding validation precede an atomic binding/candidate/audit commit. Each success item returns the persisted binding and post-write revision; a verified repeat may return status=already_accepted and accepted=0. The frozen frontend sends the old cell shape and marks success before response, so page integration remains pending.')
 S['V3GitLabPipelineRecord'] = obj({**fieldnames('id provider service_id environment_id binding_id connector_id project_id status ref sha source created_at updated_at')},
     ['id','provider','service_id','environment_id','binding_id','connector_id','project_id','status','ref','sha','source','created_at','updated_at'])
 S['V3GitLabPipelineRecord']['properties']['provider'] = string(enum=['gitlab'])

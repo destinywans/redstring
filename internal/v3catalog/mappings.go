@@ -50,9 +50,10 @@ type mappingSystem struct {
 	Label string `json:"label"`
 }
 type mappingCell struct {
-	State string `json:"state"`
-	Value string `json:"value,omitempty"`
-	Brand string `json:"brand,omitempty"`
+	State     string                  `json:"state"`
+	Value     string                  `json:"value,omitempty"`
+	Brand     string                  `json:"brand,omitempty"`
+	Candidate *mappingCandidateReview `json:"candidate,omitempty"`
 }
 type mappingRow struct {
 	Service string                 `json:"service"`
@@ -238,7 +239,7 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 				if row == nil || row.Cells["code"].State != "" {
 					continue
 				}
-				row.Cells["code"] = mappingCell{State: "suggested", Value: "Configured GitLab project #" + candidate.externalID, Brand: "gitlab"}
+				row.Cells["code"] = mappingCell{State: "suggested", Value: "Configured GitLab project #" + candidate.externalID, Brand: "gitlab", Candidate: &candidate.review}
 				suggestions++
 			}
 		}

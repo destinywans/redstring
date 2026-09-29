@@ -193,7 +193,28 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 		}
 		return result
 	}
-	readAccepted := func(body string, wantStatus, wantCount int) {
+	selected := func(service string) mappingAcceptCandidate {
+		t.Helper()
+		for _, row := range readMappings().Rows {
+			if row.Service == service && row.Cells["code"].Candidate != nil {
+				candidate := row.Cells["code"].Candidate
+				return mappingAcceptCandidate{ID: candidate.ID, Version: candidate.Version,
+					ServiceID: candidate.ServiceID, EnvironmentID: candidate.EnvironmentID,
+					SystemID: candidate.SystemID, BindingRevision: candidate.BindingRevision}
+			}
+		}
+		t.Fatalf("missing reviewable candidate for %s", service)
+		return mappingAcceptCandidate{}
+	}
+	acceptBody := func(candidates ...mappingAcceptCandidate) string {
+		t.Helper()
+		body, err := json.Marshal(mappingAcceptInput{Candidates: candidates})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(body)
+	}
+	readAccepted := func(body string, wantStatus, wantCount int) []mappingAcceptItem {
 		t.Helper()
 		w := request(http.MethodPost, "/service-mappings/accept", body)
 		if w.Code != wantStatus {
@@ -201,12 +222,18 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 		}
 		if wantStatus == 200 {
 			var result struct {
-				Accepted int `json:"accepted"`
+				Accepted int                 `json:"accepted"`
+				Items    []mappingAcceptItem `json:"items"`
 			}
 			if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || result.Accepted != wantCount {
 				t.Fatalf("POST accept response=%s err=%v", w.Body.String(), err)
 			}
+			if len(result.Items) == 0 || len(result.Items) < result.Accepted {
+				t.Fatalf("accept omitted persisted items: %s", w.Body.String())
+			}
+			return result.Items
 		}
+		return nil
 	}
 	if initial := readMappings(); initial.Suggestions != 0 {
 		t.Fatalf("unreviewed sources appeared as suggestions: %+v", initial)
@@ -249,8 +276,18 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 		t.Fatalf("unsupported candidate snapshot not persisted: count=%d err=%v", pendingCount, err)
 	}
 	api.ValidateBindings = legacyValidator
-	if w := request(http.MethodPost, "/service-mappings/discover", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"suggestions":2`) {
-		t.Fatalf("discover status=%d body=%s", w.Code, w.Body.String())
+	discovery := request(http.MethodPost, "/service-mappings/discover", "")
+	if discovery.Code != 200 || !strings.Contains(discovery.Body.String(), `"suggestions":2`) {
+		t.Fatalf("discover status=%d body=%s", discovery.Code, discovery.Body.String())
+	}
+	var discovered struct {
+		Suggestions int                      `json:"suggestions"`
+		SourceState string                   `json:"source_state"`
+		Candidates  []mappingCandidateReview `json:"candidates"`
+	}
+	if err := json.Unmarshal(discovery.Body.Bytes(), &discovered); err != nil ||
+		discovered.SourceState != "configured" || discovered.Suggestions != 2 || len(discovered.Candidates) != 2 {
+		t.Fatalf("discovery omitted reviewable candidates: %s err=%v", discovery.Body.String(), err)
 	}
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_service_mapping_candidates WHERE accepted_at IS NULL`).Scan(&pendingCount); err != nil || pendingCount != 2 {
 		t.Fatalf("candidate persistence count=%d err=%v", pendingCount, err)
@@ -260,10 +297,58 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 		t.Fatalf("configured candidates not projected: %+v", view)
 	}
 	for _, row := range view.Rows {
-		if row.Cells["code"].State != "suggested" || row.Cells["code"].Brand != "gitlab" {
+		if row.Cells["code"].State != "suggested" || row.Cells["code"].Brand != "gitlab" ||
+			row.Cells["code"].Candidate == nil || row.Cells["code"].Candidate.Version == "" {
 			t.Fatalf("candidate was asserted as a current binding: %+v", row)
 		}
 	}
+	checkout := selected("checkout")
+	other := selected("other")
+	for _, candidate := range discovered.Candidates {
+		if candidate.ID == "" || candidate.Version == "" || candidate.EnvironmentID != "dev" ||
+			candidate.SystemID != "code" || candidate.ConnectorID != "gitlab-1" ||
+			candidate.TargetID == "" || candidate.ExternalID == "" || candidate.BindingRevision != 1 ||
+			candidate.ExpiresAt.Before(time.Now()) {
+			t.Fatalf("incomplete discovery candidate: %+v", candidate)
+		}
+		projected := selected(candidate.Service)
+		if projected.ID != candidate.ID || projected.Version != candidate.Version || projected.BindingRevision != candidate.BindingRevision {
+			t.Fatalf("GET mapping candidate differs from discover: discover=%+v projected=%+v", candidate, projected)
+		}
+	}
+	readAccepted(`{"cells":["checkout:code"]}`, 422, 0)
+	readAccepted(`{"candidates":[]}`, 422, 0)
+	// Rediscovery keeps the row identity while advancing its review version.
+	if w := request(http.MethodPost, "/service-mappings/discover", ""); w.Code != 200 {
+		t.Fatalf("rediscover status=%d body=%s", w.Code, w.Body.String())
+	}
+	newCheckout := selected("checkout")
+	if newCheckout.ID != checkout.ID || newCheckout.Version == checkout.Version {
+		t.Fatalf("rediscovery failed to version same candidate: before=%+v after=%+v", checkout, newCheckout)
+	}
+	readAccepted(acceptBody(checkout), 409, 0)
+	checkout, other = newCheckout, selected("other")
+	// A batch containing one stale binding revision must write neither item.
+	if _, err := db.Exec(ctx, `UPDATE application_environments
+	 SET binding_revision=binding_revision+1 WHERE id='env-other'`); err != nil {
+		t.Fatal(err)
+	}
+	readAccepted(acceptBody(checkout, other), 409, 0)
+	var preAcceptAudit int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE action='v3.service_mapping.accepted'`).Scan(&preAcceptAudit); err != nil || preAcceptAudit != 0 {
+		t.Fatalf("stale batch wrote audit: count=%d err=%v", preAcceptAudit, err)
+	}
+	var atomicBindings []byte
+	if err := db.QueryRow(ctx, `SELECT bindings FROM application_environments WHERE id='env-checkout'`).Scan(&atomicBindings); err != nil || string(atomicBindings) != "[]" {
+		t.Fatalf("stale batch persisted an earlier item: bindings=%s err=%v", atomicBindings, err)
+	}
+	if w := request(http.MethodPost, "/service-mappings/discover", ""); w.Code != 200 {
+		t.Fatalf("refresh status=%d body=%s", w.Code, w.Body.String())
+	}
+	checkout, other = selected("checkout"), selected("other")
+	wrongService := checkout
+	wrongService.ServiceID = other.ServiceID
+	readAccepted(acceptBody(wrongService), 409, 0)
 	allRequest := httptest.NewRequest(http.MethodGet, "/api/v1/service-mappings", nil)
 	allRequest.Header.Set("X-AIOps-Environment", "all")
 	allRequest.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
@@ -277,7 +362,7 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 		t.Fatalf("all-environment view offered unacceptably ambiguous suggestions: %+v err=%v", allView, err)
 	}
 	api.ValidateBindings = nil
-	readAccepted(`{"cells":["checkout:code"]}`, 409, 0)
+	readAccepted(acceptBody(checkout), 409, 0)
 	api.ValidateBindings = legacyValidator
 	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants
  WHERE role_id='admin' AND module='services' AND action='change'`); err != nil {
@@ -297,7 +382,7 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 	// An unauthorized request must fail before waiting on the service lock.
 	quickCtx, quickCancel := context.WithTimeout(ctx, time.Second)
 	quickRequest := httptest.NewRequest(http.MethodPost, "/api/v1/service-mappings/accept",
-		strings.NewReader(`{"cells":["checkout:code"]}`)).WithContext(quickCtx)
+		strings.NewReader(acceptBody(checkout))).WithContext(quickCtx)
 	quickRequest.Header.Set("X-AIOps-Environment", "dev")
 	quickRequest.Header.Set("Content-Type", "application/json")
 	quickRequest.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
@@ -318,7 +403,7 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
  WHERE role_id='admin' AND module='connectors' AND action='manage'`); err != nil {
 		t.Fatal(err)
 	}
-	readAccepted(`{"cells":["checkout:code"]}`, 403, 0)
+	readAccepted(acceptBody(checkout), 403, 0)
 	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
  VALUES('admin','connectors','manage','global','*') ON CONFLICT DO NOTHING`); err != nil {
 		t.Fatal(err)
@@ -327,12 +412,26 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
  WHERE id='gitlab-1'`); err != nil {
 		t.Fatal(err)
 	}
-	readAccepted(`{"cells":["checkout:code"]}`, 409, 0)
+	readAccepted(acceptBody(checkout), 409, 0)
 	if _, err := db.Exec(ctx, `UPDATE v3_connectors SET last_checked_at=now() WHERE id='gitlab-1'`); err != nil {
 		t.Fatal(err)
 	}
-	readAccepted(`{"cells":["checkout:code"]}`, 200, 1)
-	readAccepted(`{"cells":["checkout:code"]}`, 200, 0)
+	acceptedItems := readAccepted(acceptBody(checkout), 200, 1)
+	if len(acceptedItems) != 1 || acceptedItems[0].CandidateID != checkout.ID ||
+		acceptedItems[0].ServiceID != checkout.ServiceID || acceptedItems[0].EnvironmentID != "dev" ||
+		acceptedItems[0].SystemID != "code" || acceptedItems[0].ConnectorID != "gitlab-1" ||
+		acceptedItems[0].TargetID != "target-checkout" || acceptedItems[0].ExternalID != "123" ||
+		acceptedItems[0].BindingRevision != 2 || acceptedItems[0].Status != "accepted" ||
+		acceptedItems[0].Binding != (core.Binding{Kind: "gitlab", ConnectorID: "gitlab-1", Resource: "123"}) {
+		t.Fatalf("accept response is not exact persisted binding: %+v", acceptedItems)
+	}
+	repeatItems := readAccepted(acceptBody(checkout), 200, 0)
+	if len(repeatItems) != 1 || repeatItems[0].Status != "already_accepted" || repeatItems[0].BindingRevision != 2 {
+		t.Fatalf("exact repeat response changed: %+v", repeatItems)
+	}
+	staleRepeat := checkout
+	staleRepeat.Version = mappingVersion(time.Now().UTC())
+	readAccepted(acceptBody(staleRepeat), 409, 0)
 	var revision int64
 	var raw []byte
 	if err := db.QueryRow(ctx, `SELECT binding_revision,bindings FROM application_environments WHERE id='env-checkout'`).Scan(&revision, &raw); err != nil {
@@ -345,6 +444,12 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 	var audits int
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE action='v3.service_mapping.accepted'`).Scan(&audits); err != nil || audits != 1 {
 		t.Fatalf("accept was not exactly-once audited: count=%d err=%v", audits, err)
+	}
+	var auditedCandidate, auditedProject string
+	if err := db.QueryRow(ctx, `SELECT changes->>'candidate_id',changes->>'project_id'
+	 FROM management_audit WHERE action='v3.service_mapping.accepted'`).Scan(&auditedCandidate, &auditedProject); err != nil ||
+		auditedCandidate != checkout.ID || auditedProject != "123" {
+		t.Fatalf("audit lost accepted identity: candidate=%s project=%s err=%v", auditedCandidate, auditedProject, err)
 	}
 	view = readMappings()
 	for _, row := range view.Rows {
@@ -361,20 +466,22 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 	if w := request(http.MethodPost, "/service-mappings/discover", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"suggestions":2`) {
 		t.Fatalf("rediscover status=%d body=%s", w.Code, w.Body.String())
 	}
-	readAccepted(`{"cells":["checkout:code"]}`, 200, 1)
-	readAccepted(`{"cells":["checkout:code"]}`, 200, 0)
+	checkout = selected("checkout")
+	other = selected("other")
+	readAccepted(acceptBody(checkout), 200, 1)
+	readAccepted(acceptBody(checkout), 200, 0)
 	if err := db.QueryRow(ctx, `SELECT binding_revision FROM application_environments WHERE id='env-checkout'`).Scan(&revision); err != nil || revision != 4 {
 		t.Fatalf("rediscovery did not advance binding revision once: revision=%d err=%v", revision, err)
 	}
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE action='v3.service_mapping.accepted'`).Scan(&audits); err != nil || audits != 2 {
 		t.Fatalf("rediscovery audit count=%d err=%v", audits, err)
 	}
-	// A second reviewed target invalidates the frozen service:system key.
+	// A second GitLab project invalidates the reviewed candidate.
 	if _, err := db.Exec(ctx, `INSERT INTO v3_connector_targets(id,application_id,environment_id,connector_id,target_kind,external_id,bound_by)
  VALUES('target-other-2','app-other','dev','gitlab-1','project','789',$1)`, admin.ID); err != nil {
 		t.Fatal(err)
 	}
-	readAccepted(`{"cells":["other:code"]}`, 409, 0)
+	readAccepted(acceptBody(other), 409, 0)
 	view = readMappings()
 	for _, row := range view.Rows {
 		if row.Service == "other" && row.Cells["code"].State != "missing" {
@@ -385,14 +492,21 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
  UPDATE v3_connector_targets SET external_id='999' WHERE id='target-other'`); err != nil {
 		t.Fatal(err)
 	}
-	readAccepted(`{"cells":["other:code"]}`, 409, 0)
+	readAccepted(acceptBody(other), 409, 0)
+	if _, err := db.Exec(ctx, `DELETE FROM v3_connector_targets WHERE id='target-other'`); err != nil {
+		t.Fatal(err)
+	}
+	missingSource := request(http.MethodPost, "/service-mappings/accept", acceptBody(other))
+	if missingSource.Code != 409 || !strings.Contains(missingSource.Body.String(), `"source_unavailable"`) {
+		t.Fatalf("missing source did not report unavailable: status=%d body=%s", missingSource.Code, missingSource.Body.String())
+	}
 	if err := db.QueryRow(ctx, `SELECT bindings FROM application_environments WHERE id='env-other'`).Scan(&raw); err != nil || string(raw) != "[]" {
 		t.Fatalf("stale or ambiguous source mutated mapping: bindings=%s err=%v", raw, err)
 	}
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE action='v3.service_mapping.accepted'`).Scan(&audits); err != nil || audits != 2 {
 		t.Fatalf("failed acceptance wrote audit: count=%d err=%v", audits, err)
 	}
-	// Accept-all and a single-cell accept share one connector. Locking all
+	// Batch and single-candidate accepts share one connector. Locking all
 	// service rows first prevents a connector/service lock cycle.
 	if _, err := db.Exec(ctx, `INSERT INTO applications(id,name,key,environment) VALUES
  ('app-concurrent-a','Concurrent A','concurrent-a','dev'),
@@ -418,9 +532,10 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 	}
 	var wg sync.WaitGroup
 	results := make(chan *httptest.ResponseRecorder, 2)
+	concurrentA, concurrentB := selected("concurrent-a"), selected("concurrent-b")
 	for _, body := range []string{
-		`{"cells":["concurrent-a:code","concurrent-b:code"]}`,
-		`{"cells":["concurrent-b:code"]}`,
+		acceptBody(concurrentA, concurrentB),
+		acceptBody(concurrentB),
 	} {
 		wg.Add(1)
 		go func() {
@@ -500,4 +615,172 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 			}
 		}
 	})
+	t.Run("discover locks service before expired candidate", func(t *testing.T) {
+		if _, err := db.Exec(ctx, `UPDATE application_environments
+		 SET bindings='[]',binding_revision=binding_revision+1
+		 WHERE id='env-concurrent-a'`); err != nil {
+			t.Fatal(err)
+		}
+		if w := request(http.MethodPost, "/service-mappings/discover", ""); w.Code != 200 {
+			t.Fatalf("prepare candidate status=%d body=%s", w.Code, w.Body.String())
+		}
+		if _, err := db.Exec(ctx, `UPDATE v3_service_mapping_candidates
+		 SET expires_at=now()-interval '1 second'
+		 WHERE application_id='app-concurrent-a' AND accepted_at IS NULL`); err != nil {
+			t.Fatal(err)
+		}
+		serviceLock, err := db.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer serviceLock.Rollback(context.Background())
+		var appID string
+		if err := serviceLock.QueryRow(ctx, `SELECT a.id FROM applications a
+		 JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id='dev'
+		 JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id
+		 WHERE a.id='app-concurrent-a' FOR UPDATE OF a,ve,e`).Scan(&appID); err != nil {
+			t.Fatal(err)
+		}
+		result := make(chan *httptest.ResponseRecorder, 1)
+		go func() { result <- request(http.MethodPost, "/service-mappings/discover", "") }()
+		deadline := time.Now().Add(3 * time.Second)
+		waiting := false
+		for time.Now().Before(deadline) {
+			if err := adminDB.QueryRow(ctx, `SELECT EXISTS (
+			 SELECT 1 FROM pg_stat_activity WHERE datname=current_database()
+			 AND state='active' AND wait_event_type='Lock'
+			 AND query LIKE '%FOR UPDATE OF a,ve,e%'
+			 AND query LIKE '%COALESCE(a.owner_team_id%')`).Scan(&waiting); err != nil {
+				t.Fatal(err)
+			}
+			if waiting {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if !waiting {
+			t.Fatal("discover did not reach the service lock")
+		}
+		candidateProbe, err := db.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var candidateID string
+		probeErr := candidateProbe.QueryRow(ctx, `SELECT id FROM v3_service_mapping_candidates
+		 WHERE application_id='app-concurrent-a' AND accepted_at IS NULL
+		 FOR UPDATE NOWAIT`).Scan(&candidateID)
+		_ = candidateProbe.Rollback(ctx)
+		if probeErr != nil || candidateID == "" {
+			t.Fatalf("discover locked an expired candidate before its service: id=%s err=%v", candidateID, probeErr)
+		}
+		if _, err := serviceLock.Exec(ctx, `UPDATE application_environments
+		 SET bindings='[{"kind":"gitlab","connector_id":"gitlab-1","resource":"1001"}]',
+		 binding_revision=binding_revision+1 WHERE id='env-concurrent-a'`); err != nil {
+			t.Fatal(err)
+		}
+		if err := serviceLock.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case response := <-result:
+			var refreshed struct {
+				Candidates []mappingCandidateReview `json:"candidates"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &refreshed); response.Code != 200 || err != nil {
+				t.Fatalf("discovery after service unlock: %d %s", response.Code, response.Body.String())
+			}
+			for _, candidate := range refreshed.Candidates {
+				if candidate.ServiceID == "app-concurrent-a" {
+					t.Fatalf("discover offered candidate after concurrent binding change: %+v", candidate)
+				}
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("discovery did not finish after service unlock")
+		}
+	})
+	t.Run("discover rechecks connector grant after service lock", func(t *testing.T) {
+		if _, err := db.Exec(ctx, `UPDATE application_environments
+		 SET bindings='[]',binding_revision=binding_revision+1 WHERE id='env-concurrent-b'`); err != nil {
+			t.Fatal(err)
+		}
+		if w := request(http.MethodPost, "/service-mappings/discover", ""); w.Code != 200 {
+			t.Fatalf("prepare candidate status=%d body=%s", w.Code, w.Body.String())
+		}
+		var before time.Time
+		if err := db.QueryRow(ctx, `SELECT discovered_at FROM v3_service_mapping_candidates
+		 WHERE application_id='app-concurrent-b' AND accepted_at IS NULL`).Scan(&before); err != nil {
+			t.Fatal(err)
+		}
+		serviceLock, err := db.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer serviceLock.Rollback(context.Background())
+		var appID string
+		if err := serviceLock.QueryRow(ctx, `SELECT a.id FROM applications a
+		 JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id='dev'
+		 JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id
+		 WHERE a.id='app-concurrent-b' FOR UPDATE OF a,ve,e`).Scan(&appID); err != nil {
+			t.Fatal(err)
+		}
+		result := make(chan *httptest.ResponseRecorder, 1)
+		go func() { result <- request(http.MethodPost, "/service-mappings/discover", "") }()
+		deadline := time.Now().Add(3 * time.Second)
+		waiting := false
+		for time.Now().Before(deadline) {
+			if err := adminDB.QueryRow(ctx, `SELECT EXISTS (
+			 SELECT 1 FROM pg_stat_activity WHERE datname=current_database()
+			 AND state='active' AND wait_event_type='Lock'
+			 AND query LIKE '%FOR UPDATE OF a,ve,e%'
+			 AND query LIKE '%COALESCE(a.owner_team_id%')`).Scan(&waiting); err != nil {
+				t.Fatal(err)
+			}
+			if waiting {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if !waiting {
+			t.Fatal("discover did not reach the service lock")
+		}
+		if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants
+		 WHERE role_id='admin' AND module='connectors' AND action='manage'`); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if _, err := db.Exec(context.Background(), `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+			 VALUES('admin','connectors','manage','global','*') ON CONFLICT DO NOTHING`); err != nil {
+				t.Error(err)
+			}
+		}()
+		if err := serviceLock.Rollback(ctx); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case response := <-result:
+			if response.Code != 403 {
+				t.Fatalf("revoked discover status=%d body=%s", response.Code, response.Body.String())
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("revoked discovery did not finish")
+		}
+		var after time.Time
+		if err := db.QueryRow(ctx, `SELECT discovered_at FROM v3_service_mapping_candidates
+		 WHERE application_id='app-concurrent-b' AND accepted_at IS NULL`).Scan(&after); err != nil || !after.Equal(before) {
+			t.Fatalf("revoked discover refreshed candidate: before=%s after=%s err=%v", before, after, err)
+		}
+	})
+	if _, err := db.Exec(ctx, `DELETE FROM v3_connector_targets WHERE environment_id='dev'`); err != nil {
+		t.Fatal(err)
+	}
+	unconfigured := request(http.MethodPost, "/service-mappings/discover", "")
+	var emptySource struct {
+		SourceState string                   `json:"source_state"`
+		Suggestions int                      `json:"suggestions"`
+		Candidates  []mappingCandidateReview `json:"candidates"`
+	}
+	if err := json.Unmarshal(unconfigured.Body.Bytes(), &emptySource); unconfigured.Code != 200 || err != nil ||
+		emptySource.SourceState != "not_configured" || emptySource.Suggestions != 0 || len(emptySource.Candidates) != 0 {
+		t.Fatalf("unconfigured source response=%d %s err=%v", unconfigured.Code, unconfigured.Body.String(), err)
+	}
 }

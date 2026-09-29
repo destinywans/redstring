@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -31,19 +30,37 @@ type mappingTarget struct {
 
 type mappingCandidate struct {
 	id, serviceKey, sourceID, connectorID, externalID string
-	boundAt                                           time.Time
+	boundAt, discoveredAt, expiresAt                  time.Time
 	revision                                          int64
 }
 
 type mappingSuggestion struct {
 	appID, key, teamID, connectorID, externalID string
+	review                                      mappingCandidateReview
 }
+
+type mappingCandidateReview struct {
+	ID              string    `json:"id"`
+	Version         string    `json:"version"`
+	ServiceID       string    `json:"service_id"`
+	Service         string    `json:"service"`
+	EnvironmentID   string    `json:"environment_id"`
+	SystemID        string    `json:"system_id"`
+	ConnectorID     string    `json:"connector_id"`
+	TargetID        string    `json:"target_id"`
+	ExternalID      string    `json:"external_id"`
+	BindingRevision int64     `json:"binding_revision"`
+	ExpiresAt       time.Time `json:"expires_at"`
+}
+
+func mappingVersion(at time.Time) string { return at.UTC().Format(time.RFC3339Nano) }
 
 // The matrix only renders a candidate while its exact source and binding
 // revision remain current and it is the sole GitLab project for that service
 // in the selected environment. The caller supplies only authorized app IDs.
 func (s *Service) currentMappingSuggestions(ctx context.Context, env string, appIDs []string) ([]mappingSuggestion, error) {
-	rows, err := s.Store.DB.Query(ctx, `SELECT m.application_id,m.service_key,COALESCE(a.owner_team_id,''),m.connector_id,m.external_id
+	rows, err := s.Store.DB.Query(ctx, `SELECT m.application_id,m.service_key,COALESCE(a.owner_team_id,''),m.connector_id,m.external_id,
+ m.id,m.discovered_at,m.environment_id,m.system_id,m.source_id,m.binding_revision,m.expires_at
  FROM v3_service_mapping_candidates m
  JOIN v3_connector_targets t ON t.id=m.source_id AND t.application_id=m.application_id AND t.environment_id=m.environment_id
  JOIN v3_connectors c ON c.id=t.connector_id AND c.environment_id=t.environment_id
@@ -66,9 +83,15 @@ func (s *Service) currentMappingSuggestions(ctx context.Context, env string, app
 	items := []mappingSuggestion{}
 	for rows.Next() {
 		var item mappingSuggestion
-		if err := rows.Scan(&item.appID, &item.key, &item.teamID, &item.connectorID, &item.externalID); err != nil {
+		var discoveredAt time.Time
+		if err := rows.Scan(&item.appID, &item.key, &item.teamID, &item.connectorID, &item.externalID,
+			&item.review.ID, &discoveredAt, &item.review.EnvironmentID, &item.review.SystemID,
+			&item.review.TargetID, &item.review.BindingRevision, &item.review.ExpiresAt); err != nil {
 			return nil, err
 		}
+		item.review.Version = mappingVersion(discoveredAt)
+		item.review.ServiceID, item.review.Service = item.appID, item.key
+		item.review.ConnectorID, item.review.ExternalID = item.connectorID, item.externalID
 		if validMappingProject(item.externalID) {
 			items = append(items, item)
 		}
@@ -214,13 +237,12 @@ func (s *Service) mappingDiscover(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM v3_service_mapping_candidates
- WHERE environment_id=$1 AND accepted_at IS NULL AND expires_at<=now()`, envs[0]); err != nil {
-		httpapi.Error(w, 503, "catalog_unavailable", "Mapping storage unavailable")
-		return
-	}
+	// Expired rows are filtered from reads and acceptance. Do not clean them
+	// here: a global delete would lock candidate rows before service rows and
+	// invert the lock order used by acceptance and target writers.
 	groups := map[string][]mappingTarget{}
 	seen := 0
+	configured := false
 	after := ""
 	for {
 		batch, err := mappingTargetBatch(ctx, tx, envs[0], after)
@@ -248,6 +270,7 @@ func (s *Service) mappingDiscover(w http.ResponseWriter, r *http.Request) {
 			if !visible {
 				continue
 			}
+			configured = true
 			_, mapped, err := mappingBindings(item.bindings)
 			if err != nil {
 				httpapi.Error(w, 503, "catalog_unavailable", "Stored mapping is invalid")
@@ -267,20 +290,111 @@ func (s *Service) mappingDiscover(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	suggestions := 0
+	candidates := []mappingCandidateReview{}
 	appIDs := make([]string, 0, len(groups))
 	for appID := range groups {
 		appIDs = append(appIDs, appID)
 	}
-	// Concurrent discovery requests must acquire candidate-row locks in the
-	// same application order rather than Go's randomized map iteration order.
+	// Acquire every service lock before touching any candidate row. Acceptance
+	// and target writes use service-first locking, including multi-service
+	// batches. Re-read service state after each lock because the initial scan
+	// may have raced an acceptance or target edit.
 	sort.Strings(appIDs)
+	for _, appID := range appIDs {
+		var key, teamID string
+		var raw []byte
+		var revision int64
+		err := tx.QueryRow(ctx, `SELECT a.key,COALESCE(a.owner_team_id,''),e.bindings,e.binding_revision
+	 FROM applications a
+	 JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$2
+	 JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
+	 WHERE a.id=$1 AND NOT a.archived FOR UPDATE OF a,ve,e`, appID, envs[0]).Scan(&key, &teamID, &raw, &revision)
+		if errors.Is(err, pgx.ErrNoRows) {
+			delete(groups, appID)
+			continue
+		}
+		if err != nil {
+			httpapi.Error(w, 503, "catalog_unavailable", "Mapping storage unavailable")
+			return
+		}
+		for _, action := range []string{"view", "change"} {
+			err = authorizeMappingService(ctx, access, tx, user, appID, envs[0], teamID, action)
+			if errors.Is(err, store.ErrForbidden) {
+				delete(groups, appID)
+				break
+			}
+			if err != nil {
+				httpapi.Error(w, 503, "authorization_unavailable", "Mapping policy unavailable")
+				return
+			}
+		}
+		if len(groups[appID]) == 0 || key == "" || len(key) > 295 {
+			continue
+		}
+		_, mapped, err := mappingBindings(raw)
+		if err != nil {
+			httpapi.Error(w, 503, "catalog_unavailable", "Stored mapping is invalid")
+			return
+		}
+		if mapped {
+			delete(groups, appID)
+			continue
+		}
+		for i := range groups[appID] {
+			groups[appID][i].key = key
+			groups[appID][i].teamID = teamID
+			groups[appID][i].bindings = raw
+			groups[appID][i].revision = revision
+		}
+	}
+	// The caller may lose connector access while waiting for service locks.
+	// Recheck the source authority before any candidate write or response.
+	for _, action := range []string{"view", "manage"} {
+		if err := authorizeMappingConnector(ctx, access, tx, user, envs[0], action); err != nil {
+			policyError(w, err)
+			return
+		}
+	}
 	for _, appID := range appIDs {
 		group := groups[appID]
 		if len(group) != 1 || !group[0].ready || !validMappingProject(group[0].externalID) {
 			continue
 		}
 		item := group[0]
+		// Target writers lock the service first, so this fresh read cannot be
+		// invalidated by a concurrent binding edit while our service lock lives.
+		var liveTargets []mappingTarget
+		rows, err := tx.Query(ctx, `SELECT t.id,t.connector_id,t.external_id,t.bound_at,
+		 COALESCE(`+eligibleMappingTarget+`,false)
+		 FROM v3_connector_targets t
+		 JOIN v3_connectors c ON c.id=t.connector_id AND c.environment_id=t.environment_id
+		 WHERE t.application_id=$1 AND t.environment_id=$2
+		 AND t.target_kind='project' AND c.provider='gitlab'
+		 ORDER BY t.id LIMIT 2`, appID, envs[0])
+		if err != nil {
+			httpapi.Error(w, 503, "catalog_unavailable", "Mapping source unavailable")
+			return
+		}
+		for rows.Next() {
+			var live mappingTarget
+			if err = rows.Scan(&live.targetID, &live.connectorID, &live.externalID, &live.boundAt, &live.ready); err != nil {
+				break
+			}
+			liveTargets = append(liveTargets, live)
+		}
+		if err == nil {
+			err = rows.Err()
+		}
+		rows.Close()
+		if err != nil {
+			httpapi.Error(w, 503, "catalog_unavailable", "Mapping source unavailable")
+			return
+		}
+		if len(liveTargets) != 1 || !liveTargets[0].ready || !validMappingProject(liveTargets[0].externalID) {
+			continue
+		}
+		item.targetID, item.connectorID, item.externalID, item.boundAt =
+			liveTargets[0].targetID, liveTargets[0].connectorID, liveTargets[0].externalID, liveTargets[0].boundAt
 		bindings, _, err := mappingBindings(item.bindings)
 		if err != nil {
 			httpapi.Error(w, 503, "catalog_unavailable", "Stored mapping is invalid")
@@ -297,6 +411,7 @@ func (s *Service) mappingDiscover(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var id string
+		var discoveredAt, expiresAt time.Time
 		err = tx.QueryRow(ctx, `INSERT INTO v3_service_mapping_candidates
  (id,application_id,environment_id,service_key,system_id,source_kind,source_id,source_bound_at,
  connector_id,external_id,binding_revision,expires_at)
@@ -304,9 +419,11 @@ func (s *Service) mappingDiscover(w http.ResponseWriter, r *http.Request) {
  ON CONFLICT (application_id,environment_id,system_id,source_kind,source_id) WHERE accepted_at IS NULL
  DO UPDATE SET service_key=EXCLUDED.service_key,source_bound_at=EXCLUDED.source_bound_at,
  connector_id=EXCLUDED.connector_id,external_id=EXCLUDED.external_id,
- binding_revision=EXCLUDED.binding_revision,discovered_at=now(),expires_at=EXCLUDED.expires_at
- RETURNING id`, store.ID(), item.appID, item.env, item.key, item.targetID, item.boundAt,
-			item.connectorID, item.externalID, item.revision).Scan(&id)
+	 binding_revision=EXCLUDED.binding_revision,
+	 discovered_at=GREATEST(clock_timestamp(),v3_service_mapping_candidates.discovered_at+interval '1 microsecond'),
+	 expires_at=EXCLUDED.expires_at
+	 RETURNING id,discovered_at,expires_at`, store.ID(), item.appID, item.env, item.key, item.targetID, item.boundAt,
+			item.connectorID, item.externalID, item.revision).Scan(&id, &discoveredAt, &expiresAt)
 		if errors.Is(err, pgx.ErrNoRows) {
 			continue
 		}
@@ -315,42 +432,68 @@ func (s *Service) mappingDiscover(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if supported {
-			suggestions++
+			candidates = append(candidates, mappingCandidateReview{ID: id, Version: mappingVersion(discoveredAt),
+				ServiceID: item.appID, Service: item.key, EnvironmentID: item.env, SystemID: "code",
+				ConnectorID: item.connectorID, TargetID: item.targetID, ExternalID: item.externalID,
+				BindingRevision: item.revision, ExpiresAt: expiresAt})
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		httpapi.Error(w, 503, "catalog_unavailable", "Mapping storage unavailable")
 		return
 	}
-	httpapi.WriteJSON(w, 200, map[string]int{"suggestions": suggestions})
+	sourceState := "not_configured"
+	if configured {
+		sourceState = "configured"
+	}
+	httpapi.WriteJSON(w, 200, map[string]any{"suggestions": len(candidates), "source_state": sourceState, "candidates": candidates})
 }
 
 type mappingAcceptInput struct {
-	Cells []string `json:"cells"`
+	Candidates []mappingAcceptCandidate `json:"candidates"`
 }
 
-type mappingCellKey struct{ service, system string }
+type mappingAcceptCandidate struct {
+	ID              string `json:"id"`
+	Version         string `json:"version"`
+	ServiceID       string `json:"service_id"`
+	EnvironmentID   string `json:"environment_id"`
+	SystemID        string `json:"system_id"`
+	BindingRevision int64  `json:"binding_revision"`
+}
 
-func parseMappingCells(cells []string) ([]mappingCellKey, error) {
-	if len(cells) > 1000 {
-		return nil, errors.New("too many mapping cells")
+type mappingAcceptItem struct {
+	CandidateID     string       `json:"candidate_id"`
+	ServiceID       string       `json:"service_id"`
+	EnvironmentID   string       `json:"environment_id"`
+	SystemID        string       `json:"system_id"`
+	ConnectorID     string       `json:"connector_id"`
+	TargetID        string       `json:"target_id"`
+	ExternalID      string       `json:"external_id"`
+	BindingRevision int64        `json:"binding_revision"`
+	Binding         core.Binding `json:"binding"`
+	Status          string       `json:"status"`
+}
+
+func parseMappingCandidates(candidates []mappingAcceptCandidate, env string) ([]mappingAcceptCandidate, error) {
+	if len(candidates) == 0 || len(candidates) > 500 {
+		return nil, errors.New("provide 1 to 500 mapping candidates")
 	}
-	keys := make([]mappingCellKey, 0, len(cells))
-	seen := map[mappingCellKey]bool{}
-	for _, cell := range cells {
-		separator := strings.LastIndexByte(cell, ':')
-		if separator <= 0 || separator == len(cell)-1 || len(cell) > 300 || cell[separator+1:] != "code" {
-			return nil, errors.New("unsupported or invalid mapping cell")
+	seen := map[string]bool{}
+	for _, candidate := range candidates {
+		at, err := time.Parse(time.RFC3339Nano, candidate.Version)
+		if candidate.ID == "" || candidate.ServiceID == "" || candidate.EnvironmentID != env ||
+			candidate.SystemID != "code" || candidate.BindingRevision < 1 || err != nil ||
+			mappingVersion(at) != candidate.Version {
+			return nil, errors.New("invalid mapping candidate")
 		}
-		key := mappingCellKey{cell[:separator], cell[separator+1:]}
-		if seen[key] {
-			return nil, errors.New("duplicate mapping cell")
+		if seen[candidate.ID] || seen[candidate.ServiceID] {
+			return nil, errors.New("duplicate mapping candidate or service")
 		}
-		seen[key] = true
-		keys = append(keys, key)
+		seen[candidate.ID], seen[candidate.ServiceID] = true, true
 	}
-	sort.Slice(keys, func(i, j int) bool { return keys[i].service < keys[j].service })
-	return keys, nil
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].ServiceID < candidates[j].ServiceID })
+	return candidates, nil
 }
 
 func (s *Service) mappingAccept(w http.ResponseWriter, r *http.Request) {
@@ -362,9 +505,9 @@ func (s *Service) mappingAccept(w http.ResponseWriter, r *http.Request) {
 	if !httpapi.Decode(w, r, &input) {
 		return
 	}
-	keys, err := parseMappingCells(input.Cells)
+	candidatesInput, err := parseMappingCandidates(input.Candidates, envs[0])
 	if err != nil {
-		httpapi.Error(w, 422, "invalid_cells", err.Error())
+		httpapi.Error(w, 422, "invalid_candidates", err.Error())
 		return
 	}
 	access, ok := s.transactionAccess()
@@ -382,6 +525,7 @@ func (s *Service) mappingAccept(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(ctx)
 	user := httpapi.CurrentUser(r)
 	accepted := 0
+	items := []mappingAcceptItem{}
 	// Object routes defer authorization to the handler. Check every requested
 	// service and the connector before taking any write lock; an unauthorized
 	// batch must not hold rows belonging to other services. Recheck below
@@ -392,12 +536,12 @@ func (s *Service) mappingAccept(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	for _, key := range keys {
+	for _, selected := range candidatesInput {
 		var appID, teamID string
 		err := tx.QueryRow(ctx, `SELECT a.id,COALESCE(a.owner_team_id,'') FROM applications a
  JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$2
  JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
- WHERE a.key=$1 AND NOT a.archived`, key.service, envs[0]).Scan(&appID, &teamID)
+	 WHERE a.id=$1 AND NOT a.archived`, selected.ServiceID, envs[0]).Scan(&appID, &teamID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			httpapi.Error(w, 404, "not_found", "Service mapping not found")
 			return
@@ -420,12 +564,12 @@ func (s *Service) mappingAccept(w http.ResponseWriter, r *http.Request) {
 	// Every target writer locks its service before the connector. Acquire all
 	// requested service rows in one stable order before locking any shared
 	// connector, including when an "accept all" request spans many services.
-	for _, key := range keys {
+	for _, selected := range candidatesInput {
 		var appID string
 		err := tx.QueryRow(ctx, `SELECT a.id FROM applications a
  JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$2
  JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
- WHERE a.key=$1 AND NOT a.archived FOR UPDATE OF a,ve,e`, key.service, envs[0]).Scan(&appID)
+	 WHERE a.id=$1 AND NOT a.archived FOR UPDATE OF a,ve,e`, selected.ServiceID, envs[0]).Scan(&appID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			httpapi.Error(w, 404, "not_found", "Service mapping not found")
 			return
@@ -435,7 +579,7 @@ func (s *Service) mappingAccept(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	for _, key := range keys {
+	for _, selected := range candidatesInput {
 		var appID, serviceKey, teamID, envID string
 		var raw []byte
 		var revision int64
@@ -443,7 +587,7 @@ func (s *Service) mappingAccept(w http.ResponseWriter, r *http.Request) {
  FROM applications a
  JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$2
  JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
- WHERE a.key=$1 AND NOT a.archived FOR UPDATE OF a,ve,e`, key.service, envs[0]).Scan(&appID, &serviceKey, &teamID, &envID, &raw, &revision)
+	 WHERE a.id=$1 AND NOT a.archived FOR UPDATE OF a,ve,e`, selected.ServiceID, envs[0]).Scan(&appID, &serviceKey, &teamID, &envID, &raw, &revision)
 		if errors.Is(err, pgx.ErrNoRows) {
 			httpapi.Error(w, 404, "not_found", "Service mapping not found")
 			return
@@ -474,49 +618,36 @@ func (s *Service) mappingAccept(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if mapped {
-			alreadyAccepted, err := existingAcceptedMapping(ctx, tx, appID, envs[0], serviceKey, bindings)
+			item, alreadyAccepted, err := existingAcceptedMapping(ctx, tx, selected, serviceKey, revision, bindings)
 			if err != nil {
 				httpapi.Error(w, 503, "catalog_unavailable", "Mapping candidate unavailable")
 				return
 			}
 			if alreadyAccepted {
+				items = append(items, item)
 				continue
 			}
-			httpapi.Error(w, 409, "mapping_exists", "This system already has a mapping")
+			httpapi.Error(w, 409, "stale_mapping", "Mapping or accepted candidate changed")
 			return
 		}
-		var candidates []mappingCandidate
-		rows, err := tx.Query(ctx, `SELECT id,service_key,source_id,source_bound_at,connector_id,external_id,binding_revision
+		var candidate mappingCandidate
+		err = tx.QueryRow(ctx, `SELECT id,service_key,source_id,source_bound_at,connector_id,external_id,binding_revision,discovered_at,expires_at
  FROM v3_service_mapping_candidates
- WHERE application_id=$1 AND environment_id=$2 AND system_id=$3
+ WHERE id=$1 AND application_id=$2 AND environment_id=$3 AND system_id='code'
  AND source_kind='explicit_target' AND accepted_at IS NULL AND expires_at>now()
- ORDER BY id LIMIT 2 FOR UPDATE`, appID, envs[0], key.system)
+	 FOR UPDATE`, selected.ID, appID, envs[0]).Scan(&candidate.id, &candidate.serviceKey,
+			&candidate.sourceID, &candidate.boundAt, &candidate.connectorID, &candidate.externalID,
+			&candidate.revision, &candidate.discoveredAt, &candidate.expiresAt)
+		if errors.Is(err, pgx.ErrNoRows) {
+			httpapi.Error(w, 409, "candidate_unavailable", "Mapping candidate expired or changed")
+			return
+		}
 		if err != nil {
 			httpapi.Error(w, 503, "catalog_unavailable", "Mapping candidates unavailable")
 			return
 		}
-		for rows.Next() {
-			var candidate mappingCandidate
-			if err = rows.Scan(&candidate.id, &candidate.serviceKey, &candidate.sourceID, &candidate.boundAt,
-				&candidate.connectorID, &candidate.externalID, &candidate.revision); err != nil {
-				break
-			}
-			candidates = append(candidates, candidate)
-		}
-		if err == nil {
-			err = rows.Err()
-		}
-		rows.Close()
-		if err != nil {
-			httpapi.Error(w, 503, "catalog_unavailable", "Mapping candidates unavailable")
-			return
-		}
-		if len(candidates) != 1 {
-			httpapi.Error(w, 409, "ambiguous_mapping", "Select one current mapping candidate")
-			return
-		}
-		candidate := candidates[0]
-		if candidate.serviceKey != serviceKey || candidate.revision != revision {
+		if candidate.serviceKey != serviceKey || candidate.revision != revision ||
+			candidate.revision != selected.BindingRevision || mappingVersion(candidate.discoveredAt) != selected.Version {
 			httpapi.Error(w, 409, "stale_mapping", "Mapping changed after discovery")
 			return
 		}
@@ -529,7 +660,7 @@ func (s *Service) mappingAccept(w http.ResponseWriter, r *http.Request) {
  WHERE t.id=$1 FOR UPDATE OF t,c`, candidate.sourceID).Scan(&sourceApp, &sourceEnv, &sourceConnector,
 			&sourceKind, &sourceExternal, &sourceBound, &provider, &ready)
 		if errors.Is(err, pgx.ErrNoRows) {
-			httpapi.Error(w, 409, "stale_mapping", "Mapping source disappeared")
+			httpapi.Error(w, 409, "source_unavailable", "Mapping source disappeared")
 			return
 		}
 		if err != nil {
@@ -542,6 +673,7 @@ func (s *Service) mappingAccept(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var sourceIDs []string
+		var rows pgx.Rows
 		rows, err = tx.Query(ctx, `SELECT t.id FROM v3_connector_targets t
  JOIN v3_connectors c ON c.id=t.connector_id AND c.environment_id=t.environment_id
  WHERE t.application_id=$1 AND t.environment_id=$2 AND t.target_kind='project' AND c.provider='gitlab'
@@ -608,35 +740,55 @@ func (s *Service) mappingAccept(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		accepted++
+		items = append(items, mappingAcceptItem{CandidateID: candidate.id, ServiceID: appID,
+			EnvironmentID: envs[0], SystemID: "code", ConnectorID: candidate.connectorID,
+			TargetID: candidate.sourceID, ExternalID: candidate.externalID, BindingRevision: nextRevision,
+			Binding: expected, Status: "accepted"})
 	}
 	if err := tx.Commit(ctx); err != nil {
 		httpapi.Error(w, 503, "catalog_unavailable", "Mapping storage unavailable")
 		return
 	}
-	httpapi.WriteJSON(w, 200, map[string]int{"accepted": accepted})
+	httpapi.WriteJSON(w, 200, map[string]any{"accepted": accepted, "items": items})
 }
 
-func existingAcceptedMapping(ctx context.Context, tx pgx.Tx, app, env, key string, bindings []core.Binding) (bool, error) {
+func existingAcceptedMapping(ctx context.Context, tx pgx.Tx, selected mappingAcceptCandidate, key string, revision int64, bindings []core.Binding) (mappingAcceptItem, bool, error) {
+	var empty mappingAcceptItem
 	var code *core.Binding
 	for _, binding := range bindings {
 		if mappingKind(binding.Kind) != "code" {
 			continue
 		}
 		if code != nil {
-			return false, nil
+			return empty, false, nil
 		}
 		copy := binding
 		code = &copy
 	}
 	if code == nil || code.Kind != "gitlab" || code.Resource == "" {
-		return false, nil
+		return empty, false, nil
 	}
-	var accepted bool
-	err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM v3_service_mapping_candidates
- WHERE application_id=$1 AND environment_id=$2 AND service_key=$3 AND system_id='code'
-	 AND accepted_at IS NOT NULL AND connector_id=$4 AND external_id=$5)`, app, env, key, code.ConnectorID, code.Resource).Scan(&accepted)
+	var candidate mappingCandidate
+	err := tx.QueryRow(ctx, `SELECT id,service_key,source_id,source_bound_at,connector_id,external_id,binding_revision,discovered_at
+	 FROM v3_service_mapping_candidates
+	 WHERE id=$1 AND application_id=$2 AND environment_id=$3 AND system_id='code'
+	 AND source_kind='explicit_target' AND accepted_at IS NOT NULL`,
+		selected.ID, selected.ServiceID, selected.EnvironmentID).Scan(&candidate.id, &candidate.serviceKey,
+		&candidate.sourceID, &candidate.boundAt, &candidate.connectorID, &candidate.externalID,
+		&candidate.revision, &candidate.discoveredAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return empty, false, nil
+	}
 	if err != nil {
-		return false, err
+		return empty, false, err
 	}
-	return accepted, nil
+	if candidate.serviceKey != key || candidate.revision != selected.BindingRevision ||
+		mappingVersion(candidate.discoveredAt) != selected.Version || revision != candidate.revision+1 ||
+		*code != (core.Binding{Kind: "gitlab", ConnectorID: candidate.connectorID, Resource: candidate.externalID}) {
+		return empty, false, nil
+	}
+	return mappingAcceptItem{CandidateID: candidate.id, ServiceID: selected.ServiceID,
+		EnvironmentID: selected.EnvironmentID, SystemID: "code", ConnectorID: candidate.connectorID,
+		TargetID: candidate.sourceID, ExternalID: candidate.externalID, BindingRevision: revision,
+		Binding: *code, Status: "already_accepted"}, true, nil
 }

@@ -17,20 +17,29 @@ import (
 type discoveredService struct {
 	// The current registration request uses ID as the service name. Keep the
 	// original name only when it is unambiguous among visible workloads.
-	ID             string   `json:"id"`
-	ResourceID     string   `json:"resource_id"`
-	UID            string   `json:"uid"`
-	EnvironmentID  string   `json:"environment_id"`
-	Cluster        string   `json:"cluster"`
-	Namespace      string   `json:"namespace"`
-	Kind           string   `json:"kind"`
-	Replicas       *int     `json:"replicas"`
-	Image          string   `json:"image"`
-	OwnerHint      string   `json:"owner_hint"`
-	OwnerLabelHint string   `json:"owner_label_hint,omitempty"`
-	TierHint       string   `json:"tier_hint"`
-	Matched        []string `json:"matched"`
-	Missing        []string `json:"missing"`
+	ID                string          `json:"id"`
+	ResourceID        string          `json:"resource_id"`
+	UID               string          `json:"uid"`
+	EnvironmentID     string          `json:"environment_id"`
+	Cluster           string          `json:"cluster"`
+	Namespace         string          `json:"namespace"`
+	Kind              string          `json:"kind"`
+	Replicas          *int            `json:"replicas"`
+	Image             string          `json:"image"`
+	OwnerHint         string          `json:"owner_hint"`
+	OwnerLabelHint    string          `json:"owner_label_hint,omitempty"`
+	TierHint          string          `json:"tier_hint"`
+	Matched           []string        `json:"matched"`
+	Missing           []string        `json:"missing"`
+	Source            discoverySource `json:"source"`
+	UnavailableFields []string        `json:"unavailable_fields"`
+}
+
+type discoverySource struct {
+	Kind          string    `json:"kind"`
+	ID            string    `json:"id"`
+	ObservedAt    time.Time `json:"observed_at"`
+	LastSuccessAt time.Time `json:"last_success_at"`
 }
 
 type workloadCandidate struct {
@@ -39,6 +48,8 @@ type workloadCandidate struct {
 	ExternalID    string
 	EnvironmentID string
 	SourceID      string
+	ObservedAt    time.Time
+	LastSuccessAt time.Time
 	Cluster       string
 	TeamID        string
 	TeamName      string
@@ -280,7 +291,8 @@ func (s *Service) workloadBatch(ctx context.Context, envs []string, cluster, cur
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	rows, err := s.Store.DB.Query(ctx, `SELECT r.id,r.name,r.external_id,src.environment_key,
- src.id,r.attributes->>'cluster',COALESCE(r.owner_team_id,''),COALESCE(t.name,''),r.attributes
+ src.id,r.attributes->>'cluster',COALESCE(r.owner_team_id,''),COALESCE(t.name,''),r.attributes,
+ r.observed_at,src.last_success_at
  FROM cmdb_resources r
  JOIN cmdb_sync_sources src ON src.id=r.source_id AND src.kind=r.source_kind
  LEFT JOIN teams t ON t.id=r.owner_team_id
@@ -294,7 +306,8 @@ func (s *Service) workloadBatch(ctx context.Context, envs []string, cluster, cur
 	for rows.Next() {
 		var item workloadCandidate
 		if err = rows.Scan(&item.ResourceID, &item.Name, &item.ExternalID, &item.EnvironmentID,
-			&item.SourceID, &item.Cluster, &item.TeamID, &item.TeamName, &item.Attributes); err != nil {
+			&item.SourceID, &item.Cluster, &item.TeamID, &item.TeamName, &item.Attributes,
+			&item.ObservedAt, &item.LastSuccessAt); err != nil {
 			return nil, err
 		}
 		batch = append(batch, item)
@@ -365,6 +378,8 @@ func projectWorkload(candidate workloadCandidate, attrs workloadAttributes, engl
 		ID: candidate.Name, ResourceID: candidate.ResourceID, UID: candidate.ExternalID, EnvironmentID: candidate.EnvironmentID,
 		Cluster: attrs.Cluster, Namespace: attrs.Namespace, Kind: attrs.ResourceType,
 		Replicas: attrs.Replicas, OwnerHint: ownerHint, Matched: []string{}, Missing: []string{},
+		Source:            discoverySource{Kind: "kubernetes", ID: candidate.SourceID, ObservedAt: candidate.ObservedAt, LastSuccessAt: candidate.LastSuccessAt},
+		UnavailableFields: []string{"health", "verified_tier", "connector_coverage", "runbook_gaps"},
 	}
 	if len(attrs.Images) > 0 {
 		item.Image = attrs.Images[0]
@@ -375,6 +390,15 @@ func projectWorkload(candidate workloadCandidate, attrs workloadAttributes, engl
 		// Kubernetes labels are unverified claims; they cannot select an owner
 		// by default or supply an authorization team ID.
 		item.OwnerLabelHint = "team=" + label
+	}
+	if candidate.TeamName == "" {
+		item.UnavailableFields = append(item.UnavailableFields, "verified_owner")
+	}
+	if item.Image == "" {
+		item.UnavailableFields = append(item.UnavailableFields, "image")
+	}
+	if item.Replicas == nil {
+		item.UnavailableFields = append(item.UnavailableFields, "desired_replicas")
 	}
 	if tier := strings.TrimSpace(attrs.Labels["tier"]); tier == "T0" || tier == "T1" || tier == "T2" {
 		item.TierHint = tier

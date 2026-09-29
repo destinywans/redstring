@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -54,16 +56,23 @@ func TestDiscoveryRequiresObjectScopeAndPreservesEvidence(t *testing.T) {
 	if allowed, err := s.canDiscoverWorkload(context.Background(), core.User{ID: "u"}, workloadCandidate{EnvironmentID: "dev", TeamID: "team-one"}); err != nil || allowed {
 		t.Fatalf("services-only grant exposed resource: allowed=%v error=%v", allowed, err)
 	}
-	item, ok := projectWorkload(workloadCandidate{ResourceID: "r", Name: "checkout", ExternalID: "uid", EnvironmentID: "dev", TeamName: "Platform"}, workloadAttributes{
+	observedAt := time.Date(2026, 9, 29, 1, 2, 3, 0, time.UTC)
+	item, ok := projectWorkload(workloadCandidate{ResourceID: "r", Name: "checkout", ExternalID: "uid", EnvironmentID: "dev", SourceID: "src", ObservedAt: observedAt, LastSuccessAt: observedAt, TeamName: "Platform"}, workloadAttributes{
 		Cluster: "cluster", Namespace: "commerce", ResourceType: "Deployment", Images: []string{"registry/checkout:v1"},
 		Labels: map[string]string{"tier": "T1", "team": "unverified-label"},
 	}, false)
 	if !ok || item.ResourceID != "r" || item.OwnerHint != "Platform" || item.TierHint != "T1" || item.Replicas != nil || len(item.Matched) != 0 || len(item.Missing) != 0 {
 		t.Fatalf("discovery invented or lost evidence: %+v", item)
 	}
+	if item.Source.Kind != "kubernetes" || item.Source.ID != "src" || !item.Source.ObservedAt.Equal(observedAt) || !item.Source.LastSuccessAt.Equal(observedAt) || !slices.Contains(item.UnavailableFields, "desired_replicas") || slices.Contains(item.UnavailableFields, "verified_owner") {
+		t.Fatalf("discovery source or unknown fields lost: %+v", item)
+	}
 	item, ok = projectWorkload(workloadCandidate{Name: "api", ExternalID: "uid"}, workloadAttributes{Cluster: "c", Namespace: "n", ResourceType: "StatefulSet", Labels: map[string]string{"team": "payments", "tier": "high"}}, false)
 	if !ok || item.OwnerHint != "未识别" || item.OwnerLabelHint != "team=payments" || item.TierHint != "" {
 		t.Fatalf("label was asserted as a verified owner or tier: %+v", item)
+	}
+	if !slices.Contains(item.UnavailableFields, "verified_owner") || !slices.Contains(item.UnavailableFields, "image") || !slices.Contains(item.UnavailableFields, "desired_replicas") {
+		t.Fatalf("missing observations were presented as known: %+v", item)
 	}
 	english, ok := projectWorkload(workloadCandidate{Name: "api", ExternalID: "uid"}, workloadAttributes{Cluster: "c", Namespace: "n", ResourceType: "StatefulSet"}, true)
 	if !ok || english.OwnerHint != "Unknown" {
@@ -197,6 +206,9 @@ INSERT INTO v3_application_environments(application_id,environment_id)
 	}
 	if first["solo"].ResourceID != "single" || first["solo"].UID != "uid-single" || first["solo"].Cluster != "cluster-one" || first["solo"].Namespace != "a" || first["solo"].EnvironmentID != "dev" {
 		t.Fatalf("workload identity was lost: %+v", first["solo"])
+	}
+	if first["solo"].Source.Kind != "kubernetes" || first["solo"].Source.ID != "src" || first["solo"].Source.ObservedAt.IsZero() || first["solo"].Source.LastSuccessAt.IsZero() || !slices.Contains(first["solo"].UnavailableFields, "health") {
+		t.Fatalf("source evidence or explicit unknown fields were lost: %+v", first["solo"])
 	}
 	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='admin' AND module='resources' AND action='view'`); err != nil {
 		t.Fatal(err)

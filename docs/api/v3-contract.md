@@ -211,7 +211,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | POST | `/metrics/ask` | `{ service, view, range, question, request_id }`；`service` 为持久应用 ID，`view=request_rate\|http_p95_seconds`，`range=15m\|1h`，`request_id` 是 16–128 字符重试标识 | 首次接受为 201 `{ conversation_id }`；同一操作者同参数重试为 200，修改同一重试标识的内容返回 409。仅用当前有权的精确 Prometheus 来源快照；前端尚未发送必要字段 | implemented |
 | GET | `/traces` | `scope: app\|agent`, `view`, `q`（有界 TraceQL 选择器）, `service` | 应用范围 `TraceList`：同一完整来源集上的计数、分面、直方图、散点与表格；Agent 范围 503 | implemented |
 | GET | `/traces/{id}` | | 应用范围 `TraceView`：已存储且闭合的 Span 树、关键路径说明与服务调用图；无可靠关联时省略日志/链接 | implemented |
-| GET | `/services/discover` | 单个可选 `cluster`；重复参数返回 422 | 只读发现经授权的现存工作负载、稳定资源 ID 和未经核实的负责人提示；同名歧义候选不返回 | mock |
+| GET | `/services/discover` | 单个可选 `cluster`；重复参数返回 422 | 只读发现经授权的新鲜 Kubernetes 工作负载快照；返回稳定资源 ID、采集来源与时间、未知字段清单；同名歧义候选不返回 | implemented |
 | POST | `/services` | `{ items: [{ id, namespace, resource_id?, tier, owner, slo, p99 }] }`；`resource_id` 为发现接口返回的稳定 CMDB 标识，提供时必须有 namespace | `{ created }` | implemented |
 | GET | `/logs` | `q`, `levels`, `service?`, `provider?` | `LogSearch`；完整来源模式计数与趋势 | implemented |
 | GET | `/changes` | `service_id`, `run_id`, `range?=24h\|7d`, `sources?=native` | 单一有证据的原生交付运行及所选窗口的 `ChangesView` | implemented |

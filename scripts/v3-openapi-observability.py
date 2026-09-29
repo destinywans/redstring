@@ -64,16 +64,20 @@ v3_route('delete','/services/{id}/external-targets/{bindingId}','Remove an exact
     status=204,
     desc='Requires services.change for the persisted application or team and connectors.manage for its environment. '
          'Only the scoped binding is removed and the change is audited; no external target is deleted.')
+S['V3DiscoverySource'] = obj({'kind':string(enum=['kubernetes']),'id':string(),
+    'observed_at':string(format='date-time'),'last_success_at':string(format='date-time')},
+    ['kind','id','observed_at','last_success_at'])
 S['V3DiscoveredService'] = obj({**fieldnames('id resource_id uid environment_id cluster namespace kind image owner_hint tier_hint owner_label_hint'),
-    'replicas':{'type':['integer','null']},'matched':arr(string()),'missing':arr(string())},
+    'replicas':{'type':['integer','null']},'matched':arr(string()),'missing':arr(string()),
+    'source':ref('V3DiscoverySource'),'unavailable_fields':arr(string())},
     ['id','resource_id','uid','environment_id','cluster','namespace','kind','image',
-     'owner_hint','tier_hint','replicas','matched','missing'])
+     'owner_hint','tier_hint','replicas','matched','missing','source','unavailable_fields'])
 v3_route('get','/services/discover','Discover scoped workloads',
     response=obj({'cluster':string(),'items':arr(ref('V3DiscoveredService')),
                   'registered':integer(),'ambiguous_workloads':integer()},
                  ['cluster','items','registered','ambiguous_workloads']),
     query=[v3_query('cluster')],
-    desc='Returns current, present Kubernetes workload inventory after resources.view and services.view checks. The optional single cluster is filtered before the 2000-candidate scan bound; repeated cluster values are rejected. A 20-second request budget covers inventory, policy and namesake checks. resource_id is the stable CMDB registration identity; uid is the source Kubernetes UID. Candidates blocked by trusted cross-cluster namesakes or raw same-name identities in the registration scope are omitted and counted in ambiguous_workloads without exposing those identities. registered counts authorized services across selected environments, not within the displayed cluster. Owner and tier are evidence hints, replicas may be null, and matched/missing are currently empty. The frontend does not yet send cluster or resource_id and still displays fixed service metadata, so this is not the complete V3 page contract.')
+    desc='Returns fresh, present Kubernetes workload inventory after resources.view and services.view checks. The optional single cluster is filtered before the 2000-candidate scan bound; repeated cluster values are rejected. A 20-second request budget covers inventory, policy and namesake checks. resource_id is the stable CMDB registration identity; uid is the source Kubernetes UID. source identifies the collector and its observation/success timestamps; neither timestamp is a live readiness measurement. Candidates blocked by trusted cross-cluster namesakes or raw same-name identities in the registration scope are omitted and counted in ambiguous_workloads without exposing those identities. registered counts authorized services across selected environments, not within the displayed cluster. Owner and tier are hints, replicas means desired replicas and may be null, and unavailable_fields names fields without a verified source, including health, verified_tier, connector_coverage and runbook_gaps. matched/missing remain empty for compatibility and do not claim coverage. The frontend does not yet send cluster or resource_id and still displays fixed service metadata; page integration remains separate from this backend response.')
 S['V3ServiceRegistration'] = obj({'items':arr(obj({
     'id':string(), 'namespace':string(), 'resource_id':string(), 'tier':string(enum=['T0','T1','T2','T3']),
     'owner':string(), 'slo':string(), 'p99':string()},['id']))},['items'])

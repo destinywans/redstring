@@ -67,6 +67,30 @@ type v3Instance struct {
 	} `json:"other,omitempty"`
 }
 
+type conversationEnvironmentAuthorizer interface {
+	Authorize(context.Context, core.User, rbac.V3Decision) error
+}
+
+// The conversation list contains owner-scoped chats and canvases. Return the
+// union of their current view environments; the route and object readers still
+// enforce their own operation and source-specific permissions.
+func allowedConversationEnvironments(ctx context.Context, user core.User, environmentIDs []string, policy conversationEnvironmentAuthorizer) ([]string, error) {
+	allowed := make([]string, 0, len(environmentIDs))
+	for _, id := range environmentIDs {
+		for _, module := range []string{"conversation", "canvas"} {
+			err := policy.Authorize(ctx, user, rbac.V3Decision{Module: module, Action: "view", EnvironmentID: id})
+			if err == nil {
+				allowed = append(allowed, id)
+				break
+			}
+			if !errors.Is(err, store.ErrForbidden) {
+				return nil, err
+			}
+		}
+	}
+	return allowed, nil
+}
+
 func loadV3Instance(path string) (v3Instance, httpapi.V3InstanceConfig, error) {
 	var info v3Instance
 	file, err := os.Open(path)
@@ -200,13 +224,7 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	uploads.Register(api)
 
 	allowedConversationEnvs := func(ctx context.Context, u core.User) ([]string, error) {
-		allowed := []string{}
-		for _, id := range cfg.EnvironmentIDs {
-			if policy.Authorize(ctx, u, rbac.V3Decision{Module: "conversation", Action: "view", EnvironmentID: id}) == nil {
-				allowed = append(allowed, id)
-			}
-		}
-		return allowed, nil
+		return allowedConversationEnvironments(ctx, u, cfg.EnvironmentIDs, policy)
 	}
 	// Function-calling support is model-specific. Only models explicitly
 	// verified by the operator are offered V3 read tools; an empty allowlist

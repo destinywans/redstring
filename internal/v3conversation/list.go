@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
@@ -71,17 +72,29 @@ func (s *Service) readOwnedList(ctx context.Context, sessionToken string, user c
 		return nil, 0, 0, 0, err
 	}
 	// The middleware's environment set can become stale before this transaction
-	// begins. Keep only environments with current environment and conversation
-	// read grants; a generic canvas also needs its own canvas grant below.
+	// begins. Intersect it with the selected request scope and current environment
+	// grants. The source-specific union below checks conversation or canvas view.
+	scope, ok := httpapi.V3ScopeFromContext(ctx)
+	if !ok || len(scope.EnvironmentIDs) == 0 {
+		return nil, 0, 0, 0, ErrForbidden
+	}
+	scoped := make([]string, 0, len(envs))
+	for _, env := range envs {
+		for _, selected := range scope.EnvironmentIDs {
+			if env == selected {
+				scoped = append(scoped, env)
+				break
+			}
+		}
+	}
+	if len(scoped) == 0 {
+		return nil, 0, 0, 0, ErrForbidden
+	}
 	rows, err := tx.Query(ctx, `SELECT DISTINCT e.id FROM unnest($2::text[]) AS e(id)
  WHERE EXISTS (SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$1
    AND g.module='environment' AND g.action='view'
    AND ((g.scope_kind='global' AND g.scope_id='*')
-     OR (g.scope_kind='environment' AND g.scope_id=e.id)))
- AND EXISTS (SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$1
-   AND g.module='conversation' AND g.action='view'
-   AND ((g.scope_kind='global' AND g.scope_id='*')
-     OR (g.scope_kind='environment' AND g.scope_id=e.id)))`, user.ID, envs)
+     OR (g.scope_kind='environment' AND g.scope_id=e.id)))`, user.ID, scoped)
 	if err != nil {
 		return nil, 0, 0, 0, err
 	}

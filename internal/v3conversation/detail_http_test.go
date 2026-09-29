@@ -178,6 +178,19 @@ func TestConversationDetailRegisteredRouteReadsPersistedContext(t *testing.T) {
 	if contextSide["used"] != float64(60) || contextSide["budget"] != float64(8192) {
 		t.Fatalf("context: %+v", contextSide)
 	}
+	if detail.Messages[1].Run != nil || detail.Messages[2].Run != nil {
+		t.Fatalf("historical runs missing agent/version cannot satisfy the public DTO: %+v", detail.Messages)
+	}
+	if _, err := db.Exec(ctx, `UPDATE v3_conversation_messages SET run='{"id":"r2","agent":"AI","version":"v3","model":"test","tokens":80,"duration_s":1,"context_input_tokens":60,"context_budget":8192}' WHERE id='m3'`); err != nil {
+		t.Fatal(err)
+	}
+	if rr := get("c1", "test", "owner-session"); rr.Code != http.StatusOK {
+		t.Fatalf("detail after complete run: %d %s", rr.Code, rr.Body.String())
+	} else if err := json.Unmarshal(rr.Body.Bytes(), &detail); err != nil {
+		t.Fatal(err)
+	} else if string(detail.Messages[2].Run) == "" {
+		t.Fatal("complete persisted run was dropped")
+	}
 	if rr := get("c2", "test", "owner-session"); rr.Code != http.StatusNotFound {
 		t.Fatalf("other owner: %d %s", rr.Code, rr.Body.String())
 	}
@@ -191,6 +204,13 @@ func TestConversationDetailRegisteredRouteReadsPersistedContext(t *testing.T) {
 	}
 	if rr := get("c1", "test", "other-session"); rr.Code != http.StatusNotFound {
 		t.Fatalf("other session: %d %s", rr.Code, rr.Body.String())
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_conversation_messages(id,conversation_id,role,author,parts,state)
+		SELECT 'oversize-'||n,'c1','user','Owner','[]'::jsonb,'completed' FROM generate_series(1,$1) AS n`, maxDetailMessages); err != nil {
+		t.Fatal(err)
+	}
+	if rr := get("c1", "test", "owner-session"); rr.Code != http.StatusServiceUnavailable || !strings.Contains(rr.Body.String(), "conversation_unavailable") {
+		t.Fatalf("oversized history must fail instead of truncating: %d %s", rr.Code, rr.Body.String())
 	}
 	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='detail-reader' AND module='conversation'`); err != nil {
 		t.Fatal(err)

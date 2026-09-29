@@ -11,6 +11,13 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
+const (
+	maxDetailMessages = 1000
+	maxDetailBytes    = 8 << 20
+)
+
+var errConversationHistoryLimit = errors.New("conversation history exceeds detail response limit")
+
 // readOwnedDetail keeps the account, current grants, conversation and messages
 // in one authorized snapshot. A terminal worker commit is then entirely
 // before or after this read, never half reflected in the response.
@@ -62,8 +69,22 @@ func (s *Service) readOwnedDetail(ctx context.Context, sessionToken string, user
 	if !permitted {
 		return Conversation{}, ErrForbidden
 	}
+	// A detail response must never silently omit old turns. Check the entire
+	// persisted history before transferring any message bodies to this process.
+	// PostgreSQL computes the decoded JSON size, not its compressed heap size.
+	var messageCount, historyBytes int64
+	err = tx.QueryRow(ctx, `SELECT count(*),COALESCE(sum(
+		octet_length(id)+octet_length(author)+octet_length(parts::text)+octet_length(attachments::text)+
+		COALESCE(octet_length(run::text),0)),0)
+		FROM v3_conversation_messages WHERE conversation_id=$1`, id).Scan(&messageCount, &historyBytes)
+	if err != nil {
+		return Conversation{}, err
+	}
+	if messageCount > maxDetailMessages || historyBytes > maxDetailBytes {
+		return Conversation{}, errConversationHistoryLimit
+	}
 	rows, err := tx.Query(ctx, `SELECT id,role,author,parts,attachments,run,state,created_at
-		FROM v3_conversation_messages WHERE conversation_id=$1 ORDER BY sort_order`, id)
+		FROM v3_conversation_messages WHERE conversation_id=$1 ORDER BY sort_order LIMIT $2`, id, maxDetailMessages)
 	if err != nil {
 		return Conversation{}, err
 	}
@@ -97,7 +118,39 @@ func (s *Service) readOwnedDetail(ctx context.Context, sessionToken string, user
 	if err = tx.Commit(ctx); err != nil {
 		return Conversation{}, err
 	}
-	return s.conversationDetail(id, title, status, actual, contextRef, defaultModel, messages), nil
+	detail := s.conversationDetail(id, title, status, actual, contextRef, defaultModel, messages)
+	for i := range detail.Messages {
+		detail.Messages[i].Run = publicConversationRun(detail.Messages[i].Run)
+	}
+	return detail, nil
+}
+
+// Imported replies can carry a partial historical run. Do not send it as a
+// V3ConversationRun: the UI requires these fields and their original agent or
+// version cannot be reconstructed from the conversation default model.
+func publicConversationRun(raw []byte) json.RawMessage {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return nil
+	}
+	for _, key := range []string{"id", "agent", "version", "model"} {
+		var value string
+		if json.Unmarshal(fields[key], &value) != nil || strings.TrimSpace(value) == "" {
+			return nil
+		}
+	}
+	var tokens int64
+	if json.Unmarshal(fields["tokens"], &tokens) != nil || tokens < 0 || tokens > 9007199254740991 {
+		return nil
+	}
+	var duration float64
+	if json.Unmarshal(fields["duration_s"], &duration) != nil || duration < 0 {
+		return nil
+	}
+	return raw
 }
 
 // conversationDetail derives the side panel from saved conversation data. In

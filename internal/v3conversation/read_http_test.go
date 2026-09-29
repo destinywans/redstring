@@ -106,9 +106,7 @@ func TestConversationListRegisteredRouteUsesPersistedChatFacts(t *testing.T) {
 			return nil, nil
 		},
 	})
-	chat.Register(server.Register)
-	server.MarkV3Route("GET /api/v1/conversations", "conversation", "view")
-	server.MarkV3Route("GET /api/v1/conversations/{id}", "conversation", "view")
+	chat.RegisterV3(server)
 	policy := func(_ context.Context, user core.User, module, action, env string) error {
 		if granted && user.ID == "read-owner" && module == "conversation" && action == "view" && (env == "test" || env == "dev") {
 			return nil
@@ -213,6 +211,22 @@ func TestConversationListRegisteredRouteUsesPersistedChatFacts(t *testing.T) {
 		t.Fatal(err)
 	} else if len(page.Items) != 1 || page.Items[0].Tokens != nil || strings.Join(page.Items[0].Participants, ",") != "Read Owner,AI" {
 		t.Fatalf("canvas exchanges have unknown token usage: %+v", page)
+	}
+	// The list entry itself cannot require conversation.view: a canvas-only
+	// owner must see their own canvas without seeing private chat rows.
+	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='read-role' AND module='conversation'`); err != nil {
+		t.Fatal(err)
+	}
+	if rr := get(base, "test", "", true); rr.Code != http.StatusOK {
+		t.Fatalf("canvas-only list: %d %s", rr.Code, rr.Body.String())
+	} else if err := json.Unmarshal(rr.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	} else if page.Total != 1 || len(page.Items) != 1 || page.Items[0].ID != "CV-own" || page.Counts["mine"] == nil || *page.Counts["mine"] != 1 {
+		t.Fatalf("canvas-only source leaked chat or omitted canvas: %+v", page)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
+		('read-role','conversation','view','environment','test'),('read-role','conversation','view','environment','dev')`); err != nil {
+		t.Fatal(err)
 	}
 	if rr := get(base+"?tab=archived", "all", "", true); rr.Code != http.StatusOK {
 		t.Fatalf("archive: %d %s", rr.Code, rr.Body.String())

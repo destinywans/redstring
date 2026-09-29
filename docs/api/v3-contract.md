@@ -166,7 +166,7 @@
 | PUT | `/alert-rules/{id}` | `AlertRule` | `AlertRule` | mock |
 | GET | `/notification-routes` | 单一所选环境；需环境级 `alert_rules.view/manage` | 当前生效 Alertmanager 环境子树、`config_revision`/ETag、匿名接收方引用；频道目标、命中数及值班未知 | implemented |
 | GET | `/silences` | `state: active\|planned\|expired\|all` | 静默列表及当前可见记录计数；应用标签需在服务端显式绑定到当前环境的有效应用 ID，再按应用/团队授权判断；环境明确但应用范围较宽的静默仅环境级静默管理员可见；无精确环境或匹配器歧义的静默不展示，宽范围只报告覆盖标志 | implemented |
-| GET | `/inhibitions` | | `{ items: Inhibition[] }` | mock |
+| GET | `/inhibitions` | 当前所选环境与应用/团队可见范围 | 当前 Alertmanager 抑制配置的受权子集；匹配值脱敏，`active`/`hits_7d` 未知，返回 `206 partial` | implemented |
 | POST | `/silences/preview` | `{ matchers: [{ k, op, v }] }`；单一环境 | `{ affects, sample }` | implemented |
 | POST | `/silences` | 匹配器 + 时长 | `{ id }` | mock |
 | DELETE | `/silences/{id}` | | 204 | mock |
@@ -193,7 +193,7 @@
 
 底层 Alertmanager 适配器可按 v2 协议创建和过期静默：创建不带客户端 ID，校验返回 UUID；过期使用单数 `/silence/{id}` 路径；超时等结果不确定的写入单独标记。创建台账现能持久保留当前有权人类操作者的环境/应用作用域、固定载荷、幂等键和审计；另有仅供受信进程内调用的静默提案生产者，将同环境未关闭调查、当前应用/团队和权限核对后的固定动作快照、摘要及供人阅读的内容原子保存，并不创建上游静默或开放产品写路由。提案的查看、评论、驳回在事务内复核当前权限；驳回仍须人类身份。私有对账会枚举一个配置端点的完整静默列表：零条标记保持未知且不重发，唯一完整匹配才确认，重复或失配进入人工复核；过期时间窗会在保留后执行与低层发送前拒发。单端点快照不能证明 HA 集群最终收敛后的全局唯一。生产执行前仍须在同一事务核验具体持久提案及人工批准，并由独立执行器按明确的未发送/不确定结果路径调度。删除还缺对象归属、授权和持久意图；反向代理的 404 不能证明对象已删除。未注册 `POST /silences` 或 `DELETE /silences/{id}` 产品路由，两条主契约继续 `mock`。
 
-`GET /inhibitions` 现在仅展示来源/目标都绑定当前环境、应用归属有效且当前用户有相应应用或团队 `silences.view` 的规则；宽应用范围要求同环境的查看与管理授权。跨环境、匹配器歧义与失效绑定不会出现在列表；任一已授权上游来源失败时返回 503，不给部分规则。成功响应始终为 `206 partial`，因为 Alertmanager 配置没有可信的逐规则活动状态或命中数；故完整 `Inhibition[]` 主契约仍为 `mock`。
+`GET /inhibitions` 仅展示来源/目标都绑定当前环境、应用归属有效且当前用户有相应应用或团队 `silences.view` 的规则；宽应用范围要求同环境的查看与管理授权。跨环境、匹配器歧义与失效绑定不会出现在列表；任一已授权上游来源失败时返回 503，不给部分规则。成功响应始终为 `206 partial`，匹配值脱敏，逐规则活动状态与命中数为 `null`；当前有来源、授权、错误和明确未知字段的后端契约计为 `implemented`，不代表完整活动状态或页面验收。见[抑制规则与草稿契约](v3-inhibition-drafts.md)。
 
 ## 知识与记忆（`knowledge.ts`）
 
@@ -266,8 +266,8 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | POST | `/alert-rules/import` | `{ yaml }` | 解析结果（新建 / 重复），导入后为草稿 | mock |
 | POST | `/notification-routes/test` | `{ labels }`：当前绑定应用与环境的精确样例告警 | 当前生效 Alertmanager 策略的节点路径、匿名接收方引用及分组时序；不发送通知或试算草稿 | implemented |
 | POST | `/notification-routes` | `Idempotency-Key`、GET ETag 的 `If-Match`；绑定应用、匹配条件、匿名接收方引用及分组时序 | `202 pending_review`、本地草稿 ID 与经核对的 GitLab MR；当前 MR/运行态为 `null`，不激活路由 | implemented |
-| POST | `/inhibitions/preview` | `{ source, target, equal }` | 过去 7 天会抑制的数量与样例 | mock |
-| POST | `/inhibitions` | `{ source, target, equal }`（P1 永不抑制） | `{ id }` | mock |
+| POST | `/inhibitions/preview` | 单环境、`application_id`、`{ source, target, equal }`；目标仅明确的 P2–P4 | 可信完整七天 firing 历史上的潜在抑制条数与真实样例；实际命中未知；缺来源 501 | implemented |
+| POST | `/inhibitions` | 单环境、`application_id`、`{ source, target, equal }`、`Idempotency-Key` 与 GET 强 ETag 的 `If-Match`；P1 不允许 | `202 pending_review`、本地草稿及经核对的 GitLab MR；不激活规则 | implemented |
 | GET | `/runbooks/draft` | `source: template\|postmortem\|conversation\|import`, 必需 `from` | 有界、来源可核的确定性大纲及 `source_sha256`；不是 AI 生成或已核实操作步骤 | implemented |
 | POST | `/runbooks` | `{ title, source, from?, expected_source_sha256?, steps, status: draft\|review }`；非空白来源必需引用，空白来源不得填写 | `{ id }`；来源变更 409，写动作步骤必需 `approval`，不发布或执行 | implemented |
 | GET | `/postmortems/candidates` | | 有真实结案证据、尚无复盘且当前有权访问的事件；含实际证据数与持续时长 | implemented |
@@ -275,6 +275,8 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | POST | `/postmortems` | `{ incident_id, sections, actions, status: draft\|review }` | `{ id }`；同事务锁定已解决事件并写入复盘与审计，不触发外部动作 | implemented |
 | POST | `/knowledge-sources/test` | `{ type, url, secret_ref?, application_id, team_id?, spaces? }`；`type` 限受支持的公开 Web Markdown、绑定 GitLab Markdown/Confluence/Notion/飞书 Docx 或本人上传文本 | 即时受限只读探测；不证明持续健康、同步或索引 | implemented |
 | POST | `/knowledge-sources` | `{ name, type, url, secret_ref?, application_id, team_id?, spaces, schedule: "manual", chunk: "heading"\|"fixed", inherit_acl: true }`；类型与探测相同 | `{ id, status }`；登记不自动同步或索引 | implemented |
+
+`POST /inhibitions/preview` 在当前单环境、环境级静默查看/管理权和有效应用绑定下，将精确环境与应用匹配器加入来源和目标两侧；目标 severity 仅允许明确的 P2–P4 集合。它要求受信只读来源证明完整七天 firing 区间历史，至多读取 500 条发生记录，返回潜在抑制目标数和真实告警名样例；`actual_inhibition_hits` 为 `null`。缺来源返回 501，来源失败或覆盖不完整返回 503，不用实时快照伪造七天命中。`POST /inhibitions` 再要求强 ETag 和幂等键，将同一约束的不可变草稿、审计与 GitLab 待审 MR 建立起来，返回 `202 pending_review`；不合并、不激活、不发送通知。两个 POST 都只按有条件的后端成功路径计 `implemented`，其来源配置和冻结页面仍须单独验收；见[抑制规则与草稿契约](v3-inhibition-drafts.md)。
 
 `GET /incidents/draft` 要求显式选择 1–20 条当前受权、同应用环境且未关联人工事件的活跃持久告警，按事实预填标题和最高严重度；影响、指挥官、参与者、作战群与 AI 分析未知。`POST /incidents` 要求人类会话、事件查看和修改权、单一服务与有效 `Idempotency-Key`；独立人工事件、告警关联、可选空白调查与审计在同一事务提交，重试同键同体返回既有结果，不发送外部通知。`war_room`、`notify`、`status_page` 请求在缺执行器时返回 503；`open_canvas` 另须画布查看与修改权。新增 `137_v3_incident_cases.sql` 未在现有库执行，案例相关的既有读取同样依赖它；人工事件目前无状态转移写入，而现有复盘只从已解决的 `ops_incidents` 选择，故不能宣称人工事件到复盘的端到端流程已闭合。冻结页面缺选中告警和幂等键，页面未验收。
 

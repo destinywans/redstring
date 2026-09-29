@@ -168,7 +168,8 @@ func (s *Service) inhibitionRepositoryReady() bool {
 		if concrete, isGitLab := route.(*RouteGitLabRepository); isGitLab && concrete == nil {
 			return false
 		}
-		if strings.HasPrefix(r.BranchPrefix(), route.BranchPrefix()) ||
+		if r.TargetBranch() == route.TargetBranch() ||
+			strings.HasPrefix(r.BranchPrefix(), route.BranchPrefix()) ||
 			strings.HasPrefix(route.BranchPrefix(), r.BranchPrefix()) {
 			return false
 		}

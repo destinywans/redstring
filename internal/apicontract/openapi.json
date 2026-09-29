@@ -35153,7 +35153,7 @@
       "get": {
         "summary": "Read authorized Alertmanager inhibition configuration",
         "operationId": "get_inhibitions",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Always 206 partial when successful, including an empty list: only rules with exact source and target environment matchers are considered. An application-scoped rule also needs a server-owned application-label-to-active-ID binding and current application or owner-team silences.view grant for every exact application matcher. Wider application scope requires both current environment-wide silences.view and silences.manage. Cross-environment, inactive, unbound, hidden, mixed, and ambiguous rules are omitted; only authorized environment administrators may receive unscoped_present=true. Alertmanager status has no per-rule activity or hit counts, so active is omitted and stat explains unavailable data. Authorization is checked before reading upstream; unconfigured or failed upstream returns 503 without partial results.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Reads current environment-bound Alertmanager configuration. Only exactly scoped and currently authorized source/target rules are returned. Matcher values and receiver secrets are redacted. A single-environment response includes a quoted SHA-256 ETag over the exact observed config.original; config_revisions maps environments when multiple are selected. Activity and historical hit counts are null/unknown, even when no rule is visible. Application bindings and grants are rechecked after the upstream read. No rule is applied here.",
         "responses": {
           "206": {
             "description": "Success",
@@ -35185,6 +35185,20 @@
                     },
                     "unscoped_present": {
                       "type": "boolean"
+                    },
+                    "config_revisions": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string",
+                        "pattern": "^sha256:[a-f0-9]{64}$"
+                      }
+                    },
+                    "observed_at": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
                     }
                   },
                   "additionalProperties": false,
@@ -35193,7 +35207,9 @@
                     "partial",
                     "unavailable",
                     "unavailable_environments",
-                    "unscoped_present"
+                    "unscoped_present",
+                    "config_revisions",
+                    "observed_at"
                   ]
                 }
               }
@@ -35250,7 +35266,7 @@
             }
           },
           "503": {
-            "description": "Authorized inhibition source, scope, or application catalog is unavailable",
+            "description": "Inhibition source or authorization unavailable",
             "content": {
               "application/json": {
                 "schema": {
@@ -35268,6 +35284,257 @@
             "sessionCookie": []
           }
         ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      },
+      "post": {
+        "summary": "Create an audited GitOps inhibition review draft",
+        "operationId": "post_inhibitions",
+        "description": "Minimum role: operator. V3 instance and environment scope apply. Requires one environment, environment-wide silences.view/manage, an active bound application, a quoted If-Match ETag from GET /inhibitions, and Idempotency-Key. The server adds exact environment/application constraints to both sides and restricts target severity to a finite non-P1 set. It reserves an immutable versioned draft with transaction-checked ownership, session, grants and audit, then opens a reviewed GitLab MR in a branch namespace and target isolated from config-sync promotions. Same-key retries reconcile the same branch/path/payload. pending_review is local submission state; current MR and runtime states remain null. This endpoint never merges, applies, reloads or sends notifications. Independent config-owner validation and activation are required after review.",
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3InhibitionDraftResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Reviewed GitOps repository or exact config source is not connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "inhibitions"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3InhibitionDraftRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Quoted config_revision ETag from GET /inhibitions"
+            }
+          }
+        ]
+      }
+    },
+    "/inhibitions/preview": {
+      "post": {
+        "summary": "Simulate a bounded seven-day inhibition window",
+        "operationId": "post_inhibitions_preview",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one environment, current environment-wide silences.view/manage, an active bound application, and server-enforced exact environment/application matchers on both source and target. Target severity must be exactly P2/P3/P4 or a literal subset of those values; P1 cannot be targeted. A trusted read-only source must attest complete seven-day firing-interval occurrence coverage for its bound environment. More than 500 occurrences, incomplete coverage, invalid labels, or unavailable current config fail closed without a count. The integer is a simulated potential suppression count, not actual historical Alertmanager hits. Sample contains at most ten distinct real alertname values from matching targets. Missing source is 501 not_connected; no configuration, MR or notification is written.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3InhibitionPreview"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Complete seven-day history or config source is not connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "inhibitions"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3InhibitionDraftRequest"
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "name": "X-AIOps-Environment",
@@ -65068,13 +65335,13 @@
           "source": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/V3SilenceMatcher"
+              "$ref": "#/components/schemas/V3InhibitionMatcherRead"
             }
           },
           "target": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/V3SilenceMatcher"
+              "$ref": "#/components/schemas/V3InhibitionMatcherRead"
             }
           },
           "equal": {
@@ -65085,6 +65352,12 @@
           },
           "stat": {
             "type": "string"
+          },
+          "active": {
+            "type": "null"
+          },
+          "hits_7d": {
+            "type": "null"
           }
         },
         "additionalProperties": false,
@@ -65093,7 +65366,235 @@
           "source",
           "target",
           "equal",
-          "stat"
+          "stat",
+          "active",
+          "hits_7d"
+        ]
+      },
+      "V3InhibitionMatcherRead": {
+        "type": "object",
+        "properties": {
+          "k": {
+            "type": "string",
+            "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
+          },
+          "op": {
+            "type": "string",
+            "enum": [
+              "=",
+              "!=",
+              "=~",
+              "!~"
+            ]
+          },
+          "value_redacted": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "k",
+          "op",
+          "value_redacted"
+        ]
+      },
+      "V3InhibitionMatcherDraft": {
+        "type": "object",
+        "properties": {
+          "k": {
+            "type": "string",
+            "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
+          },
+          "op": {
+            "type": "string",
+            "enum": [
+              "=",
+              "!=",
+              "=~",
+              "!~"
+            ]
+          },
+          "v": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "k",
+          "op",
+          "v"
+        ]
+      },
+      "V3InhibitionDraftRequest": {
+        "type": "object",
+        "properties": {
+          "application_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "source": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/V3InhibitionMatcherDraft"
+            }
+          },
+          "target": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/V3InhibitionMatcherDraft"
+            }
+          },
+          "equal": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "application_id",
+          "source",
+          "target",
+          "equal"
+        ]
+      },
+      "V3InhibitionPreview": {
+        "type": "object",
+        "properties": {
+          "environment_id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "config_revision": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "window_end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "complete_history_simulation"
+            ]
+          },
+          "potentially_suppressed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sample": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "type": "string"
+            }
+          },
+          "actual_inhibition_hits": {
+            "type": "null"
+          },
+          "history_complete": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "environment_id",
+          "application_id",
+          "config_revision",
+          "window_start",
+          "window_end",
+          "basis",
+          "potentially_suppressed",
+          "sample",
+          "actual_inhibition_hits",
+          "history_complete"
+        ]
+      },
+      "V3InhibitionDraftResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_review"
+            ]
+          },
+          "status_basis": {
+            "type": "string",
+            "enum": [
+              "local_submission"
+            ]
+          },
+          "effect": {
+            "type": "string",
+            "enum": [
+              "no_runtime_change_by_this_endpoint"
+            ]
+          },
+          "current_mr_state": {
+            "type": "null"
+          },
+          "runtime_state": {
+            "type": "null"
+          },
+          "source_revision": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "review": {
+            "type": "object",
+            "properties": {
+              "project_id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "merge_request_iid": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "url": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "project_id",
+              "merge_request_iid",
+              "url"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "status_basis",
+          "effect",
+          "current_mr_state",
+          "runtime_state",
+          "source_revision",
+          "review"
         ]
       },
       "V3ProposalComment": {

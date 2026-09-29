@@ -367,10 +367,22 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	if err != nil {
 		return fmt.Errorf("configure V3 notification route drafts: %w", err)
 	}
+	inhibitionRepository, err := loadV3InhibitionRepository(configSync, routeDraftRepository,
+		os.Getenv("AIOPS_V3_INHIBITION_TARGET_BRANCH"),
+		os.Getenv("AIOPS_V3_INHIBITION_BRANCH_PREFIX"))
+	if err != nil {
+		return fmt.Errorf("configure V3 inhibition drafts: %w", err)
+	}
+	inhibitionHistory, err := loadV3InhibitionHistory(os.Getenv("AIOPS_V3_INHIBITION_HISTORY_CONFIG"),
+		*info, alertmanagerPolicyBindings)
+	if err != nil {
+		return fmt.Errorf("configure V3 inhibition history: %w", err)
+	}
 	alertmanagerService := &v3alertmanager.Service{
 		Source: alertmanagerSource, Catalog: v3alertmanager.DatabaseCatalog{DB: s.DB}, Access: policy,
 		EnvironmentLabels: alertmanagerLabels, ApplicationBindings: alertmanagerBindings,
-		RouteRepository: routeDraftRepository,
+		RouteRepository: routeDraftRepository, InhibitionRepository: inhibitionRepository,
+		InhibitionHistory: inhibitionHistory,
 	}
 	if promotionRepository, ok := configSync.Repository.(*v3configsync.GitLabClient); ok && promotionRepository != nil {
 		alertmanagerService.ConfigPromotionProjectID = promotionRepository.ProjectID()

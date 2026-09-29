@@ -1,5 +1,12 @@
 # AIOps Canvas 检查点
 
+## CP-191 · 2026-09-29 · WAN-118 抑制读取、预览与待审草稿
+
+- 从已推送 CP-190 `ed37f3b` 接续，WAN-118 来源 `08d38fd` 合入 `e882514`。正式 V3 入口使用既有受审 Alertmanager 读取来源注册 GET `/inhibitions`、POST `/inhibitions/preview` 和 POST `/inhibitions`；聚合 OpenAPI 在既有告警片段后装入独立抑制契约。可选历史配置 `AIOPS_V3_INHIBITION_HISTORY_CONFIG` 必须为绝对路径 0600 普通 JSON 文件，绑定本实例环境及已有验证 webhook 来源；一个环境必须恰好只有这一个来源，以免单流历史冒充多流完整覆盖。生产环境要求 HTTPS。没有受信完整七天历史配置时预览明确 501/503，不伪造计数。
+- GET 只返回当前受权、来源/目标精确绑定环境与应用的 Alertmanager 抑制配置，匹配值脱敏，逐规则活动状态及七天命中为 `null`，成功为 `206 partial`；配置来源失败则 503。预览要求单环境、环境级静默查看/管理权和有效应用绑定，服务端将精确环境/应用匹配器加入两侧，目标 severity 只允许明确 P2–P4；至多 500 条受信 firing 发生记录须证明完整七天覆盖，返回潜在抑制目标数和真实告警名样例，实际命中仍未知。独立复核发现原启动配置允许多来源环境绑定单流历史，已收紧为恰好一个来源；未对真实历史服务验证完整性。
+- POST 额外要求 GET 强 ETag、幂等键和当前人类会话，保存不可变作用域草稿/审计并在同一受审 GitLab 项目发待审 MR。必须成对配置 `AIOPS_V3_INHIBITION_TARGET_BRANCH` 与 `AIOPS_V3_INHIBITION_BRANCH_PREFIX`，且与配置提升、通知草稿目标及前缀隔离；独立 `aiops-inhibition-draft` 标签不复用提升标签。外部调用最长 30 秒期间保持应用/会话/权限/草稿锁，会话不足 31 秒先拒绝；未发请求的失败释放租约并审计，已尝试但不确定的导出保留可对账状态。MR 不合并或激活规则。`139_v3_inhibition_drafts.sql` 只接入启动迁移流程，未对现有数据库执行。
+- 三条主路由按本阶段允许缺部署生产者的条件式成功路径计后端 `implemented`，现 **149/166、17 mock**；OpenAPI **324 路径、389 操作、448 schema**。最小 Go 编译、OpenAPI 生成、主契约/路由矩阵/readiness 和差异静态检查通过。按当前限制未跑测试、真实数据库/迁移、历史来源、Alertmanager/GitLab、HTTP 或浏览器。冻结页面期待原始 matcher 值、即时生效且不发送 `application_id`、ETag 或幂等键，未验收。启用草稿写入前须确认外部 MR 自动化不会合并或激活该目标；无 PR、合并或部署。下一步继续剩余领域路由，Webhook 出站重投仍停用。
+
 ## CP-190 · 2026-09-29 · WAN-123 Prompt 双版本试运行
 
 - 从已推送 CP-189 `750eb04` 接续，WAN-123 来源 `412e6b2` 合入 `e8fed3c`。正式 V3 入口用同一个 `v3agents.Service` 安装可选受限模型适配器再注册试运行路由，OpenAPI 独立片段在 Agent 定义后加载。配置须是绝对路径、0600 普通文件、至多 64 KiB，另配经审核的精确 DNS 主机名单；只允许当前 V3 实例环境，API key 仅从配置指向的环境变量读取，两项都不配时模型调用默认关闭。迁移 `140_v3_prompt_trial.sql` 原有 `(case_id,agent_id)` 外键缺匹配唯一键，已在该迁移先为案例表新增 `(id,agent_id)` 唯一约束；现有库未执行迁移。

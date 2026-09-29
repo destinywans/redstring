@@ -1,5 +1,4 @@
-# Independent WAN-118 inhibition contract fragment. WAN-117 integrates it
-# after v3-openapi-alerts.py when updating the aggregate OpenAPI document.
+# WAN-118 inhibition contract fragment, loaded after v3-openapi-alerts.py.
 # The fragment only describes handlers in internal/v3alertmanager.
 S['V3InhibitionMatcherRead'] = obj({
     'k':string(pattern='^[a-zA-Z_][a-zA-Z0-9_]*$'),

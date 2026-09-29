@@ -32,6 +32,14 @@ func NewRouteGitLabRepositoryFromPromotion(promotion *v3configsync.GitLabClient,
 	return &RouteGitLabRepository{client: client, targetBranch: target}, nil
 }
 
+func NewInhibitionGitLabRepositoryFromPromotion(promotion *v3configsync.GitLabClient, target, prefix string) (*RouteGitLabRepository, error) {
+	client, err := promotion.ForInhibitionDrafts(target, prefix)
+	if err != nil {
+		return nil, err
+	}
+	return &RouteGitLabRepository{client: client, targetBranch: target}, nil
+}
+
 func (r *RouteGitLabRepository) ProjectID() int64     { return r.client.ProjectID() }
 func (r *RouteGitLabRepository) BranchPrefix() string { return r.client.BranchPrefix() }
 func (r *RouteGitLabRepository) TargetBranch() string { return r.targetBranch }

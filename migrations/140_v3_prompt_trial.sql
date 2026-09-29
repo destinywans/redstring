@@ -1,5 +1,10 @@
 -- Trusted case input is separate from a registered case reference or a
 -- historical evaluation report. Public HTTP cannot create these snapshots.
+-- PostgreSQL requires an explicit matching unique key for the composite FK,
+-- even though case id alone is already the primary key.
+ALTER TABLE v3_agent_eval_cases
+ ADD CONSTRAINT v3_agent_eval_cases_id_agent_unique UNIQUE (id,agent_id);
+
 CREATE TABLE v3_agent_prompt_trial_case_inputs (
  id text PRIMARY KEY,
  case_id text NOT NULL,

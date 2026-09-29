@@ -8,6 +8,8 @@
 
 运行适配器必须显式配置。每次请求最多两次无工具模型调用，每个版本一次；固定输入、输出、超时和费用准入预算，不允许同一幂等键重放模型调用，也不允许模型访问写工具或基础设施。模型未配置返回 503 `prompt_trial_not_connected`；确定的上游失败返回 502 `prompt_trial_upstream_failed`；请求可能已送达后发生超时、响应异常或存储失败则返回 502 `prompt_trial_ambiguous`，并保留能够取得的请求 ID 和用量。缺少可信案例输入、幂等冲突或相同请求仍在执行时返回 409；案例或版本不可见时返回 404。相同幂等键和相同范围、输入、版本在成功记录存在时重放已保存结果；不同请求不得共用键。进程中断、网络超时或存储失败后，无法凭本地记录证明上游是否已计费；同一键只读取或标记不确定状态，不能自动再次调用。用**新**幂等键重新执行可能产生额外费用，必须先核对上游账单或请求记录。准入预算由受限适配器的调用次数、字节/token 上限和运维审查单价估算，不能由请求方放宽，也不是提供者保证的硬账单上限。
 
-配置示例在 `docs/api/examples/prompt-trial-model.json`。部署接线从受保护的配置文件读取 JSON，另给 `NewPromptTrialOpenAIAdapter(configJSON, allowedHosts)` 提供经审核的精确 DNS 主机名单；API key 只从配置指定的环境变量读取。随后对同一个 `v3agents.Service` 调用 `SetPromptTrialModelAdapter(adapter)`，再调用 `Register(api)`。输入由受信任的进程内生产者调用 `RecordPromptTrialCaseInput` 登记，公开请求不能自行提供或改写用例正文。本领域批次不修改 `cmd/aiops`，所以 WAN-117 接线前真实入口会返回 `prompt_trial_not_connected`；示例文件本身不会自动启用模型。配置内的 token 单价是运维审查的预算上界，不是提供者已核对的账单价格；实际费用仍须按上游账单核验。
+配置示例在 `docs/api/examples/prompt-trial-model.json`。正式入口可选读取绝对路径 `AIOPS_V3_PROMPT_TRIAL_MODEL_CONFIG` 指向的 0600 普通文件，并从独立的 `AIOPS_V3_PROMPT_TRIAL_ALLOWED_HOSTS` 取得以逗号分隔、经审核的精确 DNS 主机名单；两个值都未设置时模型调用关闭，半配置或不属于 V3 实例的环境绑定使启动失败。API key 只从配置指定的环境变量读取，不写入配置文件或仓库。入口在同一个 `v3agents.Service` 上安装适配器再注册路由。输入由受信任的进程内生产者调用 `RecordPromptTrialCaseInput` 登记，公开请求不能自行提供或改写用例正文；当前正式启动流程没有此生产者，已有案例只有登记引用时返回 409。示例文件本身不会自动启用模型。配置内的 token 单价是运维审查的预算上界，不是提供者已核对的账单价格；实际费用仍须按上游账单核验。
+
+模型调用后，结果写入事务再次锁定并核对当前会话、Agent、案例、应用环境和权限；失权时不保存生成文本，只尽力保留提供者请求 ID、用量和不确定状态并停止后续调用。当前限制是单请求两次和预算估计，尚无跨幂等键的账号/环境累计费用配额；启用真实模型前须配置部署层配额与限流，并核对实际提供者账单。该限制不改变默认关闭的行为。
 
 本片段在 `scripts/v3-openapi-agent-prompt-trial.py`，须由 WAN-117 在现有 `v3-openapi-agents.py` **之后**执行，仅覆盖 `POST /prompts/{id}/trial`。冻结前端 `PromptTrial` 把 `score`、`tokens`、`duration` 规定为字符串且 `good` 为布尔值，不接受这里如实返回的 `null`/`unknown`；页面仍有示意案例和试运行数据。WAN-117 需更新公共契约及页面兼容性后才可把主路由标为产品就绪。静态契约或 Go 编译不证明模型可用、费用约束生效或真实试运行成功。

@@ -142,7 +142,7 @@
 | Agent 运行台 | PATCH | `/agents/{id}/level` | 新增 | implemented |
 | Agent 运行台 | GET | `/prompts` | 新增 | implemented |
 | Agent 运行台 | GET | `/prompts/{id}` | 新增 | implemented |
-| Agent 运行台 | POST | `/prompts/{id}/trial` | 新增 | mock |
+| Agent 运行台 | POST | `/prompts/{id}/trial` | 新增 | implemented |
 | Agent 运行台 | POST | `/prompts/{id}/versions` | 新增 | implemented |
 | Agent 运行台 | GET | `/agent-tools` | 新增 | implemented |
 | Agent 运行台 | GET | `/evals/{id}` | 新增 | implemented |

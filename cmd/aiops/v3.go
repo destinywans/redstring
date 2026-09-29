@@ -648,7 +648,15 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		activeExternalBindings, activeFeishuBindings).Register(api)
 	sourceRegistry.Register(api)
 	v3memory.New(s.DB, policy).Register(api)
-	v3agents.New(s.DB, policy).Register(api)
+	agentService := v3agents.New(s.DB, policy)
+	promptTrialAdapter, err := loadV3PromptTrialAdapter(
+		os.Getenv("AIOPS_V3_PROMPT_TRIAL_MODEL_CONFIG"),
+		os.Getenv("AIOPS_V3_PROMPT_TRIAL_ALLOWED_HOSTS"), *info)
+	if err != nil {
+		return fmt.Errorf("configure V3 Prompt trial: %w", err)
+	}
+	agentService.SetPromptTrialModelAdapter(promptTrialAdapter)
+	agentService.Register(api)
 	go auditV3.CleanupExpired(ctx)
 	return nil
 }

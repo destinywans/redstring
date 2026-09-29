@@ -19,6 +19,7 @@ import (
 )
 
 var trialVersionPattern = regexp.MustCompile(`^v([1-9][0-9]{0,8})$`)
+var errTrialAuthorityChanged = errors.New("Prompt trial authority changed after provider call")
 
 type trialRequest struct {
 	Case string `json:"case"`
@@ -220,10 +221,15 @@ func (s *Service) PromptTrial(w http.ResponseWriter, r *http.Request) {
 			result.InputTokens != nil && *result.InputTokens < 0) {
 			runErr = errors.Join(errors.New("provider returned an out-of-bounds result"), ErrPromptTrialOutcomeAmbiguous)
 		}
-		if err := s.finishTrialRun(material, side.name, result, duration, runErr); err != nil {
+		if err := s.finishTrialRun(w, r, envs, in.Case, material, side.name, result, duration, runErr); err != nil {
 			// A provider call may have completed even when PG cannot confirm its
-			// result. A second bounded write records usage without another call.
+			// result. Keep only usage evidence when authority changed during
+			// the call; never save the output after revocation or logout.
 			_ = s.recordTrialAmbiguous(material, side.name, result, duration)
+			if errors.Is(err, errTrialAuthorityChanged) {
+				// trialScope already wrote the current authorization error.
+				return
+			}
 			trialAmbiguous(w)
 			return
 		}
@@ -510,15 +516,27 @@ func (s *Service) recordTrialAmbiguous(m trialMaterial, side string,
 	return tx.Commit(ctx)
 }
 
-func (s *Service) finishTrialRun(m trialMaterial, side string, result PromptTrialModelResult,
+func (s *Service) finishTrialRun(w http.ResponseWriter, r *http.Request, envs []string, caseID string,
+	m trialMaterial, side string, result PromptTrialModelResult,
 	duration int64, runErr error) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
 	defer cancel()
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	// The external call ran without database locks. Reacquire the current
+	// session, application, case and grant locks in the result-write transaction.
+	// A failed recheck must never persist the generated output.
+	_, a, _, ok := s.trialScope(w, r.WithContext(ctx), tx, envs, caseID)
+	if !ok {
+		return errTrialAuthorityChanged
+	}
+	if a.ID != m.agent.ID || a.App != m.agent.App || a.Env != m.agent.Env {
+		notFound(w)
+		return errTrialAuthorityChanged
+	}
 	status, code := "succeeded", ""
 	if runErr != nil {
 		status, code = "failed", "provider_error"
@@ -565,6 +583,9 @@ func (s *Service) finishTrialRun(m trialMaterial, side string, result PromptTria
 	}
 	if err != nil {
 		return err
+	}
+	if !recheckPromptSession(w, r.WithContext(ctx), tx) {
+		return errTrialAuthorityChanged
 	}
 	return tx.Commit(ctx)
 }

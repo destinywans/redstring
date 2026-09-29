@@ -41851,16 +41851,19 @@
     },
     "/prompts/{id}/trial": {
       "post": {
-        "summary": "Run a Prompt comparison trial",
+        "summary": "Run a bounded two-version Prompt trial",
         "operationId": "post_prompts_id_trial",
-        "description": "Minimum role: viewer with scoped agents.change. V3 instance and environment scope apply. Always returns 503 prompt_trial_unavailable after request and authorization validation; no trial runner or model execution is configured.",
+        "description": "Minimum role: viewer with scoped agents.change. V3 instance and environment scope apply. Requires Idempotency-Key, one selected environment, current session and scoped Agent authorization. Both distinct A/B versions must be persisted on this Prompt; the registered case must also have trusted versioned input content. A registered case reference alone does not provide runnable input. A configured restricted model adapter runs at most one no-tools call per version under input, output and time caps plus a reviewed cost admission estimate. Success persists both outputs and their exact case/version/model provenance before returning a raw two-item array. No automatic scorer is connected: score and good are null, score_status is unknown. Provider usage may be null. An in-flight or invalidated request returns 409; no configured runner returns 503; a failed or ambiguous upstream attempt returns 502, never a fabricated partial success.",
         "responses": {
-          "503": {
-            "description": "Prompt trial runner is unavailable",
+          "200": {
+            "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Error"
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/V3PromptTrialResult"
+                  }
                 }
               }
             }
@@ -41896,7 +41899,7 @@
             }
           },
           "409": {
-            "description": "Conflict or stale version",
+            "description": "Case input, version or idempotency conflict; an identical trial may still be in flight",
             "content": {
               "application/json": {
                 "schema": {
@@ -41907,6 +41910,26 @@
           },
           "422": {
             "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Scoped Prompt trial model runner is not connected or storage/policy is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Model attempt failed or had ambiguous completion; no partial trial result is returned",
             "content": {
               "application/json": {
                 "schema": {
@@ -41940,6 +41963,17 @@
               "type": "string"
             },
             "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            },
+            "description": "Scoped to caller, Prompt, case and A/B versions. Reuse after response loss."
           }
         ],
         "requestBody": {
@@ -41950,13 +41984,17 @@
                 "type": "object",
                 "properties": {
                   "case": {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
                   },
                   "a": {
-                    "type": "string"
+                    "type": "string",
+                    "pattern": "^v[1-9][0-9]{0,8}$"
                   },
                   "b": {
-                    "type": "string"
+                    "type": "string",
+                    "pattern": "^v[1-9][0-9]{0,8}$"
                   }
                 },
                 "additionalProperties": false,
@@ -68063,6 +68101,89 @@
           "success",
           "tokens",
           "routing_connected"
+        ]
+      },
+      "V3PromptTrialResult": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "pattern": "^v[1-9][0-9]{0,8}$"
+          },
+          "text": {
+            "type": "string"
+          },
+          "score": {
+            "type": "null"
+          },
+          "good": {
+            "type": "null"
+          },
+          "score_status": {
+            "type": "string",
+            "enum": [
+              "unknown"
+            ]
+          },
+          "tokens": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "duration": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "usage_source": {
+            "type": "string",
+            "enum": [
+              "provider_reported",
+              "unknown"
+            ]
+          },
+          "trial_id": {
+            "type": "string"
+          },
+          "model": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "provider",
+              "model"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "text",
+          "score",
+          "good",
+          "score_status",
+          "tokens",
+          "duration",
+          "usage_source",
+          "trial_id",
+          "model"
         ]
       },
       "V3ExecutionApproval": {

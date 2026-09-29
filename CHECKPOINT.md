@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-168 · 2026-09-29 · WAN-120 指标快照提问正式入口
+
+- 集成分支 `codex/wan-117-v3-integration` 在已推送 `d74ca08` 后合入来源 `eae0c8d6a4ae0334b2143039a69b2fd84fe9207e` 为 `76db330`。`configureV3` 先创建精确来源的 `PrometheusReader`，把非事务与事务来源版本复核接入 `v3conversation.Options`，再把对话服务注入 `v3observe.Service.MetricsConversation`；保留原有连接器、模型和对话接线。来源迁移 `135_v3_metrics_questions.sql` 与既有两个不同文件名的 135 迁移共存，本批未在现有或隔离数据库执行迁移。
+- `POST /metrics/ask` 仅接受单环境、持久应用 ID、两个审查视图、15 分钟/1 小时时窗、问题和重试 ID。读取当前唯一授权的 Prometheus `metric_resource` 与精确查询，拒绝空、部分或越界结果；持久快照、问题、排队回复、来源和审计同事务提交。重复请求返回原会话，修改同一重试 ID 返回 409。对话读取、SSE、模型工作和继续回合复核持久来源与授权；指标对话不开放通用模型工具。稀疏样本不能说明整窗趋势，真实表达式范围仍需运维审核。主契约补齐五字段请求及错误，按本阶段后端代码标准升 `implemented`，现 **89/166、77 mock**；OpenAPI **302 路径、360 操作、344 schema**。
+- 按用户本阶段要求未运行测试、真实 Prometheus/模型调用或现有业务库迁移。仅对共享入口进行最小 `go build`：进程返回 0、生成本地二进制，但模块缓存写入曾报告权限警告；生成 OpenAPI 与路由矩阵，未执行其检查脚本。冻结指标页/Mock 仍只发 `view`/`question` 并跳普通对话，缺稳定应用、时窗、重试 ID、SSE 与刷新恢复，页面未验收。多实例上线须先让所有对话读取和模型工作实例识别 `metrics_source_required`，再允许新请求。无 PR、合并或部署；下一批合入真实服务发现、告警详情与 Webhook 来源。
+
 ## CP-167 · 2026-09-29 · WAN-122 MCP 发现、审核与环境绑定主路由
 
 - 集成分支 `codex/wan-117-v3-integration` 从已推送 CP-166 `89ea321` 接续。WAN-122 来源 `20cde4b19c1c04a62d98dbd45322825c29db25da` 合入为 `39621e9`；`configureV3` 为同一私有凭据根注入完整 `DiscoverCatalog`，总 OpenAPI 在既有 MCP 分片后装入领域分片。迁移 `135_v3_mcp_capability_observations.sql` 与已有 `135_v3_upload_source_revoke.sql` 文件名不同，隔离 PG17 夹具断言两者均登记。OpenAPI **301 路径、359 操作、342 schema**。

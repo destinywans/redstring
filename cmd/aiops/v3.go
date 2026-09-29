@@ -353,6 +353,14 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	allowedConversationEnvs := func(ctx context.Context, u core.User) ([]string, error) {
 		return allowedConversationEnvironments(ctx, u, cfg.EnvironmentIDs, policy)
 	}
+	metricCatalog, err := v3integrations.LoadPrometheusQueryCatalog(os.Getenv("AIOPS_V3_PROMETHEUS_QUERIES_CONFIG"))
+	if err != nil {
+		return fmt.Errorf("load V3 Prometheus query catalog: %w", err)
+	}
+	metricReader, err := v3integrations.NewPrometheusReader(s.DB, cfg.Tier, connector.Prober.Resolver, metricCatalog)
+	if err != nil {
+		return fmt.Errorf("configure V3 Prometheus reader: %w", err)
+	}
 	// Function-calling support is model-specific. Only models explicitly
 	// verified by the operator are offered V3 read tools; an empty allowlist
 	// leaves ordinary conversations available without tool schemas.
@@ -387,6 +395,14 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		CurrentUser:    httpapi.CurrentUser,
 		RefreshSession: s.Session,
 		Shutdown:       ctx,
+		AuthorizeMetricsSource: func(ctx context.Context, ownerID, environmentID string, source v3conversation.MetricsSource) error {
+			return metricReader.AuthorizeMetricSourceVersion(ctx, ownerID, environmentID, source.ApplicationID,
+				source.BindingID, source.ConnectorID, source.ResourceID, source.QueryID, source.Fingerprint)
+		},
+		AuthorizeMetricsSourceTx: func(ctx context.Context, tx pgx.Tx, ownerID, environmentID string, source v3conversation.MetricsSource) error {
+			return metricReader.AuthorizeMetricSourceVersionTx(ctx, tx, ownerID, environmentID, source.ApplicationID,
+				source.BindingID, source.ConnectorID, source.ResourceID, source.QueryID, source.Fingerprint)
+		},
 		DefaultModel: func(ctx context.Context, ownerID, environmentID string) (string, error) {
 			var model string
 			err := s.DB.QueryRow(ctx, `SELECT COALESCE(ai_preferences #>> '{default,model}','') FROM v3_user_settings WHERE user_id=$1`, ownerID).Scan(&model)
@@ -526,16 +542,9 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		}
 	}()
 	chat.RegisterV3(api)
-	metricCatalog, err := v3integrations.LoadPrometheusQueryCatalog(os.Getenv("AIOPS_V3_PROMETHEUS_QUERIES_CONFIG"))
-	if err != nil {
-		return fmt.Errorf("load V3 Prometheus query catalog: %w", err)
-	}
-	metricReader, err := v3integrations.NewPrometheusReader(s.DB, cfg.Tier, connector.Prober.Resolver, metricCatalog)
-	if err != nil {
-		return fmt.Errorf("configure V3 Prometheus reader: %w", err)
-	}
 	observations := v3observe.New(s, policy, telemetry)
 	observations.MetricReader = metricReader
+	observations.MetricsConversation = chat
 	observations.Register(api)
 	alertCoverage, err := v3serviceviews.LoadAlertCoverage(os.Getenv("AIOPS_V3_SERVICE_ALERT_COVERAGE_CONFIG"), opsConfig, cfg, s.DB)
 	if err != nil {

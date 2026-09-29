@@ -6,7 +6,7 @@
 - 冻结页面的类型真相源：`web/src/v3/api/types.ts`。本文件描述路径、参数和语义；本批后端安全字段（服务映射候选身份与修订）先由本文件及 OpenAPI 定义，前端类型/Mock 尚待同一契约适配，不能据此宣称页面已接通。
 - Mock 实现：`web/src/v3/mock/domains/*.ts`，每个文件对应下面一节；`VITE_API_MODE=http` 时前端直接请求真实后端。
 - 与既有 `docs/api-contract.md` / `internal/apicontract/openapi.json` 的关系：v3 为新 UI 所需的读模型。后端落地时优先复用既有资源（调查、分支、提案、执行、Runbook、连接器）；能直接对齐的路径就对齐，对不齐的在 OpenAPI 中新增，再同步 `scripts/build-openapi.py`。本文件的"状态"列在后端实现后改为 `implemented`。
-- `scripts/check-v3-contract.py` 核对的 165 条 Mock 路由，加上前端模拟而无 Mock 路由的 SSE `GET /conversations/{id}/events`，共 166 条。`implemented` 只表示后端真实处理、范围鉴权、契约和定向检查具备；不表示外部系统已实连或前端 HTTP 模式已验收。阶段进展与未完成项见 [后端实施记录](../plans/2026-09-28-v3-backend-implementation.md)。
+- `scripts/check-v3-contract.py` 核对的 165 条 Mock 路由，加上前端模拟而无 Mock 路由的 SSE `GET /conversations/{id}/events`，共 166 条。`implemented` 只表示后端真实处理、范围鉴权和契约具备；不表示外部系统已实连或前端 HTTP 模式已验收。2026-09-29 起用户要求先交接口代码、不运行测试，本阶段新升状态只依据源码和必要编译核对，定向运行证据单独记录为未验证；此前各批已有定向证据不受此约定追溯改变。阶段进展与未完成项见 [后端实施记录](../plans/2026-09-28-v3-backend-implementation.md)。
 - 并行后端会话共用的 DTO、实例/环境、授权、错误、审计及迁移编号约束见 [V3 后端并行集成基线](v3-integration-baseline.md)；该文件不改变本契约的字段、路径或完成状态。
 
 ## 通用约定
@@ -208,7 +208,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | POST | `/services/{id}/resilience/proposals` | `{ kind, params }` | `{ proposal_id }`（只生成提案或合并请求） | mock |
 | GET | `/topology` | `cluster`, `around`, `depth`, `group_by` | `Topology`；当前后端仅返回经授权的 CMDB 节点、关系和缺失字段清单，完整 DTO 尚未实现 | mock |
 | GET | `/metrics/dashboard` | `service`, `range=1h`, `align?` | `MetricsDashboard`；单环境、单服务、唯一持久 Prometheus 目标和经审查的精确范围查询，完整面板与来源核对后返回 | implemented |
-| POST | `/metrics/ask` | `{ view, question }` | `{ conversation_id }` | mock |
+| POST | `/metrics/ask` | `{ service, view, range, question, request_id }`；`service` 为持久应用 ID，`view=request_rate\|http_p95_seconds`，`range=15m\|1h`，`request_id` 是 16–128 字符重试标识 | 首次接受为 201 `{ conversation_id }`；同一操作者同参数重试为 200，修改同一重试标识的内容返回 409。仅用当前有权的精确 Prometheus 来源快照；前端尚未发送必要字段 | implemented |
 | GET | `/traces` | `scope: app\|agent`, `view`, `q`（有界 TraceQL 选择器）, `service` | 应用范围 `TraceList`：同一完整来源集上的计数、分面、直方图、散点与表格；Agent 范围 503 | implemented |
 | GET | `/traces/{id}` | | 应用范围 `TraceView`：已存储且闭合的 Span 树、关键路径说明与服务调用图；无可靠关联时省略日志/链接 | implemented |
 | GET | `/services/discover` | 单个可选 `cluster`；重复参数返回 422 | 只读发现经授权的现存工作负载、稳定资源 ID 和未经核实的负责人提示；同名歧义候选不返回 | mock |
@@ -223,6 +223,8 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 资源发现现在返回 `resource_id`、Kubernetes `uid`、环境与集群；单集群条件在 2000 个候选扫描上限之前执行，整次请求共用 20 秒预算。选定集群之外的可信同名资源，以及同环境、同命名空间中陈旧、缺失或已关联的原始同名身份，均会阻止当前只按名称登记的候选进入结果；`ambiguous_workloads` 只给出数量，不泄露阻挡对象。`registered` 是授权环境内的登记数，不是所示集群的登记数。负责人和等级只作来源提示，`replicas` 可为空，`matched`/`missing` 尚无可信线索。注册时按当前环境、采集新鲜度、存在状态、UID、命名空间、是否已关联及 `resources.view` 重新核对。旧客户端只传名称时仅可匹配唯一工作负载；同名、过期或已关联身份返回 409，不会静默关联。当前前端未传 `cluster`/`resource_id`，并固定展示负责人、SLO、P99 与系统映射，发现到注册交互尚未接通。服务列表和系统映射超过 1000 条可见记录会返回 `422 result_limit`，不会返回不完整总数。拓扑仅显示五分钟内成功采集且环境吻合的现存节点，关联应用不会替资源借用其团队授权。
 
 观测查询只使用持久化应用、环境、负责人团队及已配置的外部目标绑定；不同来源绑定冲突返回 `409 ambiguous_binding`，范围过大返回 `422 scope_limit`。`GET /metrics/samples` 辅助接口可在单环境、唯一显式 V3 Prometheus 指标目标和操作者审查过精确范围的查询目录下返回有界真实标量样本；可见服务缺 `connectors.view` 在目标查询前返回 403，隐藏或不存在的服务同样返回资源不存在，读取中撤权不返回样本。完整 `GET /metrics/dashboard` 另要求经审查的 `dashboard` 查询目录一次返回 37 个时间点及请求、延迟、CPU、SLO、热力和排名等全部受信面板，再从持久发布、回滚和事件记录取得时间标记；缺项返回 503，不以样本补推。读取后复核精确 Cookie 会话、当前授权、目标绑定和 SLO 配置。图上的时间重合只表示并列证据，不证明发布引发事件。冻结指标页仍硬编码多处标签/版本/SLO/分析文案，且对齐开关未发送 `align`；真实 Prometheus 尚未联调，因此页面和产品未验收。`GET /logs` 在唯一授权目标及已配置的 Elasticsearch 或 Loki 范围内，分别查询所选等级的全窗总数、错误数、直方图、限量日志行和完整模板模式聚合；逐桶守恒、来源配置及当前授权/绑定均核对后才返回 `200 LogSearch`，包括精确零结果。缺少完整聚合返回 `503 log_patterns_unavailable` 和真实的部分证据；显式空 `levels` 返回空结果。模式来自受信采集模板或 Elasticsearch 类别聚合，不声称 AI 聚类；真实目标的历史映射/租户覆盖、脱敏和查询性能验收见 [日志来源接线](v3-logs-source.md)。
+
+`POST /metrics/ask` 已有单环境、单持久应用及唯一授权 Prometheus 指标目标的有界快照与持久对话实现，正式入口也接入来源版本复核。快照只含实际样本，稀疏样本不证明整窗趋势；模型上下文将其视为未信任观察，不向该对话开放通用工具。首次接受和相同请求重试分别返回 201/200；来源或权限撤销后，对话读取、SSE 和后续模型工作拒绝继续使用该快照。冻结页面只提交 `view`/`question` 并跳普通对话，缺稳定应用、时间窗与重试标识；本批遵照用户要求未运行定向测试或真实 Prometheus/模型调用，`implemented` 仅指配置来源后后端具完整处理链。多实例上线前必须先让所有对话读取和模型工作实例识别 `metrics_source_required`，再开放创建流量；见 [指标提问来源与恢复](v3-metrics-ask.md)。
 
 应用范围 Trace 由单环境持久 Tempo 目标绑定及当前 `traces.view` 确定；同一静态目标跨隐藏范围复用、选择器重叠或目标修订变化均拒绝。列表把最近一小时搜索触顶窗口继续拆分，最多 64 次查询、40 条 Trace、6 个目标，每条无时间界限拉取最多 500 个 Span 并验证唯一根、父链闭合与无环；超预算或来源失败返回 413/503，不用部分样本推总量。`200 TraceList` 的分面、十二个时间桶和散点来自同一返回全集。列表要求服务端 `tempo_search_fail_closed` 配置，设置前需核目标 Tempo 的 `fail_on_high_lag=true`；该配置默认关闭，不是运行时证明。详情的操作名称仅显示服务端白名单或路由模板，缺可靠日志/变更/Runbook 关联时省略链接。Agent 范围缺完整来源而返回 503。完整性仅指当次 Tempo 返回的已存储且闭合的 Trace，不证明采样遗漏或未插桩 Span；真实 Tempo、延迟配置及冻结页面 `q`/散点 `service` 接线尚未验收，见 [Trace 来源边界](v3-traces-source.md)。
 

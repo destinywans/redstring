@@ -31018,7 +31018,7 @@
       "get": {
         "summary": "List current authorized MCP environment bindings and sourced observations",
         "operationId": "get_mcp_servers",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. One item per explicitly bound environment, with current application or owner-team connectors.view authorization. A compatible immutable discovery supplies observed initialize version and capability counts; unsupported and undiscovered counts are null. Human review and enabled preferences are separate from untrusted declarations and do not grant Agent execution. V3 call metrics and current connection health have no producer and remain unknown. At most 2000 candidates and 1000 visible bindings; excess fails with 413. Frozen UI uses an ID-only row key and cannot distinguish duplicate registration IDs across environments. WAN-117 must mount this fragment and domain.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. One item per explicitly bound environment, with current application or owner-team connectors.view authorization. A compatible immutable discovery supplies observed initialize version and capability counts; unsupported and undiscovered counts are null. Human review and enabled preferences are separate from untrusted declarations and do not grant Agent execution. V3 call metrics and current connection health have no producer and remain unknown. At most 2000 candidates and 1000 visible bindings; excess fails with 413. Frozen UI uses an ID-only row key and cannot distinguish duplicate registration IDs across environments.",
         "responses": {
           "200": {
             "description": "Success",
@@ -43979,6 +43979,123 @@
             },
             "required": true
           },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/metrics/ask": {
+      "post": {
+        "summary": "Ask a model about one verified metric snapshot",
+        "operationId": "post_metrics_ask",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment, live Cookie, conversation.change and conversation.view, services.view for the persisted application or owner team, connectors.view, exactly one enabled V3 Prometheus metric-resource target and an operator-reviewed exact-scope query. The service field must be its stable application ID. The server captures one successful bounded scalar range response (1 to 32 observed samples) for the selected view over 15m/30s or 1h/120s; samples may be sparse and do not prove continuous window coverage or trend. An empty or provider-partial result is unavailable. Metric values and provenance are stored as bounded private untrusted model context, not instructions or client-supplied evidence. Conversation, user turn, queued reply, source binding and audit commit atomically; the environment-bound model then runs under current grants. A per-owner request_id deduplicates identical concurrent/retried submissions; changed payload returns 409. Successful retry returns 200 with the original conversation_id, including when the metric provider is temporarily unavailable. SSE /conversations/{id}/events and detail recover the persisted reply; service/source revocation blocks subsequent model work and reads. This metric-backed conversation offers no generic model tools or external write access.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MetricsAskAccepted"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Previously accepted identical request; returns its original conversation ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MetricsAskAccepted"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "metrics"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3MetricsAskRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
           {
             "name": "X-AIOps-Environment",
             "in": "header",
@@ -61523,6 +61640,60 @@
           "captured_at",
           "status",
           "samples"
+        ]
+      },
+      "V3MetricsAskRequest": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string",
+            "description": "Canonical persisted application ID, not a display name or service key."
+          },
+          "view": {
+            "type": "string",
+            "enum": [
+              "request_rate",
+              "http_p95_seconds"
+            ]
+          },
+          "range": {
+            "type": "string",
+            "enum": [
+              "15m",
+              "1h"
+            ]
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "request_id": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]{16,128}$"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "service",
+          "view",
+          "range",
+          "question",
+          "request_id"
+        ]
+      },
+      "V3MetricsAskAccepted": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "conversation_id"
         ]
       },
       "V3LogLine": {

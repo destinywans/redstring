@@ -1,6 +1,6 @@
 # WAN-120 · 指标提问后端契约与接入边界
 
-`POST /api/v1/metrics/ask` 将当前有权服务的一项**受审查指标快照**送入真实模型对话。它不是完整 `MetricsDashboard` 的 AI 摘要，也不把浏览器图表或提问文字当作指标证据。主 V3 页面契约当前仍记为 `mock`，直到 WAN-117 集成层接线、总 OpenAPI 生成和前端 HTTP 模式验收完成。
+`POST /api/v1/metrics/ask` 将当前有权服务的一项**受审查指标快照**送入真实模型对话。它不是完整 `MetricsDashboard` 的 AI 摘要，也不把浏览器图表或提问文字当作指标证据。WAN-117 集成层已接线，主 V3 契约按后端代码完整性记为 `implemented`；本批遵照用户要求未运行定向验证，冻结前端请求也缺必要字段。
 
 ## 请求和恢复
 
@@ -14,7 +14,7 @@
 
 提问、快照、来源绑定和排队回复在一个事务中持久化并写审计。快照作为**不可信观测数据**进入私有模型上下文；前端自报数值不会进入该上下文。接受前复核 Cookie、环境、`conversation.change`、应用或团队的 `services.view`、`connectors.view` 和来源目录；模型工作、SSE、详情和列表读取继续复核指标来源与连接器配置指纹，以便撤权或改绑后拒绝继续生成或回读。该指标对话不向模型提供通用读取工具，取证范围限于接受时保存的快照；也不授予外部系统写权限。指标来源配置文件的表达式范围仍需操作者审查；目录键自身不能证明 PromQL 只读到了该服务。
 
-集成层接线要求：先构造 `PrometheusReader`，将它的 `AuthorizeMetricSourceVersion` 和 `AuthorizeMetricSourceVersionTx` 分别接入 `v3conversation.Options.AuthorizeMetricsSource` 和 `AuthorizeMetricsSourceTx`；回调应逐一传入 `MetricsSource` 的应用、绑定、连接器、资源、查询及 `Fingerprint`。把该对话服务赋给 `v3observe.Service.MetricsConversation`，再注册观察路由。任何一个回调缺失时，指标来源对话保持拒绝访问。该接线属于 WAN-117 共享 `cmd/aiops/v3.go` 的集成所有权，本分支不改共享入口。
+集成层先构造 `PrometheusReader`，将它的 `AuthorizeMetricSourceVersion` 和 `AuthorizeMetricSourceVersionTx` 分别接入 `v3conversation.Options.AuthorizeMetricsSource` 和 `AuthorizeMetricsSourceTx`；回调逐一传入 `MetricsSource` 的应用、绑定、连接器、资源、查询及 `Fingerprint`。随后把该对话服务赋给 `v3observe.Service.MetricsConversation`，再注册观察路由。任何一个回调缺失时，指标来源对话保持拒绝访问。此接线已在 WAN-117 的 `cmd/aiops/v3.go` 完成；正式 HTTP 来源、撤权及恢复还需后续验证。
 
 多实例发布门槛：先让**全部**对话读取、发送、SSE 和模型工作实例运行识别 `metrics_source_required` 与来源复核的新版本，并验证共同使用的迁移已执行；之后才开放 `/metrics/ask` 创建流量。旧版本通用对话端点不识别指标来源标记，混跑时可能绕开撤权及工具范围约束。单版本隔离测试不能证明灰度发布安全。
 
@@ -22,4 +22,4 @@
 
 ## 冻结前端待衔接
 
-2026-09-29 源码核对：`MetricsPage.tsx` 目前把 AI 输入导航到通用新建对话，静态展示 AI 答案；Mock 的 `/metrics/ask` 只返回固定会话 ID。页面并未传稳定应用 ID、实际选中的视图/时间窗或重试 ID，也未消费该接口失败、SSE 或刷新恢复。`docs/api/v3-contract.md` 冻结行仅写 `{view,question}`；这不足以建立单服务授权和可重试身份。WAN-117 集成需先确认此后端增量契约，更新冻结前端类型、调用、Mock 和主契约，再将页面状态改为 `implemented`；真实浏览器验收仍独立进行。
+2026-09-29 源码核对：`MetricsPage.tsx` 目前把 AI 输入导航到通用新建对话，静态展示 AI 答案；Mock 的 `/metrics/ask` 只返回固定会话 ID。页面并未传稳定应用 ID、实际选中的视图/时间窗或重试 ID，也未消费该接口失败、SSE 或刷新恢复。主契约已补安全所需的五字段请求；冻结前端类型、调用和 Mock 仍待对齐，真实浏览器验收独立进行。

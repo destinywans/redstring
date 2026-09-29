@@ -749,6 +749,9 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 			if !ok || invocation.Status != "succeeded" {
 				return errToolInvocation
 			}
+			if err := s.appendEvidenceReceipt(ctx, owner, env, conv, reply, claimID, invocation, e.Evidence.Source); err != nil {
+				return err
+			}
 			calls = append(calls, map[string]any{"id": e.StepID, "connector": e.Evidence.Source, "tool": invocation.Name, "args": "", "duration_ms": invocation.DurationMS, "status": "ok"})
 			toolDurationMS += invocation.DurationMS
 			evidencePart := map[string]any{"type": "status", "text": e.Evidence.Title, "detail": e.Evidence.Content}

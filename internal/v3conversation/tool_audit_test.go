@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -29,8 +30,9 @@ func TestToolAuditRejectsMalformedEventsBeforeWrite(t *testing.T) {
 }
 
 type toolAuditRuntime struct {
-	calls       int
-	reportUsage bool
+	calls             int
+	reportUsage       bool
+	duplicateEvidence bool
 }
 
 func (*toolAuditRuntime) Models() []inference.Model { return nil }
@@ -67,6 +69,11 @@ func (r *toolAuditRuntime) Run(ctx context.Context, req inference.Request, emit 
 	}
 	if err := emit(inference.Event{Type: "evidence", StepID: end.StepID, Evidence: &evidence}); err != nil {
 		return "", err
+	}
+	if r.duplicateEvidence {
+		if err := emit(inference.Event{Type: "evidence", StepID: end.StepID, Evidence: &evidence}); err != nil {
+			return "", err
+		}
 	}
 	if err := emit(inference.Event{Type: "delta", Delta: "answer"}); err != nil {
 		return "", err
@@ -147,6 +154,22 @@ func TestToolAuditPrecedesReadAndPersistsOutcome(t *testing.T) {
 	if len(got) != 2 || got["accepted"]["environment_id"] != "test" || got["succeeded"]["step_id"] != "step-1" || got["succeeded"]["resource_id"] != "resource_1" {
 		t.Fatalf("audit rows: %#v", got)
 	}
+	var actorKind, action, target, outcome string
+	var receipt []byte
+	if err := db.QueryRow(context.Background(), `SELECT actor_kind,action,target,outcome,changes FROM management_audit WHERE action='v3.conversation.evidence'`).Scan(&actorKind, &action, &target, &outcome, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	var source map[string]any
+	if err := json.Unmarshal(receipt, &source); err != nil {
+		t.Fatal(err)
+	}
+	if actorKind != "agent" || action != "v3.conversation.evidence" || target != "read_service_profile" || outcome != "succeeded" || len(source) != 5 ||
+		source["environment_id"] != "test" || source["conversation_id"] != "c" || source["reply_id"] != "r" || source["step_id"] != "step-1" || source["source"] != "service catalog" {
+		t.Fatalf("invalid evidence receipt: %q %q %q %q %#v", actorKind, action, target, outcome, source)
+	}
+	if strings.Contains(string(receipt), "bounded data") || strings.Contains(string(receipt), "service-key") || strings.Contains(string(receipt), "Profile") {
+		t.Fatalf("evidence receipt leaked query or content: %s", receipt)
+	}
 	var runMissing bool
 	var parts []byte
 	if err := db.QueryRow(context.Background(), `SELECT run IS NULL,parts FROM v3_conversation_messages WHERE id='a'`).Scan(&runMissing, &parts); err != nil {
@@ -176,6 +199,82 @@ func TestToolAuditPrecedesReadAndPersistsOutcome(t *testing.T) {
 	}
 	if _, hasRun := completed["run"]; hasRun {
 		t.Fatalf("completion must omit run when provider usage is unknown: %s", completion)
+	}
+}
+
+func TestEvidenceReceiptRejectsFailedReadAndDuplicateEvent(t *testing.T) {
+	for _, duplicate := range []bool{false, true} {
+		t.Run(map[bool]string{false: "failed read", true: "duplicate evidence"}[duplicate], func(t *testing.T) {
+			db := isolatedConversationDB(t)
+			runtime := &toolAuditRuntime{duplicateEvidence: duplicate}
+			svc := New(db, runtime, Options{
+				RefreshSession:            func(context.Context, string) (core.User, error) { return core.User{ID: "persisted-owner"}, nil },
+				AuthorizeBackgroundTurn:   func(context.Context, string, string) error { return nil },
+				AuthorizeBackgroundTurnTx: func(context.Context, pgx.Tx, string, string) error { return nil },
+				ToolsForTurn: func(context.Context, string, string, string) ([]inference.EvidenceTool, error) {
+					return []inference.EvidenceTool{{Name: "read_service_profile", Read: func(context.Context, string) (inference.Evidence, error) {
+						if !duplicate {
+							return inference.Evidence{}, errors.New("secret provider failure")
+						}
+						return inference.Evidence{Title: "Secret title", Content: "Secret content", Source: "service catalog"}, nil
+					}}}, nil
+				},
+			})
+			svc.runTurn("c", "r", inference.Model{ID: "model", Name: "model", Tools: true}, "", "test-session")
+			var count int
+			if err := db.QueryRow(context.Background(), `SELECT count(*) FROM management_audit WHERE action='v3.conversation.evidence'`).Scan(&count); err != nil {
+				t.Fatal(err)
+			}
+			want := 0
+			if duplicate {
+				want = 1
+			}
+			if count != want {
+				t.Fatalf("evidence receipts=%d want=%d", count, want)
+			}
+			var state string
+			if err := db.QueryRow(context.Background(), `SELECT state FROM v3_conversation_replies WHERE id='r'`).Scan(&state); err != nil {
+				t.Fatal(err)
+			}
+			if state != "failed" {
+				t.Fatalf("reply state=%q", state)
+			}
+		})
+	}
+}
+
+func TestEvidenceReceiptRejectsUnsafeSource(t *testing.T) {
+	s := New(nil, nil, Options{})
+	invocation := inference.ToolInvocation{Name: "read_service_profile", StepID: "step-1", Status: "succeeded"}
+	for _, source := range []string{"", "line\nbreak", string([]byte{0xff}), strings.Repeat("x", 257)} {
+		if err := s.appendEvidenceReceipt(context.Background(), "owner", "test", "c", "r", "r", invocation, source); !errors.Is(err, errEvidenceReceipt) {
+			t.Fatalf("source %q: %v", source, err)
+		}
+	}
+}
+
+func TestEvidenceReceiptRequiresPersistedOwnerAndEnvironment(t *testing.T) {
+	db := isolatedConversationDB(t)
+	ctx := context.Background()
+	if _, err := db.Exec(ctx, `UPDATE v3_conversation_replies SET state='running' WHERE id='r'`); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(db, nil, Options{})
+	invocation := inference.ToolInvocation{Name: "read_service_profile", StepID: "step-1", Status: "succeeded"}
+	if err := svc.appendToolAudit(ctx, "persisted-owner", "test", "c", "r", "r", &invocation); err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range []struct{ owner, env string }{{"other-owner", "test"}, {"persisted-owner", "other-env"}} {
+		if err := svc.appendEvidenceReceipt(ctx, scope.owner, scope.env, "c", "r", "r", invocation, "service catalog"); !errors.Is(err, errEvidenceReceipt) {
+			t.Fatalf("mismatched scope %+v: %v", scope, err)
+		}
+	}
+	var count int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE action='v3.conversation.evidence'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("mismatched scope wrote %d evidence receipts", count)
 	}
 }
 

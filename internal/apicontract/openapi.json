@@ -25812,7 +25812,7 @@
       "get": {
         "summary": "List scoped persisted canvases and investigations",
         "operationId": "get_canvases",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Generic canvases are private to their owner; investigations use persisted environment and application/team grants. Current sessions and role sources are checked before a single database snapshot supplies counts and page items. Historical investigations without a recorded creator return an empty participants array. The complete investigation detail page is a separate route and remains unavailable.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Generic canvases are private to their owner; investigations use persisted environment and application/team grants. Current sessions and role sources are checked before a single database snapshot supplies counts and page items. Historical investigations without a recorded creator return an empty participants array. Persisted investigation graph detail is available at /investigations/{id}/canvas; this list does not include graph nodes.",
         "responses": {
           "200": {
             "description": "Success",
@@ -25959,7 +25959,7 @@
       "post": {
         "summary": "Create a persisted canvas or investigation",
         "operationId": "post_canvases",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment and a current canvas.change grant. Generic canvases are private and require an environment grant; investigations require exactly one active mapped application and accept environment, application or owner-team grants. Investigation IDs are persisted INV-* IDs with an initial branch and context. Canvas/branch records and creation audit commit together. Optional AI drafting uses one configured model, no tools, and a validated one-to-three-node JSON outline; it is explicitly unverified and a failure leaves no creation. Missing model returns 503 canvas_draft_unavailable. Investigation templates return 422 invalid_template. The separate investigation detail page remains unavailable.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment and a current canvas.change grant. Generic canvases are private and require an environment grant; investigations require exactly one active mapped application and accept environment, application or owner-team grants. Investigation IDs are persisted INV-* IDs with an initial branch and context. Canvas/branch records and creation audit commit together. Optional AI drafting uses one configured model, no tools, and a validated one-to-three-node JSON outline; it is explicitly unverified and a failure leaves no creation. Missing model returns 503 canvas_draft_unavailable. Investigation templates return 422 invalid_template. Persisted investigation graph detail is available at /investigations/{id}/canvas.",
         "responses": {
           "201": {
             "description": "Success",
@@ -26375,11 +26375,476 @@
         }
       }
     },
+    "/investigations/{id}/canvas": {
+      "get": {
+        "summary": "Read a persisted investigation graph",
+        "operationId": "get_investigations_id_canvas",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Current session, environment and canvas.view for the persisted application or owner team are rechecked in one snapshot. Both INV-* and historical IDs use actual branch IDs. Nodes are real branches with current message counts and immutable revision history; layout rows or deterministic legacy drawing coordinates supply positions. Context tokens is null because current context token occupancy is unknown; historical provider usage is not summed as occupancy. Evidence is shown as exact recorded kind/content/source table rows; untyped workflow loop data yields an empty array. No AI conclusion or status is inferred. A source environment outside the frozen prod/staging/test DTO returns 422 canvas_environment_unsupported; invalid/oversized graph data returns 503 or 413. The current frontend must handle actual root IDs, nullable tokens, and persisted inspector data.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3InvestigationCanvasGraph"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Investigation graph exceeds bounded node, revision, or evidence limits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "investigations"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/investigations/{id}/branches": {
+      "post": {
+        "summary": "Fork an investigation branch from its current context",
+        "operationId": "post_investigations_id_branches",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. At least one of parent_id (current frontend) or parent (contract spelling) identifies a persisted branch in this investigation. Both aliases may be sent when equal; conflicting values are rejected. A supplied expected_parent_revision must match the locked parent; omitted revision forks the latest committed parent snapshot under a row lock. The child receives its own immutable revision-zero context, layout, event and management audit in one transaction. Only an open investigation with current canvas.change for its persisted environment/application/team may fork. No model call or inference occurs.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3InvestigationCanvasNode"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Graph or parent context exceeds the bounded fork limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "investigations"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "parent_id": {
+                    "type": "string"
+                  },
+                  "parent": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "x": {
+                    "type": "integer",
+                    "minimum": -100000,
+                    "maximum": 100000
+                  },
+                  "y": {
+                    "type": "integer",
+                    "minimum": -100000,
+                    "maximum": 100000
+                  },
+                  "expected_parent_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "title"
+                ],
+                "anyOf": [
+                  {
+                    "required": [
+                      "parent_id"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "parent"
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/investigations/{id}/nodes/{node}": {
+      "patch": {
+        "summary": "Update an investigation branch layout or title",
+        "operationId": "patch_investigations_id_nodes_node",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. A locked concrete branch and current canvas.change grant protect a single-environment open investigation. expected_layout_version is always required; a title edit also requires expected_title from the last read. Missing preconditions return 428; stale layout version or mismatched title returns 409, including a title changed through the legacy API. Position, collapse and optional title update atomically with a version increment, branch event and management audit. Context revision and parent/child topology are unchanged. collapsed and layout_version are additive server fields; the frozen frontend drag call lacks the required version and needs integration.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3InvestigationCanvasNode"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "Expected layout version, or expected title for a title edit, is required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Investigation graph exceeds bounded display limits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "investigations"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "node",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "integer",
+                    "minimum": -100000,
+                    "maximum": 100000
+                  },
+                  "y": {
+                    "type": "integer",
+                    "minimum": -100000,
+                    "maximum": 100000
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "collapsed": {
+                    "type": "boolean"
+                  },
+                  "collapse": {
+                    "type": "boolean"
+                  },
+                  "expected_layout_version": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "expected_title": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "expected_layout_version"
+                ],
+                "dependentRequired": {
+                  "title": [
+                    "expected_title"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/investigations/{id}/nodes/{node}/messages": {
       "get": {
         "summary": "Read the current persisted investigation branch context",
         "operationId": "get_investigations_id_nodes_node_messages",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read-only route outside the 166 V3 page contracts. Resolves the branch, investigation, application, environment, and owner team from persisted records and requires current canvas.view for the application or owner team. Returns only the current branch revision and its historical JSON messages, preserving legacy optional fields as stored; it does not synthesize nodes, timestamps, summaries, or model output. The stored context is limited to 24 KiB. An absent, mismatched, or inaccessible branch returns 404; a missing, oversized, or malformed current context returns 503. The complete investigation graph, node write, and ancestor writeback remain unavailable.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read-only route outside the 166 V3 page contracts. Resolves the branch, investigation, application, environment, and owner team from persisted records and requires current canvas.view for the application or owner team. Returns only the current branch revision and its historical JSON messages, preserving legacy optional fields as stored; it does not synthesize nodes, timestamps, summaries, or model output. The stored context is limited to 24 KiB. An absent, mismatched, or inaccessible branch returns 404; a missing, oversized, or malformed current context returns 503. The graph and layout/branch writes have separate routes; ancestor writeback and investigation node model replies remain unavailable.",
         "responses": {
           "200": {
             "description": "Success",
@@ -49642,6 +50107,270 @@
           "edges",
           "artifacts",
           "threads"
+        ]
+      },
+      "V3InvestigationCanvasContext": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "inherits": {
+            "type": "string"
+          },
+          "tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Current context token occupancy is unknown until measured for this exact context. Null means unknown; historical provider usage is not a current occupancy estimate. The frontend must render an unknown state instead of a numeric total."
+          },
+          "messages": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "excludes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "tokens",
+          "messages",
+          "excludes"
+        ]
+      },
+      "V3InvestigationCanvasVersion": {
+        "type": "object",
+        "properties": {
+          "v": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "v",
+          "text",
+          "at"
+        ]
+      },
+      "V3InvestigationCanvasNode": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "parent": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "subtitle": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "root",
+              "branch",
+              "evidence"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "running",
+              "ruled_out",
+              "confirmed"
+            ]
+          },
+          "x": {
+            "type": "integer",
+            "minimum": -100000,
+            "maximum": 100000
+          },
+          "y": {
+            "type": "integer",
+            "minimum": -100000,
+            "maximum": 100000
+          },
+          "w": {
+            "type": "integer",
+            "minimum": 120,
+            "maximum": 2000
+          },
+          "collapsed": {
+            "type": "boolean"
+          },
+          "layout_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "context": {
+            "$ref": "#/components/schemas/V3InvestigationCanvasContext"
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3InvestigationCanvasVersion"
+            }
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "subtitle",
+          "status",
+          "x",
+          "y",
+          "w",
+          "collapsed",
+          "layout_version",
+          "context",
+          "versions"
+        ]
+      },
+      "V3InvestigationEvidenceTrayItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "table"
+            ]
+          },
+          "body": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "table"
+                ]
+              },
+              "rows": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "rows"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "source",
+          "body"
+        ]
+      },
+      "V3InvestigationCanvasGraph": {
+        "type": "object",
+        "properties": {
+          "investigation": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "resolved"
+                ]
+              },
+              "env": {
+                "type": "string",
+                "enum": [
+                  "prod",
+                  "staging",
+                  "test"
+                ]
+              },
+              "participants": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "title",
+              "status",
+              "env",
+              "participants"
+            ]
+          },
+          "loop": {
+            "type": "array",
+            "items": {}
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3InvestigationCanvasNode"
+            }
+          },
+          "tray": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3InvestigationEvidenceTrayItem"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "investigation",
+          "loop",
+          "nodes",
+          "tray"
         ]
       },
       "V3InvestigationBranchContext": {

@@ -110,9 +110,9 @@
 | POST | `/canvases/{id}/nodes/{node}/messages` | `{ text, model?, reasoning? }` | `{ reply }` | implemented |
 | GET | `/canvas-templates` | | `{ items: CanvasTemplateOption[] }` | mock |
 | POST | `/canvas-templates` | `{ from_canvas, name, keep }`；当前后端子路径只保存本人同环境通用画布的私有结构模板，`keep.steps/runbooks/content=true` 返回 422 | 模板 | mock |
-| GET | `/investigations/{id}/canvas` | | `CanvasGraph` | mock |
-| POST | `/investigations/{id}/branches` | `{ parent, title }` | `CanvasNode` | mock |
-| PATCH | `/investigations/{id}/nodes/{node}` | 位置、折叠、标题 | `CanvasNode` | mock |
+| GET | `/investigations/{id}/canvas` | | `CanvasGraph`；持久分支、上下文修订、证据及布局，未知 token 用量为 `null` | implemented |
+| POST | `/investigations/{id}/branches` | `{ parent_id?, parent?, title, x?, y?, expected_parent_revision? }`；至少一个父 ID | `CanvasNode`；锁定父修订后复制上下文，分支、布局、事件、审计同事务 | implemented |
+| PATCH | `/investigations/{id}/nodes/{node}` | `{ x?, y?, collapsed?, title?, expected_layout_version, expected_title? }`；改标题必带 `expected_title` | `CanvasNode`；版本冲突 409、缺前置条件 428 | implemented |
 | POST | `/investigations/{id}/nodes/{node}/messages` | `{ text, model?, reasoning? }` | `{ summary, new_branch? }`；`new_branch` 表示 AI 在该节点下派生了子分支（标题、副标题、摘要） | mock |
 | GET | `/investigations/{id}/writeback-preview` | `node` | 回写预览 | mock |
 | POST | `/investigations/{id}/writeback` | `{ node, target, items }` | `{ version }` | mock |
@@ -126,6 +126,8 @@
 通用画布模板保存已在同一事务复核会话、本人同环境源画布和当前 `canvas.change`，只复制净化后的节点/边布局及用户提交的模板名称，排除源节点标题、内容块、产物与对话；图结构验证失败不保存模板或审计。模板名称仍是可持久化文本：当前前端名称留空时会沿用源画布标题，可能包含需用户检查的业务信息。前端默认提交 `steps=true`、`runbooks=true`，而后端明确 422；页面还称“团队模板”，但当前仅为私有模板，且列表不含调查模板。故 `GET/POST /canvas-templates` 仍为 `mock`。
 
 通用画布节点 `POST /canvases/{id}/nodes/{node}/messages` 的后端已接持久化同步回复：限定本人画布、单一环境和当前 `canvas.change`，一次只运行一条回复。模型上下文包含当前节点及沿有向边可达的祖先节点块与已完成回合，不包含兄弟或失败回合，超过 24 KiB 返回 413；工具调用被拒绝。运行期间约每 2 秒检查当前会话与授权，失败时取消模型请求；完成事务再次核对原会话、画布归属与当前 `canvas.change`，完成时无权限则不保存助手回复。若撤权又恢复全部落在两次检查之间，不能保证取消本轮。失败的用户输入保留供刷新核对，不生成虚假助手消息。`GET /canvases/{id}` 校验节点、七种块、边和产物结构，在 `threads` 返回各节点完整已保存回合；历史超过 500 次交换、2 MiB 总量或单条助手消息 64 KiB 时返回 413，不截断。写入仍可继续，故达到上限后详情会持续 413，当前没有分页或归档恢复。两条主路由按后端判据标为 `implemented`，仅适用于私人通用画布；调查节点接口仍分开。前端尚无超限恢复/分页，发送失败也未清除 `busy`，真实 409/413/422/503 可卡住输入框，因此画布整页尚未验收。
+
+调查画布三条主路由按持久调查、分支、修订、证据和节点布局工作：读取在同一事务中核当前应用、环境、负责人团队及 `canvas.view`，节点/修订/证据分别超过 100/1000/100 条或单条展示证据超过 16 KiB 返回 413，不截断为貌似完整的图。分支派生要求单环境、开放调查及 `canvas.change`，锁定父分支并复制其当前修订；节点修改用布局版本比较，标题另与当前标题比较。成功写入与事件、管理审计原子提交，两个写接口均不调用模型；入口和提交前按原始 Cookie 复核精确会话及当前授权来源。历史运行的 token 用量不是当前上下文用量，因此返回 `null`；没有可信调查循环状态时 `loop` 为空。冻结画布页仍假定固定根节点及数值 token，拖拽请求不传必需的布局版本，后续消息与回写路由仍 `mock`，整页尚未验收。
 | GET | `/investigation-templates` | | 模板列表 | mock |
 | POST | `/investigation-templates/{id}/start` | `{ inputs }` | `{ investigation_id }` | mock |
 

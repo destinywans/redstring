@@ -34938,7 +34938,7 @@
       "get": {
         "summary": "List accessible runbooks",
         "operationId": "get_runbooks",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Returns 503 runbook_read_unavailable when an accessible runbook exists: complete reference and verification history is not persisted. An empty accessible collection returns empty items and counts.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Scoped persisted Runbook inventory. A repeatable-read snapshot locks the active session and current role grant rows, then checks each document, environment/application/team binding and object grant before counting, filtering and paging. Counts reflect visible q/service matches before tab paging; at most 10000 visible matches are accepted. Without a recorded verification time, stale is null and counts.verification_unknown increases; the stale tab includes only records with an old recorded time. Reference, outcome, KPI and suggestion producers are absent, so their values are null with explicit unknown_fields and complete_v3_dto=false. This partial main-route response does not meet the frozen frontend DTO yet.",
         "responses": {
           "200": {
             "description": "Success",
@@ -34960,21 +34960,76 @@
                       }
                     },
                     "kpis": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                      }
+                      "oneOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "suggestions": {
+                      "oneOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "page": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "per_page": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "has_next": {
+                      "type": "boolean"
+                    },
+                    "complete_v3_dto": {
+                      "const": false
+                    },
+                    "partial": {
+                      "const": true
+                    },
+                    "unknown_fields": {
                       "type": "array",
                       "items": {
-                        "type": "object",
-                        "additionalProperties": true
+                        "type": "string"
                       }
                     }
                   },
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "counts",
+                    "kpis",
+                    "suggestions",
+                    "page",
+                    "per_page",
+                    "total",
+                    "has_next",
+                    "complete_v3_dto",
+                    "partial",
+                    "unknown_fields"
+                  ]
                 }
               }
             }
@@ -35030,7 +35085,7 @@
             }
           },
           "503": {
-            "description": "Mandatory Runbook read fields lack an authoritative persisted source",
+            "description": "Runbook storage, structured steps, or authorization is unavailable",
             "content": {
               "application/json": {
                 "schema": {
@@ -35040,7 +35095,7 @@
             }
           },
           "413": {
-            "description": "More than 1000 candidate Runbooks exceed the unpaged response limit",
+            "description": "More than 10000 visible Runbooks match the bounded collection",
             "content": {
               "application/json": {
                 "schema": {
@@ -35075,6 +35130,20 @@
           },
           {
             "name": "tab",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "per_page",
             "in": "query",
             "schema": {
               "type": "string"
@@ -35249,7 +35318,7 @@
       "get": {
         "summary": "Read governed runbook",
         "operationId": "get_runbooks_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Reads the Runbook document, current object authorization and structured V3 steps in one read-only snapshot. Hidden, out-of-scope or non-Runbook objects return 404. An authorized document without a structured record returns 503 structured_steps_unavailable; an authorized structured Runbook returns 503 runbook_read_unavailable until complete usage, outcome, review lineage and execution verification are persisted. No zero usage or fabricated version timestamp is returned; persisted partial fields are available at /runbooks/{id}/record.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Reads the persisted Runbook, current object authorization, structured steps, revisions and recorded approvals in one repeatable snapshot with session and role grant row locks. Hidden, out-of-scope or non-Runbook objects return 404; a missing or unrepresentable structured record returns 503. Usage, incident association and pending reviewer assignment have no complete producer and remain explicitly unknown. A stored last_verified_at is shown only as a recorded timestamp, not proof of execution. complete_v3_dto=false means this partial main-route response does not meet the frozen frontend DTO yet.",
         "responses": {
           "200": {
             "description": "Success",
@@ -35312,7 +35381,17 @@
             }
           },
           "503": {
-            "description": "Structured V3 steps are missing, or mandatory full-detail fields lack an authoritative persisted source",
+            "description": "Structured V3 steps are missing or cannot be represented, or storage or authorization is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Runbook revision or recorded approval history exceeds 100 entries",
             "content": {
               "application/json": {
                 "schema": {
@@ -62562,7 +62641,10 @@
           "version": {
             "type": "string"
           },
-          "last_verified": {
+          "application_id": {
+            "type": "string"
+          },
+          "team_id": {
             "type": "string"
           },
           "tags": {
@@ -62579,14 +62661,35 @@
               "draft"
             ]
           },
+          "environment_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "refs_30d": {
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "resolve_rate": {
-            "type": "number"
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "last_verified": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "stale": {
-            "type": "boolean"
+            "type": [
+              "boolean",
+              "null"
+            ]
           }
         },
         "additionalProperties": false,
@@ -62599,8 +62702,12 @@
           "version",
           "status",
           "refs_30d",
+          "resolve_rate",
           "last_verified",
-          "stale"
+          "stale",
+          "environment_ids",
+          "application_id",
+          "team_id"
         ]
       },
       "V3Runbook": {
@@ -62627,6 +62734,21 @@
           "when": {
             "type": "string"
           },
+          "status": {
+            "type": "string"
+          },
+          "source_kind": {
+            "type": "string"
+          },
+          "source_ref": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "team_id": {
+            "type": "string"
+          },
           "tags": {
             "type": "array",
             "items": {
@@ -62639,6 +62761,18 @@
               "$ref": "#/components/schemas/V3RunbookStep"
             }
           },
+          "environment_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "last_verified": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "reviewers": {
             "type": "array",
             "items": {
@@ -62648,10 +62782,17 @@
                   "type": "string"
                 },
                 "state": {
-                  "type": "string"
+                  "type": "string",
+                  "enum": [
+                    "approved"
+                  ]
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "state"
+              ]
             }
           },
           "versions": {
@@ -62676,36 +62817,77 @@
             "type": "object",
             "properties": {
               "refs": {
-                "type": "integer"
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "resolve_rate": {
-                "type": "number"
+                "type": [
+                  "number",
+                  "null"
+                ]
               },
               "weekly": {
-                "type": "array",
-                "items": {
-                  "type": "integer"
-                }
+                "oneOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "highlight": {
-                "type": "integer"
+                "type": [
+                  "integer",
+                  "null"
+                ]
               }
             },
-            "additionalProperties": false
+            "additionalProperties": false,
+            "required": [
+              "refs",
+              "resolve_rate",
+              "weekly",
+              "highlight"
+            ]
           },
           "incidents": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string"
-                },
-                "title": {
-                  "type": "string"
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
                 }
               },
-              "additionalProperties": false
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "complete_v3_dto": {
+            "const": false
+          },
+          "partial": {
+            "const": true
+          },
+          "unknown_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           }
         },
@@ -62723,7 +62905,17 @@
           "reviewers",
           "versions",
           "usage",
-          "incidents"
+          "incidents",
+          "status",
+          "source_kind",
+          "source_ref",
+          "environment_ids",
+          "application_id",
+          "team_id",
+          "last_verified",
+          "complete_v3_dto",
+          "partial",
+          "unknown_fields"
         ]
       },
       "V3PostmortemCandidate": {

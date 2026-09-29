@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-183 · 2026-09-29 · WAN-123 Runbook 列表与详情
+
+- 从 CP-182 `0731177` 接续，发现最新来源 `5aee211` 依赖尚未集成的 `14fb3cc`，先撤销未完成的 cherry-pick，再按依赖顺序分别合入为 `4d191f0`、`afadd41`。领域 `Register` 已注册两条 GET，无需重复接线；无新增迁移。OpenAPI 领域片段与生成物同步。
+- 列表在同一事务快照内锁当前会话和角色授权来源，按当前环境、应用、团队及对象权逐条核准后过滤、计数与分页，可见匹配超过 10000 返回 413。详情读取持久结构化步骤、修订和已记录的批准；有权旧记录缺结构化步骤返回 503。未记录核验时间时 `stale` 为 `null`，用量、处置率、事件关联、待审和执行核验等缺可信来源时保持可空并列入 `unknown_fields`；记录的 `last_verified_at` 不证明执行成功。两条主 GET 按本阶段真实后端读取判据升 `implemented`，现 **118/166、48 mock**；`complete_v3_dto=false` 与冻结页面不兼容，页面未验收。
+- OpenAPI **315 路径、375 操作、393 schema**；本批最小 `go build` 退出 0（Go stat 缓存仍有沙箱权限警告），OpenAPI 生成、路由矩阵/readiness 静态检查及差异检查通过。按当前阶段约束未跑测试、真实 DB、迁移或浏览器；无 PR、合并或部署。下一批处理 WAN-118 告警规则、通知策略及人工事件来源。
+
 ## CP-182 · 2026-09-29 · WAN-123 知识来源、Agent 工具/评测案例与 Prompt
 
 - 从已推送 CP-181 `0944fe6` 接续，知识来源前置 `ee25df8` 合入 `8a72534`。来源 `d857f6e` 同时修改冻结的 `web/src/v3/api/types.ts`，整笔 cherry-pick 被自动审批拒绝；依审核提示仅提取后端、领域契约、文档及源测试文件，形成 `ddf1b2f`，前端类型/Mock 未动。其后 Agent 工具/案例 `4ad4b86`、Prompt 治理 `560c85c` 依次合入 `5eef4dd`、`6f1b40a`。现有 `v3agents.Service.Register` 已注册相关路由，无重复接线。新增迁移 `137_v3_agent_tool_usage.sql` 和 `138_v3_agent_eval_case_snapshots.sql`；后者与邀请迁移前缀同号但全文件名不同。两项尚未在现有库执行。

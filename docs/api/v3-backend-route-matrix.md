@@ -72,8 +72,8 @@
 | 事件与告警 | POST | `/proposals/{id}/comments` | 新增 | implemented |
 | 事件与告警 | GET | `/executions/{id}` | 旧路径适配 | mock |
 | 事件与告警 | POST | `/executions/{id}/report/publish` | 新增 | mock |
-| 知识与记忆 | GET | `/runbooks` | 新增 | mock |
-| 知识与记忆 | GET | `/runbooks/{id}` | 新增 | mock |
+| 知识与记忆 | GET | `/runbooks` | 新增 | implemented |
+| 知识与记忆 | GET | `/runbooks/{id}` | 新增 | implemented |
 | 知识与记忆 | POST | `/runbooks/{id}/dry-run` | 新增 | implemented |
 | 知识与记忆 | POST | `/runbooks/{id}/submit` | 新增 | implemented |
 | 知识与记忆 | GET | `/postmortems` | 新增 | mock |

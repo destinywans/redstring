@@ -632,12 +632,17 @@ func (s *Service) patch(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "invalid_tools", "Choose at least one tool to update")
 		return
 	}
-	tx, err := s.DB.Begin(r.Context())
+	// Bound the row and authorization lock waits while this write transaction
+	// holds the connector. A canceled request must not leave its row locked.
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	r = r.WithContext(ctx)
+	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 		return
 	}
-	defer tx.Rollback(r.Context())
+	defer rollbackPatch(tx)
 	if !s.authorizeWriteTx(w, r, tx, env[0]) {
 		return
 	}
@@ -648,6 +653,17 @@ func (s *Service) patch(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
+		return
+	}
+	if err = lockPatchAuthority(r.Context(), tx, r, env[0]); err != nil {
+		if errors.Is(err, store.ErrForbidden) {
+			httpapi.Error(w, 403, "forbidden", "Connector management permission required")
+		} else {
+			httpapi.Error(w, 503, "authorization_unavailable", "Connector authorization unavailable")
+		}
+		return
+	}
+	if !s.authorizeWriteTx(w, r, tx, env[0]) {
 		return
 	}
 	d, known := descriptors[c.Provider]

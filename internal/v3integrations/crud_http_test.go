@@ -267,6 +267,192 @@ func TestConnectorCRUDHTTPV3ScopePersistenceAndAudit(t *testing.T) {
 	if strings.Contains(auditChanges, "vault://") || strings.Contains(auditChanges, "gitlab.example.invalid") {
 		t.Fatalf("audit leaked connection settings: %s", auditChanges)
 	}
+	// Revoke manage after PATCH has passed its first authorization check and
+	// reached the connector row lock. The committed revoke must win before
+	// PATCH can update the stored tools or write its audit entry.
+	var readyAuditsBefore int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE target=$1 AND action='connector.tools.updated'`, readyResult.ID).Scan(&readyAuditsBefore); err != nil {
+		t.Fatal(err)
+	}
+	revokeLockTx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer revokeLockTx.Rollback(ctx)
+	var revokeLockedID string
+	if err := revokeLockTx.QueryRow(ctx, `SELECT id FROM v3_connectors WHERE id=$1 FOR UPDATE`, readyResult.ID).Scan(&revokeLockedID); err != nil || revokeLockedID != readyResult.ID {
+		t.Fatalf("hold connector row for revoke race: %s %v", revokeLockedID, err)
+	}
+	revokeResponse := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		revokeResponse <- request(http.MethodPatch, "/api/v1/connectors/"+readyResult.ID, "dev", token,
+			`{"tools":[{"name":"query_metrics","enabled":true}]}`)
+	}()
+	revokeDeadline := time.Now().Add(10 * time.Second)
+	for {
+		var waiting int
+		if err := adminDB.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+ WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE '%FROM v3_connectors%FOR UPDATE%'`, schema).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting == 1 {
+			break
+		}
+		if time.Now().After(revokeDeadline) {
+			t.Fatalf("expected PATCH waiting on connector row before revoke, saw %d", waiting)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	revokeTag, err := adminDB.Exec(ctx, `DELETE FROM `+quoted+`.v3_role_grants
+	 WHERE role_id='viewer' AND module='connectors' AND action='manage' AND scope_kind='environment' AND scope_id='dev'`)
+	if err != nil {
+		t.Fatalf("commit manage revoke during PATCH: %v", err)
+	}
+	if revokeTag.RowsAffected() != 1 {
+		t.Fatalf("expected exactly one committed manage grant revoke, got %d", revokeTag.RowsAffected())
+	}
+	if err := revokeLockTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case response := <-revokeResponse:
+		assert(response, 403, "forbidden")
+	case <-time.After(10 * time.Second):
+		t.Fatal("revoked PATCH did not complete after connector row release")
+	}
+	if err := db.QueryRow(ctx, `SELECT tools FROM v3_connectors WHERE id=$1`, readyResult.ID).Scan(&persistedTools); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(persistedTools, &readyTools.RegisteredTools); err != nil || len(readyTools.RegisteredTools) != 1 || readyTools.RegisteredTools[0].Enabled {
+		t.Fatalf("revoked PATCH changed tools: %s %v", persistedTools, err)
+	}
+	var readyAuditsAfter int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE target=$1 AND action='connector.tools.updated'`, readyResult.ID).Scan(&readyAuditsAfter); err != nil || readyAuditsAfter != readyAuditsBefore {
+		t.Fatalf("revoked PATCH audit count=%d before=%d err=%v", readyAuditsAfter, readyAuditsBefore, err)
+	}
+	if _, err := adminDB.Exec(ctx, `INSERT INTO `+quoted+`.v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('viewer','connectors','manage','environment','dev')`); err != nil {
+		t.Fatal(err)
+	}
+	// A new manage role committed after PATCH locked its original grant set
+	// cannot become a permission witness for this in-flight PATCH.
+	var viewerID string
+	if err := db.QueryRow(ctx, `SELECT id FROM users WHERE email='viewer@example.invalid'`).Scan(&viewerID); err != nil {
+		t.Fatal(err)
+	}
+	phantomLockTx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer phantomLockTx.Rollback(ctx)
+	var phantomLockedID string
+	if err := phantomLockTx.QueryRow(ctx, `SELECT id FROM v3_connectors WHERE id=$1 FOR UPDATE`, readyResult.ID).Scan(&phantomLockedID); err != nil || phantomLockedID != readyResult.ID {
+		t.Fatalf("hold connector row for role insertion race: %s %v", phantomLockedID, err)
+	}
+	phantomResponse := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		phantomResponse <- request(http.MethodPatch, "/api/v1/connectors/"+readyResult.ID, "dev", token,
+			`{"tools":[{"name":"query_metrics","enabled":true}]}`)
+	}()
+	phantomDeadline := time.Now().Add(10 * time.Second)
+	for {
+		var waiting int
+		if err := adminDB.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+ WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE '%FROM v3_connectors%FOR UPDATE%'`, schema).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting == 1 {
+			break
+		}
+		if time.Now().After(phantomDeadline) {
+			t.Fatalf("expected PATCH waiting on connector row before role insertion, saw %d", waiting)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	sessionLockTx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sessionLockTx.Rollback(ctx)
+	var sessionHash string
+	if err := sessionLockTx.QueryRow(ctx, `SELECT token_hash FROM sessions WHERE token_hash=$1 FOR UPDATE`, store.Hash(token)).Scan(&sessionHash); err != nil || sessionHash != store.Hash(token) {
+		t.Fatalf("hold session row for role insertion race: %s %v", sessionHash, err)
+	}
+	revokeTag, err = adminDB.Exec(ctx, `DELETE FROM `+quoted+`.v3_role_grants
+ WHERE role_id='viewer' AND module='connectors' AND action='manage' AND scope_kind='environment' AND scope_id='dev'`)
+	if err != nil || revokeTag.RowsAffected() != 1 {
+		t.Fatalf("commit original manage grant revoke: rows=%d err=%v", revokeTag.RowsAffected(), err)
+	}
+	if err := phantomLockTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		var waiting int
+		if err := adminDB.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+ WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE '%FROM sessions%FOR SHARE%'`, schema).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting == 1 {
+			break
+		}
+		if time.Now().After(phantomDeadline) {
+			t.Fatalf("expected PATCH waiting on session after locked grant scan, saw %d", waiting)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	phantomRoleTx, err := adminDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer phantomRoleTx.Rollback(ctx)
+	for _, statement := range []string{
+		`INSERT INTO ` + quoted + `.rbac_roles(id,name) VALUES('phantom-manage','Phantom manage')`,
+		`INSERT INTO ` + quoted + `.v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES('phantom-manage','connectors','manage','environment','dev')`,
+	} {
+		if _, err := phantomRoleTx.Exec(ctx, statement); err != nil {
+			t.Fatalf("insert new manage role during PATCH: %v", err)
+		}
+	}
+	if _, err := phantomRoleTx.Exec(ctx, `INSERT INTO `+quoted+`.rbac_user_roles(user_id,role_id,origin)
+ VALUES($1,'phantom-manage','direct')`, viewerID); err != nil {
+		t.Fatalf("assign new manage role during PATCH: %v", err)
+	}
+	if err := phantomRoleTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := sessionLockTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case response := <-phantomResponse:
+		assert(response, 403, "forbidden")
+	case <-time.After(10 * time.Second):
+		t.Fatal("PATCH did not complete after session row release")
+	}
+	if err := db.QueryRow(ctx, `SELECT tools FROM v3_connectors WHERE id=$1`, readyResult.ID).Scan(&persistedTools); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(persistedTools, &readyTools.RegisteredTools); err != nil || len(readyTools.RegisteredTools) != 1 || readyTools.RegisteredTools[0].Enabled {
+		t.Fatalf("new role authorized revoked PATCH tool update: %s %v", persistedTools, err)
+	}
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE target=$1 AND action='connector.tools.updated'`, readyResult.ID).Scan(&readyAuditsAfter); err != nil || readyAuditsAfter != readyAuditsBefore {
+		t.Fatalf("new role authorized revoked PATCH audit: count=%d before=%d err=%v", readyAuditsAfter, readyAuditsBefore, err)
+	}
+	if _, err := adminDB.Exec(ctx, `DELETE FROM `+quoted+`.rbac_user_roles WHERE user_id=$1 AND role_id='phantom-manage'`, viewerID); err != nil {
+		t.Fatalf("clean new manage role assignment: %v", err)
+	}
+	for _, statement := range []string{
+		`DELETE FROM ` + quoted + `.v3_role_grants WHERE role_id='phantom-manage'`,
+		`DELETE FROM ` + quoted + `.rbac_roles WHERE id='phantom-manage'`,
+	} {
+		if _, err := adminDB.Exec(ctx, statement); err != nil {
+			t.Fatalf("clean new manage role: %v", err)
+		}
+	}
+	if _, err := adminDB.Exec(ctx, `INSERT INTO `+quoted+`.v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('viewer','connectors','manage','environment','dev')`); err != nil {
+		t.Fatal(err)
+	}
 	// Hold the row until both PATCH transactions are waiting for its lock.
 	// Releasing it then proves that both partial updates merge in lock order.
 	lockTx, err := db.Begin(ctx)

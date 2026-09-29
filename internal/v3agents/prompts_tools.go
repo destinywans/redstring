@@ -50,19 +50,14 @@ func decodePromptVersion(w http.ResponseWriter, r *http.Request, target any) boo
 	return true
 }
 
-func (s *Service) loadPrompt(r *http.Request, id string) (prompt, error) {
-	var p prompt
-	err := s.DB.QueryRow(r.Context(), `SELECT id,agent_id,name,current_version FROM v3_agent_prompts WHERE id=$1`, id).
-		Scan(&p.ID, &p.AgentID, &p.Name, &p.Version)
-	return p, err
-}
-
 func (s *Service) promptAgent(w http.ResponseWriter, r *http.Request, id, action string) (prompt, agent, bool) {
 	if s == nil || s.DB == nil || s.Access == nil {
 		unavailable(w)
 		return prompt{}, agent{}, false
 	}
-	p, err := s.loadPrompt(r, id)
+	var p prompt
+	err := s.DB.QueryRow(r.Context(), `SELECT id,agent_id,name,current_version FROM v3_agent_prompts WHERE id=$1`, id).
+		Scan(&p.ID, &p.AgentID, &p.Name, &p.Version)
 	if errors.Is(err, pgx.ErrNoRows) {
 		notFound(w)
 		return prompt{}, agent{}, false
@@ -73,6 +68,46 @@ func (s *Service) promptAgent(w http.ResponseWriter, r *http.Request, id, action
 	}
 	a, ok := s.objectAgent(w, r, p.AgentID, action)
 	return p, a, ok
+}
+
+// Discovery authorization supplies a user-facing object decision before the
+// transaction starts. The transaction always reloads and reauthorizes the
+// current object; this first check does not grant access to its contents.
+func (s *Service) discoverPromptAgent(w http.ResponseWriter, r *http.Request, id string, envs []string, action string) (agent, bool) {
+	var agentID string
+	err := s.DB.QueryRow(r.Context(), `SELECT agent_id FROM v3_agent_prompts WHERE id=$1`, id).Scan(&agentID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		notFound(w)
+		return agent{}, false
+	}
+	if err != nil {
+		unavailable(w)
+		return agent{}, false
+	}
+	a, err := s.loadAgent(r.Context(), agentID)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !contains(envs, a.Env)) {
+		notFound(w)
+		return agent{}, false
+	}
+	if err != nil {
+		unavailable(w)
+		return agent{}, false
+	}
+	err = s.Access.Authorize(r.Context(), httpapi.CurrentUser(r), rbac.V3Decision{
+		Module: "agents", Action: action, EnvironmentID: a.Env, ApplicationID: a.App})
+	if errors.Is(err, store.ErrForbidden) {
+		if action == "view" {
+			notFound(w)
+		} else {
+			httpapi.Error(w, http.StatusForbidden, "forbidden", "Agent permission required")
+		}
+		return agent{}, false
+	}
+	if err != nil {
+		unavailable(w)
+		return agent{}, false
+	}
+	return a, true
 }
 
 func (s *Service) Prompts(w http.ResponseWriter, r *http.Request) {
@@ -89,26 +124,45 @@ func (s *Service) Prompts(w http.ResponseWriter, r *http.Request) {
 		promptRequestError(w, r, "invalid_agent_request", "搜索词不能超过 160 个字符", "Prompt search must be at most 160 characters")
 		return
 	}
-	items := make([]any, 0)
-	rows, err := s.DB.Query(r.Context(), `SELECT p.id,p.name,p.current_version FROM v3_agent_prompts p
-	 JOIN v3_agents a ON a.id=p.agent_id WHERE p.current_version>0
-	 AND a.environment_id=ANY($1) AND `+visibleAgentGrantSQL+`
-	 AND ($3='' OR strpos(lower(p.name),lower($3))>0 OR strpos(lower(p.id),lower($3))>0)
- ORDER BY p.name,p.id LIMIT 201`, envs, httpapi.CurrentUser(r).ID, query)
+	tx, err := s.DB.Begin(r.Context())
 	if err != nil {
 		unavailable(w)
 		return
 	}
+	defer tx.Rollback(r.Context())
+	if !lockPromptRequest(w, r, tx) {
+		return
+	}
+	// The joined revision is the actual current body. An unversioned catalog
+	// row, or a dangling current_version, is not a readable Prompt.
+	rows, err := tx.Query(r.Context(), `SELECT p.id,p.name,p.current_version,a.application_id,a.environment_id
+	 FROM v3_agent_prompts p JOIN v3_agents a ON a.id=p.agent_id
+	 JOIN v3_agent_prompt_versions v ON v.prompt_id=p.id AND v.version=p.current_version
+	 JOIN v3_application_environments mapped ON mapped.application_id=a.application_id
+	   AND mapped.environment_id=a.environment_id
+	 JOIN applications app ON app.id=a.application_id AND NOT app.archived
+	 JOIN application_environments ae ON ae.application_id=app.id
+	   AND ae.key=a.environment_id AND NOT ae.archived
+	 WHERE p.current_version>0 AND a.environment_id=ANY($1) AND `+visibleAgentGrantSQL+`
+	 AND ($3='' OR strpos(lower(p.name),lower($3))>0 OR strpos(lower(p.id),lower($3))>0)
+ ORDER BY p.name,p.id LIMIT 1001 FOR SHARE OF p,a,v,mapped,app,ae`, envs, httpapi.CurrentUser(r).ID, query)
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	type listedPrompt struct {
+		id, name, app, env string
+		version            int
+	}
+	candidates := make([]listedPrompt, 0, 201)
 	for rows.Next() {
-		var id, name string
-		var version int
-		if err = rows.Scan(&id, &name, &version); err != nil {
+		var p listedPrompt
+		if err = rows.Scan(&p.id, &p.name, &p.version, &p.app, &p.env); err != nil {
 			rows.Close()
 			unavailable(w)
 			return
 		}
-		items = append(items, map[string]any{"id": id, "kind": "prompt", "name": name,
-			"version": promptDisplayVersion(version)})
+		candidates = append(candidates, p)
 	}
 	if rows.Err() != nil {
 		rows.Close()
@@ -116,8 +170,47 @@ func (s *Service) Prompts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows.Close()
+	if len(candidates) > 1000 {
+		httpapi.Error(w, 413, "prompt_list_too_large", "Filter Prompts with q to return at most 200 items")
+		return
+	}
+	items := make([]any, 0, len(candidates))
+	activeScopes := make(map[string]bool)
+	for _, p := range candidates {
+		scopeKey := p.app + "\x00" + p.env
+		if !activeScopes[scopeKey] {
+			if err = lockActiveEvalScope(r.Context(), tx, agent{App: p.app, Env: p.env}); errors.Is(err, pgx.ErrNoRows) {
+				continue
+			} else if err != nil {
+				unavailable(w)
+				return
+			}
+			activeScopes[scopeKey] = true
+		}
+		err = s.Access.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), rbac.V3Decision{
+			Module: "agents", Action: "view", EnvironmentID: p.env, ApplicationID: p.app})
+		if errors.Is(err, store.ErrForbidden) {
+			continue
+		}
+		if err != nil {
+			unavailable(w)
+			return
+		}
+		items = append(items, map[string]any{"id": p.id, "kind": "prompt", "name": p.name,
+			"version": promptDisplayVersion(p.version)})
+		if len(items) > 200 {
+			break
+		}
+	}
 	if len(items) > 200 {
 		httpapi.Error(w, 413, "prompt_list_too_large", "Filter Prompts with q to return at most 200 items")
+		return
+	}
+	if !recheckPromptSession(w, r, tx) {
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		unavailable(w)
 		return
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items, "truncated": false,
@@ -150,8 +243,10 @@ func (s *Service) PromptDetail(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, 200, map[string]any{"id": p.ID, "name": p.Name, "version": promptDisplayVersion(p.Version),
 		"variables": variables, "used_by": promptLocalized(r, "运行时使用关系未接入", "Runtime usage unavailable"), "lines": lines,
 		"notes": promptLocalized(r, "发布说明未记录", "Release notes unavailable"), "registered_agent": map[string]string{"id": a.ID, "name": a.Name},
-		"scope":   map[string]string{"application_id": a.App, "environment_id": a.Env},
-		"partial": true, "unavailable_fields": []string{"publication_status", "release_notes", "runtime_usage"}})
+		"scope":              map[string]string{"application_id": a.App, "environment_id": a.Env},
+		"publication_status": nil, "runtime_usage": nil, "evaluation_score": nil, "evaluation_coverage": nil,
+		"partial": true, "unavailable_fields": []string{
+			"publication_status", "release_notes", "runtime_usage", "evaluation_score", "evaluation_coverage"}})
 }
 
 // readPromptVersion keeps scope, authorization, current-version metadata and
@@ -166,15 +261,22 @@ func (s *Service) readPromptVersion(w http.ResponseWriter, r *http.Request) (pro
 	if !ok {
 		return prompt{}, agent{}, "", false
 	}
+	discovered, ok := s.discoverPromptAgent(w, r, r.PathValue("id"), envs, "view")
+	if !ok {
+		return prompt{}, agent{}, "", false
+	}
 	tx, err := s.DB.Begin(r.Context())
 	if err != nil {
 		unavailable(w)
 		return prompt{}, agent{}, "", false
 	}
 	defer tx.Rollback(r.Context())
+	if !recheckPromptSession(w, r, tx) {
+		return prompt{}, agent{}, "", false
+	}
 	var agentID string
 	err = tx.QueryRow(r.Context(), `SELECT agent_id FROM v3_agent_prompts WHERE id=$1`, r.PathValue("id")).Scan(&agentID)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && agentID != discovered.ID) {
 		notFound(w)
 		return prompt{}, agent{}, "", false
 	}
@@ -183,11 +285,18 @@ func (s *Service) readPromptVersion(w http.ResponseWriter, r *http.Request) (pro
 		return prompt{}, agent{}, "", false
 	}
 	a, err := scanAgent(tx.QueryRow(r.Context(), `SELECT `+agentColumns+` FROM v3_agents WHERE id=$1 FOR SHARE`, agentID))
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (a.App != discovered.App || a.Env != discovered.Env)) {
 		notFound(w)
 		return prompt{}, agent{}, "", false
 	}
 	if err != nil {
+		unavailable(w)
+		return prompt{}, agent{}, "", false
+	}
+	if err = lockActiveEvalScope(r.Context(), tx, a); errors.Is(err, pgx.ErrNoRows) {
+		notFound(w)
+		return prompt{}, agent{}, "", false
+	} else if err != nil {
 		unavailable(w)
 		return prompt{}, agent{}, "", false
 	}
@@ -212,15 +321,31 @@ func (s *Service) readPromptVersion(w http.ResponseWriter, r *http.Request) (pro
 		unavailable(w)
 		return prompt{}, agent{}, "", false
 	}
+	if !lockPromptGrantSources(w, r, tx) || !recheckPromptSession(w, r, tx) {
+		return prompt{}, agent{}, "", false
+	}
+	err = s.Access.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), rbac.V3Decision{
+		Module: "agents", Action: "view", EnvironmentID: a.Env, ApplicationID: a.App})
+	if errors.Is(err, store.ErrForbidden) {
+		notFound(w)
+		return prompt{}, agent{}, "", false
+	}
+	if err != nil {
+		unavailable(w)
+		return prompt{}, agent{}, "", false
+	}
 	if p.Version == 0 {
 		httpapi.Error(w, 409, "prompt_empty", "Prompt has no persisted version")
 		return prompt{}, agent{}, "", false
 	}
 	var body string
 	err = tx.QueryRow(r.Context(), `SELECT body FROM v3_agent_prompt_versions
-	 WHERE prompt_id=$1 AND version=$2`, p.ID, p.Version).Scan(&body)
+	 WHERE prompt_id=$1 AND version=$2 FOR SHARE`, p.ID, p.Version).Scan(&body)
 	if err != nil {
 		unavailable(w)
+		return prompt{}, agent{}, "", false
+	}
+	if !recheckPromptSession(w, r, tx) {
 		return prompt{}, agent{}, "", false
 	}
 	if err = tx.Commit(r.Context()); err != nil {
@@ -231,7 +356,15 @@ func (s *Service) readPromptVersion(w http.ResponseWriter, r *http.Request) (pro
 }
 
 func (s *Service) PromptVersion(w http.ResponseWriter, r *http.Request) {
-	p, a, ok := s.promptAgent(w, r, r.PathValue("id"), "change")
+	if s == nil || s.DB == nil || s.Access == nil {
+		unavailable(w)
+		return
+	}
+	envs, ok := requestScope(w, r, true)
+	if !ok {
+		return
+	}
+	discovered, ok := s.discoverPromptAgent(w, r, r.PathValue("id"), envs, "change")
 	if !ok {
 		return
 	}
@@ -251,18 +384,11 @@ func (s *Service) PromptVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	var agentApp, agentEnv string
-	err = tx.QueryRow(r.Context(), `SELECT application_id,environment_id FROM v3_agents
- WHERE id=$1 FOR SHARE`, a.ID).Scan(&agentApp, &agentEnv)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (agentApp != a.App || agentEnv != a.Env)) {
-		notFound(w)
+	if !recheckPromptSession(w, r, tx) {
 		return
 	}
-	if err != nil {
-		unavailable(w)
-		return
-	}
-	err = tx.QueryRow(r.Context(), `SELECT current_version FROM v3_agent_prompts WHERE id=$1 AND agent_id=$2 FOR UPDATE`, p.ID, a.ID).Scan(&p.Version)
+	var agentID string
+	err = tx.QueryRow(r.Context(), `SELECT agent_id FROM v3_agent_prompts WHERE id=$1`, r.PathValue("id")).Scan(&agentID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		notFound(w)
 		return
@@ -271,7 +397,37 @@ func (s *Service) PromptVersion(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
+	a, err := scanAgent(tx.QueryRow(r.Context(), `SELECT `+agentColumns+` FROM v3_agents WHERE id=$1 FOR SHARE`, agentID))
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (!contains(envs, a.Env) || a.App != discovered.App || a.Env != discovered.Env)) {
+		notFound(w)
+		return
+	}
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	if err = lockActiveEvalScope(r.Context(), tx, a); errors.Is(err, pgx.ErrNoRows) {
+		notFound(w)
+		return
+	} else if err != nil {
+		unavailable(w)
+		return
+	}
+	var p prompt
+	err = tx.QueryRow(r.Context(), `SELECT id,agent_id,name,current_version FROM v3_agent_prompts
+	 WHERE id=$1 FOR UPDATE`, r.PathValue("id")).Scan(&p.ID, &p.AgentID, &p.Name, &p.Version)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && p.AgentID != a.ID) {
+		notFound(w)
+		return
+	}
+	if err != nil {
+		unavailable(w)
+		return
+	}
 	if !s.authorizedTx(w, r, tx, a, "change") {
+		return
+	}
+	if !lockPromptGrantSources(w, r, tx) || !recheckPromptSession(w, r, tx) || !s.authorizedTx(w, r, tx, a, "change") {
 		return
 	}
 	next := p.Version + 1
@@ -290,6 +446,9 @@ func (s *Service) PromptVersion(w http.ResponseWriter, r *http.Request) {
 		map[string]any{"environment_id": a.Env, "version": next})
 	if err != nil {
 		unavailable(w)
+		return
+	}
+	if !recheckPromptSession(w, r, tx) {
 		return
 	}
 	if err = tx.Commit(r.Context()); err != nil {

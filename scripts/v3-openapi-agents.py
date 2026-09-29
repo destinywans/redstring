@@ -54,22 +54,35 @@ v3_route('get','/prompts','List bounded persisted Prompt versions',
         ['id','kind','name','version'])),'truncated':v3_bool(),
         'partial':v3_bool(),'unavailable_fields':arr(string())},
         ['items','truncated','partial','unavailable_fields']),
-    desc='At most 200 visible persisted Prompt identities with a nonzero version. Optional q matches ID or name, trimmed and bounded to 160 Unicode characters; excess returns localized 422. More than 200 visible matches returns 413 prompt_list_too_large rather than silent truncation. Skills and publication status are unavailable fields; runtime binding is not attested. The full Prompt page remains mock.')
+    desc='At most 200 visible persisted Prompt identities whose current version body exists. The read rechecks current session, Agent scope and grants in its transaction. Optional q matches ID or name, trimmed and bounded to 160 Unicode characters; excess returns localized 422. More than 200 visible matches or 1000 grant-prefiltered candidates returns 413 prompt_list_too_large rather than silent truncation. Skills and publication status are unavailable fields; runtime binding is not attested. The full Prompt page remains mock.')
 P['/prompts']['get']['responses']['413'] = {
-    'description':'More than 200 visible Prompt identities; narrow q',
+    'description':'More than 200 visible Prompt identities or 1000 grant-prefiltered candidates; narrow q',
     'content':{'application/json':{'schema':ref('Error')}}}
 P['/prompts']['get']['responses']['422'] = {
     'description':'Search term exceeds 160 Unicode characters; message follows Accept-Language zh/en',
     'content':{'application/json':{'schema':ref('Error')}}}
+v3_route('post','/prompts','Register one scoped Prompt draft and first version',
+    role='viewer with scoped agents.change',
+    body=obj({'agent_id':string(maxLength=128),'name':string(maxLength=160),
+        'text':string(maxLength=20000)},['agent_id','name','text']),
+    response=obj({'id':string(pattern=r'^[0-9a-f]{32}$'),
+        'version':string(pattern=r'^v[1-9][0-9]*$')},['id','version']),
+    status=201,
+    desc='Requires one selected environment and agents.change on the existing active Agent. Generates a server-side Prompt ID and saves exact nonblank v1 text, current-version pointer and metadata-only audit in one session- and grant-checked transaction. Registration stores a draft; it does not publish, evaluate or bind text to Agent execution.')
 v3_route('get','/prompts/{id}','Read one stored Prompt version',
     response=obj({**fieldnames('id name version notes'),
         'variables':arr(string()),
         'used_by':string(),'lines':arr(obj({'text':string()},['text'])),
         'registered_agent':obj(fieldnames('id name'),['id','name']),
         'scope':obj(fieldnames('application_id environment_id'),['application_id','environment_id']),
+        'evaluation_score':{'type':'null'},'evaluation_coverage':{'type':'null'},
+        'runtime_usage':{'type':'null'},
+        'publication_status':{'type':'null'},
         'partial':v3_bool(),'unavailable_fields':arr(string())},
-        ['id','name','version','variables','used_by','lines','notes','registered_agent','scope','partial','unavailable_fields']),
-    desc='Reads the current persisted Prompt version and registered Agent under one scoped, authorized transaction. Variables are parsed from persisted text; lines preserve the text for the frontend editor. Publication status, release notes and runtime usage are unavailable, with localized explanatory used_by and notes. Unknown or hidden Prompt returns 404; a Prompt with no version returns 409; storage or policy failure returns 503. This does not prove a runtime-bound Prompt or complete frontend page.')
+        ['id','name','version','variables','used_by','lines','notes','registered_agent','scope',
+         'evaluation_score','evaluation_coverage','runtime_usage',
+         'publication_status','partial','unavailable_fields']),
+    desc='Reads the current persisted Prompt version and registered Agent under one scoped transaction that rechecks current session, active Agent scope and grants. Variables are parsed from persisted text; lines preserve the text for the frontend editor. Evaluation score and coverage, publication status and runtime usage are null; localized used_by and notes explain unknown values required by the frozen page. Unknown or hidden Prompt returns 404; a Prompt with no version returns 409; storage or policy failure returns 503. This does not prove a runtime-bound Prompt or complete frontend page.')
 for _status, _description in {
     '404':'Unknown or hidden Prompt identity',
     '409':'Registered Prompt has no persisted version',
@@ -80,7 +93,7 @@ for _status, _description in {
 v3_route('post','/prompts/{id}/versions','Store a new Prompt text revision',
     role='viewer with scoped agents.change',
     body=obj({'text':string()},['text']),response=obj({'version':string(pattern=r'^v[1-9][0-9]*$')},['version']),status=201,
-    desc='Stores a nonblank text revision of at most 20000 Unicode characters with original whitespace and transactional audit, returning its vN display version. Invalid JSON, multiple JSON objects or invalid text return 422 with an Accept-Language zh/en message. Requires a registered Prompt under the current scoped Agent; it does not publish or execute the Prompt.')
+    desc='Stores a nonblank text revision of at most 20000 Unicode characters with original whitespace and transactional audit, returning its vN display version. Invalid JSON, multiple JSON objects or invalid text return 422 with an Accept-Language zh/en message. Requires a registered Prompt under the current active scoped Agent, rechecked session and grants; it does not publish or execute the Prompt.')
 P['/prompts/{id}/versions']['post']['responses']['422'] = {
     'description':'Invalid JSON body or Prompt text; message follows Accept-Language zh/en',
     'content':{'application/json':{'schema':ref('Error')}}}

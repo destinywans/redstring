@@ -323,7 +323,7 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 		!promptDetail.Partial || promptDetail.RegisteredAgent.ID != "triage" ||
 		strings.Join(promptDetail.Variables, ",") != "service,environment" ||
 		promptDetail.UsedBy != "运行时使用关系未接入" || promptDetail.Notes != "发布说明未记录" ||
-		strings.Join(promptDetail.UnavailableFields, ",") != "publication_status,release_notes,runtime_usage" ||
+		strings.Join(promptDetail.UnavailableFields, ",") != "publication_status,release_notes,runtime_usage,evaluation_score,evaluation_coverage" ||
 		strings.Contains(refreshed.Body.String(), `"status":`) {
 		t.Fatalf("refreshed prompt lost identity, version, or original whitespace: %+v err=%v", promptDetail, err)
 	}

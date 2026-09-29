@@ -43,6 +43,7 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"POST /api/v1/agents/{id}/rollback", "manage", s.Rollback},
 		{"PATCH /api/v1/agents/{id}/level", "manage", s.Level},
 		{"GET /api/v1/prompts", "view", s.Prompts},
+		{"POST /api/v1/prompts", "change", s.CreatePrompt},
 		{"GET /api/v1/prompts/{id}", "view", s.PromptDetail},
 		{"POST /api/v1/prompts/{id}/versions", "change", s.PromptVersion},
 		{"POST /api/v1/prompts/{id}/trial", "change", s.PromptTrial},

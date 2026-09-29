@@ -88,9 +88,21 @@ v3_route('get','/me/notification-settings','Read personal notification settings'
 v3_route('put','/me/notification-settings','Update personal notification settings',body=ref('V3NotificationSettingsPatch'),response=ref('V3NotificationSettings'),
     desc='Merges the authenticated user\'s supported preference fields in a locked, audited transaction and returns the stored result. The current UI sends quiet as a boolean, digest as an enum and subscriptions as existing subscription IDs mapped to booleans. Full objects preserve existing subscription identity and metadata. This saves preferences only; it does not enable or send notifications.')
 v3_route('get','/workspace','Read workspace settings',response=ref('V3Workspace'),
-    desc='Rechecks the active account and current workspace.view grant for a selected authorized environment in the same read transaction, then returns the persisted workspace record. A missing or invalid record returns 503 workspace_unavailable rather than invented defaults. data_region is a saved deployment declaration, not proof of physical data residency. Saved slug, defaults and retention do not yet drive dependent product behavior; the frozen frontend page still uses mock data.')
+    desc='Rechecks the active account and current workspace.view grant for a selected authorized environment in the same read transaction, then returns the persisted workspace record and its strong revision ETag. A missing or invalid record returns 503 workspace_unavailable rather than invented defaults. data_region is a saved deployment declaration, not proof of physical data residency. Saved slug, week start and retention do not yet drive dependent product behavior; the frozen frontend page still uses mock data.')
 v3_route('put','/workspace','Update workspace settings',role='admin',body=ref('V3Workspace'),response=ref('V3Workspace'),
-    desc='Requires an active platform administrator with a global workspace.manage grant. Accepts one strict JSON object with known editable fields; rejects unknown or invalid fields. The transaction rechecks authority and returns persisted settings. Data region and branding fields are deployment-owned and cannot be changed here. No version precondition is supported, and the saved slug, default settings, and retention values do not yet drive dependent page behavior.')
+    desc='Requires one selected environment, an active platform administrator with a global workspace.manage grant, and the exact strong ETag from GET /workspace in If-Match. Accepts one complete strict eight-field JSON object including complete brand fields; rejects missing, duplicate, unknown or invalid fields. The transaction rechecks authority and row revision, then commits settings and audit together and returns the persisted record with a new ETag. Data region and branding fields are deployment-owned and must match the saved values. Newly created local and imported directory members inherit saved locale and timezone; existing members are unchanged. Saved slug, week start and retention do not yet drive dependent product behavior. The current frontend does not forward ETag, so its real-mode save receives 428 until adapted.')
+_workspace_etag = {'description':'Strong ETag for the persisted workspace_settings revision',
+    'schema':string(pattern=r'^"[1-9][0-9]*"$')}
+for _method in ('get','put'):
+    P['/workspace'][_method]['responses']['200']['headers'] = {'ETag':_workspace_etag}
+P['/workspace']['put'].setdefault('parameters', []).append({
+    'name':'If-Match','in':'header','required':True,'schema':string(pattern=r'^"[1-9][0-9]*"$'),
+    'description':'Exactly one strong revision ETag returned by GET /workspace.'})
+for _code, _description in [('400','Malformed or multiple If-Match values'),
+    ('412','Workspace revision changed'),('428','If-Match precondition required')]:
+    P['/workspace']['put']['responses'][_code] = {
+        'description':_description,'content':{'application/json':{'schema':ref('Error')}}}
+P['/workspace']['put']['responses']['409']['description'] = 'All-environment read-only scope cannot be written; stale If-Match revisions return 412'
 v3_route('get','/models','List configured inference models',response=ref('V3ModelCatalog'),
     desc='available means configured, not remotely health-checked. tools reflects the operator-enabled V3 read-tool allowlist rather than provider-wide capability; remote function calling is not attested by this response. Native Ollama returns 503 model_catalog_unavailable until the client ModelInfo.api enum can represent it.')
 for _path, _methods in {

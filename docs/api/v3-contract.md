@@ -329,15 +329,15 @@ Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评�
 | PUT | `/me/notification-settings` | 部分更新 `{ quiet?: boolean\|{enabled,from,to}, digest?, subscriptions?: { [existing_id]: boolean }\|现有订阅完整列表 }` | 保存并返回当前账号合并后的完整通知偏好；订阅标识与文案不能在此接口新建或修改，不代表通知已投递 | implemented |
 | GET | `/me/ai-preferences` | | `{ default: ModelChoice, canvas_inherit, show_reasoning, auto_context, memory, budget_warn_tokens }`；`GET /models` 的 `default` 取自这里 | implemented |
 | PUT | `/me/ai-preferences` | 同上 | 同上 | implemented |
-| GET | `/workspace` | | `{ name, slug, timezone, locale, week_start, retention_days, data_region, brand }`；当前有效账号在同一读取事务内复核所选环境的 `workspace.view` 后返回持久化配置。`data_region` 是保存的部署声明，不证明数据实际驻留；slug、默认值和留存天数尚未驱动对应业务行为 | implemented |
-| PUT | `/workspace` | 同上（仅管理员可改，写入审计） | 同上 | mock |
+| GET | `/workspace` | | `{ name, slug, timezone, locale, week_start, retention_days, data_region, brand }` 和强 ETag；当前有效账号在同一读取事务内复核所选环境的 `workspace.view` 后返回持久化配置。`data_region` 是保存的部署声明，不证明数据实际驻留 | implemented |
+| PUT | `/workspace` | 同上八字段完整对象（`brand` 含 `name,logo,pending`），`If-Match` 必须为 GET 返回的强 ETag；仅平台管理员且具全局 `workspace.manage` | 保存并审计后返回持久化对象及新 ETag；无前置条件 428、旧版 412 | implemented |
 | GET | `/audit` | `filter: all\|user\|agent\|system`, `q` | `AuditView` | implemented |
 | GET | `/audit/{id}` | | `AuditDetail`（含哈希链校验结果） | implemented |
 | POST | `/audit/export` | 过滤条件 | `{ url }` | implemented |
 
 `GET/PUT /me/profile` 仍返回 `503 identity_evidence_unavailable`：联系人验证、MFA 因子/状态和设备来源未有可信生产者，服务端保留未知值，PUT 不保存不完整的 `ProfileView` 或产生成功审计；会话删除是独立的已实现接口。完整资料页继续 `mock`。
 
-`GET /workspace` 在读取事务内复核当前有效账号与所选环境 `workspace.view`，读取持久化记录；缺失或损坏时返回 `503 workspace_unavailable`，不会合成默认值。`data_region` 是已保存的部署配置声明，不能证明实际数据驻留；slug、默认值和留存天数也尚未驱动链接、新成员设置或清理行为。该单条 GET 满足后端专用的 `implemented` 判据，冻结前端工作区页仍使用示意数据，整页尚未验收。`PUT /workspace` 严格校验单个 JSON 对象、已知字段和值，在服务端事务内复核当前账号、平台管理员身份及全局 `workspace.manage` 授权，并返回持久化结果；`data_region` 与品牌素材由部署配置管理，尚无版本前置条件。角色/成员列表与详情只展示所选且已授权环境内的对象与成员；只有同时具备全局模块查看和全局 `environment.view` 的管理员可盘点无环境归属的旧记录。`GET/PUT /roles/{id}` 对平面五列矩阵无法无损表达的授权返回 `409 matrix_editor_required`；写入时在事务内复核当前有效账号、全局 `roles.manage` 与全局 `environment.view`，保护最后一位有效人类管理员。PUT 成功仅返回 `{ ok: true }`，不在提交后重读并泄露角色详情。除上述工作区 GET 外，设置与角色页面的主契约行仍维持 `mock`。
+`GET /workspace` 在读取事务内复核当前有效账号与所选环境 `workspace.view`，读取持久化记录；缺失或损坏时返回 `503 workspace_unavailable`，不会合成默认值。`PUT /workspace` 严格校验单个 JSON 对象、已知字段和值，使用该记录与旧设置接口共用的 `revision` 比较 `If-Match`，在事务中复核账号、平台管理员身份和全局 `workspace.manage`，保存与审计一起提交；`data_region` 和品牌字段为只读部署声明，提交值必须与已存值相同。新建本地或目录导入成员现在继承已保存的 `timezone`、`locale`；已有成员不被改写。slug、`week_start` 和留存天数仍只是保存配置，尚未驱动链接、日历或清理行为；`data_region` 不能证明物理驻留。冻结前端工作区页尚未传递 GET 的 ETag，真实 PUT 会返回 428，整页未验收。角色/成员列表与详情只展示所选且已授权环境内的对象与成员；只有同时具备全局模块查看和全局 `environment.view` 的管理员可盘点无环境归属的旧记录。`GET/PUT /roles/{id}` 对平面五列矩阵无法无损表达的授权返回 `409 matrix_editor_required`；写入时在事务内复核当前有效账号、全局 `roles.manage` 与全局 `environment.view`，保护最后一位有效人类管理员。PUT 成功仅返回 `{ ok: true }`，不在提交后重读并泄露角色详情。除上述工作区读写外，设置与角色页面的主契约行仍维持 `mock`。
 
 ## 后端辅助接口（不计入上述 166 项）
 

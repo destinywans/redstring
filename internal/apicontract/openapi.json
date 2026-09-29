@@ -24372,7 +24372,7 @@
       "get": {
         "summary": "Read workspace settings",
         "operationId": "get_workspace",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Rechecks the active account and current workspace.view grant for a selected authorized environment in the same read transaction, then returns the persisted workspace record. A missing or invalid record returns 503 workspace_unavailable rather than invented defaults. data_region is a saved deployment declaration, not proof of physical data residency. Saved slug, defaults and retention do not yet drive dependent product behavior; the frozen frontend page still uses mock data.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Rechecks the active account and current workspace.view grant for a selected authorized environment in the same read transaction, then returns the persisted workspace record and its strong revision ETag. A missing or invalid record returns 503 workspace_unavailable rather than invented defaults. data_region is a saved deployment declaration, not proof of physical data residency. Saved slug, week start and retention do not yet drive dependent product behavior; the frozen frontend page still uses mock data.",
         "responses": {
           "200": {
             "description": "Success",
@@ -24380,6 +24380,15 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/V3Workspace"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "description": "Strong ETag for the persisted workspace_settings revision",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"[1-9][0-9]*\"$"
                 }
               }
             }
@@ -24467,7 +24476,7 @@
       "put": {
         "summary": "Update workspace settings",
         "operationId": "put_workspace",
-        "description": "Minimum role: admin. V3 instance and environment scope apply. Requires an active platform administrator with a global workspace.manage grant. Accepts one strict JSON object with known editable fields; rejects unknown or invalid fields. The transaction rechecks authority and returns persisted settings. Data region and branding fields are deployment-owned and cannot be changed here. No version precondition is supported, and the saved slug, default settings, and retention values do not yet drive dependent page behavior.",
+        "description": "Minimum role: admin. V3 instance and environment scope apply. Requires one selected environment, an active platform administrator with a global workspace.manage grant, and the exact strong ETag from GET /workspace in If-Match. Accepts one complete strict eight-field JSON object including complete brand fields; rejects missing, duplicate, unknown or invalid fields. The transaction rechecks authority and row revision, then commits settings and audit together and returns the persisted record with a new ETag. Data region and branding fields are deployment-owned and must match the saved values. Newly created local and imported directory members inherit saved locale and timezone; existing members are unchanged. Saved slug, week start and retention do not yet drive dependent product behavior. The current frontend does not forward ETag, so its real-mode save receives 428 until adapted.",
         "responses": {
           "200": {
             "description": "Success",
@@ -24475,6 +24484,15 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/V3Workspace"
+                }
+              }
+            },
+            "headers": {
+              "ETag": {
+                "description": "Strong ETag for the persisted workspace_settings revision",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^\"[1-9][0-9]*\"$"
                 }
               }
             }
@@ -24510,7 +24528,7 @@
             }
           },
           "409": {
-            "description": "Conflict or stale version",
+            "description": "All-environment read-only scope cannot be written; stale If-Match revisions return 412",
             "content": {
               "application/json": {
                 "schema": {
@@ -24531,6 +24549,36 @@
           },
           "503": {
             "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or multiple If-Match values",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Workspace revision changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "If-Match precondition required",
             "content": {
               "application/json": {
                 "schema": {
@@ -24566,6 +24614,16 @@
               "type": "string"
             },
             "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\"[1-9][0-9]*\"$"
+            },
+            "description": "Exactly one strong revision ETag returned by GET /workspace."
           }
         ]
       }

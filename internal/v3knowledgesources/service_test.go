@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
@@ -81,6 +82,10 @@ func TestVisibleDocumentSourcesRecheckBeforeEmission(t *testing.T) {
 type accessFunc func(rbac.V3Decision) error
 
 func (f accessFunc) Authorize(_ context.Context, _ core.User, d rbac.V3Decision) error {
+	return f(d)
+}
+
+func (f accessFunc) AuthorizeWithTx(_ context.Context, _ pgx.Tx, _ core.User, d rbac.V3Decision) error {
 	return f(d)
 }
 

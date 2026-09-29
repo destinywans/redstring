@@ -119,6 +119,7 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
 	v3sourceregistry.NewWithReaders(db, policy, map[string]v3sourceregistry.Reader{"web": reader}).Register(api)
+	New(db, policy).Register(api)
 	(&v3knowledge.Service{DB: db, Knowledge: knowledge.NewWithRepository(&knowledge.PGRepository{DB: db}, nil, nil),
 		Policy: policy}).RegisterSearch(api)
 	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev", "staging"}},
@@ -136,6 +137,30 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 		w := httptest.NewRecorder()
 		api.ServeHTTP(w, r)
 		return w
+	}
+	readStates := func(session string) (registeredEvidenceResponse, *httptest.ResponseRecorder) {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/knowledge-sources/registered-evidence", nil)
+		r.Header.Set("X-AIOps-Environment", "dev")
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: session})
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		var result registeredEvidenceResponse
+		if w.Code == http.StatusOK {
+			if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+				t.Fatalf("decode registered evidence: %v: %s", err, w.Body.String())
+			}
+		}
+		return result, w
+	}
+	findState := func(items []RegisteredEvidence, id string) *RegisteredEvidence {
+		t.Helper()
+		for i := range items {
+			if items[i].ID == id {
+				return &items[i]
+			}
+		}
+		return nil
 	}
 	const address = "https://example.com/guide.md"
 	probe := request("/api/v1/knowledge-sources/test", `{"type":"web","url":"`+address+`","secret_ref":""}`)
@@ -169,6 +194,13 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 	if err := db.QueryRow(ctx, `SELECT secret_ref FROM v3_knowledge_source_registrations WHERE id=$1`, saved.ID).Scan(&secret); err != nil || secret != "" {
 		t.Fatalf("public registration saved a credential: %q %v", secret, err)
 	}
+	initialStates, initialResponse := readStates(token)
+	initialState := findState(initialStates.Items, saved.ID)
+	if initialResponse.Code != http.StatusOK || initialState == nil || initialState.LastRead != nil ||
+		initialState.KeywordContent != nil || initialState.ConnectionStatus != nil || initialState.DocumentCount != nil ||
+		initialState.IndexStatus != nil || initialStates.Index != nil || initialStates.CompleteV3DTO || !initialStates.Partial {
+		t.Fatalf("registration was presented as connected or indexed: %d %s", initialResponse.Code, initialResponse.Body.String())
+	}
 	read := request("/api/v1/knowledge-sources/registrations/"+saved.ID+"/sync", "")
 	if read.Code != 200 || !strings.Contains(read.Body.String(), `"observed_count":1`) ||
 		!strings.Contains(read.Body.String(), `"index_state":"not_proven"`) {
@@ -187,6 +219,16 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 	if documents != 0 || publicDocuments != 1 || observations != 1 || fetches.Load() != 1 {
 		t.Fatalf("public content escaped legacy knowledge or disappeared: legacy=%d public=%d observations=%d fetches=%d",
 			documents, publicDocuments, observations, fetches.Load())
+	}
+	observedStates, observedResponse := readStates(token)
+	observedState := findState(observedStates.Items, saved.ID)
+	if observedResponse.Code != http.StatusOK || observedState == nil || observedState.LastRead == nil ||
+		observedState.LastRead.ObservedCount != 1 || observedState.KeywordContent == nil ||
+		observedState.KeywordContent.PersistedDocumentCount != 1 || observedState.KeywordContent.Version != 1 ||
+		observedState.DocumentCount != nil || observedState.ChunkCount != nil || observedState.SyncStatus != nil ||
+		observedState.LastSyncAt != nil || observedState.IndexStatus != nil ||
+		strings.Contains(observedResponse.Body.String(), "Check status.") || strings.Contains(observedResponse.Body.String(), address) {
+		t.Fatalf("registered source evidence lost provenance or claimed full DTO: %d %s", observedResponse.Code, observedResponse.Body.String())
 	}
 	var content, hash, sourceURL, applicationID, environmentID, lastReadID string
 	var version int
@@ -272,6 +314,46 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 		strings.Contains(listed.Body.String(), hiddenID) || strings.Contains(listed.Body.String(), unscopedSaved.ID) {
 		t.Fatalf("viewer source list escaped application grant: %d %s", listed.Code, listed.Body.String())
 	}
+	viewerStates, viewerResponse := readStates(viewerToken)
+	if viewerResponse.Code != http.StatusOK || findState(viewerStates.Items, visibleID) == nil ||
+		findState(viewerStates.Items, hiddenID) != nil || findState(viewerStates.Items, unscopedSaved.ID) != nil {
+		t.Fatalf("registered evidence escaped application grant: %d %s", viewerResponse.Code, viewerResponse.Body.String())
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO teams(id,name) VALUES('ops','Operations'),('other-team','Other Team');
+UPDATE applications SET owner_team_id='ops' WHERE id='visible-app'`); err != nil {
+		t.Fatal(err)
+	}
+	teamCreated := request("/api/v1/knowledge-sources/registrations", `{"name":"Team guide","type":"web","url":"`+address+`",`+
+		`"secret_ref":"","spaces":[],"schedule":"manual","chunk":"fixed","inherit_acl":true,`+
+		`"application_id":"visible-app","team_id":"ops"}`)
+	var teamSaved struct {
+		ID string `json:"id"`
+	}
+	if teamCreated.Code != http.StatusCreated || json.Unmarshal(teamCreated.Body.Bytes(), &teamSaved) != nil || teamSaved.ID == "" {
+		t.Fatalf("team source registration: %d %s", teamCreated.Code, teamCreated.Body.String())
+	}
+	teamHiddenStates, teamHiddenResponse := readStates(viewerToken)
+	if teamHiddenResponse.Code != http.StatusOK || findState(teamHiddenStates.Items, teamSaved.ID) != nil {
+		t.Fatalf("team source escaped current team grant: %d %s", teamHiddenResponse.Code, teamHiddenResponse.Body.String())
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+VALUES('viewer','knowledge','view','team','ops')`); err != nil {
+		t.Fatal(err)
+	}
+	teamVisibleStates, teamVisibleResponse := readStates(viewerToken)
+	if teamVisibleResponse.Code != http.StatusOK || findState(teamVisibleStates.Items, teamSaved.ID) == nil {
+		t.Fatalf("team-granted source was hidden: %d %s", teamVisibleResponse.Code, teamVisibleResponse.Body.String())
+	}
+	if _, err := db.Exec(ctx, `UPDATE applications SET owner_team_id='other-team' WHERE id='visible-app'`); err != nil {
+		t.Fatal(err)
+	}
+	teamMovedStates, teamMovedResponse := readStates(viewerToken)
+	if teamMovedResponse.Code != http.StatusOK || findState(teamMovedStates.Items, teamSaved.ID) != nil {
+		t.Fatalf("source with changed owner team remained visible: %d %s", teamMovedResponse.Code, teamMovedResponse.Body.String())
+	}
+	if _, err := db.Exec(ctx, `UPDATE applications SET owner_team_id='ops' WHERE id='visible-app'`); err != nil {
+		t.Fatal(err)
+	}
 	if denied := requestViewer(http.MethodPost, "/api/v1/knowledge-sources/registrations/"+hiddenID+"/sync", "dev"); denied.Code != http.StatusNotFound {
 		t.Fatalf("viewer read hidden application: %d %s", denied.Code, denied.Body.String())
 	}
@@ -311,6 +393,13 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 	if changedBody != pageBody.Load().(string) || previousBody != content || version != 2 {
 		t.Fatalf("changed source lost exact version history: current=%q previous=%q version=%d", changedBody, previousBody, version)
 	}
+	changedStates, changedResponse := readStates(viewerToken)
+	changedState := findState(changedStates.Items, visibleID)
+	if changedResponse.Code != http.StatusOK || changedState == nil || changedState.LastRead == nil ||
+		changedState.LastRead.ID != repeatReadID || changedState.KeywordContent == nil ||
+		changedState.KeywordContent.ReadID != repeatReadID || changedState.KeywordContent.Version != 2 {
+		t.Fatalf("registered evidence did not follow current content revision: %d %s", changedResponse.Code, changedResponse.Body.String())
+	}
 	staleSearch := request("/api/v1/knowledge/search", `{"q":"status","service":"visible-app"}`)
 	if staleSearch.Code != http.StatusOK || !strings.Contains(staleSearch.Body.String(), `"hits":[]`) {
 		t.Fatalf("old public content remained searchable: %d %s", staleSearch.Code, staleSearch.Body.String())
@@ -333,6 +422,11 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 	if misattributed.Code != http.StatusOK || !strings.Contains(misattributed.Body.String(), `"keyword":null`) ||
 		strings.Contains(misattributed.Body.String(), `"content_persisted":true`) {
 		t.Fatalf("wrong revision read was reported as imported content: %d %s", misattributed.Code, misattributed.Body.String())
+	}
+	misattributedStates, misattributedResponse := readStates(viewerToken)
+	misattributedState := findState(misattributedStates.Items, visibleID)
+	if misattributedResponse.Code != http.StatusOK || misattributedState == nil || misattributedState.KeywordContent != nil {
+		t.Fatalf("wrong revision read was reported as imported content in source list: %d %s", misattributedResponse.Code, misattributedResponse.Body.String())
 	}
 	if _, err := db.Exec(ctx, `UPDATE v3_public_web_document_revisions SET read_id=$2
  WHERE registration_id=$1 AND version=2`, visibleID, repeatReadID); err != nil {
@@ -437,5 +531,9 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 	if readsAfter != readsBefore || auditsAfter != auditsBefore || observationsAfter != observations {
 		t.Fatalf("archived sync persisted read, audit or observation: reads=%d/%d audits=%d/%d observations=%d/%d",
 			readsAfter, readsBefore, auditsAfter, auditsBefore, observationsAfter, observations)
+	}
+	archivedStates, archivedResponse := readStates(token)
+	if archivedResponse.Code != http.StatusOK || findState(archivedStates.Items, visibleID) != nil {
+		t.Fatalf("archived source remained visible: %d %s", archivedResponse.Code, archivedResponse.Body.String())
 	}
 }

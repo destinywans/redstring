@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
@@ -20,6 +21,7 @@ const maxCandidates = 2001
 
 type Access interface {
 	Authorize(context.Context, core.User, rbac.V3Decision) error
+	AuthorizeWithTx(context.Context, pgx.Tx, core.User, rbac.V3Decision) error
 }
 
 type document struct {
@@ -33,18 +35,22 @@ type repository interface {
 }
 
 type Service struct {
+	db         *pgxpool.Pool
 	repository repository
 	access     Access
 }
 
 func New(db *pgxpool.Pool, access Access) *Service {
-	return &Service{repository: pgRepository{db}, access: access}
+	return &Service{db: db, repository: pgRepository{db}, access: access}
 }
 
 func (s *Service) Register(api *httpapi.Server) {
 	const route = "GET /api/v1/knowledge-sources/observed-documents"
 	api.Register(route, "viewer", s.list)
 	api.MarkV3ObjectRoute(route, "knowledge", "view")
+	const evidenceRoute = "GET /api/v1/knowledge-sources/registered-evidence"
+	api.Register(evidenceRoute, "viewer", s.registeredEvidence)
+	api.MarkV3ObjectRoute(evidenceRoute, "knowledge", "view")
 }
 
 // DocumentSource is a partial projection, one item per authorized published

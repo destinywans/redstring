@@ -33,8 +33,8 @@
 | 对话、画布与模板 | GET | `/conversations/{id}/events` | 新增 | mock（前端模拟） |
 | 对话、画布与模板 | GET | `/canvases` | 聚合 | mock |
 | 对话、画布与模板 | POST | `/canvases` | 新增 | mock |
-| 对话、画布与模板 | GET | `/canvases/{id}` | 聚合 | mock |
-| 对话、画布与模板 | POST | `/canvases/{id}/nodes/{node}/messages` | 新增 | mock |
+| 对话、画布与模板 | GET | `/canvases/{id}` | 聚合 | implemented |
+| 对话、画布与模板 | POST | `/canvases/{id}/nodes/{node}/messages` | 新增 | implemented |
 | 对话、画布与模板 | GET | `/canvas-templates` | 新增 | mock |
 | 对话、画布与模板 | POST | `/canvas-templates` | 新增 | mock |
 | 对话、画布与模板 | GET | `/investigations/{id}/canvas` | 新增 | mock |

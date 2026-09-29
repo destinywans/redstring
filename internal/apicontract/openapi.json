@@ -28679,6 +28679,216 @@
         ]
       }
     },
+    "/services/{id}/peek": {
+      "get": {
+        "summary": "Preview a visible persisted service",
+        "operationId": "get_services_id_peek",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Accepts the composite service ID, the exact application ID used by persisted alert groups, or an exact application key within the selected environment scope. Multiple visible matches across applications or environments return 409; absent and unauthorized records both return 404. Identity, tier, team and configured owner label are persisted metadata. No live observation source is wired to this domain: status, current on-call and last change are null, and KPIs are empty. Null is unknown, never healthy or off duty. The frozen ServicePeek frontend type and card require adaptation before this is a truthful visible UI.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3ServicePeekPartial"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "services"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/people/{name}/peek": {
+      "get": {
+        "summary": "Preview an exact visible human member name",
+        "operationId": "get_people_name_peek",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Exact display-name lookup uses the current selected-environment members.view scope and excludes disabled, deleted, demo and machine accounts. Multiple visible matching accounts return 409; absent and unauthorized accounts both return 404. Role is the persisted user-maintained job title, not an RBAC grant, and may be null. Current on-call and total workload are null without authorized complete sources. The frozen PersonPeek frontend type and card require adaptation so unknown duty is not presented as off duty.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3PersonPeekPartial"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "people"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/topology": {
       "get": {
         "summary": "Read authorized source-backed topology",
@@ -55960,6 +56170,185 @@
           "name",
           "desc",
           "icon"
+        ]
+      },
+      "V3ServicePeekKpi": {
+        "type": "object",
+        "properties": {
+          "k": {
+            "type": "string"
+          },
+          "v": {
+            "type": "string"
+          },
+          "tone": {
+            "type": "string",
+            "enum": [
+              "neutral",
+              "accent",
+              "ok",
+              "warn",
+              "danger",
+              "info"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "k",
+          "v"
+        ]
+      },
+      "V3ServicePeekPartial": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tier": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "T0",
+                  "T1",
+                  "T2"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "team": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "env": {
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "warn",
+                  "danger"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kpis": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3ServicePeekKpi"
+            }
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "oncall": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "change": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "tier",
+          "team",
+          "env",
+          "status",
+          "kpis",
+          "owner",
+          "oncall",
+          "change"
+        ]
+      },
+      "V3PersonPeekPartial": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "oncall": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "load": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "role",
+          "oncall",
+          "load"
         ]
       },
       "V3ResourceTopologyPartial": {

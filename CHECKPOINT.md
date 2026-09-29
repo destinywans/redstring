@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-181 · 2026-09-29 · WAN-121 服务与人员悬浮卡
+
+- 从已推送 CP-180 `0b3fff6` 接续，WAN-121 来源 `7cea090` 合入为 `9eb4dc9`；既有 `v3discovery.Service.Register` 自动注册 GET `/services/{id}/peek` 与 `/people/{name}/peek`，无额外构造器或迁移。服务按应用/环境复合 ID、真实告警组的应用 ID 或旧页面 key 查找，当前可见范围内歧义返回 409；人员精确名称在可见范围内不唯一也返回 409。对象缺失或无权统一 404，读取后复核来源和授权。
+- 仅使用已登记服务身份、环境档案、所属团队、owner 文字和有效真人账号/资料职务。服务健康、KPI、当班人员、变更以及人员总负载缺可信完整来源，返回 `null` 或空数组，不把登记 `oncall_user_id` 当当前值班，资料职务也不当 RBAC 角色。冻结悬浮卡仍可能把未知当正常/非值班，发起调查仍用固定演示 ID，页面未验收。
+- 两条主 GET 按后端真实来源、当前权限、错误与可空契约升 `implemented`，现 **110/166、56 mock**；OpenAPI **315 路径、374 操作、393 schema**。本批只重建 OpenAPI、静态路线矩阵/差异检查及最小 `go build`（退出 0，Go stat 缓存有沙箱权限警告），未运行测试、真实库或浏览器；无 PR、合并或部署。下一批按依赖继续知识和 Agent 领域。
+
 ## CP-180 · 2026-09-29 · WAN-120 本人关注服务持久读取
 
 - 从已推送 CP-179 `f94e0d6` 接续，WAN-120 领域来源 `dcf6f05` 合入为 `1f5f55b`；正式 V3 在已有 `v3serviceviews.Service` 实例上注册 GET `/me/watched-services` 及辅助 PUT/DELETE `/me/watched-services/{id}`，不重复创建服务来源。迁移 `140_v3_user_watched_services.sql` 保存本人显式关系，不回填负责人、团队、值班或通知订阅。

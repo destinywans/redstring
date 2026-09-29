@@ -1,5 +1,7 @@
 # AIOps Canvas 实施计划
 
+**2026-09-29 服务与人员悬浮卡（CP-181）：** WAN-121 复用已注册发现服务，按当前对象授权读取持久服务和真人目录；健康、值班、KPI、变更和负载无可信来源时显式可空，不以 Mock 文案补值。两条主 GET 升后端 `implemented`，现 **110/166、56 mock**；OpenAPI **315 路径、374 操作、393 schema**。仅最小编译/静态核对，未跑测试、真实库或页面验收。见 [CP-181](CHECKPOINT.md)。
+
 **2026-09-29 本人关注服务（CP-180）：** WAN-120 在现有服务视图实例上注册 GET 和辅助 PUT/DELETE，持久关注关系只来自本人明确选择，当前权限下读取；状态证据不足保留 `null` 与可用性。主契约现 **108/166、58 mock**，OpenAPI **313 路径、372 操作、390 schema**。迁移 `140_v3_user_watched_services.sql` 尚未在现有库执行；仅最小编译和静态核对，未跑测试或页面验收。见 [CP-180](CHECKPOINT.md)。
 
 **2026-09-29 原生入站 Webhook 概览（CP-179）：** WAN-122 将已有 Operations Alertmanager 和 Delivery GitLab 接收器的当前授权登记补入既有 `GET /webhooks`；只读已入库 Alertmanager 接收次数，GitLab 历史收据因缺应用环境归属保持未知。交付配置只解析一次供两个服务共享，不开启出站发送或重投。主契约仍 **107/166、59 mock**，OpenAPI **311 路径、369 操作、387 schema**；最小编译通过，未跑测试、真实库或浏览器。见 [CP-179](CHECKPOINT.md)。

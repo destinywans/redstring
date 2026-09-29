@@ -155,8 +155,8 @@
 | GET | `/alert-groups` | `q`, `severity`, `env`, `state`, `show_inhibited` | 按持久事件本地聚合；指标、抑制及外部投递未知 | implemented |
 | GET | `/alert-groups/{id}/policy` | | 明确来源绑定下读取当前 Alertmanager 策略；缺来源时可空且列出 `unavailable` | implemented |
 | POST | `/alert-groups/bulk` | `{ ids, action: claim\|silence\|investigate }` | 结果 | mock |
-| GET | `/services/{id}/peek` | | `ServicePeek`（悬浮卡） | mock |
-| GET | `/people/{name}/peek` | | `PersonPeek`（悬浮卡） | mock |
+| GET | `/services/{id}/peek` | | 当前有权服务的持久身份/档案；健康、KPI、值班和变更未知字段可空 | implemented |
+| GET | `/people/{name}/peek` | | 当前有权真人账号与资料职务；值班和负载未知字段可空 | implemented |
 | GET | `/incidents` | `status: active\|resolved\|all` | `{ items, counts }` | implemented |
 | GET | `/incidents/{id}` | | 当前授权的持久事件及人工时间线；时长、影响与系统/AI 时间线未知 | implemented |
 | POST | `/incidents/{id}/timeline` | `{ text }` | 时间线条目 | implemented |
@@ -176,6 +176,8 @@
 | POST | `/proposals/{id}/comments` | `{ text }`；可选 `Idempotency-Key` 请求头 | 评论 | implemented |
 | GET | `/executions/{id}` | | `Execution` | mock |
 | POST | `/executions/{id}/report/publish` | | 发布结果 | mock |
+
+两条悬浮卡 GET 从当前有权的持久服务/真人目录读取 ID、名称、环境及可得档案；服务 key 或应用 ID 在当前可见环境中不唯一、同名人员不唯一时返回 409，不任取一条。服务健康、KPI、当前值班、变更及人员负载尚无完整授权来源，显式可空或空数组；资料职务不是 RBAC 角色。冻结悬浮卡会把未知状态显示为正常或非值班，页面需单独适配；字段证据与差异见[悬浮卡来源](v3-peeks.md)。
 
 `GET /inbox` 仅聚合当前有权、今天与昨天更新的非疑似持久告警事件；`all/mine` 为此窗口中的可见记录数，`mine` 按当前负责人判断。已读回执、提及、订阅和其他收件类型没有可信成员账本，相关值保持 `null`，`mentions/subscribed` 筛选返回 503；超过 5000 个候选明确失败，不把不完整总数当完整。`GET /incidents/{id}` 在事件行、当前归属与会话授权下读取持久状态和至多 500 条人工备注；告警开始不推断事件处置时长，指挥官、阶段、影响、系统/AI 时间线及跨对象链接无来源时保持 `null`、空值和 `unavailable`。
 

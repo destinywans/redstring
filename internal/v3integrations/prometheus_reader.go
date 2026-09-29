@@ -1,0 +1,221 @@
+package v3integrations
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"reflect"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/wans/aiops-canvas/internal/connectors"
+	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/store"
+)
+
+// PrometheusQueryKey identifies an operator-reviewed expression for one exact
+// connector, service, environment and bound resource. The catalog owner must
+// also verify that the expression itself filters to this application and
+// environment (or an upstream source isolated to that exact scope). Key
+// equality alone cannot constrain data inside arbitrary PromQL.
+type PrometheusQueryKey struct {
+	ConnectorID   string
+	ApplicationID string
+	EnvironmentID string
+	ResourceID    string
+	QueryID       string
+}
+
+var prometheusQueryID = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,63}$`)
+
+// PrometheusReader bridges V3 registrations to a bounded, read-only query.
+// Its catalog is copied at construction and cannot be changed by a request.
+// The composition root must supply reviewed expressions and a Vault resolver.
+type PrometheusReader struct {
+	DB       *pgxpool.Pool
+	Tier     string
+	Resolver CredentialResolver
+	Client   *http.Client
+	queries  map[PrometheusQueryKey]string
+}
+
+type PrometheusMetricEvidence struct {
+	ApplicationID string                    `json:"application_id"`
+	EnvironmentID string                    `json:"environment_id"`
+	BindingID     string                    `json:"binding_id"`
+	ConnectorID   string                    `json:"connector_id"`
+	ResourceID    string                    `json:"resource_id"`
+	QueryID       string                    `json:"query_id"`
+	CapturedAt    time.Time                 `json:"captured_at"`
+	Series        []connectors.MetricSeries `json:"series"`
+	Empty         bool                      `json:"empty"`
+}
+
+// PrometheusReadError has a stable, non-sensitive code for callers. It never
+// includes the endpoint, credential reference, raw expression or upstream body.
+type PrometheusReadError struct{ Code string }
+
+func (e *PrometheusReadError) Error() string { return e.Code }
+
+func metricReadError(code string) error { return &PrometheusReadError{Code: code} }
+
+func NewPrometheusReader(db *pgxpool.Pool, tier string, resolver CredentialResolver, catalog map[PrometheusQueryKey]string) (*PrometheusReader, error) {
+	if tier != "production" && tier != "nonprod" {
+		return nil, metricReadError("invalid_catalog")
+	}
+	copied := make(map[PrometheusQueryKey]string, len(catalog))
+	for key, expression := range catalog {
+		if key.ConnectorID == "" || key.ApplicationID == "" || key.EnvironmentID == "" ||
+			!prometheusResourceID.MatchString(key.ResourceID) || !prometheusQueryID.MatchString(key.QueryID) ||
+			strings.TrimSpace(expression) != expression || expression == "" || len(expression) > 2048 {
+			return nil, metricReadError("invalid_catalog")
+		}
+		copied[key] = expression
+	}
+	return &PrometheusReader{DB: db, Tier: tier, Resolver: resolver, queries: copied}, nil
+}
+
+type prometheusSource struct {
+	BindingID, ConnectorID, ResourceID  string
+	Endpoint, AuthMethod, CredentialRef string
+}
+
+func (p *PrometheusReader) loadSource(ctx context.Context, user core.User, app, env, bindingID string) (prometheusSource, error) {
+	var source prometheusSource
+	tx, err := p.DB.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return source, metricReadError("storage_unavailable")
+	}
+	defer tx.Rollback(ctx)
+	svc := Service{DB: p.DB}
+	team, err := svc.targetServiceTx(ctx, tx, app, env, false)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return source, metricReadError("source_not_found")
+	}
+	if err != nil {
+		return source, metricReadError("storage_unavailable")
+	}
+	if err = svc.authorizeTargetTx(ctx, tx, user, app, env, team, "view"); err != nil {
+		if errors.Is(err, errTargetServiceForbidden) || errors.Is(err, store.ErrForbidden) {
+			return source, metricReadError("forbidden")
+		}
+		return source, metricReadError("authorization_unavailable")
+	}
+	var enabled bool
+	var tools []byte
+	err = tx.QueryRow(ctx, `SELECT t.id,t.connector_id,t.external_id,c.endpoint,c.auth_method,c.credential_ref,
+ c.enabled,c.tools
+ FROM v3_connector_targets t JOIN v3_connectors c
+  ON c.id=t.connector_id AND c.environment_id=t.environment_id
+ WHERE t.id=$1 AND t.application_id=$2 AND t.environment_id=$3
+  AND t.target_kind='metric_resource' AND c.provider='prometheus'`, bindingID, app, env).
+		Scan(&source.BindingID, &source.ConnectorID, &source.ResourceID, &source.Endpoint,
+			&source.AuthMethod, &source.CredentialRef, &enabled, &tools)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return prometheusSource{}, metricReadError("source_not_found")
+	}
+	if err != nil {
+		return prometheusSource{}, metricReadError("storage_unavailable")
+	}
+	if !enabled || !toolEnabled(tools, "query_metrics") ||
+		!validExternalTarget("prometheus", "metric_resource", source.ResourceID) {
+		return prometheusSource{}, metricReadError("source_unhealthy")
+	}
+	if _, err = validEndpoint(source.Endpoint); err != nil ||
+		(source.AuthMethod != "none" && source.AuthMethod != "bearer") ||
+		(source.AuthMethod == "none" && source.CredentialRef != "") ||
+		(source.AuthMethod == "bearer" && validateReference(source.CredentialRef) != nil) {
+		return prometheusSource{}, metricReadError("source_unhealthy")
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return prometheusSource{}, metricReadError("storage_unavailable")
+	}
+	return source, nil
+}
+
+func toolEnabled(raw []byte, name string) bool {
+	var items []tool
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return false
+	}
+	for _, item := range items {
+		if item.Name == name && item.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
+// Query first checks the selected instance scope, persisted service/connector
+// grants, explicit binding, enabled reader and reviewed query ID. A connection
+// probe is only historical metadata; the live range query proves read health.
+// It resolves the bearer only for the live request, then rechecks all source
+// and authorization state before returning samples to the caller.
+func (p *PrometheusReader) Query(ctx context.Context, scope httpapi.V3EnvironmentScope, user core.User,
+	app, env, bindingID, queryID string, window connectors.TimeWindow) (PrometheusMetricEvidence, error) {
+	var out PrometheusMetricEvidence
+	if p == nil || p.DB == nil {
+		return out, metricReadError("storage_unavailable")
+	}
+	if scope.Tier != p.Tier || app == "" || env == "" || bindingID == "" || !prometheusQueryID.MatchString(queryID) {
+		return out, metricReadError("invalid_scope")
+	}
+	selected := false
+	for _, id := range scope.EnvironmentIDs {
+		if id == env {
+			selected = true
+			break
+		}
+	}
+	if !selected {
+		return out, metricReadError("source_not_found")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	source, err := p.loadSource(ctx, user, app, env, bindingID)
+	if err != nil {
+		return out, err
+	}
+	key := PrometheusQueryKey{ConnectorID: source.ConnectorID, ApplicationID: app, EnvironmentID: env,
+		ResourceID: source.ResourceID, QueryID: queryID}
+	expression, ok := p.queries[key]
+	if !ok {
+		return out, metricReadError("query_unregistered")
+	}
+	credential := ""
+	if source.AuthMethod == "bearer" {
+		if p.Resolver == nil {
+			return out, metricReadError("credential_unavailable")
+		}
+		credential, err = p.Resolver.Resolve(ctx, source.CredentialRef)
+		if err != nil || credential == "" || len(credential) > 4096 || strings.ContainsAny(credential, "\r\n\x00") {
+			return out, metricReadError("credential_unavailable")
+		}
+	}
+	series, err := queryRegisteredPrometheus(ctx, source.Endpoint, source.AuthMethod, credential, expression, window, p.Client)
+	if err != nil {
+		return out, err
+	}
+	current, err := p.loadSource(ctx, user, app, env, bindingID)
+	if err != nil {
+		return out, err
+	}
+	if !reflect.DeepEqual(current, source) || p.queries[key] != expression {
+		return out, metricReadError("source_changed")
+	}
+	out = PrometheusMetricEvidence{ApplicationID: app, EnvironmentID: env,
+		BindingID: bindingID, ConnectorID: source.ConnectorID, ResourceID: source.ResourceID,
+		QueryID: queryID, CapturedAt: time.Now().UTC(), Series: series, Empty: true}
+	for _, item := range series {
+		if len(item.Samples) > 0 {
+			out.Empty = false
+			break
+		}
+	}
+	return out, nil
+}

@@ -5,11 +5,38 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
 	"golang.org/x/crypto/argon2"
 	"strings"
 )
+
+// ErrSessionRevoked means the request's session or user is no longer active.
+var ErrSessionRevoked = errors.New("session revoked")
+
+// LockActiveSession rechecks the current request's raw Cookie token and
+// authenticated actor within tx. Call it after domain lock waits, immediately
+// before the final authorization check and write or commit. It holds both the
+// session and user rows until tx ends, so logout or user disable cannot commit
+// concurrently. Expiry is checked at this query's wall-clock instant; callers
+// with long transactions must check it again before committing if needed.
+func LockActiveSession(ctx context.Context, tx pgx.Tx, token, actorID string) error {
+	if token == "" || actorID == "" {
+		return ErrSessionRevoked
+	}
+	var activeID string
+	err := tx.QueryRow(ctx, `SELECT u.id FROM sessions s
+		JOIN users u ON u.id=s.user_id
+		WHERE s.token_hash=$1 AND s.user_id=$2 AND s.expires_at>clock_timestamp()
+		AND NOT u.disabled AND u.deleted_at IS NULL
+		FOR SHARE OF s,u`, Hash(token), actorID).Scan(&activeID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrSessionRevoked
+	}
+	return err
+}
 
 func PasswordHash(password string) string {
 	salt := make([]byte, 16)

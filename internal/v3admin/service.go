@@ -34,7 +34,6 @@ var errLastRoleManager = errors.New("cannot remove last role manager")
 var errUnsupportedMemberSource = errors.New("member source is not represented in V3 contract")
 var errMemberMFAUnavailable = errors.New("member MFA evidence is unavailable")
 var errRoleChanged = errors.New("role matrix revision changed")
-var errRoleSession = errors.New("role session expired or revoked")
 
 func respond(w http.ResponseWriter, v any, err error) {
 	if err == nil {
@@ -46,7 +45,7 @@ func respond(w http.ResponseWriter, v any, err error) {
 		httpapi.Error(w, 404, "not_found", "Role not found")
 	case errors.Is(err, store.ErrForbidden):
 		httpapi.Error(w, 403, "forbidden", "Insufficient permission")
-	case errors.Is(err, errRoleSession):
+	case errors.Is(err, store.ErrSessionRevoked):
 		httpapi.Error(w, 401, "unauthorized", "Login required")
 	case errors.Is(err, errInvalidMatrix):
 		httpapi.Error(w, 422, "invalid_matrix", "Matrix must contain each known resource once with five valid operation cells")
@@ -206,22 +205,6 @@ func roleSessionToken(r *http.Request) string {
 	return cookie.Value
 }
 
-// The caller has already passed middleware authentication. Hold its exact
-// session row through the role transaction so logout before the transaction
-// commits cannot authorize stale work. Call after the user row lock.
-func lockRoleSession(ctx context.Context, tx pgx.Tx, actorID, token string) error {
-	if token == "" {
-		return errRoleSession
-	}
-	var sessionUser string
-	err := tx.QueryRow(ctx, `SELECT user_id FROM sessions
- WHERE token_hash=$1 AND user_id=$2 AND expires_at>clock_timestamp() FOR SHARE`, store.Hash(token), actorID).Scan(&sessionUser)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return errRoleSession
-	}
-	return err
-}
-
 func (s *Service) getRole(ctx context.Context, id string, actor core.User, sessionToken string, envs []string, english bool) (roleDetail, int64, error) {
 	v := roleDetail{MemberNames: []string{}, Scope: []string{}, Matrix: []matrixRow{}}
 	tx, err := s.Store.DB.Begin(ctx)
@@ -243,7 +226,7 @@ func (s *Service) getRole(ctx context.Context, id string, actor core.User, sessi
 		}
 		return v, 0, err
 	}
-	if err = lockRoleSession(ctx, tx, actor.ID, sessionToken); err != nil {
+	if err = store.LockActiveSession(ctx, tx, sessionToken, actor.ID); err != nil {
 		return v, 0, err
 	}
 	policy := &rbac.V3Policy{Store: s.Store}

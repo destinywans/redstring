@@ -108,7 +108,7 @@ func (s *Service) saveMatrix(ctx context.Context, roleID, environment, sessionTo
 	if err != nil {
 		return 0, err
 	}
-	if err = lockRoleSession(ctx, tx, actor.ID, sessionToken); err != nil {
+	if err = store.LockActiveSession(ctx, tx, sessionToken, actor.ID); err != nil {
 		return 0, err
 	}
 	if err = (&rbac.V3Policy{Store: s.Store}).AuthorizeWithTx(ctx, tx, actor, rbac.V3Decision{

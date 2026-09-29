@@ -11,9 +11,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
+	"github.com/wans/aiops-canvas/internal/store"
 )
 
 type InhibitionSource interface {
@@ -21,9 +24,10 @@ type InhibitionSource interface {
 }
 
 type matcherView struct {
-	K  string `json:"k"`
-	V  string `json:"v"`
-	Op string `json:"-"`
+	K             string `json:"k"`
+	V             string `json:"v,omitempty"`
+	Op            string `json:"op"`
+	ValueRedacted bool   `json:"value_redacted,omitempty"`
 }
 
 type inhibitionView struct {
@@ -32,15 +36,16 @@ type inhibitionView struct {
 	Target []matcherView `json:"target"`
 	Equal  []string      `json:"equal"`
 	Stat   string        `json:"stat"`
-	// `active` is intentionally omitted: /api/v2/status publishes configured
-	// rules, not per-rule activity or historical hit counts. This endpoint is
-	// partial until a trustworthy hit source exists.
+	Active any           `json:"active"`
+	Hits7D any           `json:"hits_7d"`
+	// Status publishes configured rules, not per-rule activity or hit counts.
 }
 
 var inhibitionMatcher = regexp.MustCompile(`^([a-zA-Z_][a-zA-Z0-9_]*)[ \t\n]*(=~|!~|!=|=)[ \t\n]*(?s:(.*))$`)
 var ErrInvalidMatcher = errors.New("invalid Alertmanager inhibition matcher")
 
 func (s *Service) Inhibitions(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	scope, ok := httpapi.V3ScopeFromContext(r.Context())
 	if !ok || len(scope.EnvironmentIDs) == 0 {
 		httpapi.Error(w, http.StatusServiceUnavailable, "environment_scope_unavailable", "Environment scope is unavailable")
@@ -64,6 +69,8 @@ func (s *Service) Inhibitions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := []inhibitionView{}
+	revisions := make(map[string]string)
+	observedAt := make(map[string]string)
 	unscopedPresent := false
 	for _, env := range scope.EnvironmentIDs {
 		if !readable[env] {
@@ -74,7 +81,23 @@ func (s *Service) Inhibitions(w http.ResponseWriter, r *http.Request) {
 			httpapi.Error(w, http.StatusServiceUnavailable, "alertmanager_unavailable", "An authorized Alertmanager source is unavailable")
 			return
 		}
-		rules, err := source.ListInhibitionRules(r.Context(), env)
+		var rules []InhibitionRule
+		var err error
+		if observing, supported := s.Source.(inhibitionObservationSource); supported {
+			observation, observeErr := observing.ObserveInhibitions(r.Context(), env)
+			err = observeErr
+			rules = observation.Rules
+			if err == nil {
+				if len(observation.ConfigSHA256) != 64 || observation.ObservedAt.IsZero() {
+					httpapi.Error(w, http.StatusServiceUnavailable, "invalid_inhibition_source", "Alertmanager inhibition configuration is incomplete")
+					return
+				}
+				revisions[env] = "sha256:" + observation.ConfigSHA256
+				observedAt[env] = observation.ObservedAt.UTC().Format(time.RFC3339Nano)
+			}
+		} else {
+			rules, err = source.ListInhibitionRules(r.Context(), env)
+		}
 		if err != nil {
 			httpapi.Error(w, http.StatusServiceUnavailable, "alertmanager_unavailable", "An authorized Alertmanager source is unavailable")
 			return
@@ -152,12 +175,95 @@ func (s *Service) Inhibitions(w http.ResponseWriter, r *http.Request) {
 			if strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "en") {
 				stat = "Activity and hits unavailable"
 			}
-			items = append(items, inhibitionView{ID: hex.EncodeToString(hash[:12]), Source: src, Target: dst, Equal: append([]string{}, rule.Equal...), Stat: stat})
+			items = append(items, inhibitionView{ID: hex.EncodeToString(hash[:12]), Source: redactedInhibitionMatchers(src),
+				Target: redactedInhibitionMatchers(dst), Equal: append([]string{}, rule.Equal...), Stat: stat})
 		}
+	}
+	// Re-read current ownership and grants after the shared upstream access.
+	// A changed projection is never returned under an earlier grant.
+	currentApps, currentAdmin, currentReadable, ok := s.inhibitionAccess(w, r, scope.EnvironmentIDs)
+	if !ok {
+		return
+	}
+	if !equalInhibitionAccess(allowedApps, admin, readable, currentApps, currentAdmin, currentReadable) {
+		httpapi.Error(w, http.StatusServiceUnavailable, "inhibition_scope_changed", "Inhibition access changed during configuration read")
+		return
+	}
+	if err := inhibitionSessionCurrent(r, s); err != nil {
+		if errors.Is(err, store.ErrSessionRevoked) {
+			httpapi.Error(w, http.StatusUnauthorized, "unauthorized", "Session expired")
+		} else {
+			httpapi.Error(w, http.StatusServiceUnavailable, "inhibition_scope_unavailable", "Inhibition session could not be confirmed")
+		}
+		return
+	}
+	if len(revisions) == 1 && len(scope.EnvironmentIDs) == 1 {
+		w.Header().Set("ETag", `"`+revisions[scope.EnvironmentIDs[0]]+`"`)
 	}
 	// Configured rules have no trustworthy per-rule activity or hit source.
 	httpapi.WriteJSON(w, http.StatusPartialContent, map[string]any{"items": items, "partial": true,
-		"unavailable": []string{"activity", "hit_counts"}, "unavailable_environments": []string{}, "unscoped_present": unscopedPresent})
+		"unavailable": []string{"activity", "hit_counts"}, "unavailable_environments": []string{}, "unscoped_present": unscopedPresent,
+		"config_revisions": revisions, "observed_at": observedAt})
+}
+
+func redactedInhibitionMatchers(values []matcherView) []matcherView {
+	redacted := make([]matcherView, len(values))
+	for i, value := range values {
+		redacted[i] = matcherView{K: value.K, Op: value.Op, ValueRedacted: true}
+	}
+	return redacted
+}
+
+func equalInhibitionAccess(a map[string]map[string]bool, b, c map[string]bool,
+	x map[string]map[string]bool, y, z map[string]bool) bool {
+	if len(a) != len(x) || len(b) != len(y) || len(c) != len(z) {
+		return false
+	}
+	for env, apps := range a {
+		if len(apps) != len(x[env]) || b[env] != y[env] || c[env] != z[env] {
+			return false
+		}
+		for app, allowed := range apps {
+			currentAllowed, present := x[env][app]
+			if !present || currentAllowed != allowed {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func inhibitionSessionCurrent(r *http.Request, s *Service) error {
+	db, _ := routeTestAuthority(s.Catalog, s.Access)
+	if db == nil {
+		if _, production := s.Source.(*Client); production {
+			return store.ErrSessionRevoked
+		}
+		return nil
+	}
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil {
+		return store.ErrSessionRevoked
+	}
+	tx, err := db.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(r.Context())
+	user := httpapi.CurrentUser(r)
+	if err := store.LockActiveSession(r.Context(), tx, cookie.Value, user.ID); err != nil {
+		return err
+	}
+	var unexpired bool
+	err = tx.QueryRow(r.Context(), `SELECT expires_at>clock_timestamp() FROM sessions WHERE token_hash=$1 AND user_id=$2`,
+		store.Hash(cookie.Value), user.ID).Scan(&unexpired)
+	if err != nil {
+		return err
+	}
+	if !unexpired {
+		return store.ErrSessionRevoked
+	}
+	return tx.Commit(r.Context())
 }
 
 // Resolve current persisted application ownership before inspecting a shared

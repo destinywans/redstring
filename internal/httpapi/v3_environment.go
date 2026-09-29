@@ -168,6 +168,11 @@ func v3EnvironmentExempt(r *http.Request) bool {
 	case "POST /api/v1/auth/login", "POST /api/v1/auth/logout", "GET /api/v1/auth/me", "GET /api/v1/instance", "GET /api/v1/auth/oidc/start", "GET /api/v1/auth/oidc/callback":
 		return true
 	}
+	// These handlers authenticate a configured source and bind it to a fixed
+	// application and environment. They do not accept browser session scope.
+	if v3SignedPushRoute(r) {
+		return true
+	}
 	// The one inbound Alertmanager route authenticates its configured source
 	// token and validates its fixed application/environment mapping in its own
 	// handler. It has no browser session or selectable environment header.
@@ -175,6 +180,17 @@ func v3EnvironmentExempt(r *http.Request) bool {
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 		return len(parts) == 5 && parts[0] == "api" && parts[1] == "v1" &&
 			parts[2] == "webhooks" && parts[3] == "alertmanager" && parts[4] != ""
+	}
+	return false
+}
+
+func v3SignedPushRoute(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	switch r.URL.Path {
+	case "/api/v1/events/alert", "/api/v1/events/change", "/api/v1/events/incident", "/api/v1/events/resource", "/api/v1/events/oncall":
+		return true
 	}
 	return false
 }

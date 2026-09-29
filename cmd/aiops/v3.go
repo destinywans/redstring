@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -33,6 +34,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3discovery"
 	"github.com/wans/aiops-canvas/internal/v3events"
 	"github.com/wans/aiops-canvas/internal/v3identity"
+	"github.com/wans/aiops-canvas/internal/v3ingestpush"
 	"github.com/wans/aiops-canvas/internal/v3integrations"
 	"github.com/wans/aiops-canvas/internal/v3knowledge"
 	"github.com/wans/aiops-canvas/internal/v3knowledgesources"
@@ -130,6 +132,35 @@ func loadV3Instance(path string) (v3Instance, httpapi.V3InstanceConfig, error) {
 	return info, httpapi.V3InstanceConfig{Tier: info.Tier, DefaultEnv: info.DefaultEnv, EnvironmentIDs: ids}, nil
 }
 
+func loadV3PushSources(path string) (v3ingestpush.Config, error) {
+	var cfg v3ingestpush.Config
+	if path == "" {
+		return cfg, nil
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return cfg, err
+	}
+	defer file.Close()
+	const maxBytes = 64 << 10
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	if err != nil {
+		return cfg, err
+	}
+	if len(data) > maxBytes || len(bytes.TrimSpace(data)) == 0 || bytes.TrimSpace(data)[0] != '{' {
+		return cfg, fmt.Errorf("V3 Push sources configuration must be one JSON object of at most %d bytes", maxBytes)
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&cfg); err != nil {
+		return cfg, err
+	}
+	if err := dec.Decode(new(any)); err != io.EOF {
+		return cfg, fmt.Errorf("V3 Push sources configuration must contain one JSON object")
+	}
+	return cfg, nil
+}
+
 // A configured V3 binding snapshot is shared by every model-facing V3 service.
 // Without a file, retain the existing V3 runtime during rollout.
 func configuredV3ModelRuntime(path string, cfg httpapi.V3InstanceConfig, runtime inference.Runner) (inference.Runner, *v3models.Bindings, error) {
@@ -158,6 +189,14 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		return err
 	}
 	policy := &rbac.V3Policy{Store: s}
+	pushCfg, err := loadV3PushSources(os.Getenv("AIOPS_V3_PUSH_SOURCES_CONFIG"))
+	if err != nil {
+		return fmt.Errorf("load V3 Push sources: %w", err)
+	}
+	pushService, err := v3ingestpush.New(s.DB, cfg, pushCfg, policy)
+	if err != nil {
+		return fmt.Errorf("configure V3 Push ingress: %w", err)
+	}
 	gitMarkdownBindings, err := v3knowledgesources.ParseGitMarkdownBindings(os.Getenv("AIOPS_V3_GIT_MARKDOWN_BINDINGS"))
 	if err != nil {
 		return fmt.Errorf("configure V3 Git Markdown bindings: %w", err)
@@ -464,6 +503,8 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	})
 	events.RegisterNew(api)
 	events.RegisterV3Incidents(api)
+	pushService.Register(api)
+	pushService.RegisterPublic(api)
 	knowledgeV3 := &v3knowledge.Service{DB: s.DB, Knowledge: know, Policy: policy}
 	knowledgeV3.Register(api)
 	knowledgeV3.RegisterSearch(api)

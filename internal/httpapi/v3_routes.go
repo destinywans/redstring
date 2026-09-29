@@ -31,7 +31,7 @@ func (s *Server) ConfigureV3Environment(cfg V3InstanceConfig, authorizer V3Envir
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/v1/") {
 			_, pattern := s.mux.Handler(r)
-			if pattern != "" && !v3AuthOrInstance(pattern) {
+			if pattern != "" && !v3AuthOrInstance(pattern) && !(pattern == r.Method+" "+r.URL.Path && v3SignedPushRoute(r)) {
 				if _, enabled := s.v3Routes[pattern]; !enabled {
 					Error(w, http.StatusNotImplemented, "v3_not_implemented", "This operation is not available in V3 yet")
 					return

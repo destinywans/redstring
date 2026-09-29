@@ -165,6 +165,47 @@ func signedPushSource(sourceID, token, secret, typ, key string, body []byte) *ht
 	return r
 }
 
+func TestPushRegisteredPublicV3Gate(t *testing.T) {
+	f := setupPush(t, 0)
+	f.s.RegisterPublic(f.api)
+	call := func(r *http.Request) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		f.api.ServeHTTP(w, r)
+		return w
+	}
+	if got := call(signedPush(f, "change", "registered-valid", eventBody("change", "registered-valid"))); got.Code != 202 {
+		t.Fatalf("signed registered push status=%d body=%s", got.Code, got.Body.String())
+	}
+	if got := call(signedPush(f, "alert", "registered-alert", eventBody("alert", "registered-alert"))); got.Code != 202 {
+		t.Fatalf("signed registered alert status=%d body=%s", got.Code, got.Body.String())
+	}
+	unsigned := httptest.NewRequest(http.MethodPost, "/api/v1/events/change", bytes.NewReader(eventBody("change", "registered-unsigned")))
+	if got := call(unsigned); got.Code != 401 {
+		t.Fatalf("unsigned registered push status=%d body=%s", got.Code, got.Body.String())
+	}
+	invalid := signedPush(f, "change", "registered-invalid", eventBody("change", "registered-invalid"))
+	invalid.Header.Set("X-Signature", "sha256="+strings.Repeat("0", 64))
+	if got := call(invalid); got.Code != 401 {
+		t.Fatalf("invalid registered push status=%d body=%s", got.Code, got.Body.String())
+	}
+	// All five routes reach source authorization; the fixture only grants
+	// change and alert, so the remaining signed types must fail there.
+	for _, typ := range []string{"incident", "resource", "oncall"} {
+		got := call(signedPush(f, typ, "registered-"+typ, eventBody(typ, "registered-"+typ)))
+		if got.Code != 422 || !strings.Contains(got.Body.String(), "not enabled for this source") {
+			t.Fatalf("signed %s status=%d body=%s", typ, got.Code, got.Body.String())
+		}
+	}
+	// A neighboring public route cannot inherit the five-route exception.
+	f.api.RegisterPublic("POST /api/v1/events/other", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	if got := call(signedPush(f, "other", "registered-other", eventBody("change", "registered-other"))); got.Code != 401 {
+		t.Fatalf("unlisted event route status=%d body=%s", got.Code, got.Body.String())
+	}
+	if got := call(httptest.NewRequest(http.MethodGet, "/api/v1/ingest/push", nil)); got.Code != 401 {
+		t.Fatalf("unrelated V3 route status=%d body=%s", got.Code, got.Body.String())
+	}
+}
+
 func TestPushAllScopeFiltersUnpermittedApplication(t *testing.T) {
 	f := setupPush(t, 0)
 	if got := callPush(f, signedPush(f, "change", "visible-a", eventBody("change", "visible-a"))); got.Code != 202 {

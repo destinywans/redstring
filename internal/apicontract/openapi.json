@@ -29418,6 +29418,1003 @@
         ]
       }
     },
+    "/ingest/push": {
+      "get": {
+        "summary": "Read authorized Push ingress configuration and receipts",
+        "operationId": "get_ingest_push",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires connectors.view in the selected environment and current service visibility for each returned source. Type counts and recent receipt rows come only from persisted, authorized events; hidden sources do not enter totals. A source-free view reports zero/empty state. The optional starter stack has no deployment controller: enabled is false and install commands are empty. A configured public host is the only trusted host source; credentials and signing keys never appear in this response.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3PushView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "ingest"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/ingest/push/test": {
+      "post": {
+        "summary": "Send one authenticated local Push test event",
+        "operationId": "post_ingest_push_test",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment, connectors.manage and current access to exactly one configured source for the requested type; zero or multiple sources return explicit errors. The server creates a bounded synthetic event and uses the same normalization and persistence transaction as external ingress; this local test does not prove that an external sender has the configured token or signing key. Synthetic tests are excluded from real accepted counts. 202 is returned only after durable event, receipt and audit commit. The frozen frontend currently omits the required type.",
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3PushTestResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Configured source minute limit exceeded",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds before retry"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "ingest"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3PushTestRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/events/alert": {
+      "post": {
+        "summary": "Receive one signed generic V3 alert event",
+        "operationId": "post_events_alert",
+        "description": "Minimum role: public. Public source protocol, not a browser session route. Requires a configured X-AIOps-Source with fixed application/environment binding and a Bearer token from a private file. Verify X-Timestamp within five minutes and X-Signature as lowercase sha256=HMAC-SHA256(timestamp + LF + source ID + LF + path type + LF + Idempotency-Key + LF + exact raw JSON bytes, separate source key). LF means one byte 0x0A, with no trailing LF after the body; all four prefix values are validated to exclude LF. Distinct configured sources cannot share token or HMAC key material. Idempotency-Key is scoped to the source and type for 24 hours. Body claims cannot change source, application or environment. Accepted events and sanitized receipts are committed with audit before 202; this does not imply downstream incident creation or outbound delivery. A duplicate returns 409, invalid envelope 422, invalid authentication/signature 401, and a per-source minute limit returns 429 with Retry-After. No raw body or credential is returned or logged.",
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3PushReceiptResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Configured source minute limit exceeded",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds before retry"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "events"
+        ],
+        "security": [
+          {
+            "pushSourceToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3PushAlertEvent"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Source",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "X-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Unix seconds"
+            }
+          },
+          {
+            "name": "X-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^sha256=[0-9a-f]{64}$"
+            }
+          }
+        ]
+      }
+    },
+    "/events/change": {
+      "post": {
+        "summary": "Receive one signed generic V3 change event",
+        "operationId": "post_events_change",
+        "description": "Minimum role: public. Public source protocol, not a browser session route. Requires a configured X-AIOps-Source with fixed application/environment binding and a Bearer token from a private file. Verify X-Timestamp within five minutes and X-Signature as lowercase sha256=HMAC-SHA256(timestamp + LF + source ID + LF + path type + LF + Idempotency-Key + LF + exact raw JSON bytes, separate source key). LF means one byte 0x0A, with no trailing LF after the body; all four prefix values are validated to exclude LF. Distinct configured sources cannot share token or HMAC key material. Idempotency-Key is scoped to the source and type for 24 hours. Body claims cannot change source, application or environment. Accepted events and sanitized receipts are committed with audit before 202; this does not imply downstream incident creation or outbound delivery. A duplicate returns 409, invalid envelope 422, invalid authentication/signature 401, and a per-source minute limit returns 429 with Retry-After. No raw body or credential is returned or logged.",
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3PushReceiptResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Configured source minute limit exceeded",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds before retry"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "events"
+        ],
+        "security": [
+          {
+            "pushSourceToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3PushChangeEvent"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Source",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "X-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Unix seconds"
+            }
+          },
+          {
+            "name": "X-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^sha256=[0-9a-f]{64}$"
+            }
+          }
+        ]
+      }
+    },
+    "/events/incident": {
+      "post": {
+        "summary": "Receive one signed generic V3 incident event",
+        "operationId": "post_events_incident",
+        "description": "Minimum role: public. Public source protocol, not a browser session route. Requires a configured X-AIOps-Source with fixed application/environment binding and a Bearer token from a private file. Verify X-Timestamp within five minutes and X-Signature as lowercase sha256=HMAC-SHA256(timestamp + LF + source ID + LF + path type + LF + Idempotency-Key + LF + exact raw JSON bytes, separate source key). LF means one byte 0x0A, with no trailing LF after the body; all four prefix values are validated to exclude LF. Distinct configured sources cannot share token or HMAC key material. Idempotency-Key is scoped to the source and type for 24 hours. Body claims cannot change source, application or environment. Accepted events and sanitized receipts are committed with audit before 202; this does not imply downstream incident creation or outbound delivery. A duplicate returns 409, invalid envelope 422, invalid authentication/signature 401, and a per-source minute limit returns 429 with Retry-After. No raw body or credential is returned or logged.",
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3PushReceiptResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Configured source minute limit exceeded",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds before retry"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "events"
+        ],
+        "security": [
+          {
+            "pushSourceToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3PushIncidentEvent"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Source",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "X-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Unix seconds"
+            }
+          },
+          {
+            "name": "X-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^sha256=[0-9a-f]{64}$"
+            }
+          }
+        ]
+      }
+    },
+    "/events/resource": {
+      "post": {
+        "summary": "Receive one signed generic V3 resource event",
+        "operationId": "post_events_resource",
+        "description": "Minimum role: public. Public source protocol, not a browser session route. Requires a configured X-AIOps-Source with fixed application/environment binding and a Bearer token from a private file. Verify X-Timestamp within five minutes and X-Signature as lowercase sha256=HMAC-SHA256(timestamp + LF + source ID + LF + path type + LF + Idempotency-Key + LF + exact raw JSON bytes, separate source key). LF means one byte 0x0A, with no trailing LF after the body; all four prefix values are validated to exclude LF. Distinct configured sources cannot share token or HMAC key material. Idempotency-Key is scoped to the source and type for 24 hours. Body claims cannot change source, application or environment. Accepted events and sanitized receipts are committed with audit before 202; this does not imply downstream incident creation or outbound delivery. A duplicate returns 409, invalid envelope 422, invalid authentication/signature 401, and a per-source minute limit returns 429 with Retry-After. No raw body or credential is returned or logged.",
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3PushReceiptResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Configured source minute limit exceeded",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds before retry"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "events"
+        ],
+        "security": [
+          {
+            "pushSourceToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3PushResourceEvent"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Source",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "X-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Unix seconds"
+            }
+          },
+          {
+            "name": "X-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^sha256=[0-9a-f]{64}$"
+            }
+          }
+        ]
+      }
+    },
+    "/events/oncall": {
+      "post": {
+        "summary": "Receive one signed generic V3 oncall event",
+        "operationId": "post_events_oncall",
+        "description": "Minimum role: public. Public source protocol, not a browser session route. Requires a configured X-AIOps-Source with fixed application/environment binding and a Bearer token from a private file. Verify X-Timestamp within five minutes and X-Signature as lowercase sha256=HMAC-SHA256(timestamp + LF + source ID + LF + path type + LF + Idempotency-Key + LF + exact raw JSON bytes, separate source key). LF means one byte 0x0A, with no trailing LF after the body; all four prefix values are validated to exclude LF. Distinct configured sources cannot share token or HMAC key material. Idempotency-Key is scoped to the source and type for 24 hours. Body claims cannot change source, application or environment. Accepted events and sanitized receipts are committed with audit before 202; this does not imply downstream incident creation or outbound delivery. A duplicate returns 409, invalid envelope 422, invalid authentication/signature 401, and a per-source minute limit returns 429 with Retry-After. No raw body or credential is returned or logged.",
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3PushReceiptResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Configured source minute limit exceeded",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds before retry"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "events"
+        ],
+        "security": [
+          {
+            "pushSourceToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3PushOncallEvent"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Source",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "X-Timestamp",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Unix seconds"
+            }
+          },
+          {
+            "name": "X-Signature",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^sha256=[0-9a-f]{64}$"
+            }
+          }
+        ]
+      }
+    },
     "/mcp-servers": {
       "get": {
         "summary": "List accessible, environment-bound MCP extensions",
@@ -40009,36 +41006,16 @@
     },
     "/services": {
       "get": {
-        "summary": "Read authorized persisted service metadata",
+        "summary": "Read complete source-backed authorized service catalog",
         "operationId": "get_services",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial V3 DTO: live status/health, measured SLO, releases and alerts are explicitly unavailable. Configured targets and bindings are not live evidence. A status filter returns 422 until live status is connected. A bounded scan covers all authorized services before response; more than 1000 visible rows returns 422 result_limit rather than an incomplete total.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Uses registered application/environment/team identity, reviewed Prometheus dashboard evidence, covered operational alerts, verified successful deployments and explicit connector targets. Status is derived from measured SLO burn and current critical alerts, not Kubernetes readiness. All required evidence must be present and current or the full request returns 503 service_view_incomplete. More than 50 authorized rows returns 422 result_limit; no partial counts or synthetic healthy state.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "items": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/V3ServiceMetadata"
-                      }
-                    },
-                    "total": {
-                      "type": "integer"
-                    },
-                    "complete_v3_dto": {
-                      "type": "boolean"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "items",
-                    "total",
-                    "complete_v3_dto"
-                  ]
+                  "$ref": "#/components/schemas/V3ServiceCatalog"
                 }
               }
             }
@@ -40269,16 +41246,16 @@
     },
     "/services/{id}": {
       "get": {
-        "summary": "Read one authorized service metadata record",
+        "summary": "Read one complete authorized service detail",
         "operationId": "get_services_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial V3 DTO with explicit evidence gaps; id binds application and environment.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. The opaque ID binds application and environment. Detail additionally requires authorized persisted investigation model text for the AI panel; changes come from successful deployments and dependencies from non-mock CMDB depends_on service relations. Unrepresentable required evidence returns 503 rather than placeholder data.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/V3ServiceMetadata"
+                  "$ref": "#/components/schemas/V3ServiceDetail"
                 }
               }
             }
@@ -52507,6 +53484,668 @@
           "detail"
         ]
       },
+      "V3PushEventType": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "alert",
+              "change",
+              "incident",
+              "resource",
+              "oncall"
+            ]
+          },
+          "icon": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "schema": {
+            "type": "string"
+          },
+          "today": {
+            "type": "string"
+          },
+          "rejected": {
+            "type": "string"
+          },
+          "tone": {
+            "type": "string",
+            "enum": [
+              "neutral",
+              "accent",
+              "ok",
+              "warn",
+              "danger",
+              "info"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "icon",
+          "name",
+          "schema",
+          "today",
+          "rejected",
+          "tone"
+        ]
+      },
+      "V3PushEndpointHeader": {
+        "type": "object",
+        "properties": {
+          "k": {
+            "type": "string"
+          },
+          "v": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "k",
+          "v",
+          "note"
+        ]
+      },
+      "V3PushEndpointResponse": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "tone": {
+            "type": "string",
+            "enum": [
+              "neutral",
+              "accent",
+              "ok",
+              "warn",
+              "danger",
+              "info"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "tone",
+          "text"
+        ]
+      },
+      "V3PushEndpoint": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": [
+              "POST"
+            ]
+          },
+          "path": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "headers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3PushEndpointHeader"
+            }
+          },
+          "example": {
+            "type": "string"
+          },
+          "responses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3PushEndpointResponse"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "method",
+          "path",
+          "host",
+          "headers",
+          "example",
+          "responses"
+        ]
+      },
+      "V3PushDelivery": {
+        "type": "object",
+        "properties": {
+          "time": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string"
+          },
+          "ms": {
+            "type": "string"
+          },
+          "tone": {
+            "type": "string",
+            "enum": [
+              "neutral",
+              "accent",
+              "ok",
+              "warn",
+              "danger",
+              "info"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "time",
+          "source",
+          "key",
+          "code",
+          "tone",
+          "result",
+          "ms"
+        ]
+      },
+      "V3PushStack": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "brand": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "brand",
+                "name",
+                "role"
+              ]
+            }
+          },
+          "helm": {
+            "type": "string"
+          },
+          "compose": {
+            "type": "string"
+          },
+          "estimate": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "enabled",
+          "components",
+          "helm",
+          "compose",
+          "estimate"
+        ]
+      },
+      "V3PushView": {
+        "type": "object",
+        "properties": {
+          "types": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3PushEventType"
+            }
+          },
+          "endpoint": {
+            "$ref": "#/components/schemas/V3PushEndpoint"
+          },
+          "deliveries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3PushDelivery"
+            }
+          },
+          "stack": {
+            "$ref": "#/components/schemas/V3PushStack"
+          },
+          "availability": {
+            "type": "string",
+            "enum": [
+              "configured_unverified",
+              "endpoint_host_unconfigured",
+              "not_configured"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "types",
+          "endpoint",
+          "deliveries",
+          "stack",
+          "availability"
+        ]
+      },
+      "V3PushTestRequest": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "alert",
+              "change",
+              "incident",
+              "resource",
+              "oncall"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "type"
+        ]
+      },
+      "V3PushTestResult": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "integer",
+            "enum": [
+              202
+            ]
+          },
+          "receipt_id": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "receipt_id"
+        ]
+      },
+      "V3PushAlertEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "alert.v1"
+            ]
+          },
+          "event_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "firing",
+              "resolved"
+            ]
+          },
+          "attributes": {
+            "type": "object",
+            "maxProperties": 16,
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,63}$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 512
+            },
+            "description": "Credential-like attribute names are rejected; values are persisted only in the normalized event and excluded from the receipt and audit."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "critical",
+              "warning",
+              "info"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "event_id",
+          "occurred_at",
+          "subject",
+          "title",
+          "state",
+          "severity"
+        ]
+      },
+      "V3PushChangeEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "change.v1"
+            ]
+          },
+          "event_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "started",
+              "succeeded",
+              "failed",
+              "rolled_back"
+            ]
+          },
+          "attributes": {
+            "type": "object",
+            "maxProperties": 16,
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,63}$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 512
+            },
+            "description": "Credential-like attribute names are rejected; values are persisted only in the normalized event and excluded from the receipt and audit."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "event_id",
+          "occurred_at",
+          "subject",
+          "title",
+          "state"
+        ]
+      },
+      "V3PushIncidentEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "incident.v1"
+            ]
+          },
+          "event_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "acknowledged",
+              "resolved"
+            ]
+          },
+          "attributes": {
+            "type": "object",
+            "maxProperties": 16,
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,63}$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 512
+            },
+            "description": "Credential-like attribute names are rejected; values are persisted only in the normalized event and excluded from the receipt and audit."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "event_id",
+          "occurred_at",
+          "subject",
+          "title",
+          "state"
+        ]
+      },
+      "V3PushResourceEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "resource.v1"
+            ]
+          },
+          "event_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "created",
+              "updated",
+              "deleted"
+            ]
+          },
+          "attributes": {
+            "type": "object",
+            "maxProperties": 16,
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,63}$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 512
+            },
+            "description": "Credential-like attribute names are rejected; values are persisted only in the normalized event and excluded from the receipt and audit."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "event_id",
+          "occurred_at",
+          "subject",
+          "title",
+          "state"
+        ]
+      },
+      "V3PushOncallEvent": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "type": "string",
+            "enum": [
+              "oncall.v1"
+            ]
+          },
+          "event_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "started",
+              "ended",
+              "handoff"
+            ]
+          },
+          "attributes": {
+            "type": "object",
+            "maxProperties": 16,
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9_.-]{0,63}$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 512
+            },
+            "description": "Credential-like attribute names are rejected; values are persisted only in the normalized event and excluded from the receipt and audit."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "schema",
+          "event_id",
+          "occurred_at",
+          "subject",
+          "title",
+          "state"
+        ]
+      },
+      "V3PushEventEnvelope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/V3PushAlertEvent"
+          },
+          {
+            "$ref": "#/components/schemas/V3PushChangeEvent"
+          },
+          {
+            "$ref": "#/components/schemas/V3PushIncidentEvent"
+          },
+          {
+            "$ref": "#/components/schemas/V3PushResourceEvent"
+          },
+          {
+            "$ref": "#/components/schemas/V3PushOncallEvent"
+          }
+        ],
+        "description": "Select the schema matching the path type; non-alert events cannot carry severity. Timestamp and text lengths also have bounded UTF-8 byte limits at runtime."
+      },
+      "V3PushReceiptResult": {
+        "type": "object",
+        "properties": {
+          "accepted": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "receipt_id": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "accepted",
+          "receipt_id"
+        ]
+      },
       "V3McpServerPartial": {
         "type": "object",
         "properties": {
@@ -54914,143 +56553,473 @@
           "routing_connected"
         ]
       },
-      "V3CatalogEvidenceState": {
-        "type": "object",
-        "properties": {
-          "state": {
-            "type": "string",
-            "enum": [
-              "unavailable"
-            ]
-          },
-          "reason": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "state"
-        ]
-      },
-      "V3CatalogConfiguredValue": {
-        "type": "object",
-        "properties": {
-          "state": {
-            "type": "string",
-            "enum": [
-              "configured",
-              "unavailable"
-            ]
-          },
-          "value": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "state"
-        ]
-      },
-      "V3ServiceMetadata": {
+      "V3ServiceKpi": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string"
           },
-          "key": {
+          "label": {
             "type": "string"
           },
-          "name": {
+          "value": {
             "type": "string"
           },
-          "description": {
+          "unit": {
             "type": "string"
           },
-          "environment": {
+          "sub": {
             "type": "string"
           },
-          "complete_v3_dto": {
-            "type": "boolean"
+          "tone": {
+            "type": "string",
+            "enum": [
+              "neutral",
+              "accent",
+              "ok",
+              "warn",
+              "danger",
+              "info"
+            ]
           },
-          "team": {
-            "$ref": "#/components/schemas/V3CatalogConfiguredValue"
-          },
-          "tier": {
-            "$ref": "#/components/schemas/V3CatalogConfiguredValue"
-          },
-          "owner": {
-            "$ref": "#/components/schemas/V3CatalogConfiguredValue"
-          },
-          "oncall": {
-            "$ref": "#/components/schemas/V3CatalogConfiguredValue"
-          },
-          "status": {
-            "$ref": "#/components/schemas/V3CatalogEvidenceState"
-          },
-          "health": {
-            "$ref": "#/components/schemas/V3CatalogEvidenceState"
-          },
-          "release": {
-            "$ref": "#/components/schemas/V3CatalogEvidenceState"
-          },
-          "alerts": {
-            "$ref": "#/components/schemas/V3CatalogEvidenceState"
-          },
-          "slo": {
-            "type": "object",
-            "properties": {
-              "target_percent": {
-                "$ref": "#/components/schemas/V3CatalogConfiguredValue"
-              },
-              "availability": {
-                "$ref": "#/components/schemas/V3CatalogEvidenceState"
-              },
-              "budget_left": {
-                "$ref": "#/components/schemas/V3CatalogEvidenceState"
-              }
-            },
-            "additionalProperties": false
-          },
-          "connectors": {
+          "series": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "kind": {
-                  "type": "string"
-                },
-                "resource": {
-                  "type": "string"
-                },
-                "state": {
-                  "type": "string",
-                  "enum": [
-                    "configured"
-                  ]
-                }
-              },
-              "additionalProperties": false
+              "type": "number"
             }
           }
         },
         "additionalProperties": false,
         "required": [
           "id",
-          "key",
+          "label",
+          "value",
+          "series"
+        ]
+      },
+      "V3ServiceBurn": {
+        "type": "object",
+        "properties": {
+          "window": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "tone": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "warn",
+              "danger"
+            ]
+          },
+          "pct": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "window",
+          "value",
+          "tone",
+          "pct"
+        ]
+      },
+      "V3ServiceSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "desc": {
+            "type": "string"
+          },
+          "team": {
+            "type": "string"
+          },
+          "oncall": {
+            "type": "string"
+          },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "T0",
+              "T1",
+              "T2"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "warn",
+              "danger"
+            ]
+          },
+          "slo": {
+            "type": "object",
+            "properties": {
+              "target": {
+                "type": "string"
+              },
+              "budget_left": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "target",
+              "budget_left"
+            ]
+          },
+          "release": {
+            "type": "object",
+            "properties": {
+              "brand": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "when": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "brand",
+              "version",
+              "when"
+            ]
+          },
+          "alerts": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "connectors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
           "name",
-          "description",
-          "environment",
-          "complete_v3_dto",
-          "team",
+          "desc",
           "tier",
-          "owner",
+          "team",
           "oncall",
           "status",
-          "health",
           "slo",
           "release",
           "alerts",
           "connectors"
+        ]
+      },
+      "V3ServiceFacet": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "on": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "label",
+                "count",
+                "on"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "title",
+          "items"
+        ]
+      },
+      "V3ServiceCatalog": {
+        "type": "object",
+        "properties": {
+          "kpis": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3ServiceKpi"
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3ServiceSummary"
+            }
+          },
+          "facets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3ServiceFacet"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "kpis",
+          "items",
+          "facets"
+        ]
+      },
+      "V3ServiceDependency": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "warn",
+              "danger"
+            ]
+          },
+          "meta": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "status",
+          "meta"
+        ]
+      },
+      "V3ServiceDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "team": {
+            "type": "string"
+          },
+          "desc": {
+            "type": "string"
+          },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "T0",
+              "T1",
+              "T2"
+            ]
+          },
+          "env": {
+            "type": "string",
+            "enum": [
+              "prod",
+              "staging",
+              "test"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "warn",
+              "danger"
+            ]
+          },
+          "deeplinks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "brand": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "brand",
+                "name",
+                "url"
+              ]
+            }
+          },
+          "ai": {
+            "type": "object",
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "investigation": {
+                "type": "string"
+              },
+              "proposal": {
+                "type": "string"
+              },
+              "meta": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "text",
+              "investigation",
+              "meta"
+            ]
+          },
+          "signals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3ServiceKpi"
+            }
+          },
+          "slo": {
+            "type": "object",
+            "properties": {
+              "availability": {
+                "type": "string"
+              },
+              "target": {
+                "type": "string"
+              },
+              "budget_left": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "burn": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3ServiceBurn"
+                }
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "availability",
+              "target",
+              "budget_left",
+              "burn",
+              "note"
+            ]
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "brand": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "meta": {
+                  "type": "string"
+                },
+                "tag": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "brand",
+                "title",
+                "meta"
+              ]
+            }
+          },
+          "deps": {
+            "type": "object",
+            "properties": {
+              "upstream": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3ServiceDependency"
+                }
+              },
+              "downstream": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3ServiceDependency"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "upstream",
+              "downstream"
+            ]
+          },
+          "tabs": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "tier",
+          "team",
+          "env",
+          "status",
+          "desc",
+          "deeplinks",
+          "ai",
+          "signals",
+          "slo",
+          "changes",
+          "deps",
+          "tabs"
         ]
       },
       "V3ExternalTarget": {
@@ -57417,6 +59386,10 @@
         "name": "aiops_session"
       },
       "alertSourceToken": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "pushSourceToken": {
         "type": "http",
         "scheme": "bearer"
       },

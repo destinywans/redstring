@@ -542,3 +542,27 @@ v3_route('get','/traces/{id}','Read scoped trace',response=ref('V3TraceView'),
 P['/traces/{id}']['get']['responses']['413'] = {
     'description':'Trace exceeds the scoped span limit',
     'content':{'application/json':{'schema':ref('Error')}}}
+
+# A personal watch is persisted independently of ownership and notification
+# subscriptions. Status is nullable until this specific service has current
+# authorized metrics and complete reviewed alert coverage.
+S['V3WatchedServiceAvailability'] = obj({
+    'state':string(enum=['available','unavailable']),
+    'reason':string()},['state'])
+S['V3WatchedService'] = obj({
+    'id':string(),'name':string(),
+    'status':{'type':['string','null'],'enum':['ok','warn','danger',None]},
+    'availability':ref('V3WatchedServiceAvailability')},
+    ['id','name','status','availability'])
+S['V3WatchedServices'] = obj({
+    'items':arr(ref('V3WatchedService')),
+    'complete_v3_dto':v3_bool()},['items','complete_v3_dto'])
+v3_route('get','/me/watched-services','Read explicitly watched services',
+    response=ref('V3WatchedServices'),
+    desc='Lists at most 50 currently visible personal watch records after examining at most 500 valid records in selected authorized environments; all may aggregate authorized non-production environments. Service IDs are the same opaque application/environment IDs as /services/{id}. Current services.view for the application or persisted owner team controls visibility. Current scoped SLO-burn and reviewed alert evidence supply status only when complete and authorized; otherwise status is null, availability.state is unavailable and complete_v3_dto is false. No owner, team, on-call or notification relationship creates a watch. After remote evidence reads, the exact Cookie session, environment and service grants, watch membership and metric source rows are rechecked and held through response. Alert coverage and token readability are rechecked just before the final transaction but cannot be atomically locked with its response. Frozen Shell.tsx requires a non-null status and needs an unknown-state adaptation before real-mode acceptance.')
+v3_route('put','/me/watched-services/{id}','Follow one authorized service',
+    response=obj({'id':string(),'watched':{'const':True}},['id','watched']),
+    desc='Idempotently persists one personal watch for the selected single environment after current human session and services.view for the exact registered service or owner team. At most 50 currently visible watches count across authorized environments, with a separate 500-record storage bound. Hidden watches do not consume visible capacity; records in revoked environments still count toward the storage bound. No service state, owner assignment, notification subscription or external infrastructure is changed. The preference and audit are committed together.')
+v3_route('delete','/me/watched-services/{id}','Unfollow one authorized service',
+    status=204,
+    desc='Idempotently removes only the current human user personal watch with this exact application/environment ID in the selected currently authorized environment. It remains possible after service archival or loss of services.view, without exposing service metadata. If the environment grant itself is revoked, the V3 scope middleware cannot select it; such historical watches do not count toward current follow capacity. No other user or service state is changed. A real deletion and its audit are committed together.')

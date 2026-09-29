@@ -3,6 +3,8 @@ package v3serviceviews
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // metricSourceSeal captures the exact persisted source configuration that
@@ -24,13 +26,30 @@ func (s *Service) sourceSeal(ctx context.Context, row serviceRow) (metricSourceS
 	if s == nil || s.Store == nil || s.Store.DB == nil {
 		return zero, errIncomplete
 	}
-	rows, err := s.Store.DB.Query(ctx, `SELECT t.id,t.connector_id,t.external_id,
+	return sourceSealFrom(ctx, s.Store.DB, row, false)
+}
+
+type sealQuerier interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+// The final watched-service authorization holds a transaction connection.
+// Querying through it avoids borrowing the pool while locks are held. Its
+// locked form keeps target and connector configuration stable through reply;
+// watched.go has already locked the service identity, matching target writes.
+func sourceSealFrom(ctx context.Context, q sealQuerier, row serviceRow, lock bool) (metricSourceSeal, error) {
+	var zero metricSourceSeal
+	query := `SELECT t.id,t.connector_id,t.external_id,
  c.endpoint,c.auth_method,c.credential_ref,c.tools,c.enabled
  FROM v3_connector_targets t JOIN v3_connectors c
  ON c.id=t.connector_id AND c.environment_id=t.environment_id
  WHERE t.application_id=$1 AND t.environment_id=$2
  AND t.target_kind='metric_resource' AND c.provider='prometheus'
- LIMIT 2`, row.AppID, row.Env)
+ LIMIT 2`
+	if lock {
+		query += " FOR SHARE OF t,c"
+	}
+	rows, err := q.Query(ctx, query, row.AppID, row.Env)
 	if err != nil {
 		return zero, err
 	}

@@ -50,7 +50,7 @@ func (s *Service) BeginRegistration(ctx context.Context, a Actor) (Ceremony, err
 	if err != nil {
 		return out, err
 	}
-	out, err = s.saveChallenge(ctx, tx, a, sessionHash, "register", nil, options, session, now)
+	out, err = s.saveChallenge(ctx, tx, a, sessionHash, "register", nil, nil, options, session, now)
 	if err != nil {
 		return Ceremony{}, err
 	}
@@ -109,7 +109,7 @@ func (s *Service) beginAssertion(ctx context.Context, a Actor, targetID []byte, 
 	if err != nil {
 		return out, err
 	}
-	out, err = s.saveChallenge(ctx, tx, a, sessionHash, kind, targetID, options, session, now)
+	out, err = s.saveChallenge(ctx, tx, a, sessionHash, kind, targetID, nil, options, session, now)
 	if err != nil {
 		return Ceremony{}, err
 	}
@@ -119,8 +119,11 @@ func (s *Service) beginAssertion(ctx context.Context, a Actor, targetID []byte, 
 	return out, tx.Commit(ctx)
 }
 
-func (s *Service) saveChallenge(ctx context.Context, tx pgx.Tx, a Actor, sessionHash, kind string, targetID []byte, options any, session *webauthn.SessionData, now time.Time) (Ceremony, error) {
+func (s *Service) saveChallenge(ctx context.Context, tx pgx.Tx, a Actor, sessionHash, kind string, targetID []byte, binding *ProposalBinding, options any, session *webauthn.SessionData, now time.Time) (Ceremony, error) {
 	var out Ceremony
+	if (kind == "proposal_approve") != (binding != nil) {
+		return out, ErrUnavailable
+	}
 	if session == nil || session.RelyingPartyID != s.rpID || session.Origin != s.origin ||
 		session.UserVerification != protocol.VerificationRequired || session.Challenge == "" {
 		return out, ErrUnavailable
@@ -130,11 +133,13 @@ func (s *Service) saveChallenge(ctx context.Context, tx pgx.Tx, a Actor, session
 		return out, err
 	}
 	// Bound challenge storage and per-account ceremony issuance. Existing
-	// challenge rows are retained for 24 hours to support investigation, while
-	// the hash-chain audit remains the durable operation history.
+	// challenge rows are retained for at least 24 hours to support investigation.
+	// Approval votes retain their referenced challenge rows; the hash-chain
+	// audit remains the durable operation history.
 	_, err = tx.Exec(ctx, `WITH stale AS (
-	 SELECT id FROM v3_passkey_challenges WHERE expires_at<$1
-	 ORDER BY expires_at LIMIT 100 FOR UPDATE SKIP LOCKED
+	 SELECT c.id FROM v3_passkey_challenges c WHERE c.expires_at<$1
+	 AND NOT EXISTS (SELECT 1 FROM v3_proposal_approval_votes v WHERE v.challenge_id=c.id)
+	 ORDER BY c.expires_at LIMIT 100 FOR UPDATE OF c SKIP LOCKED
 	) DELETE FROM v3_passkey_challenges c USING stale WHERE c.id=stale.id`, now.Add(-24*time.Hour))
 	if err != nil {
 		return out, err
@@ -157,10 +162,17 @@ func (s *Service) saveChallenge(ctx context.Context, tx pgx.Tx, a Actor, session
 		return out, err
 	}
 	out = Ceremony{ID: store.ID(), Options: options, ExpiresAt: now.Add(challengeLifetime)}
+	var proposalID, actionKind, actionDigest, reviewDigest any
+	if binding != nil {
+		proposalID, actionKind = binding.ProposalID, binding.ActionKind
+		actionDigest, reviewDigest = binding.ActionDigest, binding.ReviewContentDigest
+	}
 	_, err = tx.Exec(ctx, `INSERT INTO v3_passkey_challenges
-	 (id,instance_id,rp_id,user_id,session_hash,tier,environment_id,kind,target_credential_id,session_data,created_at,expires_at)
-	 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, out.ID, s.instanceID, s.rpID, a.UserID,
-		sessionHash, a.Tier, a.EnvironmentID, kind, targetID, raw, now, out.ExpiresAt)
+	 (id,instance_id,rp_id,user_id,session_hash,tier,environment_id,kind,target_credential_id,
+	  proposal_id,action_kind,action_digest,review_content_digest,session_data,created_at,expires_at)
+	 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, out.ID, s.instanceID, s.rpID, a.UserID,
+		sessionHash, a.Tier, a.EnvironmentID, kind, targetID, proposalID, actionKind, actionDigest, reviewDigest,
+		raw, now, out.ExpiresAt)
 	return out, err
 }
 

@@ -1,6 +1,6 @@
-// Package v3passkey provides account-owned WebAuthn ceremonies. The current
-// V3 proposal model has no immutable persisted digest, so this package cannot
-// issue proposal approval assurance or change the approval deny gate.
+// Package v3passkey provides account-owned WebAuthn ceremonies and a separate
+// proposal-bound assertion that a caller can verify inside an approval
+// transaction. An account assertion does not grant proposal approval.
 package v3passkey
 
 import (

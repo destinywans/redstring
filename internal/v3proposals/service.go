@@ -1,5 +1,6 @@
-// Package v3proposals owns the V3 review record and discussion. It has no
-// approval or execution API; historical action_plans are a different model.
+// Package v3proposals owns V3 review records, discussion, and durable
+// passkey-bound approval. Execution remains with an independent worker;
+// historical action_plans are a different model.
 package v3proposals
 
 import (
@@ -25,8 +26,9 @@ type Access interface {
 }
 
 type Service struct {
-	DB     *pgxpool.Pool
-	Access Access
+	DB               *pgxpool.Pool
+	Access           Access
+	ApprovalPasskeys ProposalPasskeys
 }
 
 func New(db *pgxpool.Pool, access Access) *Service { return &Service{DB: db, Access: access} }

@@ -35,14 +35,18 @@ backup state; clone warnings revoke the affected credential and fail.
 Registration uses no attestation trust policy, so a verified credential proves
 possession and user verification, not a particular hardware model.
 
-**Approval is still denied.** Current `v3_proposals.content` has no durable,
-immutable digest. `BeginProposalAssertion` returns
-`ErrProposalDigestUnavailable`, no proposal challenge/proof table exists, and
-the V3 approval policy remains a deny gate. Integration must first persist a
-canonical proposal digest and bind the challenge to the exact proposal ID,
-digest, user, session, instance, environment and RP. It then needs same-transaction
-proof consumption with the actual approval authorization checks. Account
-`AssertionResult` must never be treated as `assurance=passkey` for a proposal.
+Proposal approval uses a separate, action-backed ceremony. The proposal
+service supplies a previously verified `ProposalBinding` with the exact
+proposal ID, action kind, action digest, review content digest, and
+environment. `BeginBoundProposalAssertion` binds these to a fresh five-minute
+challenge. `VerifyProposalAssertionWithTx` must be called in the approval
+transaction after the proposal row has been locked and the binding verified;
+it consumes the challenge, updates the credential, and returns transaction-only
+proof metadata. The caller must commit semantic denials to preserve one-use
+consumption, and must check scoped approval authority before recording a vote.
+The legacy `BeginProposalAssertion` and `FinishProposalAssertion` signatures
+remain unavailable. Account `AssertionResult` must never be treated as
+`assurance=passkey` for a proposal.
 
 The full `webauthn.Credential` JSON is persisted because assertion validation
 and future metadata review require it. It includes public key and authenticator

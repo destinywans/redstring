@@ -48,6 +48,9 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"PATCH /api/v1/mcp-servers/{id}/tools/{name}", s.toolChange, "manage"},
 		{"POST /api/v1/mcp-servers/{id}/review", s.review, "manage"},
 		{"POST /api/v1/mcp-servers/{id}/discover", s.discover, "manage"},
+		{"GET /api/v1/mcp-servers/{id}/review-candidate", s.reviewCandidate, "manage"},
+		{"POST /api/v1/mcp-servers/{id}/review-version", s.reviewVersion, "manage"},
+		{"PATCH /api/v1/mcp-servers/{id}/reviewed-tools/{name}", s.changeReviewedTool, "manage"},
 		{"PUT /api/v1/mcp-servers/{id}/environment-binding", s.bindEnvironment, "manage"},
 		{"DELETE /api/v1/mcp-servers/{id}/environment-binding", s.unbindEnvironment, "manage"},
 	} {

@@ -1,5 +1,7 @@
 # AIOps Canvas 实施计划
 
+**2026-09-29 本人资料证据（CP-195）：** WAN-119 的 `GET/PUT /me/profile` 已接受保护的 HTTPS 身份证据来源，事务内复核当前账号、会话、环境权、联系人及全部活动会话和本实例 MFA 登记；PUT 仅写可编辑资料与审计。两条按条件式完整证据成功路径计 `implemented`，现 **157/166、9 mock**；OpenAPI **329 路径、396 操作、471 schema**。默认未配置来源时 503，真实权威服务、页面和数据库 HTTP 未验收；详见 [CP-195](CHECKPOINT.md)。
+
 **2026-09-29 告警规则待审草稿（CP-194）：** WAN-118 的 `POST /alert-rules` 仅 `draft` 模式、`PUT /alert-rules/{id}` 及 `POST /alert-rules/import` 已接受信规则来源、当前授权、独立 GitLab 草稿命名空间与持久操作台账；外部导出时有界锁定当前授权。三条按条件式草稿成功路径计 `implemented`，现 **155/166、11 mock**；OpenAPI **329 路径、396 操作、471 schema**。`dry_run`/`enabled` 缺隔离运行、批准及执行链而未开放，草稿 MR 不部署规则；迁移、真实来源和冻结页面未验收。详见 [CP-194](CHECKPOINT.md)。
 
 **2026-09-29 告警分组批量认领与调查（CP-193）：** WAN-118 的 `POST /alert-groups/bulk` 已按 GET 相同的环境记录、应用、来源与指纹定位并锁定分组，逐组进行真人/授权复核，认领和调查有持久成功路径；审查发现的旧标题哈希身份已修复。批量静默因现有匹配器无法精确限定指纹而逐项 `not_connected`，不创建提案或上游静默。主路由按认领/调查的条件式成功路径升 `implemented`，现 **152/166、14 mock**；OpenAPI **327 路径、392 操作、459 schema**。未做数据库、页面或外部联调，见 [CP-193](CHECKPOINT.md)。

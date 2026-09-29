@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-195 · 2026-09-29 · WAN-119 本人资料证据
+
+- 从已推送 CP-194 `be18f71` 接续，WAN-119 来源 `abd16a1` 合入 `af6baff`；正式 V3 入口将 `ProfileInstanceID` 绑定当前实例的 MFA ID，通过 `AIOPS_V3_PROFILE_EVIDENCE_URL` 与 `AIOPS_V3_PROFILE_EVIDENCE_TOKEN_FILE` 成对启用 HTTPS 身份权威来源。令牌文件须为绝对路径、0600 普通文件；配置缺省时 GET/PUT `/me/profile` 继续 503，配置不完整或无效时启动失败。没有新迁移，未选择或实连权威服务。
+- GET 只在当前真人账号、活动 Cookie 会话、单环境查看权与新鲜完整证据齐备时返回 `ProfileView`。证据必须精确覆盖保存的联系人、全部活动会话设备/登录方式、MFA 因子及当前实例 TOTP/passkey 登记；事务再次锁定和复核。PUT 仅写姓名、显示名、职务、时区和通知偏好并同事务审计，部门、联系人及安全字段不得被完整提交改写。独立静态审查未见确定的鉴权阻断。仓库尚无能提供全部设备/登录方式的权威生产者，填写 URL/令牌也不证明其真实来源。
+- 两条主路由按条件式后端成功路径升 `implemented`，现 **157/166、9 mock**；OpenAPI **329 路径、396 操作、471 schema**。本批仅受影响 Go 构建、OpenAPI 生成、契约/矩阵/readiness 和差异静态检查；按当前限制未跑测试、真实权威服务、数据库 HTTP 或页面。冻结资料页未验收。无 PR、合并或部署；下一步继续 WAN-119 成员来源和剩余路由，Webhook 出站重投保持停用。
+
 ## CP-194 · 2026-09-29 · WAN-118 告警规则待审草稿
 
 - 从已推送 CP-193 `d32a5e7` 接续，来源 `ef6e360`/`2ec3109` 合入为 `f79f709`/`f5a5616`；本批正式入口注册 `POST /alert-rules`、`PUT /alert-rules/{id}`、`POST /alert-rules/import`。受信当前 Prometheus 规则来源和绑定用于检查应用/环境/组及重复身份；草稿版本、幂等键、审计和导出尝试存入持久表。三条只在 `draft` 模式有条件成功路径，导出不可部署 JSON 到独立 GitLab 待审 MR，不启用规则。迁移 `141_v3_alert_rule_drafts.sql`、`142_v3_alert_rule_trials.sql` 和 `143_v3_alert_rule_enable_intents.sql` 尚未在现有业务库执行。

@@ -6,6 +6,8 @@
 
 启动时在 `v3settings.Service` 上设置 `ProfileInstanceID` 和 `ProfileEvidence`。`ProfileInstanceID` 必须等于现有 `MeEvidence.MFAInstanceID`，同时需要现有 `MeEvidence.PasskeyRPID`；事务还会把外部因子种类及数量与本实例 `/me` 使用的 TOTP/passkey 登记逐项核对。内置 `NewHTTPProfileEvidenceSource(endpoint, bearerToken)` 是可注入的客户端，接受受信 HTTPS 地址和独立 Bearer 凭据；它不会自行发现设备、认证方式或策略。连接超时为 3 秒，不跟随重定向，最多读取 64 KiB 响应；错误不回显 URL、凭据或源响应。
 
+正式入口通过 `AIOPS_V3_PROFILE_EVIDENCE_URL` 与 `AIOPS_V3_PROFILE_EVIDENCE_TOKEN_FILE` 成对显式启用；凭据文件须为绝对路径、0600 普通文件，令牌不入库。两项都不设时完整资料路由保持 503，只设置一项或配置无效时启动失败。部署者必须先核实 HTTPS 来源确为当前实例和租户的权威服务，并能覆盖全部活动会话；仅填写 URL 与令牌并不能证明这些事实。
+
 客户端向权威服务发送一次 `POST` JSON：`instance_id`、`user_id`、`environment_id`、`current_session_id`、`contacts: [{kind,value}]` 与 `session_ids`。会话 ID 是数据库保存的 SHA-256 令牌哈希，不发送原始 Cookie。权威服务必须返回同名的精确绑定，`complete: true`、`observed_at`、`valid_until`、`contacts: [{kind,value,verified,label?,note?}]`、`mfa_enabled`、`org_rule`、`factors: [{kind,name,sub}]` 与 `sessions: [{id,device,login_method}]`。`verified` 与 `mfa_enabled` 即使为 `false` 也必须显式出现；数组可为空但不可缺失。请求中的邮箱和电话必须逐项且仅出现一次，响应还可包含一个由该权威服务绑定到同一用户的飞书联系方式。所有有效会话必须逐项覆盖，登录方式只接受 `password`、`oidc` 或 `passkey`；因子类型只接受 `totp`、`passkey`、`recovery`。观察时间最多落后 60 秒、最多超前 10 秒，且有效期不得超过观察后 5 分钟。
 
 `mfa_enabled` 表示权威服务观察到活动 TOTP 或 passkey 因子，**不证明登录时强制 MFA，也不产生操作审批保证**。`org_rule` 须由策略权威服务提供真实文案。`password_changed` 没有审计时明确显示未记录；`tokens` 显示个人令牌尚未接入，不把这些字段伪装为可编辑能力。接线前应核实权威服务能够覆盖当前实例的所有活动会话；现有登录路径本身没有保存设备或登录方式。

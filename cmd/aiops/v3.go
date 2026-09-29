@@ -408,6 +408,12 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 
 	personalSettings := v3settings.New(s, modelRuntime)
 	personalSettings.MeEvidence = meEvidence
+	personalSettings.ProfileInstanceID = meEvidence.MFAInstanceID
+	personalSettings.ProfileEvidence, err = loadV3ProfileEvidence(
+		os.Getenv("AIOPS_V3_PROFILE_EVIDENCE_URL"), os.Getenv("AIOPS_V3_PROFILE_EVIDENCE_TOKEN_FILE"))
+	if err != nil {
+		return fmt.Errorf("configure V3 profile evidence: %w", err)
+	}
 	personalSettings.Register(api)
 	api.V3ModelsHandler = personalSettings.ModelsHandler
 

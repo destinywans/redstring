@@ -22438,7 +22438,7 @@
       "get": {
         "summary": "Read personal profile",
         "operationId": "get_me_profile",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply.  Currently returns 503 identity_evidence_unavailable until its complete profile and security evidence is connected; writes are not partially applied.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply.  Requires one selected authorized environment and a current human account/session. An operator-configured trusted HTTPS source must return a fresh, complete, exact instance/user/environment/contact/session-bound snapshot of contact verification, MFA enrollment and factors, organization rule, and device/login method for every active session. Factor types and counts must agree with the same-instance TOTP/passkey registrations used by GET /me. The account database supplies editable fields, notifications, password audit time and session expiry. Unknown, stale, incomplete or unconfigured evidence returns 503 identity_evidence_unavailable; no security state is guessed.",
         "responses": {
           "200": {
             "description": "Success",
@@ -22533,7 +22533,7 @@
       "put": {
         "summary": "Update personal profile",
         "operationId": "put_me_profile",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply.  Currently returns 503 identity_evidence_unavailable until its complete profile and security evidence is connected; writes are not partially applied.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply.  Accepts one complete ProfileView in a selected authorized environment. Only name, display_name, title, timezone and notifications are editable; department, contacts and every security field must exactly match the current authoritative view. The source is called before database locks, then the transaction rechecks exact session, human account, environment.view, source freshness and the complete contact/session set before writing fields and a secret-free audit atomically. Unconfigured, stale or incomplete evidence returns 503 without a partial write. Production startup must inject both the trusted source and instance ID; a configured source has not yet been verified against a real provider.",
         "responses": {
           "200": {
             "description": "Success",
@@ -55787,7 +55787,13 @@
                   "type": "string"
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "label",
+                "value",
+                "verified"
+              ]
             }
           },
           "notifications": {
@@ -55817,10 +55823,21 @@
                       "type": "boolean"
                     }
                   },
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "required": [
+                    "feishu",
+                    "email",
+                    "sms",
+                    "phone"
+                  ]
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": false,
+              "required": [
+                "event",
+                "label",
+                "channels"
+              ]
             }
           },
           "security": {
@@ -55841,7 +55858,12 @@
                   "type": "object",
                   "properties": {
                     "kind": {
-                      "type": "string"
+                      "type": "string",
+                      "enum": [
+                        "passkey",
+                        "totp",
+                        "recovery"
+                      ]
                     },
                     "name": {
                       "type": "string"
@@ -55850,7 +55872,12 @@
                       "type": "string"
                     }
                   },
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "name",
+                    "sub"
+                  ]
                 }
               },
               "sessions": {
@@ -55871,17 +55898,40 @@
                       "type": "boolean"
                     }
                   },
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "device",
+                    "sub"
+                  ]
                 }
               },
               "tokens": {
                 "type": "string"
               }
             },
-            "additionalProperties": false
+            "additionalProperties": false,
+            "required": [
+              "password_changed",
+              "mfa_enabled",
+              "org_rule",
+              "factors",
+              "sessions",
+              "tokens"
+            ]
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "display_name",
+          "department",
+          "title",
+          "timezone",
+          "contacts",
+          "notifications",
+          "security"
+        ]
       },
       "V3ModelChoice": {
         "type": "object",

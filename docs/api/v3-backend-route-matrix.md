@@ -154,8 +154,8 @@
 | Agent 运行台 | POST | `/agent-runs/{id}/feedback` | 新增 | implemented |
 | Agent 运行台 | GET | `/guardrails` | 新增 | implemented |
 | Agent 运行台 | PATCH | `/guardrails/{id}` | 新增 | implemented |
-| 设置 | GET | `/me/profile` | 聚合 | mock |
-| 设置 | PUT | `/me/profile` | 新增 | mock |
+| 设置 | GET | `/me/profile` | 聚合 | implemented |
+| 设置 | PUT | `/me/profile` | 新增 | implemented |
 | 设置 | DELETE | `/me/sessions/{id}` | 新增 | implemented |
 | 设置 | GET | `/members` | 聚合 | implemented |
 | 设置 | POST | `/members/invitations` | 新增 | implemented |

@@ -391,8 +391,8 @@ Prompt 列表只返回有真实版本的已授权记录，支持最多 160 字�
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
-| GET | `/me/profile` | | `ProfileView` | mock |
-| PUT | `/me/profile` | `ProfileView` | `ProfileView` | mock |
+| GET | `/me/profile` | 单一所选环境；需当前真人账号、活动会话与环境查看权 | 受信身份来源完整覆盖联系人验证、MFA 因子和全部活动会话设备/登录方式时返回持久资料 `ProfileView`；缺证据 503 | implemented |
+| PUT | `/me/profile` | 单一所选环境、完整 `ProfileView`；仅姓名、显示名、职务、时区和通知可编辑 | 同事务复核当前证据、会话及权限后保存可编辑字段与审计；联系人、部门和安全字段不可借完整提交改写 | implemented |
 | DELETE | `/me/sessions/{id}` | | 204 | implemented |
 | GET | `/members` | `filter: all\|admin\|no_mfa\|disabled`, `q`；`no_mfa` 缺证据时 503 | 当前受权持久成员与角色；登录、MFA、组与目录来源未知时可空 | implemented |
 | POST | `/members/invitations` | `{ email, role?: "viewer" }` | `{ ok: true }`；仅 SMTP relay 接受且状态落库后成功 | implemented |
@@ -413,7 +413,7 @@ Prompt 列表只返回有真实版本的已授权记录，支持最多 160 字�
 | GET | `/audit/{id}` | | `AuditDetail`（含哈希链校验结果） | implemented |
 | POST | `/audit/export` | 过滤条件 | `{ url }` | implemented |
 
-`GET/PUT /me/profile` 仍返回 `503 identity_evidence_unavailable`：联系人验证、MFA 因子/状态和设备来源未有可信生产者，服务端保留未知值，PUT 不保存不完整的 `ProfileView` 或产生成功审计；会话删除是独立的已实现接口。完整资料页继续 `mock`。
+`GET/PUT /me/profile` 已接可选受信 HTTPS 身份证据来源：只有当前真人账号、活动 Cookie 会话、单环境查看权、完整且新鲜的联系人验证、MFA 因子及全部会话设备/登录方式证据与本实例持久登记一致时才返回完整 `ProfileView`。PUT 只改可编辑资料和通知偏好，事务内复核并审计；不允许借完整提交改写联系人、部门或安全事实。两条仅按有条件后端路径计 `implemented`；默认未配置来源时返回 `503 identity_evidence_unavailable`，仓库尚无可提供全部设备/登录方式的权威生产者，真实来源与冻结页面未验收；见[本人资料证据边界](v3-profile-evidence.md)。会话删除是独立接口。
 
 `GET /workspace` 在读取事务内复核当前有效账号与所选环境 `workspace.view`，读取持久化记录；缺失或损坏时返回 `503 workspace_unavailable`，不会合成默认值。`PUT /workspace` 严格校验单个 JSON 对象、已知字段和值，使用该记录与旧设置接口共用的 `revision` 比较 `If-Match`，在事务中复核账号、平台管理员身份和全局 `workspace.manage`，保存与审计一起提交；`data_region` 和品牌字段为只读部署声明，提交值必须与已存值相同。新建本地或目录导入成员现在继承已保存的 `timezone`、`locale`；已有成员不被改写。slug、`week_start` 和留存天数仍只是保存配置，尚未驱动链接、日历或清理行为；`data_region` 不能证明物理驻留。冻结前端工作区页尚未传递 GET 的 ETag，真实 PUT 会返回 428，整页未验收。
 

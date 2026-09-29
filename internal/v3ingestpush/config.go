@@ -156,6 +156,8 @@ func (s *Service) loadSecrets(selected string) ([]byte, []byte, error) {
 func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/ingest/push", "viewer", s.view)
 	api.MarkV3ObjectRoute("GET /api/v1/ingest/push", "connectors", "view")
+	api.Register("GET /api/v1/webhooks", "viewer", s.webhooks)
+	api.MarkV3ObjectRoute("GET /api/v1/webhooks", "connectors", "view")
 	api.Register("POST /api/v1/ingest/push/test", "viewer", s.test)
 	api.MarkV3ObjectRoute("POST /api/v1/ingest/push/test", "connectors", "manage")
 }

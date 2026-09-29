@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-180 · 2026-09-29 · WAN-120 本人关注服务持久读取
+
+- 从已推送 CP-179 `f94e0d6` 接续，WAN-120 领域来源 `dcf6f05` 合入为 `1f5f55b`；正式 V3 在已有 `v3serviceviews.Service` 实例上注册 GET `/me/watched-services` 及辅助 PUT/DELETE `/me/watched-services/{id}`，不重复创建服务来源。迁移 `140_v3_user_watched_services.sql` 保存本人显式关系，不回填负责人、团队、值班或通知订阅。
+- GET 仅在当前有效 Cookie、环境和服务应用/所属团队查看权限下读取本人关系；最多扫描 500 条有效关系、返回 50 条当前可见项，超限 422。完整受权指标/告警证据可得时返回服务信号 `ok|warn|danger`；缺来源、范围或覆盖证据时关系仍真实，状态为 `null` 与明确 `availability`，不把未知写成健康。最终事务重核会话、授权、关系和指标绑定并持锁至响应；外部告警覆盖观察不能与响应原子锁定。PUT/DELETE 只更改本人关系并记审计，复合服务 ID 与服务目录一致。
+- 主 GET 按用户当前“后端有来源字段 + 诚实未知值”口径升 `implemented`，现 **108/166、58 mock**；OpenAPI **313 路径、372 操作、390 schema**。本批仅重新生成契约、静态矩阵/差异检查和最小 `go build`（退出 0，Go stat 缓存有沙箱权限警告）；没有运行测试、现有库迁移、真实 Prometheus/Alertmanager 或前端/浏览器。冻结侧栏仍假定非空状态且使用 Mock key，页面未验收。无 PR、合并或部署；下一批继续合入知识和 Agent 读取。
+
 ## CP-179 · 2026-09-29 · WAN-122 原生入站 Webhook 来源概览
 
 - 从已推送 CP-178 `b0ccf07` 接续，来源 `f33cd6f` 和其后继 `a4bfdd3` 依次合入为 `ec4e448`、`0836feb`；后者将原生来源投影收敛到既有 `GET /webhooks`，没有注册第二个同路径路由。正式入口只解析一次 `AIOPS_DELIVERY_CONFIG`，将同一 GitLab 配置快照给 V3 列表和后续 Delivery 服务；Operations Alertmanager 复用已加载配置。V3 只注入登记元数据，不读取签名密钥、不探测上游、不发出 Webhook。

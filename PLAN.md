@@ -1,5 +1,7 @@
 # AIOps Canvas 实施计划
 
+**2026-09-29 本人关注服务（CP-180）：** WAN-120 在现有服务视图实例上注册 GET 和辅助 PUT/DELETE，持久关注关系只来自本人明确选择，当前权限下读取；状态证据不足保留 `null` 与可用性。主契约现 **108/166、58 mock**，OpenAPI **313 路径、372 操作、390 schema**。迁移 `140_v3_user_watched_services.sql` 尚未在现有库执行；仅最小编译和静态核对，未跑测试或页面验收。见 [CP-180](CHECKPOINT.md)。
+
 **2026-09-29 原生入站 Webhook 概览（CP-179）：** WAN-122 将已有 Operations Alertmanager 和 Delivery GitLab 接收器的当前授权登记补入既有 `GET /webhooks`；只读已入库 Alertmanager 接收次数，GitLab 历史收据因缺应用环境归属保持未知。交付配置只解析一次供两个服务共享，不开启出站发送或重投。主契约仍 **107/166、59 mock**，OpenAPI **311 路径、369 操作、387 schema**；最小编译通过，未跑测试、真实库或浏览器。见 [CP-179](CHECKPOINT.md)。
 
 **2026-09-29 告警读取四路由（CP-178）：** WAN-118 收件箱、事件详情、本地告警分组及显式来源绑定的策略读取已接持久事实、当前授权和可空契约。`source_ids` 须与固定 Webhook 来源和有效应用环境映射一致；未知已读、影响、抑制、外部送达不补造。主契约现 **107/166、59 mock**，OpenAPI **311 路径、369 操作、387 schema**。现有库 `ops_incidents.labels` 启动迁移、真实 Alertmanager 和页面均未验，本批仅最小编译、未跑测试；见 [CP-178](CHECKPOINT.md)。

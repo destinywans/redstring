@@ -591,7 +591,9 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	if err != nil {
 		return fmt.Errorf("configure V3 service alert coverage: %w", err)
 	}
-	v3serviceviews.New(s, policy, metricReader, alertCoverage).Register(api)
+	serviceViews := v3serviceviews.New(s, policy, metricReader, alertCoverage)
+	serviceViews.Register(api)
+	serviceViews.RegisterWatched(api)
 	changeAlertCoverage, err := v3serviceviews.LoadAlertRangeCoverage(os.Getenv("AIOPS_V3_SERVICE_ALERT_COVERAGE_CONFIG"), opsConfig, cfg, s.DB)
 	if err != nil {
 		return fmt.Errorf("configure V3 change alert coverage: %w", err)

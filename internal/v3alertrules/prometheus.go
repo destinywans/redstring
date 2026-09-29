@@ -30,6 +30,22 @@ type PrometheusSource struct {
 	client    *http.Client
 }
 
+// TrialSourceConflicts rejects reuse of any broad rule source, including one
+// configured for another environment. Distinct values still need the
+// operator's data-plane isolation review.
+func (s *PrometheusSource) TrialSourceConflicts(endpoint TrialEndpoint) bool {
+	if s == nil {
+		return false
+	}
+	for _, current := range s.endpoints {
+		if strings.TrimRight(current.URL, "/") == strings.TrimRight(endpoint.URL, "/") ||
+			current.BearerTokenFile != "" && current.BearerTokenFile == endpoint.BearerTokenFile {
+			return true
+		}
+	}
+	return false
+}
+
 // RangeSeries contains the timestamps for which a Prometheus range query
 // returned this label set. An alert expression fires whenever it has a vector
 // element; its sample value need not be nonzero.

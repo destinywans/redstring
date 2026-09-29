@@ -1,6 +1,6 @@
 # V3 告警规则写入与试运行（WAN-118）
 
-本文件描述领域后端代码的真实边界。正式入口已装配 `draft` 创建、修订和导入；仅在受信 Prometheus 规则来源、独立 GitLab 草稿目标和迁移就绪时存在条件式成功路径。`dry_run` 与 `enabled` 仍未在正式入口接入所需来源和执行链。迁移 141–143 未在现有业务库执行，也未运行真实 Prometheus、GitLab 或 Argo CD 联调。
+本文件描述领域后端代码的真实边界。正式入口已装配 `draft` 创建、修订和导入；仅在受信 Prometheus 规则来源、独立 GitLab 草稿目标和迁移就绪时存在条件式成功路径。`dry_run` 已接入可选的应用隔离查询配置与持久 worker；缺配置时继续返回 503。`enabled` 仍缺批准证明和独立执行链。迁移 141–143 未在现有业务库执行，也未运行真实 Prometheus、GitLab 或 Argo CD 联调。
 
 ## 路由与状态
 
@@ -30,7 +30,9 @@
 {"endpoints":[{"environment_id":"test","application_id":"registered-app-id","url":"https://app-isolated-query-proxy.example.invalid/app-id","bearer_token_file":"/absolute/private/app-specific-token","isolation_attested":true,"isolation_reviewed_by":"named-operator","isolation_reviewed_at":"2026-09-29T00:00:00Z"}]}
 ```
 
-入口应调用 `LoadPrometheusTrialEndpoints`、`NewPrometheusTrialRuntime`，设置 `WriteService.TrialRuntime`，注册 `RegisterTrials(api)`，并在服务可受理请求前启动 `runtime.Run(ctx)`。缺隔离来源或 worker 时返回 503。试运行每次查询前后复核当前应用权限、已绑定规则文件及新规则身份仍不存在、隔离源指纹；上游向量每条必须含精确应用/环境标签。单次查询有 15 秒与 2 MiB 上限，最多 100 序列、1440 个采样点和 500 段触发区间。这些界限限制返回与等待，不是对上游 PromQL 计算代价的硬证明；部署代理必须另行限流与限制资源。
+正式入口通过 `AIOPS_V3_ALERT_RULE_TRIAL_CONFIG` 显式启用：配置与每个 Bearer 凭据均须为绝对路径、0600 普通文件，端点必须使用 HTTPS，且环境/应用须与当前实例和受信规则组绑定一致；不得复用任一环境的共享规则源 URL 或凭据文件。`allow_http` 仅供领域测试，正式入口拒绝。启动时设置 `WriteService.TrialRuntime`、注册 `RegisterTrials(api)`，全部启动配置成功后以服务主 context 启动持久 worker。未配置、worker 尚未就绪或已停止时，创建返回 503；状态 GET 仍按创建者和当前授权读取已存记录。配置审核是运营方对上游数据隔离的声明，代码无法仅凭 URL、标签或独立凭据证明该隔离；当前没有实际受审核的隔离端点配置或运行验收。
+
+试运行每次查询前后复核当前应用权限、已绑定规则文件及新规则身份仍不存在、隔离源指纹；上游向量每条必须含精确应用/环境标签。单次查询有 15 秒与 2 MiB 上限，最多 100 序列、1440 个采样点和 500 段触发区间。这些界限限制返回与等待，不是对上游 PromQL 计算代价的硬证明；部署代理必须另行限流与限制资源。
 
 ## 启用、批准、执行与观察
 
@@ -43,4 +45,4 @@ WAN-117 需要装配两个服务端接口，不能由浏览器请求伪造实现
 
 独立 worker 在批准后调用 `ExecuteApproved`，领取持久执行 ID 与租约；当前授权、批准、调查、绑定、来源规则和 YAML 计划均需在远端动作前复核，远端动作后再核。状态先为 `pending_review`。合并与同步后调用 `ObserveEnabled`；只有当前绑定 Prometheus 组中唯一规则的表达式、持续时间、全部标签与注解精确匹配，才记录 `enabled`。观察是只读对账：即使创建者之后撤权或调查结案，仍须能准确记录已生效规则，不能把不可读等同于未启用。证据不完整时保持待观察或失败关闭，不能报告 `enabled`。
 
-`cmd/aiops` 目前没有上述隔离查询源、批准证明、规则应用器和 worker 接线。`v3passkey` 的现有提案断言仍显式拒绝，`v3_proposals` 本身只有审查/拒绝状态。主 POST 仅按 `draft` 条件式成功路径计数，不代表 `dry_run`、`enabled` 或启用流程完成；冻结新建页仍发送 `query/op/threshold/for_minutes`，与后端的完整规则输入不一致，页面提示也会把待批准误写成已启用，须由 WAN-117 对齐。
+`cmd/aiops` 已有可选隔离查询源和 worker 接线，但尚无真实隔离端点与迁移运行证据。批准证明和规则应用器仍未接线；`v3passkey` 的现有提案断言显式拒绝，`v3_proposals` 本身只有审查/拒绝状态。主 POST 原按 `draft` 条件式成功路径计数，新增 `dry_run` 条件式路径不增加主路由计数；这不代表 `enabled` 或启用流程完成。冻结新建页仍发送 `query/op/threshold/for_minutes`，与后端的完整规则输入不一致，页面提示也会把待批准误写成已启用，须由 WAN-117 对齐。

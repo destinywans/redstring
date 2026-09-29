@@ -402,7 +402,17 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	if err != nil {
 		return fmt.Errorf("configure V3 alert rule drafts: %w", err)
 	}
-	v3alertrules.NewWriteService(s.DB, policy, ruleService, alertRuleDraftRepository).Register(api)
+	alertRuleWriter := v3alertrules.NewWriteService(s.DB, policy, ruleService, alertRuleDraftRepository)
+	trialRuntime, err := loadV3AlertTrialRuntime(os.Getenv("AIOPS_V3_ALERT_RULE_TRIAL_CONFIG"), cfg,
+		ruleSource, ruleBindings, alertRuleWriter)
+	if err != nil {
+		return fmt.Errorf("configure V3 alert rule trial: %w", err)
+	}
+	if trialRuntime != nil {
+		alertRuleWriter.TrialRuntime = trialRuntime
+	}
+	alertRuleWriter.Register(api)
+	alertRuleWriter.RegisterTrials(api)
 	inhibitionHistory, err := loadV3InhibitionHistory(os.Getenv("AIOPS_V3_INHIBITION_HISTORY_CONFIG"),
 		*info, alertmanagerPolicyBindings)
 	if err != nil {
@@ -709,6 +719,13 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	}
 	agentService.SetPromptTrialModelAdapter(promptTrialAdapter)
 	agentService.Register(api)
+	if trialRuntime != nil {
+		go func() {
+			if err := trialRuntime.Run(ctx); err != nil && ctx.Err() == nil {
+				log.Printf("V3 alert rule trial worker stopped: %v", err)
+			}
+		}()
+	}
 	go auditV3.CleanupExpired(ctx)
 	return nil
 }

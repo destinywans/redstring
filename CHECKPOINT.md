@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-200 · 2026-09-29 · WAN-118 告警规则隔离试运行正式接线
+
+- 从已推送 CP-199 `747c00b` 接续。正式 V3 将 `POST /alert-rules` 的 `mode=dry_run` 接入可选 `AIOPS_V3_ALERT_RULE_TRIAL_CONFIG`、持久 `PrometheusTrialRuntime` 和 `GET /alert-rules/dry-runs/{id}`；所有启动配置成功后以主服务 context 启动 worker。配置和各令牌文件须为绝对路径 0600 普通文件，限定当前实例环境、已绑定的应用规则组、HTTPS 与具名隔离审核；拒绝复用任何环境的共享规则源 URL 或凭据。缺配置、worker 未就绪/停止、来源不完整均失败关闭。创建成功仅表示 24 小时有界、只读、无通知试运行已持久入队，结果缺采样为 `inconclusive`，不创建或启用生效规则。
+- 独立源码审查先发现跨环境复用共享规则源的漏洞，现改为与所有已配置规则源比较并复核未见确定接线阻断。不同 URL、凭据与审核声明不证明上游数据面真的按应用/环境隔离，需部署方验证；迁移 `142_v3_alert_rule_trials.sql` 未在现有业务库执行，也无真实隔离端点或运行证据。`enabled` 仍缺提案 Passkey 批准、独立执行器与精确生效观察，冻结新建页请求形状与结果提示尚不匹配。
+- 主契约计数不变，为 **162/166、4 mock**；OpenAPI **332 路径、401 操作、481 schema**。本批 Go build、vet、OpenAPI、路由矩阵/readiness/契约与差异静态检查；依用户当前限制未跑测试、现有库迁移、真实 HTTP/Prometheus/GitLab 或页面。剩余 `POST/DELETE /silences` 与 `POST /proposals/{id}/approve` 缺完整批准和独立执行链，不能凭现有来源合入；`POST /webhooks/{id}/redeliver` 按用户决定保持停用。无 PR、合并或部署；下一步等可审的批准领域提交，再检查依赖、接线与真实验收约束。
+
 ## CP-199 · 2026-09-29 · WAN-122 API 令牌精确只读消费
 
 - 从已推送 CP-198 `844ed4b` 接续，WAN-122 领域来源 `2e50cbe` 合入为 `450e09e`；正式 V3 注册真人 Cookie 管理的 `POST/GET /api-tokens` 与 `DELETE /api-tokens/{id}`，聚合 OpenAPI 加入三条管理操作及 `GET /connectors` 的 Bearer 替代认证。公共 HTTP 入口只在精确 `GET /api/v1/connectors` 且带 Authorization 头时于 Cookie 环境门禁前分发专用处理器，其他路由不增加通用 Bearer 回退。新增迁移 `141_v3_api_tokens.sql` 未在现有业务库执行。

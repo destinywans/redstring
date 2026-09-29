@@ -73,6 +73,12 @@ func LoadPrometheusTrialEndpoints(path string) ([]TrialEndpoint, error) {
 	if err != nil || len(contents) > 64<<10 {
 		return nil, errors.New("trial endpoint configuration exceeds limit")
 	}
+	return ParsePrometheusTrialEndpoints(contents)
+}
+
+// ParsePrometheusTrialEndpoints parses one already verified private file
+// snapshot, so composition does not reopen a path after checking its mode.
+func ParsePrometheusTrialEndpoints(contents []byte) ([]TrialEndpoint, error) {
 	var config struct {
 		Endpoints []struct {
 			EnvironmentID       string `json:"environment_id"`

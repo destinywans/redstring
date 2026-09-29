@@ -1,5 +1,7 @@
 # AIOps Canvas 实施计划
 
+**2026-09-29 告警规则隔离试运行正式接线（CP-200）：** WAN-118 的 `POST /alert-rules` 新增可选 `dry_run` 后端路径：受保护配置、当前实例/应用规则组绑定、独立 HTTPS 查询凭据与具名隔离审核齐备时，持久 worker 执行 24 小时有界、无通知试运行；历史状态 GET 已注册。缺配置或 worker 未就绪时失败关闭，`enabled` 仍不可用。主契约计数仍 **162/166、4 mock**；真实上游隔离、迁移、HTTP 和冻结页面未验收。剩余静默写入与提案批准须待完整独立审批执行链，Webhook 重投保持停用；详见 [CP-200](CHECKPOINT.md)。
+
 **2026-09-29 API 令牌精确只读消费（CP-199）：** WAN-122 的真人签发/列表/撤销已接正式 V3；只签发当前有消费者的 `connectors:view`，256 位密钥只展示一次，精确 `GET /connectors` Bearer 处理器在单事务内核验当前范围与持有人并读取环境登记，不向其他路由开放令牌。`POST /api-tokens` 按可签发且可消费的后端条件路径计 `implemented`，现 **162/166、4 mock**；OpenAPI **332 路径、401 操作、481 schema**。迁移、真实 HTTP 与冻结页面未验收；详见 [CP-199](CHECKPOINT.md)。
 
 **2026-09-29 安全策略权威边界（CP-198）：** WAN-119 的 `GET/PUT /security` 已接可选 HTTPS 运行权威、完整新鲜快照、强 ETag、精确操作回执、同修订读回与持久台账审计；默认无来源时 503。两条按条件式后端路径计 `implemented`，现 **161/166、5 mock**；OpenAPI **330 路径、398 操作、477 schema**。实际权威服务、现有库迁移、受控对账恢复及冻结页面 `If-Match` 均未验收，详见 [CP-198](CHECKPOINT.md)。

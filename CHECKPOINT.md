@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-202 · 2026-09-30 · WAN-117/118 条件式静默双人批准与独立执行接线
+
+- 从 CP-201 `a116412` 接续，将 WAN-117 提案绑定 Passkey 审批来源 `ece9f7d` 合入为 `498b036`；正式接线、严格配置、独立轮询 worker 与契约为 `e833be3dd555d49b6f0a5b49789466a98330089d`。两笔已普通推送至现有私有 `codex/wan-117-v3-integration`，`git ls-remote` 回读后一笔的完整 SHA 一致；无 PR、合并或部署。迁移 `145_v3_proposal_approvals.sql` 随代码登记，连同 140/141 均未对现有业务库执行或做本轮隔离迁移验收。
+- 默认关闭的 `AIOPS_V3_SILENCE_EXECUTION_ENABLED` 仅在提案 Passkey、HTTPS Alertmanager 私有 0600 配置与令牌、验证过的来源/应用绑定齐备时装配提案生产者、当前双真人批准权威、一次性执行器及独立 worker。静默创建/取消 HTTP 只持久提交 `202 pending_review`，批准 options 发起提案摘要绑定挑战；首票 `202` 无执行 ID，第二票 `200 approved` 产生持久 `execution_id` 供 worker 交接。两个批准入口和两个静默入口均检查具体动作、环境和当前 worker/审批表就绪；执行器在领取事务内重核权限及证明，提交一次性声明后才允许上游写入，不确定声明只读对账。关闭或不就绪时 501/503，不在提案 HTTP 中直接写 Alertmanager。精确同请求重放可能返回过期/撤销后的**历史**批准 200；该响应不证明当前可执行、已领取或已执行，执行器会重新核验。worker 心跳只证明正在轮询，积压可能使 15 分钟批准期耗尽。
+- 主契约按已接通的**条件式后端代码成功路径**由 162/166 提升为 **165/166 implemented、1 mock**；唯一 mock 是按用户决定保持关闭的 `POST /webhooks/{id}/redeliver`。聚合 OpenAPI **335 路径、405 操作、487 schema**，已包含静默产品片段与批准 options 辅助路由。Go build、受影响包 vet、V3 契约/就绪/路由矩阵、差异检查通过；通用 `scripts/check-contract.py` 对 12 条本批以前就存在的间接注册路径仍报 `unimplemented`，本批三条主路由不在报错中。依当前限制未运行测试、迁移、真实数据库/Passkey/Alertmanager/HTTP、浏览器或外部验收。冻结前端尚未提交调查 ID、幂等键及双票挑战流程；批量分组静默仍逐项 `not_connected`。下一步在用户允许的产品联调阶段验证迁移、真实来源、恢复和页面，Webhook 重投继续停用。
+
 ## CP-201 · 2026-09-30 · WAN-118 静默提案与一次性执行基础（未启用）
 
 - 从已推送 CP-200 `97d8e56` 接续，按依赖顺序把 WAN-118 来源 `f8c85a1`、`a210900` 合入为 `49982c6`、`d3fd6ff`。领域模块现注册 `POST /silences`、`DELETE /silences/{id}` 并包含不可变待审提案、取消意图、一次性执行声明、未知结果只读对账及迁移 `140_v3_silence_cancel_intents.sql`、`141_v3_silence_execution_claims.sql`；这两项迁移及审批迁移均未在现有业务库执行。主程序没有注入提案生产者、审批权威或运行中的独立执行 worker；两路由在提案写入前返回 `501 not_connected`，不调用 Alertmanager 写接口，主契约继续 **162/166、4 mock**。

@@ -41,6 +41,16 @@ func readAdminResponse(t *testing.T, w *httptest.ResponseRecorder) adminView {
 	return view
 }
 
+func TestModelAdminVisionReflectsConfiguredInputCapability(t *testing.T) {
+	view := buildAdminView("test", []inference.Model{
+		{ID: "image", Provider: "openai", API: "responses", ImageInput: true, PDFInput: true},
+		{ID: "text", Provider: "openai", API: "responses"},
+	}, "image", nil, nil, "", nil)
+	if len(view.Items) != 2 || !view.Items[0].Vision || view.Items[1].Vision {
+		t.Fatalf("vision catalog diverged from configured model capability: %+v", view.Items)
+	}
+}
+
 func TestModelAdminBoundViewObservationsAndHistoricalUse(t *testing.T) {
 	st := isolatedModelStore(t)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

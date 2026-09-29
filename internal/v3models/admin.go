@@ -284,7 +284,7 @@ func buildAdminView(env string, models []inference.Model, defaultModel string, o
 		view.Items = append(view.Items, adminItem{
 			ID: model.ID, Name: model.Name, Provider: model.Provider, Brand: provider,
 			Connector: "", API: model.API, Reasoning: adminReasoning{Kind: kind, Levels: levels},
-			Tools: model.Tools && toolModels[model.ID], Vision: false, ContextK: model.ContextWindow / 1024,
+			Tools: model.Tools && toolModels[model.ID], Vision: model.ImageInput, ContextK: model.ContextWindow / 1024,
 			Cost: "Not configured", Note: "Bound for execution in this environment; enabled tool use is not a verified endpoint check.",
 			Available: true, UsedBy: usage[model.ID].description(), Scope: "Environment: " + env + "; subject to conversation/canvas access",
 			Status: "unverified", IsDefault: model.ID == defaultModel,

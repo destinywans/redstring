@@ -124,12 +124,12 @@ func safeFileType(name string, data []byte) (string, error) {
 	sniff := http.DetectContentType(data)
 	media, _, _ := mime.ParseMediaType(sniff)
 	switch ext {
-	case ".txt", ".log", ".md", ".csv", ".json", ".yaml", ".yml":
+	case ".txt", ".log", ".md", ".csv", ".json", ".yaml", ".yml", ".conf", ".toml":
 		if media != "text/plain" || !safeText(data) {
 			return "", errUnsupported
 		}
 		return map[string]string{
-			".txt": "text/plain", ".log": "text/plain", ".md": "text/markdown", ".csv": "text/csv", ".json": "application/json", ".yaml": "application/yaml", ".yml": "application/yaml",
+			".txt": "text/plain", ".log": "text/plain", ".md": "text/markdown", ".csv": "text/csv", ".json": "application/json", ".yaml": "application/yaml", ".yml": "application/yaml", ".conf": "text/plain", ".toml": "text/plain",
 		}[ext], nil
 	case ".pdf":
 		if media == "application/pdf" && bytes.HasPrefix(data, []byte("%PDF-")) {

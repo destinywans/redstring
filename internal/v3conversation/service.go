@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -17,6 +19,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3knowledgesources"
 	"github.com/wans/aiops-canvas/internal/v3models"
 	"github.com/wans/aiops-canvas/internal/v3uploads"
 )
@@ -29,6 +32,8 @@ var (
 	ErrModel              = errors.New("model is not configured")
 	ErrModelInputTooLarge = errors.New("conversation input exceeds model budget")
 	ErrForbidden          = errors.New("environment access denied")
+	ErrLinkUnreadable     = errors.New("attachment link content is unsupported")
+	ErrLinkFetchFailed    = errors.New("attachment link fetch failed")
 )
 
 type Options struct {
@@ -61,9 +66,13 @@ type Options struct {
 	// Each tool must independently recheck its target's V3 scope when Read runs.
 	// Nil means no tools are offered to the model.
 	ToolsForTurn func(context.Context, string, string, string) ([]inference.EvidenceTool, error)
-	// ValidateAttachments must verify every upload ID belongs to the user and
-	// environment before a message can reference it. Nil rejects attachments.
+	// ValidateAttachments is an optional early HTTP preflight. startTurn always
+	// resolves and validates every reference again within its write transaction.
 	ValidateAttachments func(context.Context, core.User, string, []json.RawMessage) error
+	// FetchLink reads bounded public HTTPS Markdown for a validated same-scope
+	// link before turn acceptance. Tests may bind an isolated fake. The default
+	// uses the SSRF-protected WebFetcher; private integration URLs are rejected.
+	FetchLink func(context.Context, string) (string, error)
 	// RunTimeout bounds a background turn after the initiating HTTP request has ended.
 	RunTimeout time.Duration
 	// Shutdown stops failed-reply persistence retries when the server exits.
@@ -75,6 +84,31 @@ type Service struct {
 	db      *pgxpool.Pool
 	runtime inference.Runner
 	opts    Options
+	// Serialize link fetch and turn acceptance per conversation within this
+	// process. The database active_reply_id remains the cross-process gate.
+	sendGuards [256]sync.Mutex
+}
+
+func (s *Service) sendGuard(id string) *sync.Mutex {
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(id))
+	return &s.sendGuards[hash.Sum32()%uint32(len(s.sendGuards))]
+}
+
+func (s *Service) sendAvailable(ctx context.Context, id, owner, env string) error {
+	var active *string
+	err := s.db.QueryRow(ctx, `SELECT active_reply_id FROM v3_conversations
+		WHERE id=$1 AND owner_id=$2 AND environment_id=$3`, id, owner, env).Scan(&active)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if active != nil {
+		return ErrBusy
+	}
+	return nil
 }
 
 const replyLease = 30 * time.Second
@@ -95,6 +129,12 @@ func New(db *pgxpool.Pool, runtime inference.Runner, opts Options) *Service {
 	}
 	if opts.Shutdown == nil {
 		opts.Shutdown = context.Background()
+	}
+	if opts.FetchLink == nil {
+		opts.FetchLink = func(ctx context.Context, address string) (string, error) {
+			page, err := (v3knowledgesources.WebFetcher{}).Fetch(ctx, address)
+			return page.Body, err
+		}
 	}
 	return &Service{db: db, runtime: runtime, opts: opts}
 }
@@ -334,7 +374,7 @@ const modelInputReserveBytes = 4096
 func modelInputReserve(budget int) int { return min(modelInputReserveBytes, budget/2) }
 
 // The snapshot is private model context. The public message retains the user's
-// own text and attachment references, without exposing the uploaded bytes.
+// own text and canonical attachment references, without exposing upload bytes.
 func attachmentContext(items []v3uploads.TextAttachment) (string, error) {
 	type modelAttachment struct {
 		ID   string `json:"id"`
@@ -362,11 +402,21 @@ func withinModelInputBudget(messages []inference.Message, budget int) bool {
 	if budget <= 0 {
 		return false
 	}
-	raw, err := json.Marshal(messages)
+	// Media has its own raw-byte ceiling. JSON encoding its []byte payloads
+	// here would count base64 as text, even though the provider sees an image
+	// or PDF with a different token cost that only it can determine.
+	textOnly := make([]struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}, len(messages))
+	for i, message := range messages {
+		textOnly[i].Role, textOnly[i].Content = message.Role, message.Content
+	}
+	raw, err := json.Marshal(textOnly)
 	return err == nil && len(raw)+modelInputReserve(budget) <= budget
 }
 
-func (s *Service) startTurn(ctx context.Context, id, owner, env, author, sessionHash string, input TurnInput, model inference.Model) (Message, string, error) {
+func (s *Service) startTurn(ctx context.Context, id, owner, env, author, sessionHash string, input TurnInput, model inference.Model, links map[string]fetchedLink) (Message, string, error) {
 	if sessionHash == "" {
 		return Message{}, "", ErrForbidden
 	}
@@ -390,12 +440,17 @@ func (s *Service) startTurn(ctx context.Context, id, owner, env, author, session
 		return Message{}, "", err
 	}
 	attachmentSnapshot := ""
+	canonical := []json.RawMessage{}
+	var currentMedia []inference.Media
 	if len(input.Attachments) > 0 {
-		texts, err := v3uploads.LoadTextAttachmentsTx(ctx, tx, owner, env, input.Attachments, maxAttachmentSourceBytes)
+		resolved, err := v3uploads.LoadAttachmentsTx(ctx, tx, owner, env, input.Attachments, maxAttachmentSourceBytes, v3uploads.MaxModelMedia)
 		if err != nil {
 			return Message{}, "", err
 		}
-		attachmentSnapshot, err = attachmentContext(texts)
+		if err := applyFetchedLinks(resolved, links); err != nil {
+			return Message{}, "", err
+		}
+		attachmentSnapshot, currentMedia, canonical, err = resolvedTurnAttachments(resolved)
 		if err != nil {
 			return Message{}, "", err
 		}
@@ -403,26 +458,28 @@ func (s *Service) startTurn(ctx context.Context, id, owner, env, author, session
 	// Every accepted turn replays the prior completed history. Precheck its
 	// known message budget before committing the user message. The provider
 	// checks the exact request again after system/tool content is added.
-	if model.InputBudget > 0 {
-		prior, err := contextMessagesQuery(ctx, tx, id, model.InputBudget-modelInputReserve(model.InputBudget))
-		if err != nil {
-			return Message{}, "", err
-		}
-		messages := append(prior, inference.Message{Role: "user", Content: input.Text + attachmentSnapshot})
-		if !withinModelInputBudget(messages, model.InputBudget) {
-			return Message{}, "", ErrModelInputTooLarge
-		}
+	prior, err := loadContextMessagesTx(ctx, tx, id, owner, env,
+		model.InputBudget-modelInputReserve(model.InputBudget), v3uploads.MaxModelMedia-mediaBytes(currentMedia))
+	if err != nil {
+		return Message{}, "", err
+	}
+	messages := append(prior, inference.Message{Role: "user", Content: input.Text + attachmentSnapshot, Media: currentMedia})
+	if err := validateTurnMedia(model, messages); err != nil {
+		return Message{}, "", err
+	}
+	if model.InputBudget > 0 && !withinModelInputBudget(messages, model.InputBudget) {
+		return Message{}, "", ErrModelInputTooLarge
 	}
 	now := time.Now().UTC()
 	userID, assistantID, replyID := store.ID(), store.ID(), store.ID()
 	parts := marshal([]json.RawMessage{textPart(input.Text)})
-	attachments := marshal(input.Attachments)
-	if input.Attachments == nil {
-		attachments = marshal([]any{})
-	}
+	attachments := marshal(canonical)
 	_, err = tx.Exec(ctx, `INSERT INTO v3_conversation_messages(id,conversation_id,role,author,parts,attachments,attachment_context)
 		VALUES($1,$2,'user',$3,$4,$5,$6)`, userID, id, author, parts, attachments, attachmentSnapshot)
 	if err != nil {
+		return Message{}, "", err
+	}
+	if err := saveMediaSnapshotTx(ctx, tx, userID, canonical, currentMedia); err != nil {
 		return Message{}, "", err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO v3_conversation_messages(id,conversation_id,role,author,parts,state)
@@ -440,14 +497,14 @@ func (s *Service) startTurn(ctx context.Context, id, owner, env, author, session
 		return Message{}, "", err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes)
-		VALUES($1,'v3.conversation.message',$2,'accepted',jsonb_build_object('reply_id',$3::text,'model_id',$4::text,'environment',$5::text))`, owner, id, replyID, model.ID, env)
+		VALUES($1,'v3.conversation.message',$2,'accepted',jsonb_build_object('reply_id',$3::text,'model_id',$4::text,'environment',$5::text,'reasoning',$6::text))`, owner, id, replyID, model.ID, env, input.Reasoning)
 	if err != nil {
 		return Message{}, "", err
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return Message{}, "", err
 	}
-	return Message{ID: userID, Role: "user", Author: author, CreatedAt: now, Parts: []json.RawMessage{textPart(input.Text)}, Attachments: input.Attachments}, replyID, nil
+	return Message{ID: userID, Role: "user", Author: author, CreatedAt: now, Parts: []json.RawMessage{textPart(input.Text)}, Attachments: canonical}, replyID, nil
 }
 
 func (s *Service) appendEvent(ctx context.Context, conv, reply, claim string, payload any) error {
@@ -699,7 +756,7 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 		s.failTurn(conv, reply, claimID, assistant, nil, err)
 		return
 	}
-	msgs, err := s.contextMessages(ctx, conv)
+	msgs, err := s.contextMessagesWithMedia(ctx, conv, owner, env, model)
 	if err != nil {
 		s.failTurn(conv, reply, claimID, assistant, nil, err)
 		return

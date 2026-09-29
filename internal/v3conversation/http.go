@@ -182,11 +182,7 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 422, "invalid_text", "Enter a message under 2 MiB")
 		return
 	}
-	if len(in.Attachments) > 0 {
-		if s.opts.ValidateAttachments == nil {
-			apiError(w, 503, "uploads_unavailable", "Attachment verification is not available")
-			return
-		}
+	if len(in.Attachments) > 0 && s.opts.ValidateAttachments != nil {
 		if err := s.opts.ValidateAttachments(r.Context(), u, env, in.Attachments); err != nil {
 			if errors.Is(err, v3uploads.ErrInvalidReference) {
 				apiError(w, 422, "invalid_attachment", "Attachment is unavailable or outside this environment")
@@ -231,7 +227,33 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 401, "unauthorized", "Sign in again")
 		return
 	}
-	msg, reply, err := s.startTurn(r.Context(), id, u.ID, env, u.Name, store.Hash(cookie.Value), in, model)
+	guard := s.sendGuard(id)
+	guard.Lock()
+	defer guard.Unlock()
+	if err := s.sendAvailable(r.Context(), id, u.ID, env); err != nil {
+		operationError(w, err)
+		return
+	}
+	if len(in.Attachments) > 0 {
+		// Outbound link fetches may take seconds. Recheck the live session and
+		// grant first; the acceptance transaction checks them again.
+		if err := s.authorizeActiveTurn(r.Context(), u.ID, env, cookie.Value); err != nil {
+			operationError(w, err)
+			return
+		}
+	}
+	links, err := s.fetchLinksForTurn(r.Context(), u.ID, env, in.Attachments)
+	if err == nil {
+		var msg Message
+		var reply string
+		msg, reply, err = s.startTurn(r.Context(), id, u.ID, env, u.Name, store.Hash(cookie.Value), in, model, links)
+		if err == nil {
+			// The request's context ends with the HTTP response. A bounded worker owns the reply.
+			go s.runTurn(id, reply, model, in.Reasoning, cookie.Value)
+			write(w, 202, map[string]any{"message": msg, "reply_id": reply})
+			return
+		}
+	}
 	if err != nil {
 		switch {
 		case errors.Is(err, v3uploads.ErrInvalidReference):
@@ -240,6 +262,12 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) {
 			apiError(w, 422, "attachment_model_unsupported", "This model reply cannot read this attachment type")
 		case errors.Is(err, v3uploads.ErrAttachmentContextTooLarge):
 			apiError(w, 413, "attachment_context_too_large", "Attachment text exceeds this model's input budget")
+		case errors.Is(err, v3uploads.ErrAttachmentMediaTooLarge):
+			apiError(w, 413, "attachment_media_too_large", "Attachment media exceeds the model request byte limit")
+		case errors.Is(err, ErrLinkUnreadable):
+			apiError(w, 422, "attachment_link_unreadable", "This link cannot be read as public HTTPS Markdown")
+		case errors.Is(err, ErrLinkFetchFailed):
+			apiError(w, 503, "attachment_link_unavailable", "Link content could not be fetched")
 		case errors.Is(err, ErrModelInputTooLarge):
 			apiError(w, 413, "model_input_too_large", "Conversation input exceeds this model's input budget")
 		default:
@@ -247,9 +275,6 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	// The request's context ends with the HTTP response. A bounded worker owns the reply.
-	go s.runTurn(id, reply, model, in.Reasoning, cookie.Value)
-	write(w, 202, map[string]any{"message": msg, "reply_id": reply})
 }
 
 func (s *Service) get(w http.ResponseWriter, r *http.Request) {

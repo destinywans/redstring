@@ -2,6 +2,7 @@ package inference
 
 import (
 	"bufio"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,17 +24,49 @@ func (p *providerModel) requestResponses(contents []*genai.Content, system strin
 			role = "assistant"
 		}
 		var text strings.Builder
-		flush := func() {
+		var contentParts []any
+		flushText := func() {
 			if text.Len() > 0 {
-				input = append(input, map[string]any{"role": role, "content": text.String()})
+				contentParts = append(contentParts, map[string]any{"type": "input_text", "text": text.String()})
 				text.Reset()
 			}
 		}
+		flush := func() {
+			flushText()
+			if len(contentParts) > 0 {
+				// Retain the established text-only wire shape. Multimodal input
+				// uses one content array so the bytes remain attached to this user
+				// message through later tool/model calls.
+				if len(contentParts) == 1 {
+					if part, ok := contentParts[0].(map[string]any); ok && part["type"] == "input_text" {
+						input = append(input, map[string]any{"role": role, "content": part["text"]})
+						contentParts = nil
+						return
+					}
+				}
+				input = append(input, map[string]any{"role": role, "content": contentParts})
+				contentParts = nil
+			}
+		}
 		for _, v := range c.Parts {
+			if v.Thought && (v.InlineData != nil || v.FileData != nil) {
+				return nil, "", ErrInvalidMedia
+			}
 			if v.Thought {
 				continue
 			}
 			text.WriteString(v.Text)
+			if v.FileData != nil {
+				return nil, "", ErrUnsupportedMedia
+			}
+			if v.InlineData != nil {
+				flushText()
+				part, err := p.responsesMediaPart(v.InlineData)
+				if err != nil {
+					return nil, "", err
+				}
+				contentParts = append(contentParts, part)
+			}
 			if f := v.FunctionCall; f != nil {
 				flush()
 				if f.ID == "" || f.Name == "" {
@@ -77,6 +110,32 @@ func (p *providerModel) requestResponses(contents []*genai.Content, system strin
 		b["tools"] = tools
 	}
 	return b, "/responses", nil
+}
+
+// The Responses API accepts a base64 data URL for image_url and file_data.
+// Keep bytes out of logs and public events; the caller owns the persistent
+// snapshot. The selected model's explicit capabilities are checked again here
+// so a future caller cannot accidentally drop media at the provider boundary.
+func (p *providerModel) responsesMediaPart(blob *genai.Blob) (map[string]any, error) {
+	if blob == nil {
+		return nil, ErrInvalidMedia
+	}
+	item := Media{MIME: blob.MIMEType, Name: blob.DisplayName, Data: blob.Data}
+	if strings.HasPrefix(blob.MIMEType, "image/") {
+		item.Kind = "image"
+	} else if blob.MIMEType == "application/pdf" {
+		item.Kind = "pdf"
+	} else {
+		return nil, ErrUnsupportedMedia
+	}
+	if err := ValidateMediaForModel(Model{ImageInput: p.provider.ImageInput, PDFInput: p.provider.PDFInput}, []Media{item}); err != nil {
+		return nil, err
+	}
+	uri := "data:" + item.MIME + ";base64," + base64.StdEncoding.EncodeToString(item.Data)
+	if item.Kind == "image" {
+		return map[string]any{"type": "input_image", "image_url": uri, "detail": "auto"}, nil
+	}
+	return map[string]any{"type": "input_file", "filename": item.Name, "file_data": uri}, nil
 }
 
 func (p *providerModel) requestOllama(contents []*genai.Content, system string, declarations []*genai.FunctionDeclaration) (any, string, error) {

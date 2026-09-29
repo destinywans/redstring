@@ -152,7 +152,7 @@ func LoadTextAttachmentsTx(ctx context.Context, tx pgx.Tx, ownerID, environment 
 
 func supportedTextFile(name, savedMIME string) bool {
 	switch strings.ToLower(path.Ext(name)) {
-	case ".txt", ".log":
+	case ".txt", ".log", ".conf", ".toml":
 		return savedMIME == "text/plain"
 	case ".md":
 		return savedMIME == "text/markdown"
@@ -378,16 +378,17 @@ func safeInlineImage(name, savedMIME string, data []byte) bool {
 }
 
 // ValidateAttachments is directly assignable to v3conversation.Options.
-// Compare the complete client-visible metadata as well as the ID; a forged
-// object must not enter a durable message under another name or URL.
+// Compare complete client-visible metadata as well as the ID, except for the
+// frozen composer's known paste display alias. The transactional loader later
+// replaces that alias with the canonical stored name before message commit.
 func (s *Service) ValidateAttachments(ctx context.Context, user core.User, environment string, raw []json.RawMessage) error {
 	if s.DB == nil || user.ID == "" || environment == "" || environment == "all" || len(raw) > 20 {
 		return ErrInvalidReference
 	}
 	seen := make(map[string]struct{}, len(raw))
 	for _, item := range raw {
-		var submitted Upload
-		if err := decodeStrict(bytes.NewReader(item), &submitted); err != nil || submitted.ID == "" {
+		submitted, err := parseUploadReference(item)
+		if err != nil {
 			return ErrInvalidReference
 		}
 		if _, exists := seen[submitted.ID]; exists {
@@ -395,7 +396,7 @@ func (s *Service) ValidateAttachments(ctx context.Context, user core.User, envir
 		}
 		seen[submitted.ID] = struct{}{}
 		var saved Upload
-		err := s.DB.QueryRow(ctx, `SELECT id,kind,name,size_bytes,mime,url FROM v3_uploads WHERE id=$1 AND owner_id=$2 AND environment_id=$3`, submitted.ID, user.ID, environment).
+		err = s.DB.QueryRow(ctx, `SELECT id,kind,name,size_bytes,mime,url FROM v3_uploads WHERE id=$1 AND owner_id=$2 AND environment_id=$3`, submitted.ID, user.ID, environment).
 			Scan(&saved.ID, &saved.Kind, &saved.Name, &saved.Size, &saved.MIME, &saved.URL)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -406,7 +407,7 @@ func (s *Service) ValidateAttachments(ctx context.Context, user core.User, envir
 		if saved.Kind == "file" || saved.Kind == "image" {
 			saved.URL = "/api/v1/uploads/" + saved.ID + "/content"
 		}
-		if submitted != saved {
+		if !sameUploadReference(submitted, saved) {
 			return ErrInvalidReference
 		}
 	}

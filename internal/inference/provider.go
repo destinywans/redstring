@@ -69,7 +69,15 @@ func (p *providerModel) GenerateContent(ctx context.Context, req *model.LLMReque
 			return
 		}
 		if p.provider.InputBudget > 0 {
-			encoded, e := json.Marshal(body)
+			// Image/PDF token cost is model-dependent and unavailable locally.
+			// Count the known textual request bytes and bound media separately
+			// before the call; counting base64 bytes as text would reject ordinary
+			// valid images while pretending to know their token cost.
+			budgetBody := body
+			if p.provider.API == "responses" {
+				budgetBody = redactInlineMediaForBudget(body)
+			}
+			encoded, e := json.Marshal(budgetBody)
 			if e != nil {
 				yield(nil, e)
 				return
@@ -98,6 +106,35 @@ func (p *providerModel) GenerateContent(ctx context.Context, req *model.LLMReque
 		if err != nil && !errors.Is(err, errConsumerStopped) {
 			yield(nil, err)
 		}
+	}
+}
+
+func redactInlineMediaForBudget(value any) any {
+	switch item := value.(type) {
+	case map[string]any:
+		copy := make(map[string]any, len(item))
+		for key, child := range item {
+			if raw, ok := child.(string); ok {
+				if key == "image_url" && strings.HasPrefix(raw, "data:image/") {
+					copy[key] = "[bounded inline image]"
+					continue
+				}
+				if key == "file_data" && strings.HasPrefix(raw, "data:application/pdf;base64,") {
+					copy[key] = "[bounded inline PDF]"
+					continue
+				}
+			}
+			copy[key] = redactInlineMediaForBudget(child)
+		}
+		return copy
+	case []any:
+		copy := make([]any, len(item))
+		for i, child := range item {
+			copy[i] = redactInlineMediaForBudget(child)
+		}
+		return copy
+	default:
+		return value
 	}
 }
 func post(ctx context.Context, c *http.Client, p Provider, path string, body any) (*http.Response, error) {
@@ -136,9 +173,18 @@ func (p *providerModel) request(req *model.LLMRequest) (any, string, error) {
 		if role == "system" {
 			role = "user"
 		}
-		contents = append(contents, genai.NewContentFromText(m.Content, genai.Role(role)))
+		contents = append(contents, contentFromMessage(m, genai.Role(role)))
 	}
 	contents = append(contents, req.Contents...)
+	if p.provider.API != "responses" {
+		for _, content := range contents {
+			for _, part := range content.Parts {
+				if part.InlineData != nil || part.FileData != nil {
+					return nil, "", ErrUnsupportedMedia
+				}
+			}
+		}
+	}
 	system := ""
 	if req.Config != nil && req.Config.SystemInstruction != nil {
 		for _, v := range req.Config.SystemInstruction.Parts {

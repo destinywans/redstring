@@ -255,8 +255,8 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 		}
 	}
 	for _, payload := range []string{
-		`{"text":"","attachments":[{"id":"upload-link","kind":"link","name":"external page","size":0,"mime":"text/uri-list","url":"https://example.test/"}]}`,
-		`{"text":"investigate","attachments":[{"id":"upload-link","kind":"link","name":"external page","size":0,"mime":"text/uri-list","url":"https://example.test/"}]}`,
+		`{"text":"","attachments":[{"id":"upload-link","kind":"link","name":"forged page","size":0,"mime":"text/uri-list","url":"https://example.test/"}]}`,
+		`{"text":"investigate","attachments":[{"id":"upload-link","kind":"link","name":"forged page","size":0,"mime":"text/uri-list","url":"https://example.test/"}]}`,
 	} {
 		response, err := client.Do(request(http.MethodPost, url+"/messages", "test", "", strings.NewReader(payload), true))
 		if err != nil {
@@ -264,8 +264,8 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 		}
 		body, _ := io.ReadAll(response.Body)
 		response.Body.Close()
-		if response.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(string(body), "attachment_model_unsupported") {
-			t.Fatalf("attachment must fail before turn commit: %d %s", response.StatusCode, body)
+		if response.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(string(body), "invalid_attachment") {
+			t.Fatalf("forged attachment must fail before turn commit: %d %s", response.StatusCode, body)
 		}
 	}
 	largePayload := `{"text":"investigate","attachments":[{"id":"upload-large","kind":"paste","name":"long log","size":7000,"mime":"text/plain"}]}`
@@ -280,7 +280,7 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 	}
 	var rejectedMessages int
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_conversation_messages WHERE conversation_id='stream-conv'`).Scan(&rejectedMessages); err != nil || rejectedMessages != 0 {
-		t.Fatalf("unsupported attachment persisted a turn: count=%d err=%v", rejectedMessages, err)
+		t.Fatalf("rejected attachment persisted a turn: count=%d err=%v", rejectedMessages, err)
 	}
 	response, err := client.Do(request(http.MethodPost, url+"/messages", "test", "", strings.NewReader(`{"text":"investigate","reasoning":"high","attachments":[{"id":"upload-1","kind":"paste","name":"log snippet","size":4,"mime":"text/plain"}]}`), true))
 	if err != nil {
@@ -379,7 +379,7 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 	// A later text-only turn also prechecks the combined saved history,
 	// including the private attachment snapshot, before accepting a turn.
 	if _, _, err := chat.startTurn(ctx, "stream-conv", "stream-owner", "test", "Stream Owner",
-		store.Hash("stream-session"), TurnInput{Text: strings.Repeat("x", 1500)}, inference.Model{ID: "test-model", InputBudget: 2048}); !errors.Is(err, ErrModelInputTooLarge) {
+		store.Hash("stream-session"), TurnInput{Text: strings.Repeat("x", 1500)}, inference.Model{ID: "test-model", InputBudget: 2048}, nil); !errors.Is(err, ErrModelInputTooLarge) {
 		t.Fatalf("text-only follow-up with oversized saved context: %v", err)
 	}
 	response, err = client.Do(request(http.MethodGet, url+"/events", "", fmt.Sprint(cursor), nil, true))

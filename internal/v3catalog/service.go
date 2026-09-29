@@ -45,6 +45,16 @@ func New(st *store.Store, access Access, instanceEnvironmentIDs ...string) *Serv
 // subset of the frontend V3 DTO until live health, release and SLO evidence is
 // available; callers must not mark them as the complete V3 contract.
 func (s *Service) Register(api *httpapi.Server) {
+	s.registerRoutes(api, true)
+}
+
+// RegisterWithoutServiceReads keeps catalog writes and mapping routes while
+// the complete service list/detail handlers own the two V3 GET patterns.
+func (s *Service) RegisterWithoutServiceReads(api *httpapi.Server) {
+	s.registerRoutes(api, false)
+}
+
+func (s *Service) registerRoutes(api *httpapi.Server, serviceReads bool) {
 	if s.MappingBindingValidator == nil {
 		// Platform bindings are configured after V3 routes during startup, so
 		// resolve this at request time rather than capturing a nil function.
@@ -57,10 +67,12 @@ func (s *Service) Register(api *httpapi.Server) {
 	}
 	api.Register("POST /api/v1/services", "admin", s.register)
 	api.MarkV3Route("POST /api/v1/services", "services", "change")
-	api.Register("GET /api/v1/services", "viewer", s.services)
-	api.MarkV3ObjectRoute("GET /api/v1/services", "services", "view")
-	api.Register("GET /api/v1/services/{id}", "viewer", s.service)
-	api.MarkV3ObjectRoute("GET /api/v1/services/{id}", "services", "view")
+	if serviceReads {
+		api.Register("GET /api/v1/services", "viewer", s.services)
+		api.MarkV3ObjectRoute("GET /api/v1/services", "services", "view")
+		api.Register("GET /api/v1/services/{id}", "viewer", s.service)
+		api.MarkV3ObjectRoute("GET /api/v1/services/{id}", "services", "view")
+	}
 	api.Register("GET /api/v1/service-mappings", "viewer", s.mappings)
 	api.MarkV3ObjectRoute("GET /api/v1/service-mappings", "services", "view")
 	api.Register("PUT /api/v1/service-mappings", "viewer", s.mappingSave)

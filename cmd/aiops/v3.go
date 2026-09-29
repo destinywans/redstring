@@ -42,6 +42,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3observe"
 	"github.com/wans/aiops-canvas/internal/v3postmortems"
 	"github.com/wans/aiops-canvas/internal/v3proposals"
+	"github.com/wans/aiops-canvas/internal/v3serviceviews"
 	"github.com/wans/aiops-canvas/internal/v3settings"
 	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
 	"github.com/wans/aiops-canvas/internal/v3topology"
@@ -206,7 +207,7 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	auditV3.Register(api)
 	v3canvas.NewWithRuntime(s, modelRuntime).Register(api)
 	catalog := v3catalog.New(s, policy, cfg.EnvironmentIDs...)
-	catalog.Register(api)
+	catalog.RegisterWithoutServiceReads(api)
 	configSync, err := loadV3ConfigSync(os.Getenv("AIOPS_V3_CONFIG_SYNC_CONFIG"), cfg.Tier, s.DB, policy)
 	if err != nil {
 		return fmt.Errorf("load V3 configuration promotion: %w", err)
@@ -452,6 +453,9 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	observations := v3observe.New(s, policy, telemetry)
 	observations.MetricReader = metricReader
 	observations.Register(api)
+	// No current producer proves complete per-application alert ingestion.
+	// Keep service page reads fail closed until such coverage is configured.
+	v3serviceviews.New(s, policy, metricReader, nil).Register(api)
 	v3traces.New(s, policy, telemetry).Register(api)
 	events := v3events.New(s.DB, func(ctx context.Context, user core.User, app, env, action string) error {
 		return policy.Authorize(ctx, user, rbac.V3Decision{Module: "events", Action: action, ApplicationID: app, EnvironmentID: env})

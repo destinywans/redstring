@@ -1,25 +1,50 @@
-# Read-only service discovery and externally queried telemetry.
-S['V3CatalogEvidenceState'] = obj({'state':string(enum=['unavailable']), 'reason':string()},['state'])
-S['V3CatalogConfiguredValue'] = obj({'state':string(enum=['configured','unavailable']), 'value':string()},['state'])
-S['V3ServiceMetadata'] = obj({**fieldnames('id key name description environment'),
-    'complete_v3_dto':v3_bool(),
-    **{name:ref('V3CatalogConfiguredValue') for name in ['team','tier','owner','oncall']},
-    **{name:ref('V3CatalogEvidenceState') for name in ['status','health','release','alerts']},
-    'slo':obj({'target_percent':ref('V3CatalogConfiguredValue'),
-        'availability':ref('V3CatalogEvidenceState'),'budget_left':ref('V3CatalogEvidenceState')}),
-    'connectors':arr(obj({'kind':string(),'resource':string(),'state':string(enum=['configured'])}))},
-    ['id','key','name','description','environment','complete_v3_dto','team','tier','owner',
-     'oncall','status','health','slo','release','alerts','connectors'])
-v3_route('get','/services','Read authorized persisted service metadata',
-    response=obj({'items':arr(ref('V3ServiceMetadata')),'total':integer(),
-        'complete_v3_dto':v3_bool()},['items','total','complete_v3_dto']),
+# Read-only service pages. An incomplete required field fails the whole request;
+# configured metadata alone never becomes a healthy status or SLO measurement.
+S['V3ServiceKpi'] = obj({'id':string(),'label':string(),'value':string(),
+    'unit':string(),'sub':string(),'tone':string(enum=['neutral','accent','ok','warn','danger','info']),
+    'series':arr({'type':'number'})},['id','label','value','series'])
+S['V3ServiceBurn'] = obj({'window':string(),'value':string(),
+    'tone':string(enum=['ok','warn','danger']),'pct':integer(minimum=0,maximum=100)},
+    ['window','value','tone','pct'])
+S['V3ServiceSummary'] = obj({**fieldnames('id name desc team oncall'),
+    'tier':string(enum=['T0','T1','T2']),'status':string(enum=['ok','warn','danger']),
+    'slo':obj({'target':string(),'budget_left':{'type':'number','minimum':0,'maximum':100}},['target','budget_left']),
+    'release':obj(fieldnames('brand version when'),['brand','version','when']),
+    'alerts':integer(minimum=0),'connectors':arr(string())},
+    ['id','name','desc','tier','team','oncall','status','slo','release','alerts','connectors'])
+S['V3ServiceFacet'] = obj({'key':string(),'title':string(),
+    'items':arr(obj({'label':string(),'count':integer(minimum=0),'on':v3_bool()},['label','count','on']))},
+    ['key','title','items'])
+S['V3ServiceCatalog'] = obj({'kpis':arr(ref('V3ServiceKpi')),
+    'items':arr(ref('V3ServiceSummary')),'facets':arr(ref('V3ServiceFacet'))},
+    ['kpis','items','facets'])
+S['V3ServiceDependency'] = obj({'brand':string(),'name':string(),
+    'status':string(enum=['ok','warn','danger']),'meta':string()},['name','status','meta'])
+S['V3ServiceDetail'] = obj({**fieldnames('id name team desc'),
+    'tier':string(enum=['T0','T1','T2']),
+    'env':string(enum=['prod','staging','test']),
+    'status':string(enum=['ok','warn','danger']),
+    'deeplinks':arr(obj(fieldnames('brand name url'),['brand','name','url'])),
+    'ai':obj({'text':string(),'investigation':string(),'proposal':string(),'meta':string()},
+             ['text','investigation','meta']),
+    'signals':arr(ref('V3ServiceKpi')),
+    'slo':obj({'availability':string(),'target':string(),
+        'budget_left':{'type':'number','minimum':0,'maximum':100},
+        'burn':arr(ref('V3ServiceBurn')),'note':string()},
+        ['availability','target','budget_left','burn','note']),
+    'changes':arr(obj({'brand':string(),'title':string(),'meta':string(),'tag':string()},
+        ['brand','title','meta'])),
+    'deps':obj({'upstream':arr(ref('V3ServiceDependency')),
+        'downstream':arr(ref('V3ServiceDependency'))},['upstream','downstream']),
+    'tabs':v3_map(integer(minimum=0))},
+    ['id','name','tier','team','env','status','desc','deeplinks','ai','signals','slo','changes','deps','tabs'])
+v3_route('get','/services','Read complete source-backed authorized service catalog',
+    response=ref('V3ServiceCatalog'),
     query=[v3_query(x) for x in ['q','tier','team','status']],
-    desc='Partial V3 DTO: live status/health, measured SLO, releases and alerts are explicitly unavailable. '
-         'Configured targets and bindings are not live evidence. A status filter returns 422 until live status is connected. '
-         'A bounded scan covers all authorized services before response; more than 1000 visible rows returns 422 result_limit rather than an incomplete total.')
-v3_route('get','/services/{id}','Read one authorized service metadata record',
-    response=ref('V3ServiceMetadata'),
-    desc='Partial V3 DTO with explicit evidence gaps; id binds application and environment.')
+    desc='Uses registered application/environment/team identity, reviewed Prometheus dashboard evidence, covered operational alerts, verified successful deployments and explicit connector targets. Status is derived from measured SLO burn and current critical alerts, not Kubernetes readiness. All required evidence must be present and current or the full request returns 503 service_view_incomplete. More than 50 authorized rows returns 422 result_limit; no partial counts or synthetic healthy state.')
+v3_route('get','/services/{id}','Read one complete authorized service detail',
+    response=ref('V3ServiceDetail'),
+    desc='The opaque ID binds application and environment. Detail additionally requires authorized persisted investigation model text for the AI panel; changes come from successful deployments and dependencies from non-mock CMDB depends_on service relations. Unrepresentable required evidence returns 503 rather than placeholder data.')
 S['V3ExternalTarget'] = obj({**fieldnames('id connector_id provider target_kind external_id environment_id')},
     ['id','connector_id','provider','target_kind','external_id','environment_id'])
 S['V3ExternalTargetInput'] = obj({'connector_id':string(),

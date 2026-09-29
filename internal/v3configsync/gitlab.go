@@ -366,17 +366,19 @@ func (c *GitLabClient) ListMerged(ctx context.Context, limit int) ([]MR, error) 
 	if limit < 1 || limit > 100 {
 		return nil, errors.New("invalid GitLab merge request limit")
 	}
-	q := url.Values{"state": {"merged"}, "target_branch": {c.config.TargetBranch},
-		"labels": {promotionLabel}, "per_page": {strconv.Itoa(limit)}, "page": {"1"}}
+	// Labels can be removed after merge. Query every MR on the bounded target
+	// branch, then select only our generated promotion branches locally.
+	q := url.Values{"scope": {"all"}, "state": {"merged"}, "target_branch": {c.config.TargetBranch},
+		"per_page": {strconv.Itoa(limit)}, "page": {"1"}}
 	var list []MR
 	_, h, err := c.call(ctx, http.MethodGet, c.projectPath()+"/merge_requests", q, nil, 200, &list)
 	if err != nil {
 		return nil, err
 	}
-	// GitLab cannot filter by a branch prefix. A first page with more results
-	// is not a complete configuration list, even if this page contains no
-	// promotion branches. Fail instead of presenting a false empty list.
-	if h.Get("X-Next-Page") != "" || len(list) > limit {
+	// GitLab cannot filter by a branch prefix. An incomplete first page, even
+	// when filled by unrelated MRs, cannot establish a complete promotion list.
+	// A full page without pagination metadata is ambiguous and also fails.
+	if h.Get("X-Next-Page") != "" || len(list) >= limit {
 		return nil, ErrListTooLarge
 	}
 	result := make([]MR, 0, len(list))
@@ -384,9 +386,14 @@ func (c *GitLabClient) ListMerged(ctx context.Context, limit int) ([]MR, error) 
 		// Listing shows review candidates. GitLab may omit the asynchronous
 		// changes_count from a list item; exact file verification happens on
 		// the selected import through Merged and ReadMerged.
-		if c.trustedMR(m, false) == nil && m.State == "merged" && shaRE.MatchString(m.MergeCommitSHA) {
-			result = append(result, m)
+		if !strings.HasPrefix(m.SourceBranch, c.config.BranchPrefix) {
+			continue // An unrelated branch is not a promotion candidate.
 		}
+		id := strings.TrimPrefix(m.SourceBranch, c.config.BranchPrefix)
+		if !promotionIDRE.MatchString(id) || c.trustedMR(m, false) != nil || m.State != "merged" || !shaRE.MatchString(m.MergeCommitSHA) {
+			return nil, ErrUntrusted
+		}
+		result = append(result, m)
 	}
 	return result, nil
 }
@@ -395,7 +402,6 @@ func (c *GitLabClient) ReadMerged(ctx context.Context, iid int64, path string) (
 	if iid <= 0 || !validPath(path) {
 		return MR{}, nil, errors.New("invalid GitLab import identity")
 	}
-	root := c.projectPath() + "/merge_requests/" + strconv.FormatInt(iid, 10)
 	m, err := c.Merged(ctx, iid)
 	if err != nil {
 		return MR{}, nil, err
@@ -403,6 +409,66 @@ func (c *GitLabClient) ReadMerged(ctx context.Context, iid int64, path string) (
 	if err := c.verifyMergedReview(ctx, m); err != nil {
 		return MR{}, nil, err
 	}
+	diffPath, err := c.mergedDiffPath(ctx, m)
+	if err != nil {
+		return MR{}, nil, err
+	}
+	if diffPath != path {
+		return MR{}, nil, ErrUntrusted
+	}
+	data, _, err := c.file(ctx, path, m.MergeCommitSHA)
+	if err != nil {
+		return MR{}, nil, err
+	}
+	if !json.Valid(data) {
+		return MR{}, nil, ErrUntrusted
+	}
+	return m, data, nil
+}
+
+// ReadMergedManifest derives the exact file from the complete, reviewed MR
+// diff. Its path and promotion ID must agree with the owned branch; callers
+// cannot supply a path or read mutable branch HEAD.
+func (c *GitLabClient) ReadMergedManifest(ctx context.Context, iid int64) (MR, string, []byte, error) {
+	m, err := c.Merged(ctx, iid)
+	if err != nil {
+		return MR{}, "", nil, err
+	}
+	if err := c.verifyMergedReview(ctx, m); err != nil {
+		return MR{}, "", nil, err
+	}
+	path, err := c.mergedDiffPath(ctx, m)
+	if err != nil {
+		return MR{}, "", nil, err
+	}
+	id := strings.TrimPrefix(m.SourceBranch, c.config.BranchPrefix)
+	if !promotionIDRE.MatchString(id) || !validPromotionManifestPath(path, id) {
+		return MR{}, "", nil, ErrUntrusted
+	}
+	data, _, err := c.file(ctx, path, m.MergeCommitSHA)
+	if err != nil {
+		return MR{}, "", nil, err
+	}
+	if !json.Valid(data) {
+		return MR{}, "", nil, ErrUntrusted
+	}
+	return m, path, data, nil
+}
+
+func validPromotionManifestPath(path, id string) bool {
+	if !promotionIDRE.MatchString(id) {
+		return false
+	}
+	for _, dir := range []string{"templates", "runbooks", "alert-rules", "agent-versions"} {
+		if path == "ops-config/"+dir+"/"+id+".json" {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *GitLabClient) mergedDiffPath(ctx context.Context, m MR) (string, error) {
+	root := c.projectPath() + "/merge_requests/" + strconv.FormatInt(m.IID, 10)
 	q := url.Values{"per_page": {"100"}, "page": {"1"}}
 	var diffs []struct {
 		NewPath     string `json:"new_path"`
@@ -415,20 +481,13 @@ func (c *GitLabClient) ReadMerged(ctx context.Context, iid int64, path string) (
 	}
 	_, h, err := c.call(ctx, http.MethodGet, root+"/diffs", q, nil, 200, &diffs)
 	if err != nil {
-		return MR{}, nil, err
+		return "", err
 	}
 	// Export creates exactly one new file. Any extra or truncated diff fails closed.
-	if h.Get("X-Next-Page") != "" || len(diffs) != 1 || diffs[0].NewPath != path || diffs[0].OldPath != path || !diffs[0].NewFile || diffs[0].DeletedFile || diffs[0].RenamedFile || diffs[0].TooLarge || diffs[0].Collapsed {
-		return MR{}, nil, ErrUntrusted
+	if h.Get("X-Next-Page") != "" || len(diffs) != 1 || diffs[0].NewPath == "" || diffs[0].NewPath != diffs[0].OldPath || !diffs[0].NewFile || diffs[0].DeletedFile || diffs[0].RenamedFile || diffs[0].TooLarge || diffs[0].Collapsed {
+		return "", ErrUntrusted
 	}
-	data, _, err := c.file(ctx, path, m.MergeCommitSHA)
-	if err != nil {
-		return MR{}, nil, err
-	}
-	if !json.Valid(data) {
-		return MR{}, nil, ErrUntrusted
-	}
-	return m, data, nil
+	return diffs[0].NewPath, nil
 }
 
 // verifyMergedReview is an independent import gate. The branch rules checked
@@ -628,6 +687,31 @@ func (c *GitLabClient) Merged(ctx context.Context, iid int64) (MR, error) {
 		return MR{}, err
 	}
 	if m.IID != iid || c.trustedMR(m, true) != nil {
+		return MR{}, ErrUntrusted
+	}
+	return m, nil
+}
+
+// LookupPromotionMR reads one exact, owned MR for the exported ledger status.
+// It does not assert approval, complete diff, or import readiness.
+func (c *GitLabClient) LookupPromotionMR(ctx context.Context, iid int64) (MR, error) {
+	if iid <= 0 {
+		return MR{}, errors.New("invalid GitLab merge request IID")
+	}
+	root := c.projectPath() + "/merge_requests/" + strconv.FormatInt(iid, 10)
+	var m MR
+	_, _, err := c.call(ctx, http.MethodGet, root, nil, nil, 200, &m)
+	if err != nil {
+		return MR{}, err
+	}
+	id := strings.TrimPrefix(m.SourceBranch, c.config.BranchPrefix)
+	if m.IID != iid || !strings.HasPrefix(m.SourceBranch, c.config.BranchPrefix) ||
+		!promotionIDRE.MatchString(id) || c.trustedMR(m, false) != nil ||
+		(m.State == "merged" && !shaRE.MatchString(m.MergeCommitSHA)) {
+		return MR{}, ErrUntrusted
+	}
+	u, _ := url.Parse(m.URL) // trustedMR already validated this URL and host.
+	if u.RawQuery != "" || u.Fragment != "" || !strings.HasSuffix(u.Path, "/-/merge_requests/"+strconv.FormatInt(iid, 10)) {
 		return MR{}, ErrUntrusted
 	}
 	return m, nil

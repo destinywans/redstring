@@ -287,6 +287,238 @@ func TestGitLabReadMergedChecksDiffAndExactMergeSHA(t *testing.T) {
 	}
 }
 
+func TestGitLabReadMergedManifestExactReviewedFile(t *testing.T) {
+	id := strings.Repeat("a", 32)
+	for _, tc := range []struct {
+		name, dir, path, count                     string
+		extra, truncated, wrongBranch, malformedMR bool
+		wantOK                                     bool
+	}{
+		{name: "template", dir: "templates", wantOK: true},
+		{name: "runbook", dir: "runbooks", wantOK: true},
+		{name: "alert rule", dir: "alert-rules", wantOK: true},
+		{name: "agent version", dir: "agent-versions", wantOK: true},
+		{name: "extra diff", dir: "runbooks", extra: true},
+		{name: "truncated diff count", dir: "runbooks", count: "2"},
+		{name: "truncated diff page", dir: "runbooks", truncated: true},
+		{name: "wrong directory", dir: "secrets"},
+		{name: "wrong promotion id", dir: "templates", path: "ops-config/templates/" + strings.Repeat("b", 32) + ".json"},
+		{name: "wrong branch", dir: "templates", wrongBranch: true},
+		{name: "malformed MR", dir: "templates", malformedMR: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := tc.path
+			if path == "" {
+				path = "ops-config/" + tc.dir + "/" + id + ".json"
+			}
+			var base string
+			rawReads := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v4/projects/42/merge_requests/12":
+					if tc.malformedMR {
+						w.WriteHeader(200)
+						_, _ = w.Write([]byte(`{"iid":`))
+						return
+					}
+					m := testMR(base, "merged")
+					m.SourceBranch = "aiops-promotion/" + id
+					if tc.wrongBranch {
+						m.SourceBranch = "unowned/" + id
+					}
+					if tc.count != "" {
+						m.ChangesCount = tc.count
+					}
+					respondJSON(w, 200, m)
+				case "/api/v4/projects/42/merge_requests/12/versions":
+					respondJSON(w, 200, []map[string]any{{"head_commit_sha": testSHA, "created_at": "2026-09-28T08:00:00Z", "state": "collected"}})
+				case "/api/v4/projects/42/merge_requests/12/approvals":
+					respondJSON(w, 200, map[string]any{"iid": 12, "project_id": 42, "state": "merged", "approved": true, "approved_by": []any{map[string]any{"user": map[string]any{"id": 8}, "approved_at": "2026-09-28T09:00:00Z"}}})
+				case "/api/v4/users/8":
+					respondJSON(w, 200, map[string]any{"id": 8, "bot": false})
+				case "/api/v4/projects/42/repository/branches/main":
+					respondJSON(w, 200, map[string]any{"name": "main", "protected": true})
+				case "/api/v4/projects/42/protected_branches/main":
+					respondJSON(w, 200, protectedRule("main", 0, false))
+				case "/api/v4/projects/42/protected_branches":
+					w.Header().Set("X-Page", "1")
+					w.Header().Set("X-Per-Page", "100")
+					respondJSON(w, 200, []any{protectedRule("main", 0, false)})
+				case "/api/v4/projects/42/merge_requests/12/diffs":
+					if r.URL.Query().Get("per_page") != "100" || r.URL.Query().Get("page") != "1" {
+						t.Error("diff request is not bounded")
+					}
+					if tc.truncated {
+						w.Header().Set("X-Next-Page", "2")
+					}
+					diffs := []map[string]any{{"old_path": path, "new_path": path, "new_file": true}}
+					if tc.extra {
+						diffs = append(diffs, map[string]any{"old_path": "other.json", "new_path": "other.json", "new_file": true})
+					}
+					respondJSON(w, 200, diffs)
+				case "/api/v4/projects/42/repository/files/" + path + "/raw":
+					rawReads++
+					if r.URL.Query().Get("ref") != mergeSHA {
+						t.Errorf("read at %q instead of immutable merge SHA", r.URL.Query().Get("ref"))
+					}
+					w.WriteHeader(200)
+					_, _ = w.Write([]byte(`{"kind":"` + tc.dir + `"}`))
+				default:
+					t.Errorf("unexpected request %s", r.URL.String())
+					w.WriteHeader(404)
+				}
+			}))
+			defer server.Close()
+			base = server.URL
+			c := clientFor(t, base)
+			m, gotPath, data, err := c.ReadMergedManifest(context.Background(), 12)
+			if tc.wantOK {
+				if err != nil || m.IID != 12 || gotPath != path || string(data) != `{"kind":"`+tc.dir+`"}` || rawReads != 1 {
+					t.Fatalf("mr=%+v path=%q data=%s reads=%d err=%v", m, gotPath, data, rawReads, err)
+				}
+			} else if err == nil || rawReads != 0 {
+				t.Fatalf("untrusted MR accepted: mr=%+v path=%q reads=%d", m, gotPath, rawReads)
+			}
+		})
+	}
+}
+
+func TestGitLabListMergedRejectsMalformedOwnedMR(t *testing.T) {
+	var base string
+	var owned, valid, malformedSuffix bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v4/projects/42/merge_requests" {
+			t.Errorf("unexpected request %s", r.URL.String())
+			w.WriteHeader(404)
+			return
+		}
+		m := testMR(base, "merged")
+		if !owned {
+			m.SourceBranch = "unrelated/branch"
+		} else if malformedSuffix {
+			m.SourceBranch = "aiops-promotion/bad-id"
+		} else if valid {
+			m.SourceBranch = "aiops-promotion/" + strings.Repeat("a", 32)
+		} else {
+			m.MergeCommitSHA = ""
+		}
+		respondJSON(w, 200, []MR{m})
+	}))
+	defer server.Close()
+	base = server.URL
+	c := clientFor(t, base)
+	if list, err := c.ListMerged(context.Background(), 10); err != nil || len(list) != 0 {
+		t.Fatalf("unrelated labeled MR should be skipped: list=%+v err=%v", list, err)
+	}
+	owned = true
+	if _, err := c.ListMerged(context.Background(), 10); !errors.Is(err, ErrUntrusted) {
+		t.Fatalf("malformed owned MR disappeared: %v", err)
+	}
+	malformedSuffix = true
+	if _, err := c.ListMerged(context.Background(), 10); !errors.Is(err, ErrUntrusted) {
+		t.Fatalf("malformed owned promotion ID disappeared: %v", err)
+	}
+	malformedSuffix = false
+	valid = true
+	if list, err := c.ListMerged(context.Background(), 10); err != nil || len(list) != 1 {
+		t.Fatalf("valid owned MR absent: list=%+v err=%v", list, err)
+	}
+}
+
+func TestGitLabListMergedIncludesPromotionAfterLabelRemoval(t *testing.T) {
+	var base string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v4/projects/42/merge_requests" || r.URL.Query().Get("labels") != "" || r.URL.Query().Get("scope") != "all" ||
+			r.URL.Query().Get("state") != "merged" || r.URL.Query().Get("target_branch") != "main" ||
+			r.URL.Query().Get("per_page") != "10" || r.URL.Query().Get("page") != "1" {
+			t.Errorf("list query misses unlabeled promotion MRs: %s", r.URL.String())
+			w.WriteHeader(400)
+			return
+		}
+		unrelated := testMR(base, "merged")
+		unrelated.SourceBranch = "feature/unrelated"
+		promotion := testMR(base, "merged")
+		promotion.SourceBranch = "aiops-promotion/" + strings.Repeat("a", 32)
+		respondJSON(w, 200, []MR{unrelated, promotion})
+	}))
+	defer server.Close()
+	base = server.URL
+	c := clientFor(t, base)
+	list, err := c.ListMerged(context.Background(), 10)
+	if err != nil || len(list) != 1 || list[0].SourceBranch != "aiops-promotion/"+strings.Repeat("a", 32) {
+		t.Fatalf("unlabeled promotion disappeared or unrelated MR leaked: list=%+v err=%v", list, err)
+	}
+}
+
+func TestGitLabListMergedFullPageWithoutPaginationFailsClosed(t *testing.T) {
+	var base string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		unrelated := testMR(base, "merged")
+		unrelated.SourceBranch = "feature/unrelated"
+		respondJSON(w, 200, []MR{unrelated})
+	}))
+	defer server.Close()
+	base = server.URL
+	c := clientFor(t, base)
+	if _, err := c.ListMerged(context.Background(), 1); !errors.Is(err, ErrListTooLarge) {
+		t.Fatalf("ambiguous full page accepted: %v", err)
+	}
+}
+
+func TestGitLabLookupPromotionMRExactOwnedStatus(t *testing.T) {
+	id := strings.Repeat("a", 32)
+	for _, tc := range []struct {
+		name, state                                          string
+		wrongBranch, wrongProject, wrongURL, missingMergeSHA bool
+		wantOK                                               bool
+	}{
+		{name: "opened export", state: "opened", wantOK: true},
+		{name: "merged export", state: "merged", wantOK: true},
+		{name: "closed is not exported or merged", state: "closed"},
+		{name: "wrong branch", state: "merged", wrongBranch: true},
+		{name: "wrong project", state: "merged", wrongProject: true},
+		{name: "wrong MR URL", state: "merged", wrongURL: true},
+		{name: "merged without immutable SHA", state: "merged", missingMergeSHA: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var base string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet || r.URL.Path != "/api/v4/projects/42/merge_requests/12" || r.URL.RawQuery != "" {
+					t.Errorf("unexpected lookup %s %s", r.Method, r.URL.String())
+					w.WriteHeader(404)
+					return
+				}
+				m := testMR(base, tc.state)
+				m.SourceBranch = "aiops-promotion/" + id
+				if tc.wrongBranch {
+					m.SourceBranch = "other/" + id
+				}
+				if tc.wrongProject {
+					m.SourceProjectID = 43
+				}
+				if tc.wrongURL {
+					m.URL = base + "/project/-/merge_requests/13"
+				}
+				if tc.missingMergeSHA {
+					m.MergeCommitSHA = ""
+				}
+				respondJSON(w, 200, m)
+			}))
+			defer server.Close()
+			base = server.URL
+			c := clientFor(t, base)
+			m, err := c.LookupPromotionMR(context.Background(), 12)
+			if tc.wantOK {
+				if err != nil || m.IID != 12 || m.State != tc.state {
+					t.Fatalf("owned MR rejected: mr=%+v err=%v", m, err)
+				}
+			} else if !errors.Is(err, ErrUntrusted) {
+				t.Fatalf("untrusted MR accepted: mr=%+v err=%v", m, err)
+			}
+		})
+	}
+}
+
 func TestGitLabReadMergedReviewProvenance(t *testing.T) {
 	for _, tc := range []struct {
 		name, approvedAt, versionSHA                                                                                                                                           string
@@ -489,7 +721,7 @@ func TestGitLabRejectsUnsafeConfigurationAndRedirect(t *testing.T) {
 func TestGitLabMergedListRejectsIncompletePage(t *testing.T) {
 	var base string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("labels") != promotionLabel || r.URL.Query().Get("state") != "merged" ||
+		if r.URL.Query().Get("labels") != "" || r.URL.Query().Get("scope") != "all" || r.URL.Query().Get("state") != "merged" ||
 			r.URL.Query().Get("target_branch") != "main" {
 			t.Errorf("list filter: %s", r.URL.String())
 		}

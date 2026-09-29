@@ -64,9 +64,9 @@ func TestConfigPromotionIndependentStoresRoundTrip(t *testing.T) {
 	}
 
 	repo.merged = true
-	pending := configRequest(prodHTTP, "GET", "/api/v1/config-sync", "prod", "admin-token", "")
-	if pending.Code != 200 || !strings.Contains(pending.Body.String(), `"status":"pending"`) {
-		t.Fatalf("merged candidate: %d %s", pending.Code, pending.Body.String())
+	merged := configRequest(prodHTTP, "GET", "/api/v1/config-sync", "prod", "admin-token", "")
+	if merged.Code != 200 || !strings.Contains(merged.Body.String(), `"status":"merged"`) {
+		t.Fatalf("verified merged candidate: %d %s", merged.Code, merged.Body.String())
 	}
 	for attempt := 0; attempt < 2; attempt++ {
 		imported := configRequest(prodHTTP, "POST", "/api/v1/config-sync/mr-42/import", "prod", "admin-token", "")

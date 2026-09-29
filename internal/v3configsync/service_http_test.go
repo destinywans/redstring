@@ -65,6 +65,11 @@ CREATE TABLE users(id text PRIMARY KEY,email text NOT NULL,name text NOT NULL,ro
 CREATE TABLE sessions(token_hash text PRIMARY KEY,user_id text NOT NULL,expires_at timestamptz NOT NULL);
 CREATE TABLE rbac_platform_administrators(user_id text PRIMARY KEY);
 CREATE TABLE rbac_user_roles(user_id text NOT NULL,role_id text NOT NULL);
+CREATE TABLE teams(id text PRIMARY KEY,name text NOT NULL);
+CREATE TABLE team_members(team_id text NOT NULL,user_id text NOT NULL,PRIMARY KEY(team_id,user_id));
+CREATE TABLE applications(id text PRIMARY KEY,name text NOT NULL,owner_team_id text,archived boolean NOT NULL DEFAULT false);
+CREATE TABLE application_environments(id text PRIMARY KEY,application_id text NOT NULL,key text NOT NULL,
+ name text NOT NULL,archived boolean NOT NULL DEFAULT false);
 CREATE TABLE v3_application_environments(application_id text NOT NULL,environment_id text NOT NULL,
  PRIMARY KEY(application_id,environment_id));
 CREATE TABLE v3_effective_role_grants(user_id text NOT NULL,module text NOT NULL,action text NOT NULL,
@@ -74,12 +79,23 @@ CREATE TABLE v3_canvas_templates(id text PRIMARY KEY,owner_id text,environment_i
  is_default boolean NOT NULL DEFAULT false,created_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE management_audit(id bigserial PRIMARY KEY,actor_id text NOT NULL,action text NOT NULL,
  target text NOT NULL,outcome text NOT NULL,changes jsonb NOT NULL DEFAULT '{}');
+CREATE TABLE knowledge_documents(id text PRIMARY KEY,application_id text,title text NOT NULL,body text NOT NULL,
+ source text NOT NULL,version integer NOT NULL,content_hash text NOT NULL,created_by text NOT NULL,
+ lifecycle text NOT NULL,metadata jsonb NOT NULL DEFAULT '{}');
+CREATE TABLE knowledge_revisions(document_id text NOT NULL,version integer NOT NULL,snapshot jsonb NOT NULL,
+ created_by text NOT NULL,PRIMARY KEY(document_id,version));
+CREATE TABLE v3_runbooks(document_id text PRIMARY KEY,source_kind text NOT NULL,steps jsonb NOT NULL);
 INSERT INTO users(id,email,name,role) VALUES
  ('owner','owner@example.invalid','Owner','viewer'),
  ('admin','admin@example.invalid','Admin','admin'),
  ('viewer','viewer@example.invalid','Viewer','viewer');
 INSERT INTO rbac_platform_administrators(user_id) VALUES('admin');
 INSERT INTO rbac_user_roles(user_id,role_id) VALUES('owner','viewer'),('viewer','viewer'),('admin','admin');
+INSERT INTO teams(id,name) VALUES('team-ops','Operations');
+INSERT INTO team_members(team_id,user_id) VALUES('team-ops','owner');
+INSERT INTO applications(id,name,owner_team_id) VALUES('app-a','App A','team-ops');
+INSERT INTO application_environments(id,application_id,key,name)
+ VALUES('app-a-test','app-a','test','Test');
 INSERT INTO sessions(token_hash,user_id,expires_at) VALUES
  ('`+store.Hash("owner-token")+`','owner',now()+interval '1 hour'),
  ('`+store.Hash("admin-token")+`','admin',now()+interval '1 hour'),
@@ -108,6 +124,13 @@ VALUES('CT-source','owner','test','plan','Safe plan',
 		t.Fatal(err)
 	}
 	if _, err = db.Exec(ctx, string(fenceMigration)); err != nil {
+		t.Fatal(err)
+	}
+	readMigration, err := os.ReadFile("../../migrations/124_v3_config_sync_read_kinds.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, string(readMigration)); err != nil {
 		t.Fatal(err)
 	}
 	return &store.Store{DB: db}
@@ -190,6 +213,16 @@ func (f *fakeRepository) ListMerged(_ context.Context, _ int) ([]MR, error) {
 	mr.State, mr.MergeCommitSHA, mr.ChangesCount = "merged", strings.Repeat("b", 40), "1"
 	return []MR{mr}, nil
 }
+func (f *fakeRepository) LookupPromotionMR(_ context.Context, iid int64) (MR, error) {
+	if iid <= 0 || iid != f.mr.IID {
+		return MR{}, store.ErrNotFound
+	}
+	mr := f.mr
+	if f.merged {
+		mr.State, mr.MergeCommitSHA, mr.ChangesCount = "merged", strings.Repeat("b", 40), "1"
+	}
+	return mr, nil
+}
 func (f *fakeRepository) Merged(_ context.Context, iid int64) (MR, error) {
 	if !f.merged || iid != f.mr.IID {
 		return MR{}, store.ErrNotFound
@@ -205,6 +238,13 @@ func (f *fakeRepository) ReadMerged(_ context.Context, iid int64, path string) (
 	mr := f.mr
 	mr.State, mr.MergeCommitSHA, mr.ChangesCount = "merged", strings.Repeat("b", 40), "1"
 	return mr, append([]byte(nil), f.payload...), nil
+}
+func (f *fakeRepository) ReadMergedManifest(ctx context.Context, iid int64) (MR, string, []byte, error) {
+	mr, payload, err := f.ReadMerged(ctx, iid, f.lastPath)
+	if err != nil {
+		return MR{}, "", nil, err
+	}
+	return mr, f.lastPath, payload, nil
 }
 
 func configServer(t *testing.T, s *store.Store, repo Repository, tier string) *httpapi.Server {
@@ -293,8 +333,8 @@ func TestConfigTemplatePromotionAndImportRegisteredHTTP(t *testing.T) {
 		t.Fatalf("viewer import: %d %s", w.Code, w.Body.String())
 	}
 	repo.merged = true
-	if w := configRequest(prod, "GET", "/api/v1/config-sync", "prod", "admin-token", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"status":"pending"`) {
-		t.Fatalf("merged pending list: %d %s", w.Code, w.Body.String())
+	if w := configRequest(prod, "GET", "/api/v1/config-sync", "prod", "admin-token", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"status":"merged"`) {
+		t.Fatalf("verified merged list: %d %s", w.Code, w.Body.String())
 	}
 	// An audit write failure rolls back both the new system template and the
 	// import ledger. After removing the test trigger the same MR can retry.
@@ -319,6 +359,9 @@ func TestConfigTemplatePromotionAndImportRegisteredHTTP(t *testing.T) {
 		if imported.Code != 200 || !strings.Contains(imported.Body.String(), `"status":"imported"`) {
 			t.Fatalf("import attempt %d: %d %s", i, imported.Code, imported.Body.String())
 		}
+	}
+	if listed := configRequest(prod, "GET", "/api/v1/config-sync", "prod", "admin-token", ""); listed.Code != 200 || !strings.Contains(listed.Body.String(), `"status":"imported"`) {
+		t.Fatalf("verified template import list: %d %s", listed.Code, listed.Body.String())
 	}
 	if err := s.DB.QueryRow(t.Context(), `SELECT count(*) FROM v3_config_imports`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("idempotent import count=%d err=%v", count, err)

@@ -1,6 +1,6 @@
 // Package v3configsync promotes reviewed configuration through a dedicated
-// GitLab repository. Its first supported object is the sanitized V3 canvas
-// template; other object kinds fail explicitly until they have safe contracts.
+// GitLab repository. Read-only, signed promotion records cover four kinds;
+// writing and importing are currently supported for sanitized canvas templates.
 package v3configsync
 
 import (
@@ -31,9 +31,11 @@ type Repository interface {
 	ProjectID() int64
 	BranchPrefix() string
 	Export(context.Context, string, string, []byte, string) (MR, error)
+	LookupPromotionMR(context.Context, int64) (MR, error)
 	ListMerged(context.Context, int) ([]MR, error)
 	Merged(context.Context, int64) (MR, error)
 	ReadMerged(context.Context, int64, string) (MR, []byte, error)
+	ReadMergedManifest(context.Context, int64) (MR, string, []byte, error)
 }
 
 type Service struct {
@@ -203,27 +205,138 @@ func (s *Service) authorizeGlobalManager(ctx context.Context, user core.User, en
 	return nil
 }
 
+type exportView struct {
+	id, kind, sourceID, env, applicationID, sourceVersion, digest, author string
+	branch, path                                                          string
+	iid                                                                   int64
+	payload                                                               []byte
+}
+
+// A persisted export may outlive grants, application bindings and Runbook
+// publication. Re-evaluate its current domain read scope before showing it.
+func (s *Service) exportAllowed(ctx context.Context, user core.User, view exportView) (bool, error) {
+	module, action, ok := configKindAccess(view.kind)
+	if !ok {
+		return false, errUntrusted
+	}
+	ownerTeam := ""
+	if view.applicationID != "" {
+		err := s.DB.QueryRow(ctx, `SELECT COALESCE(a.owner_team_id,'') FROM applications a
+ JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$2
+ JOIN application_environments e ON e.application_id=a.id AND e.key=$2 AND NOT e.archived
+ WHERE a.id=$1 AND NOT a.archived`, view.applicationID, view.env).Scan(&ownerTeam)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+	}
+	if view.kind == "runbook" {
+		return s.runbookExportAllowed(ctx, user, view, ownerTeam)
+	}
+	decision := rbac.V3Decision{Module: module, Action: action, EnvironmentID: view.env,
+		ApplicationID: view.applicationID}
+	err := s.Access.Authorize(ctx, user, decision)
+	if errors.Is(err, store.ErrForbidden) && view.kind == "alert_rule" && ownerTeam != "" {
+		decision.ApplicationID = ""
+		decision.TeamID = ownerTeam
+		err = s.Access.Authorize(ctx, user, decision)
+	}
+	if errors.Is(err, store.ErrForbidden) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *Service) runbookExportAllowed(ctx context.Context, user core.User, view exportView, ownerTeam string) (bool, error) {
+	version, err := strconv.Atoi(view.sourceVersion)
+	if err != nil || version <= 0 {
+		return false, nil
+	}
+	var lifecycle, maintainer, teamID string
+	var teamScoped bool
+	err = s.DB.QueryRow(ctx, `SELECT d.lifecycle,COALESCE(d.metadata->>'maintainer_id',''),
+ d.metadata ? 'team_id',COALESCE(d.metadata->>'team_id','')
+ FROM knowledge_documents d WHERE d.id=$1 AND d.version >= $2 AND COALESCE(d.application_id,'')=$3
+ AND d.source LIKE 'runbook://%'
+ AND EXISTS(SELECT 1 FROM knowledge_revisions revision
+   WHERE revision.document_id=d.id AND revision.version=$2)
+ AND jsonb_typeof(d.metadata)='object' AND NOT (d.metadata ? 'source_registration_id')
+ AND CASE WHEN jsonb_typeof(d.metadata->'environment_ids')='array'
+   THEN jsonb_array_length(d.metadata->'environment_ids')>0
+     AND d.metadata->'environment_ids' ? $4
+     AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(d.metadata->'environment_ids') env_item
+       WHERE jsonb_typeof(env_item)<>'string' OR btrim(env_item #>> '{}')='')
+   ELSE false END
+ AND (NOT (d.metadata ? 'team_id') OR
+   (jsonb_typeof(d.metadata->'team_id')='string'
+    AND btrim(d.metadata->>'team_id')<>'' AND d.metadata->>'team_id'=$5))`,
+		view.sourceID, version, view.applicationID, view.env, ownerTeam).
+		Scan(&lifecycle, &maintainer, &teamScoped, &teamID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	action := "view"
+	switch lifecycle {
+	case "published":
+	case "draft":
+		if maintainer != user.ID {
+			return false, nil
+		}
+		action = "manage"
+	case "review":
+		action = "manage"
+	default:
+		return false, nil
+	}
+	err = s.Access.Authorize(ctx, user, rbac.V3Decision{Module: "knowledge", Action: action,
+		EnvironmentID: view.env, ApplicationID: view.applicationID})
+	if errors.Is(err, store.ErrForbidden) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if teamScoped {
+		err = s.Access.Authorize(ctx, user, rbac.V3Decision{Module: "knowledge", Action: action,
+			EnvironmentID: view.env, TeamID: teamID})
+		if errors.Is(err, store.ErrForbidden) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
 func (s *Service) exportItems(r *http.Request, envs []string) ([]SyncItem, error) {
 	ctx, user := r.Context(), httpapi.CurrentUser(r)
 	items := []SyncItem{}
-	rows, err := s.DB.Query(ctx, `SELECT e.id,e.environment_id,e.mr_iid,e.payload,COALESCE(u.name,'')
+	rows, err := s.DB.Query(ctx, `SELECT e.id,e.kind,e.object_id,e.environment_id,
+ COALESCE(e.application_id,''),COALESCE(e.source_version,''),e.source_digest,
+ COALESCE(e.mr_iid,0),e.payload,COALESCE(u.name,''),e.branch,e.path
  FROM v3_config_exports e
  LEFT JOIN users u ON u.id=e.actor_id
- WHERE e.actor_id=$1 AND e.environment_id=ANY($2::text[]) AND e.kind='template'
+ WHERE e.actor_id=$1 AND e.environment_id=ANY($2::text[])
  AND e.project_id=$3 AND e.state='exported'
- ORDER BY e.created_at DESC,e.id DESC LIMIT 101`, user.ID, envs, s.Repository.ProjectID())
+ ORDER BY e.created_at DESC,e.id DESC LIMIT 1001`, user.ID, envs, s.Repository.ProjectID())
 	if err != nil {
 		return nil, err
-	}
-	type exportView struct {
-		id, env, author string
-		iid             int64
-		payload         []byte
 	}
 	candidates := []exportView{}
 	for rows.Next() {
 		var view exportView
-		if err = rows.Scan(&view.id, &view.env, &view.iid, &view.payload, &view.author); err != nil {
+		if err = rows.Scan(&view.id, &view.kind, &view.sourceID, &view.env,
+			&view.applicationID, &view.sourceVersion, &view.digest, &view.iid, &view.payload,
+			&view.author, &view.branch, &view.path); err != nil {
 			break
 		}
 		candidates = append(candidates, view)
@@ -235,23 +348,88 @@ func (s *Service) exportItems(r *http.Request, envs []string) ([]SyncItem, error
 	if err != nil {
 		return nil, err
 	}
-	if len(candidates) > 100 {
+	if len(candidates) > 1000 {
 		return nil, errResultLimit
 	}
+	publicKey := s.SigningKey.Public().(ed25519.PublicKey)
+	trusted := map[string]ed25519.PublicKey{s.SourceInstanceID: publicKey}
+	visible := make([]exportView, 0, len(candidates))
 	for _, view := range candidates {
-		if err = s.Access.Authorize(ctx, user, rbac.V3Decision{Module: "canvas", Action: "change", EnvironmentID: view.env}); err != nil {
-			if errors.Is(err, store.ErrForbidden) {
-				continue
-			}
-			return nil, err
+		allowed, authErr := s.exportAllowed(ctx, user, view)
+		if authErr != nil {
+			return nil, authErr
 		}
-		var manifest Manifest
-		if decodeStrict(view.payload, &manifest) != nil || manifest.validate(view.id) != nil {
+		if !allowed {
+			continue
+		}
+		summary, err := readPromotionSummary(view.payload, view.id, trusted)
+		if err != nil || summary.Kind != view.kind || summary.SourceID != view.sourceID ||
+			summary.SourceEnvironment != view.env || summary.SourceInstance != s.SourceInstanceID ||
+			summary.SourceDigest != view.digest || summary.ApplicationID != view.applicationID ||
+			summary.SourceVersion != view.sourceVersion || view.iid <= 0 {
 			return nil, errUntrusted
 		}
-		items = append(items, SyncItem{ID: "ex-" + view.id, Kind: "template", KindLabel: msg(r, "画布模板", "Canvas template"),
-			Title: manifest.Template.Name, MR: fmt.Sprintf("!%d", view.iid), Author: view.author,
-			Meta: msg(r, "来源环境：", "Source environment: ") + view.env, Status: "exported"})
+		expectedPath, err := promotionPathForKind(summary.Kind, view.id)
+		if err != nil || view.path != expectedPath ||
+			view.branch != s.Repository.BranchPrefix()+view.id {
+			return nil, errUntrusted
+		}
+		meta := msg(r, "来源环境：", "Source environment: ") + view.env
+		if summary.SourceVersion != "" {
+			meta += msg(r, " · 来源版本：", " · Source version: ") + summary.SourceVersion
+		}
+		mr, err := s.Repository.LookupPromotionMR(ctx, view.iid)
+		if err != nil {
+			return nil, err
+		}
+		if mr.IID != view.iid || mr.SourceBranch != s.Repository.BranchPrefix()+view.id ||
+			mr.SourceProjectID != s.Repository.ProjectID() || mr.TargetProjectID != s.Repository.ProjectID() {
+			return nil, errUntrusted
+		}
+		status := "exported"
+		if mr.State == "merged" {
+			mergedMR, path, raw, readErr := s.Repository.ReadMergedManifest(ctx, view.iid)
+			if readErr != nil {
+				return nil, readErr
+			}
+			mergedSummary, verifyErr := readPromotionSummary(raw, view.id, trusted)
+			if verifyErr != nil || path != expectedPath || mergedSummary != summary ||
+				mergedMR.IID != mr.IID || mergedMR.State != "merged" ||
+				mergedMR.MergeCommitSHA != mr.MergeCommitSHA ||
+				mergedMR.SourceBranch != mr.SourceBranch ||
+				mergedMR.SourceProjectID != mr.SourceProjectID ||
+				mergedMR.TargetProjectID != mr.TargetProjectID {
+				return nil, errUntrusted
+			}
+			status = "merged"
+		} else if mr.State != "opened" {
+			return nil, errUntrusted
+		}
+		allowed, authErr = s.exportAllowed(ctx, user, view)
+		if authErr != nil {
+			return nil, authErr
+		}
+		if !allowed {
+			return nil, errUnavailable
+		}
+		items = append(items, SyncItem{ID: "ex-" + view.id, Kind: summary.Kind,
+			KindLabel: configKindLabel(r, summary.Kind), Title: summary.Title,
+			MR: fmt.Sprintf("!%d", view.iid), Author: view.author, Meta: meta, Status: status})
+		if len(items) > 100 {
+			return nil, errResultLimit
+		}
+		visible = append(visible, view)
+	}
+	// Remote verification can take several seconds per MR. A final pass avoids
+	// returning a result assembled across a grant or binding revocation.
+	for _, view := range visible {
+		allowed, authErr := s.exportAllowed(ctx, user, view)
+		if authErr != nil {
+			return nil, authErr
+		}
+		if !allowed {
+			return nil, errUnavailable
+		}
 	}
 	return items, nil
 }
@@ -270,16 +448,124 @@ func (s *Service) importItems(r *http.Request) ([]SyncItem, error) {
 		if !promotionIDRE.MatchString(id) || item.SourceBranch != s.Repository.BranchPrefix()+id {
 			return nil, errUntrusted
 		}
-		var imported bool
-		err = s.DB.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM v3_config_imports
- WHERE project_id=$1 AND mr_iid=$2 AND merge_sha=$3 AND promotion_id=$4)`,
-			s.Repository.ProjectID(), item.IID, item.MergeCommitSHA, id).Scan(&imported)
+		verifiedMR, path, raw, err := s.Repository.ReadMergedManifest(r.Context(), item.IID)
 		if err != nil {
 			return nil, err
 		}
-		items = append(items, candidateItem(r, item, imported))
+		if verifiedMR.IID != item.IID || verifiedMR.MergeCommitSHA != item.MergeCommitSHA ||
+			verifiedMR.SourceBranch != item.SourceBranch || verifiedMR.SourceProjectID != s.Repository.ProjectID() ||
+			verifiedMR.TargetProjectID != s.Repository.ProjectID() {
+			return nil, errUntrusted
+		}
+		summary, err := readPromotionSummary(raw, id, s.TrustedSources)
+		if err != nil {
+			return nil, errUntrusted
+		}
+		expectedPath, err := promotionPathForKind(summary.Kind, id)
+		if err != nil || path != expectedPath {
+			return nil, errUntrusted
+		}
+		var importSHA, importID, importKind, importTarget, importActor string
+		imported := false
+		err = s.DB.QueryRow(r.Context(), `SELECT merge_sha,promotion_id,kind,target_id,actor_id FROM v3_config_imports
+ WHERE project_id=$1 AND mr_iid=$2`, s.Repository.ProjectID(), item.IID).
+			Scan(&importSHA, &importID, &importKind, &importTarget, &importActor)
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = nil
+		} else if err != nil {
+			return nil, err
+		} else {
+			imported = true
+		}
+		if imported && (importSHA != item.MergeCommitSHA || importID != id || importKind != summary.Kind) {
+			return nil, errUntrusted
+		}
+		status := "merged"
+		if imported {
+			if summary.Kind != "template" || importTarget != "CTP-"+id ||
+				s.verifyImportedTemplate(r.Context(), raw, verifiedMR, importTarget, importActor) != nil {
+				return nil, errUntrusted
+			}
+			status = "imported"
+		}
+		sha := verifiedMR.MergeCommitSHA
+		if len(sha) > 8 {
+			sha = sha[:8]
+		}
+		items = append(items, SyncItem{ID: fmt.Sprintf("mr-%d", verifiedMR.IID), Kind: summary.Kind,
+			KindLabel: configKindLabel(r, summary.Kind), Title: summary.Title,
+			MR: fmt.Sprintf("!%d", verifiedMR.IID), Author: verifiedMR.Author.Name,
+			Meta:   msg(r, "已合并提交 ", "Merged commit ") + sha,
+			Status: status})
 	}
 	return items, nil
+}
+
+// The template writer commits its target, ledger, and success audit together.
+// Check all three before the read API reports that production has imported it.
+func (s *Service) verifyImportedTemplate(ctx context.Context, raw []byte, mr MR, targetID, actorID string) error {
+	var manifest Manifest
+	if decodeStrict(raw, &manifest) != nil {
+		return errUntrusted
+	}
+	nodes, err := json.Marshal(manifest.Template.Nodes)
+	if err != nil {
+		return errUntrusted
+	}
+	edges, err := json.Marshal(manifest.Template.Edges)
+	if err != nil {
+		return errUntrusted
+	}
+	var targetExists, auditExists bool
+	err = s.DB.QueryRow(ctx, `SELECT
+ EXISTS(SELECT 1 FROM v3_canvas_templates WHERE id=$1 AND kind=$2 AND name=$3
+ AND nodes=$4::jsonb AND edges=$5::jsonb AND owner_id IS NULL AND environment_id IS NULL
+ AND description='' AND NOT is_default),
+ EXISTS(SELECT 1 FROM management_audit WHERE actor_id=$6
+ AND action='v3.config_import.completed' AND target=$1 AND outcome='success'
+ AND changes->>'environment_id'='prod' AND changes->>'kind'='template'
+ AND changes->>'project_id'=$7 AND changes->>'mr_iid'=$8
+ AND changes->>'merge_sha'=$9 AND changes->>'promotion_id'=$10)`,
+		targetID, manifest.Template.Kind, manifest.Template.Name, nodes, edges, actorID,
+		strconv.FormatInt(s.Repository.ProjectID(), 10), strconv.FormatInt(mr.IID, 10),
+		mr.MergeCommitSHA, manifest.PromotionID).Scan(&targetExists, &auditExists)
+	if err != nil {
+		return err
+	}
+	if !targetExists || !auditExists {
+		return errUntrusted
+	}
+	return nil
+}
+
+func configKindAccess(kind string) (module, action string, ok bool) {
+	switch kind {
+	case "template":
+		return "canvas", "change", true
+	case "runbook":
+		return "knowledge", "view", true
+	case "alert_rule":
+		return "alert_rules", "view", true
+	case "agent_version":
+		return "agents", "view", true
+	default:
+		return "", "", false
+	}
+}
+
+func configKindLabel(r *http.Request, kind string) string {
+	switch kind {
+	case "template":
+		return msg(r, "画布模板", "Canvas template")
+	case "runbook":
+		return "Runbook"
+	case "alert_rule":
+		return msg(r, "告警规则", "Alert rule")
+	case "agent_version":
+		return msg(r, "Agent 版本", "Agent version")
+	default:
+		return ""
+	}
 }
 
 func mergedItem(r *http.Request, mr MR, manifest Manifest, imported bool) SyncItem {
@@ -294,22 +580,6 @@ func mergedItem(r *http.Request, mr MR, manifest Manifest, imported bool) SyncIt
 	return SyncItem{ID: fmt.Sprintf("mr-%d", mr.IID), Kind: "template", KindLabel: msg(r, "画布模板", "Canvas template"),
 		Title: manifest.Template.Name, MR: fmt.Sprintf("!%d", mr.IID), Author: mr.Author.Name,
 		Meta: msg(r, "已合并提交 ", "Merged commit ") + sha, Status: status}
-}
-
-// A merged MR is a review candidate in the list. The full diff, file bytes
-// and signed source assertion are checked only when the user imports it.
-func candidateItem(r *http.Request, mr MR, imported bool) SyncItem {
-	status := "pending"
-	if imported {
-		status = "imported"
-	}
-	sha := mr.MergeCommitSHA
-	if len(sha) > 8 {
-		sha = sha[:8]
-	}
-	return SyncItem{ID: fmt.Sprintf("mr-%d", mr.IID), Kind: "template", KindLabel: msg(r, "画布模板", "Canvas template"),
-		Title: mr.Title, MR: fmt.Sprintf("!%d", mr.IID), Author: mr.Author.Name,
-		Meta: msg(r, "已合并候选 · 导入时验证 ", "Merged candidate · verify on import ") + sha, Status: status}
 }
 
 type promoteInput struct {

@@ -76,6 +76,18 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	bindingQueryStarted, revokedQueryStarted := make(chan struct{}), make(chan struct{})
 	releaseBindingQuery, releaseRevokedQuery := make(chan struct{}), make(chan struct{})
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/app-logs/_mapping/field/cluster,cluster.keyword" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"app-logs": map[string]any{"mappings": map[string]any{
+				"cluster.keyword": map[string]any{"full_name": "cluster.keyword", "mapping": map[string]any{
+					"keyword": map[string]any{"type": "keyword", "ignore_above": 256},
+				}},
+			}}})
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/app-logs/_settings/index.mapping.ignore_above" && r.URL.Query().Get("flat_settings") == "true" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"app-logs": map[string]any{"settings": map[string]any{}}})
+			return
+		}
 		providerCalls.Add(1)
 		if blockBindingChange.CompareAndSwap(true, false) {
 			close(bindingQueryStarted)

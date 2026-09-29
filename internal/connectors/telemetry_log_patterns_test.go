@@ -52,6 +52,14 @@ func TestElasticsearchPatternsRequireCompleteScopedAggregation(t *testing.T) {
 	}
 	response := makeResponse()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/lab-logs/_settings/index.mapping.ignore_above" {
+			writeKeywordIndexSettings(w, "lab-logs")
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/lab-logs/_mapping/field/cluster,cluster.keyword" {
+			writeKeywordScopeMapping(w, "lab-logs", "cluster.keyword")
+			return
+		}
 		if r.Method != http.MethodPost || r.URL.Path != "/lab-logs/_search" {
 			t.Errorf("unexpected Elasticsearch request: %s %s", r.Method, r.URL.Path)
 		}
@@ -167,6 +175,14 @@ func TestElasticsearchRegisteredKeywordPatterns(t *testing.T) {
 	}
 	response := makeResponse()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/lab-logs/_settings/index.mapping.ignore_above" {
+			writeKeywordIndexSettings(w, "lab-logs")
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/lab-logs/_mapping/field/cluster,cluster.keyword" {
+			writeKeywordScopeMapping(w, "lab-logs", "cluster.keyword")
+			return
+		}
 		if r.Method != http.MethodPost || r.URL.Path != "/lab-logs/_search" {
 			t.Errorf("unexpected Elasticsearch request: %s %s", r.Method, r.URL.Path)
 		}
@@ -235,6 +251,34 @@ func TestElasticsearchRegisteredKeywordPatterns(t *testing.T) {
 			}
 		})
 	}
+	response = makeResponse()
+	response["hits"].(map[string]any)["total"].(map[string]any)["value"] = 0
+	response["hits"].(map[string]any)["hits"] = []any{}
+	for _, bucket := range response["aggregations"].(map[string]any)["volume"].(map[string]any)["buckets"].([]any) {
+		bucket.(map[string]any)["doc_count"] = 0
+	}
+	response["aggregations"].(map[string]any)["patterns"].(map[string]any)["buckets"] = []any{}
+	out = read()
+	if out.Summary == nil || out.Summary.Total != 0 || out.PatternSummary != nil || out.PatternError == "" {
+		t.Fatalf("empty indexed result must remain incomplete until source coverage is proven: %+v", out)
+	}
+}
+
+func writeKeywordScopeMapping(w http.ResponseWriter, index string, fields ...string) {
+	mappings := map[string]any{}
+	for _, field := range fields {
+		leaf := field[strings.LastIndex(field, ".")+1:]
+		mappings[field] = map[string]any{"full_name": field, "mapping": map[string]any{leaf: map[string]any{"type": "keyword"}}}
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{index: map[string]any{"mappings": mappings}})
+}
+
+func writeKeywordIndexSettings(w http.ResponseWriter, indices ...string) {
+	settings := map[string]any{}
+	for _, index := range indices {
+		settings[index] = map[string]any{"settings": map[string]any{}}
+	}
+	_ = json.NewEncoder(w).Encode(settings)
 }
 
 func TestElasticsearchPatternFieldValidation(t *testing.T) {

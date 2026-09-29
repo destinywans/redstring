@@ -173,6 +173,8 @@ for _status, _description in [('409','Metric binding is ambiguous or changed'),
         'description':_description,'content':{'application/json':{'schema':ref('Error')}}}
 S['V3LogLine'] = obj({**fieldnames('time service message trace'),
     'level':string(enum=['ERROR','WARN','INFO'])})
+S['V3LogPattern'] = obj({'template':string(),'level':string(enum=['ERROR','WARN','INFO']),
+    'count':string(),'trend':arr(integer())},['template','level','count','trend'])
 S['V3IncompleteLogs'] = obj({'error':obj({'code':string(),'message':string()},['code','message']),
     'available':obj({'total':string(),'errors':string(),
         'histogram':arr(arr(integer())),'items_sample':arr(ref('V3LogLine'))},
@@ -180,10 +182,12 @@ S['V3IncompleteLogs'] = obj({'error':obj({'code':string(),'message':string()},['
     'missing':arr(string())},['error','available','missing'])
 v3_route('get','/logs','Search configured log provider',
     response=obj({'total':string(),'errors':string(),'histogram':arr(arr(integer())),
-        'items':arr(ref('V3LogLine')),'patterns':arr({'type':'object','additionalProperties':True})}),
-    query=[v3_query(x) for x in ['q','levels','service']],
-    desc='Requires explicit persisted service/environment/owner-team binding and current logs.view. A normal query returns 503 log_patterns_unavailable with exact available counts, histogram and bounded line sample; no pattern counts or trends are inferred from that sample. Only an explicitly empty levels selection returns a complete 200 empty result. Distinct authorized bindings return 409 ambiguous_binding; more than 3 targets or other excessive authorized scope returns 422 scope_limit.')
-P['/logs']['get']['responses']['200']['description'] = 'Explicitly empty levels selection; no upstream log query'
+        'items':arr(ref('V3LogLine')),'patterns':arr(ref('V3LogPattern'))},
+        ['total','errors','histogram','items','patterns']),
+    query=[v3_query(x) for x in ['q','levels','service']] +
+        [v3_query('provider',string(enum=['loki','elasticsearch']))],
+    desc='Requires explicit persisted service/environment/owner-team binding and current logs.view. A single provider may be selected when more than one source is bound; arbitrary endpoints or unbound sources are never accepted. A complete 200 requires a nonzero exact full-window count with complete pattern trends from the configured source, or an explicitly empty levels selection with no upstream query. Zero Elasticsearch matches remain 503 until historical source coverage is proven. Elasticsearch accepts only a registered message_template.keyword field or its existing categorize_text path on one concrete index. Missing, truncated, approximate or unavailable pattern aggregation returns 503 rather than inferring patterns from a bounded line sample. Nonempty Loki results currently lack a complete pattern producer. Distinct authorized bindings return 409 ambiguous_binding; changed source or grant is rechecked before response. More than 3 targets or other excessive authorized scope returns 422 scope_limit.')
+P['/logs']['get']['responses']['200']['description'] = 'Complete scoped LogSearch, or explicitly empty levels selection without an upstream query'
 P['/logs']['get']['responses']['503'] = {
     'description':'Complete log patterns unavailable or configured provider failed',
     'content':{'application/json':{'schema':{'oneOf':[ref('Error'),ref('V3IncompleteLogs')]}}}}

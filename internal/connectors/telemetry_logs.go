@@ -105,9 +105,7 @@ func (t *Telemetry) QueryLogsWithPatterns(ctx context.Context, appID, provider, 
 		return LogEvidence{}, &TelemetryError{Kind: "scope", Message: "Unknown registered log provider"}
 	}
 	out, err := t.QueryLogsOptions(ctx, appID, provider, search, level, true, w, limit)
-	if err == nil && out.Summary != nil && out.SummaryError == "" && out.Summary.Total == 0 {
-		out.PatternSummary = &LogPatternSummary{Patterns: []LogPattern{}}
-	} else if err == nil {
+	if err == nil {
 		out.PatternError = "Complete log patterns are unavailable from this Loki source"
 	}
 	return out, err
@@ -119,7 +117,7 @@ func logBucketSeconds(w TimeWindow) int {
 // Registered ECS fields take precedence. The JSON fallback covers structured
 // application stdout without interpreting arbitrary user text as a query.
 func elasticsearchLevelRuntime() map[string]any {
-	return map[string]any{"aiops_level": map[string]any{"type": "keyword", "script": map[string]string{"source": `def s=params._source; def v=null; if(s.containsKey('log.level')) {v=s['log.level'];} else if(s.containsKey('log') && s.log instanceof Map) {v=s.log.level;} if(v==null && s.containsKey('level')) {v=s.level;} if(v==null && s.containsKey('message') && s.message instanceof String) {def m=/(?:^|[,{])\s*"level"\s*:\s*"([A-Za-z]+)"/.matcher(s.message); if(m.find()) {v=m.group(1);}} if(v!=null) {v=v.toString().toLowerCase(); if(v=='warning') {v='warn';} if(v=='critical'||v=='panic') {v='fatal';} emit(v);}`}}}
+	return map[string]any{"aiops_level": map[string]any{"type": "keyword", "script": map[string]string{"source": `def s=params._source; def values=new ArrayList(); if(s.containsKey('log.level') && s['log.level'] instanceof String) {values.add(s['log.level']);} else if(s.containsKey('log') && s.log instanceof Map) {values.add(s.log.level);} if(s.containsKey('level')) {values.add(s.level);} if(s.containsKey('severity_text')) {values.add(s.severity_text);} if(s.containsKey('message') && s.message instanceof String) {def m=/^\s*\{[^{}]*"level"\s*:\s*"([A-Za-z]+)"/.matcher(s.message); if(m.find()) {values.add(m.group(1));}} for(def candidate:values) {if(!(candidate instanceof String)) {continue;} def v=candidate.toLowerCase(); if(v=='warning') {v='warn';} if(v=='critical'||v=='panic') {v='fatal';} if(v=='trace'||v=='debug'||v=='info'||v=='warn'||v=='error'||v=='fatal') {emit(v); break;}}`}}}
 }
 func elasticsearchLogAggregations(w TimeWindow) map[string]any {
 	step := logBucketSeconds(w)

@@ -191,7 +191,8 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 			}
 			for _, entry := range result.Entries {
 				if strings.ToLower(entry.Level) != level {
-					continue
+					httpapi.Error(w, 503, "telemetry_unavailable", "Log sample level does not match the scoped query")
+					return
 				}
 				items = append(items, logLine{Time: entry.Timestamp.UTC().Format(time.RFC3339Nano), Level: strings.ToUpper(level),
 					Service: target.ApplicationID, Message: entry.Line, Trace: entry.TraceID})

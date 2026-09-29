@@ -47,6 +47,14 @@ func TestTelemetryElasticsearchScopesAndSearch(t *testing.T) {
 	now := time.Now().UTC()
 	wrong := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/lab-logs/_settings/index.mapping.ignore_above" {
+			writeKeywordIndexSettings(w, "lab-logs")
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/lab-logs/_mapping/field/cluster,cluster.keyword,pod,pod.keyword" {
+			writeKeywordScopeMapping(w, "lab-logs", "cluster.keyword", "pod.keyword")
+			return
+		}
 		if r.Method != "POST" || r.URL.Path != "/lab-logs/_search" {
 			t.Error("unexpected Elasticsearch route")
 		}

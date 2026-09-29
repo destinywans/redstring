@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -481,9 +482,17 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 	if err = svc.RegisterEvalCase(ctx, "case1", "triage", "Known alert", "git:case1"); err != nil {
 		t.Fatal(err)
 	}
-	assert(request("GET", "/api/v1/eval-cases/case1", viewerToken, "dev", ""), 200, `"partial":true`)
+	caseView := request("GET", "/api/v1/eval-cases/case1", viewerToken, "dev", "")
+	assert(caseView, 200, `"partial":true`)
+	var caseRevision struct {
+		Revision int64 `json:"revision"`
+	}
+	if err = json.Unmarshal(caseView.Body.Bytes(), &caseRevision); err != nil {
+		t.Fatal(err)
+	}
 	assert(request("POST", "/api/v1/eval-cases/case1/labels", viewerToken, "dev", `{"next":"correct"}`), 403, `"code":"forbidden"`)
-	assert(request("POST", "/api/v1/eval-cases/case1/labels", adminToken, "dev", `{"next":"partial","note":"needs investigation"}`), 200, `"next":"partial"`)
+	assert(request("POST", "/api/v1/eval-cases/case1/labels", adminToken, "dev",
+		`{"next":"partial","note":"needs investigation","expected_revision":`+strconv.FormatInt(caseRevision.Revision, 10)+`}`), 409, `"code":"evaluation_case_not_ready"`)
 	var evalID string
 	if err = db.QueryRow(ctx, `SELECT id FROM v3_agent_eval_experiments WHERE agent_id='triage'`).Scan(&evalID); err != nil {
 		t.Fatal(err)

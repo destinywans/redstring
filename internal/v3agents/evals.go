@@ -46,6 +46,65 @@ func lockActiveEvalScope(ctx context.Context, tx pgx.Tx, a agent) error {
  FOR SHARE OF app,mapped,env`, a.App, a.Env).Scan(&appID)
 }
 
+func evalOwnerTeam(ctx context.Context, tx pgx.Tx, a agent) (string, error) {
+	var team string
+	err := tx.QueryRow(ctx, `SELECT COALESCE(owner_team_id,'') FROM applications
+ WHERE id=$1 AND NOT archived FOR SHARE`, a.App).Scan(&team)
+	return team, err
+}
+
+func (s *Service) authorizeEvalTx(ctx context.Context, tx pgx.Tx, r *http.Request, a agent, team, action string) error {
+	decision := rbac.V3Decision{Module: "agents", Action: action, EnvironmentID: a.Env, ApplicationID: a.App}
+	err := s.Access.AuthorizeWithTx(ctx, tx, httpapi.CurrentUser(r), decision)
+	if !errors.Is(err, store.ErrForbidden) || team == "" {
+		return err
+	}
+	decision.ApplicationID = ""
+	decision.TeamID = team
+	return s.Access.AuthorizeWithTx(ctx, tx, httpapi.CurrentUser(r), decision)
+}
+
+func lockEvalSession(ctx context.Context, tx pgx.Tx, r *http.Request) error {
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil {
+		return store.ErrSessionRevoked
+	}
+	return store.LockActiveSession(ctx, tx, cookie.Value, httpapi.CurrentUser(r).ID)
+}
+
+func lockEvalHumanSession(ctx context.Context, tx pgx.Tx, r *http.Request) error {
+	if err := lockEvalSession(ctx, tx, r); err != nil {
+		return err
+	}
+	var activeID string
+	err := tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 AND v3_identity_kind='human'
+ AND source<>'settings_demo' FOR SHARE`, httpapi.CurrentUser(r).ID).Scan(&activeID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.ErrForbidden
+	}
+	return err
+}
+
+func evalSessionStillActive(ctx context.Context, tx pgx.Tx, r *http.Request) error {
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil {
+		return store.ErrSessionRevoked
+	}
+	var active bool
+	err = tx.QueryRow(ctx, `SELECT expires_at>clock_timestamp() FROM sessions
+ WHERE token_hash=$1 AND user_id=$2`, store.Hash(cookie.Value), httpapi.CurrentUser(r).ID).Scan(&active)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !active) {
+		return store.ErrSessionRevoked
+	}
+	return err
+}
+
+func caseRevision(ctx context.Context, tx pgx.Tx, caseID string) (int64, error) {
+	var revision int64
+	err := tx.QueryRow(ctx, `SELECT count(*) FROM v3_agent_eval_labels WHERE case_id=$1`, caseID).Scan(&revision)
+	return revision, err
+}
+
 // Hold the physical V3 grant sources through the final policy check and
 // transaction commit. A revoke commits before that check or waits for commit.
 func lockEvalGrantSources(ctx context.Context, tx pgx.Tx, userID string) error {
@@ -121,6 +180,18 @@ func (s *Service) EvalDetail(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
+	ownerTeam, err := evalOwnerTeam(r.Context(), tx, a)
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	if err = lockEvalSession(r.Context(), tx, r); errors.Is(err, store.ErrSessionRevoked) {
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		return
+	} else if err != nil {
+		unavailable(w)
+		return
+	}
 	if err = lockEvalGrantSources(r.Context(), tx, httpapi.CurrentUser(r).ID); errors.Is(err, store.ErrForbidden) {
 		notFound(w)
 		return
@@ -128,13 +199,19 @@ func (s *Service) EvalDetail(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
-	err = s.Access.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), rbac.V3Decision{
-		Module: "agents", Action: "view", EnvironmentID: a.Env, ApplicationID: a.App})
+	err = s.authorizeEvalTx(r.Context(), tx, r, a, ownerTeam, "view")
 	if errors.Is(err, store.ErrForbidden) {
 		notFound(w)
 		return
 	}
 	if err != nil {
+		unavailable(w)
+		return
+	}
+	if err = evalSessionStillActive(r.Context(), tx, r); errors.Is(err, store.ErrSessionRevoked) {
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		return
+	} else if err != nil {
 		unavailable(w)
 		return
 	}
@@ -151,14 +228,24 @@ func (s *Service) EvalDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	missing := []string{"dataset_content", "per_case_output", "radar_without_metric_producer", "evaluator_catalog"}
+	missing := []string{"dataset_content", "experiment_case_membership", "per_case_output", "radar_without_metric_producer", "evaluator_catalog"}
 	if v.Status == "pending" || v.Status == "running" {
 		missing = append(missing, "evaluation_result")
+	} else if metrics == nil {
+		missing = append(missing, "aggregate_metrics")
 	}
-	httpapi.WriteJSON(w, 200, map[string]any{"id": v.ID, "title": v.Title, "dataset": unknown,
+	var finished any
+	if v.Finished != nil {
+		finished = timeString(*v.Finished)
+	}
+	var resultRef any
+	if v.ResultRef != "" {
+		resultRef = v.ResultRef
+	}
+	httpapi.WriteJSON(w, 200, map[string]any{"id": v.ID, "title": v.Title, "dataset": nil,
 		"meta": v.Status, "status": v.Status, "baseline_version": v.Baseline, "candidate_version": v.Candidate,
-		"metrics": metrics, "radar": nil, "cases": []any{}, "datasets": []any{}, "evaluators": []any{},
-		"result_ref": v.ResultRef, "created_at": timeString(v.Created),
+		"metrics": metrics, "radar": nil, "cases": nil, "datasets": nil, "evaluators": nil,
+		"result_ref": resultRef, "created_at": timeString(v.Created), "finished_at": finished,
 		"missing": missing, "partial": true})
 }
 
@@ -304,12 +391,12 @@ func (s *Service) EvalCase(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
-	cookie, err := r.Cookie("aiops_session")
+	ownerTeam, err := evalOwnerTeam(r.Context(), tx, a)
 	if err != nil {
-		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		unavailable(w)
 		return
 	}
-	if err = store.LockActiveSession(r.Context(), tx, cookie.Value, httpapi.CurrentUser(r).ID); errors.Is(err, store.ErrSessionRevoked) {
+	if err = lockEvalSession(r.Context(), tx, r); errors.Is(err, store.ErrSessionRevoked) {
 		httpapi.Error(w, 401, "unauthorized", "Session expired")
 		return
 	} else if err != nil {
@@ -323,12 +410,16 @@ func (s *Service) EvalCase(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
-	err = s.Access.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), rbac.V3Decision{
-		Module: "agents", Action: "view", EnvironmentID: a.Env, ApplicationID: a.App})
+	err = s.authorizeEvalTx(r.Context(), tx, r, a, ownerTeam, "view")
 	if errors.Is(err, store.ErrForbidden) {
 		notFound(w)
 		return
 	}
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	revision, err := caseRevision(r.Context(), tx, c.ID)
 	if err != nil {
 		unavailable(w)
 		return
@@ -357,6 +448,13 @@ func (s *Service) EvalCase(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
+	if err = evalSessionStillActive(r.Context(), tx, r); errors.Is(err, store.ErrSessionRevoked) {
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		return
+	} else if err != nil {
+		unavailable(w)
+		return
+	}
 	if err = tx.Commit(r.Context()); err != nil {
 		unavailable(w)
 		return
@@ -364,6 +462,7 @@ func (s *Service) EvalCase(w http.ResponseWriter, r *http.Request) {
 	response := map[string]any{"id": c.ID, "title": c.Title,
 		"expected_ref": c.ExpectedRef, "labels": labels,
 		"snapshot_id": snapshotID, "snapshot_sha256": snapshotHash,
+		"revision": revision, "labels_truncated": revision > int64(len(labels)),
 		"complete_v3_dto": view != nil, "partial": view == nil}
 	if view == nil {
 		response["queue"] = unknown
@@ -390,12 +489,14 @@ func (s *Service) EvalCase(w http.ResponseWriter, r *http.Request) {
 		response["source_state"] = "trusted_snapshot"
 		response["missing"] = []string{}
 	}
+	w.Header().Set("Cache-Control", "private, no-store")
 	httpapi.WriteJSON(w, 200, response)
 }
 
 type labelBody struct {
-	Next string `json:"next"`
-	Note string `json:"note"`
+	Next             string `json:"next"`
+	Note             string `json:"note"`
+	ExpectedRevision *int64 `json:"expected_revision"`
 }
 
 func (s *Service) LabelCase(w http.ResponseWriter, r *http.Request) {
@@ -417,6 +518,10 @@ func (s *Service) LabelCase(w http.ResponseWriter, r *http.Request) {
 	}
 	if len([]rune(body.Note)) > 2000 {
 		invalid(w, "Note too long")
+		return
+	}
+	if body.ExpectedRevision != nil && *body.ExpectedRevision < 0 {
+		invalid(w, "Invalid case revision")
 		return
 	}
 	tx, err := s.DB.Begin(r.Context())
@@ -454,13 +559,16 @@ func (s *Service) LabelCase(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
-	cookie, err := r.Cookie("aiops_session")
+	ownerTeam, err := evalOwnerTeam(r.Context(), tx, a)
 	if err != nil {
-		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		unavailable(w)
 		return
 	}
-	if err = store.LockActiveSession(r.Context(), tx, cookie.Value, httpapi.CurrentUser(r).ID); errors.Is(err, store.ErrSessionRevoked) {
-		httpapi.Error(w, 401, "unauthorized", "Session expired")
+	if err = lockEvalHumanSession(r.Context(), tx, r); errors.Is(err, store.ErrSessionRevoked) {
+		httpapi.Error(w, 401, "session_revoked", "Sign in again before labeling")
+		return
+	} else if errors.Is(err, store.ErrForbidden) {
+		httpapi.Error(w, 403, "human_required", "A human session is required")
 		return
 	} else if err != nil {
 		unavailable(w)
@@ -473,7 +581,26 @@ func (s *Service) LabelCase(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
-	if !s.authorizedTx(w, r, tx, a, "change") {
+	err = s.authorizeEvalTx(r.Context(), tx, r, a, ownerTeam, "change")
+	if errors.Is(err, store.ErrForbidden) {
+		httpapi.Error(w, 403, "forbidden", "Agent permission required")
+		return
+	}
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	if body.ExpectedRevision == nil {
+		httpapi.Error(w, http.StatusPreconditionRequired, "case_revision_required", "Read the current case revision before labeling")
+		return
+	}
+	revision, err := caseRevision(r.Context(), tx, c.ID)
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	if *body.ExpectedRevision != revision {
+		httpapi.Error(w, 409, "case_changed", "Case labels changed; read the case again")
 		return
 	}
 	_, snapshotID, snapshotHash, err := loadEvalCaseSnapshot(r.Context(), tx, c)
@@ -494,8 +621,15 @@ func (s *Service) LabelCase(w http.ResponseWriter, r *http.Request) {
 	}
 	err = audit(r.Context(), tx, a, httpapi.CurrentUser(r).ID, "v3.agent.eval.label", c.ID,
 		map[string]any{"environment_id": a.Env, "label": body.Next, "label_id": id,
-			"snapshot_id": snapshotID, "snapshot_sha256": snapshotHash})
+			"snapshot_id": snapshotID, "snapshot_sha256": snapshotHash, "revision": revision + 1})
 	if err != nil {
+		unavailable(w)
+		return
+	}
+	if err = evalSessionStillActive(r.Context(), tx, r); errors.Is(err, store.ErrSessionRevoked) {
+		httpapi.Error(w, 401, "session_revoked", "Sign in again before labeling")
+		return
+	} else if err != nil {
 		unavailable(w)
 		return
 	}
@@ -503,7 +637,7 @@ func (s *Service) LabelCase(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
-	httpapi.WriteJSON(w, 200, map[string]any{"next": body.Next, "id": id})
+	httpapi.WriteJSON(w, 200, map[string]any{"next": body.Next, "id": id, "revision": revision + 1})
 }
 
 // EvaluationOutcome is accepted only from a trusted evaluator integration.

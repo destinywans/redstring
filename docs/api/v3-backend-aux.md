@@ -4,7 +4,7 @@
 
 | 方法 | 路径 | 参数与含义 |
 | --- | --- | --- |
-| POST | `/api/v1/auth/invitations/accept` | 公开的 JSON 辅助接口。受邀人提交 `{ code, name, password }`；一次性 256 位随机码只放请求体，数据库仅保存哈希，24 小时内且邮件投递方已接受后才可使用。接受与创建本地 `viewer` 账号、消费邀请码及无资料值审计在同一事务；新账号不自动取得环境或应用授权。此路由需要共享 V3 环境门禁的精确公开豁免，产品目前没有接受邀请的页面。 |
+| POST | `/api/v1/auth/invitations/accept` | 公开的 JSON 辅助接口。受邀人提交 `{ code, name, password }`；一次性 256 位随机码只放请求体，数据库仅保存哈希，24 小时内且邮件投递方已接受后才可使用。接受与创建本地 `viewer` 账号、消费邀请码及无资料值审计在同一事务；新账号不自动取得环境或应用授权。共享 V3 环境与身份门禁仅对这一精确 POST 路由豁免；产品目前没有接受邀请的页面。 |
 | GET | `/api/v1/me/mfa/totp` | 可选账户辅助接口；单一授权环境内读取本人 TOTP 状态 `none/pending/expired/active` 与剩余恢复码数，不返回种子或码。仅配置持久的 `AIOPS_V3_MFA_KEY_FILE` 后注册。 |
 | POST | `/api/v1/me/mfa/totp/enrollment` | 空请求体；同源浏览器信号、近 10 分钟登录和当前人类账号。返回一次性的种子、`otpauth_url` 与 10 分钟到期时间；待确认记录绑定原会话、实例层级与环境。 |
 | POST | `/api/v1/me/mfa/totp/confirm` | `{ code }` 确认待登记 TOTP，消费该时间步并仅在本次响应返回一次性恢复码；服务端只留独立加盐哈希。 |

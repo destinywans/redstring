@@ -526,8 +526,14 @@ func (s *Service) acceptInvitation(ctx context.Context, input invitationAcceptan
 	if !accountSafe {
 		return errInvitationRoleUnsafe
 	}
-	if _, err = tx.Exec(ctx, `UPDATE v3_member_invitations SET status='accepted',account_id=$2,
- accepted_at=clock_timestamp() WHERE id=$1 AND status='delivered'`, id, accountID); err != nil {
+	var consumed string
+	err = tx.QueryRow(ctx, `UPDATE v3_member_invitations SET status='accepted',account_id=$2,
+ accepted_at=clock_timestamp() WHERE id=$1 AND status='delivered'
+ AND expires_at>clock_timestamp() RETURNING id`, id, accountID).Scan(&consumed)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errInvitationInvalid
+	}
+	if err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes)

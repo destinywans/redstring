@@ -353,6 +353,8 @@ Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评�
 
 `GET /members` 当前只提供部分真实读取：在读取事务中重核账号及当前环境授权，以单条查询取成员与角色快照。响应有 `complete_v3_dto: false` 和 `unavailable_fields`；未核实的 `last_login`、`counts.no_mfa`、`mfa_grace_days` 为 `null`，`items[].mfa: "na"` 表示未知，不表示未启用。组层级、目录同步来源和 MFA 策略也无可信来源；`filter=no_mfa` 返回 `503 member_mfa_unavailable`，不会以空结果冒充筛选成功。冻结前端仍按数字显示 MFA 数量和宽限期并显示确定的安全提示，因此主接口仍为 `mock`。
 
+`POST /members/invitations` 只由当前真人会话在单环境、全局 `members.manage` 与 `environment.view` 下发出本地只读 `viewer` 邀请。发送前与接受时复核该可编辑角色的实际权限，禁用环境准入、应用/团队范围及任何写权限；邀请码有 256 位随机熵，只存哈希，24 小时且 SMTP relay 接受 DATA 后才可用于公开的 `POST /auth/invitations/accept`。接受事务创建本地账号与审计，但不自动授予环境或应用访问。发送只在完整配置的证书验证 TLS 465 SMTP、受保护密码文件、与实例域一致的 HTTPS 产品入口和安全 Cookie 下启用；未配置返回 503，半配置或错域在启动时失败。Relay 接受不证明最终邮箱送达；匿名接受在进程内限速，部署多副本仍需入口共享限速。迁移 `138_v3_member_invitations.sql` 尚未在现有库执行；当前产品没有接受页，真实邮件与浏览器未验。本阶段只做代码、契约和最小编译，未跑测试或发送邮件。
+
 可选的本人 TOTP 登记、确认、验证与恢复码，以及七条本人 WebAuthn 登记、账户断言和删除辅助接口见 [V3 后端辅助接口](v3-backend-aux.md)。TOTP 仅配置持久服务器密钥后注册；passkey 仅在受信实例 RP 域名、精确 HTTPS Origin 和安全 cookie 配置满足条件且显式开启时注册。账户断言不提供提案审批保证；这些接口也未补齐成员目录、`/me` 或 `/security` 的完整前端契约。
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
@@ -361,7 +363,7 @@ Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评�
 | PUT | `/me/profile` | `ProfileView` | `ProfileView` | mock |
 | DELETE | `/me/sessions/{id}` | | 204 | implemented |
 | GET | `/members` | `filter: all\|admin\|no_mfa\|disabled`, `q` | `MembersView` | mock |
-| POST | `/members/invitations` | `{ email, role? }` | 结果 | mock |
+| POST | `/members/invitations` | `{ email, role?: "viewer" }` | `{ ok: true }`；仅 SMTP relay 接受且状态落库后成功 | implemented |
 | POST | `/members/sync` | | `{ added, updated }` | mock |
 | POST | `/members/mfa-reminders` | | `{ sent }` | mock |
 | GET | `/roles` | | `{ items: Role[] }` | implemented |

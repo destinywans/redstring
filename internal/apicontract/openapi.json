@@ -45593,6 +45593,251 @@
         ]
       }
     },
+    "/members/invitations": {
+      "post": {
+        "summary": "Send a read-only member invitation",
+        "operationId": "post_members_invitations",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment, current human account and exact session, global members.manage and global environment.view. Optional role is viewer only. Before sending, the editable viewer role may have V3 view grants such as workspace.view global but no environment module grant or application/team scope, and legacy resource or legacy_application view bindings only. An unsafe grant returns 409 invitation_role_unsafe. The future account inherits this checked read-only base role; the operation grants no environment admission, direct application ACL or team association. A configured, certificate-validated implicit-TLS SMTP relay and trusted HTTPS product entry are required. The service persists only a hash of a random one-time code, rate-limits actor and recipient, and returns {ok:true} only after SMTP DATA is accepted and the invitation is durably marked delivered. Relay acceptance is not final mailbox delivery. A failed or uncertain send never returns success. The existing product has no invitation acceptance UI yet.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ok"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Actor or recipient invitation limit reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "members"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3MemberInvitationRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/auth/invitations/accept": {
+      "post": {
+        "summary": "Accept a one-time member invitation",
+        "operationId": "post_auth_invitations_accept",
+        "description": "Minimum role: public. Public JSON auxiliary route. Requires a 256-bit one-time code in the body, never the URL, plus a name and password. A relay-accepted unexpired code is consumed in the same transaction that creates a local viewer account. The editable viewer role and the new account effective grants are checked again under role locks; any environment grant, application/team scope, non-view action, direct application ACL, team association or unexpected role association returns 409 invitation_role_unsafe. The account inherits the checked read-only viewer base role, including workspace.view global where present; an administrator must separately grant environment admission and application scope for V3 access. Legacy application-view bindings are inert in the current resource-only effective-permissions view. Anonymous attempts are locally bounded by the direct remote IP; a trusted ingress must also enforce a shared limit across replicas. The product acceptance UI is not implemented. The V3 environment/auth middleware exempts only this exact public POST route.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "access": {
+                      "type": "string",
+                      "enum": [
+                        "pending_scope_grant"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "access"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Anonymous acceptance rate limit reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "auth"
+        ],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3MemberInvitationAcceptance"
+              }
+            }
+          }
+        }
+      }
+    },
     "/audit/{id}": {
       "get": {
         "summary": "Verify audit record chain and read redacted detail",
@@ -64888,6 +65133,52 @@
           "mfa_grace_days",
           "complete_v3_dto",
           "unavailable_fields"
+        ]
+      },
+      "V3MemberInvitationRequest": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 320
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "viewer"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "email"
+        ]
+      },
+      "V3MemberInvitationAcceptance": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "password": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 1024,
+            "format": "password"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "name",
+          "password"
         ]
       },
       "V3AuditEntry": {

@@ -86,6 +86,8 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"GET /api/v1/investigations/{id}/nodes/{node}/messages", "view", s.readInvestigationNodeMessages},
 		{"GET /api/v1/canvas-templates", "view", s.templates},
 		{"POST /api/v1/canvas-templates", "change", s.saveTemplate},
+		{"GET /api/v1/investigation-templates", "view", s.listInvestigationTemplates},
+		{"POST /api/v1/investigation-templates/{id}/start", "change", s.startInvestigationTemplate},
 	} {
 		api.Register(route.pattern, "viewer", route.handler)
 		if route.pattern == "GET /api/v1/canvases" || route.pattern == "POST /api/v1/canvases" ||
@@ -95,7 +97,9 @@ func (s *Service) Register(api *httpapi.Server) {
 			route.pattern == "POST /api/v1/investigations/{id}/nodes/{node}/messages" ||
 			route.pattern == "GET /api/v1/investigations/{id}/writeback-preview" ||
 			route.pattern == "POST /api/v1/investigations/{id}/writeback" ||
-			route.pattern == "GET /api/v1/investigations/{id}/nodes/{node}/messages" {
+			route.pattern == "GET /api/v1/investigations/{id}/nodes/{node}/messages" ||
+			route.pattern == "GET /api/v1/investigation-templates" ||
+			route.pattern == "POST /api/v1/investigation-templates/{id}/start" {
 			// The handlers resolve application/team scope from persisted
 			// investigations or the active service catalog before checking grants.
 			api.MarkV3ObjectRoute(route.pattern, "canvas", route.action)

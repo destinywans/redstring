@@ -297,6 +297,9 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	mcpService.DiscoverTools = func(ctx context.Context, config aiextensions.MCPConfig) ([]aiextensions.ToolInfo, error) {
 		return aiextensions.DiscoverTools(ctx, credentialRoot, config)
 	}
+	mcpService.DiscoverCatalog = func(ctx context.Context, config aiextensions.MCPConfig) (aiextensions.MCPCatalog, error) {
+		return aiextensions.DiscoverCatalog(ctx, credentialRoot, config)
+	}
 	mcpService.Register(api)
 	v3topology.New(s.DB, policy).Register(api)
 	ruleSource, ruleBindings, err := loadV3AlertRuleSource(os.Getenv("AIOPS_V3_ALERT_RULES_CONFIG"), *info)

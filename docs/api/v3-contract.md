@@ -272,14 +272,14 @@ Agent Trace 后端目前只能读受信生产者上报的有界 Span 元数据�
 | PATCH | `/connectors/{id}` | `{ tools: [{ name, enabled }] }`；至少一项，`enabled` 必须是显式布尔值 | `{ ok: true, tools: [{ name, desc, enabled }] }`；在行锁下部分合并工具偏好并同事务审计；旧目录工具冲突返回 409，不静默删除；`enabled` 仅门控部分只读来源，不授予 Agent 执行能力；前端开关尚未发起此请求 | implemented |
 | POST | `/connectors` | `{ type, url, auth, tools, webhook, credential_ref? }`；凭据仅传 Vault 引用；所有需要凭据的创建请求先保存为未启用登记，`webhook` 仅记录意图，不自动创建 Webhook | `{ id }`；未启用登记不可测试连接或启用工具，生成 ID 后由部署方配置精确凭据绑定，再通过辅助接口激活；无认证且不请求 Webhook 的非 GitLab 只读来源可直接启用 | implemented |
 | GET | `/connector-types/{type}` | | `ConnectorType`（真实探测器支持的认证方式；暂无类型级权限范围与可执行 Agent 工具时返回空数组） | implemented |
-| GET | `/mcp-servers` | | `McpList` | mock |
-| GET | `/mcp-servers/{id}` | | `McpDetail` | mock |
-| PATCH | `/mcp-servers/{id}/tools/{name}` | `{ enabled }`（写入工具开启后仍只能以提案使用） | 结果 | mock |
-| POST | `/mcp-servers/{id}/review` | 审核新版本发现的工具 | 结果 | mock |
+| GET | `/mcp-servers` | | 当前授权的显式环境绑定、不可变发现摘要与人类审核偏好；未发现、未支持或没有归属生产者的数量/调用历史为 `null`；超过候选或可见绑定上限返回 413 | implemented |
+| GET | `/mcp-servers/{id}` | 单一环境 | 当前绑定的完整领域详情、实际发现的工具/资源/提示词及审核状态；未知数组与调用历史为 `null`，远端元数据为未信任观察 | implemented |
+| PATCH | `/mcp-servers/{id}/tools/{name}` | `snapshot_id`、`registration_version`、`registration_hash`、`tools_hash`、`tool_hash`、`expected_revision`、显式 `enabled` | 受当前登记、快照、工具与修订约束的审核偏好和审计；不授予 Agent 执行 | implemented |
+| POST | `/mcp-servers/{id}/review` | 当前快照、登记版本/摘要、工具集合摘要及全部工具的哈希与决定 | 人类审核的原子结果和审计；批准工具默认关闭，无 Agent 执行器 | implemented |
 
-当前 MCP 列表只是已显式绑定环境的登记元数据快照；KPI 仅计有权可见的登记与旧只读绑定，不表示 V3 工具已审核或可执行。详情不会把旧固定参数或未信任发现快照放入可调用 `tools`，也不会把所属应用冒充 Agent 授权应用；服务版本、连接健康、调用历史、凭据验证以及工具/资源/提示词实际数量均未知。`counts` 中的 0 只是旧 DTO 占位，`unavailable_fields` 明确列出未知项，`complete_v3_dto=false`。服务端最多扫描 2000 条候选记录；若还有第 2001 条，返回 `413 candidate_scan_limit` 而不返回部分列表。超过 1000 条有权可见登记返回独立的 `413 scope_too_large`。前端当前仍把未知数量显示为确定的零，并固定显示绿色只读/Vault 标识与无需真实请求的连接成功提示，不能据此接入或验收页面；两个主读取路由继续 `mock`。
+MCP 主读取从当前授权的显式环境绑定、不可变发现快照与人类审核记录构造领域 DTO。完整发现只访问固定 MCP 端点，在一个有界 Streamable HTTP 会话中执行 `initialize` 以及已声明的 `tools/list`、`resources/list`、`prompts/list`；不执行工具、读取资源正文或获取提示内容。服务版本和数量只在成功观察后给出，未声明与未发现分开表示，未知值为 `null`。凭据只来自 `AIOPS_MCP_CREDENTIAL_ROOT` 下的私有文件，不宣称 Vault 已接入或当前凭据有效。最近发现成功不代表持续健康。旧固定参数绑定、应用所属关系和人类开关均不构成 Agent 执行授权；V3 还没有可归属的 MCP 调用记录生产者，因此调用次数及历史保持 `null`。服务端最多扫描 2000 条候选记录，最多返回 1000 条可见绑定，超限返回 413。领域 DTO 显式标出 `complete_v3_dto=false` 与冻结页面不兼容字段，表示页面尚未验收，而非后端缺失当前可验证来源；见 [MCP 领域链路](../examples/v3-mcp-domain.md)。
 
-MCP 审核另有按不可变发现版本执行的三个辅助接口：`GET /mcp-servers/{id}/review-candidate`、`POST /mcp-servers/{id}/review-version` 和 `PATCH /mcp-servers/{id}/reviewed-tools/{name}`。候选读取在新事务中重核当前账号、会话、应用/环境绑定、授权及最新发现，持锁至有界响应写完；写入要求当前有 `connectors.manage` 的人类身份、完整逐工具决定和匹配摘要/修订，审核与开关变化同事务审计。远端描述、输入 schema 和只读提示仍是未信任观察；批准的工具默认关闭，即使开启也没有 Agent 执行器。冻结前端的无版本主 `POST /mcp-servers/{id}/review` 与 `PATCH /mcp-servers/{id}/tools/{name}` 仍不携带快照/摘要/修订，继续 `mock`。
+MCP 审核的三个辅助接口 `GET /mcp-servers/{id}/review-candidate`、`POST /mcp-servers/{id}/review-version` 和 `PATCH /mcp-servers/{id}/reviewed-tools/{name}` 提供同一受版本约束的机制，主写路由复用它。候选读取在新事务中重核当前账号、会话、应用/环境绑定、授权及最新发现，持锁至有界响应写完；写入要求当前有 `connectors.manage` 的人类身份、完整逐工具决定和匹配摘要/修订，审核与开关变化同事务审计。远端描述、输入 schema 和只读提示仍是未信任观察；批准的工具默认关闭，即使开启也没有 Agent 执行器。冻结前端的空审核请求及仅带 `enabled` 的开关请求会被拒绝；前端还不能渲染可空列表与调用历史，并以登记 ID 作跨环境行键，页面接入须另行对齐。
 
 `GET /connector-types/{type}` 只描述已支持的连接器类型及探测器可接受的认证方式，要求当前环境的 `connectors.view`；未知类型返回按 `Accept-Language` 本地化的 404。版本、上游令牌权限与 Webhook 地址没有类型级可信来源，返回空值；尚无连接器支持的 Agent 工具执行器，因此 `tools: []`。本条后端路由完成不代表新建向导的静态项目映射、事件、深链及工具说明已接线，前端目录还有未支持的类型。
 | GET | `/ingest/pull/{id}` | | `PullDraft`（请求模板、样例、字段映射、预览） | implemented |

@@ -31016,61 +31016,16 @@
     },
     "/mcp-servers": {
       "get": {
-        "summary": "List accessible, environment-bound MCP extensions",
+        "summary": "List current authorized MCP environment bindings and sourced observations",
         "operationId": "get_mcp_servers",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial registration metadata only. The KPIs count visible registrations and legacy read-only bindings, not V3 reviewed tools. Unbound historical MCP records are omitted, not copied across environments. A single authorization snapshot scans at most 2000 candidate registrations; a 2001st candidate returns 413 candidate_scan_limit rather than partial items, while more than 1000 visible registrations returns 413 scope_too_large. Health, discovered capabilities, V3 tool review, Agent grants, call metrics and pending changes are unavailable; status is a pending placeholder and complete_v3_dto is false.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. One item per explicitly bound environment, with current application or owner-team connectors.view authorization. A compatible immutable discovery supplies observed initialize version and capability counts; unsupported and undiscovered counts are null. Human review and enabled preferences are separate from untrusted declarations and do not grant Agent execution. V3 call metrics and current connection health have no producer and remain unknown. At most 2000 candidates and 1000 visible bindings; excess fails with 413. Frozen UI uses an ID-only row key and cannot distinguish duplicate registration IDs across environments. WAN-117 must mount this fragment and domain.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "kpis": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "id": {
-                            "type": "string"
-                          },
-                          "label": {
-                            "type": "string"
-                          },
-                          "value": {
-                            "type": "string"
-                          },
-                          "sub": {
-                            "type": "string"
-                          },
-                          "series": {
-                            "type": "array",
-                            "items": {
-                              "type": "number"
-                            }
-                          }
-                        },
-                        "additionalProperties": false
-                      }
-                    },
-                    "items": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/V3McpServerPartial"
-                      }
-                    },
-                    "complete_v3_dto": {
-                      "type": "boolean"
-                    },
-                    "unavailable_fields": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  },
-                  "additionalProperties": false
+                  "$ref": "#/components/schemas/V3McpListDomain"
                 }
               }
             }
@@ -31136,7 +31091,7 @@
             }
           },
           "413": {
-            "description": "Candidate scan or visible registration limit exceeded",
+            "description": "Candidate scan or visible binding limit exceeded",
             "content": {
               "application/json": {
                 "schema": {
@@ -31168,16 +31123,16 @@
     },
     "/mcp-servers/{id}": {
       "get": {
-        "summary": "Read accessible MCP registration metadata",
+        "summary": "Read one current authorized MCP binding, discovery and reviewed tools",
         "operationId": "get_mcp_servers_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial registration metadata only: legacy fixed-argument bindings and untrusted discovery observations are not V3 reviewed Agent tools, so tools and Agent apps are empty. No verified service version, live health, actual tool/resource/prompt counts, Agent grants or tool-call history exists; counts of 0 are DTO placeholders and every unknown count is named in unavailable_fields. A credential reference may be reported as registered but never verified or returned. complete_v3_dto is false.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment; all is rejected with 422. The response is based on a current binding, exact registration version/hash and latest immutable discovery. Remote tool descriptions/read-only hints, resources and prompts remain untrusted observations. The last successful discovery does not attest current health. The credential source is a private file, not V3 Vault, and no reference or secret is returned. Tool hashes and write revision tokens are available only through the manage-only review-candidate route. No V3 Agent MCP execution or attributable call-history producer exists; unknown counts and calls are null. The frozen UI expects fabricated non-null counts and cannot yet render this truthful DTO.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/V3McpDetailPartial"
+                  "$ref": "#/components/schemas/V3McpDetailDomain"
                 }
               }
             }
@@ -31273,10 +31228,20 @@
     },
     "/mcp-servers/{id}/tools/{name}": {
       "patch": {
-        "summary": "Change a reviewed MCP tool",
+        "summary": "Change one reviewed MCP tool switch with a current revision",
         "operationId": "patch_mcp_servers_id_tools_name",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. The unversioned main-page route still returns 503 mcp_review_unavailable after scoped authorization. Use the version-bound auxiliary reviewed-tools route; no Agent tool execution exists.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires current human connectors.manage in one selected environment, exact registration/snapshot/tools/tool hashes and expected revision. Missing version fields from the frozen UI are rejected. Denied tools cannot be enabled; a remote read-only hint alone is not approval. Review state and redacted audit update atomically; enabled preference does not grant Agent execution.",
         "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3McpMainToolChangeResult"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Authentication required",
             "content": {
@@ -31377,16 +31342,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "enabled": {
-                    "type": "boolean"
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "enabled"
-                ]
+                "$ref": "#/components/schemas/V3McpMainToolChangeRequest"
               }
             }
           }
@@ -31395,10 +31351,20 @@
     },
     "/mcp-servers/{id}/review": {
       "post": {
-        "summary": "Review newly discovered MCP tools",
+        "summary": "Review every tool of the exact current MCP discovery version",
         "operationId": "post_mcp_servers_id_review",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. The unversioned main-page route still returns 503 mcp_review_unavailable after scoped authorization. Use the version-bound auxiliary review-version route; remote discovery alone is untrusted.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Current human connectors.manage reviewer only, in one selected environment. Exact snapshot, registration version/hash, tools hash and every name/tool hash decision are required; an empty request from the frozen UI is rejected. Reuses the version-bound review transaction, source/session/grant recheck and atomic redacted audit. No Agent execution is enabled.",
         "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3McpMainReviewResult"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Authentication required",
             "content": {
@@ -31485,14 +31451,24 @@
             },
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3McpMainReviewRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/mcp-servers/{id}/discover": {
       "post": {
         "summary": "Observe MCP tool declarations in an immutable snapshot",
         "operationId": "post_mcp_servers_id_discover",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary observation route outside the 166 V3 page contracts. Requires exactly one selected environment, an explicit active binding and current connectors.manage on the persisted application. No request body is accepted. A bounded Streamable HTTP tools/list runs only after authorization; registration version, raw record digest, binding instance and authorization are rechecked before an immutable observation and management audit commit. Tool names are sorted before hashing; remote descriptions, read-only hints and JSON input schemas remain untrusted claims. Discovery does not enable, approve, execute or attest the health of any tool. A still-authorized upstream or invalid-declaration failure is audited without endpoint, credential or remote text and returns 502; a missing discovery client or persistence/audit failure returns 503. A changed registration returns 409, while absent or inaccessible initial objects return 404.",
+        "description": "After current single-environment connectors.manage authorization, run a bounded Streamable HTTP initialize and each advertised tools/list, resources/list and prompts/list. List failure aborts the entire discovery; unsupported and observed empty differ. Recheck source, session and grants after network I/O, then persist one immutable untrusted catalog snapshot and redacted audit. No tool execution, resource read, prompt retrieval, current health assertion or Agent grant is implied.",
         "responses": {
           "200": {
             "description": "Success",
@@ -55929,6 +55905,29 @@
           "health_verified": {
             "type": "boolean",
             "const": false
+          },
+          "tools_state": {
+            "type": "string",
+            "enum": [
+              "supported",
+              "unsupported"
+            ]
+          },
+          "resources_state": {
+            "type": "string",
+            "enum": [
+              "supported",
+              "unsupported",
+              "unknown"
+            ]
+          },
+          "prompts_state": {
+            "type": "string",
+            "enum": [
+              "supported",
+              "unsupported",
+              "unknown"
+            ]
           }
         },
         "additionalProperties": false,
@@ -55944,7 +55943,10 @@
           "captured_at",
           "trust",
           "approved",
-          "health_verified"
+          "health_verified",
+          "tools_state",
+          "resources_state",
+          "prompts_state"
         ]
       },
       "V3McpReviewCandidateTool": {
@@ -56118,6 +56120,926 @@
           "environment_id",
           "bound",
           "changed"
+        ]
+      },
+      "V3McpCapabilityObservation": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "supported",
+              "unsupported",
+              "unknown"
+            ]
+          },
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "count"
+        ]
+      },
+      "V3McpDiscoveryDomain": {
+        "type": "object",
+        "properties": {
+          "snapshot_id": {
+            "type": "string"
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "trust": {
+            "type": "string",
+            "enum": [
+              "untrusted_observation"
+            ]
+          },
+          "server_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "server_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "protocol_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tools": {
+            "$ref": "#/components/schemas/V3McpCapabilityObservation"
+          },
+          "resources": {
+            "$ref": "#/components/schemas/V3McpCapabilityObservation"
+          },
+          "prompts": {
+            "$ref": "#/components/schemas/V3McpCapabilityObservation"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "snapshot_id",
+          "captured_at",
+          "trust",
+          "server_name",
+          "server_version",
+          "protocol_version",
+          "tools",
+          "resources",
+          "prompts"
+        ]
+      },
+      "V3McpCredentialDomain": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "none",
+              "private_file"
+            ]
+          },
+          "reference_registered": {
+            "type": "boolean"
+          },
+          "current_validity": {
+            "type": "null"
+          },
+          "vault_state": {
+            "type": "string",
+            "enum": [
+              "not_integrated"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "source",
+          "reference_registered",
+          "current_validity",
+          "vault_state"
+        ]
+      },
+      "V3McpConnectionDomain": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "observed_success"
+            ]
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "health": {
+            "type": "null"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "last_success_at",
+          "health"
+        ]
+      },
+      "V3McpReviewDomain": {
+        "type": "object",
+        "properties": {
+          "reviewed": {
+            "type": "boolean"
+          },
+          "allowed_read_only_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "enabled_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "reviewed",
+          "allowed_read_only_count",
+          "enabled_count"
+        ]
+      },
+      "V3McpSummaryDomain": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "brand": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "desc": {
+            "type": "string"
+          },
+          "transport": {
+            "type": "string"
+          },
+          "caps": {
+            "type": "string"
+          },
+          "last": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "binding_instance_id": {
+            "type": "string"
+          },
+          "trust": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "tone": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "label",
+              "tone"
+            ]
+          },
+          "apps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "tone": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending"
+            ]
+          },
+          "owner_team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "registration_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "credential": {
+            "$ref": "#/components/schemas/V3McpCredentialDomain"
+          },
+          "connection": {
+            "$ref": "#/components/schemas/V3McpConnectionDomain"
+          },
+          "discovery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/V3McpDiscoveryDomain"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "review": {
+            "$ref": "#/components/schemas/V3McpReviewDomain"
+          },
+          "call_metrics": {
+            "type": "null"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "brand",
+          "name",
+          "desc",
+          "transport",
+          "caps",
+          "last",
+          "application_id",
+          "environment_id",
+          "binding_instance_id",
+          "trust",
+          "apps",
+          "status",
+          "owner_team_id",
+          "registration_version",
+          "credential",
+          "connection",
+          "discovery",
+          "review",
+          "call_metrics"
+        ]
+      },
+      "V3McpKpiDomain": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "sub": {
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "series": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label",
+          "value",
+          "sub",
+          "series"
+        ]
+      },
+      "V3McpListDomain": {
+        "type": "object",
+        "properties": {
+          "kpis": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3McpKpiDomain"
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3McpSummaryDomain"
+            }
+          },
+          "complete_v3_dto": {
+            "const": false
+          },
+          "unavailable_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "kpis",
+          "items",
+          "complete_v3_dto",
+          "unavailable_fields"
+        ]
+      },
+      "V3McpObservedToolDomain": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "desc": {
+            "type": "string"
+          },
+          "read_only_hint": {
+            "type": "boolean"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "allow_read_only",
+                  "deny"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "trust": {
+            "type": "string",
+            "enum": [
+              "untrusted_observation"
+            ]
+          },
+          "calls": {
+            "type": "null"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "desc",
+          "read_only_hint",
+          "decision",
+          "enabled",
+          "revision",
+          "trust",
+          "calls"
+        ]
+      },
+      "V3McpResourceDomain": {
+        "type": "object",
+        "properties": {
+          "uri": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "uri",
+          "name",
+          "description"
+        ]
+      },
+      "V3McpPromptDomain": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "description"
+        ]
+      },
+      "V3McpTrustInfoDomain": {
+        "type": "object",
+        "properties": {
+          "readonly_check": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "string"
+          },
+          "auth": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "readonly_check",
+          "scope",
+          "limit",
+          "auth"
+        ]
+      },
+      "V3McpDetailDomain": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "brand": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "desc": {
+            "type": "string"
+          },
+          "transport": {
+            "type": "string"
+          },
+          "caps": {
+            "type": "string"
+          },
+          "last": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "binding_instance_id": {
+            "type": "string"
+          },
+          "trust": {
+            "type": "object",
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "tone": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "label",
+              "tone"
+            ]
+          },
+          "apps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "tone": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending"
+            ]
+          },
+          "owner_team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "registration_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "credential": {
+            "$ref": "#/components/schemas/V3McpCredentialDomain"
+          },
+          "connection": {
+            "$ref": "#/components/schemas/V3McpConnectionDomain"
+          },
+          "discovery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/V3McpDiscoveryDomain"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "review": {
+            "$ref": "#/components/schemas/V3McpReviewDomain"
+          },
+          "call_metrics": {
+            "type": "null"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "tools": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 128
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "resources": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 128
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "prompts": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 128
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "tools",
+              "resources",
+              "prompts"
+            ]
+          },
+          "tools": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3McpObservedToolDomain"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resources": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3McpResourceDomain"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "prompts": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3McpPromptDomain"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "calls": {
+            "type": "null"
+          },
+          "review_candidate": {
+            "type": "null"
+          },
+          "trust_info": {
+            "$ref": "#/components/schemas/V3McpTrustInfoDomain"
+          },
+          "complete_v3_dto": {
+            "const": false
+          },
+          "unavailable_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "brand",
+          "name",
+          "desc",
+          "transport",
+          "caps",
+          "last",
+          "application_id",
+          "environment_id",
+          "binding_instance_id",
+          "trust",
+          "apps",
+          "status",
+          "owner_team_id",
+          "registration_version",
+          "credential",
+          "connection",
+          "discovery",
+          "review",
+          "call_metrics",
+          "version",
+          "counts",
+          "tools",
+          "resources",
+          "prompts",
+          "calls",
+          "review_candidate",
+          "trust_info",
+          "complete_v3_dto",
+          "unavailable_fields"
+        ]
+      },
+      "V3McpMainReviewRequest": {
+        "type": "object",
+        "properties": {
+          "snapshot_id": {
+            "type": "string"
+          },
+          "registration_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "registration_hash": {
+            "type": "string"
+          },
+          "tools_hash": {
+            "type": "string"
+          },
+          "decisions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3McpToolReviewDecision"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "snapshot_id",
+          "registration_version",
+          "registration_hash",
+          "tools_hash",
+          "decisions"
+        ]
+      },
+      "V3McpMainReviewResult": {
+        "type": "object",
+        "properties": {
+          "snapshot_id": {
+            "type": "string"
+          },
+          "reviewed": {
+            "const": true
+          },
+          "tool_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 128
+          },
+          "allowed_read_only_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "enabled_count": {
+            "const": 0
+          },
+          "execution_available": {
+            "const": false
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "snapshot_id",
+          "reviewed",
+          "tool_count",
+          "allowed_read_only_count",
+          "enabled_count",
+          "execution_available"
+        ]
+      },
+      "V3McpMainToolChangeRequest": {
+        "type": "object",
+        "properties": {
+          "snapshot_id": {
+            "type": "string"
+          },
+          "registration_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "registration_hash": {
+            "type": "string"
+          },
+          "tools_hash": {
+            "type": "string"
+          },
+          "tool_hash": {
+            "type": "string"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "snapshot_id",
+          "registration_version",
+          "registration_hash",
+          "tools_hash",
+          "tool_hash",
+          "expected_revision",
+          "enabled"
+        ]
+      },
+      "V3McpMainToolChangeResult": {
+        "type": "object",
+        "properties": {
+          "snapshot_id": {
+            "type": "string"
+          },
+          "tool_name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "changed": {
+            "type": "boolean"
+          },
+          "execution_available": {
+            "const": false
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "snapshot_id",
+          "tool_name",
+          "enabled",
+          "revision",
+          "changed",
+          "execution_available"
         ]
       },
       "V3InboxItem": {

@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-167 · 2026-09-29 · WAN-122 MCP 发现、审核与环境绑定主路由
+
+- 集成分支 `codex/wan-117-v3-integration` 从已推送 CP-166 `89ea321` 接续。WAN-122 来源 `20cde4b19c1c04a62d98dbd45322825c29db25da` 合入为 `39621e9`；`configureV3` 为同一私有凭据根注入完整 `DiscoverCatalog`，总 OpenAPI 在既有 MCP 分片后装入领域分片。迁移 `135_v3_mcp_capability_observations.sql` 与已有 `135_v3_upload_source_revoke.sql` 文件名不同，隔离 PG17 夹具断言两者均登记。OpenAPI **301 路径、359 操作、342 schema**。
+- 完整发现只向固定端点发 `initialize` 和实际声明的工具、资源、提示词列表请求，有出站、时间、页数、数量和字节上限；不调用工具或读取正文。不可变快照保留登记版本、摘要、绑定身份和未信任观察，未发现/未支持与真实零分别表达。GET 主列表/详情只返回当前有权环境绑定和对应审阅，调用历史及当前健康无受信生产者，明确为 `null`。主 POST 审核与 PATCH 开关要求当前非机器会话、`connectors.manage`、精确快照/登记/工具摘要与修订，沿现有事务机制重核授权、保存人类决定并审计；开关只是偏好，不授予 Agent 执行权。
+- 四条 MCP 主路由按后端真实处理、当前范围鉴权、领域 DTO、OpenAPI 和定向检查升 `implemented`，主契约 **88/166、78 mock**。一次性隔离 pgvector PG17 的 `aiextensions`/`v3mcp` 发现、版本审核/绑定/并发定向 `-race` 与 `cmd/aiops` 正式入口 `TestConfiguredV3MCPCatalogAndReviewRoutes` `-race` 通过，入口覆盖本机 MCP 的发现→持久详情→审核候选→人类审核→开关→读回；受影响 Go vet、契约/就绪矩阵和差异检查通过。未接真实 MCP 租户、迁移现有业务库或验证浏览器。冻结前端不能渲染可空工具/资源/提示词/调用历史，写入缺快照、摘要及修订，还把跨环境相同登记 ID 当作唯一行键；页面未验收。无 PR、合并或部署。下一步接 WAN-120 指标问答来源。
+
 ## CP-166 · 2026-09-29 · WAN-123 飞书 Docx 与本人上传来源
 
 - 集成分支 `codex/wan-117-v3-integration` 从已推送 CP-165 `6ce14ef` 接续，仅选取 WAN-123 新领域提交 `97633d7772e516dfc6915964d52dcc2c795eb386`，合入为 `511fa35`；其父提交 `1f18b6c` 的 Confluence/Notion 前置能力此前已等价合入，不重复 cherry-pick。`cmd/aiops/v3.go` 一处文本冲突逐段保留已有 Pull、变更视图、Confluence/Notion，并加入飞书及上传注册；自动合并的其余来源文件保持完整。新增迁移 `135_v3_upload_source_revoke.sql` 与 `136_v3_feishu_upload_sources.sql`，隔离 HTTP 夹具明确断言两者均登记。

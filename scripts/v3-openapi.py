@@ -38,6 +38,7 @@ for _v3_domain in (
     'ingest-pull',
     'ingest-push',
     'mcp',
+    'mcp-domain',
     'alerts',
     'reviews',
     'runbooks',

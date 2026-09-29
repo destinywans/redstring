@@ -1,6 +1,5 @@
-# WAN-122 main MCP server routes. WAN-117 executes this after the existing
-# v3-openapi-mcp.py fragment when mounting the domain in the V3 process.
-# This branch does not change the aggregate generator or generated contract.
+# WAN-122 main MCP server routes. The aggregate generator executes this after
+# v3-openapi-mcp.py so it can refine the existing discovery schema and routes.
 def mcp_nullable(schema):
     return {'anyOf':[schema,{'type':'null'}]}
 
@@ -106,7 +105,7 @@ P['/mcp-servers/{id}/discover']['post']['description'] = (
 v3_route('get','/mcp-servers',
     'List current authorized MCP environment bindings and sourced observations',
     response=ref('V3McpListDomain'),
-    desc='One item per explicitly bound environment, with current application or owner-team connectors.view authorization. A compatible immutable discovery supplies observed initialize version and capability counts; unsupported and undiscovered counts are null. Human review and enabled preferences are separate from untrusted declarations and do not grant Agent execution. V3 call metrics and current connection health have no producer and remain unknown. At most 2000 candidates and 1000 visible bindings; excess fails with 413. Frozen UI uses an ID-only row key and cannot distinguish duplicate registration IDs across environments. WAN-117 must mount this fragment and domain.')
+    desc='One item per explicitly bound environment, with current application or owner-team connectors.view authorization. A compatible immutable discovery supplies observed initialize version and capability counts; unsupported and undiscovered counts are null. Human review and enabled preferences are separate from untrusted declarations and do not grant Agent execution. V3 call metrics and current connection health have no producer and remain unknown. At most 2000 candidates and 1000 visible bindings; excess fails with 413. Frozen UI uses an ID-only row key and cannot distinguish duplicate registration IDs across environments.')
 P['/mcp-servers']['get']['responses']['413'] = {
     'description':'Candidate scan or visible binding limit exceeded',
     'content':{'application/json':{'schema':ref('Error')}}}

@@ -64,6 +64,14 @@ func TestMCPMainRoutesRealCatalogReviewAndToggleIsolated(t *testing.T) {
 	if err = st.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
+	var applied int
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM schema_migrations
+ WHERE name IN ('135_v3_mcp_capability_observations.sql','135_v3_upload_source_revoke.sql')`).Scan(&applied); err != nil {
+		t.Fatal(err)
+	}
+	if applied != 2 {
+		t.Fatalf("expected both distinct 135 migrations, got %d", applied)
+	}
 	if err = aiextensions.New(db, "").Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}

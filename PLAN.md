@@ -1,5 +1,7 @@
 # AIOps Canvas 实施计划
 
+**2026-09-29 MCP 领域主路由（CP-167）：** WAN-122 在正式 V3 入口接入同一次有界会话中的 `initialize` 与工具/资源/提示词发现，按当前环境绑定保存不可变未信任快照；主列表/详情及受版本约束的人类审核/工具开关四条路由按后端标准升 `implemented`。未知调用历史和当前健康保持 `null`，审核偏好不授予 Agent 执行权。隔离 PG17 `-race` 覆盖迁移、领域及正式入口 HTTP，主契约现 **88/166、78 mock**，OpenAPI **301 路径、359 操作、342 schema**；真实租户、现有库迁移与冻结前端仍未验。见 [CP-167](CHECKPOINT.md)。下一批接 WAN-120 指标问答来源。
+
 **2026-09-29 飞书 Docx 与本人上传知识来源（CP-166）：** WAN-123 服务端精确绑定的单篇飞书 Docx、本人同环境文本上传的探测、登记、手动读取、正文版本与撤销证据已接主程序；保留此前 Git Markdown、Confluence/Notion 和 Pull/变更视图接线。两条来源 POST 按六类受限来源的后端标准升 `implemented`，现 **84/166、82 mock**；主 GET 仍以 `complete_v3_dto=false` 返回部分证据，缺当前连接、持续同步、分块和索引来源。隔离 PG17 `-race`、迁移 135/136、OpenAPI/契约及页面差距见 [CP-166](CHECKPOINT.md)。OpenAPI **301 路径、359 操作、325 schema**；真实租户、现有库与前端未验。下一批按来源依赖接 WAN-122 MCP 领域。
 
 **2026-09-29 变更视图与人工审阅正式入口（CP-165）：** WAN-120 原生交付/GitOps/事故来源的单次运行 `GET /changes` 和辅助人工审阅 POST 已接主程序；运维声明 `complete_from` 必须覆盖 24 小时或 7 天整窗，事故只取精确告警来源，审阅/来源/授权在读取后复核。完整来源和人工审阅证据齐备时返回冻结 `ChangesView`；不足时明确 503。隔离 PG17 的领域、覆盖与正式入口 `-race` 定向证据见 [CP-165](CHECKPOINT.md)。主 GET 按后端标准升 `implemented`，现 **82/166、84 mock**，OpenAPI **300 路径、358 操作、323 schema**。运维须核实连续投递与历史保留，真实外部来源、现有库和冻结前端缺 `service_id/run_id` 仍待验。下一批接 WAN-123 Feishu/upload 来源。

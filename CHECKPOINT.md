@@ -1,5 +1,12 @@
 # AIOps Canvas 检查点
 
+## CP-166 · 2026-09-29 · WAN-123 飞书 Docx 与本人上传来源
+
+- 集成分支 `codex/wan-117-v3-integration` 从已推送 CP-165 `6ce14ef` 接续，仅选取 WAN-123 新领域提交 `97633d7772e516dfc6915964d52dcc2c795eb386`，合入为 `511fa35`；其父提交 `1f18b6c` 的 Confluence/Notion 前置能力此前已等价合入，不重复 cherry-pick。`cmd/aiops/v3.go` 一处文本冲突逐段保留已有 Pull、变更视图、Confluence/Notion，并加入飞书及上传注册；自动合并的其余来源文件保持完整。新增迁移 `135_v3_upload_source_revoke.sql` 与 `136_v3_feishu_upload_sources.sql`，隔离 HTTP 夹具明确断言两者均登记。
+- 飞书来源仅限服务端预绑的一篇 HTTPS Docx，Vault 凭据按实例/环境/连接器/固定 `open.feishu.cn` 绑定读取；两次元信息夹住有界纯文本读取并比较 `revision_id`，失败/漂移不留新正文证据。本人上传来源只接收同环境、同所有者的原始 UTF-8 文本文件，登记和同步复核文件身份/版本及当前授权；撤销原文件事务删除字节和关联私有正文，留不含正文的墓碑及审计。两者均不自动同步、分块或索引；读取成功仅是一次观察，不代表当前连接健康。
+- `POST /knowledge-sources/test` 和 `POST /knowledge-sources` 在 Web Markdown、绑定 GitLab Markdown、Confluence、Notion、单篇飞书 Docx、本人上传六类的明确窄请求范围内按后端真实处理、授权、响应和定向检查升 `implemented`；主契约 **84/166、82 mock**。泛化 Git 仓库、飞书 Wiki 目录和任意文件上传没有适配，返回受控不可用。`GET /knowledge-sources` 仍返回 `complete_v3_dto=false` 的部分登记/阅读证据，连接、持续同步、分块与索引未知，保持 `mock`。冻结创建页真实模式仅开放 Web/Git Markdown，飞书文案为 Wiki，其他类型没有完整应用/团队/上传选择交互，页面未验收。
+- 一次性隔离 pgvector PG17 的 `v3knowledgesources`、`v3sourceregistry`、`v3uploads` 与 `cmd/aiops` 受影响定向 `-race` 通过，涵盖探测→登记→手动同步→列表投影、飞书受限 HTTP/TLS 与 Vault 凭据、本人上传、跨范围拒绝及撤销；受影响 Go vet、契约/就绪矩阵及差异检查通过。OpenAPI **301 路径、359 操作、325 schema**。未迁移现有业务库、连接真实飞书/GitLab/Confluence/Notion/Vault、验证前端或浏览器；无 PR、合并或部署。下一步按依赖接 WAN-122 MCP 领域完整批次。
+
 ## CP-165 · 2026-09-29 · WAN-120 原生变更视图与人工审阅
 
 - 集成分支 `codex/wan-117-v3-integration` 从已推送 CP-164 `eb9a991` 接续。WAN-120 来源 `0cfcf877` 和 `86f6f45` 依次合入为 `1cbe8a6`、`0475d3c`；正式 `configureV3` 注册 GET `/changes` 与辅助 POST `/changes/{run_id}/review`，使用链式审计 `change.review.accepted` 作为人类审阅的持久生产者。无新增迁移；生成 OpenAPI **300 路径、358 操作、323 schema**。

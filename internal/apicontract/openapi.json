@@ -36658,7 +36658,7 @@
       "get": {
         "summary": "Read registered source and observed content evidence",
         "operationId": "get_knowledge_sources_registered_evidence",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary current-scope projection, not the full KnowledgeSource DTO. The configured registration is unverified; last_read is a completed observation. A public Web keyword_content requires a matching latest body/hash/revision. Git Markdown document_count and last_sync_at are reported only for a latest commit-pinned read whose immutable document set, hashes, scope and observations match; zero is reported only for an actual empty read. Git files have no connected vector index, so chunk_count and index_status remain null. Connection/sync health and error remain unknown; no body or credentials are returned. Current grants and source evidence are rechecked in a fresh final statement; changed state returns 409.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary current-scope projection, not the full KnowledgeSource DTO. The configured registration is unverified; last_read is a completed observation. A public Web keyword_content requires a matching latest body/hash/revision. Git Markdown, Confluence, Notion, Feishu and local-upload document_count and last_sync_at require matching latest private documents, hashes, source versions, scope and observations. Local-upload proof additionally requires the original owned file to remain present, unchanged and not revoked. Zero is reported only for an actual empty read. No connected vector index, connection or sync health is claimed. No body or credentials are returned. Current grants and source evidence are rechecked in a fresh final statement; changed state returns 409.",
         "responses": {
           "200": {
             "description": "Success",
@@ -36808,7 +36808,7 @@
       "get": {
         "summary": "Read registered knowledge sources and verified observation evidence",
         "operationId": "get_knowledge_sources",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Backend partial main-route projection of actual persisted registrations. It shares the current-scope and fresh final recheck of /knowledge-sources/registered-evidence. Completed public Web and Git Markdown reads give observed_at/count; Git Markdown document_count and last_sync_at require matching immutable commit/document/observation proof. Connection health, scheduled sync, vector chunks and index settings remain unknown. Other source types appear only if registered, with unverified evidence; no synthetic catalog cards are emitted. The page must render null as unknown or unindexed, never as zero or connected.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Backend partial main-route projection of actual persisted registrations. It shares the current-scope and fresh final recheck of /knowledge-sources/registered-evidence. Completed public Web, Git Markdown, Confluence, Notion, Feishu and local-upload reads can supply observed_at/count. Document count and last sync time require matching private document, version, scope and observation proof; local upload also requires the original owned file to remain available, unchanged and not revoked. Connection health, scheduled sync, vector chunks and index settings remain unknown. No synthetic catalog cards are emitted; null means unknown or unindexed, never zero or connected.",
         "responses": {
           "200": {
             "description": "Success",
@@ -36956,7 +36956,7 @@
       "post": {
         "summary": "Register one configured application-bound knowledge source",
         "operationId": "post_knowledge_sources",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment, explicit active application_id and current knowledge.manage for the application and optional matching owner team. Public Web accepts one credential-free HTTPS Markdown URL; git_markdown, Confluence and Notion require exact server-configured source, scope and vault://mount/path#field binding. Confluence binds one numeric space ID; Notion binds one page UUID. All families require manual schedule, heading/fixed setting and inherited ACL. Registration and audit commit together after current session/scope/grant checks; no read, sync or index starts. Unconfigured types/bindings return 501, malformed requests 422.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment, explicit active application_id and current knowledge.manage for the application and optional matching owner team. Public Web accepts one credential-free HTTPS Markdown URL; git_markdown, Confluence, Notion and Feishu require exact server-configured source, scope and vault://mount/path#field binding. Feishu binds one Docx ID. Local upload requires one owned same-environment text-file content URL and no Vault reference. Confluence binds one numeric space ID; Notion binds one page UUID. All families require manual schedule, heading/fixed setting and inherited ACL. Registration and audit commit together after current session/scope/grant checks; no read, sync or index starts. Unconfigured types/bindings return 501, malformed requests 422.",
         "responses": {
           "201": {
             "description": "Success",
@@ -37084,6 +37084,12 @@
                   },
                   {
                     "$ref": "#/components/schemas/V3NotionSourceCreateInput"
+                  },
+                  {
+                    "$ref": "#/components/schemas/V3FeishuSourceCreateInput"
+                  },
+                  {
+                    "$ref": "#/components/schemas/V3LocalUploadSourceCreateInput"
                   }
                 ]
               }
@@ -37232,7 +37238,7 @@
       "post": {
         "summary": "Register scoped source configuration without activating sync",
         "operationId": "post_knowledge_sources_registrations",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary operation. A single public HTTPS Markdown Web page may omit secret_ref. Git Markdown, Confluence and Notion require an exact server-owned source and Vault binding, one active application and optional owner team, manual schedule and inherited source access. Confluence requires exactly its configured numeric space ID; Notion requires no spaces and its configured page UUID. Registration does not prove connection or begin ingestion. Requires one environment and knowledge.manage; audit is transactional.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary operation. A single public HTTPS Markdown Web page may omit secret_ref. Git Markdown, Confluence, Notion and Feishu require an exact server-owned source and Vault binding. A local upload requires an exact owned same-environment text-file URL and empty secret_ref. All bound sources require one active application and optional owner team, manual schedule and inherited source access. Confluence requires its configured numeric space ID; Notion, Feishu and upload require empty spaces. Registration does not prove connection or begin ingestion. Requires one environment and knowledge.manage; audit is transactional.",
         "responses": {
           "201": {
             "description": "Success",
@@ -37355,7 +37361,7 @@
       "post": {
         "summary": "Observe one registered source through a configured read-only reader",
         "operationId": "post_knowledge_sources_registrations_id_sync",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary manual lineage operation requiring one environment and knowledge.manage for the saved application/team scope. Explicit AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true configures the single-page public Web reader. Server-configured Git Markdown, Confluence and Notion readers require an exact Vault binding; Git pins one commit, Confluence reads one space with bounded pages, and Notion reads one exact page UUID. Application/team liveness and saved binding identity are checked before network access and again under transaction before persistence. A complete read, observations, private bodies, source versions, binding snapshot and audit commit together; incomplete or failed reads do not persist. External responses include document_count and keyword_content_persisted; Git additionally includes commit_sha; public Web includes content_version. No vector chunk or index is claimed; absent reader returns 501. Legacy vault: references are rejected for new bound source registration.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary manual lineage operation requiring one environment and knowledge.manage for the saved application/team scope. Explicit AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true configures the single-page public Web reader. Server-configured Git Markdown, Confluence, Notion and Feishu readers require exact Vault bindings; Git pins one commit, Confluence reads one space, Notion one page UUID, and Feishu one Docx. Local upload reads one original owned text file without Vault. Application/team liveness and saved binding identity are checked before access and again under transaction before persistence; local upload also rechecks owner and file version under lock. A complete read, observations, private bodies, source versions, binding snapshot and audit commit together; incomplete or failed reads do not persist. External responses include document_count and keyword_content_persisted; Git additionally includes commit_sha; public Web includes content_version. No vector chunk or index is claimed; absent reader returns 501. Legacy vault: references are rejected for new bound source registration.",
         "responses": {
           "200": {
             "description": "Success",
@@ -37511,7 +37517,7 @@
       "get": {
         "summary": "Read observed source lineage and attributed index evidence",
         "operationId": "get_knowledge_sources_registrations_id_evidence",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read of current authorized registration. An absent read returns null evidence. Git Markdown includes commit_sha and document_count only when the latest read has matching private documents, hashes, scope and observations; Confluence/Notion analogously use external_source with source_type, document_count and content_persisted only after the same proof. Public Web keyword evidence and generic attributed ready documents/chunks never imply a complete source index. No source content is returned.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read of current authorized registration. An absent read returns null evidence. Git Markdown includes commit_sha and document_count only when the latest read has matching private documents, hashes, scope and observations; Confluence, Notion, Feishu and upload analogously use external_source with source_type, document_count and content_persisted only after proof. Upload evidence also requires the original owned file to remain present and unchanged. Public Web keyword evidence and generic attributed ready documents/chunks never imply a complete source index. No source content is returned.",
         "responses": {
           "200": {
             "description": "Success",
@@ -37664,7 +37670,7 @@
       "post": {
         "summary": "Test a knowledge source connection",
         "operationId": "post_knowledge_sources_test",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. With AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true, a credential-free public HTTPS Markdown Web URL receives one bounded read-only fetch after validation and environment-scoped knowledge.manage. Configured Git Markdown, Confluence and Notion probes require application_id and optional matching team_id; Confluence also requires its single numeric spaces ID. Current app/team knowledge.manage and active scope are checked before and after the credentialed read. A committed attempt audit precedes Vault/upstream access; a bounded outcome audit follows. Success proves only point-in-time readability. Nothing is registered, synchronized or indexed. Source kinds without a configured prober return 501 source_connection_test_unavailable; malformed URLs or missing required Vault references return 422. A configured failed read returns 503 source_connection_failed. A credentialed Web URL has no supported prober. Successful probe does not authorize a subsequent create or prove future availability.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. With AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true, a credential-free public HTTPS Markdown Web URL receives one bounded read-only fetch after validation and environment-scoped knowledge.manage. Configured Git Markdown, Confluence, Notion and Feishu probes require application_id and optional matching team_id; Confluence also requires its single numeric spaces ID. Local upload requires application_id, owner/same-environment file access, empty secret_ref and empty spaces. Current app/team knowledge.manage and active scope are checked before and after the read. A committed attempt audit precedes Vault/upstream or local-file access; a bounded outcome audit follows. Success proves only point-in-time readability. Nothing is registered, synchronized or indexed. Source kinds without a configured prober return 501 source_connection_test_unavailable; malformed URLs or missing required Vault references return 422. A configured failed read returns 503 source_connection_failed. A credentialed Web URL has no supported prober. Successful probe does not authorize a subsequent create or prove future availability.",
         "responses": {
           "200": {
             "description": "Success",
@@ -37831,6 +37837,125 @@
           }
         },
         "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/uploads/{id}/revoke": {
+      "post": {
+        "summary": "Revoke one owned uploaded file",
+        "operationId": "post_uploads_id_revoke",
+        "description": "Minimum role: viewer with scoped conversation.change. V3 instance and environment scope apply. Requires one explicit selected environment, the current conversation.change grant and ownership of the original file. Session and grant are rechecked in the deletion transaction. The original bytes and linked private knowledge-source body copies are deleted, with a content-free tombstone and audit committed atomically. Existing source registrations and historic read lineage remain, but revoked content no longer satisfies current document evidence. A missing or already revoked file returns 404.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{32}$"
+                    },
+                    "revoked": {
+                      "const": true
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "revoked"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current conversation change permission denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Owned file is missing or already revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "One explicit environment is required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Upload storage or authorization is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "uploads"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "X-AIOps-Environment",
             "in": "header",
@@ -57780,6 +57905,129 @@
           "type",
           "url",
           "secret_ref",
+          "application_id",
+          "schedule",
+          "chunk",
+          "inherit_acl"
+        ]
+      },
+      "V3FeishuSourceCreateInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "feishu"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "secret_ref": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "team_id": {
+            "type": "string"
+          },
+          "spaces": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 0
+          },
+          "schedule": {
+            "type": "string",
+            "enum": [
+              "manual"
+            ]
+          },
+          "chunk": {
+            "type": "string",
+            "enum": [
+              "heading",
+              "fixed"
+            ]
+          },
+          "inherit_acl": {
+            "const": true
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "type",
+          "url",
+          "secret_ref",
+          "application_id",
+          "schedule",
+          "chunk",
+          "inherit_acl"
+        ]
+      },
+      "V3LocalUploadSourceCreateInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "upload"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "pattern": "^/api/v1/uploads/[a-f0-9]{32}/content$"
+          },
+          "secret_ref": {
+            "const": ""
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "team_id": {
+            "type": "string"
+          },
+          "spaces": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 0
+          },
+          "schedule": {
+            "type": "string",
+            "enum": [
+              "manual"
+            ]
+          },
+          "chunk": {
+            "type": "string",
+            "enum": [
+              "heading",
+              "fixed"
+            ]
+          },
+          "inherit_acl": {
+            "const": true
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "type",
+          "url",
           "application_id",
           "schedule",
           "chunk",

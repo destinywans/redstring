@@ -65,6 +65,14 @@ func TestFeishuAndUploadMainCreateSyncProjectionHTTP(t *testing.T) {
 	if err = st.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
+	var applied int
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM schema_migrations
+ WHERE name IN ('135_v3_upload_source_revoke.sql','136_v3_feishu_upload_sources.sql')`).Scan(&applied); err != nil {
+		t.Fatal(err)
+	}
+	if applied != 2 {
+		t.Fatalf("expected both WAN-123 source migrations, got %d", applied)
+	}
 	if err = (&knowledge.PGRepository{DB: db}).Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}

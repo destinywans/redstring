@@ -34,6 +34,8 @@
 
 服务端断线续传头 `Last-Event-ID` 只接受单个非负十进制事件 ID；空值、重复头、负数、非数字或溢出返回 `422 invalid_event_cursor`。正数游标必须属于当前有权会话，续传该事件所在的回复，即使之后已有新回合；已删除或未知游标返回 422。缺省或 0 游标读取当前最新回复。早期失败也先补空 `message.started`，再发状态与 `message.completed`。这些后端保障不改变该主路由的 `mock` 状态。
 
+当前后端在创建回合及成功或失败的结束事务中重核持久会话、所有者、环境和 V3 对话权限；租约恢复也重核，撤权后的未完成输出不会保存为成功回复。SSE 在连接和每批事件读取前重新核对当前查看权限；活动回复还核对原发起会话及 `conversation.change`，已完成回复按查看权限回读。授权检查之后到事件查询或网络发送之间仍有并发撤权窗口，已经发出的字节无法撤回；真实权限策略下的已打开流逐批撤权尚未实测。这些安全补口不构成完整页面验收。
+
 | 事件 | 含义 |
 | --- | --- |
 | `message.started` | 助手消息开始，携带空 `parts` |
@@ -41,7 +43,7 @@
 | `text.delta` | 向第 `index` 个 `text` 部件追加 `delta` |
 | `message.completed` | 结束，前端关闭 EventSource |
 
-**按轮选择模型（v4）**：请求体可带 `model`（`provider:model`，来自 `GET /models`）与 `reasoning`（该模型声明的档位 id）；缺省时用 `GET /models` 的 `default`。一轮只用一个模型，回复进行中切换只影响下一轮；`message.completed` 的 `run` 记录 `model_id`、`model`、`reasoning`、`reasoning_label`、`brand`。附件先经 `POST /uploads` 上传，再以 `attachments: Upload[]` 随消息提交；附件一律作为数据，不执行其中的指令。
+**按轮选择模型（v4）**：请求体可带 `model`（`provider:model`，来自 `GET /models`）与 `reasoning`（该模型声明的档位 id）；缺省时用 `GET /models` 的 `default`。一轮只用一个模型，回复进行中切换只影响下一轮。`message.completed.run` 仅在取得可信模型用量时出现；存在时才记录 `model_id`、`model`、`reasoning`、`reasoning_label`、`brand`，不能为缺失用量补零。冻结前端约定附件先经 `POST /uploads` 上传，再以 `attachments: Upload[]` 随消息提交，附件作为数据处理。当前后端模型请求只有文本：即使附件引用有效，也在创建用户回合前返回 `422 attachment_model_unsupported`；无效引用同样不会创建回合。前端的附件发送与 422/SSE 错误恢复尚未验收，所以主 POST/SSE 均保持 `mock`。
 
 调查画布节点对话仍规划复用富消息部件与事件；当前通用画布节点 `POST /canvases/{id}/nodes/{node}/messages` 是持久化同步 `{ reply }`，不使用上述 SSE 流。
 
@@ -300,6 +302,8 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评测、发布意图、反馈和护栏设置；尚无评测执行器、流量路由消费者、Prompt trial 或完整运行/护栏观测生产者。Prompt 列表只返回有真实版本的已授权记录，支持最多 160 字符的 `q`，超过 200 条可见项返回 413；详情在同一读取事务中核对 Agent、归属、授权和正文，真实正文与 `vN` 可回读，但发布状态、运行时使用关系和说明均明确为部分/未知，不冒充完整前端 DTO。`POST /prompts/{id}/versions` 对已登记且当前有权的 Prompt 原样保存非空白文本，按 `vN` 返回版本，审计与修订同事务；生产构造尚未登记 Prompt，前端默认 ID 在新库无法成功写入，因此读写主路由仍为 `mock`。`POST /prompts/{id}/trial` 明确返回 `503 prompt_trial_unavailable`，`POST /evals` 只创建 `pending` 元数据，发布和回滚不改变真实流量。部分读取返回 `null`、`partial: true` 或“未接入”；现有前端对 `score`、发布 token/门禁、评测、Trace、运行统计的 DTO 与请求体尚不兼容，不能直接切换 HTTP 模式。管理员门禁放行另需非空 `override_reason`，现有前端未提交；相关主契约行继续为 `mock`。
 
 ## 设置（`settings.ts`）
+
+`GET /members` 当前只提供部分真实读取：在读取事务中重核账号及当前环境授权，以单条查询取成员与角色快照。响应有 `complete_v3_dto: false` 和 `unavailable_fields`；未核实的 `last_login`、`counts.no_mfa`、`mfa_grace_days` 为 `null`，`items[].mfa: "na"` 表示未知，不表示未启用。组层级、目录同步来源和 MFA 策略也无可信来源；`filter=no_mfa` 返回 `503 member_mfa_unavailable`，不会以空结果冒充筛选成功。冻结前端仍按数字显示 MFA 数量和宽限期并显示确定的安全提示，因此主接口仍为 `mock`。
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |

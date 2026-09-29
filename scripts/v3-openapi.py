@@ -229,10 +229,10 @@ v3_route('post','/conversations/{id}/messages','Start a durable assistant reply'
     body=obj({'text':string(),'model':string(),'reasoning':string(),
         'attachments':arr({'type':'object','additionalProperties':True})},['text']),
     response=obj({'message':ref('V3Message'),'reply_id':string()},['message','reply_id']),status=202,
-    desc='A second concurrent reply is rejected with 409. The user message is durable before 202.')
+    desc='A second concurrent reply is rejected with 409. The user message is durable before 202. Current model requests contain text only: any valid attachment reference returns 422 attachment_model_unsupported before a turn is created; invalid references also fail before persistence. Start and terminal writes recheck the persisted owner, environment, initiating session and current V3 conversation authorization in their transactions. A revoked terminal turn drops partial output rather than saving it. Provider usage in message.completed.run is optional and must not be inferred when unavailable.')
 v3_route('get','/conversations/{id}/events','Resume ordered assistant events',
     query=[{'name':'Last-Event-ID','in':'header','schema':string(pattern='^[0-9]+$')}],
-    desc='SSE sequence IDs support reconnection. Last-Event-ID must be one nonnegative decimal event ID; invalid or duplicate values return 422 invalid_event_cursor. A positive cursor must belong to this authorized conversation and replays its original reply even after a newer turn starts; an unknown or deleted cursor returns 422. An omitted or zero cursor selects the latest reply. Early failure emits an empty message.started before status and terminal events. message.completed follows durable persistence.')
+    desc='SSE sequence IDs support reconnection. Last-Event-ID must be one nonnegative decimal event ID; invalid or duplicate values return 422 invalid_event_cursor. A positive cursor must belong to this currently authorized conversation and replays its original reply even after a newer turn starts; an unknown or deleted cursor returns 422. An omitted or zero cursor selects the latest reply. Connection and each event batch recheck current conversation view; queued/running replies also recheck the persisted initiating session and conversation change before replay, while completed/failed history requires view only. Revocation between a batch check and network delivery can still expose that selected batch. Recovery rechecks the initiating session and current V3 authorization before retaining partial output. Early failure emits an empty message.started before status and terminal events. message.completed follows durable persistence; its run is optional when trustworthy provider usage is unavailable.')
 
 # General canvases are persisted separately from investigation branches. The
 # current list projects both, but legacy investigation routes and participant
@@ -1259,13 +1259,20 @@ S['V3Role'] = obj({**fieldnames('id name kind'),'members':integer()},['id','name
 S['V3RoleDetail'] = obj({**S['V3Role']['properties'],**fieldnames('desc notes'),
     'member_names':arr(string()),'scope':arr(string()),'actions':arr(string()),
     'matrix':arr(obj({'resource':string(),'grants':arr(integer(enum=[0,1,2]))}))})
-S['V3Member'] = obj({**fieldnames('id name email department phone last_login'),
+S['V3Member'] = obj({**fieldnames('id name email department phone'),
+    'last_login':{'type':['string','null'],'description':'Null: no verified successful-login timestamp source is connected.'},
     'roles':arr(string()),'mfa':string(enum=['passkey','totp','none','na']),
     'source':string(enum=['feishu','ldap','system','invite']),
     'status':string(enum=['active','disabled']),'agent':v3_bool()})
 S['V3MembersView'] = obj({'org':arr(obj({**fieldnames('id name kind'),'count':integer(),'depth':integer()})),
     'groups':arr(obj({**fieldnames('id name kind'),'count':integer(),'depth':integer()})),
-    'items':arr(ref('V3Member')),'counts':v3_map(integer()),'mfa_grace_days':integer()})
+    'items':arr(ref('V3Member')),
+    'counts':obj({'all':integer(),'admin':integer(),
+        'no_mfa':{'type':['integer','null'],'description':'Null: MFA enrollment is not verified.'},
+        'disabled':integer()},['all','admin','no_mfa','disabled']),
+    'mfa_grace_days':{'type':['integer','null'],'description':'Null: no verified MFA policy source is connected.'},
+    'complete_v3_dto':v3_bool(),'unavailable_fields':arr(string())},
+    ['org','groups','items','counts','mfa_grace_days','complete_v3_dto','unavailable_fields'])
 v3_route('get','/roles','List scoped roles',response=listed('V3Role'),
     desc='Members and role grants are limited to the selected authorized environments. Only a reader with global roles.view and global environment.view can inventory unassigned historical roles and accounts.')
 v3_route('get','/roles/{id}','Read role matrix and associations',response=ref('V3RoleDetail'),
@@ -1275,7 +1282,8 @@ v3_route('put','/roles/{id}','Update role matrix',
     response=obj({'ok':v3_bool()},['ok']),
     desc='Requires an active account with global roles.manage and global environment.view, rechecked inside the write transaction. Success returns only {ok:true}; a manager is not automatically authorized to read role detail after the write. Unrepresentable or scoped grants return 409 rather than being silently overwritten. Rejects removal of the last eligible global human role manager.')
 v3_route('get','/members','List scoped members',response=ref('V3MembersView'),
-    query=[v3_query('filter'),v3_query('q')])
+    query=[v3_query('filter'),v3_query('q')],
+    desc='Rechecks the current account and selected-environment grants in a read transaction, then derives the visible members and roles from one database statement. This is a partial DTO (complete_v3_dto=false): groups, full organization hierarchy, MFA enrollment, successful last login, MFA grace policy and directory synchronization source are not verified. Member mfa=na means unknown, not unenrolled; last_login, counts.no_mfa and mfa_grace_days are null. filter=no_mfa returns 503 member_mfa_unavailable rather than a misleading list.')
 
 # Scoped audit uses the existing management_audit source. The hash chain is
 # sealed from migration time; pre-migration history is not independently proven.

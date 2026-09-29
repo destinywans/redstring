@@ -12,7 +12,86 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/wans/aiops-canvas/internal/store"
 )
+
+func TestSSEActiveReplayRequiresInitiatingSessionAndChangeGrant(t *testing.T) {
+	db := isolatedConversationDB(t)
+	ctx := context.Background()
+	_, err := db.Exec(ctx, `ALTER TABLE v3_conversations ADD COLUMN default_model_id text NOT NULL DEFAULT '';
+		ALTER TABLE v3_conversation_replies ADD COLUMN user_message_id text NOT NULL DEFAULT 'u'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(ctx, `
+		INSERT INTO v3_conversation_events(conversation_id,reply_id,payload) VALUES
+			('c','r','{"type":"message.started","message":{"id":"a"}}'),
+			('c','r','{"type":"text.delta","message_id":"a","delta":"prior model output"}')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,expires_at)
+		VALUES($1,'persisted-owner',now()+interval '1 hour')`, store.Hash("viewer-session")); err != nil {
+		t.Fatal(err)
+	}
+	var cursor int64
+	if err := db.QueryRow(ctx, `SELECT seq FROM v3_conversation_events WHERE reply_id='r' AND payload->>'type'='message.started'`).Scan(&cursor); err != nil {
+		t.Fatal(err)
+	}
+	changeAllowed := true
+	svc := New(db, nil, Options{
+		CurrentUser: func(*http.Request) core.User { return core.User{ID: "persisted-owner"} },
+		RefreshSession: func(_ context.Context, token string) (core.User, error) {
+			if token == "viewer-session" {
+				return core.User{ID: "persisted-owner"}, nil
+			}
+			return core.User{}, ErrForbidden
+		},
+		AllowedEnvironments: func(context.Context, core.User) ([]string, error) {
+			return []string{"test"}, nil // conversation.view remains granted
+		},
+		AuthorizeBackgroundTurn: func(context.Context, string, string) error {
+			if changeAllowed {
+				return nil
+			}
+			return ErrForbidden
+		},
+	})
+	open := func() *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/conversations/c/events", nil)
+		req.SetPathValue("id", "c")
+		req.AddCookie(&http.Cookie{Name: "aiops_session", Value: "viewer-session"})
+		req.Header.Set("Last-Event-ID", strconv.FormatInt(cursor, 10))
+		w := httptest.NewRecorder()
+		svc.events(w, req)
+		return w
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM sessions WHERE token_hash=$1`, store.Hash("test-session")); err != nil {
+		t.Fatal(err)
+	}
+	if got := open(); got.Code != http.StatusForbidden || strings.Contains(got.Body.String(), "prior model output") {
+		t.Fatalf("revoked initiating session replayed active delta: %d %s", got.Code, got.Body.String())
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,'persisted-owner',now()+interval '1 hour')`, store.Hash("test-session")); err != nil {
+		t.Fatal(err)
+	}
+	changeAllowed = false
+	if got := open(); got.Code != http.StatusForbidden || strings.Contains(got.Body.String(), "prior model output") {
+		t.Fatalf("revoked change grant replayed active delta: %d %s", got.Code, got.Body.String())
+	}
+	if _, err := db.Exec(ctx, `UPDATE v3_conversation_replies SET state='completed' WHERE id='r';
+		INSERT INTO v3_conversation_events(conversation_id,reply_id,payload)
+		VALUES('c','r','{"type":"message.completed","message_id":"a"}')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM sessions WHERE token_hash=$1`, store.Hash("test-session")); err != nil {
+		t.Fatal(err)
+	}
+	if got := open(); got.Code != http.StatusOK || !strings.Contains(got.Body.String(), "prior model output") {
+		t.Fatalf("completed reply should remain viewable: %d %s", got.Code, got.Body.String())
+	}
+}
 
 func TestSSECursorStaysWithOriginalReplyAfterNewTurn(t *testing.T) {
 	db := isolatedConversationDB(t)

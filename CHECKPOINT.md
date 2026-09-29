@@ -1,5 +1,13 @@
 # AIOps Canvas 检查点
 
+## CP-137 · 2026-09-29 · WAN-119 成员部分证据与 WAN-121 对话撤权重放
+
+- WAN-119 源提交 `0794e476a93af04ac8a659310fa352ec6cfea88e`（父提交 `86024e2` 的 `internal/v3admin` 内容已由集成 `bdb3984` 覆盖）合入为 `a115b56`。`GET /members` 在读取事务中锁定已知角色/账号写源并复核账号及选中环境授权，成员与可见角色由单条 SQL 快照取得。没有 MFA 因子、成功登录时间、完整组/组织层级和策略来源：`last_login`、`counts.no_mfa`、`mfa_grace_days` 明确为 JSON `null`，`mfa=na` 为未知，`complete_v3_dto=false` 与 `unavailable_fields` 列明缺口；`filter=no_mfa` 返回 `503 member_mfa_unavailable`。独立审查未见本切片阻断问题，但其他应用/团队写路径未统一使用这些锁，不能声称所有授权变更完全串行化；大目录下锁等待延迟未量测。
+- WAN-121 源提交 `23814348cec45f87916fd651a9e2d31797e31884` 合入为 `0166faa`。回合创建、成功或失败结束、租约恢复均从持久记录复核原会话、所有者、环境及当前 V3 权限；结束时撤权不保留部分模型输出。当前模型请求仅包含文本：有效附件也在建回合前返回 `422 attachment_model_unsupported`，无效引用同样不建回合。集成补 `authorizeReplay`：活动回复在 SSE 返回 200 和每批事件读取前，除当前查看权限外，还要求原发起会话有效及 `conversation.change` 仍获准；已完成/失败历史只按当前查看权限回读。独立复核认为可本地合入，但授权查询到事件选择/网络发送之间仍有并发撤权窗口，已发字节无法撤回；新增 SSE 测试使用权限回调替身，只覆盖重连前撤权和已完成回读，未实测已打开流第二批撤权或真实策略。全局授权表 `SHARE` 锁可能使高并发角色写入等待，尚无代表负载延迟证据。
+- 公共契约和生成 OpenAPI 已如实标明成员部分 DTO、未知值、`no_mfa` 503、附件 422、可选 `message.completed.run` 及 SSE 撤权边界。冻结前端仍把未知 MFA 数量/宽限期当数字并显示确定安全提示；消息 POST 的 422 无错误收尾会停在 sending，SSE 错误恢复亦未验收。`GET /members`、`POST /conversations/{id}/messages` 和 `GET /conversations/{id}/events` 均保持 `mock`，主契约仍 **34/166 `implemented`**，没有修改前端、新迁移或现有业务库。
+- 一次性 `pgvector/pgvector:0.8.6-pg17` 专用数据库中 `go test -p 1 ./internal/v3admin ./internal/v3conversation -count=1 -timeout=240s` 两包全通过，容器已清理；`go vet` 两包与 `cmd/aiops`、315 条 OpenAPI 注册操作/225 schema 引用、165 行主契约、路由矩阵及差异检查通过。初次成员包检查因三个旧随机 schema 测试夹具未包含 `public` 中的 `pgcrypto.digest` 失败，仅修夹具 `search_path=schema,public` 后通过；对话正式迁移夹具同样补 `public`。没有真实付费模型、双实例、浏览器或产品页面验收。
+- 本地分支 `codex/wan-117-v3-integration` 已合入并保留提交；向既有私有 `git@github.com:destinywans/aiops-canvas.git` 同名分支的推送此前两次被自动审批拒绝，理由是缺少对此目标发布后端源码的明确授权。本轮未重试、代推或绕过；远端仍为 `69897cc`，无 PR、合并或部署。下一步须先闭合真实 MFA/登录与组织来源、模型附件与前端错误恢复、真实权限策略下的逐批 SSE 及代表规模锁延迟，方可评估这些主路由的完成状态。
+
 ## CP-136 · 2026-09-29 · WAN-120 保存拒绝与 WAN-124 配置提升往返
 
 - WAN-120 来源分支 `codex/wan-120-v3-mapping-save-boundary` 的 `4ef3008aa823202ce273ba6758205f1bed702762`（来源会话核对同名远端 SHA）合入本地集成为 `6413420`。`PUT /service-mappings` 已登记，但没有标记为 V3 可用路由：V3 门禁对无请求体和只有展示格的请求返回 `501 v3_not_implemented`，回退处理器也只返回 501，不改绑定或写成功审计。冻结前端确实调用 `save.mutate(undefined)`；GET 格子缺服务、环境、连接器、目标稳定 ID 与绑定修订，不能构造安全的完整保存。独立只读审查未见合入阻断。OpenAPI 增加该已登记 501 操作，不声明可接受请求体或成功结果；主 PUT 保持 `mock`。

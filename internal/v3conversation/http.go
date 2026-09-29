@@ -447,6 +447,10 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 		operationError(w, err)
 		return
 	}
+	if err = s.authorizeReplay(r.Context(), id, reply, u.ID, actual); err != nil {
+		operationError(w, err)
+		return
+	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		apiError(w, 503, "stream_unavailable", "Streaming unavailable")
@@ -475,6 +479,9 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, authErr = s.allowed(r.Context(), current, actual); authErr != nil {
+			return
+		}
+		if authErr = s.authorizeReplay(r.Context(), id, reply, current.ID, actual); authErr != nil {
 			return
 		}
 		rows, err := s.db.Query(r.Context(), `SELECT seq,payload FROM v3_conversation_events WHERE reply_id=$1 AND seq>$2 ORDER BY seq`, reply, cursor)
@@ -540,6 +547,40 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// authorizeReplay keeps an active model reply bound to the session and change
+// permission that started it. Completed replies are immutable history and need
+// only the caller's conversation view permission, checked by events itself.
+func (s *Service) authorizeReplay(ctx context.Context, conv, reply, owner, env string) error {
+	var state, sessionHash string
+	err := s.db.QueryRow(ctx, `SELECT state,initiating_session_hash FROM v3_conversation_replies
+		WHERE id=$1 AND conversation_id=$2`, reply, conv).Scan(&state, &sessionHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if state == "completed" || state == "failed" {
+		return nil
+	}
+	if state != "queued" && state != "running" {
+		return ErrForbidden
+	}
+	if sessionHash == "" {
+		return ErrForbidden
+	}
+	var active bool
+	err = s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM sessions
+		WHERE token_hash=$1 AND user_id=$2 AND expires_at>clock_timestamp())`, sessionHash, owner).Scan(&active)
+	if err != nil {
+		return err
+	}
+	if !active {
+		return ErrForbidden
+	}
+	return s.authorizeBackgroundTurn(ctx, owner, env)
 }
 
 func lastEventCursor(values []string) (int64, bool) {

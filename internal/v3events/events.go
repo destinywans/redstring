@@ -138,19 +138,6 @@ type incidentSummary struct {
 	Commander string `json:"commander"`
 }
 
-type inboxItem struct {
-	ID      string `json:"id"`
-	Kind    string `json:"kind"`
-	Tone    string `json:"tone"`
-	Title   string `json:"title"`
-	Sub     string `json:"sub"`
-	Time    string `json:"time"`
-	Unread  bool   `json:"unread"`
-	Day     string `json:"day"`
-	Href    string `json:"href"`
-	AlertID string `json:"alert_id,omitempty"`
-}
-
 type label struct {
 	K string `json:"k"`
 	V string `json:"v"`
@@ -230,53 +217,6 @@ func inboxTone(severityCode string) string {
 	default:
 		return "neutral"
 	}
-}
-
-func (s *Service) Inbox(w http.ResponseWriter, r *http.Request) {
-	filter, valid := inboxFilter(r.URL.Query())
-	if !valid {
-		httpapi.Error(w, 422, "invalid_filter", "Unknown or conflicting inbox filter")
-		return
-	}
-	values, err := s.listVisible(r)
-	if err != nil {
-		respondErr(w, err)
-		return
-	}
-	loc := s.Location
-	if loc == nil {
-		loc = time.Local
-	}
-	now := time.Now().In(loc)
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
-	yesterday := today.AddDate(0, 0, -1)
-	items := make([]inboxItem, 0)
-	counts := map[string]int{"all": 0, "mine": 0, "mentions": 0, "subscribed": 0}
-	for _, v := range values {
-		at := v.UpdatedAt.In(loc)
-		if at.Before(yesterday) {
-			continue
-		}
-		counts["all"]++
-		mine := v.AssigneeID != "" && v.AssigneeID == httpapi.CurrentUser(r).ID
-		if mine {
-			counts["mine"]++
-		}
-		if filter == "mine" && !mine || filter == "mentions" || filter == "subscribed" {
-			continue
-		}
-		day := "today"
-		if at.Before(today) {
-			day = "yesterday"
-		}
-		sub := v.Summary
-		if sub == "" {
-			sub = "告警来源：" + v.ApplicationID
-		}
-		item := inboxItem{ID: "alert:" + v.ID, Kind: "alert", Tone: inboxTone(severity(v.Severity)), Title: v.Title, Sub: sub, Time: at.Format("15:04"), Unread: false, Day: day, Href: "/inbox?item=alert:" + v.ID, AlertID: v.ID}
-		items = append(items, item)
-	}
-	httpapi.WriteJSON(w, 200, map[string]any{"items": items, "counts": counts})
 }
 
 func severity(raw string) string {
@@ -415,22 +355,6 @@ func incidentList(values []incidentRecord, filter string, now time.Time) ([]inci
 		items = append(items, summarize(v, now))
 	}
 	return items, counts
-}
-
-// Incident deliberately does not synthesize required SLO/error-budget numbers.
-// The incident identity and timeline can be read, but V3 Incident currently
-// requires numeric impact fields that ops_incidents never captured.
-func (s *Service) Incident(w http.ResponseWriter, r *http.Request) {
-	v, err := s.incident(r.Context(), r.PathValue("id"))
-	if err != nil {
-		respondErr(w, err)
-		return
-	}
-	if err = s.scoped(r, v.ApplicationID, v.EnvironmentKey, "view"); err != nil {
-		respondErr(w, err)
-		return
-	}
-	httpapi.Error(w, 503, "impact_unavailable", "Incident impact data is not connected; no SLO numbers will be invented")
 }
 
 type timelineEntry struct {

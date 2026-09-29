@@ -1,19 +1,30 @@
 # Alerts and incidents: document the real partial responses explicitly, while
 # completion status remains tracked separately in the human contract.
 S['V3InboxItem'] = obj({**fieldnames('id title sub time href alert_id'),
-    'kind':string(enum=['alert','approval','mention','runbook','report','access','agent']),
-    'tone':string(enum=['neutral','accent','ok','warn','danger','info']),
-    'unread':v3_bool(),'day':string(enum=['today','yesterday'])})
+    'kind':string(enum=['alert']),
+    'tone':string(enum=['neutral','warn','danger']),
+    'unread':{'type':'null'},'day':string(enum=['today','yesterday'])},
+    ['id','kind','tone','title','sub','time','unread','day','href','alert_id'])
+S['V3InboxPartial'] = obj({'items':arr(ref('V3InboxItem')),
+    'counts':obj({'all':integer(minimum=0),'mine':integer(minimum=0),
+        'mentions':{'type':'null'},'subscribed':{'type':'null'}},
+        ['all','mine','mentions','subscribed']),
+    'partial':v3_bool(),'window':string(enum=['today_and_yesterday']),
+    'timezone':string(),'as_of':string(format='date-time'),
+    'all_scope':string(enum=['persisted_alert_incident_updates']),
+    'mine_scope':string(enum=['assigned_alert_incidents']),
+    'unavailable':arr(string())},
+    ['items','counts','partial','window','timezone','as_of','all_scope','mine_scope','unavailable'])
 S['V3IncidentSummary'] = obj({**fieldnames('id title duration commander'),
     'severity':string(enum=['P1','P2','P3','P4']),
     'status':string(enum=['active','mitigated','resolved'])},
     ['id','severity','title','status','duration','commander'])
 S['V3IncidentTimelineEntry'] = obj({'time':string(format='date-time'),
     'actor':obj({'kind':string(enum=['brand','ai','person']),'name':string()},['kind','name']),
-    'text':string(),'sub':string()},['time','actor','text'])
-v3_route('get','/inbox','Read scoped inbox',response=obj({'items':arr(ref('V3InboxItem')),
-    'counts':v3_map(integer())}),query=[v3_query('filter',string(enum=['all','mine','mentions','subscribed'])),v3_query('tab')],
-    desc='Currently includes recent incident-backed alerts; other inbox kinds are not yet connected. tab remains an alias for filter.')
+    'text':string()},['time','actor','text'])
+v3_route('get','/inbox','Read persisted alert portion of scoped inbox',response=ref('V3InboxPartial'),
+    query=[v3_query('filter',string(enum=['all','mine','mentions','subscribed'])),v3_query('tab')],
+    desc='Returns currently authorized non-suspected persisted alert incidents updated during today or yesterday in the configured server timezone; AI patrol suspected incidents are outside this alert-only projection. All and mine count only this bounded portion; mine means assignee_id equals the current user. A transaction holds incident, current app/environment/team/session and V3 grant locks through the response snapshot. The system has no durable read receipt, mention membership or subscription ledger: unread and those counts are null, while mentions/subscribed filters return 503 rather than a fabricated empty result. Other inbox event types and older incidents are unavailable. More than 5000 selected recent incident rows returns 503 instead of incomplete totals. Frozen frontend assumes unread is boolean, uses a Mock selected ID and marks read only in component state, so page acceptance remains pending.')
 S['V3AlertNotification'] = obj({
     'id':string(),'channel':string(),
     'status':string(enum=['pending','sending','retrying','failed','sent']),
@@ -102,9 +113,40 @@ v3_route('get','/incidents','List scoped incidents',response=obj({'items':arr(re
         ['active','resolved','all'])}, ['items','counts']),
     query=[v3_query('status',string(enum=['active','resolved','all'],default='active'))],
     desc='Counts cover all visible incidents regardless of the selected status. A mitigated incident remains active until work is resolved. Duplicate, empty, or unknown status values return 422.')
-v3_route('get','/incidents/{id}','Read incident detail when impact is available',
-    desc='Currently always returns 503 impact_unavailable after identity and scope checks; required SLO impact data is not connected.')
-P['/incidents/{id}']['get']['responses'].pop('200')
+S['V3IncidentDetailAssignee'] = obj({'id':string(),'name':string()},['id','name'])
+S['V3IncidentDetailNote'] = obj({'id':string(),'time':string(format='date-time'),
+    'actor':obj({'kind':string(enum=['human','machine']),'id':string(),'name':string()},
+        ['kind','id','name']),
+    'text':string()},['id','time','actor','text'])
+S['V3IncidentDetailImpact'] = obj({
+    'peak':{'type':'null'},'budget_used':{'type':'null'},'budget_left':{'type':'null'},
+    'note':{'type':'null'},'series':{'type':'null'}},
+    ['peak','budget_used','budget_left','note','series'])
+S['V3IncidentDetailRole'] = obj({'role':string(enum=['assignee']),'name':string()},['role','name'])
+S['V3IncidentDetailLink'] = obj({'kind':string(),'label':string(),'href':string()},['kind','label','href'])
+S['V3IncidentDetail'] = obj({
+    **fieldnames('id application_id environment_id environment_key source_id title summary assignee_id investigation_id'),
+    'severity':string(enum=['P1','P2','P3','P4']),
+    'status':string(enum=['active','mitigated','resolved']),
+    'work_status':string(enum=['open','investigating','resolved']),
+    'alert_status':string(enum=['firing','pending','resolved']),
+    'alert_started_at':string(format='date-time'),'updated_at':string(format='date-time'),
+    'resolved_at':{'type':['string','null'],'format':'date-time'},
+    'duration':{'type':'null'},'duration_basis':{'type':'null'},
+    'assignee':{'oneOf':[ref('V3IncidentDetailAssignee'),{'type':'null'}]},
+    'commander':{'type':'null'},'stage':{'type':'null'},
+    'timeline':{'type':'array','maxItems':500,'items':ref('V3IncidentDetailNote')},
+    'timeline_scope':string(enum=['manual_only']),
+    'impact':ref('V3IncidentDetailImpact'),
+    'roles':arr(ref('V3IncidentDetailRole')),'links':arr(ref('V3IncidentDetailLink')),
+    'partial':v3_bool(),'unavailable':arr(string())},
+    ['id','application_id','environment_id','environment_key','source_id','severity','title','status',
+     'work_status','alert_status','summary','alert_started_at','updated_at','resolved_at','duration',
+     'duration_basis','assignee_id','assignee','commander','stage','timeline','timeline_scope',
+     'impact','roles','links','investigation_id','partial','unavailable'])
+v3_route('get','/incidents/{id}','Read persisted incident facts and manual notes',
+    response=ref('V3IncidentDetail'),
+    desc='Resolves a persisted incident ID under current V3 environment, application, owner-team, session and events.view authorization in one transaction. Returns the recorded work/alert status, strict severity, summary, assigned user when present, and up to 500 explicitly appended v3_incident_timeline notes; actor kind and current name come from the users row. Investigation linkage and close time are accepted only when the referenced investigation belongs to the same application/environment. The alert start is reported separately; incident duration has no established lifecycle start and remains null. Commander, five-step stage, SLO peak/error-budget/series, system/AI timeline, and proposal/change links are unknown and explicitly listed in unavailable. More than 500 notes or inconsistent persisted references fail closed. The frozen page still assumes non-null duration, stage and impact and expects other actor kinds, so page acceptance is pending.')
 v3_route('post','/incidents/{id}/timeline','Append a durable incident note',
     role='operator',body=obj({'text':string()},['text']),response=ref('V3IncidentTimelineEntry'),status=201)
 v3_route('get','/incidents/{id}/timeline/manual','Read persisted human incident notes',

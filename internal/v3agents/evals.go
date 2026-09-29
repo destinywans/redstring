@@ -253,21 +253,24 @@ func (s *Service) CreateEval(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, 201, map[string]any{"id": id, "status": "pending", "execution_available": false})
 }
 
-type caseRecord struct{ ID, AgentID, Title, ExpectedRef string }
-
-func (s *Service) loadCase(ctx context.Context, id string) (caseRecord, error) {
-	var c caseRecord
-	err := s.DB.QueryRow(ctx, `SELECT id,agent_id,title,expected_ref FROM v3_agent_eval_cases WHERE id=$1`, id).
-		Scan(&c.ID, &c.AgentID, &c.Title, &c.ExpectedRef)
-	return c, err
-}
+type caseRecord struct{ ID, AgentID, Title, ExpectedRef, OriginApp, OriginEnv string }
 
 func (s *Service) EvalCase(w http.ResponseWriter, r *http.Request) {
 	if s == nil || s.DB == nil || s.Access == nil {
 		unavailable(w)
 		return
 	}
-	c, err := s.loadCase(r.Context(), r.PathValue("id"))
+	envs, ok := requestScope(w, r, false)
+	if !ok {
+		return
+	}
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	c, err := loadCaseTx(r.Context(), tx, r.PathValue("id"), "FOR SHARE")
 	if errors.Is(err, pgx.ErrNoRows) {
 		notFound(w)
 		return
@@ -276,35 +279,118 @@ func (s *Service) EvalCase(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
-	_, ok := s.objectAgent(w, r, c.AgentID, "view")
-	if !ok {
+	a, err := lockEvalAgent(r.Context(), tx, c.AgentID)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !contains(envs, a.Env)) {
+		notFound(w)
 		return
 	}
-	rows, err := s.DB.Query(r.Context(), `SELECT label,note,actor_id,created_at FROM v3_agent_eval_labels
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	if c.OriginApp != a.App || c.OriginEnv != a.Env {
+		notFound(w)
+		return
+	}
+	if err = lockActiveEvalScope(r.Context(), tx, a); errors.Is(err, pgx.ErrNoRows) {
+		notFound(w)
+		return
+	} else if err != nil {
+		unavailable(w)
+		return
+	}
+	view, snapshotID, snapshotHash, err := loadEvalCaseSnapshot(r.Context(), tx, c)
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil {
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		return
+	}
+	if err = store.LockActiveSession(r.Context(), tx, cookie.Value, httpapi.CurrentUser(r).ID); errors.Is(err, store.ErrSessionRevoked) {
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		return
+	} else if err != nil {
+		unavailable(w)
+		return
+	}
+	if err = lockEvalGrantSources(r.Context(), tx, httpapi.CurrentUser(r).ID); errors.Is(err, store.ErrForbidden) {
+		notFound(w)
+		return
+	} else if err != nil {
+		unavailable(w)
+		return
+	}
+	err = s.Access.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), rbac.V3Decision{
+		Module: "agents", Action: "view", EnvironmentID: a.Env, ApplicationID: a.App})
+	if errors.Is(err, store.ErrForbidden) {
+		notFound(w)
+		return
+	}
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	rows, err := tx.Query(r.Context(), `SELECT label,note,actor_id,created_at,COALESCE(snapshot_id,'') FROM v3_agent_eval_labels
  WHERE case_id=$1 ORDER BY created_at DESC,id DESC LIMIT 50`, c.ID)
 	if err != nil {
 		unavailable(w)
 		return
 	}
-	defer rows.Close()
 	labels := make([]any, 0)
 	for rows.Next() {
-		var label, note, actor string
+		var label, note, actor, labelSnapshotID string
 		var at time.Time
-		if err = rows.Scan(&label, &note, &actor, &at); err != nil {
+		if err = rows.Scan(&label, &note, &actor, &at, &labelSnapshotID); err != nil {
+			rows.Close()
 			unavailable(w)
 			return
 		}
-		labels = append(labels, map[string]any{"label": label, "note": note, "actor": actor, "time": timeString(at)})
+		labels = append(labels, map[string]any{"label": label, "note": note, "actor": actor,
+			"time": timeString(at), "snapshot_id": labelSnapshotID})
 	}
-	if rows.Err() != nil {
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
 		unavailable(w)
 		return
 	}
-	httpapi.WriteJSON(w, 200, map[string]any{"id": c.ID, "title": c.Title, "queue": unknown,
-		"expected_ref": c.ExpectedRef, "labels": labels, "alert": nil, "evidence": nil, "expected": nil,
-		"output": nil, "baseline": nil, "auto": nil,
-		"missing": []string{"case_input", "model_output", "automated_score"}, "partial": true})
+	if err = tx.Commit(r.Context()); err != nil {
+		unavailable(w)
+		return
+	}
+	response := map[string]any{"id": c.ID, "title": c.Title,
+		"expected_ref": c.ExpectedRef, "labels": labels,
+		"snapshot_id": snapshotID, "snapshot_sha256": snapshotHash,
+		"complete_v3_dto": view != nil, "partial": view == nil}
+	if view == nil {
+		response["queue"] = unknown
+		response["alert"] = nil
+		response["evidence"] = nil
+		response["expected"] = nil
+		response["output"] = nil
+		response["baseline"] = nil
+		response["auto"] = nil
+		if c.ExpectedRef == "" {
+			response["source_state"] = "unconfigured"
+		} else {
+			response["source_state"] = "awaiting_trusted_snapshot"
+		}
+		response["missing"] = []string{"case_input", "expected_content", "candidate_output", "baseline_output", "automated_score"}
+	} else {
+		response["queue"] = view.Queue
+		response["alert"] = view.Alert
+		response["evidence"] = view.Evidence
+		response["expected"] = view.Expected
+		response["output"] = view.Output
+		response["baseline"] = view.Baseline
+		response["auto"] = view.Auto
+		response["source_state"] = "trusted_snapshot"
+		response["missing"] = []string{}
+	}
+	httpapi.WriteJSON(w, 200, response)
 }
 
 type labelBody struct {
@@ -317,16 +403,7 @@ func (s *Service) LabelCase(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
-	c, err := s.loadCase(r.Context(), r.PathValue("id"))
-	if errors.Is(err, pgx.ErrNoRows) {
-		notFound(w)
-		return
-	}
-	if err != nil {
-		unavailable(w)
-		return
-	}
-	a, ok := s.objectAgent(w, r, c.AgentID, "change")
+	envs, ok := requestScope(w, r, true)
 	if !ok {
 		return
 	}
@@ -348,18 +425,76 @@ func (s *Service) LabelCase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
+	c, err := loadCaseTx(r.Context(), tx, r.PathValue("id"), "FOR UPDATE")
+	if errors.Is(err, pgx.ErrNoRows) {
+		notFound(w)
+		return
+	}
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	a, err := lockEvalAgent(r.Context(), tx, c.AgentID)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !contains(envs, a.Env)) {
+		notFound(w)
+		return
+	}
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	if c.OriginApp != a.App || c.OriginEnv != a.Env {
+		notFound(w)
+		return
+	}
+	if err = lockActiveEvalScope(r.Context(), tx, a); errors.Is(err, pgx.ErrNoRows) {
+		notFound(w)
+		return
+	} else if err != nil {
+		unavailable(w)
+		return
+	}
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil {
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		return
+	}
+	if err = store.LockActiveSession(r.Context(), tx, cookie.Value, httpapi.CurrentUser(r).ID); errors.Is(err, store.ErrSessionRevoked) {
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		return
+	} else if err != nil {
+		unavailable(w)
+		return
+	}
+	if err = lockEvalGrantSources(r.Context(), tx, httpapi.CurrentUser(r).ID); errors.Is(err, store.ErrForbidden) {
+		httpapi.Error(w, 403, "forbidden", "Agent permission required")
+		return
+	} else if err != nil {
+		unavailable(w)
+		return
+	}
 	if !s.authorizedTx(w, r, tx, a, "change") {
 		return
 	}
+	_, snapshotID, snapshotHash, err := loadEvalCaseSnapshot(r.Context(), tx, c)
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	if snapshotID == "" {
+		httpapi.Error(w, 409, "evaluation_case_not_ready", "Trusted evaluation snapshot required before labeling")
+		return
+	}
 	id := store.ID()
-	_, err = tx.Exec(r.Context(), `INSERT INTO v3_agent_eval_labels(id,case_id,label,note,actor_id)
- VALUES($1,$2,$3,$4,$5)`, id, c.ID, body.Next, body.Note, httpapi.CurrentUser(r).ID)
+	_, err = tx.Exec(r.Context(), `INSERT INTO v3_agent_eval_labels(id,case_id,label,note,actor_id,snapshot_id)
+ VALUES($1,$2,$3,$4,$5,$6)`, id, c.ID, body.Next, body.Note, httpapi.CurrentUser(r).ID, snapshotID)
 	if err != nil {
 		unavailable(w)
 		return
 	}
 	err = audit(r.Context(), tx, a, httpapi.CurrentUser(r).ID, "v3.agent.eval.label", c.ID,
-		map[string]any{"environment_id": a.Env, "label": body.Next, "label_id": id})
+		map[string]any{"environment_id": a.Env, "label": body.Next, "label_id": id,
+			"snapshot_id": snapshotID, "snapshot_sha256": snapshotHash})
 	if err != nil {
 		unavailable(w)
 		return
@@ -429,22 +564,27 @@ func (s *Service) RegisterEvalCase(ctx context.Context, id, agentID, title, expe
 		return err
 	}
 	defer tx.Rollback(ctx)
-	a, err := scanAgent(tx.QueryRow(ctx, `SELECT `+agentColumns+` FROM v3_agents WHERE id=$1`, agentID))
+	a, err := lockEvalAgent(ctx, tx, agentID)
 	if err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO v3_agent_eval_cases(id,agent_id,title,expected_ref)
- VALUES($1,$2,$3,$4) ON CONFLICT (id) DO NOTHING`, id, agentID, title, expectedRef)
+	if err = lockActiveEvalScope(ctx, tx, a); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO v3_agent_eval_cases
+ (id,agent_id,title,expected_ref,origin_application_id,origin_environment_id)
+ VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO NOTHING`, id, agentID, title, expectedRef, a.App, a.Env)
 	if err != nil {
 		return err
 	}
-	var existingAgent, existingTitle, existingRef string
-	err = tx.QueryRow(ctx, `SELECT agent_id,title,expected_ref FROM v3_agent_eval_cases WHERE id=$1`, id).
-		Scan(&existingAgent, &existingTitle, &existingRef)
+	var existingAgent, existingTitle, existingRef, originApp, originEnv string
+	err = tx.QueryRow(ctx, `SELECT agent_id,title,expected_ref,COALESCE(origin_application_id,''),
+ COALESCE(origin_environment_id,'') FROM v3_agent_eval_cases WHERE id=$1`, id).
+		Scan(&existingAgent, &existingTitle, &existingRef, &originApp, &originEnv)
 	if err != nil {
 		return err
 	}
-	if existingAgent != agentID || existingTitle != title || existingRef != expectedRef {
+	if existingAgent != agentID || existingTitle != title || existingRef != expectedRef || originApp != a.App || originEnv != a.Env {
 		return errors.New("evaluation case conflict")
 	}
 	if err = audit(ctx, tx, a, "system", "v3.agent.eval.case.registered", id,

@@ -93,13 +93,25 @@ P['/prompts/{id}/trial']['post']['responses']['503'] = {
     'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('get','/agent-tools','Read persisted Agent tool governance metadata',
     query=[v3_query('kind',string(enum=['all','read','write']))],
-    response=obj({'items':arr({'type':'object','additionalProperties':True}),
-        'levels':arr({'type':'object','additionalProperties':True}),
+    response=obj({'items':arr(obj({**fieldnames('id name approval agents envs calls error agent_id application_id environment_id execution_status metrics_basis'),
+        'brand':string(), 'kind':string(enum=['read','write']),
+        'risk':string(enum=['low','medium','high']),
+        'registered_enabled':v3_bool(),'executable':v3_bool(),
+        'metrics_complete':v3_bool()},
+        ['id','name','kind','risk','approval','agents','envs','calls','error',
+         'agent_id','application_id','environment_id','registered_enabled',
+         'executable','execution_status','metrics_basis','metrics_complete'])),
+        'levels':arr(obj({**fieldnames('code name desc')},['code','name','desc'])),
         'env_limits':arr(obj(fieldnames('env max note'),['env','max','note'])),
         'rules':arr(string()),
-        'missing':arr(string()),'truncated':v3_bool()},
-        ['items','levels','env_limits','rules','missing','truncated']),
-    desc='At most 200 registered tools. Calls/errors are unavailable and executable is false; no live tool executor is connected. The full ToolsView remains mock.')
+        'missing':arr(string()),'truncated':v3_bool(),
+        'partial':v3_bool(),'execution_available':v3_bool()},
+        ['items','levels','env_limits','rules','missing','truncated','partial',
+         'execution_available']),
+    desc='At most 200 authorized registered tools, with a bounded scan of 1000 grant-filtered candidates. Governance fields come from the persisted registry; seven-day calls and error rate are observed RecordSpan events only and show an unknown marker when absent. Instrumentation coverage and live tool execution are unavailable. Environment caps do not grant executable authority.')
+P['/agent-tools']['get']['responses']['413'] = {
+    'description':'More than 1000 grant-filtered tool candidates; narrow the environment or kind',
+    'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('get','/evals/{id}','Read one stored Agent evaluation experiment',
     response=obj({**fieldnames('id title status baseline_version candidate_version result_ref created_at'),
         'dataset':string(),'meta':string(),
@@ -118,20 +130,41 @@ v3_route('post','/evals','Create pending Agent evaluation metadata',
     response=obj({'id':string(),'status':string(enum=['pending']),
         'execution_available':v3_bool()},['id','status','execution_available']),status=201,
     desc='Requires two distinct known versions. Stores a pending experiment only; it does not queue or execute evaluation, and execution_available is false. The current frontend rerun request has no matching body.')
-v3_route('get','/eval-cases/{id}','Read one partially evidenced evaluation case',
-    response=obj({**fieldnames('id title queue expected_ref'),
-        'labels':arr({'type':'object','additionalProperties':True}),
-        **{key:{'type':'null'} for key in ['alert','evidence','expected','output','baseline','auto']},
-        'missing':arr(string()),'partial':v3_bool()},
-        ['id','title','queue','expected_ref','labels','alert','evidence','expected',
-         'output','baseline','auto','missing','partial']),
-    desc='At most 50 human labels; input evidence, expected output, baseline and automatic scoring are unavailable. This does not satisfy the frontend EvalCase DTO.')
+_eval_case_common = {**fieldnames('id title queue expected_ref snapshot_id snapshot_sha256'),
+    'labels':arr(obj({**fieldnames('label note actor time snapshot_id')},
+        ['label','note','actor','time','snapshot_id'])),
+    'missing':arr(string())}
+_eval_case_required = list(_eval_case_common) + [
+    'alert','evidence','expected','output','baseline','auto',
+    'source_state','complete_v3_dto','partial']
+_eval_case_complete = obj({**_eval_case_common,
+    'alert':obj({**fieldnames('sev title'),
+        'labels':arr(obj(fieldnames('k v'),['k','v']))},['sev','title','labels']),
+    'evidence':arr(obj(fieldnames('brand title sub'),['brand','title','sub'])),
+    'expected':obj(fieldnames('cause advice'),['cause','advice']),
+    'output':obj({**fieldnames('version meta markdown'),'tools':arr(string())},
+        ['version','meta','markdown','tools']),
+    'baseline':obj(fieldnames('version score text'),['version','score','text']),
+    'auto':obj({**fieldnames('score note'),'rules':arr(string())},
+        ['score','note','rules']),
+    'source_state':string(enum=['trusted_snapshot']),
+    'complete_v3_dto':{'type':'boolean','const':True},
+    'partial':{'type':'boolean','const':False}}, _eval_case_required)
+_eval_case_partial = obj({**_eval_case_common,
+    **{name:{'type':'null'} for name in
+       ['alert','evidence','expected','output','baseline','auto']},
+    'source_state':string(enum=['unconfigured','awaiting_trusted_snapshot']),
+    'complete_v3_dto':{'type':'boolean','const':False},
+    'partial':{'type':'boolean','const':True}}, _eval_case_required)
+v3_route('get','/eval-cases/{id}','Read a registered evaluation case and any trusted snapshot',
+    response={'oneOf':[_eval_case_complete,_eval_case_partial]},
+    desc='A complete frontend case DTO is returned only when a trusted in-process evaluator has persisted a validated immutable snapshot with source references, two distinct known Agent versions and the original case scope. References are producer assertions, not independently verified external artifacts. Without a snapshot, evidence and outputs are null with partial=true. At most 50 labels are returned.')
 v3_route('post','/eval-cases/{id}/labels','Record one human evaluation label',
     role='viewer with scoped agents.change',
     body=obj({'next':string(enum=['correct','incorrect','partial','unsure']),
         'note':string()},['next']),
     response=obj({'next':string(),'id':string()},['next','id']),
-    desc='Requires an explicit next label and optional note up to 2000 runes; saved with audit. The current frontend sends different fields and would receive 422.')
+    desc='Requires a trusted case snapshot, one selected environment, agents.change and an active session. The selected label is bound to the latest snapshot and saved with audit in the same authorized transaction. No snapshot returns 409 evaluation_case_not_ready. The current frontend sends different fields and would receive 422; its next-case navigation meaning also differs from this response.')
 v3_route('get','/agent-runs','Read bounded reported Agent runs',
     query=[v3_query('filter',string(enum=['all','failed','blocked','negative']))],
     response=obj({'kpis':arr({'type':'object','additionalProperties':True}),

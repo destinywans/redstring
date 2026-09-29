@@ -142,8 +142,8 @@
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
 | GET | `/inbox` | `filter` | 收件箱条目 | mock |
-| GET | `/alerts/{id}` | | `AlertDetail` | mock |
-| POST | `/alerts/{id}/claim` | | 更新后的告警 | mock |
+| GET | `/alerts/{id}` | | 持久告警详情；无可信来源的字段为 `null` 并列入 `unavailable` | mock |
+| POST | `/alerts/{id}/claim` | `{ expected_revision }`（取自详情读取） | 原子认领后的持久告警详情；旧修订返回 412 | mock |
 | GET | `/alert-groups` | `q`, `severity`, `env` | 告警分组 | mock |
 | GET | `/alert-groups/{id}/policy` | | `AlertGroupPolicy` | mock |
 | POST | `/alert-groups/bulk` | `{ ids, action: claim\|silence\|investigate }` | 结果 | mock |
@@ -295,7 +295,7 @@ Pull 仅使用服务端私有配置登记的 Prometheus `metric_resource` 目标
 | POST | `/service-mappings/discover` | | `{ suggestions, source_state, candidates }` | implemented |
 | PUT | `/service-mappings` | `{ environment_id, items: [{ service_id, service_environment_id, binding_revision, bindings }] }`；1–50 个完整替换项 | `{ environment_id, items }`；返回持久身份、绑定及写后修订号 | implemented |
 | GET | `/coverage` | `app` | `CoverageView`（覆盖矩阵、对 Agent 的影响、修复建议） | mock |
-| GET | `/webhooks` | | `WebhookView`（入站、令牌、对外 MCP、出站） | mock |
+| GET | `/webhooks` | | 通用 Push 入站的真实登记及 24 小时收据；其他类别以 `availability` 标为未接入 | mock |
 | POST | `/webhooks/{id}/redeliver` | | 结果 | mock |
 | POST | `/api-tokens` | `{ name, scopes, ttl }` | `{ id, secret_shown_once }` | mock |
 

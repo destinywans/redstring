@@ -562,6 +562,9 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	}, func(ctx context.Context, tx pgx.Tx, user core.User, app, env, action string) error {
 		return policy.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{Module: "events", Action: action, ApplicationID: app, EnvironmentID: env})
 	})
+	events.AuthorizeTeamTx = func(ctx context.Context, tx pgx.Tx, user core.User, team, env, action string) error {
+		return policy.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{Module: "events", Action: action, TeamID: team, EnvironmentID: env})
+	}
 	events.RegisterNew(api)
 	events.RegisterV3Incidents(api)
 	pushService.Register(api)

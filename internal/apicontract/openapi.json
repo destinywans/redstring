@@ -32379,31 +32379,18 @@
         ]
       }
     },
-    "/alerts/{id}/claim": {
-      "post": {
-        "summary": "Claim a persisted active alert",
-        "operationId": "post_alerts_id_claim",
-        "description": "Minimum role: operator. V3 instance and environment scope apply. Partial V3 behavior: rechecks the current application/environment change grant while the incident row is locked, then transactionally sets platform ownership and audits the change; same-user retry is idempotent. The full AlertDetail response, metric series, and grouping policy are not available yet; no external escalation is stopped.",
+    "/alerts/{id}": {
+      "get": {
+        "summary": "Read evidence-backed persisted alert detail",
+        "operationId": "get_alerts_id",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Resolves a persisted ops_incidents ID in the selected V3 environment. Current session, mapped application, current owner team, and events.view are checked under transaction locks before returning. revision is the incident-row xmin action token, not a representation ETag: notification status can change independently. Notification rows report local enqueue time and transport status only; at most the latest 500 are returned, with notifications_truncated and unavailable when more exist. The nonempty source_id is the persisted ingress identity, not proof that its configuration remains active. Provider name, original alert labels, metric series and threshold, rule, triage, runbook, real notification group, inhibition and change association have no exact occurrence binding; these fields are null and named in unavailable. The persisted incident ID is the only established grouping link. Malformed severity/state or cross-scope notification records return 503, not a synthetic value. This is a backend nullable contract; the frozen AlertDetail page requires non-null fields and is not yet accepted.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "assignee_id": {
-                      "type": "string"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "id",
-                    "assignee_id"
-                  ]
+                  "$ref": "#/components/schemas/V3AlertDetail"
                 }
               }
             }
@@ -32495,6 +32482,131 @@
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
         ]
+      }
+    },
+    "/alerts/{id}/claim": {
+      "post": {
+        "summary": "Claim a persisted alert with an incident revision",
+        "operationId": "post_alerts_id_claim",
+        "description": "Minimum role: operator. V3 instance and environment scope apply. Requires the incident-row revision returned by GET; a missing or invalid token is 422, a stale token is 412. Locks the incident, current application/environment/team mapping, human user and session, and V3 role/grant sources before evaluating both events.change and events.view; a change-only grant cannot receive detail data. An active unassigned alert can be claimed by the current human; same-user retry with the current revision is idempotent, another claimant or inactive alert is 409. Owner and durable audit update atomically. Returns the updated evidence-backed nullable V3AlertDetail, not an assertion that external escalation stopped. The frozen frontend sends no expected_revision and incorrectly says escalation stopped; page acceptance remains pending.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3AlertDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "alerts"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expected_revision": {
+                    "type": "string",
+                    "pattern": "^[1-9][0-9]{0,9}$"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "expected_revision"
+                ]
+              }
+            }
+          }
+        }
       }
     },
     "/alert-groups": {
@@ -45404,6 +45516,103 @@
           }
         ]
       }
+    },
+    "/webhooks": {
+      "get": {
+        "summary": "Read scoped Webhook and API integration overview",
+        "operationId": "get_webhooks",
+        "description": "Minimum role: viewer with scoped connectors.view and services.view. V3 instance and environment scope apply. Shows only configured generic V3 Push source/event routes whose application and environment are currently visible. The count is accepted, non-synthetic ingress receipts in the past 24 hours; last and status reflect only the latest receipt in that window, not continuous source health. An unobserved route has status=unverified. Delivery rows are inbound receipts, not outbound notification delivery. No visible generic source is reported as no_visible_sources; this does not claim no source exists in another environment. API tokens, native vendor receivers, public MCP serving and outbound delivery lack one connected V3 registry here; their arrays are empty and availability explicitly says not_connected. No credential or source secret is returned. The frozen frontend only types ok/error for inbound status and may need to render unverified and availability.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3WebhookView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "webhooks"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -57301,6 +57510,185 @@
           "text"
         ]
       },
+      "V3AlertNotification": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "sending",
+              "retrying",
+              "failed",
+              "sent"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Local enqueue time, not upstream delivery or human receipt time."
+          },
+          "attempts": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "channel",
+          "status",
+          "created_at",
+          "attempts"
+        ]
+      },
+      "V3AlertDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "assignee_id": {
+            "type": "string"
+          },
+          "investigation_id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "P1",
+              "P2",
+              "P3",
+              "P4"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "firing",
+              "pending",
+              "resolved"
+            ]
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "source": {
+            "type": "null"
+          },
+          "rule": {
+            "type": "null"
+          },
+          "triage": {
+            "type": "null"
+          },
+          "series": {
+            "type": "null"
+          },
+          "labels": {
+            "type": "null"
+          },
+          "runbook": {
+            "type": "null"
+          },
+          "notifications": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/V3AlertNotification"
+            }
+          },
+          "notifications_truncated": {
+            "type": "boolean"
+          },
+          "grouping": {
+            "type": "object",
+            "properties": {
+              "group": {
+                "type": "null"
+              },
+              "inhibited": {
+                "type": "null"
+              },
+              "incident": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "id"
+                ]
+              },
+              "change": {
+                "type": "null"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "group",
+              "inhibited",
+              "incident",
+              "change"
+            ]
+          },
+          "unavailable": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "revision",
+          "severity",
+          "title",
+          "state",
+          "source_id",
+          "source",
+          "env",
+          "since",
+          "rule",
+          "triage",
+          "series",
+          "labels",
+          "summary",
+          "runbook",
+          "notifications",
+          "notifications_truncated",
+          "grouping",
+          "assignee_id",
+          "investigation_id",
+          "unavailable"
+        ]
+      },
       "V3AlertGroupPartial": {
         "type": "object",
         "properties": {
@@ -62736,6 +63124,223 @@
           "links",
           "payload",
           "chain_ok"
+        ]
+      },
+      "V3WebhookInbound": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "brand": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "verify": {
+            "type": "string"
+          },
+          "count": {
+            "type": "string"
+          },
+          "last": {
+            "type": "string"
+          },
+          "status_basis": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "error",
+              "unverified"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "source_id",
+          "event_type",
+          "brand",
+          "name",
+          "url",
+          "verify",
+          "count",
+          "last",
+          "status",
+          "status_basis"
+        ]
+      },
+      "V3WebhookReceipt": {
+        "type": "object",
+        "properties": {
+          "time": {
+            "type": "string"
+          },
+          "event": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "ms": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "time",
+          "event",
+          "code",
+          "ms"
+        ]
+      },
+      "V3WebhookAvailability": {
+        "type": "object",
+        "properties": {
+          "inbound": {
+            "type": "string"
+          },
+          "native_inbound": {
+            "type": "string"
+          },
+          "api_tokens": {
+            "type": "string"
+          },
+          "public_mcp": {
+            "type": "string"
+          },
+          "outbound": {
+            "type": "string"
+          },
+          "receipt_window": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "inbound",
+          "native_inbound",
+          "api_tokens",
+          "public_mcp",
+          "outbound",
+          "receipt_window"
+        ]
+      },
+      "V3WebhookView": {
+        "type": "object",
+        "properties": {
+          "inbound": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3WebhookInbound"
+            }
+          },
+          "deliveries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3WebhookReceipt"
+            }
+          },
+          "tokens": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "used": {
+                  "type": "string"
+                },
+                "expires": {
+                  "type": "string"
+                },
+                "scopes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "scopes",
+                "used",
+                "expires"
+              ]
+            }
+          },
+          "mcp": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "url": {
+                "type": "string"
+              },
+              "tools": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "clients": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "enabled",
+              "url",
+              "tools",
+              "clients"
+            ]
+          },
+          "outbound": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "event": {
+                  "type": "string"
+                },
+                "target": {
+                  "type": "string"
+                },
+                "brand": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "availability": {
+            "$ref": "#/components/schemas/V3WebhookAvailability"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "inbound",
+          "deliveries",
+          "tokens",
+          "mcp",
+          "outbound",
+          "availability"
         ]
       }
     },

@@ -253,6 +253,8 @@ Agent Trace 后端目前只能读受信生产者上报的有界 Span 元数据�
 
 当前 MCP 列表只是已显式绑定环境的登记元数据快照；KPI 仅计有权可见的登记与旧只读绑定，不表示 V3 工具已审核或可执行。详情不会把旧固定参数或未信任发现快照放入可调用 `tools`，也不会把所属应用冒充 Agent 授权应用；服务版本、连接健康、调用历史、凭据验证以及工具/资源/提示词实际数量均未知。`counts` 中的 0 只是旧 DTO 占位，`unavailable_fields` 明确列出未知项，`complete_v3_dto=false`。服务端最多扫描 2000 条候选记录；若还有第 2001 条，返回 `413 candidate_scan_limit` 而不返回部分列表。超过 1000 条有权可见登记返回独立的 `413 scope_too_large`。前端当前仍把未知数量显示为确定的零，并固定显示绿色只读/Vault 标识与无需真实请求的连接成功提示，不能据此接入或验收页面；两个主读取路由继续 `mock`。
 
+MCP 审核另有按不可变发现版本执行的三个辅助接口：`GET /mcp-servers/{id}/review-candidate`、`POST /mcp-servers/{id}/review-version` 和 `PATCH /mcp-servers/{id}/reviewed-tools/{name}`。候选读取在新事务中重核当前账号、会话、应用/环境绑定、授权及最新发现，持锁至有界响应写完；写入要求当前有 `connectors.manage` 的人类身份、完整逐工具决定和匹配摘要/修订，审核与开关变化同事务审计。远端描述、输入 schema 和只读提示仍是未信任观察；批准的工具默认关闭，即使开启也没有 Agent 执行器。冻结前端的无版本主 `POST /mcp-servers/{id}/review` 与 `PATCH /mcp-servers/{id}/tools/{name}` 仍不携带快照/摘要/修订，继续 `mock`。
+
 `GET /connector-types/{type}` 只描述已支持的连接器类型及探测器可接受的认证方式，要求当前环境的 `connectors.view`；未知类型返回按 `Accept-Language` 本地化的 404。版本、上游令牌权限与 Webhook 地址没有类型级可信来源，返回空值；尚无连接器支持的 Agent 工具执行器，因此 `tools: []`。本条后端路由完成不代表新建向导的静态项目映射、事件、深链及工具说明已接线，前端目录还有未支持的类型。
 | GET | `/ingest/pull/{id}` | | `PullDraft`（请求模板、样例、字段映射、预览） | mock |
 | POST | `/ingest/pull/{id}/test` | 映射 | `{ ok, rows, dropped }` | mock |

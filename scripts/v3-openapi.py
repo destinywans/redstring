@@ -548,10 +548,10 @@ v3_route('get','/mcp-servers/{id}','Read accessible MCP registration metadata',
     desc='Partial registration metadata only: legacy fixed-argument bindings and untrusted discovery observations are not V3 reviewed Agent tools, so tools and Agent apps are empty. No verified service version, live health, actual tool/resource/prompt counts, Agent grants or tool-call history exists; counts of 0 are DTO placeholders and every unknown count is named in unavailable_fields. A credential reference may be reported as registered but never verified or returned. complete_v3_dto is false.')
 v3_route('patch','/mcp-servers/{id}/tools/{name}','Change a reviewed MCP tool',
     body=obj({'enabled':v3_bool()},['enabled']),
-    desc='Currently always returns 503 mcp_review_unavailable after scoped authorization; no trusted discovery snapshot exists.')
+    desc='The unversioned main-page route still returns 503 mcp_review_unavailable after scoped authorization. Use the version-bound auxiliary reviewed-tools route; no Agent tool execution exists.')
 P['/mcp-servers/{id}/tools/{name}']['patch']['responses'].pop('200')
 v3_route('post','/mcp-servers/{id}/review','Review newly discovered MCP tools',
-    desc='Currently always returns 503 mcp_review_unavailable after scoped authorization; no trusted discovery snapshot exists.')
+    desc='The unversioned main-page route still returns 503 mcp_review_unavailable after scoped authorization. Use the version-bound auxiliary review-version route; remote discovery alone is untrusted.')
 P['/mcp-servers/{id}/review']['post']['responses'].pop('200')
 S['V3McpDiscoveryObservation'] = obj({
     'snapshot_id':string(), 'mcp_server_id':string(), 'application_id':string(),
@@ -569,6 +569,45 @@ v3_route('post','/mcp-servers/{id}/discover','Observe MCP tool declarations in a
 P['/mcp-servers/{id}/discover']['post']['responses']['502'] = {
     'description':'Bounded MCP discovery failed or returned invalid declarations',
     'content':{'application/json':{'schema':ref('Error')}}}
+S['V3McpReviewCandidateTool'] = obj({'name':string(),'description':string(),
+    'read_only_hint':v3_bool(),'input_schema':{'type':'object','additionalProperties':True},
+    'tool_hash':string(),'decision':string(enum=['','allow_read_only','deny']),
+    'enabled':v3_bool(),'revision':integer(minimum=0)},
+    ['name','description','read_only_hint','input_schema','tool_hash','decision','enabled','revision'])
+S['V3McpReviewCandidate'] = obj({'snapshot_id':string(),'mcp_server_id':string(),
+    'application_id':string(),'environment_id':string(),
+    'registration_version':integer(minimum=1),'registration_hash':string(),
+    'tools_hash':string(),'tool_count':integer(minimum=0,maximum=128),
+    'captured_at':string(format='date-time'),'tools':arr(ref('V3McpReviewCandidateTool')),
+    'trust':string(enum=['untrusted_observation']),'reviewed':v3_bool(),
+    'health_verified':{'const':False},'execution_available':{'const':False}},
+    ['snapshot_id','mcp_server_id','application_id','environment_id','registration_version',
+     'registration_hash','tools_hash','tool_count','captured_at','tools','trust','reviewed',
+     'health_verified','execution_available'])
+v3_route('get','/mcp-servers/{id}/review-candidate','Read current untrusted MCP tool candidate',
+    response=ref('V3McpReviewCandidate'),
+    desc='Auxiliary single-environment connectors.manage route. The observation, including remote description, read-only hint and input schema, is untrusted. After snapshot projection, a fresh transaction rechecks the current actor/session/grants, active registration/application/binding, latest discovery and review decisions; locks are held through a bounded response write. Changes fail closed without candidate metadata. Human review and tool enablement do not grant Agent execution.')
+S['V3McpToolReviewDecision'] = obj({'name':string(),'tool_hash':string(),
+    'decision':string(enum=['allow_read_only','deny'])},['name','tool_hash','decision'])
+v3_route('post','/mcp-servers/{id}/review-version','Review every tool in the current MCP discovery version',
+    body=obj({'snapshot_id':string(),'registration_version':integer(minimum=1),
+        'registration_hash':string(),'tools_hash':string(),
+        'decisions':arr(ref('V3McpToolReviewDecision'))},
+        ['snapshot_id','registration_version','registration_hash','tools_hash','decisions']),
+    response=obj({'snapshot_id':string(),'reviewed':{'const':True},
+        'tool_count':integer(minimum=0,maximum=128),'allowed_read_only_count':integer(minimum=0),
+        'enabled_count':{'const':0},'execution_available':{'const':False}},
+        ['snapshot_id','reviewed','tool_count','allowed_read_only_count','enabled_count',
+         'execution_available']),
+    desc='Auxiliary version-bound write for a current human connectors.manage reviewer. The exact latest registration/binding and all discovered tool names and hashes must be reviewed once. Denied tools and allowed read-only tools are initially disabled; remote hints alone do not grant approval. The review, decisions and redacted audit commit atomically. No Agent tool execution exists.')
+v3_route('patch','/mcp-servers/{id}/reviewed-tools/{name}','Change a version-bound reviewed MCP tool switch',
+    body=obj({'snapshot_id':string(),'tools_hash':string(),'tool_hash':string(),
+        'expected_revision':integer(minimum=1),'enabled':v3_bool()},
+        ['snapshot_id','tools_hash','tool_hash','expected_revision','enabled']),
+    response=obj({'snapshot_id':string(),'tool_name':string(),'enabled':v3_bool(),
+        'revision':integer(minimum=1),'changed':v3_bool(),'execution_available':{'const':False}},
+        ['snapshot_id','tool_name','enabled','revision','changed','execution_available']),
+    desc='Auxiliary current-human connectors.manage write. Requires the latest fully reviewed snapshot, exact tool hash and expected revision. Denied tools cannot be enabled; changes and redacted audit share one transaction. An enabled switch does not make the tool callable by an Agent.')
 S['V3McpEnvironmentBinding'] = obj({'id':string(),'application_id':string(),
     'environment_id':string(),'bound':v3_bool(),'changed':v3_bool()},
     ['id','application_id','environment_id','bound','changed'])

@@ -28309,7 +28309,7 @@
       "patch": {
         "summary": "Change a reviewed MCP tool",
         "operationId": "patch_mcp_servers_id_tools_name",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Currently always returns 503 mcp_review_unavailable after scoped authorization; no trusted discovery snapshot exists.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. The unversioned main-page route still returns 503 mcp_review_unavailable after scoped authorization. Use the version-bound auxiliary reviewed-tools route; no Agent tool execution exists.",
         "responses": {
           "401": {
             "description": "Authentication required",
@@ -28431,7 +28431,7 @@
       "post": {
         "summary": "Review newly discovered MCP tools",
         "operationId": "post_mcp_servers_id_review",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Currently always returns 503 mcp_review_unavailable after scoped authorization; no trusted discovery snapshot exists.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. The unversioned main-page route still returns 503 mcp_review_unavailable after scoped authorization. Use the version-bound auxiliary review-version route; remote discovery alone is untrusted.",
         "responses": {
           "401": {
             "description": "Authentication required",
@@ -28635,6 +28635,466 @@
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
         ]
+      }
+    },
+    "/mcp-servers/{id}/review-candidate": {
+      "get": {
+        "summary": "Read current untrusted MCP tool candidate",
+        "operationId": "get_mcp_servers_id_review_candidate",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary single-environment connectors.manage route. The observation, including remote description, read-only hint and input schema, is untrusted. After snapshot projection, a fresh transaction rechecks the current actor/session/grants, active registration/application/binding, latest discovery and review decisions; locks are held through a bounded response write. Changes fail closed without candidate metadata. Human review and tool enablement do not grant Agent execution.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3McpReviewCandidate"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "mcp-servers"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/mcp-servers/{id}/review-version": {
+      "post": {
+        "summary": "Review every tool in the current MCP discovery version",
+        "operationId": "post_mcp_servers_id_review_version",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary version-bound write for a current human connectors.manage reviewer. The exact latest registration/binding and all discovered tool names and hashes must be reviewed once. Denied tools and allowed read-only tools are initially disabled; remote hints alone do not grant approval. The review, decisions and redacted audit commit atomically. No Agent tool execution exists.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "snapshot_id": {
+                      "type": "string"
+                    },
+                    "reviewed": {
+                      "const": true
+                    },
+                    "tool_count": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 128
+                    },
+                    "allowed_read_only_count": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "enabled_count": {
+                      "const": 0
+                    },
+                    "execution_available": {
+                      "const": false
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "snapshot_id",
+                    "reviewed",
+                    "tool_count",
+                    "allowed_read_only_count",
+                    "enabled_count",
+                    "execution_available"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "mcp-servers"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "snapshot_id": {
+                    "type": "string"
+                  },
+                  "registration_version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "registration_hash": {
+                    "type": "string"
+                  },
+                  "tools_hash": {
+                    "type": "string"
+                  },
+                  "decisions": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/V3McpToolReviewDecision"
+                    }
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "snapshot_id",
+                  "registration_version",
+                  "registration_hash",
+                  "tools_hash",
+                  "decisions"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/mcp-servers/{id}/reviewed-tools/{name}": {
+      "patch": {
+        "summary": "Change a version-bound reviewed MCP tool switch",
+        "operationId": "patch_mcp_servers_id_reviewed_tools_name",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary current-human connectors.manage write. Requires the latest fully reviewed snapshot, exact tool hash and expected revision. Denied tools cannot be enabled; changes and redacted audit share one transaction. An enabled switch does not make the tool callable by an Agent.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "snapshot_id": {
+                      "type": "string"
+                    },
+                    "tool_name": {
+                      "type": "string"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "revision": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    },
+                    "execution_available": {
+                      "const": false
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "snapshot_id",
+                    "tool_name",
+                    "enabled",
+                    "revision",
+                    "changed",
+                    "execution_available"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "mcp-servers"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "snapshot_id": {
+                    "type": "string"
+                  },
+                  "tools_hash": {
+                    "type": "string"
+                  },
+                  "tool_hash": {
+                    "type": "string"
+                  },
+                  "expected_revision": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "snapshot_id",
+                  "tools_hash",
+                  "tool_hash",
+                  "expected_revision",
+                  "enabled"
+                ]
+              }
+            }
+          }
+        }
       }
     },
     "/mcp-servers/{id}/environment-binding": {
@@ -49375,6 +49835,151 @@
           "trust",
           "approved",
           "health_verified"
+        ]
+      },
+      "V3McpReviewCandidateTool": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "read_only_hint": {
+            "type": "boolean"
+          },
+          "input_schema": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "tool_hash": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "",
+              "allow_read_only",
+              "deny"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "description",
+          "read_only_hint",
+          "input_schema",
+          "tool_hash",
+          "decision",
+          "enabled",
+          "revision"
+        ]
+      },
+      "V3McpReviewCandidate": {
+        "type": "object",
+        "properties": {
+          "snapshot_id": {
+            "type": "string"
+          },
+          "mcp_server_id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "registration_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "registration_hash": {
+            "type": "string"
+          },
+          "tools_hash": {
+            "type": "string"
+          },
+          "tool_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 128
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3McpReviewCandidateTool"
+            }
+          },
+          "trust": {
+            "type": "string",
+            "enum": [
+              "untrusted_observation"
+            ]
+          },
+          "reviewed": {
+            "type": "boolean"
+          },
+          "health_verified": {
+            "const": false
+          },
+          "execution_available": {
+            "const": false
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "snapshot_id",
+          "mcp_server_id",
+          "application_id",
+          "environment_id",
+          "registration_version",
+          "registration_hash",
+          "tools_hash",
+          "tool_count",
+          "captured_at",
+          "tools",
+          "trust",
+          "reviewed",
+          "health_verified",
+          "execution_available"
+        ]
+      },
+      "V3McpToolReviewDecision": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "tool_hash": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "allow_read_only",
+              "deny"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "tool_hash",
+          "decision"
         ]
       },
       "V3McpEnvironmentBinding": {

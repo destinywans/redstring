@@ -76,7 +76,7 @@
 | 知识与记忆 | GET | `/runbooks/{id}` | 新增 | implemented |
 | 知识与记忆 | POST | `/runbooks/{id}/dry-run` | 新增 | implemented |
 | 知识与记忆 | POST | `/runbooks/{id}/submit` | 新增 | implemented |
-| 知识与记忆 | GET | `/postmortems` | 新增 | mock |
+| 知识与记忆 | GET | `/postmortems` | 新增 | implemented |
 | 知识与记忆 | GET | `/memory` | 新增 | implemented |
 | 知识与记忆 | POST | `/memory/facts/{id}/{action}` | 新增 | implemented |
 | 知识与记忆 | POST | `/memory/conflicts/resolve` | 新增 | implemented |
@@ -108,7 +108,7 @@
 | v4 新建流程 | GET | `/runbooks/draft` | 新增 | implemented |
 | v4 新建流程 | POST | `/runbooks` | 新增 | implemented |
 | v4 新建流程 | GET | `/postmortems/candidates` | 新增 | implemented |
-| v4 新建流程 | GET | `/postmortems/draft` | 新增 | mock |
+| v4 新建流程 | GET | `/postmortems/draft` | 新增 | implemented |
 | v4 新建流程 | POST | `/postmortems` | 新增 | implemented |
 | v4 新建流程 | POST | `/knowledge-sources/test` | 新增 | implemented |
 | v4 新建流程 | POST | `/knowledge-sources` | 新增 | implemented |
@@ -152,8 +152,8 @@
 | Agent 运行台 | GET | `/agent-runs` | 聚合 | mock |
 | Agent 运行台 | GET | `/agent-runs/{id}` | 聚合 | mock |
 | Agent 运行台 | POST | `/agent-runs/{id}/feedback` | 新增 | mock |
-| Agent 运行台 | GET | `/guardrails` | 新增 | mock |
-| Agent 运行台 | PATCH | `/guardrails/{id}` | 新增 | mock |
+| Agent 运行台 | GET | `/guardrails` | 新增 | implemented |
+| Agent 运行台 | PATCH | `/guardrails/{id}` | 新增 | implemented |
 | 设置 | GET | `/me/profile` | 聚合 | mock |
 | 设置 | PUT | `/me/profile` | 新增 | mock |
 | 设置 | DELETE | `/me/sessions/{id}` | 新增 | implemented |

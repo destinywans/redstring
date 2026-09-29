@@ -37023,6 +37023,390 @@
         ]
       }
     },
+    "/postmortems": {
+      "get": {
+        "summary": "Read scoped persisted postmortem dashboard evidence",
+        "operationId": "get_postmortems",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Reads persisted reports, registered incident scope and exact closing event in one repeatable snapshot with current session and role grant locks, then checks events:view and knowledge:view on each object; unpublished reports additionally require the author or knowledge:manage. Visible records supply title, close date, recorded workflow status and action total; invalid severity or duration and absent root text are nullable instead of blocking other valid reports. The unknown cause category is labeled Unknown, never inferred from prose. KPI values count visible reports and mean resolution time only for valid reported durations; time series have no producer and remain null. Cause categories, action completion, impact minutes, MTTA and recurrence lack producers, so those collections are null and complete_v3_dto=false. This partial main-route response does not meet the frozen dashboard DTO. More than 1000 visible records returns 413.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "kpis": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3PostmortemDashboardKPI"
+                      }
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3PostmortemDashboardItem"
+                      }
+                    },
+                    "causes": {
+                      "oneOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "impact_by_service": {
+                      "oneOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "followups": {
+                      "oneOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "complete_v3_dto": {
+                      "const": false
+                    },
+                    "partial": {
+                      "const": true
+                    },
+                    "unknown_fields": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "page": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "page_size": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "kpis",
+                    "items",
+                    "causes",
+                    "impact_by_service",
+                    "followups",
+                    "complete_v3_dto",
+                    "partial",
+                    "unknown_fields",
+                    "page",
+                    "page_size",
+                    "total"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "More than 1000 visible reports exceed the bounded dashboard view",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "postmortems"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tab",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "draft",
+                "review",
+                "published"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      },
+      "post": {
+        "summary": "Create a governed incident postmortem",
+        "operationId": "post_postmortems",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires a single selected environment and current events:view plus knowledge:manage on the incident application or its persisted owner team. Locks and rechecks the resolved incident, investigation report and closing event; one postmortem per incident. Stores sections and actions with an audit record in one transaction, without executing or notifying. Publishing requires a separate human review.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "postmortems"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "incident_id": {
+                    "type": "string"
+                  },
+                  "sections": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/V3PostmortemSectionInput"
+                    }
+                  },
+                  "actions": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/V3PostmortemActionInput"
+                    }
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "draft",
+                      "review"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "incident_id",
+                  "sections",
+                  "actions",
+                  "status"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/postmortems/candidates": {
       "get": {
         "summary": "List resolved incidents eligible for a postmortem",
@@ -37274,158 +37658,11 @@
         ]
       }
     },
-    "/postmortems": {
-      "post": {
-        "summary": "Create a governed incident postmortem",
-        "operationId": "post_postmortems",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires a single selected environment and current events:view plus knowledge:manage on the incident application or its persisted owner team. Locks and rechecks the resolved incident, investigation report and closing event; one postmortem per incident. Stores sections and actions with an audit record in one transaction, without executing or notifying. Publishing requires a separate human review.",
-        "responses": {
-          "201": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "id"
-                  ]
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentication required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden or cross-origin request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict or stale version",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Invalid input",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Dependency unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "postmortems"
-        ],
-        "security": [
-          {
-            "sessionCookie": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "incident_id": {
-                    "type": "string"
-                  },
-                  "sections": {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/V3PostmortemSectionInput"
-                    }
-                  },
-                  "actions": {
-                    "type": "array",
-                    "items": {
-                      "$ref": "#/components/schemas/V3PostmortemActionInput"
-                    }
-                  },
-                  "status": {
-                    "type": "string",
-                    "enum": [
-                      "draft",
-                      "review"
-                    ]
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "incident_id",
-                  "sections",
-                  "actions",
-                  "status"
-                ]
-              }
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "X-AIOps-Environment",
-            "in": "header",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Selected environment; all is a read-only non-production aggregate."
-          }
-        ]
-      }
-    },
     "/postmortems/draft": {
       "get": {
         "summary": "Read an evidence-only postmortem starting point",
         "operationId": "get_postmortems_draft",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract operation. Uses a resolved incident and persisted close/report evidence, leaving impact, root cause and action recommendations blank. It does not generate the AI-drafted page. More than 200 timeline rows returns 413.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract operation. A repeatable snapshot with session and role grant locks uses a resolved incident and the earliest exact persisted close event plus its investigation report. source_close_event_seq identifies the observed closing event; saving rechecks the current source independently. Impact, root cause and action recommendations remain blank. This does not generate the AI-drafted page. More than 200 timeline rows returns 413.",
         "responses": {
           "200": {
             "description": "Success",
@@ -37497,11 +37734,21 @@
                         "$ref": "#/components/schemas/V3PostmortemActionInput"
                       }
                     },
+                    "source_close_event_seq": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
                     "draft_mode": {
                       "type": "string",
                       "enum": [
                         "evidence_only"
                       ]
+                    },
+                    "complete_v3_dto": {
+                      "const": false
+                    },
+                    "partial": {
+                      "const": true
                     },
                     "missing": {
                       "type": "array",
@@ -37516,7 +37763,10 @@
                     "sections",
                     "timeline",
                     "actions",
+                    "source_close_event_seq",
                     "draft_mode",
+                    "complete_v3_dto",
+                    "partial",
                     "missing"
                   ]
                 }
@@ -43256,7 +43506,7 @@
       "get": {
         "summary": "Read persisted Agent guardrail policies and reported events",
         "operationId": "get_guardrails",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. At most 200 policies and events. Runtime enforcement, trend, counts and detail are unproven; events rely on a trusted reporting hook and the full GuardrailsView remains mock.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Policies are persisted; at most 200 policies and 200 visible events are returned. Counts, each policy reported_events_7d, and seven UTC calendar-day trend pairs [blocked, masked] use the full authorized set of trusted reports with observed_at and policy_revision before the response page limit. Legacy reports lacking that decision evidence are excluded from aggregates. aggregation_basis is reported_events and coverage remains unknown: no live producer or enforcement coverage is attested. Detail is latest listed event metadata only, with unavailable source, snippet, masked payload and verdict null; it is null if no event is listed. partial is true and missing names the unconnected producer and unavailable coverage/payload fields. This partial response does not satisfy the current frontend GuardrailsView.",
         "responses": {
           "200": {
             "description": "Success",
@@ -43269,24 +43519,248 @@
                       "type": "array",
                       "items": {
                         "type": "object",
-                        "additionalProperties": true
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "icon": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "desc": {
+                            "type": "string"
+                          },
+                          "stat": {
+                            "type": "string"
+                          },
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "forced": {
+                            "type": "boolean"
+                          },
+                          "revision": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "reported_events_7d": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "icon",
+                          "name",
+                          "desc",
+                          "stat",
+                          "enabled",
+                          "forced",
+                          "revision",
+                          "reported_events_7d"
+                        ]
                       }
                     },
                     "trend": {
-                      "type": "null"
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "minItems": 2,
+                        "maxItems": 2
+                      }
+                    },
+                    "trend_days": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "format": "date"
+                      }
                     },
                     "events": {
                       "type": "array",
                       "items": {
                         "type": "object",
-                        "additionalProperties": true
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "time": {
+                            "type": "string"
+                          },
+                          "agent": {
+                            "type": "string"
+                          },
+                          "recorded_at": {
+                            "type": "string"
+                          },
+                          "time_source": {
+                            "type": "string"
+                          },
+                          "run": {
+                            "type": "string"
+                          },
+                          "rule": {
+                            "type": "string"
+                          },
+                          "action": {
+                            "type": "string"
+                          },
+                          "detail": {
+                            "type": "string"
+                          },
+                          "target_kind": {
+                            "type": "string"
+                          },
+                          "policy_revision": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "time",
+                          "agent",
+                          "recorded_at",
+                          "time_source",
+                          "run",
+                          "rule",
+                          "action",
+                          "detail",
+                          "target_kind",
+                          "policy_revision"
+                        ]
                       }
                     },
                     "counts": {
-                      "type": "null"
+                      "type": "object",
+                      "properties": {
+                        "all": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "blocked": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "masked": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "all",
+                        "blocked",
+                        "masked"
+                      ]
                     },
                     "detail": {
-                      "type": "null"
+                      "oneOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "title": {
+                              "type": "string"
+                            },
+                            "meta": {
+                              "type": "string"
+                            },
+                            "time": {
+                              "type": "string"
+                            },
+                            "recorded_at": {
+                              "type": "string"
+                            },
+                            "time_source": {
+                              "type": "string"
+                            },
+                            "agent": {
+                              "type": "string"
+                            },
+                            "run": {
+                              "type": "string"
+                            },
+                            "rule": {
+                              "type": "string"
+                            },
+                            "action": {
+                              "type": "string"
+                            },
+                            "target_kind": {
+                              "type": "string"
+                            },
+                            "reason_code": {
+                              "type": "string"
+                            },
+                            "policy_revision": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            },
+                            "source": {
+                              "type": "null"
+                            },
+                            "snippet": {
+                              "type": "null"
+                            },
+                            "masked": {
+                              "type": "null"
+                            },
+                            "verdict": {
+                              "type": "null"
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "id",
+                            "title",
+                            "meta",
+                            "time",
+                            "recorded_at",
+                            "time_source",
+                            "policy_revision",
+                            "agent",
+                            "run",
+                            "rule",
+                            "action",
+                            "target_kind",
+                            "reason_code",
+                            "source",
+                            "snippet",
+                            "masked",
+                            "verdict"
+                          ]
+                        }
+                      ]
+                    },
+                    "aggregation_basis": {
+                      "type": "string",
+                      "enum": [
+                        "reported_events"
+                      ]
+                    },
+                    "coverage": {
+                      "type": "string",
+                      "enum": [
+                        "unknown"
+                      ]
                     },
                     "partial": {
                       "type": "boolean"
@@ -43305,9 +43779,12 @@
                   "required": [
                     "policies",
                     "trend",
+                    "trend_days",
                     "events",
                     "counts",
                     "detail",
+                    "aggregation_basis",
+                    "coverage",
                     "partial",
                     "truncated",
                     "missing"
@@ -43413,7 +43890,7 @@
       "patch": {
         "summary": "Change one persisted guardrail policy setting",
         "operationId": "patch_guardrails_id",
-        "description": "Minimum role: viewer with scoped agents.manage. V3 instance and environment scope apply. Scoped agents.manage setting with audit and a persisted policy revision; a forced guardrail cannot be disabled. This does not prove a live runtime consumes the policy.",
+        "description": "Minimum role: viewer with scoped agents.manage. V3 instance and environment scope apply. Scoped agents.manage setting persists enabled state and policy revision with transactional audit; an unchanged request is audited as unchanged. A forced guardrail cannot be disabled (409 forced_guardrail). runtime_status remains unconnected until an executor reads a run-bound policy snapshot and validates allow/skip decisions or reports blocked/masked decisions at a final revision-checked handoff. Later policy changes do not retroactively cancel handed-off decisions. This does not attest live enforcement.",
         "responses": {
           "200": {
             "description": "Success",
@@ -43429,14 +43906,22 @@
                       "type": "boolean"
                     },
                     "revision": {
-                      "type": "integer"
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "runtime_status": {
+                      "type": "string",
+                      "enum": [
+                        "unconnected"
+                      ]
                     }
                   },
                   "additionalProperties": false,
                   "required": [
                     "id",
                     "enabled",
-                    "revision"
+                    "revision",
+                    "runtime_status"
                   ]
                 }
               }
@@ -43473,7 +43958,7 @@
             }
           },
           "409": {
-            "description": "Conflict or stale version",
+            "description": "Forced guardrail cannot be disabled (forced_guardrail), or one environment must be selected for a write (env_view_only)",
             "content": {
               "application/json": {
                 "schema": {
@@ -64116,6 +64601,123 @@
           "complete_v3_dto",
           "partial",
           "unknown_fields"
+        ]
+      },
+      "V3PostmortemDashboardKPI": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "series": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label",
+          "value",
+          "series"
+        ]
+      },
+      "V3PostmortemDashboardItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "duration": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cause": {
+            "type": "string"
+          },
+          "root_cause": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "actions": {
+            "type": "string"
+          },
+          "incident_id": {
+            "type": "string"
+          },
+          "severity": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "P1",
+                  "P2",
+                  "P3",
+                  "P4"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "published"
+            ]
+          },
+          "workflow_status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "review",
+              "published"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "severity",
+          "date",
+          "duration",
+          "cause",
+          "root_cause",
+          "actions",
+          "status",
+          "workflow_status",
+          "incident_id"
         ]
       },
       "V3PostmortemCandidate": {

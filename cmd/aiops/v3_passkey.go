@@ -8,25 +8,30 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3passkey"
 )
 
-// Passkeys are an optional self-account capability. Their account assertion
-// cannot be used as proposal approval proof; no proposal route is registered.
+// Passkeys are optional. Proposal approval uses a separate proposal-bound
+// assertion on this same configured service, never an account assertion.
 func configureV3Passkey(st *store.Store, api *httpapi.Server, info v3Instance, enabled string) error {
+	_, err := configureV3PasskeyService(st, api, info, enabled)
+	return err
+}
+
+func configureV3PasskeyService(st *store.Store, api *httpapi.Server, info v3Instance, enabled string) (*v3passkey.Service, error) {
 	if enabled == "" || enabled == "false" {
-		return nil
+		return nil, nil
 	}
 	if enabled != "true" {
-		return fmt.Errorf("AIOPS_V3_PASSKEY_ENABLED must be true or false")
+		return nil, fmt.Errorf("AIOPS_V3_PASSKEY_ENABLED must be true or false")
 	}
 	if st == nil || api == nil || !api.SecureCookies {
-		return fmt.Errorf("configure V3 passkey: secure session cookies and storage are required")
+		return nil, fmt.Errorf("configure V3 passkey: secure session cookies and storage are required")
 	}
 	service, err := v3passkey.New(v3passkey.Config{
 		DB: st.DB, InstanceID: v3MFAInstanceID(info), RPID: info.Domain,
 		Origin: api.AllowedOrigin, Tier: info.Tier, DisplayName: info.Name,
 	})
 	if err != nil {
-		return fmt.Errorf("configure V3 passkey: %w", err)
+		return nil, fmt.Errorf("configure V3 passkey: %w", err)
 	}
 	service.Register(api)
-	return nil
+	return service, nil
 }

@@ -42,6 +42,7 @@ for _v3_domain in (
     'mcp',
     'mcp-domain',
     'alerts',
+    'silence-product',
     'alert-rule-writes',
     'alert-groups-bulk',
     'rule-assistant',

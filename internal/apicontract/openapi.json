@@ -35301,6 +35301,131 @@
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
         ]
+      },
+      "post": {
+        "summary": "Propose a bounded Alertmanager silence",
+        "operationId": "post_silences",
+        "description": "Minimum role: operator. V3 instance and environment scope apply. Requires one selected environment, an open investigation in the exact active application, current human session, silences.manage and proposals.change. Matchers must contain exactly one exact application equality; the server adds the exact environment matcher. Idempotency-Key is scoped to the human actor. An immutable digest-bound pending proposal and audit are committed in one transaction. This request does not reserve or create an upstream silence. The approval and independent executor must be configured for this environment, otherwise 501 not_connected is returned.",
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3SilenceProductProposalReceipt"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Approval or independent execution workflow is not connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "silences"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3SilenceProductCreateRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            }
+          }
+        ]
       }
     },
     "/silences/preview": {
@@ -35721,6 +35846,141 @@
             }
           }
         ]
+      }
+    },
+    "/silences/{id}": {
+      "delete": {
+        "summary": "Propose cancellation of one owned silence",
+        "operationId": "delete_silences_id",
+        "description": "Minimum role: operator. V3 instance and environment scope apply. The path ID is an Alertmanager UUID, but ID alone grants no cancellation authority. Requires a confirmed AIOps create operation for that exact ID, current application/environment ownership, an exact operation annotation and full payload match in a fresh complete Alertmanager read, an open investigation, current human session, silences.view/manage and proposals.change. Stores immutable evidence, pending proposal and audit atomically. The handler never expires the upstream silence. A separate approved executor must revalidate everything before the write. Missing approval/executor integration returns 501 not_connected.",
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3SilenceProductProposalReceipt"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Approval or independent execution workflow is not connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "silences"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3SilenceProductCancelRequest"
+              }
+            }
+          }
+        }
       }
     },
     "/alert-rules/import": {
@@ -36839,6 +37099,271 @@
                   }
                 },
                 "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/proposals/{id}/approve/options": {
+      "post": {
+        "summary": "Begin a proposal-bound passkey approval assertion",
+        "operationId": "post_proposals_id_approve_options",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires a single environment, an active human session, a current exact-scope proposals.approve grant with passkey assurance, and an executable immutable proposal whose creator is another person. The five-minute WebAuthn challenge binds the proposal ID, action kind, action digest, review digest, environment, account, session, instance and RP. It grants no execution authority.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3ProposalApprovalChallenge"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "proposals"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "confirm": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "confirm"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/proposals/{id}/approve": {
+      "post": {
+        "summary": "Cast a fresh, proposal-bound human approval vote",
+        "operationId": "post_proposals_id_approve",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Verifies and consumes one WebAuthn assertion in the proposal transaction, rechecks the current app, team, environment, human session and passkey-assured approval grant, and audits one immutable vote. A first valid vote returns 202 pending_review with no execution_id. A second distinct valid human other than the creator produces one durable approved decision and execution_id for an independent executor and returns 200. The 200 response is a historical decision and handoff ID, not proof that execution is currently permitted, claimed, or complete. An exact challenge and payload replay can return the original decision even after its proof expires or is revoked; the executor rechecks current evidence before claiming. Changed payload or a stale new vote returns 409. This handler never performs an upstream write.",
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3ProposalApprovalResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3ProposalApprovalResult"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "proposals"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "challenge_id": {
+                    "type": "string"
+                  },
+                  "credential": {
+                    "type": "object"
+                  },
+                  "comment": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "challenge_id",
+                  "credential"
+                ]
               }
             }
           }
@@ -66762,6 +67287,135 @@
           "hits_7d"
         ]
       },
+      "V3SilenceProductMatcher": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$"
+          },
+          "op": {
+            "type": "string",
+            "enum": [
+              "=",
+              "!=",
+              "=~",
+              "!~"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Maximum 256 UTF-8 bytes; the server enforces the byte limit."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "op",
+          "value"
+        ]
+      },
+      "V3SilenceProductCreateRequest": {
+        "type": "object",
+        "properties": {
+          "investigation_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Maximum 128 UTF-8 bytes."
+          },
+          "matchers": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/V3SilenceProductMatcher"
+            }
+          },
+          "duration_seconds": {
+            "type": "integer",
+            "minimum": 1800,
+            "maximum": 86400
+          },
+          "comment": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "description": "Maximum 1000 UTF-8 bytes."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "investigation_id",
+          "matchers",
+          "duration_seconds",
+          "comment"
+        ]
+      },
+      "V3SilenceProductCancelRequest": {
+        "type": "object",
+        "properties": {
+          "investigation_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Maximum 128 UTF-8 bytes."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "description": "Maximum 1000 UTF-8 bytes."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "investigation_id",
+          "reason"
+        ]
+      },
+      "V3SilenceProductProposalReceipt": {
+        "type": "object",
+        "properties": {
+          "proposal_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_review"
+            ]
+          },
+          "action_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "effect": {
+            "type": "string",
+            "enum": [
+              "no_upstream_write"
+            ]
+          },
+          "upstream_id": {
+            "type": "null"
+          },
+          "execution_status": {
+            "type": "null"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "proposal_id",
+          "status",
+          "action_digest",
+          "effect",
+          "upstream_id",
+          "execution_status"
+        ]
+      },
       "V3AlertRuleDraftSpec": {
         "type": "object",
         "properties": {
@@ -68204,6 +68858,75 @@
           "checklist",
           "requirement",
           "discussion"
+        ]
+      },
+      "V3ProposalApprovalChallenge": {
+        "type": "object",
+        "properties": {
+          "challenge_id": {
+            "type": "string"
+          },
+          "options": {
+            "type": "object"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "proposal_id": {
+            "type": "string"
+          },
+          "action_digest": {
+            "type": "string"
+          },
+          "review_content_digest": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "challenge_id",
+          "options",
+          "expires_at",
+          "proposal_id",
+          "action_digest",
+          "review_content_digest"
+        ]
+      },
+      "V3ProposalApprovalResult": {
+        "type": "object",
+        "properties": {
+          "proposal_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_review",
+              "approved"
+            ]
+          },
+          "required_approvals": {
+            "type": "integer",
+            "minimum": 2
+          },
+          "received_approvals": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "execution_id": {
+            "type": "string"
+          },
+          "approval_digest": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "proposal_id",
+          "status",
+          "required_approvals",
+          "received_approvals"
         ]
       },
       "V3RunbookToolDisplay": {

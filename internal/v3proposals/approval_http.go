@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3alertmanager"
 	"github.com/wans/aiops-canvas/internal/v3passkey"
 )
 
@@ -38,7 +39,7 @@ func (s *Service) RegisterApprovals(api *httpapi.Server) {
 		handler := route.handler
 		api.Register(route.pattern, "viewer", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Cache-Control", "no-store")
-			if s == nil || s.DB == nil || s.ApprovalPasskeys == nil {
+			if s == nil || s.DB == nil || s.ApprovalPasskeys == nil || s.ApprovalWorkflow == nil {
 				httpapi.Error(w, 503, "proposal_approval_unavailable", "Proposal approval is unavailable")
 				return
 			}
@@ -89,6 +90,10 @@ func (s *Service) ApproveOptions(w http.ResponseWriter, r *http.Request) {
 		approvalHTTPError(w, err)
 		return
 	}
+	if err := s.approvalWorkflowReady(r.Context(), binding.ActionKind, binding.EnvironmentID); err != nil {
+		approvalHTTPError(w, err)
+		return
+	}
 	ceremony, err := s.ApprovalPasskeys.BeginBoundProposalAssertion(r.Context(), actor, binding)
 	if err != nil {
 		approvalHTTPError(w, err)
@@ -120,6 +125,10 @@ func (s *Service) Approve(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if err := s.approvalWorkflowReadyForProposal(r.Context(), r.PathValue("id"), actor.EnvironmentID); err != nil {
+		approvalHTTPError(w, err)
+		return
+	}
 	result, err := s.ApproveProposal(r.Context(), actor, r.PathValue("id"), in.ChallengeID,
 		in.Credential, in.Comment)
 	if err != nil {
@@ -131,6 +140,39 @@ func (s *Service) Approve(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusOK
 	}
 	httpapi.WriteJSON(w, status, result)
+}
+
+// The finish preflight runs before opening the approval transaction because
+// workflow readiness probes use their own DB connection. The domain still
+// locks and rechecks the proposal, action, human and passkey proof on commit.
+func (s *Service) approvalWorkflowReadyForProposal(ctx context.Context, proposalID, environmentID string) error {
+	if s == nil || s.DB == nil || s.ApprovalWorkflow == nil {
+		return v3alertmanager.ErrNotConfigured
+	}
+	var kind string
+	err := s.DB.QueryRow(ctx, `SELECT action_kind FROM v3_proposal_actions
+ WHERE proposal_id=$1 AND environment_id=$2`, proposalID, environmentID).Scan(&kind)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	return s.approvalWorkflowReady(ctx, kind, environmentID)
+}
+
+func (s *Service) approvalWorkflowReady(ctx context.Context, kind, environmentID string) error {
+	if s == nil || s.ApprovalWorkflow == nil {
+		return v3alertmanager.ErrNotConfigured
+	}
+	switch kind {
+	case v3alertmanager.ProposedSilenceCreateKind:
+		return s.ApprovalWorkflow.CreateReady(ctx, environmentID)
+	case v3alertmanager.ProposedSilenceCancelKind:
+		return s.ApprovalWorkflow.CancelReady(ctx, environmentID)
+	default:
+		return v3alertmanager.ErrNotConfigured
+	}
 }
 
 func approvalHTTPError(w http.ResponseWriter, err error) {

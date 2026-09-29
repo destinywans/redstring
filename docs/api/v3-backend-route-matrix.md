@@ -64,10 +64,10 @@
 | 事件与告警 | GET | `/silences` | 新增 | implemented |
 | 事件与告警 | GET | `/inhibitions` | 新增 | implemented |
 | 事件与告警 | POST | `/silences/preview` | 新增 | implemented |
-| 事件与告警 | POST | `/silences` | 新增 | mock |
-| 事件与告警 | DELETE | `/silences/{id}` | 新增 | mock |
+| 事件与告警 | POST | `/silences` | 新增 | implemented |
+| 事件与告警 | DELETE | `/silences/{id}` | 新增 | implemented |
 | 事件与告警 | GET | `/proposals/{id}` | 新增 | implemented |
-| 事件与告警 | POST | `/proposals/{id}/approve` | 新增 | mock |
+| 事件与告警 | POST | `/proposals/{id}/approve` | 新增 | implemented |
 | 事件与告警 | POST | `/proposals/{id}/reject` | 新增 | implemented |
 | 事件与告警 | POST | `/proposals/{id}/comments` | 新增 | implemented |
 | 事件与告警 | GET | `/executions/{id}` | 旧路径适配 | implemented |

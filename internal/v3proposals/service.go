@@ -29,6 +29,10 @@ type Service struct {
 	DB               *pgxpool.Pool
 	Access           Access
 	ApprovalPasskeys ProposalPasskeys
+	ApprovalWorkflow interface {
+		CreateReady(context.Context, string) error
+		CancelReady(context.Context, string) error
+	}
 }
 
 func New(db *pgxpool.Pool, access Access) *Service { return &Service{DB: db, Access: access} }

@@ -278,8 +278,17 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	if err := configureV3MFA(s, api, *info, os.Getenv("AIOPS_V3_MFA_KEY_FILE")); err != nil {
 		return err
 	}
-	if err := configureV3Passkey(s, api, *info, os.Getenv("AIOPS_V3_PASSKEY_ENABLED")); err != nil {
+	passkeyService, err := configureV3PasskeyService(s, api, *info, os.Getenv("AIOPS_V3_PASSKEY_ENABLED"))
+	if err != nil {
 		return err
+	}
+	silenceExecutionSetting := os.Getenv("AIOPS_V3_SILENCE_EXECUTION_ENABLED")
+	if silenceExecutionSetting != "" && silenceExecutionSetting != "false" && silenceExecutionSetting != "true" {
+		return fmt.Errorf("AIOPS_V3_SILENCE_EXECUTION_ENABLED must be true or false")
+	}
+	silenceExecutionEnabled := silenceExecutionSetting == "true"
+	if silenceExecutionEnabled && passkeyService == nil {
+		return fmt.Errorf("V3 silence execution requires proposal passkeys")
 	}
 	api.RegisterPublic("GET /api/v1/instance", func(w http.ResponseWriter, _ *http.Request) { httpapi.WriteJSON(w, http.StatusOK, info) })
 	if issuer, clientID, redirect := os.Getenv("AIOPS_V3_OIDC_ISSUER"), os.Getenv("AIOPS_V3_OIDC_CLIENT_ID"), os.Getenv("AIOPS_V3_OIDC_REDIRECT_URL"); issuer != "" || clientID != "" || redirect != "" || os.Getenv("AIOPS_V3_OIDC_CLIENT_SECRET") != "" {
@@ -330,7 +339,9 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		return fmt.Errorf("load V3 configuration promotion: %w", err)
 	}
 	configSync.Register(api)
-	v3proposals.New(s.DB, policy).Register(api)
+	proposalService := v3proposals.New(s.DB, policy)
+	proposalService.ApprovalPasskeys = passkeyService
+	proposalService.Register(api)
 	discovery := v3discovery.New(s.DB, policy)
 	textCommands, err := loadV3TextCommands(os.Getenv("AIOPS_V3_TEXT_COMMANDS_CONFIG"), cfg.EnvironmentIDs)
 	if err != nil {
@@ -379,10 +390,22 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		return fmt.Errorf("configure V3 alert rule assistant: %w", err)
 	}
 	(&v3ruleassistant.Service{DB: s.DB, Access: policy, Preview: rulePreview, Model: ruleDraftModel}).Register(api)
-	alertmanagerSource, alertmanagerLabels, alertmanagerBindings, alertmanagerPolicyBindings, err :=
-		loadV3AlertmanagerSourceWithPolicies(os.Getenv("AIOPS_V3_ALERTMANAGER_CONFIG"), *info, opsConfig, s.DB)
+	var alertmanagerSource *v3alertmanager.Client
+	var alertmanagerLabels map[string]string
+	var alertmanagerBindings map[string]map[string]string
+	var alertmanagerPolicyBindings map[string]v3events.GroupPolicyBinding
+	if silenceExecutionEnabled {
+		alertmanagerSource, alertmanagerLabels, alertmanagerBindings, alertmanagerPolicyBindings, err =
+			loadV3AlertmanagerWriteSource(os.Getenv("AIOPS_V3_ALERTMANAGER_CONFIG"), *info, opsConfig, s.DB)
+	} else {
+		alertmanagerSource, alertmanagerLabels, alertmanagerBindings, alertmanagerPolicyBindings, err =
+			loadV3AlertmanagerSourceWithPolicies(os.Getenv("AIOPS_V3_ALERTMANAGER_CONFIG"), *info, opsConfig, s.DB)
+	}
 	if err != nil {
 		return fmt.Errorf("load V3 Alertmanager source: %w", err)
+	}
+	if silenceExecutionEnabled && alertmanagerSource == nil {
+		return fmt.Errorf("V3 silence execution requires a private Alertmanager source")
 	}
 	routeDraftRepository, err := loadV3NotificationRouteRepository(configSync,
 		os.Getenv("AIOPS_V3_NOTIFICATION_ROUTE_TARGET_BRANCH"),
@@ -423,6 +446,27 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		EnvironmentLabels: alertmanagerLabels, ApplicationBindings: alertmanagerBindings,
 		RouteRepository: routeDraftRepository, InhibitionRepository: inhibitionRepository,
 		InhibitionHistory: inhibitionHistory,
+	}
+	var silenceWorker *v3SilenceWorker
+	if silenceExecutionEnabled {
+		ledger := v3alertmanager.NewDatabaseSilenceLedger(s.DB, policy, alertmanagerLabels, alertmanagerBindings)
+		producer := &v3proposals.SilenceProductProducer{
+			Proposals: proposalService, Ledger: ledger, Client: alertmanagerSource,
+		}
+		executor := &v3alertmanager.SilenceExecutor{
+			Ledger: ledger, Client: alertmanagerSource,
+			Actions:   &v3proposals.SilenceExecutionActionSource{Proposals: proposalService},
+			Approvals: &v3proposals.SilenceApprovalAuthority{Proposals: proposalService},
+		}
+		silenceWorker = newV3SilenceWorker(s.DB, executor)
+		executor.Worker = silenceWorker
+		proposalService.ApprovalWorkflow = executor
+		proposalService.RegisterApprovals(api)
+		alertmanagerService.SilenceCreateProposals = producer
+		alertmanagerService.SilenceCancelProposals = &v3alertmanager.DatabaseSilenceCancelProduct{
+			Ledger: ledger, Source: alertmanagerSource, Review: producer,
+		}
+		alertmanagerService.SilenceWorkflow = executor
 	}
 	if promotionRepository, ok := configSync.Repository.(*v3configsync.GitLabClient); ok && promotionRepository != nil {
 		alertmanagerService.ConfigPromotionProjectID = promotionRepository.ProjectID()
@@ -723,6 +767,13 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		go func() {
 			if err := trialRuntime.Run(ctx); err != nil && ctx.Err() == nil {
 				log.Printf("V3 alert rule trial worker stopped: %v", err)
+			}
+		}()
+	}
+	if silenceWorker != nil {
+		go func() {
+			if err := silenceWorker.Run(ctx); err != nil && ctx.Err() == nil {
+				log.Printf("V3 silence worker stopped: %v", err)
 			}
 		}()
 	}

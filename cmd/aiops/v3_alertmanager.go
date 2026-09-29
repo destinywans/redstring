@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -43,6 +44,25 @@ func loadV3AlertmanagerSourceWithPolicies(path string, instance v3Instance, ops 
 	if err != nil || len(contents) > 64<<10 {
 		return nil, nil, nil, nil, fmt.Errorf("Alertmanager configuration exceeds 64 KiB")
 	}
+	return parseV3AlertmanagerSourceWithPolicies(contents, instance, ops, db, false)
+}
+
+// loadV3AlertmanagerWriteSource is an explicit production write opt-in. It
+// uses one verified private configuration snapshot and never reads or returns
+// token bytes. The existing read-only loader retains its permissive behavior.
+func loadV3AlertmanagerWriteSource(path string, instance v3Instance, ops operations.Config, db *pgxpool.Pool) (*v3alertmanager.Client, map[string]string, map[string]map[string]string, map[string]v3events.GroupPolicyBinding, error) {
+	if path == "" {
+		return nil, nil, nil, nil, nil
+	}
+	contents, err := readV3RuleConfig(path, 64<<10)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("Alertmanager write configuration: %w", err)
+	}
+	return parseV3AlertmanagerSourceWithPolicies(contents, instance, ops, db, true)
+}
+
+func parseV3AlertmanagerSourceWithPolicies(contents []byte, instance v3Instance, ops operations.Config,
+	db *pgxpool.Pool, strictWrite bool) (*v3alertmanager.Client, map[string]string, map[string]map[string]string, map[string]v3events.GroupPolicyBinding, error) {
 	var config struct {
 		Environments map[string]struct {
 			URL                 string            `json:"url"`
@@ -80,6 +100,14 @@ func loadV3AlertmanagerSourceWithPolicies(path string, instance v3Instance, ops 
 	defer cancelValidation()
 	seenSourceIDs := make(map[string]bool)
 	for env, value := range config.Environments {
+		if strictWrite {
+			u, err := url.Parse(value.URL)
+			if err != nil || u.Scheme != "https" || value.AllowHTTP ||
+				len(value.SourceIDs) == 0 || len(value.ApplicationBindings) == 0 ||
+				!privateAlertmanagerTokenFile(value.BearerTokenFile) {
+				return nil, nil, nil, nil, fmt.Errorf("Alertmanager write source for %q requires HTTPS, private token and complete bindings", env)
+			}
+		}
 		if !known[env] || !alertmanagerLabel.MatchString(value.EnvironmentLabel) || value.EnvironmentLabel == "application" {
 			return nil, nil, nil, nil, fmt.Errorf("invalid Alertmanager environment binding %q", env)
 		}
@@ -149,4 +177,23 @@ func loadV3AlertmanagerSourceWithPolicies(path string, instance v3Instance, ops 
 		return nil, nil, nil, nil, err
 	}
 	return client, labels, bindings, policies, nil
+}
+
+func privateAlertmanagerTokenFile(path string) bool {
+	if !filepath.IsAbs(path) {
+		return false
+	}
+	before, err := os.Lstat(path)
+	if err != nil || !before.Mode().IsRegular() || before.Mode().Perm() != 0600 ||
+		before.Size() < 1 || before.Size() > 16<<10 {
+		return false
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	opened, err := file.Stat()
+	return err == nil && os.SameFile(before, opened) && opened.Mode().IsRegular() &&
+		opened.Mode().Perm() == 0600 && opened.Size() > 0 && opened.Size() <= 16<<10
 }

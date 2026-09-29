@@ -168,10 +168,10 @@
 | GET | `/silences` | `state: active\|planned\|expired\|all` | 静默列表及当前可见记录计数；应用标签需在服务端显式绑定到当前环境的有效应用 ID，再按应用/团队授权判断；环境明确但应用范围较宽的静默仅环境级静默管理员可见；无精确环境或匹配器歧义的静默不展示，宽范围只报告覆盖标志 | implemented |
 | GET | `/inhibitions` | 当前所选环境与应用/团队可见范围 | 当前 Alertmanager 抑制配置的受权子集；匹配值脱敏，`active`/`hits_7d` 未知，返回 `206 partial` | implemented |
 | POST | `/silences/preview` | `{ matchers: [{ k, op, v }] }`；单一环境 | `{ affects, sample }` | implemented |
-| POST | `/silences` | 单环境、开放调查、`Idempotency-Key`、`{ investigation_id, matchers: [{ name, op, value }], duration_seconds, comment }` | 批准与独立执行链就绪时仅 `202 pending_review` 提案回执、`effect=no_upstream_write`；当前 `501 not_connected` | mock |
-| DELETE | `/silences/{id}` | 已由本系统确认创建的上游 UUID；`Idempotency-Key`、`{ investigation_id, reason }` | 精确归属及上游读回通过、批准与独立执行链就绪时仅 `202 pending_review` 取消提案；当前 `501 not_connected` | mock |
+| POST | `/silences` | 单环境、开放调查、`Idempotency-Key`、`{ investigation_id, matchers: [{ name, op, value }], duration_seconds, comment }` | 严格私有来源、持久审批与独立 worker 就绪时 `202 pending_review` 提案回执、`effect=no_upstream_write`；默认关闭时 `501 not_connected` | implemented |
+| DELETE | `/silences/{id}` | 已由本系统确认创建的上游 UUID；`Idempotency-Key`、`{ investigation_id, reason }` | 精确归属及上游读回、审批与独立 worker 就绪时 `202 pending_review` 取消提案；默认关闭时 `501 not_connected` | implemented |
 | GET | `/proposals/{id}` | | `Proposal` | implemented |
-| POST | `/proposals/{id}/approve` | `{ comment? }`（需通行密钥二次验证） | `{ execution_id }` | mock |
+| POST | `/proposals/{id}/approve` | 单环境、当前真人会话；先调用辅助 `POST /proposals/{id}/approve/options` 传 `{ confirm: true }` 获取提案绑定的五分钟挑战，再传 `{ challenge_id, credential, comment? }` | 首位独立批准人 `202 { status: pending_review, received_approvals: 1 }`，不含执行 ID；第二位独立批准人 `200 { status: approved, received_approvals: 2, execution_id, approval_digest }`；`200` 是持久历史决定与交接标识，不证明当前可执行、已领取或已执行 | implemented |
 | POST | `/proposals/{id}/reject` | `{ comment? }`；仅待审提案，由人类身份执行 | 更新后的提案 | implemented |
 | POST | `/proposals/{id}/comments` | `{ text }`；可选 `Idempotency-Key` 请求头 | 评论 | implemented |
 | GET | `/executions/{id}` | 当前有权的持久执行 ID | 旧动作执行、审批、事件、可得恢复观察及结案报告的来源投影；V3 提案关联与图表未知 | implemented |
@@ -193,7 +193,9 @@
 
 `POST /silences/preview` 按所选单一环境读取实时 Alertmanager 告警快照。请求支持 `=`、`!=`、`=~`、`!~`（1–20 条）；环境是隐含的精确匹配。精确 `application=` 值必须在服务端绑定到有效应用并有当前应用/团队 `silences.view`，无应用匹配则要求环境级 `silences.view` 与 `silences.manage`。Alertmanager 读取后再次核对当前授权和应用归属。`affects` 是此刻该环境匹配告警的完整条数，`sample` 仅为最多 5 个去重排序的真实 `alertname`；来源异常、超过 500 条该环境告警或异常 `null` 均返回 503，不给部分计数。预览不会创建静默。现有页面默认仅传 service/alertname，普通应用用户会因缺精确应用匹配收到 403，且页面尚未正确清除旧预览/失败状态；后端路由已闭合，页面和真实 Alertmanager 尚未验收。`GET /alerts/{id}` 从来源绑定的持久事件及本地通知传输台账返回有证据字段，来源、规则、曲线、分组、Runbook 等缺精确发生记录关联时为 `null` 并列入 `unavailable`；`source_id` 只标记入站身份，不证明当前上游健康。`POST /alerts/{id}/claim` 以 GET 的事件行修订作前置条件，事务内复核人类会话与查看/修改权、更新认领与审计，再返回修订后的详情；冻结前端仍传空请求体并假称外部升级已停止，页面未验收。
 
-`POST /silences` 与 `DELETE /silences/{id}` 已注册为提案入口。配置齐全时仅返回待审提案，不直接写 Alertmanager；审批/执行链未接线时返回 `501 not_connected`。创建和取消提案保留固定动作、当前调查/应用/权限证据、摘要、幂等键与审计；取消还绑定已确认的创建操作和完整上游快照。独立执行器模块在事务内重验获批证明、当前资源与权限，提交一次性执行记录后才允许一次上游写入，随后只读回查；不确定结果不重发。底层创建不带客户端 ID，过期使用单数 `/silence/{id}`；代理返回的 404 也不能证明取消成功。对账的单端点快照不能证明 HA 收敛后的全局唯一。当前缺 WAN-117 持久批准状态/双人 passkey 证明与 worker 启动接线，迁移 141 未执行，也未做真实 Alertmanager 验证；两条主契约仍为 `mock`。接线要求见 [V3 静默执行交接](v3-silence-executor.md)。
+`POST /silences` 与 `DELETE /silences/{id}` 已接入提案生产者、持久双人 Passkey 批准和独立 worker。默认关闭；仅 `AIOPS_V3_SILENCE_EXECUTION_ENABLED=true`、提案 Passkey 与严格私有 Alertmanager HTTPS 来源齐全，且请求时审批表、来源、worker 轮询和数据库均就绪时接受提案，否则返回 501/503。两条提案入口只返回 `202 pending_review`，不直接写 Alertmanager。创建和取消提案保留固定动作、当前调查/应用/权限证据、摘要、幂等键与审计；取消还绑定已确认的创建操作和完整上游快照。第二位独立真人批准人提交后只生成持久批准决定与 `execution_id`；worker 随后读取决定，执行器在事务内重验获批证明、当前资源与权限，提交一次性执行记录后才允许一次上游写入，随后只读回查；不确定结果不重发。底层创建不带客户端 ID，过期使用单数 `/silence/{id}`；代理返回的 404 也不能证明取消成功。对账的单端点快照不能证明 HA 收敛后的全局唯一。迁移 140/141/145、真实 Alertmanager/Passkey、页面和外部执行仍未在本轮验收；三条主路由仅按**有条件后端代码路径**计 `implemented`，不表示静默已执行或部署可用。接线与运行边界见 [V3 静默执行交接](v3-silence-executor.md)。
+
+辅助 `POST /proposals/{id}/approve/options` 只发起提案 ID、动作/审阅摘要、当前账号/会话与实例/RP 绑定的 WebAuthn 挑战，不投票。正式批准消费一次挑战并在同一事务重核当前真人身份、会话、应用/团队/环境授权和持久提案；创建者不能批准，两个批准人互不相同且不能由账户登录断言替代。首票只保存待审票据，第二票原子生成获批决定与 `execution_id`；批准处理器本身绝不调用 Alertmanager。相同挑战和请求体重试可返回原历史决定，包括批准证据已过期或撤销后的 `200 approved`；不同内容或新投票时的失效状态冲突。执行器领取时会重新核验证据，历史批准回包不代表当前执行许可。冻结前端尚无该挑战及两票流程，页面未验收。
 
 `GET /inhibitions` 仅展示来源/目标都绑定当前环境、应用归属有效且当前用户有相应应用或团队 `silences.view` 的规则；宽应用范围要求同环境的查看与管理授权。跨环境、匹配器歧义与失效绑定不会出现在列表；任一已授权上游来源失败时返回 503，不给部分规则。成功响应始终为 `206 partial`，匹配值脱敏，逐规则活动状态与命中数为 `null`；当前有来源、授权、错误和明确未知字段的后端契约计为 `implemented`，不代表完整活动状态或页面验收。见[抑制规则与草稿契约](v3-inhibition-drafts.md)。
 

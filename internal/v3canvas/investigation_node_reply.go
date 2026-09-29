@@ -76,7 +76,7 @@ func (s *Service) investigationNodeMessage(w http.ResponseWriter, r *http.Reques
 	if in.Model == "" {
 		var preference string
 		var err error
-		model, preference, err = s.defaultNodeChoice(r.Context(), user.ID)
+		model, preference, err = s.defaultNodeChoice(r.Context(), user.ID, envs[0])
 		if err != nil {
 			(&graphFailure{503, "model_unavailable", "Default model is unavailable"}).write(w)
 			return
@@ -86,7 +86,7 @@ func (s *Service) investigationNodeMessage(w http.ResponseWriter, r *http.Reques
 		}
 	} else {
 		var found bool
-		model, found = s.selectedModel(in.Model)
+		model, found = s.selectedModelForEnvironment(envs[0], in.Model)
 		if !found {
 			(&graphFailure{422, "invalid_model", "Selected model is not configured"}).write(w)
 			return
@@ -106,7 +106,7 @@ func (s *Service) investigationNodeMessage(w http.ResponseWriter, r *http.Reques
 	stop := s.watchInvestigationReply(ctx, cancel, r, user, envs[0], id)
 	answer, runErr := s.Runtime.Run(ctx, inference.Request{
 		RunID: id, AttemptID: id, BranchID: r.PathValue("node"),
-		ModelID: model.ID, Reasoning: in.Reasoning, Messages: snapshot,
+		EnvironmentID: envs[0], ModelID: model.ID, Reasoning: in.Reasoning, Messages: snapshot,
 		MaxCalls: 1, MaxToolCalls: 1, TimeoutSeconds: int(nodeRunTimeout.Seconds()),
 	}, func(event inference.Event) error {
 		if event.Type == "evidence" || event.Invocation != nil {
@@ -218,6 +218,9 @@ func (s *Service) startInvestigationReply(r *http.Request, user core.User, env s
 	}
 	if err = auditInvestigationReply(ctx, tx, user.ID, target.application, id, nodeID, investigationID, "reply_started", "started", ""); err != nil {
 		return "", nil, graphUnavailable()
+	}
+	if failure = s.canvasSession(ctx, tx, r); failure != nil {
+		return "", nil, failure
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return "", nil, graphUnavailable()
@@ -396,6 +399,9 @@ func (s *Service) completeInvestigationReply(r *http.Request, user core.User, en
 	}
 	if err = auditInvestigationReply(ctx, tx, user.ID, target.application, id, nodeID, investigationID, "reply_completed", "success", ""); err != nil {
 		return graphUnavailable()
+	}
+	if failure = s.canvasSession(ctx, tx, r); failure != nil {
+		return failure
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return graphUnavailable()

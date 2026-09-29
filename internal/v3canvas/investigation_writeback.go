@@ -312,6 +312,10 @@ func (s *Service) investigationWritebackPreview(w http.ResponseWriter, r *http.R
 		graphUnavailable().write(w)
 		return
 	}
+	if failure = s.canvasSession(ctx, tx, r); failure != nil {
+		failure.write(w)
+		return
+	}
 	if err = tx.Commit(ctx); err != nil {
 		graphUnavailable().write(w)
 		return
@@ -608,6 +612,10 @@ func (s *Service) writebackInvestigation(w http.ResponseWriter, r *http.Request)
 			"mode": in.Mode, "message_ids": messageIDs}))
 	if err != nil {
 		(&graphFailure{503, "audit_unavailable", "Writeback audit unavailable"}).write(w)
+		return
+	}
+	if failure = s.canvasSession(ctx, tx, r); failure != nil {
+		failure.write(w)
 		return
 	}
 	if err = tx.Commit(ctx); err != nil {

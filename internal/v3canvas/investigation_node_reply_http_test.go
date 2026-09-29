@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,6 +22,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3models"
 )
 
 type investigationReplyRunner struct {
@@ -29,7 +31,10 @@ type investigationReplyRunner struct {
 }
 
 func (*investigationReplyRunner) Models() []inference.Model {
-	return []inference.Model{{ID: "test-reply", Name: "Controlled Reply", Provider: "Test", ReasoningLevels: []string{"high"}}}
+	return []inference.Model{
+		{ID: "test-reply", Name: "Controlled Reply", Provider: "Test", ReasoningLevels: []string{"high"}},
+		{ID: "staging-reply", Name: "Other Environment Reply", Provider: "Test"},
+	}
 }
 
 func (f *investigationReplyRunner) Run(ctx context.Context, req inference.Request, _ func(inference.Event) error) (string, error) {
@@ -178,7 +183,7 @@ func TestInvestigationNodeReplyRegisteredRoute(t *testing.T) {
 	var called int
 	runner.set(func(_ context.Context, req inference.Request) (string, error) {
 		called++
-		if req.BranchID != child || req.ModelID != "test-reply" || req.Reasoning != "high" || len(req.Tools) != 0 {
+		if req.BranchID != child || req.EnvironmentID != "test" || req.ModelID != "test-reply" || req.Reasoning != "high" || len(req.Tools) != 0 {
 			t.Errorf("unsafe model request: %+v", req)
 		}
 		var content strings.Builder
@@ -472,6 +477,84 @@ func TestInvestigationNodeReplyRegisteredRoute(t *testing.T) {
  ON r.branch_id=b.id AND r.revision=b.revision WHERE b.id='root-reply'`).Scan(&adapterRevision, &adapterContext); err != nil ||
 		adapterRevision != 2 || !strings.Contains(string(adapterContext), "adapter answer") {
 		t.Fatalf("adapter not committed: revision=%d context=%s err=%v", adapterRevision, adapterContext, err)
+	}
+	bindingsPath := filepath.Join(t.TempDir(), "models.json")
+	bindingsJSON := `{"tier":"nonprod","environments":[{"id":"test","models":["test-reply"],"default_model":"test-reply"},{"id":"staging","models":["staging-reply"],"default_model":"staging-reply"}]}`
+	if err = os.WriteFile(bindingsPath, []byte(bindingsJSON), 0600); err != nil {
+		t.Fatal(err)
+	}
+	bindings, err := v3models.LoadBindings(bindingsPath, "nonprod", []string{"test", "staging"}, runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	boundAPI := httpapi.New(st, nil, true)
+	NewWithRuntime(st, v3models.NewBoundRunner(runner, bindings)).Register(boundAPI)
+	if err = boundAPI.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "test", EnvironmentIDs: []string{"test", "staging"}},
+		policy, st.Session, func(ctx context.Context, user core.User, module, action, environment string) error {
+			return policy.Authorize(ctx, user, rbac.V3Decision{Module: module, Action: action, EnvironmentID: environment})
+		}); err != nil {
+		t.Fatal(err)
+	}
+	boundPost := func(token, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/investigations/INV-reply/nodes/root-reply/messages", strings.NewReader(body))
+		r.Header.Set("X-AIOps-Environment", "test")
+		r.Header.Set("Content-Type", "application/json")
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		w := httptest.NewRecorder()
+		boundAPI.ServeHTTP(w, r)
+		return w
+	}
+	boundCalls := 0
+	runner.set(func(_ context.Context, req inference.Request) (string, error) {
+		boundCalls++
+		if req.EnvironmentID != "test" || req.ModelID != "test-reply" {
+			t.Errorf("reply did not use persisted investigation environment binding: %+v", req)
+		}
+		return "bound environment answer", nil
+	})
+	if denied := boundPost(ownerToken, `{"text":"cross environment","model":"staging-reply"}`); denied.Code != 422 || boundCalls != 0 {
+		t.Fatalf("cross-environment model status=%d body=%s calls=%d", denied.Code, denied.Body.String(), boundCalls)
+	}
+	if accepted := boundPost(ownerToken, `{"text":"bound default"}`); accepted.Code != 200 || boundCalls != 1 {
+		t.Fatalf("bound default status=%d body=%s calls=%d", accepted.Code, accepted.Body.String(), boundCalls)
+	}
+	// Revoking the exact Cookie while the local runner is blocked must prevent
+	// its answer from becoming a branch revision.
+	_, runToken, err := st.Login(ctx, owner.Email, "isolated-user-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runStarted, runFinish := make(chan struct{}), make(chan struct{})
+	runner.set(func(runCtx context.Context, _ inference.Request) (string, error) {
+		close(runStarted)
+		select {
+		case <-runFinish:
+			return "logged out answer", nil
+		case <-runCtx.Done():
+			return "", runCtx.Err()
+		}
+	})
+	loggedOut := make(chan *httptest.ResponseRecorder, 1)
+	go func() { loggedOut <- boundPost(runToken, `{"text":"logout while generating"}`) }()
+	select {
+	case <-runStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("bound model did not start")
+	}
+	if err = st.Logout(ctx, runToken); err != nil {
+		t.Fatal(err)
+	}
+	close(runFinish)
+	select {
+	case denied := <-loggedOut:
+		if denied.Code == 200 {
+			t.Fatalf("logged-out model reply persisted: %s", denied.Body.String())
+		}
+	case <-time.After(8 * time.Second):
+		t.Fatal("logged-out model reply did not finish")
+	}
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM context_revisions WHERE branch_id='root-reply' AND messages::text LIKE '%logged out answer%'`).Scan(&leaked); err != nil || leaked != 0 {
+		t.Fatalf("logged-out answer persisted=%d err=%v", leaked, err)
 	}
 	if _, err = db.Exec(ctx, `UPDATE investigations SET status='closed' WHERE id='INV-reply'`); err != nil {
 		t.Fatal(err)

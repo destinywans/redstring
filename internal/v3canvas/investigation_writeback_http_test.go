@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -318,6 +319,82 @@ func TestInvestigationWritebackRegisteredRoutes(t *testing.T) {
 		t.Fatalf("legacy rewrite restored applied candidates: %s", w.Body.String())
 	}
 	assertStatus(post(ownerToken, `{"node":"wb-grand","target":"wb-root","mode":"summary","items":["grand-answer"],"expected_source_revision":1,"expected_target_revision":4}`), 409)
+	// The Cookie may expire while a request waits on the investigation or
+	// branch row. Preview must not reveal the old snapshot, and writeback must
+	// not commit its context, event, or audit after the wait.
+	for _, tc := range []struct {
+		name, role, lockSQL, method, path, body string
+	}{
+		{"preview", "wb-view", `SELECT id FROM investigations WHERE id='INV-wb' FOR UPDATE`, http.MethodGet,
+			"/api/v1/investigations/INV-wb/writeback-preview?node=wb-grand", ""},
+		{"writeback", "wb-change", `SELECT id FROM branches WHERE id='wb-grand' FOR UPDATE`, http.MethodPost,
+			"/api/v1/investigations/INV-wb/writeback",
+			`{"node":"wb-grand","target":"wb-child","mode":"summary","items":["grand-late-answer"],"expected_source_revision":1,"expected_target_revision":2}`},
+	} {
+		t.Run("expired during "+tc.name+" lock wait", func(t *testing.T) {
+			_, token := createUser("expiry-"+tc.name+"@example.invalid", tc.role)
+			blocker, e := db.Begin(ctx)
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer blocker.Rollback(context.Background())
+			var blockerPID int32
+			if e = blocker.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&blockerPID); e != nil {
+				t.Fatal(e)
+			}
+			var lockedID string
+			if e = blocker.QueryRow(ctx, tc.lockSQL).Scan(&lockedID); e != nil {
+				t.Fatal(e)
+			}
+			if _, e = db.Exec(ctx, `UPDATE sessions SET expires_at=clock_timestamp()+interval '1200 milliseconds' WHERE token_hash=$1`, store.Hash(token)); e != nil {
+				t.Fatal(e)
+			}
+			responses := make(chan *httptest.ResponseRecorder, 1)
+			go func() { responses <- request(tc.method, token, tc.path, tc.body) }()
+			deadline := time.Now().Add(6 * time.Second)
+			for {
+				var blocked bool
+				if e = db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity a
+ WHERE a.pid<>pg_backend_pid() AND $1=ANY(pg_blocking_pids(a.pid)))`, blockerPID).Scan(&blocked); e != nil {
+					t.Fatal(e)
+				}
+				if blocked {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("request did not wait on locked investigation or branch")
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			for {
+				var expired bool
+				if e = db.QueryRow(ctx, `SELECT expires_at<=clock_timestamp() FROM sessions WHERE token_hash=$1`, store.Hash(token)).Scan(&expired); e != nil {
+					t.Fatal(e)
+				}
+				if expired {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("blocked session did not expire")
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			if e = blocker.Rollback(ctx); e != nil {
+				t.Fatal(e)
+			}
+			select {
+			case response := <-responses:
+				if response.Code != 401 {
+					t.Fatalf("expired request status=%d body=%s", response.Code, response.Body.String())
+				}
+			case <-time.After(6 * time.Second):
+				t.Fatal("blocked request did not finish")
+			}
+		})
+	}
+	if err = db.QueryRow(ctx, `SELECT revision FROM branches WHERE id='wb-child'`).Scan(&revision); err != nil || revision != 2 {
+		t.Fatalf("expired writeback changed target revision=%d err=%v", revision, err)
+	}
 	if _, err = db.Exec(ctx, `UPDATE investigations SET status='closed' WHERE id='INV-wb'`); err != nil {
 		t.Fatal(err)
 	}

@@ -25,6 +25,8 @@ import (
 type Service struct {
 	Store   *store.Store
 	Runtime inference.Runner
+	// MeEvidence supplies current, verifiable identity and on-call state.
+	MeEvidence MeEvidence
 	// ToolModels is the operator-enabled V3 read-tool allowlist. Legacy model
 	// capabilities remain on Runtime and are not changed by this catalog.
 	ToolModels map[string]bool
@@ -364,10 +366,10 @@ func (s *Service) Register(api *httpapi.Server) {
 	s.registerProfile(api)
 	s.registerAI(api)
 	api.Register("GET /api/v1/me", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		respond(w, nil, errIdentityUnavailable)
+		s.getMeHTTP(w, r)
 	})
 	api.Register("PATCH /api/v1/me", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		respond(w, nil, errIdentityUnavailable)
+		s.patchMeHTTP(w, r)
 	})
 	api.Register("PATCH /api/v1/me/preferences", "viewer", func(w http.ResponseWriter, r *http.Request) {
 		p, ok := decodePreferencesPatch(w, r)

@@ -275,18 +275,78 @@ S['V3NotificationRouteTestRequest'] = obj({
         'properties':{'application':string(minLength=1,maxLength=256)},
         'required':['application'],'additionalProperties':string(maxLength=1024),
         'description':'Values are limited to 1024 UTF-8 bytes and cannot contain NUL or line breaks. The configured environment label is enforced server-side; application must have an exact active binding.'}}, ['labels'])
+S['V3NotificationRoutePathLeaf'] = obj({
+    'node_ids':arr(string()),'receiver_refs':arr(string()),'group_by':arr(string()),
+    **fieldnames('group_wait group_interval repeat_interval')},
+    ['node_ids','receiver_refs','group_by','group_wait','group_interval','repeat_interval'])
 S['V3NotificationRouteTestResult'] = obj({
-    **fieldnames('environment_id application_id group_wait group_interval repeat_interval'),
-    'receiver_names':arr(string()),'group_by':arr(string()),
+    **fieldnames('environment_id application_id'),
+    'config_revision':string(pattern='^sha256:[a-f0-9]{64}$'),
+    'paths':arr(ref('V3NotificationRoutePathLeaf')),
     'observed_at':string(format='date-time'),
-    **{name:{'type':'null'} for name in ['path','hits','channel_targets']},
+    **{name:{'type':'null'} for name in ['hits','channel_targets']},
     'partial':v3_bool(),'unavailable':arr(string())},
-    ['environment_id','application_id','receiver_names','group_by','group_wait',
-     'group_interval','repeat_interval','observed_at','path','hits',
-     'channel_targets','partial','unavailable'])
+    ['environment_id','application_id','config_revision','paths','observed_at',
+     'hits','channel_targets','partial','unavailable'])
+S['V3NotificationRouteMatcher'] = obj({
+    'k':string(),'op':string(enum=['=','!=','=~','!~']),
+    'value_redacted':v3_bool()},['k','op','value_redacted'])
+S['V3NotificationRouteNode'] = obj({
+    **fieldnames('id title group_wait group_interval repeat_interval'),
+    'matchers':arr(ref('V3NotificationRouteMatcher')),
+    'receiver_refs':arr(string()),'group_by':arr(string()),
+    'continue':v3_bool(),'conditional':v3_bool(),
+    'children':arr(ref('V3NotificationRouteNode'))},
+    ['id','title','matchers','receiver_refs','group_by','group_wait','group_interval',
+     'repeat_interval','continue','conditional','children'])
+S['V3NotificationRouteTree'] = obj({
+    'environment_id':string(),'source':string(enum=['alertmanager']),
+    'config_revision':string(pattern='^sha256:[a-f0-9]{64}$'),
+    'observed_at':string(format='date-time'),'root':ref('V3NotificationRouteNode'),
+    'partial':v3_bool(),'unavailable':arr(string())},
+    ['environment_id','source','config_revision','observed_at','root','partial','unavailable'])
+v3_route('get','/notification-routes','Read the scoped active Alertmanager route tree',
+    response=ref('V3NotificationRouteTree'),
+    desc='Requires exactly one selected environment and environment-wide alert_rules.view plus alert_rules.manage. Reads configured Alertmanager status and exposes only a subtree proven to be selected by one exact environment matcher. Ambiguous shared routing, missing source, malformed or over-limit configuration fail closed. Matcher values and receiver names are redacted to opaque per-revision receiver refs; receiver definitions, channel targets, credentials and raw YAML are excluded. The quoted config_revision is also returned as the ETag for a conditional draft request. Hit counts, on-call, escalation and current interval activity remain unavailable. Current session and grants are rechecked after the provider read. The frozen frontend expects channel targets and numeric hits and is not accepted.')
+P['/notification-routes']['get']['responses']['501'] = {'description':'No trusted environment route source is connected',
+    'content':{'application/json':{'schema':ref('Error')}}}
+S['V3NotificationRouteDraftMatcher'] = obj({
+    'k':string(pattern='^[a-zA-Z_][a-zA-Z0-9_]*$'),
+    'op':string(enum=['=','!=','=~','!~']),'v':string(maxLength=256)},['k','op','v'])
+S['V3NotificationRouteDraftRequest'] = obj({
+    'application_id':string(minLength=1,maxLength=128),
+    'name':string(minLength=1,maxLength=120),
+    'matchers':{'type':'array','maxItems':20,'items':ref('V3NotificationRouteDraftMatcher')},
+    'receiver_ref':string(minLength=10,maxLength=24),
+    'group_by':{'type':'array','minItems':1,'maxItems':20,'items':string()},
+    **fieldnames('group_wait group_interval repeat_interval'),
+    'continue':v3_bool()},
+    ['application_id','name','matchers','receiver_ref','group_by','group_wait',
+     'group_interval','repeat_interval','continue'])
+S['V3NotificationRouteDraftResponse'] = obj({
+    'id':string(),'status':string(enum=['pending_review']),
+    'status_basis':string(enum=['local_submission']),
+    'effect':string(enum=['no_runtime_change_by_this_endpoint']),
+    'current_mr_state':{'type':'null'},'runtime_state':{'type':'null'},
+    'source_revision':string(pattern='^sha256:[a-f0-9]{64}$'),
+    'review':obj({'project_id':integer(minimum=1),
+        'merge_request_iid':integer(minimum=1),'url':string()},
+        ['project_id','merge_request_iid','url'])},
+    ['id','status','status_basis','effect','current_mr_state','runtime_state','source_revision','review'])
+v3_route('post','/notification-routes','Create a reviewed GitOps route draft',
+    role='operator',body=ref('V3NotificationRouteDraftRequest'),
+    response=ref('V3NotificationRouteDraftResponse'),status=202,
+    desc='Requires one environment, environment-wide alert_rules.view/manage, a current active explicitly bound application, Idempotency-Key, and a quoted If-Match equal to the GET config_revision ETag. The server enforces environment/application scope, validates bounded route matchers and timing, and accepts only an existing opaque receiver ref from the observed route tree. A durable audited attempt exports an immutable JSON proposal to the configured GitLab project using a branch prefix and target branch distinct from config-sync promotions, and returns a verified open MR identity. Distinct targets avoid the config-sync global merged-MR page limit even in one GitOps project. pending_review is the local submission state, not a live MR-state query; current_mr_state and runtime_state remain null on later retries. The draft carries the source revision, exact environment/application matchers and a documented receiver-ref resolution strategy; sibling insertion order requires manual review. Retrying the same key reconciles the same branch/path/payload; conflicting keys or stale source versions fail closed. A timeout or untrusted MR result remains uncertain and never returns success. This endpoint does not change running Alertmanager, import or merge the MR, send a notification, or claim active routing. The proposal requires config-owner review and a separate, version-checked activation process. The frozen drawer omits receiver and timing inputs and cannot submit this request.')
+P['/notification-routes']['post']['parameters'] += [
+    {'name':'Idempotency-Key','in':'header','required':True,'schema':string(minLength=8,maxLength=128)},
+    {'name':'If-Match','in':'header','required':True,'schema':string(description='Quoted config_revision ETag from GET /notification-routes')}]
+P['/notification-routes']['post']['responses']['501'] = {'description':'Trusted GitOps route repository or exact Alertmanager source is not connected; no draft was exported',
+    'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('post','/notification-routes/test','Evaluate current Alertmanager policy for a bound sample alert',
     body=ref('V3NotificationRouteTestRequest'), response=ref('V3NotificationRouteTestResult'),
-    desc='Read-only policy observation; does not save a route, send a notification or test a draft. Requires one selected environment and environment-wide alert_rules.view plus alert_rules.manage because arbitrary sample labels could reveal shared routing configuration. labels must contain an exact application provider label explicitly bound to a current active application; the configured environment label is enforced by the server. The environment grant, application binding and current owner are rechecked after the Alertmanager status read. Returns only sanitized receiver names and observed grouping/timing. Time-conditional or conflicting policy returns 503 instead of claiming a current receiver. Route path, 24-hour hits, receiver channels/targets and current time-interval activity are unknown/null. The frozen frontend sends a labels string and expects a path and receiver string, so page acceptance remains pending.')
+    desc='Read-only path evaluation against the current exactly scoped Alertmanager route tree; does not save a route, send a notification or test a draft. Requires one selected environment and environment-wide alert_rules.view plus alert_rules.manage because arbitrary sample labels could reveal shared routing configuration. labels must contain an exact application provider label explicitly bound to a current active application; the configured environment label is enforced by the server. The environment grant, application binding and current owner are rechecked after the Alertmanager status read. Returns each matching node-ID path with opaque receiver refs and inherited grouping/timing. Conditional time intervals or ambiguous shared routing return 503 rather than a claimed current path. Missing source returns 501 not_connected. 24-hour hits, receiver channels/targets and current time-interval activity remain unknown/null. The frozen frontend sends a labels string and expects a receiver string, so page acceptance remains pending.')
+P['/notification-routes/test']['post']['responses']['501'] = {'description':'Exact Alertmanager route source is not connected',
+    'content':{'application/json':{'schema':ref('Error')}}}
 
 S['V3SilenceMatcher'] = obj(fieldnames('k v'), ['k','v'])
 S['V3SilencePreviewMatcher'] = obj({'k':string(pattern='^[a-zA-Z_][a-zA-Z0-9_]*$'),'op':string(enum=['=','!=','=~','!~']),

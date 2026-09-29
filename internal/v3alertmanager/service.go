@@ -13,6 +13,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3configsync"
 )
 
 // Source is a trusted, environment-bound Alertmanager client. The service
@@ -23,10 +24,29 @@ type Source interface {
 	ListAlerts(context.Context, string) ([]Alert, error)
 }
 
+// RouteRepository exports a versioned route draft to a reviewed GitLab MR.
+// It never installs or activates Alertmanager configuration.
+type RouteRepository interface {
+	ProjectID() int64
+	BranchPrefix() string
+	TargetBranch() string
+	Export(context.Context, string, string, []byte, string) (v3configsync.MR, error)
+}
+
 type Service struct {
-	Source  Source
-	Catalog Catalog
-	Access  Access
+	Source          Source
+	RouteRepository RouteRepository
+	// ConfigPromotionBranchPrefix is the active config-sync import namespace.
+	// Route draft MRs must use a disjoint branch namespace so config-sync never
+	// mistakes their JSON proposals for importable promotions.
+	ConfigPromotionBranchPrefix string
+	// The route draft uses this existing GitOps project with a distinct target.
+	ConfigPromotionProjectID int64
+	// ConfigPromotionTargetBranch is the target branch scanned by config-sync.
+	// Route draft MRs use a separate target to avoid filling its global MR list.
+	ConfigPromotionTargetBranch string
+	Catalog                     Catalog
+	Access                      Access
 	// EnvironmentLabels maps a V3 environment to the Alertmanager label used
 	// for its exact scope. Values come from trusted server configuration.
 	EnvironmentLabels map[string]string
@@ -63,6 +83,10 @@ func (s *Service) Register(api *httpapi.Server) {
 	api.MarkV3ObjectRoute("GET /api/v1/inhibitions", "silences", "view")
 	api.Register("POST /api/v1/notification-routes/test", "viewer", s.TestNotificationRoute)
 	api.MarkV3Route("POST /api/v1/notification-routes/test", "alert_rules", "manage")
+	api.Register("GET /api/v1/notification-routes", "viewer", s.NotificationRoutes)
+	api.MarkV3Route("GET /api/v1/notification-routes", "alert_rules", "view")
+	api.Register("POST /api/v1/notification-routes", "operator", s.CreateNotificationRoute)
+	api.MarkV3Route("POST /api/v1/notification-routes", "alert_rules", "manage")
 }
 
 func (s *Service) List(w http.ResponseWriter, r *http.Request) {

@@ -15,10 +15,9 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
-// routePolicySource reads a configured Alertmanager policy for one exact label
-// set. Its result contains receiver names, never receiver targets or secrets.
-type routePolicySource interface {
-	ObserveGroupPolicy(context.Context, string, map[string]string) (GroupPolicyObservation, error)
+// routePathSource evaluates one sample against the configured, scoped tree.
+type routePathSource interface {
+	EvaluateRoutePath(context.Context, string, string, map[string]string) (RoutePathObservation, error)
 }
 
 type routeTxAccess interface {
@@ -26,19 +25,15 @@ type routeTxAccess interface {
 }
 
 type routeTestResult struct {
-	EnvironmentID  string   `json:"environment_id"`
-	ApplicationID  string   `json:"application_id"`
-	ReceiverNames  []string `json:"receiver_names"`
-	GroupBy        []string `json:"group_by"`
-	GroupWait      string   `json:"group_wait"`
-	GroupInterval  string   `json:"group_interval"`
-	RepeatInterval string   `json:"repeat_interval"`
-	ObservedAt     string   `json:"observed_at"`
-	Path           any      `json:"path"`
-	Hits           any      `json:"hits"`
-	ChannelTargets any      `json:"channel_targets"`
-	Partial        bool     `json:"partial"`
-	Unavailable    []string `json:"unavailable"`
+	EnvironmentID  string          `json:"environment_id"`
+	ApplicationID  string          `json:"application_id"`
+	ConfigRevision string          `json:"config_revision"`
+	Paths          []RoutePathLeaf `json:"paths"`
+	ObservedAt     string          `json:"observed_at"`
+	Hits           any             `json:"hits"`
+	ChannelTargets any             `json:"channel_targets"`
+	Partial        bool            `json:"partial"`
+	Unavailable    []string        `json:"unavailable"`
 }
 
 // TestNotificationRoute evaluates a sample against the live configured policy.
@@ -103,14 +98,18 @@ func (s *Service) TestNotificationRoute(w http.ResponseWriter, r *http.Request) 
 		labels[key] = value
 	}
 	labels[envLabel] = env
-	policySource, ok := s.Source.(routePolicySource)
+	pathSource, ok := s.Source.(routePathSource)
 	client, isClient := s.Source.(*Client)
-	if !ok || policySource == nil || isClient && client == nil {
-		httpapi.Error(w, http.StatusServiceUnavailable, "route_source_unavailable", "Routing policy source is unavailable")
+	if !ok || pathSource == nil || isClient && client == nil {
+		httpapi.Error(w, http.StatusNotImplemented, "not_connected", "An exact Alertmanager route source is not connected")
 		return
 	}
-	policy, err := policySource.ObserveGroupPolicy(r.Context(), env, labels)
+	path, err := pathSource.EvaluateRoutePath(r.Context(), env, envLabel, labels)
 	if err != nil {
+		if errors.Is(err, ErrNotConfigured) {
+			httpapi.Error(w, http.StatusNotImplemented, "not_connected", "An exact Alertmanager route source is not connected")
+			return
+		}
 		code := "route_source_unavailable"
 		if errors.Is(err, ErrGroupPolicyAmbiguous) {
 			code = "route_policy_ambiguous"
@@ -118,7 +117,7 @@ func (s *Service) TestNotificationRoute(w http.ResponseWriter, r *http.Request) 
 		httpapi.Error(w, http.StatusServiceUnavailable, code, "Routing policy cannot be determined for this label set")
 		return
 	}
-	if len(policy.Receivers) == 0 || policy.ObservedAt.IsZero() || policy.GroupWait == "" || policy.GroupInterval == "" || policy.RepeatInterval == "" {
+	if len(path.Paths) == 0 || path.ObservedAt.IsZero() || len(path.ConfigSHA256) != 64 {
 		httpapi.Error(w, http.StatusServiceUnavailable, "route_source_unavailable", "Routing policy source returned incomplete data")
 		return
 	}
@@ -140,11 +139,9 @@ func (s *Service) TestNotificationRoute(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	httpapi.WriteJSON(w, http.StatusOK, routeTestResult{
-		EnvironmentID: env, ApplicationID: app.ID,
-		ReceiverNames: policy.Receivers, GroupBy: policy.GroupBy,
-		GroupWait: policy.GroupWait, GroupInterval: policy.GroupInterval,
-		RepeatInterval: policy.RepeatInterval, ObservedAt: policy.ObservedAt.UTC().Format(time.RFC3339Nano),
-		Partial: true, Unavailable: []string{"path", "hits", "channel_targets", "current_interval_activity"},
+		EnvironmentID: env, ApplicationID: app.ID, ConfigRevision: "sha256:" + path.ConfigSHA256,
+		Paths: path.Paths, ObservedAt: path.ObservedAt.UTC().Format(time.RFC3339Nano),
+		Partial: true, Unavailable: []string{"receiver_names", "hits", "channel_targets", "current_interval_activity"},
 	})
 }
 

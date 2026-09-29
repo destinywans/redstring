@@ -219,3 +219,132 @@ func (p *PrometheusReader) Query(ctx context.Context, scope httpapi.V3Environmen
 	}
 	return out, nil
 }
+
+// QueryService resolves exactly one explicit V3 Prometheus metric target for a
+// service in the selected environment. It does not use legacy CMDB telemetry
+// bindings. Query rechecks the chosen target and grants around the live read;
+// this method also rechecks that the exact-one selection still holds afterward.
+func (p *PrometheusReader) QueryService(ctx context.Context, scope httpapi.V3EnvironmentScope, user core.User,
+	service, env, queryID string, window connectors.TimeWindow) (PrometheusMetricEvidence, error) {
+	var empty PrometheusMetricEvidence
+	if p == nil || p.DB == nil {
+		return empty, metricReadError("storage_unavailable")
+	}
+	if scope.Tier != p.Tier || service == "" || env == "" {
+		return empty, metricReadError("invalid_scope")
+	}
+	selected := false
+	for _, id := range scope.EnvironmentIDs {
+		selected = selected || id == env
+	}
+	if !selected || scope.All || len(scope.EnvironmentIDs) != 1 {
+		return empty, metricReadError("invalid_scope")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	app, binding, err := p.resolveServiceMetricTarget(ctx, user, service, env)
+	if err != nil {
+		return empty, err
+	}
+	evidence, err := p.Query(ctx, scope, user, app, env, binding, queryID, window)
+	if err != nil {
+		var readErr *PrometheusReadError
+		if errors.As(err, &readErr) && readErr.Code == "source_not_found" {
+			return empty, metricReadError("source_changed")
+		}
+		return empty, err
+	}
+	currentApp, currentBinding, err := p.resolveServiceMetricTarget(ctx, user, service, env)
+	if err != nil {
+		var readErr *PrometheusReadError
+		if errors.As(err, &readErr) && (readErr.Code == "source_not_found" || readErr.Code == "source_ambiguous") {
+			return empty, metricReadError("source_changed")
+		}
+		return empty, err
+	}
+	if currentApp != app || currentBinding != binding {
+		return empty, metricReadError("source_changed")
+	}
+	return evidence, nil
+}
+
+func (p *PrometheusReader) resolveServiceMetricTarget(ctx context.Context, user core.User, service, env string) (string, string, error) {
+	tx, err := p.DB.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return "", "", metricReadError("storage_unavailable")
+	}
+	defer tx.Rollback(ctx)
+	rows, err := tx.Query(ctx, `SELECT a.id,COALESCE(a.owner_team_id,'') FROM applications a
+ JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$2
+ JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
+ WHERE (a.id=$1 OR a.key=$1) AND NOT a.archived LIMIT 2`, service, env)
+	if err != nil {
+		return "", "", metricReadError("storage_unavailable")
+	}
+	type candidate struct{ app, team string }
+	var candidates []candidate
+	for rows.Next() {
+		var item candidate
+		if err = rows.Scan(&item.app, &item.team); err != nil {
+			break
+		}
+		candidates = append(candidates, item)
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
+		return "", "", metricReadError("storage_unavailable")
+	}
+	svc := Service{DB: p.DB}
+	var visible []candidate
+	for _, item := range candidates {
+		if err = svc.authorizeTargetTx(ctx, tx, user, item.app, env, item.team, "view"); err != nil {
+			if errors.Is(err, errTargetServiceForbidden) || errors.Is(err, store.ErrForbidden) {
+				continue
+			}
+			return "", "", metricReadError("authorization_unavailable")
+		}
+		visible = append(visible, item)
+	}
+	if len(visible) == 0 {
+		return "", "", metricReadError("source_not_found")
+	}
+	if len(visible) != 1 {
+		return "", "", metricReadError("source_ambiguous")
+	}
+	app := visible[0].app
+	bindings, err := tx.Query(ctx, `SELECT t.id FROM v3_connector_targets t JOIN v3_connectors c
+  ON c.id=t.connector_id AND c.environment_id=t.environment_id
+ WHERE t.application_id=$1 AND t.environment_id=$2
+  AND t.target_kind='metric_resource' AND c.provider='prometheus' LIMIT 2`, app, env)
+	if err != nil {
+		return "", "", metricReadError("storage_unavailable")
+	}
+	var binding string
+	count := 0
+	for bindings.Next() {
+		if err = bindings.Scan(&binding); err != nil {
+			break
+		}
+		count++
+	}
+	if err == nil {
+		err = bindings.Err()
+	}
+	bindings.Close()
+	if err != nil {
+		return "", "", metricReadError("storage_unavailable")
+	}
+	if count == 0 {
+		return "", "", metricReadError("source_not_found")
+	}
+	if count != 1 {
+		return "", "", metricReadError("source_ambiguous")
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return "", "", metricReadError("storage_unavailable")
+	}
+	return app, binding, nil
+}

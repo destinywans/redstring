@@ -200,7 +200,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 
 资源发现现在返回 `resource_id`、Kubernetes `uid`、环境与集群；单集群条件在 2000 个候选扫描上限之前执行，整次请求共用 20 秒预算。选定集群之外的可信同名资源，以及同环境、同命名空间中陈旧、缺失或已关联的原始同名身份，均会阻止当前只按名称登记的候选进入结果；`ambiguous_workloads` 只给出数量，不泄露阻挡对象。`registered` 是授权环境内的登记数，不是所示集群的登记数。负责人和等级只作来源提示，`replicas` 可为空，`matched`/`missing` 尚无可信线索。注册时按当前环境、采集新鲜度、存在状态、UID、命名空间、是否已关联及 `resources.view` 重新核对。旧客户端只传名称时仅可匹配唯一工作负载；同名、过期或已关联身份返回 409，不会静默关联。当前前端未传 `cluster`/`resource_id`，并固定展示负责人、SLO、P99 与系统映射，发现到注册交互尚未接通。服务列表和系统映射超过 1000 条可见记录会返回 `422 result_limit`，不会返回不完整总数。拓扑仅显示五分钟内成功采集且环境吻合的现存节点，关联应用不会替资源借用其团队授权。
 
-观测查询只使用持久化应用、环境、负责人团队及已配置的外部目标绑定；不同来源绑定冲突返回 `409 ambiguous_binding`，范围过大返回 `422 scope_limit`。普通日志查询返回 `503 log_patterns_unavailable`，其中 `available` 仅包含真实总数、错误数、直方图和有界样本，`missing` 标明模式计数与趋势；只有显式空 `levels` 返回完整空结果。Trace 列表返回 `503 trace_aggregation_unavailable`，只提供 `observed_sample` 与缺失的总数/分面/直方图字段；详情 `200` 标记 `partial: true` 和 `missing`，不能把受权 Span 样本当成完整链路。指标、日志、Trace 主页面均保持 `mock`。
+观测查询只使用持久化应用、环境、负责人团队及已配置的外部目标绑定；不同来源绑定冲突返回 `409 ambiguous_binding`，范围过大返回 `422 scope_limit`。`GET /metrics/samples` 辅助接口可在单环境、唯一显式 V3 Prometheus 指标目标和操作者审查过精确范围的查询目录下返回有界真实标量样本；它不提供看板 KPI、SLO、关联变更或完整 `MetricsDashboard`。普通日志查询返回 `503 log_patterns_unavailable`，其中 `available` 仅包含真实总数、错误数、直方图和有界样本，`missing` 标明模式计数与趋势；只有显式空 `levels` 返回完整空结果。Trace 列表返回 `503 trace_aggregation_unavailable`，只提供 `observed_sample` 与缺失的总数/分面/直方图字段；详情 `200` 标记 `partial: true` 和 `missing`，不能把受权 Span 样本当成完整链路。指标、日志、Trace 主页面均保持 `mock`。
 
 ## v4 新建流程（`create.ts`）
 
@@ -304,6 +304,8 @@ Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评�
 ## 设置（`settings.ts`）
 
 `GET /members` 当前只提供部分真实读取：在读取事务中重核账号及当前环境授权，以单条查询取成员与角色快照。响应有 `complete_v3_dto: false` 和 `unavailable_fields`；未核实的 `last_login`、`counts.no_mfa`、`mfa_grace_days` 为 `null`，`items[].mfa: "na"` 表示未知，不表示未启用。组层级、目录同步来源和 MFA 策略也无可信来源；`filter=no_mfa` 返回 `503 member_mfa_unavailable`，不会以空结果冒充筛选成功。冻结前端仍按数字显示 MFA 数量和宽限期并显示确定的安全提示，因此主接口仍为 `mock`。
+
+可选的本人 TOTP 登记、确认、验证与恢复码辅助接口见 [V3 后端辅助接口](v3-backend-aux.md)。该因素服务只在配置持久服务器密钥后注册，不执行登录或提供 passkey 审批保证；它也未补齐成员目录、`/me` 或 `/security` 的完整前端契约。
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |

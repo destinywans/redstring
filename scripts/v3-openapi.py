@@ -118,6 +118,34 @@ v3_route('patch','/me/preferences','Update visual and language preferences',body
 v3_route('get','/me/profile','Read personal profile',response=ref('V3ProfileView'))
 v3_route('put','/me/profile','Update personal profile',body=ref('V3ProfileView'),response=ref('V3ProfileView'))
 v3_route('delete','/me/sessions/{id}','Revoke one account session',status=204)
+S['V3MFATOTPStatus'] = obj({'state':string(enum=['none','pending','expired','active']),
+    'recovery_remaining':integer(minimum=0)},['state','recovery_remaining'])
+S['V3MFATOTPEnrollment'] = obj({'secret':string(),'otpauth_url':string(),
+    'expires_at':string(format='date-time')},['secret','otpauth_url','expires_at'])
+S['V3MFATOTPConfirmation'] = obj({'enabled':v3_bool(),
+    'recovery_codes':arr(string())},['enabled','recovery_codes'])
+S['V3MFATOTPVerification'] = obj({'verified':v3_bool(),
+    'method':string(enum=['totp','recovery'])},['verified','method'])
+v3_route('get','/me/mfa/totp','Read current account TOTP state',response=ref('V3MFATOTPStatus'),
+    desc='Optional auxiliary route, registered only with a persistent server-owned AES-256 key file. Requires one authorized environment and a current human account/session. Returns no seed or recovery codes. TOTP enrollment is not evidence of login enforcement or passkey approval assurance.')
+v3_route('post','/me/mfa/totp/enrollment','Begin current account TOTP enrollment',status=201,
+    response=ref('V3MFATOTPEnrollment'),
+    desc='Optional auxiliary route. Empty body and same-origin browser signal required. Requires one authorized environment and a login from the last ten minutes; older sessions with unknown issuance time must log in again. The pending seed is bound to the exact session, tier and environment, expires after ten minutes, and is returned only once. Treat the secret and otpauth_url as sensitive; do not log or cache.')
+v3_route('post','/me/mfa/totp/confirm','Confirm current account TOTP enrollment',
+    body=obj({'code':string(minLength=1,maxLength=64)},['code']),response=ref('V3MFATOTPConfirmation'),
+    desc='Optional auxiliary route. Same-origin browser signal and recent login required. Consumes one valid TOTP step and returns one-use recovery codes only in this response. The codes are stored only as salted hashes; this does not issue a passkey assurance token.')
+v3_route('delete','/me/mfa/totp/enrollment','Cancel pending current account TOTP enrollment',status=204,
+    desc='Optional auxiliary route. Empty body, same-origin browser signal, original initiating session and recent login required. Only pending enrollment is removed.')
+v3_route('post','/me/mfa/verify','Verify one current account TOTP or recovery code',
+    body=obj({'code':string(minLength=1,maxLength=64)},['code']),response=ref('V3MFATOTPVerification'),
+    desc='Optional auxiliary route. Same-origin browser signal and one authorized environment required. Consumes a TOTP time step or recovery code once, with lockout after repeated failures. Response is per-call verification only: it creates no login session, step-up proof or passkey approval assurance.')
+v3_route('delete','/me/mfa/totp','Remove current account TOTP factor',status=204,
+    body=obj({'code':string(minLength=1,maxLength=64)},['code']),
+    desc='Optional auxiliary route. Same-origin browser signal, one authorized environment, recent login and a valid TOTP or recovery code required. Removes the active factor and unused recovery hashes without changing passkey approval policy.')
+for _method, _path in [('post','/me/mfa/totp/confirm'),('post','/me/mfa/verify'),('delete','/me/mfa/totp')]:
+    P[_path][_method]['responses']['429'] = {
+        'description':'TOTP verification is temporarily rate limited',
+        'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('get','/me/ai-preferences','Read personal AI preferences',response=ref('V3AIPreferences'))
 v3_route('put','/me/ai-preferences','Update personal AI preferences',body=ref('V3AIPreferences'),response=ref('V3AIPreferences'))
 v3_route('get','/me/notification-settings','Read personal notification settings',response=ref('V3NotificationSettings'),
@@ -1201,6 +1229,29 @@ P['/metrics/dashboard']['get']['responses'].pop('200')
 P['/metrics/dashboard']['get']['responses']['503'] = {
     'description':'Complete V3 dashboard unavailable from registered sources',
     'content':{'application/json':{'schema':{'oneOf':[ref('Error'),ref('V3IncompleteMetrics')]}}}}
+S['V3RegisteredMetricWindow'] = obj({'start':string(format='date-time'),
+    'end':string(format='date-time'),'step_seconds':integer(minimum=30,maximum=30)},
+    ['start','end','step_seconds'])
+S['V3RegisteredMetricSample'] = obj({'timestamp':v3_num(),'value':string()},
+    ['timestamp','value'])
+S['V3RegisteredMetricSamples'] = obj({'application_id':string(),
+    'environment_id':string(),'query_id':string(enum=['request_rate','http_p95_seconds']),
+    'source':string(enum=['prometheus']),'window':ref('V3RegisteredMetricWindow'),
+    'captured_at':string(format='date-time'),'status':string(enum=['observed','no_samples']),
+    'samples':arr(ref('V3RegisteredMetricSample'))},
+    ['application_id','environment_id','query_id','source','window','captured_at','status','samples'])
+S['V3RegisteredMetricSamples']['properties']['samples']['maxItems'] = 32
+v3_route('get','/metrics/samples','Read bounded registered Prometheus metric samples',
+    query=[v3_query('service'),v3_query('query_id',string(enum=['request_rate','http_p95_seconds']))],
+    response=ref('V3RegisteredMetricSamples'),
+    desc='Auxiliary read for one selected environment and a persisted service with exactly one explicit V3 Prometheus metric-resource target. Requires current services.view and an enabled query_metrics tool. The query ID maps to an operator-reviewed exact connector/application/environment/resource PromQL catalog entry; identifiers do not prove expression data scope. A bounded 15-minute, 30-second-step scalar range read rechecks binding and authorization after the provider returns. Returns at most 32 samples with no labels, raw expression, endpoint or credential. Missing source/catalog returns 503; ambiguous or changed binding returns 409; invalid request/environment returns 422. This does not complete the MetricsDashboard page.')
+for _parameter in P['/metrics/samples']['get']['parameters']:
+    if _parameter['name'] in ('service','query_id'):
+        _parameter['required'] = True
+for _status, _description in [('409','Metric binding is ambiguous or changed'),
+    ('422','Invalid metric request or environment')]:
+    P['/metrics/samples']['get']['responses'][_status] = {
+        'description':_description,'content':{'application/json':{'schema':ref('Error')}}}
 S['V3LogLine'] = obj({**fieldnames('time service message trace'),
     'level':string(enum=['ERROR','WARN','INFO'])})
 S['V3IncompleteLogs'] = obj({'error':obj({'code':string(),'message':string()},['code','message']),

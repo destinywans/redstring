@@ -22494,6 +22494,663 @@
         ]
       }
     },
+    "/me/mfa/totp": {
+      "get": {
+        "summary": "Read current account TOTP state",
+        "operationId": "get_me_mfa_totp",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Optional auxiliary route, registered only with a persistent server-owned AES-256 key file. Requires one authorized environment and a current human account/session. Returns no seed or recovery codes. TOTP enrollment is not evidence of login enforcement or passkey approval assurance.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MFATOTPStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "me"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Remove current account TOTP factor",
+        "operationId": "delete_me_mfa_totp",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Optional auxiliary route. Same-origin browser signal, one authorized environment, recent login and a valid TOTP or recovery code required. Removes the active factor and unused recovery hashes without changing passkey approval policy.",
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "TOTP verification is temporarily rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "me"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "code"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/me/mfa/totp/enrollment": {
+      "post": {
+        "summary": "Begin current account TOTP enrollment",
+        "operationId": "post_me_mfa_totp_enrollment",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Optional auxiliary route. Empty body and same-origin browser signal required. Requires one authorized environment and a login from the last ten minutes; older sessions with unknown issuance time must log in again. The pending seed is bound to the exact session, tier and environment, expires after ten minutes, and is returned only once. Treat the secret and otpauth_url as sensitive; do not log or cache.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MFATOTPEnrollment"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "me"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Cancel pending current account TOTP enrollment",
+        "operationId": "delete_me_mfa_totp_enrollment",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Optional auxiliary route. Empty body, same-origin browser signal, original initiating session and recent login required. Only pending enrollment is removed.",
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "me"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/me/mfa/totp/confirm": {
+      "post": {
+        "summary": "Confirm current account TOTP enrollment",
+        "operationId": "post_me_mfa_totp_confirm",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Optional auxiliary route. Same-origin browser signal and recent login required. Consumes one valid TOTP step and returns one-use recovery codes only in this response. The codes are stored only as salted hashes; this does not issue a passkey assurance token.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MFATOTPConfirmation"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "TOTP verification is temporarily rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "me"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "code"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/me/mfa/verify": {
+      "post": {
+        "summary": "Verify one current account TOTP or recovery code",
+        "operationId": "post_me_mfa_verify",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Optional auxiliary route. Same-origin browser signal and one authorized environment required. Consumes a TOTP time step or recovery code once, with lockout after repeated failures. Response is per-call verification only: it creates no login session, step-up proof or passkey approval assurance.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MFATOTPVerification"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "TOTP verification is temporarily rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "me"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "code"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/me/ai-preferences": {
       "get": {
         "summary": "Read personal AI preferences",
@@ -37968,6 +38625,123 @@
         ]
       }
     },
+    "/metrics/samples": {
+      "get": {
+        "summary": "Read bounded registered Prometheus metric samples",
+        "operationId": "get_metrics_samples",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read for one selected environment and a persisted service with exactly one explicit V3 Prometheus metric-resource target. Requires current services.view and an enabled query_metrics tool. The query ID maps to an operator-reviewed exact connector/application/environment/resource PromQL catalog entry; identifiers do not prove expression data scope. A bounded 15-minute, 30-second-step scalar range read rechecks binding and authorization after the provider returns. Returns at most 32 samples with no labels, raw expression, endpoint or credential. Missing source/catalog returns 503; ambiguous or changed binding returns 409; invalid request/environment returns 422. This does not complete the MetricsDashboard page.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3RegisteredMetricSamples"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Metric binding is ambiguous or changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid metric request or environment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "metrics"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "service",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "query_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "request_rate",
+                "http_p95_seconds"
+              ]
+            },
+            "required": true
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/logs": {
       "get": {
         "summary": "Search configured log provider",
@@ -44919,6 +45693,89 @@
           "path"
         ]
       },
+      "V3MFATOTPStatus": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "none",
+              "pending",
+              "expired",
+              "active"
+            ]
+          },
+          "recovery_remaining": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "recovery_remaining"
+        ]
+      },
+      "V3MFATOTPEnrollment": {
+        "type": "object",
+        "properties": {
+          "secret": {
+            "type": "string"
+          },
+          "otpauth_url": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "secret",
+          "otpauth_url",
+          "expires_at"
+        ]
+      },
+      "V3MFATOTPConfirmation": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "recovery_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "enabled",
+          "recovery_codes"
+        ]
+      },
+      "V3MFATOTPVerification": {
+        "type": "object",
+        "properties": {
+          "verified": {
+            "type": "boolean"
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "totp",
+              "recovery"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "verified",
+          "method"
+        ]
+      },
       "V3Part": {
         "oneOf": [
           {
@@ -49637,6 +50494,102 @@
           "environment_id",
           "available",
           "missing"
+        ]
+      },
+      "V3RegisteredMetricWindow": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "step_seconds": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 30
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "start",
+          "end",
+          "step_seconds"
+        ]
+      },
+      "V3RegisteredMetricSample": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "number"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "timestamp",
+          "value"
+        ]
+      },
+      "V3RegisteredMetricSamples": {
+        "type": "object",
+        "properties": {
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "query_id": {
+            "type": "string",
+            "enum": [
+              "request_rate",
+              "http_p95_seconds"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "prometheus"
+            ]
+          },
+          "window": {
+            "$ref": "#/components/schemas/V3RegisteredMetricWindow"
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "no_samples"
+            ]
+          },
+          "samples": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3RegisteredMetricSample"
+            },
+            "maxItems": 32
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "application_id",
+          "environment_id",
+          "query_id",
+          "source",
+          "window",
+          "captured_at",
+          "status",
+          "samples"
         ]
       },
       "V3LogLine": {

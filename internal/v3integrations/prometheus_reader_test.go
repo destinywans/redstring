@@ -51,7 +51,7 @@ func TestPrometheusRegistrationBindingVaultAndScopedQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)

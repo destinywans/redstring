@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,28 +16,28 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3integrations"
 )
 
-// This exercises the registered HTTP route against an isolated persisted scope
-// and a real Prometheus protocol adapter, without contacting a shared cluster.
-func TestMetricSamplesRegisteredRouteAndSourceRecheck(t *testing.T) {
+// The registered route must use the explicit V3 target and reviewed catalog,
+// not a historical application_environments.bindings telemetry alias.
+func TestMetricSamplesV3RegisteredConnectorRoute(t *testing.T) {
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL required; test creates and drops an isolated schema")
+		t.Skip("TEST_DATABASE_URL required; creates and drops one isolated schema")
 	}
 	ctx := t.Context()
-	admin, err := pgxpool.New(ctx, dsn)
+	adminDB, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	schema := "v3_metric_samples_test_" + store.ID()
 	quoted := pgx.Identifier{schema}.Sanitize()
-	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+quoted); err != nil {
-		admin.Close()
+	if _, err = adminDB.Exec(ctx, "CREATE SCHEMA "+quoted); err != nil {
+		adminDB.Close()
 		t.Fatal(err)
 	}
 	var db *pgxpool.Pool
@@ -44,59 +45,50 @@ func TestMetricSamplesRegisteredRouteAndSourceRecheck(t *testing.T) {
 		if db != nil {
 			db.Close()
 		}
-		if _, err := admin.Exec(context.Background(), "DROP SCHEMA "+quoted+" CASCADE"); err != nil {
+		if _, err := adminDB.Exec(context.Background(), "DROP SCHEMA "+quoted+" CASCADE"); err != nil {
 			t.Error(err)
 		}
-		admin.Close()
+		adminDB.Close()
 	})
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	st := &store.Store{DB: db}
-	if err := st.Migrate(ctx); err != nil {
+	if err = st.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.Bootstrap(ctx, "admin@example.invalid", "isolated-metric-samples-password"); err != nil {
+	if err = st.Bootstrap(ctx, "admin@example.invalid", "isolated-metric-samples-password"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(ctx, `INSERT INTO applications(id,name,key,environment) VALUES('app','App','app','dev');
-INSERT INTO application_environments(id,application_id,key,name) VALUES('app-dev','app','dev','Dev');
-INSERT INTO v3_application_environments(application_id,environment_id) VALUES('app','dev')`); err != nil {
-		t.Fatal(err)
-	}
-	_, session, err := st.Login(ctx, "admin@example.invalid", "isolated-metric-samples-password")
+	user, session, err := st.Login(ctx, "admin@example.invalid", "isolated-metric-samples-password")
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err = db.Exec(ctx, `INSERT INTO applications(id,name,key,environment) VALUES('app','App','app','dev');
+INSERT INTO application_environments(id,application_id,key,name,bindings)
+ VALUES('app-dev','app','dev','Dev','[{"kind":"prometheus","resource":"legacy-only"}]');
+INSERT INTO v3_application_environments(application_id,environment_id) VALUES('app','dev')`); err != nil {
+		t.Fatal(err)
+	}
 
-	const registeredRate = `sum(rate(http_requests_total{application="registered-app"}[5m]))`
-	const registeredP95 = `histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{application="registered-app"}[5m])) by (le))`
+	const expression = `sum(rate(http_requests_total{application="app",environment="dev"}[5m]))`
 	var calls atomic.Int32
-	var mode atomic.Int32 // 0 sample, 1 empty, 2 warning, 3 nonfinite, 4 truncated, 5 multiple series
+	var mode atomic.Int32 // 0 observed, 1 empty, 2 warning, 3 unavailable, 4 multi-series, 5 >32 samples
 	var gateMu sync.Mutex
 	var entered, release chan struct{}
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
-		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/query_range" {
-			t.Errorf("unexpected Prometheus request: %s %s", r.Method, r.URL)
-			http.Error(w, "unexpected request", http.StatusNotFound)
+		if r.URL.Path != "/api/v1/query_range" || r.URL.Query().Get("query") != expression {
+			t.Errorf("unexpected registered query: %s", r.URL)
+			http.Error(w, "invalid query", 400)
 			return
 		}
-		q := r.URL.Query()
-		if q.Get("query") != registeredRate && q.Get("query") != registeredP95 {
-			t.Errorf("unregistered PromQL reached provider: %q", q.Get("query"))
-		}
-		start, startErr := time.Parse(time.RFC3339Nano, q.Get("start"))
-		end, endErr := time.Parse(time.RFC3339Nano, q.Get("end"))
-		if startErr != nil || endErr != nil || end.Sub(start) != 15*time.Minute || q.Get("step") != "30" || q.Get("limit") != "100" {
-			t.Errorf("unbounded or changed metric window: %s", r.URL.RawQuery)
-		}
+		calls.Add(1)
 		gateMu.Lock()
 		waitEntered, waitRelease := entered, release
 		gateMu.Unlock()
@@ -108,43 +100,62 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 				return
 			}
 		}
+		if mode.Load() == 3 {
+			http.Error(w, "private upstream failure", 503)
+			return
+		}
 		if mode.Load() == 1 {
 			fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
 			return
 		}
-		value := "1.25"
-		if mode.Load() == 3 {
-			value = "+Inf"
+		end, parseErr := time.Parse(time.RFC3339Nano, r.URL.Query().Get("end"))
+		if parseErr != nil {
+			t.Errorf("invalid query window: %v", parseErr)
+			return
 		}
-		series := []any{map[string]any{"metric": map[string]string{"application": "registered-app", "secret": "do-not-expose"}, "values": []any{[]any{end.Add(-30 * time.Second).Unix(), value}}}}
-		if mode.Load() == 4 {
-			for len(series) < 100 {
-				series = append(series, series[0])
+		values := []any{[]any{end.Unix(), "1.25"}}
+		if mode.Load() == 5 {
+			values = values[:0]
+			for i := 32; i >= 0; i-- {
+				values = append(values, []any{end.Add(-time.Duration(i) * 15 * time.Second).Unix(), "1.25"})
 			}
 		}
-		if mode.Load() == 5 {
+		series := []any{map[string]any{"metric": map[string]string{"private_label": "do-not-expose"}, "values": values}}
+		if mode.Load() == 4 {
 			series = append(series, series[0])
 		}
 		response := map[string]any{"status": "success", "data": map[string]any{"resultType": "matrix", "result": series}}
 		if mode.Load() == 2 {
-			response["warnings"] = []string{"partial backend"}
+			response["warnings"] = []string{"partial upstream"}
 		}
 		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer upstream.Close()
-	telemetry, err := connectors.NewTelemetry(connectors.TelemetryConfig{
-		Prometheus: connectors.TelemetryEndpoint{URL: upstream.URL, AllowHTTP: true},
-		Applications: map[string]connectors.ApplicationTelemetry{"registered-app": {PrometheusQueries: map[string]string{
-			"request_rate": registeredRate, "http_p95_seconds": registeredP95,
-		}}},
-	})
+	if _, err = db.Exec(ctx, `INSERT INTO v3_connectors
+ (id,environment_id,provider,name,category,endpoint,auth_method,tools,enabled)
+ VALUES('metric-connector','dev','prometheus','Metrics','observe',$1,'none',
+ '[{"name":"query_metrics","enabled":true}]',true)`, upstream.URL); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "reviewed-queries.json")
+	config := fmt.Sprintf(`{"queries":[{"connector_id":"metric-connector","application_id":"app","environment_id":"dev","resource_id":"app-metrics","query_id":"request_rate","expression":%q}]}`, expression)
+	if err = os.WriteFile(path, []byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := v3integrations.LoadPrometheusQueryCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := v3integrations.NewPrometheusReader(db, "nonprod", nil, catalog)
 	if err != nil {
 		t.Fatal(err)
 	}
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
-	New(st, policy, telemetry).Register(api)
-	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{
+	service := New(st, policy, nil)
+	service.MetricReader = reader
+	service.Register(api)
+	if err = api.ConfigureV3Environment(httpapi.V3InstanceConfig{
 		Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"},
 	}, policy, st.Session, nil); err != nil {
 		t.Fatal(err)
@@ -157,7 +168,9 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 		api.ServeHTTP(w, r)
 		return w
 	}
-	request := func(query string) *httptest.ResponseRecorder { return requestIn(query, "dev") }
+	request := func(query string) *httptest.ResponseRecorder {
+		return requestIn(query, "dev")
+	}
 	checkError := func(w *httptest.ResponseRecorder, status int, code string) {
 		t.Helper()
 		var body struct {
@@ -165,87 +178,71 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 				Code string `json:"code"`
 			} `json:"error"`
 		}
-		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || w.Code != status || body.Error.Code != code {
+		if json.Unmarshal(w.Body.Bytes(), &body) != nil || w.Code != status || body.Error.Code != code {
 			t.Fatalf("status=%d body=%s, want %d %s", w.Code, w.Body.String(), status, code)
 		}
 	}
 	valid := "?service=app&query_id=request_rate"
-	for _, query := range []string{"", "?service=app", "?service=app&query_id=up", valid + "&extra=1", valid + "&service=other"} {
-		checkError(request(query), 422, "invalid_metric_request")
-	}
-	checkError(request(valid), 503, "not_configured")
-	if calls.Load() != 0 {
-		t.Fatal("provider queried before valid binding")
-	}
-	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"prometheus","resource":"registered-app"}]'::jsonb WHERE id='app-dev'`); err != nil {
-		t.Fatal(err)
-	}
+	checkError(request(valid+"&unexpected=1"), 422, "invalid_metric_request")
 	checkError(requestIn(valid, "all"), 422, "invalid_environment")
-	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"prometheus","resource":"registered-app"},{"kind":"prometheus","resource":"other-app"}]'::jsonb WHERE id='app-dev'`); err != nil {
-		t.Fatal(err)
-	}
-	checkError(request(valid), 409, "ambiguous_binding")
+	checkError(request(valid), 503, "not_configured") // Legacy binding cannot enable V3 read.
 	if calls.Load() != 0 {
-		t.Fatal("ambiguous binding queried provider")
+		t.Fatal("provider queried before explicit V3 target")
 	}
-	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"prometheus","resource":"registered-app"}]'::jsonb WHERE id='app-dev'`); err != nil {
+	if _, err = db.Exec(ctx, `INSERT INTO v3_connector_targets
+ (id,application_id,environment_id,connector_id,target_kind,external_id,bound_by)
+ VALUES('metric-target','app','dev','metric-connector','metric_resource','app-metrics',$1)`, user.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='admin' AND module='services' AND action='view'`); err != nil {
+	noCatalog, err := v3integrations.NewPrometheusReader(db, "nonprod", nil, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	checkError(request(valid), 403, "forbidden")
+	service.MetricReader = noCatalog
+	checkError(request(valid), 503, "metric_query_unavailable")
 	if calls.Load() != 0 {
-		t.Fatal("provider queried after services.view was revoked")
+		t.Fatal("unreviewed target queried provider")
 	}
-	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES('admin','services','view','global','*') ON CONFLICT DO NOTHING`); err != nil {
-		t.Fatal(err)
-	}
+	service.MetricReader = reader
+	checkError(request("?service=app&query_id=arbitrary"), 422, "invalid_metric_request")
 	w := request(valid)
-	if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" {
-		t.Fatalf("sample response status=%d headers=%v body=%s", w.Code, w.Header(), w.Body.String())
+	if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" ||
+		!strings.Contains(w.Body.String(), `"status":"observed"`) || !strings.Contains(w.Body.String(), `"value":"1.25"`) {
+		t.Fatalf("observed sample response: %d %s", w.Code, w.Body.String())
 	}
-	var sampleBody struct {
-		ApplicationID string                `json:"application_id"`
-		EnvironmentID string                `json:"environment_id"`
-		QueryID       string                `json:"query_id"`
-		Source        string                `json:"source"`
-		Window        connectors.TimeWindow `json:"window"`
-		CapturedAt    time.Time             `json:"captured_at"`
-		Status        string                `json:"status"`
-		Samples       []struct {
-			Timestamp float64 `json:"timestamp"`
-			Value     string  `json:"value"`
-		} `json:"samples"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &sampleBody); err != nil {
-		t.Fatal(err)
-	}
-	if sampleBody.ApplicationID != "app" || sampleBody.EnvironmentID != "dev" || sampleBody.QueryID != "request_rate" || sampleBody.Source != "prometheus" || sampleBody.Status != "observed" || sampleBody.CapturedAt.IsZero() || sampleBody.Window.End.Sub(sampleBody.Window.Start) != 15*time.Minute || sampleBody.Window.StepSeconds != 30 || len(sampleBody.Samples) != 1 || sampleBody.Samples[0].Value != "1.25" {
-		t.Fatalf("wrong observed samples: %s", w.Body.String())
-	}
-	for _, secret := range []string{"registered-app", "http_requests_total", "do-not-expose", upstream.URL, "labels", "query\""} {
-		if strings.Contains(w.Body.String(), secret) {
-			t.Fatalf("provider detail %q leaked: %s", secret, w.Body.String())
+	for _, private := range []string{expression, upstream.URL, "legacy-only", "private_label", "do-not-expose", "app-metrics"} {
+		if strings.Contains(w.Body.String(), private) {
+			t.Fatalf("private source detail leaked: %q %s", private, w.Body.String())
 		}
 	}
-	if calls.Load() != 1 {
-		t.Fatalf("expected one registered provider query, got %d", calls.Load())
-	}
 	mode.Store(1)
-	w = request("?service=app&query_id=http_p95_seconds")
+	w = request(valid)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"status":"no_samples"`) || !strings.Contains(w.Body.String(), `"samples":[]`) {
-		t.Fatalf("empty provider response was not explicit: %d %s", w.Code, w.Body.String())
+		t.Fatalf("empty sample response: %d %s", w.Code, w.Body.String())
 	}
-	for _, failureMode := range []int32{2, 3, 4, 5} {
-		mode.Store(failureMode)
-		checkError(request(valid), 503, "metric_result_incomplete")
-	}
+	mode.Store(2)
+	checkError(request(valid), 503, "metric_query_unavailable")
+	mode.Store(3)
+	checkError(request(valid), 503, "metric_query_unavailable")
+	mode.Store(4)
+	checkError(request(valid), 503, "metric_result_incomplete")
+	mode.Store(5)
+	checkError(request(valid), 503, "metric_result_incomplete")
 	mode.Store(0)
-
-	// Hold the upstream response while revoking the grant. The handler must
-	// recheck permission after its provider call and discard observed samples.
-	makeGate := func() (chan struct{}, chan struct{}) {
+	if _, err = db.Exec(ctx, `INSERT INTO v3_connector_targets
+ (id,application_id,environment_id,connector_id,target_kind,external_id,bound_by)
+ VALUES('metric-target-two','app','dev','metric-connector','metric_resource','other-metrics',$1)`, user.ID); err != nil {
+		t.Fatal(err)
+	}
+	before := calls.Load()
+	checkError(request(valid), 409, "ambiguous_binding")
+	if calls.Load() != before {
+		t.Fatal("ambiguous binding queried provider")
+	}
+	if _, err = db.Exec(ctx, `DELETE FROM v3_connector_targets WHERE id='metric-target-two'`); err != nil {
+		t.Fatal(err)
+	}
+	gate := func() (chan struct{}, chan struct{}) {
 		gateMu.Lock()
 		defer gateMu.Unlock()
 		entered, release = make(chan struct{}), make(chan struct{})
@@ -256,50 +253,50 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 		entered, release = nil, nil
 		gateMu.Unlock()
 	}
-	begin, done := makeGate()
-	response := make(chan *httptest.ResponseRecorder, 1)
-	go func() { response <- request(valid) }()
+	begin, done := gate()
+	responses := make(chan *httptest.ResponseRecorder, 1)
+	go func() { responses <- request(valid) }()
 	select {
 	case <-begin:
 	case <-time.After(5 * time.Second):
-		t.Fatal("metric provider call did not begin")
+		t.Fatal("provider query did not start")
 	}
-	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='admin' AND module='services' AND action='view'`); err != nil {
+	if _, err = db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='admin' AND module='services' AND action='view'`); err != nil {
 		t.Fatal(err)
 	}
 	close(done)
-	w = <-response
+	w = <-responses
 	clearGate()
 	checkError(w, 403, "forbidden")
-	if strings.Contains(w.Body.String(), "1.25") {
-		t.Fatalf("revoked response leaked samples: %s", w.Body.String())
+	// A fresh request must not distinguish a hidden registered service from
+	// a nonexistent service by status or error code.
+	hidden := request(valid)
+	missing := request("?service=missing-service&query_id=request_rate")
+	if hidden.Code != missing.Code || hidden.Body.String() != missing.Body.String() {
+		t.Fatalf("hidden service is distinguishable: hidden=%d %s missing=%d %s",
+			hidden.Code, hidden.Body.String(), missing.Code, missing.Body.String())
 	}
-	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES('admin','services','view','global','*') ON CONFLICT DO NOTHING`); err != nil {
+	if _, err = db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('admin','services','view','global','*') ON CONFLICT DO NOTHING`); err != nil {
 		t.Fatal(err)
 	}
-
-	begin, done = makeGate()
-	go func() { response <- request(valid) }()
+	begin, done = gate()
+	go func() { responses <- request(valid) }()
 	select {
 	case <-begin:
 	case <-time.After(5 * time.Second):
-		t.Fatal("second metric provider call did not begin")
+		t.Fatal("provider query did not start")
 	}
-	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"prometheus","resource":"changed-app"}]'::jsonb WHERE id='app-dev'`); err != nil {
+	if _, err = db.Exec(ctx, `UPDATE v3_connector_targets SET external_id='changed-metrics' WHERE id='metric-target'`); err != nil {
 		t.Fatal(err)
 	}
 	close(done)
-	w = <-response
+	w = <-responses
 	clearGate()
 	checkError(w, 409, "metric_source_changed")
-	if strings.Contains(w.Body.String(), "1.25") {
-		t.Fatalf("changed-source response leaked samples: %s", w.Body.String())
-	}
-	// The changed resource is absent from server-side registration. A later
-	// request must not reuse the old metric result or accept arbitrary query text.
-	before := calls.Load()
+	before = calls.Load()
 	checkError(request(valid), 503, "metric_query_unavailable")
 	if calls.Load() != before {
-		t.Fatal("unregistered changed binding reached provider")
+		t.Fatal("unreviewed changed target queried provider")
 	}
 }

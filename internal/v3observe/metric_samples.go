@@ -12,7 +12,7 @@ import (
 
 	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3integrations"
 )
 
 type metricSamplesResponse struct {
@@ -41,35 +41,39 @@ func metricSamplesRequest(r *http.Request) (string, string, bool) {
 	return service, queryID, true
 }
 
-func metricSamplesTargetError(w http.ResponseWriter, err error) {
-	switch {
-	case errors.Is(err, store.ErrForbidden):
-		httpapi.Error(w, 403, "forbidden", "Service metrics are outside your authorized scope")
-	case errors.Is(err, errAmbiguousObservationBinding):
-		httpapi.Error(w, 409, "ambiguous_binding", "Select one Prometheus binding for this service")
-	case errors.Is(err, errObservationScopeLimit):
-		httpapi.Error(w, 422, "scope_limit", "Narrow the service and environment")
-	default:
-		httpapi.Error(w, 503, "metric_scope_unavailable", "Metric scope lookup failed")
+func metricSamplesReadError(w http.ResponseWriter, err error) {
+	var readErr *v3integrations.PrometheusReadError
+	if errors.As(err, &readErr) {
+		switch readErr.Code {
+		case "forbidden":
+			httpapi.Error(w, 403, "forbidden", "Service metrics are outside your authorized scope")
+			return
+		case "source_ambiguous":
+			httpapi.Error(w, 409, "ambiguous_binding", "Select one current Prometheus metric source")
+			return
+		case "source_changed":
+			httpapi.Error(w, 409, "metric_source_changed", "Select one current Prometheus metric source")
+			return
+		case "source_not_found":
+			httpapi.Error(w, 503, "not_configured", "No registered Prometheus metric source is available")
+			return
+		case "query_unregistered":
+			httpapi.Error(w, 503, "metric_query_unavailable", "Registered Prometheus query is unavailable")
+			return
+		}
 	}
+	httpapi.Error(w, 503, "metric_query_unavailable", "Registered Prometheus query is unavailable")
 }
 
-func sameMetricTarget(a, b observationTarget) bool {
-	return a.ApplicationID == b.ApplicationID && a.EnvironmentID == b.EnvironmentID &&
-		a.Provider == b.Provider && a.Resource == b.Resource
-}
-
-func metricResultSamples(result connectors.MetricEvidence, window connectors.TimeWindow) ([]connectors.MetricSample, string, bool) {
-	if result.LimitReached || len(result.Source.Warnings) > 0 || len(result.Series) > 1 ||
-		result.Source.Provider != "prometheus" || result.Source.CapturedAt.IsZero() ||
-		result.Source.HTTPStatus != http.StatusOK ||
-		!result.Source.Window.Start.Equal(window.Start) || !result.Source.Window.End.Equal(window.End) ||
-		result.Source.Window.StepSeconds != window.StepSeconds {
+func metricResultSamples(result v3integrations.PrometheusMetricEvidence, window connectors.TimeWindow) ([]connectors.MetricSample, string, bool) {
+	if len(result.Series) > 1 || result.CapturedAt.IsZero() || result.ApplicationID == "" ||
+		result.EnvironmentID == "" || result.BindingID == "" || result.ConnectorID == "" ||
+		result.ResourceID == "" || result.QueryID == "" {
 		return nil, "", false
 	}
 	samples := make([]connectors.MetricSample, 0, 32)
 	for _, series := range result.Series {
-		if len(series.Samples) > 32 {
+		if len(series.Samples) > 32 || len(series.Labels) > 64 {
 			return nil, "", false
 		}
 		previous := math.Inf(-1)
@@ -115,44 +119,18 @@ func (s *Service) metricSamples(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	user := httpapi.CurrentUser(r)
-	targets, err := s.observationTargets(ctx, user, environments, "services", service, []string{"prometheus"})
-	if err != nil {
-		metricSamplesTargetError(w, err)
+	if s.MetricReader == nil {
+		httpapi.Error(w, 503, "not_configured", "Registered Prometheus metric reads are not configured")
 		return
 	}
-	if len(targets) == 0 {
-		httpapi.Error(w, 503, "not_configured", "No authorized Prometheus binding is configured for this service")
-		return
-	}
-	if len(targets) != 1 {
-		httpapi.Error(w, 409, "ambiguous_binding", "Select one Prometheus binding for this service")
-		return
-	}
-	if s.Telemetry == nil {
-		httpapi.Error(w, 503, "not_configured", "Prometheus is not configured")
-		return
-	}
-	target := targets[0]
 	end := time.Now().UTC().Truncate(time.Second)
 	window := connectors.TimeWindow{Start: end.Add(-15 * time.Minute), End: end, StepSeconds: 30}
-	result, queryErr := s.Telemetry.QueryMetrics(ctx, target.Resource, queryID, window)
-	// A provider request can outlive a grant or binding update. Re-resolve the
-	// current object before returning any upstream value to the caller.
-	current, currentErr := s.observationTargets(ctx, user, environments, "services", service, []string{"prometheus"})
-	if currentErr != nil {
-		metricSamplesTargetError(w, currentErr)
+	result, queryErr := s.MetricReader.QueryService(ctx, scope, httpapi.CurrentUser(r), service, environments[0], queryID, window)
+	if queryErr != nil {
+		metricSamplesReadError(w, queryErr)
 		return
 	}
-	if len(current) != 1 || !sameMetricTarget(target, current[0]) {
-		httpapi.Error(w, 409, "metric_source_changed", "Service metric source changed during the query")
-		return
-	}
-	if queryErr != nil || result.Source.Failure != nil {
-		httpapi.Error(w, 503, "metric_query_unavailable", "Registered Prometheus query is unavailable")
-		return
-	}
-	if result.Source.ApplicationID != target.Resource || result.Source.QueryID != queryID {
+	if result.QueryID != queryID || result.EnvironmentID != environments[0] {
 		httpapi.Error(w, 503, "metric_result_incomplete", "Prometheus result provenance is incomplete")
 		return
 	}
@@ -163,8 +141,8 @@ func (s *Service) metricSamples(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	httpapi.WriteJSON(w, 200, metricSamplesResponse{
-		ApplicationID: target.ApplicationID, EnvironmentID: target.EnvironmentID,
+		ApplicationID: result.ApplicationID, EnvironmentID: result.EnvironmentID,
 		QueryID: queryID, Source: "prometheus", Window: window,
-		CapturedAt: result.Source.CapturedAt, Status: status, Samples: samples,
+		CapturedAt: result.CapturedAt, Status: status, Samples: samples,
 	})
 }

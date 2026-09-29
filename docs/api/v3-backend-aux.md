@@ -4,6 +4,13 @@
 
 | 方法 | 路径 | 参数与含义 |
 | --- | --- | --- |
+| GET | `/api/v1/me/mfa/totp` | 可选账户辅助接口；单一授权环境内读取本人 TOTP 状态 `none/pending/expired/active` 与剩余恢复码数，不返回种子或码。仅配置持久的 `AIOPS_V3_MFA_KEY_FILE` 后注册。 |
+| POST | `/api/v1/me/mfa/totp/enrollment` | 空请求体；同源浏览器信号、近 10 分钟登录和当前人类账号。返回一次性的种子、`otpauth_url` 与 10 分钟到期时间；待确认记录绑定原会话、实例层级与环境。 |
+| POST | `/api/v1/me/mfa/totp/confirm` | `{ code }` 确认待登记 TOTP，消费该时间步并仅在本次响应返回一次性恢复码；服务端只留独立加盐哈希。 |
+| DELETE | `/api/v1/me/mfa/totp/enrollment` | 空请求体；由原会话在近期登录条件下取消待确认登记，成功返回 204。 |
+| POST | `/api/v1/me/mfa/verify` | `{ code }` 验证并消费一个 TOTP 时间步或恢复码，返回 `{ verified, method }`；重复错误限流。本次验证不创建登录会话、提权令牌或 passkey 审批保证。 |
+| DELETE | `/api/v1/me/mfa/totp` | `{ code }` 加近 10 分钟登录删除本人已启用的 TOTP 与未用恢复码，成功返回 204；不改变审批规则。 |
+| GET | `/api/v1/metrics/samples` | 必填 `service`（持久应用 ID/key）与 `query_id`（`request_rate` 或 `http_p95_seconds`），只允许单一环境。按当前 `services.view`、唯一 V3 `metric_resource` 目标、启用的 Prometheus `query_metrics` 和私有精确范围查询目录读取固定 15 分钟/30 秒的最多 32 个标量样本。结果不含标签、原始表达式、端点或凭据；无样本标记 `no_samples`。无来源/目录 503，歧义或读取期间绑定变化 409。该辅助响应不组成完整指标看板。 |
 | GET | `/api/v1/investigations/{id}/nodes/{node}/messages` | 只读当前持久化分支的 `{ branch_id, revision, messages }`，以持久化调查/应用/环境/所属团队核对当前 `canvas.view`。返回原始历史消息 JSON，旧记录的可选字段（包括 `created_at`）可能缺失，不合成图节点、时间、摘要或模型输出。上下文最大 24 KiB；对象不存在、路径不匹配或无访问权返回 404，当前上下文缺失、过大或损坏返回 503。完整调查图、节点写入和祖先回写仍未接通。 |
 | GET | `/api/v1/incidents/{id}/timeline/manual` | 按当前事件应用/环境及 `events.view` 读取已持久化的人工备注，按保存时间/ID 排序；返回 `{ items, scope: "manual_only" }`，展示姓名取当前成员记录。未知或无权事件 404，超过 500 条或读取故障 503，不返回部分结果。不合成系统/AI 时间线、影响或错误预算，也不使完整事件详情可用。 |
 | GET | `/api/v1/connectors/{id}/tool-settings` | 按当前授权环境和 `connectors.view` 读取持久登记的工具开关及本地化目录名称，返回 `{ connector_id, environment_id, connector_enabled, registered_tools, agent_execution_available: false }`。不返回端点、Vault 引用或 Agent 工具能力；未知/越界 ID 返回 404，已存工具与当前目录冲突返回 503，不静默丢弃设置。此辅助读取不使主页面的 PATCH 开关交互完成。 |
@@ -28,6 +35,10 @@
 | GET | `/api/v1/uploads/{id}/content` | 下载本人上传的文件，或内联读取经重新验证格式的图片。可不传环境头；后端根据上传记录核对实例环境、当前 `conversation.view` 授权和所有者。普通文件以附件下载，响应禁缓存、禁 MIME 猜测；损坏图片拒绝返回。该辅助读取不改变 `POST /uploads` 的主契约状态。 |
 
 变更证据三接口的 `service_id` 是 `base64url(application_id + NUL + environment_id)`；`binding_id` 必须指向该服务在所选环境中持久化的数字 GitLab 项目绑定。请求需要当前 `services.view` 和 `connectors.view`，连接器及相应只读工具均须启用。返回值仅是 GitLab 报告的源记录，不使主 `/changes` 页面变成已接通。
+
+TOTP 辅助接口由迁移 `122_v3_mfa_totp.sql` 保存密文种子与哈希恢复码；`AIOPS_V3_MFA_KEY_FILE` 必须指向服务器持久保管、绝对路径、权限 `0600` 的原始 32 字节密钥文件，未设置时六条路由不注册，设置错误时 V3 启动失败。账户操作在事务中复核当前会话、人类身份与单一环境授权；旧会话无可信签发时间，须重新登录才能登记或删除。密钥轮换需先设计重加密流程；验证仅是本次调用结果，不替代登录、完整 `/me`/`/security` 页面或人工批准所需的 passkey。
+
+指标样本辅助接口只读取迁移 `060_v3_prometheus_metric_targets.sql` 允许的显式 V3 Prometheus `metric_resource` 目标，不使用旧 CMDB 遥测绑定。部署方用 `AIOPS_V3_PROMETHEUS_QUERIES_CONFIG` 指向私有 JSON：`{"queries":[{"connector_id":"...","application_id":"...","environment_id":"...","resource_id":"...","query_id":"request_rate","expression":"..."}]}`。每个查询须由操作者审查表达式本身确实限定至该应用、环境与资源；目录键相等不能证明 PromQL 的数据范围。文件缺省时辅助接口返回 503，显式文件无效则 V3 启动失败。查询前后复核当前服务、授权和绑定；真实只读 Prometheus 返回异常、截断、多条序列或结果无从证明完整时明确报错，不把无样本等同健康。未连接真实生产 Prometheus，也未执行现有业务库迁移。
 
 告警规则源由 `AIOPS_V3_ALERT_RULES_CONFIG` 指向私有 JSON，字段示例见 [v3-alert-rules.json](../examples/v3-alert-rules.json)。每个环境只可绑定一个 Prometheus 只读端点；还需把响应中的精确规则组 `file` + `name` 绑定到一个已登记的应用。标签中的 `environment` 和 `application` 只是交叉校验，不能单独决定归属。配置文件中的令牌文件路径为绝对路径，令牌值不写入配置、日志或仓库。未配置时辅助规则接口明确返回未接入，主页面接口仍保持 `mock`。
 

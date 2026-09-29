@@ -13,6 +13,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3integrations"
 )
 
 type Access interface {
@@ -25,10 +26,16 @@ type Telemetry interface {
 	QueryTracesBatchID(context.Context, []string, connectors.TimeWindow, int, string) (map[string]connectors.TraceEvidence, error)
 }
 
+type MetricSamplesReader interface {
+	QueryService(context.Context, httpapi.V3EnvironmentScope, core.User, string, string, string,
+		connectors.TimeWindow) (v3integrations.PrometheusMetricEvidence, error)
+}
+
 type Service struct {
-	Store     *store.Store
-	Access    Access
-	Telemetry Telemetry
+	Store        *store.Store
+	Access       Access
+	Telemetry    Telemetry
+	MetricReader MetricSamplesReader
 }
 
 type observationTarget struct {

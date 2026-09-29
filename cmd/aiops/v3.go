@@ -119,6 +119,9 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	}); err != nil {
 		return err
 	}
+	if err := configureV3MFA(s, api, *info, os.Getenv("AIOPS_V3_MFA_KEY_FILE")); err != nil {
+		return err
+	}
 	api.RegisterPublic("GET /api/v1/instance", func(w http.ResponseWriter, _ *http.Request) { httpapi.WriteJSON(w, http.StatusOK, info) })
 	if issuer, clientID, redirect := os.Getenv("AIOPS_V3_OIDC_ISSUER"), os.Getenv("AIOPS_V3_OIDC_CLIENT_ID"), os.Getenv("AIOPS_V3_OIDC_REDIRECT_URL"); issuer != "" || clientID != "" || redirect != "" || os.Getenv("AIOPS_V3_OIDC_CLIENT_SECRET") != "" {
 		identity, err := v3identity.New(ctx, s, v3identity.Config{
@@ -393,7 +396,16 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	// EventSource cannot carry the custom environment header; the handler checks
 	// the persisted conversation scope and current authorization for every read.
 	api.MarkV3Route("GET /api/v1/conversations/{id}/events", "", "")
+	metricCatalog, err := v3integrations.LoadPrometheusQueryCatalog(os.Getenv("AIOPS_V3_PROMETHEUS_QUERIES_CONFIG"))
+	if err != nil {
+		return fmt.Errorf("load V3 Prometheus query catalog: %w", err)
+	}
+	metricReader, err := v3integrations.NewPrometheusReader(s.DB, cfg.Tier, connector.Prober.Resolver, metricCatalog)
+	if err != nil {
+		return fmt.Errorf("configure V3 Prometheus reader: %w", err)
+	}
 	observations := v3observe.New(s, policy, telemetry)
+	observations.MetricReader = metricReader
 	observations.Register(api)
 	api.MarkV3ObjectRoute("GET /api/v1/services/discover", "services", "view")
 	api.MarkV3ObjectRoute("GET /api/v1/metrics/dashboard", "services", "view")

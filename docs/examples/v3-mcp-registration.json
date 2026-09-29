@@ -1,0 +1,22 @@
+{
+  "id": "registered-mcp-id",
+  "application_id": "persisted-application-id",
+  "kind": "mcp",
+  "title": "Read-only service catalog",
+  "maintainer": "Operations",
+  "enabled": true,
+  "mcp": {
+    "endpoint": "https://mcp.example.invalid/mcp",
+    "credential_ref": "private-read-only-token-file",
+    "allow_http": false,
+    "bindings": [
+      {
+        "name": "get_service",
+        "tool": "get_service",
+        "description": "Read one service from the registered catalog",
+        "arguments": {"service": "fixed-service-id"},
+        "read_only_confirmed": true
+      }
+    ]
+  }
+}

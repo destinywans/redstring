@@ -30,9 +30,10 @@ type Access interface {
 type DiscoverFunc func(context.Context, aiextensions.MCPConfig) ([]aiextensions.ToolInfo, error)
 
 type Service struct {
-	DB            *pgxpool.Pool
-	Access        Access
-	DiscoverTools DiscoverFunc
+	DB              *pgxpool.Pool
+	Access          Access
+	DiscoverTools   DiscoverFunc
+	DiscoverCatalog func(context.Context, aiextensions.MCPConfig) (aiextensions.MCPCatalog, error)
 }
 
 func New(db *pgxpool.Pool, access Access) *Service { return &Service{DB: db, Access: access} }
@@ -60,15 +61,18 @@ func (s *Service) Register(api *httpapi.Server) {
 }
 
 type registration struct {
-	ID            string
-	ApplicationID string
-	Application   string
-	EnvironmentID string
-	raw           []byte
-	Record        aiextensions.Record
+	ID                string
+	ApplicationID     string
+	Application       string
+	OwnerTeamID       string
+	EnvironmentID     string
+	Version           int
+	BindingInstanceID string
+	raw               []byte
+	Record            aiextensions.Record
 }
 
-const registeredMCP = `SELECT e.id,e.application_id,a.name,b.environment_id,e.record
+const registeredMCP = `SELECT e.id,e.application_id,a.name,COALESCE(a.owner_team_id,''),b.environment_id,e.version,b.binding_instance_id,e.record
  FROM ai_extensions e
  JOIN applications a ON a.id=e.application_id AND NOT a.archived
  JOIN v3_mcp_environment_bindings b ON b.extension_id=e.id AND b.application_id=a.id
@@ -83,7 +87,7 @@ const maxListCandidates = 2000
 
 func scan(row pgx.Row) (registration, error) {
 	var out registration
-	err := row.Scan(&out.ID, &out.ApplicationID, &out.Application, &out.EnvironmentID, &out.raw)
+	err := row.Scan(&out.ID, &out.ApplicationID, &out.Application, &out.OwnerTeamID, &out.EnvironmentID, &out.Version, &out.BindingInstanceID, &out.raw)
 	if err != nil {
 		return out, err
 	}
@@ -95,7 +99,7 @@ func (out *registration) validateRecord() error {
 		return err
 	}
 	// Never trust identity fields from mutable JSON over the relational keys.
-	if out.Record.ID != out.ID || out.Record.ApplicationID != out.ApplicationID || out.Record.Kind != "mcp" || out.Record.MCP == nil {
+	if out.Record.ID != out.ID || out.Record.ApplicationID != out.ApplicationID || out.Record.Kind != "mcp" || out.Record.MCP == nil || out.Record.Version != out.Version {
 		return errors.New("inconsistent MCP registration")
 	}
 	for _, b := range out.Record.MCP.Bindings {
@@ -120,10 +124,47 @@ func (s *Service) ready(w http.ResponseWriter, r *http.Request) ([]string, bool)
 }
 
 func (s *Service) allowedTx(r *http.Request, tx pgx.Tx, v registration, action string) error {
-	return s.Access.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), rbac.V3Decision{
+	err := s.Access.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), rbac.V3Decision{
 		Module: "connectors", Action: action,
 		EnvironmentID: v.EnvironmentID, ApplicationID: v.ApplicationID,
 	})
+	if !errors.Is(err, store.ErrForbidden) || v.OwnerTeamID == "" {
+		return err
+	}
+	// The team grant is an alternative object scope only for the persisted
+	// owner of this bound application. Never resolve it from a request field.
+	return s.Access.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), rbac.V3Decision{
+		Module: "connectors", Action: action,
+		EnvironmentID: v.EnvironmentID, TeamID: v.OwnerTeamID,
+	})
+}
+
+func mcpReadDeadline(w http.ResponseWriter) bool {
+	err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(25 * time.Second))
+	// ResponseRecorder cannot set deadlines; real net/http writers can. The
+	// request context still bounds the transaction in embedded handlers.
+	return err == nil || errors.Is(err, http.ErrNotSupported)
+}
+
+func lockMCPRead(w http.ResponseWriter, r *http.Request, tx pgx.Tx) bool {
+	actor := httpapi.CurrentUser(r).ID
+	if err := lockReviewerGrantSources(r.Context(), tx, actor); err != nil {
+		writeDiscoveryAuthorizationError(w, err, true)
+		return false
+	}
+	if err := lockReviewerWriteSession(r, tx, actor); err != nil {
+		writeDiscoveryAuthorizationError(w, err, true)
+		return false
+	}
+	return true
+}
+
+func freshMCPReadSession(w http.ResponseWriter, r *http.Request, tx pgx.Tx) bool {
+	if err := lockReviewerWriteSession(r, tx, httpapi.CurrentUser(r).ID); err != nil {
+		writeDiscoveryAuthorizationError(w, err, true)
+		return false
+	}
+	return true
 }
 
 func (s *Service) list(w http.ResponseWriter, r *http.Request) {
@@ -134,21 +175,29 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 	r = r.WithContext(ctx)
+	if !mcpReadDeadline(w) {
+		httpapi.Error(w, 503, "mcp_unavailable", "MCP read response is unavailable")
+		return
+	}
 	// Keep the registration and authorization reads in one snapshot. Materialize
 	// each bounded page and close it before policy queries use the same connection.
-	tx, err := s.DB.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	tx, err := s.DB.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		httpapi.Error(w, 503, "mcp_unavailable", "MCP registrations are unavailable")
 		return
 	}
-	defer tx.Rollback(r.Context())
+	defer rollbackCandidateRead(tx)
+	if !lockMCPRead(w, r, tx) {
+		return
+	}
 	items := make([]map[string]any, 0)
 	lang := r.Header.Get("Accept-Language")
-	seen := map[string]bool{}
-	toolCount := 0
+	registeredBindingCount := 0
+	observedToolCount := 0
+	observedToolCountComplete := true
 	candidates := 0
 	for offset := 0; ; offset += 200 {
-		rows, queryErr := tx.Query(r.Context(), registeredMCP+" ORDER BY e.updated_at DESC,e.id,b.environment_id LIMIT 200 OFFSET $2", envs, offset)
+		rows, queryErr := tx.Query(r.Context(), registeredMCP+" ORDER BY e.updated_at DESC,e.id,b.environment_id LIMIT 200 OFFSET $2 FOR SHARE OF e,a,b,ae,app_env", envs, offset)
 		if queryErr != nil {
 			httpapi.Error(w, 503, "mcp_unavailable", "MCP registrations are unavailable")
 			return
@@ -187,34 +236,47 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 				httpapi.Error(w, 503, "mcp_unavailable", "An accessible MCP registration is inconsistent")
 				return
 			}
-			if seen[v.ID] {
-				continue
-			}
 			if len(items) == 1000 {
 				httpapi.Error(w, 413, "scope_too_large", "MCP registrations exceed the unpaged response limit")
 				return
 			}
-			seen[v.ID] = true
-			items = append(items, summary(v, lang))
+			obs, obsErr := loadMCPObservation(r.Context(), tx, v)
+			if obsErr != nil {
+				httpapi.Error(w, 503, "mcp_unavailable", "MCP observation is inconsistent")
+				return
+			}
+			item := summary(v, lang)
+			decorateMCPSummary(item, v, obs, lang)
+			items = append(items, item)
 			if v.Record.MCP != nil {
-				toolCount += len(v.Record.MCP.Bindings)
+				registeredBindingCount += len(v.Record.MCP.Bindings)
+			}
+			if obs == nil || obs.snapshot.toolsState != "supported" {
+				observedToolCountComplete = false
+			} else {
+				observedToolCount += len(obs.tools)
 			}
 		}
 		if len(batch) < 200 {
 			break
 		}
 	}
-	if err := tx.Commit(r.Context()); err != nil {
-		httpapi.Error(w, 503, "mcp_unavailable", "MCP registrations are unavailable")
-		return
-	}
 	// These are registration counts, not discovered tools, health or call volume.
 	kpis := []map[string]any{
 		{"id": "servers", "label": mcpLocalized(lang, "已绑定登记", "Bound registrations"), "value": strconv.Itoa(len(items)), "sub": mcpLocalized(lang, "仅统计当前可见的显式环境绑定", "Only explicit environment bindings visible to you"), "series": []int{}},
-		{"id": "tools", "label": mcpLocalized(lang, "已登记只读绑定", "Registered read-only bindings"), "value": strconv.Itoa(toolCount), "sub": mcpLocalized(lang, "不表示 V3 已审核或可执行", "Not V3 reviewed or executable"), "series": []int{}},
+		{"id": "bindings", "label": mcpLocalized(lang, "已登记只读绑定", "Registered read-only bindings"), "value": strconv.Itoa(registeredBindingCount), "sub": mcpLocalized(lang, "不表示 V3 已审核或可执行", "Not V3 reviewed or executable"), "series": []int{}},
+	}
+	var observedValue any
+	if observedToolCountComplete {
+		observedValue = strconv.Itoa(observedToolCount)
+	}
+	kpis = append(kpis, map[string]any{"id": "tools", "label": mcpLocalized(lang, "当前已观察工具", "Current observed tools"), "value": observedValue,
+		"sub": mcpLocalized(lang, "缺少当前发现时为未知；声明未经信任", "Unknown without current discovery; declarations untrusted"), "series": []int{}})
+	if !freshMCPReadSession(w, r, tx) {
+		return
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"kpis": kpis, "items": items, "complete_v3_dto": false,
-		"unavailable_fields": []string{"unbound_legacy_registrations", "connection_health", "discovered_capabilities", "v3_tool_review", "agent_authorized_apps", "call_metrics", "pending_change"}})
+		"unavailable_fields": []string{"unbound_legacy_registrations", "connection_health", "agent_authorized_apps", "call_metrics", "pending_change"}})
 }
 
 func mcpLocalized(lang, zh, en string) string {
@@ -297,44 +359,73 @@ func (s *Service) find(w http.ResponseWriter, r *http.Request, action string) (r
 }
 
 func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
-	v, ok := s.find(w, r, "view")
+	envs, ok := s.ready(w, r)
 	if !ok {
+		return
+	}
+	scope, _ := httpapi.V3ScopeFromContext(r.Context())
+	if scope.All || len(envs) != 1 {
+		httpapi.Error(w, 422, "invalid_environment", "Choose one environment for MCP detail")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	r = r.WithContext(ctx)
+	if !mcpReadDeadline(w) {
+		httpapi.Error(w, 503, "mcp_unavailable", "MCP read response is unavailable")
+		return
+	}
+	tx, err := s.DB.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		httpapi.Error(w, 503, "mcp_unavailable", "MCP registration is unavailable")
+		return
+	}
+	defer rollbackCandidateRead(tx)
+	if !lockMCPRead(w, r, tx) {
+		return
+	}
+	v, err := scan(tx.QueryRow(r.Context(), registeredMCP+" AND e.id=$2 FOR SHARE OF e,a,b,ae,app_env", envs, r.PathValue("id")))
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpapi.Error(w, 404, "not_found", "MCP server not found")
+		return
+	}
+	if err != nil {
+		httpapi.Error(w, 503, "mcp_unavailable", "MCP registration is unavailable")
+		return
+	}
+	if err = s.allowedTx(r, tx, v, "view"); err != nil {
+		if errors.Is(err, store.ErrForbidden) {
+			httpapi.Error(w, 404, "not_found", "MCP server not found")
+		} else {
+			httpapi.Error(w, 503, "authorization_unavailable", "MCP authorization is unavailable")
+		}
+		return
+	}
+	if err = v.validateRecord(); err != nil {
+		httpapi.Error(w, 503, "mcp_unavailable", "MCP registration is inconsistent")
+		return
+	}
+	obs, err := loadMCPObservation(r.Context(), tx, v)
+	if err != nil {
+		httpapi.Error(w, 503, "mcp_unavailable", "MCP observation is inconsistent")
 		return
 	}
 	lang := r.Header.Get("Accept-Language")
 	result := summary(v, lang)
-	// Legacy fixed-argument bindings and discovery observations are not V3
-	// reviewed Agent grants. This DTO can expose no callable tool yet.
-	result["version"] = mcpLocalized(lang, "服务版本未验证", "Server version unverified")
-	result["counts"] = map[string]int{"tools": 0, "resources": 0, "prompts": 0} // DTO placeholders, not observed zero counts.
-	result["tools"] = []any{}
-	result["resources"] = []any{}
-	result["prompts"] = []any{}
-	result["calls"] = []any{}
-	auth := mcpLocalized(lang, "未登记凭据引用", "No credential reference registered")
-	if v.Record.MCP != nil && v.Record.MCP.CredentialRef != "" {
-		auth = mcpLocalized(lang, "凭据引用已登记，未验证", "Credential reference registered, unverified")
-	}
-	result["trust_info"] = map[string]any{
-		"readonly_check": mcpLocalized(lang, "V3 只读审核未完成", "V3 read-only review unavailable"),
-		"scope":          []string{}, // The environment binding is not an Agent grant.
-		"limit":          mcpLocalized(lang, "V3 调用尚不可用", "V3 calls unavailable"), "auth": auth,
-	}
+	decorateMCPSummary(result, v, obs, lang)
+	decorateMCPDetail(result, obs, lang, v.Record.MCP != nil && v.Record.MCP.CredentialRef != "")
 	result["complete_v3_dto"] = false
-	result["unavailable_fields"] = []string{"connection_health", "server_version", "v3_tool_review", "agent_tool_grants", "agent_authorized_apps", "tool_count", "resource_count", "prompt_count", "discovered_resources", "discovered_prompts", "call_history", "call_limit"}
+	result["unavailable_fields"] = []string{"connection_health", "agent_tool_grants", "agent_authorized_apps", "call_history", "call_limit"}
+	if !freshMCPReadSession(w, r, tx) {
+		return
+	}
 	httpapi.WriteJSON(w, 200, result)
 }
 
 func (s *Service) toolChange(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.find(w, r, "manage"); !ok {
-		return
-	}
-	httpapi.Error(w, 503, "mcp_review_unavailable", "V3 tool review and environment-scoped trust records are not configured")
+	s.changeReviewedToolStrict(w, r, true)
 }
 
 func (s *Service) review(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.find(w, r, "manage"); !ok {
-		return
-	}
-	httpapi.Error(w, 503, "mcp_review_unavailable", "No verified discovery snapshot exists for review")
+	s.reviewVersion(w, r)
 }

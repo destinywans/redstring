@@ -21,6 +21,9 @@ type reviewSnapshot struct {
 	toolsRaw                                                         []byte
 	toolCount                                                        int
 	capturedAt                                                       time.Time
+	serverName, serverVersion, protocolVersion                       *string
+	toolsState, resourcesState, promptsState                         string
+	resourcesRaw, promptsRaw                                         []byte
 }
 
 type observedTool struct {
@@ -37,12 +40,14 @@ type observedTool struct {
 func loadLatestReviewSnapshot(ctx context.Context, tx pgx.Tx, extensionID, env string) (reviewSnapshot, error) {
 	var out reviewSnapshot
 	err := tx.QueryRow(ctx, `SELECT id,extension_id,binding_instance_id,application_id,environment_id,
- registration_version,registration_hash,tools_hash,tools,tool_count,captured_at
+ registration_version,registration_hash,tools_hash,tools,tool_count,captured_at,
+ server_name,server_version,protocol_version,tools_state,resources_state,prompts_state,resources,prompts
  FROM v3_mcp_discovery_snapshots WHERE extension_id=$1 AND environment_id=$2
  ORDER BY snapshot_seq DESC LIMIT 1`, extensionID, env).Scan(
 		&out.id, &out.extensionID, &out.bindingInstanceID, &out.applicationID, &out.environmentID,
 		&out.registrationVersion, &out.registrationHash, &out.toolsHash, &out.toolsRaw,
-		&out.toolCount, &out.capturedAt)
+		&out.toolCount, &out.capturedAt,
+		&out.serverName, &out.serverVersion, &out.protocolVersion, &out.toolsState, &out.resourcesState, &out.promptsState, &out.resourcesRaw, &out.promptsRaw)
 	return out, err
 }
 
@@ -78,7 +83,7 @@ func (snap reviewSnapshot) tools() ([]observedTool, error) {
 // Ordinary connectors.manage is available to machine identities. A V3 tool
 // review and its enable switch require a human identity holding that grant
 // through a non-machine role at the time of the write.
-func humanMCPReviewer(ctx context.Context, tx pgx.Tx, actor, applicationID, environmentID string) (bool, error) {
+func humanMCPReviewer(ctx context.Context, tx pgx.Tx, actor, applicationID, environmentID, ownerTeamID string) (bool, error) {
 	var permitted bool
 	err := tx.QueryRow(ctx, `SELECT EXISTS (
  SELECT 1 FROM v3_effective_role_grants g
@@ -86,14 +91,15 @@ func humanMCPReviewer(ctx context.Context, tx pgx.Tx, actor, applicationID, envi
  AND g.module='connectors' AND g.action='manage'
  AND ((g.scope_kind='global' AND g.scope_id='*')
    OR (g.scope_kind='environment' AND g.scope_id=$2)
-   OR (g.scope_kind='application' AND g.scope_id=$3))
- )`, actor, environmentID, applicationID).Scan(&permitted)
+   OR (g.scope_kind='application' AND g.scope_id=$3)
+   OR ($4<>'' AND g.scope_kind='team' AND g.scope_id=$4))
+ )`, actor, environmentID, applicationID, ownerTeamID).Scan(&permitted)
 	return permitted, err
 }
 
 func requireHumanMCPReviewer(w http.ResponseWriter, r *http.Request, tx pgx.Tx, current discoveryRegistration) bool {
 	permitted, err := humanMCPReviewer(r.Context(), tx, httpapi.CurrentUser(r).ID,
-		current.ApplicationID, current.EnvironmentID)
+		current.ApplicationID, current.EnvironmentID, current.OwnerTeamID)
 	if err != nil {
 		httpapi.Error(w, http.StatusServiceUnavailable, "authorization_unavailable", "MCP reviewer identity is unavailable")
 		return false
@@ -128,7 +134,7 @@ func loadCompleteReview(ctx context.Context, tx pgx.Tx, snapshotID string, tools
 	}
 	for _, tool := range tools {
 		item, exists := decisions[tool.Name]
-		if !exists || item.ToolHash != tool.ToolHash ||
+		if !exists || item.ToolHash != tool.ToolHash || (item.Decision == "allow_read_only" && !tool.ReadOnlyHint) ||
 			(item.Decision != "allow_read_only" && item.Decision != "deny") ||
 			(item.Enabled && item.Decision != "allow_read_only") || item.Revision < 1 {
 			return nil, errors.New("MCP review decision does not match snapshot")
@@ -490,15 +496,20 @@ func (s *Service) reviewVersion(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, http.StatusUnprocessableEntity, "invalid_review", "Review every discovered tool explicitly")
 		return
 	}
-	lookup := make(map[string]string, len(tools))
+	lookup := make(map[string]observedTool, len(tools))
 	for _, tool := range tools {
-		lookup[tool.Name] = tool.ToolHash
+		lookup[tool.Name] = tool
 	}
 	decisions := make(map[string]string, len(tools))
 	for _, item := range request.Decisions {
-		if lookup[item.Name] == "" || lookup[item.Name] != item.ToolHash ||
+		tool, exists := lookup[item.Name]
+		if !exists || tool.ToolHash != item.ToolHash ||
 			(item.Decision != "allow_read_only" && item.Decision != "deny") || decisions[item.Name] != "" {
 			httpapi.Error(w, http.StatusUnprocessableEntity, "invalid_review", "Review decisions must match every discovered tool")
+			return
+		}
+		if item.Decision == "allow_read_only" && !tool.ReadOnlyHint {
+			httpapi.Error(w, http.StatusUnprocessableEntity, "mcp_tool_not_read_only", "A tool without a read-only declaration cannot be allowed")
 			return
 		}
 		decisions[item.Name] = item.Decision
@@ -565,14 +576,20 @@ func (s *Service) reviewVersion(w http.ResponseWriter, r *http.Request) {
 }
 
 type changeReviewedToolRequest struct {
-	SnapshotID       string `json:"snapshot_id"`
-	ToolsHash        string `json:"tools_hash"`
-	ToolHash         string `json:"tool_hash"`
-	ExpectedRevision int    `json:"expected_revision"`
-	Enabled          *bool  `json:"enabled"`
+	SnapshotID          string `json:"snapshot_id"`
+	RegistrationVersion int    `json:"registration_version"`
+	RegistrationHash    string `json:"registration_hash"`
+	ToolsHash           string `json:"tools_hash"`
+	ToolHash            string `json:"tool_hash"`
+	ExpectedRevision    int    `json:"expected_revision"`
+	Enabled             *bool  `json:"enabled"`
 }
 
 func (s *Service) changeReviewedTool(w http.ResponseWriter, r *http.Request) {
+	s.changeReviewedToolStrict(w, r, false)
+}
+
+func (s *Service) changeReviewedToolStrict(w http.ResponseWriter, r *http.Request, strict bool) {
 	var request changeReviewedToolRequest
 	if !httpapi.Decode(w, r, &request) {
 		return
@@ -594,15 +611,21 @@ func (s *Service) changeReviewedTool(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, http.StatusConflict, "mcp_discovery_stale", "Tool change requires the current reviewed snapshot")
 		return
 	}
+	if strict && (request.RegistrationVersion != current.version || request.RegistrationHash != current.hash) {
+		httpapi.Error(w, http.StatusConflict, "mcp_registration_changed", "Tool change requires the current registration version and digest")
+		return
+	}
 	tools, err := snap.tools()
 	if err != nil {
 		httpapi.Error(w, http.StatusServiceUnavailable, "mcp_unavailable", "MCP discovery snapshot is inconsistent")
 		return
 	}
 	actualHash := ""
+	readOnlyHint := false
 	for _, tool := range tools {
 		if tool.Name == name {
 			actualHash = tool.ToolHash
+			readOnlyHint = tool.ReadOnlyHint
 			break
 		}
 	}
@@ -650,7 +673,7 @@ func (s *Service) changeReviewedTool(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, http.StatusConflict, "mcp_tool_revision_changed", "Tool switch changed; reload the reviewed version")
 		return
 	}
-	if *request.Enabled && decision != "allow_read_only" {
+	if *request.Enabled && (decision != "allow_read_only" || !readOnlyHint) {
 		httpapi.Error(w, http.StatusUnprocessableEntity, "mcp_tool_denied", "Denied or write-capable tools cannot be enabled")
 		return
 	}

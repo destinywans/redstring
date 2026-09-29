@@ -77,7 +77,7 @@ func lockReviewerRoleGrantSources(ctx context.Context, tx pgx.Tx, actorID string
 	rows, err = tx.Query(ctx, `SELECT role_id FROM v3_role_grants
  WHERE role_id=ANY($1::text[])
  AND ((module='environment' AND action='view')
-   OR (module='connectors' AND action='manage'))
+   OR (module='connectors' AND action IN ('view','manage')))
  ORDER BY role_id,module,action,scope_kind,scope_id FOR SHARE`, before)
 	if err != nil {
 		return err

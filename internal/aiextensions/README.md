@@ -38,7 +38,7 @@ Record 字段见 `types.go`。失败区分 403 权限、404 不存在、409 版�
 
 ## MCP 边界
 
-使用 [官方 Go SDK](https://github.com/modelcontextprotocol/go-sdk) v1.7.0 的 [StreamableClientTransport / ClientSession](https://pkg.go.dev/github.com/modelcontextprotocol/go-sdk/mcp)，由 SDK 完成初始化、协议协商、工具发现和调用。首版不启动 stdio 子进程，不实现 OAuth 授权流程，不处理远程 Prompt、资源链接、sampling 或 elicitation。
+使用 [官方 Go SDK](https://github.com/modelcontextprotocol/go-sdk) v1.7.0 的 [StreamableClientTransport / ClientSession](https://pkg.go.dev/github.com/modelcontextprotocol/go-sdk/mcp)，由 SDK 完成初始化、协议协商、工具发现和调用。`DiscoverCatalog` 在同一受限会话中观察服务版本及已宣告能力，仅调用 tools/list、resources/list、prompts/list，并有时间、分页、项目数和大小上限。未宣告的能力标为 unsupported；已宣告却返回空列表才是观测到的零项。首版不启动 stdio 子进程，不实现 OAuth 授权流程，不调用 prompts/get、resources/read、远程 Prompt 执行、资源链接解引用、sampling 或 elicitation。目录观察本身不授予 V3 Agent 使用权限。
 
 - 管理员按应用登记 endpoint、固定参数的只读工具白名单及凭据文件引用；MCP 服务必须由管理员确认可信且凭据本身应只读。服务的 readOnlyHint 只是额外校验，不能单独作为权限授权。
 - HTTP 仅允许显式开启的回环地址；其他 endpoint 必须 HTTPS。禁止 URL 用户信息、query、fragment、重定向；凭据只向登记的精确 URL 发送。

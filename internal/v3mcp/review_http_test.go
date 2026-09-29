@@ -540,11 +540,11 @@ func TestMCPVersionReviewHTTPIsolated(t *testing.T) {
 		strings.Contains(string(auditChanges), "private-ref") || strings.Contains(string(auditChanges), "untrusted remote text") {
 		t.Fatalf("unsafe review audit: %s", auditChanges)
 	}
-	if w := managerCall(http.MethodPost, base+"/review", nil); w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("unfenced main review opened: %d %s", w.Code, w.Body.String())
+	if w := managerCall(http.MethodPost, base+"/review", nil); w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("unversioned main review accepted: %d %s", w.Code, w.Body.String())
 	}
-	if w := managerCall(http.MethodPatch, base+"/tools/read_app", map[string]any{"enabled": true}); w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("unfenced main tool route opened: %d %s", w.Code, w.Body.String())
+	if w := managerCall(http.MethodPatch, base+"/tools/read_app", map[string]any{"enabled": true}); w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("unversioned main tool route accepted: %d %s", w.Code, w.Body.String())
 	}
 	changeBody := func(rev int, state bool) map[string]any {
 		return map[string]any{"snapshot_id": snapshotID, "tools_hash": toolsHash, "tool_hash": toolHash,
@@ -682,7 +682,7 @@ func TestMCPVersionReviewHTTPIsolated(t *testing.T) {
 	// present allow decision effective when another discovered tool is missing.
 	service.DiscoverTools = func(context.Context, aiextensions.MCPConfig) ([]aiextensions.ToolInfo, error) {
 		return []aiextensions.ToolInfo{
-			{Name: "read_app", InputSchema: map[string]any{"type": "object"}},
+			{Name: "read_app", ReadOnlyHint: true, InputSchema: map[string]any{"type": "object"}},
 			{Name: "read_other", InputSchema: map[string]any{"type": "object"}},
 		}, nil
 	}
@@ -697,6 +697,17 @@ func TestMCPVersionReviewHTTPIsolated(t *testing.T) {
 	partialTools, ok := partial["tools"].([]any)
 	if !ok || len(partialTools) != 2 {
 		t.Fatalf("two-tool candidate declarations: %s", w.Body.String())
+	}
+	unsafeDecisions := make([]map[string]any, 0, len(partialTools))
+	for _, item := range partialTools {
+		tool := item.(map[string]any)
+		unsafeDecisions = append(unsafeDecisions, map[string]any{"name": tool["name"], "tool_hash": tool["tool_hash"], "decision": "allow_read_only"})
+	}
+	unsafeReview := map[string]any{"snapshot_id": partial["snapshot_id"], "registration_version": partial["registration_version"],
+		"registration_hash": partial["registration_hash"], "tools_hash": partial["tools_hash"], "decisions": unsafeDecisions}
+	if response := managerCall(http.MethodPost, base+"/review", unsafeReview); response.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(response.Body.String(), "mcp_tool_not_read_only") {
+		t.Fatalf("write-capable declaration accepted as read-only: %d %s", response.Code, response.Body.String())
 	}
 	var readAppHash string
 	for _, item := range partialTools {
@@ -761,8 +772,12 @@ func TestMCPVersionReviewHTTPIsolated(t *testing.T) {
 		if !ok {
 			t.Fatalf("invalid concurrency tool: %v", item)
 		}
+		decision := "deny"
+		if tool["read_only_hint"] == true {
+			decision = "allow_read_only"
+		}
 		concurrentDecisions = append(concurrentDecisions, map[string]any{
-			"name": tool["name"], "tool_hash": tool["tool_hash"], "decision": "allow_read_only",
+			"name": tool["name"], "tool_hash": tool["tool_hash"], "decision": decision,
 		})
 	}
 	concurrentReview := map[string]any{

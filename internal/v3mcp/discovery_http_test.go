@@ -313,6 +313,17 @@ func TestDiscoverySnapshotHTTPBoundedScopeAndRaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	service.DiscoverTools = func(context.Context, aiextensions.MCPConfig) ([]aiextensions.ToolInfo, error) {
+		if _, err := db.Exec(ctx, `DELETE FROM sessions WHERE token_hash=$1`, store.Hash(session)); err != nil {
+			t.Fatal(err)
+		}
+		return validTools(), nil
+	}
+	checkFailure("session logged out after network", http.StatusNotFound, 0)
+	_, session, err = st.Login(ctx, viewer.Email, "isolated-viewer-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.DiscoverTools = func(context.Context, aiextensions.MCPConfig) ([]aiextensions.ToolInfo, error) {
 		if _, err := db.Exec(ctx, `DELETE FROM v3_mcp_environment_bindings WHERE extension_id='mcp-1'`); err != nil {
 			t.Fatal(err)
 		}

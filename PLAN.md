@@ -1,5 +1,7 @@
 # AIOps Canvas 实施计划
 
+**2026-09-29 WAN-118/120 来源复核：** 事件团队授权来源分支存在负责人变更时的读取竞态；Elasticsearch 日志模式来源分支存在等级字段和精确映射不符造成的假零 200 风险。两批来源代码均未合入，修复条件和验证边界见 [CP-148](CHECKPOINT.md) 与[就绪清单](docs/api/v3-route-readiness.md)；`POST /alert-rules/{id}/dry-run` 与 `GET /logs` 保持 `mock`，主范围仍 **38/166**。
+
 **2026-09-29 `POST /evals` 后端状态纠偏：** 主契约只承诺四字段请求创建 `pending` 元数据、返回 `{ id, status: "pending", execution_available: false }`，明确不启动评测。当前注册处理、对象/环境授权、已知版本校验、记录与审计同事务、OpenAPI 及先前隔离 PG17 HTTP 定向证据已满足此后端接口判据，故该行由 `mock` 改为 `implemented`，总数 **38/166**；`GET /evals/{id}` 仍缺完整 DTO 而 `mock`。冻结页面重跑发送空体却提示排队，评测执行器与页面 HTTP 验收均未完成；创建事务未锁当前 Cookie 会话，并发注销与在途创建的顺序未专测，不能承诺即时取消。此项只纠正后端完成数，不提升页面或真实评测执行状态；见 [CP-146](CHECKPOINT.md)。
 
 **2026-09-29 V3 后端交付方式调整（用户确认）：** 166 项主契约的路径、语义和完成标准不变；本次状态复核后为 **38/166 `implemented`**。剩余 `mock` 主路由的逐项就绪、证据与下一依赖记录在 [版本绑定的就绪清单](docs/api/v3-route-readiness.md)。已接线的局部能力、辅助路由或明确返回 501/503，不能自动升级为主路由完成；外部实连和前端 HTTP 联调另记证据。

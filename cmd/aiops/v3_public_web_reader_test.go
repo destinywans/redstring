@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/operations"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3knowledgesources"
@@ -42,7 +43,7 @@ func TestConfiguredV3SourceRegistryRequiresExplicitPublicWebOptIn(t *testing.T) 
 
 func TestInvalidPublicWebReaderFlagFailsBeforeV3Configuration(t *testing.T) {
 	t.Setenv("AIOPS_V3_PUBLIC_WEB_READER_ENABLED", "yes")
-	err := configureV3(context.Background(), &store.Store{}, nil, nil, nil, nil, &v3Instance{}, httpapi.V3InstanceConfig{})
+	err := configureV3(context.Background(), &store.Store{}, nil, nil, nil, nil, &v3Instance{}, httpapi.V3InstanceConfig{}, operations.Config{})
 	if err == nil || !strings.Contains(err.Error(), "AIOPS_V3_PUBLIC_WEB_READER_ENABLED") {
 		t.Fatalf("invalid flag reached V3 configuration side effects: %v", err)
 	}

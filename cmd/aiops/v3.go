@@ -20,6 +20,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/knowledge"
+	"github.com/wans/aiops-canvas/internal/operations"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3admin"
@@ -176,7 +177,7 @@ func configuredV3ModelRuntime(path string, cfg httpapi.V3InstanceConfig, runtime
 
 // configureV3 enables the new backend only with explicit instance
 // configuration. A partial deployment cannot silently claim production scope.
-func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, api *httpapi.Server, telemetry *connectors.Telemetry, know *knowledge.Service, info *v3Instance, cfg httpapi.V3InstanceConfig) error {
+func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, api *httpapi.Server, telemetry *connectors.Telemetry, know *knowledge.Service, info *v3Instance, cfg httpapi.V3InstanceConfig, opsConfig operations.Config) error {
 	if info == nil {
 		return nil
 	}
@@ -492,9 +493,11 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	observations := v3observe.New(s, policy, telemetry)
 	observations.MetricReader = metricReader
 	observations.Register(api)
-	// No current producer proves complete per-application alert ingestion.
-	// Keep service page reads fail closed until such coverage is configured.
-	v3serviceviews.New(s, policy, metricReader, nil).Register(api)
+	alertCoverage, err := v3serviceviews.LoadAlertCoverage(os.Getenv("AIOPS_V3_SERVICE_ALERT_COVERAGE_CONFIG"), opsConfig, cfg, s.DB)
+	if err != nil {
+		return fmt.Errorf("configure V3 service alert coverage: %w", err)
+	}
+	v3serviceviews.New(s, policy, metricReader, alertCoverage).Register(api)
 	v3traces.New(s, policy, telemetry).Register(api)
 	events := v3events.New(s.DB, func(ctx context.Context, user core.User, app, env, action string) error {
 		return policy.Authorize(ctx, user, rbac.V3Decision{Module: "events", Action: action, ApplicationID: app, EnvironmentID: env})

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +27,22 @@ import (
 type completeReader struct {
 	now   time.Time
 	calls []string
+}
+
+type tokenRevokingReader struct {
+	*completeReader
+	tokenPath string
+	revoked   bool
+}
+
+func (r *tokenRevokingReader) QueryService(ctx context.Context, scope httpapi.V3EnvironmentScope, user core.User,
+	service, env, query string, window connectors.TimeWindow) (v3integrations.PrometheusMetricEvidence, error) {
+	evidence, err := r.completeReader.QueryService(ctx, scope, user, service, env, query, window)
+	if err == nil && !r.revoked {
+		r.revoked = true
+		err = os.Remove(r.tokenPath)
+	}
+	return evidence, err
 }
 
 func (r *completeReader) QueryService(_ context.Context, scope httpapi.V3EnvironmentScope, _ core.User,
@@ -195,7 +212,7 @@ func seedServiceViews(t *testing.T, st *store.Store, now time.Time) {
 		}
 	}
 	_, err := st.DB.Exec(ctx, `INSERT INTO ops_incidents(id,source_id,application_id,environment_id,fingerprint,title,severity,alert_status,starts_at)
- VALUES('alert-checkout','source','checkout-app','checkout-test','fingerprint','High errors','critical','firing',$1)`, now.Add(-time.Hour))
+ VALUES('alert-checkout','service-alerts','checkout-app','checkout-test','fingerprint','High errors','critical','firing',$1)`, now.Add(-time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +224,8 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
 	seedServiceViews(t, st, now)
 	policy := &rbac.V3Policy{Store: st}
 	reader := &completeReader{now: now}
-	svc := New(st, policy, reader, func(_, env string) bool { return env == "test" })
+	covered, tokenPath := configuredAlertCoverage(t, st)
+	svc := New(st, policy, reader, covered)
 	svc.Now = func() time.Time { return now }
 	api := httpapi.New(st, nil, true)
 	svc.Register(api)
@@ -266,6 +284,45 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
 		len(d.Changes) != 1 || d.Tabs["deps"] != 1 || d.Tabs["incidents"] != 1 || len(d.Signals) != 5 {
 		t.Fatalf("incorrect detail relationships: %+v", d)
 	}
+	if _, err = st.DB.Exec(t.Context(), `INSERT INTO ops_incidents(id,source_id,application_id,environment_id,fingerprint,title,severity,alert_status,starts_at)
+ VALUES('other-checkout','other-source','checkout-app','checkout-test','other-checkout','Duplicate','critical','firing',$1),
+ ('other-payments','other-source','payments-app','payments-test','other-payments','Foreign critical','critical','firing',$1)`, now.Add(-30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if w = get("/services"); w.Code != 200 {
+		t.Fatalf("cross-source catalog status=%d body=%s", w.Code, w.Body.String())
+	}
+	if err = json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Items) != 2 || list.Items[0].Alerts != 1 || list.Items[1].Alerts != 0 || list.Items[1].Status != "ok" || list.KPIs[1].Value != "1" {
+		t.Fatalf("unbound alert source changed count or status: %+v", list)
+	}
+	svc.MetricReader = &tokenRevokingReader{completeReader: reader, tokenPath: tokenPath}
+	if w = get("/services"); w.Code != 503 {
+		t.Fatalf("source revoked after metric read exposed catalog: status=%d body=%s", w.Code, w.Body.String())
+	}
+	if err := os.WriteFile(tokenPath, []byte("fixture-alertmanager-token-at-least-24"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	svc.MetricReader = reader
+	svc.AlertCovered = nil
+	if w = get("/services"); w.Code != 503 {
+		t.Fatalf("missing coverage binding exposed catalog: status=%d body=%s", w.Code, w.Body.String())
+	}
+	svc.AlertCovered = covered
+	if err := os.Remove(tokenPath); err != nil {
+		t.Fatal(err)
+	}
+	if w = get("/services"); w.Code != 503 {
+		t.Fatalf("withdrawn alert source exposed catalog: status=%d body=%s", w.Code, w.Body.String())
+	}
+	if w = get("/services/" + encodeID("checkout-app", "test")); w.Code != 503 {
+		t.Fatalf("withdrawn alert source exposed detail: status=%d body=%s", w.Code, w.Body.String())
+	}
+	if err := os.WriteFile(tokenPath, []byte("fixture-alertmanager-token-at-least-24"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = st.DB.Exec(t.Context(), `INSERT INTO cmdb_resource_relations(id,source_resource_id,target_resource_id,kind,provenance,source_kind)
  VALUES('checkout-payments-second','res-checkout','res-payments','depends_on','declared','manual-second')`); err != nil {
 		t.Fatal(err)
@@ -313,6 +370,102 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
 	}
 	if w = get("/services"); w.Code != 503 || !strings.Contains(w.Body.String(), "service_view_incomplete") {
 		t.Fatalf("missing release was hidden: status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func configuredAlertCoverage(t *testing.T, st *store.Store) (AlertCovered, string) {
+	t.Helper()
+	dir := t.TempDir()
+	tokenPath := filepath.Join(dir, "source-token")
+	if err := os.WriteFile(tokenPath, []byte("fixture-alertmanager-token-at-least-24"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	source := operations.Source{ID: "service-alerts", TokenFile: tokenPath, Mappings: []operations.Mapping{
+		{Labels: map[string]string{"application": "checkout"}, ApplicationID: "checkout-app", EnvironmentID: "checkout-test"},
+		{Labels: map[string]string{"application": "payments"}, ApplicationID: "payments-app", EnvironmentID: "payments-test"},
+	}}
+	config := AlertCoverageConfig{Bindings: []AlertCoverageBinding{
+		{SourceID: source.ID, ApplicationID: "checkout-app", EnvironmentID: "test", Labels: source.Mappings[0].Labels, Complete: true},
+		{SourceID: source.ID, ApplicationID: "payments-app", EnvironmentID: "test", Labels: source.Mappings[1].Labels, Complete: true},
+	}}
+	raw, err := json.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "coverage.json")
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	instance := httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "test", EnvironmentIDs: []string{"test"}}
+	covered, err := LoadAlertCoverage(path, operations.Config{Sources: []operations.Source{source}}, instance, st.DB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if covered(t.Context(), "checkout-app", "test") != "service-alerts" || covered(t.Context(), "payments-app", "test") != "service-alerts" || covered(t.Context(), "checkout-app", "prod") != "" || covered(t.Context(), "hidden", "test") != "" {
+		t.Fatal("coverage accepted an unbound app/environment or rejected an exact binding")
+	}
+	return covered, tokenPath
+}
+
+func TestAlertCoverageRequiresExactLiveBinding(t *testing.T) {
+	st, _ := serviceTestDB(t)
+	seedServiceViews(t, st, time.Date(2026, 9, 29, 8, 30, 15, 0, time.UTC))
+	covered, tokenPath := configuredAlertCoverage(t, st)
+	if absent, err := LoadAlertCoverage("", operations.Config{}, httpapi.V3InstanceConfig{}, st.DB); err != nil || absent != nil {
+		t.Fatalf("missing declaration must fail closed: coverage=%v err=%v", absent != nil, err)
+	}
+	if _, err := st.DB.Exec(t.Context(), `UPDATE application_environments SET archived=true WHERE id='checkout-test'`); err != nil {
+		t.Fatal(err)
+	}
+	if covered(t.Context(), "checkout-app", "test") != "" || covered(t.Context(), "payments-app", "test") != "service-alerts" {
+		t.Fatal("coverage survived removal of exact V3 application/environment binding")
+	}
+	if err := os.Remove(tokenPath); err != nil {
+		t.Fatal(err)
+	}
+	if covered(t.Context(), "payments-app", "test") != "" {
+		t.Fatal("coverage survived removal of ingress authentication")
+	}
+}
+
+func TestAlertCoverageRejectsAmbiguousOrUnassertedSource(t *testing.T) {
+	st, _ := serviceTestDB(t)
+	seedServiceViews(t, st, time.Date(2026, 9, 29, 8, 30, 15, 0, time.UTC))
+	dir := t.TempDir()
+	tokenPath := filepath.Join(dir, "token")
+	if err := os.WriteFile(tokenPath, []byte("fixture-alertmanager-token-at-least-24"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	source := operations.Source{ID: "alerts", TokenFile: tokenPath, Mappings: []operations.Mapping{
+		{Labels: map[string]string{"application": "checkout"}, ApplicationID: "checkout-app", EnvironmentID: "checkout-test"},
+		{Labels: map[string]string{"application": "checkout", "team": "ops"}, ApplicationID: "payments-app", EnvironmentID: "payments-test"},
+	}}
+	binding := AlertCoverageBinding{SourceID: "alerts", ApplicationID: "checkout-app", EnvironmentID: "test", Labels: source.Mappings[0].Labels, Complete: true}
+	path := filepath.Join(dir, "coverage.json")
+	load := func() error {
+		raw, err := json.Marshal(AlertCoverageConfig{Bindings: []AlertCoverageBinding{binding}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+		_, err = LoadAlertCoverage(path, operations.Config{Sources: []operations.Source{source}},
+			httpapi.V3InstanceConfig{Tier: "nonprod", EnvironmentIDs: []string{"test"}}, st.DB)
+		return err
+	}
+	if err := load(); err == nil {
+		t.Fatal("overlapping selector was accepted as complete coverage")
+	}
+	source.Mappings = source.Mappings[:1]
+	binding.Complete = false
+	if err := load(); err == nil {
+		t.Fatal("unasserted selector was accepted as complete coverage")
+	}
+	binding.Complete = true
+	binding.Labels = map[string]string{"application": "other"}
+	if err := load(); err == nil {
+		t.Fatal("selector absent from configured source was accepted")
 	}
 }
 
@@ -381,7 +534,12 @@ func TestServiceViewsEventGrantAndOwnershipRecheck(t *testing.T) {
 	}
 	policy := &rbac.V3Policy{Store: st}
 	reader := &completeReader{now: now}
-	svc := New(st, policy, reader, func(_, env string) bool { return env == "test" })
+	svc := New(st, policy, reader, func(_ context.Context, _, env string) string {
+		if env == "test" {
+			return "service-alerts"
+		}
+		return ""
+	})
 	svc.Now = func() time.Time { return now }
 	api := httpapi.New(st, nil, true)
 	svc.Register(api)

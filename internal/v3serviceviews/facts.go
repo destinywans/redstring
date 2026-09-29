@@ -75,7 +75,11 @@ func (s *Service) alerts(ctx context.Context, row serviceRow) (int, bool, error)
 	// The event module has a separate ACL. An alert count or critical-derived
 	// health signal would disclose incident state to services-only readers.
 	// Callers authorize before invoking this query and recheck before reply.
-	if s.AlertCovered == nil || !s.AlertCovered(row.AppID, row.Env) {
+	if s.AlertCovered == nil {
+		return 0, false, errIncomplete
+	}
+	sourceID := s.AlertCovered(ctx, row.AppID, row.Env)
+	if sourceID == "" {
 		return 0, false, errIncomplete
 	}
 	var total, critical int
@@ -83,7 +87,8 @@ func (s *Service) alerts(ctx context.Context, row serviceRow) (int, bool, error)
  count(*) FILTER (WHERE severity IN ('critical','fatal'))::int
  FROM ops_incidents i
  JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id AND NOT e.archived
- WHERE i.application_id=$1 AND e.key=$2 AND i.alert_status='firing' AND NOT i.suspected`, row.AppID, row.Env).Scan(&total, &critical)
+ WHERE i.application_id=$1 AND e.key=$2 AND i.source_id=$3
+ AND i.alert_status='firing' AND NOT i.suspected`, row.AppID, row.Env, sourceID).Scan(&total, &critical)
 	return total, critical > 0, err
 }
 

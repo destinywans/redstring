@@ -14,6 +14,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/inventory"
 	"github.com/wans/aiops-canvas/internal/knowledge"
 	"github.com/wans/aiops-canvas/internal/memoryview"
+	"github.com/wans/aiops-canvas/internal/operations"
 	"github.com/wans/aiops-canvas/internal/profile"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/resources"
@@ -155,7 +156,11 @@ func run() error {
 	if e != nil {
 		return e
 	}
-	if e = configureV3(ctx, s, runtime, api, telemetryClient, know, v3Info, v3Scope); e != nil {
+	operationsConfig, e := operations.LoadConfig(os.Getenv("AIOPS_OPERATIONS_CONFIG"))
+	if e != nil {
+		return e
+	}
+	if e = configureV3(ctx, s, runtime, api, telemetryClient, know, v3Info, v3Scope, operationsConfig); e != nil {
 		return e
 	}
 	registry, e := configurePlatform(ctx, s, api, acts, worker, connector, connectorConfig)
@@ -172,7 +177,7 @@ func run() error {
 	if v3Info != nil {
 		operationsV3Scope = &v3Scope
 	}
-	ops, e := configureOperations(ctx, s, api, worker, know, operationsV3Scope)
+	ops, e := configureOperations(ctx, s, api, worker, know, operationsV3Scope, operationsConfig)
 	if e != nil {
 		return e
 	}

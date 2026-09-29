@@ -1,6 +1,8 @@
 # V3 服务目录与详情：来源和接线边界（WAN-120）
 
-`internal/v3serviceviews` 为冻结的 `ServiceCatalog`、`ServiceDetail` 提供独立领域处理器。当前分支的独立 PostgreSQL HTTP 测试能用受控完整来源得到两条 200；正式 `cmd/aiops` 接线由 WAN-117 合并时完成。不要同时注册 `v3catalog.Register` 的两条旧 GET 和 `v3serviceviews.Register`，`http.ServeMux` 会因重复模式而 panic。Catalog 的登记、映射和外部目标写入仍属于 `v3catalog`。
+`internal/v3serviceviews` 为冻结的 `ServiceCatalog`、`ServiceDetail` 提供独立领域处理器。`cmd/aiops` 已让它独占两条服务 GET，旧 `v3catalog` 只注册登记、映射和外部目标路由，避免重复注册。两条 GET 在受控完整来源的隔离 PostgreSQL HTTP 测试中返回 200；没有必需来源时返回 503。
+
+告警数需要 [逐应用/环境的完整覆盖声明](../examples/v3-service-alert-coverage.md)。启动时用同一份已加载的 `AIOPS_OPERATIONS_CONFIG` 配置 V3 服务视图与 Alertmanager 入口；只有运维确认上游完整路由、精确匹配已有来源/标签、应用环境仍有效且令牌文件可用时才接受声明。请求投影前后都复核覆盖，缺少绑定或来源撤销则失败关闭。这个声明不自动证明外部 Alertmanager 持续投递；正式接入需另记上游路由和受控告警证据。
 
 ## 字段来源
 

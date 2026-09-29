@@ -36,6 +36,7 @@
 - [V3 Git Markdown 知识来源](api/v3-git-markdown-source.md)：服务端固定仓库范围、Vault 引用、手动读取和证据边界。
 - [V3 通用 Push 入站](examples/v3-push-ingress.md)：私有来源绑定、签名与持久接收边界。
 - [V3 服务目录与详情](api/v3-service-views.md)：数据来源、完整性和页面限制。
+- [V3 服务告警覆盖绑定](examples/v3-service-alert-coverage.md)：逐应用、环境的完整来源声明及撤销方式。
 - [视觉与交互检查](../design-qa.md)：概念图映射、已检查行为及差异。
 - [历史后端交接](backend-handoff.md)、[演示环境](demo.md)。
 - [实施计划](../PLAN.md)、[可恢复检查点](../CHECKPOINT.md)、[领域术语](../CONTEXT.md)。

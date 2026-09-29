@@ -24,9 +24,9 @@ type Access interface {
 	Authorize(context.Context, core.User, rbac.V3Decision) error
 }
 
-// AlertCovered is supplied from the reviewed Operations source mappings. A
-// zero incident count only means zero alerts when ingestion covers this target.
-type AlertCovered func(applicationID, environmentID string) bool
+// AlertCovered returns the exact reviewed Operations source ID for a covered
+// target. An empty ID means unknown coverage. Counts must use only that source.
+type AlertCovered func(context.Context, string, string) string
 
 type Service struct {
 	Store        *store.Store
@@ -257,6 +257,9 @@ func (s *Service) finalCheck(ctx context.Context, r *http.Request, rows []servic
 		return store.ErrForbidden
 	}
 	for _, row := range rows {
+		if s.AlertCovered == nil || s.AlertCovered(ctx, row.AppID, row.Env) == "" {
+			return errIncomplete
+		}
 		// Team-scoped policy accepts a caller-supplied team ID. Resolve the
 		// persisted owner again after remote reads so a reassigned application
 		// cannot be exposed with its former team's still-valid grant.

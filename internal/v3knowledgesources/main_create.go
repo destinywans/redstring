@@ -14,6 +14,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
+	"github.com/wans/aiops-canvas/internal/v3uploads"
 )
 
 // The main route accepts only a public Markdown page or an exact configured
@@ -36,9 +37,9 @@ var mainSourceID = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,100}$`)
 
 func validateMainCreate(v mainCreateRequest) (int, string, string) {
 	switch v.Type {
-	case "feishu", "git", "upload":
+	case "git":
 		return http.StatusNotImplemented, "source_adapter_unavailable", "This source type has no configured reader and importer"
-	case "web", "git_markdown", "confluence", "notion":
+	case "web", "git_markdown", "confluence", "notion", "feishu", "upload":
 	default:
 		return http.StatusUnprocessableEntity, "invalid_source_registration", "Unsupported source type"
 	}
@@ -63,6 +64,13 @@ func validateMainCreate(v mainCreateRequest) (int, string, string) {
 	if v.Type == "web" {
 		if _, _, _, err := v3sourceregistry.ParsePublicWebURL(v.URL); err != nil {
 			return http.StatusUnprocessableEntity, "invalid_source_registration", "Source URL must be a public HTTPS Markdown URL"
+		}
+	} else if v.Type == "upload" {
+		if v.SecretRef != "" {
+			return http.StatusUnprocessableEntity, "invalid_source_registration", "Local upload has no Vault credential"
+		}
+		if _, ok := v3uploads.ParseSourceUploadURL(v.URL); !ok {
+			return http.StatusUnprocessableEntity, "invalid_source_registration", "Source URL must identify one stored upload"
 		}
 	} else if v.SecretRef == "" || !strings.HasPrefix(v.SecretRef, "vault://") || len(v.SecretRef) > 300 {
 		return http.StatusUnprocessableEntity, "invalid_source_registration", "Credentialed source requires a vault://mount/path#field reference"
@@ -227,6 +235,51 @@ func (s *Service) createMain(w http.ResponseWriter, r *http.Request) {
 			httpapi.Error(w, http.StatusNotImplemented, "source_adapter_unavailable", "No reader is configured for this source scope")
 			return
 		}
+	}
+	if v.Type == "feishu" {
+		matched := false
+		for _, binding := range s.feishuBindings {
+			if binding.SourceURL != v.URL || binding.CredentialRef != v.SecretRef ||
+				binding.EnvironmentID != env || binding.ApplicationID != v.ApplicationID ||
+				binding.TeamID != v.TeamID {
+				continue
+			}
+			snapshot, snapshotErr := SnapshotFeishuBinding(binding)
+			if snapshotErr != nil {
+				mainCreateFailure(w, snapshotErr)
+				return
+			}
+			bindingFingerprint = FeishuBindingFingerprint(binding)
+			bindingSnapshot = string(snapshot)
+			matched = true
+			break
+		}
+		if !matched {
+			httpapi.Error(w, http.StatusNotImplemented, "source_adapter_unavailable", "No Feishu Docx reader is configured for this source scope")
+			return
+		}
+	}
+	if v.Type == "upload" {
+		uploadID, _ := v3uploads.ParseSourceUploadURL(v.URL)
+		file, fileErr := v3uploads.LoadSourceFileTx(ctx, tx, uploadID, user.ID, env)
+		if fileErr != nil {
+			httpapi.Error(w, http.StatusUnprocessableEntity, "source_upload_unavailable", "Owned text upload is unavailable")
+			return
+		}
+		fingerprint, snapshot, matched := NewUploadReader(s.db).BindingEvidenceForCreate(v3sourceregistry.ReadSpec{
+			SourceType: "upload", URL: v.URL, EnvironmentID: env,
+			ApplicationID: v.ApplicationID, TeamID: v.TeamID, SourceOwnerID: user.ID,
+		})
+		if !matched {
+			httpapi.Error(w, http.StatusUnprocessableEntity, "source_upload_unavailable", "Upload binding is unavailable")
+			return
+		}
+		snapshot, err = v3sourceregistry.WithUploadInitialVersion(snapshot, file.Version)
+		if err != nil {
+			mainCreateFailure(w, err)
+			return
+		}
+		bindingFingerprint, bindingSnapshot = fingerprint, string(snapshot)
 	}
 	id := uuid.NewString()
 	spacesValue := v.Spaces

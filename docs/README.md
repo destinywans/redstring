@@ -39,6 +39,8 @@
 - [V3 服务目录与详情](api/v3-service-views.md)：数据来源、完整性和页面限制。
 - [V3 服务告警覆盖绑定](examples/v3-service-alert-coverage.md)：逐应用、环境的完整来源声明及撤销方式。
 - [V3 Confluence 与 Notion 知识来源](api/v3-confluence-notion-sources.md)：精确空间/页面绑定、受限只读同步和证据边界。
+- [V3 飞书 Docx 知识来源](api/v3-feishu-source.md)：单篇文档绑定、纯文本读取与版本证据边界。
+- [V3 本地上传知识来源](api/v3-upload-source.md)：已有文件的所有者绑定、手动同步与撤销。
 - [视觉与交互检查](../design-qa.md)：概念图映射、已检查行为及差异。
 - [历史后端交接](backend-handoff.md)、[演示环境](demo.md)。
 - [实施计划](../PLAN.md)、[可恢复检查点](../CHECKPOINT.md)、[领域术语](../CONTEXT.md)。

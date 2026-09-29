@@ -32,6 +32,11 @@ type externalEvidenceState struct {
 }
 
 func (s *Service) externalBindingCurrent(v registration) bool {
+	if v.Type == "upload" {
+		if _, ok := UploadInitialVersion(v.BindingSnapshot); !ok {
+			return false
+		}
+	}
 	binding, configured := s.Readers[v.Type].(RegistrationBindingEvidence)
 	if !configured {
 		return false
@@ -39,7 +44,7 @@ func (s *Service) externalBindingCurrent(v registration) bool {
 	fingerprint, _, matched := binding.BindingEvidenceForCreate(ReadSpec{
 		SourceType: v.Type, URL: v.URL, SecretRef: v.SecretRef,
 		EnvironmentID: v.EnvironmentID, ApplicationID: v.ApplicationID,
-		TeamID: v.TeamID, Spaces: v.Spaces,
+		TeamID: v.TeamID, Spaces: v.Spaces, SourceOwnerID: v.CreatedBy,
 	})
 	return matched && fingerprint == v.BindingFingerprint
 }
@@ -78,6 +83,10 @@ WHERE s.read_id=$1 AND s.registration_id=$2 AND s.environment_id=$3
  AND rr.registration_id=s.registration_id AND rr.environment_id=s.environment_id
  AND rr.reader_type=s.source_type AND rr.observed_count=s.document_count
  AND s.document_count=$5 AND s.indexed_chunk_count IS NULL
+ AND (s.source_type NOT IN ('feishu','upload') OR s.document_count=1)
+ AND ($4<>'upload' OR EXISTS (SELECT 1 FROM users owner
+   WHERE owner.id=$10 AND NOT owner.disabled AND owner.deleted_at IS NULL
+     AND owner.source<>'settings_demo'))
  AND (SELECT count(*) FROM v3_external_source_documents d WHERE d.read_id=s.read_id)=s.document_count
  AND (SELECT count(*) FROM v3_knowledge_source_observations o WHERE o.read_id=s.read_id)=s.document_count
  AND NOT EXISTS (
@@ -87,13 +96,22 @@ WHERE s.read_id=$1 AND s.registration_id=$2 AND s.environment_id=$3
    OR COALESCE(d.team_id,'')<>$9
    OR d.item_hash<>encode(sha256(convert_to(d.external_id,'UTF8')),'hex')
    OR d.content_hash<>encode(sha256(convert_to(d.body,'UTF8')),'hex')
+   OR (s.source_type='upload' AND d.source_version<>($8::jsonb->>'initial_source_version'))
+   OR (s.source_type='upload' AND (d.upload_id IS NULL OR d.upload_id<>d.external_id
+     OR NOT EXISTS (SELECT 1 FROM v3_uploads up
+       WHERE up.id=d.upload_id AND up.owner_id=$10 AND up.environment_id=s.environment_id
+         AND up.kind='file' AND up.name=d.title AND up.mime=d.upload_mime
+         AND up.size_bytes=octet_length(d.body)
+         AND NOT EXISTS (SELECT 1 FROM v3_upload_revocations revoked WHERE revoked.id=up.id)
+         AND encode(sha256(up.content),'hex')=d.content_hash)))
+   OR (s.source_type<>'upload' AND (d.upload_id IS NOT NULL OR d.upload_mime IS NOT NULL))
    OR NOT EXISTS (SELECT 1 FROM v3_knowledge_source_observations o
     WHERE o.read_id=s.read_id AND o.item_hash=d.item_hash
      AND o.content_hash=d.content_hash AND o.environment_id=d.environment_id
      AND o.application_id=d.application_id
      AND COALESCE(o.team_id,'')=COALESCE(d.team_id,''))))`,
 		readID, v.ID, v.EnvironmentID, v.Type, observedCount, v.ApplicationID,
-		v.BindingFingerprint, string(v.BindingSnapshot), v.TeamID).Scan(&documentCount)
+		v.BindingFingerprint, string(v.BindingSnapshot), v.TeamID, v.CreatedBy).Scan(&documentCount)
 	return documentCount, err
 }
 

@@ -24,11 +24,18 @@ func TestValidateMainCreateLimitsSupportedFamily(t *testing.T) {
 	if status, _, message := validateMainCreate(valid); status != 0 {
 		t.Fatalf("valid public Web source rejected: %d %s", status, message)
 	}
-	for _, kind := range []string{"feishu", "git", "upload"} {
+	for _, kind := range []string{"git"} {
 		v := valid
 		v.Type = kind
 		if status, code, _ := validateMainCreate(v); status != http.StatusNotImplemented || code != "source_adapter_unavailable" {
 			t.Errorf("%s returned %d %s", kind, status, code)
+		}
+	}
+	for _, kind := range []string{"feishu", "upload"} {
+		v := valid
+		v.Type = kind
+		if status, _, _ := validateMainCreate(v); status != http.StatusUnprocessableEntity {
+			t.Errorf("%s accepted a public Web URL: %d", kind, status)
 		}
 	}
 	private := valid

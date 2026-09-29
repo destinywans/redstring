@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3uploads"
 )
 
 const maxObservedItems = 500
@@ -24,8 +25,11 @@ const maxObservedItems = 500
 // must use read-only upstream methods and must not log the spec or response.
 type ReadSpec struct {
 	SourceType, URL, SecretRef, EnvironmentID, ApplicationID, TeamID string
-	BindingFingerprint                                               string
-	Spaces                                                           []string
+	// SourceOwnerID binds local uploads to the user who registered the file.
+	// For an unsaved connection test this is the current caller.
+	SourceOwnerID      string
+	BindingFingerprint string
+	Spaces             []string
 }
 
 // Observation contains only bounded lineage evidence. ACLVerified means the
@@ -85,6 +89,10 @@ type ExternalDocument struct {
 	Title         string
 	Body          string
 	SourceVersion string
+	// Only local uploads set these fields. The upload FK removes private
+	// snapshots if their owner revokes the original file.
+	UploadID   string
+	UploadMIME string
 }
 
 type ExternalReadResult struct {
@@ -94,6 +102,34 @@ type ExternalReadResult struct {
 
 type ExternalContentReader interface {
 	ReadExternalContent(context.Context, ReadSpec) (ExternalReadResult, error)
+}
+
+// A Feishu read is one Docx plain-text snapshot with a checked revision.
+type FeishuDocumentReadResult struct {
+	Observation Observation
+	DocumentID  string
+	Title       string
+	Body        string
+	Revision    string
+}
+
+type FeishuDocumentContentReader interface {
+	ReadFeishu(context.Context, ReadSpec) (FeishuDocumentReadResult, error)
+}
+
+// A local upload read is tied to an immutable owner and the original file.
+// The source import rechecks Version under a row lock before commit.
+type LocalUploadReadResult struct {
+	Observation Observation
+	UploadID    string
+	Name        string
+	MIME        string
+	Body        string
+	Version     string
+}
+
+type LocalUploadContentReader interface {
+	ReadLocalUpload(context.Context, ReadSpec) (LocalUploadReadResult, error)
 }
 
 // RegistrationBinding verifies that a client-proposed registration matches a
@@ -110,6 +146,7 @@ type ConnectionTester interface {
 
 type registration struct {
 	ID, EnvironmentID, ApplicationID, TeamID, Name, Type, URL, SecretRef string
+	CreatedBy                                                            string
 	Schedule, Chunk                                                      string
 	Spaces                                                               []string
 	InheritACL                                                           bool
@@ -121,7 +158,7 @@ func loadRegistration(ctx context.Context, q interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, id, env string, lock bool) (registration, error) {
 	query := `SELECT id,environment_id,COALESCE(application_id,''),COALESCE(team_id,''),name,source_type,
-source_url,secret_ref,spaces,schedule,chunk,inherit_acl,COALESCE(binding_fingerprint,''),
+source_url,secret_ref,created_by,spaces,schedule,chunk,inherit_acl,COALESCE(binding_fingerprint,''),
 COALESCE(binding_snapshot,'{}'::jsonb) FROM v3_knowledge_source_registrations
 WHERE id=$1 AND environment_id=$2`
 	if lock {
@@ -130,7 +167,7 @@ WHERE id=$1 AND environment_id=$2`
 	var v registration
 	var spaces []byte
 	err := q.QueryRow(ctx, query, id, env).Scan(&v.ID, &v.EnvironmentID, &v.ApplicationID, &v.TeamID,
-		&v.Name, &v.Type, &v.URL, &v.SecretRef, &spaces, &v.Schedule, &v.Chunk, &v.InheritACL,
+		&v.Name, &v.Type, &v.URL, &v.SecretRef, &v.CreatedBy, &spaces, &v.Schedule, &v.Chunk, &v.InheritACL,
 		&v.BindingFingerprint, &v.BindingSnapshot)
 	if err != nil {
 		return v, err
@@ -274,6 +311,12 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "source_config_invalid", "Saved external source scope is invalid")
 		return
 	}
+	if initial.Type == "upload" {
+		if _, ok := UploadInitialVersion(initial.BindingSnapshot); !ok || initial.CreatedBy == "" {
+			httpapi.Error(w, 503, "source_config_invalid", "Saved upload source version is invalid")
+			return
+		}
+	}
 	reader := s.Readers[initial.Type]
 	if reader == nil {
 		httpapi.Error(w, 501, "source_reader_unavailable", "No read-only reader is configured for this source type")
@@ -292,9 +335,21 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 409, "source_scope_changed", "Source application or team is no longer active")
 		return
 	}
+	if initial.Type == "upload" {
+		ownerActive, ownerErr := uploadOwnerActive(ctx, s.DB, initial.CreatedBy, false)
+		if ownerErr != nil {
+			unavailable(w)
+			return
+		}
+		if !ownerActive {
+			httpapi.Error(w, 409, "source_scope_changed", "Source owner is no longer active")
+			return
+		}
+	}
 	spec := ReadSpec{SourceType: initial.Type, URL: initial.URL, SecretRef: initial.SecretRef,
 		EnvironmentID: initial.EnvironmentID, ApplicationID: initial.ApplicationID, TeamID: initial.TeamID,
-		BindingFingerprint: initial.BindingFingerprint, Spaces: append([]string(nil), initial.Spaces...)}
+		BindingFingerprint: initial.BindingFingerprint, Spaces: append([]string(nil), initial.Spaces...),
+		SourceOwnerID: initial.CreatedBy}
 	var result ReadResult
 	var content *ContentReadResult
 	var gitContent *GitMarkdownReadResult
@@ -332,6 +387,49 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) {
 			}
 			result = ReadResult{Items: items, Complete: fetched.Complete}
 			gitContent = &fetched
+		}
+	} else if initial.Type == "feishu" {
+		contentReader, available := reader.(FeishuDocumentContentReader)
+		if !available {
+			httpapi.Error(w, 501, "source_content_reader_unavailable", "No bounded Feishu reader is configured")
+			return
+		}
+		fetched, readErr := contentReader.ReadFeishu(ctx, spec)
+		err = readErr
+		if err == nil {
+			externalContent = &ExternalReadResult{Complete: true, Documents: []ExternalDocument{{
+				Observation: fetched.Observation, Title: fetched.Title, Body: fetched.Body,
+				SourceVersion: fetched.Revision,
+			}}}
+			if !validExternalContent(initial, *externalContent) {
+				httpapi.Error(w, 422, "source_content_invalid", "Feishu content or revision could not be verified")
+				return
+			}
+			result = ReadResult{Items: []Observation{fetched.Observation}, Complete: true}
+		}
+	} else if initial.Type == "upload" {
+		contentReader, available := reader.(LocalUploadContentReader)
+		if !available {
+			httpapi.Error(w, 501, "source_content_reader_unavailable", "No bounded upload reader is configured")
+			return
+		}
+		fetched, readErr := contentReader.ReadLocalUpload(ctx, spec)
+		err = readErr
+		if err == nil {
+			initialVersion, _ := UploadInitialVersion(initial.BindingSnapshot)
+			if fetched.Version != initialVersion {
+				httpapi.Error(w, 409, "source_content_changed", "Upload changed since registration")
+				return
+			}
+			externalContent = &ExternalReadResult{Complete: true, Documents: []ExternalDocument{{
+				Observation: fetched.Observation, Title: fetched.Name, Body: fetched.Body,
+				SourceVersion: fetched.Version, UploadID: fetched.UploadID, UploadMIME: fetched.MIME,
+			}}}
+			if !validExternalContent(initial, *externalContent) {
+				httpapi.Error(w, 422, "source_content_invalid", "Upload content or version could not be verified")
+				return
+			}
+			result = ReadResult{Items: []Observation{fetched.Observation}, Complete: true}
 		}
 	} else if boundExternalType(initial.Type) {
 		contentReader, available := reader.(ExternalContentReader)
@@ -420,6 +518,31 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) {
 	if err = s.authorizedTx(ctx, tx, user, "manage", current.EnvironmentID, current.ApplicationID, current.TeamID); err != nil {
 		authorizationError(w, err)
 		return
+	}
+	if current.Type == "upload" {
+		ownerActive, ownerErr := uploadOwnerActive(ctx, tx, current.CreatedBy, true)
+		if ownerErr != nil {
+			unavailable(w)
+			return
+		}
+		if !ownerActive {
+			httpapi.Error(w, 409, "source_scope_changed", "Source owner is no longer active")
+			return
+		}
+		uploadID, _ := v3uploads.ParseSourceUploadURL(current.URL)
+		file, fileErr := v3uploads.LoadSourceFileTx(ctx, tx, uploadID, current.CreatedBy, current.EnvironmentID)
+		if fileErr != nil || externalContent == nil || len(externalContent.Documents) != 1 {
+			httpapi.Error(w, 409, "source_content_changed", "Upload was revoked or changed during read")
+			return
+		}
+		doc := externalContent.Documents[0]
+		initialVersion, _ := UploadInitialVersion(current.BindingSnapshot)
+		if file.Version != initialVersion || file.Version != doc.SourceVersion ||
+			file.ContentHash != doc.Observation.ContentHash ||
+			file.Name != doc.Title || file.MIME != doc.UploadMIME || file.Body != doc.Body {
+			httpapi.Error(w, 409, "source_content_changed", "Upload changed during read")
+			return
+		}
 	}
 	readID := uuid.NewString()
 	_, err = tx.Exec(ctx, `INSERT INTO v3_knowledge_source_reads(id,registration_id,environment_id,observed_count,reader_type,requested_by,observed_at)

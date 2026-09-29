@@ -14,6 +14,8 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
+	"github.com/wans/aiops-canvas/internal/v3uploads"
 )
 
 // RegisteredEvidence keeps configured sources, completed observations and
@@ -42,6 +44,8 @@ type RegisteredEvidence struct {
 	secretRef          string
 	spaces             []string
 	bindingFingerprint string
+	bindingSnapshot    json.RawMessage
+	sourceOwner        string
 }
 
 type ObservedRead struct {
@@ -70,7 +74,7 @@ const registeredEvidenceCandidates = `SELECT src.id,src.name,src.source_type,src
  COALESCE(src.application_id,''),COALESCE(src.team_id,''),src.schedule,src.chunk,
  read.id,read.observed_at,read.observed_count,read.reader_type,
  keyword.version,git.document_count,git.created_at,external.document_count,external.created_at,
- src.source_url,src.secret_ref,src.spaces,src.binding_fingerprint
+ src.source_url,src.secret_ref,src.spaces,src.binding_fingerprint,src.binding_snapshot,src.created_by
 FROM v3_knowledge_source_registrations src
 LEFT JOIN LATERAL (
  SELECT r.id,r.observed_at,r.observed_count,r.reader_type
@@ -142,10 +146,14 @@ LEFT JOIN LATERAL (
 LEFT JOIN LATERAL (
  SELECT x.document_count,x.created_at
  FROM v3_external_source_syncs x
- WHERE src.source_type IN ('confluence','notion') AND src.application_id IS NOT NULL
+ WHERE src.source_type IN ('confluence','notion','feishu','upload') AND src.application_id IS NOT NULL
    AND src.inherit_acl AND src.schedule='manual'
    AND ((src.source_type='confluence' AND jsonb_array_length(src.spaces)=1)
-     OR (src.source_type='notion' AND src.spaces='[]'::jsonb))
+     OR (src.source_type IN ('notion','feishu','upload') AND src.spaces='[]'::jsonb))
+   AND (src.source_type NOT IN ('feishu','upload') OR x.document_count=1)
+   AND (src.source_type<>'upload' OR EXISTS (SELECT 1 FROM users owner
+     WHERE owner.id=src.created_by AND NOT owner.disabled AND owner.deleted_at IS NULL
+       AND owner.source<>'settings_demo'))
    AND read.id IS NOT NULL AND read.reader_type=src.source_type
    AND x.read_id=read.id AND x.registration_id=src.id
    AND x.environment_id=src.environment_id AND x.source_type=src.source_type
@@ -162,6 +170,15 @@ LEFT JOIN LATERAL (
       OR COALESCE(d.team_id,'')<>COALESCE(src.team_id,'')
       OR d.item_hash<>encode(sha256(convert_to(d.external_id,'UTF8')),'hex')
       OR d.content_hash<>encode(sha256(convert_to(d.body,'UTF8')),'hex')
+      OR (x.source_type='upload' AND (d.upload_id IS NULL OR d.upload_id<>d.external_id
+        OR d.source_version<>(src.binding_snapshot->>'initial_source_version')
+        OR NOT EXISTS (SELECT 1 FROM v3_uploads up WHERE up.id=d.upload_id
+          AND up.owner_id=src.created_by AND up.environment_id=src.environment_id
+          AND up.kind='file' AND up.name=d.title AND up.mime=d.upload_mime
+          AND up.size_bytes=octet_length(d.body)
+          AND NOT EXISTS (SELECT 1 FROM v3_upload_revocations revoked WHERE revoked.id=up.id)
+          AND encode(sha256(up.content),'hex')=d.content_hash)))
+      OR (x.source_type<>'upload' AND (d.upload_id IS NOT NULL OR d.upload_mime IS NOT NULL))
       OR NOT EXISTS (SELECT 1 FROM v3_knowledge_source_observations o
        WHERE o.read_id=d.read_id AND o.item_hash=d.item_hash AND o.content_hash=d.content_hash
          AND o.environment_id=d.environment_id AND o.application_id=d.application_id
@@ -234,7 +251,7 @@ func (s *Service) registeredEvidence(w http.ResponseWriter, r *http.Request) {
 				registeredEvidenceUnavailable(w)
 				return
 			}
-			if (item.Kind == "confluence" || item.Kind == "notion") && !s.currentExternalBinding(item) {
+			if isBoundDocumentKind(item.Kind) && !s.currentExternalBinding(item) {
 				continue
 			}
 			if len(items) == 200 {
@@ -325,7 +342,8 @@ func registeredEvidenceBatch(ctx context.Context, db evidenceRows, user core.Use
 			&item.ApplicationID, &item.TeamID, &item.Schedule, &item.ChunkStrategy,
 			&readID, &observedAt, &observedCount, &readerType, &keywordVersion,
 			&gitDocumentCount, &gitSyncedAt, &externalDocumentCount, &externalSyncedAt,
-			&item.sourceURL, &item.secretRef, &spaces, &item.bindingFingerprint); err != nil {
+			&item.sourceURL, &item.secretRef, &spaces, &item.bindingFingerprint,
+			&item.bindingSnapshot, &item.sourceOwner); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal(spaces, &item.spaces); err != nil {
@@ -344,7 +362,7 @@ func registeredEvidenceBatch(ctx context.Context, db evidenceRows, user core.Use
 				item.DocumentCount = &count
 				item.LastSyncAt = &at
 			}
-			if (item.Kind == "confluence" || item.Kind == "notion") && externalDocumentCount.Valid && externalSyncedAt.Valid {
+			if isBoundDocumentKind(item.Kind) && externalDocumentCount.Valid && externalSyncedAt.Valid {
 				count := int(externalDocumentCount.Int64)
 				at := externalSyncedAt.Time
 				item.DocumentCount = &count
@@ -360,6 +378,32 @@ func (s *Service) currentExternalBinding(item RegisteredEvidence) bool {
 	if s == nil || item.bindingFingerprint == "" {
 		return false
 	}
+	if item.Kind == "upload" {
+		if _, ok := v3uploads.ParseSourceUploadURL(item.sourceURL); !ok || item.secretRef != "" ||
+			len(item.spaces) != 0 || item.sourceOwner == "" {
+			return false
+		}
+		if _, ok := v3sourceregistry.UploadInitialVersion(item.bindingSnapshot); !ok {
+			return false
+		}
+		return UploadSourceFingerprint(v3sourceregistry.ReadSpec{
+			SourceType: "upload", URL: item.sourceURL, EnvironmentID: item.EnvironmentID,
+			ApplicationID: item.ApplicationID, TeamID: item.TeamID,
+			SourceOwnerID: item.sourceOwner,
+		}) == item.bindingFingerprint
+	}
+	if item.Kind == "feishu" {
+		count := 0
+		for _, binding := range s.feishuBindings {
+			if binding.SourceURL == item.sourceURL && binding.CredentialRef == item.secretRef &&
+				binding.EnvironmentID == item.EnvironmentID && binding.ApplicationID == item.ApplicationID &&
+				binding.TeamID == item.TeamID && len(item.spaces) == 0 &&
+				FeishuBindingFingerprint(binding) == item.bindingFingerprint {
+				count++
+			}
+		}
+		return count == 1
+	}
 	count := 0
 	for _, binding := range s.externalBindings {
 		if ExternalBindingMatchesCreate(binding, item.Kind, item.sourceURL, item.secretRef, item.EnvironmentID,
@@ -368,6 +412,15 @@ func (s *Service) currentExternalBinding(item RegisteredEvidence) bool {
 		}
 	}
 	return count == 1
+}
+
+func isBoundDocumentKind(kind string) bool {
+	switch kind {
+	case "confluence", "notion", "feishu", "upload":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) authorizeRegisteredEvidence(ctx context.Context, tx pgx.Tx, user core.User, item RegisteredEvidence) error {

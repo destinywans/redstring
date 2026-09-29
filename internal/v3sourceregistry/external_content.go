@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3uploads"
 )
 
 const (
@@ -29,7 +30,7 @@ var errExternalScopeChanged = errors.New("previously observed source item is abs
 var errExternalContentCorrupt = errors.New("stored external source content fails its hash or lineage check")
 
 func externalVersionTime(kind, value string) (uint64, time.Time, bool) {
-	if kind == "confluence" {
+	if kind == "confluence" || kind == "feishu" {
 		n, err := strconv.ParseUint(value, 10, 64)
 		return n, time.Time{}, err == nil && n > 0 && strconv.FormatUint(n, 10) == value
 	}
@@ -43,7 +44,7 @@ func validExternalContent(source registration, result ExternalReadResult) bool {
 		len(source.BindingFingerprint) != 64 || len(source.BindingSnapshot) == 0 ||
 		string(source.BindingSnapshot) == "{}" || !result.Complete ||
 		len(result.Documents) > maxExternalDocuments ||
-		(source.Type == "notion" && len(result.Documents) != 1) {
+		((source.Type == "notion" || source.Type == "feishu" || source.Type == "upload") && len(result.Documents) != 1) {
 		return false
 	}
 	total := 0
@@ -72,7 +73,21 @@ func validExternalContent(source registration, result ExternalReadResult) bool {
 				return false
 			}
 		}
-		if _, _, ok := externalVersionTime(source.Type, doc.SourceVersion); !ok {
+		if source.Type == "feishu" {
+			pageURL, err := url.Parse(source.URL)
+			if err != nil || pageURL.Path != "/docx/"+id {
+				return false
+			}
+		}
+		if source.Type == "upload" {
+			uploadID, ok := v3uploads.ParseSourceUploadURL(source.URL)
+			if !ok || uploadID != id || len(doc.SourceVersion) != 64 ||
+				doc.UploadID != uploadID || doc.UploadMIME == "" || source.CreatedBy == "" {
+				return false
+			}
+		} else if doc.UploadID != "" || doc.UploadMIME != "" {
+			return false
+		} else if _, _, ok := externalVersionTime(source.Type, doc.SourceVersion); !ok {
 			return false
 		}
 		seen[id] = true
@@ -154,6 +169,13 @@ func importExternalContent(ctx context.Context, tx pgx.Tx, source registration,
 	for _, doc := range result.Documents {
 		current[doc.Observation.ExternalID] = true
 		if previous, ok := old[doc.Observation.ExternalID]; ok {
+			if source.Type == "upload" {
+				if previous.sourceVersion != doc.SourceVersion ||
+					previous.contentHash != doc.Observation.ContentHash || previous.title != doc.Title {
+					return errExternalVersionDrift
+				}
+				continue
+			}
 			previousNumber, previousTime, previousOK := externalVersionTime(source.Type, previous.sourceVersion)
 			currentNumber, currentTime, currentOK := externalVersionTime(source.Type, doc.SourceVersion)
 			if !previousOK || !currentOK {
@@ -192,11 +214,11 @@ func importExternalContent(ctx context.Context, tx pgx.Tx, source registration,
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO v3_external_source_documents
  (read_id,external_id,title,body,source_version,content_version,item_hash,content_hash,
-  environment_id,application_id,team_id)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,''))`, readID,
+  environment_id,application_id,team_id,upload_id,upload_mime)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,''),NULLIF($12,''),NULLIF($13,''))`, readID,
 			doc.Observation.ExternalID, doc.Title, doc.Body, doc.SourceVersion, version,
 			hashID(doc.Observation.ExternalID), doc.Observation.ContentHash,
-			source.EnvironmentID, source.ApplicationID, source.TeamID); err != nil {
+			source.EnvironmentID, source.ApplicationID, source.TeamID, doc.UploadID, doc.UploadMIME); err != nil {
 			return err
 		}
 	}

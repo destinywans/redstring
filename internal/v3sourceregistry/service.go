@@ -20,6 +20,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3uploads"
 )
 
 type Access interface {
@@ -106,6 +107,15 @@ func validateConnection(kind, address, secretRef string) error {
 		}
 		return nil
 	}
+	if kind == "upload" {
+		if secretRef != "" {
+			return errors.New("local upload must not carry a Vault reference")
+		}
+		if _, ok := v3uploads.ParseSourceUploadURL(address); !ok {
+			return errors.New("source URL must identify one stored upload")
+		}
+		return nil
+	}
 	u, err := url.Parse(address)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil ||
 		u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
@@ -125,7 +135,9 @@ func validateConnection(kind, address, secretRef string) error {
 	return nil
 }
 
-func boundExternalType(kind string) bool { return kind == "confluence" || kind == "notion" }
+func boundExternalType(kind string) bool {
+	return kind == "confluence" || kind == "notion" || kind == "feishu" || kind == "upload"
+}
 
 func validBindingEvidence(fingerprint string, snapshot json.RawMessage) bool {
 	if len(fingerprint) != 64 || strings.ToLower(fingerprint) != fingerprint {
@@ -139,7 +151,7 @@ func validBindingEvidence(fingerprint string, snapshot json.RawMessage) bool {
 }
 
 func validExternalSpaces(kind string, spaces []string) bool {
-	if kind == "notion" {
+	if kind == "notion" || kind == "feishu" || kind == "upload" {
 		return len(spaces) == 0
 	}
 	if kind != "confluence" || len(spaces) != 1 || len(spaces[0]) > 19 || spaces[0] == "" {
@@ -181,7 +193,7 @@ func validateCreate(v request) error {
 	}
 	if boundExternalType(v.Type) && (v.ApplicationID == "" || v.Schedule != "manual" || !*v.InheritACL ||
 		!validExternalSpaces(v.Type, v.Spaces)) {
-		return errors.New("Confluence/Notion require one active application, exact page or space, manual sync and inherited source access")
+		return errors.New("bound sources require one active application, exact page or file, manual sync and inherited source access")
 	}
 	seen := map[string]bool{}
 	for _, space := range v.Spaces {
@@ -316,7 +328,8 @@ func (s *Service) testConnection(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	probeErr := prober.Probe(ctx, ReadSpec{SourceType: v.Type, URL: v.URL, SecretRef: v.SecretRef,
-		EnvironmentID: envs[0], ApplicationID: app, TeamID: team, Spaces: v.Spaces})
+		EnvironmentID: envs[0], ApplicationID: app, TeamID: team, Spaces: v.Spaces,
+		SourceOwnerID: user.ID})
 	authErr := s.authorized(ctx, user, "manage", envs[0], app, team)
 	var scopeErr error
 	active := true
@@ -546,10 +559,24 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 		if ok {
 			bindingFingerprint, bindingSnapshot, matched = binding.BindingEvidenceForCreate(ReadSpec{
 				SourceType: v.Type, URL: v.URL, SecretRef: v.SecretRef, EnvironmentID: env,
-				ApplicationID: v.ApplicationID, TeamID: v.TeamID, Spaces: v.Spaces})
+				ApplicationID: v.ApplicationID, TeamID: v.TeamID, Spaces: v.Spaces,
+				SourceOwnerID: user.ID})
 		}
 		if !matched || !validBindingEvidence(bindingFingerprint, bindingSnapshot) {
 			httpapi.Error(w, 422, "source_binding_unavailable", "Source is not configured for this scope")
+			return
+		}
+	}
+	if v.Type == "upload" {
+		uploadID, _ := v3uploads.ParseSourceUploadURL(v.URL)
+		file, fileErr := v3uploads.LoadSourceFileTx(r.Context(), tx, uploadID, user.ID, env)
+		if fileErr != nil {
+			httpapi.Error(w, 422, "source_upload_unavailable", "Owned text upload is unavailable")
+			return
+		}
+		bindingSnapshot, err = WithUploadInitialVersion(bindingSnapshot, file.Version)
+		if err != nil {
+			unavailable(w)
 			return
 		}
 	}

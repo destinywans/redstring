@@ -40,6 +40,7 @@ type Service struct {
 	access              Access
 	gitMarkdownBindings []GitMarkdownBinding
 	externalBindings    []ExternalBinding
+	feishuBindings      []FeishuBinding
 }
 
 func New(db *pgxpool.Pool, access Access) *Service {
@@ -60,6 +61,16 @@ func NewWithGitMarkdownBindings(db *pgxpool.Pool, access Access, bindings []GitM
 func NewWithSourceBindings(db *pgxpool.Pool, access Access, gitBindings []GitMarkdownBinding, externalBindings []ExternalBinding) *Service {
 	s := NewWithGitMarkdownBindings(db, access, gitBindings)
 	s.externalBindings = append([]ExternalBinding(nil), externalBindings...)
+	return s
+}
+
+// NewWithAllSourceBindings adds exact Feishu Docx bindings to the existing
+// operator-owned source configuration. Local uploads are owner-bound rows in
+// this database and need no external credential binding.
+func NewWithAllSourceBindings(db *pgxpool.Pool, access Access, gitBindings []GitMarkdownBinding,
+	externalBindings []ExternalBinding, feishuBindings []FeishuBinding) *Service {
+	s := NewWithSourceBindings(db, access, gitBindings, externalBindings)
+	s.feishuBindings = append([]FeishuBinding(nil), feishuBindings...)
 	return s
 }
 

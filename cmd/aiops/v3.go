@@ -222,11 +222,22 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 			activeExternalBindings = append(activeExternalBindings, binding)
 		}
 	}
+	feishuBindings, err := v3knowledgesources.ParseFeishuBindings(os.Getenv("AIOPS_V3_FEISHU_SOURCE_BINDINGS"))
+	if err != nil {
+		return fmt.Errorf("configure V3 Feishu Docx bindings: %w", err)
+	}
+	activeFeishuBindings := make([]v3knowledgesources.FeishuBinding, 0, len(feishuBindings))
+	for _, binding := range feishuBindings {
+		if binding.Tier == cfg.Tier {
+			activeFeishuBindings = append(activeFeishuBindings, binding)
+		}
+	}
 	pullCfg, err := v3ingestpull.LoadConfig(os.Getenv("AIOPS_V3_PULL_SOURCES_CONFIG"))
 	if err != nil {
 		return fmt.Errorf("load V3 Pull sources: %w", err)
 	}
-	sourceRegistry, err := configuredV3SourceRegistryWithSources(os.Getenv("AIOPS_V3_PUBLIC_WEB_READER_ENABLED"), s, policy, activeGitMarkdownBindings, activeExternalBindings)
+	sourceRegistry, err := configuredV3SourceRegistryWithAll(os.Getenv("AIOPS_V3_PUBLIC_WEB_READER_ENABLED"), s, policy,
+		activeGitMarkdownBindings, activeExternalBindings, activeFeishuBindings)
 	if err != nil {
 		return err
 	}
@@ -334,6 +345,7 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		uploads.Environments[environmentID] = true
 	}
 	uploads.Register(api)
+	uploads.RegisterRevocation(api)
 
 	allowedConversationEnvs := func(ctx context.Context, u core.User) ([]string, error) {
 		return allowedConversationEnvironments(ctx, u, cfg.EnvironmentIDs, policy)
@@ -546,7 +558,8 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	knowledgeV3.Register(api)
 	knowledgeV3.RegisterSearch(api)
 	v3postmortems.New(s.DB, policy).Register(api)
-	v3knowledgesources.NewWithSourceBindings(s.DB, policy, activeGitMarkdownBindings, activeExternalBindings).Register(api)
+	v3knowledgesources.NewWithAllSourceBindings(s.DB, policy, activeGitMarkdownBindings,
+		activeExternalBindings, activeFeishuBindings).Register(api)
 	sourceRegistry.Register(api)
 	v3memory.New(s.DB, policy).Register(api)
 	v3agents.New(s.DB, policy).Register(api)
@@ -566,7 +579,15 @@ func configuredV3SourceRegistryWithGit(raw string, s *store.Store, policy *rbac.
 func configuredV3SourceRegistryWithSources(raw string, s *store.Store, policy *rbac.V3Policy,
 	gitMarkdownBindings []v3knowledgesources.GitMarkdownBinding,
 	externalBindings []v3knowledgesources.ExternalBinding) (*v3sourceregistry.Service, error) {
+	return configuredV3SourceRegistryWithAll(raw, s, policy, gitMarkdownBindings, externalBindings, nil)
+}
+
+func configuredV3SourceRegistryWithAll(raw string, s *store.Store, policy *rbac.V3Policy,
+	gitMarkdownBindings []v3knowledgesources.GitMarkdownBinding,
+	externalBindings []v3knowledgesources.ExternalBinding,
+	feishuBindings []v3knowledgesources.FeishuBinding) (*v3sourceregistry.Service, error) {
 	readers := map[string]v3sourceregistry.Reader{}
+	readers["upload"] = v3knowledgesources.NewUploadReader(s.DB)
 	switch raw {
 	case "", "false":
 	case "true":
@@ -620,6 +641,24 @@ func configuredV3SourceRegistryWithSources(raw string, s *store.Store, policy *r
 			}
 			readers[kind] = reader
 		}
+	}
+	if len(feishuBindings) > 0 {
+		credentialBindings := make([]v3integrations.CredentialBinding, 0, len(feishuBindings))
+		for _, binding := range feishuBindings {
+			credentialBindings = append(credentialBindings, v3integrations.CredentialBinding{
+				Tier: binding.Tier, EnvironmentID: binding.EnvironmentID,
+				ConnectorID: binding.ConnectorID, Provider: "feishu",
+				Endpoint: binding.Endpoint, CredentialRef: binding.CredentialRef,
+			})
+		}
+		resolver := v3integrations.NewBoundResolver(
+			v3integrations.NewVaultResolver(os.Getenv("AIOPS_VAULT_URL"), os.Getenv("AIOPS_VAULT_TOKEN")),
+			credentialBindings)
+		reader, err := v3knowledgesources.NewFeishuReader(feishuBindings, resolver, nil)
+		if err != nil {
+			return nil, fmt.Errorf("configure V3 Feishu Docx reader: %w", err)
+		}
+		readers["feishu"] = reader
 	}
 	return v3sourceregistry.NewWithReaders(s.DB, policy, readers), nil
 }

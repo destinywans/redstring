@@ -18,13 +18,13 @@ func TestConfiguredV3SourceRegistryRequiresExplicitPublicWebOptIn(t *testing.T) 
 	policy := &rbac.V3Policy{Store: st}
 	for _, raw := range []string{"", "false"} {
 		registry, err := configuredV3SourceRegistry(raw, st, policy)
-		if err != nil || registry == nil || len(registry.Readers) != 0 {
-			t.Fatalf("flag %q must leave source readers unavailable: registry=%+v err=%v", raw, registry, err)
+		if err != nil || registry == nil || len(registry.Readers) != 1 {
+			t.Fatalf("flag %q must leave only the local upload reader available: registry=%+v err=%v", raw, registry, err)
 		}
 	}
 	registry, err := configuredV3SourceRegistry("true", st, policy)
-	if err != nil || registry == nil || len(registry.Readers) != 1 {
-		t.Fatalf("explicit opt-in must install exactly one reader: registry=%+v err=%v", registry, err)
+	if err != nil || registry == nil || len(registry.Readers) != 2 {
+		t.Fatalf("explicit opt-in must install the Web and upload readers: registry=%+v err=%v", registry, err)
 	}
 	reader, ok := registry.Readers["web"].(v3knowledgesources.PublicWebObservationReader)
 	if !ok || reader.Fetcher.Resolver != nil || reader.Fetcher.DialContext != nil || reader.Fetcher.RootCAs != nil {
@@ -66,7 +66,7 @@ func TestConfiguredV3SourceRegistryInstallsOnlyBoundGitMarkdownReader(t *testing
 		Tier: "nonprod", EnvironmentID: "dev", ApplicationID: "app", ConnectorID: "runbooks",
 	}
 	registry, err := configuredV3SourceRegistryWithGit("", st, policy, []v3knowledgesources.GitMarkdownBinding{binding})
-	if err != nil || registry == nil || len(registry.Readers) != 1 {
+	if err != nil || registry == nil || len(registry.Readers) != 2 {
 		t.Fatalf("configured Git reader missing: registry=%+v err=%v", registry, err)
 	}
 	if _, ok := registry.Readers["git_markdown"].(*v3knowledgesources.GitMarkdownReader); !ok {
@@ -95,7 +95,7 @@ func TestConfiguredV3SourceRegistryInstallsExactExternalReaders(t *testing.T) {
 			EnvironmentID: "dev", ApplicationID: "app", ConnectorID: "notion-runbooks"},
 	}
 	registry, err := configuredV3SourceRegistryWithSources("", st, policy, nil, bindings)
-	if err != nil || registry == nil || len(registry.Readers) != 2 {
+	if err != nil || registry == nil || len(registry.Readers) != 3 {
 		t.Fatalf("exact external readers missing: registry=%+v err=%v", registry, err)
 	}
 	for _, kind := range []string{"confluence", "notion"} {
@@ -106,5 +106,32 @@ func TestConfiguredV3SourceRegistryInstallsExactExternalReaders(t *testing.T) {
 	bindings[0].CredentialRef = "vault:ops/confluence"
 	if registry, err := configuredV3SourceRegistryWithSources("", st, policy, nil, bindings); registry != nil || err == nil {
 		t.Fatalf("legacy Confluence reference enabled reader: registry=%+v err=%v", registry, err)
+	}
+}
+
+func TestConfiguredV3SourceRegistryInstallsExactFeishuAndLocalUploadReaders(t *testing.T) {
+	st := &store.Store{}
+	policy := &rbac.V3Policy{Store: st}
+	binding := v3knowledgesources.FeishuBinding{
+		SourceURL: "https://tenant.feishu.cn/docx/AbCdEf1234567890",
+		Endpoint:  "https://open.feishu.cn", DocumentID: "AbCdEf1234567890",
+		CredentialRef: "vault://ops/feishu#token", Tier: "nonprod",
+		EnvironmentID: "dev", ApplicationID: "app", ConnectorID: "feishu-runbooks",
+	}
+	registry, err := configuredV3SourceRegistryWithAll("", st, policy, nil, nil,
+		[]v3knowledgesources.FeishuBinding{binding})
+	if err != nil || registry == nil || len(registry.Readers) != 2 {
+		t.Fatalf("configured Feishu and upload readers missing: registry=%+v err=%v", registry, err)
+	}
+	if _, ok := registry.Readers["feishu"].(*v3knowledgesources.FeishuReader); !ok {
+		t.Fatalf("unexpected Feishu reader: %T", registry.Readers["feishu"])
+	}
+	if _, ok := registry.Readers["upload"].(*v3knowledgesources.UploadReader); !ok {
+		t.Fatalf("unexpected upload reader: %T", registry.Readers["upload"])
+	}
+	binding.Endpoint = "https://untrusted.example.invalid"
+	if registry, err := configuredV3SourceRegistryWithAll("", st, policy, nil, nil,
+		[]v3knowledgesources.FeishuBinding{binding}); registry != nil || err == nil {
+		t.Fatalf("untrusted Feishu endpoint enabled a token reader: registry=%+v err=%v", registry, err)
 	}
 }

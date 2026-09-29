@@ -126,7 +126,7 @@ func validCredentialBinding(binding CredentialBinding) (CredentialBinding, bool)
 		// These providers are used only by the bounded knowledge-source
 		// readers. They do not have a generic integration probe and must not
 		// be advertised in the integration catalog just to bind Vault use.
-		if binding.Provider != "confluence" && binding.Provider != "notion" {
+		if binding.Provider != "confluence" && binding.Provider != "notion" && binding.Provider != "feishu" {
 			return CredentialBinding{}, false
 		}
 	}

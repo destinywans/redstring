@@ -44,7 +44,8 @@ S['V3ConversationRun'] = obj({'id': string(), 'agent': string(), 'version': stri
 S['V3Message'] = obj({'id': string(), 'role': string(enum=['user','assistant']), 'author': string(),
     'created_at': string(format='date-time'), 'parts': arr(ref('V3Part')),
     'run': ref('V3ConversationRun'), 'attachments': arr(ref('V3Upload')),
-    'streaming': v3_bool()}, ['id','role','author','created_at','parts'])
+    'streaming': v3_bool(), 'node_id': string(),
+    'state': string(enum=['completed','streaming','running','failed'])}, ['id','role','author','created_at','parts'])
 S['V3ConversationStreamEvent'] = {'oneOf': [
     obj({'type': string(enum=['message.started']), 'message': ref('V3Message')}, ['type','message']),
     obj({'type': string(enum=['part.added']), 'message_id': string(), 'part': ref('V3Part')}, ['type','message_id','part']),
@@ -52,8 +53,11 @@ S['V3ConversationStreamEvent'] = {'oneOf': [
     obj({'type': string(enum=['message.completed']), 'message_id': string(), 'run': ref('V3ConversationRun')}, ['type','message_id']),
 ]}
 S['V3ConversationSummary'] = v3_object('id title scope size updated_at incident_id', {
-    'mode': string(enum=['chat','canvas']), 'status': string(enum=['active','waiting_approval','resolved','archived']),
-    'source': string(enum=['manual','alert_triage','schedule','im']),
+    'mode': string(enum=['chat','canvas']),
+    'status': {'type':['string','null'], 'enum':['active','waiting_approval','resolved','archived',None],
+        'description':'Null for a persisted historical investigation state without a V3 status mapping.'},
+    'source': {'type':['string','null'], 'enum':['manual','alert_triage','schedule','im',None],
+        'description':'Null for historical or derived records without trustworthy creation provenance.'},
     'participants': arr(string()), 'tokens': {'type':['integer','null'],'minimum':0,
         'description':'Null when any completed reply lacks trustworthy provider usage; the V3 frontend currently requires a number.'}})
 S['V3Conversation'] = obj({'id': string(), 'title': string(), 'mode': string(enum=['chat','canvas']),
@@ -68,16 +72,16 @@ S['V3Conversation'] = obj({'id': string(), 'title': string(), 'mode': string(enu
 S['V3ConversationList'] = obj({'items': arr(ref('V3ConversationSummary')),
     'total': integer(), 'page': integer(), 'page_size': integer(),
     'stats': arr({'type':'object','additionalProperties':True}),
-    'counts': obj({'mine':integer(),'team':{'type':['integer','null']},
-        'triage':{'type':['integer','null']},'archived':integer()})})
+    'counts': obj({'mine':integer(),'team':integer(),
+        'triage':integer(),'archived':integer()})})
 v3_route('get','/conversations','List scoped conversations',response=ref('V3ConversationList'),
     query=[v3_query(x) for x in ['filter','q','tab','status','mode','page','page_size']],
-    desc='The mine/archived projection merges privately owned manual chats and generic canvases in one authorized snapshot with consistent search, page, total and known counts. Team and triage have no reliable unified source and return 503 rather than an empty list; their counts are null, stats is empty and unknown provider usage is null. Historical investigations lack trustworthy mine/participants attribution. The current frontend expects numeric tokens and a conversation-view entry gate also excludes canvas-only users, so this is not the complete page contract.')
+    desc='Private chats and generic canvases plus application investigations are projected in one current-session, role, environment and object-scope authorization snapshot. Mine uses recorded ownership/creator, team uses current application-team membership, and triage requires a persisted initial-automation run linked to an investigation; an automation run proves triage work, not investigation creation origin. Filters, pagination, total and four counts use the same visible source set. Unknown provider usage, historical creation source and unmapped investigation status are null, never inferred from partial totals or incident links. The frozen frontend still assumes numeric tokens and a conversation-view entry gate, so full page acceptance remains pending.')
 v3_route('post','/conversations','Create conversation',body=obj({'text':string(minLength=1),'context':{'type':['string','null']},'model':{'type':['string','null']}},['text']),
     response=obj({'id':string()},['id']),status=201,
     desc='text must contain non-whitespace and fit within 2 MiB UTF-8; context is limited to 4096 bytes and model to 256 bytes. The selected default model and creation audit are persisted. The first message is submitted separately.')
 v3_route('get','/conversations/{id}','Read conversation and saved messages',response=ref('V3Conversation'),
-    desc='The persisted owner, selected instance environment scope, current session and conversation view grants are checked with metadata and messages in one read snapshot. Saved user and assistant messages use durable turn order, including messages written in one transaction with tied timestamps. Accepted audited turns follow the serialized audit chain. Imported or unlinked historical rows use a deterministic timestamp fallback whose original commit order cannot be proven. A streaming or failed assistant reply remains visible. Provider usage is not synthesized: run is absent and side.context.used/budget may be null when trustworthy usage is unavailable; the frozen frontend still assumes numeric context.')
+    desc='The current session, selected instance environment, object owner and effective view grant are checked with persisted metadata and messages in one read snapshot. Private chats expose durable ordered rich parts and attachment references, including streaming or failed assistant state. Message.state disambiguates terminal failure from active streaming; a legacy failed row lacking a saved status part gets one derived from its persisted state. Generic canvas exchanges are node-scoped via message.node_id and have only their persisted text/model/state; a failed or running exchange yields its saved user prompt with that state and no invented assistant turn. Rich parts or provider usage cannot be reconstructed for canvas exchanges. A pure investigation ID has no linear conversation record and returns 404; its branch context must be read through the graph and per-node messages routes. Provider usage is not synthesized: run is absent and side.context.used/budget may be null when trustworthy usage is unavailable. The frozen frontend still assumes numeric context.')
 v3_route('post','/conversations/{id}/messages','Start a durable assistant reply',
     body=obj({'text':string(),'model':string(),'reasoning':string(),
         'attachments':arr(ref('V3Upload'))},['text']),

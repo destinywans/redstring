@@ -57,6 +57,15 @@ func TestConversationRegisteredJourneyPersistsReplayAndReads(t *testing.T) {
 			JOIN rbac_roles r ON r.id=a.role_id JOIN v3_role_grants g ON g.role_id=r.id;
 		CREATE TABLE v3_canvases (id text PRIMARY KEY,owner_id text NOT NULL,environment_id text NOT NULL,title text NOT NULL,status text NOT NULL,services text[] NOT NULL DEFAULT '{}',nodes jsonb NOT NULL DEFAULT '[]',updated_at timestamptz NOT NULL);
 		CREATE TABLE v3_canvas_node_exchanges (id text PRIMARY KEY,canvas_id text NOT NULL,state text NOT NULL);
+		CREATE TABLE applications (id text PRIMARY KEY,name text NOT NULL,owner_team_id text,archived boolean NOT NULL DEFAULT false);
+		CREATE TABLE application_environments (id text PRIMARY KEY,application_id text NOT NULL,key text NOT NULL,archived boolean NOT NULL DEFAULT false);
+		CREATE TABLE v3_application_environments (application_id text NOT NULL,environment_id text NOT NULL);
+		CREATE TABLE investigations (id text PRIMARY KEY,application_id text NOT NULL,environment_id text,title text NOT NULL,status text NOT NULL DEFAULT 'open',created_by text,updated_at timestamptz NOT NULL DEFAULT now());
+		CREATE TABLE branches (id text PRIMARY KEY,investigation_id text NOT NULL);
+		CREATE TABLE runs (id text PRIMARY KEY,branch_id text NOT NULL,request_id text NOT NULL,status text NOT NULL);
+		CREATE TABLE ops_incidents (id text PRIMARY KEY,investigation_id text NOT NULL,application_id text NOT NULL,environment_id text NOT NULL);
+		CREATE TABLE ops_automation_runs (id text PRIMARY KEY,investigation_id text NOT NULL,incident_id text NOT NULL,environment_id text NOT NULL,kind text NOT NULL,run_id text NOT NULL DEFAULT '');
+		CREATE TABLE team_members (team_id text NOT NULL,user_id text NOT NULL);
 		INSERT INTO users(id,email,name,role) VALUES
 			('journey-owner','owner@local','Journey Owner','viewer'),
 			('journey-other','other@local','Journey Other','viewer');
@@ -319,12 +328,21 @@ func TestConversationRegisteredJourneyPersistsReplayAndReads(t *testing.T) {
 	}
 	// The mixed chat/canvas list checks source-specific grants inside its
 	// snapshot rather than asking the route gate for conversation.view.
+	policyMu.Lock()
+	policyCount := len(policyCalls)
+	policyMu.Unlock()
 	status, body = call(http.MethodGet, path, "test", "journey-owner-session", "", nil)
 	var detail Conversation
 	if status != http.StatusOK || json.Unmarshal(body, &detail) != nil || detail.ID != created.ID || detail.Scope["service"] != "checkout-api" || len(detail.Messages) != 2 || detail.Messages[0].ID != accepted.Message.ID || detail.Messages[1].Role != "assistant" {
 		t.Fatalf("same owner detail: %d %s", status, body)
 	}
-	assertPolicy("conversation:view")
+	// Detail, like list, checks the source-specific grant against its current
+	// object in one database snapshot rather than using a route-wide grant.
+	policyMu.Lock()
+	if len(policyCalls) != policyCount {
+		t.Fatalf("object route unexpectedly called broad policy: %v", policyCalls)
+	}
+	policyMu.Unlock()
 	contextSide, ok := detail.Side["context"].(map[string]any)
 	if !ok || contextSide["used"] != float64(20) || contextSide["budget"] != float64(8192) {
 		t.Fatalf("reported context: %s", body)

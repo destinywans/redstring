@@ -15,11 +15,16 @@ import (
 
 var errListSessionRevoked = errors.New("conversation list session revoked")
 
-// Only privately owned chats and generic canvases have a trustworthy "mine"
-// relationship. The two sources use their own current V3 view grant.
+// Private chats and generic canvases have a durable owner. Investigations
+// belong to their recorded creator and to the application's current owner
+// team; an incident or a user-supplied service/context string does not prove
+// either relationship. Initial automation is proven by its persisted run.
 const ownedConversationSources = `WITH owned AS MATERIALIZED (
  SELECT c.id,c.title,'chat'::text AS mode,c.status,c.environment_id,c.context_ref,
-        NULL::text[] AS services,c.updated_at,0::integer AS node_count
+        NULL::text[] AS services,c.updated_at,0::integer AS node_count,
+        0::bigint AS branch_count,'chat'::text AS record_kind,
+        'manual'::text AS source,true AS is_mine,false AS is_team,false AS is_triage,
+        ''::text AS creator_name,NULL::text AS incident_id
  FROM v3_conversations c
  WHERE c.owner_id=$1 AND c.environment_id=ANY($2::text[])
  AND EXISTS (SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$1
@@ -30,32 +35,90 @@ const ownedConversationSources = `WITH owned AS MATERIALIZED (
  SELECT c.id,c.title,'canvas'::text AS mode,
         CASE c.status WHEN 'draft' THEN 'active' WHEN 'done' THEN 'resolved' ELSE c.status END,
         c.environment_id,''::text AS context_ref,c.services,c.updated_at,
-        jsonb_array_length(c.nodes) AS node_count
+        jsonb_array_length(c.nodes) AS node_count,0::bigint AS branch_count,
+        'generic_canvas'::text AS record_kind,'manual'::text AS source,
+        true AS is_mine,false AS is_team,false AS is_triage,
+        ''::text AS creator_name,NULL::text AS incident_id
  FROM v3_canvases c
  WHERE c.owner_id=$1 AND c.environment_id=ANY($2::text[])
  AND EXISTS (SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$1
    AND g.module='canvas' AND g.action='view'
    AND ((g.scope_kind='global' AND g.scope_id='*')
      OR (g.scope_kind='environment' AND g.scope_id=c.environment_id)))
+ UNION ALL
+ SELECT i.id,i.title,'canvas'::text AS mode,
+        CASE i.status WHEN 'open' THEN 'active' WHEN 'closed' THEN 'resolved'
+          ELSE NULL END AS status,
+        ae.key AS environment_id,''::text AS context_ref,
+        ARRAY[i.application_id] AS services,i.updated_at,0::integer AS node_count,
+        (SELECT count(*) FROM branches b WHERE b.investigation_id=i.id) AS branch_count,
+        'investigation'::text AS record_kind,
+        CASE WHEN i.created_by IS NOT NULL THEN 'manual' ELSE NULL END AS source,
+        i.created_by=$1 AS is_mine,
+        EXISTS (SELECT 1 FROM team_members tm
+          WHERE tm.user_id=$1 AND tm.team_id=a.owner_team_id) AS is_team,
+        initial.has_run AS is_triage,
+        COALESCE(creator.name,'') AS creator_name,
+        linked.incident_id
+ FROM investigations i
+ JOIN applications a ON a.id=i.application_id AND NOT a.archived
+ JOIN application_environments ae ON ae.id=i.environment_id
+   AND ae.application_id=i.application_id AND NOT ae.archived
+ JOIN v3_application_environments vae ON vae.application_id=i.application_id
+   AND vae.environment_id=ae.key
+ LEFT JOIN users creator ON creator.id=i.created_by
+ LEFT JOIN LATERAL (
+   SELECT CASE WHEN count(*)=1 THEN min(oi.id) ELSE NULL END AS incident_id
+   FROM ops_incidents oi WHERE oi.investigation_id=i.id
+     AND oi.application_id=i.application_id AND oi.environment_id=i.environment_id
+ ) linked ON true
+ CROSS JOIN LATERAL (
+   SELECT EXISTS (
+     SELECT 1 FROM ops_automation_runs ar
+     JOIN runs run ON (run.id=ar.run_id OR run.request_id='automation:'||ar.id)
+     JOIN branches run_branch ON run_branch.id=run.branch_id
+       AND run_branch.investigation_id=i.id
+     WHERE ar.kind='initial' AND ar.investigation_id=i.id
+       AND ar.environment_id=i.environment_id
+       AND ar.incident_id=linked.incident_id
+   ) AS has_run
+ ) initial
+ WHERE ae.key=ANY($2::text[])
+ AND EXISTS (SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$1
+   AND g.module='canvas' AND g.action='view'
+   AND ((g.scope_kind='global' AND g.scope_id='*')
+     OR (g.scope_kind='environment' AND g.scope_id=ae.key)
+     OR (g.scope_kind='application' AND g.scope_id=i.application_id)
+     OR (a.owner_team_id IS NOT NULL AND g.scope_kind='team' AND g.scope_id=a.owner_team_id
+       AND EXISTS (SELECT 1 FROM team_members tm
+         WHERE tm.user_id=$1 AND tm.team_id=a.owner_team_id))))
 )`
 
 const ownedConversationFilter = `
- WHERE (($3='mine' AND status<>'archived') OR ($3='archived' AND status='archived'))
+ WHERE (($3='mine' AND is_mine AND status IS DISTINCT FROM 'archived')
+   OR ($3='team' AND is_team AND status IS DISTINCT FROM 'archived')
+   OR ($3='triage' AND is_triage AND status IS DISTINCT FROM 'archived')
+   OR ($3='archived' AND is_mine AND status='archived'))
  AND ($4='' OR mode=$4) AND ($5='' OR status=$5)
  AND ($6='' OR aiops_search_match(
-   concat_ws(' ',id,title,context_ref,array_to_string(services,' '),environment_id),$6))`
+   concat_ws(' ',id,title,context_ref,array_to_string(services,' '),environment_id,incident_id),$6))`
 
 const filteredOwnedConversationSources = ownedConversationSources + `, filtered AS (
  SELECT * FROM owned` + ownedConversationFilter + `
 )`
 
-func (s *Service) readOwnedList(ctx context.Context, sessionToken string, user core.User, envs []string, tab, mode, status, query string, page, size int, language string) ([]map[string]any, int, int, int, error) {
+type conversationListCounts struct {
+	Mine, Team, Triage, Archived int
+}
+
+func (s *Service) readOwnedList(ctx context.Context, sessionToken string, user core.User, envs []string, tab, mode, status, query string, page, size int, language string) ([]map[string]any, int, conversationListCounts, error) {
+	empty := conversationListCounts{}
 	// Counts, selected IDs and row statistics use one snapshot. Row locks hold
 	// the session and grant sources until the response has been read, so a
 	// concurrent revocation cannot commit between authorization and the page.
 	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
-		return nil, 0, 0, 0, err
+		return nil, 0, empty, err
 	}
 	defer tx.Rollback(ctx)
 	var sessionUser string
@@ -63,20 +126,20 @@ func (s *Service) readOwnedList(ctx context.Context, sessionToken string, user c
  WHERE s.token_hash=$1 AND s.user_id=$2 AND s.expires_at>clock_timestamp()
  AND NOT u.disabled AND u.deleted_at IS NULL FOR SHARE OF s,u`, store.Hash(sessionToken), user.ID).Scan(&sessionUser)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, 0, 0, 0, errListSessionRevoked
+		return nil, 0, empty, errListSessionRevoked
 	}
 	if err != nil {
-		return nil, 0, 0, 0, err
+		return nil, 0, empty, err
 	}
 	if err = lockConversationListGrants(ctx, tx, sessionUser); err != nil {
-		return nil, 0, 0, 0, err
+		return nil, 0, empty, err
 	}
 	// The middleware's environment set can become stale before this transaction
 	// begins. Intersect it with the selected request scope and current environment
 	// grants. The source-specific union below checks conversation or canvas view.
 	scope, ok := httpapi.V3ScopeFromContext(ctx)
 	if !ok || len(scope.EnvironmentIDs) == 0 {
-		return nil, 0, 0, 0, ErrForbidden
+		return nil, 0, empty, ErrForbidden
 	}
 	scoped := make([]string, 0, len(envs))
 	for _, env := range envs {
@@ -88,7 +151,7 @@ func (s *Service) readOwnedList(ctx context.Context, sessionToken string, user c
 		}
 	}
 	if len(scoped) == 0 {
-		return nil, 0, 0, 0, ErrForbidden
+		return nil, 0, empty, ErrForbidden
 	}
 	rows, err := tx.Query(ctx, `SELECT DISTINCT e.id FROM unnest($2::text[]) AS e(id)
  WHERE EXISTS (SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$1
@@ -96,7 +159,7 @@ func (s *Service) readOwnedList(ctx context.Context, sessionToken string, user c
    AND ((g.scope_kind='global' AND g.scope_id='*')
      OR (g.scope_kind='environment' AND g.scope_id=e.id)))`, user.ID, scoped)
 	if err != nil {
-		return nil, 0, 0, 0, err
+		return nil, 0, empty, err
 	}
 	currentEnvs := []string{}
 	for rows.Next() {
@@ -111,28 +174,37 @@ func (s *Service) readOwnedList(ctx context.Context, sessionToken string, user c
 	}
 	rows.Close()
 	if err != nil {
-		return nil, 0, 0, 0, err
+		return nil, 0, empty, err
 	}
 	if len(currentEnvs) == 0 {
-		return nil, 0, 0, 0, ErrForbidden
+		return nil, 0, empty, ErrForbidden
 	}
 	envs = currentEnvs
+	if err = lockConversationListObjects(ctx, tx, user.ID, envs); err != nil {
+		return nil, 0, empty, err
+	}
 	args := []any{user.ID, envs, tab, mode, status, query}
 	countQuery := filteredOwnedConversationSources + ` SELECT
-	 (SELECT count(*) FROM owned WHERE status<>'archived'),
-	 (SELECT count(*) FROM owned WHERE status='archived'),
+	 (SELECT count(*) FROM owned WHERE is_mine AND status IS DISTINCT FROM 'archived'),
+	 (SELECT count(*) FROM owned WHERE is_team AND status IS DISTINCT FROM 'archived'),
+	 (SELECT count(*) FROM owned WHERE is_triage AND status IS DISTINCT FROM 'archived'),
+	 (SELECT count(*) FROM owned WHERE is_mine AND status='archived'),
 	 (SELECT count(*) FROM filtered)`
-	var mineCount, archivedCount, total int
-	if err = tx.QueryRow(ctx, countQuery, args...).Scan(&mineCount, &archivedCount, &total); err != nil {
-		return nil, 0, 0, 0, err
+	var counts conversationListCounts
+	var total int
+	if err = tx.QueryRow(ctx, countQuery, args...).Scan(&counts.Mine, &counts.Team, &counts.Triage, &counts.Archived, &total); err != nil {
+		return nil, 0, empty, err
 	}
 	pageQuery := filteredOwnedConversationSources + `, selected AS MATERIALIZED (
- SELECT id,title,mode,status,environment_id,context_ref,services,updated_at,node_count
+ SELECT id,title,mode,status,environment_id,context_ref,services,updated_at,node_count,
+   branch_count,record_kind,source,creator_name,incident_id
 	FROM filtered
  ORDER BY updated_at DESC,id LIMIT $7 OFFSET $8
 ) SELECT c.id,c.title,c.mode,c.status,c.environment_id,c.context_ref,c.services,c.updated_at,
- c.node_count,COALESCE(m.turns,0),COALESCE(m.assistants,0),COALESCE(n.assistants,0),
- CASE WHEN c.mode='canvas' THEN
+ c.node_count,c.branch_count,c.record_kind,c.source,c.creator_name,c.incident_id,
+ COALESCE(m.turns,0),COALESCE(m.assistants,0),COALESCE(n.assistants,0),
+ CASE WHEN c.record_kind='investigation' THEN NULL::bigint
+ WHEN c.record_kind='generic_canvas' THEN
    CASE WHEN COALESCE(n.exchanges,0)=0 THEN 0::bigint END
  ELSE CASE WHEN COALESCE(m.unknown_usage,0)=0
    AND COALESCE(m.reported_tokens,0)<=9007199254740991
@@ -148,34 +220,47 @@ func (s *Service) readOwnedList(ctx context.Context, sessionToken string, user c
        AND jsonb_typeof(run->'tokens')='number' AND run->>'tokens' ~ '^[0-9]{1,18}$'
        THEN (run->>'tokens')::bigint ELSE 0 END),0) AS reported_tokens
    FROM v3_conversation_messages WHERE conversation_id=c.id
- ) m ON c.mode='chat'
+ ) m ON c.record_kind='chat'
  LEFT JOIN LATERAL (
    SELECT count(*) AS exchanges,
      count(*) FILTER (WHERE state='completed') AS assistants
    FROM v3_canvas_node_exchanges WHERE canvas_id=c.id
- ) n ON c.mode='canvas'
+ ) n ON c.record_kind='generic_canvas'
  ORDER BY c.updated_at DESC,c.id`
 	pageArgs := append(args, size, (page-1)*size)
 	rows, err = tx.Query(ctx, pageQuery, pageArgs...)
 	if err != nil {
-		return nil, 0, 0, 0, err
+		return nil, 0, empty, err
 	}
 	items := []map[string]any{}
 	english := strings.HasPrefix(strings.ToLower(language), "en")
 	for rows.Next() {
-		var id, title, itemMode, itemStatus, envID, contextRef string
+		var id, title, itemMode, envID, contextRef, recordKind, creatorName string
+		var itemStatus, source, incidentID *string
 		var services []string
 		var updated time.Time
 		var nodeCount int
+		var branchCount int64
 		var turns, chatAssistants, canvasAssistants int64
 		var reportedTokens *int64
 		if err = rows.Scan(&id, &title, &itemMode, &itemStatus, &envID, &contextRef, &services, &updated,
-			&nodeCount, &turns, &chatAssistants, &canvasAssistants, &reportedTokens); err != nil {
+			&nodeCount, &branchCount, &recordKind, &source, &creatorName, &incidentID,
+			&turns, &chatAssistants, &canvasAssistants, &reportedTokens); err != nil {
 			break
 		}
 		participants := []string{user.Name}
 		scope, sizeLabel := conversationScopeLabel(contextRef, envID), fmt.Sprintf("%d 轮", turns)
-		if itemMode == "canvas" {
+		if recordKind == "investigation" {
+			participants = []string{}
+			if creatorName != "" {
+				participants = append(participants, creatorName)
+			}
+			scope = strings.Join(services, ", ") + " · " + envID
+			if incidentID != nil {
+				scope = *incidentID + " · " + scope
+			}
+			sizeLabel = fmt.Sprintf("%d 个分支", branchCount)
+		} else if recordKind == "generic_canvas" {
 			if len(services) > 0 && services[0] != "" {
 				scope = services[0] + " · " + envID
 			}
@@ -187,7 +272,9 @@ func (s *Service) readOwnedList(ctx context.Context, sessionToken string, user c
 			participants = append(participants, "AI")
 		}
 		if english {
-			if itemMode == "canvas" {
+			if recordKind == "investigation" {
+				sizeLabel = fmt.Sprintf("%d branches", branchCount)
+			} else if recordKind == "generic_canvas" {
 				if nodeCount == 1 {
 					sizeLabel = "1 node"
 				} else {
@@ -199,22 +286,72 @@ func (s *Service) readOwnedList(ctx context.Context, sessionToken string, user c
 		}
 		// A partial sum is not known usage. Generic canvas exchanges do not
 		// persist tokens, so any such exchange leaves this field unknown.
-		items = append(items, map[string]any{"id": id, "title": title, "mode": itemMode,
-			"status": itemStatus, "source": "manual", "scope": scope,
+		var publicStatus, publicSource, publicTokens any
+		if itemStatus != nil {
+			publicStatus = *itemStatus
+		}
+		if source != nil {
+			publicSource = *source
+		}
+		if reportedTokens != nil {
+			publicTokens = *reportedTokens
+		}
+		item := map[string]any{"id": id, "title": title, "mode": itemMode,
+			"status": publicStatus, "source": publicSource, "scope": scope,
 			"participants": participants, "size": sizeLabel, "updated_at": updated,
-			"tokens": reportedTokens})
+			"tokens": publicTokens}
+		if incidentID != nil {
+			item["incident_id"] = *incidentID
+		}
+		items = append(items, item)
 	}
 	if err == nil {
 		err = rows.Err()
 	}
 	rows.Close()
 	if err != nil {
-		return nil, 0, 0, 0, err
+		return nil, 0, empty, err
 	}
 	if err = tx.Commit(ctx); err != nil {
-		return nil, 0, 0, 0, err
+		return nil, 0, empty, err
 	}
-	return items, total, mineCount, archivedCount, nil
+	return items, total, counts, nil
+}
+
+// Team membership and the application/environment mapping establish object
+// visibility. Lock them before reading the unified page so revocation waits
+// for this authorized response instead of committing mid-read.
+func lockConversationListObjects(ctx context.Context, tx pgx.Tx, userID string, envs []string) error {
+	for _, statement := range []struct {
+		sql  string
+		args []any
+	}{
+		{`SELECT team_id FROM team_members WHERE user_id=$1 FOR SHARE`, []any{userID}},
+		{`SELECT a.id FROM applications a
+ JOIN application_environments ae ON ae.application_id=a.id
+ JOIN v3_application_environments vae ON vae.application_id=a.id AND vae.environment_id=ae.key
+ WHERE ae.key=ANY($1::text[]) AND NOT a.archived AND NOT ae.archived
+ FOR SHARE OF a,ae,vae`, []any{envs}},
+	} {
+		rows, err := tx.Query(ctx, statement.sql, statement.args...)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var ignored string
+			if err = rows.Scan(&ignored); err != nil {
+				break
+			}
+		}
+		if err == nil {
+			err = rows.Err()
+		}
+		rows.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // The effective-grants view cannot itself be row-locked. Lock the direct and

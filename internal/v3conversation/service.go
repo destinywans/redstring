@@ -101,6 +101,7 @@ func New(db *pgxpool.Pool, runtime inference.Runner, opts Options) *Service {
 
 type Message struct {
 	ID          string            `json:"id"`
+	NodeID      string            `json:"node_id,omitempty"`
 	Role        string            `json:"role"`
 	Author      string            `json:"author"`
 	CreatedAt   time.Time         `json:"created_at"`
@@ -108,6 +109,7 @@ type Message struct {
 	Run         json.RawMessage   `json:"run,omitempty"`
 	Attachments []json.RawMessage `json:"attachments,omitempty"`
 	Streaming   bool              `json:"streaming,omitempty"`
+	State       string            `json:"state,omitempty"`
 }
 
 type Conversation struct {

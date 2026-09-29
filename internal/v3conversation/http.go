@@ -342,12 +342,6 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 422, "invalid_status", "Unknown conversation status")
 		return
 	}
-	// Legacy investigations have no persisted creator or participants. Team
-	// and triage cannot be treated as empty until their scoped sources are joined.
-	if filter == "team" || filter == "triage" {
-		apiError(w, 503, "conversation_source_unavailable", "This conversation source is not connected to the unified list")
-		return
-	}
 	if len(q) > 256 {
 		apiError(w, 422, "invalid_query", "Search is too long")
 		return
@@ -357,14 +351,12 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 401, "unauthorized", "Login required")
 		return
 	}
-	items, total, mineCount, archivedCount, err := s.readOwnedList(r.Context(), cookie.Value, u, visible, filter, modeFilter, statusFilter, q, page, size, r.Header.Get("Accept-Language"))
+	items, total, counts, err := s.readOwnedList(r.Context(), cookie.Value, u, visible, filter, modeFilter, statusFilter, q, page, size, r.Header.Get("Accept-Language"))
 	if err != nil {
 		operationError(w, err)
 		return
 	}
-	// Team and triage sources have no unified read model yet. Zero would
-	// incorrectly claim that those authorized sources are empty.
-	write(w, 200, map[string]any{"items": items, "total": total, "page": page, "page_size": size, "stats": []any{}, "counts": map[string]any{"mine": mineCount, "team": nil, "triage": nil, "archived": archivedCount}})
+	write(w, 200, map[string]any{"items": items, "total": total, "page": page, "page_size": size, "stats": []any{}, "counts": map[string]int{"mine": counts.Mine, "team": counts.Team, "triage": counts.Triage, "archived": counts.Archived}})
 }
 
 func conversationScopeLabel(refs, env string) string {

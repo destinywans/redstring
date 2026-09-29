@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-157 · 2026-09-29 · WAN-121 调查节点回复与祖先回写
+
+- 来源 `codex/wan-121-investigation-writeback` 的 `84857b76b14d01240f0651a2df9a37d68b2e9b4e` 基于已合入的 `a977f43`，九个领域、测试、迁移和 OpenAPI 源文件补齐调查节点消息、回写预览及提交，合入为 `6811e23`。集成修正 `16640f2` 使节点回复按调查环境选择受限模型并将 `EnvironmentID` 传至推理请求；回复开始/完成及回写预览/提交在事务末复核原始 Cookie 的精确会话。迁移 132 只在隔离测试库执行。
+- `POST /investigations/{id}/nodes/{node}/messages` 持久运行 Attempt，模型只见本分支已继承上下文和本次文本，不开放工具；成功的用户/助手消息、上下文修订、事件与审计原子写入，失败记录不伪装成助手回复。预览只列持久的当前来源助手消息和可证祖先，已回写消息按历史 provenance 去重；预算未知为 `null`。提交要求目标严格祖先、来源/目标两个修订和选中消息 ID，三种模式分别原样消息、标记为不可信的历史文本或持久证据快照，重复与修订冲突拒绝；目标修订、事件、审计原子提交，不改来源或外部基础设施。三条后端主路由升为 `implemented`，现 **63/166、103 mock**；OpenAPI **286 路径、343 操作、269 schema**。
+- 一次性隔离 `pgvector/pgvector:0.8.6-pg17` 的注册 HTTP 定向 `go test -p 1 -race ./internal/v3canvas -run '^(TestInvestigationNodeReplyRegisteredRoute|TestInvestigationWritebackRegisteredRoutes)$' -count=1` 通过，涵盖跨环境模型提前拒绝、生成期间登出、预览和提交锁等待后的会话过期；容器已清理。`cmd/aiops` 定向编译、受影响 Go vet、OpenAPI/契约/就绪/路由矩阵及差异检查通过。真实模型、现有业务库迁移、冻结画布页与浏览器未验；页面仍缺根节点/未知 token/布局版本、回写目标/双修订和未知预算适配。未合并或部署；下一步继续按已授权领域来源合入映射、Trace、知识来源和模板，再分别核主路由及页面限制。
+
 ## CP-156 · 2026-09-29 · V3 模型管理与环境绑定执行链
 
 - WAN-122 领域来源 `codex/wan-122-model-admin` 的 `f632633639d2b7ce6b322e141b561ab80a0fba31` 相对 `6304c6a` 只改十个模型/推理、示例和 OpenAPI 源文件，集成分支相应文件未变且 `git apply --check` 通过，合入为 `231c1c0`。`d00e639` 将 `AIOPS_V3_MODEL_BINDINGS_FILE` 的同一不可变绑定快照用于 `v3models`、个人设置、对话和画布；缺失文件保留旧全局运行行为，错误文件阻止 V3 启动。对话新建/发送和 Canvas 节点/AI 草稿按选定或持久环境选模型，`inference.Request.EnvironmentID` 在实际调用前再次受约束；显式跨环境模型返回 422，不调用供应商。模型管理事务使用公共账号→精确会话锁，读取结束、提交前再核会话到期；无效会话为 401。

@@ -115,9 +115,9 @@
 | GET | `/investigations/{id}/canvas` | | `CanvasGraph`；持久分支、上下文修订、证据及布局，未知 token 用量为 `null` | implemented |
 | POST | `/investigations/{id}/branches` | `{ parent_id?, parent?, title, x?, y?, expected_parent_revision? }`；至少一个父 ID | `CanvasNode`；锁定父修订后复制上下文，分支、布局、事件、审计同事务 | implemented |
 | PATCH | `/investigations/{id}/nodes/{node}` | `{ x?, y?, collapsed?, title?, expected_layout_version, expected_title? }`；改标题必带 `expected_title` | `CanvasNode`；版本冲突 409、缺前置条件 428 | implemented |
-| POST | `/investigations/{id}/nodes/{node}/messages` | `{ text, model?, reasoning? }` | `{ summary, new_branch? }`；`new_branch` 表示 AI 在该节点下派生了子分支（标题、副标题、摘要） | mock |
-| GET | `/investigations/{id}/writeback-preview` | `node` | 回写预览 | mock |
-| POST | `/investigations/{id}/writeback` | `{ node, target, items }` | `{ version }` | mock |
+| POST | `/investigations/{id}/nodes/{node}/messages` | `{ text, model?, reasoning? }` | `{ summary }`；当前回复不会自动派生子分支 | implemented |
+| GET | `/investigations/{id}/writeback-preview` | `node` 或 `from`，可选严格祖先 `target` | 当前分支可选助手消息、目标修订与历史时间线；预算未知为 `null` | implemented |
+| POST | `/investigations/{id}/writeback` | `{ node 或 from, target, items 或 conclusions, mode, expected_source_revision, expected_target_revision }` | `{ version, source_revision, target_revision }`；修订冲突 409、缺前置条件 428 | implemented |
 
 对话详情、后续模型上下文和最新回复使用持久 `sort_order`，同一事务写入的用户/助手消息按回合排序。有 `accepted` 审计的回合按序列化顺序；迁入或无审计的旧回合只按时间戳作确定性回填，不能据此证明原始提交顺序。迁移 085 在应用启动事务中回填整表并建索引，部署前须停旧回复 worker 并在代表性副本量测锁时。
 
@@ -129,7 +129,9 @@
 
 通用画布节点 `POST /canvases/{id}/nodes/{node}/messages` 的后端已接持久化同步回复：限定本人画布、单一环境和当前 `canvas.change`，一次只运行一条回复。模型上下文包含当前节点及沿有向边可达的祖先节点块与已完成回合，不包含兄弟或失败回合，超过 24 KiB 返回 413；工具调用被拒绝。运行期间约每 2 秒检查当前会话与授权，失败时取消模型请求；完成事务再次核对原会话、画布归属与当前 `canvas.change`，完成时无权限则不保存助手回复。若撤权又恢复全部落在两次检查之间，不能保证取消本轮。失败的用户输入保留供刷新核对，不生成虚假助手消息。`GET /canvases/{id}` 校验节点、七种块、边和产物结构，在 `threads` 返回各节点完整已保存回合；历史超过 500 次交换、2 MiB 总量或单条助手消息 64 KiB 时返回 413，不截断。写入仍可继续，故达到上限后详情会持续 413，当前没有分页或归档恢复。两条主路由按后端判据标为 `implemented`，仅适用于私人通用画布；调查节点接口仍分开。前端尚无超限恢复/分页，发送失败也未清除 `busy`，真实 409/413/422/503 可卡住输入框，因此画布整页尚未验收。
 
-调查画布三条主路由按持久调查、分支、修订、证据和节点布局工作：读取在同一事务中核当前应用、环境、负责人团队及 `canvas.view`，节点/修订/证据分别超过 100/1000/100 条或单条展示证据超过 16 KiB 返回 413，不截断为貌似完整的图。分支派生要求单环境、开放调查及 `canvas.change`，锁定父分支并复制其当前修订；节点修改用布局版本比较，标题另与当前标题比较。成功写入与事件、管理审计原子提交，两个写接口均不调用模型；入口和提交前按原始 Cookie 复核精确会话及当前授权来源。历史运行的 token 用量不是当前上下文用量，因此返回 `null`；没有可信调查循环状态时 `loop` 为空。冻结画布页仍假定固定根节点及数值 token，拖拽请求不传必需的布局版本，后续消息与回写路由仍 `mock`，整页尚未验收。
+调查画布按持久调查、分支、修订、证据和节点布局工作：读取在同一事务中核当前应用、环境、负责人团队及 `canvas.view`，节点/修订/证据分别超过 100/1000/100 条或单条展示证据超过 16 KiB 返回 413，不截断为貌似完整的图。分支派生要求单环境、开放调查及 `canvas.change`，锁定父分支并复制其当前修订；节点修改用布局版本比较，标题另与当前标题比较。成功写入与事件、管理审计原子提交，两个写接口均不调用模型；入口和提交前按原始 Cookie 复核精确会话及当前授权来源。历史运行的 token 用量不是当前上下文用量，因此返回 `null`；没有可信调查循环状态时 `loop` 为空。
+
+调查节点消息在持久分支中保存运行 Attempt，然后只向环境允许的模型发送该分支创建时已继承的上下文和本次文本；不读取实时祖先或兄弟分支，不启用工具。成功时在一个事务中追加用户/助手消息、上下文修订、事件与审计；模型失败或撤权只保留失败尝试，不伪造助手结论。`GET /investigations/{id}/nodes/{node}/messages` 辅助路由可读当前修订及最近尝试。预览只从当前来源分支中选尚未回写到目标的持久助手消息，不生成摘要或推荐；省略目标时选根祖先。回写必须显式指定严格祖先目标、当前来源与目标修订和选中的消息 ID；`summary` 模式把历史助手文本标成不可信用户上下文，`messages` 模式原样复制，`evidence` 模式要求已有证据引用。写入目标的新修订、事件、审计原子提交，不修改来源或基础设施；重复来源消息、陈旧修订和超 24 KiB 上下文均显式拒绝。冻结画布页仍假定固定根节点及数值 token，拖拽缺布局版本，回写缺目标与双修订，预览预算字段按数字显示，整页尚未验收。
 | GET | `/investigation-templates` | | 模板列表 | mock |
 | POST | `/investigation-templates/{id}/start` | `{ inputs }` | `{ investigation_id }` | mock |
 
@@ -357,7 +359,7 @@ Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评�
 
 ## 后端辅助接口（不计入上述 166 项）
 
-- `GET /investigations/{id}/nodes/{node}/messages`：只读当前持久化调查分支的 `{ branch_id, revision, messages }`。服务端以分支记录核对调查、应用、环境和所属团队，再检查当前 `canvas.view`；消息保留历史 JSON 原貌，旧记录可能没有 `created_at`，不补造时间或 AI 摘要。当前上下文超过 24 KiB、损坏或缺失返回 503；不存在、路径不匹配或无对象访问权返回 404。完整调查图、节点写入和祖先回写仍为 `mock`。
+- `GET /investigations/{id}/nodes/{node}/messages`：只读当前持久化调查分支的 `{ branch_id, revision, messages }` 与最近的运行/失败尝试。服务端以分支记录核对调查、应用、环境和所属团队，再检查当前 `canvas.view`；消息保留历史 JSON 原貌，旧记录可能没有 `created_at`，不补造时间或 AI 摘要。当前上下文超过 24 KiB、损坏或缺失返回 503；不存在、路径不匹配或无对象访问权返回 404。
 - `GET /incidents/{id}/timeline/manual`：从持久化 `v3_incident_timeline` 读取当前事件的人工备注，响应 `{ items, scope: "manual_only" }`；按事件的应用/环境及当前 `events.view` 限定对象，按保存时间与 ID 排序，姓名取当前成员记录。未知或无权事件返回 404，超过 500 条人工记录或读取故障返回 503，不返回部分列表。不合成系统/AI 时间线、影响或错误预算，不能替代仍为 `mock` 的 `GET /incidents/{id}`。
 - `POST /mcp-servers/{id}/discover`：在单一环境和当前 `connectors.manage` 授权下，对显式绑定的登记执行有界 MCP `tools/list`，保存不可变的**未信任声明观察快照**及管理审计。响应含快照 ID、登记版本/摘要、工具摘要/数量和采集时间，`trust=untrusted_observation`、`approved=false`、`health_verified=false`；不回传工具声明、端点或凭据。调用后再核对授权、登记与绑定实例；上游失败或声明无效时仅写脱敏失败审计并返回 502。发现不等于工具审核、启用、执行或健康证明，这些主接口仍为 `mock`。
 - `GET /changes/records?service_id=…&binding_id=…&page=1`：只读已显式绑定的 GitLab 项目流水线，要求当前环境的 `services.view` 与 `connectors.view`，每页 20 条，最多查询第 1000 页；前后复核授权与来源。只返回可核实的流水线身份、状态、分支、提交及上游时间，不包含变更风险、告警关联或看板 KPI，不替代主 `GET /changes`。

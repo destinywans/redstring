@@ -55,12 +55,17 @@ func New(st *store.Store, access Access, telemetry Telemetry) *Service {
 
 func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/services/discover", "viewer", s.discover)
+	api.MarkV3ObjectRoute("GET /api/v1/services/discover", "services", "view")
 	api.Register("GET /api/v1/metrics/dashboard", "viewer", s.metricDashboard)
+	api.MarkV3ObjectRoute("GET /api/v1/metrics/dashboard", "services", "view")
 	api.Register("GET /api/v1/metrics/samples", "viewer", s.metricSamples)
 	api.MarkV3ObjectRoute("GET /api/v1/metrics/samples", "services", "view")
 	api.Register("GET /api/v1/logs", "viewer", s.logs)
+	api.MarkV3ObjectRoute("GET /api/v1/logs", "logs", "view")
 	api.Register("GET /api/v1/traces", "viewer", s.traces)
+	api.MarkV3ObjectRoute("GET /api/v1/traces", "traces", "view")
 	api.Register("GET /api/v1/traces/{id}", "viewer", s.traceDetail)
+	api.MarkV3ObjectRoute("GET /api/v1/traces/{id}", "traces", "view")
 }
 
 func (s *Service) allowedEnvironments(w http.ResponseWriter, r *http.Request, module string) ([]string, bool) {

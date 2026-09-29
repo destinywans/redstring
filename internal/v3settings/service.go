@@ -376,4 +376,17 @@ func (s *Service) Register(api *httpapi.Server) {
 		updated, e := s.putWorkspace(r.Context(), httpapi.CurrentUser(r), scope.EnvironmentIDs[0], v)
 		respondWorkspace(w, r, updated, e)
 	})
+	for _, pattern := range []string{
+		"GET /api/v1/me", "PATCH /api/v1/me", "PATCH /api/v1/me/preferences",
+		"GET /api/v1/me/profile", "PUT /api/v1/me/profile", "DELETE /api/v1/me/sessions/{id}",
+		"GET /api/v1/me/ai-preferences", "PUT /api/v1/me/ai-preferences",
+		"GET /api/v1/me/notification-settings", "PUT /api/v1/me/notification-settings",
+	} {
+		api.MarkV3Route(pattern, "", "")
+	}
+	// httpapi owns the /models handler and delegates to ModelsHandler. Only its
+	// V3 policy mark belongs here; registering the route again would collide.
+	api.MarkV3Route("GET /api/v1/models", "models", "view")
+	api.MarkV3Route("GET /api/v1/workspace", "workspace", "view")
+	api.MarkV3Route("PUT /api/v1/workspace", "workspace", "manage")
 }

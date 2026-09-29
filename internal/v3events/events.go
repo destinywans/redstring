@@ -37,8 +37,6 @@ func New(db *pgxpool.Pool, authorize Authorize, authorizeTx AuthorizeWithTx) *Se
 }
 
 // RegisterNew registers only routes that do not collide with operations.Register.
-// The two existing incident GET patterns must be replaced by the parent at the
-// composition root; see Incidents and Incident below.
 func (s *Service) RegisterNew(api *httpapi.Server) {
 	api.Register("GET /api/v1/inbox", "viewer", s.Inbox)
 	api.MarkV3ObjectRoute("GET /api/v1/inbox", "events", "view")
@@ -50,6 +48,16 @@ func (s *Service) RegisterNew(api *httpapi.Server) {
 	api.MarkV3ObjectRoute("POST /api/v1/incidents/{id}/timeline", "events", "change")
 	api.Register("GET /api/v1/incidents/{id}/timeline/manual", "viewer", s.ManualTimeline)
 	api.MarkV3ObjectRoute("GET /api/v1/incidents/{id}/timeline/manual", "events", "view")
+}
+
+// RegisterV3Incidents replaces the legacy incident reads at the composition root.
+// Keep these separate from RegisterNew so callers can opt into the V3 handlers
+// only after the legacy routes have been accounted for.
+func (s *Service) RegisterV3Incidents(api *httpapi.Server) {
+	api.Register("GET /api/v1/incidents", "viewer", s.Incidents)
+	api.MarkV3ObjectRoute("GET /api/v1/incidents", "events", "view")
+	api.Register("GET /api/v1/incidents/{id}", "viewer", s.Incident)
+	api.MarkV3ObjectRoute("GET /api/v1/incidents/{id}", "events", "view")
 }
 
 type incidentRecord struct {

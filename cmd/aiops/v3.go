@@ -145,7 +145,6 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		return fmt.Errorf("load V3 lower-environment sources: %w", err)
 	}
 	lowerSources.Register(api)
-	api.MarkV3Route("GET /api/v1/integrations/lower-sources", "connectors", "view")
 	auditV3 := v3audit.New(s.DB, cfg.EnvironmentIDs)
 	auditV3.Register(api)
 	v3canvas.NewWithRuntime(s, runtime).Register(api)
@@ -157,10 +156,6 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	}
 	configSync.Register(api)
 	v3proposals.New(s.DB, policy).Register(api)
-	api.MarkV3Route("POST /api/v1/services", "services", "change")
-	api.MarkV3ObjectRoute("GET /api/v1/services", "services", "view")
-	api.MarkV3ObjectRoute("GET /api/v1/services/{id}", "services", "view")
-	api.MarkV3ObjectRoute("GET /api/v1/service-mappings", "services", "view")
 	v3discovery.New(s.DB, policy).Register(api)
 	mcpService := v3mcp.New(s.DB, policy)
 	credentialRoot := os.Getenv("AIOPS_MCP_CREDENTIAL_ROOT")
@@ -190,22 +185,10 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	personalSettings := v3settings.New(s, runtime)
 	personalSettings.Register(api)
 	api.V3ModelsHandler = personalSettings.ModelsHandler
-	for _, pattern := range []string{"GET /api/v1/me", "PATCH /api/v1/me", "PATCH /api/v1/me/preferences", "GET /api/v1/me/profile", "PUT /api/v1/me/profile", "DELETE /api/v1/me/sessions/{id}", "GET /api/v1/me/ai-preferences", "PUT /api/v1/me/ai-preferences", "GET /api/v1/me/notification-settings", "PUT /api/v1/me/notification-settings"} {
-		api.MarkV3Route(pattern, "", "")
-	}
-	api.MarkV3Route("GET /api/v1/models", "models", "view")
-	api.MarkV3Route("GET /api/v1/workspace", "workspace", "view")
-	api.MarkV3Route("PUT /api/v1/workspace", "workspace", "manage")
 
 	connector := v3integrations.New(s.DB, cfg.Tier, v3integrations.NewVaultResolver(os.Getenv("AIOPS_VAULT_URL"), os.Getenv("AIOPS_VAULT_TOKEN")))
 	connector.Register(api)
 	v3changes.New(s.DB, cfg.Tier, policy, connector.Prober.Resolver).Register(api)
-	for _, pattern := range []string{"GET /api/v1/connector-types/{type}", "GET /api/v1/connectors", "GET /api/v1/connectors/{id}"} {
-		api.MarkV3Route(pattern, "connectors", "view")
-	}
-	for _, pattern := range []string{"POST /api/v1/connectors", "PATCH /api/v1/connectors/{id}", "POST /api/v1/connectors/{id}/test"} {
-		api.MarkV3Route(pattern, "connectors", "manage")
-	}
 	uploads := v3uploads.New(s.DB)
 	uploads.ReadAuthorizer = func(ctx context.Context, user core.User, environmentID string) error {
 		return policy.Authorize(ctx, user, rbac.V3Decision{Module: "conversation", Action: "view", EnvironmentID: environmentID})
@@ -389,16 +372,7 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 			}
 		}
 	}()
-	chat.Register(api.Register)
-	for _, pattern := range []string{"GET /api/v1/conversations", "GET /api/v1/conversations/{id}"} {
-		api.MarkV3Route(pattern, "conversation", "view")
-	}
-	for _, pattern := range []string{"POST /api/v1/conversations", "POST /api/v1/conversations/{id}/messages"} {
-		api.MarkV3Route(pattern, "conversation", "change")
-	}
-	// EventSource cannot carry the custom environment header; the handler checks
-	// the persisted conversation scope and current authorization for every read.
-	api.MarkV3Route("GET /api/v1/conversations/{id}/events", "", "")
+	chat.RegisterV3(api)
 	metricCatalog, err := v3integrations.LoadPrometheusQueryCatalog(os.Getenv("AIOPS_V3_PROMETHEUS_QUERIES_CONFIG"))
 	if err != nil {
 		return fmt.Errorf("load V3 Prometheus query catalog: %w", err)
@@ -410,21 +384,13 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	observations := v3observe.New(s, policy, telemetry)
 	observations.MetricReader = metricReader
 	observations.Register(api)
-	api.MarkV3ObjectRoute("GET /api/v1/services/discover", "services", "view")
-	api.MarkV3ObjectRoute("GET /api/v1/metrics/dashboard", "services", "view")
-	api.MarkV3ObjectRoute("GET /api/v1/logs", "logs", "view")
-	api.MarkV3ObjectRoute("GET /api/v1/traces", "traces", "view")
-	api.MarkV3ObjectRoute("GET /api/v1/traces/{id}", "traces", "view")
 	events := v3events.New(s.DB, func(ctx context.Context, user core.User, app, env, action string) error {
 		return policy.Authorize(ctx, user, rbac.V3Decision{Module: "events", Action: action, ApplicationID: app, EnvironmentID: env})
 	}, func(ctx context.Context, tx pgx.Tx, user core.User, app, env, action string) error {
 		return policy.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{Module: "events", Action: action, ApplicationID: app, EnvironmentID: env})
 	})
 	events.RegisterNew(api)
-	api.Register("GET /api/v1/incidents", "viewer", events.Incidents)
-	api.MarkV3ObjectRoute("GET /api/v1/incidents", "events", "view")
-	api.Register("GET /api/v1/incidents/{id}", "viewer", events.Incident)
-	api.MarkV3ObjectRoute("GET /api/v1/incidents/{id}", "events", "view")
+	events.RegisterV3Incidents(api)
 	knowledgeV3 := &v3knowledge.Service{DB: s.DB, Knowledge: know, Policy: policy}
 	knowledgeV3.Register(api)
 	knowledgeV3.RegisterSearch(api)

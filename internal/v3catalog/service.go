@@ -58,7 +58,9 @@ func (s *Service) Register(api *httpapi.Server) {
 	api.Register("POST /api/v1/services", "admin", s.register)
 	api.MarkV3Route("POST /api/v1/services", "services", "change")
 	api.Register("GET /api/v1/services", "viewer", s.services)
+	api.MarkV3ObjectRoute("GET /api/v1/services", "services", "view")
 	api.Register("GET /api/v1/services/{id}", "viewer", s.service)
+	api.MarkV3ObjectRoute("GET /api/v1/services/{id}", "services", "view")
 	api.Register("GET /api/v1/service-mappings", "viewer", s.mappings)
 	api.MarkV3ObjectRoute("GET /api/v1/service-mappings", "services", "view")
 	// The current page sends no mapping data on save. Keep this route behind

@@ -105,6 +105,7 @@ func New(cfg Config) (*Service, error) {
 
 func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/integrations/lower-sources", "viewer", s.Handle)
+	api.MarkV3Route("GET /api/v1/integrations/lower-sources", "connectors", "view")
 }
 
 func (s *Service) Handle(w http.ResponseWriter, r *http.Request) {

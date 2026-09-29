@@ -55,11 +55,11 @@
 | PATCH | `/me` | `{ name?, title?, timezone?, preferences? }`；只允许本人可编辑字段 | `Me`；账号、偏好与审计原子保存 | implemented |
 | PATCH | `/me/preferences` | `{ theme?, locale?, density?, reduce_motion? }` | 偏好 | implemented |
 | GET | `/me/watched-services` | | `{ items: WatchedService[] }` | mock |
-| GET | `/search` | `q` | ⌘K 搜索结果 | mock |
-| GET | `/mentions` | `q`, `kind` | `@` 提及候选 | mock |
+| GET | `/search` | `q` | 五类持久且当前有权对象的有界搜索；无真实最近访问记录 | implemented |
+| GET | `/mentions` | `q`, `kind` | 服务、事件、调查、有效人员、本人对话的有界候选 | implemented |
 | GET | `/home` | | `HomeSummary`（v4 增加 `briefing`：带引用的摘要、生成时间、当前值班） | mock |
-| GET | `/mentions/{kind}/{id}/preview` | | `MentionPreview`（`@` 面板右侧预览） | mock |
-| GET | `/commands` | | `{ items: CommandItem[] }`（`/` 面板：命令、Skills、Runbook、模板） | mock |
+| GET | `/mentions/{kind}/{id}/preview` | | 当前有权五类对象的有证据预览；指标与关联未知为空，其他类别明确不可用 | implemented |
+| GET | `/commands` | | `{ items: CommandItem[] }`；仅经配置和授权的斜杠文字建议，不执行命令 | implemented |
 | GET | `/models` | | `ModelCatalog`：当前用户可用的模型、接口类型、推理强度档位与默认值 | implemented |
 | GET | `/models/admin` | 单一已授权环境 | `ModelAdminView`；仅服务端明确绑定到该环境的模型、进程配置与持久历史使用；状态保持未验证 | implemented |
 | POST | `/uploads` | multipart `file` + `kind`；链接与折叠粘贴用 JSON `{ kind, name, url \| text }` | `Upload`；单个 ≤ 20 MB，超出返回 413 | implemented |
@@ -70,7 +70,9 @@
 
 未配置绑定文件时，旧 V3 全局模型目录与执行路径为兼容既有实例继续运行，`/models/admin` 返回 `503 model_binding_unavailable`，不能声称具备按环境模型隔离。此模式只适用于管理员确认**该实例全部环境均可共用同一模型目录及进程级供应商凭据**的部署；不同环境需不同模型名单时必须配置绑定，不同凭据边界仍须分开实例或另建凭据路由，模型 ID 绑定本身不隔离同一进程中的供应商密钥。冻结模型页仍硬编码首选模型、检查成功提示和部分配置说明，真实供应商生成/页面交互未验收。
 
-发现路由当前可按真实持久来源检索有权服务、事件、调查、有效人员与本人对话，支持中文与拼音，并分别将查询结果限制为 8 条搜索命中或 30 条提及候选；非空查询中任一来源类型匹配过宽时返回 413，不返回不完整成功结果。“最近访问”无真实行为记录，告警组、产物和 Runbook 预览无可用独立来源。调查结果暂链接画布列表，前端提及页签也尚未按类型重新查询；这三条主路由仍为 `mock`。
+发现路由当前可按真实持久来源检索有权服务、事件、调查、有效人员与本人对话，支持中文与拼音，并分别将查询结果限制为 8 条搜索命中或 30 条提及候选；非空查询中任一来源类型匹配过宽时返回 413，不返回不完整成功结果。“最近访问”无真实行为记录，告警组、产物和 Runbook 预览无可用独立来源；仅支持五种引用类别，其他类型明确 422 或 503。预览指标和关联记录无来源时为空，不能解读为实时健康或无关联。调查结果暂链接画布列表，前端提及页签尚未按类型重新查询，引用发送的完整生产链仍待验收。
+
+`GET /commands` 只读取私有 `AIOPS_V3_TEXT_COMMANDS_CONFIG` 中按环境登记的至多 32 项斜杠文字建议；文件必须为绝对路径、最多 16 KiB 的严格 JSON 数组，条目只允许 `conversation` 或 `canvas` 模块，并按当前用户该环境的 `change` 权限过滤。未配置返回 `503 commands_unavailable`，显式 `[]` 返回空列表；`all` 环境没有可发送建议。建议只向输入框插入字面文字，不能执行工具、Skill、Runbook 或模板。冻结 Composer 还有更多 `RefKind` 和命令分组，本阶段后端代码路径完成不等于整页已接通；真实前端、测试和浏览器检查均未进行。
 
 ### 实例与环境（`instance.ts`）
 

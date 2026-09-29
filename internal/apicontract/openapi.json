@@ -28077,7 +28077,7 @@
       "get": {
         "summary": "Search available persisted records",
         "operationId": "get_search",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial: scoped services, incidents, investigations, active visible human members and own conversations can be found with Chinese or pinyin matching. At most eight balanced hits are returned; real investigation IDs link to the canvas list until the frontend route accepts them. Recent is always empty until user navigation history exists.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. The supported persisted kinds are scoped services, incidents, investigations, active visible human members and own conversations, with Chinese or pinyin matching. At most eight balanced hits are returned; real investigation IDs link to the canvas list until the frontend route accepts them. Recent is always empty until user navigation history exists; no navigation history is synthesized.",
         "responses": {
           "200": {
             "description": "Success",
@@ -28102,7 +28102,12 @@
                       }
                     }
                   },
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "required": [
+                    "query",
+                    "hits",
+                    "recent"
+                  ]
                 }
               }
             }
@@ -28209,7 +28214,7 @@
       "get": {
         "summary": "List available mention candidates",
         "operationId": "get_mentions",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial: scoped service, incident, investigation, active visible human member and own conversation references are supported. At most 30 balanced candidates are returned; clients need a kind-specific query for a complete tab. Alert group, artifact and Runbook references have no verified source here.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Scoped service, incident, investigation, active visible human member and own conversation references are supported. At most 30 balanced candidates are returned; clients need a kind-specific query for a complete tab. Other RefKind values return 422 unsupported_kind when requested by kind, because their complete scope and reference-send path are not established.",
         "responses": {
           "200": {
             "description": "Success",
@@ -28225,7 +28230,10 @@
                       }
                     }
                   },
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "required": [
+                    "items"
+                  ]
                 }
               }
             }
@@ -28346,7 +28354,7 @@
       "get": {
         "summary": "Preview an accessible reference",
         "operationId": "get_mentions_kind_id_preview",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial: scoped service, incident, investigation, active visible human member and own conversation records have verified previews; other kinds return 503 preview_unavailable. Metrics and related records are empty until sources are connected. Incident status labels reflect persisted incident workflow state, not live alert health.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Scoped service, incident, investigation, active visible human member and own conversation records have verified previews; other kinds return 503 preview_unavailable. A missing or unauthorized ID returns 404 without revealing existence. Metrics and related records are empty until sources are connected. Incident status labels reflect persisted incident workflow state, not live alert health.",
         "responses": {
           "200": {
             "description": "Success",
@@ -28457,10 +28465,32 @@
     },
     "/commands": {
       "get": {
-        "summary": "Read executable command catalog",
+        "summary": "Read configured text command suggestions",
         "operationId": "get_commands",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Currently always returns 503 commands_unavailable; no verified command registry is configured.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. A deployment may explicitly configure at most 32 environment-bound, permission-checked slash text suggestions. They insert literal text into the composer and do not execute an action or imply a model/tool capability. Only the command group is currently returned; skill, Runbook and template chips require a verified reference-send path. A configured empty catalog returns items:[]; an unconfigured catalog returns 503 commands_unavailable. Aggregate all-environment view returns no sendable suggestions.",
         "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3TextCommandItem"
+                      }
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
           "401": {
             "description": "Authentication required",
             "content": {
@@ -54465,9 +54495,6 @@
       "V3SearchHit": {
         "type": "object",
         "properties": {
-          "kind": {
-            "type": "string"
-          },
           "id": {
             "type": "string"
           },
@@ -54477,21 +54504,42 @@
           "subtitle": {
             "type": "string"
           },
-          "status": {
-            "type": "string"
-          },
           "href": {
             "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "service",
+              "incident",
+              "investigation",
+              "conversation",
+              "person"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "neutral",
+              "accent",
+              "ok",
+              "warn",
+              "danger",
+              "info"
+            ]
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id",
+          "title",
+          "href"
+        ]
       },
       "V3MentionCandidate": {
         "type": "object",
         "properties": {
-          "kind": {
-            "type": "string"
-          },
           "id": {
             "type": "string"
           },
@@ -54501,18 +54549,46 @@
           "meta": {
             "type": "string"
           },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "service",
+              "incident",
+              "investigation",
+              "conversation",
+              "person"
+            ]
+          },
           "status": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "neutral",
+              "accent",
+              "ok",
+              "warn",
+              "danger",
+              "info"
+            ]
+          },
+          "tier": {
+            "type": "string",
+            "enum": [
+              "T0",
+              "T1",
+              "T2"
+            ]
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id",
+          "label"
+        ]
       },
       "V3MentionPreviewPartial": {
         "type": "object",
         "properties": {
-          "kind": {
-            "type": "string"
-          },
           "id": {
             "type": "string"
           },
@@ -54527,6 +54603,16 @@
           },
           "href": {
             "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "service",
+              "incident",
+              "investigation",
+              "conversation",
+              "person"
+            ]
           },
           "tier": {
             "type": "string",
@@ -54623,6 +54709,37 @@
           "subtitle",
           "metrics",
           "related"
+        ]
+      },
+      "V3TextCommandItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string",
+            "enum": [
+              "command"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "desc": {
+            "type": "string"
+          },
+          "icon": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "group",
+          "name",
+          "desc",
+          "icon"
         ]
       },
       "V3ResourceTopologyPartial": {

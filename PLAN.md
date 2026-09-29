@@ -1,5 +1,7 @@
 # AIOps Canvas 实施计划
 
+**2026-09-29 搜索、提及与文字命令（CP-174）：** WAN-121 四条发现主路由已接当前有权持久对象与可选的逐环境文字建议目录；命令仅插入字面文字，不执行能力。主契约 **101/166、65 mock**，OpenAPI **307 路径、365 操作、365 schema**。最近访问、预览指标、更多引用及冻结 Composer 发送仍无完整来源或页面适配；本阶段仅最小编译，未跑测试或实连。见 [CP-174](CHECKPOINT.md)。
+
 **2026-09-29 来源证据 Coverage（CP-173）：** WAN-117 `GET /coverage` 已按当前授权应用/环境和连接器、资源子权限投影配置证据；Runbook 环境/文档可见性缺失时显式未知，实时覆盖/评分/Agent 影响不补造数字。主契约现 **97/166、69 mock**，OpenAPI **307 路径、365 操作、364 schema**。冻结页面的非空类型和未知格渲染待适配，本阶段仅最小编译，无测试或真实数据验收；见 [CP-173](CHECKPOINT.md)。
 
 **2026-09-29 条件来源拓扑与韧性（CP-172）：** WAN-120 `GET /topology` 在经审查 `topology_v1` 目录项存在时进入完整指标/CMDB 投影，否则保留明确的部分响应；`GET /services/{id}/resilience` 可接固定 HTTPS 五类聚合来源，缺配置或证据返回 503；`POST /services/{id}/resilience/proposals` 仅持久化人工审阅请求。三条主路由按当前“可配置成功代码路径”标准升 `implemented`，现 **96/166、70 mock**；OpenAPI **306 路径、364 操作、361 schema**。没有真实来源、现有库、测试或页面验收，详见 [CP-172](CHECKPOINT.md)。

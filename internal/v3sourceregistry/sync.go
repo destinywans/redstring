@@ -48,6 +48,17 @@ type Reader interface {
 	Read(context.Context, ReadSpec) (ReadResult, error)
 }
 
+// ContentReadResult is a separate, opt-in result for a single bounded public
+// Web page. Generic observations must never carry bodies or private titles.
+type ContentReadResult struct {
+	Observation Observation
+	Body        string
+}
+
+type ContentReader interface {
+	ReadContent(context.Context, ReadSpec) (ContentReadResult, error)
+}
+
 // ConnectionTester is optional because an ordinary read may require a saved
 // registration's spaces and ACL scope that the unsaved test request lacks.
 type ConnectionTester interface {
@@ -157,6 +168,11 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "source_config_invalid", "Saved source configuration is invalid")
 		return
 	}
+	if initial.Type == "web" && initial.SecretRef == "" &&
+		(initial.Schedule != "manual" || len(initial.Spaces) != 0) {
+		httpapi.Error(w, 503, "source_config_invalid", "Saved public Web scope is invalid")
+		return
+	}
 	reader := s.Readers[initial.Type]
 	if reader == nil {
 		httpapi.Error(w, 501, "source_reader_unavailable", "No read-only reader is configured for this source type")
@@ -175,9 +191,28 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 409, "source_scope_changed", "Source application or team is no longer active")
 		return
 	}
-	result, err := reader.Read(ctx, ReadSpec{SourceType: initial.Type, URL: initial.URL, SecretRef: initial.SecretRef,
+	spec := ReadSpec{SourceType: initial.Type, URL: initial.URL, SecretRef: initial.SecretRef,
 		EnvironmentID: initial.EnvironmentID, ApplicationID: initial.ApplicationID, TeamID: initial.TeamID,
-		Spaces: append([]string(nil), initial.Spaces...)})
+		Spaces: append([]string(nil), initial.Spaces...)}
+	var result ReadResult
+	var content *ContentReadResult
+	if initial.Type == "web" && initial.SecretRef == "" {
+		contentReader, available := reader.(ContentReader)
+		if !available {
+			httpapi.Error(w, 501, "source_content_reader_unavailable", "No bounded content reader is configured for this public Web source")
+			return
+		}
+		var fetched ContentReadResult
+		fetched, err = contentReader.ReadContent(ctx, spec)
+		if err == nil && !validPublicWebContent(initial, fetched) {
+			httpapi.Error(w, 422, "source_content_invalid", "Public Web content or lineage could not be verified")
+			return
+		}
+		result = ReadResult{Items: []Observation{fetched.Observation}, Complete: true}
+		content = &fetched
+	} else {
+		result, err = reader.Read(ctx, spec)
+	}
 	if err != nil {
 		httpapi.Error(w, 503, "source_read_failed", "Source read failed")
 		return
@@ -237,8 +272,8 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	readID := uuid.NewString()
-	_, err = tx.Exec(ctx, `INSERT INTO v3_knowledge_source_reads(id,registration_id,environment_id,observed_count,reader_type,requested_by)
-VALUES($1,$2,$3,$4,$5,$6)`, readID, id, current.EnvironmentID, len(items), current.Type, user.ID)
+	_, err = tx.Exec(ctx, `INSERT INTO v3_knowledge_source_reads(id,registration_id,environment_id,observed_count,reader_type,requested_by,observed_at)
+VALUES($1,$2,$3,$4,$5,$6,clock_timestamp())`, readID, id, current.EnvironmentID, len(items), current.Type, user.ID)
 	if err != nil {
 		unavailable(w)
 		return
@@ -253,10 +288,23 @@ VALUES($1,$2,$3,$4,NULLIF($5,''),NULLIF($6,''))`, readID, hashID(item.ExternalID
 			return
 		}
 	}
+	contentVersion := 0
+	if content != nil {
+		contentVersion, _, err = importPublicWebContent(ctx, tx, current, readID, user.ID, *content)
+		if errors.Is(err, errContentScopeConflict) {
+			httpapi.Error(w, 409, "source_content_scope_changed", "Public Web content belongs to a different source scope")
+			return
+		}
+		if err != nil {
+			unavailable(w)
+			return
+		}
+	}
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes)
 VALUES($1,$2,'v3.knowledge_source.read',$3,'success',
-jsonb_build_object('environment_id',$4::text,'source_type',$5::text,'observed_count',$6::integer))`,
-		user.ID, current.ApplicationID, id, current.EnvironmentID, current.Type, len(items))
+jsonb_build_object('environment_id',$4::text,'source_type',$5::text,'observed_count',$6::integer,
+'keyword_content_persisted',$7::boolean,'content_version',NULLIF($8::integer,0)))`,
+		user.ID, current.ApplicationID, id, current.EnvironmentID, current.Type, len(items), content != nil, contentVersion)
 	if err != nil {
 		httpapi.Error(w, 503, "audit_unavailable", "Source read audit is unavailable")
 		return
@@ -265,8 +313,13 @@ jsonb_build_object('environment_id',$4::text,'source_type',$5::text,'observed_co
 		unavailable(w)
 		return
 	}
-	httpapi.WriteJSON(w, 200, map[string]any{"read_id": readID, "observed_count": len(items),
-		"index_state": "not_proven", "complete_v3_dto": false})
+	response := map[string]any{"read_id": readID, "observed_count": len(items),
+		"index_state": "not_proven", "complete_v3_dto": false}
+	if content != nil {
+		response["keyword_content_persisted"] = true
+		response["content_version"] = contentVersion
+	}
+	httpapi.WriteJSON(w, 200, response)
 }
 
 func (s *Service) evidence(w http.ResponseWriter, r *http.Request) {
@@ -327,6 +380,53 @@ WHERE registration_id=$1 AND environment_id=$2 ORDER BY observed_at DESC,id DESC
 		}
 		if readErr != nil {
 			unavailable(w)
+			return
+		}
+		if v.Type == "web" && v.SecretRef == "" {
+			var version int
+			if v.ApplicationID != "" && v.InheritACL && v.Schedule == "manual" && len(v.Spaces) == 0 {
+				readErr = tx.QueryRow(ctx, `SELECT d.version FROM v3_public_web_documents d
+ JOIN v3_knowledge_source_observations o ON o.read_id=d.last_read_id AND o.item_hash=d.item_hash
+ JOIN v3_knowledge_source_reads rr ON rr.id=d.last_read_id
+ JOIN v3_public_web_document_revisions rev ON rev.registration_id=d.registration_id AND rev.version=d.version
+ JOIN v3_knowledge_source_reads revision_read ON revision_read.id=rev.read_id
+ JOIN v3_knowledge_source_observations revision_observation
+   ON revision_observation.read_id=revision_read.id AND revision_observation.item_hash=d.item_hash
+ WHERE d.registration_id=$1 AND d.environment_id=$2 AND d.last_read_id=$3
+ AND d.application_id=$4 AND COALESCE(d.team_id,'')=$5
+ AND d.title=$6 AND d.source_url=$7 AND d.item_hash=$8
+ AND d.content_hash=o.content_hash
+ AND d.content_hash=encode(sha256(convert_to(d.body,'UTF8')),'hex')
+ AND o.environment_id=d.environment_id AND o.application_id=d.application_id
+	AND COALESCE(o.team_id,'')=COALESCE(d.team_id,'')
+ AND rr.registration_id=d.registration_id AND rr.environment_id=d.environment_id
+ AND rr.reader_type='web' AND rr.observed_count=1
+ AND rev.body=d.body AND rev.content_hash=d.content_hash
+ AND revision_read.registration_id=d.registration_id AND revision_read.environment_id=d.environment_id
+ AND revision_read.reader_type='web' AND revision_read.observed_count=1
+ AND revision_observation.item_hash=d.item_hash AND revision_observation.content_hash=d.content_hash
+ AND revision_observation.environment_id=d.environment_id
+ AND revision_observation.application_id=d.application_id
+ AND COALESCE(revision_observation.team_id,'')=COALESCE(d.team_id,'')`,
+					id, env, readID, v.ApplicationID, v.TeamID, v.Name, v.URL, hashID(v.URL)).Scan(&version)
+			} else {
+				readErr = pgx.ErrNoRows
+			}
+			if readErr != nil && !errors.Is(readErr, pgx.ErrNoRows) {
+				unavailable(w)
+				return
+			}
+			if err := tx.Commit(ctx); err != nil {
+				unavailable(w)
+				return
+			}
+			var keyword any
+			if readErr == nil {
+				keyword = map[string]any{"content_persisted": true, "version": version}
+			}
+			httpapi.WriteJSON(w, 200, map[string]any{"id": id,
+				"last_read": map[string]any{"id": readID, "observed_at": at, "observed_count": count},
+				"keyword":   keyword, "index": nil, "reason": "semantic_index_unavailable", "complete_v3_dto": false})
 			return
 		}
 		// Only matching, ready generations attributed to an observed item count.

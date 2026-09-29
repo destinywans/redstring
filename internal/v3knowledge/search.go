@@ -91,6 +91,7 @@ func (s *Service) SearchHandler(w http.ResponseWriter, r *http.Request) {
 	type scopedHits struct {
 		scope           appEnvironment
 		keyword, vector []knowledge.Hit
+		publicWeb       []publicWebHit
 	}
 	observed := make([]scopedHits, 0, len(apps))
 	for _, scope := range apps {
@@ -100,6 +101,15 @@ func (s *Service) SearchHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		found := scopedHits{scope: scope, keyword: hits}
+		found.publicWeb, e = s.publicWebKeywordSearch(r.Context(), userID, scope.app, scope.env, in.Q, in.TopK*4)
+		if e != nil {
+			if errors.Is(e, errPublicWebScopeTooLarge) {
+				httpapi.Error(w, 413, "public_web_source_scope_too_large", "More than 80 matching public Web sources")
+			} else {
+				httpapi.Error(w, 503, "knowledge_unavailable", "Public Web source search failed")
+			}
+			return
+		}
 		if len(embed) > 0 {
 			if scoped, ok := s.Knowledge.Vectors.(interface {
 				V3SearchScoped(context.Context, string, string, string, inference.EmbeddingDescriptor, []float32, int) ([]knowledge.Hit, error)
@@ -128,24 +138,29 @@ func (s *Service) SearchHandler(w http.ResponseWriter, r *http.Request) {
 				ids = append(ids, h.DocumentID)
 			}
 		}
-		if len(ids) == 0 {
-			continue
+		if len(ids) > 0 {
+			visible, e := pgRepo.V3VisibleDocumentIDs(r.Context(), userID, found.scope.app, found.scope.env, ids)
+			if e != nil {
+				httpapi.Error(w, 503, "knowledge_unavailable", "Search scope changed")
+				return
+			}
+			for _, h := range found.keyword {
+				if version, ok := visible[h.DocumentID]; ok && version == h.Version {
+					keyword = append(keyword, h)
+				}
+			}
+			for _, h := range found.vector {
+				if version, ok := visible[h.DocumentID]; ok && version == h.Version {
+					vector = append(vector, h)
+				}
+			}
 		}
-		visible, e := pgRepo.V3VisibleDocumentIDs(r.Context(), userID, found.scope.app, found.scope.env, ids)
+		webVisible, e := s.visiblePublicWebHits(r.Context(), userID, found.scope.app, found.scope.env, found.publicWeb)
 		if e != nil {
-			httpapi.Error(w, 503, "knowledge_unavailable", "Search scope changed")
+			httpapi.Error(w, 503, "knowledge_unavailable", "Public Web source scope changed")
 			return
 		}
-		for _, h := range found.keyword {
-			if version, ok := visible[h.DocumentID]; ok && version == h.Version {
-				keyword = append(keyword, h)
-			}
-		}
-		for _, h := range found.vector {
-			if version, ok := visible[h.DocumentID]; ok && version == h.Version {
-				vector = append(vector, h)
-			}
-		}
+		keyword = append(keyword, webVisible...)
 	}
 	if degraded {
 		vector = nil

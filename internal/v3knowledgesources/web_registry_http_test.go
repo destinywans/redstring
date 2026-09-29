@@ -18,6 +18,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/knowledge"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3knowledge"
 	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
 )
 
@@ -88,19 +89,29 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 	}
 	var fetches atomic.Int32
 	var revokeOnFetch atomic.Bool
+	var changeSourceOnFetch atomic.Bool
+	var sourceToChange atomic.Value
+	sourceToChange.Store("")
+	var pageBody atomic.Value
+	pageBody.Store("# Public guide\n\nCheck status.\n")
 	revokeResult := make(chan error, 1)
+	changeResult := make(chan error, 1)
 	server, roots := webTLSServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fetches.Add(1)
 		if revokeOnFetch.Swap(false) {
 			_, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='knowledge' AND action='manage'`)
 			revokeResult <- err
 		}
+		if changeSourceOnFetch.Swap(false) {
+			_, err := db.Exec(ctx, `UPDATE v3_knowledge_source_registrations SET name='Changed during fetch' WHERE id=$1`, sourceToChange.Load().(string))
+			changeResult <- err
+		}
 		if r.URL.Path == "/missing.md" {
 			http.NotFound(w, r)
 			return
 		}
 		w.Header().Set("Content-Type", "text/markdown")
-		_, _ = w.Write([]byte("# Public guide\n\nCheck status.\n"))
+		_, _ = w.Write([]byte(pageBody.Load().(string)))
 	}))
 	defer server.Close()
 	reader := PublicWebObservationReader{Fetcher: webTestFetcher(server, roots,
@@ -108,6 +119,8 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
 	v3sourceregistry.NewWithReaders(db, policy, map[string]v3sourceregistry.Reader{"web": reader}).Register(api)
+	(&v3knowledge.Service{DB: db, Knowledge: knowledge.NewWithRepository(&knowledge.PGRepository{DB: db}, nil, nil),
+		Policy: policy}).RegisterSearch(api)
 	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev", "staging"}},
 		policy, st.Session, func(ctx context.Context, user core.User, module, action, environment string) error {
 			return policy.Authorize(ctx, user, rbac.V3Decision{Module: module, Action: action, EnvironmentID: environment})
@@ -161,15 +174,36 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 		!strings.Contains(read.Body.String(), `"index_state":"not_proven"`) {
 		t.Fatalf("public read was not bounded observation: %d %s", read.Code, read.Body.String())
 	}
-	var documents, observations int
+	var documents, observations, publicDocuments int
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM knowledge_documents`).Scan(&documents); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_knowledge_source_observations`).Scan(&observations); err != nil {
 		t.Fatal(err)
 	}
-	if documents != 0 || observations != 1 || fetches.Load() != 1 {
-		t.Fatalf("observation falsely imported or disappeared: docs=%d observations=%d fetches=%d", documents, observations, fetches.Load())
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_public_web_documents`).Scan(&publicDocuments); err != nil {
+		t.Fatal(err)
+	}
+	if documents != 0 || publicDocuments != 1 || observations != 1 || fetches.Load() != 1 {
+		t.Fatalf("public content escaped legacy knowledge or disappeared: legacy=%d public=%d observations=%d fetches=%d",
+			documents, publicDocuments, observations, fetches.Load())
+	}
+	var content, hash, sourceURL, applicationID, environmentID, lastReadID string
+	var version int
+	if err := db.QueryRow(ctx, `SELECT body,content_hash,source_url,application_id,environment_id,last_read_id,version
+ FROM v3_public_web_documents WHERE registration_id=$1`, saved.ID).
+		Scan(&content, &hash, &sourceURL, &applicationID, &environmentID, &lastReadID, &version); err != nil {
+		t.Fatal(err)
+	}
+	if content != "# Public guide\n\nCheck status.\n" || hash != store.Hash(content) || sourceURL != address ||
+		applicationID != "visible-app" || environmentID != "dev" || lastReadID == "" || version != 1 {
+		t.Fatalf("imported public content lacks exact bytes or scope: body=%q hash=%q url=%q app=%q env=%q read=%q version=%d",
+			content, hash, sourceURL, applicationID, environmentID, lastReadID, version)
+	}
+	searched := request("/api/v1/knowledge/search", `{"q":"status","service":"visible-app"}`)
+	if searched.Code != http.StatusOK || !strings.Contains(searched.Body.String(), "Check status.") ||
+		!strings.Contains(searched.Body.String(), `"mode":"keyword"`) || strings.Contains(searched.Body.String(), `"Vector":1`) {
+		t.Fatalf("imported public body not in scoped keyword path: %d %s", searched.Code, searched.Body.String())
 	}
 	unscoped := request("/api/v1/knowledge-sources/registrations", `{"name":"Unscoped guide","type":"web","url":"`+address+`",`+
 		`"secret_ref":"","spaces":[],"schedule":"manual","chunk":"fixed","inherit_acl":true}`)
@@ -222,6 +256,7 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 		return saved.ID
 	}
 	visibleID := saved.ID
+	sourceToChange.Store(visibleID)
 	hiddenID := createScoped("hidden-app")
 	requestViewer := func(method, path, environment string) *httptest.ResponseRecorder {
 		t.Helper()
@@ -246,8 +281,94 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 	if synced := requestViewer(http.MethodPost, "/api/v1/knowledge-sources/registrations/"+visibleID+"/sync", "dev"); synced.Code != http.StatusOK || !strings.Contains(synced.Body.String(), `"observed_count":1`) {
 		t.Fatalf("viewer scoped public Web read: %d %s", synced.Code, synced.Body.String())
 	}
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_knowledge_source_observations WHERE application_id='visible-app'`).Scan(&observations); err != nil || observations != 2 {
+	var repeatReadID string
+	var revisions int
+	if err := db.QueryRow(ctx, `SELECT last_read_id,version FROM v3_public_web_documents WHERE registration_id=$1`, visibleID).
+		Scan(&repeatReadID, &version); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_public_web_document_revisions WHERE registration_id=$1`, visibleID).Scan(&revisions); err != nil {
+		t.Fatal(err)
+	}
+	if repeatReadID == lastReadID || version != 1 || revisions != 1 {
+		t.Fatalf("unchanged source did not retain version 1: read=%q/%q version=%d revisions=%d",
+			repeatReadID, lastReadID, version, revisions)
+	}
+	pageBody.Store("# Public guide\n\nCheck the new signal.\n")
+	changed := requestViewer(http.MethodPost, "/api/v1/knowledge-sources/registrations/"+visibleID+"/sync", "dev")
+	if changed.Code != http.StatusOK || !strings.Contains(changed.Body.String(), `"content_version":2`) {
+		t.Fatalf("changed public content did not advance version: %d %s", changed.Code, changed.Body.String())
+	}
+	var changedBody, previousBody string
+	if err := db.QueryRow(ctx, `SELECT body,last_read_id,version FROM v3_public_web_documents WHERE registration_id=$1`, visibleID).
+		Scan(&changedBody, &repeatReadID, &version); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, `SELECT body FROM v3_public_web_document_revisions WHERE registration_id=$1 AND version=1`, visibleID).
+		Scan(&previousBody); err != nil {
+		t.Fatal(err)
+	}
+	if changedBody != pageBody.Load().(string) || previousBody != content || version != 2 {
+		t.Fatalf("changed source lost exact version history: current=%q previous=%q version=%d", changedBody, previousBody, version)
+	}
+	staleSearch := request("/api/v1/knowledge/search", `{"q":"status","service":"visible-app"}`)
+	if staleSearch.Code != http.StatusOK || !strings.Contains(staleSearch.Body.String(), `"hits":[]`) {
+		t.Fatalf("old public content remained searchable: %d %s", staleSearch.Code, staleSearch.Body.String())
+	}
+	updatedSearch := request("/api/v1/knowledge/search", `{"q":"new signal","service":"visible-app"}`)
+	if updatedSearch.Code != http.StatusOK || !strings.Contains(updatedSearch.Body.String(), "new signal") {
+		t.Fatalf("new public content not searchable: %d %s", updatedSearch.Code, updatedSearch.Body.String())
+	}
+	evidence := requestViewer(http.MethodGet, "/api/v1/knowledge-sources/registrations/"+visibleID+"/evidence", "dev")
+	if evidence.Code != http.StatusOK || !strings.Contains(evidence.Body.String(), `"content_persisted":true`) ||
+		!strings.Contains(evidence.Body.String(), `"version":2`) || !strings.Contains(evidence.Body.String(), `"index":null`) ||
+		strings.Contains(evidence.Body.String(), changedBody) {
+		t.Fatalf("public source evidence claimed vector state or exposed body: %d %s", evidence.Code, evidence.Body.String())
+	}
+	if _, err := db.Exec(ctx, `UPDATE v3_public_web_document_revisions SET read_id=$2
+ WHERE registration_id=$1 AND version=2`, visibleID, lastReadID); err != nil {
+		t.Fatal(err)
+	}
+	misattributed := requestViewer(http.MethodGet, "/api/v1/knowledge-sources/registrations/"+visibleID+"/evidence", "dev")
+	if misattributed.Code != http.StatusOK || !strings.Contains(misattributed.Body.String(), `"keyword":null`) ||
+		strings.Contains(misattributed.Body.String(), `"content_persisted":true`) {
+		t.Fatalf("wrong revision read was reported as imported content: %d %s", misattributed.Code, misattributed.Body.String())
+	}
+	if _, err := db.Exec(ctx, `UPDATE v3_public_web_document_revisions SET read_id=$2
+ WHERE registration_id=$1 AND version=2`, visibleID, repeatReadID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_knowledge_source_observations WHERE application_id='visible-app'`).Scan(&observations); err != nil || observations != 3 {
 		t.Fatalf("viewer observation scope: %d %v", observations, err)
+	}
+	var readsBeforeSourceChange int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_knowledge_source_reads WHERE registration_id=$1`, visibleID).Scan(&readsBeforeSourceChange); err != nil {
+		t.Fatal(err)
+	}
+	changeSourceOnFetch.Store(true)
+	if rejected := requestViewer(http.MethodPost, "/api/v1/knowledge-sources/registrations/"+visibleID+"/sync", "dev"); rejected.Code != http.StatusConflict || !strings.Contains(rejected.Body.String(), `"code":"source_changed"`) {
+		t.Fatalf("changed source committed fetched content: %d %s", rejected.Code, rejected.Body.String())
+	}
+	select {
+	case err := <-changeResult:
+		if err != nil {
+			t.Fatalf("change source during local TLS GET: %v", err)
+		}
+	default:
+		t.Fatal("local TLS GET did not reach source-change hook")
+	}
+	var readsAfterSourceChange, versionAfterSourceChange int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_knowledge_source_reads WHERE registration_id=$1`, visibleID).Scan(&readsAfterSourceChange); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, `SELECT version FROM v3_public_web_documents WHERE registration_id=$1`, visibleID).Scan(&versionAfterSourceChange); err != nil {
+		t.Fatal(err)
+	}
+	if readsAfterSourceChange != readsBeforeSourceChange || versionAfterSourceChange != 2 {
+		t.Fatalf("changed source wrote read or version: reads=%d/%d version=%d", readsAfterSourceChange, readsBeforeSourceChange, versionAfterSourceChange)
+	}
+	if _, err := db.Exec(ctx, `UPDATE v3_knowledge_source_registrations SET name='Public guide' WHERE id=$1`, visibleID); err != nil {
+		t.Fatal(err)
 	}
 	var readsBeforeRevocation, auditsBeforeRevocation int
 	if err := db.QueryRow(ctx, `SELECT
@@ -279,10 +400,15 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 		t.Fatalf("in-flight revocation persisted read or audit: reads=%d/%d audits=%d/%d",
 			readsAfterRevocation, readsBeforeRevocation, auditsAfterRevocation, auditsBeforeRevocation)
 	}
+	var readAfterRevocation string
+	if err := db.QueryRow(ctx, `SELECT last_read_id FROM v3_public_web_documents WHERE registration_id=$1`, visibleID).
+		Scan(&readAfterRevocation); err != nil || readAfterRevocation != repeatReadID {
+		t.Fatalf("in-flight revocation changed public content provenance: %q/%q %v", readAfterRevocation, repeatReadID, err)
+	}
 	if denied := requestViewer(http.MethodPost, "/api/v1/knowledge-sources/registrations/"+visibleID+"/sync", "dev"); denied.Code != http.StatusNotFound {
 		t.Fatalf("viewer sync after manage revocation: %d %s", denied.Code, denied.Body.String())
 	}
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_knowledge_source_observations WHERE application_id='visible-app'`).Scan(&observations); err != nil || observations != 2 {
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_knowledge_source_observations WHERE application_id='visible-app'`).Scan(&observations); err != nil || observations != 3 {
 		t.Fatalf("revoked sync persisted a new observation: %d %v", observations, err)
 	}
 	var readsBefore, auditsBefore int

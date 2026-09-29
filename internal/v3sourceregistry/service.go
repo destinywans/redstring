@@ -45,8 +45,9 @@ func NewWithReaders(db *pgxpool.Pool, access Access, readers map[string]Reader) 
 }
 
 // Auxiliary routes deliberately avoid the complete V3 KnowledgeSource DTO.
-// A configured reader can record one scoped observation; scheduling and
-// trusted source-to-index ingestion remain unavailable.
+// The opt-in public Web reader persists one scoped Markdown page for V3
+// keyword retrieval; scheduling, other source importers and vector indexing
+// remain unavailable.
 func (s *Service) Register(api *httpapi.Server) {
 	for _, route := range []struct {
 		pattern string

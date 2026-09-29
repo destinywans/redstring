@@ -89,6 +89,56 @@ func (s *Service) CreateEval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
+	// The first authorization only gates discovery. Hold the persisted target
+	// and its active scope through the write so a reassignment or archive
+	// cannot turn that earlier decision into a write for another application.
+	var agentApp, agentEnv string
+	err = tx.QueryRow(r.Context(), `SELECT application_id,environment_id FROM v3_agents
+ WHERE id=$1 FOR SHARE`, a.ID).Scan(&agentApp, &agentEnv)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (agentApp != a.App || agentEnv != a.Env)) {
+		notFound(w)
+		return
+	}
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	var activeApp string
+	err = tx.QueryRow(r.Context(), `SELECT app.id FROM applications app
+ JOIN v3_application_environments mapped
+   ON mapped.application_id=app.id AND mapped.environment_id=$2
+ JOIN application_environments env
+   ON env.application_id=app.id AND env.key=$2
+ WHERE app.id=$1 AND NOT app.archived AND NOT env.archived
+ FOR SHARE OF app,mapped,env`, a.App, a.Env).Scan(&activeApp)
+	if errors.Is(err, pgx.ErrNoRows) {
+		notFound(w)
+		return
+	}
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	// V3 grants exclude disabled/deleted accounts. Hold the account and grant
+	// sources until commit so a revoke either precedes the policy read or waits
+	// for this metadata write. Keep the account-first order used by other V3
+	// writers to avoid a lock inversion with account updates.
+	var actorID string
+	err = tx.QueryRow(r.Context(), `SELECT id FROM users
+ WHERE id=$1 AND NOT disabled AND deleted_at IS NULL AND source<>'settings_demo'
+ FOR SHARE`, httpapi.CurrentUser(r).ID).Scan(&actorID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpapi.Error(w, 403, "forbidden", "Agent permission required")
+		return
+	}
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `LOCK TABLE rbac_user_roles,rbac_department_roles,v3_role_grants IN SHARE MODE`); err != nil {
+		unavailable(w)
+		return
+	}
 	if !s.authorizedTx(w, r, tx, a, "change") {
 		return
 	}

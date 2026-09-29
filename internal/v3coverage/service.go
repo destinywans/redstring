@@ -111,7 +111,6 @@ var columns = []column{
 type profile struct {
 	AppID, Key, EnvironmentID, EnvironmentRowID, TeamID, Tier, Owner string
 	Bindings                                                         []byte
-	EnvironmentCount                                                 int
 }
 
 func (s *Service) coverage(w http.ResponseWriter, r *http.Request) {
@@ -195,8 +194,7 @@ var errLimit = errors.New("coverage candidate limit")
 
 func (s *Service) loadProfiles(ctx context.Context, environments []string, app string, cursor profile) ([]profile, error) {
 	rows, err := s.DB.Query(ctx, `SELECT a.id,a.key,ve.environment_id,e.id,COALESCE(a.owner_team_id,''),
- COALESCE(ep.tier,''),COALESCE(NULLIF(ep.owner_label,''),u.name,''),e.bindings,
- (SELECT count(*)::integer FROM v3_application_environments allenv WHERE allenv.application_id=a.id)
+ COALESCE(ep.tier,''),COALESCE(NULLIF(ep.owner_label,''),u.name,''),e.bindings
  FROM applications a
  JOIN v3_application_environments ve ON ve.application_id=a.id
  JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
@@ -215,7 +213,7 @@ func (s *Service) loadProfiles(ctx context.Context, environments []string, app s
 	for rows.Next() {
 		var p profile
 		if err := rows.Scan(&p.AppID, &p.Key, &p.EnvironmentID, &p.EnvironmentRowID,
-			&p.TeamID, &p.Tier, &p.Owner, &p.Bindings, &p.EnvironmentCount); err != nil {
+			&p.TeamID, &p.Tier, &p.Owner, &p.Bindings); err != nil {
 			return nil, err
 		}
 		items = append(items, p)
@@ -316,22 +314,14 @@ func (s *Service) project(ctx context.Context, user core.User, p profile) (cover
 	if err != nil {
 		return row, nil, err
 	}
-	if canKnowledge && p.EnvironmentCount == 1 {
-		var count int
-		err = s.DB.QueryRow(ctx, `SELECT count(*)::integer FROM knowledge_documents d
- JOIN v3_runbooks rb ON rb.document_id=d.id WHERE d.application_id=$1`, p.AppID).Scan(&count)
-		if err != nil {
-			return row, nil, err
-		}
-		if count > 0 {
-			row.Cells["runbooks"] = configured("runbook", fmt.Sprintf("已登记 %d 篇，适用性未验证", count))
-		} else {
-			row.Cells["runbooks"] = absent("未登记 Runbook")
-		}
-	} else if !canKnowledge {
+	if !canKnowledge {
 		row.Cells["runbooks"] = unknown("无权查看 Runbook")
 	} else {
-		row.Cells["runbooks"] = unknown("Runbook 未绑定具体环境")
+		// knowledge_documents carries an application ID, but not a verified
+		// environment or the per-document visibility decision. Even one visible
+		// application environment does not make draft/private review documents
+		// visible here or prove operational Runbook coverage.
+		row.Cells["runbooks"] = unknown("缺少当前环境与文档可见性证据")
 	}
 	row.Cells["rules"] = unknown("告警规则缺少可归属的覆盖来源")
 	return row, fixes, nil

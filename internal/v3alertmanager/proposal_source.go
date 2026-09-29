@@ -37,6 +37,15 @@ type ProposedSilenceCreate struct {
 	BindingFingerprint string    `json:"binding_fingerprint"`
 }
 
+// ProposedSilenceTarget is only a server-configured catalog prelock result.
+// It is not authorization and cannot be persisted as an executable action.
+type ProposedSilenceTarget struct {
+	EnvironmentID      string
+	ApplicationID      string
+	OwnerTeamID        string
+	BindingFingerprint string
+}
+
 type silenceProposalBinding struct {
 	Domain           string `json:"domain"`
 	EndpointURL      string `json:"endpointUrl"`
@@ -73,6 +82,39 @@ func silenceProposalBindingFingerprint(ep Endpoint, envID, envLabel, appLabel, a
 	}
 	sum := sha256.Sum256(encoded)
 	return hex.EncodeToString(sum[:]), nil
+}
+
+// LockCreateProposalTargetWithTx validates the request and locks the bound
+// application/environment before an investigation lock can wait. It performs
+// no RBAC read; the caller must rerun PrepareCreateProposalWithTx after holding
+// grant-source locks, then compare the resulting target with this prelock.
+func (l *DatabaseSilenceLedger) LockCreateProposalTargetWithTx(ctx context.Context, tx pgx.Tx,
+	in SilenceCreateInput, client *Client) (ProposedSilenceTarget, error) {
+	var zero ProposedSilenceTarget
+	if tx == nil || client == nil {
+		return zero, ErrSilenceCreateInvalid
+	}
+	_, appLabel, envLabel, err := l.prepare(in)
+	if err != nil {
+		return zero, err
+	}
+	if appLabel == "" {
+		return zero, ErrSilenceCreateInvalid
+	}
+	ep, ok := client.endpoints[in.EnvironmentID]
+	if !ok {
+		return zero, ErrNotConfigured
+	}
+	appID, teamID, err := l.lockApplicationScope(ctx, tx, in.EnvironmentID, appLabel, "")
+	if err != nil {
+		return zero, err
+	}
+	fingerprint, err := silenceProposalBindingFingerprint(ep, in.EnvironmentID, envLabel, appLabel, appID)
+	if err != nil {
+		return zero, err
+	}
+	return ProposedSilenceTarget{EnvironmentID: in.EnvironmentID, ApplicationID: appID,
+		OwnerTeamID: teamID, BindingFingerprint: fingerprint}, nil
 }
 
 // PrepareCreateProposalWithTx validates a specific application-scoped action

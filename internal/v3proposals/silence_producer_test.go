@@ -292,8 +292,111 @@ func TestCreateSilenceProposalRejectsStaleAuthority(t *testing.T) {
 	}
 }
 
-// The investigation row lock stops the producer after both authorization
-// checks, at its FOR SHARE query, without adding a production test hook.
+func TestCreateSilenceProposalRejectsInactiveActorBeforeApplicationLookup(t *testing.T) {
+	for _, tc := range []struct {
+		name, update string
+	}{
+		{"disabled", `UPDATE users SET disabled=true WHERE id=$1`},
+		{"deleted", `UPDATE users SET disabled=true,deleted_at=now() WHERE id=$1`},
+		{"machine", `UPDATE users SET v3_identity_kind='machine' WHERE id=$1`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newSilenceProposalFixture(t)
+			if _, err := f.db.Exec(t.Context(), tc.update, f.actor.ID); err != nil {
+				t.Fatal(err)
+			}
+			for _, applicationLabel := range []string{"checkout", "unknown-app"} {
+				in := silenceProposalInput("inactive-actor-key-001")
+				in.Silence.Matchers[0].Value = applicationLabel
+				result, err := f.svc.CreateSilenceProposal(t.Context(), f.actor, in, f.ledger, f.client)
+				if !errors.Is(err, store.ErrForbidden) || result.ProposalID != "" {
+					t.Fatalf("%s actor, application %q: result=%+v err=%v; want forbidden", tc.name, applicationLabel, result, err)
+				}
+			}
+			if p, a, r := f.counts(t); p != 0 || a != 0 || r != 0 || f.requests.Load() != 0 {
+				t.Fatalf("%s actor produced rows or upstream calls: proposals=%d actions=%d reservations=%d requests=%d",
+					tc.name, p, a, r, f.requests.Load())
+			}
+		})
+	}
+}
+
+func TestCreateSilenceProposalDoesNotDiscloseInvestigationWithoutChangeGrant(t *testing.T) {
+	for _, investigationID := range []string{"inv-1", "inv-closed", "inv-missing"} {
+		t.Run(investigationID, func(t *testing.T) {
+			f := newSilenceProposalFixture(t)
+			if _, err := f.db.Exec(t.Context(), `DELETE FROM v3_role_grants
+				WHERE role_id='viewer' AND module='proposals' AND action='change'`); err != nil {
+				t.Fatal(err)
+			}
+			in := silenceProposalInput("hidden-investigation-key-001")
+			in.InvestigationID = investigationID
+			result, err := f.svc.CreateSilenceProposal(t.Context(), f.actor, in, f.ledger, f.client)
+			if !errors.Is(err, store.ErrForbidden) || result.ProposalID != "" {
+				t.Fatalf("investigation %q disclosed by result=%+v err=%v; want forbidden", investigationID, result, err)
+			}
+			if p, a, r := f.counts(t); p != 0 || a != 0 || r != 0 || f.requests.Load() != 0 {
+				t.Fatalf("investigation %q produced rows or upstream calls: proposals=%d actions=%d reservations=%d requests=%d",
+					investigationID, p, a, r, f.requests.Load())
+			}
+		})
+	}
+}
+
+func TestCreateSilenceProposalRejectsChangeGrantRevokedWhileWaitingForInvestigation(t *testing.T) {
+	f := newSilenceProposalFixture(t)
+	ctx := t.Context()
+	blocker, err := f.db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blocker.Rollback(context.Background())
+	if _, err := blocker.Exec(ctx, `SELECT id FROM investigations WHERE id='inv-1' FOR UPDATE`); err != nil {
+		t.Fatal(err)
+	}
+	created := make(chan silenceCreateResult, 1)
+	go func() {
+		proposal, err := f.svc.CreateSilenceProposal(ctx, f.actor,
+			silenceProposalInput("revoke-while-waiting-key-001"), f.ledger, f.client)
+		created <- silenceCreateResult{proposal, err}
+	}()
+	waitForSilenceProposalLock(t, f.db, `FROM investigations i`, created)
+	revoked := make(chan error, 1)
+	go func() {
+		tag, err := f.db.Exec(ctx, `DELETE FROM v3_role_grants
+			WHERE role_id='viewer' AND module='proposals' AND action='change'`)
+		if err == nil && tag.RowsAffected() != 1 {
+			err = errors.New("change grant revocation did not delete exactly one row")
+		}
+		revoked <- err
+	}()
+	select {
+	case err := <-revoked:
+		if err != nil {
+			t.Fatalf("revoke change grant: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("change grant revocation did not complete before investigation lock release")
+	}
+	if err := blocker.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case result := <-created:
+		if !errors.Is(result.err, store.ErrForbidden) || result.proposal.ProposalID != "" {
+			t.Fatalf("proposal after completed change grant revocation: %+v err=%v", result.proposal, result.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("producer did not finish after investigation lock release")
+	}
+	if p, a, r := f.counts(t); p != 0 || a != 0 || r != 0 || f.requests.Load() != 0 {
+		t.Fatalf("revoked proposal produced rows or upstream calls: proposals=%d actions=%d reservations=%d requests=%d",
+			p, a, r, f.requests.Load())
+	}
+}
+
+// The investigation row lock stops the producer at its FOR SHARE query
+// without adding a production test hook.
 type silenceCreateResult struct {
 	proposal SilenceProposalResult
 	err      error
@@ -425,6 +528,97 @@ func TestCreateSilenceProposalRevocationCannotOvertakeCommit(t *testing.T) {
 					proposals, actions, reservations, f.requests.Load(), want)
 			}
 		})
+	}
+}
+
+func TestCreateSilenceProposalDoesNotBlockUnrelatedRoleRevocation(t *testing.T) {
+	f := newSilenceProposalFixture(t)
+	ctx := t.Context()
+	other, err := (&store.Store{DB: f.db}).CreateUser(ctx,
+		core.User{Email: "other@example.invalid", Name: "Other", Role: "viewer"}, "isolated-other-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tag, err := f.db.Exec(ctx, `UPDATE rbac_user_roles SET origin='direct'
+		WHERE user_id=$1 AND role_id='viewer'`, other.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tag.RowsAffected() != 1 {
+		t.Fatalf("unrelated account must have one direct viewer assignment: updated=%d", tag.RowsAffected())
+	}
+
+	blocker, err := f.db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blocker.Rollback(context.Background())
+	if _, err := blocker.Exec(ctx, `SELECT id FROM investigations WHERE id='inv-1' FOR UPDATE`); err != nil {
+		t.Fatal(err)
+	}
+	created := make(chan silenceCreateResult, 1)
+	go func() {
+		proposal, err := f.svc.CreateSilenceProposal(ctx, f.actor,
+			silenceProposalInput("unrelated-revoke-key-001"), f.ledger, f.client)
+		created <- silenceCreateResult{proposal, err}
+	}()
+	waitForSilenceProposalLock(t, f.db, `FROM investigations i`, created)
+
+	revoked := make(chan error, 1)
+	go func() {
+		tag, err := f.db.Exec(ctx, `DELETE FROM rbac_user_roles
+			WHERE user_id=$1 AND role_id='viewer' AND origin='direct'`, other.ID)
+		if err == nil && tag.RowsAffected() != 1 {
+			err = errors.New("unrelated role revocation did not delete exactly one assignment")
+		}
+		revoked <- err
+	}()
+	// The unrelated account must remain writable while this proposal waits on
+	// its investigation. A table-wide grant lock makes the revoke wait here.
+	revokedBeforeRelease := false
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	waitedOnGrantTable := false
+	for !revokedBeforeRelease && !waitedOnGrantTable {
+		select {
+		case err := <-revoked:
+			if err != nil {
+				t.Fatalf("revoke unrelated role: %v", err)
+			}
+			revokedBeforeRelease = true
+		case <-ticker.C:
+			waitedOnGrantTable = pgQueryWaitingForLock(t, f.db, `DELETE FROM rbac_user_roles`)
+		case <-deadline.C:
+			t.Fatal("unrelated role revocation neither completed nor waited on a PostgreSQL lock")
+		}
+	}
+	if err := blocker.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case result := <-created:
+		if result.err != nil || result.proposal.ProposalID == "" {
+			t.Fatalf("proposal after investigation lock release: %+v err=%v", result.proposal, result.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("producer did not finish after investigation lock release")
+	}
+	if !revokedBeforeRelease {
+		select {
+		case err := <-revoked:
+			if err != nil {
+				t.Fatalf("revoke unrelated role: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("unrelated role revocation did not finish after producer commit")
+		}
+		t.Fatal("unrelated role revocation waited for the investigation lock release")
+	}
+	var remaining int
+	if err := f.db.QueryRow(ctx, `SELECT count(*) FROM rbac_user_roles WHERE user_id=$1 AND role_id='viewer' AND origin='direct'`, other.ID).Scan(&remaining); err != nil || remaining != 0 {
+		t.Fatalf("unrelated role assignments remaining=%d err=%v", remaining, err)
 	}
 }
 

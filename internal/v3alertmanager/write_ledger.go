@@ -237,6 +237,33 @@ func (l *DatabaseSilenceLedger) authorizeScope(ctx context.Context, tx pgx.Tx, a
 		}
 		return "", "", nil
 	}
+	appID, team, err := l.lockApplicationScope(ctx, tx, env, appLabel, expectedAppID)
+	if err != nil {
+		return "", "", err
+	}
+	decision := rbac.V3Decision{Module: "silences", Action: "manage", EnvironmentID: env, ApplicationID: appID}
+	err = l.Access.AuthorizeWithTx(ctx, tx, actor, decision)
+	if errors.Is(err, store.ErrForbidden) && team != "" {
+		decision.ApplicationID = ""
+		decision.TeamID = team
+		err = l.Access.AuthorizeWithTx(ctx, tx, actor, decision)
+	}
+	if errors.Is(err, store.ErrForbidden) {
+		// A bound but hidden application must be indistinguishable from an
+		// unknown provider label, as on the read-only preview route.
+		return "", "", ErrSilenceCreateNotFound
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return appID, team, nil
+}
+
+// lockApplicationScope resolves the server-owned label binding and holds the
+// active catalog rows. It does not authorize the actor; callers that perform a
+// write must check V3 policy after acquiring their grant-source locks.
+func (l *DatabaseSilenceLedger) lockApplicationScope(ctx context.Context, tx pgx.Tx,
+	env, appLabel, expectedAppID string) (string, string, error) {
 	appID := l.applicationBindings[env][appLabel]
 	if appID == "" || expectedAppID != "" && expectedAppID != appID {
 		return "", "", ErrSilenceCreateNotFound
@@ -269,21 +296,6 @@ func (l *DatabaseSilenceLedger) authorizeScope(ctx context.Context, tx pgx.Tx, a
 	}
 	if count != 1 {
 		return "", "", store.ErrConflict
-	}
-	decision := rbac.V3Decision{Module: "silences", Action: "manage", EnvironmentID: env, ApplicationID: appID}
-	err = l.Access.AuthorizeWithTx(ctx, tx, actor, decision)
-	if errors.Is(err, store.ErrForbidden) && team != "" {
-		decision.ApplicationID = ""
-		decision.TeamID = team
-		err = l.Access.AuthorizeWithTx(ctx, tx, actor, decision)
-	}
-	if errors.Is(err, store.ErrForbidden) {
-		// A bound but hidden application must be indistinguishable from an
-		// unknown provider label, as on the read-only preview route.
-		return "", "", ErrSilenceCreateNotFound
-	}
-	if err != nil {
-		return "", "", err
 	}
 	return appID, team, nil
 }

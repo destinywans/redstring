@@ -146,12 +146,46 @@ func (s *Service) CreateSilenceProposal(ctx context.Context, actor core.User, in
 	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, lockKey); err != nil {
 		return zero, err
 	}
+	// Reject non-human or inactive identities before resolving a catalog label.
+	// This read holds no row lock; the authoritative check follows below.
+	if err = preauthorizeSilenceProposalActor(ctx, tx, actor); err != nil {
+		return zero, err
+	}
+	// Resolve and lock the server-bound catalog target before any global grant
+	// table lock. A slow application or investigation writer must not stall
+	// unrelated account and role revocations across the instance.
+	target, err := ledger.LockCreateProposalTargetWithTx(ctx, tx, in.Silence, client)
+	if err != nil {
+		return zero, err
+	}
+	// This non-locking admission check prevents investigation existence/status
+	// from being observable to a caller without both permissions. A revoke may
+	// still race here; the locked checks below are the commit-time authority.
+	if err = s.preauthorizeSilenceProposal(ctx, tx, actor, target, ledger); err != nil {
+		return zero, err
+	}
+	var investigationUpdatedAt time.Time
+	err = tx.QueryRow(ctx, `SELECT i.updated_at FROM investigations i
+ JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id
+ WHERE i.id=$1 AND i.application_id=$2 AND i.status<>'closed'
+   AND e.key=$3 AND NOT e.archived
+ FOR SHARE OF i`, in.InvestigationID, target.ApplicationID, target.EnvironmentID).Scan(&investigationUpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return zero, store.ErrNotFound
+	}
+	if err != nil {
+		return zero, err
+	}
 	if err = lockSilenceProposalGrantSources(ctx, tx, actor); err != nil {
 		return zero, err
 	}
 	prepared, err := ledger.PrepareCreateProposalWithTx(ctx, tx, actor, in.Silence, client)
 	if err != nil {
 		return zero, err
+	}
+	if prepared.EnvironmentID != target.EnvironmentID || prepared.ApplicationID != target.ApplicationID ||
+		prepared.OwnerTeamID != target.OwnerTeamID || prepared.BindingFingerprint != target.BindingFingerprint {
+		return zero, store.ErrConflict
 	}
 	decision := rbac.V3Decision{Module: "proposals", Action: "change", EnvironmentID: prepared.EnvironmentID,
 		ApplicationID: prepared.ApplicationID}
@@ -163,7 +197,9 @@ func (s *Service) CreateSilenceProposal(ctx context.Context, actor core.User, in
 	if err != nil {
 		return zero, err
 	}
-	var investigationUpdatedAt time.Time
+	// Recheck the authoritative investigation/scope after the grant locks.
+	// The prelock rows remain stable, and the policy reads now see any revoke
+	// that committed while this transaction was waiting for those rows.
 	err = tx.QueryRow(ctx, `SELECT i.updated_at FROM investigations i
  JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id
  WHERE i.id=$1 AND i.application_id=$2 AND i.status<>'closed'
@@ -250,7 +286,55 @@ func (s *Service) CreateSilenceProposal(ctx context.Context, actor core.User, in
 	return SilenceProposalResult{ProposalID: id, ActionDigest: actionDigest, Status: "pending"}, nil
 }
 
-// Lock every physical source of a V3 grant before the first policy read and
+func preauthorizeSilenceProposalActor(ctx context.Context, tx pgx.Tx, actor core.User) error {
+	if actor.ID == "" || actor.Disabled {
+		return store.ErrForbidden
+	}
+	var active bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND NOT disabled
+ AND deleted_at IS NULL AND source<>'settings_demo' AND v3_identity_kind='human')`, actor.ID).Scan(&active); err != nil {
+		return err
+	}
+	if !active {
+		return store.ErrForbidden
+	}
+	return nil
+}
+
+func (s *Service) preauthorizeSilenceProposal(ctx context.Context, tx pgx.Tx, actor core.User,
+	target v3alertmanager.ProposedSilenceTarget, ledger *v3alertmanager.DatabaseSilenceLedger) error {
+	for _, permission := range []struct {
+		access rbacAccess
+		module string
+		action string
+		hide   bool
+	}{
+		{ledger.Access, "silences", "manage", true},
+		{s.Access, "proposals", "change", false},
+	} {
+		decision := rbac.V3Decision{Module: permission.module, Action: permission.action,
+			EnvironmentID: target.EnvironmentID, ApplicationID: target.ApplicationID}
+		err := permission.access.AuthorizeWithTx(ctx, tx, actor, decision)
+		if errors.Is(err, store.ErrForbidden) && target.OwnerTeamID != "" {
+			decision.ApplicationID = ""
+			decision.TeamID = target.OwnerTeamID
+			err = permission.access.AuthorizeWithTx(ctx, tx, actor, decision)
+		}
+		if errors.Is(err, store.ErrForbidden) && permission.hide {
+			return store.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type rbacAccess interface {
+	AuthorizeWithTx(context.Context, pgx.Tx, core.User, rbac.V3Decision) error
+}
+
+// Lock every physical source of a V3 grant before the authoritative policy read and
 // hold the locks through proposal commit. A concurrent revoke either commits
 // first and is observed or waits until the proposal is committed. Locking the
 // actor row before the grant tables matches account writers' row/table order;

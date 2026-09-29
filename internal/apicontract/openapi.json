@@ -35430,6 +35430,124 @@
         ]
       }
     },
+    "/alert-groups/bulk": {
+      "post": {
+        "summary": "Apply bounded actions to persisted alert groups",
+        "operationId": "post_alert_groups_bulk",
+        "description": "Minimum role: operator with current application or owner-team grants. V3 instance and environment scope apply. Requires exactly one selected environment. Each group ID is recomputed using the same persisted environment row ID, application ID, source ID and fingerprint as GET /alert-groups; the handler locks only that current group and checks its current application or owner-team grant. Investigate also requires canvas.change. Input order and one result per ID are preserved. A missing or hidden group returns not_found; per-group failures do not erase successful groups. Claim changes platform assignees only, with same-user retries idempotent. Investigate creates or reuses a real persisted investigation and root branch for the locked group snapshot, returning the real ID. Silence always returns item-level not_connected and creates no proposal because the available Alertmanager matcher cannot prove exact fingerprint scope. changed counts incident rows changed. A response with only successful item outcomes is 200; any per-item failure yields 207 with all item results.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3AlertGroupBulkResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current session is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Selected environment access is denied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Multiple or aggregate environments cannot be used for a bulk write",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Malformed, duplicate, unsupported, or over-limit batch input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Shared persistence or authorization is unavailable before item results can be produced",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "207": {
+            "description": "At least one item failed; inspect every ordered result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3AlertGroupBulkResult"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "alert-groups"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3AlertGroupBulkRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "One selected active environment key; all is rejected.",
+            "required": true
+          }
+        ]
+      }
+    },
     "/alert-rules/generate": {
       "post": {
         "summary": "Generate a review-only alert rule draft",
@@ -65632,6 +65750,122 @@
           "stat",
           "active",
           "hits_7d"
+        ]
+      },
+      "V3AlertGroupBulkRequest": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^group:[0-9a-f]{24}$"
+            }
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "claim",
+              "silence",
+              "investigate"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ids",
+          "action"
+        ]
+      },
+      "V3AlertGroupBulkItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^group:[0-9a-f]{24}$"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "claimed",
+              "already_claimed",
+              "investigating",
+              "already_investigating",
+              "not_found",
+              "conflict",
+              "not_connected",
+              "investigation_required",
+              "group_too_large",
+              "session_revoked",
+              "human_required",
+              "unavailable"
+            ]
+          },
+          "matched": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "changed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "investigation_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "proposal_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "outcome",
+          "matched",
+          "changed",
+          "investigation_id",
+          "proposal_id",
+          "error"
+        ]
+      },
+      "V3AlertGroupBulkResult": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "claim",
+              "silence",
+              "investigate"
+            ]
+          },
+          "results": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "$ref": "#/components/schemas/V3AlertGroupBulkItem"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "action",
+          "results"
         ]
       },
       "V3RuleDraftGenerateRequest": {

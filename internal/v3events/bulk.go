@@ -106,22 +106,20 @@ func validBulkRequest(in bulkRequest) bool {
 }
 
 type groupKey struct {
+	EnvironmentID string
 	ApplicationID string
-	Title         string
-}
-
-func groupID(env, app, title string) string {
-	return "group:" + store.Hash(env + "\x00" + app + "\x00" + title)[:24]
+	SourceID      string
+	Fingerprint   string
 }
 
 // resolveBulkGroups scans the same complete, bounded persisted candidate set
 // used by the read page. A truncation is an error, never a false 404.
 func (b *BulkService) resolveBulkGroups(ctx context.Context, env string) (map[string]groupKey, map[string]bool, error) {
-	rows, err := b.DB.Query(ctx, `SELECT i.application_id,i.title FROM ops_incidents i
+	rows, err := b.DB.Query(ctx, `SELECT e.id,i.application_id,i.source_id,i.fingerprint FROM ops_incidents i
  JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id AND NOT e.archived
- JOIN applications a ON a.id=i.application_id AND NOT a.archived
  JOIN v3_application_environments ve ON ve.application_id=i.application_id AND ve.environment_id=e.key
- WHERE e.key=$1 ORDER BY i.id LIMIT 5001`, env)
+ JOIN applications a ON a.id=i.application_id AND NOT a.archived
+ WHERE e.key=$1 ORDER BY i.updated_at DESC,i.id DESC LIMIT 5001`, env)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -135,10 +133,11 @@ func (b *BulkService) resolveBulkGroups(ctx context.Context, env string) (map[st
 			return nil, nil, errTooManyIncidents
 		}
 		var key groupKey
-		if err = rows.Scan(&key.ApplicationID, &key.Title); err != nil {
+		if err = rows.Scan(&key.EnvironmentID, &key.ApplicationID, &key.SourceID, &key.Fingerprint); err != nil {
 			return nil, nil, err
 		}
-		id := groupID(env, key.ApplicationID, key.Title)
+		id := localAlertGroupID(incidentRecord{EnvironmentID: key.EnvironmentID,
+			ApplicationID: key.ApplicationID, SourceID: key.SourceID, Fingerprint: key.Fingerprint})
 		if old, present := groups[id]; present && old != key {
 			ambiguous[id] = true
 		}

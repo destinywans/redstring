@@ -80,7 +80,7 @@ func (b *BulkService) attestedSilenceSource(ctx context.Context, env string,
 			}
 			selected++
 			if mapping.Labels["application"] != appLabel || mapping.Labels[envLabel] != env ||
-				mapping.Labels["alertname"] != key.Title {
+				mapping.Labels["alertname"] != group.Title {
 				return "", errBulkNotConnected
 			}
 		}
@@ -103,7 +103,7 @@ func (b *BulkService) prepareBulkSilence(ctx context.Context, tx pgx.Tx, actor c
 	// Ingest derives title from alertname but truncates it at 300 runes. The
 	// proposal must use an exact provider matcher; a fallback or truncated
 	// title is not sufficient evidence for an exact alert-group target.
-	if key.Title == "" || key.Title == "Alert" || len([]byte(key.Title)) > 256 {
+	if group.Title == "" || group.Title == "Alert" || len([]byte(group.Title)) > 256 {
 		return plan, errBulkNotConnected
 	}
 	active := 0
@@ -112,6 +112,9 @@ func (b *BulkService) prepareBulkSilence(ctx context.Context, tx pgx.Tx, actor c
 	for _, member := range group.Members {
 		if !activeClaimMember(member) {
 			continue
+		}
+		if member.Title != group.Title {
+			return plan, errBulkNotConnected
 		}
 		active++
 		if member.Suspected || member.SourceID == "" ||
@@ -152,7 +155,7 @@ func (b *BulkService) prepareBulkSilence(ctx context.Context, tx pgx.Tx, actor c
 		return plan, err
 	}
 	plan = bulkSilencePlan{InvestigationID: linked, EnvironmentID: env, ApplicationLabel: appLabel,
-		AlertName: key.Title,
+		AlertName: group.Title,
 		Key:       "bulk-" + store.Hash("v3.bulk.silence.v1\x00"+actor.ID+"\x00"+id+"\x00"+linked)}
 	return plan, nil
 }

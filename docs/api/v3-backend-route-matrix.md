@@ -50,7 +50,7 @@
 | 事件与告警 | POST | `/alerts/{id}/claim` | 新增 | implemented |
 | 事件与告警 | GET | `/alert-groups` | 聚合 | implemented |
 | 事件与告警 | GET | `/alert-groups/{id}/policy` | 新增 | implemented |
-| 事件与告警 | POST | `/alert-groups/bulk` | 新增 | mock |
+| 事件与告警 | POST | `/alert-groups/bulk` | 新增 | implemented |
 | 事件与告警 | GET | `/services/{id}/peek` | 聚合 | implemented |
 | 事件与告警 | GET | `/people/{name}/peek` | 新增 | implemented |
 | 事件与告警 | GET | `/incidents` | 旧路径适配 | implemented |

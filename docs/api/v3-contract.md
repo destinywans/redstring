@@ -154,7 +154,7 @@
 | POST | `/alerts/{id}/claim` | `{ expected_revision }`（取自详情读取） | 按当前修订原子认领、审计并返回更新后的持久告警详情；旧修订返回 412 | implemented |
 | GET | `/alert-groups` | `q`, `severity`, `env`, `state`, `show_inhibited` | 按持久事件本地聚合；指标、抑制及外部投递未知 | implemented |
 | GET | `/alert-groups/{id}/policy` | | 明确来源绑定下读取当前 Alertmanager 策略；缺来源时可空且列出 `unavailable` | implemented |
-| POST | `/alert-groups/bulk` | `{ ids, action: claim\|silence\|investigate }` | 结果 | mock |
+| POST | `/alert-groups/bulk` | 单环境、1–20 个当前 GET 分组 ID、`action: claim\|silence\|investigate` | 逐组 `200/207` 结果；认领与调查写入本地持久状态，静默逐项 `not_connected` 且不创建提案 | implemented |
 | GET | `/services/{id}/peek` | | 当前有权服务的持久身份/档案；健康、KPI、值班和变更未知字段可空 | implemented |
 | GET | `/people/{name}/peek` | | 当前有权真人账号与资料职务；值班和负载未知字段可空 | implemented |
 | GET | `/incidents` | `status: active\|resolved\|all` | `{ items, counts }` | implemented |
@@ -182,6 +182,8 @@
 `GET /inbox` 仅聚合当前有权、今天与昨天更新的非疑似持久告警事件；`all/mine` 为此窗口中的可见记录数，`mine` 按当前负责人判断。已读回执、提及、订阅和其他收件类型没有可信成员账本，相关值保持 `null`，`mentions/subscribed` 筛选返回 503；超过 5000 个候选明确失败，不把不完整总数当完整。`GET /incidents/{id}` 在当前归属与会话授权下读取持久告警事件或人工确认的独立事件及至多 500 条人工备注；人工事件的告警关联从持久关联表读取。告警开始不推断处置时长；指挥官、阶段、影响、系统/AI 时间线及跨对象链接无来源时保持 `null`、空值和 `unavailable`。新增人工事件表在真实读取前须迁移，本阶段未执行现有库迁移。
 
 `GET /alert-groups` 只按当前授权的环境、应用、Webhook 来源与指纹聚合持久事件，`count` 是本地接收次数，`notify` 只代表平台队列状态，不是原生 Alertmanager 分组或最终送达。未知指标、静默/抑制与外部状态保持可空，`state=silenced` 和 `show_inhibited=false` 明确 503；超过 5000 个候选不返回截断总数。`GET /alert-groups/{id}/policy` 仅在历史事件保存同一组真实标签，且私有配置的 `source_ids`、环境标签与应用映射均与当前持久范围一致时读取固定环境 Alertmanager `/api/v2/status`，返回继承后的分组/时序和接收者名称，不返回原始配置或凭据；读取后重核组成员与授权。未配置或历史标签缺失时返回可空策略与 `unavailable`，已配置来源失败或范围错配则失败关闭；时间线仅为本地通知队列。`ops_incidents.labels` 的启动迁移尚未在现有库执行，历史记录不会自动补标签。四条路由此处只按后端有来源的可空/不可用契约计为 `implemented`；冻结前端仍要求已读、分组指标、策略和事件影响等字段非空，真实页面未验收。
+
+`POST /alert-groups/bulk` 使用 GET 相同的环境记录 ID、应用、来源和指纹计算分组身份，单环境一次处理 1–20 个 ID，锁定当前精确成员并逐组复核真人会话、应用或团队事件修改权。`claim` 仅更新平台认领人，`investigate` 还要求画布修改权并创建或复用持久调查和根分支；重复操作返回已完成结果。每个 ID 有单独结果，部分失败返回 207。`silence` 当前恒定逐项 `not_connected`：已有应用/告警名匹配器无法证明只静默选中来源与指纹的分组，因此不创建提案或上游静默。该主路由只按认领/调查的真实条件成功路径计 `implemented`，静默动作及冻结前端的批量请求/结果提示未验收；见[批量分组动作](../../internal/v3events/README-bulk.md)。
 
 `POST /alert-rules/{id}/dry-run` 仅对当前环境中唯一绑定且有权查看的规则运行最近六小时 Prometheus 历史 `query_range` 采样模拟。请求 `expr` 必须与服务端当前规则表达式逐字一致，`for` 可在 0 到 1 小时内调整；规则、负责人、范围与授权在上游查询后复核。每条返回序列必须带精确的应用和环境标签，缺失或混合范围、数据不完整与超限均拒绝，不返回虚构计数。`would_fire` 和 `windows` 是满足持续时长的采样片段，不是历史通知或实际告警状态；`query_offset` 与 `keep_firing_for` 未复现，规则表达式及查询输入范围仍须由可信配置和部署隔离保证。冻结页面发送 `threshold/for_minutes`，与此请求体不符；真实 Prometheus 及页面尚未验收。
 

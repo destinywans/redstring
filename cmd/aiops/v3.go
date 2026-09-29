@@ -658,6 +658,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	events.GroupPolicyBindings = alertmanagerPolicyBindings
 	events.RegisterNew(api)
 	events.RegisterV3Incidents(api)
+	v3events.NewBulk(s.DB, policy, nil).Register(api)
 	pushService.Register(api)
 	pushService.RegisterPublic(api)
 	knowledgeV3 := &v3knowledge.Service{DB: s.DB, Knowledge: know, Policy: policy}

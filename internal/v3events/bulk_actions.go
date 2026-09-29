@@ -14,32 +14,34 @@ import (
 )
 
 type bulkMember struct {
-	ID, SourceID, Fingerprint, Status, AlertStatus, AssigneeID, InvestigationID string
-	StartsAt                                                                    time.Time
-	Suspected                                                                   bool
+	ID, SourceID, Fingerprint, Title, Status, AlertStatus, AssigneeID, InvestigationID string
+	StartsAt                                                                           time.Time
+	Suspected                                                                          bool
 }
 
 type lockedBulkGroup struct {
 	Members       []bulkMember
 	OwnerTeam     string
 	EnvironmentID string // application_environments row ID, not the V3 key.
+	Title         string // First persisted member by ID, for a deterministic investigation title.
 	OverLimit     bool
 }
 
 func lockBulkGroup(ctx context.Context, tx pgx.Tx, env, id string, key groupKey) (lockedBulkGroup, error) {
 	var group lockedBulkGroup
-	if groupID(env, key.ApplicationID, key.Title) != id {
+	if localAlertGroupID(incidentRecord{EnvironmentID: key.EnvironmentID,
+		ApplicationID: key.ApplicationID, SourceID: key.SourceID, Fingerprint: key.Fingerprint}) != id {
 		return group, store.ErrNotFound
 	}
-	rows, err := tx.Query(ctx, `SELECT i.id,i.source_id,i.fingerprint,i.status,i.alert_status,
+	rows, err := tx.Query(ctx, `SELECT i.id,i.source_id,i.fingerprint,i.title,i.status,i.alert_status,
 	 i.assignee_id,i.investigation_id,i.starts_at,i.suspected,COALESCE(a.owner_team_id,''),e.id
  FROM ops_incidents i
  JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id AND NOT e.archived
  JOIN applications a ON a.id=i.application_id AND NOT a.archived
  JOIN v3_application_environments ve ON ve.application_id=i.application_id AND ve.environment_id=e.key
- WHERE e.key=$1 AND i.application_id=$2 AND i.title=$3
+ WHERE e.key=$1 AND e.id=$2 AND i.application_id=$3 AND i.source_id=$4 AND i.fingerprint=$5
  ORDER BY i.id LIMIT 101 FOR UPDATE OF i FOR SHARE OF e,a,ve`,
-		env, key.ApplicationID, key.Title)
+		env, key.EnvironmentID, key.ApplicationID, key.SourceID, key.Fingerprint)
 	if err != nil {
 		return group, err
 	}
@@ -48,7 +50,7 @@ func lockBulkGroup(ctx context.Context, tx pgx.Tx, env, id string, key groupKey)
 	for rows.Next() {
 		var member bulkMember
 		var team, environmentID string
-		if err = rows.Scan(&member.ID, &member.SourceID, &member.Fingerprint,
+		if err = rows.Scan(&member.ID, &member.SourceID, &member.Fingerprint, &member.Title,
 			&member.Status, &member.AlertStatus, &member.AssigneeID,
 			&member.InvestigationID, &member.StartsAt, &member.Suspected, &team, &environmentID); err != nil {
 			return group, err
@@ -57,6 +59,9 @@ func lockBulkGroup(ctx context.Context, tx pgx.Tx, env, id string, key groupKey)
 			return group, store.ErrConflict
 		}
 		group.OwnerTeam, group.EnvironmentID = team, environmentID
+		if len(group.Members) == 0 {
+			group.Title = member.Title
+		}
 		if len(group.Members) == bulkMaxMembers {
 			group.OverLimit = true
 			continue
@@ -171,27 +176,10 @@ func (b *BulkService) applyBulkGroup(r *http.Request, env, id string, key groupK
 	case "investigate":
 		result, err = investigateBulkGroup(r.Context(), tx, httpapi.CurrentUser(r), id, env, key, group)
 	case "silence":
-		// The proposal producer uses another connection and rechecks its own
-		// human and grant authority. Keep this transaction's group, session
-		// and grant locks until that proposal has committed.
-		var input bulkSilencePlan
-		if b.DB.Stat().MaxConns() < 2 {
-			return bulkFailed(id, "not_connected", matched)
-		}
-		input, err = b.prepareBulkSilence(r.Context(), tx, httpapi.CurrentUser(r), id, env, key, group)
-		if err == nil {
-			err = bulkSessionCanCoverProposal(r.Context(), tx, token, httpapi.CurrentUser(r).ID)
-		}
-		if err != nil {
-			return safeBulkError(id, matched, err)
-		}
-		proposalCtx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-		result = b.createBulkSilenceProposal(proposalCtx, httpapi.CurrentUser(r), id, matched, input)
-		cancel()
-		// The proposal producer commits independently. The lock-only outer
-		// transaction must not turn a persisted proposal into a failed item if
-		// this session expires immediately after that producer commits.
-		return result
+		// Local group IDs include a source and fingerprint, but the current
+		// proposal matches only application and alertname. It could silence a
+		// different fingerprint group, so no proposal is created.
+		return bulkFailed(id, "not_connected", matched)
 	}
 	if err != nil {
 		return safeBulkError(id, matched, err)
@@ -306,7 +294,7 @@ func investigateBulkGroup(ctx context.Context, tx pgx.Tx, user core.User,
 		root := store.ID()
 		if _, err := tx.Exec(ctx, `INSERT INTO investigations
 		 (id,application_id,environment_id,title,created_by) VALUES($1,$2,$3,$4,$5)`,
-			linked, key.ApplicationID, group.EnvironmentID, key.Title, user.ID); err != nil {
+			linked, key.ApplicationID, group.EnvironmentID, group.Title, user.ID); err != nil {
 			return bulkResult{}, err
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO branches(id,investigation_id,title)

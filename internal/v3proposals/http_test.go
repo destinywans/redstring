@@ -7,7 +7,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -62,13 +64,19 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 	for _, statement := range []string{
 		`DELETE FROM v3_role_grants WHERE role_id='viewer'`,
 		`INSERT INTO rbac_roles(id,name) VALUES('proposal-reviewer','Proposal Reviewer')`,
+		`INSERT INTO rbac_roles(id,name) VALUES('proposal-team-reviewer','Proposal Team Reviewer')`,
+		`INSERT INTO teams(id,name) VALUES('proposal-ops','Proposal Operations')`,
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
  ('viewer','environment','view','environment','dev'),
  ('proposal-reviewer','proposals','view','application','app-1'),
  ('proposal-reviewer','proposals','change','application','app-1'),
- ('proposal-reviewer','proposals','manage','application','app-1')`,
+ ('proposal-reviewer','proposals','manage','application','app-1'),
+ ('proposal-team-reviewer','proposals','view','team','proposal-ops'),
+ ('proposal-team-reviewer','proposals','change','team','proposal-ops'),
+ ('proposal-team-reviewer','proposals','manage','team','proposal-ops')`,
 		`INSERT INTO applications(id,name,key,environment) VALUES
  ('app-1','App One','app-one','dev'),('app-2','App Two','app-two','dev')`,
+		`UPDATE applications SET owner_team_id='proposal-ops' WHERE id='app-2'`,
 		`INSERT INTO application_environments(id,application_id,key,name) VALUES
  ('app-1-dev','app-1','dev','Dev'),('app-1-test','app-1','test','Test'),
  ('app-2-dev','app-2','dev','Dev')`,
@@ -90,7 +98,14 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	teamReviewer, err := st.CreateUser(ctx, core.User{Email: "team-reviewer@example.invalid", Name: "Team Reviewer", Role: "viewer"}, "isolated-team-reviewer-password")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'proposal-reviewer'),($2,'proposal-reviewer')`, reviewer.ID, machine.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'proposal-team-reviewer')`, teamReviewer.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `UPDATE users SET v3_identity_kind='machine' WHERE id=$1`, machine.ID); err != nil {
@@ -121,6 +136,7 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 	}
 	reviewerToken := login("reviewer@example.invalid", "isolated-reviewer-password")
 	machineToken := login("machine@example.invalid", "isolated-machine-password")
+	teamReviewerToken := login("team-reviewer@example.invalid", "isolated-team-reviewer-password")
 	adminToken := login("admin@example.invalid", "isolated-admin-password")
 	serve := func(access Access) *httpapi.Server {
 		t.Helper()
@@ -201,48 +217,212 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 	if comments != 1 || commentAudit != 1 || rejectAudit != 1 {
 		t.Fatalf("duplicate/invalid transitions changed durable records: comments=%d comment-audit=%d reject-audit=%d", comments, commentAudit, rejectAudit)
 	}
+	// This reviewer has only a team-scoped proposal grant. Resolve the team
+	// from the persisted application for reads and both write decisions.
+	assert(request(api, "GET", mainID, "", "dev", teamReviewerToken, "", ""), 403, "forbidden")
+	assert(request(api, "GET", otherAppID, "", "dev", teamReviewerToken, "", ""), 200, "")
+	assert(request(api, "POST", otherAppID, "/comments", "dev", teamReviewerToken, `{"text":"Team review"}`, "team-comment"), 201, "")
+	assert(request(api, "POST", otherAppID, "/reject", "dev", teamReviewerToken, `{"comment":"Team declined"}`, ""), 200, "")
 
-	// Revoke after the first scoped check, before the transaction reads the
-	// current grants. A stale pre-transaction decision cannot authorize a write.
-	raceID := create("inv-1", "app-1", "dev")
-	for _, action := range []string{"change", "manage"} {
-		if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
- VALUES('proposal-reviewer','proposals',$1,'application','app-1') ON CONFLICT DO NOTHING`, action); err != nil {
+	// The request and a permission/owner mutation each win once. Confirm the
+	// loser waits on a specific row lock before allowing the winner to commit.
+	for _, operation := range []struct {
+		name, method, suffix, body, action string
+		accepted                           int
+	}{
+		{"detail", "GET", "", "", "view", 200},
+		{"comment", "POST", "/comments", `{"text":"Concurrent team review"}`, "change", 201},
+		{"reject", "POST", "/reject", `{"comment":"Concurrent decline"}`, "manage", 200},
+	} {
+		for _, mutation := range []string{"grant", "owner"} {
+			for _, winner := range []string{"mutation", "review"} {
+				t.Run(operation.name+"/"+mutation+"/"+winner, func(t *testing.T) {
+					if _, err := db.Exec(ctx, `UPDATE applications SET owner_team_id='proposal-ops' WHERE id='app-2'`); err != nil {
+						t.Fatal(err)
+					}
+					if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('proposal-team-reviewer','proposals',$1,'team','proposal-ops') ON CONFLICT DO NOTHING`, operation.action); err != nil {
+						t.Fatal(err)
+					}
+					id := create("inv-2", "app-2", "dev")
+					mutationSQL := `DELETE FROM v3_role_grants WHERE role_id='proposal-team-reviewer'
+ AND module='proposals' AND action=$1 AND scope_kind='team' AND scope_id='proposal-ops'`
+					mutationArg := operation.action
+					blockedReviewSQL := "SELECT role_id FROM v3_role_grants WHERE role_id=ANY"
+					blockedMutationSQL := "DELETE FROM v3_role_grants WHERE role_id='proposal-team-reviewer'"
+					if mutation == "owner" {
+						mutationSQL = `UPDATE applications SET owner_team_id=NULL WHERE id='app-2'`
+						mutationArg = ""
+						blockedReviewSQL = "SELECT COALESCE(owner_team_id,'') FROM applications"
+						blockedMutationSQL = "UPDATE applications SET owner_team_id=NULL WHERE id='app-2'"
+					}
+					mutate := func(tx pgx.Tx) error {
+						if mutationArg == "" {
+							_, err := tx.Exec(ctx, mutationSQL)
+							return err
+						}
+						_, err := tx.Exec(ctx, mutationSQL, mutationArg)
+						return err
+					}
+					if winner == "mutation" {
+						writer, err := db.Begin(ctx)
+						if err != nil {
+							t.Fatal(err)
+						}
+						defer writer.Rollback(ctx)
+						if err := mutate(writer); err != nil {
+							t.Fatal(err)
+						}
+						response := make(chan *httptest.ResponseRecorder, 1)
+						go func() {
+							response <- request(api, operation.method, id, operation.suffix, "dev", teamReviewerToken, operation.body, "")
+						}()
+						waitReviewLock(t, db, blockedReviewSQL)
+						if err := writer.Commit(ctx); err != nil {
+							t.Fatal(err)
+						}
+						assert(<-response, 403, "forbidden")
+						var status string
+						var count int
+						if err := db.QueryRow(ctx, `SELECT status,(SELECT count(*) FROM v3_proposal_comments WHERE proposal_id=$1)
+ FROM v3_proposals WHERE id=$1`, id).Scan(&status, &count); err != nil || status != "pending" || count != 0 {
+							t.Fatalf("revoked review changed record: status=%s comments=%d err=%v", status, count, err)
+						}
+					} else {
+						barrier := &reviewAuthorizationBarrier{V3Policy: policy, Action: operation.action,
+							Ready: make(chan struct{}), Release: make(chan struct{})}
+						reviewAPI := serve(barrier)
+						response := make(chan *httptest.ResponseRecorder, 1)
+						go func() {
+							response <- request(reviewAPI, operation.method, id, operation.suffix, "dev", teamReviewerToken, operation.body, "")
+						}()
+						select {
+						case <-barrier.Ready:
+						case <-time.After(5 * time.Second):
+							t.Fatal("review did not reach authorized transaction barrier")
+						}
+						mutationDone := make(chan error, 1)
+						go func() {
+							writer, err := db.Begin(ctx)
+							if err == nil {
+								err = mutate(writer)
+								if err == nil {
+									err = writer.Commit(ctx)
+								} else {
+									writer.Rollback(ctx)
+								}
+							}
+							mutationDone <- err
+						}()
+						waitReviewLock(t, db, blockedMutationSQL)
+						close(barrier.Release)
+						assert(<-response, operation.accepted, "")
+						if err := <-mutationDone; err != nil {
+							t.Fatal(err)
+						}
+					}
+				})
+			}
+		}
+	}
+	t.Run("review/update-member/matrix-lock-order", func(t *testing.T) {
+		if _, err := db.Exec(ctx, `UPDATE applications SET owner_team_id='proposal-ops' WHERE id='app-2'`); err != nil {
 			t.Fatal(err)
 		}
-		wrapper := &revokeAfterPrecheck{V3Policy: policy, DB: db, Action: action}
-		raceAPI := serve(wrapper)
-		suffix, body := "/comments", `{"text":"Must not save"}`
-		if action == "manage" {
-			suffix, body = "/reject", `{"comment":"Must not reject"}`
+		if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('proposal-team-reviewer','proposals','view','team','proposal-ops') ON CONFLICT DO NOTHING`); err != nil {
+			t.Fatal(err)
 		}
-		assert(request(raceAPI, "POST", raceID, suffix, "dev", reviewerToken, body, ""), 403, "forbidden")
-		if !wrapper.Revoked {
-			t.Fatal("did not exercise grant revocation between precheck and transaction")
+		id := create("inv-2", "app-2", "dev")
+		barrier := &reviewAuthorizationBarrier{V3Policy: policy, Action: "view",
+			Ready: make(chan struct{}), Release: make(chan struct{})}
+		reviewAPI := serve(barrier)
+		response := make(chan *httptest.ResponseRecorder, 1)
+		go func() {
+			response <- request(reviewAPI, "GET", id, "", "dev", teamReviewerToken, "", "")
+		}()
+		select {
+		case <-barrier.Ready:
+		case <-time.After(5 * time.Second):
+			t.Fatal("review did not reach authorized transaction barrier")
 		}
-	}
-	var status string
-	if err := db.QueryRow(ctx, `SELECT status FROM v3_proposals WHERE id=$1`, raceID).Scan(&status); err != nil || status != "pending" {
-		t.Fatalf("revoked write changed proposal status: %q %v", status, err)
-	}
+		newName := "Team Reviewer Updated"
+		memberDone := make(chan error, 1)
+		go func() {
+			_, err := st.UpdateMember(ctx, teamReviewer.ID, store.MemberUpdate{
+				AccountUpdate: store.AccountUpdate{Name: &newName},
+			})
+			memberDone <- err
+		}()
+		waitReviewLock(t, db, "FROM users WHERE id=$1 AND deleted_at IS NULL FOR UPDATE")
+		matrixDone := make(chan error, 1)
+		go func() {
+			writer, err := db.Begin(ctx)
+			if err == nil {
+				for _, key := range []int64{752018992, 752018995, 752018998} {
+					_, err = writer.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, key)
+					if err != nil {
+						break
+					}
+				}
+				if err == nil {
+					_, err = writer.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='proposal-team-reviewer'
+ AND module='proposals' AND action='view' AND scope_kind='team' AND scope_id='proposal-ops'`)
+				}
+				if err == nil {
+					err = writer.Commit(ctx)
+				} else {
+					writer.Rollback(ctx)
+				}
+			}
+			matrixDone <- err
+		}()
+		waitReviewLock(t, db, "SELECT pg_advisory_xact_lock($1)")
+		close(barrier.Release)
+		assert(<-response, 200, "")
+		if err := <-memberDone; err != nil {
+			t.Fatal(err)
+		}
+		if err := <-matrixDone; err != nil {
+			t.Fatal(err)
+		}
+		assert(request(api, "GET", id, "", "dev", teamReviewerToken, "", ""), 403, "forbidden")
+	})
 }
 
-type revokeAfterPrecheck struct {
+type reviewAuthorizationBarrier struct {
 	*rbac.V3Policy
-	DB      *pgxpool.Pool
 	Action  string
-	Revoked bool
+	Ready   chan struct{}
+	Release chan struct{}
+	Once    sync.Once
 }
 
-func (a *revokeAfterPrecheck) Authorize(ctx context.Context, user core.User, d rbac.V3Decision) error {
-	err := a.V3Policy.Authorize(ctx, user, d)
-	if err == nil && d.Action == a.Action && !a.Revoked {
-		_, revokeErr := a.DB.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='proposal-reviewer' AND module='proposals'
- AND action=$1 AND scope_kind='application' AND scope_id='app-1'`, a.Action)
-		if revokeErr != nil {
-			return revokeErr
-		}
-		a.Revoked = true
+func (a *reviewAuthorizationBarrier) AuthorizeWithTx(ctx context.Context, tx pgx.Tx, user core.User, d rbac.V3Decision) error {
+	err := a.V3Policy.AuthorizeWithTx(ctx, tx, user, d)
+	if err == nil && d.Module == "proposals" && d.Action == a.Action && d.TeamID == "proposal-ops" {
+		a.Once.Do(func() {
+			close(a.Ready)
+			<-a.Release
+		})
 	}
 	return err
+}
+
+func waitReviewLock(t *testing.T, db *pgxpool.Pool, queryPart string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var waiting bool
+		err := db.QueryRow(t.Context(), `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+ WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%'||$1||'%')`, queryPart).Scan(&waiting)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("query did not wait on expected row lock: %s", queryPart)
 }

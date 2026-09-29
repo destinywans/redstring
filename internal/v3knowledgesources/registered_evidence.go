@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"reflect"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -124,6 +125,7 @@ WHERE src.environment_id=ANY($1::text[])
     AND ((g.scope_kind='global' AND g.scope_id='*')
       OR (g.scope_kind='environment' AND g.scope_id=src.environment_id)
       OR (g.scope_kind='team' AND g.scope_id=src.team_id))))
+ AND ($4::text[] IS NULL OR src.id=ANY($4::text[]))
 ORDER BY src.created_at DESC,src.id LIMIT 200 OFFSET $3`
 
 func (s *Service) registeredEvidence(w http.ResponseWriter, r *http.Request) {
@@ -150,7 +152,7 @@ func (s *Service) registeredEvidence(w http.ResponseWriter, r *http.Request) {
 	// SQL gates candidates before the limit; the policy is checked again in
 	// the same snapshot for every emitted application and team scope.
 	for offset := 0; offset <= 10000; offset += 200 {
-		batch, readErr := registeredEvidenceBatch(ctx, tx, user, scope.EnvironmentIDs, offset)
+		batch, readErr := registeredEvidenceBatch(ctx, tx, user, scope.EnvironmentIDs, offset, nil)
 		if readErr != nil {
 			registeredEvidenceUnavailable(w)
 			return
@@ -181,14 +183,51 @@ func (s *Service) registeredEvidence(w http.ResponseWriter, r *http.Request) {
 		registeredEvidenceUnavailable(w)
 		return
 	}
+	// Repeatable Read kept each source and its observation/version proof
+	// together, but its authorization snapshot can be old after a concurrent
+	// revocation. Re-run the same complete projection for the selected IDs on
+	// a fresh statement snapshot. Changed or newly hidden rows fail closed.
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.ID)
+	}
+	if len(ids) > 0 {
+		// Retain the injected policy's current decision without making it the
+		// last check: only the final query also knows whether the application
+		// was archived or its owner team changed.
+		for _, item := range items {
+			if err := s.authorizeRegisteredEvidenceCurrent(ctx, user, item); err != nil {
+				if errors.Is(err, store.ErrForbidden) {
+					httpapi.Error(w, 409, "source_state_changed", "Source state or access changed; retry")
+				} else {
+					registeredEvidenceUnavailable(w)
+				}
+				return
+			}
+		}
+		current, err := registeredEvidenceBatch(ctx, s.db, user, scope.EnvironmentIDs, 0, ids)
+		if err != nil {
+			registeredEvidenceUnavailable(w)
+			return
+		}
+		if !reflect.DeepEqual(items, current) {
+			httpapi.Error(w, 409, "source_state_changed", "Source state or access changed; retry")
+			return
+		}
+		items = current
+	}
 	httpapi.WriteJSON(w, 200, registeredEvidenceResponse{Items: items, Index: nil,
 		Partial: true, Reason: "registration_and_observation_evidence_only",
 		Truncated: truncated, UnknownFields: []string{"connection_status", "sync_status", "document_count",
 			"chunk_count", "last_sync_at", "index_status", "error", "index_settings"}})
 }
 
-func registeredEvidenceBatch(ctx context.Context, tx pgx.Tx, user core.User, envs []string, offset int) ([]RegisteredEvidence, error) {
-	rows, err := tx.Query(ctx, registeredEvidenceCandidates, envs, user.ID, offset)
+type evidenceRows interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+func registeredEvidenceBatch(ctx context.Context, db evidenceRows, user core.User, envs []string, offset int, ids []string) ([]RegisteredEvidence, error) {
+	rows, err := db.Query(ctx, registeredEvidenceCandidates, envs, user.ID, offset, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -227,6 +266,20 @@ func (s *Service) authorizeRegisteredEvidence(ctx context.Context, tx pgx.Tx, us
 		decision.ApplicationID = ""
 		decision.TeamID = item.TeamID
 		return s.access.AuthorizeWithTx(ctx, tx, user, decision)
+	}
+	return nil
+}
+
+func (s *Service) authorizeRegisteredEvidenceCurrent(ctx context.Context, user core.User, item RegisteredEvidence) error {
+	decision := rbac.V3Decision{Module: "knowledge", Action: "view", EnvironmentID: item.EnvironmentID,
+		ApplicationID: item.ApplicationID}
+	if err := s.access.Authorize(ctx, user, decision); err != nil {
+		return err
+	}
+	if item.TeamID != "" {
+		decision.ApplicationID = ""
+		decision.TeamID = item.TeamID
+		return s.access.Authorize(ctx, user, decision)
 	}
 	return nil
 }

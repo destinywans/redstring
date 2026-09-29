@@ -8,8 +8,10 @@ import (
 	"net/netip"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,6 +23,33 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3knowledge"
 	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
 )
+
+type sourceEvidenceBarrierAccess struct {
+	policy *rbac.V3Policy
+	mu     sync.Mutex
+	before func()
+}
+
+func (a *sourceEvidenceBarrierAccess) setBeforeTx(f func()) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.before = f
+}
+
+func (a *sourceEvidenceBarrierAccess) Authorize(ctx context.Context, user core.User, decision rbac.V3Decision) error {
+	return a.policy.Authorize(ctx, user, decision)
+}
+
+func (a *sourceEvidenceBarrierAccess) AuthorizeWithTx(ctx context.Context, tx pgx.Tx, user core.User, decision rbac.V3Decision) error {
+	a.mu.Lock()
+	f := a.before
+	a.before = nil
+	a.mu.Unlock()
+	if f != nil {
+		f()
+	}
+	return a.policy.AuthorizeWithTx(ctx, tx, user, decision)
+}
 
 func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 	dsn := os.Getenv("TEST_DATABASE_URL")
@@ -119,7 +148,8 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
 	v3sourceregistry.NewWithReaders(db, policy, map[string]v3sourceregistry.Reader{"web": reader}).Register(api)
-	New(db, policy).Register(api)
+	evidenceAccess := &sourceEvidenceBarrierAccess{policy: policy}
+	New(db, evidenceAccess).Register(api)
 	(&v3knowledge.Service{DB: db, Knowledge: knowledge.NewWithRepository(&knowledge.PGRepository{DB: db}, nil, nil),
 		Policy: policy}).RegisterSearch(api)
 	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev", "staging"}},
@@ -138,13 +168,17 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 		api.ServeHTTP(w, r)
 		return w
 	}
-	readStates := func(session string) (registeredEvidenceResponse, *httptest.ResponseRecorder) {
-		t.Helper()
+	requestStates := func(session string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(http.MethodGet, "/api/v1/knowledge-sources/registered-evidence", nil)
 		r.Header.Set("X-AIOps-Environment", "dev")
 		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: session})
 		w := httptest.NewRecorder()
 		api.ServeHTTP(w, r)
+		return w
+	}
+	readStates := func(session string) (registeredEvidenceResponse, *httptest.ResponseRecorder) {
+		t.Helper()
+		w := requestStates(session)
 		var result registeredEvidenceResponse
 		if w.Code == http.StatusOK {
 			if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
@@ -535,5 +569,61 @@ VALUES('viewer','knowledge','view','team','ops')`); err != nil {
 	archivedStates, archivedResponse := readStates(token)
 	if archivedResponse.Code != http.StatusOK || findState(archivedStates.Items, visibleID) != nil {
 		t.Fatalf("archived source remained visible: %d %s", archivedResponse.Code, archivedResponse.Body.String())
+	}
+	if _, err := db.Exec(ctx, `UPDATE applications SET archived=false WHERE id='visible-app'`); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, change, restore, hiddenID string
+		args                            []any
+	}{
+		{name: "application grant revoked",
+			change: `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='knowledge' AND action='view'
+AND scope_kind='application' AND scope_id='visible-app'`,
+			restore: `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+VALUES('viewer','knowledge','view','application','visible-app')`, hiddenID: visibleID},
+		{name: "account disabled", change: `UPDATE users SET disabled=true WHERE id=$1`,
+			restore: `UPDATE users SET disabled=false WHERE id=$1`, args: []any{viewer.ID}, hiddenID: visibleID},
+		{name: "application archived", change: `UPDATE applications SET archived=true WHERE id='visible-app'`,
+			restore: `UPDATE applications SET archived=false WHERE id='visible-app'`, hiddenID: visibleID},
+		{name: "owner team changed", change: `UPDATE applications SET owner_team_id='other-team' WHERE id='visible-app'`,
+			restore: `UPDATE applications SET owner_team_id='ops' WHERE id='visible-app'`, hiddenID: teamSaved.ID},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before, beforeResponse := readStates(viewerToken)
+			if beforeResponse.Code != http.StatusOK || findState(before.Items, tc.hiddenID) == nil {
+				t.Fatalf("source was not visible before revocation: %d %s", beforeResponse.Code, beforeResponse.Body.String())
+			}
+			entered := make(chan struct{})
+			release := make(chan struct{})
+			evidenceAccess.setBeforeTx(func() { close(entered); <-release })
+			result := make(chan *httptest.ResponseRecorder, 1)
+			go func() { result <- requestStates(viewerToken) }()
+			select {
+			case <-entered:
+			case <-time.After(5 * time.Second):
+				close(release)
+				t.Fatal("source read did not reach its snapshot authorization barrier")
+			}
+			mutationCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			_, err := db.Exec(mutationCtx, tc.change, tc.args...)
+			cancel()
+			close(release)
+			if err != nil {
+				t.Fatalf("revocation could not commit while source snapshot was open: %v", err)
+			}
+			select {
+			case w := <-result:
+				if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), `"code":"source_state_changed"`) ||
+					strings.Contains(w.Body.String(), tc.hiddenID) {
+					t.Fatalf("revoked source escaped stale snapshot: %d %s", w.Code, w.Body.String())
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("source read did not finish after revocation")
+			}
+			if _, err := db.Exec(ctx, tc.restore, tc.args...); err != nil {
+				t.Fatalf("restore isolated test authority: %v", err)
+			}
+		})
 	}
 }

@@ -4,6 +4,7 @@
 
 - 用户在协调任务中明确选择“同意推送当前及后续同范围 V3 后端提交”，目标仅为已有私有 `git@github.com:destinywans/aiops-canvas.git` 的 `codex/wan-117-v3-integration` 分支；不授权合并或部署。该明确授权取代 CP-143/144 记录时的推送阻断，不改变产品验收或主契约 **37/166 `implemented`** 状态。
 - 协调任务对当时干净的集成工作树执行普通推送，`git ls-remote origin refs/heads/codex/wan-117-v3-integration` 与 `git rev-parse HEAD` 均回读 `d32522b327dd931d635bea3f0fc44f1c2cd11f84`。本地 `refs/remotes/origin/codex/wan-117-v3-integration` 仍是旧 `69897cc`：Git 推送成功后沙箱拒绝更新该 tracking ref 的 lock，因此 `git status` 的 `ahead` 数已不能代表真实远端差异。后续同范围提交按授权推送并以真实远端 SHA 核对；不要重写共享历史、合并或部署。
+- 随后本会话在同一授权范围内普通推送检查点提交，`git ls-remote` 再次与 HEAD 完全一致；这次 Git 也成功更新本地 tracking ref，`git status` 不再显示虚假的 `ahead`。以上旧引用是首次推送后的历史状态，后续仍以真实远端回读作为发布核验。
 
 ## CP-144 · 2026-09-29 · MCP 审核会话栅栏与三项读取证据
 

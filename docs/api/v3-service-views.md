@@ -10,7 +10,7 @@
 | --- | --- |
 | 服务身份、环境、团队、等级、值班、SLO 目标 | 未归档 `applications`、`v3_application_environments`、`application_environments`、`v3_service_environment_profiles`、`teams`、有效 `users`。ID 继续编码应用 ID 和环境 ID。 |
 | 状态、SLO 预算与信号 | 已显式绑定的 Prometheus 目标和经审查的 `dashboard` 查询。37 点窗口、来源身份、完整面板、时间格、请求守恒、延迟顺序、月可用性与预算及 1 小时燃烧率一致性全部校验。状态是基于 SLO 燃烧率的服务信号，**不代表 Kubernetes readiness**；活跃 critical 告警可提高到 danger。 |
-| 告警与事件数 | `ops_incidents` 中对应应用/环境的真实、非疑似记录；要求受控告警来源覆盖该应用/环境，且逐对象具有 `events.view`。零只表示已接入来源内没有活跃告警。 |
+| 告警与事件数 | 告警数和 critical 状态只统计完整覆盖声明指定来源在 `ops_incidents` 中对应应用/环境的真实、非疑似活跃记录，要求逐对象 `events.view`；其他来源不能抬高数值。详情的事故标签计数另按有权应用/环境内的真实非疑似事故记录计数。零只表示已声明来源内没有活跃告警。 |
 | 最近发布、变更 | `deployment_events` 中成功执行且执行仍为 succeeded 的记录；版本取执行结果修订或已验证的源提交/制品摘要。未成功的流水线或配置目标不算发布。 |
 | 已接入图标 | 仅显示本次成功实时读取且目标、端点、认证配置和工具状态在读取前后及响应前均保持一致的 Prometheus；其他仅登记的连接器暂不冒充已连接。 |
 | AI 调查文字 | 当前修订中最近一小时、与最新已完成运行 ID 匹配的模型回复，调查绑定同一应用/环境且仍 open，要求 `canvas.view`；以消息时间标注文本。没有可用回复则详情返回 503。 |

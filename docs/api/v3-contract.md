@@ -200,8 +200,8 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
-| GET | `/services` | `q`, `tier`, `team`, `status` | `ServiceCatalog` | mock |
-| GET | `/services/{id}` | | `ServiceDetail` | mock |
+| GET | `/services` | `q`, `tier`, `team`, `status` | `ServiceCatalog`；仅完整来源、当前有权服务，缺项返回 503 | implemented |
+| GET | `/services/{id}` | | `ServiceDetail`；按持久服务身份汇集指标、告警、发布、依赖与当前调查 | implemented |
 | GET | `/services/{id}/resilience` | | `Resilience`（灰度 / 熔断 / 限流 / 开关 / HPA，只读） | mock |
 | POST | `/services/{id}/resilience/proposals` | `{ kind, params }` | `{ proposal_id }`（只生成提案或合并请求） | mock |
 | GET | `/topology` | `cluster`, `around`, `depth`, `group_by` | `Topology`；当前后端仅返回经授权的 CMDB 节点、关系和缺失字段清单，完整 DTO 尚未实现 | mock |
@@ -213,6 +213,8 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | POST | `/services` | `{ items: [{ id, namespace, resource_id?, tier, owner, slo, p99 }] }`；`resource_id` 为发现接口返回的稳定 CMDB 标识，提供时必须有 namespace | `{ created }` | implemented |
 | GET | `/logs` | `q`, `levels`, `service?`, `provider?` | `LogSearch`；完整来源模式计数与趋势 | implemented |
 | GET | `/changes` | `range`, `sources` | `ChangesView`（CI/CD 与 GitOps 事件，只读） | mock |
+
+服务目录和详情使用未归档应用/环境及服务配置、经审查的精确 Prometheus 看板、同环境持久发布与调查证据构造完整 DTO。告警数和据此提升的状态只计入服务端完整覆盖声明指定的 Alertmanager 来源；声明需匹配实际运维入口的精确来源/标签及有效应用环境，缺少声明、来源、权限、值班、SLO、发布或 AI 调查等必填证据时整体返回 503，不把未知填成零或健康。读取来源后复核原 Cookie 会话、应用/团队归属、授权、指标目标与覆盖绑定。完整覆盖是运维对上游路由的显式声明，代码不证明外部持续投递；接入与撤销步骤见[服务告警覆盖绑定](../examples/v3-service-alert-coverage.md)。详情的复合服务 ID 尚不能直接作为指标、日志、链路页的 `service` 参数，冻结页面跳转及真实外部来源联调另行验收。
 
 资源发现现在返回 `resource_id`、Kubernetes `uid`、环境与集群；单集群条件在 2000 个候选扫描上限之前执行，整次请求共用 20 秒预算。选定集群之外的可信同名资源，以及同环境、同命名空间中陈旧、缺失或已关联的原始同名身份，均会阻止当前只按名称登记的候选进入结果；`ambiguous_workloads` 只给出数量，不泄露阻挡对象。`registered` 是授权环境内的登记数，不是所示集群的登记数。负责人和等级只作来源提示，`replicas` 可为空，`matched`/`missing` 尚无可信线索。注册时按当前环境、采集新鲜度、存在状态、UID、命名空间、是否已关联及 `resources.view` 重新核对。旧客户端只传名称时仅可匹配唯一工作负载；同名、过期或已关联身份返回 409，不会静默关联。当前前端未传 `cluster`/`resource_id`，并固定展示负责人、SLO、P99 与系统映射，发现到注册交互尚未接通。服务列表和系统映射超过 1000 条可见记录会返回 `422 result_limit`，不会返回不完整总数。拓扑仅显示五分钟内成功采集且环境吻合的现存节点，关联应用不会替资源借用其团队授权。
 
@@ -278,8 +280,8 @@ MCP 审核另有按不可变发现版本执行的三个辅助接口：`GET /mcp-
 `GET /connector-types/{type}` 只描述已支持的连接器类型及探测器可接受的认证方式，要求当前环境的 `connectors.view`；未知类型返回按 `Accept-Language` 本地化的 404。版本、上游令牌权限与 Webhook 地址没有类型级可信来源，返回空值；尚无连接器支持的 Agent 工具执行器，因此 `tools: []`。本条后端路由完成不代表新建向导的静态项目映射、事件、深链及工具说明已接线，前端目录还有未支持的类型。
 | GET | `/ingest/pull/{id}` | | `PullDraft`（请求模板、样例、字段映射、预览） | mock |
 | POST | `/ingest/pull/{id}/test` | 映射 | `{ ok, rows, dropped }` | mock |
-| GET | `/ingest/push` | | `PushView`（事件类型、接口说明、投递记录、配套栈） | mock |
-| POST | `/ingest/push/test` | `{ type }` | `{ code }` | mock |
+| GET | `/ingest/push` | | `PushView`（当前授权来源的真实计数与收据、签名协议说明、未部署配套栈）；无来源显示未配置 | implemented |
+| POST | `/ingest/push/test` | `{ type }` | `{ code: 202, receipt_id }`；持久化 synthetic 事件，不计入真实事件数 | implemented |
 | GET | `/service-mappings` | | `ServiceMapping` | implemented |
 | POST | `/service-mappings/accept` | `{ candidates: [{ id, version, service_id, environment_id, system_id, binding_revision }] }` | `{ accepted, items }` | implemented |
 | POST | `/service-mappings/discover` | | `{ suggestions, source_state, candidates }` | implemented |
@@ -293,7 +295,7 @@ MCP 审核另有按不可变发现版本执行的三个辅助接口：`GET /mcp-
 
 单环境 `GET /service-mappings` 在调用者有当前服务查看/修改及连接器查看/管理权时，为可见行附上包含稳定服务 ID、服务环境 ID、绑定修订和精确绑定的 `save` 快照；不安全的历史绑定仍可展示，但 `save.editable=false`，`all` 视图不提供保存快照。`PUT /service-mappings` 要求一个选定环境、1–50 个不同服务的完整绑定集合，缺失或 `null` 的绑定数组、展示格、重复/未知系统、跨环境对象及过期修订都拒绝；`bindings: []` 明确清空。服务/连接器授权、对象身份和精确 Cookie 会话在事务内复核，变化项的绑定、修订和审计一同提交，无变化项不新增审计。GitLab `code` 绑定仅可原样保留；新增/修改项目必须走候选发现与接受。其他绑定仍需运行时校验，示例见 `docs/examples/v3-service-mapping-save.md`。冻结前端目前发送空 PUT，且发现后不刷新、接受前乐观显示成功，文案误称来自标签/命名/部署；页面保存仍未验收。
 
-Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v1/events/{alert|change|incident|resource|oncall}`，请求头 `Authorization: Bearer`、`Idempotency-Key`、`X-Signature` + `X-Timestamp`；返回 `202 / 409 / 422 / 401`。
+Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v1/events/{alert|change|incident|resource|oncall}`。来源在私有配置中固定到一个应用、环境与允许类型；要求来源 ID、Bearer 令牌、`Idempotency-Key`、Unix `X-Timestamp` 和正文原始字节的 HMAC-SHA256 `X-Signature`。五条公开路由只豁免浏览器会话/环境门禁，由来源令牌与签名独立鉴权；未列出的相邻路由仍需浏览器会话。规范事件、24 小时幂等占用、净化收据与带精确环境的审计同事务持久化后返回 202；重复 409、无效规范体 422、鉴权失败 401、来源限流 429。已配置来源的 GET 只显示当前有权的应用/环境及其真实持久记录；管理测试生成 synthetic 记录，不证明外部发送端可用。配置、签名算法和恢复见[通用 Push 入站](../examples/v3-push-ingress.md)。此处只支持规范 `generic` 事件，不把供应商原生载荷当作已接入。冻结前端的测试请求尚未发送必需 `type`，复制的 curl 缺来源、时间戳和签名，配套栈按钮也未接部署控制器；页面未验收。公开部署前还需入口层无效令牌限流、数据留存及容量决策；本轮没有外部发送端、迁移现有业务库或页面浏览器实测。
 
 连接器辅助激活接口（不计入 166 项页面契约）：`POST /connectors/{id}/activate`，单一环境下传 `{ credential_ref?: "vault://mount/path#field" }`。所有凭据读取须先匹配由部署方配置的层级、环境、连接器 ID、供应商、端点和引用；缺绑定返回 503 `credential_not_authorized`，不读取 Vault 或探测上游。GitLab 须先通过服务环境的显式目标绑定登记至少一个数字项目 ID；后端用 Vault 凭据对每个项目发起 GET 验证，再复核权限、连接器配置和绑定集合，成功后启用。其他已登记类型使用有界只读探测，成功后启用登记但工具仍关闭；无认证类型可传 `{}`，已保存 Vault 引用也可省略请求中的引用。通用探测只证明指定地址一次返回 2xx，健康端点可能不校验凭据，所以通用激活另返回 `credential_verified: false`；GitLab 的项目验证也不证明令牌只有只读权限。`webhook` 仅记录意图，`webhook_active` 始终为 `false`；探测失败返回 502 且不启用，GitLab 项目绑定变化须重新激活。`status: "ok"` 表示一次探测结果，不代表持续健康。配置和恢复见 [连接器凭据绑定](v3-connector-credentials.md)。
 

@@ -82,8 +82,8 @@
 | 知识与记忆 | POST | `/memory/conflicts/resolve` | 新增 | implemented |
 | 知识与记忆 | GET | `/knowledge-sources` | 聚合 | mock |
 | 知识与记忆 | POST | `/knowledge/search` | 旧路径适配 | implemented |
-| 资源与观测 | GET | `/services` | 聚合 | mock |
-| 资源与观测 | GET | `/services/{id}` | 聚合 | mock |
+| 资源与观测 | GET | `/services` | 聚合 | implemented |
+| 资源与观测 | GET | `/services/{id}` | 聚合 | implemented |
 | 资源与观测 | GET | `/services/{id}/resilience` | 聚合 | mock |
 | 资源与观测 | POST | `/services/{id}/resilience/proposals` | 新增 | mock |
 | 资源与观测 | GET | `/topology` | 聚合 | mock |
@@ -125,8 +125,8 @@
 | 集成中心 | POST | `/mcp-servers/{id}/review` | 新增 | mock |
 | 集成中心 | GET | `/ingest/pull/{id}` | 新增 | mock |
 | 集成中心 | POST | `/ingest/pull/{id}/test` | 新增 | mock |
-| 集成中心 | GET | `/ingest/push` | 聚合 | mock |
-| 集成中心 | POST | `/ingest/push/test` | 新增 | mock |
+| 集成中心 | GET | `/ingest/push` | 聚合 | implemented |
+| 集成中心 | POST | `/ingest/push/test` | 新增 | implemented |
 | 集成中心 | GET | `/service-mappings` | 聚合 | implemented |
 | 集成中心 | POST | `/service-mappings/accept` | 新增 | implemented |
 | 集成中心 | POST | `/service-mappings/discover` | 新增 | implemented |

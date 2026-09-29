@@ -11,7 +11,7 @@ S['V3RunbookSummary'] = obj({**fieldnames('id title scope owner version applicat
     'tags':arr(string()),'status':string(enum=['published','review','draft']),
     'environment_ids':arr(string()),
     'refs_30d':{'type':['integer','null']},'resolve_rate':{'type':['number','null']},
-    'last_verified':{'type':['string','null']},'stale':v3_bool()},
+    'last_verified':{'type':['string','null']},'stale':{'type':['boolean','null']}},
     ['id','title','tags','scope','owner','version','status','refs_30d','resolve_rate',
      'last_verified','stale','environment_ids','application_id','team_id'])
 S['V3Runbook'] = obj({**fieldnames('id title version base owner scope when status source_kind source_ref application_id team_id'),
@@ -29,20 +29,20 @@ S['V3Runbook'] = obj({**fieldnames('id title version base owner scope when statu
      'incidents','status','source_kind','source_ref','environment_ids','application_id','team_id',
      'last_verified','complete_v3_dto','partial','unknown_fields'])
 v3_route('get','/runbooks','List accessible runbooks',response=obj({'items':arr(ref('V3RunbookSummary')),
-    'counts':v3_map(integer()),'kpis':arr({'type':'object','additionalProperties':True}),
-    'suggestions':arr({'type':'object','additionalProperties':True}),
+    'counts':v3_map(integer()),'kpis':{'oneOf':[arr({'type':'object','additionalProperties':True}),{'type':'null'}]},
+    'suggestions':{'oneOf':[arr({'type':'object','additionalProperties':True}),{'type':'null'}]},
     'page':integer(minimum=1),'per_page':integer(minimum=1,maximum=100),
     'total':integer(minimum=0),'has_next':v3_bool(),
     'complete_v3_dto':{'const':False},'partial':{'const':True},'unknown_fields':arr(string())},
     ['items','counts','kpis','suggestions','page','per_page','total','has_next',
      'complete_v3_dto','partial','unknown_fields']),
     query=[v3_query(x) for x in ['q','service','tab','page','per_page']],
-    desc='Scoped persisted Runbook inventory. A repeatable-read snapshot checks each document, current environment/application/team binding and object grant before counting, filtering and paging. Counts reflect visible q/service matches before tab paging; at most 10000 visible matches are accepted. Reference, outcome, KPI and suggestion producers are absent, so their values are null or empty with explicit unknown_fields and complete_v3_dto=false. This partial main-route response does not meet the frozen frontend DTO yet.')
+    desc='Scoped persisted Runbook inventory. A repeatable-read snapshot locks the active session and current role grant rows, then checks each document, environment/application/team binding and object grant before counting, filtering and paging. Counts reflect visible q/service matches before tab paging; at most 10000 visible matches are accepted. Without a recorded verification time, stale is null and counts.verification_unknown increases; the stale tab includes only records with an old recorded time. Reference, outcome, KPI and suggestion producers are absent, so their values are null with explicit unknown_fields and complete_v3_dto=false. This partial main-route response does not meet the frozen frontend DTO yet.')
 P['/runbooks']['get']['responses']['413'] = {
     'description':'More than 10000 visible Runbooks match the bounded collection',
     'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('get','/runbooks/{id}','Read governed runbook',response=ref('V3Runbook'),
-    desc='Reads the persisted Runbook, current object authorization, structured steps, revisions and recorded approvals in one read-only snapshot. Hidden, out-of-scope or non-Runbook objects return 404; a missing or unrepresentable structured record returns 503. Usage, incident association and pending reviewer assignment have no complete producer and remain explicitly unknown. A stored last_verified_at is shown only as a recorded timestamp, not proof of execution. complete_v3_dto=false means this partial main-route response does not meet the frozen frontend DTO yet.')
+    desc='Reads the persisted Runbook, current object authorization, structured steps, revisions and recorded approvals in one repeatable snapshot with session and role grant row locks. Hidden, out-of-scope or non-Runbook objects return 404; a missing or unrepresentable structured record returns 503. Usage, incident association and pending reviewer assignment have no complete producer and remain explicitly unknown. A stored last_verified_at is shown only as a recorded timestamp, not proof of execution. complete_v3_dto=false means this partial main-route response does not meet the frozen frontend DTO yet.')
 for _path in ['/runbooks','/runbooks/{id}']:
     P[_path]['get']['responses']['503'] = {
         'description':'Runbook storage, structured steps, or authorization is unavailable',

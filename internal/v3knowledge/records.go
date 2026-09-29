@@ -39,18 +39,52 @@ func structuredRunbookError(w http.ResponseWriter, err error) {
 	knowledgeError(w, err)
 }
 
+func lockRunbookReadSession(ctx context.Context, tx pgx.Tx, r *http.Request) error {
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil {
+		return store.ErrSessionRevoked
+	}
+	return store.LockActiveSession(ctx, tx, cookie.Value, httpapi.CurrentUser(r).ID)
+}
+
+func runbookReadAuthorityError(w http.ResponseWriter, err error) {
+	if errors.Is(err, store.ErrSessionRevoked) {
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		return
+	}
+	httpapi.Error(w, 503, "authorization_unavailable", "Runbook access could not be checked")
+}
+
+// Session and grant row locks serialize a response with logout and changes to
+// the locked role grants while document and permission reads use one snapshot.
+func (s *Service) beginRunbookRead(w http.ResponseWriter, r *http.Request, ctx context.Context) (pgx.Tx, bool) {
+	tx, err := s.DB.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		knowledgeError(w, err)
+		return nil, false
+	}
+	if err = lockRunbookReadSession(ctx, tx, r); err == nil {
+		err = lockRunbookGrantSources(ctx, tx, httpapi.CurrentUser(r).ID)
+	}
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		runbookReadAuthorityError(w, err)
+		return nil, false
+	}
+	return tx, true
+}
+
 func (s *Service) readableRunbook(w http.ResponseWriter, r *http.Request) (pgx.Tx, knowledge.Document, bool) {
 	if !s.ready(w) {
 		return nil, knowledge.Document{}, false
 	}
-	tx, err := s.DB.BeginTx(r.Context(), pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
-	if err != nil {
-		knowledgeError(w, err)
+	tx, ok := s.beginRunbookRead(w, r, r.Context())
+	if !ok {
 		return nil, knowledge.Document{}, false
 	}
 	var doc knowledge.Document
 	doc.ID = r.PathValue("id")
-	err = tx.QueryRow(r.Context(), `SELECT COALESCE(application_id,''),title,source,version,lifecycle,metadata
+	err := tx.QueryRow(r.Context(), `SELECT COALESCE(application_id,''),title,source,version,lifecycle,metadata
  FROM knowledge_documents WHERE id=$1`, doc.ID).
 		Scan(&doc.ApplicationID, &doc.Title, &doc.Source, &doc.Version, &doc.Lifecycle, &doc.Metadata)
 	if err != nil {
@@ -87,6 +121,10 @@ func (s *Service) recordHandler() http.HandlerFunc {
 		record, err := readStructuredRunbook(r.Context(), tx, doc.ID)
 		if err != nil {
 			structuredRunbookError(w, err)
+			return
+		}
+		if err = lockRunbookReadSession(r.Context(), tx, r); err != nil {
+			runbookReadAuthorityError(w, err)
 			return
 		}
 		if err = tx.Commit(r.Context()); err != nil {
@@ -224,6 +262,10 @@ func (s *Service) historyHandler() http.HandlerFunc {
 		}
 		if len(versions) > 100 || len(reviews) > 100 || len(validations) > 100 {
 			httpapi.Error(w, 413, "history_too_large", "Runbook history exceeds the unpaged response limit")
+			return
+		}
+		if err = lockRunbookReadSession(r.Context(), tx, r); err != nil {
+			runbookReadAuthorityError(w, err)
 			return
 		}
 		if err = tx.Commit(r.Context()); err != nil {

@@ -38,7 +38,7 @@ type runbookSummary struct {
 	Refs30d        *int       `json:"refs_30d"`
 	ResolveRate    *float64   `json:"resolve_rate"`
 	LastVerified   *string    `json:"last_verified"`
-	Stale          bool       `json:"stale"`
+	Stale          *bool      `json:"stale"`
 	EnvironmentIDs []string   `json:"environment_ids"`
 	ApplicationID  string     `json:"application_id"`
 	TeamID         string     `json:"team_id"`
@@ -110,14 +110,15 @@ func projectRunbookSummary(row runbookReadRow, selected []string, now time.Time)
 	out := runbookSummary{
 		ID: doc.ID, Title: doc.Title, Tags: nonnilStrings(doc.Metadata.Tags),
 		Scope: scope, Owner: owner, Version: "v" + strconv.Itoa(doc.Version),
-		Status: doc.Lifecycle, Stale: true, EnvironmentIDs: environments,
+		Status: doc.Lifecycle, EnvironmentIDs: environments,
 		ApplicationID: doc.ApplicationID, TeamID: doc.Metadata.TeamID,
 		VerifiedAt: row.VerifiedAt,
 	}
 	if row.VerifiedAt != nil {
 		value := row.VerifiedAt.UTC().Format(time.RFC3339)
 		out.LastVerified = &value
-		out.Stale = now.Sub(*row.VerifiedAt) > 90*24*time.Hour
+		stale := now.Sub(*row.VerifiedAt) > 90*24*time.Hour
+		out.Stale = &stale
 	}
 	return out
 }
@@ -141,14 +142,14 @@ func (s *Service) listHandler() http.HandlerFunc {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
-		tx, err := s.DB.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
-		if err != nil {
-			knowledgeError(w, err)
+		tx, ok := s.beginRunbookRead(w, r, ctx)
+		if !ok {
 			return
 		}
 		defer tx.Rollback(ctx)
-		counts := map[string]int{"all": 0, "mine": 0, "review": 0, "stale": 0}
+		counts := map[string]int{"all": 0, "mine": 0, "review": 0, "stale": 0, "verification_unknown": 0}
 		items := make([]runbookSummary, 0, perPage)
+		now := time.Now()
 		selectedCount := 0
 		var cursor *time.Time
 		cursorID := ""
@@ -201,7 +202,7 @@ func (s *Service) listHandler() http.HandlerFunc {
 						continue
 					}
 				}
-				summary := projectRunbookSummary(row, allowedEnvironments, time.Now())
+				summary := projectRunbookSummary(row, allowedEnvironments, now)
 				counts["all"]++
 				if doc.Metadata.MaintainerID == httpapi.CurrentUser(r).ID {
 					counts["mine"]++
@@ -209,7 +210,9 @@ func (s *Service) listHandler() http.HandlerFunc {
 				if doc.Lifecycle == "review" {
 					counts["review"]++
 				}
-				if summary.Stale {
+				if summary.Stale == nil {
+					counts["verification_unknown"]++
+				} else if *summary.Stale {
 					counts["stale"]++
 				}
 				if counts["all"] > 10000 {
@@ -217,7 +220,7 @@ func (s *Service) listHandler() http.HandlerFunc {
 					return
 				}
 				selected := tab == "all" || tab == "mine" && doc.Metadata.MaintainerID == httpapi.CurrentUser(r).ID ||
-					tab == "review" && doc.Lifecycle == "review" || tab == "stale" && summary.Stale
+					tab == "review" && doc.Lifecycle == "review" || tab == "stale" && summary.Stale != nil && *summary.Stale
 				if selected {
 					if selectedCount >= (page-1)*perPage && len(items) < perPage {
 						items = append(items, summary)
@@ -232,15 +235,23 @@ func (s *Service) listHandler() http.HandlerFunc {
 			cursor = &last.CreatedAt
 			cursorID = last.ID
 		}
-		if err = tx.Commit(ctx); err != nil {
+		if err := lockRunbookReadSession(ctx, tx, r); err != nil {
+			runbookReadAuthorityError(w, err)
+			return
+		}
+		if err := tx.Commit(ctx); err != nil {
 			knowledgeError(w, err)
 			return
 		}
+		unknown := append([]string(nil), runbookListUnknown...)
+		if counts["verification_unknown"] > 0 {
+			unknown = append(unknown, "last_verified", "stale")
+		}
 		httpapi.WriteJSON(w, 200, map[string]any{
-			"items": items, "counts": counts, "kpis": []any{}, "suggestions": []any{},
+			"items": items, "counts": counts, "kpis": nil, "suggestions": nil,
 			"page": page, "per_page": perPage, "total": selectedCount,
 			"has_next":        page*perPage < selectedCount,
-			"complete_v3_dto": false, "partial": true, "unknown_fields": runbookListUnknown,
+			"complete_v3_dto": false, "partial": true, "unknown_fields": unknown,
 		})
 	}
 }
@@ -358,6 +369,10 @@ func (s *Service) getHandler() http.HandlerFunc {
 		owner := doc.Metadata.MaintainerID
 		if err = tx.QueryRow(r.Context(), `SELECT COALESCE((SELECT name FROM users WHERE id=$1),$1)`, owner).Scan(&owner); err != nil {
 			knowledgeError(w, err)
+			return
+		}
+		if err = lockRunbookReadSession(r.Context(), tx, r); err != nil {
+			runbookReadAuthorityError(w, err)
 			return
 		}
 		if err = tx.Commit(r.Context()); err != nil {

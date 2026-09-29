@@ -315,6 +315,21 @@ func (s *Service) scopedTx(w http.ResponseWriter, r *http.Request, tx pgx.Tx, ac
 			httpapi.Error(w, 503, "authorization_unavailable", "Proposal authorization unavailable")
 			return record{}, false
 		}
+		if action == "manage" {
+			// Reject is a human decision. The final check remains in Reject,
+			// but a machine must not scan the discussion before reaching it.
+			var human bool
+			err = tx.QueryRow(r.Context(), `SELECT v3_identity_kind='human' FROM users
+ WHERE id=$1 AND NOT disabled AND deleted_at IS NULL FOR SHARE`, user.ID).Scan(&human)
+			if errors.Is(err, pgx.ErrNoRows) || err == nil && !human {
+				httpapi.Error(w, 403, "forbidden", "Human reviewer required")
+				return record{}, false
+			}
+			if err != nil {
+				unavailable(w)
+				return record{}, false
+			}
+		}
 		if err = beforeAuthorization(v); err != nil {
 			unavailable(w)
 			return record{}, false

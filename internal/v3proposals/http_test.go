@@ -225,6 +225,27 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 	if err := json.Unmarshal(view.Body.Bytes(), &proposal); err != nil || len(proposal.Discussion) != 1 || proposal.Discussion[0].Text != "Review evidence" {
 		t.Fatalf("comment not persisted in detail: %s (%v)", view.Body.String(), err)
 	}
+	t.Run("machine-reject-skips-discussion-read", func(t *testing.T) {
+		blocker, err := db.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer blocker.Rollback(ctx)
+		if _, err := blocker.Exec(ctx, `LOCK TABLE v3_proposal_comments IN ACCESS EXCLUSIVE MODE`); err != nil {
+			t.Fatal(err)
+		}
+		response := make(chan *httptest.ResponseRecorder, 1)
+		go func() {
+			response <- request(api, "POST", mainID, "/reject", "dev", machineToken,
+				`{"comment":"Machine may not reject"}`, "")
+		}()
+		select {
+		case result := <-response:
+			assert(result, 403, "forbidden")
+		case <-time.After(2 * time.Second):
+			t.Fatal("machine rejection waited on discussion table")
+		}
+	})
 	assert(request(api, "POST", mainID, "/reject", "dev", machineToken, `{"comment":"Unsafe"}`, ""), 403, "forbidden")
 	rejected := request(api, "POST", mainID, "/reject", "dev", reviewerToken, `{"comment":"Unsafe"}`, "")
 	assert(rejected, 200, "")

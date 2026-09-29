@@ -30,6 +30,8 @@ import (
 const MaxUpload = 20 << 20
 
 var ErrInvalidReference = errors.New("invalid attachment reference")
+var ErrModelUnsupportedAttachment = errors.New("attachment type is unsupported by the model")
+var ErrAttachmentContextTooLarge = errors.New("attachment text exceeds context budget")
 
 type Upload struct {
 	ID   string `json:"id"`
@@ -38,6 +40,131 @@ type Upload struct {
 	Size int64  `json:"size"`
 	MIME string `json:"mime"`
 	URL  string `json:"url,omitempty"`
+}
+
+// TextAttachment contains a checked, same-scope upload and its inert UTF-8
+// contents. Callers must still treat Text as untrusted user input.
+type TextAttachment struct {
+	Upload Upload
+	Text   string
+}
+
+// LoadTextAttachmentsTx resolves complete client references in the caller's
+// transaction. The row locks keep ownership and metadata stable through the
+// caller's message commit. A size predicate prevents fetching oversized bytea.
+func LoadTextAttachmentsTx(ctx context.Context, tx pgx.Tx, ownerID, environment string, raw []json.RawMessage, maxBytes int) ([]TextAttachment, error) {
+	if tx == nil || ownerID == "" || environment == "" || environment == "all" || len(raw) > 20 {
+		return nil, ErrInvalidReference
+	}
+	if maxBytes <= 0 {
+		return nil, ErrAttachmentContextTooLarge
+	}
+	result := make([]TextAttachment, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
+	remaining := maxBytes
+	for _, item := range raw {
+		var fields map[string]json.RawMessage
+		if err := decodeStrict(bytes.NewReader(item), &fields); err != nil || fields == nil {
+			return nil, ErrInvalidReference
+		}
+		for _, key := range []string{"id", "kind", "name", "size", "mime"} {
+			value, ok := fields[key]
+			if !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+				return nil, ErrInvalidReference
+			}
+		}
+		var submitted Upload
+		if err := decodeStrict(bytes.NewReader(item), &submitted); err != nil || submitted.ID == "" {
+			return nil, ErrInvalidReference
+		}
+		if submitted.Kind == "file" || submitted.Kind == "image" || submitted.Kind == "link" {
+			value, ok := fields["url"]
+			if !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+				return nil, ErrInvalidReference
+			}
+		}
+		if _, exists := seen[submitted.ID]; exists {
+			return nil, ErrInvalidReference
+		}
+		seen[submitted.ID] = struct{}{}
+		var saved Upload
+		err := tx.QueryRow(ctx, `SELECT id,kind,name,size_bytes,mime,url FROM v3_uploads WHERE id=$1 AND owner_id=$2 AND environment_id=$3 FOR SHARE`,
+			submitted.ID, ownerID, environment).Scan(&saved.ID, &saved.Kind, &saved.Name, &saved.Size, &saved.MIME, &saved.URL)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrInvalidReference
+		}
+		if err != nil {
+			return nil, err
+		}
+		if saved.Kind == "file" || saved.Kind == "image" {
+			saved.URL = "/api/v1/uploads/" + saved.ID + "/content"
+		}
+		name, nameErr := cleanName(saved.Name)
+		if nameErr != nil || name != saved.Name {
+			return nil, ErrInvalidReference
+		}
+		if submitted != saved || saved.Size < 0 {
+			return nil, ErrInvalidReference
+		}
+		if saved.Kind != "file" && saved.Kind != "paste" {
+			return nil, ErrModelUnsupportedAttachment
+		}
+		if saved.Kind == "paste" {
+			if saved.MIME != "text/plain" || saved.URL != "" {
+				return nil, ErrModelUnsupportedAttachment
+			}
+		} else if !supportedTextFile(saved.Name, saved.MIME) {
+			return nil, ErrModelUnsupportedAttachment
+		}
+		if saved.Size > int64(remaining) {
+			return nil, ErrAttachmentContextTooLarge
+		}
+		var data []byte
+		// The metadata row remains locked, so its size and scope cannot change
+		// between these queries. The SQL predicate bounds the transferred bytea
+		// even if stored size and actual content differ in a test or old row.
+		err = tx.QueryRow(ctx, `SELECT content FROM v3_uploads WHERE id=$1 AND owner_id=$2 AND environment_id=$3 AND octet_length(content)<=$4`,
+			saved.ID, ownerID, environment, remaining).Scan(&data)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrAttachmentContextTooLarge
+		}
+		if err != nil {
+			return nil, err
+		}
+		if data == nil || int64(len(data)) != saved.Size {
+			return nil, ErrInvalidReference
+		}
+		if saved.Kind == "paste" {
+			if !safeText(data) {
+				return nil, ErrModelUnsupportedAttachment
+			}
+		} else {
+			detected, err := safeFileType(saved.Name, data)
+			if err != nil || detected != saved.MIME {
+				return nil, ErrModelUnsupportedAttachment
+			}
+		}
+		remaining -= len(data)
+		result = append(result, TextAttachment{Upload: saved, Text: string(data)})
+	}
+	return result, nil
+}
+
+func supportedTextFile(name, savedMIME string) bool {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".txt", ".log":
+		return savedMIME == "text/plain"
+	case ".md":
+		return savedMIME == "text/markdown"
+	case ".csv":
+		return savedMIME == "text/csv"
+	case ".json":
+		return savedMIME == "application/json"
+	case ".yaml", ".yml":
+		return savedMIME == "application/yaml"
+	default:
+		return false
+	}
 }
 
 // ReadAuthorizer rechecks the current V3 conversation:view grant against the

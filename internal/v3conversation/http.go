@@ -187,11 +187,6 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		// The current inference request contains only text messages. Accepting
-		// an upload reference here would save it while silently excluding its
-		// content from the model. Fail before a user turn is committed instead.
-		apiError(w, 422, "attachment_model_unsupported", "This model reply cannot read attachments yet")
-		return
 	}
 	if len(in.Reasoning) > 128 {
 		apiError(w, 422, "invalid_reasoning", "Invalid reasoning choice")
@@ -230,7 +225,16 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) {
 	}
 	msg, reply, err := s.startTurn(r.Context(), id, u.ID, env, u.Name, store.Hash(cookie.Value), in, model)
 	if err != nil {
-		operationError(w, err)
+		switch {
+		case errors.Is(err, v3uploads.ErrInvalidReference):
+			apiError(w, 422, "invalid_attachment", "Attachment is unavailable or outside this environment")
+		case errors.Is(err, v3uploads.ErrModelUnsupportedAttachment):
+			apiError(w, 422, "attachment_model_unsupported", "This model reply cannot read this attachment type")
+		case errors.Is(err, v3uploads.ErrAttachmentContextTooLarge):
+			apiError(w, 413, "attachment_context_too_large", "Attachment text exceeds this model's input budget")
+		default:
+			operationError(w, err)
+		}
 		return
 	}
 	// The request's context ends with the HTTP response. A bounded worker owns the reply.

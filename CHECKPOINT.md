@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-142 · 2026-09-29 · WAN-119 工作区持久读取与主 GET 状态
+
+- WAN-119 来源 `3fd3e7f` 合入本地分支为 `eaaef57`。`GET /workspace` 在同一读取事务按账号/角色写路径的锁顺序等待，复核账号有效、所选环境与当前 `workspace.view`，再返回持久化工作区八字段；无权返回 403，记录缺失/损坏 503，不用示意默认值填充。独立只读审查未见阻断越权，确认单条 GET 满足后端专用 `implemented` 判据；其测试覆盖矩阵撤权先提交时不返回设置。直接绕开应用锁协议的数据库写入不在该并发保证内。
+- 公共契约与 OpenAPI 明确 `data_region` 只是已保存的部署声明，不能证明实际数据驻留；slug、默认设置和留存天数还未驱动链接、新成员偏好或清理。冻结工作区页面仍使用 Mock，`PUT /workspace` 及整页验收不因本条 GET 自动完成。主状态由 **36/166** 调整为 **37/166 `implemented`**。
+- 一次性隔离 PG17 对 `TestWorkspaceAuthenticatedHTTPPersistenceAndAudit` 与 `TestWorkspaceReadWaitsForViewRevocationBeforeReturningSettings` 定向通过。初次运行前者因旧随机 schema 夹具 `search_path` 不含安装在 public 的 `pgcrypto.digest` 而使写入返回 503；仅把该受影响夹具改为 `schema,public` 后重跑通过，未更改生产授权逻辑。OpenAPI、主契约、路由矩阵、`go vet` 及差异检查按本轮结果核对；未迁移现有业务库、做浏览器/实际驻留验证或推送集成分支。
+
 ## CP-141 · 2026-09-29 · WAN-122 指标授权修复、WAN-123 公开 Web 正文与 WAN-124 账户 Passkey
 
 - WAN-122 来源 `62c61c2` 合入本地集成为 `853b6eb`：可见服务若缺 `connectors.view`，在读取目标绑定或 Vault 前返回 403；隐藏和不存在服务保持相同的无资源响应，上游查询后撤权不返回样本。隔离 PG17 注册/Reader 定向用例通过。PromQL 的真实数据范围仍须操作者独立审核，未实连 Prometheus；`/metrics/dashboard` 主页面继续 `mock`。

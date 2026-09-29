@@ -170,7 +170,7 @@
 | 设置 | PUT | `/me/notification-settings` | 新增 | implemented |
 | 设置 | GET | `/me/ai-preferences` | 新增 | implemented |
 | 设置 | PUT | `/me/ai-preferences` | 新增 | implemented |
-| 设置 | GET | `/workspace` | 新增 | mock |
+| 设置 | GET | `/workspace` | 新增 | implemented |
 | 设置 | PUT | `/workspace` | 新增 | mock |
 | 设置 | GET | `/audit` | 旧路径适配 | implemented |
 | 设置 | GET | `/audit/{id}` | 聚合 | implemented |

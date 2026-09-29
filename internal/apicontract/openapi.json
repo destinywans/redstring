@@ -24372,7 +24372,7 @@
       "get": {
         "summary": "Read workspace settings",
         "operationId": "get_workspace",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Reads the persisted workspace record. A missing or invalid record returns 503 workspace_unavailable rather than invented defaults. This is backend persistence only: deployment-owned fields and the page-wide workspace contract are not yet wired.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Rechecks the active account and current workspace.view grant for a selected authorized environment in the same read transaction, then returns the persisted workspace record. A missing or invalid record returns 503 workspace_unavailable rather than invented defaults. data_region is a saved deployment declaration, not proof of physical data residency. Saved slug, defaults and retention do not yet drive dependent product behavior; the frozen frontend page still uses mock data.",
         "responses": {
           "200": {
             "description": "Success",

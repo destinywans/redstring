@@ -28,6 +28,12 @@ func (activationResolver) Resolve(_ context.Context, ref string) (string, error)
 	return "isolated-token", nil
 }
 
+type unavailableActivationResolver struct{}
+
+func (unavailableActivationResolver) Resolve(context.Context, string) (string, error) {
+	return "", ErrCredentialUnavailable
+}
+
 func TestGitLabActivationRequiresCredentialProjectAndVerifiedRead(t *testing.T) {
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
@@ -119,7 +125,12 @@ func TestGitLabActivationRequiresCredentialProjectAndVerifiedRead(t *testing.T) 
 	}
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
-	svc := New(db, "nonprod", activationResolver{})
+	binding := CredentialBinding{
+		Tier: "nonprod", EnvironmentID: "dev", ConnectorID: "draft",
+		Provider: "gitlab", Endpoint: upstream.URL,
+		CredentialRef: "vault://isolated/gitlab#token",
+	}
+	svc := New(db, "nonprod", NewBoundResolver(activationResolver{}, []CredentialBinding{binding}))
 	svc.Register(api)
 	if err = api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev", "test"}},
 		policy, st.Session, func(ctx context.Context, user core.User, module, action, environment string) error {
@@ -169,11 +180,29 @@ func TestGitLabActivationRequiresCredentialProjectAndVerifiedRead(t *testing.T) 
 	if _, err = db.Exec(ctx, `UPDATE applications SET archived=false WHERE id='activation-app'`); err != nil {
 		t.Fatal(err)
 	}
+	svc.Prober.Resolver = NewBoundResolver(unavailableActivationResolver{}, []CredentialBinding{binding})
+	assert(request("dev", session, body), 503, "credential_unavailable")
+	if verified.Load() != 0 {
+		t.Fatal("failed Vault resolution reached GitLab")
+	}
+	svc.Prober.Resolver = NewBoundResolver(activationResolver{}, []CredentialBinding{binding})
 	mismatch.Store(true)
 	assert(request("dev", session, body), 502, "project_unavailable")
 	var enabled bool
 	if err = db.QueryRow(ctx, `SELECT enabled FROM v3_connectors WHERE id='draft'`).Scan(&enabled); err != nil || enabled {
 		t.Fatalf("failed verification activated connector: %v %v", enabled, err)
+	}
+	var failedCount, vaultFailureCount, projectFailureCount int
+	var failureChanges string
+	if err = db.QueryRow(ctx, `SELECT count(*),
+		count(*) FILTER (WHERE changes->>'reason'='credential_unavailable'),
+		count(*) FILTER (WHERE changes->>'reason'='project_unavailable'),
+		COALESCE(string_agg(changes::text,' '),'') FROM management_audit
+		WHERE target='draft' AND action='connector.activation.attempted' AND outcome='failure'`).
+		Scan(&failedCount, &vaultFailureCount, &projectFailureCount, &failureChanges); err != nil || failedCount != 2 ||
+		vaultFailureCount != 1 || projectFailureCount != 1 ||
+		strings.Contains(failureChanges, "vault://") || strings.Contains(failureChanges, "isolated-token") {
+		t.Fatalf("sanitized failed attempts: count=%d vault=%d project=%d changes=%s err=%v", failedCount, vaultFailureCount, projectFailureCount, failureChanges, err)
 	}
 	mismatch.Store(false)
 	activated := request("dev", session, body)
@@ -224,7 +253,12 @@ func TestGitLabActivationRequiresCredentialProjectAndVerifiedRead(t *testing.T) 
 	removedAdded := httptest.NewRecorder()
 	api.ServeHTTP(removedAdded, removeAdded)
 	assert(removedAdded, 204, "")
-	assert(request("dev", session, body), 200, "")
+	// Target changes deactivate the connector but retain its valid reference.
+	// Omitted credential_ref must reuse only that exact persisted binding.
+	assert(request("dev", session, `{}`), 200, "")
+	if err = db.QueryRow(ctx, `SELECT credential_ref,enabled FROM v3_connectors WHERE id='draft'`).Scan(&ref, &enabled); err != nil || ref != "vault://isolated/gitlab#token" || !enabled {
+		t.Fatalf("reactivation lost bound persisted reference: ref=%s enabled=%v err=%v", ref, enabled, err)
+	}
 	unbind := httptest.NewRequest(http.MethodDelete,
 		"/api/v1/services/"+serviceID+"/external-targets/binding", nil)
 	unbind.Header.Set("X-AIOps-Environment", "dev")

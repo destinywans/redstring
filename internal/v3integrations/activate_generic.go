@@ -57,14 +57,23 @@ func (s *Service) activateGeneric(w http.ResponseWriter, r *http.Request, initia
 	})
 	result, err := s.Prober.Check(probeCtx, initial.Provider, initial.Endpoint, initial.AuthMethod, credentialRef)
 	if errors.Is(err, ErrCredentialUnavailable) {
+		if !s.auditGenericActivationFailure(w, r, initial, "credential_unavailable") {
+			return
+		}
 		httpapi.Error(w, 503, "credential_unavailable", "Vault credential is unavailable")
 		return
 	}
 	if err != nil {
+		if !s.auditGenericActivationFailure(w, r, initial, "invalid_connector") {
+			return
+		}
 		httpapi.Error(w, 422, "invalid_connector", "Connector settings cannot be tested")
 		return
 	}
 	if !result.OK {
+		if !s.auditGenericActivationFailure(w, r, initial, "read_probe_failed") {
+			return
+		}
 		httpapi.Error(w, 502, "connector_test_failed", "Connector endpoint did not pass its read-only check")
 		return
 	}
@@ -92,15 +101,14 @@ func (s *Service) activateGeneric(w http.ResponseWriter, r *http.Request, initia
 	if !s.authorizeLockedWriteTx(w, r, tx, initial.EnvironmentID) {
 		return
 	}
-	if current.Enabled || current.Provider != initial.Provider || current.Name != initial.Name ||
-		current.Category != initial.Category || current.Endpoint != initial.Endpoint ||
-		current.AuthMethod != initial.AuthMethod || current.CredentialRef != initial.CredentialRef ||
-		current.Webhook != initial.Webhook || !reflect.DeepEqual(current.Tools, initial.Tools) {
+	if !sameGenericActivationRegistration(current, initial) {
 		httpapi.Error(w, 409, "connector_changed", "Connector configuration changed during connection check")
 		return
 	}
-	_, err = tx.Exec(writeCtx, `UPDATE v3_connectors SET credential_ref=$1,enabled=true,status='ok',
- last_checked_at=now(),last_latency_ms=$2,last_error_code='',updated_at=now()
+	_, err = tx.Exec(writeCtx, `UPDATE v3_connectors c SET credential_ref=$1,enabled=true,status='ok',
+ last_checked_at=now(),last_latency_ms=$2,last_error_code='',updated_at=now(),
+ tools=COALESCE((SELECT jsonb_agg(jsonb_set(value,'{enabled}','false'::jsonb,true))
+ FROM jsonb_array_elements(c.tools) AS item(value)),'[]'::jsonb)
  WHERE id=$3 AND environment_id=$4`, credentialRef, result.LatencyMS, current.ID, current.EnvironmentID)
 	if err != nil {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
@@ -122,4 +130,54 @@ func (s *Service) activateGeneric(w http.ResponseWriter, r *http.Request, initia
 		"latency_ms": result.LatencyMS, "webhook_active": false,
 		"credential_verified": false,
 	})
+}
+
+func sameGenericActivationRegistration(current, initial connector) bool {
+	return !current.Enabled && current.Provider == initial.Provider && current.Name == initial.Name &&
+		current.Category == initial.Category && current.Endpoint == initial.Endpoint &&
+		current.AuthMethod == initial.AuthMethod && current.CredentialRef == initial.CredentialRef &&
+		current.Webhook == initial.Webhook && reflect.DeepEqual(current.Tools, initial.Tools)
+}
+
+// A failed probe must leave the registration disabled but still produce a
+// durable attempt record. Recheck the exact target and current authority after
+// network I/O; only fixed reason codes enter the audit, never a Vault reference,
+// token, resolver error or upstream response body.
+func (s *Service) auditGenericActivationFailure(w http.ResponseWriter, r *http.Request, initial connector, reason string) bool {
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	r = r.WithContext(ctx)
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
+		return false
+	}
+	defer rollbackConnectorWrite(tx)
+	current, err := scanConnector(tx.QueryRow(ctx, "SELECT "+columns+" FROM v3_connectors WHERE id=$1 AND environment_id=$2 FOR UPDATE", initial.ID, initial.EnvironmentID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpapi.Error(w, 409, "connector_changed", "Connector scope changed during connection check")
+		return false
+	}
+	if err != nil {
+		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
+		return false
+	}
+	if !s.authorizeLockedWriteTx(w, r, tx, initial.EnvironmentID) {
+		return false
+	}
+	if !sameGenericActivationRegistration(current, initial) {
+		httpapi.Error(w, 409, "connector_changed", "Connector configuration changed during connection check")
+		return false
+	}
+	if err = auditOutcome(ctx, tx, "connector.activation.attempted", current.ID, "failure", map[string]any{
+		"environment": current.EnvironmentID, "provider": current.Provider, "reason": reason,
+	}); err != nil {
+		httpapi.Error(w, 503, "audit_unavailable", "Could not audit connector activation attempt")
+		return false
+	}
+	if err = tx.Commit(ctx); err != nil {
+		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
+		return false
+	}
+	return true
 }

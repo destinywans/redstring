@@ -177,13 +177,32 @@ func TestGenericConnectorDraftActivationCompletesHTTPChain(t *testing.T) {
 	if err = db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE target=$1 AND action='connector.activated'`, draft.ID).Scan(&auditCount); err != nil || auditCount != 0 {
 		t.Fatalf("failed probe wrote activation audit: count=%d err=%v", auditCount, err)
 	}
+	var failureChanges string
+	if err = db.QueryRow(ctx, `SELECT count(*),COALESCE(max(changes::text),'') FROM management_audit
+		WHERE target=$1 AND action='connector.activation.attempted' AND outcome='failure'`, draft.ID).Scan(&auditCount, &failureChanges); err != nil || auditCount != 1 ||
+		!strings.Contains(failureChanges, "read_probe_failed") || strings.Contains(failureChanges, "vault://") || strings.Contains(failureChanges, "isolated-token") {
+		t.Fatalf("failed activation attempt audit: count=%d changes=%s err=%v", auditCount, failureChanges, err)
+	}
 	unavailable.Store(false)
+	// A preexisting disabled registration may carry legacy true preferences.
+	// Activation must reset them in the same transaction as enabled=true.
+	if _, err = db.Exec(ctx, `UPDATE v3_connectors SET tools='[{"name":"query_metrics","enabled":true}]'::jsonb WHERE id=$1`, draft.ID); err != nil {
+		t.Fatal(err)
+	}
 	activated := request(http.MethodPost, path+"/activate", "dev", session, `{}`)
 	assert(activated, 200, "")
 	if !strings.Contains(activated.Body.String(), `"verified_projects":0`) || !strings.Contains(activated.Body.String(), `"webhook_active":false`) ||
 		!strings.Contains(activated.Body.String(), `"credential_verified":false`) ||
 		!strings.Contains(activated.Body.String(), `"enabled":true`) {
 		t.Fatalf("activation response: %s", activated.Body.String())
+	}
+	var activatedTools []byte
+	if err = db.QueryRow(ctx, `SELECT tools FROM v3_connectors WHERE id=$1`, draft.ID).Scan(&activatedTools); err != nil {
+		t.Fatal(err)
+	}
+	var toolsAfterActivation []tool
+	if err = json.Unmarshal(activatedTools, &toolsAfterActivation); err != nil || len(toolsAfterActivation) != 1 || toolsAfterActivation[0].Enabled {
+		t.Fatalf("legacy enabled tool survived activation: %s %v", activatedTools, err)
 	}
 	detail := request(http.MethodGet, path, "dev", session, "")
 	assert(detail, 200, "")

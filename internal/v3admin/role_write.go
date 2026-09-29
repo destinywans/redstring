@@ -47,7 +47,7 @@ func (s *Service) putRole(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "environment_required", "Select one environment to change a role")
 		return
 	}
-	revision, err := s.saveMatrix(r.Context(), r.PathValue("id"), envs[0], expected, wanted)
+	revision, err := s.saveMatrix(r.Context(), r.PathValue("id"), envs[0], roleSessionToken(r), expected, wanted)
 	if err != nil {
 		respond(w, nil, err)
 		return
@@ -81,7 +81,7 @@ func loadGrants(ctx context.Context, db queryer, roleID string) ([]grant, error)
 	return grants, rows.Err()
 }
 
-func (s *Service) saveMatrix(ctx context.Context, roleID, environment string, expected int64, wanted map[string][]int) (int64, error) {
+func (s *Service) saveMatrix(ctx context.Context, roleID, environment, sessionToken string, expected int64, wanted map[string][]int) (int64, error) {
 	tx, err := s.Store.DB.Begin(ctx)
 	if err != nil {
 		return 0, err
@@ -106,6 +106,9 @@ func (s *Service) saveMatrix(ctx context.Context, roleID, environment string, ex
 		return 0, store.ErrForbidden
 	}
 	if err != nil {
+		return 0, err
+	}
+	if err = lockRoleSession(ctx, tx, actor.ID, sessionToken); err != nil {
 		return 0, err
 	}
 	if err = (&rbac.V3Policy{Store: s.Store}).AuthorizeWithTx(ctx, tx, actor, rbac.V3Decision{

@@ -416,7 +416,7 @@ $$`); err != nil {
 		waitForQueuedWriters(2)
 		readResult := make(chan error, 1)
 		go func() {
-			_, _, err := New(st).getRole(operationCtx, "ops-role", globalManager, []string{"dev"}, true)
+			_, _, err := New(st).getRole(operationCtx, "ops-role", globalManager, globalToken, []string{"dev"}, true)
 			readResult <- err
 		}()
 		waitForQueuedWriters(3)
@@ -453,6 +453,80 @@ $$`); err != nil {
 			t.Fatalf("revoked actor wrote audit: count=%d err=%v", targetAudits, err)
 		}
 	})
+	t.Run("queued role detail and matrix write reject logged out session", func(t *testing.T) {
+		_, queuedToken, err := st.Login(ctx, "admin@example.invalid", "isolated-admin-password")
+		if err != nil {
+			t.Fatal(err)
+		}
+		baseline := read("ops-role", "dev", queuedToken)
+		baseline.Matrix[1].Grants[2] = 1
+		var revisionBefore int64
+		if err := db.QueryRow(ctx, `SELECT v3_matrix_revision FROM rbac_roles WHERE id='ops-role'`).Scan(&revisionBefore); err != nil {
+			t.Fatal(err)
+		}
+		blocker, err := db.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer blocker.Rollback(context.Background())
+		if _, err := blocker.Exec(ctx, `SELECT pg_advisory_xact_lock(752018992)`); err != nil {
+			t.Fatal(err)
+		}
+		readResult := make(chan *httptest.ResponseRecorder, 1)
+		writeResult := make(chan *httptest.ResponseRecorder, 1)
+		go func() { readResult <- request(http.MethodGet, "ops-role", "dev", queuedToken, nil) }()
+		go func() {
+			writeResult <- request(http.MethodPut, "ops-role", "dev", queuedToken, baseline.Matrix, strconv.FormatInt(revisionBefore, 10))
+		}()
+		operationCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			var waiting int
+			err := adminDB.QueryRow(operationCtx, `SELECT count(*) FROM pg_locks l
+ JOIN pg_stat_activity a ON a.pid=l.pid
+ WHERE l.locktype='advisory' AND NOT l.granted AND l.objid::bigint=$1
+ AND l.objsubid=1 AND a.application_name=$2`, int64(752018992), schema).Scan(&waiting)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if waiting >= 2 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("expected queued GET and PUT; found %d advisory waiters", waiting)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if tag, err := db.Exec(ctx, `DELETE FROM sessions WHERE token_hash=$1`, store.Hash(queuedToken)); err != nil || tag.RowsAffected() != 1 {
+			t.Fatalf("revoke queued session: rows=%d err=%v", tag.RowsAffected(), err)
+		}
+		if err := blocker.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		for _, result := range []<-chan *httptest.ResponseRecorder{readResult, writeResult} {
+			select {
+			case response := <-result:
+				assertError(response, 401, "unauthorized")
+			case <-operationCtx.Done():
+				t.Fatal("queued role request timed out")
+			}
+		}
+		var revisionAfter, auditCount int64
+		var changedGrant bool
+		if err := db.QueryRow(ctx, `SELECT v3_matrix_revision FROM rbac_roles WHERE id='ops-role'`).Scan(&revisionAfter); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE action='v3.role.matrix.updated' AND target='ops-role'`).Scan(&auditCount); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_role_grants WHERE role_id='ops-role' AND module='events' AND action='delete')`).Scan(&changedGrant); err != nil {
+			t.Fatal(err)
+		}
+		if revisionAfter != revisionBefore || auditCount != 1 || changedGrant {
+			t.Fatalf("logged out session wrote role: revision=%d/%d audit=%d grant=%t", revisionAfter, revisionBefore, auditCount, changedGrant)
+		}
+	})
 	// This human can manage roles globally but lacks global environment
 	// admission. Keeping only this manager must still be rejected.
 	if _, err := db.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'dev-global-manager')`, devGlobalManager.ID); err != nil {
@@ -478,7 +552,7 @@ $$`); err != nil {
 		t.Fatal(err)
 	}
 	ctx = store.WithPrincipal(ctx, admin)
-	if _, err := New(st).saveMatrix(ctx, "ops-role", "dev", 1, map[string][]int{}); !errors.Is(err, store.ErrForbidden) {
+	if _, err := New(st).saveMatrix(ctx, "ops-role", "dev", adminToken, 1, map[string][]int{}); !errors.Is(err, store.ErrForbidden) {
 		t.Fatalf("revoked manager changed matrix: %v", err)
 	}
 }

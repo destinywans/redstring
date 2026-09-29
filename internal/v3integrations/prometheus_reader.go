@@ -301,8 +301,13 @@ func (p *PrometheusReader) resolveServiceMetricTarget(ctx context.Context, user 
 	var visible []candidate
 	for _, item := range candidates {
 		if err = svc.authorizeTargetTx(ctx, tx, user, item.app, env, item.team, "view"); err != nil {
-			if errors.Is(err, errTargetServiceForbidden) || errors.Is(err, store.ErrForbidden) {
+			if errors.Is(err, errTargetServiceForbidden) {
 				continue
+			}
+			// The service is visible; deny access before looking up bindings
+			// so source existence stays undisclosed without connectors.view.
+			if errors.Is(err, store.ErrForbidden) {
+				return "", "", metricReadError("forbidden")
 			}
 			return "", "", metricReadError("authorization_unavailable")
 		}

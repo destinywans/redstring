@@ -64,13 +64,17 @@ func TestPrometheusRegistrationBindingVaultAndScopedQuery(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
-		`INSERT INTO applications(id,name,key,environment,archived) VALUES ('checkout','Checkout','checkout','dev',false)`,
+		`INSERT INTO applications(id,name,key,environment,archived) VALUES
+ ('checkout','Checkout','checkout','dev',false),('plain','Plain','plain','dev',false)`,
 		`INSERT INTO application_environments(id,application_id,key,name,bindings) VALUES
- ('checkout-dev','checkout','dev','Dev','[]'),('checkout-test','checkout','test','Test','[]')`,
-		`INSERT INTO v3_application_environments(application_id,environment_id) VALUES ('checkout','dev'),('checkout','test')`,
+		 ('checkout-dev','checkout','dev','Dev','[]'),('checkout-test','checkout','test','Test','[]'),
+ ('plain-dev','plain','dev','Dev','[]')`,
+		`INSERT INTO v3_application_environments(application_id,environment_id) VALUES
+ ('checkout','dev'),('checkout','test'),('plain','dev')`,
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
  ('viewer','environment','view','environment','dev'),
- ('viewer','services','view','application','checkout')`,
+ ('viewer','services','view','application','checkout'),
+ ('viewer','services','view','application','plain')`,
 	} {
 		if _, err := db.Exec(ctx, statement); err != nil {
 			t.Fatal(err)
@@ -217,6 +221,27 @@ func TestPrometheusRegistrationBindingVaultAndScopedQuery(t *testing.T) {
 	if _, err := reader.Query(ctx, scope, readerUser, "checkout", "dev", target.ID, "request_rate", window); code(err) != "forbidden" || queryCalls.Load() != 1 {
 		t.Fatalf("missing connector grant: code=%q calls=%d", code(err), queryCalls.Load())
 	}
+	beforeVault := vaultCalls.Load()
+	for _, service := range []string{"checkout", "plain"} {
+		if _, err := reader.QueryService(ctx, scope, readerUser, service, "dev", "request_rate", window); code(err) != "forbidden" ||
+			queryCalls.Load() != 1 || vaultCalls.Load() != beforeVault {
+			t.Fatalf("visible service %q missing connector grant: code=%q queries=%d vault=%d", service, code(err), queryCalls.Load(), vaultCalls.Load())
+		}
+	}
+	if _, err := reader.QueryService(ctx, scope, readerUser, "absent", "dev", "request_rate", window); code(err) != "source_not_found" {
+		t.Fatalf("nonexistent service: code=%q", code(err))
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='services' AND action='view' AND scope_kind='application' AND scope_id='checkout'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reader.QueryService(ctx, scope, readerUser, "checkout", "dev", "request_rate", window); code(err) != "source_not_found" ||
+		queryCalls.Load() != 1 || vaultCalls.Load() != beforeVault {
+		t.Fatalf("hidden service differed from nonexistent: code=%q queries=%d vault=%d", code(err), queryCalls.Load(), vaultCalls.Load())
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('viewer','services','view','application','checkout')`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
  VALUES('viewer','connectors','view','environment','dev')`); err != nil {
 		t.Fatal(err)
@@ -231,7 +256,7 @@ func TestPrometheusRegistrationBindingVaultAndScopedQuery(t *testing.T) {
 	if _, err := db.Exec(ctx, `UPDATE v3_connectors SET last_checked_at=now()-interval '16 minutes' WHERE id=$1`, registration.ID); err != nil {
 		t.Fatal(err)
 	}
-	evidence, err := reader.Query(ctx, scope, readerUser, "checkout", "dev", target.ID, "request_rate", window)
+	evidence, err := reader.QueryService(ctx, scope, readerUser, "checkout", "dev", "request_rate", window)
 	if err != nil || evidence.Empty || len(evidence.Series) != 1 || evidence.Series[0].Samples[0].Value != "2.5" || queryCalls.Load() != 2 || vaultCalls.Load() < 3 {
 		t.Fatalf("real query evidence=%+v err=%v calls=%d vault=%d", evidence, err, queryCalls.Load(), vaultCalls.Load())
 	}
@@ -260,7 +285,7 @@ func TestPrometheusRegistrationBindingVaultAndScopedQuery(t *testing.T) {
 	releaseQuery = make(chan struct{})
 	result := make(chan error, 1)
 	go func() {
-		_, queryErr := reader.Query(ctx, scope, readerUser, "checkout", "dev", target.ID, "request_rate", window)
+		_, queryErr := reader.QueryService(ctx, scope, readerUser, "checkout", "dev", "request_rate", window)
 		result <- queryErr
 	}()
 	select {

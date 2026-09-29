@@ -35,9 +35,34 @@ func (s *Service) Guardrails(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rows, err := s.DB.Query(r.Context(), `SELECT p.id,p.environment_id,p.name,p.description,p.forced,p.enabled,p.revision
+	ctx := r.Context()
+	tx, err := s.DB.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	defer tx.Rollback(ctx)
+	var dbNow time.Time
+	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&dbNow); err != nil {
+		unavailable(w)
+		return
+	}
+	utc := dbNow.UTC()
+	today := time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC)
+	start, end := today.AddDate(0, 0, -6), today.AddDate(0, 0, 1)
+	trendDays := make([]string, 7)
+	trend := make([][]int64, 7)
+	dayIndex := make(map[string]int, 7)
+	for i := range trend {
+		day := start.AddDate(0, 0, i).Format("2006-01-02")
+		trendDays[i] = day
+		dayIndex[day] = i
+		trend[i] = []int64{0, 0}
+	}
+	actorID := httpapi.CurrentUser(r).ID
+	rows, err := tx.Query(ctx, `SELECT p.id,p.environment_id,p.name,p.description,p.forced,p.enabled,p.revision
  FROM v3_agent_guard_policies p WHERE p.environment_id=ANY($1) AND `+visiblePolicyGrantSQL+`
- ORDER BY p.name,p.id LIMIT 201`, envs, httpapi.CurrentUser(r).ID)
+ ORDER BY p.name,p.id LIMIT 201`, envs, actorID)
 	if err != nil {
 		unavailable(w)
 		return
@@ -58,6 +83,59 @@ func (s *Service) Guardrails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows.Close()
+	// Aggregate the entire visible, revision-backed reporting set before the
+	// 200-row display limit. Legacy reports lack a trusted decision time and do
+	// not establish a day bucket or a policy's enabled state at that time.
+	counts := map[string]int64{"all": 0, "blocked": 0, "masked": 0}
+	policyReports := make(map[string]int64)
+	rows, err = tx.Query(ctx, `SELECT ge.policy_id,
+ to_char(ge.observed_at AT TIME ZONE 'UTC','YYYY-MM-DD'),ge.action,count(*)::bigint
+ FROM v3_agent_guard_events ge
+ JOIN v3_agent_runs gr ON gr.id=ge.run_id
+ JOIN v3_agents a ON a.id=gr.agent_id AND a.application_id=gr.application_id
+ AND a.environment_id=gr.environment_id
+ JOIN v3_agent_guard_policies p ON p.id=ge.policy_id AND p.environment_id=gr.environment_id
+ JOIN v3_agent_guard_policy_revisions pr ON pr.policy_id=ge.policy_id
+ AND pr.revision=ge.policy_revision
+ WHERE gr.environment_id=ANY($1) AND ge.observed_at >= $3 AND ge.observed_at < $4
+ AND ge.policy_revision IS NOT NULL
+ AND pr.enabled AND ge.observed_at >= pr.valid_from
+ AND (pr.valid_to IS NULL OR ge.observed_at < pr.valid_to)
+ AND `+visibleAgentGrantSQL+` AND `+visiblePolicyGrantSQL+`
+ GROUP BY ge.policy_id,2,ge.action`, envs, actorID, start, end)
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	for rows.Next() {
+		var policyID, day, action string
+		var n int64
+		if err = rows.Scan(&policyID, &day, &action, &n); err != nil {
+			rows.Close()
+			unavailable(w)
+			return
+		}
+		i, found := dayIndex[day]
+		if !found || (action != "blocked" && action != "masked") {
+			rows.Close()
+			unavailable(w)
+			return
+		}
+		counts["all"] += n
+		counts[action] += n
+		policyReports[policyID] += n
+		if action == "blocked" {
+			trend[i][0] += n
+		} else {
+			trend[i][1] += n
+		}
+	}
+	if rows.Err() != nil {
+		rows.Close()
+		unavailable(w)
+		return
+	}
+	rows.Close()
 	policies := make([]any, 0)
 	for i, p := range allPolicies {
 		if i == 200 {
@@ -65,16 +143,27 @@ func (s *Service) Guardrails(w http.ResponseWriter, r *http.Request) {
 		}
 		policies = append(policies, map[string]any{"id": p.ID, "icon": "shield", "name": p.Name,
 			"desc": p.Description, "stat": unknown, "enabled": p.Enabled, "forced": p.Forced,
-			"revision": p.Revision})
+			"revision": p.Revision, "reported_events_7d": policyReports[p.ID]})
 	}
 	events := make([]any, 0)
-	rows2, err := s.DB.Query(r.Context(), `SELECT ge.id,ge.created_at,ge.observed_at,ge.policy_revision,
+	rows2, err := tx.Query(ctx, `SELECT ge.id,ge.created_at,
+ CASE WHEN ge.observed_at IS NOT NULL AND pr.enabled
+ AND ge.observed_at >= pr.valid_from AND (pr.valid_to IS NULL OR ge.observed_at < pr.valid_to)
+ THEN ge.observed_at ELSE NULL END,
+ CASE WHEN ge.observed_at IS NOT NULL AND pr.enabled
+ AND ge.observed_at >= pr.valid_from AND (pr.valid_to IS NULL OR ge.observed_at < pr.valid_to)
+ THEN ge.policy_revision ELSE NULL END,
  ge.run_id,ge.policy_id,ge.action,
  ge.target_kind,ge.reason_code,gr.agent_id,gr.application_id,gr.environment_id,a.name
- FROM v3_agent_guard_events ge
- JOIN v3_agent_runs gr ON gr.id=ge.run_id JOIN v3_agents a ON a.id=gr.agent_id
- WHERE gr.environment_id=ANY($1) AND ($3='all' OR ge.action=$3) AND `+visibleAgentGrantSQL+`
- ORDER BY ge.created_at DESC,ge.id DESC LIMIT 201`, envs, httpapi.CurrentUser(r).ID, filter)
+ FROM v3_agent_guard_events ge JOIN v3_agent_runs gr ON gr.id=ge.run_id
+ JOIN v3_agents a ON a.id=gr.agent_id AND a.application_id=gr.application_id
+ AND a.environment_id=gr.environment_id
+ JOIN v3_agent_guard_policies p ON p.id=ge.policy_id AND p.environment_id=gr.environment_id
+ LEFT JOIN v3_agent_guard_policy_revisions pr ON pr.policy_id=ge.policy_id
+ AND pr.revision=ge.policy_revision
+ WHERE gr.environment_id=ANY($1) AND ($3='all' OR ge.action=$3)
+ AND `+visibleAgentGrantSQL+` AND `+visiblePolicyGrantSQL+`
+ ORDER BY ge.created_at DESC,ge.id DESC LIMIT 201`, envs, actorID, filter)
 	if err != nil {
 		unavailable(w)
 		return
@@ -101,6 +190,7 @@ func (s *Service) Guardrails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows2.Close()
+	var detail any
 	for i, v := range allEvents {
 		if i == 200 {
 			break
@@ -111,13 +201,30 @@ func (s *Service) Guardrails(w http.ResponseWriter, r *http.Request) {
 			eventTime = *v.observed
 			timeSource = "policy_decision"
 		}
-		events = append(events, map[string]any{"id": v.id, "time": timeString(eventTime), "agent": v.name,
+		item := map[string]any{"id": v.id, "time": timeString(eventTime), "agent": v.name,
 			"recorded_at": timeString(v.at), "time_source": timeSource, "policy_revision": v.revision,
-			"run": v.runID, "rule": v.policyID, "action": v.action, "detail": v.reason, "target_kind": v.target})
+			"run": v.runID, "rule": v.policyID, "action": v.action, "detail": v.reason, "target_kind": v.target}
+		events = append(events, item)
+		if detail == nil {
+			detail = map[string]any{"id": v.id, "title": v.action + " / " + v.target,
+				"meta": v.name + " / " + v.runID, "time": timeString(eventTime),
+				"recorded_at": timeString(v.at), "time_source": timeSource,
+				"policy_revision": v.revision, "agent": v.name, "run": v.runID,
+				"rule": v.policyID, "action": v.action, "target_kind": v.target,
+				"reason_code": v.reason, "source": nil, "snippet": nil,
+				"masked": nil, "verdict": nil}
+		}
 	}
-	httpapi.WriteJSON(w, 200, map[string]any{"policies": policies, "trend": nil, "events": events,
-		"counts": nil, "detail": nil, "partial": true, "truncated": len(allEvents) > 200 || len(allPolicies) > 200,
-		"missing": []string{"guard_event_aggregate", "masked_payload", "full_source_content"}})
+	if err = tx.Commit(ctx); err != nil {
+		unavailable(w)
+		return
+	}
+	httpapi.WriteJSON(w, 200, map[string]any{"policies": policies, "trend": trend,
+		"trend_days": trendDays, "events": events, "counts": counts, "detail": detail,
+		"aggregation_basis": "reported_events", "coverage": "unknown", "partial": true,
+		"truncated": len(allEvents) > 200 || len(allPolicies) > 200,
+		"missing": []string{"runtime_producer_coverage", "legacy_decision_time",
+			"full_source_content", "masked_payload", "verdict"}})
 }
 
 func (s *Service) Guardrail(w http.ResponseWriter, r *http.Request) {
@@ -209,12 +316,17 @@ func (s *Service) Guardrail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	auditAction := "v3.agent.guardrail.changed"
+	if p.Enabled == *body.Enabled {
+		auditAction = "v3.agent.guardrail.unchanged"
+	}
 	_, err = tx.Exec(r.Context(), `INSERT INTO management_audit
  (actor_id,actor_kind,application_id,action,target,outcome,changes)
-	 VALUES($1,'user','','v3.agent.guardrail.changed',$2,'recorded',jsonb_build_object(
+	 VALUES($1,'user','',$8::text,$2,'recorded',jsonb_build_object(
  'environment_id',$3::text,'from',$4::boolean,'to',$5::boolean,
  'revision_from',$6::bigint,'revision_to',$7::bigint))`,
-		httpapi.CurrentUser(r).ID, p.ID, p.Env, p.Enabled, *body.Enabled, p.Revision, nextRevision)
+		httpapi.CurrentUser(r).ID, p.ID, p.Env, p.Enabled, *body.Enabled, p.Revision,
+		nextRevision, auditAction)
 	if err != nil {
 		unavailable(w)
 		return
@@ -223,7 +335,8 @@ func (s *Service) Guardrail(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
-	httpapi.WriteJSON(w, 200, map[string]any{"id": p.ID, "enabled": *body.Enabled, "revision": nextRevision})
+	httpapi.WriteJSON(w, 200, map[string]any{"id": p.ID, "enabled": *body.Enabled,
+		"revision": nextRevision, "runtime_status": "unconnected"})
 }
 
 // RegisterGuardPolicy imports reviewed policy metadata. Forced policies are
@@ -277,8 +390,9 @@ func (s *Service) RegisterGuardPolicy(ctx context.Context, id, env, name, descri
 	return tx.Commit(ctx)
 }
 
-// GuardPolicySnapshot is the DB-backed state captured when a trusted guard
-// producer makes a decision. ObservedAt is the database decision time.
+// GuardPolicySnapshot is DB-backed policy state. ObservedAt is the snapshot
+// handoff time, not proof of when a later guard action completed. A synchronous
+// runtime reports the completed decision through ReportGuardDecision instead.
 type GuardPolicySnapshot struct {
 	PolicyID, EnvironmentID string
 	Revision                int64
@@ -318,14 +432,31 @@ type GuardEvent struct {
 	ObservedAt                                          time.Time
 }
 
-// RecordGuardEvent accepts a bounded code and the policy snapshot captured
-// at decision time. Reporting may be late, but unproven historical decisions
-// are rejected rather than inferred from the current enabled flag.
+// RecordGuardEvent accepts a trusted producer's actual decision timestamp for
+// delayed reporting. Unproven historical decisions are rejected rather than
+// inferred from the current enabled flag. A synchronous runtime should call
+// ReportGuardDecision so the database captures its final decision time.
 func (s *Service) RecordGuardEvent(ctx context.Context, in GuardEvent) error {
+	return s.recordGuardEvent(ctx, in, false)
+}
+
+// ReportGuardDecision is the synchronous guard-report hook. The caller invokes
+// it at the final decision point before exposing a blocked/masked outcome. It
+// captures DB time after any guard evaluation, then checks that the same
+// policy revision was enabled at that time. A stale revision fails closed and
+// must be reevaluated by the executor.
+func (s *Service) ReportGuardDecision(ctx context.Context, in GuardEvent) error {
+	if !in.ObservedAt.IsZero() {
+		return errors.New("guard decision time must be captured by the database")
+	}
+	return s.recordGuardEvent(ctx, in, true)
+}
+
+func (s *Service) recordGuardEvent(ctx context.Context, in GuardEvent, captureNow bool) error {
 	if s == nil || s.DB == nil || !bounded(in.ID, 128) || !bounded(in.RunID, 128) || !bounded(in.PolicyID, 128) ||
 		!safeAuditCode(in.ReasonCode, 80) || (in.Action != "blocked" && in.Action != "masked") ||
 		(in.TargetKind != "tool" && in.TargetKind != "output" && in.TargetKind != "input" && in.TargetKind != "retrieval") ||
-		in.PolicyRevision < 1 || in.ObservedAt.IsZero() {
+		in.PolicyRevision < 1 || (!captureNow && in.ObservedAt.IsZero()) {
 		return errors.New("invalid guard event")
 	}
 	tx, err := s.DB.Begin(ctx)
@@ -342,24 +473,34 @@ func (s *Service) RecordGuardEvent(ctx context.Context, in GuardEvent) error {
 	if err != nil {
 		return err
 	}
-	var current time.Time
-	err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&current)
+	var enabled, currentEnabled bool
+	var currentRevision int64
+	var validFrom time.Time
+	var validTo *time.Time
+	err = tx.QueryRow(ctx, `SELECT p.environment_id,p.revision,p.enabled,
+ pr.enabled,pr.valid_from,pr.valid_to
+ FROM v3_agent_guard_policies p JOIN v3_agent_guard_policy_revisions pr
+ ON pr.policy_id=p.id WHERE p.id=$1 AND pr.revision=$2 FOR SHARE OF p,pr`,
+		in.PolicyID, in.PolicyRevision).Scan(&policyEnv, &currentRevision, &currentEnabled,
+		&enabled, &validFrom, &validTo)
 	if err != nil {
 		return err
+	}
+	// Capture time only after the policy lock. A concurrent PATCH either waits
+	// for this decision to commit or is observed as the new revision here.
+	var current time.Time
+	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&current); err != nil {
+		return err
+	}
+	if captureNow {
+		in.ObservedAt = current
+		if currentRevision != in.PolicyRevision || !currentEnabled {
+			return errors.New("guard decision used a stale policy revision")
+		}
 	}
 	if in.ObservedAt.After(current.Add(time.Second)) ||
 		in.ObservedAt.Before(runStarted) || (runFinished != nil && in.ObservedAt.After(*runFinished)) {
 		return errors.New("guard event decision time outside run or reporting window")
-	}
-	var enabled bool
-	var validFrom time.Time
-	var validTo *time.Time
-	err = tx.QueryRow(ctx, `SELECT p.environment_id,pr.enabled,pr.valid_from,pr.valid_to
- FROM v3_agent_guard_policies p JOIN v3_agent_guard_policy_revisions pr
- ON pr.policy_id=p.id WHERE p.id=$1 AND pr.revision=$2 FOR SHARE OF p,pr`,
-		in.PolicyID, in.PolicyRevision).Scan(&policyEnv, &enabled, &validFrom, &validTo)
-	if err != nil {
-		return err
 	}
 	if policyEnv != env || !enabled || in.ObservedAt.Before(validFrom) ||
 		(validTo != nil && !in.ObservedAt.Before(*validTo)) {

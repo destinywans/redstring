@@ -78,6 +78,18 @@ func TestWorkspaceAuthenticatedHTTPPersistenceAndAudit(t *testing.T) {
 	if err := json.Unmarshal(initial.Body.Bytes(), &original); err != nil {
 		t.Fatal(err)
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(initial.Body.Bytes(), &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"name", "slug", "timezone", "locale", "week_start", "retention_days", "data_region", "brand"} {
+		if _, ok := fields[field]; !ok {
+			t.Fatalf("workspace response missing %s: %s", field, initial.Body.String())
+		}
+	}
+	if len(fields) != 8 {
+		t.Fatalf("workspace response has unexpected fields: %s", initial.Body.String())
+	}
 	if w := request(http.MethodGet, viewerToken, "all", ""); w.Code != http.StatusOK || w.Body.String() != initial.Body.String() {
 		t.Fatalf("all read with one authorized environment: %d %s", w.Code, w.Body.String())
 	}
@@ -210,6 +222,98 @@ func TestWorkspaceWriteRechecksRevokedManageGrantInTransaction(t *testing.T) {
 	var name string
 	if err := s.DB.QueryRow(ctx, `SELECT name FROM workspace_settings WHERE id='default'`).Scan(&name); err != nil || name == input.Name {
 		t.Fatalf("revoked write persisted: name=%q err=%v", name, err)
+	}
+}
+
+func TestWorkspaceReadWaitsForViewRevocationBeforeReturningSettings(t *testing.T) {
+	s := isolatedPreferencesStore(t)
+	ctx := t.Context()
+	password := "isolated-workspace-reader-password"
+	if _, err := s.DB.Exec(ctx, `UPDATE users SET password_hash=$1 WHERE id='two'`, store.PasswordHash(password)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES('viewer','environment','view','environment','dev')`); err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := s.Login(ctx, "two@example.invalid", password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	api := httpapi.New(s, nil, true)
+	New(s, nil).Register(api)
+	api.MarkV3Route("GET /api/v1/workspace", "workspace", "view")
+	policy := &rbac.V3Policy{Store: s}
+	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"}}, policy, s.Session,
+		func(ctx context.Context, user core.User, module, action, environmentID string) error {
+			return policy.Authorize(ctx, user, rbac.V3Decision{Module: module, Action: action, EnvironmentID: environmentID})
+		}); err != nil {
+		t.Fatal(err)
+	}
+	request := func(ctx context.Context) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/workspace", nil).WithContext(ctx)
+		r.Header.Set("X-AIOps-Environment", "dev")
+		r.Header.Set("Accept-Language", "en-US")
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		return w
+	}
+	if w := request(ctx); w.Code != http.StatusOK {
+		t.Fatalf("initial workspace read: %d %s", w.Code, w.Body.String())
+	}
+	var applicationName string
+	if err := s.DB.QueryRow(ctx, `SELECT current_setting('application_name')`).Scan(&applicationName); err != nil || applicationName == "" {
+		t.Fatalf("isolated application name: %q, %v", applicationName, err)
+	}
+	writer, err := s.DB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Rollback(context.Background())
+	if _, err := writer.Exec(ctx, `SELECT pg_advisory_xact_lock(752018998)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='workspace' AND action='view'`); err != nil {
+		t.Fatal(err)
+	}
+	readCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	result := make(chan *httptest.ResponseRecorder, 1)
+	go func() { result <- request(readCtx) }()
+	// The route gate sees the old committed grant. The handler must then wait
+	// behind the revocation and check authority again inside its read transaction.
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		var waiting int
+		if err := s.DB.QueryRow(readCtx, `SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid
+ WHERE l.locktype='advisory' AND NOT l.granted AND l.mode='ShareLock' AND l.objid::bigint=$1 AND l.objsubid=1
+ AND a.application_name=$2`, int64(752018998), applicationName).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting > 0 {
+			break
+		}
+		select {
+		case w := <-result:
+			t.Fatalf("workspace read completed before revocation: %d %s", w.Code, w.Body.String())
+		case <-tick.C:
+		case <-deadline.C:
+			t.Fatal("workspace read did not queue behind view revocation")
+		}
+	}
+	if err := writer.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case w := <-result:
+		if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "Permission to view workspace settings denied") || strings.Contains(w.Body.String(), `"name":`) {
+			t.Fatalf("revoked reader received workspace settings: %d %s", w.Code, w.Body.String())
+		}
+	case <-readCtx.Done():
+		t.Fatal("workspace read remained blocked after revocation committed")
 	}
 }
 

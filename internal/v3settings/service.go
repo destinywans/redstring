@@ -176,9 +176,13 @@ func decodePreferencesPatch(w http.ResponseWriter, r *http.Request) (preferences
 
 func mustJSON(v any) []byte { b, _ := json.Marshal(v); return b }
 
-func (s *Service) getWorkspace(ctx context.Context) (workspace, error) {
+type workspaceReader interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func readWorkspace(ctx context.Context, q workspaceReader) (workspace, error) {
 	v := workspace{}
-	err := s.Store.DB.QueryRow(ctx, `SELECT name,v3_slug,timezone,language,v3_week_start,v3_retention_days,v3_data_region,v3_brand_name,v3_brand_logo,v3_brand_pending FROM workspace_settings WHERE id='default'`).Scan(&v.Name, &v.Slug, &v.Timezone, &v.Locale, &v.WeekStart, &v.RetentionDays, &v.DataRegion, &v.Brand.Name, &v.Brand.Logo, &v.Brand.Pending)
+	err := q.QueryRow(ctx, `SELECT name,v3_slug,timezone,language,v3_week_start,v3_retention_days,v3_data_region,v3_brand_name,v3_brand_logo,v3_brand_pending FROM workspace_settings WHERE id='default'`).Scan(&v.Name, &v.Slug, &v.Timezone, &v.Locale, &v.WeekStart, &v.RetentionDays, &v.DataRegion, &v.Brand.Name, &v.Brand.Logo, &v.Brand.Pending)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return workspace{}, errWorkspaceUnavailable
 	}
@@ -187,6 +191,59 @@ func (s *Service) getWorkspace(ctx context.Context) (workspace, error) {
 	}
 	if !validStoredWorkspace(v) {
 		return workspace{}, errWorkspaceUnavailable
+	}
+	return v, nil
+}
+
+func (s *Service) getWorkspace(ctx context.Context) (workspace, error) {
+	return readWorkspace(ctx, s.Store.DB)
+}
+
+func (s *Service) getAuthorizedWorkspace(ctx context.Context, user core.User, scope httpapi.V3EnvironmentScope) (workspace, error) {
+	if user.ID == "" || len(scope.EnvironmentIDs) == 0 {
+		return workspace{}, store.ErrForbidden
+	}
+	tx, err := s.Store.DB.Begin(ctx)
+	if err != nil {
+		return workspace{}, err
+	}
+	defer tx.Rollback(ctx)
+	// Account and role writers take these locks exclusively before changing
+	// authority. Shared read locks keep concurrent reads independent while a
+	// queued revocation must complete before this read checks permissions.
+	for _, key := range []int64{752018992, 752018995, 752018998} {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock_shared($1)`, key); err != nil {
+			return workspace{}, err
+		}
+	}
+	var activeID string
+	if err := tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 AND NOT disabled AND deleted_at IS NULL AND source<>'settings_demo' FOR SHARE`, user.ID).Scan(&activeID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return workspace{}, store.ErrForbidden
+		}
+		return workspace{}, err
+	}
+	policy := &rbac.V3Policy{Store: s.Store}
+	allowed := false
+	for _, environmentID := range scope.EnvironmentIDs {
+		err := policy.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{Module: "workspace", Action: "view", EnvironmentID: environmentID})
+		if err == nil {
+			allowed = true
+			break
+		}
+		if !errors.Is(err, store.ErrForbidden) {
+			return workspace{}, err
+		}
+	}
+	if !allowed {
+		return workspace{}, store.ErrForbidden
+	}
+	v, err := readWorkspace(ctx, tx)
+	if err != nil {
+		return workspace{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return workspace{}, err
 	}
 	return v, nil
 }
@@ -298,7 +355,12 @@ func (s *Service) Register(api *httpapi.Server) {
 		respond(w, v, e)
 	})
 	api.Register("GET /api/v1/workspace", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		v, e := s.getWorkspace(r.Context())
+		scope, ok := httpapi.V3ScopeFromContext(r.Context())
+		if !ok {
+			httpapi.Error(w, http.StatusServiceUnavailable, "environment_unavailable", localize(r, "工作区读取需要已授权环境", "Workspace read requires an authorized environment"))
+			return
+		}
+		v, e := s.getAuthorizedWorkspace(r.Context(), httpapi.CurrentUser(r), scope)
 		respondWorkspace(w, r, v, e)
 	})
 	api.Register("PUT /api/v1/workspace", "admin", func(w http.ResponseWriter, r *http.Request) {

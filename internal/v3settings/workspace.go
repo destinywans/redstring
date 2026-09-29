@@ -67,7 +67,11 @@ func respondWorkspace(w http.ResponseWriter, r *http.Request, v workspace, err e
 	case errors.Is(err, errInvalid):
 		httpapi.Error(w, http.StatusUnprocessableEntity, "invalid_settings", localize(r, "请检查提交的工作区设置；部署管理字段不能在此修改", "Check the workspace settings; deployment-managed fields cannot be changed here"))
 	case errors.Is(err, store.ErrForbidden):
-		httpapi.Error(w, http.StatusForbidden, "forbidden", localize(r, "没有修改工作区设置的权限", "Permission to change workspace settings denied"))
+		if r.Method == http.MethodGet {
+			httpapi.Error(w, http.StatusForbidden, "forbidden", localize(r, "没有读取工作区设置的权限", "Permission to view workspace settings denied"))
+		} else {
+			httpapi.Error(w, http.StatusForbidden, "forbidden", localize(r, "没有修改工作区设置的权限", "Permission to change workspace settings denied"))
+		}
 	case errors.Is(err, errWorkspaceUnavailable), errors.Is(err, pgx.ErrNoRows):
 		httpapi.Error(w, http.StatusServiceUnavailable, "workspace_unavailable", localize(r, "工作区设置记录缺失或损坏", "Workspace settings record is missing or invalid"))
 	default:

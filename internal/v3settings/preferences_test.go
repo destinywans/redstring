@@ -160,6 +160,7 @@ func isolatedPreferencesStore(t *testing.T) *store.Store {
 	}
 	q := u.Query()
 	q.Set("search_path", schema)
+	q.Set("application_name", schema)
 	u.RawQuery = q.Encode()
 	s, err := store.New(ctx, u.String())
 	if err != nil {

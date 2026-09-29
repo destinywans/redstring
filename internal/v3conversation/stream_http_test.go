@@ -157,7 +157,7 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 	chat := New(db, runtime, Options{
 		CurrentUser:    httpapi.CurrentUser,
 		RefreshSession: repository.Session,
-		DefaultModel: func(_ context.Context, owner string) (string, error) {
+		DefaultModel: func(_ context.Context, owner, env string) (string, error) {
 			if owner != "stream-owner" {
 				return "", ErrForbidden
 			}

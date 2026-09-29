@@ -2,6 +2,7 @@ package v3models
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/rbac"
+	"github.com/wans/aiops-canvas/internal/store"
 )
 
 // These DTOs mirror the existing V3 ModelAdminView. Their status fields remain
@@ -159,6 +161,19 @@ func (s *Service) admin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	view := buildAdminView(env, models, defaultModel, observations, usage, s.instanceID, s.ToolModels)
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil {
+		httpapi.Error(w, http.StatusUnauthorized, "unauthorized", "Session is no longer active")
+		return
+	}
+	if err = store.LockActiveSession(ctx, tx, cookie.Value, httpapi.CurrentUser(r).ID); err != nil {
+		if errors.Is(err, store.ErrSessionRevoked) {
+			httpapi.Error(w, http.StatusUnauthorized, "unauthorized", "Session is no longer active")
+		} else {
+			adminUnavailable(w)
+		}
+		return
+	}
 	if err := tx.Commit(ctx); err != nil {
 		adminUnavailable(w)
 		return

@@ -63,7 +63,7 @@ func TestCreateConversationRegisteredV3Route(t *testing.T) {
 			}
 			return nil, nil
 		},
-		DefaultModel: func(context.Context, string) (string, error) { return "model-1", nil },
+		DefaultModel: func(context.Context, string, string) (string, error) { return "model-1", nil },
 		AuthorizeBackgroundTurnTx: func(_ context.Context, _ pgx.Tx, owner, env string) error {
 			if !granted || owner != "route-owner" || env != "test" {
 				return ErrForbidden

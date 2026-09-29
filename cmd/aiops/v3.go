@@ -128,11 +128,28 @@ func loadV3Instance(path string) (v3Instance, httpapi.V3InstanceConfig, error) {
 	return info, httpapi.V3InstanceConfig{Tier: info.Tier, DefaultEnv: info.DefaultEnv, EnvironmentIDs: ids}, nil
 }
 
+// A configured V3 binding snapshot is shared by every model-facing V3 service.
+// Without a file, retain the existing V3 runtime during rollout.
+func configuredV3ModelRuntime(path string, cfg httpapi.V3InstanceConfig, runtime inference.Runner) (inference.Runner, *v3models.Bindings, error) {
+	bindings, err := v3models.LoadBindings(path, cfg.Tier, cfg.EnvironmentIDs, runtime)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load V3 model bindings: %w", err)
+	}
+	if bindings == nil {
+		return runtime, nil, nil
+	}
+	return v3models.NewBoundRunner(runtime, bindings), bindings, nil
+}
+
 // configureV3 enables the new backend only with explicit instance
 // configuration. A partial deployment cannot silently claim production scope.
 func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, api *httpapi.Server, telemetry *connectors.Telemetry, know *knowledge.Service, info *v3Instance, cfg httpapi.V3InstanceConfig) error {
 	if info == nil {
 		return nil
+	}
+	modelRuntime, modelBindings, err := configuredV3ModelRuntime(os.Getenv("AIOPS_V3_MODEL_BINDINGS_FILE"), cfg, runtime)
+	if err != nil {
+		return err
 	}
 	meEvidence, err := configureV3MeEvidence(*info, os.Getenv("AIOPS_V3_ONCALL_CURRENT_URL"), os.Getenv("AIOPS_V3_ONCALL_TOKEN_FILE"))
 	if err != nil {
@@ -176,7 +193,7 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	lowerSources.Register(api)
 	auditV3 := v3audit.New(s.DB, cfg.EnvironmentIDs)
 	auditV3.Register(api)
-	v3canvas.NewWithRuntime(s, runtime).Register(api)
+	v3canvas.NewWithRuntime(s, modelRuntime).Register(api)
 	catalog := v3catalog.New(s, policy, cfg.EnvironmentIDs...)
 	catalog.Register(api)
 	configSync, err := loadV3ConfigSync(os.Getenv("AIOPS_V3_CONFIG_SYNC_CONFIG"), cfg.Tier, s.DB, policy)
@@ -211,11 +228,10 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		EnvironmentLabels: alertmanagerLabels, ApplicationBindings: alertmanagerBindings,
 	}).Register(api)
 
-	personalSettings := v3settings.New(s, runtime)
+	personalSettings := v3settings.New(s, modelRuntime)
 	personalSettings.MeEvidence = meEvidence
 	personalSettings.Register(api)
 	api.V3ModelsHandler = personalSettings.ModelsHandler
-	v3models.New(s.DB, runtime, policy).Register(api)
 
 	credentialBindings, err := v3integrations.ParseCredentialBindings(os.Getenv("AIOPS_V3_CONNECTOR_CREDENTIAL_BINDINGS"))
 	if err != nil {
@@ -260,6 +276,9 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		toolModels[modelID] = true
 	}
 	personalSettings.ToolModels = toolModels
+	modelAdmin := v3models.New(s.DB, modelRuntime, policy)
+	modelAdmin.ToolModels = toolModels
+	modelAdmin.Register(api)
 	configuredConversationEnv := func(environmentID string) bool {
 		for _, id := range cfg.EnvironmentIDs {
 			if id == environmentID {
@@ -268,17 +287,22 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		}
 		return false
 	}
-	chat := v3conversation.New(s.DB, runtime, v3conversation.Options{
+	chat := v3conversation.New(s.DB, modelRuntime, v3conversation.Options{
 		CurrentUser:    httpapi.CurrentUser,
 		RefreshSession: s.Session,
 		Shutdown:       ctx,
-		DefaultModel: func(ctx context.Context, ownerID string) (string, error) {
+		DefaultModel: func(ctx context.Context, ownerID, environmentID string) (string, error) {
 			var model string
 			err := s.DB.QueryRow(ctx, `SELECT COALESCE(ai_preferences #>> '{default,model}','') FROM v3_user_settings WHERE user_id=$1`, ownerID).Scan(&model)
 			if errors.Is(err, pgx.ErrNoRows) {
-				return "", nil
+				model = ""
+			} else if err != nil {
+				return "", err
 			}
-			return model, err
+			if modelBindings != nil && !modelBindings.Allowed(environmentID, model) {
+				return modelBindings.DefaultModel(environmentID), nil
+			}
+			return model, nil
 		},
 		AuthorizeBackgroundTurn: func(ctx context.Context, ownerID, environmentID string) error {
 			if !configuredConversationEnv(environmentID) {

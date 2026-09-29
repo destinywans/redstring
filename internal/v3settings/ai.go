@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
+	"github.com/wans/aiops-canvas/internal/v3models"
 )
 
 type modelChoice struct {
@@ -28,14 +29,17 @@ func defaultAI() aiPreferences {
 	return aiPreferences{CanvasInherit: true, ShowReasoning: "collapsed", AutoContext: true, Memory: true, BudgetWarnTokens: 8000}
 }
 
-func (s *Service) models() []inference.Model {
+func (s *Service) models(env string) []inference.Model {
 	if s.Runtime == nil {
 		return nil
 	}
+	if bound, ok := s.Runtime.(*v3models.BoundRunner); ok {
+		return bound.Bindings().ModelsForEnvironment(env)
+	}
 	return s.Runtime.Models()
 }
-func (s *Service) model(id string) (inference.Model, bool) {
-	for _, m := range s.models() {
+func (s *Service) model(env, id string) (inference.Model, bool) {
+	for _, m := range s.models(env) {
 		if m.ID == id {
 			return m, true
 		}
@@ -63,7 +67,7 @@ func validAI(p aiPreferences, m inference.Model) bool {
 	}
 	return true
 }
-func (s *Service) getAI(ctx context.Context, id string) (aiPreferences, error) {
+func (s *Service) getAI(ctx context.Context, id, env string) (aiPreferences, error) {
 	p := defaultAI()
 	var raw []byte
 	err := s.Store.DB.QueryRow(ctx, `SELECT ai_preferences FROM v3_user_settings WHERE user_id=$1`, id).Scan(&raw)
@@ -75,16 +79,17 @@ func (s *Service) getAI(ctx context.Context, id string) (aiPreferences, error) {
 			return p, err
 		}
 	}
-	if _, ok := s.model(p.Default.Model); !ok {
-		models := s.models()
-		if len(models) > 0 {
+	if _, ok := s.model(env, p.Default.Model); !ok {
+		if bound, ok := s.Runtime.(*v3models.BoundRunner); ok {
+			p.Default = modelChoice{Model: bound.Bindings().DefaultModel(env)}
+		} else if models := s.models(env); len(models) > 0 {
 			p.Default = modelChoice{Model: models[0].ID}
 		}
 	}
 	return p, nil
 }
-func (s *Service) putAI(ctx context.Context, id string, p aiPreferences) (aiPreferences, error) {
-	m, ok := s.model(p.Default.Model)
+func (s *Service) putAI(ctx context.Context, id, env string, p aiPreferences) (aiPreferences, error) {
+	m, ok := s.model(env, p.Default.Model)
 	if !ok || !validAI(p, m) {
 		return aiPreferences{}, errInvalid
 	}
@@ -107,12 +112,16 @@ func (s *Service) putAI(ctx context.Context, id string, p aiPreferences) (aiPref
 // ModelsHandler describes only adapters actually configured in this process.
 // Availability is "configured", not an invented successful remote probe.
 func (s *Service) ModelsHandler(w http.ResponseWriter, r *http.Request) {
-	items, err := s.modelCatalogItems(r)
+	env, ok := s.modelEnvironment(w, r)
+	if !ok {
+		return
+	}
+	items, err := s.modelCatalogItems(r, env)
 	if err != nil {
 		respond(w, nil, err)
 		return
 	}
-	p, err := s.getAI(r.Context(), httpapi.CurrentUser(r).ID)
+	p, err := s.getAI(r.Context(), httpapi.CurrentUser(r).ID, env)
 	if err != nil {
 		respond(w, nil, err)
 		return
@@ -120,9 +129,25 @@ func (s *Service) ModelsHandler(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items, "default": p.Default})
 }
 
-func (s *Service) modelCatalogItems(r *http.Request) ([]map[string]any, error) {
+func (s *Service) modelEnvironment(w http.ResponseWriter, r *http.Request) (string, bool) {
+	if _, bound := s.Runtime.(*v3models.BoundRunner); !bound {
+		return "", true
+	}
+	scope, ok := httpapi.V3ScopeFromContext(r.Context())
+	if !ok || len(scope.EnvironmentIDs) == 0 {
+		httpapi.Error(w, 503, "environment_scope_unavailable", "Environment scope is unavailable")
+		return "", false
+	}
+	if scope.All || len(scope.EnvironmentIDs) != 1 {
+		httpapi.Error(w, 422, "invalid_environment", "Choose one environment")
+		return "", false
+	}
+	return scope.EnvironmentIDs[0], true
+}
+
+func (s *Service) modelCatalogItems(r *http.Request, env string) ([]map[string]any, error) {
 	items := []map[string]any{}
-	for _, m := range s.models() {
+	for _, m := range s.models(env) {
 		if m.API == "ollama" {
 			// The frontend currently accepts only responses, chat_completions
 			// and messages. Reporting Ollama's native API as one of those would
@@ -368,15 +393,23 @@ func (s *Service) putNotifications(ctx context.Context, id string, raw map[strin
 
 func (s *Service) registerAI(api *httpapi.Server) {
 	api.Register("GET /api/v1/me/ai-preferences", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		v, e := s.getAI(r.Context(), httpapi.CurrentUser(r).ID)
+		env, ok := s.modelEnvironment(w, r)
+		if !ok {
+			return
+		}
+		v, e := s.getAI(r.Context(), httpapi.CurrentUser(r).ID, env)
 		respond(w, v, e)
 	})
 	api.Register("PUT /api/v1/me/ai-preferences", "viewer", func(w http.ResponseWriter, r *http.Request) {
+		env, ok := s.modelEnvironment(w, r)
+		if !ok {
+			return
+		}
 		var v aiPreferences
 		if !httpapi.Decode(w, r, &v) {
 			return
 		}
-		out, e := s.putAI(r.Context(), httpapi.CurrentUser(r).ID, v)
+		out, e := s.putAI(r.Context(), httpapi.CurrentUser(r).ID, env, v)
 		respond(w, out, e)
 	})
 	api.Register("GET /api/v1/me/notification-settings", "viewer", func(w http.ResponseWriter, r *http.Request) {

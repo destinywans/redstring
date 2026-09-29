@@ -105,7 +105,7 @@ func TestConversationRegisteredJourneyPersistsReplayAndReads(t *testing.T) {
 			}
 			return nil, nil
 		},
-		DefaultModel: func(_ context.Context, owner string) (string, error) {
+		DefaultModel: func(_ context.Context, owner, env string) (string, error) {
 			if owner != "journey-owner" {
 				return "", ErrForbidden
 			}

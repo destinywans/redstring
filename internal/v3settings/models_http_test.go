@@ -3,8 +3,11 @@ package v3settings
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,6 +15,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3models"
 )
 
 func TestModelsAuthenticatedHTTPUsesPersistedUserDefault(t *testing.T) {
@@ -138,4 +142,85 @@ func TestModelsAuthenticatedHTTPUsesPersistedUserDefault(t *testing.T) {
 	}
 	assertCatalog(oneToken, "openai:second")
 	assertCatalog(twoToken, "openai:first")
+}
+
+func TestBoundModelsAndPreferencesUseSelectedEnvironment(t *testing.T) {
+	st := isolatedPreferencesStore(t)
+	ctx := t.Context()
+	runtime, err := inference.New(inference.Config{Providers: []inference.Provider{
+		{ID: "openai:dev", Kind: "openai", API: "responses", Model: "dev", BaseURL: "http://127.0.0.1:18080"},
+		{ID: "openai:test", Kind: "openai", API: "responses", Model: "test", BaseURL: "http://127.0.0.1:18080"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "bindings.json")
+	if err := os.WriteFile(path, []byte(`{"tier":"nonprod","environments":[{"id":"dev","models":["openai:dev"],"default_model":"openai:dev"},{"id":"test","models":["openai:test"],"default_model":"openai:test"}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	bindings, err := v3models.LoadBindings(path, "nonprod", []string{"dev", "test"}, runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := New(st, v3models.NewBoundRunner(runtime, bindings))
+	if items, err := settings.modelCatalogItems(httptest.NewRequest("GET", "/api/v1/models", nil), "dev"); err != nil || len(items) != 1 || items[0]["id"] != "openai:dev" {
+		t.Fatalf("dev catalog: %v %v", items, err)
+	}
+	if items, err := settings.modelCatalogItems(httptest.NewRequest("GET", "/api/v1/models", nil), "test"); err != nil || len(items) != 1 || items[0]["id"] != "openai:test" {
+		t.Fatalf("test catalog: %v %v", items, err)
+	}
+	choice := defaultAI()
+	choice.Default.Model = "openai:test"
+	if _, err := settings.putAI(ctx, "one", "dev", choice); !errors.Is(err, errInvalid) {
+		t.Fatalf("cross-environment preference: %v", err)
+	}
+	if _, err := settings.putAI(ctx, "one", "test", choice); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := settings.getAI(ctx, "one", "dev"); err != nil || got.Default.Model != "openai:dev" {
+		t.Fatalf("dev fallback: %+v %v", got, err)
+	}
+	if got, err := settings.getAI(ctx, "one", "test"); err != nil || got.Default.Model != "openai:test" {
+		t.Fatalf("test preference: %+v %v", got, err)
+	}
+	var stored string
+	if err := st.DB.QueryRow(ctx, `SELECT ai_preferences->'default'->>'model' FROM v3_user_settings WHERE user_id='one'`).Scan(&stored); err != nil || stored != "openai:test" {
+		t.Fatalf("fallback changed persistence: %q %v", stored, err)
+	}
+	api := httpapi.New(st, nil, true)
+	settings.Register(api)
+	api.V3ModelsHandler = settings.ModelsHandler
+	api.MarkV3Route("GET /api/v1/models", "models", "view")
+	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev", "test"}}, allowPreferencesEnvironment{}, st.Session, func(_ context.Context, _ core.User, _, _, _ string) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	password := "isolated-bound-model-password"
+	if _, err := st.DB.Exec(ctx, `UPDATE users SET password_hash=$1 WHERE id='one'`, store.PasswordHash(password)); err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := st.Login(ctx, "one@example.invalid", password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := func(method, path, env, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Header.Set("X-AIOps-Environment", env)
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		return w
+	}
+	if w := request("GET", "/api/v1/models", "dev", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"id":"openai:dev"`) || strings.Contains(w.Body.String(), `"id":"openai:test"`) {
+		t.Fatalf("dev HTTP catalog: %d %s", w.Code, w.Body.String())
+	}
+	if w := request("GET", "/api/v1/models", "all", ""); w.Code != 422 {
+		t.Fatalf("multi-environment catalog: %d %s", w.Code, w.Body.String())
+	}
+	payload, err := json.Marshal(choice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := request("PUT", "/api/v1/me/ai-preferences", "dev", string(payload)); w.Code != 422 {
+		t.Fatalf("cross-environment HTTP preference: %d %s", w.Code, w.Body.String())
+	}
 }

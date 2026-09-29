@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3models"
 )
 
 type canvasDraftFakeRunner struct {
@@ -29,6 +31,32 @@ func (*canvasDraftFakeRunner) Models() []inference.Model {
 
 func (f *canvasDraftFakeRunner) Run(_ context.Context, req inference.Request, _ func(inference.Event) error) (string, error) {
 	return f.run(req)
+}
+
+func TestBoundCanvasDraftUsesSelectedEnvironment(t *testing.T) {
+	called := 0
+	fake := &canvasDraftFakeRunner{run: func(req inference.Request) (string, error) {
+		called++
+		if req.EnvironmentID != "dev" || req.ModelID != "draft-test" {
+			t.Fatalf("wrong draft binding: %+v", req)
+		}
+		return `{"nodes":[{"title":"Check","summary":"Unverified outline"}]}`, nil
+	}}
+	path := filepath.Join(t.TempDir(), "bindings.json")
+	if err := os.WriteFile(path, []byte(`{"tier":"nonprod","environments":[{"id":"dev","models":["draft-test"],"default_model":"draft-test"}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	bindings, err := v3models.LoadBindings(path, "nonprod", []string{"dev"}, fake)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := NewWithRuntime(nil, v3models.NewBoundRunner(fake, bindings))
+	if _, _, failure := svc.generateDraft(t.Context(), "test", createRequest{Title: "Wrong environment"}); failure == nil || called != 0 {
+		t.Fatalf("unbound environment used provider: failure=%v calls=%d", failure, called)
+	}
+	if nodes, model, failure := svc.generateDraft(t.Context(), "dev", createRequest{Title: "Right environment"}); failure != nil || model != "draft-test" || len(nodes) != 1 || called != 1 {
+		t.Fatalf("bound draft: nodes=%+v model=%q failure=%v calls=%d", nodes, model, failure, called)
+	}
 }
 
 func TestCanvasCreateRegisteredRoutePersistsAndAuthorizes(t *testing.T) {

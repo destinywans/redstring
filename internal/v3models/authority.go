@@ -102,16 +102,9 @@ func lockModelAuthority(ctx context.Context, tx pgx.Tx, r *http.Request, environ
 	}
 	cookie, err := r.Cookie("aiops_session")
 	if err != nil || cookie.Value == "" {
-		return store.ErrForbidden
+		return store.ErrSessionRevoked
 	}
-	var sessionUserID string
-	err = tx.QueryRow(ctx, `SELECT user_id FROM sessions
- WHERE token_hash=$1 AND user_id=$2 AND expires_at>clock_timestamp()
- FOR SHARE`, store.Hash(cookie.Value), actorID).Scan(&sessionUserID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return store.ErrForbidden
-	}
-	if err != nil {
+	if err = store.LockActiveSession(ctx, tx, cookie.Value, actorID); err != nil {
 		return err
 	}
 	if !environmentView || !modelAllowed {

@@ -16,6 +16,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3models"
 )
 
 const (
@@ -97,10 +98,20 @@ type nodeMessageRequest struct {
 }
 
 func (s *Service) selectedModel(requested string) (inference.Model, bool) {
+	return s.selectedModelForEnvironment("", requested)
+}
+
+func (s *Service) selectedModelForEnvironment(env, requested string) (inference.Model, bool) {
 	if s.Runtime == nil {
 		return inference.Model{}, false
 	}
 	models := s.Runtime.Models()
+	if bound, ok := s.Runtime.(*v3models.BoundRunner); ok {
+		models = bound.Bindings().ModelsForEnvironment(env)
+		if requested == "" {
+			requested = bound.Bindings().DefaultModel(env)
+		}
+	}
 	if requested == "" && len(models) > 0 {
 		return models[0], true
 	}
@@ -114,7 +125,7 @@ func (s *Service) selectedModel(requested string) (inference.Model, bool) {
 
 // A removed preferred model falls back to the first configured model, as in
 // GET /models. An obsolete reasoning level is cleared with that fallback.
-func (s *Service) defaultNodeChoice(ctx context.Context, userID string) (inference.Model, string, error) {
+func (s *Service) defaultNodeChoice(ctx context.Context, userID, env string) (inference.Model, string, error) {
 	var raw []byte
 	err := s.Store.DB.QueryRow(ctx, `SELECT ai_preferences->'default' FROM v3_user_settings WHERE user_id=$1`, userID).Scan(&raw)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -130,14 +141,14 @@ func (s *Service) defaultNodeChoice(ctx context.Context, userID string) (inferen
 		}
 	}
 	if choice.Model != "" {
-		if model, ok := s.selectedModel(choice.Model); ok {
+		if model, ok := s.selectedModelForEnvironment(env, choice.Model); ok {
 			if inference.SupportsReasoning(model, choice.Reasoning) {
 				return model, choice.Reasoning, nil
 			}
 			return model, "", nil
 		}
 	}
-	model, ok := s.selectedModel("")
+	model, ok := s.selectedModelForEnvironment(env, "")
 	if !ok {
 		return inference.Model{}, "", errors.New("no configured model")
 	}
@@ -166,7 +177,7 @@ func (s *Service) sendNodeMessage(w http.ResponseWriter, r *http.Request) {
 	if in.Model == "" {
 		var preferredReasoning string
 		var err error
-		model, preferredReasoning, err = s.defaultNodeChoice(r.Context(), user.ID)
+		model, preferredReasoning, err = s.defaultNodeChoice(r.Context(), user.ID, envs[0])
 		if err != nil {
 			httpapi.Error(w, 503, "model_unavailable", "Default model is unavailable")
 			return
@@ -176,7 +187,7 @@ func (s *Service) sendNodeMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		var ok bool
-		model, ok = s.selectedModel(in.Model)
+		model, ok = s.selectedModelForEnvironment(envs[0], in.Model)
 		if !ok {
 			httpapi.Error(w, 422, "invalid_model", "Selected model is not configured")
 			return
@@ -207,7 +218,7 @@ func (s *Service) sendNodeMessage(w http.ResponseWriter, r *http.Request) {
 	stop := s.watchNodeAccess(ctx, cancel, cookie.Value, user, envs[0], canvas, node, id)
 	answer, runErr := s.Runtime.Run(ctx, inference.Request{
 		RunID: id, AttemptID: id, BranchID: canvas + "/" + node,
-		ModelID: model.ID, Reasoning: in.Reasoning, Messages: msgs,
+		EnvironmentID: envs[0], ModelID: model.ID, Reasoning: in.Reasoning, Messages: msgs,
 		MaxCalls: 1, MaxToolCalls: 1, TimeoutSeconds: int(nodeRunTimeout.Seconds()),
 	}, func(event inference.Event) error {
 		if event.Type == "evidence" || event.Invocation != nil {

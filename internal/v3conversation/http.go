@@ -117,19 +117,21 @@ func (s *Service) createHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	requestedModel := in.Model
 	if requestedModel == "" {
-		if s.opts.DefaultModel == nil {
+		if s.opts.DefaultModel == nil && !s.hasModelBindings() {
 			operationError(w, ErrModel)
 			return
 		}
-		requestedModel, err = s.opts.DefaultModel(r.Context(), u.ID)
-		if err != nil {
-			operationError(w, err)
-			return
+		if s.opts.DefaultModel != nil {
+			requestedModel, err = s.opts.DefaultModel(r.Context(), u.ID, env)
+			if err != nil {
+				operationError(w, err)
+				return
+			}
 		}
 	}
-	selectedModel, err := s.model(requestedModel, "")
+	selectedModel, err := s.modelForEnvironment(env, requestedModel, "")
 	if err != nil && in.Model == "" {
-		selectedModel, err = s.model("", "")
+		selectedModel, err = s.modelForEnvironment(env, "", "")
 	}
 	if err != nil {
 		if in.Model != "" && errors.Is(err, ErrModel) {
@@ -200,17 +202,17 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) {
 	}
 	selectedModel := in.Model
 	if selectedModel == "" && s.opts.DefaultModel != nil {
-		selectedModel, err = s.opts.DefaultModel(r.Context(), u.ID)
+		selectedModel, err = s.opts.DefaultModel(r.Context(), u.ID, env)
 		if err != nil {
 			operationError(w, err)
 			return
 		}
 	}
-	model, err := s.model(selectedModel, fallback)
+	model, err := s.modelForEnvironment(env, selectedModel, fallback)
 	if err != nil && in.Model == "" {
-		// A removed preferred model falls back to the same first configured
-		// model advertised by GET /models, without changing this turn's choice.
-		model, err = s.model("", "")
+		// A removed preference uses the environment's configured default (or
+		// the legacy catalog fallback), without changing this turn's choice.
+		model, err = s.modelForEnvironment(env, "", "")
 	}
 	if err != nil {
 		if in.Model != "" && errors.Is(err, ErrModel) {

@@ -135,8 +135,8 @@ func decodeDraft(answer string) ([]draftNode, error) {
 	return document.Nodes, nil
 }
 
-func (s *Service) generateDraft(ctx context.Context, in createRequest) ([]draftNode, string, *creationFailure) {
-	model, ok := s.selectedModel("")
+func (s *Service) generateDraft(ctx context.Context, env string, in createRequest) ([]draftNode, string, *creationFailure) {
+	model, ok := s.selectedModelForEnvironment(env, "")
 	if !ok {
 		return nil, "", &creationFailure{503, "canvas_draft_unavailable", "No drafting model is configured"}
 	}
@@ -146,7 +146,7 @@ func (s *Service) generateDraft(ctx context.Context, in createRequest) ([]draftN
 	// They are identifiers, not observations about live service health.
 	input := mustJSON(map[string]any{"title": in.Title, "goal": in.Goal, "service_ids": in.Services})
 	answer, err := s.Runtime.Run(modelCtx, inference.Request{
-		RunID: store.ID(), AttemptID: store.ID(), BranchID: "canvas-draft", ModelID: model.ID,
+		RunID: store.ID(), AttemptID: store.ID(), BranchID: "canvas-draft", EnvironmentID: env, ModelID: model.ID,
 		Messages: []inference.Message{
 			{Role: "system", Content: "Create an unverified canvas outline from the user's title, goal and service IDs only. Do not claim to have inspected systems, logs, metrics or runbooks. Return only a JSON object with nodes: 1 to 3 objects, each containing a short title and summary. No markdown."},
 			{Role: "user", Content: string(input)},
@@ -225,7 +225,7 @@ func (s *Service) createCanvas(w http.ResponseWriter, r *http.Request) {
 			failure.write(w)
 			return
 		}
-		draft, modelID, failure = s.generateDraft(r.Context(), in)
+		draft, modelID, failure = s.generateDraft(r.Context(), env, in)
 		if failure != nil {
 			failure.write(w)
 			return

@@ -17,6 +17,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3models"
 	"github.com/wans/aiops-canvas/internal/v3uploads"
 )
 
@@ -42,10 +43,11 @@ type Options struct {
 	// AllowedEnvironments returns the user's currently authorized environment IDs.
 	// It is required; a missing resolver fails closed.
 	AllowedEnvironments func(context.Context, core.User) ([]string, error)
-	// DefaultModel returns the user's saved model preference. Empty or stale
-	// preferences fall back to the first configured model, as GET /models does.
-	// A missing resolver fails conversation creation closed when no model is sent.
-	DefaultModel func(context.Context, string) (string, error)
+	// DefaultModel returns the user's saved preference for one environment.
+	// Empty or stale preferences use that environment's configured default when
+	// model bindings exist; legacy unbound runners use the first catalog model.
+	// Without bindings, a missing resolver fails creation closed.
+	DefaultModel func(context.Context, string, string) (string, error)
 	// AuthorizeBackgroundTurn reloads the persisted owner and checks their current
 	// account state, role and V3 conversation/change grant for the persisted
 	// environment. It must not use the initiating request's identity or scope.
@@ -143,6 +145,41 @@ func (s *Service) model(requested, fallback string) (inference.Model, error) {
 		}
 	}
 	return inference.Model{}, ErrModel
+}
+
+// modelForEnvironment uses the runner's binding snapshot when one is configured.
+// Legacy unbound runners retain the process-wide model selection behavior.
+func (s *Service) modelForEnvironment(env, requested, fallback string) (inference.Model, error) {
+	bound, ok := s.runtime.(interface{ Bindings() *v3models.Bindings })
+	if !ok || bound.Bindings() == nil {
+		return s.model(requested, fallback)
+	}
+	bindings := bound.Bindings()
+	if requested == "" {
+		requested = fallback
+	}
+	if requested == "" {
+		requested = bindings.DefaultModel(env)
+	}
+	if !bindings.Allowed(env, requested) {
+		return inference.Model{}, ErrModel
+	}
+	for _, model := range bindings.ModelsForEnvironment(env) {
+		if model.ID == requested {
+			return model, nil
+		}
+	}
+	return inference.Model{}, ErrModel
+}
+
+func (s *Service) modelBoundToEnvironment(env, modelID string) bool {
+	bound, ok := s.runtime.(interface{ Bindings() *v3models.Bindings })
+	return !ok || bound.Bindings() == nil || bound.Bindings().Allowed(env, modelID)
+}
+
+func (s *Service) hasModelBindings() bool {
+	bound, ok := s.runtime.(interface{ Bindings() *v3models.Bindings })
+	return ok && bound.Bindings() != nil
 }
 
 func (s *Service) environment(r *http.Request, write bool) (string, error) {
@@ -790,7 +827,11 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 			return read(toolCtx, query)
 		}
 	}
-	answer, runErr := s.runtime.Run(ctx, inference.Request{RunID: reply, AttemptID: reply, BranchID: conv, ModelID: model.ID, Reasoning: reasoning, Messages: msgs, Tools: tools}, emit)
+	if !s.modelBoundToEnvironment(env, model.ID) {
+		s.failTurn(conv, reply, claimID, assistant, parts, ErrModel)
+		return
+	}
+	answer, runErr := s.runtime.Run(ctx, inference.Request{RunID: reply, AttemptID: reply, BranchID: conv, EnvironmentID: env, ModelID: model.ID, Reasoning: reasoning, Messages: msgs, Tools: tools}, emit)
 	if runErr != nil {
 		parts[0] = textPart(streamed.String())
 		s.failTurn(conv, reply, claimID, assistant, parts, runErr)

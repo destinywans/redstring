@@ -40,7 +40,7 @@ func TestCreateConversationHTTPPersistsScopeModelAndAudit(t *testing.T) {
 			}
 			return nil, nil
 		},
-		DefaultModel: func(_ context.Context, owner string) (string, error) {
+		DefaultModel: func(_ context.Context, owner, env string) (string, error) {
 			if owner != "owner-1" {
 				t.Fatalf("unexpected model owner %q", owner)
 			}

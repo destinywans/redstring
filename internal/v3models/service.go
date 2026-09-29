@@ -258,6 +258,10 @@ func validProbeResult(result inference.ModelProbeResult) bool {
 }
 
 func writeAuthorityError(w http.ResponseWriter, err error) {
+	if errors.Is(err, store.ErrSessionRevoked) {
+		httpapi.Error(w, http.StatusUnauthorized, "unauthorized", "Session is no longer active")
+		return
+	}
 	if errors.Is(err, store.ErrForbidden) {
 		httpapi.Error(w, http.StatusForbidden, "forbidden", "Model access was revoked during the request")
 		return

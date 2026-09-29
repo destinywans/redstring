@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +19,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3models"
 )
 
 type nodeFakeRunner struct {
@@ -148,6 +150,19 @@ func TestGenericNodeRepliesPersistAndKeepNodeContextIsolated(t *testing.T) {
 	if w := request("POST", path+"a/messages", ownerToken, `{"text":"hidden","model":"unknown"}`); w.Code != 422 {
 		t.Fatalf("unknown model status=%d body=%s", w.Code, w.Body.String())
 	}
+	bindingsPath := filepath.Join(t.TempDir(), "bindings.json")
+	if err := os.WriteFile(bindingsPath, []byte(`{"tier":"nonprod","environments":[{"id":"dev","models":["fake"],"default_model":"fake"},{"id":"test","models":["fake-second"],"default_model":"fake-second"}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	bindings, err := v3models.LoadBindings(bindingsPath, "nonprod", []string{"dev", "test"}, fake)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.Runtime = v3models.NewBoundRunner(fake, bindings)
+	if w := request("POST", path+"a/messages", ownerToken, `{"text":"cross environment","model":"fake-second"}`); w.Code != 422 || len(seen) != 0 {
+		t.Fatalf("cross-environment model reached runner: %d %s calls=%d", w.Code, w.Body.String(), len(seen))
+	}
+	svc.Runtime = fake
 	if w := request("POST", path+"a/messages", ownerToken, `{"text":"hidden","model":"fake","reasoning":"low"}`); w.Code != 422 {
 		t.Fatalf("unknown reasoning status=%d body=%s", w.Code, w.Body.String())
 	}
@@ -157,7 +172,7 @@ func TestGenericNodeRepliesPersistAndKeepNodeContextIsolated(t *testing.T) {
 			t.Fatalf("reply status=%d body=%s", w.Code, w.Body.String())
 		}
 	}
-	if len(seen) != 3 || len(seen[0].Tools) != 0 || len(seen[1].Tools) != 0 || len(seen[2].Tools) != 0 {
+	if len(seen) != 3 || len(seen[0].Tools) != 0 || len(seen[1].Tools) != 0 || len(seen[2].Tools) != 0 || seen[0].EnvironmentID != "dev" {
 		t.Fatalf("unexpected model calls: %#v", seen)
 	}
 	if len(seen[1].Messages) != 2 || !strings.Contains(seen[1].Messages[0].Content, "Beta") || strings.Contains(seen[1].Messages[0].Content, "Alpha") {
@@ -202,6 +217,11 @@ func TestGenericNodeRepliesPersistAndKeepNodeContextIsolated(t *testing.T) {
 	if len(seen[3].Messages) != 6 || seen[3].Messages[1].Content != "private alpha" || seen[3].Messages[3].Content != "follow alpha" {
 		t.Fatalf("model context followed inverted timestamps: %#v", seen[3].Messages)
 	}
+	svc.Runtime = v3models.NewBoundRunner(fake, bindings)
+	if selected, reasoning, err := svc.defaultNodeChoice(ctx, owner.ID, "dev"); err != nil || selected.ID != "fake" || reasoning != "" {
+		t.Fatalf("cross-environment saved preference did not fall back: %+v %q %v", selected, reasoning, err)
+	}
+	svc.Runtime = fake
 	if _, err = db.Exec(ctx, `UPDATE v3_user_settings SET ai_preferences='{"default":{"model":"removed","reasoning":"high"}}'::jsonb WHERE user_id=$1`, owner.ID); err != nil {
 		t.Fatal(err)
 	}

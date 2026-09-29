@@ -20,7 +20,10 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
-type Service struct{ Store *store.Store }
+type Service struct {
+	Store       *store.Store
+	Invitations *InvitationService
+}
 
 func New(s *store.Store) *Service { return &Service{Store: s} }
 
@@ -81,6 +84,7 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"GET /api/v1/roles/{id}", "roles", "view"},
 		{"PUT /api/v1/roles/{id}", "roles", "manage"},
 		{"GET /api/v1/members", "members", "view"},
+		{"POST /api/v1/members/invitations", "members", "manage"},
 	} {
 		api.MarkV3Route(route.pattern, route.module, route.action)
 	}
@@ -88,6 +92,8 @@ func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/roles/{id}", "viewer", s.role)
 	api.Register("PUT /api/v1/roles/{id}", "viewer", s.putRole)
 	api.Register("GET /api/v1/members", "viewer", s.members)
+	api.Register("POST /api/v1/members/invitations", "viewer", s.inviteMember)
+	api.RegisterPublic("POST /api/v1/auth/invitations/accept", s.acceptMemberInvitation)
 }
 
 func scoped(r *http.Request) ([]string, bool) {
@@ -411,7 +417,7 @@ func (s *Service) members(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "invalid_filter", "Invalid member filter")
 		return
 	}
-	v, err := s.getMembers(r.Context(), httpapi.CurrentUser(r), envs, filter, r.URL.Query().Get("q"), englishLanguage(r.Header.Get("Accept-Language")))
+	v, err := s.getMembers(r.Context(), httpapi.CurrentUser(r), roleSessionToken(r), envs, filter, r.URL.Query().Get("q"), englishLanguage(r.Header.Get("Accept-Language")))
 	respond(w, v, err)
 }
 
@@ -419,7 +425,7 @@ func (s *Service) members(w http.ResponseWriter, r *http.Request) {
 // successful-login history that the current account store cannot prove. Keep
 // the useful directory projection explicitly partial instead of inventing a
 // clean MFA count, zero-day grace period or most-recent login.
-func (s *Service) getMembers(ctx context.Context, actor core.User, envs []string, filter, q string, english bool) (membersView, error) {
+func (s *Service) getMembers(ctx context.Context, actor core.User, sessionToken string, envs []string, filter, q string, english bool) (membersView, error) {
 	v := membersView{
 		Org: []orgNode{}, Groups: []orgNode{}, Items: []member{},
 		UnavailableFields: []string{"groups", "org_hierarchy", "legacy_role_mapping", "items[].mfa", "items[].last_login", "counts.no_mfa", "mfa_grace_days", "directory_sync_source"},
@@ -436,6 +442,9 @@ func (s *Service) getMembers(ctx context.Context, actor core.User, envs []string
 		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock_shared($1)`, key); err != nil {
 			return v, err
 		}
+	}
+	if err = store.LockActiveSession(ctx, tx, sessionToken, actor.ID); err != nil {
+		return v, err
 	}
 	var active bool
 	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND NOT disabled AND deleted_at IS NULL)`, actor.ID).Scan(&active); err != nil {
@@ -555,6 +564,9 @@ func (s *Service) getMembers(ctx context.Context, actor core.User, envs []string
 	}
 	rows.Close()
 	if err != nil {
+		return v, err
+	}
+	if err = store.LockActiveSession(ctx, tx, sessionToken, actor.ID); err != nil {
 		return v, err
 	}
 	if err = tx.Commit(ctx); err != nil {

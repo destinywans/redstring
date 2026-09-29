@@ -52,3 +52,23 @@ P['/roles/{id}']['put']['responses']['409']['description'] = \
 v3_route('get','/members','List scoped members',response=ref('V3MembersView'),
     query=[v3_query('filter'),v3_query('q')],
     desc='Rechecks the current account and selected-environment grants in a read transaction, then derives the visible members and roles from one database statement. This is a partial DTO (complete_v3_dto=false): groups, full organization hierarchy, MFA enrollment, successful last login, MFA grace policy and directory synchronization source are not verified. Member mfa=na means unknown, not unenrolled; last_login, counts.no_mfa and mfa_grace_days are null. filter=no_mfa returns 503 member_mfa_unavailable rather than a misleading list.')
+S['V3MemberInvitationRequest'] = obj({'email':string(format='email',maxLength=320),
+    'role':string(enum=['viewer'])},['email'])
+S['V3MemberInvitationAcceptance'] = obj({'code':string(pattern='^[A-Za-z0-9_-]{43}$'),
+    'name':string(minLength=1,maxLength=120),
+    'password':string(minLength=12,maxLength=1024,format='password')},
+    ['code','name','password'])
+v3_route('post','/members/invitations','Send a read-only member invitation',
+    body=ref('V3MemberInvitationRequest'),
+    response=obj({'ok':v3_bool()},['ok']),
+    desc='Requires one selected environment, current human account and exact session, global members.manage and global environment.view. Optional role is viewer only. Before sending, the editable viewer role may have V3 view grants such as workspace.view global but no environment module grant or application/team scope, and legacy resource or legacy_application view bindings only. An unsafe grant returns 409 invitation_role_unsafe. The future account inherits this checked read-only base role; the operation grants no environment admission, direct application ACL or team association. A configured, certificate-validated implicit-TLS SMTP relay and trusted HTTPS product entry are required. The service persists only a hash of a random one-time code, rate-limits actor and recipient, and returns {ok:true} only after SMTP DATA is accepted and the invitation is durably marked delivered. Relay acceptance is not final mailbox delivery. A failed or uncertain send never returns success. The existing product has no invitation acceptance UI yet.')
+P['/members/invitations']['post']['responses']['429'] = {
+    'description':'Actor or recipient invitation limit reached',
+    'content':{'application/json':{'schema':ref('Error')}}}
+route('post','/auth/invitations/accept','Accept a one-time member invitation',role='public',
+    body=ref('V3MemberInvitationAcceptance'),status=201,
+    response=obj({'ok':v3_bool(),'access':string(enum=['pending_scope_grant'])},['ok','access']),
+    desc='Public JSON auxiliary route. Requires a 256-bit one-time code in the body, never the URL, plus a name and password. A relay-accepted unexpired code is consumed in the same transaction that creates a local viewer account. The editable viewer role and the new account effective grants are checked again under role locks; any environment grant, application/team scope, non-view action, direct application ACL, team association or unexpected role association returns 409 invitation_role_unsafe. The account inherits the checked read-only viewer base role, including workspace.view global where present; an administrator must separately grant environment admission and application scope for V3 access. Legacy application-view bindings are inert in the current resource-only effective-permissions view. Anonymous attempts are locally bounded by the direct remote IP; a trusted ingress must also enforce a shared limit across replicas. The product acceptance UI is not implemented. This route requires an exact V3 environment/auth middleware exemption when integrated.')
+P['/auth/invitations/accept']['post']['responses']['429'] = {
+    'description':'Anonymous acceptance rate limit reached',
+    'content':{'application/json':{'schema':ref('Error')}}}

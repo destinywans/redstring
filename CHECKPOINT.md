@@ -1,5 +1,10 @@
 # AIOps Canvas 检查点
 
+## CP-145 · 2026-09-29 · 私有集成分支推送授权与远端核验
+
+- 用户在协调任务中明确选择“同意推送当前及后续同范围 V3 后端提交”，目标仅为已有私有 `git@github.com:destinywans/aiops-canvas.git` 的 `codex/wan-117-v3-integration` 分支；不授权合并或部署。该明确授权取代 CP-143/144 记录时的推送阻断，不改变产品验收或主契约 **37/166 `implemented`** 状态。
+- 协调任务对当时干净的集成工作树执行普通推送，`git ls-remote origin refs/heads/codex/wan-117-v3-integration` 与 `git rev-parse HEAD` 均回读 `d32522b327dd931d635bea3f0fc44f1c2cd11f84`。本地 `refs/remotes/origin/codex/wan-117-v3-integration` 仍是旧 `69897cc`：Git 推送成功后沙箱拒绝更新该 tracking ref 的 lock，因此 `git status` 的 `ahead` 数已不能代表真实远端差异。后续同范围提交按授权推送并以真实远端 SHA 核对；不要重写共享历史、合并或部署。
+
 ## CP-144 · 2026-09-29 · MCP 审核会话栅栏与三项读取证据
 
 - WAN-122 来源 `b451893`、`f8b88e5`、`a15e2c3` 和本地修复 `81ea197` 加入迁移 `071_v3_mcp_tool_reviews.sql` 及三个辅助接口：最新未信任发现的候选详情、逐工具版本审核、按摘要/修订控制的已审核工具开关。审核必须由当前有 `connectors.manage` 的人类身份完成全部决定，允许的只读工具默认关闭；远端只读提示和开启开关均不授予 Agent 执行权。候选 GET 在新事务中重核账号、会话、授权、有效登记/绑定、最新快照与决定，持锁至有界写出。独立复审发现初始写路径可在注销已提交后仍落库；集成修复在写事务中按账号→当前 cookie 会话→角色/授权来源加锁。注销先提交的 POST/PATCH 不写审核、开关或审计；写入先持锁时注销等待，写入提交后再次注销可成功。主无版本 `POST /mcp-servers/{id}/review` 与 `PATCH /mcp-servers/{id}/tools/{name}` 仍返回不可用，主契约继续 `mock`；公共契约和 OpenAPI 为 `1df82a6`。没有真实 MCP 连接或 Agent 工具执行联调。

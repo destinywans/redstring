@@ -1,0 +1,17 @@
+{
+  "sources": [
+    {
+      "id": "pull-checkout-metrics",
+      "name": "Checkout metrics",
+      "application_id": "persisted-application-id",
+      "environment_id": "dev",
+      "connector_id": "persisted-prometheus-connector-id",
+      "target_id": "persisted-metric-resource-target-id",
+      "resource_id": "registered-resource-id",
+      "query_id": "request_rate",
+      "expression": "<operator-reviewed application-and-environment-scoped PromQL>",
+      "name_labels": ["__name__", "job"],
+      "label_keys": ["pod", "env"]
+    }
+  ]
+}

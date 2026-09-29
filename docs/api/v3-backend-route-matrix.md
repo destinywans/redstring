@@ -43,8 +43,8 @@
 | 对话、画布与模板 | POST | `/investigations/{id}/nodes/{node}/messages` | 新增 | implemented |
 | 对话、画布与模板 | GET | `/investigations/{id}/writeback-preview` | 新增 | implemented |
 | 对话、画布与模板 | POST | `/investigations/{id}/writeback` | 新增 | implemented |
-| 对话、画布与模板 | GET | `/investigation-templates` | 新增 | mock |
-| 对话、画布与模板 | POST | `/investigation-templates/{id}/start` | 新增 | mock |
+| 对话、画布与模板 | GET | `/investigation-templates` | 新增 | implemented |
+| 对话、画布与模板 | POST | `/investigation-templates/{id}/start` | 新增 | implemented |
 | 事件与告警 | GET | `/inbox` | 聚合 | mock |
 | 事件与告警 | GET | `/alerts/{id}` | 聚合 | mock |
 | 事件与告警 | POST | `/alerts/{id}/claim` | 新增 | mock |

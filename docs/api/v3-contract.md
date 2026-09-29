@@ -118,6 +118,8 @@
 | POST | `/investigations/{id}/nodes/{node}/messages` | `{ text, model?, reasoning? }` | `{ summary }`；当前回复不会自动派生子分支 | implemented |
 | GET | `/investigations/{id}/writeback-preview` | `node` 或 `from`，可选严格祖先 `target` | 当前分支可选助手消息、目标修订与历史时间线；预算未知为 `null` | implemented |
 | POST | `/investigations/{id}/writeback` | `{ node 或 from, target, items 或 conclusions, mode, expected_source_revision, expected_target_revision }` | `{ version, source_revision, target_revision }`；修订冲突 409、缺前置条件 428 | implemented |
+| GET | `/investigation-templates` | `owner?=all\|official\|team`, `q?` | `{ items: InvestigationTemplate[], counts: { all, official, team } }`；空目录返回空列表 | implemented |
+| POST | `/investigation-templates/{id}/start` | `{ inputs: { application_id, template_version, request_id } }` | `{ investigation_id }`；新建 201、同用户同参数重试 200 | implemented |
 
 对话详情、后续模型上下文和最新回复使用持久 `sort_order`，同一事务写入的用户/助手消息按回合排序。有 `accepted` 审计的回合按序列化顺序；迁入或无审计的旧回合只按时间戳作确定性回填，不能据此证明原始提交顺序。迁移 085 在应用启动事务中回填整表并建索引，部署前须停旧回复 worker 并在代表性副本量测锁时。
 
@@ -132,8 +134,8 @@
 调查画布按持久调查、分支、修订、证据和节点布局工作：读取在同一事务中核当前应用、环境、负责人团队及 `canvas.view`，节点/修订/证据分别超过 100/1000/100 条或单条展示证据超过 16 KiB 返回 413，不截断为貌似完整的图。分支派生要求单环境、开放调查及 `canvas.change`，锁定父分支并复制其当前修订；节点修改用布局版本比较，标题另与当前标题比较。成功写入与事件、管理审计原子提交，两个写接口均不调用模型；入口和提交前按原始 Cookie 复核精确会话及当前授权来源。历史运行的 token 用量不是当前上下文用量，因此返回 `null`；没有可信调查循环状态时 `loop` 为空。
 
 调查节点消息在持久分支中保存运行 Attempt，然后只向环境允许的模型发送该分支创建时已继承的上下文和本次文本；不读取实时祖先或兄弟分支，不启用工具。成功时在一个事务中追加用户/助手消息、上下文修订、事件与审计；模型失败或撤权只保留失败尝试，不伪造助手结论。`GET /investigations/{id}/nodes/{node}/messages` 辅助路由可读当前修订及最近尝试。预览只从当前来源分支中选尚未回写到目标的持久助手消息，不生成摘要或推荐；省略目标时选根祖先。回写必须显式指定严格祖先目标、当前来源与目标修订和选中的消息 ID；`summary` 模式把历史助手文本标成不可信用户上下文，`messages` 模式原样复制，`evidence` 模式要求已有证据引用。写入目标的新修订、事件、审计原子提交，不修改来源或基础设施；重复来源消息、陈旧修订和超 24 KiB 上下文均显式拒绝。冻结画布页仍假定固定根节点及数值 token，拖拽缺布局版本，回写缺目标与双修订，预览预算字段按数字显示，整页尚未验收。
-| GET | `/investigation-templates` | | 模板列表 | mock |
-| POST | `/investigation-templates/{id}/start` | `{ inputs }` | `{ investigation_id }` | mock |
+
+调查模板是单独配置的持久、只读大纲，迁移不预置示例。GET 在同一有界事务中按当前会话、环境、应用映射、团队成员和 `canvas.view` 及引用权限过滤，`owner` 与 `q` 过滤条目，`counts` 统计完整可见集合；超过 500 个候选时返回受控 503，不截断。POST 只接受单一环境以及列表版本、应用 ID 和用户生成的请求 ID；启动前复核 `canvas.change`、团队成员、已发布且应用范围匹配的 Runbook、已人工审核的只读 MCP 工具与对应查看权限。在同一事务中保存调查、根与模板子分支、空上下文、冻结大纲及预算快照、事件与审计，不启动 Agent、模型、Runbook 或工具。同用户同请求 ID 的匹配重试返回已有调查，参数冲突返回 409；模板/依赖变更或撤权不会产生新调查。当前冻结前端启动按钮不发送 `inputs`，且模板列表未提供直接选择应用的字段，真实模式的启动交互需单独适配；本批仅按后端标准计入。
 
 ## 事件与告警（`events.ts`）
 

@@ -27725,6 +27725,329 @@
         ]
       }
     },
+    "/investigation-templates": {
+      "get": {
+        "summary": "List persisted, scoped investigation templates",
+        "operationId": "get_investigation_templates",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. An empty configured catalog returns an empty list. Current session, environment and canvas.view grants, active application mappings, team membership and reference grants filter persisted definitions in one bounded read transaction. Owner and q filter items; counts cover the full visible set. At most 500 scoped candidate rows may be read. Definitions are manual outlines only; no auto-triage, model or tool execution is implied. MCP tool names and Runbook IDs are configured references, checked again at start.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3InvestigationTemplate"
+                      }
+                    },
+                    "counts": {
+                      "type": "object",
+                      "properties": {
+                        "all": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "official": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "team": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "all",
+                        "official",
+                        "team"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "counts"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "investigation-templates"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "official",
+                "team"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/investigation-templates/{id}/start": {
+      "post": {
+        "summary": "Start a persisted investigation from a reviewed template outline",
+        "operationId": "post_investigation_templates_id_start",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment; all returns 409. Current session, canvas.change on the active mapped application or owner team, team-template membership, listed template version, published application-scoped Runbooks and knowledge.view, and current read-only reviewed MCP tool bindings with connectors.view are checked in the start transaction. A successful start atomically creates an investigation, root and template child branches with empty contexts and source provenance, a frozen definition and budget snapshot, events and audit. It does not run an Agent, model, Runbook or tool. The user-scoped request_id deduplicates concurrent retries; a matching committed start returns 200 after current session and canvas.change rechecks, even if its source template was subsequently disabled. Conflicting inputs return 409. Disabled/stale templates and revoked scopes do not create a new investigation. The frozen frontend currently sends no inputs, so its start button needs application selection, version, request ID and error handling before real-mode use.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "investigation_id": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "investigation_id"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Selected environment is read-only, template/dependency changed, or request ID conflicts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Application, template version or request ID is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Template definition, authorization source or persistence is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Idempotent replay of an already committed template start",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "investigation_id": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "investigation_id"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "investigation-templates"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "inputs": {
+                    "type": "object",
+                    "properties": {
+                      "application_id": {
+                        "type": "string"
+                      },
+                      "template_version": {
+                        "type": "string"
+                      },
+                      "request_id": {
+                        "type": "string",
+                        "minLength": 8,
+                        "maxLength": 128
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "application_id",
+                      "template_version",
+                      "request_id"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "inputs"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
     "/search": {
       "get": {
         "summary": "Search available persisted records",
@@ -52908,6 +53231,154 @@
           "conclusions",
           "timeline",
           "checks",
+          "budget"
+        ]
+      },
+      "V3InvestigationTemplateBranch": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "step": {
+            "type": "string"
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "step",
+          "tools"
+        ]
+      },
+      "V3InvestigationTemplate": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string",
+            "enum": [
+              "official",
+              "team"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "branches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3InvestigationTemplateBranch"
+            }
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "uses": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "maintainer": {
+            "type": "string"
+          },
+          "triggers": {
+            "type": "object",
+            "properties": {
+              "manual": {
+                "type": "boolean"
+              },
+              "auto_triage": {
+                "type": "boolean"
+              },
+              "matchers": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "name",
+                    "value"
+                  ]
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "manual",
+              "auto_triage",
+              "matchers"
+            ]
+          },
+          "runbooks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "budget": {
+            "type": "object",
+            "properties": {
+              "turns": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8
+              },
+              "tools": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 16
+              },
+              "minutes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "turns",
+              "tools",
+              "minutes"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "owner",
+          "description",
+          "branches",
+          "tools",
+          "uses",
+          "version",
+          "maintainer",
+          "triggers",
+          "runbooks",
           "budget"
         ]
       },

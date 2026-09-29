@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-164 · 2026-09-29 · WAN-121 调查模板目录与启动
+
+- 集成分支 `codex/wan-117-v3-integration` 从已推送 CP-163 `0345706` 接续。WAN-121 来源 `16b7f7c7e40814fc6668831f5c11901bbf55560b` 合入为 `57159ef`；v3canvas 已有主程序注册路径，新增 GET/POST 路由与权限登记。迁移 `134_v3_investigation_templates.sql` 不种演示记录，目录为空返回 200 空列表。另一个已存在的 `134_v3_pull_attempts.sql` 与之按完整文件名分别登记。
+- GET 从持久目录按当前会话、环境、应用映射、团队成员、`canvas.view` 和引用权限过滤，给出完整可见计数与搜索；超过 500 个候选明确失败。POST 要求单一环境、有效应用、所见模板版本与用户请求 ID，重核 `canvas.change`、只读审核 MCP 工具、已发布 Runbook、团队和引用权限；同一事务保存调查、根与子分支、空上下文、冻结模板与预算、事件和审计。无模型、Agent、Runbook 或工具执行；同用户同参数重试返回先前 ID，冲突 409，禁用/陈旧定义或撤权不产生新调查。
+- 两条主路由按后端真实处理、当前范围鉴权、完整 DTO、OpenAPI 和定向检查升 `implemented`，主契约 **81/166、85 mock**；生成 OpenAPI **298 路径、356 操作、316 schema**。一次性隔离 pgvector PG17 中 `internal/v3canvas` 两项模板 HTTP/数据库测试 `-race` 通过，覆盖可见性、依赖/版本/撤权、持久快照、并发重试与审计；夹具明确断言两个 `134_*.sql` 均登记。`cmd/aiops` 测试、受影响 Go vet、契约、就绪矩阵和差异检查通过。仅在隔离库执行迁移；未验现有业务库、真实 MCP/Runbook 配置或浏览器。冻结前端启动按钮不发送必需 `inputs`，列表也无直接选择应用字段；页面仍待接入。无 PR、合并或部署。
+
 ## CP-163 · 2026-09-29 · WAN-122 固定 Prometheus Pull 入口
 
 - 集成分支 `codex/wan-117-v3-integration` 从已推送 CP-162 `0740e42` 接续。WAN-122 来源 `c0269703218fabd91a8c776a09e861e0406d9264` 的领域实现、迁移 `134_v3_pull_attempts.sql`、配置示例及 OpenAPI 分片合入为 `fcb3cf5`。主程序读取私有 `AIOPS_V3_PULL_SOURCES_CONFIG`，使用现有精确 Vault 凭据绑定注册两条 V3 主路由；错误配置在注册前失败。来源 ID 固定有效应用、环境、Prometheus 连接器、`metric_resource` 目标与审核查询摘要，改变身份须用新 ID。GET 返回真实有界 `query_range` 的规范化样例和预览；POST 只接受空对象或白名单标签映射，行数和丢弃数来自本次真实上游响应。原始 PromQL、响应正文及凭据不外泄。

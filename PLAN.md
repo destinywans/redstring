@@ -1,5 +1,7 @@
 # AIOps Canvas 实施计划
 
+**2026-09-29 调查模板目录与启动（CP-164）：** WAN-121 持久调查模板 GET/POST 已接主程序；列表按当前环境、应用、团队、权限及有效引用过滤，启动在单事务内复核版本/依赖并建立调查、分支、冻结大纲、事件与审计，按用户请求 ID 幂等。隔离 PG17 `-race`、两个不同文件名的 `134_*.sql` 登记、主程序测试、vet 和契约检查通过。两条主路由按后端标准升为 `implemented`，现 **81/166、85 mock**，OpenAPI **298 路径、356 操作、316 schema**。迁移不种示例，真实部署可为空；冻结前端未发送启动 `inputs`，真实页面尚不可用。见 [CP-164](CHECKPOINT.md)。
+
 **2026-09-29 Prometheus Pull 正式入口（CP-163）：** WAN-122 服务端固定的 Prometheus `metric_resource` Pull 来源、真实有界预览与映射测试已接 V3 主程序；隔离 PG17 + 本地 Vault/Prometheus 入口 `-race` 与领域定向均通过。`GET /ingest/pull/{id}`、`POST /ingest/pull/{id}/test` 按后端标准升为 `implemented`，主契约现 **79/166、87 mock**，OpenAPI 296 路径、354 操作、314 schema。生产查询范围需运维审核，尝试留存/容量、真实上游和冻结前端控件仍待验；见 [CP-163](CHECKPOINT.md)。后续继续接已就绪的完整领域批次。
 
 **2026-09-29 Confluence/Notion 受限知识来源（CP-162）：** WAN-123 服务端精确空间/页面、环境/应用/团队和 Vault 绑定的只读探测、登记、手动观察及持久证据已接主程序；无自动同步或索引。主契约仍 **77/166 `implemented`、89 `mock`**：`GET /knowledge-sources` 缺完整连接/索引 DTO，两个 POST 仍缺冻结来源的 Feishu、Git、upload。新增第三个不同文件名的 `133_*.sql` 已在隔离迁移检查中覆盖；详见 [CP-162](CHECKPOINT.md)。真实租户、现有库迁移及页面验收待后续。下一步按依赖接 WAN-123 Feishu/upload 完整批次，再逐行复核主 POST。

@@ -55,6 +55,14 @@ func TestInvestigationTemplateListUsesPersistedVisibleCatalog(t *testing.T) {
 	if err = st.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
+	var applied int
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM schema_migrations
+ WHERE name IN ('134_v3_investigation_templates.sql','134_v3_pull_attempts.sql')`).Scan(&applied); err != nil {
+		t.Fatal(err)
+	}
+	if applied != 2 {
+		t.Fatalf("expected both distinct 134 migrations, got %d", applied)
+	}
 	if err = st.Bootstrap(ctx, "admin@example.invalid", "isolated-admin-password"); err != nil {
 		t.Fatal(err)
 	}

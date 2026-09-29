@@ -16,6 +16,6 @@ X-AIOps-Environment: prod
 
 请求必须由当前有效的**人类**会话发起。事件行、当前应用及环境映射、负责人团队、会话和 V3 授权来源在同一事务内核对；同时要求 `events.change` 与 `events.view`，避免仅有变更权限的人从认领响应读取详情。认领人、审计与更新后的详情在同一事务中形成。版本过期返回 412；同一人的当前版本重试不重复写入；其他人已认领或事件不再可认领返回 409。平台认领不会自动停止 Alertmanager 或外部值班升级。
 
-集成时，WAN-117 需将同一 V3 策略的团队授权回调注入 `v3events.Service.AuthorizeTeamTx`，使当前 `owner_team_id` 范围的 `events.view/change` 与应用范围的策略一致；同时生成总 OpenAPI、更新主契约和路由就绪记录。该领域分支不改公共 `cmd/aiops`。在接通之前，团队专属授权失败关闭。
+WAN-117 集成已将同一 V3 策略的团队授权回调注入 `v3events.Service.AuthorizeTeamTx`，使当前 `owner_team_id` 范围的 `events.view/change` 与应用范围策略一致，并生成总 OpenAPI、更新主契约和路由就绪记录。回调未配置时团队专属授权仍失败关闭。
 
-冻结前端目前发送空认领请求，且把 `series`、`labels`、`source` 和关联字段视为非空；认领后提示“值班升级已停止”。这与后端版本请求和真实来源不符，页面 HTTP 验收须等前端按 nullable 结果渲染、发送 `expected_revision` 并移除错误提示。当前实现不能因此宣称冻结 `AlertDetail` 产品契约已完整交付。若将来接入指标、阈值和 Alertmanager 当前状态，应新增精确的服务端事件来源绑定，验证同一持久事件、应用、环境和现行授权，并在上游读取后再核权限；仅凭标题、时间接近或客户端标签不能建立关联。
+冻结前端目前发送空认领请求，且把 `series`、`labels`、`source` 和关联字段视为非空；认领后提示“值班升级已停止”。这与后端版本请求和真实来源不符，页面 HTTP 验收须等前端按 nullable 结果渲染、发送 `expected_revision` 并移除错误提示。`implemented` 仅指本阶段配置来源时的后端代码路径，不能据此宣称冻结 `AlertDetail` 页面已验收。若将来接入指标、阈值和 Alertmanager 当前状态，应新增精确的服务端事件来源绑定，验证同一持久事件、应用、环境和现行授权，并在上游读取后再核权限；仅凭标题、时间接近或客户端标签不能建立关联。

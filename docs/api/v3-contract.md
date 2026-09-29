@@ -142,8 +142,8 @@
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
 | GET | `/inbox` | `filter` | 收件箱条目 | mock |
-| GET | `/alerts/{id}` | | 持久告警详情；无可信来源的字段为 `null` 并列入 `unavailable` | mock |
-| POST | `/alerts/{id}/claim` | `{ expected_revision }`（取自详情读取） | 原子认领后的持久告警详情；旧修订返回 412 | mock |
+| GET | `/alerts/{id}` | | 当前授权的持久告警详情与本地通知台账；无精确发生记录来源的字段为 `null` 并列入 `unavailable` | implemented |
+| POST | `/alerts/{id}/claim` | `{ expected_revision }`（取自详情读取） | 按当前修订原子认领、审计并返回更新后的持久告警详情；旧修订返回 412 | implemented |
 | GET | `/alert-groups` | `q`, `severity`, `env` | 告警分组 | mock |
 | GET | `/alert-groups/{id}/policy` | | `AlertGroupPolicy` | mock |
 | POST | `/alert-groups/bulk` | `{ ids, action: claim\|silence\|investigate }` | 结果 | mock |
@@ -171,7 +171,7 @@
 
 `POST /alert-rules/{id}/dry-run` 仅对当前环境中唯一绑定且有权查看的规则运行最近六小时 Prometheus 历史 `query_range` 采样模拟。请求 `expr` 必须与服务端当前规则表达式逐字一致，`for` 可在 0 到 1 小时内调整；规则、负责人、范围与授权在上游查询后复核。每条返回序列必须带精确的应用和环境标签，缺失或混合范围、数据不完整与超限均拒绝，不返回虚构计数。`would_fire` 和 `windows` 是满足持续时长的采样片段，不是历史通知或实际告警状态；`query_offset` 与 `keep_firing_for` 未复现，规则表达式及查询输入范围仍须由可信配置和部署隔离保证。冻结页面发送 `threshold/for_minutes`，与此请求体不符；真实 Prometheus 及页面尚未验收。
 
-`POST /silences/preview` 按所选单一环境读取实时 Alertmanager 告警快照。请求支持 `=`、`!=`、`=~`、`!~`（1–20 条）；环境是隐含的精确匹配。精确 `application=` 值必须在服务端绑定到有效应用并有当前应用/团队 `silences.view`，无应用匹配则要求环境级 `silences.view` 与 `silences.manage`。Alertmanager 读取后再次核对当前授权和应用归属。`affects` 是此刻该环境匹配告警的完整条数，`sample` 仅为最多 5 个去重排序的真实 `alertname`；来源异常、超过 500 条该环境告警或异常 `null` 均返回 503，不给部分计数。预览不会创建静默。现有页面默认仅传 service/alertname，普通应用用户会因缺精确应用匹配收到 403，且页面尚未正确清除旧预览/失败状态；后端路由已闭合，页面和真实 Alertmanager 尚未验收。`POST /alerts/{id}/claim` 已改为持有事件行锁时复核当前授权，仍只返回 `{ id, assignee_id }`，不等于完整告警详情。
+`POST /silences/preview` 按所选单一环境读取实时 Alertmanager 告警快照。请求支持 `=`、`!=`、`=~`、`!~`（1–20 条）；环境是隐含的精确匹配。精确 `application=` 值必须在服务端绑定到有效应用并有当前应用/团队 `silences.view`，无应用匹配则要求环境级 `silences.view` 与 `silences.manage`。Alertmanager 读取后再次核对当前授权和应用归属。`affects` 是此刻该环境匹配告警的完整条数，`sample` 仅为最多 5 个去重排序的真实 `alertname`；来源异常、超过 500 条该环境告警或异常 `null` 均返回 503，不给部分计数。预览不会创建静默。现有页面默认仅传 service/alertname，普通应用用户会因缺精确应用匹配收到 403，且页面尚未正确清除旧预览/失败状态；后端路由已闭合，页面和真实 Alertmanager 尚未验收。`GET /alerts/{id}` 从来源绑定的持久事件及本地通知传输台账返回有证据字段，来源、规则、曲线、分组、Runbook 等缺精确发生记录关联时为 `null` 并列入 `unavailable`；`source_id` 只标记入站身份，不证明当前上游健康。`POST /alerts/{id}/claim` 以 GET 的事件行修订作前置条件，事务内复核人类会话与查看/修改权、更新认领与审计，再返回修订后的详情；冻结前端仍传空请求体并假称外部升级已停止，页面未验收。
 
 底层 Alertmanager 适配器可按 v2 协议创建和过期静默：创建不带客户端 ID，校验返回 UUID；过期使用单数 `/silence/{id}` 路径；超时等结果不确定的写入单独标记。创建台账现能持久保留当前有权人类操作者的环境/应用作用域、固定载荷、幂等键和审计；另有仅供受信进程内调用的静默提案生产者，将同环境未关闭调查、当前应用/团队和权限核对后的固定动作快照、摘要及供人阅读的内容原子保存，并不创建上游静默或开放产品写路由。提案的查看、评论、驳回在事务内复核当前权限；驳回仍须人类身份。私有对账会枚举一个配置端点的完整静默列表：零条标记保持未知且不重发，唯一完整匹配才确认，重复或失配进入人工复核；过期时间窗会在保留后执行与低层发送前拒发。单端点快照不能证明 HA 集群最终收敛后的全局唯一。生产执行前仍须在同一事务核验具体持久提案及人工批准，并由独立执行器按明确的未发送/不确定结果路径调度。删除还缺对象归属、授权和持久意图；反向代理的 404 不能证明对象已删除。未注册 `POST /silences` 或 `DELETE /silences/{id}` 产品路由，两条主契约继续 `mock`。
 
@@ -295,7 +295,7 @@ Pull 仅使用服务端私有配置登记的 Prometheus `metric_resource` 目标
 | POST | `/service-mappings/discover` | | `{ suggestions, source_state, candidates }` | implemented |
 | PUT | `/service-mappings` | `{ environment_id, items: [{ service_id, service_environment_id, binding_revision, bindings }] }`；1–50 个完整替换项 | `{ environment_id, items }`；返回持久身份、绑定及写后修订号 | implemented |
 | GET | `/coverage` | `app` | `CoverageView`（覆盖矩阵、对 Agent 的影响、修复建议） | mock |
-| GET | `/webhooks` | | 通用 Push 入站的真实登记及 24 小时收据；其他类别以 `availability` 标为未接入 | mock |
+| GET | `/webhooks` | | 当前授权通用 Push 入站的真实登记及 24 小时非合成收据；其他类别以 `availability: not_connected` 标为未接入，未知连接状态为 `unverified` | implemented |
 | POST | `/webhooks/{id}/redeliver` | | 结果 | mock |
 | POST | `/api-tokens` | `{ name, scopes, ttl }` | `{ id, secret_shown_once }` | mock |
 
@@ -304,6 +304,8 @@ Pull 仅使用服务端私有配置登记的 Prometheus `metric_resource` 目标
 单环境 `GET /service-mappings` 在调用者有当前服务查看/修改及连接器查看/管理权时，为可见行附上包含稳定服务 ID、服务环境 ID、绑定修订和精确绑定的 `save` 快照；不安全的历史绑定仍可展示，但 `save.editable=false`，`all` 视图不提供保存快照。`PUT /service-mappings` 要求一个选定环境、1–50 个不同服务的完整绑定集合，缺失或 `null` 的绑定数组、展示格、重复/未知系统、跨环境对象及过期修订都拒绝；`bindings: []` 明确清空。服务/连接器授权、对象身份和精确 Cookie 会话在事务内复核，变化项的绑定、修订和审计一同提交，无变化项不新增审计。GitLab `code` 绑定仅可原样保留；新增/修改项目必须走候选发现与接受。其他绑定仍需运行时校验，示例见 `docs/examples/v3-service-mapping-save.md`。冻结前端目前发送空 PUT，且发现后不刷新、接受前乐观显示成功，文案误称来自标签/命名/部署；页面保存仍未验收。
 
 Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v1/events/{alert|change|incident|resource|oncall}`。来源在私有配置中固定到一个应用、环境与允许类型；要求来源 ID、Bearer 令牌、`Idempotency-Key`、Unix `X-Timestamp` 和正文原始字节的 HMAC-SHA256 `X-Signature`。五条公开路由只豁免浏览器会话/环境门禁，由来源令牌与签名独立鉴权；未列出的相邻路由仍需浏览器会话。规范事件、24 小时幂等占用、净化收据与带精确环境的审计同事务持久化后返回 202；重复 409、无效规范体 422、鉴权失败 401、来源限流 429。已配置来源的 GET 只显示当前有权的应用/环境及其真实持久记录；管理测试生成 synthetic 记录，不证明外部发送端可用。配置、签名算法和恢复见[通用 Push 入站](../examples/v3-push-ingress.md)。此处只支持规范 `generic` 事件，不把供应商原生载荷当作已接入。冻结前端的测试请求尚未发送必需 `type`，复制的 curl 缺来源、时间戳和签名，配套栈按钮也未接部署控制器；页面未验收。公开部署前还需入口层无效令牌限流、数据留存及容量决策；本轮没有外部发送端、迁移现有业务库或页面浏览器实测。
+
+`GET /webhooks` 仅在当前环境和应用/团队授权下展示已配置的通用 Push 来源及过去 24 小时真实、非合成的持久收据；没有收据返回 `unverified`，不是健康或失败。原生入站、API 令牌、对外 MCP 和出站类别分别标记 `availability: not_connected`，不把通用收据冒充它们的投递。请求最多纳入 50 个来源和每来源 5 类事件、返回 30 条收据，整体 12 秒超时；聚合查询尚无独立扫描行数上限，公开容量仍需评估。冻结前端不识别 `unverified` 和 `availability`，选中来源时仍显示汇总收据；`POST /webhooks/{id}/redeliver` 与 `POST /api-tokens` 仍是独立 `mock`，不得把入站收据 ID 当成可重投出站消息。
 
 连接器辅助激活接口（不计入 166 项页面契约）：`POST /connectors/{id}/activate`，单一环境下传 `{ credential_ref?: "vault://mount/path#field" }`。所有凭据读取须先匹配由部署方配置的层级、环境、连接器 ID、供应商、端点和引用；缺绑定返回 503 `credential_not_authorized`，不读取 Vault 或探测上游。GitLab 须先通过服务环境的显式目标绑定登记至少一个数字项目 ID；后端用 Vault 凭据对每个项目发起 GET 验证，再复核权限、连接器配置和绑定集合，成功后启用。其他已登记类型使用有界只读探测，成功后启用登记但工具仍关闭；无认证类型可传 `{}`，已保存 Vault 引用也可省略请求中的引用。通用探测只证明指定地址一次返回 2xx，健康端点可能不校验凭据，所以通用激活另返回 `credential_verified: false`；GitLab 的项目验证也不证明令牌只有只读权限。`webhook` 仅记录意图，`webhook_active` 始终为 `false`；探测失败返回 502 且不启用，GitLab 项目绑定变化须重新激活。`status: "ok"` 表示一次探测结果，不代表持续健康。配置和恢复见 [连接器凭据绑定](v3-connector-credentials.md)。
 

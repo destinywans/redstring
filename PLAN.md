@@ -1,5 +1,7 @@
 # AIOps Canvas 实施计划
 
+**2026-09-29 来源化告警与通用 Push Webhook（CP-170）：** WAN-118 的 `GET /alerts/{id}`、受事件修订约束的 `POST /alerts/{id}/claim`，以及 WAN-122 授权通用 Push 收据的 `GET /webhooks` 已接公共 V3 入口并按本阶段后端代码标准升 `implemented`，现 **93/166、73 mock**；OpenAPI **304 路径、362 操作、351 schema**。规则/曲线/外部通知状态等未知项显式可空，其他 Webhook 类别明确未接入，重投/API 令牌仍待实现。按用户要求未运行测试或真实外部联调，仅最小编译；冻结前端认领修订、可空字段和未验证状态待适配。见 [CP-170](CHECKPOINT.md)。下一批合 WAN-121 富消息恢复，保留指标来源撤权门禁。
+
 **2026-09-29 真实 Kubernetes 服务发现（CP-169）：** WAN-117 的正式 `GET /services/discover` 从最近五分钟有来源身份的 CMDB/Kubernetes 快照读取当前授权的未关联工作负载，返回稳定资源 ID、UID、来源时间和未知字段；来源分支已记录专用 demo 集群的真实 V3 HTTP 正常调用，本集成按用户本阶段要求不重跑测试。主契约现 **90/166、76 mock**，OpenAPI **302 路径、360 操作、345 schema**；前端不传 `cluster/resource_id`，整页未验。见 [CP-169](CHECKPOINT.md)。下一批接来源化告警与 Webhook。
 
 **2026-09-29 指标快照提问代码接线（CP-168）：** WAN-120 的受审查 Prometheus 单服务快照、持久提问、幂等重试和来源撤权复核已接正式 V3 入口，主 `/metrics/ask` 按本阶段后端代码标准升 `implemented`，现 **89/166、77 mock**；OpenAPI **302 路径、360 操作、344 schema**。本阶段按用户要求不做测试或真实环境验收，仅共享入口最小编译；冻结页面仍缺五字段请求与 SSE 恢复，三项同编号迁移在现有库未运行，多实例上线顺序需控制。见 [CP-168](CHECKPOINT.md)。下一批合入真实服务发现与来源化告警/Webhook。

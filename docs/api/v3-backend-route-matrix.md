@@ -46,8 +46,8 @@
 | 对话、画布与模板 | GET | `/investigation-templates` | 新增 | implemented |
 | 对话、画布与模板 | POST | `/investigation-templates/{id}/start` | 新增 | implemented |
 | 事件与告警 | GET | `/inbox` | 聚合 | mock |
-| 事件与告警 | GET | `/alerts/{id}` | 聚合 | mock |
-| 事件与告警 | POST | `/alerts/{id}/claim` | 新增 | mock |
+| 事件与告警 | GET | `/alerts/{id}` | 聚合 | implemented |
+| 事件与告警 | POST | `/alerts/{id}/claim` | 新增 | implemented |
 | 事件与告警 | GET | `/alert-groups` | 聚合 | mock |
 | 事件与告警 | GET | `/alert-groups/{id}/policy` | 新增 | mock |
 | 事件与告警 | POST | `/alert-groups/bulk` | 新增 | mock |
@@ -132,7 +132,7 @@
 | 集成中心 | POST | `/service-mappings/discover` | 新增 | implemented |
 | 集成中心 | PUT | `/service-mappings` | 新增 | implemented |
 | 集成中心 | GET | `/coverage` | 聚合 | mock |
-| 集成中心 | GET | `/webhooks` | 聚合 | mock |
+| 集成中心 | GET | `/webhooks` | 聚合 | implemented |
 | 集成中心 | POST | `/webhooks/{id}/redeliver` | 新增 | mock |
 | 集成中心 | POST | `/api-tokens` | 新增 | mock |
 | Agent 运行台 | GET | `/agents/lifecycle` | 新增 | mock |

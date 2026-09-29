@@ -58,25 +58,35 @@ S['V3AlertRuleEnabledIntentResult'] = obj({
 }, ['draft_id','version','proposal_id','status','mr'])
 S['V3AlertRuleCreateResult'] = {'oneOf':[ref('V3AlertRuleDraftResult'),ref('V3AlertRuleTrialResult'),ref('V3AlertRuleEnabledIntentResult')]}
 S['V3AlertRuleImportRequest'] = obj({
-    'application_id':string(minLength=1),
+    'application_id':string(minLength=1,description='Optional; if omitted, infer one shared application from exact application labels on every rule.'),
     'yaml':string(minLength=1,maxLength=131072,
-        description='At most 128 KiB UTF-8, with a bounded number of groups and rules. The server parses and validates rule groups, labels, expressions and durations.'),
+        description='At most 128 KiB UTF-8. One supported native Prometheus rule file or limited monitoring.coreos.com/v1 PrometheusRule document; unsupported fields are rejected.'),
     'mode':string(enum=['draft']),
-}, ['application_id','yaml','mode'])
+}, ['yaml'])
 S['V3AlertRuleImportCandidate'] = obj({
     'group':string(),
     'name':string(),
     'outcome':string(enum=['new','duplicate']),
     'status':string(enum=['pending_review','duplicate_skipped']),
-    'draft_id':string(description='Present only for a new candidate.'),
+    'reason':string(enum=['new_draft','existing_draft','observed_rule']),
+    'draft_state':string(description='Present when an existing local draft identity was skipped.'),
+    'draft_id':string(description='Present for a new draft or an existing local draft; absent for a provider-only duplicate.'),
+    'remote_review':obj({'project_id':string(),'branch':string(),'mr_iid':integer(minimum=1),'mr_url':string(format='uri')},
+        ['project_id','branch']),
     'version':integer(minimum=1,description='Present only for a new candidate.'),
-}, ['group','name','outcome','status'])
+}, ['group','name','outcome','status','reason'])
+S['V3AlertRuleImportItem'] = obj({
+    'name':string(),
+    'status':string(enum=['new','duplicate']),
+    'note':string(),
+}, ['name','status','note'])
 S['V3AlertRuleImportResult'] = obj({
     'status':string(enum=['pending_review','duplicates_only']),
     'mr':ref('V3AlertRulePendingMR'),
+    'items':{'type':'array','minItems':1,'maxItems':20,'items':ref('V3AlertRuleImportItem')},
     'candidates':{'type':'array','minItems':1,'maxItems':20,
         'items':ref('V3AlertRuleImportCandidate')},
-}, ['status','candidates'])
+}, ['status','items','candidates'])
 
 v3_route('post','/alert-rules','Create a governed alert-rule draft, isolated trial, or enable proposal',role='operator',
     body=ref('V3AlertRuleCreateSpec'),response=ref('V3AlertRuleCreateResult'),status=201,
@@ -87,13 +97,13 @@ v3_route('put','/alert-rules/{id}','Revise a governed alert-rule draft',role='op
     desc='The path id identifies the governed draft. expected_version must match its current revision. When the draft references a provider-observed rule, observed_rule and rule.observed_rule_id must preserve that identity. A confirmed pending-review revision rejects provider content drift; rejected or stale-remote revisions may be explicitly superseded against the current observed content. The replacement remains in one selected environment/application/group with exact scope labels and mode=draft. A successful update writes a new immutable, nondeployable GitOps JSON revision to a pending GitLab MR; it never enables, merges or applies a rule. Same-key same-payload retry returns the same result; changed payload conflicts. Validation returns 422; missing or uncertain GitLab connectivity returns 503 not_connected/upstream.')
 v3_route('post','/alert-rules/import','Import bounded rule YAML as review drafts',role='operator',
     body=ref('V3AlertRuleImportRequest'),response=ref('V3AlertRuleImportResult'),status=201,
-    desc='Requires one selected environment and an active application with alert_rules.change. Parse at most 10 groups and 20 rules from one YAML document; never trust a caller-supplied group override, and require every rule to carry exact application/environment labels matching the selected binding. Reject malformed, unsafe, over-limit or cross-scope YAML with 422. Compare each candidate with currently authorized identities: report new/pending_review or duplicate/duplicate_skipped explicitly. An all-duplicate input returns 200 duplicates_only with no MR; new candidates return 201 and become immutable, nondeployable GitOps draft JSON in one pending GitLab MR. Duplicates are not written. No rule is enabled, merged or applied. Same-key same-payload retry returns the same pending draft/MR; changed payload conflicts. Missing or uncertain GitLab connectivity returns 503 not_connected/upstream.')
+    desc='Accepts the frozen frontend {yaml} body; application_id and mode=draft are optional. One selected environment and one application inferred from exact per-rule labels require current alert_rules.change. Parse at most 10 groups and 20 alerting rules from one native Prometheus rule file or limited PrometheusRule CRD document; reject unsupported fields, recording rules, group-level evaluation options, unsafe YAML and mixed or missing application/environment/severity labels. Every candidate expression receives PromQL syntax validation, including duplicates. items is the frozen frontend new/duplicate/note projection; candidates adds group, draft identity and duplicate reason. The parse request immediately creates nondeployable review drafts for new rules, with one pending GitLab MR; an all-duplicate import returns 200 and no MR. No rule is enabled, merged or applied. If Idempotency-Key is omitted, the server reuses the most recent matching operation while remote result is unfinished, or for five minutes after completion when observed provider identities are unchanged; later or changed sources are reclassified. A rejected or stale remote prior draft is reported as an existing local duplicate and is not exported again; other newly eligible rules in the same YAML may still create a separate pending MR. Stale remote candidates include project, branch and known MR for human review. Explicit keys retain durable replay, and changed payload with the same explicit key conflicts. Missing or uncertain GitLab connectivity returns 503 not_connected/upstream.')
 
 for _path, _method in [('/alert-rules','post'),('/alert-rules/{id}','put'),('/alert-rules/import','post')]:
     P[_path][_method].setdefault('parameters', []).append({
-        'name':'Idempotency-Key','in':'header','required':True,
+        'name':'Idempotency-Key','in':'header','required':_path != '/alert-rules/import',
         'schema':string(minLength=1,maxLength=128),
-        'description':'Unique per actor and operation; replay with the same payload returns the original result.'})
+        'description':'Unique per actor and operation; replay with the same payload returns the original result. Optional on import: omitted key reuses unfinished operations and recent completed operations with unchanged observed source identities.'})
     P[_path][_method]['responses']['413']={'description':'Serialized draft exceeds the bounded GitOps payload','content':{'application/json':{'schema':ref('Error')}}}
     if _path != '/alert-rules':
         P[_path][_method]['responses']['501']={'description':'Only draft mode is supported for update and import','content':{'application/json':{'schema':ref('Error')}}}

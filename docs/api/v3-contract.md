@@ -265,7 +265,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | POST | `/alert-rules/generate` | 单环境、`application_id`、`{ text }`、`Idempotency-Key`；需规则修改权 | 经受审目录与有界模型生成的 `review_required` 草稿；不保存为生效规则 | implemented |
 | POST | `/alert-rules/preview` | 单环境、`application_id`、`{ query, op, threshold, for_minutes, range }`；需规则查看权 | 真实 Prometheus 七天五分钟采样曲线与窗口；全量历史计数、路由和相似规则未知 | implemented |
 | POST | `/alert-rules` | 单环境、`Idempotency-Key`、完整应用/环境/组/规则/标签定义与 `mode: draft\|dry_run\|enabled` | `draft` 在受权且受信来源/仓库均可用时导出不可部署 JSON 草稿，返回 `201 pending_review`；`dry_run`、`enabled` 尚无正式入口所需的隔离运行源、批准证明和独立执行链，返回不可用，不试运行或启用规则 | implemented |
-| POST | `/alert-rules/import` | 单环境、`Idempotency-Key`、`application_id`、`mode: draft` 与至多 128 KiB 的 `yaml` | 有界解析、逐项核对当前来源；新规则导出不可部署草稿并返回 `201 pending_review`，全部重复返回 `200 duplicates_only`，不启用规则 | implemented |
+| POST | `/alert-rules/import` | 单环境、至多 128 KiB 的 `{ yaml }`；`Idempotency-Key`、`application_id`、`mode: draft` 可选，缺应用 ID 时从全部规则精确标签推断唯一应用 | 有界解析、逐项核对当前来源；返回 `items` 与候选原因，新规则导出不可部署草稿并返回 `201 pending_review`，全部重复返回 `200 duplicates_only`，不启用规则 | implemented |
 | POST | `/notification-routes/test` | `{ labels }`：当前绑定应用与环境的精确样例告警 | 当前生效 Alertmanager 策略的节点路径、匿名接收方引用及分组时序；不发送通知或试算草稿 | implemented |
 | POST | `/notification-routes` | `Idempotency-Key`、GET ETag 的 `If-Match`；绑定应用、匹配条件、匿名接收方引用及分组时序 | `202 pending_review`、本地草稿 ID 与经核对的 GitLab MR；当前 MR/运行态为 `null`，不激活路由 | implemented |
 | POST | `/inhibitions/preview` | 单环境、`application_id`、`{ source, target, equal }`；目标仅明确的 P2–P4 | 可信完整七天 firing 历史上的潜在抑制条数与真实样例；实际命中未知；缺来源 501 | implemented |
@@ -282,7 +282,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 
 `POST /alert-rules/generate` 仅在受审应用/环境查询目录、受保护模型配置及精确主机名单齐备时，对当前有权应用做一次无工具模型调用，严格解析模型输出及 PromQL 允许范围，持久化带审计的待人工审阅草稿；同键不重复调用，预算限流或结果不确定明确报错。模型返回后的结果写入事务再次锁定会话、应用、授权及尝试，失权不保存草稿。`POST /alert-rules/preview` 只向该目录显式绑定的应用隔离 Prometheus 端点读取七天五分钟采样；`sampled_count` 与窗口不是历史完整告警次数，真实总数、噪声、路由及相似规则来源未知时为 `null`。两条路由不创建或部署规则，未配置时明确不可用；部署仍须验证端点本身的应用隔离与累计模型费用限制。冻结新建页缺 `application_id` 和生成幂等键，且把未知采样字段当确定值，页面未验收；见[规则助手契约](v3-rule-assistant.md)。
 
-规则写入三条主路由仅按 `draft` 的条件式后端成功路径计为 `implemented`。草稿导出需要已配置且与配置提升、通知路由及抑制草稿隔离的 GitLab 目标和固定 `aiops-alert-rule-drafts/` 分支前缀；外部写入期间保持当前会话、应用授权和草稿操作锁，结果不确定时保留同身份对账。导出的是待人工审阅的不可部署 JSON，不合并、不写入生效 Prometheus 或 GitOps YAML。正式入口尚未接入按应用隔离的 24 小时试运行 worker、提案 Passkey 批准证明、受信 YAML 部署计划/执行器和生效规则精确观察，故 `dry_run` 与 `enabled` 不可用；这两种模式及冻结新建页均未交付。详见[规则写入来源与边界](v3-alert-rule-writes.md)。
+规则写入三条主路由仅按 `draft` 的条件式后端成功路径计为 `implemented`。草稿导出需要已配置且与配置提升、通知路由及抑制草稿隔离的 GitLab 目标和固定 `aiops-alert-rule-drafts/` 分支前缀；外部写入期间保持当前会话、应用授权和草稿操作锁，结果不确定时保留同身份对账。导出的是待人工审阅的不可部署 JSON，不合并、不写入生效 Prometheus 或 GitOps YAML。YAML 导入支持页面的 `{yaml}` 请求，但规则须自带一致的应用、环境和严重级别标签；省略幂等键时仅对未完成操作及来源身份未变的近五分钟完成操作保留重放。页面示例缺必需标签，“解析”按钮实际会持久写入，随后“导入为草稿”没有第二次服务端请求，页面未验收。正式入口尚未接入按应用隔离的 24 小时试运行 worker、提案 Passkey 批准证明、受信 YAML 部署计划/执行器和生效规则精确观察，故 `dry_run` 与 `enabled` 不可用；这两种模式及冻结新建页均未交付。详见[规则写入来源与边界](v3-alert-rule-writes.md)。
 
 `GET /incidents/draft` 要求显式选择 1–20 条当前受权、同应用环境且未关联人工事件的活跃持久告警，按事实预填标题和最高严重度；影响、指挥官、参与者、作战群与 AI 分析未知。`POST /incidents` 要求人类会话、事件查看和修改权、单一服务与有效 `Idempotency-Key`；独立人工事件、告警关联、可选空白调查与审计在同一事务提交，重试同键同体返回既有结果，不发送外部通知。`war_room`、`notify`、`status_page` 请求在缺执行器时返回 503；`open_canvas` 另须画布查看与修改权。新增 `137_v3_incident_cases.sql` 未在现有库执行，案例相关的既有读取同样依赖它；人工事件目前无状态转移写入，而现有复盘只从已解决的 `ops_incidents` 选择，故不能宣称人工事件到复盘的端到端流程已闭合。冻结页面缺选中告警和幂等键，页面未验收。
 

@@ -10,6 +10,14 @@
 
 三个模式使用 `Idempotency-Key`。同一创建者、同一操作、同一键的请求身份绑定完整请求与环境；冲突返回 409。试运行容量由数据库唯一索引限制为全局一个活跃任务，超额返回 429。远端写入不确定时按固定操作 ID 对账，不另建 MR。草稿导出后如当前授权、来源或提案键变化，MR 标为 `stale_remote`，需人工检查。
 
+## YAML 导入的支持范围
+
+`POST /alert-rules/import` 接受冻结页面的 `{ "yaml": "..." }`；也接受可选 `application_id` 和 `mode: "draft"`。仅支持单文档、最多 128 KiB、10 个组、20 条告警规则的两种明确形状：[原生 Prometheus 规则文件](https://prometheus.io/docs/prometheus/latest/configuration/recording_rules/)的顶层 `groups`，或 [Prometheus Operator](https://prometheus-operator.dev/docs/api-reference/api/) 的 `apiVersion: monitoring.coreos.com/v1`、`kind: PrometheusRule`、`metadata: {name, namespace?}`、`spec: {groups}`。CRD metadata 只校验输入形状，不保存为 Kubernetes 资源身份，也不决定部署目标；导出的仍是不可部署的审查 JSON，**不是原始 PrometheusRule 资源**。每组只接受 `name/rules`，每条只接受 `alert/expr/for/labels/annotations`；`for` 省略时为 `0s`。录制规则、组评估间隔/偏移/标签、`keep_firing_for`、metadata 标签/注解、未知字段、多文档、YAML 别名/锚点及重复键都会明确拒绝，不会悄悄丢弃语义。Alertmanager 配置不属于此入口。
+
+每条规则的标签必须明确包含相同的 `application`、当前 `environment` 和合法 `severity`；省略请求中的应用 ID 时，从全部规则标签推断**唯一**应用，再做当前应用授权。组名必须与该应用已登记的 Prometheus 文件绑定，全部表达式（包括重复候选）都做 PromQL 语法验证。P1 禁止静默、夜间降级类标签或注解。身份按环境、应用、绑定文件、组、告警名去重；现有真实规则或本地草稿都报告 `duplicate/duplicate_skipped`，不覆盖。已有本地草稿结果附 `draft_state` 和 `draft_id`；若其远端状态不确定，还附项目、分支和已知 MR 供人工核对。全重复返回 `200 duplicates_only`，不建 MR。新项在这次 POST 内立即持久化为待审草稿，返回 `201 pending_review` 和待审 GitLab MR；`items[{name,status:new|duplicate,note}]` 对应冻结页面，`candidates` 保留组、原因和草稿身份。
+
+导入可显式发送 `Idempotency-Key`，使同一请求持久重放；冻结页面未发送时，后端先查同账号、环境、应用及请求摘要的未完成操作，优先用固定身份恢复远端不确定结果；已完成操作则先读取当前来源，仅在最近五分钟且规则来源身份未变时重放，否则用上一操作 ID 派生新键并重新分类。旧操作若明确拒绝或标记 `stale_remote`，新自动操作把已有本地草稿报告为重复，**不会为该草稿再次导出**；同批其他、如今确属新项的规则仍可产生新的待审 MR。`stale_remote` 的原远端仍须按返回的项目、分支和已知 MR 人工核对。显式键重试继续返回原操作的冲突状态。这个窗口按持久操作更新时间计算，不依赖墙钟整点。页面无键时不能承诺任意时长后的原响应重放。冻结页面的“解析”按钮实际上调用此写入接口，而后续“导入为草稿”按钮没有第二次服务端请求；WAN-117 集成页面时须让交互文案符合真实写入时点。当前页面示例 YAML 缺必需的应用、环境和严重级别标签，接入真实后端会返回 422，必须由页面修正，后端不能猜测或补写范围标签。
+
 草稿导出仅在配置提升仓库已受信配置，且 `AIOPS_V3_ALERT_RULE_DRAFT_TARGET_BRANCH` 与 `AIOPS_V3_ALERT_RULE_DRAFT_BRANCH_PREFIX` 成对设置时启用；后者必须精确为 `aiops-alert-rule-drafts/`。目标分支与源前缀都须避开配置提升、通知路由及抑制草稿。单独的 `aiops-alert-rule-draft` MR 标签不能触发配置提升导入、自动合并或规则部署；部署时仍须核实目标仓库的自动化策略。两项不设时正式路由返回 `not_connected`，配置不完整或重叠时启动失败。
 
 ## 试运行的启用门槛

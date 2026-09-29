@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -343,13 +344,29 @@ func (s *WriteService) reserveImport(ctx context.Context, actor core.User, env, 
 		}
 		if observed[i].exists || err == nil {
 			if err == nil {
-				var state string
-				if err := tx.QueryRow(ctx, `SELECT o.state FROM v3_alert_rule_draft_revisions v
+				var state, branch, mrURL string
+				var projectID, mrIID int64
+				if err := tx.QueryRow(ctx, `SELECT o.state,o.project_id,o.branch,COALESCE(o.mr_iid,0),o.mr_url FROM v3_alert_rule_draft_revisions v
  JOIN v3_alert_rule_draft_operations o ON o.id=v.operation_id
  JOIN v3_alert_rule_drafts d ON d.id=v.draft_id AND d.current_version=v.version
- WHERE d.id=$1`, existing).Scan(&state); err != nil || state != "pending_review" {
-					return nil, problem(409, "draft_requires_revision", "Matching draft "+existing+" needs a reviewed revision")
+				 WHERE d.id=$1`, existing).Scan(&state, &projectID, &branch, &mrIID, &mrURL); err != nil {
+					return nil, problem(503, "draft_ledger_invalid", "Matching draft revision is unavailable")
 				}
+				candidate["reason"] = "existing_draft"
+				candidate["draft_state"] = state
+				candidate["draft_id"] = existing
+				if state == "stale_remote" {
+					review := map[string]any{"project_id": fmt.Sprint(projectID), "branch": branch}
+					if mrIID > 0 {
+						review["mr_iid"] = mrIID
+					}
+					if mrURL != "" {
+						review["mr_url"] = mrURL
+					}
+					candidate["remote_review"] = review
+				}
+			} else {
+				candidate["reason"] = "observed_rule"
 			}
 			candidate["outcome"] = "duplicate"
 			candidate["status"] = "duplicate_skipped"
@@ -359,6 +376,7 @@ func (s *WriteService) reserveImport(ctx context.Context, actor core.User, env, 
 		draftID := store.ID()
 		candidate["outcome"] = "new"
 		candidate["status"] = "pending_review"
+		candidate["reason"] = "new_draft"
 		candidate["draft_id"] = draftID
 		candidate["version"] = 1
 		candidates = append(candidates, candidate)
@@ -366,7 +384,7 @@ func (s *WriteService) reserveImport(ctx context.Context, actor core.User, env, 
 			ProviderFileIdentityDigest: fileIdentityDigest(groups[i].file), Spec: spec})
 	}
 	if len(manifestRules) == 0 {
-		result := map[string]any{"status": "duplicates_only", "candidates": candidates}
+		result := map[string]any{"status": "duplicates_only", "candidates": candidates, "items": importResultItems(candidates)}
 		payload, err := asJSON(map[string]any{"schema": "aiops.alert_rule_duplicate_report.v1", "operation_id": opID,
 			"environment_id": env, "application_id": app})
 		if err != nil {
@@ -391,7 +409,7 @@ func (s *WriteService) reserveImport(ctx context.Context, actor core.User, env, 
 	if err != nil {
 		return nil, err
 	}
-	result := map[string]any{"status": "pending_review", "candidates": candidates}
+	result := map[string]any{"status": "pending_review", "candidates": candidates, "items": importResultItems(candidates)}
 	if err := s.insertOperation(ctx, tx, opID, actor, "import", key, digest, env, app, manifest, result); err != nil {
 		return nil, err
 	}
@@ -414,6 +432,26 @@ func (s *WriteService) reserveImport(ctx context.Context, actor core.User, env, 
 		}
 	}
 	return result, tx.Commit(ctx)
+}
+
+// items is the frozen new-rule page's compact import result. Detailed
+// candidates retain group and draft identity for review.
+func importResultItems(candidates []map[string]any) []map[string]any {
+	items := make([]map[string]any, 0, len(candidates))
+	for _, candidate := range candidates {
+		outcome, _ := candidate["outcome"].(string)
+		note := "已保存待审草稿 / Draft saved for review"
+		if outcome == "duplicate" {
+			note = "同一规则身份已存在，已跳过 / Existing rule identity skipped"
+			if state, _ := candidate["draft_state"].(string); state == "stale_remote" {
+				note = "远端草稿需人工核对，已跳过 / Remote draft needs review"
+			} else if state != "" && state != "pending_review" {
+				note = "已有草稿需处理，已跳过 / Existing draft needs review"
+			}
+		}
+		items = append(items, map[string]any{"name": candidate["name"], "status": outcome, "note": note})
+	}
+	return items
 }
 
 func (s *WriteService) replay(r *http.Request, actor core.User, operation, key, digest, env, app string) (map[string]any, bool, error) {
@@ -476,7 +514,13 @@ func (s *WriteService) claim(ctx context.Context, actor core.User, operation, ke
 		return record, true, tx.Commit(ctx)
 	}
 	if record.State == "stale_remote" {
-		return record, false, problem(409, "draft_requires_review", "Remote MR "+record.URL+" is stale; revise draft IDs "+strings.Join(responseDraftIDs(record.Response), ",")+" and close the MR after review")
+		ids := strings.Join(responseDraftIDs(record.Response), ",")
+		if record.URL == "" {
+			return record, false, problem(409, "draft_requires_review", fmt.Sprintf(
+				"Previous GitOps draft may exist in project %d on branch %s; review draft IDs %s before a new attempt",
+				record.ProjectID, record.Branch, ids))
+		}
+		return record, false, problem(409, "draft_requires_review", "Remote MR "+record.URL+" is stale; review draft IDs "+ids+" and close the MR before a new attempt")
 	}
 	if record.State == "exporting" {
 		var active bool
@@ -516,8 +560,8 @@ func (s *WriteService) export(r *http.Request, actor core.User, operation, key, 
 	}
 	if err := s.recheckManifestSources(ctx, record); err != nil {
 		var p *writeProblem
-		if errors.As(err, &p) && p.status == 409 {
-			if markErr := s.markInvalid(ctx, actor, record, "rejected", nil, "source_changed_before_export"); markErr != nil {
+		if errors.As(err, &p) && (p.status == 409 || p.status == 404) {
+			if markErr := s.markInvalid(ctx, actor, record, preExportInvalidState(record), nil, "source_changed_before_export"); markErr != nil {
 				return nil, markErr
 			}
 		} else {
@@ -531,7 +575,7 @@ func (s *WriteService) export(r *http.Request, actor core.User, operation, key, 
 	if !attempted {
 		var p *writeProblem
 		if errors.As(err, &p) && (p.status == 403 || p.status == 404) {
-			if markErr := s.markInvalid(ctx, actor, record, "rejected", nil, "authorization_changed_before_export"); markErr != nil {
+			if markErr := s.markInvalid(ctx, actor, record, preExportInvalidState(record), nil, "authorization_changed_before_export"); markErr != nil {
 				return nil, markErr
 			}
 		} else if markErr := s.releaseBeforeExport(ctx, actor, record); markErr != nil {
@@ -577,6 +621,15 @@ func (s *WriteService) export(r *http.Request, actor core.User, operation, key, 
 		return nil, err
 	}
 	return result, nil
+}
+
+// A previous attempt may have reached GitLab before its response was lost.
+// Preserve that possibility if authority or source changes on retry.
+func preExportInvalidState(record operationRecord) string {
+	if record.State == "uncertain" || record.State == "exporting" {
+		return "stale_remote"
+	}
+	return "rejected"
 }
 
 // Keep the current session, grant tables, application binding and operation
@@ -661,8 +714,12 @@ func (s *WriteService) releaseBeforeExport(ctx context.Context, actor core.User,
 		return err
 	}
 	defer tx.Rollback(cleanup)
-	tag, err := tx.Exec(cleanup, `UPDATE v3_alert_rule_draft_operations SET state='reserved',lease_until=NULL,
- updated_at=clock_timestamp() WHERE id=$1 AND state='exporting' AND attempt_generation=$2`, record.ID, record.Attempt)
+	state := "reserved"
+	if record.State == "uncertain" || record.State == "exporting" {
+		state = "uncertain"
+	}
+	tag, err := tx.Exec(cleanup, `UPDATE v3_alert_rule_draft_operations SET state=$3,lease_until=NULL,
+ updated_at=clock_timestamp() WHERE id=$1 AND state='exporting' AND attempt_generation=$2`, record.ID, record.Attempt, state)
 	if err != nil {
 		return err
 	}

@@ -28,6 +28,8 @@ var (
 	ErrPromQLValidationUnavailable = errors.New("PromQL syntax validation unavailable")
 	alertRuleNamePattern           = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
 	alertLabelNamePattern          = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+	importDNSSubdomainPattern      = regexp.MustCompile(`^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$`)
+	importDNSLabelPattern          = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 )
 
 // DraftRuleSpec is an untrusted, draft-only alert rule definition. Its scope
@@ -97,83 +99,163 @@ func isSuppressionConfigKey(key string) bool {
 // parseRuleImportYAML accepts only the alerting-rule subset that maps without
 // loss to DraftRuleSpec. It does not apply or evaluate imported rules.
 func parseRuleImportYAML(raw, env, app string) ([]DraftRuleSpec, error) {
+	_, rules, err := parseRuleImportYAMLWithApp(raw, env, app)
+	return rules, err
+}
+
+// parseRuleImportYAMLWithApp also accepts the Prometheus Operator PrometheusRule
+// envelope. Metadata identifies the imported source, never its deployment
+// target; application and environment binding comes from rule labels.
+func parseRuleImportYAMLWithApp(raw, env, app string) (string, []DraftRuleSpec, error) {
 	if len(raw) == 0 || len(raw) > maxRuleImportBytes {
-		return nil, errors.New("invalid alert rule import size")
+		return "", nil, errors.New("invalid alert rule import size")
 	}
 	decoder := yaml.NewDecoder(strings.NewReader(raw))
 	var doc yaml.Node
 	if err := decoder.Decode(&doc); err != nil || len(doc.Content) != 1 {
-		return nil, errors.New("invalid alert rule YAML")
+		return "", nil, errors.New("invalid alert rule YAML")
 	}
 	var extra yaml.Node
 	if err := decoder.Decode(&extra); err != io.EOF {
-		return nil, errors.New("alert rule import must contain one YAML document")
+		return "", nil, errors.New("alert rule import must contain one YAML document")
 	}
 	if err := checkImportYAMLNode(&doc); err != nil {
-		return nil, err
+		return "", nil, err
 	}
-	root, err := importMapping(doc.Content[0], "groups")
+	groupsNode, err := importGroupsNode(doc.Content[0])
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
-	groups, err := importSequence(root["groups"], maxImportGroups)
+	groups, err := importSequence(groupsNode, maxImportGroups)
 	if err != nil || len(groups) == 0 {
-		return nil, errors.New("invalid alert rule groups")
+		return "", nil, errors.New("invalid alert rule groups")
 	}
 	result := make([]DraftRuleSpec, 0)
 	for _, groupNode := range groups {
 		group, err := importMapping(groupNode, "name", "rules")
 		if err != nil {
-			return nil, err
+			return "", nil, err
 		}
 		name, err := importString(group["name"])
 		if err != nil {
-			return nil, err
+			return "", nil, err
 		}
 		rules, err := importSequence(group["rules"], maxImportRules)
 		if err != nil || len(rules) == 0 {
-			return nil, errors.New("invalid alert rule group rules")
+			return "", nil, errors.New("invalid alert rule group rules")
 		}
 		for _, ruleNode := range rules {
 			if len(result) == maxImportRules {
-				return nil, errors.New("alert rule import limit exceeded")
+				return "", nil, errors.New("alert rule import limit exceeded")
 			}
 			rule, err := importMapping(ruleNode, "alert", "expr", "for", "labels", "annotations")
 			if err != nil {
-				return nil, err
+				return "", nil, err
 			}
 			alert, err := importString(rule["alert"])
 			if err != nil {
-				return nil, err
+				return "", nil, err
 			}
 			expr, err := importString(rule["expr"])
 			if err != nil {
-				return nil, err
+				return "", nil, err
 			}
 			forText := "0s"
 			if rule["for"] != nil {
 				forText, err = importString(rule["for"])
 				if err != nil {
-					return nil, err
+					return "", nil, err
 				}
 			}
 			labels, err := importStringMap(rule["labels"])
 			if err != nil {
-				return nil, err
+				return "", nil, err
 			}
 			annotations, err := importStringMap(rule["annotations"])
 			if err != nil {
-				return nil, err
+				return "", nil, err
+			}
+			ruleApp := labels["application"]
+			if ruleApp == "" || (app != "" && ruleApp != app) {
+				return "", nil, errors.New("alert rule application label does not match requested application")
+			}
+			if app == "" {
+				app = ruleApp
 			}
 			spec := DraftRuleSpec{ApplicationID: app, EnvironmentID: env, Group: name, Name: alert,
 				Expr: expr, For: forText, Labels: labels, Annotations: annotations, Mode: "draft"}
 			if err := validateDraftSpec(spec, env, app); err != nil {
-				return nil, err
+				return "", nil, err
 			}
 			result = append(result, spec)
 		}
 	}
-	return result, nil
+	return app, result, nil
+}
+
+func importGroupsNode(node *yaml.Node) (*yaml.Node, error) {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil, errors.New("invalid alert rule YAML object")
+	}
+	// A native rule file has only groups. A CRD must carry the exact known
+	// envelope; accepting either shape prevents silently discarding fields.
+	crd := false
+	for i := 0; i < len(node.Content); i += 2 {
+		switch node.Content[i].Value {
+		case "apiVersion", "kind", "metadata", "spec":
+			crd = true
+		}
+	}
+	if !crd {
+		root, err := importMapping(node, "groups")
+		if err != nil {
+			return nil, err
+		}
+		return root["groups"], nil
+	}
+	root, err := importMapping(node, "apiVersion", "kind", "metadata", "spec")
+	if err != nil {
+		return nil, err
+	}
+	version, err := importString(root["apiVersion"])
+	if err != nil || version != "monitoring.coreos.com/v1" {
+		return nil, errors.New("unsupported PrometheusRule apiVersion")
+	}
+	kind, err := importString(root["kind"])
+	if err != nil || kind != "PrometheusRule" {
+		return nil, errors.New("unsupported alert rule kind")
+	}
+	metadata, err := importMapping(root["metadata"], "name", "namespace")
+	if err != nil {
+		return nil, err
+	}
+	name, err := importString(metadata["name"])
+	if err != nil || !validImportDNSSubdomain(name) {
+		return nil, errors.New("invalid PrometheusRule metadata name")
+	}
+	if namespace := metadata["namespace"]; namespace != nil {
+		value, err := importString(namespace)
+		if err != nil || len(value) > 63 || !importDNSLabelPattern.MatchString(value) {
+			return nil, errors.New("invalid PrometheusRule metadata namespace")
+		}
+	}
+	spec, err := importMapping(root["spec"], "groups")
+	if err != nil {
+		return nil, err
+	}
+	return spec["groups"], nil
+}
+
+func validImportDNSSubdomain(value string) bool {
+	if len(value) == 0 || len(value) > 253 || !importDNSSubdomainPattern.MatchString(value) {
+		return false
+	}
+	for _, label := range strings.Split(value, ".") {
+		if len(label) == 0 || len(label) > 63 || !importDNSLabelPattern.MatchString(label) {
+			return false
+		}
+	}
+	return true
 }
 
 func checkImportYAMLNode(node *yaml.Node) error {

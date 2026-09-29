@@ -331,11 +331,6 @@ func (s *WriteService) Import(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	key, err := requestKey(r)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
 	var input importRequest
 	if !httpapi.Decode(w, r, &input) {
 		return
@@ -344,44 +339,80 @@ func (s *WriteService) Import(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	if input.Mode == "" {
+		input.Mode = "draft"
+	}
 	if err := draftMode(input.Mode); err != nil {
 		writeError(w, err)
 		return
 	}
+	app, rules, err := parseRuleImportYAMLWithApp(input.YAML, env, input.ApplicationID)
+	if err != nil {
+		writeError(w, validationProblem(err))
+		return
+	}
+	input.ApplicationID = app
 	digest, err := requestHash("import", env, "", input)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	if result, found, err := s.replay(r, actor, "import", key, digest, env, input.ApplicationID); err != nil {
+	if err := s.authorize(r.Context(), actor, env, app); err != nil {
 		writeError(w, err)
 		return
-	} else if found {
+	}
+	respondReplay := func(key string) bool {
+		result, found, replayErr := s.replay(r, actor, "import", key, digest, env, app)
+		if replayErr != nil {
+			writeError(w, replayErr)
+			return true
+		}
+		if !found {
+			return false
+		}
 		status := http.StatusCreated
 		if result["status"] == "duplicates_only" {
 			status = http.StatusOK
 		}
 		httpapi.WriteJSON(w, status, result)
-		return
+		return true
 	}
-	if err := s.authorize(r.Context(), actor, env, input.ApplicationID); err != nil {
+	key := ""
+	if len(r.Header.Values("Idempotency-Key")) != 0 {
+		key, err = requestKey(r)
+	} else {
+		key, err = s.unfinishedAutoImportKey(r.Context(), actor, env, app, digest)
+	}
+	if err != nil {
 		writeError(w, err)
 		return
 	}
-	rules, err := parseRuleImportYAML(input.YAML, env, input.ApplicationID)
-	if err != nil {
-		writeError(w, validationProblem(err))
-		return
+	if key != "" {
+		if respondReplay(key) {
+			return
+		}
+		// A concurrent reservation can disappear only after abnormal cleanup.
+		// Recompute an implicit key from fresh source in that case.
+		if len(r.Header.Values("Idempotency-Key")) == 0 {
+			key = ""
+		}
 	}
 	groups, observed, err := s.inspectCandidates(r.Context(), env, input.ApplicationID, rules)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	for i, rule := range rules {
-		if observed[i].exists {
-			continue
+	if key == "" {
+		key, err = s.importRequestKey(r.Context(), actor, env, app, digest, observed)
+		if err != nil {
+			writeError(w, err)
+			return
 		}
+		if respondReplay(key) {
+			return
+		}
+	}
+	for _, rule := range rules {
 		if err := s.validatePromQL(r.Context(), env, rule.Expr); err != nil {
 			writeError(w, err)
 			return
@@ -389,6 +420,12 @@ func (s *WriteService) Import(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.reserveImport(r.Context(), actor, env, key, digest, input.ApplicationID, rules, groups, observed)
 	if err != nil {
+		var p *writeProblem
+		if errors.As(err, &p) && p.code == "idempotency_conflict" {
+			if respondReplay(key) {
+				return
+			}
+		}
 		writeError(w, err)
 		return
 	}
@@ -402,6 +439,65 @@ func (s *WriteService) Import(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpapi.WriteJSON(w, http.StatusCreated, result)
+}
+
+// The frozen page sends only {yaml}. Reuse a completed run for five minutes
+// from its last state write, independent of wall-clock bucket boundaries.
+// Uncertain remote writes always keep their original identity. Current
+// provider changes create a new classification after a completed run.
+func (s *WriteService) importRequestKey(ctx context.Context, actor core.User, env, app, digest string,
+	observed []observedIdentity) (string, error) {
+	identities := make([][3]string, len(observed))
+	for i, item := range observed {
+		if item.exists {
+			identities[i] = [3]string{"present", item.id, item.digest}
+		} else {
+			identities[i] = [3]string{"absent", "", ""}
+		}
+	}
+	encoded, err := json.Marshal(identities)
+	if err != nil {
+		return "", err
+	}
+	source := sha256.Sum256(encoded)
+	prefix := "@import-" + hex.EncodeToString(source[:16]) + "-"
+	var priorID, priorKey, priorState string
+	var recent bool
+	err = s.DB.QueryRow(ctx, `SELECT id,idempotency_key,state,
+ updated_at>clock_timestamp()-interval '5 minutes'
+ FROM v3_alert_rule_draft_operations WHERE actor_id=$1 AND operation='import'
+ AND environment_id=$2 AND application_id=$3 AND request_digest=$4
+ AND idempotency_key LIKE '@import-%' ORDER BY created_at DESC,id DESC LIMIT 1`,
+		actor.ID, env, app, digest).Scan(&priorID, &priorKey, &priorState, &recent)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+	if err == nil {
+		if priorState == "reserved" || priorState == "exporting" || priorState == "uncertain" ||
+			(strings.HasPrefix(priorKey, prefix) && recent &&
+				(priorState == "pending_review" || priorState == "duplicates_only")) {
+			return priorKey, nil
+		}
+		// Reclassification writes no new MR while the old local draft exists.
+		// Return its identity and stale state instead of trapping YAML-only
+		// clients on an error from a prior remote attempt.
+		return prefix + priorID, nil
+	}
+	return prefix + "initial", nil
+}
+
+func (s *WriteService) unfinishedAutoImportKey(ctx context.Context, actor core.User,
+	env, app, digest string) (string, error) {
+	var key string
+	err := s.DB.QueryRow(ctx, `SELECT idempotency_key FROM v3_alert_rule_draft_operations
+ WHERE actor_id=$1 AND operation='import' AND environment_id=$2 AND application_id=$3
+ AND request_digest=$4 AND idempotency_key LIKE '@import-%'
+ AND state IN ('reserved','exporting','uncertain') ORDER BY created_at DESC,id DESC LIMIT 1`,
+		actor.ID, env, app, digest).Scan(&key)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return key, err
 }
 
 func draftMode(mode string) error {

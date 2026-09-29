@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-197 · 2026-09-29 · WAN-118 YAML 规则导入请求对齐
+
+- 从已推送 CP-196 `e6cfaeb` 接续，参考 WAN-118 来源 `e0d98ef`，将导入增强移植到现有告警规则草稿实现。`POST /alert-rules/import` 接受冻结页面的 `{yaml}`，可从每条规则一致的应用标签推断唯一应用，`mode` 缺省为 `draft`，`Idempotency-Key` 可选；支持有界原生 Prometheus 规则文件或受限 `PrometheusRule` YAML，拒绝录制规则、未知组语义、跨应用/环境/严重级别不完整规则及超限内容。重复规则不覆盖，返回包含 `items` 与候选原因的 `200 duplicates_only`；新规则立即保存不可部署待审草稿并导出独立 GitLab MR。
+- 无键请求优先恢复未完成操作，已完成操作只有在最近五分钟且当前来源身份不变时重放；远端不确定结果保留同身份待人工核对。独立源码复核确认，移植保留了原 `*http.Request` 导出链及 `exportAuthorized` 对当前会话、授权和操作的有界锁；未带入来源提交的 context-only 导出竞态。并发相同自动键可能明确返回 `409 draft_busy`。页面示例 YAML 缺应用、环境和严重级别标签，会得到 422；“解析”按钮实际触发持久写入，后续“导入为草稿”没有二次请求，冻结页面不能据此验收。
+- 主路由仍按仅 `draft` 的条件式后端成功路径计 `implemented`，累计 **159/166、7 mock**；OpenAPI **329 路径、396 操作、472 schema**。本批仅最小 Go 构建、OpenAPI 生成、契约/矩阵/readiness 与差异静态检查；按当前限制未跑测试、现有库迁移、真实 Prometheus/GitLab、HTTP 或页面。迁移 `141_v3_alert_rule_drafts.sql` 等未在现有业务库执行。无 PR、合并或部署；下一步评估 API token 与安全策略剩余路由，Webhook 出站重投保持停用。
+
 ## CP-196 · 2026-09-29 · WAN-119 成员目录与 MFA 提醒来源
 
 - 从已推送 CP-195 `2c2c178` 接续。正式 V3 入口通过可选 `AIOPS_V3_MEMBER_SOURCES_CONFIG` 注入单一实例、租户绑定及环境的飞书完整目录、权威 MFA/收件人 HTTPS 证据与专用飞书提醒机器人；受保护配置及凭据必须为绝对路径 0600 普通文件，缺省继续 503，配置不完整则启动失败。MFA 适配器在每次请求与响应核对实例、租户绑定和环境，并拒绝超过 1 MiB 的响应。配置只建适配器，启动不读外部目录或发送提醒。详细边界见[成员来源配置](docs/api/v3-member-sources.md)。

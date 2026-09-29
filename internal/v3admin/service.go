@@ -5,9 +5,11 @@ package v3admin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -31,6 +33,7 @@ var errInvalidStoredRoleGrant = errors.New("stored role grant conflicts with rol
 var errLastRoleManager = errors.New("cannot remove last role manager")
 var errUnsupportedMemberSource = errors.New("member source is not represented in V3 contract")
 var errMemberMFAUnavailable = errors.New("member MFA evidence is unavailable")
+var errRoleChanged = errors.New("role matrix revision changed")
 
 func respond(w http.ResponseWriter, v any, err error) {
 	if err == nil {
@@ -49,13 +52,15 @@ func respond(w http.ResponseWriter, v any, err error) {
 	case errors.Is(err, errInvalidStoredRoleGrant):
 		httpapi.Error(w, 503, "role_grants_invalid", "Stored role grants conflict with the role kind")
 	case errors.Is(err, errScopedCell):
-		httpapi.Error(w, 409, "scope_editor_required", "Scoped grants cannot be changed by the summary matrix")
+		httpapi.Error(w, 409, "matrix_editor_required", "Scoped grants cannot be changed by the summary matrix")
 	case errors.Is(err, errPartialMatrix):
 		httpapi.Error(w, 409, "matrix_editor_required", "Grouped resource grants differ and require a dedicated editor")
 	case errors.Is(err, errUnrepresentableMatrix):
 		httpapi.Error(w, 409, "matrix_editor_required", "Role grants cannot be represented by the summary matrix")
 	case errors.Is(err, errLastRoleManager):
 		httpapi.Error(w, 409, "last_role_manager", "At least one active human role manager is required")
+	case errors.Is(err, errRoleChanged):
+		httpapi.Error(w, 409, "role_changed", "Role matrix changed; refresh and try again")
 	case errors.Is(err, errUnsupportedMemberSource):
 		httpapi.Error(w, 503, "member_source_unmapped", "Member directory contains an unmapped identity source")
 	case errors.Is(err, errMemberMFAUnavailable):
@@ -174,26 +179,88 @@ func (s *Service) role(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "environment_required", "Select an environment")
 		return
 	}
-	global, err := s.hasGlobalCatalogRead(r.Context(), httpapi.CurrentUser(r).ID, "roles")
-	if err != nil {
-		respond(w, nil, err)
-		return
+	v, revision, err := s.getRole(r.Context(), r.PathValue("id"), httpapi.CurrentUser(r), envs, englishLanguage(r.Header.Get("Accept-Language")))
+	if err == nil {
+		w.Header().Set("X-Role-Matrix-Revision", strconv.FormatInt(revision, 10))
+		w.Header().Set("Cache-Control", "private, no-store")
 	}
-	v, err := s.getRole(r.Context(), r.PathValue("id"), envs, global, englishLanguage(r.Header.Get("Accept-Language")))
 	respond(w, v, err)
 }
 
 type grant struct {
-	Module    string
-	Action    string
-	ScopeKind string
-	ScopeID   string
-	Assurance string
+	Module    string `json:"module"`
+	Action    string `json:"action"`
+	ScopeKind string `json:"scope_kind"`
+	ScopeID   string `json:"scope_id"`
+	Assurance string `json:"assurance"`
 }
 
-func (s *Service) getRole(ctx context.Context, id string, envs []string, global, english bool) (roleDetail, error) {
+func (s *Service) getRole(ctx context.Context, id string, actor core.User, envs []string, english bool) (roleDetail, int64, error) {
 	v := roleDetail{MemberNames: []string{}, Scope: []string{}, Matrix: []matrixRow{}}
-	err := s.Store.DB.QueryRow(ctx, `SELECT id,name,description,v3_kind FROM rbac_roles r
+	tx, err := s.Store.DB.Begin(ctx)
+	if err != nil {
+		return v, 0, err
+	}
+	defer tx.Rollback(ctx)
+	// Writers of accounts, legacy associations and V3 grants acquire these
+	// locks exclusively in this order. Recheck authority after queued writers.
+	for _, key := range []int64{752018992, 752018995, 752018998} {
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock_shared($1)`, key); err != nil {
+			return v, 0, err
+		}
+	}
+	var active string
+	if err = tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 AND NOT disabled AND deleted_at IS NULL AND source<>'settings_demo' FOR SHARE`, actor.ID).Scan(&active); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return v, 0, store.ErrForbidden
+		}
+		return v, 0, err
+	}
+	policy := &rbac.V3Policy{Store: s.Store}
+	for _, env := range envs {
+		if err = policy.AuthorizeWithTx(ctx, tx, actor, rbac.V3Decision{Module: "roles", Action: "view", EnvironmentID: env}); err != nil {
+			return v, 0, err
+		}
+	}
+	var global bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS (
+ SELECT 1 FROM v3_effective_role_grants WHERE user_id=$1 AND module='roles' AND action='view'
+ AND scope_kind='global' AND scope_id='*') AND EXISTS (
+ SELECT 1 FROM v3_effective_role_grants WHERE user_id=$1 AND module='environment' AND action='view'
+ AND scope_kind='global' AND scope_id='*')`, actor.ID).Scan(&global); err != nil {
+		return v, 0, err
+	}
+	// The role, visible members and visible grants come from one statement's
+	// MVCC snapshot. This also prevents mixed app/team mapping states.
+	var membersJSON, grantsJSON []byte
+	var revision int64
+	err = tx.QueryRow(ctx, `SELECT id,name,description,v3_kind,v3_matrix_revision,
+ COALESCE((SELECT jsonb_agg(member.name ORDER BY member.name,member.id) FROM (
+  SELECT DISTINCT u.id,u.name FROM users u
+  JOIN (SELECT user_id,role_id FROM rbac_user_roles UNION
+   SELECT x.id,dr.role_id FROM users x JOIN rbac_department_roles dr ON dr.department_id=x.department_id) a
+   ON a.user_id=u.id WHERE a.role_id=r.id AND NOT u.disabled AND u.deleted_at IS NULL
+  AND u.source<>'settings_demo' AND EXISTS (
+   SELECT 1 FROM v3_effective_role_grants admission WHERE admission.user_id=u.id
+   AND admission.module='environment' AND admission.action='view'
+   AND (admission.scope_kind='global' OR
+    (admission.scope_kind='environment' AND admission.scope_id=ANY($3::text[]))))
+ ) member), '[]'::jsonb),
+ COALESCE((SELECT jsonb_agg(jsonb_build_object('module',g.module,'action',g.action,
+  'scope_kind',g.scope_kind,'scope_id',g.scope_id,'assurance',g.assurance)
+  ORDER BY g.module,g.action,g.scope_kind,g.scope_id)
+  FROM v3_role_grants g WHERE g.role_id=r.id AND (g.scope_kind='global'
+  OR (g.scope_kind='environment' AND g.scope_id=ANY($3::text[]))
+  OR (g.scope_kind='team' AND EXISTS (
+   SELECT 1 FROM applications a JOIN v3_application_environments ae ON ae.application_id=a.id
+   JOIN application_environments e ON e.application_id=a.id AND e.key=ae.environment_id AND NOT e.archived
+   WHERE a.owner_team_id=g.scope_id AND NOT a.archived AND ae.environment_id=ANY($3::text[])))
+  OR (g.scope_kind='application' AND EXISTS (
+   SELECT 1 FROM v3_application_environments ae
+   JOIN applications a ON a.id=ae.application_id AND NOT a.archived
+   JOIN application_environments e ON e.application_id=a.id AND e.key=ae.environment_id AND NOT e.archived
+   WHERE ae.application_id=g.scope_id AND ae.environment_id=ANY($3::text[]))))), '[]'::jsonb)
+ FROM rbac_roles r
  WHERE r.id=$1 AND (($2 AND NOT EXISTS (SELECT 1 FROM v3_role_grants unassigned WHERE unassigned.role_id=r.id))
  OR EXISTS (SELECT 1 FROM v3_role_grants g WHERE g.role_id=r.id
  AND (g.scope_kind='global' OR (g.scope_kind='environment' AND g.scope_id=ANY($3::text[]))
@@ -207,55 +274,30 @@ func (s *Service) getRole(ctx context.Context, id string, envs []string, global,
   JOIN applications a ON a.id=ae.application_id AND NOT a.archived
   JOIN application_environments e ON e.application_id=a.id AND e.key=ae.environment_id AND NOT e.archived
   WHERE ae.application_id=g.scope_id AND ae.environment_id=ANY($3::text[]))))))`, id, global, envs).
-		Scan(&v.ID, &v.Name, &v.Desc, &v.Kind)
+		Scan(&v.ID, &v.Name, &v.Desc, &v.Kind, &revision, &membersJSON, &grantsJSON)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return v, store.ErrNotFound
+		return v, 0, store.ErrNotFound
 	}
 	if err != nil {
-		return v, err
+		return v, 0, err
 	}
-	// Keep the names consistent with the list count and with the V3 policy's
-	// independent environment admission check.
-	rows, err := s.Store.DB.Query(ctx, `SELECT DISTINCT u.id,u.name FROM users u
- JOIN (SELECT user_id,role_id FROM rbac_user_roles UNION
- SELECT x.id,dr.role_id FROM users x JOIN rbac_department_roles dr ON dr.department_id=x.department_id) a
- ON a.user_id=u.id WHERE a.role_id=$1 AND NOT u.disabled AND u.deleted_at IS NULL
- AND u.source<>'settings_demo' AND EXISTS (
- SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=u.id
- AND g.module='environment' AND g.action='view'
- AND (g.scope_kind='global' OR (g.scope_kind='environment' AND g.scope_id=ANY($2::text[]))))
- ORDER BY u.name,u.id`, id, envs)
-	if err != nil {
-		return v, err
-	}
-	for rows.Next() {
-		var memberID, name string
-		if err = rows.Scan(&memberID, &name); err != nil {
-			break
-		}
-		v.MemberNames = append(v.MemberNames, name)
-	}
-	if err == nil {
-		err = rows.Err()
-	}
-	rows.Close()
-	if err != nil {
-		return v, err
+	if err = json.Unmarshal(membersJSON, &v.MemberNames); err != nil {
+		return v, 0, err
 	}
 	v.Members = len(v.MemberNames)
-	grants, err := s.roleGrants(ctx, id, envs)
-	if err != nil {
-		return v, err
+	var grants []grant
+	if err = json.Unmarshal(grantsJSON, &grants); err != nil {
+		return v, 0, err
 	}
 	if v.Kind == "machine" {
 		for _, g := range grants {
 			if g.Action == "approve" {
-				return v, errInvalidStoredRoleGrant
+				return v, 0, errInvalidStoredRoleGrant
 			}
 		}
 	}
 	if err := validateMatrixProjection(grants); err != nil {
-		return v, err
+		return v, 0, err
 	}
 	scopes := map[string]bool{}
 	for _, g := range grants {
@@ -293,7 +335,10 @@ func (s *Service) getRole(ctx context.Context, id string, envs []string, global,
 	} else {
 		v.Notes += " 此处仅显示所选且已获授权环境内的授权。"
 	}
-	return v, nil
+	if err := tx.Commit(ctx); err != nil {
+		return v, 0, err
+	}
+	return v, revision, nil
 }
 
 func matrixModule(module string) bool {
@@ -303,39 +348,6 @@ func matrixModule(module string) bool {
 		}
 	}
 	return false
-}
-
-func (s *Service) roleGrants(ctx context.Context, roleID string, envs []string) ([]grant, error) {
-	rows, err := s.Store.DB.Query(ctx, `SELECT module,action,scope_kind,scope_id,assurance
- FROM v3_role_grants g WHERE role_id=$1 AND (g.scope_kind='global'
- OR (g.scope_kind='environment' AND g.scope_id=ANY($2::text[]))
- OR (g.scope_kind='team' AND EXISTS (
-  SELECT 1 FROM applications a
-  JOIN v3_application_environments ae ON ae.application_id=a.id
-  JOIN application_environments e ON e.application_id=a.id AND e.key=ae.environment_id AND NOT e.archived
-  WHERE a.owner_team_id=g.scope_id AND NOT a.archived AND ae.environment_id=ANY($2::text[])))
- OR (g.scope_kind='application' AND EXISTS (
-  SELECT 1 FROM v3_application_environments ae
-  JOIN applications a ON a.id=ae.application_id AND NOT a.archived
-  JOIN application_environments e ON e.application_id=a.id AND e.key=ae.environment_id AND NOT e.archived
-  WHERE ae.application_id=g.scope_id AND ae.environment_id=ANY($2::text[]))))
- ORDER BY module,action,scope_kind,scope_id`, roleID, envs)
-	if err != nil {
-		return nil, err
-	}
-	grants := []grant{}
-	for rows.Next() {
-		var g grant
-		if err = rows.Scan(&g.Module, &g.Action, &g.ScopeKind, &g.ScopeID, &g.Assurance); err != nil {
-			break
-		}
-		grants = append(grants, g)
-	}
-	if err == nil {
-		err = rows.Err()
-	}
-	rows.Close()
-	return grants, err
 }
 
 func displayMatrix(grants []grant, english bool) []matrixRow {

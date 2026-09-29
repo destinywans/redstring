@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -77,7 +78,7 @@ func TestRoleMatrixWriteHTTPAuthorizationPersistenceAndAudit(t *testing.T) {
 	}
 	for _, statement := range []string{
 		`INSERT INTO rbac_roles(id,name,v3_kind) VALUES
- ('ops-role','Operations','business'),('machine-role','Machine','machine'),
+ ('ops-role','Operations','business'),('concurrent-role','Concurrent','business'),('machine-role','Machine','machine'),
  ('execute-role','Executor','business'),('mixed-role','Mixed','business'),
 	 ('scoped-manager','Scoped Manager','business'),('global-manager','Global Manager','business'),
 	 ('dev-global-manager','Dev Global Manager','business')`,
@@ -132,7 +133,7 @@ func TestRoleMatrixWriteHTTPAuthorizationPersistenceAndAudit(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	request := func(method, roleID, environment, token string, matrix []matrixRow) *httptest.ResponseRecorder {
+	request := func(method, roleID, environment, token string, matrix []matrixRow, version ...string) *httptest.ResponseRecorder {
 		var body []byte
 		if method == http.MethodPut {
 			encoded, marshalErr := json.Marshal(matrixUpdate{Matrix: matrix})
@@ -144,6 +145,17 @@ func TestRoleMatrixWriteHTTPAuthorizationPersistenceAndAudit(t *testing.T) {
 		r := httptest.NewRequest(method, "/api/v1/roles/"+roleID, bytes.NewReader(body))
 		r.Header.Set("X-AIOps-Environment", environment)
 		r.Header.Set("Accept-Language", "en-US")
+		if method == http.MethodPut {
+			if len(version) == 0 {
+				var revision int64
+				if err := db.QueryRow(ctx, `SELECT v3_matrix_revision FROM rbac_roles WHERE id=$1`, roleID).Scan(&revision); err != nil {
+					t.Fatal(err)
+				}
+				r.Header.Set("If-Role-Matrix-Revision", strconv.FormatInt(revision, 10))
+			} else if version[0] != "" {
+				r.Header.Set("If-Role-Matrix-Revision", version[0])
+			}
+		}
 		if token != "" {
 			r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
 		}
@@ -186,6 +198,12 @@ func TestRoleMatrixWriteHTTPAuthorizationPersistenceAndAudit(t *testing.T) {
 	if initial.Scope[0] != "global" || initial.Matrix[1].Grants[0] != 1 {
 		t.Fatalf("initial matrix=%+v", initial)
 	}
+	initialVersion := request(http.MethodGet, "ops-role", "dev", adminToken, nil).Header().Get("X-Role-Matrix-Revision")
+	if initialVersion != "1" {
+		t.Fatalf("GET matrix revision=%q", initialVersion)
+	}
+	assertError(request(http.MethodPut, "ops-role", "dev", adminToken, initial.Matrix, ""), 428, "role_revision_required")
+	assertError(request(http.MethodPut, "ops-role", "dev", adminToken, initial.Matrix, "01"), 400, "invalid_precondition")
 	assertError(request(http.MethodPut, "ops-role", "dev", "", initial.Matrix), 401, "unauthorized")
 	assertError(request(http.MethodPut, "ops-role", "dev", scopedToken, initial.Matrix), 403, "forbidden")
 	assertError(request(http.MethodPut, "ops-role", "all", adminToken, initial.Matrix), 409, "env_view_only")
@@ -201,10 +219,14 @@ func TestRoleMatrixWriteHTTPAuthorizationPersistenceAndAudit(t *testing.T) {
 	}
 	w := request(http.MethodPut, "ops-role", "dev", adminToken, initial.Matrix)
 	assertWriteAck(w)
+	if w.Header().Get("X-Role-Matrix-Revision") != "2" {
+		t.Fatalf("PUT matrix revision=%q", w.Header().Get("X-Role-Matrix-Revision"))
+	}
 	saved := read("ops-role", "dev", adminToken)
 	if saved.Matrix[1].Grants[1] != 1 || saved.Matrix[4].Grants[3] != 2 {
 		t.Fatalf("independent GET did not show persisted passkey condition: %+v", saved.Matrix)
 	}
+	assertError(request(http.MethodPut, "ops-role", "dev", adminToken, initial.Matrix, initialVersion), 409, "role_changed")
 	var grants, auditCount int
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_role_grants WHERE role_id='ops-role' AND
  ((module='events' AND action='change' AND assurance='standard') OR
@@ -227,9 +249,49 @@ func TestRoleMatrixWriteHTTPAuthorizationPersistenceAndAudit(t *testing.T) {
 	}
 	w = request(http.MethodPut, "ops-role", "dev", adminToken, saved.Matrix)
 	assertWriteAck(w)
+	if w.Header().Get("X-Role-Matrix-Revision") != "2" {
+		t.Fatalf("no-op changed matrix revision=%q", w.Header().Get("X-Role-Matrix-Revision"))
+	}
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE action='v3.role.matrix.updated' AND target='ops-role'`).Scan(&auditCount); err != nil || auditCount != 1 {
 		t.Fatalf("no-op created audit: count=%d err=%v", auditCount, err)
 	}
+	t.Run("concurrent writers cannot overwrite the same matrix revision", func(t *testing.T) {
+		first := read("concurrent-role", "dev", adminToken).Matrix
+		second := read("concurrent-role", "dev", adminToken).Matrix
+		first[1].Grants[0] = 1
+		second[1].Grants[1] = 1
+		start := make(chan struct{})
+		results := make(chan *httptest.ResponseRecorder, 2)
+		for _, matrix := range [][]matrixRow{first, second} {
+			matrix := matrix
+			go func() {
+				<-start
+				results <- request(http.MethodPut, "concurrent-role", "dev", adminToken, matrix, "1")
+			}()
+		}
+		close(start)
+		status := map[int]int{}
+		for range 2 {
+			result := <-results
+			status[result.Code]++
+			if result.Code == 409 {
+				assertError(result, 409, "role_changed")
+			}
+		}
+		if status[200] != 1 || status[409] != 1 {
+			t.Fatalf("concurrent status counts=%v", status)
+		}
+		var revisions, audits int
+		if err := db.QueryRow(ctx, `SELECT v3_matrix_revision FROM rbac_roles WHERE id='concurrent-role'`).Scan(&revisions); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE target='concurrent-role' AND action='v3.role.matrix.updated'`).Scan(&audits); err != nil {
+			t.Fatal(err)
+		}
+		if revisions != 2 || audits != 1 {
+			t.Fatalf("concurrent commit count revision=%d audits=%d", revisions, audits)
+		}
+	})
 	t.Run("audit failure rolls back matrix and revision", func(t *testing.T) {
 		var revisionBefore int64
 		if err := db.QueryRow(ctx, `SELECT v3_matrix_revision FROM rbac_roles WHERE id='ops-role'`).Scan(&revisionBefore); err != nil {
@@ -284,6 +346,7 @@ $$`); err != nil {
 	assertError(request(http.MethodGet, "execute-role", "dev", adminToken, nil), 409, "matrix_editor_required")
 	assertError(request(http.MethodGet, "mixed-role", "all", adminToken, nil), 409, "matrix_editor_required")
 	assertError(request(http.MethodPut, "execute-role", "dev", adminToken, saved.Matrix), 409, "matrix_editor_required")
+	assertError(request(http.MethodPut, "mixed-role", "dev", adminToken, saved.Matrix), 409, "matrix_editor_required")
 	machine := read("machine-role", "dev", adminToken)
 	machine.Matrix[4].Grants[3] = 1
 	assertError(request(http.MethodPut, "machine-role", "dev", adminToken, machine.Matrix), 422, "machine_approval_forbidden")
@@ -351,6 +414,12 @@ $$`); err != nil {
 		// Both requests have reached their write transactions while the actor
 		// still holds the grant. The legacy writer entered the lock queue first.
 		waitForQueuedWriters(2)
+		readResult := make(chan error, 1)
+		go func() {
+			_, _, err := New(st).getRole(operationCtx, "ops-role", globalManager, []string{"dev"}, true)
+			readResult <- err
+		}()
+		waitForQueuedWriters(3)
 		if err := blocker.Commit(ctx); err != nil {
 			t.Fatal(err)
 		}
@@ -367,6 +436,14 @@ $$`); err != nil {
 			assertError(result, 403, "forbidden")
 		case <-operationCtx.Done():
 			t.Fatal("queued matrix write timed out")
+		}
+		select {
+		case err := <-readResult:
+			if !errors.Is(err, store.ErrForbidden) {
+				t.Fatalf("queued role detail read after revocation: %v", err)
+			}
+		case <-operationCtx.Done():
+			t.Fatal("queued role detail read timed out")
 		}
 		var deletedGrant, targetAudits int
 		if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_role_grants WHERE role_id='ops-role' AND module='events' AND action='delete'`).Scan(&deletedGrant); err != nil || deletedGrant != 0 {
@@ -401,7 +478,7 @@ $$`); err != nil {
 		t.Fatal(err)
 	}
 	ctx = store.WithPrincipal(ctx, admin)
-	if err := New(st).saveMatrix(ctx, "ops-role", "dev", map[string][]int{}); !errors.Is(err, store.ErrForbidden) {
+	if _, err := New(st).saveMatrix(ctx, "ops-role", "dev", 1, map[string][]int{}); !errors.Is(err, store.ErrForbidden) {
 		t.Fatalf("revoked manager changed matrix: %v", err)
 	}
 }

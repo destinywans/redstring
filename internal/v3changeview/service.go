@@ -20,6 +20,7 @@ import (
 
 type Access interface {
 	Authorize(context.Context, core.User, rbac.V3Decision) error
+	AuthorizeWithTx(context.Context, pgx.Tx, core.User, rbac.V3Decision) error
 }
 
 // AlertCovered reports whether a reviewed operational source covers this exact
@@ -42,6 +43,8 @@ func New(st *store.Store, access Access, reviews ReviewSource, covered AlertCove
 func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/changes", "viewer", s.view)
 	api.MarkV3ObjectRoute("GET /api/v1/changes", "services", "view")
+	api.Register("POST /api/v1/changes/{run_id}/review", "viewer", s.acceptReview)
+	api.MarkV3ObjectRoute("POST /api/v1/changes/{run_id}/review", "services", "change")
 }
 
 type kpi struct {

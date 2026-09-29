@@ -95,6 +95,10 @@ func TestChangesViewHTTPSourceBackedAndFailClosed(t *testing.T) {
 	if err = st.Bootstrap(ctx, "admin@example.invalid", "isolated-admin-password"); err != nil {
 		t.Fatal(err)
 	}
+	_, adminToken, err := st.Login(ctx, "admin@example.invalid", "isolated-admin-password")
+	if err != nil {
+		t.Fatal(err)
+	}
 	var adminID string
 	if err = db.QueryRow(ctx, `SELECT id FROM users WHERE email='admin@example.invalid'`).Scan(&adminID); err != nil {
 		t.Fatal(err)
@@ -136,6 +140,9 @@ func TestChangesViewHTTPSourceBackedAndFailClosed(t *testing.T) {
 		delivery.NodeResult{ID: "pod-approval", Name: "aiops-run-1.approval", Status: "succeeded"},
 		delivery.NodeResult{ID: "pod-deploy", Name: "aiops-run-1.deploy", Status: "succeeded"},
 	)
+	artifactDigest := "sha256:" + strings.Repeat("a", 64)
+	commitSHA := strings.Repeat("b", 40)
+	run.Projection.Nodes[0].Outputs = map[string]string{"artifact-digest": artifactDigest, "commit-sha": commitSHA}
 	definitionJSON, _ := json.Marshal(run.Snapshot.Definition)
 	sum := sha256.Sum256(definitionJSON)
 	run.Snapshot.Digest = hex.EncodeToString(sum[:])
@@ -162,7 +169,9 @@ func TestChangesViewHTTPSourceBackedAndFailClosed(t *testing.T) {
 	}
 	deployedAt := now.Add(-9 * time.Minute)
 	alertAt := deployedAt.Add(time.Minute)
-	source := map[string]string{"run_id": run.ID, "pipeline_digest": run.Snapshot.Digest, "artifact_digest": "sha256:" + strings.Repeat("a", 64), "application_id": "app", "environment_id": "app-test"}
+	source := map[string]string{"run_id": run.ID, "node_id": run.Projection.Nodes[0].Name,
+		"pipeline_digest": run.Snapshot.Digest, "artifact_digest": artifactDigest, "commit_sha": commitSHA,
+		"application_id": "app", "environment_id": "app-test"}
 	planSnapshot, _ := json.Marshal(map[string]any{"target_kind": "gitops", "source": source})
 	for _, insert := range []struct {
 		sql  string
@@ -208,18 +217,106 @@ func TestChangesViewHTTPSourceBackedAndFailClosed(t *testing.T) {
 		}
 	}
 	assert(request(path), 503) // No review producer has published the detail assertions yet.
-	reviewPayload := map[string]any{
-		"schema_version": 1, "display_approved": true, "environment_id": "app-test", "run_digest": run.Snapshot.Digest,
-		"artifact_digest": "sha256:" + strings.Repeat("a", 64),
-		"execution_id":    "execution-1", "incident_id": "incident-1",
-		"diff":       map[string]string{"path": "config/checkout.yaml", "minus": "- replicas: 2", "plus": "+ replicas: 3"},
-		"risk":       map[string]string{"title": "Reviewed deployment risk", "meta": "Human review", "text": "Potential capacity impact; causality not asserted."},
-		"alert_text": "Reviewed alert association; causality not asserted.",
-	}
-	rawReview, _ := json.Marshal(reviewPayload)
-	if _, err = db.Exec(ctx, `INSERT INTO management_audit(actor_id,actor_kind,application_id,action,target,outcome,changes)
- VALUES($1,'user','app','change.review.accepted',$2,'success',$3)`, adminID, run.ID, rawReview); err != nil {
+	var incidentUpdatedAt time.Time
+	if err = db.QueryRow(ctx, `SELECT updated_at FROM ops_incidents WHERE id='incident-1'`).Scan(&incidentUpdatedAt); err != nil {
 		t.Fatal(err)
+	}
+	diff := map[string]string{"path": "config/checkout.yaml", "minus": "- replicas: 2", "plus": "+ replicas: 3"}
+	reviewPayload := map[string]any{
+		"service_id": serviceID, "decision": "accept_for_display",
+		"expected_run_digest": run.Snapshot.Digest, "expected_run_updated_at": run.UpdatedAt,
+		"execution_id": "execution-1", "expected_plan_digest": "plan-digest",
+		"expected_artifact_digest": artifactDigest, "expected_commit_sha": commitSHA,
+		"incident_id": "incident-1", "expected_incident_updated_at": incidentUpdatedAt,
+		"expected_diff_digest": reviewedDiffDigest(diff["path"], diff["minus"], diff["plus"]),
+		"diff":                 diff,
+		"risk":                 map[string]string{"title": "Reviewed deployment risk", "meta": "Human review", "text": "Potential capacity impact; causality not asserted."},
+		"alert_text":           "Reviewed alert association; causality not asserted.",
+	}
+	writeForRun := func(targetRun string, payload map[string]any) *httptest.ResponseRecorder {
+		raw, e := json.Marshal(payload)
+		if e != nil {
+			t.Fatal(e)
+		}
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/changes/"+targetRun+"/review", strings.NewReader(string(raw)))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Origin", "http://example.com")
+		r.Header.Set("X-AIOps-Environment", "test")
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: adminToken})
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		return w
+	}
+	write := func(payload map[string]any) *httptest.ResponseRecorder { return writeForRun(run.ID, payload) }
+	copyPayload := func() map[string]any {
+		copy := map[string]any{}
+		for key, value := range reviewPayload {
+			copy[key] = value
+		}
+		return copy
+	}
+	bad := copyPayload()
+	bad["service_id"] = base64.RawURLEncoding.EncodeToString([]byte("app\x00other"))
+	assert(write(bad), 404)
+	if _, err = db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='admin' AND module='services' AND action='view'`); err != nil {
+		t.Fatal(err)
+	}
+	assert(write(reviewPayload), 404)
+	if _, err = db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('admin','services','view','global','*')`); err != nil {
+		t.Fatal(err)
+	}
+	bad = copyPayload()
+	bad["expected_run_digest"] = strings.Repeat("c", 64)
+	assert(write(bad), 409)
+	bad = copyPayload()
+	bad["expected_incident_updated_at"] = incidentUpdatedAt.Add(-time.Second)
+	assert(write(bad), 409)
+	bad = copyPayload()
+	bad["expected_plan_digest"] = "stale-plan-digest"
+	assert(write(bad), 409)
+	bad = copyPayload()
+	bad["expected_previous_review_id"] = "01"
+	assert(write(bad), 422)
+	if _, err = db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='admin' AND module='services' AND action='change'`); err != nil {
+		t.Fatal(err)
+	}
+	assert(write(reviewPayload), 403)
+	if _, err = db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('admin','services','change','global','*')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `UPDATE users SET v3_identity_kind='machine' WHERE id=$1`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	assert(write(reviewPayload), 403)
+	if _, err = db.Exec(ctx, `UPDATE users SET v3_identity_kind='human' WHERE id=$1`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	accepted := write(reviewPayload)
+	assert(accepted, 201)
+	var saved struct {
+		ReviewID   string `json:"review_id"`
+		RunID      string `json:"run_id"`
+		ReviewedAt string `json:"reviewed_at"`
+		Status     string `json:"status"`
+	}
+	if err = json.Unmarshal(accepted.Body.Bytes(), &saved); err != nil || saved.ReviewID == "" ||
+		saved.RunID != run.ID || saved.Status != "accepted" || saved.ReviewedAt == "" {
+		t.Fatalf("invalid accepted review response: %s err=%v", accepted.Body.String(), err)
+	}
+	retried := write(reviewPayload)
+	assert(retried, 200)
+	if retried.Body.String() != accepted.Body.String() {
+		t.Fatalf("idempotent review changed: first=%s retry=%s", accepted.Body.String(), retried.Body.String())
+	}
+	bad = copyPayload()
+	bad["risk"] = map[string]string{"title": "Changed", "meta": "Human review", "text": "Different claim"}
+	assert(write(bad), 409)
+	var acceptedCount int
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM management_audit
+ WHERE application_id='app' AND target=$1 AND action='change.review.accepted'`, run.ID).Scan(&acceptedCount); err != nil || acceptedCount != 1 {
+		t.Fatalf("accepted review count=%d err=%v", acceptedCount, err)
 	}
 	w := request(path)
 	assert(w, 200)
@@ -245,10 +342,15 @@ func TestChangesViewHTTPSourceBackedAndFailClosed(t *testing.T) {
 	oldRun.ID, oldRun.ExternalID, oldRun.Projection.ExternalID = "run-old", "aiops-run-old", "aiops-run-old"
 	oldRun.CreatedAt, oldRun.UpdatedAt = now.Add(-25*time.Hour), now.Add(-23*time.Hour)
 	oldRun.Projection.ObservedAt = oldRun.UpdatedAt
+	oldRun.Projection.Nodes = append([]delivery.NodeResult(nil), run.Projection.Nodes...)
+	for i := range oldRun.Projection.Nodes {
+		oldRun.Projection.Nodes[i].Name = strings.Replace(oldRun.Projection.Nodes[i].Name, "aiops-run-1", "aiops-run-old", 1)
+	}
 	oldSnapshot, _ := json.Marshal(oldRun.Snapshot)
 	oldProjection, _ := json.Marshal(oldRun.Projection)
-	oldSource := map[string]string{"run_id": oldRun.ID, "pipeline_digest": oldRun.Snapshot.Digest,
-		"artifact_digest": source["artifact_digest"], "application_id": "app", "environment_id": "app-test"}
+	oldSource := map[string]string{"run_id": oldRun.ID, "node_id": oldRun.Projection.Nodes[0].Name,
+		"pipeline_digest": oldRun.Snapshot.Digest, "artifact_digest": artifactDigest, "commit_sha": commitSHA,
+		"application_id": "app", "environment_id": "app-test"}
 	oldPlan, _ := json.Marshal(map[string]any{"target_kind": "gitops", "source": oldSource})
 	for _, insert := range []struct {
 		sql  string
@@ -276,6 +378,197 @@ func TestChangesViewHTTPSourceBackedAndFailClosed(t *testing.T) {
 		body.KPIs[3].Value != "2" || len(body.Lanes[0].Marks) != 2 {
 		t.Fatalf("cross-window deployment was lost: %s", w.Body.String())
 	}
+	if _, err = db.Exec(ctx, `UPDATE ops_incidents SET summary='triaged',updated_at=now() WHERE id='incident-1'`); err != nil {
+		t.Fatal(err)
+	}
+	assert(request(path), 503) // The immutable prior review is now stale.
+	if err = db.QueryRow(ctx, `SELECT updated_at FROM ops_incidents WHERE id='incident-1'`).Scan(&incidentUpdatedAt); err != nil {
+		t.Fatal(err)
+	}
+	reviewAgain := copyPayload()
+	reviewAgain["expected_incident_updated_at"] = incidentUpdatedAt
+	reviewAgain["expected_previous_review_id"] = saved.ReviewID
+	reviewAgain["alert_text"] = "Reviewed updated incident association; causality not asserted."
+	bad = map[string]any{}
+	for key, value := range reviewAgain {
+		bad[key] = value
+	}
+	bad["expected_previous_review_id"] = "999999"
+	assert(write(bad), 409)
+	assert(write(reviewAgain), 201)
+	assert(write(reviewAgain), 200)
+	assert(request(path), 200)
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM management_audit
+ WHERE application_id='app' AND target=$1 AND action='change.review.accepted'`, run.ID).Scan(&acceptedCount); err != nil || acceptedCount != 2 {
+		t.Fatalf("review revision count=%d err=%v", acceptedCount, err)
+	}
+	// The audit trigger serializes all audit appends. A session can expire
+	// while the writer waits on that independent global lock. Its final check
+	// must roll back the otherwise valid audit insertion.
+	var latestReviewID string
+	if err = db.QueryRow(ctx, `SELECT id::text FROM management_audit
+ WHERE application_id='app' AND target=$1 AND action='change.review.accepted'
+ ORDER BY chain_seq DESC LIMIT 1`, run.ID).Scan(&latestReviewID); err != nil {
+		t.Fatal(err)
+	}
+	thirdReview := map[string]any{}
+	for key, value := range reviewAgain {
+		thirdReview[key] = value
+	}
+	thirdReview["expected_previous_review_id"] = latestReviewID
+	thirdReview["alert_text"] = "Another human review after the incident update."
+	lockTx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lockTx.Rollback(context.Background())
+	if _, err = lockTx.Exec(ctx, `SELECT pg_advisory_xact_lock(734911,37)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `UPDATE sessions SET expires_at=clock_timestamp()+interval '3 seconds'
+ WHERE token_hash=$1`, store.Hash(adminToken)); err != nil {
+		t.Fatal(err)
+	}
+	writeResult := make(chan *httptest.ResponseRecorder, 1)
+	go func() { writeResult <- write(thirdReview) }()
+	waiting := false
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		if err = db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+ WHERE wait_event_type='Lock' AND query LIKE '%INSERT INTO management_audit%')`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !waiting {
+		t.Fatal("review writer never reached the audit append lock")
+	}
+	var sessionExpired bool
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		if err = db.QueryRow(ctx, `SELECT expires_at<clock_timestamp() FROM sessions WHERE token_hash=$1`,
+			store.Hash(adminToken)).Scan(&sessionExpired); err != nil {
+			t.Fatal(err)
+		}
+		if sessionExpired {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !sessionExpired {
+		t.Fatal("review session did not expire during the audit wait")
+	}
+	if err = lockTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case result := <-writeResult:
+		assert(result, 403)
+	case <-time.After(5 * time.Second):
+		t.Fatal("expired review writer did not finish")
+	}
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM management_audit
+ WHERE application_id='app' AND target=$1 AND action='change.review.accepted'`, run.ID).Scan(&acceptedCount); err != nil || acceptedCount != 2 {
+		t.Fatalf("expired review committed: count=%d err=%v", acceptedCount, err)
+	}
+	if _, err = db.Exec(ctx, `UPDATE sessions SET expires_at=clock_timestamp()+interval '12 hours'
+ WHERE token_hash=$1`, store.Hash(adminToken)); err != nil {
+		t.Fatal(err)
+	}
+	// The review transaction holds this same table lock until commit. Even a
+	// grant that was just inserted cannot be revoked between policy read and
+	// the accepted audit commit.
+	grantTx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer grantTx.Rollback(context.Background())
+	if err = lockChangeReviewAuthoritySources(ctx, grantTx); err != nil {
+		t.Fatal(err)
+	}
+	grantChange := make(chan error, 1)
+	go func() {
+		_, changeErr := db.Exec(ctx, `DELETE FROM v3_role_grants
+ WHERE role_id='admin' AND module='services' AND action='change'`)
+		grantChange <- changeErr
+	}()
+	select {
+	case changeErr := <-grantChange:
+		t.Fatalf("grant changed while review authority was locked: %v", changeErr)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if err = grantTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case changeErr := <-grantChange:
+		if changeErr != nil {
+			t.Fatal(changeErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("grant change did not resume after review commit")
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('admin','services','change','global','*')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO rbac_roles(id,name) VALUES('review-lock-role','Review lock role')`); err != nil {
+		t.Fatal(err)
+	}
+	legacyRole, err := (&rbac.Service{Store: st}).Role(ctx, "review-lock-role")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Run the actual legacy association writer ahead of an HTTP review while
+	// both are queued on the shared authority lock. It must finish without a
+	// cycle between role-row and association-table locks.
+	authorityTx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer authorityTx.Rollback(context.Background())
+	if _, err = authorityTx.Exec(ctx, `SELECT pg_advisory_xact_lock(752018992)`); err != nil {
+		t.Fatal(err)
+	}
+	writerCtx, cancelWriter := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelWriter()
+	associationResult := make(chan error, 1)
+	go func() {
+		_, associationErr := (&rbac.Service{Store: st}).SaveAssociations(
+			store.WithPrincipal(writerCtx, core.User{ID: adminID}), legacyRole.ID,
+			rbac.Associations{Revision: legacyRole.Revision, Users: rbac.Delta{Add: []string{viewer.ID}}})
+		associationResult <- associationErr
+	}()
+	select {
+	case associationErr := <-associationResult:
+		t.Fatalf("association writer did not queue: %v", associationErr)
+	case <-time.After(100 * time.Millisecond):
+	}
+	reviewResult := make(chan *httptest.ResponseRecorder, 1)
+	go func() { reviewResult <- write(reviewAgain) }()
+	select {
+	case result := <-reviewResult:
+		t.Fatalf("review did not queue behind association writer: %d %s", result.Code, result.Body.String())
+	case <-time.After(100 * time.Millisecond):
+	}
+	if err = authorityTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case associationErr := <-associationResult:
+		if associationErr != nil {
+			t.Fatal(associationErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("association writer stalled with review queued")
+	}
+	select {
+	case result := <-reviewResult:
+		assert(result, 200)
+	case <-time.After(5 * time.Second):
+		t.Fatal("review stalled after association write")
+	}
 	if _, err = reviews.AuditReviewSource.Read(ctx, "app", "wrong-environment", run.ID, run.Snapshot.Digest); err == nil {
 		t.Fatal("review evidence accepted for a different environment")
 	}
@@ -296,4 +589,17 @@ func TestChangesViewHTTPSourceBackedAndFailClosed(t *testing.T) {
 	}
 	reviews.mutate = true
 	assert(request(path), 503)
+	oldRun.CreatedAt, oldRun.UpdatedAt = now.Add(-8*24*time.Hour), now.Add(-8*24*time.Hour+2*time.Minute)
+	oldRun.Projection.ObservedAt = oldRun.UpdatedAt
+	oldProjection, _ = json.Marshal(oldRun.Projection)
+	if _, err = db.Exec(ctx, `UPDATE delivery_runs SET created_at=$2,updated_at=$3,projection=$4 WHERE id=$1`,
+		oldRun.ID, oldRun.CreatedAt, oldRun.UpdatedAt, oldProjection); err != nil {
+		t.Fatal(err)
+	}
+	expired := copyPayload()
+	expired["expected_run_updated_at"] = oldRun.UpdatedAt
+	expired["execution_id"] = "execution-old"
+	expired["expected_plan_digest"] = "old-plan-digest"
+	expired["expected_incident_updated_at"] = incidentUpdatedAt
+	assert(writeForRun(oldRun.ID, expired), 409)
 }

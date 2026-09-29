@@ -21,15 +21,15 @@ type runRecord struct {
 }
 
 type deploymentRecord struct {
-	ExecutionID, RunID, PipelineDigest, ArtifactDigest string
-	At                                                 time.Time
-	Parent                                             delivery.Run
+	ExecutionID, RunID, PipelineDigest, ArtifactDigest, CommitSHA, PlanDigest string
+	At                                                                        time.Time
+	Parent                                                                    delivery.Run
 }
 
 type alertRecord struct {
-	ID, Title, Status string
-	StartsAt          time.Time
-	EndsAt            *time.Time
+	ID, Title, Status   string
+	StartsAt, UpdatedAt time.Time
+	EndsAt              *time.Time
 }
 
 func (s *Service) loadService(ctx context.Context, app, env string) (serviceRow, error) {
@@ -85,9 +85,10 @@ func (s *Service) loadDeployments(ctx context.Context, row serviceRow, start, en
 	for _, item := range runs {
 		byRun[item.Run.ID] = item.Run
 	}
-	rows, err := s.Store.DB.Query(ctx, `SELECT x.id,x.status,
+	rows, err := s.Store.DB.Query(ctx, `SELECT x.id,x.status,p.digest,
  p.snapshot#>>'{source,run_id}',p.snapshot#>>'{source,pipeline_digest}',
- p.snapshot#>>'{source,artifact_digest}',de.created_at,
+ p.snapshot#>>'{source,artifact_digest}',p.snapshot#>>'{source,commit_sha}',
+ p.snapshot#>>'{source,node_id}',g.node_id,de.created_at,
  p.snapshot#>>'{source,application_id}',p.snapshot#>>'{source,environment_id}',
  r.id,r.pipeline_id,r.version,r.application_id,r.environment_id,r.provider,
  r.status,r.external_id,r.snapshot,r.projection,r.created_by,r.created_at,r.updated_at
@@ -110,10 +111,11 @@ func (s *Service) loadDeployments(ctx context.Context, row serviceRow, start, en
 	for rows.Next() {
 		var item deploymentRecord
 		var executionStatus string
+		var sourceNodeID, gateNodeID string
 		var sourceApp, sourceEnv *string
 		var snapshot, projection []byte
-		err = rows.Scan(&item.ExecutionID, &executionStatus, &item.RunID, &item.PipelineDigest,
-			&item.ArtifactDigest, &item.At, &sourceApp, &sourceEnv,
+		err = rows.Scan(&item.ExecutionID, &executionStatus, &item.PlanDigest, &item.RunID, &item.PipelineDigest,
+			&item.ArtifactDigest, &item.CommitSHA, &sourceNodeID, &gateNodeID, &item.At, &sourceApp, &sourceEnv,
 			&item.Parent.ID, &item.Parent.PipelineID, &item.Parent.Version,
 			&item.Parent.ApplicationID, &item.Parent.EnvironmentID, &item.Parent.Provider,
 			&item.Parent.Status, &item.Parent.ExternalID, &snapshot, &projection,
@@ -135,7 +137,8 @@ func (s *Service) loadDeployments(ctx context.Context, row serviceRow, start, en
 		}
 		if item.Parent.ID != item.RunID || item.Parent.ApplicationID != row.AppID || item.Parent.EnvironmentID != row.EnvID ||
 			item.Parent.Status != "succeeded" || executionStatus != "succeeded" || sourceApp == nil || sourceEnv == nil || *sourceApp != row.AppID ||
-			*sourceEnv != row.EnvID || item.PipelineDigest == "" || item.ArtifactDigest == "" ||
+			*sourceEnv != row.EnvID || item.PipelineDigest == "" || item.ArtifactDigest == "" || item.PlanDigest == "" || !validCommitSHA(item.CommitSHA) ||
+			!verifiedReviewSourceNode(item.Parent, gateNodeID, sourceNodeID, item.ArtifactDigest) ||
 			item.PipelineDigest != item.Parent.Snapshot.Digest || seen[item.ExecutionID] ||
 			item.At.Before(item.Parent.CreatedAt) {
 			return nil, errIncomplete
@@ -153,7 +156,7 @@ func (s *Service) loadAlerts(ctx context.Context, row serviceRow, start, end tim
 	if !s.AlertCovered(row.AppID, row.EnvKey, start, end) {
 		return nil, errIncomplete
 	}
-	rows, err := s.Store.DB.Query(ctx, `SELECT i.id,i.title,i.alert_status,i.starts_at,i.ends_at
+	rows, err := s.Store.DB.Query(ctx, `SELECT i.id,i.title,i.alert_status,i.starts_at,i.ends_at,i.updated_at
  FROM ops_incidents i
  WHERE i.application_id=$1 AND i.environment_id=$2 AND NOT i.suspected
  AND i.starts_at<$4 AND (i.ends_at IS NULL OR i.ends_at>$3)
@@ -165,7 +168,7 @@ func (s *Service) loadAlerts(ctx context.Context, row serviceRow, start, end tim
 	out := []alertRecord{}
 	for rows.Next() {
 		var item alertRecord
-		if err = rows.Scan(&item.ID, &item.Title, &item.Status, &item.StartsAt, &item.EndsAt); err != nil {
+		if err = rows.Scan(&item.ID, &item.Title, &item.Status, &item.StartsAt, &item.EndsAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if (item.Status != "firing" && item.Status != "resolved") ||
@@ -222,7 +225,7 @@ func sameAlerts(a, b []alertRecord) bool {
 		return false
 	}
 	for i := range a {
-		if a[i].ID != b[i].ID || a[i].Title != b[i].Title || a[i].Status != b[i].Status || !a[i].StartsAt.Equal(b[i].StartsAt) ||
+		if a[i].ID != b[i].ID || a[i].Title != b[i].Title || a[i].Status != b[i].Status || !a[i].StartsAt.Equal(b[i].StartsAt) || !a[i].UpdatedAt.Equal(b[i].UpdatedAt) ||
 			(a[i].EndsAt == nil) != (b[i].EndsAt == nil) {
 			return false
 		}

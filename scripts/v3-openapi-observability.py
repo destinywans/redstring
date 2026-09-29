@@ -213,6 +213,51 @@ P['/changes']['get']['responses']['413'] = {
     'description':'Bounded change source exceeds 500 runs or deployment events or 200 incidents',
     'content':{'application/json':{'schema':ref('Error')}}}
 P['/changes']['get']['responses']['503']['description'] = 'Required delivery, GitOps, incident coverage or reviewed detail evidence unavailable or changed'
+S['V3ChangeReviewInput'] = obj({
+    'service_id':string(),
+    'decision':string(enum=['accept_for_display']),
+    'expected_run_digest':string(pattern='^[0-9a-f]{64}$'),
+    'expected_run_updated_at':string(format='date-time'),
+    'execution_id':string(),
+    'expected_plan_digest':string(),
+    'expected_artifact_digest':string(pattern='^sha256:[0-9a-f]{64}$'),
+    'expected_commit_sha':string(pattern='^(?:[0-9a-f]{40}|[0-9a-f]{64})$'),
+    'incident_id':string(),
+    'expected_incident_updated_at':string(format='date-time'),
+    'expected_diff_digest':string(pattern='^[0-9a-f]{64}$',
+        description='Lowercase SHA-256 of compact UTF-8 JSON diff with ordered path, minus, plus fields.'),
+    'expected_previous_review_id':string(pattern='^[1-9][0-9]{0,18}$',description='Current latest accepted review ID for a new revision; omit for the first review.'),
+    'diff':obj(fieldnames('path minus plus'),['path','minus','plus']),
+    'risk':obj(fieldnames('title meta text'),['title','meta','text']),
+    'alert_text':string(),
+}, ['service_id','decision','expected_run_digest','expected_run_updated_at',
+    'execution_id','expected_plan_digest','expected_artifact_digest','expected_commit_sha',
+    'incident_id','expected_incident_updated_at','expected_diff_digest','diff','risk','alert_text'])
+S['V3ChangeReviewResult'] = obj({
+    'review_id':string(), 'run_id':string(),
+    'reviewed_at':string(format='date-time'),
+    'status':string(enum=['accepted']),
+}, ['review_id','run_id','reviewed_at','status'])
+v3_route('post','/changes/{run_id}/review','Publish a human-reviewed change detail assertion',
+    body=ref('V3ChangeReviewInput'),response=ref('V3ChangeReviewResult'),status=201,
+    desc='Requires one exact selected environment, a current human non-machine session, and services.view, '
+         'events.view and services.change for the selected service. The service_id and run_id bind a persisted '
+         'successful native delivery run. The server verifies the expected run version and digest, successful '
+         'GitOps execution and deployment event, plan/artifact/commit identities, and incident version before '
+         'atomically appending an immutable change.review.accepted audit record. A new revision requires '
+         'expected_previous_review_id equal to the latest accepted review, preserving the audit history. '
+         'Diff, risk and alert text are '
+         'human assertions; expected_diff_digest binds the asserted diff bytes and expected_commit_sha binds '
+         'a verified commit identity, but neither proves a source-derived diff or incident causality. First '
+         'acceptance returns 201; exact same actor and payload retry returns 200 without another record. '
+         'Conflicting accepted review or stale expected version returns 409. The GET /changes still requires '
+         'independent alert source coverage.')
+P['/changes/{run_id}/review']['post']['responses']['200'] = {
+    'description':'Exact same actor and payload already accepted; no new audit record',
+    'content':{'application/json':{'schema':ref('V3ChangeReviewResult')}}}
+P['/changes/{run_id}/review']['post']['responses']['409']['description'] = 'Stale source version or conflicting accepted review'
+P['/changes/{run_id}/review']['post']['responses']['404']['description'] = 'Run or selected service scope not visible'
+P['/changes/{run_id}/review']['post']['responses']['503']['description'] = 'Required storage or source verification unavailable'
 S['V3GitLabPipelineRecord'] = obj({**fieldnames('id provider service_id environment_id binding_id connector_id project_id status ref sha source created_at updated_at')},
     ['id','provider','service_id','environment_id','binding_id','connector_id','project_id','status','ref','sha','source','created_at','updated_at'])
 S['V3GitLabPipelineRecord']['properties']['provider'] = string(enum=['gitlab'])

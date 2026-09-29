@@ -99,7 +99,9 @@ func (s *Service) view(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	alert, err := findAlert(alerts, review.IncidentID)
-	if err != nil || review.ArtifactDigest != deployment.ArtifactDigest ||
+	if err != nil || review.ArtifactDigest != deployment.ArtifactDigest || review.CommitSHA != deployment.CommitSHA ||
+		review.PlanDigest != deployment.PlanDigest || !review.RunUpdatedAt.Equal(selected.Run.UpdatedAt) ||
+		!review.IncidentUpdatedAt.Equal(alert.UpdatedAt) ||
 		alert.StartsAt.Before(deployment.At) || alert.StartsAt.After(deployment.At.Add(2*time.Hour)) ||
 		review.ReviewedAt.Before(alert.StartsAt) {
 		writeReadError(w, errIncomplete)

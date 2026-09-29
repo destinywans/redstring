@@ -35,6 +35,7 @@
 - [V3 连接器凭据绑定](api/v3-connector-credentials.md)：服务端精确授权、激活和恢复步骤。
 - [V3 Git Markdown 知识来源](api/v3-git-markdown-source.md)：服务端固定仓库范围、Vault 引用、手动读取和证据边界。
 - [V3 通用 Push 入站](examples/v3-push-ingress.md)：私有来源绑定、签名与持久接收边界。
+- [V3 Prometheus Pull 入站](examples/v3-pull-ingress.md)：固定指标来源、有界实时读取、映射测试与凭据边界。
 - [V3 服务目录与详情](api/v3-service-views.md)：数据来源、完整性和页面限制。
 - [V3 服务告警覆盖绑定](examples/v3-service-alert-coverage.md)：逐应用、环境的完整来源声明及撤销方式。
 - [V3 Confluence 与 Notion 知识来源](api/v3-confluence-notion-sources.md)：精确空间/页面绑定、受限只读同步和证据边界。

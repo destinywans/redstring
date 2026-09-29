@@ -123,8 +123,8 @@
 | 集成中心 | GET | `/mcp-servers/{id}` | 新增 | mock |
 | 集成中心 | PATCH | `/mcp-servers/{id}/tools/{name}` | 新增 | mock |
 | 集成中心 | POST | `/mcp-servers/{id}/review` | 新增 | mock |
-| 集成中心 | GET | `/ingest/pull/{id}` | 新增 | mock |
-| 集成中心 | POST | `/ingest/pull/{id}/test` | 新增 | mock |
+| 集成中心 | GET | `/ingest/pull/{id}` | 新增 | implemented |
+| 集成中心 | POST | `/ingest/pull/{id}/test` | 新增 | implemented |
 | 集成中心 | GET | `/ingest/push` | 聚合 | implemented |
 | 集成中心 | POST | `/ingest/push/test` | 新增 | implemented |
 | 集成中心 | GET | `/service-mappings` | 聚合 | implemented |

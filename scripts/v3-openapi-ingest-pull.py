@@ -1,5 +1,5 @@
-# Server-registered, scoped Prometheus metric Pull. WAN-117 integrates this
-# fragment into the aggregate generator after v3-openapi-connectors.py.
+# Server-registered, scoped Prometheus metric Pull. Executed by the aggregate
+# generator after v3-openapi-connectors.py.
 S['V3PullRequestParam'] = obj({
     'k':string(), 'v':string(), 'variable':v3_bool()},
     ['k','v','variable'])
@@ -47,7 +47,7 @@ S['V3PullTestResult'] = obj({
 v3_route('get','/ingest/pull/{id}',
     'Read one authorized registered metric Pull and a live bounded preview',
     response=ref('V3PullDraft'), role='viewer with connectors.view and services.view',
-    desc='Only a server-registered Prometheus metric_resource source in one selected environment is supported; all returns 409 env_view_only. Current connector and application/team grants, exact target identity, enabled query_metrics tool, reviewed expression and precise Vault credential-use binding are required. A single bounded query_range read generates normalized, sanitized sample and preview; the body is not a raw upstream response. No credential reference, token, PromQL, or raw provider body is returned. Prometheus has no cursor pagination; at its single-page result limit, warnings or partial data, the operation fails closed. Source and actor request budgets, session/source recheck and sanitized audit also apply to this live GET. This branch provides only the domain fragment; WAN-117 must mount it in the aggregate OpenAPI and V3 process.')
+    desc='Only a server-registered Prometheus metric_resource source in one selected environment is supported; all returns 409 env_view_only. Current connector and application/team grants, exact target identity, enabled query_metrics tool, reviewed expression and precise Vault credential-use binding are required. A single bounded query_range read generates normalized, sanitized sample and preview; the body is not a raw upstream response. No credential reference, token, PromQL, or raw provider body is returned. Prometheus has no cursor pagination; at its single-page result limit, warnings or partial data, the operation fails closed. Source and actor request budgets, session/source recheck and sanitized audit also apply to this live GET. The V3 process registers this handler; production upstream connectivity remains deployment-specific.')
 v3_route('post','/ingest/pull/{id}/test',
     'Test one registered metric Pull with a bounded label mapping',
     body=ref('V3PullTestRequest'), response=ref('V3PullTestResult'),

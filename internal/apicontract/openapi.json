@@ -29418,6 +29418,282 @@
         ]
       }
     },
+    "/ingest/pull/{id}": {
+      "get": {
+        "summary": "Read one authorized registered metric Pull and a live bounded preview",
+        "operationId": "get_ingest_pull_id",
+        "description": "Minimum role: viewer with connectors.view and services.view. V3 instance and environment scope apply. Only a server-registered Prometheus metric_resource source in one selected environment is supported; all returns 409 env_view_only. Current connector and application/team grants, exact target identity, enabled query_metrics tool, reviewed expression and precise Vault credential-use binding are required. A single bounded query_range read generates normalized, sanitized sample and preview; the body is not a raw upstream response. No credential reference, token, PromQL, or raw provider body is returned. Prometheus has no cursor pagination; at its single-page result limit, warnings or partial data, the operation fails closed. Source and actor request budgets, session/source recheck and sanitized audit also apply to this live GET. The V3 process registers this handler; production upstream connectivity remains deployment-specific.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3PullDraft"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Source or actor Pull request budget exceeded",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds before retry"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bounded upstream query failed, was partial or exceeded the result budget",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "ingest"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/ingest/pull/{id}/test": {
+      "post": {
+        "summary": "Test one registered metric Pull with a bounded label mapping",
+        "operationId": "post_ingest_pull_id_test",
+        "description": "Minimum role: viewer with connectors.view, connectors.manage and services.view. V3 instance and environment scope apply. Requires a JSON object: an empty object or a mapping selecting a preapproved metric name label and subset of allowed label keys; null mapping is invalid. The all environment returns 409 env_view_only. Application identity, time conversion and numeric samples come from the registered target and validated provider response. Host, path, PromQL, Vault reference, arbitrary JSONPath/script and pagination parameters cannot be supplied by the request. Runs one bounded query_range against the registered source under a database-backed actor/source rate budget, rechecks current session, target and grants after I/O, and atomically records sanitized observation and audit before returning observed rows and dropped conversion rows. No fixed-success response or partial upstream result is returned.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3PullTestResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Source or actor Pull request budget exceeded",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds before retry"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bounded upstream query failed, was partial or exceeded the result budget",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "ingest"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3PullTestRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/ingest/push": {
       "get": {
         "summary": "Read authorized Push ingress configuration and receipts",
@@ -53501,6 +53777,312 @@
           "providers",
           "items",
           "detail"
+        ]
+      },
+      "V3PullRequestParam": {
+        "type": "object",
+        "properties": {
+          "k": {
+            "type": "string"
+          },
+          "v": {
+            "type": "string"
+          },
+          "variable": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "k",
+          "v",
+          "variable"
+        ]
+      },
+      "V3PullRequestTemplate": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "auth": {
+            "type": "string"
+          },
+          "rate": {
+            "type": "string"
+          },
+          "paging": {
+            "type": "string"
+          },
+          "params": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3PullRequestParam"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "method",
+          "host",
+          "path",
+          "params",
+          "auth",
+          "rate",
+          "paging"
+        ]
+      },
+      "V3PullSampleHighlight": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "color": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "text",
+          "color"
+        ]
+      },
+      "V3PullSample": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "integer"
+          },
+          "meta": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "highlights": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3PullSampleHighlight"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "meta",
+          "body",
+          "highlights"
+        ]
+      },
+      "V3PullField": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "transform": {
+            "type": "string"
+          },
+          "color": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "warn",
+              "none"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "field",
+          "required",
+          "source",
+          "color",
+          "state"
+        ]
+      },
+      "V3PullPreviewRow": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "bad": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "service",
+          "name",
+          "time",
+          "value",
+          "labels"
+        ]
+      },
+      "V3PullPreview": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3PullPreviewRow"
+            }
+          },
+          "series": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3TagChip"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "rows",
+          "series",
+          "checks"
+        ]
+      },
+      "V3PullDraft": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "contract_version": {
+            "type": "string"
+          },
+          "step": {
+            "type": "integer"
+          },
+          "request": {
+            "$ref": "#/components/schemas/V3PullRequestTemplate"
+          },
+          "sample": {
+            "$ref": "#/components/schemas/V3PullSample"
+          },
+          "contract": {
+            "type": "string",
+            "enum": [
+              "metric"
+            ]
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3PullField"
+            }
+          },
+          "preview": {
+            "$ref": "#/components/schemas/V3PullPreview"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "step",
+          "request",
+          "sample",
+          "contract",
+          "contract_version",
+          "fields",
+          "preview"
+        ]
+      },
+      "V3PullMappingSelection": {
+        "type": "object",
+        "properties": {
+          "name_label": {
+            "type": "string"
+          },
+          "label_keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name_label",
+          "label_keys"
+        ]
+      },
+      "V3PullTestRequest": {
+        "type": "object",
+        "properties": {
+          "mapping": {
+            "$ref": "#/components/schemas/V3PullMappingSelection"
+          }
+        },
+        "additionalProperties": false
+      },
+      "V3PullTestResult": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "rows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dropped": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "rows",
+          "dropped",
+          "captured_at"
         ]
       },
       "V3PushEventType": {

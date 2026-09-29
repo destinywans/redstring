@@ -278,8 +278,10 @@ Agent Trace 后端目前只能读受信生产者上报的有界 Span 元数据�
 MCP 审核另有按不可变发现版本执行的三个辅助接口：`GET /mcp-servers/{id}/review-candidate`、`POST /mcp-servers/{id}/review-version` 和 `PATCH /mcp-servers/{id}/reviewed-tools/{name}`。候选读取在新事务中重核当前账号、会话、应用/环境绑定、授权及最新发现，持锁至有界响应写完；写入要求当前有 `connectors.manage` 的人类身份、完整逐工具决定和匹配摘要/修订，审核与开关变化同事务审计。远端描述、输入 schema 和只读提示仍是未信任观察；批准的工具默认关闭，即使开启也没有 Agent 执行器。冻结前端的无版本主 `POST /mcp-servers/{id}/review` 与 `PATCH /mcp-servers/{id}/tools/{name}` 仍不携带快照/摘要/修订，继续 `mock`。
 
 `GET /connector-types/{type}` 只描述已支持的连接器类型及探测器可接受的认证方式，要求当前环境的 `connectors.view`；未知类型返回按 `Accept-Language` 本地化的 404。版本、上游令牌权限与 Webhook 地址没有类型级可信来源，返回空值；尚无连接器支持的 Agent 工具执行器，因此 `tools: []`。本条后端路由完成不代表新建向导的静态项目映射、事件、深链及工具说明已接线，前端目录还有未支持的类型。
-| GET | `/ingest/pull/{id}` | | `PullDraft`（请求模板、样例、字段映射、预览） | mock |
-| POST | `/ingest/pull/{id}/test` | 映射 | `{ ok, rows, dropped }` | mock |
+| GET | `/ingest/pull/{id}` | | `PullDraft`（请求模板、样例、字段映射、预览） | implemented |
+| POST | `/ingest/pull/{id}/test` | `{}` 或 `{ mapping: { name_label, label_keys } }` | `{ ok, rows, dropped, captured_at }` | implemented |
+
+Pull 仅使用服务端私有配置登记的 Prometheus `metric_resource` 目标及经审核的应用/环境受限查询；来源 ID 固定应用、环境、连接器、目标与查询摘要，变更身份须换新 ID。GET 实时运行单次有界 `query_range`，返回规范化样例和预览，不返回原始上游正文、PromQL 或凭据；POST 只接受空对象或经白名单约束的 `name_label` 与 `label_keys` 映射，计数来自本次真实查询。两路都要求当前应用/团队服务查看和连接器查看，测试另需连接器管理；单环境、当前会话、目标和授权在上游读取后再核。按来源与操作者的持久预算超限返回 429，上游警告、截断或不完整返回 502，审计与尝试只存净化摘要。配置为空时没有来源，未知 ID 返回 404；冻结页面仍取固定 Mock ID，编辑/测试控件未向真实接口提交。运维必须审核查询在 Prometheus 数据层的应用/环境范围；本机替身验证不能证明生产来源或 Vault 已连通。见 [Pull 来源边界](../examples/v3-pull-ingress.md)。
 | GET | `/ingest/push` | | `PushView`（当前授权来源的真实计数与收据、签名协议说明、未部署配套栈）；无来源显示未配置 | implemented |
 | POST | `/ingest/push/test` | `{ type }` | `{ code: 202, receipt_id }`；持久化 synthetic 事件，不计入真实事件数 | implemented |
 | GET | `/service-mappings` | | `ServiceMapping` | implemented |

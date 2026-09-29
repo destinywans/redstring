@@ -35,6 +35,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3discovery"
 	"github.com/wans/aiops-canvas/internal/v3events"
 	"github.com/wans/aiops-canvas/internal/v3identity"
+	"github.com/wans/aiops-canvas/internal/v3ingestpull"
 	"github.com/wans/aiops-canvas/internal/v3ingestpush"
 	"github.com/wans/aiops-canvas/internal/v3integrations"
 	"github.com/wans/aiops-canvas/internal/v3knowledge"
@@ -162,6 +163,16 @@ func loadV3PushSources(path string) (v3ingestpush.Config, error) {
 	return cfg, nil
 }
 
+func registerV3Pull(api *httpapi.Server, s *store.Store, cfg httpapi.V3InstanceConfig,
+	resolver *v3integrations.BoundResolver, pullCfg v3ingestpull.Config) error {
+	service, err := v3ingestpull.New(s.DB, cfg.Tier, resolver, pullCfg, nil)
+	if err != nil {
+		return fmt.Errorf("configure V3 Pull ingress: %w", err)
+	}
+	service.Register(api)
+	return nil
+}
+
 // A configured V3 binding snapshot is shared by every model-facing V3 service.
 // Without a file, retain the existing V3 runtime during rollout.
 func configuredV3ModelRuntime(path string, cfg httpapi.V3InstanceConfig, runtime inference.Runner) (inference.Runner, *v3models.Bindings, error) {
@@ -209,6 +220,10 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		if binding.Tier == cfg.Tier {
 			activeExternalBindings = append(activeExternalBindings, binding)
 		}
+	}
+	pullCfg, err := v3ingestpull.LoadConfig(os.Getenv("AIOPS_V3_PULL_SOURCES_CONFIG"))
+	if err != nil {
+		return fmt.Errorf("load V3 Pull sources: %w", err)
 	}
 	sourceRegistry, err := configuredV3SourceRegistryWithSources(os.Getenv("AIOPS_V3_PUBLIC_WEB_READER_ENABLED"), s, policy, activeGitMarkdownBindings, activeExternalBindings)
 	if err != nil {
@@ -305,6 +320,9 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		v3integrations.NewVaultResolver(os.Getenv("AIOPS_VAULT_URL"), os.Getenv("AIOPS_VAULT_TOKEN")), credentialBindings)
 	connector := v3integrations.New(s.DB, cfg.Tier, credentialResolver)
 	connector.Register(api)
+	if err := registerV3Pull(api, s, cfg, credentialResolver, pullCfg); err != nil {
+		return err
+	}
 	v3changes.New(s.DB, cfg.Tier, policy, connector.Prober.Resolver).Register(api)
 	uploads := v3uploads.New(s.DB)
 	uploads.ReadAuthorizer = func(ctx context.Context, user core.User, environmentID string) error {

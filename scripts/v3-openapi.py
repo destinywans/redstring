@@ -35,6 +35,7 @@ for _v3_domain in (
     'search',
     'topology',
     'connectors',
+    'ingest-pull',
     'ingest-push',
     'mcp',
     'alerts',

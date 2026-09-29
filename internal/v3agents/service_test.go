@@ -212,9 +212,32 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 			t.Fatalf("status=%d body=%s, want %d and %s", w.Code, w.Body.String(), status, contains)
 		}
 	}
+	withCurrentRevision := func(body string) string {
+		t.Helper()
+		current := request("GET", "/api/v1/agents/triage", adminToken, "dev", "")
+		if current.Code != 200 {
+			t.Fatalf("read Agent revision: status=%d body=%s", current.Code, current.Body.String())
+		}
+		var state struct {
+			Revision int64 `json:"revision"`
+		}
+		if err := json.Unmarshal(current.Body.Bytes(), &state); err != nil || state.Revision < 1 {
+			t.Fatalf("read Agent revision: revision=%d err=%v", state.Revision, err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(body), &payload); err != nil {
+			t.Fatal(err)
+		}
+		payload["expected_revision"] = state.Revision
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(encoded)
+	}
 	assert(request("GET", "/api/v1/agents/triage", viewerToken, "dev", ""), 200, `"score":null`)
 	assert(request("GET", "/api/v1/agents/triage", viewerToken, "dev", ""), 200, `"status":"draft"`)
-	assert(request("GET", "/api/v1/agents/other", viewerToken, "dev", ""), 403, `"code":"forbidden"`)
+	assert(request("GET", "/api/v1/agents/other", viewerToken, "dev", ""), 404, `"code":"not_found"`)
 	list := request("GET", "/api/v1/agents/lifecycle", viewerToken, "dev", "")
 	assert(list, 200, `"id":"triage"`)
 	if !strings.Contains(list.Body.String(), `"truncated":false`) {
@@ -224,13 +247,13 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 		t.Fatalf("other app leaked: %s", list.Body.String())
 	}
 	assert(request("GET", "/api/v1/agents/lifecycle", adminToken, "dev", ""), 200, `"truncated":true`)
-	assert(request("POST", "/api/v1/agents/triage/rollout", viewerToken, "dev", `{"to":"v1","percent":100}`), 403, `"code":"forbidden"`)
+	assert(request("POST", "/api/v1/agents/triage/rollout", viewerToken, "dev", withCurrentRevision(`{"to":"v1","percent":100}`)), 403, `"code":"forbidden"`)
 	if _, err = db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
  VALUES('agent-viewer','agents','manage','application','agent-app')`); err != nil {
 		t.Fatal(err)
 	}
-	assert(request("POST", "/api/v1/agents/triage/rollout", viewerToken, "dev", `{"to":"v1","percent":100,"override":true,"override_reason":"not admin"}`), 403, `"code":"admin_override_required"`)
-	assert(request("POST", "/api/v1/agents/triage/rollout", machineToken, "dev", `{"to":"v1","percent":100,"override":true,"override_reason":"machine with admin role"}`), 403, `"code":"admin_override_required"`)
+	assert(request("POST", "/api/v1/agents/triage/rollout", viewerToken, "dev", withCurrentRevision(`{"to":"v1","percent":100,"override":true,"override_reason":"not admin"}`)), 403, `"code":"admin_override_required"`)
+	assert(request("POST", "/api/v1/agents/triage/rollout", machineToken, "dev", withCurrentRevision(`{"to":"v1","percent":100,"override":true,"override_reason":"machine with admin role"}`)), 403, `"code":"forbidden"`)
 	var preRelease int
 	if err = db.QueryRow(ctx, `SELECT count(*) FROM v3_agent_release_events WHERE agent_id='triage'`).Scan(&preRelease); err != nil {
 		t.Fatal(err)
@@ -238,13 +261,14 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 	if preRelease != 0 {
 		t.Fatal("machine override wrote release event")
 	}
-	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", `{"to":"v1","percent":100}`), 409, `"code":"eval_gate_unverified"`)
-	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "all", `{"to":"v1","percent":100}`), 409, `"code":"env_view_only"`)
-	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", `{"to":"v1","percent":100,"override":true}`), 422, `"code":"invalid_agent_request"`)
-	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", `{"to":"v1","percent":100,"override":true,"override_reason":"Initial reviewed release"}`), 200, `"routing_connected":false`)
+	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", withCurrentRevision(`{"to":"v1","percent":100}`)), 409, `"code":"eval_gate_unverified"`)
+	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "all", withCurrentRevision(`{"to":"v1","percent":100}`)), 409, `"code":"env_view_only"`)
+	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", withCurrentRevision(`{"to":"v1","percent":100,"override":true}`)), 422, `"code":"invalid_agent_request"`)
+	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", withCurrentRevision(`{"to":"v1","percent":100,"override":true,"override_reason":"Initial reviewed release"}`)), 200, `"routing_connected":false`)
+	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", `{"to":"v2","percent":50,"expected_revision":1}`), 409, `"code":"version_conflict"`)
 	detail := request("GET", "/api/v1/agents/triage", adminToken, "dev", "")
 	assert(detail, 200, `"configured_traffic":"100%"`)
-	if !strings.Contains(detail.Body.String(), `"traffic":"未接入"`) || !strings.Contains(detail.Body.String(), `"current":null`) {
+	if !strings.Contains(detail.Body.String(), `"traffic":null`) || !strings.Contains(detail.Body.String(), `"current":null`) {
 		t.Fatalf("configured traffic presented as observed: %s", detail.Body.String())
 	}
 	checkVersions := func(w *httptest.ResponseRecorder, count int, wantTruncated bool) {
@@ -275,11 +299,11 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkVersions(request("GET", "/api/v1/agents/triage", adminToken, "dev", ""), 100, true)
-	assert(request("PATCH", "/api/v1/agents/triage/level", adminToken, "dev", `{"level":"L1"}`), 409, `"code":"agent_level_cap"`)
+	assert(request("PATCH", "/api/v1/agents/triage/level", adminToken, "dev", withCurrentRevision(`{"level":"L1"}`)), 409, `"code":"agent_level_cap"`)
 	if _, err = db.Exec(ctx, `INSERT INTO v3_agent_environment_limits(environment_id,max_level) VALUES('dev','L1')`); err != nil {
 		t.Fatal(err)
 	}
-	assert(request("PATCH", "/api/v1/agents/triage/level", adminToken, "dev", `{"level":"L1"}`), 200, `"max_level":"L1"`)
+	assert(request("PATCH", "/api/v1/agents/triage/level", adminToken, "dev", withCurrentRevision(`{"level":"L1"}`)), 200, `"max_level":"L1"`)
 	if _, err = db.Exec(ctx, `INSERT INTO v3_agent_prompts(id,agent_id,name) VALUES('p1','triage','Triage prompt')`); err != nil {
 		t.Fatal(err)
 	}
@@ -509,8 +533,10 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 		t.Fatal("evaluation result reference leaked to audit")
 	}
 	assert(request("GET", "/api/v1/evals/"+evalID, adminToken, "dev", ""), 200, `"accuracy":0.9`)
-	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", `{"to":"v2","percent":50}`), 200, `"gate_experiment_id":"`+evalID+`"`)
-	assert(request("POST", "/api/v1/agents/triage/rollback", adminToken, "dev", `{}`), 200, `"to":"v1"`)
+	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", withCurrentRevision(`{"to":"v2","percent":50}`)), 200, `"gate_experiment_id":"`+evalID+`"`)
+	rollback := request("POST", "/api/v1/agents/triage/rollback", adminToken, "dev", withCurrentRevision(`{}`))
+	assert(rollback, 200, `"to":"v1"`)
+	assert(rollback, 200, `"configured_percent":100`)
 	if err = svc.StartRun(ctx, "run1", "triage", "v1", "manual"); err != nil {
 		t.Fatal(err)
 	}
@@ -743,8 +769,8 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 	if err = svc.RecordEvaluationOutcome(ctx, EvaluationOutcome{ID: staleEvalID, Status: "passed", ResultRef: "git:stale-proof", Metrics: map[string]float64{"accuracy": 0.9}}); err != nil {
 		t.Fatal(err)
 	}
-	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", `{"to":"v2","percent":100}`), 200, `"configured_percent":100`)
-	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", `{"to":"v3","percent":50}`), 409, `"code":"eval_gate_unverified"`)
+	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", withCurrentRevision(`{"to":"v2","percent":100}`)), 200, `"configured_percent":100`)
+	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", withCurrentRevision(`{"to":"v3","percent":50}`)), 409, `"code":"eval_gate_unverified"`)
 	var staleRollouts int
 	if err = db.QueryRow(ctx, `SELECT count(*) FROM v3_agent_release_events WHERE to_version='v3'`).Scan(&staleRollouts); err != nil {
 		t.Fatal(err)
@@ -767,5 +793,5 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", `{"to":"v3","percent":50}`), 409, `"code":"eval_gate_unverified"`)
+	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", withCurrentRevision(`{"to":"v3","percent":50}`)), 409, `"code":"eval_gate_unverified"`)
 }

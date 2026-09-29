@@ -1,6 +1,5 @@
-// Package v3tokens issues environment-bound personal API tokens. No common
-// Bearer authentication path consumes them until the V3 composition root
-// wires the transaction verifier into object-level authorization.
+// Package v3tokens issues environment-bound personal API tokens. The V3
+// composition root permits them only on the exact connector-list read.
 package v3tokens
 
 import (
@@ -34,8 +33,9 @@ var (
 	tokenID         = regexp.MustCompile(`^[0-9a-f]{32}$`)
 )
 
-// These are deliberately read-only V3 matrix cells. A mock UI scope such as
-// changes:write is never accepted as authority.
+// These are read-only V3 matrix cells understood by the verifier. Issuance
+// currently permits only connectors:view, the sole live Bearer consumer; do
+// not mint credentials that cannot authorize any implemented read route.
 var allowedScopes = map[string]string{
 	"services:view":   "services",
 	"events:view":     "events",
@@ -116,6 +116,9 @@ func validName(name string) bool {
 
 func validateIssue(in IssueInput) ([]string, error) {
 	if !validName(in.Name) || !allowedTTL[in.TTL] || len(in.Scopes) == 0 || len(in.Scopes) > len(allowedScopes) {
+		return nil, ErrInvalidInput
+	}
+	if len(in.Scopes) != 1 || in.Scopes[0] != "connectors:view" {
 		return nil, ErrInvalidInput
 	}
 	seen := make(map[string]bool, len(in.Scopes))

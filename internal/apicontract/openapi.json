@@ -29295,7 +29295,7 @@
       "get": {
         "summary": "List configured connectors",
         "operationId": "get_connectors",
-        "description": "Minimum role: admin. V3 instance and environment scope apply. Counts cover all currently authorized connector registrations before category or search filters. Disabled, required-credential-missing, or server-binding-missing registrations are unverified and identified in meta. Persisted tool preferences do not produce Agent capability tags. Status ok/error reflects a persisted connection test from the last 15 minutes, not continuous health; older results become unverified with their last-check time. More than 1000 visible registrations returns 413 instead of an incomplete unpaged result.",
+        "description": "Minimum role: admin. V3 instance and environment scope apply. Counts cover all currently authorized connector registrations before category or search filters. Disabled, required-credential-missing, or server-binding-missing registrations are unverified and identified in meta. Persisted tool preferences do not produce Agent capability tags. Status ok/error reflects a persisted connection test from the last 15 minutes, not continuous health; older results become unverified with their last-check time. More than 1000 visible registrations returns 413 instead of an incomplete unpaged result. An alternative Bearer aiops_pat_ token is accepted only for this exact GET path, with no Cookie, one configured X-AIOps-Environment, connectors:view scope, a live human owner and current environment grant. Token verification and the environment-owned connector list run in one bounded database transaction. No other V3 read or write route accepts this token.",
         "responses": {
           "200": {
             "description": "Success",
@@ -29374,6 +29374,9 @@
         "security": [
           {
             "sessionCookie": []
+          },
+          {
+            "v3ApiToken": []
           }
         ],
         "parameters": [
@@ -50525,6 +50528,306 @@
           }
         ],
         "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/api-tokens": {
+      "post": {
+        "summary": "Create an environment-scoped API token",
+        "operationId": "post_api_tokens",
+        "description": "Minimum role: human with scoped connectors.manage. V3 instance and environment scope apply. Requires one selected environment, an active human Cookie session, current environment-scoped connectors.manage authority and a current environment-level grant for every requested token scope. Machine tokens cannot call these routes. Account, session, environment and grants are checked at the transaction boundary; no token can exceed its issuing human's current rights. Name is trimmed, 1-80 Unicode code points and at most 200 UTF-8 bytes, without control or format characters; ttl is one of 1 hour, 1 day, 7 days or 30 days in seconds; the only currently issuable scope is connectors:view; other planned read scopes lack a Bearer consumer and are rejected. The server generates a 256-bit secret and returns it only in secret_shown_once on successful creation. Only its SHA-256 digest is persisted, with creation audit in the same transaction. The response and secret must not be cached or logged. The frozen frontend currently sends no request body and cannot display the returned secret. These management routes require a human Cookie session. The only Bearer consumer is GET /connectors in one exact configured environment. API tokens cannot issue tokens, approve proposals, execute actions or authorize outbound Webhook redelivery.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3APITokenCreated"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "api-tokens"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3APITokenCreate"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      },
+      "get": {
+        "summary": "List own API token metadata",
+        "operationId": "get_api_tokens",
+        "description": "Minimum role: human owner. V3 instance and environment scope apply. Requires one selected environment, an active human Cookie session and ownership. Listing remains available after grant removal so the owner can find credentials to revoke. Only the caller's token metadata in that environment is listed with usable tokens first, up to 100 entries, and has_more for older history; secret, digest and other users' tokens are never returned. Listing does not append a management audit record. These management routes require a human Cookie session. The only Bearer consumer is GET /connectors in one exact configured environment. API tokens cannot issue tokens, approve proposals, execute actions or authorize outbound Webhook redelivery.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3APITokenList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "api-tokens"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/api-tokens/{id}": {
+      "delete": {
+        "summary": "Revoke an own API token",
+        "operationId": "delete_api_tokens_id",
+        "description": "Minimum role: human owner. V3 instance and environment scope apply. Requires one selected environment, an active human Cookie session and ownership, including after grant removal. An own token in the selected environment is revoked with audit in one transaction. Repeated DELETE of the same own token returns 204 without another audit entry. Missing and foreign token IDs return 404 without revealing ownership. These management routes require a human Cookie session. The only Bearer consumer is GET /connectors in one exact configured environment. API tokens cannot issue tokens, approve proposals, execute actions or authorize outbound Webhook redelivery.",
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "api-tokens"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "X-AIOps-Environment",
             "in": "header",
@@ -75816,6 +76119,176 @@
           "availability"
         ]
       },
+      "V3APITokenCreate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "Trimmed; 1-80 Unicode code points, at most 200 UTF-8 bytes; no control or format characters."
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "connectors:view"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 1,
+            "uniqueItems": true
+          },
+          "ttl": {
+            "type": "integer",
+            "enum": [
+              3600,
+              86400,
+              604800,
+              2592000
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "scopes",
+          "ttl"
+        ]
+      },
+      "V3APITokenMetadata": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "services:view",
+                "events:view",
+                "connectors:view",
+                "resources:view",
+                "logs:view",
+                "traces:view"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 6,
+            "uniqueItems": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "environment_id",
+          "scopes",
+          "created_at",
+          "expires_at",
+          "revoked_at"
+        ]
+      },
+      "V3APITokenCreated": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "services:view",
+                "events:view",
+                "connectors:view",
+                "resources:view",
+                "logs:view",
+                "traces:view"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 6,
+            "uniqueItems": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "secret_shown_once": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "environment_id",
+          "scopes",
+          "created_at",
+          "expires_at",
+          "secret_shown_once"
+        ]
+      },
+      "V3APITokenList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3APITokenMetadata"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "has_more"
+        ]
+      },
       "SecuritySSOProvider": {
         "type": "object",
         "properties": {
@@ -76082,6 +76555,11 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-Gitlab-Token"
+      },
+      "v3ApiToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Only GET /connectors accepts an aiops_pat_ token."
       }
     }
   }

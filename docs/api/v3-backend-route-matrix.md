@@ -134,7 +134,7 @@
 | 集成中心 | GET | `/coverage` | 聚合 | implemented |
 | 集成中心 | GET | `/webhooks` | 聚合 | implemented |
 | 集成中心 | POST | `/webhooks/{id}/redeliver` | 新增 | mock |
-| 集成中心 | POST | `/api-tokens` | 新增 | mock |
+| 集成中心 | POST | `/api-tokens` | 新增 | implemented |
 | Agent 运行台 | GET | `/agents/lifecycle` | 新增 | implemented |
 | Agent 运行台 | GET | `/agents/{id}` | 新增 | implemented |
 | Agent 运行台 | POST | `/agents/{id}/rollout` | 新增 | implemented |

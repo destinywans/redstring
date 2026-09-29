@@ -258,13 +258,39 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 	policy := &rbac.V3Policy{Store: &store.Store{DB: s.DB}}
 	user := httpapi.CurrentUser(r)
+	s.listInTx(w, r, tx, env, category, query, false, func(ctx context.Context, tx pgx.Tx, c connector) error {
+		return policy.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{
+			Module: "connectors", Action: "view", EnvironmentID: c.EnvironmentID,
+		})
+	}, nil)
+}
+
+// listInTx projects the existing connector-list contract after its caller has
+// established an authorization boundary on this same transaction. Neither
+// the HTTP authentication mode nor its credential enters the response.
+func (s *Service) listInTx(w http.ResponseWriter, r *http.Request, tx pgx.Tx, env []string,
+	category, query string, singleSnapshot bool, authorize func(context.Context, pgx.Tx, connector) error,
+	finalize func(context.Context, pgx.Tx) error) {
 	items := make([]map[string]any, 0)
 	counts := map[string]int{"ok": 0, "unverified": 0, "error": 0}
 	categoryCounts := map[string]int{"all": 0}
 	now := time.Now()
 	lastName, lastID := "", ""
 	for {
-		rows, err := tx.Query(r.Context(), "SELECT "+columns+" FROM v3_connectors WHERE environment_id = ANY($1::text[]) AND (name,id)>($2,$3) ORDER BY name,id LIMIT 201", env, lastName, lastID)
+		statement := "SELECT " + columns + " FROM v3_connectors WHERE environment_id = ANY($1::text[]) AND (name,id)>($2,$3) ORDER BY name,id LIMIT 201"
+		if singleSnapshot {
+			// The Bearer path uses READ COMMITTED for revocation safety. One
+			// statement snapshot prevents a concurrent connector update from
+			// changing the collection or counts between pages.
+			statement = "SELECT " + columns + " FROM v3_connectors WHERE environment_id = ANY($1::text[]) ORDER BY name,id LIMIT 1001"
+		}
+		var rows pgx.Rows
+		var err error
+		if singleSnapshot {
+			rows, err = tx.Query(r.Context(), statement, env)
+		} else {
+			rows, err = tx.Query(r.Context(), statement, env, lastName, lastID)
+		}
 		if err != nil {
 			httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 			return
@@ -290,9 +316,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 			// A connector registration belongs to exactly one environment. It
 			// carries no application/team owner; those scopes apply separately to
 			// its explicit target bindings, never to the registration itself.
-			err := policy.AuthorizeWithTx(r.Context(), tx, user, rbac.V3Decision{
-				Module: "connectors", Action: "view", EnvironmentID: c.EnvironmentID,
-			})
+			err := authorize(r.Context(), tx, c)
 			if errors.Is(err, store.ErrForbidden) {
 				continue
 			}
@@ -320,7 +344,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 			}
 			items = append(items, projected)
 		}
-		if len(batch) < 201 {
+		if singleSnapshot || len(batch) < 201 {
 			break
 		}
 		lastName, lastID = batch[len(batch)-1].Name, batch[len(batch)-1].ID
@@ -328,6 +352,12 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	cats := make([]map[string]any, 0, len(categories))
 	for _, id := range categories {
 		cats = append(cats, map[string]any{"id": id, "label": categoryLabel(id, r.Header.Get("Accept-Language")), "count": categoryCounts[id]})
+	}
+	if finalize != nil {
+		if err := finalize(r.Context(), tx); err != nil {
+			bearerListError(w, err)
+			return
+		}
 	}
 	if err := tx.Commit(r.Context()); err != nil {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")

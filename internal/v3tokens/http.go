@@ -8,9 +8,8 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
-// Register exposes human-only credential management. The common V3 HTTP gate
-// still needs a separate bearer integration before issued tokens can read any
-// product resource.
+// Register exposes human-only credential management. Bearer consumption is
+// dispatched separately for exact GET /connectors before the Cookie gate.
 func (s *Service) Register(api *httpapi.Server) {
 	api.Register("POST /api/v1/api-tokens", "viewer", s.issueHTTP)
 	api.MarkV3Route("POST /api/v1/api-tokens", "connectors", "manage")

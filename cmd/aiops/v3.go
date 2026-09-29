@@ -58,6 +58,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3serviceviews"
 	"github.com/wans/aiops-canvas/internal/v3settings"
 	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
+	"github.com/wans/aiops-canvas/internal/v3tokens"
 	"github.com/wans/aiops-canvas/internal/v3topology"
 	"github.com/wans/aiops-canvas/internal/v3traces"
 	"github.com/wans/aiops-canvas/internal/v3uploads"
@@ -441,6 +442,9 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		v3integrations.NewVaultResolver(os.Getenv("AIOPS_VAULT_URL"), os.Getenv("AIOPS_VAULT_TOKEN")), credentialBindings)
 	connector := v3integrations.New(s.DB, cfg.Tier, credentialResolver)
 	connector.Register(api)
+	tokens := v3tokens.New(s.DB, policy)
+	tokens.Register(api)
+	api.V3ConnectorBearerHandler = connector.BearerConnectorList(tokens, cfg.EnvironmentIDs)
 	if err := registerV3Pull(api, s, cfg, credentialResolver, pullCfg); err != nil {
 		return err
 	}

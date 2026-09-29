@@ -26,20 +26,21 @@ func CurrentUser(r *http.Request) core.User {
 }
 
 type Server struct {
-	Store                   store.Repository
-	Runtime                 inference.Runner
-	mux                     *http.ServeMux
-	SecureCookies           bool
-	AllowedOrigin           string
-	Integrations            []Integration
-	ValidateBindings        func([]core.Binding) error
-	EnvironmentCapabilities func(core.Environment) []string
-	V3ModelsHandler         http.HandlerFunc
-	loginMu                 sync.Mutex
-	loginAttempts           map[string][]time.Time
-	v3Environment           http.Handler
-	v3Policy                V3PolicyFunc
-	v3Routes                map[string]V3RoutePermission
+	Store                    store.Repository
+	Runtime                  inference.Runner
+	mux                      *http.ServeMux
+	SecureCookies            bool
+	AllowedOrigin            string
+	Integrations             []Integration
+	ValidateBindings         func([]core.Binding) error
+	EnvironmentCapabilities  func(core.Environment) []string
+	V3ModelsHandler          http.HandlerFunc
+	V3ConnectorBearerHandler http.HandlerFunc
+	loginMu                  sync.Mutex
+	loginAttempts            map[string][]time.Time
+	v3Environment            http.Handler
+	v3Policy                 V3PolicyFunc
+	v3Routes                 map[string]V3RoutePermission
 }
 
 func New(s store.Repository, r inference.Runner, v3Mode ...bool) *Server {
@@ -157,6 +158,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Error(w, 403, "origin_rejected", "Cross-site write rejected")
 			return
 		}
+	}
+	// Only this exact read endpoint accepts V3 API tokens. Keep every other
+	// route behind the ordinary Cookie environment and session gates.
+	if s.V3ConnectorBearerHandler != nil && r.Method == http.MethodGet &&
+		r.URL.Path == "/api/v1/connectors" && len(r.Header.Values("Authorization")) > 0 {
+		s.V3ConnectorBearerHandler(w, r)
+		return
 	}
 	if s.v3Environment != nil {
 		s.v3Environment.ServeHTTP(w, r)

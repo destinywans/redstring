@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-199 · 2026-09-29 · WAN-122 API 令牌精确只读消费
+
+- 从已推送 CP-198 `844ed4b` 接续，WAN-122 领域来源 `2e50cbe` 合入为 `450e09e`；正式 V3 注册真人 Cookie 管理的 `POST/GET /api-tokens` 与 `DELETE /api-tokens/{id}`，聚合 OpenAPI 加入三条管理操作及 `GET /connectors` 的 Bearer 替代认证。公共 HTTP 入口只在精确 `GET /api/v1/connectors` 且带 Authorization 头时于 Cookie 环境门禁前分发专用处理器，其他路由不增加通用 Bearer 回退。新增迁移 `141_v3_api_tokens.sql` 未在现有业务库执行。
+- 签发要求当前真人会话、单环境、`connectors.manage` 与拟授权范围的当前查看权；当前仅允许 `["connectors:view"]`，其他五类预留只读 scope 缺消费路由而明确拒绝。256 位随机明文只在创建响应展示一次，库中仅存 SHA-256，创建和审计同事务；本人列表/撤销不回显明文。Bearer 读取拒绝 Cookie 混用，校验单一已配置环境、令牌摘要/有效期/撤销、当前真人持有人和环境权，在同一有界事务读取该环境的连接器登记，提交前再核自然到期；超过 1000 条不返回截断结果。独立源码复核未见确定性范围或空列表绕过，补齐了环境头规范与响应时到期复核。
+- `POST /api-tokens` 仅按可签发并用于上述精确只读路由的后端条件成功路径计 `implemented`，累计 **162/166、4 mock**；OpenAPI **332 路径、401 操作、481 schema**。冻结 Webhook 页提交空签发体且不展示一次性密钥，其他只读路由不接受令牌。仅执行最小 Go 构建、OpenAPI、契约/矩阵/readiness 和差异静态检查；按当前限制未跑测试、现有库迁移、真实 HTTP/Bearer 或页面。无 PR、合并或部署；下一步继续 WAN-118 人工批准/静默三路由，Webhook 出站重投保持停用。
+
 ## CP-198 · 2026-09-29 · WAN-119 安全策略权威边界
 
 - 从已推送 CP-197 `a8c9e78` 接续，WAN-119 安全策略领域来源 `00c965f` 合入为 `4970770`，在公共 V3 入口注册 `GET/PUT /security`。可选 `AIOPS_V3_SECURITY_AUTHORITY_URL` 与受保护 0600 令牌文件成对构造 HTTPS 权威控制器；缺省注册路由但返回 503，不完整配置启动失败。聚合 OpenAPI 合入领域片段；新增 `142_v3_security_policy.sql` 未在现有业务库执行。同期 WAN-122 令牌领域来源已作为 `450e09e` 合入本地，但此检查点未注册令牌入口或提升其主路由状态。

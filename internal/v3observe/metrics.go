@@ -633,6 +633,26 @@ func (s *Service) metricDashboard(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "metric_result_incomplete", "Dashboard metric panels are incomplete")
 		return
 	}
+	// The upstream read may outlive the authenticated session. Recheck the
+	// exact cookie before returning any dashboard data.
+	cookie, cookieErr := r.Cookie("aiops_session")
+	if cookieErr != nil || cookie.Value == "" {
+		httpapi.Error(w, 401, "unauthorized", "Session is no longer active")
+		return
+	}
+	currentUser, sessionErr := s.Store.Session(ctx, cookie.Value)
+	if sessionErr != nil {
+		if errors.Is(store.ClassifyError(sessionErr), store.ErrNotFound) {
+			httpapi.Error(w, 401, "unauthorized", "Session is no longer active")
+		} else {
+			httpapi.Error(w, 503, "session_unavailable", "Session verification failed")
+		}
+		return
+	}
+	if currentUser.ID != httpapi.CurrentUser(r).ID {
+		httpapi.Error(w, 401, "unauthorized", "Session is no longer active")
+		return
+	}
 	if ctx.Err() != nil || !s.currentDashboardSource(ctx, r, service, result, before, target) {
 		httpapi.Error(w, 409, "metric_source_changed", "Dashboard source or authorization changed")
 		return

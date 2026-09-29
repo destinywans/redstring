@@ -432,8 +432,32 @@ func TestMetricDashboardRegisteredSourceAndMarkers(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("revoked request stalled")
 	}
+	if _, err = db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES('admin','events','view','global','*') ON CONFLICT DO NOTHING`); err != nil {
+		t.Fatal(err)
+	}
+	entered, release = make(chan struct{}), make(chan struct{})
+	response = make(chan *httptest.ResponseRecorder, 1)
+	go func() { response <- request("?service=app") }()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upstream was not reached before logout")
+	}
+	if err = st.Logout(ctx, session); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	select {
+	case w = <-response:
+		check(w, 401, "unauthorized")
+		if strings.Contains(w.Body.String(), `"kpis"`) {
+			t.Fatal("revoked session returned dashboard data")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("logged-out request stalled")
+	}
 	mode.Store(0)
-	check(request("?service=app"), 403, "forbidden")
+	check(request("?service=app"), 401, "unauthorized")
 	if calls.Load() < 3 {
 		t.Fatalf("expected controlled upstream calls, got %d", calls.Load())
 	}

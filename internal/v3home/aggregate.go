@@ -73,13 +73,12 @@ func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targe
 		if len(out.Attention) >= 8 {
 			break
 		}
-		// Legacy severity labels are not silently promoted to a V3 P-level.
-		if severity := frontendSeverity(row.severity); severity != nil {
-			out.Attention = append(out.Attention, Attention{ID: row.id, Severity: severity,
-				Service: serviceName(targets, row.appID, row.env), Env: row.env,
-				Symptom: cleanTitle(row.title), Meta: incidentMeta(row), AI: nil,
-				Owner: row.owner, Href: "/alerts/" + row.id})
-		}
+		// Keep an incident visible even when its legacy severity has no V3
+		// P-level mapping. Null remains unknown to the frontend adapter.
+		out.Attention = append(out.Attention, Attention{ID: row.id, Severity: frontendSeverity(row.severity),
+			Service: serviceName(targets, row.appID, row.env), Env: row.env,
+			Symptom: cleanTitle(row.title), Meta: incidentMeta(row), AI: nil,
+			Owner: row.owner, Href: "/alerts/" + row.id})
 	}
 	pending := len(proposals)
 	out.Greeting.Summary = displaySummary(len(active), pending, eventViews > 0, proposalViews > 0)

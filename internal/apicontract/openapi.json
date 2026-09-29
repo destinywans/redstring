@@ -21521,6 +21521,103 @@
         ]
       }
     },
+    "/home": {
+      "get": {
+        "summary": "Read the authenticated scoped home summary",
+        "operationId": "get_home",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Uses an active session and a bounded consistent snapshot of application registrations, incidents, pending proposals, and owner conversations. Each section requires its own current V3 module grant and exact application or owner scope. Counts describe persisted visible records, not external platform health. AI briefing, authoritative on-call, service health and SLO numbers remain null until actual producers are wired. The optional trend counts only persisted occurrences with recognized severity, not complete external alert activity; availability explains each gap. The frozen HomeSummary has non-null assumptions for these sections and needs a later frontend type/rendering update.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3HomeSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "home"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/config-sync": {
       "get": {
         "summary": "List configuration promotion records or merged candidates",
@@ -51957,6 +52054,475 @@
         },
         "additionalProperties": false,
         "minProperties": 1
+      },
+      "V3HomeKPI": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "series": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "tone": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label",
+          "value",
+          "series"
+        ]
+      },
+      "V3HomeAttention": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "severity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "P1",
+              "P2",
+              "P3",
+              "P4",
+              null
+            ]
+          },
+          "service": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "symptom": {
+            "type": "string"
+          },
+          "meta": {
+            "type": "string"
+          },
+          "ai": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "done",
+              "running",
+              null
+            ]
+          },
+          "owner": {
+            "type": "string"
+          },
+          "href": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "severity",
+          "service",
+          "env",
+          "symptom",
+          "meta",
+          "ai",
+          "href"
+        ]
+      },
+      "V3HomeService": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "tier": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "T0",
+              "T1",
+              "T2",
+              null
+            ]
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "ok",
+              "warn",
+              "danger",
+              null
+            ]
+          },
+          "budget_pct": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "p99": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error_rate": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "series": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "env",
+          "tier",
+          "status",
+          "budget_pct",
+          "p99",
+          "error_rate",
+          "series"
+        ]
+      },
+      "V3HomeActivity": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "time": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "tone": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "href": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "time",
+          "kind",
+          "tone",
+          "text",
+          "href"
+        ]
+      },
+      "V3HomeRecent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "meta": {
+            "type": "string"
+          },
+          "href": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "meta",
+          "href"
+        ]
+      },
+      "V3HomeBriefing": {
+        "type": "object",
+        "properties": {
+          "summary": {
+            "type": "string"
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "n": {
+                  "type": "integer"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "href": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "n",
+                "label",
+                "href"
+              ]
+            }
+          },
+          "oncall": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "until": {
+                "type": "string"
+              },
+              "next": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "until",
+              "next"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "summary",
+          "generated_at",
+          "citations",
+          "oncall"
+        ]
+      },
+      "V3HomeAlertTrend": {
+        "type": "object",
+        "properties": {
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "counts": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "labels",
+          "counts",
+          "summary"
+        ]
+      },
+      "V3HomeSummary": {
+        "type": "object",
+        "properties": {
+          "greeting": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "summary"
+            ]
+          },
+          "briefing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/V3HomeBriefing"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "suggestions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "tone": {
+                  "type": "string"
+                },
+                "icon": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "text",
+                "icon"
+              ]
+            }
+          },
+          "kpis": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3HomeKPI"
+            }
+          },
+          "attention": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3HomeAttention"
+            }
+          },
+          "todos": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "meta": {
+                  "type": "string"
+                },
+                "action": {
+                  "type": "string"
+                },
+                "href": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "kind",
+                "title",
+                "meta",
+                "action",
+                "href"
+              ]
+            }
+          },
+          "services": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3HomeService"
+            }
+          },
+          "alert_trend": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/V3HomeAlertTrend"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "activity": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3HomeActivity"
+            }
+          },
+          "recent": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3HomeRecent"
+            }
+          },
+          "availability": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "greeting",
+          "briefing",
+          "suggestions",
+          "kpis",
+          "attention",
+          "todos",
+          "services",
+          "alert_trend",
+          "activity",
+          "recent",
+          "availability"
+        ]
       },
       "V3ConfigSyncItem": {
         "type": "object",

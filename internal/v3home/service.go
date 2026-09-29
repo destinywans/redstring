@@ -300,7 +300,9 @@ func (s *Service) targets(ctx context.Context, tx pgx.Tx, user core.User, envs [
 
 func readError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, store.ErrForbidden), errors.Is(err, store.ErrSessionRevoked):
+	case errors.Is(err, store.ErrSessionRevoked):
+		httpapi.Error(w, 401, "unauthorized", "Login required")
+	case errors.Is(err, store.ErrForbidden):
 		httpapi.Error(w, 403, "forbidden", "Home access denied")
 	case errors.Is(err, errTooMany):
 		httpapi.Error(w, 503, "home_result_limit", "Home has more records than the bounded view can summarize")

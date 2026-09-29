@@ -52,7 +52,9 @@ v3_route('get', '/home', 'Read the authenticated scoped home summary',
          'Each section requires its own current V3 module grant and exact '
          'application or owner scope. Counts describe persisted visible records, '
          'not external platform health. AI briefing, authoritative on-call, '
-         'service health and SLO numbers, and complete alert trend remain null '
-         'until an actual producer is wired; availability explains each gap. '
+         'service health and SLO numbers remain null until actual producers '
+         'are wired. The optional trend counts only persisted occurrences with '
+         'recognized severity, not complete external alert activity; '
+         'availability explains each gap. '
          'The frozen HomeSummary has non-null assumptions for these sections '
          'and needs a later frontend type/rendering update.')

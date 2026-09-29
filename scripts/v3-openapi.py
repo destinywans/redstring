@@ -28,6 +28,7 @@ from pathlib import Path
 
 for _v3_domain in (
     'identity',
+    'home',
     'config-sync',
     'identity-account',
     'conversations',

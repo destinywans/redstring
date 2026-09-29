@@ -64,6 +64,12 @@ func (t *Telemetry) queryElasticsearch(ctx context.Context, appID string, w Time
 	return t.queryElasticsearchOptions(ctx, appID, w, limit, search, "", false)
 }
 func (t *Telemetry) queryElasticsearchOptions(ctx context.Context, appID string, w TimeWindow, limit int, search, level string, summary bool) (LogEvidence, error) {
+	return t.queryElasticsearchOptionsInternal(ctx, appID, w, limit, search, level, summary, false)
+}
+func (t *Telemetry) queryElasticsearchOptionsWithPatterns(ctx context.Context, appID string, w TimeWindow, limit int, search, level string) (LogEvidence, error) {
+	return t.queryElasticsearchOptionsInternal(ctx, appID, w, limit, search, level, true, true)
+}
+func (t *Telemetry) queryElasticsearchOptionsInternal(ctx context.Context, appID string, w TimeWindow, limit int, search, level string, summary, patterns bool) (LogEvidence, error) {
 	out := LogEvidence{Source: TelemetrySource{Provider: "elasticsearch", ApplicationID: appID, CapturedAt: t.now().UTC()}, Entries: []LogEntry{}, Empty: true}
 	s := &out.Source
 	a, ok := t.config.Applications[appID]
@@ -104,6 +110,9 @@ func (t *Telemetry) queryElasticsearchOptions(ctx context.Context, appID string,
 	}
 	if summary {
 		request["aggs"] = elasticsearchLogAggregations(s.Window)
+	}
+	if patterns {
+		request["aggs"].(map[string]any)["patterns"] = elasticsearchPatternAggregation(s.Window)
 	}
 	body, _ := json.Marshal(request)
 	s.Query = string(body)
@@ -166,6 +175,16 @@ func (t *Telemetry) queryElasticsearchOptions(ctx context.Context, appID string,
 		out.Summary, err = decodeElasticsearchSummary(raw, s.Window)
 		if err != nil {
 			out.SummaryError = "日志统计暂不可用，请重试"
+		}
+	}
+	if patterns {
+		if out.Summary == nil {
+			out.PatternError = "Exact log total is unavailable"
+		} else {
+			out.PatternSummary, err = decodeElasticsearchPatterns(raw, s.Window, out.Summary)
+			if err != nil {
+				out.PatternError = "Complete log patterns are unavailable"
+			}
 		}
 	}
 	out.Empty = len(out.Entries) == 0

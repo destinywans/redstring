@@ -139,7 +139,8 @@ func TestObservationTargetsAuthorizeAfterClosingSinglePoolCursor(t *testing.T) {
 	}
 	request := func() *httptest.ResponseRecorder { return requestWith("?levels=INFO", 10*time.Second) }
 	w := request()
-	if w.Code != 503 || telemetry.calls != 1 || !strings.Contains(w.Body.String(), `"log_patterns_unavailable"`) || strings.Contains(w.Body.String(), "hidden-provider") {
+	if w.Code != 200 || telemetry.calls != 1 || !strings.Contains(w.Body.String(), `"total":"0"`) ||
+		!strings.Contains(w.Body.String(), `"patterns":[]`) || strings.Contains(w.Body.String(), "hidden-provider") {
 		t.Fatalf("hidden targets blocked or escaped: status=%d calls=%d body=%s", w.Code, telemetry.calls, w.Body.String())
 	}
 	access.allowAll = true
@@ -180,7 +181,7 @@ func TestObservationTargetsAuthorizeAfterClosingSinglePoolCursor(t *testing.T) {
 	}
 	observeService.Access = policy
 	w = requestWith("?service=z-visible&levels=INFO", 10*time.Second)
-	if w.Code != 503 || !strings.Contains(w.Body.String(), "log_patterns_unavailable") || telemetry.calls != 2 {
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"total":"0"`) || telemetry.calls != 2 {
 		t.Fatalf("persisted team grant did not expose its service: status=%d calls=%d body=%s", w.Code, telemetry.calls, w.Body.String())
 	}
 	w = requestWith("?service=zz-visible2&levels=INFO", 10*time.Second)

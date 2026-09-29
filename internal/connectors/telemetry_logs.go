@@ -90,6 +90,28 @@ func (t *Telemetry) QueryLogsOptions(ctx context.Context, appID, provider, searc
 	}
 	return out, err
 }
+
+// QueryLogsWithPatterns requests complete pattern counts in the same scoped
+// Elasticsearch search as the exact total. Loki has no registered complete
+// pattern producer, so nonempty Loki results remain explicitly incomplete.
+func (t *Telemetry) QueryLogsWithPatterns(ctx context.Context, appID, provider, search, level string, w TimeWindow, limit int) (LogEvidence, error) {
+	if len(search) > 256 || !ValidLogLevel(level) {
+		return LogEvidence{}, &TelemetryError{Kind: "scope", Message: "Invalid log search or level"}
+	}
+	if provider == "elasticsearch" {
+		return t.queryElasticsearchOptionsWithPatterns(ctx, appID, w, limit, search, level)
+	}
+	if provider != "" && provider != "loki" {
+		return LogEvidence{}, &TelemetryError{Kind: "scope", Message: "Unknown registered log provider"}
+	}
+	out, err := t.QueryLogsOptions(ctx, appID, provider, search, level, true, w, limit)
+	if err == nil && out.Summary != nil && out.SummaryError == "" && out.Summary.Total == 0 {
+		out.PatternSummary = &LogPatternSummary{Patterns: []LogPattern{}}
+	} else if err == nil {
+		out.PatternError = "Complete log patterns are unavailable from this Loki source"
+	}
+	return out, err
+}
 func logBucketSeconds(w TimeWindow) int {
 	return max(1, int(math.Ceil(w.End.Sub(w.Start).Seconds()/30)))
 }
@@ -105,6 +127,107 @@ func elasticsearchLogAggregations(w TimeWindow) map[string]any {
 		"volume": map[string]any{"date_histogram": map[string]any{"field": "@timestamp", "fixed_interval": fmt.Sprintf("%ds", step), "offset": fmt.Sprintf("%dms", w.Start.UnixMilli()%int64(step*1000)), "min_doc_count": 0, "extended_bounds": map[string]int64{"min": w.Start.UnixMilli(), "max": w.End.Add(-time.Millisecond).UnixMilli()}}},
 		"errors": map[string]any{"filter": map[string]any{"terms": map[string]any{"aiops_level": []string{"error", "fatal"}}}},
 	}
+}
+func elasticsearchPatternAggregation(w TimeWindow) map[string]any {
+	return map[string]any{
+		"categorize_text": map[string]any{"field": "message", "size": 64, "shard_size": 128, "min_doc_count": 1},
+		"aggs":            map[string]any{"trend": map[string]any{"date_histogram": elasticsearchLogAggregations(w)["volume"].(map[string]any)["date_histogram"]}},
+	}
+}
+
+// A category may be omitted by the upstream size/shard_size limit. Only an
+// exact conservation proof across all returned categories and time buckets is
+// accepted; otherwise this optional producer fails closed.
+func decodeElasticsearchPatterns(raw []byte, w TimeWindow, summary *LogSummary) (*LogPatternSummary, error) {
+	var data struct {
+		TimedOut        *bool `json:"timed_out"`
+		TerminatedEarly bool  `json:"terminated_early"`
+		Shards          *struct {
+			Total      int `json:"total"`
+			Successful int `json:"successful"`
+			Skipped    int `json:"skipped"`
+			Failed     int `json:"failed"`
+		} `json:"_shards"`
+		Aggregations *struct {
+			Patterns *struct {
+				Buckets []struct {
+					Key   string `json:"key"`
+					Count int64  `json:"doc_count"`
+					Trend *struct {
+						Buckets []struct {
+							Key   int64 `json:"key"`
+							Count int64 `json:"doc_count"`
+						} `json:"buckets"`
+					} `json:"trend"`
+				} `json:"buckets"`
+			} `json:"patterns"`
+		} `json:"aggregations"`
+	}
+	if json.Unmarshal(raw, &data) != nil || data.TimedOut == nil || *data.TimedOut || data.TerminatedEarly ||
+		data.Shards == nil || data.Shards.Total < 1 || data.Shards.Failed != 0 ||
+		data.Shards.Successful+data.Shards.Skipped != data.Shards.Total ||
+		data.Aggregations == nil || data.Aggregations.Patterns == nil || data.Aggregations.Patterns.Buckets == nil ||
+		len(data.Aggregations.Patterns.Buckets) > 64 || summary == nil || summary.Total < 0 {
+		return nil, errors.New("incomplete Elasticsearch pattern aggregation")
+	}
+	if w.Start.UnixNano()%int64(time.Millisecond) != 0 || w.End.UnixNano()%int64(time.Millisecond) != 0 {
+		return nil, errors.New("pattern histogram requires millisecond timestamps")
+	}
+	stepMS := int64(logBucketSeconds(w)) * 1000
+	durationMS := w.End.Sub(w.Start).Milliseconds()
+	if durationMS <= 0 || stepMS <= 0 {
+		return nil, errors.New("invalid pattern window")
+	}
+	wantBuckets := int((durationMS + stepMS - 1) / stepMS)
+	if wantBuckets < 1 || wantBuckets > 32 {
+		return nil, errors.New("pattern histogram exceeded bucket budget")
+	}
+	if len(summary.Buckets) != wantBuckets {
+		return nil, errors.New("incomplete Elasticsearch volume histogram")
+	}
+	for i, bucket := range summary.Buckets {
+		if bucket.Timestamp.UnixMilli() != w.Start.UnixMilli()+int64(i)*stepMS {
+			return nil, errors.New("unaligned Elasticsearch volume histogram")
+		}
+	}
+	out := &LogPatternSummary{Patterns: make([]LogPattern, 0, len(data.Aggregations.Patterns.Buckets))}
+	seen := map[string]bool{}
+	var categoryTotal int64
+	trendTotals := make([]int64, wantBuckets)
+	for _, category := range data.Aggregations.Patterns.Buckets {
+		if category.Key == "" || seen[category.Key] || category.Count < 1 || category.Count > summary.Total-categoryTotal ||
+			category.Trend == nil || len(category.Trend.Buckets) != wantBuckets {
+			return nil, errors.New("incomplete Elasticsearch pattern category")
+		}
+		seen[category.Key] = true
+		pattern := LogPattern{Template: category.Key, Count: category.Count, Buckets: make([]LogBucket, 0, wantBuckets)}
+		var trendTotal int64
+		for i, bucket := range category.Trend.Buckets {
+			if bucket.Key != w.Start.UnixMilli()+int64(i)*stepMS || bucket.Count < 0 || bucket.Count > category.Count-trendTotal {
+				return nil, errors.New("inconsistent Elasticsearch pattern trend")
+			}
+			trendTotal += bucket.Count
+			if bucket.Count > summary.Buckets[i].Count-trendTotals[i] {
+				return nil, errors.New("inconsistent Elasticsearch pattern and volume histograms")
+			}
+			trendTotals[i] += bucket.Count
+			pattern.Buckets = append(pattern.Buckets, LogBucket{Timestamp: time.UnixMilli(bucket.Key).UTC(), Count: bucket.Count})
+		}
+		if trendTotal != category.Count {
+			return nil, errors.New("incomplete Elasticsearch pattern trend")
+		}
+		categoryTotal += category.Count
+		out.Patterns = append(out.Patterns, pattern)
+	}
+	if categoryTotal != summary.Total {
+		return nil, errors.New("Elasticsearch pattern categories do not cover exact total")
+	}
+	for i, count := range trendTotals {
+		if count != summary.Buckets[i].Count {
+			return nil, errors.New("Elasticsearch pattern trends do not cover volume histogram")
+		}
+	}
+	return out, nil
 }
 func decodeElasticsearchSummary(raw []byte, w TimeWindow) (*LogSummary, error) {
 	var data struct {

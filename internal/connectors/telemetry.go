@@ -113,13 +113,23 @@ type LogSummary struct {
 	BucketSeconds int         `json:"bucket_seconds"`
 	Buckets       []LogBucket `json:"buckets"`
 }
+type LogPattern struct {
+	Template string      `json:"template"`
+	Count    int64       `json:"count"`
+	Buckets  []LogBucket `json:"buckets"`
+}
+type LogPatternSummary struct {
+	Patterns []LogPattern `json:"patterns"`
+}
 type LogEvidence struct {
-	Summary      *LogSummary     `json:"summary,omitempty"`
-	SummaryError string          `json:"summary_error,omitempty"`
-	Source       TelemetrySource `json:"source"`
-	Entries      []LogEntry      `json:"entries"`
-	Empty        bool            `json:"empty"`
-	LimitReached bool            `json:"limit_reached"`
+	Summary        *LogSummary        `json:"summary,omitempty"`
+	SummaryError   string             `json:"summary_error,omitempty"`
+	PatternSummary *LogPatternSummary `json:"pattern_summary,omitempty"`
+	PatternError   string             `json:"pattern_error,omitempty"`
+	Source         TelemetrySource    `json:"source"`
+	Entries        []LogEntry         `json:"entries"`
+	Empty          bool               `json:"empty"`
+	LimitReached   bool               `json:"limit_reached"`
 }
 type telemetryClient struct {
 	config TelemetryEndpoint

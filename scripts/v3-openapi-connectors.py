@@ -52,3 +52,30 @@ P['/connectors/{id}']['patch']['responses']['409']['description'] = 'Connector d
 v3_route('post','/connectors/{id}/test','Probe configured connector',role='admin',
     response=obj({'ok':v3_bool(),'latency_ms':integer(),'error_code':string()}),
     desc='Disabled registrations return 409 without contacting the provider; a missing exact server credential binding returns 503 before Vault or upstream access. Other failures return an explicit error; a configured adapter is not silently reported healthy. A successful health endpoint response does not necessarily verify credentials.')
+
+# WAN-122 model administration. This fragment is already loaded by the V3
+# generator; the checked-in aggregate contract is refreshed by integration.
+S['V3ModelAdminItem'] = obj({
+    **S['V3ModelInfo']['properties'],
+    'used_by':string(), 'scope':string(),
+    'status':string(enum=['ok','unverified']), 'is_default':v3_bool(),
+}, ['id','name','provider','brand','connector','api','reasoning','tools',
+    'vision','context_k','cost','available','used_by','scope','status'])
+S['V3ModelAdminProvider'] = obj({
+    'brand':string(), 'name':string(), 'api':string(), 'models':integer(minimum=0),
+    'status':string(enum=['ok','unverified','error']),
+}, ['brand','name','api','models','status'])
+S['V3ModelAdminDetail'] = obj({
+    'model':string(),
+    'api_chain':arr(obj({'api':string(),'note':string()},['api','note'])),
+    'mapping':arr(obj({'level':string(),'param':string(),'is_default':v3_bool()},['level','param'])),
+    'checks':arr(string()), 'roles':string(), 'agents':string(), 'limits':string(),
+}, ['model','api_chain','mapping','checks','roles','agents','limits'])
+S['V3ModelAdminView'] = obj({
+    'providers':arr(ref('V3ModelAdminProvider')),
+    'items':arr(ref('V3ModelAdminItem')),
+    'detail':ref('V3ModelAdminDetail'),
+}, ['providers','items','detail'])
+v3_route('get','/models/admin','Read environment-bound model administration view',
+    response=ref('V3ModelAdminView'),
+    desc='Requires one selected environment and current models.view authorization. Returns 503 until a server-side exact environment/model binding and the operator-enabled V3 read-tool allowlist are injected into the same V3 selection runtime. Model metadata comes from the configured inference runtime; historical use comes from persisted conversation, canvas, and Agent run records. tools reflects the injected read-tool allowlist, not a proven remote function call. A local metadata observation is point-in-time evidence only: provider and item status remain unverified, and no generation, streaming, vision, token cost, active Agent assignment, model-specific role rule, or API fallback is inferred. The frontend ModelInfo API enum cannot represent native Ollama, which returns 503 instead of a false protocol label. The detail object describes the configured default model for the selected environment.')

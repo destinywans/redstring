@@ -27,9 +27,13 @@ type ModelSource interface {
 }
 
 type Service struct {
-	DB         *pgxpool.Pool
-	Source     ModelSource
-	Access     *rbac.V3Policy
+	DB     *pgxpool.Pool
+	Source ModelSource
+	Access *rbac.V3Policy
+	// ToolModels is the operator-enabled V3 read-tool allowlist shared with
+	// GET /models. A nil map means the admin view lacks this required source.
+	ToolModels map[string]bool
+	bindings   *Bindings
 	instanceID string
 }
 
@@ -46,16 +50,22 @@ func New(db *pgxpool.Pool, runtime inference.Runner, access *rbac.V3Policy) *Ser
 	if candidate, ok := runtime.(ModelSource); ok {
 		source = candidate
 	}
+	var bindings *Bindings
+	if bound, ok := runtime.(*BoundRunner); ok {
+		bindings = bound.Bindings()
+	}
 	var id [16]byte
 	if _, err := rand.Read(id[:]); err != nil {
 		panic(err)
 	}
-	return &Service{DB: db, Source: source, Access: access, instanceID: hex.EncodeToString(id[:])}
+	return &Service{DB: db, Source: source, Access: access, bindings: bindings, instanceID: hex.EncodeToString(id[:])}
 }
 
 func (s *Service) Register(api *httpapi.Server) {
+	api.Register("GET /api/v1/models/admin", "viewer", s.admin)
 	api.Register("POST /api/v1/models/check", "viewer", s.check)
 	api.Register("GET /api/v1/models/observations", "viewer", s.observation)
+	api.MarkV3Route("GET /api/v1/models/admin", "models", "view")
 	api.MarkV3Route("POST /api/v1/models/check", "models", "manage")
 	api.MarkV3Route("GET /api/v1/models/observations", "models", "view")
 }
@@ -89,6 +99,10 @@ func (s *Service) configured(id string) bool {
 	return false
 }
 
+func (s *Service) configuredForEnvironment(env, id string) bool {
+	return s.configured(id) && (s.bindings == nil || s.bindings.Allowed(env, id))
+}
+
 func (s *Service) ready(w http.ResponseWriter) bool {
 	if s.DB == nil || s.Source == nil || s.Access == nil {
 		httpapi.Error(w, http.StatusServiceUnavailable, "model_observation_unavailable", "Model observation source is not connected")
@@ -112,7 +126,7 @@ func (s *Service) observation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	modelID := models[0]
-	if !s.configured(modelID) {
+	if !s.configuredForEnvironment(env, modelID) {
 		httpapi.Error(w, http.StatusNotFound, "model_not_configured", "Model is not configured")
 		return
 	}
@@ -167,7 +181,7 @@ func (s *Service) check(w http.ResponseWriter, r *http.Request) {
 	if !httpapi.Decode(w, r, &input) {
 		return
 	}
-	if !s.configured(input.Model) {
+	if !s.configuredForEnvironment(env, input.Model) {
 		httpapi.Error(w, http.StatusNotFound, "model_not_configured", "Model is not configured")
 		return
 	}
@@ -180,7 +194,7 @@ func (s *Service) check(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, http.StatusServiceUnavailable, "model_probe_unavailable", "Model metadata check is unavailable")
 		return
 	}
-	if !s.configured(input.Model) {
+	if !s.configuredForEnvironment(env, input.Model) {
 		httpapi.Error(w, http.StatusConflict, "model_configuration_changed", "Model configuration changed during the check")
 		return
 	}

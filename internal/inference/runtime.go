@@ -83,12 +83,14 @@ type EvidenceTool struct {
 }
 type Request struct {
 	RunID, AttemptID, BranchID, ModelID string
-	Reasoning                           string
-	Messages                            []Message
-	Tools                               []EvidenceTool
-	MaxCalls, MaxToolCalls              int
-	TimeoutSeconds                      int
-	Deadline                            time.Time
+	// EnvironmentID is required by V3 bound runners before provider execution.
+	EnvironmentID          string
+	Reasoning              string
+	Messages               []Message
+	Tools                  []EvidenceTool
+	MaxCalls, MaxToolCalls int
+	TimeoutSeconds         int
+	Deadline               time.Time
 }
 type Runner interface {
 	Models() []Model

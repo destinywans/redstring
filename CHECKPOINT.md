@@ -1,5 +1,13 @@
 # AIOps Canvas 检查点
 
+## CP-151 · 2026-09-29 · 六条主路由后端闭合与模型观察辅助接口
+
+- 集成分支 `codex/wan-117-v3-integration` 从上次远端 `5b04931` 接续。WAN-119 `/me` 来源 `151e4cf`、`8c2f2a3`、`e6ad636` 合入为 `9a610de`、`f6fab2c`、`28718ce`；集成 `f2d310b` 将本实例 MFA/passkey 命名空间和可选 HTTPS 权威值班源真正注入 V3 启动。GET/PATCH 返回账号、组织、角色、已登记因子、偏好与新鲜值班证据；PATCH 仅允许本人资料白名单，事务内重核会话/授权并原子保存审计。未配置或失效的权威值班源返回 503，现有部署还没有真实值班服务接线，页面未验收。
+- WAN-123 记忆写入 `9cde953`→`b968e32`：事实 `confirm/reject/expire` 与双真实事实 ID 的冲突裁决在锁定事务内复核当前来源版本、范围、会话和 grant，状态与审计同提交；陈旧来源的清理响应脱敏。`GET /memory` 仍因层级、置信度和召回来源缺失而 503，冻结页发送 `forget` 与不完整冲突体，页面未验收。WAN-118 静默预览 `5b4ae6f`→`62e11d0`：实时 Alertmanager 读取后复核授权及应用归属，返回有界完整当前匹配数和真实样本；页面缺精确 application 匹配及失败清理，真实 Alertmanager 尚未联调。
+- WAN-120 日志来源 `2a45d63`、`784eae4`、`2445de3`、`41548f5` 顺序合入为 `26337d4`、`c028e87`、`6fa88cf`、`d8b436c`；跳过其宽范围合并提交 `c70d3fe`。Elasticsearch 按精确映射和全窗模板聚合，Loki 按已登记顶层模板/等级、保留窗口及逐桶守恒取得完整计数；精确零结果返回 `200`，来源不完整返回 `503`，响应前重核授权和目标绑定。`6dc5081` 将以上六条主路由设为后端 `implemented`，总数 **47/166、119 mock**。日志模式为来源模板或类别聚合，原设计中的 AI 聚类尚未交付；真实 ES 历史映射、Loki 租户覆盖、模板脱敏和查询性能仍须按 [接线说明](docs/api/v3-logs-source.md) 验收。
+- WAN-122 模型辅助来源 `f43b800` 合入为 `07fa4c6`；冲突处理保留领域路由登记，避免公共启动重复 Mark，OpenAPI 与 `check-contract.py` 增加新领域。`POST /models/check` 仅探测当前进程配置的无凭据字面回环元数据端点，`GET /models/observations` 返回受权环境中的最近观察；远程/带密钥模型为 `unsupported`，不发送提示词或上游响应体。模型目录仍为进程全局配置，尚无模型到环境绑定；该辅助接口不增加 166 主路由完成数，`GET /models/admin` 继续 `mock`。迁移 `130_v3_model_observations.sql` 在一次性测试库中执行；现有业务库未迁移。
+- 一次性 `pgvector/pgvector:0.8.6-pg17` 随机端口运行受影响 `v3memory`、`v3alertmanager`、`v3observe`、`connectors`、`v3settings`、`v3models`、`inference` 与 `cmd/aiops` 定向 `go test -p 1 -race`，均通过且容器清理；相关 `go vet` 通过。OpenAPI 重建为 **279 路径、335 操作、249 schema**；`check-contract.py`、`check-v3-contract.py`、`check-v3-readiness.py` 和路由矩阵核对通过。未运行全量测试、前端构建或真实第三方联调。本检查点的 Git 提交、推送与远端回读以本批收尾事实为准。
+
 ## CP-150 · 2026-09-29 · 工作区写入、会话 SSE 与连接器凭据绑定
 
 - 集成分支 `codex/wan-117-v3-integration` 当前已推送并由 `git ls-remote` 回读为 `417cb6888e5195140d0e13077d54fa2e347ee5e0`，本地跟踪引用一致、工作树在该推送后干净；未合并、部署或迁移现有业务库。WAN-119 的工作区强 ETag PUT 来源 `509e3c6`/`dab8ad3` 合入为 `cea8af4`/`618b5ff`：只接受当前修订的完整八字段，旧 ETag 为 412，写入与审计同事务；隔离 PG17 的写入/撤权定向测试通过，主契约先升为 **40/166**。真实持久声明不证明实际数据驻留，冻结页面还未发送 ETag。

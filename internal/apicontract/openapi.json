@@ -28794,6 +28794,103 @@
         ]
       }
     },
+    "/models/admin": {
+      "get": {
+        "summary": "Read environment-bound model administration view",
+        "operationId": "get_models_admin",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment and current models.view authorization. Returns 503 until a server-side exact environment/model binding and the operator-enabled V3 read-tool allowlist are injected into the same V3 selection runtime. Model metadata comes from the configured inference runtime; historical use comes from persisted conversation, canvas, and Agent run records. tools reflects the injected read-tool allowlist, not a proven remote function call. A local metadata observation is point-in-time evidence only: provider and item status remain unverified, and no generation, streaming, vision, token cost, active Agent assignment, model-specific role rule, or API fallback is inferred. The frontend ModelInfo API enum cannot represent native Ollama, which returns 503 instead of a false protocol label. The detail object describes the configured default model for the selected environment.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3ModelAdminView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "models"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/mcp-servers": {
       "get": {
         "summary": "List accessible, environment-bound MCP extensions",
@@ -51009,6 +51106,259 @@
           }
         },
         "additionalProperties": false
+      },
+      "V3ModelAdminItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "brand": {
+            "type": "string"
+          },
+          "connector": {
+            "type": "string"
+          },
+          "cost": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "unavailable_reason": {
+            "type": "string"
+          },
+          "api": {
+            "type": "string",
+            "enum": [
+              "responses",
+              "chat_completions",
+              "messages"
+            ]
+          },
+          "reasoning": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "levels",
+                  "toggle",
+                  "none"
+                ]
+              },
+              "levels": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "hint": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "default": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "tools": {
+            "type": "boolean",
+            "description": "True only when this configured model is explicitly enabled for V3 read tools by the server operator; not proof of successful remote function calling."
+          },
+          "vision": {
+            "type": "boolean"
+          },
+          "context_k": {
+            "type": "integer"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "used_by": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "unverified"
+            ]
+          },
+          "is_default": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "provider",
+          "brand",
+          "connector",
+          "api",
+          "reasoning",
+          "tools",
+          "vision",
+          "context_k",
+          "cost",
+          "available",
+          "used_by",
+          "scope",
+          "status"
+        ]
+      },
+      "V3ModelAdminProvider": {
+        "type": "object",
+        "properties": {
+          "brand": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "api": {
+            "type": "string"
+          },
+          "models": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "unverified",
+              "error"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "brand",
+          "name",
+          "api",
+          "models",
+          "status"
+        ]
+      },
+      "V3ModelAdminDetail": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "api_chain": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "api": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "api",
+                "note"
+              ]
+            }
+          },
+          "mapping": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "level": {
+                  "type": "string"
+                },
+                "param": {
+                  "type": "string"
+                },
+                "is_default": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "level",
+                "param"
+              ]
+            }
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "roles": {
+            "type": "string"
+          },
+          "agents": {
+            "type": "string"
+          },
+          "limits": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "model",
+          "api_chain",
+          "mapping",
+          "checks",
+          "roles",
+          "agents",
+          "limits"
+        ]
+      },
+      "V3ModelAdminView": {
+        "type": "object",
+        "properties": {
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3ModelAdminProvider"
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3ModelAdminItem"
+            }
+          },
+          "detail": {
+            "$ref": "#/components/schemas/V3ModelAdminDetail"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "providers",
+          "items",
+          "detail"
+        ]
       },
       "V3McpServerPartial": {
         "type": "object",

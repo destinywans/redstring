@@ -61,12 +61,14 @@
 | GET | `/mentions/{kind}/{id}/preview` | | `MentionPreview`（`@` 面板右侧预览） | mock |
 | GET | `/commands` | | `{ items: CommandItem[] }`（`/` 面板：命令、Skills、Runbook、模板） | mock |
 | GET | `/models` | | `ModelCatalog`：当前用户可用的模型、接口类型、推理强度档位与默认值 | implemented |
-| GET | `/models/admin` | | `ModelAdminView`（集成中心 › 模型） | mock |
+| GET | `/models/admin` | 单一已授权环境 | `ModelAdminView`；仅服务端明确绑定到该环境的模型、进程配置与持久历史使用；状态保持未验证 | implemented |
 | POST | `/uploads` | multipart `file` + `kind`；链接与折叠粘贴用 JSON `{ kind, name, url \| text }` | `Upload`；单个 ≤ 20 MB，超出返回 413 | implemented |
 
 `GET/PATCH /me` 按当前真人账号、有效 Cookie 会话及授权环境投影完整 `Me`。团队、部门、角色、偏好和本实例已登记的 TOTP/passkey 来自持久记录；MFA 字段只表示登记状态，不证明登录或审批时已完成二次验证。值班状态必须由运维配置的 HTTPS 权威来源对请求环境给出新鲜、完整且无歧义的回答，未配置或失效返回 503，不能把未知写成未值班。`PATCH` 只接受名称、职务、时区及支持的偏好字段，须选定单一环境；邮箱、电话、团队、角色、MFA 与值班均由服务端管理。账号、会话、授权与值班证据在写入时复核，资料、偏好和审计一起提交。后端接口已闭合；实际权威值班服务接入与前端整页验收仍需单独完成。
 
-辅助 `POST /models/check`（严格 `{ model }`、`models.manage`）和 `GET /models/observations?model=...`（`models.view`）都要求单一已授权环境，但模型目录本身是当前进程的全局配置，尚无模型与环境的绑定。模型观察仅对已配置模型的无密钥、字面回环地址调用供应商元数据接口，5 秒内完成，不发送提示词或生成请求；远程或带密钥的模型直接返回 `unsupported`，不会发起网络请求。`verified` 只表示本次元数据查询成功，不证明生成、流式、工具或未来可用性。响应只含 `model`、`status`、`checked_at`、`latency_ms` 和非敏感 `error_code`；未检查及其他服务进程的记录在读取时显示 `configured_unverified`，时间与耗时为 `null`，因此多副本间不会共享「当前已验证」状态。这两条辅助接口不提供 `ModelAdminView` 所需的用量、角色、Agent 和回退策略，故 `/models/admin` 继续保持 `mock`；冻结前端也尚未接入辅助接口。
+`AIOPS_V3_MODEL_BINDINGS_FILE` 为服务端无密钥配置文件；配置时启动即校验实例层级、全部环境与模型 ID，将同一绑定快照交给模型管理、`GET /models`、个人 AI 偏好、对话及画布执行。显式跨环境选模型返回 422；旧偏好不适用于当前环境时显示该环境绑定的默认模型，后台对话从持久环境复核后才调用供应商。`GET /models/admin` 从该环境绑定、进程适配器、只读工具启用名单及已持久的历史使用记录构建完整 DTO；无绑定配置、工具名单或不受前端 API 枚举支持的原生 Ollama 模型时返回明确 503。`status` 为未验证；`available` 仅指进程中有可用适配器与绑定，`used_by` 只表示历史记录，均不证明当前调用成功或 Agent 未来绑定。元数据辅助 `POST /models/check` 与 `GET /models/observations` 仍仅对无密钥、字面回环地址做一次有界查询，不发送提示词；其 `verified` 只表示该次元数据查询成功，不证明生成、流式、工具、图像或持续健康。
+
+未配置绑定文件时，旧 V3 全局模型目录与执行路径为兼容既有实例继续运行，`/models/admin` 返回 `503 model_binding_unavailable`，不能声称具备按环境模型隔离。此模式只适用于管理员确认**该实例全部环境均可共用同一模型目录及进程级供应商凭据**的部署；不同环境需不同模型名单时必须配置绑定，不同凭据边界仍须分开实例或另建凭据路由，模型 ID 绑定本身不隔离同一进程中的供应商密钥。冻结模型页仍硬编码首选模型、检查成功提示和部分配置说明，真实供应商生成/页面交互未验收。
 
 发现路由当前可按真实持久来源检索有权服务、事件、调查、有效人员与本人对话，支持中文与拼音，并分别将查询结果限制为 8 条搜索命中或 30 条提及候选；非空查询中任一来源类型匹配过宽时返回 413，不返回不完整成功结果。“最近访问”无真实行为记录，告警组、产物和 Runbook 预览无可用独立来源。调查结果暂链接画布列表，前端提及页签也尚未按类型重新查询；这三条主路由仍为 `mock`。
 

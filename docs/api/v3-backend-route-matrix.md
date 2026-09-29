@@ -19,7 +19,7 @@
 | 身份与全局 | GET | `/mentions/{kind}/{id}/preview` | 新增 | mock |
 | 身份与全局 | GET | `/commands` | 新增 | mock |
 | 身份与全局 | GET | `/models` | 旧路径适配 | implemented |
-| 身份与全局 | GET | `/models/admin` | 新增 | mock |
+| 身份与全局 | GET | `/models/admin` | 新增 | implemented |
 | 身份与全局 | POST | `/uploads` | 新增 | implemented |
 | 身份与全局 | GET | `/instance` | 新增 | implemented |
 | 身份与全局 | GET | `/integrations/lower-sources` | 新增 | implemented |

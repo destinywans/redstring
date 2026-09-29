@@ -212,7 +212,7 @@ v3_route('get','/knowledge-sources/registrations','Read scoped, unverified sourc
 v3_route('post','/knowledge-sources/registrations','Register scoped source configuration without activating sync',
     body=ref('V3KnowledgeSourceRegistrationInput'),status=201,
     response=obj({'id':string(),'registration_status':string(enum=['unverified'])},['id','registration_status']),
-    desc='Auxiliary operation. A single public HTTPS Markdown Web page may omit secret_ref, use no spaces, manual schedule and inherited source access; other source kinds still require a Vault reference, never a plaintext credential. Registration does not prove connection or begin ingestion. Requires one environment and knowledge.manage; audit is transactional.')
+    desc='Auxiliary operation. A single public HTTPS Markdown Web page may omit secret_ref. Git Markdown, Confluence and Notion require an exact server-owned source and Vault binding, one active application and optional owner team, manual schedule and inherited source access. Confluence requires exactly its configured numeric space ID; Notion requires no spaces and its configured page UUID. Registration does not prove connection or begin ingestion. Requires one environment and knowledge.manage; audit is transactional.')
 S['V3PublicWebSourceCreateInput'] = obj({'name':string(maxLength=160),
     'type':string(enum=['web']),'url':string(maxLength=1000),
     'secret_ref':{'const':''},'application_id':string(), 'team_id':string(),
@@ -227,11 +227,26 @@ S['V3GitMarkdownSourceCreateInput'] = obj({'name':string(maxLength=160),
     'schedule':string(enum=['manual']),'chunk':string(enum=['heading','fixed']),
     'inherit_acl':{'const':True}},
     ['name','type','url','secret_ref','application_id','schedule','chunk','inherit_acl'])
-v3_route('post','/knowledge-sources','Register one configured application-bound Markdown source',
-    body={'oneOf':[ref('V3PublicWebSourceCreateInput'),ref('V3GitMarkdownSourceCreateInput')]},status=201,
+S['V3ConfluenceSourceCreateInput'] = obj({'name':string(maxLength=160),
+    'type':string(enum=['confluence']),'url':string(maxLength=2000),
+    'secret_ref':string(),'application_id':string(),'team_id':string(),
+    'spaces':{'type':'array','items':string(pattern='^[1-9][0-9]*$',maxLength=19),'minItems':1,'maxItems':1},
+    'schedule':string(enum=['manual']),'chunk':string(enum=['heading','fixed']),
+    'inherit_acl':{'const':True}},
+    ['name','type','url','secret_ref','application_id','spaces','schedule','chunk','inherit_acl'])
+S['V3NotionSourceCreateInput'] = obj({'name':string(maxLength=160),
+    'type':string(enum=['notion']),'url':string(maxLength=2000),
+    'secret_ref':string(),'application_id':string(),'team_id':string(),
+    'spaces':{'type':'array','items':string(),'maxItems':0},
+    'schedule':string(enum=['manual']),'chunk':string(enum=['heading','fixed']),
+    'inherit_acl':{'const':True}},
+    ['name','type','url','secret_ref','application_id','schedule','chunk','inherit_acl'])
+v3_route('post','/knowledge-sources','Register one configured application-bound knowledge source',
+    body={'oneOf':[ref('V3PublicWebSourceCreateInput'),ref('V3GitMarkdownSourceCreateInput'),
+        ref('V3ConfluenceSourceCreateInput'),ref('V3NotionSourceCreateInput')]},status=201,
     response=obj({'id':string(),'registration_status':string(enum=['unverified']),
         'sync_started':{'const':False}},['id','registration_status','sync_started']),
-    desc='Requires one selected environment, explicit active application_id and current knowledge.manage for the application and optional matching owner team. Public Web accepts one credential-free HTTPS Markdown URL; git_markdown requires an exact server-configured GitLab HTTPS repository URL, environment/application/team and vault://mount/path#field binding. The GitLab project, branch and Markdown path prefix come only from server configuration. Both families require empty spaces, manual schedule, heading/fixed setting and inherited ACL. Registration and audit commit together after current session/scope/grant checks; no read, sync or index starts. Unconfigured types/bindings return 501, malformed requests 422.')
+    desc='Requires one selected environment, explicit active application_id and current knowledge.manage for the application and optional matching owner team. Public Web accepts one credential-free HTTPS Markdown URL; git_markdown, Confluence and Notion require exact server-configured source, scope and vault://mount/path#field binding. Confluence binds one numeric space ID; Notion binds one page UUID. All families require manual schedule, heading/fixed setting and inherited ACL. Registration and audit commit together after current session/scope/grant checks; no read, sync or index starts. Unconfigured types/bindings return 501, malformed requests 422.')
 for status, description in [('409','Select exactly one environment'),
                             ('422','Invalid source URL, options or application/team scope'),
                             ('501','No reader/importer for this source type or credentialed Web'),
@@ -244,23 +259,25 @@ v3_route('post','/knowledge-sources/registrations/{id}/sync','Observe one regist
         'keyword_content_persisted':v3_bool(),'content_version':integer(minimum=1),
         'commit_sha':string(pattern='^([a-f0-9]{40}|[a-f0-9]{64})$'),'document_count':integer(minimum=0,maximum=32)},
         ['read_id','observed_count','index_state','complete_v3_dto']),
-    desc='Auxiliary manual lineage operation requiring one environment and knowledge.manage for the saved application/team scope. Explicit AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true configures the single-page public Web reader. A server-configured git_markdown reader pins the saved GitLab project/branch/path binding to one commit SHA and imports at most 32 bounded UTF-8 Markdown files using the exact Vault binding. Application/team liveness and saved binding identity are checked before network access and again under transaction before persistence. The read, observations, private bodies, binding snapshot, commit version and audit commit together. Git responses include commit_sha and document_count; public Web responses include keyword_content_persisted and content_version. No vector chunk or index is claimed; absent reader returns 501. Legacy vault: references are rejected for new Git Markdown registration.')
+    desc='Auxiliary manual lineage operation requiring one environment and knowledge.manage for the saved application/team scope. Explicit AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true configures the single-page public Web reader. Server-configured Git Markdown, Confluence and Notion readers require an exact Vault binding; Git pins one commit, Confluence reads one space with bounded pages, and Notion reads one exact page UUID. Application/team liveness and saved binding identity are checked before network access and again under transaction before persistence. A complete read, observations, private bodies, source versions, binding snapshot and audit commit together; incomplete or failed reads do not persist. External responses include document_count and keyword_content_persisted; Git additionally includes commit_sha; public Web includes content_version. No vector chunk or index is claimed; absent reader returns 501. Legacy vault: references are rejected for new bound source registration.')
 P['/knowledge-sources/registrations/{id}/sync']['post']['responses']['501'] = {
     'description':'No read-only source reader is configured',
     'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('get','/knowledge-sources/registrations/{id}/evidence','Read observed source lineage and attributed index evidence',
     response=obj({'id':string(),'last_read':{'type':['object','null']},
         'index':{'type':['object','null']},'keyword':{'type':['object','null']},
-        'git_markdown':{'type':['object','null']},'reason':string(),'complete_v3_dto':v3_bool()},
+        'git_markdown':{'type':['object','null']},'external_source':{'type':['object','null']},
+        'reason':string(),'complete_v3_dto':v3_bool()},
         ['id','last_read','index','complete_v3_dto']),
-    desc='Auxiliary read of current authorized registration. An absent read returns null evidence. A Git Markdown response includes git_markdown with commit_sha, document_count and content_persisted only when the latest read has matching private documents, hashes, scope and observations; otherwise it is null. Public Web keyword evidence and generic attributed ready documents/chunks never imply a complete source index. No source content is returned.')
+    desc='Auxiliary read of current authorized registration. An absent read returns null evidence. Git Markdown includes commit_sha and document_count only when the latest read has matching private documents, hashes, scope and observations; Confluence/Notion analogously use external_source with source_type, document_count and content_persisted only after the same proof. Public Web keyword evidence and generic attributed ready documents/chunks never imply a complete source index. No source content is returned.')
 v3_route('post','/knowledge-sources/test','Test a knowledge source connection',
-    body=obj(fieldnames('type url secret_ref application_id team_id'),['type','url']),
+    body=obj({**fieldnames('type url secret_ref application_id team_id'),
+        'spaces':{'type':'array','items':string(),'maxItems':1}},['type','url']),
     response=obj({'ok':v3_bool(),'message':string(),'connected':v3_bool(),
         'observed_at':string(format='date-time'),'persistent':v3_bool(),
         'scope_verified':v3_bool(),'spaces':arr(string())},
         ['ok','message','connected','observed_at','persistent','scope_verified']),
-    desc='With AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true, a credential-free public HTTPS Markdown Web URL receives one bounded read-only fetch after validation and environment-scoped knowledge.manage. A configured Git Markdown probe requires application_id and optional matching team_id; current app/team knowledge.manage and active scope are checked before and after the credentialed read. A committed attempt audit precedes Vault/GitLab access; a bounded outcome audit follows. Success proves only point-in-time readability. Nothing is registered, synchronized or indexed. Source kinds without a configured prober return 501 source_connection_test_unavailable; malformed URLs or missing required Vault references return 422. A configured failed read returns 503 source_connection_failed. A credentialed Web URL has no supported prober. Successful probe does not authorize a subsequent create or prove future availability.')
+    desc='With AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true, a credential-free public HTTPS Markdown Web URL receives one bounded read-only fetch after validation and environment-scoped knowledge.manage. Configured Git Markdown, Confluence and Notion probes require application_id and optional matching team_id; Confluence also requires its single numeric spaces ID. Current app/team knowledge.manage and active scope are checked before and after the credentialed read. A committed attempt audit precedes Vault/upstream access; a bounded outcome audit follows. Success proves only point-in-time readability. Nothing is registered, synchronized or indexed. Source kinds without a configured prober return 501 source_connection_test_unavailable; malformed URLs or missing required Vault references return 422. A configured failed read returns 503 source_connection_failed. A credentialed Web URL has no supported prober. Successful probe does not authorize a subsequent create or prove future availability.')
 P['/knowledge-sources/test']['post']['responses']['501'] = {
     'description':'No source-specific read-only connection prober is configured',
     'content':{'application/json':{'schema':ref('Error')}}}

@@ -200,7 +200,17 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 			activeGitMarkdownBindings = append(activeGitMarkdownBindings, binding)
 		}
 	}
-	sourceRegistry, err := configuredV3SourceRegistryWithGit(os.Getenv("AIOPS_V3_PUBLIC_WEB_READER_ENABLED"), s, policy, activeGitMarkdownBindings)
+	externalBindings, err := v3knowledgesources.ParseExternalBindings(os.Getenv("AIOPS_V3_EXTERNAL_SOURCE_BINDINGS"))
+	if err != nil {
+		return fmt.Errorf("configure V3 Confluence/Notion bindings: %w", err)
+	}
+	activeExternalBindings := make([]v3knowledgesources.ExternalBinding, 0, len(externalBindings))
+	for _, binding := range externalBindings {
+		if binding.Tier == cfg.Tier {
+			activeExternalBindings = append(activeExternalBindings, binding)
+		}
+	}
+	sourceRegistry, err := configuredV3SourceRegistryWithSources(os.Getenv("AIOPS_V3_PUBLIC_WEB_READER_ENABLED"), s, policy, activeGitMarkdownBindings, activeExternalBindings)
 	if err != nil {
 		return err
 	}
@@ -512,7 +522,7 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	knowledgeV3.Register(api)
 	knowledgeV3.RegisterSearch(api)
 	v3postmortems.New(s.DB, policy).Register(api)
-	v3knowledgesources.NewWithGitMarkdownBindings(s.DB, policy, activeGitMarkdownBindings).Register(api)
+	v3knowledgesources.NewWithSourceBindings(s.DB, policy, activeGitMarkdownBindings, activeExternalBindings).Register(api)
 	sourceRegistry.Register(api)
 	v3memory.New(s.DB, policy).Register(api)
 	v3agents.New(s.DB, policy).Register(api)
@@ -526,6 +536,12 @@ func configuredV3SourceRegistry(raw string, s *store.Store, policy *rbac.V3Polic
 
 func configuredV3SourceRegistryWithGit(raw string, s *store.Store, policy *rbac.V3Policy,
 	gitMarkdownBindings []v3knowledgesources.GitMarkdownBinding) (*v3sourceregistry.Service, error) {
+	return configuredV3SourceRegistryWithSources(raw, s, policy, gitMarkdownBindings, nil)
+}
+
+func configuredV3SourceRegistryWithSources(raw string, s *store.Store, policy *rbac.V3Policy,
+	gitMarkdownBindings []v3knowledgesources.GitMarkdownBinding,
+	externalBindings []v3knowledgesources.ExternalBinding) (*v3sourceregistry.Service, error) {
 	readers := map[string]v3sourceregistry.Reader{}
 	switch raw {
 	case "", "false":
@@ -551,6 +567,35 @@ func configuredV3SourceRegistryWithGit(raw string, s *store.Store, policy *rbac.
 			return nil, fmt.Errorf("configure V3 Git Markdown reader: %w", err)
 		}
 		readers["git_markdown"] = reader
+	}
+	if len(externalBindings) > 0 {
+		credentialBindings := make([]v3integrations.CredentialBinding, 0, len(externalBindings))
+		for _, binding := range externalBindings {
+			credentialBindings = append(credentialBindings, v3integrations.CredentialBinding{
+				Tier: binding.Tier, EnvironmentID: binding.EnvironmentID,
+				ConnectorID: binding.ConnectorID, Provider: binding.Type,
+				Endpoint: binding.Endpoint, CredentialRef: binding.CredentialRef,
+			})
+		}
+		resolver := v3integrations.NewBoundResolver(
+			v3integrations.NewVaultResolver(os.Getenv("AIOPS_VAULT_URL"), os.Getenv("AIOPS_VAULT_TOKEN")),
+			credentialBindings)
+		for _, kind := range []string{"confluence", "notion"} {
+			var selected []v3knowledgesources.ExternalBinding
+			for _, binding := range externalBindings {
+				if binding.Type == kind {
+					selected = append(selected, binding)
+				}
+			}
+			if len(selected) == 0 {
+				continue
+			}
+			reader, err := v3knowledgesources.NewExternalReader(kind, selected, resolver, nil)
+			if err != nil {
+				return nil, fmt.Errorf("configure V3 %s source reader: %w", kind, err)
+			}
+			readers[kind] = reader
+		}
 	}
 	return v3sourceregistry.NewWithReaders(s.DB, policy, readers), nil
 }

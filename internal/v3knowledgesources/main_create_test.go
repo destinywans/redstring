@@ -24,7 +24,7 @@ func TestValidateMainCreateLimitsSupportedFamily(t *testing.T) {
 	if status, _, message := validateMainCreate(valid); status != 0 {
 		t.Fatalf("valid public Web source rejected: %d %s", status, message)
 	}
-	for _, kind := range []string{"confluence", "notion", "feishu", "git", "upload"} {
+	for _, kind := range []string{"feishu", "git", "upload"} {
 		v := valid
 		v.Type = kind
 		if status, code, _ := validateMainCreate(v); status != http.StatusNotImplemented || code != "source_adapter_unavailable" {
@@ -170,7 +170,8 @@ func TestMainCreatePublicWebTransactionHTTP(t *testing.T) {
 		return w
 	}
 	valid := `{"name":"Guide","type":"web","url":"https://example.com/guide.md","secret_ref":"","spaces":[],"schedule":"manual","chunk":"heading","inherit_acl":true,"application_id":"app"}`
-	if w := post(strings.Replace(valid, `"type":"web"`, `"type":"notion"`, 1), "dev"); w.Code != http.StatusNotImplemented || !strings.Contains(w.Body.String(), "source_adapter_unavailable") {
+	unconfigured := `{"name":"Notes","type":"notion","url":"https://www.notion.so/2499c512bbf14e4691756ae89f64ec7c","secret_ref":"vault://ops/notion#token","spaces":[],"schedule":"manual","chunk":"heading","inherit_acl":true,"application_id":"app"}`
+	if w := post(unconfigured, "dev"); w.Code != http.StatusNotImplemented || !strings.Contains(w.Body.String(), "source_adapter_unavailable") {
 		t.Fatalf("unconfigured adapter create: %d %s", w.Code, w.Body.String())
 	}
 	if w := post(valid, "all"); w.Code != http.StatusConflict {

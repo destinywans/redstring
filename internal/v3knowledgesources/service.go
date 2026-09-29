@@ -39,6 +39,7 @@ type Service struct {
 	repository          repository
 	access              Access
 	gitMarkdownBindings []GitMarkdownBinding
+	externalBindings    []ExternalBinding
 }
 
 func New(db *pgxpool.Pool, access Access) *Service {
@@ -51,6 +52,14 @@ func New(db *pgxpool.Pool, access Access) *Service {
 func NewWithGitMarkdownBindings(db *pgxpool.Pool, access Access, bindings []GitMarkdownBinding) *Service {
 	s := New(db, access)
 	s.gitMarkdownBindings = append([]GitMarkdownBinding(nil), bindings...)
+	return s
+}
+
+// NewWithSourceBindings enables only the operator-owned bindings supplied by
+// startup configuration. A request cannot provide source IDs or API endpoints.
+func NewWithSourceBindings(db *pgxpool.Pool, access Access, gitBindings []GitMarkdownBinding, externalBindings []ExternalBinding) *Service {
+	s := NewWithGitMarkdownBindings(db, access, gitBindings)
+	s.externalBindings = append([]ExternalBinding(nil), externalBindings...)
 	return s
 }
 

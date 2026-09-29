@@ -202,12 +202,12 @@ func TestPublicWebRegistryProbeAndObservationHTTP(t *testing.T) {
 		!strings.Contains(probe.Body.String(), `"scope_verified":false`) || fetches.Load() != 1 {
 		t.Fatalf("public Web probe did not read the page exactly once: %d %s fetches=%d", probe.Code, probe.Body.String(), fetches.Load())
 	}
-	unsupportedProbe := request("/api/v1/knowledge-sources/test", `{"type":"notion","url":"https://notion.example.com","secret_ref":"vault://kv/notion#token"}`)
+	unsupportedProbe := request("/api/v1/knowledge-sources/test", `{"type":"notion","url":"https://www.notion.so/2499c512bbf14e4691756ae89f64ec7c","secret_ref":"vault://kv/notion#token","application_id":"visible-app","spaces":[]}`)
 	if unsupportedProbe.Code != http.StatusNotImplemented ||
 		!strings.Contains(unsupportedProbe.Body.String(), `"code":"source_connection_test_unavailable"`) || fetches.Load() != 1 {
 		t.Fatalf("unconfigured source type claimed a probe: %d %s fetches=%d", unsupportedProbe.Code, unsupportedProbe.Body.String(), fetches.Load())
 	}
-	missingCredential := request("/api/v1/knowledge-sources/test", `{"type":"notion","url":"https://notion.example.com","secret_ref":""}`)
+	missingCredential := request("/api/v1/knowledge-sources/test", `{"type":"notion","url":"https://www.notion.so/2499c512bbf14e4691756ae89f64ec7c","secret_ref":"","application_id":"visible-app","spaces":[]}`)
 	if missingCredential.Code != http.StatusUnprocessableEntity ||
 		!strings.Contains(missingCredential.Body.String(), `"code":"invalid_source_connection"`) || fetches.Load() != 1 {
 		t.Fatalf("missing private-source credential claimed a probe: %d %s fetches=%d", missingCredential.Code, missingCredential.Body.String(), fetches.Load())

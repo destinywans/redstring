@@ -4,6 +4,7 @@ package v3sourceregistry
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -79,11 +80,12 @@ type request struct {
 }
 
 type connectionRequest struct {
-	Type          string `json:"type"`
-	URL           string `json:"url"`
-	SecretRef     string `json:"secret_ref"`
-	ApplicationID string `json:"application_id"`
-	TeamID        string `json:"team_id"`
+	Type          string   `json:"type"`
+	URL           string   `json:"url"`
+	SecretRef     string   `json:"secret_ref"`
+	Spaces        []string `json:"spaces"`
+	ApplicationID string   `json:"application_id"`
+	TeamID        string   `json:"team_id"`
 }
 
 var vaultReference = regexp.MustCompile(`^vault://[A-Za-z0-9_-]+/[A-Za-z0-9_./-]+#[A-Za-z0-9_-]+$`)
@@ -117,7 +119,38 @@ func validateConnection(kind, address, secretRef string) error {
 			return errors.New("invalid Vault path")
 		}
 	}
+	if kind == "confluence" && (u.Path != "/wiki" || u.RawPath != "") {
+		return errors.New("Confluence source URL must be a canonical HTTPS /wiki base")
+	}
 	return nil
+}
+
+func boundExternalType(kind string) bool { return kind == "confluence" || kind == "notion" }
+
+func validBindingEvidence(fingerprint string, snapshot json.RawMessage) bool {
+	if len(fingerprint) != 64 || strings.ToLower(fingerprint) != fingerprint {
+		return false
+	}
+	if _, err := hex.DecodeString(fingerprint); err != nil {
+		return false
+	}
+	var object map[string]json.RawMessage
+	return json.Unmarshal(snapshot, &object) == nil && len(object) > 0
+}
+
+func validExternalSpaces(kind string, spaces []string) bool {
+	if kind == "notion" {
+		return len(spaces) == 0
+	}
+	if kind != "confluence" || len(spaces) != 1 || len(spaces[0]) > 19 || spaces[0] == "" {
+		return false
+	}
+	for _, ch := range spaces[0] {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return spaces[0][0] != '0'
 }
 
 func validateCreate(v request) error {
@@ -145,6 +178,10 @@ func validateCreate(v request) error {
 	}
 	if v.Type == "git_markdown" && (v.ApplicationID == "" || len(v.Spaces) != 0 || v.Schedule != "manual" || !*v.InheritACL) {
 		return errors.New("git_markdown requires one active application, manual sync and inherited source access")
+	}
+	if boundExternalType(v.Type) && (v.ApplicationID == "" || v.Schedule != "manual" || !*v.InheritACL ||
+		!validExternalSpaces(v.Type, v.Spaces)) {
+		return errors.New("Confluence/Notion require one active application, exact page or space, manual sync and inherited source access")
 	}
 	seen := map[string]bool{}
 	for _, space := range v.Spaces {
@@ -215,12 +252,12 @@ func authorizationError(w http.ResponseWriter, err error) {
 
 // A credentialed probe records its attempt before any Vault or GitLab call.
 // Audit details deliberately exclude source URL, reference, token and body.
-func (s *Service) auditGitConnectionTest(ctx context.Context, user core.User, env, app, team, outcome string) error {
+func (s *Service) auditBoundConnectionTest(ctx context.Context, user core.User, kind, env, app, team, outcome string) error {
 	_, err := s.DB.Exec(ctx, `INSERT INTO management_audit
  (actor_id,application_id,action,target,outcome,changes)
- VALUES($1,$2,'v3.knowledge_source.connection.test','git_markdown',$3,
- jsonb_build_object('environment_id',$4::text,'team_id',$5::text))`,
-		user.ID, app, outcome, env, team)
+ VALUES($1,$2,'v3.knowledge_source.connection.test',$3,$4,
+ jsonb_build_object('environment_id',$5::text,'team_id',$6::text))`,
+		user.ID, app, kind, outcome, env, team)
 	return err
 }
 
@@ -236,10 +273,11 @@ func (s *Service) testConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	app, team := "", ""
-	if v.Type == "git_markdown" {
+	if v.Type == "git_markdown" || boundExternalType(v.Type) {
 		if !identifier.MatchString(v.ApplicationID) ||
-			(v.TeamID != "" && !identifier.MatchString(v.TeamID)) {
-			httpapi.Error(w, 422, "invalid_source_scope", "Git Markdown test requires a valid application and team")
+			(v.TeamID != "" && !identifier.MatchString(v.TeamID)) ||
+			(boundExternalType(v.Type) && !validExternalSpaces(v.Type, v.Spaces)) {
+			httpapi.Error(w, 422, "invalid_source_scope", "Source test requires an exact application and source scope")
 			return
 		}
 		app, team = v.ApplicationID, v.TeamID
@@ -271,14 +309,14 @@ func (s *Service) testConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	if v.Type == "git_markdown" {
-		if err := s.auditGitConnectionTest(ctx, user, envs[0], app, team, "attempted"); err != nil {
+	if v.Type == "git_markdown" || boundExternalType(v.Type) {
+		if err := s.auditBoundConnectionTest(ctx, user, v.Type, envs[0], app, team, "attempted"); err != nil {
 			httpapi.Error(w, 503, "audit_unavailable", "Source test audit is unavailable")
 			return
 		}
 	}
 	probeErr := prober.Probe(ctx, ReadSpec{SourceType: v.Type, URL: v.URL, SecretRef: v.SecretRef,
-		EnvironmentID: envs[0], ApplicationID: app, TeamID: team})
+		EnvironmentID: envs[0], ApplicationID: app, TeamID: team, Spaces: v.Spaces})
 	authErr := s.authorized(ctx, user, "manage", envs[0], app, team)
 	var scopeErr error
 	active := true
@@ -286,7 +324,7 @@ func (s *Service) testConnection(w http.ResponseWriter, r *http.Request) {
 		active, scopeErr = s.activeRegistration(ctx, s.DB, registration{
 			EnvironmentID: envs[0], ApplicationID: app, TeamID: team}, false)
 	}
-	if v.Type == "git_markdown" {
+	if v.Type == "git_markdown" || boundExternalType(v.Type) {
 		outcome := "success"
 		switch {
 		case authErr != nil:
@@ -296,7 +334,7 @@ func (s *Service) testConnection(w http.ResponseWriter, r *http.Request) {
 		case probeErr != nil:
 			outcome = "failure"
 		}
-		if err := s.auditGitConnectionTest(ctx, user, envs[0], app, team, outcome); err != nil {
+		if err := s.auditBoundConnectionTest(ctx, user, v.Type, envs[0], app, team, outcome); err != nil {
 			httpapi.Error(w, 503, "audit_unavailable", "Source test audit is unavailable")
 			return
 		}
@@ -461,6 +499,9 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "invalid_source_registration", err.Error())
 		return
 	}
+	if v.Spaces == nil {
+		v.Spaces = []string{}
+	}
 	env := envs[0]
 	spaces, _ := json.Marshal(v.Spaces)
 	bindingFingerprint, bindingSnapshot := "", json.RawMessage(`{}`)
@@ -470,7 +511,7 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	if v.Type == "git_markdown" {
+	if v.Type == "git_markdown" || boundExternalType(v.Type) {
 		if err = lockSourceSyncAuthority(r.Context(), tx, r); errors.Is(err, errSourceSyncSession) {
 			httpapi.Error(w, 401, "unauthorized", "Session expired")
 			return
@@ -478,6 +519,10 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 			unavailable(w)
 			return
 		}
+	}
+	if err := s.authorizedTx(r.Context(), tx, user, "manage", env, v.ApplicationID, v.TeamID); err != nil {
+		authorizationError(w, err)
+		return
 	}
 	if v.ApplicationID != "" {
 		var activeID string
@@ -495,11 +540,7 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.authorizedTx(r.Context(), tx, user, "manage", env, v.ApplicationID, v.TeamID); err != nil {
-		authorizationError(w, err)
-		return
-	}
-	if v.Type == "git_markdown" {
+	if v.Type == "git_markdown" || boundExternalType(v.Type) {
 		binding, ok := s.Readers[v.Type].(RegistrationBindingEvidence)
 		matched := false
 		if ok {
@@ -507,8 +548,8 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 				SourceType: v.Type, URL: v.URL, SecretRef: v.SecretRef, EnvironmentID: env,
 				ApplicationID: v.ApplicationID, TeamID: v.TeamID, Spaces: v.Spaces})
 		}
-		if !matched {
-			httpapi.Error(w, 422, "source_binding_unavailable", "Git Markdown source is not configured for this scope")
+		if !matched || !validBindingEvidence(bindingFingerprint, bindingSnapshot) {
+			httpapi.Error(w, 422, "source_binding_unavailable", "Source is not configured for this scope")
 			return
 		}
 	}
@@ -532,7 +573,7 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "audit_unavailable", "Source registration audit is unavailable")
 		return
 	}
-	if v.Type == "git_markdown" {
+	if v.Type == "git_markdown" || boundExternalType(v.Type) {
 		if err = currentSourceSyncSession(r.Context(), tx, r); errors.Is(err, errSourceSyncSession) {
 			httpapi.Error(w, 401, "unauthorized", "Session expired")
 			return

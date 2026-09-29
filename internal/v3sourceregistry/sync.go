@@ -78,6 +78,24 @@ type GitMarkdownContentReader interface {
 	ReadGitMarkdown(context.Context, ReadSpec) (GitMarkdownReadResult, error)
 }
 
+// ExternalDocument is one bounded provider page in a complete, pinned read.
+// The provider version is evidence, not an index or an authorization grant.
+type ExternalDocument struct {
+	Observation   Observation
+	Title         string
+	Body          string
+	SourceVersion string
+}
+
+type ExternalReadResult struct {
+	Documents []ExternalDocument
+	Complete  bool
+}
+
+type ExternalContentReader interface {
+	ReadExternalContent(context.Context, ReadSpec) (ExternalReadResult, error)
+}
+
 // RegistrationBinding verifies that a client-proposed registration matches a
 // server-owned source configuration before any saved row is created.
 type RegistrationBindingEvidence interface {
@@ -248,6 +266,14 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "source_config_invalid", "Saved Git Markdown scope is invalid")
 		return
 	}
+	if boundExternalType(initial.Type) &&
+		(initial.ApplicationID == "" || initial.Schedule != "manual" ||
+			!validExternalSpaces(initial.Type, initial.Spaces) ||
+			len(initial.BindingFingerprint) != 64 || len(initial.BindingSnapshot) == 0 ||
+			string(initial.BindingSnapshot) == "{}") {
+		httpapi.Error(w, 503, "source_config_invalid", "Saved external source scope is invalid")
+		return
+	}
 	reader := s.Readers[initial.Type]
 	if reader == nil {
 		httpapi.Error(w, 501, "source_reader_unavailable", "No read-only reader is configured for this source type")
@@ -272,6 +298,7 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) {
 	var result ReadResult
 	var content *ContentReadResult
 	var gitContent *GitMarkdownReadResult
+	var externalContent *ExternalReadResult
 	if initial.Type == "web" && initial.SecretRef == "" {
 		contentReader, available := reader.(ContentReader)
 		if !available {
@@ -305,6 +332,26 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) {
 			}
 			result = ReadResult{Items: items, Complete: fetched.Complete}
 			gitContent = &fetched
+		}
+	} else if boundExternalType(initial.Type) {
+		contentReader, available := reader.(ExternalContentReader)
+		if !available {
+			httpapi.Error(w, 501, "source_content_reader_unavailable", "No bounded content reader is configured for this source")
+			return
+		}
+		fetched, readErr := contentReader.ReadExternalContent(ctx, spec)
+		err = readErr
+		if err == nil && !validExternalContent(initial, fetched) {
+			httpapi.Error(w, 422, "source_content_invalid", "Source content or lineage could not be verified")
+			return
+		}
+		if err == nil {
+			items := make([]Observation, len(fetched.Documents))
+			for i, doc := range fetched.Documents {
+				items[i] = doc.Observation
+			}
+			result = ReadResult{Items: items, Complete: fetched.Complete}
+			externalContent = &fetched
 		}
 	} else {
 		result, err = reader.Read(ctx, spec)
@@ -409,6 +456,16 @@ VALUES($1,$2,$3,$4,NULLIF($5,''),NULLIF($6,''))`, readID, hashID(item.ExternalID
 			return
 		}
 	}
+	if externalContent != nil {
+		if err = importExternalContent(ctx, tx, current, readID, *externalContent); err != nil {
+			if errors.Is(err, errExternalVersionDrift) || errors.Is(err, errExternalScopeChanged) {
+				httpapi.Error(w, 409, "source_content_changed", "Source content or access changed during read")
+			} else {
+				unavailable(w)
+			}
+			return
+		}
+	}
 	gitSHA := ""
 	if gitContent != nil {
 		gitSHA = gitContent.CommitSHA
@@ -418,7 +475,8 @@ VALUES($1,$2,$3,$4,NULLIF($5,''),NULLIF($6,''))`, readID, hashID(item.ExternalID
  jsonb_build_object('environment_id',$4::text,'source_type',$5::text,'observed_count',$6::integer,
 'keyword_content_persisted',$7::boolean,'content_version',NULLIF($8::integer,0))
  || CASE WHEN $9::text<>'' THEN jsonb_build_object('git_commit_sha',$9::text) ELSE '{}'::jsonb END)`,
-		user.ID, current.ApplicationID, id, current.EnvironmentID, current.Type, len(items), content != nil, contentVersion, gitSHA)
+		user.ID, current.ApplicationID, id, current.EnvironmentID, current.Type, len(items),
+		content != nil || externalContent != nil, contentVersion, gitSHA)
 	if err != nil {
 		httpapi.Error(w, 503, "audit_unavailable", "Source read audit is unavailable")
 		return
@@ -443,6 +501,10 @@ VALUES($1,$2,$3,$4,NULLIF($5,''),NULLIF($6,''))`, readID, hashID(item.ExternalID
 	if gitContent != nil {
 		response["commit_sha"] = gitContent.CommitSHA
 		response["document_count"] = len(gitContent.Files)
+	}
+	if externalContent != nil {
+		response["document_count"] = len(externalContent.Documents)
+		response["keyword_content_persisted"] = true
 	}
 	httpapi.WriteJSON(w, 200, response)
 }
@@ -498,6 +560,12 @@ WHERE registration_id=$1 AND environment_id=$2 ORDER BY observed_at DESC,id DESC
 			if err := tx.Commit(ctx); err != nil {
 				unavailable(w)
 				return
+			}
+			if boundExternalType(v.Type) {
+				if err := s.recheckExternalEvidence(ctx, r, user, v, externalEvidenceState{}); err != nil {
+					externalEvidenceRecheckError(w, err)
+					return
+				}
 			}
 			httpapi.WriteJSON(w, 200, map[string]any{"id": id, "last_read": nil, "index": nil,
 				"reason": "no_observed_read", "complete_v3_dto": false})
@@ -597,6 +665,41 @@ WHERE s.read_id=$1 AND s.registration_id=$2 AND s.environment_id=$3
 			httpapi.WriteJSON(w, 200, map[string]any{"id": id,
 				"last_read":    map[string]any{"id": readID, "observed_at": at, "observed_count": count},
 				"git_markdown": git, "index": nil, "reason": "semantic_index_unavailable", "complete_v3_dto": false})
+			return
+		}
+		if boundExternalType(v.Type) {
+			if !s.externalBindingCurrent(v) {
+				httpapi.Error(w, 409, "source_state_changed", "Source state or access changed; retry")
+				return
+			}
+			documentCount, proofErr := externalEvidenceDocumentCount(ctx, tx, v, readID, count)
+			proofPresent := proofErr == nil
+			if proofErr != nil && !errors.Is(proofErr, pgx.ErrNoRows) {
+				unavailable(w)
+				return
+			}
+			if err := tx.Commit(ctx); err != nil {
+				unavailable(w)
+				return
+			}
+			if err := s.recheckExternalEvidence(ctx, r, user, v, externalEvidenceState{
+				readID: readID, observedCount: count, observedAt: at,
+				documentCount: documentCount, proofPresent: proofPresent,
+			}); err != nil {
+				externalEvidenceRecheckError(w, err)
+				return
+			}
+			var external any
+			reason := "source_content_unverified"
+			if proofPresent {
+				external = map[string]any{"source_type": v.Type,
+					"document_count": documentCount, "content_persisted": true}
+				reason = "semantic_index_unavailable"
+			}
+			httpapi.WriteJSON(w, 200, map[string]any{"id": id,
+				"last_read":       map[string]any{"id": readID, "observed_at": at, "observed_count": count},
+				"external_source": external, "index": nil,
+				"reason": reason, "complete_v3_dto": false})
 			return
 		}
 		// Only matching, ready generations attributed to an observed item count.

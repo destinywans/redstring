@@ -20,7 +20,7 @@ func TestConnectionValidationRejectsCredentialsAndUnprovenSchemes(t *testing.T) 
 			}
 		})
 	}
-	if err := validateConnection("confluence", "https://wiki.example.test", "vault://kv/readonly#token"); err != nil {
+	if err := validateConnection("confluence", "https://wiki.example.test/wiki", "vault://kv/readonly#token"); err != nil {
 		t.Fatalf("rejected valid registration reference: %v", err)
 	}
 	if err := validateConnection("web", "https://docs.example.test/guide.md", ""); err != nil {
@@ -42,21 +42,23 @@ func TestConnectionValidationRejectsCredentialsAndUnprovenSchemes(t *testing.T) 
 
 func TestRegistrationRequiresExplicitBoundedConfig(t *testing.T) {
 	yes := true
-	v := request{Name: "SRE wiki", Type: "confluence", URL: "https://wiki.example.test",
-		SecretRef: "vault://kv/readonly#token", Spaces: []string{"SRE"}, Schedule: "manual", Chunk: "heading", InheritACL: &yes}
+	v := request{Name: "SRE wiki", Type: "confluence", URL: "https://wiki.example.test/wiki",
+		SecretRef: "vault://kv/readonly#token", Spaces: []string{"12345"}, Schedule: "manual", Chunk: "heading", InheritACL: &yes,
+		ApplicationID: "app"}
 	if err := validateCreate(v); err != nil {
 		t.Fatalf("valid registration: %v", err)
 	}
-	v.Spaces = []string{"SRE", "SRE"}
+	v.Spaces = []string{"12345", "12345"}
 	if err := validateCreate(v); err == nil {
 		t.Fatal("duplicate spaces accepted")
 	}
-	v.Spaces = []string{"SRE"}
+	v.Spaces = []string{"12345"}
 	v.InheritACL = nil
 	if err := validateCreate(v); err == nil {
 		t.Fatal("missing ACL intent accepted")
 	}
 	v.InheritACL = &yes
+	v.ApplicationID = ""
 	v.TeamID = "team-1"
 	if err := validateCreate(v); err == nil {
 		t.Fatal("team without application accepted")
@@ -80,5 +82,15 @@ func TestRegistrationRequiresExplicitBoundedConfig(t *testing.T) {
 	v.InheritACL = &no
 	if err := validateCreate(v); err == nil {
 		t.Fatal("public Web source without its verified public ACL accepted")
+	}
+	v = request{Name: "Notion page", Type: "notion", URL: "https://www.notion.so/notes-0123456789abcdef0123456789abcdef",
+		SecretRef: "vault://kv/notion#token", Schedule: "manual", Chunk: "fixed", InheritACL: &yes,
+		ApplicationID: "app"}
+	if err := validateCreate(v); err != nil {
+		t.Fatalf("valid Notion page: %v", err)
+	}
+	v.Spaces = []string{"123"}
+	if err := validateCreate(v); err == nil {
+		t.Fatal("Notion page accepted extra space scope")
 	}
 }

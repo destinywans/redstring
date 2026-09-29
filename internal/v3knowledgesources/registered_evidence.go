@@ -3,6 +3,7 @@ package v3knowledgesources
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"reflect"
@@ -37,6 +38,10 @@ type RegisteredEvidence struct {
 	LastSyncAt         *time.Time      `json:"last_sync_at"`
 	IndexStatus        *string         `json:"index_status"`
 	Error              *string         `json:"error"`
+	sourceURL          string
+	secretRef          string
+	spaces             []string
+	bindingFingerprint string
 }
 
 type ObservedRead struct {
@@ -64,7 +69,8 @@ type registeredEvidenceResponse struct {
 const registeredEvidenceCandidates = `SELECT src.id,src.name,src.source_type,src.environment_id,
  COALESCE(src.application_id,''),COALESCE(src.team_id,''),src.schedule,src.chunk,
  read.id,read.observed_at,read.observed_count,read.reader_type,
- keyword.version,git.document_count,git.created_at
+ keyword.version,git.document_count,git.created_at,external.document_count,external.created_at,
+ src.source_url,src.secret_ref,src.spaces,src.binding_fingerprint
 FROM v3_knowledge_source_registrations src
 LEFT JOIN LATERAL (
  SELECT r.id,r.observed_at,r.observed_count,r.reader_type
@@ -133,6 +139,34 @@ LEFT JOIN LATERAL (
        AND d.content_hash=o.content_hash
        AND d.content_hash=encode(sha256(convert_to(d.body,'UTF8')),'hex'))
 ) git ON true
+LEFT JOIN LATERAL (
+ SELECT x.document_count,x.created_at
+ FROM v3_external_source_syncs x
+ WHERE src.source_type IN ('confluence','notion') AND src.application_id IS NOT NULL
+   AND src.inherit_acl AND src.schedule='manual'
+   AND ((src.source_type='confluence' AND jsonb_array_length(src.spaces)=1)
+     OR (src.source_type='notion' AND src.spaces='[]'::jsonb))
+   AND read.id IS NOT NULL AND read.reader_type=src.source_type
+   AND x.read_id=read.id AND x.registration_id=src.id
+   AND x.environment_id=src.environment_id AND x.source_type=src.source_type
+   AND x.binding_fingerprint=src.binding_fingerprint
+   AND x.binding_snapshot=src.binding_snapshot
+   AND x.indexed_chunk_count IS NULL
+   AND x.document_count=read.observed_count
+   AND x.document_count=(SELECT count(*) FROM v3_knowledge_source_observations o WHERE o.read_id=read.id)
+   AND x.document_count=(SELECT count(*) FROM v3_external_source_documents d WHERE d.read_id=read.id)
+   AND NOT EXISTS (
+    SELECT 1 FROM v3_external_source_documents d
+    WHERE d.read_id=read.id AND (
+      d.environment_id<>src.environment_id OR d.application_id<>src.application_id
+      OR COALESCE(d.team_id,'')<>COALESCE(src.team_id,'')
+      OR d.item_hash<>encode(sha256(convert_to(d.external_id,'UTF8')),'hex')
+      OR d.content_hash<>encode(sha256(convert_to(d.body,'UTF8')),'hex')
+      OR NOT EXISTS (SELECT 1 FROM v3_knowledge_source_observations o
+       WHERE o.read_id=d.read_id AND o.item_hash=d.item_hash AND o.content_hash=d.content_hash
+         AND o.environment_id=d.environment_id AND o.application_id=d.application_id
+         AND COALESCE(o.team_id,'')=COALESCE(d.team_id,''))))
+) external ON true
 WHERE src.environment_id=ANY($1::text[])
  AND (src.application_id IS NULL OR EXISTS (
   SELECT 1 FROM applications a
@@ -199,6 +233,9 @@ func (s *Service) registeredEvidence(w http.ResponseWriter, r *http.Request) {
 				}
 				registeredEvidenceUnavailable(w)
 				return
+			}
+			if (item.Kind == "confluence" || item.Kind == "notion") && !s.currentExternalBinding(item) {
+				continue
 			}
 			if len(items) == 200 {
 				truncated = true
@@ -281,12 +318,17 @@ func registeredEvidenceBatch(ctx context.Context, db evidenceRows, user core.Use
 		var item RegisteredEvidence
 		var readID, readerType sql.NullString
 		var observedAt sql.NullTime
-		var observedCount, keywordVersion, gitDocumentCount sql.NullInt64
-		var gitSyncedAt sql.NullTime
+		var observedCount, keywordVersion, gitDocumentCount, externalDocumentCount sql.NullInt64
+		var gitSyncedAt, externalSyncedAt sql.NullTime
+		var spaces []byte
 		if err := rows.Scan(&item.ID, &item.Name, &item.Kind, &item.EnvironmentID,
 			&item.ApplicationID, &item.TeamID, &item.Schedule, &item.ChunkStrategy,
 			&readID, &observedAt, &observedCount, &readerType, &keywordVersion,
-			&gitDocumentCount, &gitSyncedAt); err != nil {
+			&gitDocumentCount, &gitSyncedAt, &externalDocumentCount, &externalSyncedAt,
+			&item.sourceURL, &item.secretRef, &spaces, &item.bindingFingerprint); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(spaces, &item.spaces); err != nil {
 			return nil, err
 		}
 		item.RegistrationStatus = "unverified"
@@ -302,10 +344,30 @@ func registeredEvidenceBatch(ctx context.Context, db evidenceRows, user core.Use
 				item.DocumentCount = &count
 				item.LastSyncAt = &at
 			}
+			if (item.Kind == "confluence" || item.Kind == "notion") && externalDocumentCount.Valid && externalSyncedAt.Valid {
+				count := int(externalDocumentCount.Int64)
+				at := externalSyncedAt.Time
+				item.DocumentCount = &count
+				item.LastSyncAt = &at
+			}
 		}
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func (s *Service) currentExternalBinding(item RegisteredEvidence) bool {
+	if s == nil || item.bindingFingerprint == "" {
+		return false
+	}
+	count := 0
+	for _, binding := range s.externalBindings {
+		if ExternalBindingMatchesCreate(binding, item.Kind, item.sourceURL, item.secretRef, item.EnvironmentID,
+			item.ApplicationID, item.TeamID, item.spaces) && ExternalBindingFingerprint(binding) == item.bindingFingerprint {
+			count++
+		}
+	}
+	return count == 1
 }
 
 func (s *Service) authorizeRegisteredEvidence(ctx context.Context, tx pgx.Tx, user core.User, item RegisteredEvidence) error {

@@ -2,6 +2,7 @@ package v3knowledgesources
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"regexp"
@@ -15,9 +16,9 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
 )
 
-// The main route accepts one public HTTPS Markdown page or an exact configured
-// Git Markdown repository binding per application. Registration does not start
-// a read, sync, or vector index.
+// The main route accepts only a public Markdown page or an exact configured
+// Git, Confluence or Notion binding per application. Registration does not
+// start a read, sync, or vector index.
 type mainCreateRequest struct {
 	Name          string   `json:"name"`
 	Type          string   `json:"type"`
@@ -35,9 +36,9 @@ var mainSourceID = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,100}$`)
 
 func validateMainCreate(v mainCreateRequest) (int, string, string) {
 	switch v.Type {
-	case "confluence", "notion", "feishu", "git", "upload":
+	case "feishu", "git", "upload":
 		return http.StatusNotImplemented, "source_adapter_unavailable", "This source type has no configured reader and importer"
-	case "web", "git_markdown":
+	case "web", "git_markdown", "confluence", "notion":
 	default:
 		return http.StatusUnprocessableEntity, "invalid_source_registration", "Unsupported source type"
 	}
@@ -47,17 +48,24 @@ func validateMainCreate(v mainCreateRequest) (int, string, string) {
 	if v.Name == "" || strings.TrimSpace(v.Name) != v.Name || len([]rune(v.Name)) > 160 ||
 		v.ApplicationID == "" || !mainSourceID.MatchString(v.ApplicationID) ||
 		(v.TeamID != "" && !mainSourceID.MatchString(v.TeamID)) ||
-		len(v.Spaces) != 0 || v.Schedule != "manual" ||
+		v.Schedule != "manual" ||
 		(v.Chunk != "heading" && v.Chunk != "fixed") ||
 		v.InheritACL == nil || !*v.InheritACL {
-		return http.StatusUnprocessableEntity, "invalid_source_registration", "Markdown source requires a name, application, manual sync, empty spaces and inherited access"
+		return http.StatusUnprocessableEntity, "invalid_source_registration", "Source requires a name, application, manual sync and inherited access"
+	}
+	if v.Type == "confluence" {
+		if len(v.Spaces) != 1 || !externalNumber.MatchString(v.Spaces[0]) {
+			return http.StatusUnprocessableEntity, "invalid_source_registration", "Confluence requires one configured numeric space"
+		}
+	} else if len(v.Spaces) != 0 {
+		return http.StatusUnprocessableEntity, "invalid_source_registration", "This source requires an empty spaces list"
 	}
 	if v.Type == "web" {
 		if _, _, _, err := v3sourceregistry.ParsePublicWebURL(v.URL); err != nil {
 			return http.StatusUnprocessableEntity, "invalid_source_registration", "Source URL must be a public HTTPS Markdown URL"
 		}
 	} else if v.SecretRef == "" || !strings.HasPrefix(v.SecretRef, "vault://") || len(v.SecretRef) > 300 {
-		return http.StatusUnprocessableEntity, "invalid_source_registration", "Git Markdown requires a vault://mount/path#field reference"
+		return http.StatusUnprocessableEntity, "invalid_source_registration", "Credentialed source requires a vault://mount/path#field reference"
 	}
 	return 0, "", ""
 }
@@ -199,12 +207,38 @@ func (s *Service) createMain(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if v.Type == "confluence" || v.Type == "notion" {
+		matched := false
+		for _, binding := range s.externalBindings {
+			if !ExternalBindingMatchesCreate(binding, v.Type, v.URL, v.SecretRef, env, v.ApplicationID, v.TeamID, v.Spaces) {
+				continue
+			}
+			snapshot, snapshotErr := SnapshotExternalBinding(binding)
+			if snapshotErr != nil {
+				mainCreateFailure(w, snapshotErr)
+				return
+			}
+			bindingFingerprint = ExternalBindingFingerprint(binding)
+			bindingSnapshot = string(snapshot)
+			matched = true
+			break
+		}
+		if !matched {
+			httpapi.Error(w, http.StatusNotImplemented, "source_adapter_unavailable", "No reader is configured for this source scope")
+			return
+		}
+	}
 	id := uuid.NewString()
+	spacesValue := v.Spaces
+	if spacesValue == nil {
+		spacesValue = []string{}
+	}
+	spaces, _ := json.Marshal(spacesValue)
 	_, err = tx.Exec(ctx, `INSERT INTO v3_knowledge_source_registrations
  (id,environment_id,application_id,team_id,name,source_type,source_url,secret_ref,
   spaces,schedule,chunk,inherit_acl,created_by,binding_fingerprint,binding_snapshot)
- VALUES($1,$2,$3,NULLIF($4,''),$5,$6,$7,$8,'[]'::jsonb,'manual',$9,true,$10,$11,$12::jsonb)`,
-		id, env, v.ApplicationID, v.TeamID, v.Name, v.Type, v.URL, v.SecretRef, v.Chunk, user.ID,
+	VALUES($1,$2,$3,NULLIF($4,''),$5,$6,$7,$8,$9::jsonb,'manual',$10,true,$11,$12,$13::jsonb)`,
+		id, env, v.ApplicationID, v.TeamID, v.Name, v.Type, v.URL, v.SecretRef, string(spaces), v.Chunk, user.ID,
 		bindingFingerprint, bindingSnapshot)
 	if err != nil {
 		mainCreateFailure(w, err)

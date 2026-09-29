@@ -49,6 +49,14 @@ func TestInvalidPublicWebReaderFlagFailsBeforeV3Configuration(t *testing.T) {
 	}
 }
 
+func TestInvalidExternalSourceBindingsFailBeforeV3Configuration(t *testing.T) {
+	t.Setenv("AIOPS_V3_EXTERNAL_SOURCE_BINDINGS", `[{"type":"notion","credential_ref":"plaintext"}]`)
+	err := configureV3(context.Background(), &store.Store{}, nil, nil, nil, nil, &v3Instance{}, httpapi.V3InstanceConfig{})
+	if err == nil || !strings.Contains(err.Error(), "configure V3 Confluence/Notion bindings") {
+		t.Fatalf("invalid source binding reached V3 configuration side effects: %v", err)
+	}
+}
+
 func TestConfiguredV3SourceRegistryInstallsOnlyBoundGitMarkdownReader(t *testing.T) {
 	st := &store.Store{}
 	policy := &rbac.V3Policy{Store: st}
@@ -70,5 +78,33 @@ func TestConfiguredV3SourceRegistryInstallsOnlyBoundGitMarkdownReader(t *testing
 	binding.CredentialRef = "vault:ops/gitlab"
 	if registry, err := configuredV3SourceRegistryWithGit("", st, policy, []v3knowledgesources.GitMarkdownBinding{binding}); registry != nil || err == nil {
 		t.Fatalf("legacy credential reference enabled Git reader: registry=%+v err=%v", registry, err)
+	}
+}
+
+func TestConfiguredV3SourceRegistryInstallsExactExternalReaders(t *testing.T) {
+	st := &store.Store{}
+	policy := &rbac.V3Policy{Store: st}
+	bindings := []v3knowledgesources.ExternalBinding{
+		{Type: "confluence", SourceURL: "https://docs.example.invalid/wiki",
+			Endpoint: "https://api.atlassian.com/ex/confluence/11111111-1111-4111-8111-111111111111/wiki/api/v2",
+			SpaceID:  "42", CredentialRef: "vault://ops/confluence#token", Tier: "nonprod",
+			EnvironmentID: "dev", ApplicationID: "app", ConnectorID: "confluence-runbooks"},
+		{Type: "notion", SourceURL: "https://www.notion.so/aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa",
+			Endpoint: "https://api.notion.com/v1", PageID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+			CredentialRef: "vault://ops/notion#token", Tier: "nonprod",
+			EnvironmentID: "dev", ApplicationID: "app", ConnectorID: "notion-runbooks"},
+	}
+	registry, err := configuredV3SourceRegistryWithSources("", st, policy, nil, bindings)
+	if err != nil || registry == nil || len(registry.Readers) != 2 {
+		t.Fatalf("exact external readers missing: registry=%+v err=%v", registry, err)
+	}
+	for _, kind := range []string{"confluence", "notion"} {
+		if _, ok := registry.Readers[kind].(*v3knowledgesources.ExternalReader); !ok {
+			t.Fatalf("%s installed wrong reader: %T", kind, registry.Readers[kind])
+		}
+	}
+	bindings[0].CredentialRef = "vault:ops/confluence"
+	if registry, err := configuredV3SourceRegistryWithSources("", st, policy, nil, bindings); registry != nil || err == nil {
+		t.Fatalf("legacy Confluence reference enabled reader: registry=%+v err=%v", registry, err)
 	}
 }

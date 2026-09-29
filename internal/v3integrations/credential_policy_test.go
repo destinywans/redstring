@@ -130,3 +130,26 @@ func TestBoundResolverIgnoresInvalidDirectBindings(t *testing.T) {
 		t.Fatalf("invalid direct binding was accepted: err=%v calls=%d", err, inner.calls)
 	}
 }
+
+func TestKnowledgeSourceCredentialProvidersRequireExactBoundUse(t *testing.T) {
+	for _, provider := range []string{"confluence", "notion"} {
+		t.Run(provider, func(t *testing.T) {
+			binding := testCredentialBinding()
+			binding.Provider = provider
+			inner := &countingCredentialResolver{}
+			resolver := NewBoundResolver(inner, []CredentialBinding{binding})
+			use := CredentialUse{Tier: binding.Tier, EnvironmentID: binding.EnvironmentID,
+				ConnectorID: binding.ConnectorID, Provider: provider, Endpoint: binding.Endpoint}
+			if !resolver.CredentialAllowed(use, binding.CredentialRef) {
+				t.Fatal("exact source binding was rejected")
+			}
+			if _, err := resolver.Resolve(WithCredentialUse(context.Background(), use), binding.CredentialRef); err != nil || inner.calls != 1 {
+				t.Fatalf("exact source binding did not resolve: err=%v calls=%d", err, inner.calls)
+			}
+			use.ConnectorID = "other"
+			if _, err := resolver.Resolve(WithCredentialUse(context.Background(), use), binding.CredentialRef); !errors.Is(err, ErrCredentialUnavailable) || inner.calls != 1 {
+				t.Fatalf("different source binding reached Vault: err=%v calls=%d", err, inner.calls)
+			}
+		})
+	}
+}

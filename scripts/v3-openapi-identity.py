@@ -9,6 +9,12 @@ S['V3Me'] = v3_object('id name email phone title team department timezone', {
     'roles': arr(string()), 'mfa': obj({'totp': v3_bool(), 'passkeys': integer()}, ['totp','passkeys']),
     'preferences': ref('V3Preferences')},
     ['id','name','email','phone','title','team','department','timezone','oncall','roles','mfa','preferences'])
+S['V3MePreferencesPatch'] = obj(S['V3Preferences']['properties'])
+S['V3MePreferencesPatch']['minProperties'] = 1
+S['V3MePatch'] = obj({'name':string(minLength=1,maxLength=120),
+    'title':string(maxLength=120),'timezone':string(),
+    'preferences':ref('V3MePreferencesPatch')})
+S['V3MePatch']['minProperties'] = 1
 S['V3Workspace'] = v3_object('name slug timezone locale week_start data_region', {
     'retention_days': integer(), 'brand': obj({'name': string(), 'logo': {'type':['string','null']}, 'pending': v3_bool()}, ['name','logo','pending'])},
     ['name','slug','timezone','locale','week_start','retention_days','data_region','brand'])

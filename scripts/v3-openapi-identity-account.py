@@ -1,5 +1,7 @@
-v3_route('get','/me','Read current account',response=ref('V3Me'))
-v3_route('patch','/me','Update current account',body=v3_object('name phone title timezone'),response=ref('V3Me'))
+v3_route('get','/me','Read current account',response=ref('V3Me'),
+    desc='Returns the current active human account, team, department, assigned role IDs, preferences and instance-scoped active TOTP/passkey registration state. MFA fields are enrollment evidence, not proof of enforced login MFA or proposal approval assurance. Current on-call state must come from an operator-configured authoritative HTTPS source covering the requested environments with a fresh, unambiguous assignment answer. Missing, stale, malformed or mismatched source evidence returns 503 oncall_unavailable; it never means inactive. The current frontend shell depends on this route and cannot show a complete account card until that source is configured.')
+v3_route('patch','/me','Update current account',body=ref('V3MePatch'),response=ref('V3Me'),
+    desc='Requires one selected authorized environment and an active human account/session. Only name, title, timezone and supported preference fields are self-editable; email, phone, team, department, roles, MFA and on-call are server-owned and rejected. The transaction locks the account before its session, rechecks authority and evidence, then saves profile/preferences and audit atomically before returning the full Me response. Missing or stale on-call evidence returns 503 without changing the account. Production startup must inject the configured on-call source; without it the route remains unavailable.')
 v3_route('patch','/me/preferences','Update visual and language preferences',body=ref('V3PreferencesPatch'),response=ref('V3Preferences'))
 v3_route('get','/me/profile','Read personal profile',response=ref('V3ProfileView'))
 v3_route('put','/me/profile','Update personal profile',body=ref('V3ProfileView'),response=ref('V3ProfileView'))
@@ -105,12 +107,10 @@ for _code, _description in [('400','Malformed or multiple If-Match values'),
 P['/workspace']['put']['responses']['409']['description'] = 'All-environment read-only scope cannot be written; stale If-Match revisions return 412'
 v3_route('get','/models','List configured inference models',response=ref('V3ModelCatalog'),
     desc='available means configured, not remotely health-checked. tools reflects the operator-enabled V3 read-tool allowlist rather than provider-wide capability; remote function calling is not attested by this response. Native Ollama returns 503 model_catalog_unavailable until the client ModelInfo.api enum can represent it.')
-for _path, _methods in {
-    '/me': ['get', 'patch'],
-    '/me/profile': ['get', 'put'],
-}.items():
-    for _method in _methods:
-        P[_path][_method]['description'] += ' Currently returns 503 identity_evidence_unavailable until authoritative MFA and on-call sources are connected; writes are not partially applied.'
+for _method in ('get','patch'):
+    P['/me'][_method]['responses']['503']['description'] = 'Authoritative current on-call evidence is unavailable or stale'
+for _method in ('get','put'):
+    P['/me/profile'][_method]['description'] += ' Currently returns 503 identity_evidence_unavailable until its complete profile and security evidence is connected; writes are not partially applied.'
 v3_route('post','/uploads','Store an inert conversation attachment',
     body=obj({'kind':string(enum=['link','paste']),'name':string(),
         'url':string(),'text':string(),'size':integer(),'mime':string()},['kind','name']),

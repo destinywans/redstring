@@ -1,6 +1,6 @@
-# GET /topology has two deliberately distinct registrations. The current
-# composition root uses the partial CMDB constructor; the complete V3 DTO
-# requires NewWithMetrics and an operator-reviewed topology_v1 source.
+# GET /topology has two deliberately distinct source modes. The composition
+# root enables the complete V3 DTO when an operator-reviewed topology_v1
+# query exists; otherwise it retains the partial CMDB constructor.
 S['V3ResourceTopologyPartial'] = obj({
     'complete_v3_dto':v3_bool(), 'source':string(),
     'nodes':arr(obj({'id':string(),'name':string(),'kind':string(),'cluster':string(),
@@ -52,7 +52,7 @@ v3_route('get','/topology','Read authorized source-backed topology',
     query=[v3_query('cluster'),v3_query('around'),
            v3_query('depth',integer(minimum=1,maximum=3)),
            v3_query('group_by',string(enum=['cluster','namespace','zone']))],
-    desc='Current cmd/aiops wiring returns the explicitly partial CMDB schema. The full Topology schema requires NewWithMetrics, one selected environment, around as a visible CMDB resource ID, a single application across its at most eight authorized nodes and twelve current relations, and an operator-reviewed app/environment-scoped topology_v1 Prometheus query. Six aligned one-minute samples must cover health and impact for every node, RPS and error percentage for every edge, and the center connection, caller and wait fields, with exact resource UID/source and relation revision labels. Discovered relation sources must be fresh and in the selected environment. Layout and paths are deterministic presentation calculations; blast is an observed impacted-resource count, not a causal estimate. The frozen edge schema can only represent positive measured RPS on calls/depends_on relations; structural edges or zero-request intervals return 503. Missing, stale, conflicting or out-of-scope source evidence also fails the full request with 503 rather than zeros. The current partial constructor cannot emit the full schema. The frontend still uses fixed page data.')
+    desc='Without a reviewed topology_v1 catalog entry cmd/aiops returns the explicitly partial CMDB schema; with one it enables NewWithMetrics. The full Topology schema requires one selected environment, around as a visible CMDB resource ID, a single application across its at most eight authorized nodes and twelve current relations, and an operator-reviewed app/environment-scoped topology_v1 Prometheus query. Six aligned one-minute samples must cover health and impact for every node, RPS and error percentage for every edge, and the center connection, caller and wait fields, with exact resource UID/source and relation revision labels. Discovered relation sources must be fresh and in the selected environment. Layout and paths are deterministic presentation calculations; blast is an observed impacted-resource count, not a causal estimate. The frozen edge schema can only represent positive measured RPS on calls/depends_on relations; structural edges or zero-request intervals return 503. Missing, stale, conflicting or out-of-scope source evidence also fails the full request with 503 rather than zeros. The unconfigured partial constructor cannot emit the full schema. The frontend still uses fixed page data.')
 P['/topology']['get']['responses']['413'] = {
     'description':'Full topology exceeds the bounded candidate or neighborhood limit',
     'content':{'application/json':{'schema':ref('Error')}}}

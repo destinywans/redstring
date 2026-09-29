@@ -206,9 +206,9 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | --- | --- | --- | --- | --- |
 | GET | `/services` | `q`, `tier`, `team`, `status` | `ServiceCatalog`；仅完整来源、当前有权服务，缺项返回 503 | implemented |
 | GET | `/services/{id}` | | `ServiceDetail`；按持久服务身份汇集指标、告警、发布、依赖与当前调查 | implemented |
-| GET | `/services/{id}/resilience` | | `Resilience`（灰度 / 熔断 / 限流 / 开关 / HPA，只读） | mock |
-| POST | `/services/{id}/resilience/proposals` | `{ kind, params }` | `{ proposal_id }`（只生成提案或合并请求） | mock |
-| GET | `/topology` | `cluster`, `around`, `depth`, `group_by` | `Topology`；当前后端仅返回经授权的 CMDB 节点、关系和缺失字段清单，完整 DTO 尚未实现 | mock |
+| GET | `/services/{id}/resilience` | | `Resilience`；仅在固定 HTTPS 五类完整来源配置且证据有效时返回 200，否则 503 | implemented |
+| POST | `/services/{id}/resilience/proposals` | `{ kind, params: { investigation_id, reason, desired } }` | 201 `{ proposal_id }`；仅保存人工审阅提案，不创建可执行动作或合并请求 | implemented |
+| GET | `/topology` | `cluster`, `around`, `depth`, `group_by` | 无 `topology_v1` 目录项时为授权 CMDB 部分响应；配置经审查的精确来源后可返回完整 `Topology`，来源不全返回 503 | implemented |
 | GET | `/metrics/dashboard` | `service`, `range=1h`, `align?` | `MetricsDashboard`；单环境、单服务、唯一持久 Prometheus 目标和经审查的精确范围查询，完整面板与来源核对后返回 | implemented |
 | POST | `/metrics/ask` | `{ service, view, range, question, request_id }`；`service` 为持久应用 ID，`view=request_rate\|http_p95_seconds`，`range=15m\|1h`，`request_id` 是 16–128 字符重试标识 | 首次接受为 201 `{ conversation_id }`；同一操作者同参数重试为 200，修改同一重试标识的内容返回 409。仅用当前有权的精确 Prometheus 来源快照；前端尚未发送必要字段 | implemented |
 | GET | `/traces` | `scope: app\|agent`, `view`, `q`（有界 TraceQL 选择器）, `service` | 应用范围 `TraceList`：同一完整来源集上的计数、分面、直方图、散点与表格；Agent 范围 503 | implemented |
@@ -218,11 +218,15 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | GET | `/logs` | `q`, `levels`, `service?`, `provider?` | `LogSearch`；完整来源模式计数与趋势 | implemented |
 | GET | `/changes` | `service_id`, `run_id`, `range?=24h\|7d`, `sources?=native` | 单一有证据的原生交付运行及所选窗口的 `ChangesView` | implemented |
 
+韧性提案 POST 只接受当前真人会话、单一环境、精确服务与同服务开放调查，并在事务内复核 `services.view`、`proposals.change`、`canvas.view` 后保存不可变审阅正文和审计；六种 `kind` 均要求对应的有界 `desired` 字段，重复提交会建立新记录。正文中的目标源状态、风险、可逆性和执行路径仍未核实；此操作不创建执行动作、批准、外部变更或 GitLab 合并请求。`GET /services/{id}/resilience` 可由固定 HTTPS 聚合来源提供五类完整观测，服务端核对范围、修订、采集时间、项目数及完整 DTO；未配置或证据不全返回 `503 resilience_source_unavailable`，不能以空数组或零冒充真实状态。实际聚合器尚未部署或核验；详见[韧性视图与提案](v3-resilience.md)。冻结前端按钮只显示本地提示，整页仍待对接；本批只做源码接线和最小编译，未跑测试或真实来源联调。
+
 `GET /changes` 仅投影已持久化且成功的原生 Argo Workflows 运行、经运行/制品/计划摘要核对的 GitOps 发布事件和精确来源的事故；`detail.diff/risk/alert` 来自有版本约束的人类审阅记录，不从流水线或时间相邻关系推断因果。`POST /changes/{run_id}/review` 辅助路由要求当前人类会话、`services.change` 及运行/发布/事故版本，写入不可修改的 `change.review.accepted` 审计；同一用户同参数重复提交不重复写入。GET 的 24 小时或 7 天告警带另要求服务端绑定的来源与运维确认的 `complete_from` 覆盖整个窗口，只读取该 `source_id` 的事故；缺少配置、历史不够、来源变更或审阅证据不全均返回 503。`complete_from` 是运维对持续投递和保留历史的声明，代码验证范围与当前绑定，不自动发现外部中断。冻结前端仍不发送 `service_id/run_id`，选中运行也不刷新详情；本批只按后端标准计入，真实来源与页面验收另做。接线和审阅请求详见[变更视图契约](v3-change-view.md)及[告警覆盖声明](../examples/v3-service-alert-coverage.md)。
 
 服务目录和详情使用未归档应用/环境及服务配置、经审查的精确 Prometheus 看板、同环境持久发布与调查证据构造完整 DTO。告警数和据此提升的状态只计入服务端完整覆盖声明指定的 Alertmanager 来源；声明需匹配实际运维入口的精确来源/标签及有效应用环境，缺少声明、来源、权限、值班、SLO、发布或 AI 调查等必填证据时整体返回 503，不把未知填成零或健康。读取来源后复核原 Cookie 会话、应用/团队归属、授权、指标目标与覆盖绑定。完整覆盖是运维对上游路由的显式声明，代码不证明外部持续投递；接入与撤销步骤见[服务告警覆盖绑定](../examples/v3-service-alert-coverage.md)。详情的复合服务 ID 尚不能直接作为指标、日志、链路页的 `service` 参数，冻结页面跳转及真实外部来源联调另行验收。
 
 资源发现现在返回 `resource_id`、Kubernetes `uid`、环境与集群；单集群条件在 2000 个候选扫描上限之前执行，整次请求共用 20 秒预算。选定集群之外的可信同名资源，以及同环境、同命名空间中陈旧、缺失或已关联的原始同名身份，均会阻止当前只按名称登记的候选进入结果；`ambiguous_workloads` 只给出数量，不泄露阻挡对象。`registered` 是授权环境内的登记数，不是所示集群的登记数。负责人和等级只作来源提示，`replicas` 可为空，`matched`/`missing` 尚无可信线索。注册时按当前环境、采集新鲜度、存在状态、UID、命名空间、是否已关联及 `resources.view` 重新核对。旧客户端只传名称时仅可匹配唯一工作负载；同名、过期或已关联身份返回 409，不会静默关联。当前前端未传 `cluster`/`resource_id`，并固定展示负责人、SLO、P99 与系统映射，发现到注册交互尚未接通。服务列表和系统映射超过 1000 条可见记录会返回 `422 result_limit`，不会返回不完整总数。拓扑仅显示五分钟内成功采集且环境吻合的现存节点，关联应用不会替资源借用其团队授权。
+
+完整拓扑代码路径要求单环境、可见 `around` 中心、同应用的小邻域和已审查目录中的 `topology_v1` 精确 Prometheus 查询；节点健康/影响、关系流量和中心连接等六个对齐样本必须逐项匹配当前 CMDB 身份与修订。任一目录项会启用实例完整模式，未为某应用配置精确来源时明确 503；没有该目录项时仍返回标记 `complete_v3_dto: false` 的授权 CMDB 部分响应。布局只由有权图计算，`blast` 是观测受影响资源计数，不推断传播因果。运维必须核实 PromQL 和录制规则本身的应用/环境隔离；本集成尚无真实 Prometheus 或浏览器证据。详见[拓扑来源契约](v3-topology-view.md)。
 
 观测查询只使用持久化应用、环境、负责人团队及已配置的外部目标绑定；不同来源绑定冲突返回 `409 ambiguous_binding`，范围过大返回 `422 scope_limit`。`GET /metrics/samples` 辅助接口可在单环境、唯一显式 V3 Prometheus 指标目标和操作者审查过精确范围的查询目录下返回有界真实标量样本；可见服务缺 `connectors.view` 在目标查询前返回 403，隐藏或不存在的服务同样返回资源不存在，读取中撤权不返回样本。完整 `GET /metrics/dashboard` 另要求经审查的 `dashboard` 查询目录一次返回 37 个时间点及请求、延迟、CPU、SLO、热力和排名等全部受信面板，再从持久发布、回滚和事件记录取得时间标记；缺项返回 503，不以样本补推。读取后复核精确 Cookie 会话、当前授权、目标绑定和 SLO 配置。图上的时间重合只表示并列证据，不证明发布引发事件。冻结指标页仍硬编码多处标签/版本/SLO/分析文案，且对齐开关未发送 `align`；真实 Prometheus 尚未联调，因此页面和产品未验收。`GET /logs` 在唯一授权目标及已配置的 Elasticsearch 或 Loki 范围内，分别查询所选等级的全窗总数、错误数、直方图、限量日志行和完整模板模式聚合；逐桶守恒、来源配置及当前授权/绑定均核对后才返回 `200 LogSearch`，包括精确零结果。缺少完整聚合返回 `503 log_patterns_unavailable` 和真实的部分证据；显式空 `levels` 返回空结果。模式来自受信采集模板或 Elasticsearch 类别聚合，不声称 AI 聚类；真实目标的历史映射/租户覆盖、脱敏和查询性能验收见 [日志来源接线](v3-logs-source.md)。
 

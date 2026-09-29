@@ -28544,16 +28544,23 @@
     },
     "/topology": {
       "get": {
-        "summary": "Read authorized resource identities and relationships",
+        "summary": "Read authorized source-backed topology",
         "operationId": "get_topology",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial CMDB projection only. Collector nodes require present inventory with an observed resource and successful source no older than five minutes, with matching environment. Each node is checked against resources.view in its persisted environment/application/team; a linked resource cannot borrow its application owner-team grant. Edges require both endpoints in a common authorized environment. group_by is currently unsupported (422); layout, health, blast radius, tree and Sankey are unavailable. No resources.view grant is automatically seeded from legacy RBAC.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Without a reviewed topology_v1 catalog entry cmd/aiops returns the explicitly partial CMDB schema; with one it enables NewWithMetrics. The full Topology schema requires one selected environment, around as a visible CMDB resource ID, a single application across its at most eight authorized nodes and twelve current relations, and an operator-reviewed app/environment-scoped topology_v1 Prometheus query. Six aligned one-minute samples must cover health and impact for every node, RPS and error percentage for every edge, and the center connection, caller and wait fields, with exact resource UID/source and relation revision labels. Discovered relation sources must be fresh and in the selected environment. Layout and paths are deterministic presentation calculations; blast is an observed impacted-resource count, not a causal estimate. The frozen edge schema can only represent positive measured RPS on calls/depends_on relations; structural edges or zero-request intervals return 503. Missing, stale, conflicting or out-of-scope source evidence also fails the full request with 503 rather than zeros. The unconfigured partial constructor cannot emit the full schema. The frontend still uses fixed page data.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/V3ResourceTopologyPartial"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/V3ResourceTopologyPartial"
+                    },
+                    {
+                      "$ref": "#/components/schemas/V3Topology"
+                    }
+                  ]
                 }
               }
             }
@@ -28617,6 +28624,16 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "Full topology exceeds the bounded candidate or neighborhood limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -28646,14 +28663,21 @@
             "name": "depth",
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3
             }
           },
           {
             "name": "group_by",
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "cluster",
+                "namespace",
+                "zone"
+              ]
             }
           },
           {
@@ -42205,6 +42229,235 @@
         ]
       }
     },
+    "/services/{id}/resilience": {
+      "get": {
+        "summary": "Read source-backed service resilience",
+        "operationId": "get_services_id_resilience",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. The opaque service ID and selected environment must match. A complete current observation must cover rollout, breakers, rate limits, flags and HPA from authoritative sources for the exact application/environment. Missing, stale or mismatched fields return 503 resilience_source_unavailable; no zero or empty list represents unknown coverage. The domain route has no production reader until those scoped adapters are configured.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3Resilience"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "services"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/services/{id}/resilience/proposals": {
+      "post": {
+        "summary": "Create a scoped non-executable resilience review request",
+        "operationId": "post_services_id_resilience_proposals",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires an active human session, one selected environment, exact persisted service, services.view, proposals.change and canvas.view, and an open investigation for that service/environment. desired has a kind-specific bounded schema; see docs/api/v3-resilience.md. The immutable V3 review content records the human reason and requested values as unverified. It creates no v3_proposal_actions row, approval, merge request or external write. Repeated POST creates another review record.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "proposal_id": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "proposal_id"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "services"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3ResilienceProposalRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/services/{id}/external-targets": {
       "get": {
         "summary": "List explicitly bound external service targets",
@@ -54364,6 +54617,413 @@
           "unavailable_fields"
         ]
       },
+      "V3TopologyGroup": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "zone": {
+            "type": "string"
+          },
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          },
+          "w": {
+            "type": "integer"
+          },
+          "h": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label",
+          "zone",
+          "x",
+          "y",
+          "w",
+          "h"
+        ]
+      },
+      "V3TopologyNode": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "brand": {
+            "type": "string"
+          },
+          "sub": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "warn",
+              "danger"
+            ]
+          },
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          },
+          "impacted": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "sub",
+          "status",
+          "group",
+          "x",
+          "y",
+          "impacted"
+        ]
+      },
+      "V3TopologyEdge": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "tone": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "warn",
+              "danger"
+            ]
+          },
+          "fast": {
+            "type": "boolean"
+          },
+          "width": {
+            "type": "number"
+          },
+          "lx": {
+            "type": "number"
+          },
+          "ly": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "from",
+          "to",
+          "tone",
+          "width",
+          "path",
+          "lx",
+          "ly"
+        ]
+      },
+      "V3TopologyTreeRow": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "brand": {
+            "type": "string"
+          },
+          "replicas": {
+            "type": "string"
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "warn",
+              "danger"
+            ]
+          },
+          "cpu": {
+            "type": "number"
+          },
+          "mem": {
+            "type": "number"
+          },
+          "open": {
+            "type": "boolean"
+          },
+          "hit": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "depth",
+          "kind",
+          "name",
+          "status",
+          "replicas"
+        ]
+      },
+      "V3TopologySankeyNode": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "color": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label",
+          "color",
+          "value"
+        ]
+      },
+      "V3TopologySankeyLink": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "color": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to",
+          "color",
+          "value"
+        ]
+      },
+      "V3TopologyDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "meta": {
+            "type": "string"
+          },
+          "brand": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "dependents": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "conns": {
+            "type": "object",
+            "properties": {
+              "used": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "max": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "used",
+              "max"
+            ]
+          },
+          "from_service": {
+            "type": "object",
+            "properties": {
+              "service": {
+                "type": "string"
+              },
+              "used": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "max": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "used",
+              "max",
+              "service"
+            ]
+          },
+          "wait": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "health": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "k": {
+                  "type": "string"
+                },
+                "v": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "k",
+                "v"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "meta",
+          "brand",
+          "conns",
+          "from_service",
+          "wait",
+          "health",
+          "owner",
+          "dependents",
+          "source"
+        ]
+      },
+      "V3Topology": {
+        "type": "object",
+        "properties": {
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3TopologyGroup"
+            }
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3TopologyNode"
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3TopologyEdge"
+            }
+          },
+          "blast": {
+            "type": "string"
+          },
+          "tree": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3TopologyTreeRow"
+            }
+          },
+          "sankey": {
+            "type": "object",
+            "properties": {
+              "cols": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/V3TopologySankeyNode"
+                  }
+                }
+              },
+              "links": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3TopologySankeyLink"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "cols",
+              "links"
+            ]
+          },
+          "detail": {
+            "$ref": "#/components/schemas/V3TopologyDetail"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "groups",
+          "nodes",
+          "edges",
+          "blast",
+          "tree",
+          "sankey",
+          "detail"
+        ]
+      },
       "V3TagChip": {
         "type": "object",
         "properties": {
@@ -60191,6 +60851,739 @@
           "changes",
           "deps",
           "tabs"
+        ]
+      },
+      "V3Resilience": {
+        "type": "object",
+        "properties": {
+          "synced": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "rollout": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "stable": {
+                "type": "string"
+              },
+              "next": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string"
+              },
+              "steps": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "weight": {
+                      "type": "string"
+                    },
+                    "note": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "done",
+                        "current",
+                        "todo"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "weight",
+                    "note",
+                    "state"
+                  ]
+                }
+              },
+              "split": {
+                "type": "object",
+                "properties": {
+                  "stable": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "canary": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "stable",
+                  "canary"
+                ]
+              },
+              "analysis": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    },
+                    "threshold": {
+                      "type": "string"
+                    },
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "name",
+                    "value",
+                    "threshold",
+                    "ok"
+                  ]
+                }
+              },
+              "stable_series": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "canary_series": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "title",
+              "status",
+              "stable",
+              "steps",
+              "split",
+              "analysis",
+              "stable_series",
+              "canary_series",
+              "next",
+              "source"
+            ]
+          },
+          "breakers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "brand": {
+                  "type": "string"
+                },
+                "upstream": {
+                  "type": "string"
+                },
+                "mechanism": {
+                  "type": "string"
+                },
+                "threshold": {
+                  "type": "string"
+                },
+                "ejected": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "closed",
+                    "open",
+                    "half_open",
+                    "none"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "brand",
+                "upstream",
+                "mechanism",
+                "state",
+                "threshold",
+                "ejected"
+              ]
+            }
+          },
+          "breaker_timeline": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "to": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "closed",
+                    "open",
+                    "half_open"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "from",
+                "to",
+                "state"
+              ]
+            }
+          },
+          "breaker_note": {
+            "type": "string"
+          },
+          "limits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "brand": {
+                  "type": "string"
+                },
+                "route": {
+                  "type": "string"
+                },
+                "mechanism": {
+                  "type": "string"
+                },
+                "limit": {
+                  "type": "string"
+                },
+                "used": {
+                  "type": "string"
+                },
+                "pct": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "rejected": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "brand",
+                "route",
+                "mechanism",
+                "limit",
+                "used",
+                "pct",
+                "rejected"
+              ]
+            }
+          },
+          "limit_note": {
+            "type": "string"
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "brand": {
+                  "type": "string"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "desc": {
+                  "type": "string"
+                },
+                "action": {
+                  "type": "string"
+                },
+                "on": {
+                  "type": "boolean"
+                },
+                "tag": {
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    },
+                    "tone": {
+                      "type": "string",
+                      "enum": [
+                        "neutral",
+                        "accent",
+                        "ok",
+                        "warn",
+                        "danger",
+                        "info"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "text",
+                    "tone"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "brand",
+                "key",
+                "desc",
+                "on",
+                "tag",
+                "action"
+              ]
+            }
+          },
+          "hpa": {
+            "type": "object",
+            "properties": {
+              "min": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "max": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "current": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "desired": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "replicas": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "desired_series": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "cpu": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "target": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "min",
+              "max",
+              "current",
+              "desired",
+              "replicas",
+              "desired_series",
+              "cpu",
+              "target",
+              "note"
+            ]
+          },
+          "ai": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "synced",
+          "rollout",
+          "breakers",
+          "breaker_timeline",
+          "breaker_note",
+          "limits",
+          "limit_note",
+          "flags",
+          "hpa",
+          "ai"
+        ]
+      },
+      "V3ResilienceProposalRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "rollout.pause"
+                ]
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "investigation_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  "desired": {
+                    "type": "object",
+                    "properties": {
+                      "rollout_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "rollout_id"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "investigation_id",
+                  "reason",
+                  "desired"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "params"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "rollout.rollback"
+                ]
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "investigation_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  "desired": {
+                    "type": "object",
+                    "properties": {
+                      "rollout_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "revision": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "rollout_id",
+                      "revision"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "investigation_id",
+                  "reason",
+                  "desired"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "params"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "breaker.threshold"
+                ]
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "investigation_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  "desired": {
+                    "type": "object",
+                    "properties": {
+                      "breaker_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "threshold_percent": {
+                        "type": "number",
+                        "exclusiveMinimum": 0,
+                        "maximum": 100
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "breaker_id",
+                      "threshold_percent"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "investigation_id",
+                  "reason",
+                  "desired"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "params"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "limit.threshold"
+                ]
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "investigation_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  "desired": {
+                    "type": "object",
+                    "properties": {
+                      "route": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                      },
+                      "requests_per_second": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1000000
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "route",
+                      "requests_per_second"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "investigation_id",
+                  "reason",
+                  "desired"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "params"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "flag.set"
+                ]
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "investigation_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  "desired": {
+                    "type": "object",
+                    "properties": {
+                      "flag_key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "enabled": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "flag_key",
+                      "enabled"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "investigation_id",
+                  "reason",
+                  "desired"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "params"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "hpa.bounds"
+                ]
+              },
+              "params": {
+                "type": "object",
+                "properties": {
+                  "investigation_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  "desired": {
+                    "type": "object",
+                    "properties": {
+                      "hpa_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "min": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10000
+                      },
+                      "max": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10000
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "hpa_id",
+                      "min",
+                      "max"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "investigation_id",
+                  "reason",
+                  "desired"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "params"
+            ]
+          }
         ]
       },
       "V3ExternalTarget": {

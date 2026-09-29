@@ -47,6 +47,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3observe"
 	"github.com/wans/aiops-canvas/internal/v3postmortems"
 	"github.com/wans/aiops-canvas/internal/v3proposals"
+	"github.com/wans/aiops-canvas/internal/v3resilience"
 	"github.com/wans/aiops-canvas/internal/v3serviceviews"
 	"github.com/wans/aiops-canvas/internal/v3settings"
 	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
@@ -301,7 +302,12 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 		return aiextensions.DiscoverCatalog(ctx, credentialRoot, config)
 	}
 	mcpService.Register(api)
-	v3topology.New(s.DB, policy).Register(api)
+	resilienceReader, err := configureV3ResilienceReader(
+		os.Getenv("AIOPS_V3_RESILIENCE_SOURCE_URL"), os.Getenv("AIOPS_V3_RESILIENCE_TOKEN_FILE"))
+	if err != nil {
+		return fmt.Errorf("configure V3 resilience source: %w", err)
+	}
+	v3resilience.New(s.DB, policy, resilienceReader).Register(api)
 	ruleSource, ruleBindings, err := loadV3AlertRuleSource(os.Getenv("AIOPS_V3_ALERT_RULES_CONFIG"), *info)
 	if err != nil {
 		return fmt.Errorf("load V3 alert rule source: %w", err)
@@ -361,6 +367,14 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	if err != nil {
 		return fmt.Errorf("configure V3 Prometheus reader: %w", err)
 	}
+	topology := v3topology.New(s.DB, policy)
+	for key := range metricCatalog {
+		if key.QueryID == "topology_v1" {
+			topology = v3topology.NewWithMetrics(s.DB, policy, metricReader)
+			break
+		}
+	}
+	topology.Register(api)
 	// Function-calling support is model-specific. Only models explicitly
 	// verified by the operator are offered V3 read tools; an empty allowlist
 	// leaves ordinary conversations available without tool schemas.

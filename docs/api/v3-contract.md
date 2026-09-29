@@ -32,9 +32,9 @@
 
 `POST /conversations/{id}/messages` 提交用户消息，返回 `{ message, reply_id }`；随后 `GET /conversations/{id}/events`（SSE）推送 `StreamEvent`：
 
-服务端断线续传头 `Last-Event-ID` 只接受单个非负十进制事件 ID；空值、重复头、负数、非数字或溢出返回 `422 invalid_event_cursor`。正数游标必须属于当前有权会话，续传该事件所在的回复，即使之后已有新回合；已删除或未知游标返回 422。缺省或 0 游标读取当前最新回复。早期失败也先补空 `message.started`，再发状态与 `message.completed`。这些后端保障不改变该主路由的 `mock` 状态。
+服务端断线续传头 `Last-Event-ID` 只接受单个非负十进制事件 ID；空值、重复头、负数、非数字或溢出返回 `422 invalid_event_cursor`。正数游标必须属于当前有权会话，续传该事件所在的回复，即使之后已有新回合；已删除或未知游标返回 422。无正数游标时，可用 `reply_id` 选择本会话的指定回复，否则读取最新回复；两者同时提供时必须匹配。早期失败也先补空 `message.started`，再发状态与 `message.completed`。
 
-当前后端在创建回合及成功或失败的结束事务中重核持久会话、所有者、环境和 V3 对话权限；租约恢复也重核，撤权后的未完成输出不会保存为成功回复。SSE 在连接和每批事件读取前重新核对当前查看权限；活动回复还核对原发起会话及 `conversation.change`，已完成回复按查看权限回读。授权检查之后到事件查询或网络发送之间仍有并发撤权窗口，已经发出的字节无法撤回；真实权限策略下的已打开流逐批撤权尚未实测。这些安全补口不构成完整页面验收。
+当前后端在创建回合及成功或失败的结束事务中重核持久会话、所有者、环境和 V3 对话权限；租约恢复也重核，撤权后的未完成输出不会保存为成功回复。SSE 在连接和每批事件读取前重新核对当前查看权限；活动回复还核对原发起会话及 `conversation.change`，已完成回复按查看权限回读。隔离 PG17 注册 HTTP 测试已覆盖首批事件后撤销真实 Cookie 会话或修改权限、断线续传、终止游标与完成竞态。授权检查之后到事件查询或网络发送之间仍有并发撤权窗口，已经发出的字节无法撤回；这些检查不构成完整页面验收。
 
 | 事件 | 含义 |
 | --- | --- |
@@ -97,7 +97,7 @@
 | GET | `/conversations/{id}` | | `Conversation` | mock |
 | POST | `/conversations` | `{ text, context?, model? }` | `{ id }` | implemented |
 | POST | `/conversations/{id}/messages` | `{ text, model?, reasoning?, attachments? }` | `{ message, reply_id }`，随后由事件流推送回复 | mock |
-| GET | `/conversations/{id}/events` | | SSE：`StreamEvent`（见「流式对话」）；回复结束后服务端保存完整消息 | mock（前端模拟） |
+| GET | `/conversations/{id}/events` | `reply_id?`、`Last-Event-ID?` | SSE：`StreamEvent`（见「流式对话」）；回复结束后服务端保存完整消息 | implemented |
 | GET | `/canvases` | `kind`, `q`, 分页 | `{ items: CanvasSummary[], counts }`；`kind`：investigation / plan / review / analysis / custom | mock |
 | POST | `/canvases` | `{ title, kind, template_id, goal, services, ai_draft }` | `{ id, href }`；调查类返回 `INV-*` | mock |
 | GET | `/canvases/{id}` | | `CanvasDoc`（非调查类画布：通用节点块、边、产物、各节点对话） | implemented |

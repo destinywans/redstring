@@ -25223,7 +25223,7 @@
       "get": {
         "summary": "Read conversation and saved messages",
         "operationId": "get_conversations_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Saved user and assistant messages use durable turn order, including messages written in one transaction with tied timestamps. Accepted audited turns follow the serialized audit chain. Imported or unlinked historical rows use a deterministic timestamp fallback whose original commit order cannot be proven.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. The persisted owner, selected instance environment scope, current session and conversation view grants are checked with metadata and messages in one read snapshot. Saved user and assistant messages use durable turn order, including messages written in one transaction with tied timestamps. Accepted audited turns follow the serialized audit chain. Imported or unlinked historical rows use a deterministic timestamp fallback whose original commit order cannot be proven. A streaming or failed assistant reply remains visible. Provider usage is not synthesized: run is absent and side.context.used/budget may be null when trustworthy usage is unavailable; the frozen frontend still assumes numeric context.",
         "responses": {
           "200": {
             "description": "Success",
@@ -25328,7 +25328,7 @@
       "post": {
         "summary": "Start a durable assistant reply",
         "operationId": "post_conversations_id_messages",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. A second concurrent reply is rejected with 409. The user message is durable before 202. Persisted uploads are rechecked inside the turn transaction for exact reference metadata, owner, environment, supported text type, UTF-8 content and an aggregate 16 KiB source limit. Paste and .txt/.log/.md/.csv/.json/.yaml/.yml files enter a private bounded model-only text snapshot; public message parts keep references without uploaded bytes. Images, links, PDFs and other unsupported types return 422 before a turn is created; invalid references return 422 and excessive attachment or model context returns 413. The snapshot remains in later model context without refetching the upload; a later text-only turn with attachment history also checks the selected model budget before persistence. Start and terminal writes recheck the persisted owner, environment, initiating session and current V3 conversation authorization in their transactions. A revoked terminal turn drops partial output rather than saving it. Provider usage in message.completed.run is optional and must not be inferred when unavailable. This text-only slice does not establish support for every frontend Upload kind.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. A second concurrent reply is rejected with 409. The user message is durable before 202. Persisted uploads are rechecked inside the turn transaction for exact reference metadata, owner, environment, supported text type, UTF-8 content and an aggregate 16 KiB source limit. Paste and .txt/.log/.md/.csv/.json/.yaml/.yml files enter a private bounded model-only text snapshot; public message parts keep references without uploaded bytes. Images, links, PDFs and other unsupported types return 422 before a turn is created; invalid references return 422 and excessive attachment source/snapshot or known message budget returns 413. All turns with a known model budget precheck saved history and the new message, including old attachment snapshots, before 202. This is a conservative message-only check; the provider checks the full request including system/tool content after 202 and can still fail. Start and terminal writes recheck the persisted owner, environment, initiating session and current V3 conversation authorization in their transactions. A revoked terminal turn drops partial output rather than saving it. The selected model and reasoning are persisted with the reply; provider usage in message.completed.run is optional and must not be inferred when unavailable. This text-only slice does not establish support for every frontend Upload kind.",
         "responses": {
           "202": {
             "description": "Success",
@@ -25487,7 +25487,7 @@
       "get": {
         "summary": "Resume ordered assistant events",
         "operationId": "get_conversations_id_events",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. SSE sequence IDs support reconnection. Last-Event-ID must be one nonnegative decimal event ID; invalid or duplicate values return 422 invalid_event_cursor. A positive cursor must belong to this currently authorized conversation and replays its original reply even after a newer turn starts; an unknown or deleted cursor returns 422. An omitted or zero cursor selects the latest reply. Connection and each event batch recheck current conversation view; queued/running replies also recheck the persisted initiating session and conversation change before replay, while completed/failed history requires view only. Revocation between a batch check and network delivery can still expose that selected batch. Recovery rechecks the initiating session and current V3 authorization before retaining partial output. Early failure emits an empty message.started before status and terminal events. message.completed follows durable persistence; its run is optional when trustworthy provider usage is unavailable.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. SSE data payloads follow V3ConversationStreamEvent. Last-Event-ID must be one nonnegative decimal event ID; invalid or duplicate values return 422 invalid_event_cursor. A positive cursor must belong to this currently authorized conversation and replays its original reply even after a newer turn starts; when reply_id is also supplied it must match the cursor reply. Without a positive cursor, reply_id selects that reply in this conversation, including after newer turns; otherwise the latest reply is selected. An unknown or malformed reply_id returns 422 invalid_reply. Connection and each bounded event batch recheck current conversation view; queued/running replies also recheck the persisted initiating session and conversation change before replay, while completed/failed history requires view only. Revocation between a batch check and network delivery can still expose that selected batch. Recovery rechecks the initiating session and current V3 authorization before retaining partial output. Early failure emits an empty message.started before status and terminal events. message.completed follows durable persistence; its run is optional when trustworthy provider usage is unavailable.",
         "responses": {
           "200": {
             "description": "Success",
@@ -25495,7 +25495,8 @@
               "text/event-stream": {
                 "schema": {
                   "type": "string"
-                }
+                },
+                "description": "Each data line is a V3ConversationStreamEvent JSON object."
               }
             }
           },
@@ -25540,7 +25541,7 @@
             }
           },
           "422": {
-            "description": "Invalid input",
+            "description": "Invalid cursor, reply ID, or mismatch between them",
             "content": {
               "application/json": {
                 "schema": {
@@ -25583,6 +25584,15 @@
             "schema": {
               "type": "string",
               "pattern": "^[0-9]+$"
+            }
+          },
+          {
+            "name": "reply_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
             }
           }
         ]
@@ -47975,6 +47985,59 @@
           }
         ]
       },
+      "V3ConversationRun": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "reasoning": {
+            "type": "string"
+          },
+          "reasoning_label": {
+            "type": "string"
+          },
+          "brand": {
+            "type": "string"
+          },
+          "tokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "duration_s": {
+            "type": "number"
+          },
+          "context_input_tokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "context_budget": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "agent",
+          "version",
+          "model",
+          "tokens",
+          "duration_s"
+        ]
+      },
       "V3Message": {
         "type": "object",
         "properties": {
@@ -48002,14 +48065,12 @@
             }
           },
           "run": {
-            "type": "object",
-            "additionalProperties": true
+            "$ref": "#/components/schemas/V3ConversationRun"
           },
           "attachments": {
             "type": "array",
             "items": {
-              "type": "object",
-              "additionalProperties": true
+              "$ref": "#/components/schemas/V3Upload"
             }
           },
           "streaming": {
@@ -48023,6 +48084,102 @@
           "author",
           "created_at",
           "parts"
+        ]
+      },
+      "V3ConversationStreamEvent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "message.started"
+                ]
+              },
+              "message": {
+                "$ref": "#/components/schemas/V3Message"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "message"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "part.added"
+                ]
+              },
+              "message_id": {
+                "type": "string"
+              },
+              "part": {
+                "$ref": "#/components/schemas/V3Part"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "message_id",
+              "part"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "text.delta"
+                ]
+              },
+              "message_id": {
+                "type": "string"
+              },
+              "index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "delta": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "message_id",
+              "index",
+              "delta"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "message.completed"
+                ]
+              },
+              "message_id": {
+                "type": "string"
+              },
+              "run": {
+                "$ref": "#/components/schemas/V3ConversationRun"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "message_id"
+            ]
+          }
         ]
       },
       "V3ConversationSummary": {

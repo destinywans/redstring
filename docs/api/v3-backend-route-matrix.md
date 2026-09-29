@@ -30,7 +30,7 @@
 | 对话、画布与模板 | GET | `/conversations/{id}` | 聚合 | mock |
 | 对话、画布与模板 | POST | `/conversations` | 新增 | implemented |
 | 对话、画布与模板 | POST | `/conversations/{id}/messages` | 新增 | mock |
-| 对话、画布与模板 | GET | `/conversations/{id}/events` | 新增 | mock（前端模拟） |
+| 对话、画布与模板 | GET | `/conversations/{id}/events` | 新增 | implemented |
 | 对话、画布与模板 | GET | `/canvases` | 聚合 | mock |
 | 对话、画布与模板 | POST | `/canvases` | 新增 | mock |
 | 对话、画布与模板 | GET | `/canvases/{id}` | 聚合 | implemented |

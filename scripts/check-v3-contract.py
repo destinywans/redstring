@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Check that docs/api/v3-contract.md and the v3 frontend mock routes list the same endpoints.
 
-Each table row in the contract holds one method and one path. Rows whose status says 前端模拟
-(simulated in the frontend, e.g. the SSE stream) have no mock route and are skipped.
+Each table row in the contract holds one method and one path. The SSE stream is
+simulated directly by the frontend and has no mock-route declaration even when
+its backend route is implemented.
 Exit code 1 when the two sides differ.
 """
 import pathlib
@@ -15,6 +16,7 @@ MOCK = ROOT / "web/src/v3/mock"
 
 ROW = re.compile(r"^\| (GET|POST|PUT|PATCH|DELETE) \| `([^`]+)` \|(.*)$")
 MOCK_ROUTE = re.compile(r'mock\("(GET|POST|PUT|PATCH|DELETE)",\s*"([^"]+)"')
+DIRECTLY_SIMULATED = {"GET /conversations/{}/events"}
 
 
 def norm(path: str) -> str:
@@ -34,9 +36,11 @@ def doc_routes() -> tuple[set[str], list[str]]:
         method, path, rest = m.groups()
         if "·" in path or rest.lstrip().startswith("`/"):
             problems.append(f"{DOC.name}:{n}: row must hold exactly one path")
+        key = f"{method} {norm(path)}"
+        if key in DIRECTLY_SIMULATED:
+            continue
         if "前端模拟" in rest:
             continue
-        key = f"{method} {norm(path)}"
         if key in routes:
             problems.append(f"{DOC.name}:{n}: duplicate row {method} {path}")
         routes.add(key)

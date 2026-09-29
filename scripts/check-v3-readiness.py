@@ -76,8 +76,6 @@ def main() -> int:
             problems.append(f"not a mock route: {item[1]} {item[2]}")
         if not missing and not extra:
             problems.append("route order differs from contract")
-    if ("对话、画布与模板", "GET", "/conversations/{id}/events") not in found:
-        problems.append("simulated SSE route is missing")
     for problem in problems:
         print(problem)
     print(f"{'MISMATCH' if problems else 'OK'}: {len(found)} readiness rows, {len(expected)} mock contract rows")

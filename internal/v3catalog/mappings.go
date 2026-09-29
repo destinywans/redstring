@@ -1,6 +1,7 @@
 package v3catalog
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,11 +16,12 @@ import (
 )
 
 type mappingCatalogRow struct {
-	appID, key, env, teamID string
-	bindings                []byte
+	appID, key, env, teamID, envID string
+	bindings                       []byte
+	revision                       int64
 }
 
-const mappingQuery = `SELECT a.id,a.key,ve.environment_id,COALESCE(a.owner_team_id,''),e.bindings
+const mappingQuery = `SELECT a.id,a.key,ve.environment_id,COALESCE(a.owner_team_id,''),e.id,e.bindings,e.binding_revision
  FROM applications a
  JOIN v3_application_environments ve ON ve.application_id=a.id
  JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
@@ -36,7 +38,7 @@ func (s *Service) mappingBatch(ctx context.Context, envs []string, key, env, id 
 	batch := make([]mappingCatalogRow, 0, catalogPageSize)
 	for rows.Next() {
 		var row mappingCatalogRow
-		if err := rows.Scan(&row.appID, &row.key, &row.env, &row.teamID, &row.bindings); err != nil {
+		if err := rows.Scan(&row.appID, &row.key, &row.env, &row.teamID, &row.envID, &row.bindings, &row.revision); err != nil {
 			return nil, err
 		}
 		batch = append(batch, row)
@@ -58,6 +60,93 @@ type mappingCell struct {
 type mappingRow struct {
 	Service string                 `json:"service"`
 	Cells   map[string]mappingCell `json:"cells"`
+	Save    *mappingSaveView       `json:"save,omitempty"`
+}
+
+// A display cell is not a save instruction. This snapshot exposes the exact
+// stored identities and revision only to a caller that can write the object.
+type mappingSaveView struct {
+	ServiceID            string               `json:"service_id"`
+	ServiceEnvironmentID string               `json:"service_environment_id"`
+	BindingRevision      int64                `json:"binding_revision"`
+	Bindings             []mappingSaveBinding `json:"bindings"`
+	Editable             bool                 `json:"editable"`
+	UnavailableReason    string               `json:"unavailable_reason,omitempty"`
+}
+
+type mappingSaveBinding struct {
+	SystemID    string `json:"system_id"`
+	Kind        string `json:"kind"`
+	ConnectorID string `json:"connector_id"`
+	Resource    string `json:"resource"`
+}
+
+func (s *Service) mappingSaveProjection(item mappingCatalogRow, persisted []core.Binding) mappingSaveView {
+	view := mappingSaveView{ServiceID: item.appID, ServiceEnvironmentID: item.envID,
+		BindingRevision: item.revision, Bindings: make([]mappingSaveBinding, 0, len(persisted)), Editable: true}
+	seen := map[string]bool{}
+	for _, binding := range persisted {
+		systemID := mappingKind(binding.Kind)
+		view.Bindings = append(view.Bindings, mappingSaveBinding{SystemID: systemID,
+			Kind: binding.Kind, ConnectorID: binding.ConnectorID, Resource: binding.Resource})
+		if systemID == "" || seen[systemID] || !mappingSaveIdentity(binding.Kind) ||
+			!mappingSaveIdentity(binding.ConnectorID) || !mappingSaveResource(binding.Resource) ||
+			(systemID == "code" && (binding.Kind != "gitlab" || !validMappingProject(binding.Resource))) {
+			view.Editable = false
+		}
+		seen[systemID] = true
+	}
+	if len(persisted) > len(mappingSystems) {
+		view.Editable = false
+	}
+	// Decoding into core.Binding drops unknown JSON fields. A full save must
+	// never erase such data while replacing another binding in the same row.
+	if !mappingStoredBindingShape(item.bindings) {
+		view.Editable = false
+	}
+	if view.Editable && !s.mappingSaveBindingsSupported(persisted) {
+		view.Editable = false
+	}
+	if !view.Editable {
+		view.UnavailableReason = "unsupported_persisted_bindings"
+	}
+	return view
+}
+
+// PostgreSQL jsonb has already resolved duplicate object keys, but may hold
+// historical binding objects with fields that the current Go type does not
+// know. Require the exact current wire shape before offering a replacement.
+func mappingStoredBindingShape(raw []byte) bool {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) < 2 || trimmed[0] != '[' || trimmed[len(trimmed)-1] != ']' {
+		return false
+	}
+	var entries []json.RawMessage
+	if err := json.Unmarshal(trimmed, &entries); err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		object := bytes.TrimSpace(entry)
+		if len(object) < 2 || object[0] != '{' || object[len(object)-1] != '}' {
+			return false
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(object, &fields); err != nil || len(fields) != 3 {
+			return false
+		}
+		for _, key := range []string{"kind", "connector_id", "resource"} {
+			value, found := fields[key]
+			value = bytes.TrimSpace(value)
+			if !found || len(value) < 2 || value[0] != '"' || value[len(value)-1] != '"' {
+				return false
+			}
+			var decoded string
+			if err := json.Unmarshal(value, &decoded); err != nil {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 var mappingSystems = []mappingSystem{
@@ -68,10 +157,6 @@ var mappingSystems = []mappingSystem{
 	{ID: "deploy", Brand: "argo", Label: "部署"},
 	{ID: "dash", Brand: "grafana", Label: "看板"},
 	{ID: "workload", Brand: "kubernetes", Label: "工作负载"},
-}
-
-func mappingSaveUnavailable(w http.ResponseWriter, _ *http.Request) {
-	httpapi.Error(w, http.StatusNotImplemented, "mapping_save_unavailable", "Full mapping save requires object identities and revisions")
 }
 
 func mappingKind(kind string) string {
@@ -110,6 +195,7 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 	visibleAppIDs := []string{}
 	visibleAppKeys := map[string]string{}
 	visibleBindings := map[string][]core.Binding{}
+	visibleRows := map[string]mappingCatalogRow{}
 	order := []string{}
 	count := 0
 	var cursorKey, cursorEnv, cursorID string
@@ -145,6 +231,7 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 			}
 			if singleEnvironment {
 				visibleBindings[item.appID] = bindings
+				visibleRows[item.appID] = item
 			}
 			row, found := byName[item.key]
 			if !found {
@@ -196,6 +283,24 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if connectorAllowed {
+			for appID, item := range visibleRows {
+				decision := rbac.V3Decision{Module: "services", Action: "change", EnvironmentID: envs[0], ApplicationID: appID}
+				changeErr := s.Access.Authorize(ctx, httpapi.CurrentUser(r), decision)
+				if errors.Is(changeErr, store.ErrForbidden) && item.teamID != "" {
+					decision.ApplicationID = ""
+					decision.TeamID = item.teamID
+					changeErr = s.Access.Authorize(ctx, httpapi.CurrentUser(r), decision)
+				}
+				if errors.Is(changeErr, store.ErrForbidden) {
+					continue
+				}
+				if changeErr != nil {
+					httpapi.Error(w, 503, "authorization_unavailable", "Mapping policy unavailable")
+					return
+				}
+				view := s.mappingSaveProjection(item, visibleBindings[appID])
+				byName[item.key].Save = &view
+			}
 			pending, err := s.currentMappingSuggestions(ctx, envs[0], visibleAppIDs)
 			if err != nil {
 				httpapi.Error(w, 503, "catalog_unavailable", "Mapping candidates unavailable")

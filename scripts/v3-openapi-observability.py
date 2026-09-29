@@ -84,11 +84,39 @@ S['V3ServiceMapping'] = obj({'systems':arr(v3_object('id brand label')),
     'suggestions':integer(minimum=0)},['systems','rows','suggestions'])
 v3_route('get','/service-mappings','Read persisted service connector mappings',
     response=ref('V3ServiceMapping'),
-    desc='Shows only bindings for authorized applications and environments; missing means no persisted binding, not a health check. A suggested code cell carries the exact candidate ID, review version, target identity and binding revision needed for accept. Pending suggestions are shown only if their explicit GitLab project target, activation evidence and binding revision remain current. A V3-only validator permits exactly that source-derived GitLab binding while passing every other binding to the unchanged platform validator. Activation is historical project-access evidence; a recent generic connector probe does not prove current project access. More than 1000 visible services returns 422 result_limit instead of an incomplete map.')
-v3_route('put','/service-mappings','Reject unavailable full mapping save',
-    status=501,response=ref('Error'),
-    desc='The frozen page sends no request body. Suggested code cells expose review identity for the separate accept operation, but the full matrix still lacks an accepted all-system save request and revision contract. This registered route remains outside the V3 allowed-route table and returns 501 v3_not_implemented before its fallback handler; it writes no binding or audit. No accepted full-save success response is claimed.')
-P['/service-mappings']['put']['responses']['501']['description'] = 'Full mapping save is unavailable in V3'
+    desc='Shows only bindings for authorized applications and environments; missing means no persisted binding, not a health check. A single-environment row includes an additive save snapshot with exact service/environment IDs, binding revision and persisted binding identities only for callers with current services view/change and connectors view/manage; unsupported or duplicate stored categories set editable=false. An all-environment aggregate has no save snapshot. A suggested code cell carries the exact candidate ID, review version, target identity and binding revision needed for accept. Pending suggestions are shown only if their explicit GitLab project target, activation evidence and binding revision remain current. A V3-only validator permits exactly that source-derived GitLab binding while passing every other binding to the unchanged platform validator. Activation is historical project-access evidence; a recent generic connector probe does not prove current project access. More than 1000 visible services returns 422 result_limit instead of an incomplete map.')
+S['V3MappingSaveBinding'] = obj({
+    'system_id':string(enum=['metrics','logs','traces','code','deploy','dash','workload']),
+    'kind':string(), 'connector_id':string(), 'resource':string(),
+}, ['system_id','kind','connector_id','resource'])
+S['V3MappingReadBinding'] = obj({
+    'system_id':string(description='Unknown stored kinds appear as an empty string and make the save snapshot non-editable.'),
+    'kind':string(), 'connector_id':string(), 'resource':string(),
+}, ['system_id','kind','connector_id','resource'])
+S['V3MappingSaveItem'] = obj({
+    'service_id':string(), 'service_environment_id':string(),
+    'binding_revision':integer(minimum=1),
+    'bindings':{'type':'array','maxItems':7,'items':ref('V3MappingSaveBinding')},
+}, ['service_id','service_environment_id','binding_revision','bindings'])
+S['V3MappingReadSave'] = obj({
+    **S['V3MappingSaveItem']['properties'],
+    'bindings':arr(ref('V3MappingReadBinding')),
+    'editable':v3_bool(), 'unavailable_reason':string(),
+}, ['service_id','service_environment_id','binding_revision','bindings','editable'])
+# Add a reviewable save snapshot only to single-environment rows for callers
+# with the write and connector grants. The existing display grid is unchanged.
+S['V3ServiceMapping']['properties']['rows']['items']['properties']['save'] = ref('V3MappingReadSave')
+S['V3MappingSaveRequest'] = obj({
+    'environment_id':string(),
+    'items':{'type':'array','minItems':1,'maxItems':50,'items':ref('V3MappingSaveItem')},
+}, ['environment_id','items'])
+S['V3MappingSaveResult'] = obj({
+    'environment_id':string(),
+    'items':arr(ref('V3MappingSaveItem')),
+}, ['environment_id','items'])
+v3_route('put','/service-mappings','Replace versioned service connector mappings',
+    body=ref('V3MappingSaveRequest'),response=ref('V3MappingSaveResult'),
+    desc='Requires one selected environment matching environment_id. Each of 1-50 distinct service and service-environment identities replaces its complete mapping set using a current binding_revision; stale or changed identities return 409. Changed items, their revision increments and audit are committed atomically; an identical item returns its current revision. Empty body, display-only cells and duplicate or unknown system IDs are rejected. A code GitLab binding may only be retained when identical to the persisted binding; new or changed GitLab mappings must use discover/accept. Other bindings must pass the configured runtime binding validator. Current services view/change and connectors view/manage grants and the active session are rechecked in the transaction. The response contains persisted binding identities and post-write revisions. The frozen frontend still sends an empty PUT and cannot use this route until it submits the versioned request.')
 v3_route('post','/service-mappings/discover','Stage scoped service mapping candidates',
     response=obj({'suggestions':integer(minimum=0),
         'source_state':string(enum=['configured','not_configured']),

@@ -187,17 +187,17 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 	// shape may be acknowledged as a persisted full mapping save.
 	for _, body := range []string{"", `{"rows":[{"service":"checkout","cells":{"code":{"value":"123"}}}]}`} {
 		w := request(http.MethodPut, "/service-mappings", body)
-		if w.Code != http.StatusNotImplemented || !strings.Contains(w.Body.String(), `"v3_not_implemented"`) {
+		if w.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("unsafe mapping save status=%d body=%s", w.Code, w.Body.String())
 		}
 	}
 	var saveBindings []byte
 	if err := db.QueryRow(ctx, `SELECT bindings FROM application_environments WHERE id='env-checkout'`).Scan(&saveBindings); err != nil || string(saveBindings) != "[]" {
-		t.Fatalf("unimplemented save changed bindings: bindings=%s err=%v", saveBindings, err)
+		t.Fatalf("invalid save changed bindings: bindings=%s err=%v", saveBindings, err)
 	}
 	var saveAudits int
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE action='v3.service_mapping.accepted'`).Scan(&saveAudits); err != nil || saveAudits != 0 {
-		t.Fatalf("unimplemented save wrote audit: count=%d err=%v", saveAudits, err)
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE action IN ('v3.service_mapping.accepted','v3.service_mapping.saved')`).Scan(&saveAudits); err != nil || saveAudits != 0 {
+		t.Fatalf("invalid save wrote audit: count=%d err=%v", saveAudits, err)
 	}
 	readMappings := func() ServiceMappingForTest {
 		t.Helper()

@@ -1,0 +1,21 @@
+{
+  "sources": [
+    {
+      "environment_id": "env-example",
+      "application_id": "app-example",
+      "service": "checkout",
+      "query_id": "request_error_ratio",
+      "query": "sum by (application_id, environment_id, service) (rate(http_requests_total{application_id=\"app-example\",environment_id=\"env-example\",service=\"checkout\",status=~\"5..\"}[5m])) / sum by (application_id, environment_id, service) (rate(http_requests_total{application_id=\"app-example\",environment_id=\"env-example\",service=\"checkout\"}[5m]))",
+      "unit": "ratio",
+      "source": "prometheus-example",
+      "endpoint": "https://metrics.example.com/prometheus",
+      "api_key_env": "RULE_PREVIEW_PROMETHEUS_TOKEN",
+      "isolation_mode": "application_endpoint",
+      "label_keys": {
+        "application": "application_id",
+        "environment": "environment_id",
+        "service": "service"
+      }
+    }
+  ]
+}

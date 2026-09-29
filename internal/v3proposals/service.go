@@ -8,7 +8,6 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -247,7 +246,7 @@ func (s *Service) beginReview(w http.ResponseWriter, r *http.Request) (pgx.Tx, b
 	return tx, true
 }
 
-func (s *Service) scopedTx(w http.ResponseWriter, r *http.Request, tx pgx.Tx, action string) (record, bool) {
+func (s *Service) scopedTx(w http.ResponseWriter, r *http.Request, tx pgx.Tx, action string, beforeAuthorization func(record) error) (record, bool) {
 	scope, ok := httpapi.V3ScopeFromContext(r.Context())
 	if !ok || len(scope.EnvironmentIDs) == 0 {
 		httpapi.Error(w, 503, "environment_scope_unavailable", "Environment scope is unavailable")
@@ -280,9 +279,9 @@ func (s *Service) scopedTx(w http.ResponseWriter, r *http.Request, tx pgx.Tx, ac
 		httpapi.Error(w, 401, "unauthorized", "Session expired")
 		return record{}, false
 	}
-	var department string
-	err = tx.QueryRow(r.Context(), `SELECT COALESCE(department_id,'') FROM users
- WHERE id=$1 AND NOT disabled AND deleted_at IS NULL AND source<>'settings_demo' FOR SHARE`, user.ID).Scan(&department)
+	var activeUser string
+	err = tx.QueryRow(r.Context(), `SELECT id FROM users
+ WHERE id=$1 AND NOT disabled AND deleted_at IS NULL AND source<>'settings_demo' FOR SHARE`, user.ID).Scan(&activeUser)
 	if errors.Is(err, pgx.ErrNoRows) {
 		httpapi.Error(w, 401, "unauthorized", "Session expired")
 		return record{}, false
@@ -303,11 +302,29 @@ func (s *Service) scopedTx(w http.ResponseWriter, r *http.Request, tx pgx.Tx, ac
 		unavailable(w)
 		return record{}, false
 	}
-	if err = lockReviewGrantSources(r.Context(), tx, user.ID, department, action); err != nil {
+	// Refuse discussion reads from callers with no current proposal grant.
+	// This first check is only admission to the potentially long query: the
+	// final check below still decides whether its result may be returned.
+	if beforeAuthorization != nil {
+		err = s.authorizeTx(r.Context(), tx, user, v, action)
+		if errors.Is(err, store.ErrForbidden) {
+			httpapi.Error(w, 403, "forbidden", "Proposal permission required")
+			return record{}, false
+		}
+		if err != nil {
+			httpapi.Error(w, 503, "authorization_unavailable", "Proposal authorization unavailable")
+			return record{}, false
+		}
+		if err = beforeAuthorization(v); err != nil {
+			unavailable(w)
+			return record{}, false
+		}
+	}
+	if err = lockReviewAuthorityTables(r.Context(), tx); err != nil {
 		unavailable(w)
 		return record{}, false
 	}
-	// A session may expire while waiting for a grant row. Use wall time after
+	// A session may expire while waiting for the authority tables. Use wall time after
 	// every lock has been acquired, then evaluate policy on this transaction.
 	var active bool
 	err = tx.QueryRow(r.Context(), `SELECT expires_at>clock_timestamp() FROM sessions
@@ -332,67 +349,14 @@ func (s *Service) scopedTx(w http.ResponseWriter, r *http.Request, tx pgx.Tx, ac
 	return v, true
 }
 
-func lockReviewGrantSources(ctx context.Context, tx pgx.Tx, userID, department, action string) error {
-	roles := map[string]bool{}
-	for _, query := range []struct {
-		statement string
-		arg       string
-	}{
-		{`SELECT role_id FROM rbac_user_roles WHERE user_id=$1 ORDER BY role_id FOR SHARE`, userID},
-		{`SELECT role_id FROM rbac_department_roles WHERE department_id=$1 ORDER BY role_id FOR SHARE`, department},
-	} {
-		rows, err := tx.Query(ctx, query.statement, query.arg)
-		if err != nil {
-			return err
-		}
-		for rows.Next() {
-			var role string
-			if err = rows.Scan(&role); err != nil {
-				break
-			}
-			roles[role] = true
-		}
-		if err == nil {
-			err = rows.Err()
-		}
-		rows.Close()
-		if err != nil {
-			return err
-		}
-	}
-	ids := make([]string, 0, len(roles))
-	for role := range roles {
-		ids = append(ids, role)
-	}
-	sort.Strings(ids)
-	for _, query := range []struct {
-		statement string
-		args      []any
-	}{
-		{`SELECT id FROM rbac_roles WHERE id=ANY($1::text[]) ORDER BY id FOR SHARE`, []any{ids}},
-		{`SELECT role_id FROM v3_role_grants WHERE role_id=ANY($1::text[])
- AND ((module='environment' AND action='view') OR (module='proposals' AND action=$2))
- ORDER BY role_id,module,action,scope_kind,scope_id FOR SHARE`, []any{ids, action}},
-	} {
-		rows, err := tx.Query(ctx, query.statement, query.args...)
-		if err != nil {
-			return err
-		}
-		for rows.Next() {
-			var ignored string
-			if err = rows.Scan(&ignored); err != nil {
-				break
-			}
-		}
-		if err == nil {
-			err = rows.Err()
-		}
-		rows.Close()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+// Locking only rows found by a role scan leaves new assignments and grants
+// unlocked. A role writer also locks the role before deleting assignments,
+// so an assignment-then-role row-lock order can deadlock. These three SHARE
+// locks serialize all V3 authorization source writes for the short final
+// authorization/commit window, without taking any role row lock.
+func lockReviewAuthorityTables(ctx context.Context, tx pgx.Tx) error {
+	_, err := tx.Exec(ctx, `LOCK TABLE rbac_user_roles, rbac_department_roles, v3_role_grants IN SHARE MODE`)
+	return err
 }
 
 func (s *Service) authorizeTx(ctx context.Context, tx pgx.Tx, user core.User, v record, action string) error {
@@ -460,13 +424,13 @@ func (s *Service) Detail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	v, ok := s.scopedTx(w, r, tx, "view")
+	var out Proposal
+	_, ok = s.scopedTx(w, r, tx, "view", func(v record) error {
+		var err error
+		out, err = detailTx(r.Context(), tx, v)
+		return err
+	})
 	if !ok {
-		return
-	}
-	out, err := detailTx(r.Context(), tx, v)
-	if err != nil {
-		httpapi.Error(w, 503, "proposal_unavailable", "Proposal unavailable")
 		return
 	}
 	if !commitReview(w, r, tx) {
@@ -499,7 +463,7 @@ func (s *Service) Comment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	v, ok := s.scopedTx(w, r, tx, "change")
+	v, ok := s.scopedTx(w, r, tx, "change", nil)
 	if !ok {
 		return
 	}
@@ -581,7 +545,12 @@ func (s *Service) Reject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	v, ok := s.scopedTx(w, r, tx, "manage")
+	var out Proposal
+	v, ok := s.scopedTx(w, r, tx, "manage", func(v record) error {
+		var err error
+		out, err = detailTx(r.Context(), tx, v)
+		return err
+	})
 	if !ok {
 		return
 	}
@@ -622,11 +591,7 @@ func (s *Service) Reject(w http.ResponseWriter, r *http.Request) {
 		}
 		v.Status = "rejected"
 	}
-	out, err := detailTx(ctx, tx, v)
-	if err != nil {
-		unavailable(w)
-		return
-	}
+	out.Status = v.Status
 	if !commitReview(w, r, tx) {
 		return
 	}

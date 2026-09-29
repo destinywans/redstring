@@ -49,7 +49,7 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -174,6 +174,34 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 	}
 	assert(request(api, "GET", mainID, "", "dev", "", "", ""), 401, "")
 	assert(request(api, "GET", otherAppID, "", "dev", reviewerToken, "", ""), 403, "forbidden")
+	t.Run("unauthorized-review-skips-discussion-read", func(t *testing.T) {
+		blocker, err := db.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer blocker.Rollback(ctx)
+		if _, err := blocker.Exec(ctx, `LOCK TABLE v3_proposal_comments IN ACCESS EXCLUSIVE MODE`); err != nil {
+			t.Fatal(err)
+		}
+		for _, operation := range []struct {
+			method, suffix, body string
+		}{
+			{"GET", "", ""},
+			{"POST", "/reject", `{"comment":"Unauthorized"}`},
+		} {
+			response := make(chan *httptest.ResponseRecorder, 1)
+			go func() {
+				response <- request(api, operation.method, otherAppID, operation.suffix,
+					"dev", reviewerToken, operation.body, "")
+			}()
+			select {
+			case result := <-response:
+				assert(result, 403, "forbidden")
+			case <-time.After(2 * time.Second):
+				t.Fatalf("unauthorized %s waited on discussion table", operation.method)
+			}
+		}
+	})
 	assert(request(api, "GET", otherEnvID, "", "all", reviewerToken, "", ""), 404, "not_found")
 	assert(request(api, "GET", otherEnvID, "", "test", reviewerToken, "", ""), 403, "forbidden")
 	assert(request(api, "POST", mainID, "/comments", "all", reviewerToken, `{"text":"Review evidence"}`, "comment-1"), 409, "env_view_only")
@@ -248,7 +276,7 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 					mutationSQL := `DELETE FROM v3_role_grants WHERE role_id='proposal-team-reviewer'
  AND module='proposals' AND action=$1 AND scope_kind='team' AND scope_id='proposal-ops'`
 					mutationArg := operation.action
-					blockedReviewSQL := "SELECT role_id FROM v3_role_grants WHERE role_id=ANY"
+					blockedReviewSQL := "LOCK TABLE rbac_user_roles, rbac_department_roles, v3_role_grants IN SHARE MODE"
 					blockedMutationSQL := "DELETE FROM v3_role_grants WHERE role_id='proposal-team-reviewer'"
 					if mutation == "owner" {
 						mutationSQL = `UPDATE applications SET owner_team_id=NULL WHERE id='app-2'`
@@ -289,7 +317,11 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 							t.Fatalf("revoked review changed record: status=%s comments=%d err=%v", status, count, err)
 						}
 					} else {
-						barrier := &reviewAuthorizationBarrier{V3Policy: policy, Action: operation.action,
+						blockAfter := 1
+						if operation.action != "change" {
+							blockAfter = 2 // GET and Reject also perform tentative admission before discussion reads.
+						}
+						barrier := &reviewAuthorizationBarrier{V3Policy: policy, Action: operation.action, BlockAfter: blockAfter,
 							Ready: make(chan struct{}), Release: make(chan struct{})}
 						reviewAPI := serve(barrier)
 						response := make(chan *httptest.ResponseRecorder, 1)
@@ -334,7 +366,7 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 			t.Fatal(err)
 		}
 		id := create("inv-2", "app-2", "dev")
-		barrier := &reviewAuthorizationBarrier{V3Policy: policy, Action: "view",
+		barrier := &reviewAuthorizationBarrier{V3Policy: policy, Action: "view", BlockAfter: 2,
 			Ready: make(chan struct{}), Release: make(chan struct{})}
 		reviewAPI := serve(barrier)
 		response := make(chan *httptest.ResponseRecorder, 1)
@@ -388,23 +420,204 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 		}
 		assert(request(api, "GET", id, "", "dev", teamReviewerToken, "", ""), 403, "forbidden")
 	})
+	// Role deletion and association editing lock the role first, then delete
+	// its assignment. Exercise those real writers against the review table
+	// locks in both commit orders; a trigger provides a deterministic writer
+	// barrier without changing production code.
+	if _, err := db.Exec(ctx, `CREATE FUNCTION pause_proposal_role_assignment_delete() RETURNS trigger LANGUAGE plpgsql AS $$
+ BEGIN
+  IF OLD.role_id LIKE 'proposal-cycle-%' THEN
+   PERFORM pg_advisory_xact_lock(hashtextextended(current_schema(), 11));
+  END IF;
+  RETURN OLD;
+ END $$`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `CREATE TRIGGER pause_proposal_role_assignment_delete
+ BEFORE DELETE ON rbac_user_roles FOR EACH ROW EXECUTE FUNCTION pause_proposal_role_assignment_delete()`); err != nil {
+		t.Fatal(err)
+	}
+	adminUser, err := st.Session(ctx, adminToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range []string{"delete-role", "remove-association"} {
+		for _, winner := range []string{"mutation", "review"} {
+			t.Run(change+"/"+winner, func(t *testing.T) {
+				roleID := "proposal-cycle-" + store.ID()
+				for _, statement := range []string{
+					`INSERT INTO rbac_roles(id,name) VALUES($1,$1)`,
+					`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES($1,'proposals','view','team','proposal-ops')`,
+				} {
+					if _, err := db.Exec(ctx, statement, roleID); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if _, err := db.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,$2)`, teamReviewer.ID, roleID); err != nil {
+					t.Fatal(err)
+				}
+				id := create("inv-2", "app-2", "dev")
+				mutate := func() error {
+					writer := &rbac.Service{Store: st}
+					actorCtx := store.WithPrincipal(ctx, adminUser)
+					if change == "delete-role" {
+						return writer.Delete(actorCtx, "roles", roleID, 1)
+					}
+					_, err := writer.SaveAssociations(actorCtx, roleID, rbac.Associations{
+						Revision: 1, Users: rbac.Delta{Remove: []string{teamReviewer.ID}},
+					})
+					return err
+				}
+				if winner == "mutation" {
+					barrier, err := db.Acquire(ctx)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer barrier.Release()
+					if _, err := barrier.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended(current_schema(), 11))`); err != nil {
+						t.Fatal(err)
+					}
+					held := true
+					defer func() {
+						if held {
+							_, _ = barrier.Exec(context.Background(), `SELECT pg_advisory_unlock(hashtextextended(current_schema(), 11))`)
+						}
+					}()
+					mutationDone := make(chan error, 1)
+					go func() { mutationDone <- mutate() }()
+					waitReviewLock(t, db, "DELETE FROM rbac_user_roles")
+					response := make(chan *httptest.ResponseRecorder, 1)
+					go func() {
+						response <- request(api, "GET", id, "", "dev", teamReviewerToken, "", "")
+					}()
+					waitReviewLock(t, db, "LOCK TABLE rbac_user_roles, rbac_department_roles, v3_role_grants IN SHARE MODE")
+					if _, err := barrier.Exec(ctx, `SELECT pg_advisory_unlock(hashtextextended(current_schema(), 11))`); err != nil {
+						t.Fatal(err)
+					}
+					held = false
+					if err := <-mutationDone; err != nil {
+						t.Fatal(err)
+					}
+					assert(<-response, 403, "forbidden")
+				} else {
+					access := &reviewAuthorizationBarrier{V3Policy: policy, Action: "view", BlockAfter: 2,
+						Ready: make(chan struct{}), Release: make(chan struct{})}
+					reviewAPI := serve(access)
+					response := make(chan *httptest.ResponseRecorder, 1)
+					go func() {
+						response <- request(reviewAPI, "GET", id, "", "dev", teamReviewerToken, "", "")
+					}()
+					select {
+					case <-access.Ready:
+					case <-time.After(5 * time.Second):
+						t.Fatal("role reviewer did not reach authorization barrier")
+					}
+					mutationDone := make(chan error, 1)
+					go func() { mutationDone <- mutate() }()
+					waitReviewLock(t, db, "DELETE FROM rbac_user_roles")
+					close(access.Release)
+					assert(<-response, 200, "")
+					if err := <-mutationDone; err != nil {
+						t.Fatal(err)
+					}
+					assert(request(api, "GET", id, "", "dev", teamReviewerToken, "", ""), 403, "forbidden")
+				}
+			})
+		}
+	}
+	for _, winner := range []string{"mutation", "review"} {
+		t.Run("grant-insert/"+winner, func(t *testing.T) {
+			if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='proposal-team-reviewer'
+ AND module='proposals' AND action='change' AND scope_kind='team' AND scope_id='proposal-ops'`); err != nil {
+				t.Fatal(err)
+			}
+			id := create("inv-2", "app-2", "dev")
+			insert := func(tx pgx.Tx) error {
+				_, err := tx.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('proposal-team-reviewer','proposals','change','team','proposal-ops')`)
+				return err
+			}
+			if winner == "mutation" {
+				writer, err := db.Begin(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer writer.Rollback(ctx)
+				if err := insert(writer); err != nil {
+					t.Fatal(err)
+				}
+				response := make(chan *httptest.ResponseRecorder, 1)
+				go func() {
+					response <- request(api, "POST", id, "/comments", "dev", teamReviewerToken,
+						`{"text":"Grant committed first"}`, "")
+				}()
+				waitReviewLock(t, db, "LOCK TABLE rbac_user_roles, rbac_department_roles, v3_role_grants IN SHARE MODE")
+				if err := writer.Commit(ctx); err != nil {
+					t.Fatal(err)
+				}
+				assert(<-response, 201, "")
+			} else {
+				access := &reviewAuthorizationBarrier{V3Policy: policy, Action: "change", BlockDenied: true, BlockAfter: 1,
+					Ready: make(chan struct{}), Release: make(chan struct{})}
+				reviewAPI := serve(access)
+				response := make(chan *httptest.ResponseRecorder, 1)
+				go func() {
+					response <- request(reviewAPI, "POST", id, "/comments", "dev", teamReviewerToken,
+						`{"text":"Grant committed later"}`, "")
+				}()
+				select {
+				case <-access.Ready:
+				case <-time.After(5 * time.Second):
+					t.Fatal("denied review did not reach authorization barrier")
+				}
+				mutationDone := make(chan error, 1)
+				go func() {
+					writer, err := db.Begin(ctx)
+					if err == nil {
+						err = insert(writer)
+						if err == nil {
+							err = writer.Commit(ctx)
+						} else {
+							writer.Rollback(ctx)
+						}
+					}
+					mutationDone <- err
+				}()
+				waitReviewLock(t, db, "INSERT INTO v3_role_grants")
+				close(access.Release)
+				assert(<-response, 403, "forbidden")
+				if err := <-mutationDone; err != nil {
+					t.Fatal(err)
+				}
+				assert(request(api, "POST", id, "/comments", "dev", teamReviewerToken,
+					`{"text":"Now authorized"}`, ""), 201, "")
+			}
+		})
+	}
 }
 
 type reviewAuthorizationBarrier struct {
 	*rbac.V3Policy
-	Action  string
-	Ready   chan struct{}
-	Release chan struct{}
-	Once    sync.Once
+	Action      string
+	BlockDenied bool
+	BlockAfter  int
+	Calls       int
+	Ready       chan struct{}
+	Release     chan struct{}
+	Once        sync.Once
 }
 
 func (a *reviewAuthorizationBarrier) AuthorizeWithTx(ctx context.Context, tx pgx.Tx, user core.User, d rbac.V3Decision) error {
 	err := a.V3Policy.AuthorizeWithTx(ctx, tx, user, d)
-	if err == nil && d.Module == "proposals" && d.Action == a.Action && d.TeamID == "proposal-ops" {
-		a.Once.Do(func() {
-			close(a.Ready)
-			<-a.Release
-		})
+	if (err == nil || a.BlockDenied) && d.Module == "proposals" && d.Action == a.Action && d.TeamID == "proposal-ops" {
+		a.Calls++
+		if a.Calls == a.BlockAfter {
+			a.Once.Do(func() {
+				close(a.Ready)
+				<-a.Release
+			})
+		}
 	}
 	return err
 }

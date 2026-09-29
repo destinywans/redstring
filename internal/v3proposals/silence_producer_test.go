@@ -73,7 +73,7 @@ func newSilenceProposalFixture(t *testing.T) *silenceProposalFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	cfg.ConnConfig.RuntimeParams["application_name"] = schema
 	cfg.MaxConns = 5
 	f.db, err = pgxpool.NewWithConfig(ctx, cfg)
@@ -707,7 +707,8 @@ func TestSilenceReplayRejectMemberUpdateDoesNotDeadlock(t *testing.T) {
 		api.ServeHTTP(w, r)
 		rejectDone <- w
 	}()
-	waitForSilenceCycleLock(t, f.db, `SELECT v3_identity_kind='human' FROM users`, rejectDone)
+	waitForSilenceCycleLock(t, f.db, `SELECT id FROM users
+ WHERE id=$1 AND NOT disabled AND deleted_at IS NULL AND source<>'settings_demo' FOR SHARE`, rejectDone)
 
 	replayDone := make(chan silenceCreateResult, 1)
 	go func() {
@@ -731,7 +732,7 @@ func TestSilenceReplayRejectMemberUpdateDoesNotDeadlock(t *testing.T) {
 	}
 	select {
 	case response := <-rejectDone:
-		if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), `"code":"forbidden"`) {
+		if response.Code != http.StatusUnauthorized || !strings.Contains(response.Body.String(), `"code":"unauthorized"`) {
 			t.Fatalf("disabled reviewer rejection status=%d body=%s", response.Code, response.Body.String())
 		}
 	case <-ctx.Done():

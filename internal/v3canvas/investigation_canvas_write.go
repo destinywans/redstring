@@ -225,6 +225,10 @@ func (s *Service) createInvestigationBranch(w http.ResponseWriter, r *http.Reque
 		graphUnavailable().write(w)
 		return
 	}
+	if failure = s.canvasSession(ctx, tx, r); failure != nil {
+		failure.write(w)
+		return
+	}
 	if err = tx.Commit(ctx); err != nil {
 		graphUnavailable().write(w)
 		return
@@ -365,6 +369,10 @@ func (s *Service) patchInvestigationNode(w http.ResponseWriter, r *http.Request)
 	updated, found := canvasNodeByID(graph, nodeID)
 	if !found {
 		graphUnavailable().write(w)
+		return
+	}
+	if failure = s.canvasSession(ctx, tx, r); failure != nil {
+		failure.write(w)
 		return
 	}
 	if err = tx.Commit(ctx); err != nil {

@@ -47,19 +47,28 @@ type investigationCanvasTarget struct {
 // A current session and role-source locks bind the transaction's decision to
 // the principal that entered through the registered V3 middleware.
 func (s *Service) canvasPrincipal(ctx context.Context, tx pgx.Tx, r *http.Request) *graphFailure {
+	if failure := s.canvasSession(ctx, tx, r); failure != nil {
+		return failure
+	}
+	if err := lockCanvasGrantSources(ctx, tx, httpapi.CurrentUser(r).ID); err != nil {
+		return graphUnavailable()
+	}
+	return nil
+}
+
+// Use the shared user-then-session lock order, including at the final check:
+// row locks pin logout and account changes, but time can expire the Cookie
+// while an investigation or branch lock blocks the request.
+func (s *Service) canvasSession(ctx context.Context, tx pgx.Tx, r *http.Request) *graphFailure {
 	cookie, err := r.Cookie("aiops_session")
-	if err != nil || cookie.Value == "" {
+	if err != nil {
 		return &graphFailure{401, "unauthorized", "Login required"}
 	}
-	var userID string
-	err = tx.QueryRow(ctx, `SELECT s.user_id FROM sessions s JOIN users u ON u.id=s.user_id
- WHERE s.token_hash=$1 AND s.user_id=$2 AND s.expires_at>clock_timestamp()
- AND NOT u.disabled AND u.deleted_at IS NULL FOR SHARE OF s,u`,
-		store.Hash(cookie.Value), httpapi.CurrentUser(r).ID).Scan(&userID)
-	if errors.Is(err, pgx.ErrNoRows) {
+	err = store.LockActiveSession(ctx, tx, cookie.Value, httpapi.CurrentUser(r).ID)
+	if errors.Is(err, store.ErrSessionRevoked) {
 		return &graphFailure{401, "unauthorized", "Login required"}
 	}
-	if err != nil || lockCanvasGrantSources(ctx, tx, userID) != nil {
+	if err != nil {
 		return graphUnavailable()
 	}
 	return nil
@@ -376,18 +385,29 @@ func (s *Service) readCanvasGraph(ctx context.Context, tx pgx.Tx, target investi
 	// No provider-neutral token count is recorded for the current context
 	// revision. Historical run-step usage is not the current context budget.
 
-	rows, err = tx.Query(ctx, `SELECT id,branch_id,kind,title,content,source
- FROM evidence WHERE branch_id=ANY($1::text[]) ORDER BY created_at,id LIMIT $2`, ids, maxInvestigationEvidence+1)
+	// Compute the display bound in PostgreSQL. CASE keeps oversized text out of
+	// the result set before pgx materializes a row in this process.
+	rows, err = tx.Query(ctx, `SELECT e.id,e.branch_id,
+ CASE WHEN b.display_bytes<=$3 THEN e.kind ELSE '' END,
+ CASE WHEN b.display_bytes<=$3 THEN e.title ELSE '' END,
+ CASE WHEN b.display_bytes<=$3 THEN e.content ELSE '' END,
+ CASE WHEN b.display_bytes<=$3 THEN e.source ELSE '' END,b.display_bytes
+ FROM evidence e CROSS JOIN LATERAL (VALUES (
+   octet_length(e.kind)::bigint+octet_length(e.title)+octet_length(e.content)+octet_length(e.source)
+ )) b(display_bytes)
+ WHERE e.branch_id=ANY($1::text[]) ORDER BY e.created_at,e.id LIMIT $2`,
+		ids, maxInvestigationEvidence+1, maxInvestigationText)
 	if err != nil {
 		return graph, graphUnavailable()
 	}
 	evidenceLimit := false
 	for rows.Next() {
 		var id, branchID, kind, title, content, source string
-		if err = rows.Scan(&id, &branchID, &kind, &title, &content, &source); err != nil {
+		var displayBytes int64
+		if err = rows.Scan(&id, &branchID, &kind, &title, &content, &source, &displayBytes); err != nil {
 			break
 		}
-		if len(graph.Tray) >= maxInvestigationEvidence || len(content)+len(source)+len(title) > maxInvestigationText {
+		if len(graph.Tray) >= maxInvestigationEvidence || displayBytes > maxInvestigationText {
 			evidenceLimit = true
 			break
 		}
@@ -449,6 +469,10 @@ func (s *Service) investigationCanvas(w http.ResponseWriter, r *http.Request) {
 	}
 	graph, failure := s.readCanvasGraph(ctx, tx, target, r.Header.Get("Accept-Language"))
 	if failure != nil {
+		failure.write(w)
+		return
+	}
+	if failure = s.canvasSession(ctx, tx, r); failure != nil {
 		failure.write(w)
 		return
 	}

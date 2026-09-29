@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -211,6 +212,25 @@ func TestInvestigationCanvasRegisteredRoutes(t *testing.T) {
 			t.Fatalf("graph not sourced from current persisted records: %s", w.Body.String())
 		}
 	}
+	if _, err = db.Exec(ctx, `INSERT INTO evidence(id,branch_id,kind,title,content,source)
+ VALUES('oversized-canvas-evidence','root-main','log','small',repeat('x',1048576),'manual')`); err != nil {
+		t.Fatal(err)
+	}
+	for _, update := range []string{
+		`UPDATE evidence SET title='small',content=repeat('x',1048576),source='manual' WHERE id='oversized-canvas-evidence'`,
+		`UPDATE evidence SET title=repeat('x',1048576),content='small',source='manual' WHERE id='oversized-canvas-evidence'`,
+		`UPDATE evidence SET title='small',content='small',source=repeat('x',1048576) WHERE id='oversized-canvas-evidence'`,
+		`UPDATE evidence SET kind=repeat('x',1048576),title='small',content='small',source='manual' WHERE id='oversized-canvas-evidence'`,
+	} {
+		if _, err = db.Exec(ctx, update); err != nil {
+			t.Fatal(err)
+		}
+		assertStatus(get(ownerToken, "test", "INV-persisted"), 413)
+	}
+	if _, err = db.Exec(ctx, `DELETE FROM evidence WHERE id='oversized-canvas-evidence'`); err != nil {
+		t.Fatal(err)
+	}
+	assertStatus(get(ownerToken, "test", "INV-persisted"), 200)
 	assertStatus(get(appViewToken, "test", "11111111111111111111111111111111"), 200)
 	assertStatus(get(ownerToken, "dev", "INV-dev"), 422)
 	for _, tc := range []struct {
@@ -445,6 +465,102 @@ func TestInvestigationCanvasRegisteredRoutes(t *testing.T) {
 	}
 	if err = db.QueryRow(ctx, `SELECT title FROM branches WHERE id='root-main'`).Scan(&persistedTitle); err != nil || persistedTitle != "V3 after legacy" {
 		t.Fatalf("current title PATCH not persisted: %q err=%v", persistedTitle, err)
+	}
+	// Pin the concrete row in another transaction so each request passes the
+	// middleware and initial session check, then waits inside its handler. The
+	// database clock proves the Cookie expired before releasing the blocker.
+	var beforeExpiryBranches, beforeExpiryAudits int
+	var beforeExpiryLayout int64
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM branches WHERE investigation_id='INV-persisted'`).Scan(&beforeExpiryBranches); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM management_audit`).Scan(&beforeExpiryAudits); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.QueryRow(ctx, `SELECT version FROM v3_investigation_node_layouts WHERE branch_id='root-main'`).Scan(&beforeExpiryLayout); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, method, path, body, lockSQL string
+	}{
+		{"GET", http.MethodGet, "/api/v1/investigations/INV-persisted/canvas", "", `SELECT id FROM investigations WHERE id='INV-persisted' FOR UPDATE`},
+		{"POST", http.MethodPost, "/api/v1/investigations/INV-persisted/branches", `{"parent_id":"root-main","title":"Expired fork"}`, `SELECT id FROM branches WHERE id='root-main' FOR UPDATE`},
+		{"PATCH", http.MethodPatch, "/api/v1/investigations/INV-persisted/nodes/root-main", `{"x":777,"expected_layout_version":` + strconv.FormatInt(beforeExpiryLayout, 10) + `}`, `SELECT id FROM branches WHERE id='root-main' FOR UPDATE`},
+	} {
+		t.Run("session expires during "+tc.name+" lock wait", func(t *testing.T) {
+			blocker, e := db.Begin(ctx)
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer blocker.Rollback(context.Background())
+			var blockerPID int32
+			if e = blocker.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&blockerPID); e != nil {
+				t.Fatal(e)
+			}
+			var lockedID string
+			if e = blocker.QueryRow(ctx, tc.lockSQL).Scan(&lockedID); e != nil {
+				t.Fatal(e)
+			}
+			if _, e = db.Exec(ctx, `UPDATE sessions SET expires_at=clock_timestamp()+interval '2 seconds' WHERE token_hash=$1`, store.Hash(ownerToken)); e != nil {
+				t.Fatal(e)
+			}
+			responses := make(chan *httptest.ResponseRecorder, 1)
+			go func() { responses <- request(tc.method, ownerToken, "test", tc.path, tc.body) }()
+			deadline := time.Now().Add(6 * time.Second)
+			for {
+				var blocked bool
+				if e = db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity a
+ WHERE a.pid<>pg_backend_pid() AND $1=ANY(pg_blocking_pids(a.pid)))`, blockerPID).Scan(&blocked); e != nil {
+					t.Fatal(e)
+				}
+				if blocked {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("request did not reach the blocked investigation or branch row")
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			for {
+				var expired bool
+				if e = db.QueryRow(ctx, `SELECT expires_at<=clock_timestamp() FROM sessions WHERE token_hash=$1`, store.Hash(ownerToken)).Scan(&expired); e != nil {
+					t.Fatal(e)
+				}
+				if expired {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("blocked session did not expire")
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			if e = blocker.Rollback(ctx); e != nil {
+				t.Fatal(e)
+			}
+			select {
+			case response := <-responses:
+				if response.Code != http.StatusUnauthorized || strings.Contains(response.Body.String(), "Expired fork") {
+					t.Fatalf("expired Cookie request=%d %s", response.Code, response.Body.String())
+				}
+			case <-time.After(6 * time.Second):
+				t.Fatal("expired Cookie request did not complete")
+			}
+		})
+	}
+	var afterExpiryBranches, afterExpiryAudits int
+	var afterExpiryLayout int64
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM branches WHERE investigation_id='INV-persisted'`).Scan(&afterExpiryBranches); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM management_audit`).Scan(&afterExpiryAudits); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.QueryRow(ctx, `SELECT version FROM v3_investigation_node_layouts WHERE branch_id='root-main'`).Scan(&afterExpiryLayout); err != nil {
+		t.Fatal(err)
+	}
+	if afterExpiryBranches != beforeExpiryBranches || afterExpiryAudits != beforeExpiryAudits || afterExpiryLayout != beforeExpiryLayout {
+		t.Fatalf("expired Cookie mutated data: branches=%d/%d audits=%d/%d layout=%d/%d",
+			beforeExpiryBranches, afterExpiryBranches, beforeExpiryAudits, afterExpiryAudits, beforeExpiryLayout, afterExpiryLayout)
 	}
 	// Team access follows the application's current owner, rather than a
 	// snapshot captured when the user or investigation was created.

@@ -1,7 +1,6 @@
 """Bounded, review-only alert rule generation and sampled preview.
 
-Execute after v3-openapi-alerts.py when composing the V3 contract. This
-fragment intentionally does not change the checked-in main contract.
+Loaded after v3-openapi-alerts.py by the aggregate V3 contract builder.
 """
 
 S['V3RuleDraftGenerateRequest'] = obj({

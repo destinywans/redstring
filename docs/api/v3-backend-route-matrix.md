@@ -97,8 +97,8 @@
 | 资源与观测 | GET | `/changes` | 聚合 | implemented |
 | v4 新建流程 | GET | `/incidents/draft` | 新增 | implemented |
 | v4 新建流程 | POST | `/incidents` | 新增 | implemented |
-| v4 新建流程 | POST | `/alert-rules/generate` | 新增 | mock |
-| v4 新建流程 | POST | `/alert-rules/preview` | 新增 | mock |
+| v4 新建流程 | POST | `/alert-rules/generate` | 新增 | implemented |
+| v4 新建流程 | POST | `/alert-rules/preview` | 新增 | implemented |
 | v4 新建流程 | POST | `/alert-rules` | 新增 | mock |
 | v4 新建流程 | POST | `/alert-rules/import` | 新增 | mock |
 | v4 新建流程 | POST | `/notification-routes/test` | 新增 | implemented |

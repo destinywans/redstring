@@ -213,8 +213,12 @@ func (s *Service) Generate(w http.ResponseWriter, r *http.Request) {
 			status, code = "ambiguous", "provider_budget_exceeded"
 		}
 	}
-	if err := s.finishGenerate(meta, status, code, draft, result, duration); err != nil {
-		_ = s.markGenerateAmbiguous(meta, result, duration)
+	if err := s.finishGenerate(w, r, meta, status, code, draft, result, duration); err != nil {
+		if errors.Is(err, errGenerateAuthorization) {
+			_ = s.markGenerateAmbiguous(meta, result, duration, "authorization_changed")
+			return // authorizeTx already wrote the single HTTP response.
+		}
+		_ = s.markGenerateAmbiguous(meta, result, duration, "result_write_uncertain")
 		generateAmbiguous(w)
 		return
 	}
@@ -224,15 +228,6 @@ func (s *Service) Generate(w http.ResponseWriter, r *http.Request) {
 		} else {
 			generateFailed(w)
 		}
-		return
-	}
-	tx, ok := s.beginAuthorized(w, r, env, app, "change")
-	if !ok {
-		return
-	}
-	defer tx.Rollback(r.Context())
-	if err := tx.Commit(r.Context()); err != nil {
-		httpapi.Error(w, http.StatusServiceUnavailable, "authorization_unavailable", "Final authorization could not be confirmed")
 		return
 	}
 	httpapi.WriteJSON(w, http.StatusOK, draft)
@@ -375,15 +370,24 @@ func cleanGenerateEvidence(m generateMeta, result GenerateModelResult) (string, 
 	return id, in, out
 }
 
-func (s *Service) finishGenerate(m generateMeta, status, code string, draft *generatedDraft,
+var errGenerateAuthorization = errors.New("final draft authorization failed")
+
+func (s *Service) finishGenerate(w http.ResponseWriter, r *http.Request, m generateMeta, status, code string, draft *generatedDraft,
 	result GenerateModelResult, duration int64) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
 	defer cancel()
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	if draft != nil && r.Context().Err() != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, "authorization_unavailable", "Draft request was canceled")
+		return errGenerateAuthorization
+	}
+	if draft != nil && !s.authorizeTx(w, r.WithContext(ctx), tx, m.env, m.app, "change") {
+		return errGenerateAuthorization
+	}
 	var payload []byte
 	if draft != nil {
 		payload, err = json.Marshal(draft)
@@ -406,10 +410,29 @@ func (s *Service) finishGenerate(m generateMeta, status, code string, draft *gen
 			"usage_reported": in != nil && out != nil, "duration_ms": duration}); err != nil {
 		return err
 	}
+	if draft != nil {
+		if r.Context().Err() != nil {
+			httpapi.Error(w, http.StatusServiceUnavailable, "authorization_unavailable", "Draft request was canceled")
+			return errGenerateAuthorization
+		}
+		cookie, err := r.Cookie("aiops_session")
+		if err != nil {
+			httpapi.Error(w, http.StatusUnauthorized, "unauthorized", "Session expired")
+			return errGenerateAuthorization
+		}
+		if err = store.LockActiveSession(ctx, tx, cookie.Value, m.actor); err != nil {
+			if errors.Is(err, store.ErrSessionRevoked) {
+				httpapi.Error(w, http.StatusUnauthorized, "unauthorized", "Session expired")
+			} else {
+				httpapi.Error(w, http.StatusServiceUnavailable, "authorization_unavailable", "Session verification is unavailable")
+			}
+			return errGenerateAuthorization
+		}
+	}
 	return tx.Commit(ctx)
 }
 
-func (s *Service) markGenerateAmbiguous(m generateMeta, result GenerateModelResult, duration int64) error {
+func (s *Service) markGenerateAmbiguous(m generateMeta, result GenerateModelResult, duration int64, code string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	id, in, out := cleanGenerateEvidence(m, result)
@@ -419,14 +442,14 @@ func (s *Service) markGenerateAmbiguous(m generateMeta, result GenerateModelResu
 	}
 	defer tx.Rollback(ctx)
 	cmd, err := tx.Exec(ctx, `UPDATE v3_rule_generate_attempts SET status='ambiguous',
- error_code='result_write_uncertain',provider_request_id=$2,input_tokens=$3,output_tokens=$4,
- duration_ms=$5,finished_at=clock_timestamp() WHERE id=$1 AND status='running'`, m.id, id, in, out, duration)
+ error_code=$2,provider_request_id=$3,input_tokens=$4,output_tokens=$5,
+ duration_ms=$6,finished_at=clock_timestamp() WHERE id=$1 AND status='running'`, m.id, code, id, in, out, duration)
 	if err != nil {
 		return err
 	}
 	if cmd.RowsAffected() == 1 {
 		if err = audit(ctx, tx, m.app, m.actor, "v3.alert_rule.generate.ambiguous", m.id,
-			map[string]any{"error_code": "result_write_uncertain", "provider_request_id": id,
+			map[string]any{"error_code": code, "provider_request_id": id,
 				"usage_reported": in != nil && out != nil}); err != nil {
 			return err
 		}

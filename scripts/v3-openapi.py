@@ -42,6 +42,7 @@ for _v3_domain in (
     'mcp',
     'mcp-domain',
     'alerts',
+    'rule-assistant',
     'inhibitions',
     'reviews',
     'runbooks',

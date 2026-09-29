@@ -137,17 +137,18 @@ func NewPrometheusPreviewReader(configJSON []byte, allowedHosts []string) (*Prom
 		}
 		u, err := url.Parse(item.Endpoint)
 		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" ||
-			u.Opaque != "" || u.RawPath != "" || u.ForceQuery || !validPreviewPath(u.Path) || u.Port() != "" && u.Port() != "443" {
+			u.Opaque != "" || u.RawPath != "" || u.ForceQuery || !validPreviewPath(u.Path) || u.Port() != "" {
 			return nil, errPreviewConfig
 		}
 		if _, ok := hosts[u.Hostname()]; !ok || !validPreviewHost(u.Hostname()) {
 			return nil, errPreviewConfig
 		}
+		endpoint := strings.TrimRight(item.Endpoint, "/")
 		owner := b.EnvironmentID + "\x00" + b.ApplicationID
-		if prior, exists := endpointOwner[item.Endpoint]; exists && prior != owner {
+		if prior, exists := endpointOwner[endpoint]; exists && prior != owner {
 			return nil, errPreviewConfig
 		}
-		endpointOwner[item.Endpoint] = owner
+		endpointOwner[endpoint] = owner
 		if _, duplicate := r.sources[b]; duplicate {
 			return nil, errPreviewConfig
 		}
@@ -156,7 +157,7 @@ func NewPrometheusPreviewReader(configJSON []byte, allowedHosts []string) (*Prom
 			return nil, errPreviewConfig
 		}
 		queryOwner[key] = struct{}{}
-		r.sources[b] = previewSource{endpoint: strings.TrimRight(item.Endpoint, "/"), apiKeyEnv: item.APIKeyEnv}
+		r.sources[b] = previewSource{endpoint: endpoint, apiKeyEnv: item.APIKeyEnv}
 		r.bindings[b.EnvironmentID] = append(r.bindings[b.EnvironmentID], b)
 	}
 	r.client = &http.Client{Timeout: 15 * time.Second,

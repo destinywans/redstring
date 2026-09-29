@@ -53,6 +53,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3postmortems"
 	"github.com/wans/aiops-canvas/internal/v3proposals"
 	"github.com/wans/aiops-canvas/internal/v3resilience"
+	"github.com/wans/aiops-canvas/internal/v3ruleassistant"
 	"github.com/wans/aiops-canvas/internal/v3serviceviews"
 	"github.com/wans/aiops-canvas/internal/v3settings"
 	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
@@ -356,6 +357,13 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		}
 	}
 	ruleService.Register(api)
+	rulePreview, ruleDraftModel, err := loadV3RuleAssistantSources(
+		os.Getenv("AIOPS_V3_RULE_PREVIEW_CONFIG"), os.Getenv("AIOPS_V3_RULE_PREVIEW_ALLOWED_HOSTS"),
+		os.Getenv("AIOPS_V3_RULE_DRAFT_MODEL_CONFIG"), os.Getenv("AIOPS_V3_RULE_DRAFT_MODEL_ALLOWED_HOSTS"), *info)
+	if err != nil {
+		return fmt.Errorf("configure V3 alert rule assistant: %w", err)
+	}
+	(&v3ruleassistant.Service{DB: s.DB, Access: policy, Preview: rulePreview, Model: ruleDraftModel}).Register(api)
 	alertmanagerSource, alertmanagerLabels, alertmanagerBindings, alertmanagerPolicyBindings, err :=
 		loadV3AlertmanagerSourceWithPolicies(os.Getenv("AIOPS_V3_ALERTMANAGER_CONFIG"), *info, opsConfig, s.DB)
 	if err != nil {

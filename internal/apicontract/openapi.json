@@ -35430,6 +35430,269 @@
         ]
       }
     },
+    "/alert-rules/generate": {
+      "post": {
+        "summary": "Generate a review-only alert rule draft",
+        "operationId": "post_alert_rules_generate",
+        "description": "Minimum role: operator. V3 instance and environment scope apply. Requires one selected environment, explicit application_id, and current application or owner-team alert_rules.change before catalog access. The server uses one explicitly configured bounded model call with no tools and validates its JSON and PromQL against the reviewed application-isolated query catalog. A changed expression has unit=unknown until human review. It persists an audited attempt; it never creates, enables, or deploys an alert rule. The Idempotency-Key is actor-bound, 8–128 characters, and one key never causes a second model call. A running key returns 409; new-key rate limit returns 429; a stale, uncertain, or provider-budget-violating result returns 502 and requires inspection before a new key. The cost cap is a configured price estimate for admission, not provider billing proof. Unconfigured model or catalog returns 503.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3GeneratedRuleDraft"
+                }
+              }
+            },
+            "headers": {
+              "X-Rule-Draft-Attempt-ID": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Persisted attempt ID, also returned on replay and known failures."
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Model failed, returned an invalid draft, or outcome is uncertain",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "New-key model draft rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "alert-rules"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3RuleDraftGenerateRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            },
+            "description": "Actor-bound request key for one model attempt."
+          }
+        ]
+      }
+    },
+    "/alert-rules/preview": {
+      "post": {
+        "summary": "Preview a bounded rule draft from Prometheus samples",
+        "operationId": "post_alert_rules_preview",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment, explicit application_id, and current application or owner-team alert_rules.view before catalog access. The query must parse within exactly one reviewed PromQL metric and label scope. One configured application-isolated Prometheus query_range reads the last seven days at a five-minute step; values and points reflect the requested display range. A changed expression has unit=unknown until human review. Trigger intervals and sampled_count are sampled evaluations, not historical alert records or complete counts. Unknown full-history count, noise, overlap, route, and similar-rule data remain null or unknown. The endpoint checks scope and grants again after upstream I/O and never creates or enables a rule. Missing source or incomplete/over-limit provider data returns 503; a per-actor/application/environment preview budget may return 429.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3RulePreviewResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Preview rate limit exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "alert-rules"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3RulePreviewRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/inhibitions/preview": {
       "post": {
         "summary": "Simulate a bounded seven-day inhibition window",
@@ -65369,6 +65632,421 @@
           "stat",
           "active",
           "hits_7d"
+        ]
+      },
+      "V3RuleDraftGenerateRequest": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "application_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "text",
+          "application_id"
+        ]
+      },
+      "V3RuleDraftModel": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "provider",
+          "name"
+        ]
+      },
+      "V3GeneratedRuleDraft": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "op": {
+            "type": "string",
+            "enum": [
+              ">",
+              "<"
+            ]
+          },
+          "threshold": {
+            "type": "number"
+          },
+          "unit": {
+            "type": "string",
+            "description": "Reviewed seed unit only for an identical query; unknown after expression changes."
+          },
+          "for_minutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 60
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "P1",
+              "P2",
+              "P3",
+              "P4"
+            ]
+          },
+          "service": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "query_id": {
+            "type": "string"
+          },
+          "draft_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "review_required"
+            ]
+          },
+          "model": {
+            "$ref": "#/components/schemas/V3RuleDraftModel"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "query",
+          "op",
+          "threshold",
+          "unit",
+          "for_minutes",
+          "severity",
+          "service",
+          "summary",
+          "application_id",
+          "environment_id",
+          "query_id",
+          "draft_id",
+          "status",
+          "model"
+        ]
+      },
+      "V3RulePreviewRequest": {
+        "type": "object",
+        "properties": {
+          "application_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "op": {
+            "type": "string",
+            "enum": [
+              ">",
+              "<"
+            ]
+          },
+          "threshold": {
+            "type": "number"
+          },
+          "for_minutes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 60
+          },
+          "range": {
+            "type": "string",
+            "enum": [
+              "1h",
+              "24h",
+              "7d"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "application_id",
+          "query",
+          "op",
+          "threshold",
+          "for_minutes",
+          "range"
+        ]
+      },
+      "V3RuleSampleWindow": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "start",
+          "end"
+        ]
+      },
+      "V3RulePreviewPoint": {
+        "type": "object",
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "value": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "at",
+          "value"
+        ]
+      },
+      "V3RuleSampledBacktest": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "sampled"
+            ]
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "step_seconds": {
+            "type": "integer",
+            "enum": [
+              300
+            ]
+          },
+          "sampled_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Unknown historical total; currently null."
+          },
+          "avg_minutes": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "max_minutes": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "overlaps": {
+            "type": [
+              "object",
+              "array",
+              "null"
+            ]
+          },
+          "noise": {
+            "type": [
+              "object",
+              "array",
+              "null"
+            ]
+          },
+          "sampled_windows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3RuleSampleWindow"
+            }
+          },
+          "completeness_notice": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "from",
+          "to",
+          "step_seconds",
+          "sampled_count",
+          "count",
+          "avg_minutes",
+          "max_minutes",
+          "overlaps",
+          "noise",
+          "sampled_windows",
+          "completeness_notice"
+        ]
+      },
+      "V3RulePreviewResult": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "description": "Query passed admission; coverage may still be no_observed_series."
+          },
+          "series_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "source": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "query_id": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string",
+            "description": "Reviewed seed unit only for an identical query; unknown after expression changes."
+          },
+          "range": {
+            "type": "string",
+            "enum": [
+              "1h",
+              "24h",
+              "7d"
+            ]
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3RulePreviewPoint"
+            }
+          },
+          "current": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "fires": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Currently null; sampled historical windows are separate."
+          },
+          "trigger_intervals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3RuleSampleWindow"
+            }
+          },
+          "backtest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/V3RuleSampledBacktest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "route": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "route_status": {
+            "type": "string",
+            "enum": [
+              "unknown"
+            ]
+          },
+          "similar": {
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "similar_status": {
+            "type": "string",
+            "enum": [
+              "unknown"
+            ]
+          },
+          "coverage": {
+            "type": "string",
+            "enum": [
+              "sampled_5m",
+              "no_observed_series"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "valid",
+          "series_count",
+          "source",
+          "application_id",
+          "environment_id",
+          "query_id",
+          "unit",
+          "range",
+          "values",
+          "points",
+          "current",
+          "fires",
+          "trigger_intervals",
+          "backtest",
+          "route",
+          "route_status",
+          "similar",
+          "similar_status",
+          "coverage"
         ]
       },
       "V3InhibitionMatcherRead": {

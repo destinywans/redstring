@@ -18,9 +18,12 @@
 
 **部署审核门槛：** `isolation_mode=application_endpoint` 是配置声明。部署人员必须先验证每个 Prometheus 端点自身只暴露所绑定的应用与环境，且查询目录的标签键、基础表达式和允许主机与真实隔离一致；代码中的返回标签检查只是第二道保护。不能仅凭客户端标签过滤声明完成隔离验收。
 
-## WAN-117 集成点与状态
+## 正式入口与未验证边界
 
-1. 在目标数据库应用 `migrations/141_v3_rule_assistant.sql`，创建生成 attempt 与预览预算表；此批次仅提交迁移文件，未执行迁移。
-2. 在 `cmd/aiops` 的 V3 组装点，从受保护配置读取上述两个 JSON，分别调用 `v3ruleassistant.NewRuleDraftOpenAIAdapter(...)`、`v3ruleassistant.NewPrometheusPreviewReader(...)`，配置显式允许的 DNS 主机，并以 `v3ruleassistant.Service{DB: ..., Access: ..., Model: ..., Preview: ...}.Register(api)` 注册路由。任何真实模型调用、Prometheus 读取或付费请求均留给配置完成后的运行验收。
-3. 主契约组装在 `scripts/v3-openapi-alerts.py` **之后**执行 `scripts/v3-openapi-rule-assistant.py`，再按既有流程生成、检查 `internal/apicontract/openapi.json`。本批次不改主生成器或主契约。
-4. 冻结的 `NewRulePage` 尚未传 `application_id` 或生成所需的 `Idempotency-Key`，且把 `preview.backtest.overlaps`、`hits`、`days` 当作必有数组，`noise` 当作确定值。真实响应的 `overlaps` 为 `null`，不提供 `hits`/`days`，`fires` 为 `null`；无序列时 `current=null`、`values=[]`、`backtest=null`。直接接线会在数组操作处崩溃，或把无数据误报为数值 0、不会触发。WAN-117 必须增加应用选择与请求键、修改页面适配、空值状态、未知单位和采样文案，并做真实页面验收；后端返回 200 不能算页面验收通过。
+`cmd/aiops` 已注册两条路由，并在现有 V3 数据库迁移流程中包含 `migrations/141_v3_rule_assistant.sql`；该迁移尚未在现有业务库执行。聚合 OpenAPI 在告警片段后装入独立规则助手片段。默认不配置上游时，生成及预览明确不可用。
+
+- 预览配置：`AIOPS_V3_RULE_PREVIEW_CONFIG` 与 `AIOPS_V3_RULE_PREVIEW_ALLOWED_HOSTS` 必须成对设置。前者是绝对路径、0600 普通 JSON 文件，最多 128 KiB；后者是精确 DNS 主机名单。配置的环境必须属于当前 V3 实例。端点归属以实际使用的规范 URL 检查，同一端点不能绑定两个应用/环境；显式端口不接受。部署人员仍须验证端点本身只暴露绑定应用及环境。
+- 模型配置：`AIOPS_V3_RULE_DRAFT_MODEL_CONFIG` 与 `AIOPS_V3_RULE_DRAFT_MODEL_ALLOWED_HOSTS` 必须成对设置。文件要求相同，最多 64 KiB；每个模型环境须先有受审预览目录。API key 仅由 JSON 中 `api_key_env` 指向的环境变量提供。调用准入成本是单次估算，没有跨请求累计费用保证，真实付费启用前须配置部署层额度/限流和账单核对。
+- 模型调用后，成功草稿在结果写事务内重新锁当前会话、应用映射和授权后才保存；失权只尽力记录无正文调用证据。预览来源 URL 用同一规范形式进行端点独占校验和实际请求。
+
+没有进行真实模型调用、Prometheus 读取、业务库迁移或页面验收。冻结的 `NewRulePage` 尚未传 `application_id` 或生成所需的 `Idempotency-Key`，且把 `preview.backtest.overlaps`、`hits`、`days` 当作必有数组，`noise` 当作确定值。真实响应的 `overlaps` 为 `null`，不提供 `hits`/`days`，`fires` 为 `null`；无序列时 `current=null`、`values=[]`、`backtest=null`。冻结前端需在后续适配应用选择、请求键、空值状态、未知单位和采样文案，并做真实页面验收；后端返回 200 不代表页面验收通过。

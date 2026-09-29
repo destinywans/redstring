@@ -51,6 +51,7 @@
 - [V3 告警详情与人工认领](examples/v3-alert-detail-claim.md)：持久事件来源、可空证据、修订约束和前端缺口。
 - [V3 通知路由草稿](api/v3-notification-route-drafts.md)：Alertmanager 环境子树、匿名接收方引用、GitLab 人工审阅草稿与未激活边界。
 - [V3 抑制规则与草稿](api/v3-inhibition-drafts.md)：受权抑制读取、七天历史试算、GitLab 待审草稿与未激活边界。
+- [V3 规则助手](api/v3-rule-assistant.md)：受审目录中的模型草稿生成、Prometheus 采样预览与真实来源边界。
 - [视觉与交互检查](../design-qa.md)：概念图映射、已检查行为及差异。
 - [历史后端交接](backend-handoff.md)、[演示环境](demo.md)。
 - [实施计划](../PLAN.md)、[可恢复检查点](../CHECKPOINT.md)、[领域术语](../CONTEXT.md)。

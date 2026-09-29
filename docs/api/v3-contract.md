@@ -260,8 +260,8 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | --- | --- | --- | --- | --- |
 | GET | `/incidents/draft` | 必需 `alerts`：1–20 个当前受权、同应用环境的活跃告警 ID | 持久告警预填的部分草稿；未知影响、人员与作战群可空 | implemented |
 | POST | `/incidents` | `Idempotency-Key` 头及 `{ title, severity, impact?, env, services: [id], alert_ids, commander?, war_room?, notify?, status_page?, open_canvas? }` | 持久人工事件、告警关联、审计及可选空白调查；外部动作标志请求返回 503，不发送或发布 | implemented |
-| POST | `/alert-rules/generate` | `{ text }` | PromQL 与阈值草稿 | mock |
-| POST | `/alert-rules/preview` | `{ query, op, threshold, for_minutes, range }` | 校验、曲线、触发区间、7 天回测、会命中的路由、相似规则 | mock |
+| POST | `/alert-rules/generate` | 单环境、`application_id`、`{ text }`、`Idempotency-Key`；需规则修改权 | 经受审目录与有界模型生成的 `review_required` 草稿；不保存为生效规则 | implemented |
+| POST | `/alert-rules/preview` | 单环境、`application_id`、`{ query, op, threshold, for_minutes, range }`；需规则查看权 | 真实 Prometheus 七天五分钟采样曲线与窗口；全量历史计数、路由和相似规则未知 | implemented |
 | POST | `/alert-rules` | `{ …, mode: draft\|dry_run\|enabled }` | `{ id, status }` | mock |
 | POST | `/alert-rules/import` | `{ yaml }` | 解析结果（新建 / 重复），导入后为草稿 | mock |
 | POST | `/notification-routes/test` | `{ labels }`：当前绑定应用与环境的精确样例告警 | 当前生效 Alertmanager 策略的节点路径、匿名接收方引用及分组时序；不发送通知或试算草稿 | implemented |
@@ -277,6 +277,8 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | POST | `/knowledge-sources` | `{ name, type, url, secret_ref?, application_id, team_id?, spaces, schedule: "manual", chunk: "heading"\|"fixed", inherit_acl: true }`；类型与探测相同 | `{ id, status }`；登记不自动同步或索引 | implemented |
 
 `POST /inhibitions/preview` 在当前单环境、环境级静默查看/管理权和有效应用绑定下，将精确环境与应用匹配器加入来源和目标两侧；目标 severity 仅允许明确的 P2–P4 集合。它要求受信只读来源证明完整七天 firing 区间历史，至多读取 500 条发生记录，返回潜在抑制目标数和真实告警名样例；`actual_inhibition_hits` 为 `null`。缺来源返回 501，来源失败或覆盖不完整返回 503，不用实时快照伪造七天命中。`POST /inhibitions` 再要求强 ETag 和幂等键，将同一约束的不可变草稿、审计与 GitLab 待审 MR 建立起来，返回 `202 pending_review`；不合并、不激活、不发送通知。两个 POST 都只按有条件的后端成功路径计 `implemented`，其来源配置和冻结页面仍须单独验收；见[抑制规则与草稿契约](v3-inhibition-drafts.md)。
+
+`POST /alert-rules/generate` 仅在受审应用/环境查询目录、受保护模型配置及精确主机名单齐备时，对当前有权应用做一次无工具模型调用，严格解析模型输出及 PromQL 允许范围，持久化带审计的待人工审阅草稿；同键不重复调用，预算限流或结果不确定明确报错。模型返回后的结果写入事务再次锁定会话、应用、授权及尝试，失权不保存草稿。`POST /alert-rules/preview` 只向该目录显式绑定的应用隔离 Prometheus 端点读取七天五分钟采样；`sampled_count` 与窗口不是历史完整告警次数，真实总数、噪声、路由及相似规则来源未知时为 `null`。两条路由不创建或部署规则，未配置时明确不可用；部署仍须验证端点本身的应用隔离与累计模型费用限制。冻结新建页缺 `application_id` 和生成幂等键，且把未知采样字段当确定值，页面未验收；见[规则助手契约](v3-rule-assistant.md)。
 
 `GET /incidents/draft` 要求显式选择 1–20 条当前受权、同应用环境且未关联人工事件的活跃持久告警，按事实预填标题和最高严重度；影响、指挥官、参与者、作战群与 AI 分析未知。`POST /incidents` 要求人类会话、事件查看和修改权、单一服务与有效 `Idempotency-Key`；独立人工事件、告警关联、可选空白调查与审计在同一事务提交，重试同键同体返回既有结果，不发送外部通知。`war_room`、`notify`、`status_page` 请求在缺执行器时返回 503；`open_canvas` 另须画布查看与修改权。新增 `137_v3_incident_cases.sql` 未在现有库执行，案例相关的既有读取同样依赖它；人工事件目前无状态转移写入，而现有复盘只从已解决的 `ops_incidents` 选择，故不能宣称人工事件到复盘的端到端流程已闭合。冻结页面缺选中告警和幂等键，页面未验收。
 

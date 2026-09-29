@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-153 · 2026-09-29 · 角色详情与版本化矩阵写入
+
+- WAN-119 领域来源远端 `codex/wan-119-role-detail` 的 `69356e58501a1995f301e7eedeffef8c188c5987` 仅改 `internal/v3admin` 三文件和角色 OpenAPI 片段；集成基线 `6304c6a` 在这四个文件与来源父提交 `02ad9f6` 完全一致，`git apply --check` 通过。自动审批最初把两个分支的完整快照差异当成该提交范围而拒绝 cherry-pick；核对单提交范围、无删除和适用性后重试获准，合入为 `005e628`，没有覆盖 WAN-118/120/121/124 文件。独立复核指出锁等待期间会话可被注销；修复 `4087e34` 使 GET/PUT 在角色锁后按精确 Cookie 令牌与用户 ID 锁定有效会话，注销先完成返回 401，写入不产生授权、版本或审计变更。
+- `GET /roles/{id}` 在同一授权事务中投影角色、可见成员和授权，返回五列矩阵及 `X-Role-Matrix-Revision`；无法无损表达的旧授权返回 409。`PUT` 要求 GET 的精确版本头，角色行锁下比较版本，按全局 `roles.manage` 与全局 `environment.view` 修改跨环境授权；机器角色不能批准，最后一位有效人类角色管理员不可移除，授权、版本和审计同事务。成功仅返回 `{ok:true}` 与新版本头，不额外读取可能无权的详情。主契约两条已升为后端 `implemented`，合计 **55/166、111 mock**；冻结页面不传版本头而得到 428，默认 `approver` 与持久角色 ID 也可能不符，页面尚未验收。
+- 一次性 `pgvector/pgvector:0.8.6-pg17` 随机端口的 `v3admin` 角色读写注册 HTTP、撤权/并发、注销排队和审计回滚 `go test -p 1 -race` 通过，`cmd/aiops` 受影响包编译通过；Go vet、OpenAPI 生成、`check-contract.py`、`check-v3-contract.py`、`check-v3-readiness.py`、路由矩阵与差异检查通过。OpenAPI 仍为 **280 路径、336 操作、254 schema**。契约提交 `e972e6d61034a52b62eda5a09fa01428cb516d28` 已普通推送并由 `git ls-remote` 回读；本检查点不代表合并、部署、现有业务库迁移或页面验收。下一步抽出公共事务内精确会话复核小接口供后续领域使用；WAN-123 知识来源 Web 窄路径的三条主路由仍需按完整 DTO 与类型支持范围判断，不因部分来源直接升状态。
+
 ## CP-152 · 2026-09-29 · 六条 V3 主路由后端闭合与撤权竞态修复
 
 - 集成分支 `codex/wan-117-v3-integration` 从已推送的 `02ad9f6` 接续。WAN-121 画布列表/创建来源 `7308ac7` 合入 `f6c6ee9`，OpenAPI `875fede`；WAN-118 规则 dry-run 来源 `d512eb8` 合入 `920ccde`；WAN-120 映射候选来源 `b505394` 合入 `5a3e519`；WAN-124 四类只读配置同步来源 `528f1ba` 合入 `43b4bf9`。独立复核后的 WAN-121 调查归属并发读锁 `592b469`、WAN-124 远端读取后全局管理员及 Cookie 会话重核 `78654db`、WAN-120 接受候选最终实时过期检查和发现/接受的会话锁 `6daac5b` 已提交。OpenAPI、主契约、就绪矩阵与实施计划提交 `b984fba59b5f561c2bb58ebb52df84604bac6b38` 已普通推送到原私有分支，`git ls-remote` 回读一致；这不表示合并或部署。

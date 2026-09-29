@@ -45,6 +45,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3settings"
 	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
 	"github.com/wans/aiops-canvas/internal/v3topology"
+	"github.com/wans/aiops-canvas/internal/v3traces"
 	"github.com/wans/aiops-canvas/internal/v3uploads"
 )
 
@@ -441,6 +442,7 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	observations := v3observe.New(s, policy, telemetry)
 	observations.MetricReader = metricReader
 	observations.Register(api)
+	v3traces.New(s, policy, telemetry).Register(api)
 	events := v3events.New(s.DB, func(ctx context.Context, user core.User, app, env, action string) error {
 		return policy.Authorize(ctx, user, rbac.V3Decision{Module: "events", Action: action, ApplicationID: app, EnvironmentID: env})
 	}, func(ctx context.Context, tx pgx.Tx, user core.User, app, env, action string) error {

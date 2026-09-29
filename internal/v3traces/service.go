@@ -252,6 +252,26 @@ func (s *Service) unchanged(w http.ResponseWriter, r *http.Request, environments
 		httpapi.Error(w, 409, "trace_scope_changed", "Trace source or authorization changed during the query")
 		return false
 	}
+	// A Tempo or persisted-target read can outlive the session that authorized
+	// it. Verify the original Cookie after both reads, before either response.
+	cookie, cookieErr := r.Cookie("aiops_session")
+	if cookieErr != nil || cookie.Value == "" {
+		httpapi.Error(w, 401, "unauthorized", "Session is no longer active")
+		return false
+	}
+	currentUser, sessionErr := s.Store.Session(r.Context(), cookie.Value)
+	if sessionErr != nil {
+		if errors.Is(store.ClassifyError(sessionErr), store.ErrNotFound) {
+			httpapi.Error(w, 401, "unauthorized", "Session is no longer active")
+		} else {
+			httpapi.Error(w, 503, "session_unavailable", "Session verification failed")
+		}
+		return false
+	}
+	if currentUser.ID != httpapi.CurrentUser(r).ID {
+		httpapi.Error(w, 401, "unauthorized", "Session is no longer active")
+		return false
+	}
 	return true
 }
 

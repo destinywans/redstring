@@ -62,10 +62,6 @@ func (s *Service) Register(api *httpapi.Server) {
 	api.MarkV3ObjectRoute("GET /api/v1/metrics/samples", "services", "view")
 	api.Register("GET /api/v1/logs", "viewer", s.logs)
 	api.MarkV3ObjectRoute("GET /api/v1/logs", "logs", "view")
-	api.Register("GET /api/v1/traces", "viewer", s.traces)
-	api.MarkV3ObjectRoute("GET /api/v1/traces", "traces", "view")
-	api.Register("GET /api/v1/traces/{id}", "viewer", s.traceDetail)
-	api.MarkV3ObjectRoute("GET /api/v1/traces/{id}", "traces", "view")
 }
 
 func (s *Service) allowedEnvironments(w http.ResponseWriter, r *http.Request, module string) ([]string, bool) {

@@ -144,6 +144,42 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	if err := json.Unmarshal(w.Body.Bytes(), &detail); err != nil || detail.Version != "v1" || len(detail.Spans) != 1 || !detail.Spans[0].Critical {
 		t.Fatalf("incomplete detail contract: %s error=%v", w.Body.String(), err)
 	}
+	for _, path := range []string{"/api/v1/traces?service=app", "/api/v1/traces/" + id + "?service=app"} {
+		entered := make(chan struct{})
+		release := make(chan struct{})
+		source.after = func(ctx context.Context) error {
+			close(entered)
+			select {
+			case <-release:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		response := make(chan *httptest.ResponseRecorder, 1)
+		go func() { response <- request(path) }()
+		select {
+		case <-entered:
+		case <-time.After(10 * time.Second):
+			close(release)
+			t.Fatal("Tempo query did not enter the blocking source")
+		}
+		if err := st.Logout(ctx, session); err != nil {
+			close(release)
+			t.Fatal(err)
+		}
+		close(release)
+		select {
+		case w := <-response:
+			assertError(w, 401, "unauthorized")
+		case <-time.After(10 * time.Second):
+			t.Fatal("trace query did not finish after logout")
+		}
+		_, session, err = st.Login(ctx, "admin@example.invalid", "isolated-traces-password")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	source.after = func(ctx context.Context) error {
 		_, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='admin' AND module='traces' AND action='view'`)
 		return err

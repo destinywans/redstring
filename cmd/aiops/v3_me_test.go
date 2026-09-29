@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/wans/aiops-canvas/internal/httpapi"
 )
 
 func TestConfigureV3MeEvidence(t *testing.T) {
@@ -25,5 +28,15 @@ func TestConfigureV3MeEvidence(t *testing.T) {
 	configured, err := configureV3MeEvidence(info, "https://oncall.example.test/current", tokenPath)
 	if err != nil || configured.Oncall == nil || configured.MFAInstanceID != base.MFAInstanceID {
 		t.Fatalf("configured evidence: %+v, %v", configured, err)
+	}
+}
+
+func TestConfigureV3RejectsPartialOncallBeforeRegisteringRoutes(t *testing.T) {
+	t.Setenv("AIOPS_V3_ONCALL_CURRENT_URL", "https://oncall.example.test/current")
+	t.Setenv("AIOPS_V3_ONCALL_TOKEN_FILE", "")
+	err := configureV3(context.Background(), nil, nil, nil, nil, nil,
+		&v3Instance{Tier: "nonprod", Domain: "aiops.example.test"}, httpapi.V3InstanceConfig{})
+	if err == nil {
+		t.Fatal("partial on-call configuration did not fail V3 startup")
 	}
 }

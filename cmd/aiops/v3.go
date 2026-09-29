@@ -133,6 +133,10 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	if info == nil {
 		return nil
 	}
+	meEvidence, err := configureV3MeEvidence(*info, os.Getenv("AIOPS_V3_ONCALL_CURRENT_URL"), os.Getenv("AIOPS_V3_ONCALL_TOKEN_FILE"))
+	if err != nil {
+		return err
+	}
 	policy := &rbac.V3Policy{Store: s}
 	sourceRegistry, err := configuredV3SourceRegistry(os.Getenv("AIOPS_V3_PUBLIC_WEB_READER_ENABLED"), s, policy)
 	if err != nil {
@@ -207,6 +211,7 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	}).Register(api)
 
 	personalSettings := v3settings.New(s, runtime)
+	personalSettings.MeEvidence = meEvidence
 	personalSettings.Register(api)
 	api.V3ModelsHandler = personalSettings.ModelsHandler
 

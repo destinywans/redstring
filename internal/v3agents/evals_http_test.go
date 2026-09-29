@@ -105,6 +105,7 @@ func TestCreateEvalPendingHTTP(t *testing.T) {
 		`INSERT INTO rbac_roles(id,name) VALUES('eval-editor','Eval Editor')`,
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
  ('viewer','environment','view','environment','dev'),
+ ('eval-editor','agents','view','application','eval-app'),
  ('eval-editor','agents','change','application','eval-app')`,
 	} {
 		if _, err = db.Exec(ctx, sql); err != nil {
@@ -264,6 +265,20 @@ func TestCreateEvalPendingHTTP(t *testing.T) {
 	}
 	if evals, audits := counts(); evals != 1 || audits != 1 {
 		t.Fatalf("successful eval not atomically persisted and audited: evals=%d audits=%d", evals, audits)
+	}
+	readRequest := httptest.NewRequest(http.MethodGet, "/api/v1/evals/"+id, nil)
+	readRequest.Header.Set("X-AIOps-Environment", "dev")
+	readRequest.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+	readResult := httptest.NewRecorder()
+	api.ServeHTTP(readResult, readRequest)
+	assertResponse(readResult, 200, `"status":"pending"`)
+	var pendingDetail map[string]any
+	if err = json.Unmarshal(readResult.Body.Bytes(), &pendingDetail); err != nil {
+		t.Fatal(err)
+	}
+	if pendingDetail["id"] != id || pendingDetail["partial"] != true ||
+		pendingDetail["metrics"] != nil || pendingDetail["radar"] != nil {
+		t.Fatalf("created eval did not read back as partial pending metadata: %s", readResult.Body.String())
 	}
 
 	svc.Access = &revokingPromptAccess{policy: policy, afterAuthorize: func() error {

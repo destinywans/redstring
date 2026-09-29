@@ -11,23 +11,56 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
 type evalRecord struct {
-	ID, AgentID, Title, Baseline, Candidate, Status, ResultRef string
-	Metrics                                                    []byte
-	Created                                                    time.Time
-	Finished                                                   *time.Time
+	ID, AgentID, Title, Baseline, Candidate, Status, ResultRef, CreatedBy string
+	Metrics                                                               []byte
+	Created                                                               time.Time
+	Finished                                                              *time.Time
 }
 
-func (s *Service) loadEval(ctx context.Context, id string) (evalRecord, error) {
+func loadEval(ctx context.Context, tx pgx.Tx, id string) (evalRecord, error) {
 	var v evalRecord
-	err := s.DB.QueryRow(ctx, `SELECT id,agent_id,title,baseline_version,candidate_version,status,
- COALESCE(metrics,'null'::jsonb),COALESCE(result_ref,''),created_at,finished_at
- FROM v3_agent_eval_experiments WHERE id=$1`, id).Scan(&v.ID, &v.AgentID, &v.Title,
-		&v.Baseline, &v.Candidate, &v.Status, &v.Metrics, &v.ResultRef, &v.Created, &v.Finished)
+	err := tx.QueryRow(ctx, `SELECT id,agent_id,title,baseline_version,candidate_version,status,
+ COALESCE(metrics,'null'::jsonb),COALESCE(result_ref,''),created_by,created_at,finished_at
+ FROM v3_agent_eval_experiments WHERE id=$1 FOR SHARE`, id).Scan(&v.ID, &v.AgentID, &v.Title,
+		&v.Baseline, &v.Candidate, &v.Status, &v.Metrics, &v.ResultRef, &v.CreatedBy, &v.Created, &v.Finished)
 	return v, err
+}
+
+func lockEvalAgent(ctx context.Context, tx pgx.Tx, id string) (agent, error) {
+	return scanAgent(tx.QueryRow(ctx, `SELECT `+agentColumns+` FROM v3_agents WHERE id=$1 FOR SHARE`, id))
+}
+
+func lockActiveEvalScope(ctx context.Context, tx pgx.Tx, a agent) error {
+	var appID string
+	return tx.QueryRow(ctx, `SELECT app.id FROM applications app
+ JOIN v3_application_environments mapped
+   ON mapped.application_id=app.id AND mapped.environment_id=$2
+ JOIN application_environments env
+   ON env.application_id=app.id AND env.key=$2
+ WHERE app.id=$1 AND NOT app.archived AND NOT env.archived
+ FOR SHARE OF app,mapped,env`, a.App, a.Env).Scan(&appID)
+}
+
+// Hold the physical V3 grant sources through the final policy check and
+// transaction commit. A revoke commits before that check or waits for commit.
+func lockEvalGrantSources(ctx context.Context, tx pgx.Tx, userID string) error {
+	var activeUserID string
+	err := tx.QueryRow(ctx, `SELECT id FROM users
+ WHERE id=$1 AND NOT disabled AND deleted_at IS NULL AND source<>'settings_demo'
+ FOR SHARE`, userID).Scan(&activeUserID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.ErrForbidden
+	}
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `LOCK TABLE rbac_user_roles,rbac_department_roles,v3_role_grants IN SHARE MODE`)
+	return err
 }
 
 func (s *Service) EvalDetail(w http.ResponseWriter, r *http.Request) {
@@ -35,7 +68,17 @@ func (s *Service) EvalDetail(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
-	v, err := s.loadEval(r.Context(), r.PathValue("id"))
+	envs, ok := requestScope(w, r, false)
+	if !ok {
+		return
+	}
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	defer tx.Rollback(r.Context())
+	v, err := loadEval(r.Context(), tx, r.PathValue("id"))
 	if errors.Is(err, pgx.ErrNoRows) {
 		notFound(w)
 		return
@@ -44,10 +87,63 @@ func (s *Service) EvalDetail(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
-	_, ok := s.objectAgent(w, r, v.AgentID, "view")
-	if !ok {
+	a, err := lockEvalAgent(r.Context(), tx, v.AgentID)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !contains(envs, a.Env)) {
+		notFound(w)
 		return
 	}
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	// The eval row stores only agent_id. Its immutable creation audit is the
+	// persisted origin scope; hide records with missing provenance or an Agent
+	// moved to another app/environment rather than transferring old results.
+	// Restrict by application_id so the existing audit application index bounds
+	// the scan; a target index is still needed for large per-app audit histories.
+	var originEnv string
+	err = tx.QueryRow(r.Context(), `SELECT COALESCE(changes->>'environment_id','')
+ FROM management_audit WHERE application_id=$1 AND action='v3.agent.eval.created'
+ AND target=$2 AND actor_id=$3 AND outcome='recorded' ORDER BY id LIMIT 1`,
+		a.App, v.ID, v.CreatedBy).Scan(&originEnv)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && originEnv != a.Env) {
+		notFound(w)
+		return
+	}
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	if err = lockActiveEvalScope(r.Context(), tx, a); errors.Is(err, pgx.ErrNoRows) {
+		notFound(w)
+		return
+	} else if err != nil {
+		unavailable(w)
+		return
+	}
+	if err = lockEvalGrantSources(r.Context(), tx, httpapi.CurrentUser(r).ID); errors.Is(err, store.ErrForbidden) {
+		notFound(w)
+		return
+	} else if err != nil {
+		unavailable(w)
+		return
+	}
+	err = s.Access.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), rbac.V3Decision{
+		Module: "agents", Action: "view", EnvironmentID: a.Env, ApplicationID: a.App})
+	if errors.Is(err, store.ErrForbidden) {
+		notFound(w)
+		return
+	}
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		unavailable(w)
+		return
+	}
+	// A stored experiment is only a partial projection of the frontend's
+	// EvalExperiment; no dataset, per-case, or radar producer is connected.
 	metrics := any(nil)
 	if v.Status == "passed" || v.Status == "failed" {
 		if err = json.Unmarshal(v.Metrics, &metrics); err != nil {
@@ -55,11 +151,15 @@ func (s *Service) EvalDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	missing := []string{"dataset_content", "per_case_output", "radar_without_metric_producer", "evaluator_catalog"}
+	if v.Status == "pending" || v.Status == "running" {
+		missing = append(missing, "evaluation_result")
+	}
 	httpapi.WriteJSON(w, 200, map[string]any{"id": v.ID, "title": v.Title, "dataset": unknown,
 		"meta": v.Status, "status": v.Status, "baseline_version": v.Baseline, "candidate_version": v.Candidate,
 		"metrics": metrics, "radar": nil, "cases": []any{}, "datasets": []any{}, "evaluators": []any{},
 		"result_ref": v.ResultRef, "created_at": timeString(v.Created),
-		"missing": []string{"dataset_content", "per_case_output", "radar_without_metric_producer"}, "partial": true})
+		"missing": missing, "partial": true})
 }
 
 type createEvalBody struct {
@@ -92,10 +192,8 @@ func (s *Service) CreateEval(w http.ResponseWriter, r *http.Request) {
 	// The first authorization only gates discovery. Hold the persisted target
 	// and its active scope through the write so a reassignment or archive
 	// cannot turn that earlier decision into a write for another application.
-	var agentApp, agentEnv string
-	err = tx.QueryRow(r.Context(), `SELECT application_id,environment_id FROM v3_agents
- WHERE id=$1 FOR SHARE`, a.ID).Scan(&agentApp, &agentEnv)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (agentApp != a.App || agentEnv != a.Env)) {
+	lockedAgent, err := lockEvalAgent(r.Context(), tx, a.ID)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (lockedAgent.App != a.App || lockedAgent.Env != a.Env)) {
 		notFound(w)
 		return
 	}
@@ -103,39 +201,18 @@ func (s *Service) CreateEval(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
-	var activeApp string
-	err = tx.QueryRow(r.Context(), `SELECT app.id FROM applications app
- JOIN v3_application_environments mapped
-   ON mapped.application_id=app.id AND mapped.environment_id=$2
- JOIN application_environments env
-   ON env.application_id=app.id AND env.key=$2
- WHERE app.id=$1 AND NOT app.archived AND NOT env.archived
- FOR SHARE OF app,mapped,env`, a.App, a.Env).Scan(&activeApp)
-	if errors.Is(err, pgx.ErrNoRows) {
+	a = lockedAgent
+	if err = lockActiveEvalScope(r.Context(), tx, a); errors.Is(err, pgx.ErrNoRows) {
 		notFound(w)
 		return
-	}
-	if err != nil {
+	} else if err != nil {
 		unavailable(w)
 		return
 	}
-	// V3 grants exclude disabled/deleted accounts. Hold the account and grant
-	// sources until commit so a revoke either precedes the policy read or waits
-	// for this metadata write. Keep the account-first order used by other V3
-	// writers to avoid a lock inversion with account updates.
-	var actorID string
-	err = tx.QueryRow(r.Context(), `SELECT id FROM users
- WHERE id=$1 AND NOT disabled AND deleted_at IS NULL AND source<>'settings_demo'
- FOR SHARE`, httpapi.CurrentUser(r).ID).Scan(&actorID)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if err = lockEvalGrantSources(r.Context(), tx, httpapi.CurrentUser(r).ID); errors.Is(err, store.ErrForbidden) {
 		httpapi.Error(w, 403, "forbidden", "Agent permission required")
 		return
-	}
-	if err != nil {
-		unavailable(w)
-		return
-	}
-	if _, err = tx.Exec(r.Context(), `LOCK TABLE rbac_user_roles,rbac_department_roles,v3_role_grants IN SHARE MODE`); err != nil {
+	} else if err != nil {
 		unavailable(w)
 		return
 	}

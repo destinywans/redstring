@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3uploads"
@@ -26,6 +27,20 @@ func (s *Service) Register(register func(string, string, http.HandlerFunc)) {
 	register("GET /api/v1/conversations/{id}", "viewer", s.get)
 	register("POST /api/v1/conversations/{id}/messages", "viewer", s.send)
 	register("GET /api/v1/conversations/{id}/events", "viewer", s.events)
+}
+
+// RegisterV3 registers each route with its V3 permission. The event stream
+// resolves the conversation's persisted environment because EventSource does
+// not send the selectable environment header.
+func (s *Service) RegisterV3(api *httpapi.Server) {
+	s.Register(api.Register)
+	for _, pattern := range []string{"GET /api/v1/conversations", "GET /api/v1/conversations/{id}"} {
+		api.MarkV3Route(pattern, "conversation", "view")
+	}
+	for _, pattern := range []string{"POST /api/v1/conversations", "POST /api/v1/conversations/{id}/messages"} {
+		api.MarkV3Route(pattern, "conversation", "change")
+	}
+	api.MarkV3Route("GET /api/v1/conversations/{id}/events", "", "")
 }
 
 func write(w http.ResponseWriter, status int, data any) {
@@ -232,6 +247,8 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) {
 			apiError(w, 422, "attachment_model_unsupported", "This model reply cannot read this attachment type")
 		case errors.Is(err, v3uploads.ErrAttachmentContextTooLarge):
 			apiError(w, 413, "attachment_context_too_large", "Attachment text exceeds this model's input budget")
+		case errors.Is(err, ErrModelInputTooLarge):
+			apiError(w, 413, "model_input_too_large", "Conversation text exceeds this model's input budget")
 		default:
 			operationError(w, err)
 		}
@@ -436,6 +453,13 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var reply string
+	requestedReply := r.URL.Query().Get("reply_id")
+	if values, present := r.URL.Query()["reply_id"]; present {
+		if len(values) != 1 || requestedReply == "" || strings.TrimSpace(requestedReply) != requestedReply || len(requestedReply) > 128 {
+			apiError(w, 422, "invalid_reply", "Reply ID is unavailable for this conversation")
+			return
+		}
+	}
 	if cursor > 0 {
 		// Event IDs are global. Resolve a reconnect cursor to its own reply
 		// within the authorized conversation, even after a newer turn starts.
@@ -443,6 +467,17 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 			WHERE seq=$1 AND conversation_id=$2`, cursor, id).Scan(&reply)
 		if errors.Is(err, pgx.ErrNoRows) {
 			apiError(w, 422, "invalid_event_cursor", "Last-Event-ID is unavailable for this conversation")
+			return
+		}
+		if err == nil && requestedReply != "" && requestedReply != reply {
+			apiError(w, 422, "invalid_event_cursor", "Last-Event-ID does not belong to this reply")
+			return
+		}
+	} else if requestedReply != "" {
+		err = s.db.QueryRow(r.Context(), `SELECT id FROM v3_conversation_replies
+			WHERE id=$1 AND conversation_id=$2`, requestedReply, id).Scan(&reply)
+		if errors.Is(err, pgx.ErrNoRows) {
+			apiError(w, 422, "invalid_reply", "Reply ID is unavailable for this conversation")
 			return
 		}
 	} else {

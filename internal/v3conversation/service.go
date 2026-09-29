@@ -21,12 +21,13 @@ import (
 )
 
 var (
-	ErrNotFound    = errors.New("conversation not found")
-	ErrBusy        = errors.New("reply already in progress")
-	ErrEnvironment = errors.New("environment is required")
-	ErrViewOnly    = errors.New("all environments is read only")
-	ErrModel       = errors.New("model is not configured")
-	ErrForbidden   = errors.New("environment access denied")
+	ErrNotFound           = errors.New("conversation not found")
+	ErrBusy               = errors.New("reply already in progress")
+	ErrEnvironment        = errors.New("environment is required")
+	ErrViewOnly           = errors.New("all environments is read only")
+	ErrModel              = errors.New("model is not configured")
+	ErrModelInputTooLarge = errors.New("conversation input exceeds model budget")
+	ErrForbidden          = errors.New("environment access denied")
 )
 
 type Options struct {
@@ -347,19 +348,27 @@ func (s *Service) startTurn(ctx context.Context, id, owner, env, author, session
 			return Message{}, "", err
 		}
 	}
-	// A later text-only turn still replays earlier private attachment snapshots.
-	// Reject it before 202 if a smaller selected model cannot fit that history.
-	if hasAttachmentContext {
+	// Every accepted turn replays the prior completed history. Check the
+	// selected model's known input budget before committing the user message,
+	// including text-only turns and history with older attachment snapshots.
+	if model.InputBudget > 0 {
+		budgetErr := error(ErrModelInputTooLarge)
+		if hasAttachmentContext {
+			budgetErr = v3uploads.ErrAttachmentContextTooLarge
+		}
 		if model.InputBudget <= modelInputReserveBytes {
-			return Message{}, "", v3uploads.ErrAttachmentContextTooLarge
+			return Message{}, "", budgetErr
 		}
 		prior, err := contextMessagesQuery(ctx, tx, id, model.InputBudget-modelInputReserveBytes)
 		if err != nil {
+			if errors.Is(err, v3uploads.ErrAttachmentContextTooLarge) {
+				return Message{}, "", budgetErr
+			}
 			return Message{}, "", err
 		}
 		messages := append(prior, inference.Message{Role: "user", Content: input.Text + attachmentSnapshot})
 		if !withinModelInputBudget(messages, model.InputBudget) {
-			return Message{}, "", v3uploads.ErrAttachmentContextTooLarge
+			return Message{}, "", budgetErr
 		}
 	}
 	now := time.Now().UTC()

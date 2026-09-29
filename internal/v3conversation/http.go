@@ -413,6 +413,7 @@ func (s *Service) latestReply(ctx context.Context, conv string) (string, error) 
 }
 
 func (s *Service) events(w http.ResponseWriter, r *http.Request) {
+	const replayBatchSize = 64
 	u, ok := s.user(w, r)
 	if !ok {
 		return
@@ -488,12 +489,14 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 		if authErr = s.authorizeReplay(r.Context(), id, reply, current.ID, actual); authErr != nil {
 			return
 		}
-		rows, err := s.db.Query(r.Context(), `SELECT seq,payload FROM v3_conversation_events WHERE reply_id=$1 AND seq>$2 ORDER BY seq`, reply, cursor)
+		rows, err := s.db.Query(r.Context(), `SELECT seq,payload FROM v3_conversation_events
+			WHERE reply_id=$1 AND seq>$2 ORDER BY seq LIMIT $3`, reply, cursor, replayBatchSize)
 		if err != nil {
 			return
 		}
 		terminal := false
 		sent := false
+		batchCount := 0
 		for rows.Next() {
 			var seq int64
 			var raw []byte
@@ -505,12 +508,14 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 			}
 			cursor = seq
 			sent = true
+			batchCount++
 			var marker struct {
 				Type string `json:"type"`
 			}
 			_ = json.Unmarshal(raw, &marker)
 			if marker.Type == "message.completed" {
 				terminal = true
+				break
 			}
 		}
 		rows.Close()
@@ -520,6 +525,10 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 		if terminal {
 			return
+		}
+		if batchCount == replayBatchSize {
+			// Recheck current access before streaming more retained events.
+			continue
 		}
 		if !sent {
 			var state string

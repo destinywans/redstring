@@ -82,13 +82,14 @@ func TestSSEActiveReplayRequiresInitiatingSessionAndChangeGrant(t *testing.T) {
 	}
 	if _, err := db.Exec(ctx, `UPDATE v3_conversation_replies SET state='completed' WHERE id='r';
 		INSERT INTO v3_conversation_events(conversation_id,reply_id,payload)
-		VALUES('c','r','{"type":"message.completed","message_id":"a"}')`); err != nil {
+		VALUES('c','r','{"type":"message.completed","message_id":"a"}'),
+			('c','r','{"type":"text.delta","message_id":"a","delta":"after-terminal-private"}')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `DELETE FROM sessions WHERE token_hash=$1`, store.Hash("test-session")); err != nil {
 		t.Fatal(err)
 	}
-	if got := open(); got.Code != http.StatusOK || !strings.Contains(got.Body.String(), "prior model output") {
+	if got := open(); got.Code != http.StatusOK || !strings.Contains(got.Body.String(), "prior model output") || strings.Contains(got.Body.String(), "after-terminal-private") {
 		t.Fatalf("completed reply should remain viewable: %d %s", got.Code, got.Body.String())
 	}
 }
@@ -164,6 +165,88 @@ func TestSSECursorStaysWithOriginalReplyAfterNewTurn(t *testing.T) {
 		if invalid.Code != http.StatusUnprocessableEntity || !strings.Contains(invalid.Body.String(), "invalid_event_cursor") {
 			t.Fatalf("unknown or cross-conversation cursor %s: %d %s", cursor, invalid.Code, invalid.Body.String())
 		}
+	}
+}
+
+func TestSSEReplayRechecksAuthorizationBetweenBoundedBatches(t *testing.T) {
+	db := isolatedConversationDB(t)
+	ctx := context.Background()
+	if _, err := db.Exec(ctx, `ALTER TABLE v3_conversations ADD COLUMN default_model_id text NOT NULL DEFAULT '';
+		UPDATE v3_conversation_replies SET state='completed' WHERE id='r';
+		UPDATE v3_conversation_messages SET state='completed' WHERE id='a'`); err != nil {
+		t.Fatal(err)
+	}
+	var cursor int64
+	if err := db.QueryRow(ctx, `INSERT INTO v3_conversation_events(conversation_id,reply_id,payload)
+		VALUES('c','r','{"type":"message.started","message":{"id":"a"}}') RETURNING seq`).Scan(&cursor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_conversation_events(conversation_id,reply_id,payload)
+		SELECT 'c','r',jsonb_build_object('type','text.delta','message_id','a','index',0,
+			'delta',CASE WHEN n>64 THEN 'after-revocation-'||n::text ELSE n::text END)
+		FROM generate_series(1,130) AS n;
+		INSERT INTO v3_conversation_events(conversation_id,reply_id,payload)
+		VALUES('c','r','{"type":"message.completed","message_id":"a"}')`); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name       string
+		revoke     bool
+		wantEvents int
+	}{
+		{name: "full replay", wantEvents: 131},
+		{name: "revoked after first batch", revoke: true, wantEvents: 64},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			checks := 0
+			svc := New(db, nil, Options{
+				CurrentUser: func(*http.Request) core.User { return core.User{ID: "persisted-owner"} },
+				RefreshSession: func(_ context.Context, token string) (core.User, error) {
+					checks++
+					if token != "test-session" || tc.revoke && checks > 1 {
+						return core.User{}, ErrForbidden
+					}
+					return core.User{ID: "persisted-owner"}, nil
+				},
+				AllowedEnvironments: func(context.Context, core.User) ([]string, error) {
+					return []string{"test"}, nil
+				},
+			})
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/conversations/c/events", nil)
+			req.SetPathValue("id", "c")
+			req.Header.Set("Last-Event-ID", strconv.FormatInt(cursor, 10))
+			req.AddCookie(&http.Cookie{Name: "aiops_session", Value: "test-session"})
+			response := httptest.NewRecorder()
+			svc.events(response, req)
+			if response.Code != http.StatusOK || checks < 2 {
+				t.Fatalf("status=%d authorization checks=%d", response.Code, checks)
+			}
+			body := response.Body.String()
+			if got := strings.Count(body, "data: "); got != tc.wantEvents {
+				t.Fatalf("replayed events=%d want=%d", got, tc.wantEvents)
+			}
+			last, ids := cursor, 0
+			for _, line := range strings.Split(body, "\n") {
+				if !strings.HasPrefix(line, "id: ") {
+					continue
+				}
+				id, err := strconv.ParseInt(strings.TrimPrefix(line, "id: "), 10, 64)
+				if err != nil || id <= last {
+					t.Fatalf("replay cursor did not advance: last=%d line=%q err=%v", last, line, err)
+				}
+				last, ids = id, ids+1
+			}
+			if ids != tc.wantEvents {
+				t.Fatalf("replayed IDs=%d want=%d", ids, tc.wantEvents)
+			}
+			if tc.revoke {
+				if strings.Contains(body, "after-revocation-") || strings.Contains(body, "message.completed") {
+					t.Fatal("replayed a later event after authorization was revoked")
+				}
+			} else if checks < 3 || !strings.Contains(body, "message.completed") || !strings.Contains(body, "after-revocation-130") {
+				t.Fatalf("full replay did not reach the terminal batch: checks=%d", checks)
+			}
+		})
 	}
 }
 

@@ -165,6 +165,58 @@ func (s *Service) authorizeWriteTx(w http.ResponseWriter, r *http.Request, tx pg
 	return true
 }
 
+// Pin the permission sources until this transaction commits. The V3 route
+// check and a plain policy read alone cannot protect a write from a concurrent
+// role, grant, account or session revoke.
+func (s *Service) authorizeLockedWriteTx(w http.ResponseWriter, r *http.Request, tx pgx.Tx, environment string) bool {
+	if err := lockConnectorAuthority(r.Context(), tx, r, environment); err != nil {
+		if errors.Is(err, store.ErrForbidden) {
+			httpapi.Error(w, 403, "forbidden", "Connector management permission required")
+		} else {
+			httpapi.Error(w, 503, "authorization_unavailable", "Connector authorization unavailable")
+		}
+		return false
+	}
+	return s.authorizeWriteTx(w, r, tx, environment)
+}
+
+func (s *Service) credentialBound(c connector, reference string) bool {
+	if c.AuthMethod == "none" {
+		return true
+	}
+	if s.Prober.Resolver == nil || reference == "" {
+		return false
+	}
+	// Production supplies a BoundResolver. Other resolvers are limited to
+	// isolated adapter tests; an unbound production registration is projected
+	// as disabled and cannot reach Vault or its upstream endpoint.
+	if policy, ok := s.Prober.Resolver.(interface {
+		CredentialAllowed(CredentialUse, string) bool
+	}); ok {
+		return policy.CredentialAllowed(CredentialUse{
+			Tier: s.Tier, EnvironmentID: c.EnvironmentID, ConnectorID: c.ID,
+			Provider: c.Provider, Endpoint: c.Endpoint,
+		}, reference)
+	}
+	return true
+}
+
+func (s *Service) effectiveConnector(c connector) connector {
+	if !s.credentialBound(c, c.CredentialRef) {
+		c.Enabled = false
+		c.Status = "unverified"
+	}
+	return c
+}
+
+func (s *Service) connectorSummary(c connector, lang string, now time.Time) map[string]any {
+	result := observedSummary(s.effectiveConnector(c), lang, now)
+	if c.AuthMethod != "none" && c.CredentialRef != "" && !s.credentialBound(c, c.CredentialRef) {
+		result["meta"] = localized(lang, "未启用 · 服务端凭据绑定未配置", "Disabled · server credential binding not configured")
+	}
+	return result
+}
+
 func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	env, ok := s.scope(w, r, false)
 	if !ok {
@@ -256,7 +308,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 				httpapi.Error(w, 413, "scope_too_large", "Connector collection exceeds the unpaged V3 response limit")
 				return
 			}
-			projected := observedSummary(c, r.Header.Get("Accept-Language"), now)
+			projected := s.connectorSummary(c, r.Header.Get("Accept-Language"), now)
 			counts[projected["status"].(string)]++
 			categoryCounts["all"]++
 			categoryCounts[c.Category]++
@@ -475,7 +527,7 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lang := r.Header.Get("Accept-Language")
-	result := observedSummary(c, lang, time.Now())
+	result := s.connectorSummary(c, lang, time.Now())
 	checked := localized(lang, "尚未检查", "Never checked")
 	if c.Checked != nil {
 		checked = c.Checked.UTC().Format(time.RFC3339)
@@ -487,6 +539,9 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 	} else if c.CredentialRef == "" {
 		label, _ := authMethodCopy(c.AuthMethod, lang)
 		result["auth"] = map[string]string{"text": label + localized(lang, " · 凭据未配置", " · credentials not configured")}
+	} else if !s.credentialBound(c, c.CredentialRef) {
+		label, _ := authMethodCopy(c.AuthMethod, lang)
+		result["auth"] = map[string]string{"text": label + localized(lang, " · 服务端绑定未配置", " · server binding not configured")}
 	} else {
 		label, _ := authMethodCopy(c.AuthMethod, lang)
 		result["auth"] = map[string]string{"brand": "vault", "text": label + localized(lang, " · Vault 引用已登记", " · Vault reference registered")}
@@ -529,7 +584,7 @@ func (s *Service) toolSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{
-		"connector_id": c.ID, "environment_id": c.EnvironmentID, "connector_enabled": c.Enabled,
+		"connector_id": c.ID, "environment_id": c.EnvironmentID, "connector_enabled": s.effectiveConnector(c).Enabled,
 		"registered_tools":          displayTools(c.Tools, r.Header.Get("Accept-Language")),
 		"agent_execution_available": false,
 	})
@@ -572,7 +627,12 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 	// A connector with an explicit environment scope and complete credentials
 	// can retain the existing read-only registration behavior for providers
 	// that do not require project enrollment.
-	enabled := d.Provider != "gitlab" && !in.Webhook && (in.Auth == "none" || in.CredentialRef != "")
+	// A Vault reference supplied by the caller is not an authorization to
+	// read it. Credentialed registrations stay disabled until their generated
+	// ID is bound to an exact server-managed credential policy and activation
+	// performs a bounded check. Unauthenticated read-only sources can start
+	// without that separate approval.
+	enabled := d.Provider != "gitlab" && !in.Webhook && in.Auth == "none"
 	seen := map[string]bool{}
 	tools := make([]tool, 0, len(in.Tools))
 	for _, name := range in.Tools {
@@ -585,13 +645,19 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, _ := json.Marshal(tools)
 	id := store.ID()
-	tx, err := s.DB.Begin(r.Context())
+	writeCtx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	r = r.WithContext(writeCtx)
+	tx, err := s.DB.Begin(writeCtx)
 	if err != nil {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 		return
 	}
-	defer tx.Rollback(r.Context())
+	defer rollbackConnectorWrite(tx)
 	if !s.authorizeWriteTx(w, r, tx, env[0]) {
+		return
+	}
+	if !s.authorizeLockedWriteTx(w, r, tx, env[0]) {
 		return
 	}
 	_, err = tx.Exec(r.Context(), `INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,credential_ref,webhook_requested,enabled,tools) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, id, env[0], d.Provider, d.Name, d.Category, strings.TrimRight(strings.TrimSpace(in.URL), "/"), in.Auth, in.CredentialRef, in.Webhook, enabled, raw)
@@ -642,7 +708,7 @@ func (s *Service) patch(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 		return
 	}
-	defer rollbackPatch(tx)
+	defer rollbackConnectorWrite(tx)
 	if !s.authorizeWriteTx(w, r, tx, env[0]) {
 		return
 	}
@@ -655,15 +721,7 @@ func (s *Service) patch(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 		return
 	}
-	if err = lockPatchAuthority(r.Context(), tx, r, env[0]); err != nil {
-		if errors.Is(err, store.ErrForbidden) {
-			httpapi.Error(w, 403, "forbidden", "Connector management permission required")
-		} else {
-			httpapi.Error(w, 503, "authorization_unavailable", "Connector authorization unavailable")
-		}
-		return
-	}
-	if !s.authorizeWriteTx(w, r, tx, env[0]) {
+	if !s.authorizeLockedWriteTx(w, r, tx, env[0]) {
 		return
 	}
 	d, known := descriptors[c.Provider]
@@ -683,7 +741,7 @@ func (s *Service) patch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		seen[item.Name] = true
-		if *item.Enabled && !c.Enabled {
+		if *item.Enabled && (!c.Enabled || !s.credentialBound(c, c.CredentialRef)) {
 			httpapi.Error(w, 409, "connector_disabled", "Complete connector credentials and scope before enabling tools")
 			return
 		}
@@ -754,7 +812,15 @@ func (s *Service) test(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 409, "connector_disabled", "Complete connector credentials and scope before testing")
 		return
 	}
-	result, err := s.Prober.Check(r.Context(), c.Provider, c.Endpoint, c.AuthMethod, c.CredentialRef)
+	if !s.credentialBound(c, c.CredentialRef) {
+		httpapi.Error(w, 503, "credential_not_authorized", "Connector credential has no server-side binding")
+		return
+	}
+	probeCtx := WithCredentialUse(r.Context(), CredentialUse{
+		Tier: s.Tier, EnvironmentID: c.EnvironmentID, ConnectorID: c.ID,
+		Provider: c.Provider, Endpoint: c.Endpoint,
+	})
+	result, err := s.Prober.Check(probeCtx, c.Provider, c.Endpoint, c.AuthMethod, c.CredentialRef)
 	if errors.Is(err, ErrCredentialUnavailable) {
 		httpapi.Error(w, 503, "credential_unavailable", "Vault credential is unavailable")
 		return
@@ -767,12 +833,15 @@ func (s *Service) test(w http.ResponseWriter, r *http.Request) {
 	if result.OK {
 		status = "ok"
 	}
-	tx, err := s.DB.Begin(r.Context())
+	writeCtx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	r = r.WithContext(writeCtx)
+	tx, err := s.DB.Begin(writeCtx)
 	if err != nil {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 		return
 	}
-	defer tx.Rollback(r.Context())
+	defer rollbackConnectorWrite(tx)
 	current, err := scanConnector(tx.QueryRow(r.Context(), "SELECT "+columns+" FROM v3_connectors WHERE id=$1 AND environment_id=$2 FOR UPDATE", c.ID, c.EnvironmentID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		httpapi.Error(w, 409, "connector_changed", "Connector scope changed during connection check")
@@ -783,6 +852,9 @@ func (s *Service) test(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.authorizeWriteTx(w, r, tx, c.EnvironmentID) {
+		return
+	}
+	if !s.authorizeLockedWriteTx(w, r, tx, c.EnvironmentID) {
 		return
 	}
 	if !current.Enabled || current.Provider != c.Provider || current.Name != c.Name ||

@@ -83,7 +83,7 @@ func (s *Service) fetchMergeRequests(ctx context.Context, t target, page int, st
 	if !ok || (t.AuthMethod != "pat" && t.AuthMethod != "oauth") || s.Resolver == nil || t.CredentialRef == "" {
 		return nil, 0, errDisabled
 	}
-	token, err := s.Resolver.Resolve(ctx, t.CredentialRef)
+	token, err := s.resolveTargetCredential(ctx, t)
 	if err != nil || token == "" || len(token) > 4096 || strings.ContainsAny(token, "\r\n\x00") {
 		return nil, 0, errDisabled
 	}

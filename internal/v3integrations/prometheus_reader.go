@@ -192,7 +192,11 @@ func (p *PrometheusReader) Query(ctx context.Context, scope httpapi.V3Environmen
 		if p.Resolver == nil {
 			return out, metricReadError("credential_unavailable")
 		}
-		credential, err = p.Resolver.Resolve(ctx, source.CredentialRef)
+		credentialCtx := WithCredentialUse(ctx, CredentialUse{
+			Tier: p.Tier, EnvironmentID: env, ConnectorID: source.ConnectorID,
+			Provider: "prometheus", Endpoint: source.Endpoint,
+		})
+		credential, err = p.Resolver.Resolve(credentialCtx, source.CredentialRef)
 		if err != nil || credential == "" || len(credential) > 4096 || strings.ContainsAny(credential, "\r\n\x00") {
 			return out, metricReadError("credential_unavailable")
 		}

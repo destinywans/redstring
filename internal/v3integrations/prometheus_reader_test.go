@@ -209,9 +209,13 @@ func TestPrometheusRegistrationBindingVaultAndScopedQuery(t *testing.T) {
 		return ""
 	}
 	var registrationStatus string
-	if err := db.QueryRow(ctx, `SELECT status FROM v3_connectors WHERE id=$1`, registration.ID).Scan(&registrationStatus); err != nil || registrationStatus != "unverified" {
-		t.Fatalf("registration incorrectly marked healthy: status=%q err=%v", registrationStatus, err)
+	var registrationEnabled bool
+	if err := db.QueryRow(ctx, `SELECT status,enabled FROM v3_connectors WHERE id=$1`, registration.ID).Scan(&registrationStatus, &registrationEnabled); err != nil || registrationStatus != "unverified" || registrationEnabled {
+		t.Fatalf("credentialed registration was enabled before authorization and probe: status=%q enabled=%v err=%v", registrationStatus, registrationEnabled, err)
 	}
+	assertHTTP(request(http.MethodPost, "/api/v1/connectors/"+registration.ID+"/activate", `{}`), http.StatusOK)
+	assertHTTP(request(http.MethodPatch, "/api/v1/connectors/"+registration.ID,
+		`{"tools":[{"name":"query_metrics","enabled":true}]}`), http.StatusOK)
 	queryUnavailable.Store(true)
 	if _, err := reader.Query(ctx, scope, admin, "checkout", "dev", target.ID, "request_rate", window); code(err) != "unavailable" || queryCalls.Load() != 1 {
 		t.Fatalf("new registration masked failed live query: code=%q calls=%d", code(err), queryCalls.Load())

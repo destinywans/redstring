@@ -68,3 +68,25 @@ func TestVaultReferenceRejectsMalformedAndMissingFields(t *testing.T) {
 		t.Fatalf("unexpected secret error: %v", err)
 	}
 }
+
+func TestCredentialClientsRejectRedirectEvenWithInjectedHTTPClient(t *testing.T) {
+	redirected := false
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirected = true
+	}))
+	defer destination.Close()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, destination.URL, http.StatusFound)
+	}))
+	defer upstream.Close()
+	probe := Prober{Client: &http.Client{}, Resolver: genericActivationResolver{}}
+	result, err := probe.Check(context.Background(), "prometheus", upstream.URL, "bearer", "vault://isolated/prometheus#token")
+	if err != nil || result.OK || result.ErrorCode != "upstream_302" || redirected {
+		t.Fatalf("probe followed redirect: result=%+v redirected=%v err=%v", result, redirected, err)
+	}
+	vault := NewVaultResolver(upstream.URL, "test-token")
+	vault.Client = &http.Client{}
+	if _, err := vault.Resolve(context.Background(), "vault://secret/aiops/gitlab#token"); err != ErrCredentialUnavailable || redirected {
+		t.Fatalf("Vault request followed redirect: redirected=%v err=%v", redirected, err)
+	}
+}

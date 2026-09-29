@@ -13,15 +13,15 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
-// lockPatchAuthority pins the actor, role assignments, relevant grants and
-// live session after the connector row lock is acquired. A revoke committed
-// while PATCH waited for that row is visible to the following policy check;
+// lockConnectorAuthority pins the actor, role assignments, relevant grants and
+// live session while a connector write is in flight. A revoke committed
+// while the write waited for a connector row is visible to the following policy check;
 // a later revoke waits for this transaction to commit or roll back.
 // The final permission witness must come from the locked grant rows: a new
 // role assignment inserted after the assignment scan cannot authorize this
-// PATCH without also being part of its locked witness. Role rows precede
+// write without also being part of its locked witness. Role rows precede
 // assignment rows to match the role-management lock order.
-func lockPatchAuthority(ctx context.Context, tx pgx.Tx, r *http.Request, environment string) error {
+func lockConnectorAuthority(ctx context.Context, tx pgx.Tx, r *http.Request, environment string) error {
 	actorID := httpapi.CurrentUser(r).ID
 	var activeID string
 	err := tx.QueryRow(ctx, `SELECT id FROM users
@@ -33,7 +33,7 @@ func lockPatchAuthority(ctx context.Context, tx pgx.Tx, r *http.Request, environ
 	if err != nil {
 		return err
 	}
-	before, err := patchActorRoles(ctx, tx, actorID, false)
+	before, err := connectorActorRoles(ctx, tx, actorID, false)
 	if err != nil {
 		return err
 	}
@@ -60,7 +60,7 @@ func lockPatchAuthority(ctx context.Context, tx pgx.Tx, r *http.Request, environ
 	if locked != len(before) {
 		return store.ErrForbidden
 	}
-	after, err := patchActorRoles(ctx, tx, actorID, true)
+	after, err := connectorActorRoles(ctx, tx, actorID, true)
 	if err != nil {
 		return err
 	}
@@ -99,7 +99,7 @@ func lockPatchAuthority(ctx context.Context, tx pgx.Tx, r *http.Request, environ
 		return err
 	}
 	// Account writers update users before deleting sessions. Keep the same
-	// user-before-session order so account disable cannot deadlock this PATCH.
+	// user-before-session order so account disable cannot deadlock this write.
 	cookie, err := r.Cookie("aiops_session")
 	if err != nil || cookie.Value == "" {
 		return store.ErrForbidden
@@ -120,7 +120,7 @@ func lockPatchAuthority(ctx context.Context, tx pgx.Tx, r *http.Request, environ
 	return nil
 }
 
-func patchActorRoles(ctx context.Context, tx pgx.Tx, actorID string, lock bool) ([]string, error) {
+func connectorActorRoles(ctx context.Context, tx pgx.Tx, actorID string, lock bool) ([]string, error) {
 	statements := []string{
 		`SELECT role_id FROM rbac_user_roles WHERE user_id=$1 ORDER BY role_id`,
 		`SELECT dr.role_id FROM users u JOIN rbac_department_roles dr
@@ -159,7 +159,7 @@ func patchActorRoles(ctx context.Context, tx pgx.Tx, actorID string, lock bool) 
 	return ids, nil
 }
 
-func rollbackPatch(tx pgx.Tx) {
+func rollbackConnectorWrite(tx pgx.Tx) {
 	// The request context may be canceled while a lock wait is in progress.
 	// Release any acquired rows with an independent bounded cleanup context.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

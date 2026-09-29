@@ -71,7 +71,7 @@ func (s *Service) fetchCommit(ctx context.Context, t target, sha string) (gitlab
 	if !ok || !validFullSHA(sha) || (t.AuthMethod != "pat" && t.AuthMethod != "oauth") || s.Resolver == nil || t.CredentialRef == "" {
 		return gitlabCommit{}, errDisabled
 	}
-	token, err := s.Resolver.Resolve(ctx, t.CredentialRef)
+	token, err := s.resolveTargetCredential(ctx, t)
 	if err != nil || token == "" || len(token) > 4096 || strings.ContainsAny(token, "\r\n\x00") {
 		return gitlabCommit{}, errDisabled
 	}

@@ -57,6 +57,14 @@ type target struct {
 	Tools                                                       []byte
 }
 
+func (s *Service) resolveTargetCredential(ctx context.Context, t target) (string, error) {
+	use := v3integrations.CredentialUse{
+		Tier: s.Tier, EnvironmentID: t.EnvironmentID, ConnectorID: t.ConnectorID,
+		Provider: "gitlab", Endpoint: t.Endpoint,
+	}
+	return s.Resolver.Resolve(v3integrations.WithCredentialUse(ctx, use), t.CredentialRef)
+}
+
 type pipeline struct {
 	ID        int64     `json:"id"`
 	ProjectID int64     `json:"project_id"`
@@ -212,7 +220,7 @@ func (s *Service) fetch(ctx context.Context, t target, page int) ([]pipeline, in
 	if !ok || (t.AuthMethod != "pat" && t.AuthMethod != "oauth") || s.Resolver == nil || t.CredentialRef == "" {
 		return nil, 0, errDisabled
 	}
-	token, err := s.Resolver.Resolve(ctx, t.CredentialRef)
+	token, err := s.resolveTargetCredential(ctx, t)
 	if err != nil || token == "" || len(token) > 4096 || strings.ContainsAny(token, "\r\n\x00") {
 		return nil, 0, errDisabled
 	}

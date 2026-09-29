@@ -210,7 +210,15 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	personalSettings.Register(api)
 	api.V3ModelsHandler = personalSettings.ModelsHandler
 
-	connector := v3integrations.New(s.DB, cfg.Tier, v3integrations.NewVaultResolver(os.Getenv("AIOPS_VAULT_URL"), os.Getenv("AIOPS_VAULT_TOKEN")))
+	credentialBindings, err := v3integrations.ParseCredentialBindings(os.Getenv("AIOPS_V3_CONNECTOR_CREDENTIAL_BINDINGS"))
+	if err != nil {
+		return fmt.Errorf("configure V3 connector credentials: %w", err)
+	}
+	// A process Vault token can read more than one secret. Only server-managed
+	// bindings may send a credential to an exact registered connector endpoint.
+	credentialResolver := v3integrations.NewBoundResolver(
+		v3integrations.NewVaultResolver(os.Getenv("AIOPS_VAULT_URL"), os.Getenv("AIOPS_VAULT_TOKEN")), credentialBindings)
+	connector := v3integrations.New(s.DB, cfg.Tier, credentialResolver)
 	connector.Register(api)
 	v3changes.New(s.DB, cfg.Tier, policy, connector.Prober.Resolver).Register(api)
 	uploads := v3uploads.New(s.DB)

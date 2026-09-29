@@ -424,6 +424,7 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var reply string
+	var pastTerminal bool
 	requestedReply := r.URL.Query().Get("reply_id")
 	if values, present := r.URL.Query()["reply_id"]; present {
 		if len(values) != 1 || requestedReply == "" || strings.TrimSpace(requestedReply) != requestedReply || len(requestedReply) > 128 {
@@ -434,8 +435,12 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 	if cursor > 0 {
 		// Event IDs are global. Resolve a reconnect cursor to its own reply
 		// within the authorized conversation, even after a newer turn starts.
-		err = s.db.QueryRow(r.Context(), `SELECT reply_id FROM v3_conversation_events
-			WHERE seq=$1 AND conversation_id=$2`, cursor, id).Scan(&reply)
+		err = s.db.QueryRow(r.Context(), `SELECT e.reply_id, EXISTS (
+			SELECT 1 FROM v3_conversation_events terminal
+			WHERE terminal.conversation_id=e.conversation_id AND terminal.reply_id=e.reply_id
+				AND terminal.seq<=e.seq AND terminal.payload->>'type'='message.completed'
+		) FROM v3_conversation_events e
+			WHERE e.seq=$1 AND e.conversation_id=$2`, cursor, id).Scan(&reply, &pastTerminal)
 		if errors.Is(err, pgx.ErrNoRows) {
 			apiError(w, 422, "invalid_event_cursor", "Last-Event-ID is unavailable for this conversation")
 			return
@@ -472,6 +477,11 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(200)
 	flusher.Flush()
+	// A terminal event closes this reply, even if a stale writer left events
+	// behind it. Reconnecting at or past that cursor is an empty stream.
+	if pastTerminal {
+		return
+	}
 	lastKeepalive := time.Now()
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
@@ -479,6 +489,7 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 	if err != nil || s.opts.RefreshSession == nil {
 		return
 	}
+	terminalRecheck := false
 	for {
 		// Authorization may change after EventSource opens. Revalidate before
 		// each event batch so revoked sessions or grants stop receiving output.
@@ -542,17 +553,14 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if state == "completed" || state == "failed" {
-				var seq int64
-				var raw []byte
-				if err := s.db.QueryRow(r.Context(), `SELECT seq,payload FROM v3_conversation_events WHERE reply_id=$1 ORDER BY seq DESC LIMIT 1`, reply).Scan(&seq, &raw); err == nil {
-					// The terminal state and event commit in one transaction. A
-					// reconnect at or after its sequence has nothing left to replay.
-					if seq > cursor {
-						_, _ = fmt.Fprintf(w, "id: %d\ndata: %s\n\n", seq, raw)
-						flusher.Flush()
-					}
+				// Completion may commit between the empty event query and this
+				// state read. Query the ordered events once more rather than
+				// jumping to the final event and losing earlier frames.
+				if terminalRecheck {
+					return
 				}
-				return
+				terminalRecheck = true
+				continue
 			}
 		}
 		select {

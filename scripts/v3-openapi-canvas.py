@@ -82,7 +82,7 @@ P['/canvases/{id}']['get']['responses']['503'] = {
 v3_route('post','/canvases/{id}/nodes/{node}/messages','Run a scoped general-canvas node reply',
     body=obj({'text':string(),'model':string(),'reasoning':string()},['text']),
     response=obj({'reply':string()},['reply']),
-    desc='Owner-only general canvas node, one selected environment and current canvas.change grant. The synchronous response follows a durable assistant turn; user prompt, model choice, status and audit are persisted. One node reply runs at a time and returns 409 reply_in_progress for a concurrent run. The configured model receives the current node blocks, blocks from all transitive ancestors, and prior completed node and ancestor turn pairs within a 24 KiB context budget; sibling, descendant, and failed turns are excluded. Oversize context returns 413 node_context_too_large. Tool invocations are rejected, and model failure returns 503 with the failed user prompt retained. Access is checked about every two seconds during the model call and again in the completion transaction against the initiating session, canvas ownership and current canvas.change grant; a reply cannot commit when that final check denies access. A brief revoke and restore entirely between checks may be missed. Investigation nodes are separate and remain unavailable here.')
+    desc='Owner-only general canvas node, one selected environment and current canvas.change grant. The synchronous response follows a durable assistant turn; user prompt, model choice, status and audit are persisted. One node reply runs at a time and returns 409 reply_in_progress for a concurrent run. The configured model receives the current node blocks, blocks from all transitive ancestors, and prior completed node and ancestor turn pairs within a 24 KiB context budget; sibling, descendant, and failed turns are excluded. Oversize context returns 413 node_context_too_large. Tool invocations are rejected, and model failure returns 503 with the failed user prompt retained. Access is checked about every two seconds during the model call and again in the completion transaction against the initiating session, canvas ownership and current canvas.change grant; a reply cannot commit when that final check denies access. A brief revoke and restore entirely between checks may be missed. Investigation nodes use their separate investigation route.')
 P['/canvases/{id}/nodes/{node}/messages']['post']['responses']['413'] = {
     'description':'Current and inherited node context exceeds the 24 KiB model budget',
     'content':{'application/json':{'schema':ref('Error')}}}
@@ -150,11 +150,77 @@ P['/investigations/{id}/nodes/{node}']['patch']['responses']['413'] = {
     'content':{'application/json':{'schema':ref('Error')}}}
 S['V3InvestigationBranchContext'] = obj({
     'branch_id': string(), 'revision': integer(minimum=0),
-    'messages': arr({})}, ['branch_id','revision','messages'])
+    'messages': arr({}),
+    'attempts':arr(ref('V3InvestigationReplyAttempt')),
+    'attempts_has_more':v3_bool()},
+    ['branch_id','revision','messages','attempts','attempts_has_more'])
+S['V3InvestigationReplyAttempt'] = obj({
+    'id':string(),'text':string(),
+    'state':string(enum=['running','failed']),
+    'error_code':string(),'created_at':string(format='date-time')},
+    ['id','text','state','created_at'])
 v3_route('get','/investigations/{id}/nodes/{node}/messages',
     'Read the current persisted investigation branch context',
     response=ref('V3InvestigationBranchContext'),
-    desc='Auxiliary read-only route outside the 166 V3 page contracts. Resolves the branch, investigation, application, environment, and owner team from persisted records and requires current canvas.view for the application or owner team. Returns only the current branch revision and its historical JSON messages, preserving legacy optional fields as stored; it does not synthesize nodes, timestamps, summaries, or model output. The stored context is limited to 24 KiB. An absent, mismatched, or inaccessible branch returns 404; a missing, oversized, or malformed current context returns 503. The graph and layout/branch writes have separate routes; ancestor writeback and investigation node model replies remain unavailable.')
+    desc='Auxiliary read-only route outside the 166 V3 page contracts. Resolves persisted branch scope and requires current canvas.view. Returns the current revision and historical JSON messages as stored, plus the 50 most recent running or failed reply attempts. attempts_has_more marks additional older attempts. An expired running lease is displayed as failed. No synthetic assistant reply is inserted for a failed attempt. The stored context is limited to 24 KiB. An absent, mismatched, or inaccessible branch returns 404; missing or malformed context returns 503.')
+v3_route('post','/investigations/{id}/nodes/{node}/messages',
+    'Run a persisted investigation-branch model reply',
+    body=obj({'text':string(minLength=1,maxLength=8192),'model':string(),
+      'reasoning':string()},['text']),
+    response=obj({'summary':string()},['summary']),
+    desc='Requires an open, selected-environment investigation and current canvas.change on its persisted application or owner team. One live reply per branch; a legacy run also prevents a reply. The configured model receives the current branch context snapshot, which already contains its inherited parent history at fork time, plus this prompt. It receives no live ancestor, sibling or descendant state. The prompt/model/state and audit are durably recorded as a running attempt before the model call. No tools are allowed. Authorization is checked during the call and again in the completion transaction. A successful reply atomically appends user and assistant messages in a new branch context revision and marks the attempt complete. Model failure or revoked access retains a failed attempt without fabricating an assistant message. Concurrent runs or a changed context return 409; context exceeding 24 KiB returns 413. No child branch is generated in this response.')
+P['/investigations/{id}/nodes/{node}/messages']['post']['responses']['413'] = {
+    'description':'Current context or completed reply exceeds the branch context limit',
+    'content':{'application/json':{'schema':ref('Error')}}}
+S['V3InvestigationWritebackCandidate'] = obj({
+    'id':string(),'text':string(),'evidence':arr(string()),
+    'recommended':v3_bool(),'tokens':integer(minimum=0)},
+    ['id','text','evidence','recommended'])
+S['V3InvestigationWritebackPreview'] = obj({
+    'from':obj({'id':string(),'title':string(),'version':string()},
+      ['id','title','version']),
+    'to':obj({'id':string(),'title':string(),'version':string(),
+      'next_version':string(),'hops':integer(minimum=1)},
+      ['id','title','version','next_version','hops']),
+    'source_revision':integer(minimum=0),'target_revision':integer(minimum=0),
+    'target':string(),
+    'conclusions':arr(ref('V3InvestigationWritebackCandidate')),
+    'timeline':arr(obj({'v':string(),'text':string(),'meta':string(),
+      'isNew':v3_bool()},['v','text','meta'])),
+    'checks':arr(obj({'tone':string(enum=['ok','warn']),
+      'text':string()},['tone','text'])),
+    'budget':obj({key:{'type':['integer','null'],'minimum':0} for key in
+      ['before','after','limit']},['before','after','limit'])},
+    ['from','to','source_revision','target_revision','target','conclusions',
+      'timeline','checks','budget'])
+v3_route('get','/investigations/{id}/writeback-preview',
+    'Preview persisted branch-to-ancestor context writeback',
+    query=[v3_query(name) for name in ['node','from','target']],
+    response=ref('V3InvestigationWritebackPreview'),
+    desc='Supply node or its from alias; equal aliases are accepted. An omitted target selects the persisted root ancestor. A supplied target must be a strict ancestor of the source. Requires current canvas.view over the investigation. Candidate conclusions are exact assistant messages in the current source context whose IDs have not already been written to this target, including historical writeback provenance; recommended is always false. Source/target revision integers are supplied for writeback preconditions. Timeline labels describe persisted target revisions without inferring conclusions. Budget fields are null because no current token estimate is available; the frozen frontend numeric budget type needs adaptation. Preview is informational and does not reserve a revision or synthesize a summary. Oversized source/target context or graph returns 413.')
+P['/investigations/{id}/writeback-preview']['get']['responses']['413'] = {
+    'description':'Branch graph or source/target context exceeds bounded preview limits',
+    'content':{'application/json':{'schema':ref('Error')}}}
+v3_route('post','/investigations/{id}/writeback',
+    'Write selected persisted source messages into an ancestor context',
+    body={**obj({'node':string(),'from':string(),'target':string(),
+      'items':arr(string()),'conclusions':arr(string()),
+      'mode':string(enum=['summary','messages','evidence']),
+      'expected_source_revision':integer(minimum=0),
+      'expected_target_revision':integer(minimum=0)},
+      ['target','mode','expected_source_revision','expected_target_revision']),
+      'allOf':[
+        {'anyOf':[{'required':['node']},{'required':['from']}]},
+        {'anyOf':[{'required':['items']},{'required':['conclusions']}]}]},
+    response=obj({'version':string(),'source_revision':integer(minimum=0),
+      'target_revision':integer(minimum=0)},['version','source_revision','target_revision']),
+    desc='Supply node or its from alias, an explicit strict-ancestor target, and selected current source assistant message IDs in items or the conclusions alias. Equal aliases are accepted. Requires an open selected-environment investigation, current canvas.change, and both numeric revisions from a recent preview. Missing revision preconditions return 428; stale source or target returns 409. A source message already written to this target returns 409 even after later context rewrites. The summary mode records selected historical assistant text as a marked untrusted user context message, without model synthesis. The messages mode copies selected assistant messages unchanged. Evidence mode requires persisted evidence references and stores a marked historical evidence snapshot. A successful writeback appends only a new target context revision, event and audit; source context and infrastructure are untouched. Invalid ancestry/selection/evidence returns 422; context over 24 KiB or oversized graph returns 413.')
+P['/investigations/{id}/writeback']['post']['responses']['428'] = {
+    'description':'Expected source and target revisions are required',
+    'content':{'application/json':{'schema':ref('Error')}}}
+P['/investigations/{id}/writeback']['post']['responses']['413'] = {
+    'description':'Branch graph or source/target context exceeds writeback limits',
+    'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('get','/canvas-templates','List available canvas structures',
     response=obj({'items':arr(ref('V3CanvasTemplate'))},['items']),
     desc='Currently lists only private, persisted generic-canvas structure templates owned by the current user in authorized non-production environments. Investigation and team templates are unavailable; the full page contract remains mock.')

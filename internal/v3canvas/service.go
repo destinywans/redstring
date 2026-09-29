@@ -79,6 +79,9 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"GET /api/v1/investigations/{id}/canvas", "view", s.investigationCanvas},
 		{"POST /api/v1/investigations/{id}/branches", "change", s.createInvestigationBranch},
 		{"PATCH /api/v1/investigations/{id}/nodes/{node}", "change", s.patchInvestigationNode},
+		{"POST /api/v1/investigations/{id}/nodes/{node}/messages", "change", s.investigationNodeMessage},
+		{"GET /api/v1/investigations/{id}/writeback-preview", "view", s.investigationWritebackPreview},
+		{"POST /api/v1/investigations/{id}/writeback", "change", s.writebackInvestigation},
 		{"POST /api/v1/canvases/{id}/nodes/{node}/messages", "change", s.sendNodeMessage},
 		{"GET /api/v1/investigations/{id}/nodes/{node}/messages", "view", s.readInvestigationNodeMessages},
 		{"GET /api/v1/canvas-templates", "view", s.templates},
@@ -89,6 +92,9 @@ func (s *Service) Register(api *httpapi.Server) {
 			route.pattern == "GET /api/v1/investigations/{id}/canvas" ||
 			route.pattern == "POST /api/v1/investigations/{id}/branches" ||
 			route.pattern == "PATCH /api/v1/investigations/{id}/nodes/{node}" ||
+			route.pattern == "POST /api/v1/investigations/{id}/nodes/{node}/messages" ||
+			route.pattern == "GET /api/v1/investigations/{id}/writeback-preview" ||
+			route.pattern == "POST /api/v1/investigations/{id}/writeback" ||
 			route.pattern == "GET /api/v1/investigations/{id}/nodes/{node}/messages" {
 			// The handlers resolve application/team scope from persisted
 			// investigations or the active service catalog before checking grants.

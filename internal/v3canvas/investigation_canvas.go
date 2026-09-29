@@ -268,7 +268,9 @@ func (s *Service) readCanvasGraph(ctx context.Context, tx pgx.Tx, target investi
 	rows, err := tx.Query(ctx, `SELECT b.id,COALESCE(b.parent_id,''),b.title,b.revision,b.inherited_parent_revision,
  COALESCE(l.x,0),COALESCE(l.y,0),COALESCE(l.w,260),COALESCE(l.collapsed,false),COALESCE(l.version,0),
  l.branch_id IS NOT NULL,
- EXISTS(SELECT 1 FROM runs r WHERE r.branch_id=b.id AND r.status IN ('queued','running'))
+ (EXISTS(SELECT 1 FROM runs r WHERE r.branch_id=b.id AND r.status IN ('queued','running'))
+  OR EXISTS(SELECT 1 FROM v3_investigation_node_replies nr WHERE nr.branch_id=b.id
+    AND nr.state='running' AND nr.lease_expires_at>clock_timestamp()))
  FROM branches b LEFT JOIN v3_investigation_node_layouts l ON l.branch_id=b.id
  WHERE b.investigation_id=$1 ORDER BY b.id LIMIT $2`, target.id, maxInvestigationNodes+1)
 	if err != nil {

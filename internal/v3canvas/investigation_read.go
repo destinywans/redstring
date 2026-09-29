@@ -44,23 +44,33 @@ func (s *Service) readInvestigationNodeMessages(w http.ResponseWriter, r *http.R
 		return
 	}
 	ctx := r.Context()
-	tx, err := s.Store.DB.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	tx, err := s.Store.DB.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		investigationReadError(w, 503)
 		return
 	}
 	defer tx.Rollback(ctx)
-
-	var target investigationReadTarget
-	var actualInvestigation string
+	if failure := s.canvasPrincipal(ctx, tx, r); failure != nil {
+		failure.write(w)
+		return
+	}
+	target, failure := s.canvasTarget(ctx, tx, r.PathValue("id"), false)
+	if failure != nil {
+		failure.write(w)
+		return
+	}
+	if !slicesContains(environments, target.environment) {
+		graphNotFound().write(w)
+		return
+	}
+	if failure = s.canvasPermission(ctx, tx, httpapi.CurrentUser(r), target, "view"); failure != nil {
+		failure.write(w)
+		return
+	}
 	node := r.PathValue("node")
-	err = tx.QueryRow(ctx, `SELECT b.investigation_id,i.application_id,ae.key,COALESCE(a.owner_team_id,'')
- FROM branches b JOIN investigations i ON i.id=b.investigation_id
- JOIN applications a ON a.id=i.application_id AND NOT a.archived
- JOIN application_environments ae ON ae.id=i.environment_id AND ae.application_id=i.application_id AND NOT ae.archived
- JOIN v3_application_environments vae ON vae.application_id=i.application_id AND vae.environment_id=ae.key
- WHERE b.id=$1`, node).Scan(&actualInvestigation, &target.application, &target.environment, &target.team)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && (actualInvestigation != r.PathValue("id") || !slicesContains(environments, target.environment)) {
+	var revision int64
+	err = tx.QueryRow(ctx, `SELECT revision FROM branches WHERE id=$1 AND investigation_id=$2`, node, target.id).Scan(&revision)
+	if errors.Is(err, pgx.ErrNoRows) {
 		investigationReadError(w, 404)
 		return
 	}
@@ -68,22 +78,12 @@ func (s *Service) readInvestigationNodeMessages(w http.ResponseWriter, r *http.R
 		investigationReadError(w, 503)
 		return
 	}
-	if err = s.authorizeInvestigationRead(ctx, tx, httpapi.CurrentUser(r), target); err != nil {
-		if errors.Is(err, store.ErrForbidden) {
-			// Keep inaccessible object IDs indistinguishable from absent IDs.
-			investigationReadError(w, 404)
-		} else {
-			investigationReadError(w, 503)
-		}
-		return
-	}
-	var revision int64
 	var raw []byte
 	// The SQL predicate bounds the context transferred to Go. PostgreSQL still
 	// measures the stored JSONB value, so this does not bound database work.
-	err = tx.QueryRow(ctx, `SELECT b.revision,r.messages FROM branches b JOIN context_revisions r
- ON r.branch_id=b.id AND r.revision=b.revision WHERE b.id=$1 AND octet_length(r.messages::text)<=$2`,
-		node, maxNodeContextBytes).Scan(&revision, &raw)
+	err = tx.QueryRow(ctx, `SELECT messages FROM context_revisions
+ WHERE branch_id=$1 AND revision=$2 AND octet_length(messages::text)<=$3`,
+		node, revision, maxNodeContextBytes).Scan(&raw)
 	if err != nil || len(raw) > maxNodeContextBytes {
 		investigationReadError(w, 503)
 		return
@@ -93,9 +93,44 @@ func (s *Service) readInvestigationNodeMessages(w http.ResponseWriter, r *http.R
 		investigationReadError(w, 503)
 		return
 	}
+	rows, err := tx.Query(ctx, `SELECT id,user_text,
+ CASE WHEN state='running' AND lease_expires_at<=clock_timestamp() THEN 'failed' ELSE state END,
+ CASE WHEN state='running' AND lease_expires_at<=clock_timestamp() THEN 'lease_expired' ELSE failure_code END,
+ created_at FROM v3_investigation_node_replies
+ WHERE branch_id=$1 AND state IN ('running','failed') ORDER BY created_at DESC,id DESC LIMIT $2`,
+		node, maxInvestigationReplyAttempts+1)
+	if err != nil {
+		investigationReadError(w, 503)
+		return
+	}
+	attempts := []investigationReplyAttempt{}
+	for rows.Next() {
+		var attempt investigationReplyAttempt
+		if err = rows.Scan(&attempt.ID, &attempt.Text, &attempt.State, &attempt.ErrorCode, &attempt.CreatedAt); err != nil {
+			break
+		}
+		attempts = append(attempts, attempt)
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
+		investigationReadError(w, 503)
+		return
+	}
+	hasMoreAttempts := len(attempts) > maxInvestigationReplyAttempts
+	if hasMoreAttempts {
+		attempts = attempts[:maxInvestigationReplyAttempts]
+	}
+	if err = tx.Commit(ctx); err != nil {
+		investigationReadError(w, 503)
+		return
+	}
 	// RawMessage retains omitted legacy fields as omitted; decoding through
 	// core.Message would turn absent created_at into a fabricated zero time.
-	httpapi.WriteJSON(w, 200, map[string]any{"branch_id": node, "revision": revision, "messages": json.RawMessage(raw)})
+	httpapi.WriteJSON(w, 200, map[string]any{"branch_id": node, "revision": revision, "messages": json.RawMessage(raw),
+		"attempts": attempts, "attempts_has_more": hasMoreAttempts})
 }
 
 func investigationReadError(w http.ResponseWriter, status int) {

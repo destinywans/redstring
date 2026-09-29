@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -51,6 +52,7 @@ func TestCanvasListIncludesOnlyVisiblePersistedInvestigations(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["application_name"] = schema
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -222,7 +224,48 @@ func TestCanvasListIncludesOnlyVisiblePersistedInvestigations(t *testing.T) {
 		teamVisible.Items[0].ID == "22222222222222222222222222222222" || teamVisible.Items[1].ID == "22222222222222222222222222222222" {
 		t.Fatalf("team grant exposed an unrelated application or hid its own: %+v", teamVisible)
 	}
-	if _, err = db.Exec(ctx, `UPDATE applications SET owner_team_id='team-hidden' WHERE id='app-visible'`); err != nil {
+	// Hold the page's branch read after the authorization sources have been
+	// locked. A concurrent team reassignment must wait until this response has
+	// finished; the following request must then observe the revoked team.
+	blocker, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blocker.Rollback(context.Background())
+	if _, err = blocker.Exec(ctx, `LOCK TABLE branches IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatal(err)
+	}
+	reading := make(chan *httptest.ResponseRecorder, 1)
+	go func() { reading <- request(teamToken, "/api/v1/canvases?kind=investigation") }()
+	waitForLock := func(pattern string) {
+		t.Helper()
+		for until := time.Now().Add(5 * time.Second); time.Now().Before(until); time.Sleep(10 * time.Millisecond) {
+			var waiting bool
+			if err = db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+				WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE $2)`, schema, pattern).Scan(&waiting); err != nil {
+				t.Fatal(err)
+			}
+			if waiting {
+				return
+			}
+		}
+		t.Fatalf("canvas request did not wait for lock: %s", pattern)
+	}
+	waitForLock("WITH visible AS (%")
+	reassigned := make(chan error, 1)
+	go func() {
+		_, updateErr := db.Exec(ctx, `UPDATE applications SET owner_team_id='team-hidden' WHERE id='app-visible'`)
+		reassigned <- updateErr
+	}()
+	waitForLock("UPDATE applications SET owner_team_id=%")
+	if err = blocker.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	concurrentRead := decode(<-reading)
+	if concurrentRead.Total != 2 || len(concurrentRead.Items) != 2 {
+		t.Fatalf("authorized snapshot was cut short during reassignment: %+v", concurrentRead)
+	}
+	if err = <-reassigned; err != nil {
 		t.Fatal(err)
 	}
 	teamRevoked := decode(request(teamToken, "/api/v1/canvases?kind=investigation"))

@@ -3,6 +3,7 @@
 package v3canvas
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +19,40 @@ import (
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 )
+
+// Investigation visibility depends on mutable application ownership and both
+// environment mappings. Pin every currently visible source row before counts
+// and page selection. Under REPEATABLE READ an update committed since the
+// snapshot fails serialization; one started later waits until this read ends.
+func lockCanvasInvestigationScopes(ctx context.Context, tx pgx.Tx, userID string, envs []string) error {
+	rows, err := tx.Query(ctx, `SELECT a.id,ae.id,vae.environment_id
+ FROM applications a
+ JOIN application_environments ae ON ae.application_id=a.id AND NOT ae.archived
+ JOIN v3_application_environments vae ON vae.application_id=a.id AND vae.environment_id=ae.key
+ WHERE NOT a.archived AND ae.key=ANY($2::text[])
+ AND EXISTS (SELECT 1 FROM investigations i WHERE i.application_id=a.id AND i.environment_id=ae.id)
+ AND EXISTS (SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$1
+   AND g.module='canvas' AND g.action='view'
+   AND ((g.scope_kind='global' AND g.scope_id='*')
+     OR (g.scope_kind='environment' AND g.scope_id=ae.key)
+     OR (g.scope_kind='application' AND g.scope_id=a.id)
+     OR (a.owner_team_id IS NOT NULL AND g.scope_kind='team' AND g.scope_id=a.owner_team_id)))
+ ORDER BY a.id,ae.id FOR SHARE OF a,ae,vae`, userID, envs)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var applicationID, applicationEnvironmentID, environmentID string
+		if err = rows.Scan(&applicationID, &applicationEnvironmentID, &environmentID); err != nil {
+			break
+		}
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	return err
+}
 
 type Service struct {
 	Store   *store.Store
@@ -346,6 +381,10 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	envs = currentEnvs
+	if err = lockCanvasInvestigationScopes(r.Context(), tx, sessionUser, envs); err != nil {
+		httpapi.Error(w, 503, "canvas_unavailable", "Canvas authorization unavailable")
+		return
+	}
 	counts := map[string]int{"all": 0, "investigation": 0, "plan": 0, "review": 0, "analysis": 0, "custom": 0}
 	rows, err := tx.Query(r.Context(), canvasListSource+`SELECT kind,count(*),bool_and(
    kind<>'investigation' OR status IN ('open','closed')) FROM searched GROUP BY kind`, owner, envs, q)

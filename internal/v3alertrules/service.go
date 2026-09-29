@@ -70,16 +70,17 @@ type Source interface {
 }
 
 type ObservedRule struct {
-	GroupIdentity  string // exact provider file + NUL + group name
-	Group          string
-	Name           string
-	Expression     string
-	State          string
-	Duration       float64
-	Labels         map[string]string
-	Annotations    map[string]string
-	LastEvaluation time.Time
-	EvaluationTime float64
+	GroupIdentity      string // exact provider file + NUL + group name
+	Group              string
+	Name               string
+	Expression         string
+	State              string
+	Duration           float64
+	EvaluationInterval time.Duration // group evaluation interval; zero when provider omits it
+	Labels             map[string]string
+	Annotations        map[string]string
+	LastEvaluation     time.Time
+	EvaluationTime     float64
 }
 
 type Summary struct {
@@ -95,21 +96,23 @@ type Summary struct {
 // preview, route, AI triage and threshold are unavailable from Prometheus.
 type Detail struct {
 	Summary
-	Datasource     string            `json:"datasource"`
-	Expr           string            `json:"expr"`
-	ForSeconds     float64           `json:"for_seconds"`
-	Labels         map[string]string `json:"labels"`
-	Annotations    map[string]string `json:"annotations"`
-	LastEvaluation string            `json:"last_evaluation,omitempty"`
-	EvaluationMS   float64           `json:"evaluation_ms"`
-	Partial        bool              `json:"partial"`
-	Unavailable    []string          `json:"unavailable"`
+	Datasource         string  `json:"datasource"`
+	Expr               string  `json:"expr"`
+	ForSeconds         float64 `json:"for_seconds"`
+	evaluationInterval time.Duration
+	Labels             map[string]string `json:"labels"`
+	Annotations        map[string]string `json:"annotations"`
+	LastEvaluation     string            `json:"last_evaluation,omitempty"`
+	EvaluationMS       float64           `json:"evaluation_ms"`
+	Partial            bool              `json:"partial"`
+	Unavailable        []string          `json:"unavailable"`
 }
 
 type Service struct {
 	Catalog  Catalog
 	Access   Access
 	Source   Source
+	Now      func() time.Time
 	bindings map[string]string // environment + provider group identity -> application ID
 }
 
@@ -149,6 +152,8 @@ func (s *Service) Register(api *httpapi.Server) {
 	api.MarkV3ObjectRoute("GET /api/v1/alert-rules/observed", "alert_rules", "view")
 	api.Register("GET /api/v1/alert-rules/observed/{id}", "viewer", s.Detail)
 	api.MarkV3ObjectRoute("GET /api/v1/alert-rules/observed/{id}", "alert_rules", "view")
+	api.Register("POST /api/v1/alert-rules/{id}/dry-run", "viewer", s.DryRun)
+	api.MarkV3ObjectRoute("POST /api/v1/alert-rules/{id}/dry-run", "alert_rules", "view")
 }
 
 // MainList serves the complete V3 rule-list contract. Unlike the auxiliary
@@ -296,7 +301,8 @@ func toDetail(env, app string, rule ObservedRule) Detail {
 	return Detail{
 		Summary:    Summary{ID: "prom-" + hex.EncodeToString(idBytes[:12]), Folder: rule.Group, Name: rule.Name, State: state, EnvironmentID: env, ApplicationID: app},
 		Datasource: "prometheus", Expr: rule.Expression, ForSeconds: rule.Duration,
-		Labels: rule.Labels, Annotations: rule.Annotations, LastEvaluation: last,
+		evaluationInterval: rule.EvaluationInterval,
+		Labels:             rule.Labels, Annotations: rule.Annotations, LastEvaluation: last,
 		EvaluationMS: rule.EvaluationTime * 1000, Partial: true,
 		Unavailable: []string{"preview", "condition", "evaluation_schedule", "route_path", "ai_triage", "runbook"},
 	}
@@ -324,42 +330,46 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) Detail(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimSpace(r.PathValue("id"))
-	if len(id) > 100 || id == "" {
-		httpapi.Error(w, 404, "not_found", "Alert rule not found")
+	item, lookupError := s.findRule(r, r.PathValue("id"))
+	if lookupError != nil {
+		httpapi.Error(w, lookupError.status, lookupError.code, lookupError.message)
 		return
+	}
+	httpapi.WriteJSON(w, http.StatusOK, item)
+}
+
+type ruleLookupError struct {
+	status  int
+	code    string
+	message string
+}
+
+func (s *Service) findRule(r *http.Request, rawID string) (Detail, *ruleLookupError) {
+	id := strings.TrimSpace(rawID)
+	if len(id) > 100 || id == "" {
+		return Detail{}, &ruleLookupError{http.StatusNotFound, "not_found", "Alert rule not found"}
 	}
 	items, unavailable, status, err := s.visible(r)
 	if err != nil {
-		httpapi.Error(w, status, errorCode(status), "Alert rule source or authorization is unavailable")
-		return
+		return Detail{}, &ruleLookupError{status, errorCode(status), "Alert rule source or authorization is unavailable"}
 	}
 	var match *Detail
 	for i := range items {
 		item := &items[i]
 		if item.ID == id {
 			if match != nil {
-				httpapi.Error(w, http.StatusServiceUnavailable, "alert_rule_identity_conflict", "Observed rule identity is ambiguous")
-				return
+				return Detail{}, &ruleLookupError{http.StatusServiceUnavailable, "alert_rule_identity_conflict", "Observed rule identity is ambiguous"}
 			}
 			match = item
 		}
 	}
 	if match != nil {
-		httpapi.WriteJSON(w, http.StatusOK, match)
-		return
+		return *match, nil
 	}
 	if len(unavailable) > 0 {
-		httpapi.Error(w, 503, "rule_source_partial", "A rule provider is unavailable; the rule cannot be resolved")
-		return
+		return Detail{}, &ruleLookupError{http.StatusServiceUnavailable, "rule_source_partial", "A rule provider is unavailable; the rule cannot be resolved"}
 	}
-	httpapi.Error(w, 404, "not_found", "Alert rule not found")
-}
-
-func (s *Service) DryRun(w http.ResponseWriter, r *http.Request) {
-	// No reviewed expression/threshold and historical evaluator is available.
-	// In particular, accepting a request body here would permit arbitrary PromQL.
-	httpapi.Error(w, 503, "dry_run_unavailable", "Historical alert rule evaluation is not configured")
+	return Detail{}, &ruleLookupError{http.StatusNotFound, "not_found", "Alert rule not found"}
 }
 
 func errorCode(status int) string {

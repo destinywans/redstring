@@ -71,6 +71,16 @@ P['/alert-rules/observed']['get']['responses']['206'] = P['/alert-rules/observed
 v3_route('get','/alert-rules/observed/{id}','Read one provider-observed alert rule',
     response=ref('V3ObservedAlertRuleDetail'),
     desc='Auxiliary read-only backend endpoint. The rule must be uniquely identified within the currently authorized application or owner-team provider result, with scope rechecked after upstream reads. Duplicate visible stable IDs return 503 alert_rule_identity_conflict rather than an arbitrary expression or state. An unknown ID with a failed in-scope provider returns 503 rule_source_partial; a complete miss returns 404. No historical preview, threshold condition, notification route or AI triage is inferred.')
+S['V3RuleDryRunRequest'] = obj({
+    'expr':string(minLength=1,maxLength=8192,description='Must exactly equal the current authorized provider-observed rule expression; arbitrary PromQL is rejected.'),
+    'for':string(minLength=2,maxLength=32,description='Go duration from 0s to 1h, for example 5m.')}, ['expr','for'])
+S['V3RuleDryRunResult'] = obj({
+    'would_fire':integer(minimum=0,maximum=500),
+    'windows':{'type':'array','maxItems':500,'items':string(description='UTC ISO-8601 interval start/end for one newly firing series episode in the last six hours.')}},
+    ['would_fire','windows'])
+v3_route('post','/alert-rules/{id}/dry-run','Simulate one authorized rule from real Prometheus range samples',
+    body=ref('V3RuleDryRunRequest'), response=ref('V3RuleDryRunResult'),
+    desc='Read-only, exactly one selected environment. Resolve a unique active rule using the server-owned file/group-to-application binding, matching provider labels and current application or owner-team alert_rules.view; unknown or hidden rules do not expose a result. The submitted expr must exactly equal that current rule expression, which must itself be reviewed as trusted configuration. The for duration may vary from 0s to 1h. Query the configured environment Prometheus query_range over the last six hours plus bounded pre-roll at the observed rule-group interval (15s to 5m, or a disclosed 1m fallback when omitted). Every returned vector series must itself carry the exact bound environment and application labels; missing or mixed scope fails closed. A vector element is active by its presence, including numeric zero. would_fire counts distinct series episodes that newly reach for within those six hours; windows contains one sorted UTC start/end interval per episode, at most 500. This is a sampled simulation from real query data, not persisted historical alert state or a notification replay; provider query_offset and keep_firing_for are not reproduced. The rule, owner, scope, and grants are rechecked after query_range; changed scope fails closed. Missing source or partial/malformed/over-limit provider data returns 503 without synthetic counts. The frozen frontend still sends threshold/for_minutes rather than expr/for; page acceptance remains pending.')
 
 S['V3SilenceMatcher'] = obj(fieldnames('k v'), ['k','v'])
 S['V3SilencePreviewMatcher'] = obj({'k':string(pattern='^[a-zA-Z_][a-zA-Z0-9_]*$'),'op':string(enum=['=','!=','=~','!~']),

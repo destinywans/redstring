@@ -115,7 +115,7 @@ func TestListPartialAndUnavailableAreExplicit(t *testing.T) {
 	}
 }
 
-func TestDetailNeverUsesFallbackAndDryRunNeverClaimsResult(t *testing.T) {
+func TestDetailNeverUsesFallbackAndDryRunRejectsMissingBody(t *testing.T) {
 	s := mustService(t, fakeCatalog{{ID: "a", EnvironmentID: "test"}}, fakeAccess{}, fakeSource{rules: map[string][]ObservedRule{"test": {{GroupIdentity: testRuleFile + "\x00g", Group: "g", Name: "A", Expression: "up", Labels: map[string]string{"environment": "test", "application": "a"}}}}}, RuleGroupBinding{EnvironmentID: "test", ApplicationID: "a", File: testRuleFile, Group: "g"})
 	h := scopedHandler(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.SetPathValue("id", "nonexistent")
@@ -126,7 +126,7 @@ func TestDetailNeverUsesFallbackAndDryRunNeverClaimsResult(t *testing.T) {
 		t.Fatalf("unknown detail status=%d body=%s", w.Code, w.Body.String())
 	}
 	w = call(t, scopedHandler(t, http.HandlerFunc(s.DryRun)), "POST", "/api/v1/alert-rules/anything/dry-run", "test")
-	if w.Code != 503 || !strings.Contains(w.Body.String(), "dry_run_unavailable") || strings.Contains(w.Body.String(), "would_fire") {
+	if w.Code != 422 || !strings.Contains(w.Body.String(), "invalid_body") || strings.Contains(w.Body.String(), "would_fire") {
 		t.Fatalf("dry-run status=%d body=%s", w.Code, w.Body.String())
 	}
 }

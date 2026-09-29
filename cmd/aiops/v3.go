@@ -38,6 +38,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3knowledgesources"
 	"github.com/wans/aiops-canvas/internal/v3mcp"
 	"github.com/wans/aiops-canvas/internal/v3memory"
+	"github.com/wans/aiops-canvas/internal/v3models"
 	"github.com/wans/aiops-canvas/internal/v3observe"
 	"github.com/wans/aiops-canvas/internal/v3postmortems"
 	"github.com/wans/aiops-canvas/internal/v3proposals"
@@ -214,6 +215,7 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	personalSettings.MeEvidence = meEvidence
 	personalSettings.Register(api)
 	api.V3ModelsHandler = personalSettings.ModelsHandler
+	v3models.New(s.DB, runtime, policy).Register(api)
 
 	credentialBindings, err := v3integrations.ParseCredentialBindings(os.Getenv("AIOPS_V3_CONNECTOR_CREDENTIAL_BINDINGS"))
 	if err != nil {

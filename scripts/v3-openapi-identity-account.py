@@ -107,6 +107,21 @@ for _code, _description in [('400','Malformed or multiple If-Match values'),
 P['/workspace']['put']['responses']['409']['description'] = 'All-environment read-only scope cannot be written; stale If-Match revisions return 412'
 v3_route('get','/models','List configured inference models',response=ref('V3ModelCatalog'),
     desc='available means configured, not remotely health-checked. tools reflects the operator-enabled V3 read-tool allowlist rather than provider-wide capability; remote function calling is not attested by this response. Native Ollama returns 503 model_catalog_unavailable until the client ModelInfo.api enum can represent it.')
+S['V3ModelObservation'] = obj({
+    'model':string(maxLength=320),
+    'status':string(enum=['configured_unverified','verified','error','unsupported']),
+    'checked_at':{'anyOf':[string(format='date-time'),{'type':'null'}]},
+    'latency_ms':{'anyOf':[integer(minimum=0),{'type':'null'}]},
+    'error_code':string(maxLength=80),
+},['model','status','checked_at','latency_ms'])
+v3_route('post','/models/check','Check configured model metadata',
+    body=obj({'model':string(minLength=1,maxLength=320)},['model']),
+    response=ref('V3ModelObservation'),
+    desc='Auxiliary models.manage route for one selected environment. Checks only a credential-free literal loopback model metadata endpoint with a five-second limit. Remote or credentialed models return unsupported without a request. The response records one observation, not generation, streaming, tools, or future health. A write transaction rechecks current authority and audits the observation.')
+v3_route('get','/models/observations','Read one model metadata observation',
+    query=[{'name':'model','in':'query','required':True,'schema':string(minLength=1,maxLength=320)}],
+    response=ref('V3ModelObservation'),
+    desc='Auxiliary models.view route for one selected environment. Missing checks and observations from another service process return configured_unverified with null checked_at and latency_ms; current verification is not shared across replicas. No endpoint, credentials, or upstream body is returned.')
 for _method in ('get','patch'):
     P['/me'][_method]['responses']['503']['description'] = 'Authoritative current on-call evidence is unavailable or stale'
 for _method in ('get','put'):

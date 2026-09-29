@@ -27216,7 +27216,7 @@
       "get": {
         "summary": "List configured connectors",
         "operationId": "get_connectors",
-        "description": "Minimum role: admin. V3 instance and environment scope apply. Counts cover all currently authorized connector registrations before category or search filters. Disabled or credential-free registrations are unverified and identified in meta. Persisted tool preferences do not produce Agent capability tags. Status ok/error reflects a persisted connection test from the last 15 minutes, not continuous health; older results become unverified with their last-check time. More than 1000 visible registrations returns 413 instead of an incomplete unpaged result.",
+        "description": "Minimum role: admin. V3 instance and environment scope apply. Counts cover all currently authorized connector registrations before category or search filters. Disabled, required-credential-missing, or server-binding-missing registrations are unverified and identified in meta. Persisted tool preferences do not produce Agent capability tags. Status ok/error reflects a persisted connection test from the last 15 minutes, not continuous health; older results become unverified with their last-check time. More than 1000 visible registrations returns 413 instead of an incomplete unpaged result.",
         "responses": {
           "200": {
             "description": "Success",
@@ -27325,7 +27325,7 @@
       "post": {
         "summary": "Create a connector",
         "operationId": "post_connectors",
-        "description": "Minimum role: admin. V3 instance and environment scope apply. Creates an audited environment-scoped registration. The current GitLab wizard omits Vault credential and project scope; its request is stored disabled and unverified. webhook=true records intent only and does not provision a remote Webhook. A disabled registration cannot be probed or have tools enabled; activation requires a Vault reference and explicit project binding. Fully configured non-GitLab read-only registrations may be enabled on creation.",
+        "description": "Minimum role: admin. V3 instance and environment scope apply. Creates an audited environment-scoped registration. Credentialed registrations remain disabled even when a Vault reference is supplied: their generated ID must first be approved in a private server-side exact binding. webhook=true records intent only and does not provision a remote Webhook. A disabled registration cannot be probed or have tools enabled; GitLab also requires explicit project binding. Only unauthenticated non-GitLab read-only registrations without webhook intent may be enabled on creation.",
         "responses": {
           "201": {
             "description": "Success",
@@ -27470,7 +27470,7 @@
       "get": {
         "summary": "Read connector configuration",
         "operationId": "get_connectors_id",
-        "description": "Minimum role: admin. V3 instance and environment scope apply. Returns one persisted registration in the selected environment. Service names are included only after current target and application grants. Auth text distinguishes a missing credential from a registered Vault reference; it does not claim the secret was verified. Status is the most recent fresh connection probe, not continuous health; missing credentials are unverified even if an older successful check was stored. There is no connector-backed Agent executor or query binding, so tools, queries, and capability tags are empty even when registration preferences exist. More than 1000 visible target services returns 422 instead of truncation.",
+        "description": "Minimum role: admin. V3 instance and environment scope apply. Returns one persisted registration in the selected environment. Service names are included only after current target and application grants. Auth text distinguishes a missing credential, missing server-side binding, and registered Vault reference; it does not claim the secret was verified. Status is the most recent fresh connection probe, not continuous health; missing credentials or bindings are unverified even if an older successful check was stored. There is no connector-backed Agent executor or query binding, so tools, queries, and capability tags are empty even when registration preferences exist. More than 1000 visible target services returns 422 instead of truncation.",
         "responses": {
           "200": {
             "description": "Success",
@@ -27573,7 +27573,7 @@
       "patch": {
         "summary": "Update connector configuration",
         "operationId": "patch_connectors_id",
-        "description": "Minimum role: admin. V3 instance and environment scope apply. Partially updates stored connector tool preferences under a row lock with current connectors.manage and atomic audit; distinct supported tool names and a present, non-null enabled boolean are required. Unknown, duplicate or retired stored tools return 409 tool_catalog_changed without silently deleting preferences. Enabling a tool on a disabled connector returns 409 connector_disabled. No object version precondition is implemented. The enabled flag gates some scoped read-only sources but is not an Agent execution grant; connector-backed Agent execution is not wired. The V3 frontend toggle currently does not call this route.",
+        "description": "Minimum role: admin. V3 instance and environment scope apply. Partially updates stored connector tool preferences under a row lock with current connectors.manage and atomic audit; distinct supported tool names and a present, non-null enabled boolean are required. Unknown, duplicate or retired stored tools return 409 tool_catalog_changed without silently deleting preferences. Enabling a tool on a disabled or server-binding-missing connector returns 409 connector_disabled. No object version precondition is implemented. The enabled flag gates some scoped read-only sources but is not an Agent execution grant; connector-backed Agent execution is not wired. The V3 frontend toggle currently does not call this route.",
         "responses": {
           "200": {
             "description": "Success",
@@ -27730,7 +27730,7 @@
       "get": {
         "summary": "Read stored connector tool switches",
         "operationId": "get_connectors_id_tool_settings",
-        "description": "Minimum role: admin. V3 instance and environment scope apply. Auxiliary read outside the 166 page routes. Requires current connectors.view in an authorized environment and selects the registration by ID and environment. Returns stored tool switches with localized catalog labels, connector enabled state and agent_execution_available=false; it exposes neither endpoint nor credential reference, and does not imply Agent execution. Unknown or cross-environment IDs return 404; unknown, duplicate or retired stored tools fail closed with 503 rather than silently changing the reported settings.",
+        "description": "Minimum role: admin. V3 instance and environment scope apply. Auxiliary read outside the 166 page routes. Requires current connectors.view in an authorized environment and selects the registration by ID and environment. Returns stored tool switches with localized catalog labels, effective connector enabled state after server credential-binding policy, and agent_execution_available=false; it exposes neither endpoint nor credential reference, and does not imply Agent execution. Unknown or cross-environment IDs return 404; unknown, duplicate or retired stored tools fail closed with 503 rather than silently changing the reported settings.",
         "responses": {
           "200": {
             "description": "Success",
@@ -27833,9 +27833,9 @@
     },
     "/connectors/{id}/activate": {
       "post": {
-        "summary": "Activate verified GitLab project binding",
+        "summary": "Activate a checked connector registration",
         "operationId": "post_connectors_id_activate",
-        "description": "Minimum role: admin. V3 instance and environment scope apply. Auxiliary V3 operation outside the 166 page routes. Requires one selected environment and connectors.manage. A disabled GitLab registration needs a Vault credential reference and at least one explicitly bound numeric GitLab project. The backend performs a GET for each exact project through GitLab, then rechecks authorization, connector configuration, and bindings before enabling it. This does not attest the token is read-only. Tools remain disabled; webhook=true remains intent only and no remote Webhook is provisioned. A failed check leaves the registration disabled; changing the project bindings requires reactivation. This is a point-in-time verification, not continuous health.",
+        "description": "Minimum role: admin. V3 instance and environment scope apply. Auxiliary V3 operation outside the 166 page routes. Requires one selected environment and connectors.manage. Credentialed activations require a server-managed exact tier/environment/connector ID/provider/endpoint/Vault reference binding; no binding returns 503 before Vault or upstream access. GitLab additionally requires one or more explicitly bound numeric projects and GET verification of each exact project. Other supported providers use one bounded read-only probe and return credential_verified=false because a health endpoint may ignore authentication. An unauthenticated source can send an empty object; a stored reference can be reused without repeating it in the body. After the probe, authorization and connector configuration are locked and rechecked before activation and audit. This does not attest a token is read-only. Tools remain disabled; webhook=true remains intent only and no remote Webhook is provisioned. A failed check leaves the registration disabled; changing GitLab project bindings requires reactivation. This is a point-in-time connection observation, not continuous health.",
         "responses": {
           "200": {
             "description": "Success",
@@ -27857,6 +27857,12 @@
                       "type": "integer"
                     },
                     "webhook_active": {
+                      "type": "boolean"
+                    },
+                    "latency_ms": {
+                      "type": "integer"
+                    },
+                    "credential_verified": {
                       "type": "boolean"
                     }
                   },
@@ -27932,7 +27938,7 @@
             }
           },
           "502": {
-            "description": "GitLab project verification failed",
+            "description": "GitLab project verification or generic connector probe failed",
             "content": {
               "application/json": {
                 "schema": {
@@ -27979,10 +27985,7 @@
                     "type": "string"
                   }
                 },
-                "additionalProperties": false,
-                "required": [
-                  "credential_ref"
-                ]
+                "additionalProperties": false
               }
             }
           }
@@ -27993,7 +27996,7 @@
       "post": {
         "summary": "Probe configured connector",
         "operationId": "post_connectors_id_test",
-        "description": "Minimum role: admin. V3 instance and environment scope apply. Disabled registrations return 409 without contacting the provider. Other failures return an explicit error; a configured adapter is not silently reported healthy.",
+        "description": "Minimum role: admin. V3 instance and environment scope apply. Disabled registrations return 409 without contacting the provider; a missing exact server credential binding returns 503 before Vault or upstream access. Other failures return an explicit error; a configured adapter is not silently reported healthy. A successful health endpoint response does not necessarily verify credentials.",
         "responses": {
           "200": {
             "description": "Success",

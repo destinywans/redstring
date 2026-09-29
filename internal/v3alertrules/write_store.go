@@ -200,6 +200,11 @@ func draftResult(id string, version int) map[string]any {
 
 func (s *WriteService) reserveCreate(ctx context.Context, actor core.User, env, key, digest string, spec DraftRuleSpec,
 	group boundGroup, observed observedIdentity) (map[string]any, error) {
+	return s.reserveCreateOperation(ctx, actor, env, key, digest, "create", spec, group, observed)
+}
+
+func (s *WriteService) reserveCreateOperation(ctx context.Context, actor core.User, env, key, digest, operation string, spec DraftRuleSpec,
+	group boundGroup, observed observedIdentity) (map[string]any, error) {
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -215,7 +220,7 @@ func (s *WriteService) reserveCreate(ctx context.Context, actor core.User, env, 
 		return nil, err
 	}
 	result := draftResult(draftID, 1)
-	if err := s.insertOperation(ctx, tx, opID, actor, "create", key, digest, env, spec.ApplicationID, manifest, result); err != nil {
+	if err := s.insertOperation(ctx, tx, opID, actor, operation, key, digest, env, spec.ApplicationID, manifest, result); err != nil {
 		return nil, err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO v3_alert_rule_drafts

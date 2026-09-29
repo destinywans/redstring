@@ -44,10 +44,13 @@ type PromQLValidator interface {
 }
 
 type WriteService struct {
-	DB         *pgxpool.Pool
-	Access     WriteAccess
-	Reader     *Service
-	Repository DraftRepository
+	DB             *pgxpool.Pool
+	Access         WriteAccess
+	Reader         *Service
+	Repository     DraftRepository
+	TrialRuntime   TrialRuntime
+	EnableApproval AlertRuleApprovalSource
+	EnableApplier  AlertRuleApplier
 }
 
 func NewWriteService(db *pgxpool.Pool, access WriteAccess, reader *Service, repository DraftRepository) *WriteService {
@@ -98,14 +101,20 @@ func (s *WriteService) prerequisites(r *http.Request) (string, core.User, error)
 	if actor.ID == "" || actor.Disabled {
 		return "", actor, problem(http.StatusForbidden, "forbidden", "A current user is required")
 	}
-	if s == nil || s.DB == nil || s.Access == nil || s.Reader == nil || s.Reader.Source == nil ||
-		s.Repository == nil || s.Repository.ProjectID() <= 0 || s.Repository.BranchPrefix() != "aiops-alert-rule-drafts/" {
-		return "", actor, problem(http.StatusServiceUnavailable, "not_connected", "Alert rule source or draft repository is not connected")
+	if s == nil || s.DB == nil || s.Access == nil || s.Reader == nil || s.Reader.Source == nil {
+		return "", actor, problem(http.StatusServiceUnavailable, "not_connected", "Alert rule source is not connected")
 	}
 	if _, ok := s.Reader.Source.(PromQLValidator); !ok {
 		return "", actor, problem(http.StatusServiceUnavailable, "not_connected", "PromQL syntax validation is not connected")
 	}
 	return scope.EnvironmentIDs[0], actor, nil
+}
+
+func (s *WriteService) requireDraftRepository() error {
+	if s.Repository == nil || s.Repository.ProjectID() <= 0 || s.Repository.BranchPrefix() != "aiops-alert-rule-drafts/" {
+		return problem(http.StatusServiceUnavailable, "not_connected", "Alert rule draft repository is not connected")
+	}
+	return nil
 }
 
 var idempotencyRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$`)
@@ -134,6 +143,7 @@ func requestHash(operation, env, id string, body any) (string, error) {
 
 type createRequest struct {
 	DraftRuleSpec
+	InvestigationID string `json:"investigation_id,omitempty"`
 }
 
 type updateRequest struct {
@@ -167,6 +177,18 @@ func (s *WriteService) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	var input createRequest
 	if !httpapi.Decode(w, r, &input) {
+		return
+	}
+	switch input.Mode {
+	case "dry_run":
+		s.handleTrial(w, r, env, actor, key, input.DraftRuleSpec)
+		return
+	case "enabled":
+		s.handleEnable(w, r, env, actor, key, input)
+		return
+	}
+	if err := s.requireDraftRepository(); err != nil {
+		writeError(w, err)
 		return
 	}
 	if err := draftMode(input.Mode); err != nil {
@@ -243,6 +265,10 @@ func (s *WriteService) Update(w http.ResponseWriter, r *http.Request) {
 	if !httpapi.Decode(w, r, &input) {
 		return
 	}
+	if err := s.requireDraftRepository(); err != nil {
+		writeError(w, err)
+		return
+	}
 	if err := draftMode(input.Rule.Mode); err != nil {
 		writeError(w, err)
 		return
@@ -312,6 +338,10 @@ func (s *WriteService) Import(w http.ResponseWriter, r *http.Request) {
 	}
 	var input importRequest
 	if !httpapi.Decode(w, r, &input) {
+		return
+	}
+	if err := s.requireDraftRepository(); err != nil {
+		writeError(w, err)
 		return
 	}
 	if err := draftMode(input.Mode); err != nil {

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"sort"
 	"strings"
 	"time"
 
@@ -16,7 +15,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/searchtext"
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
@@ -33,7 +31,12 @@ type Service struct {
 	// AuthorizeTeamTx checks events grants against the current locked owner team.
 	// The composition root injects the same V3 policy used by AuthorizeTx.
 	AuthorizeTeamTx AuthorizeTeamWithTx
-	Location        *time.Location
+	// GroupPolicySource and its explicit bindings are injected by the V3
+	// composition root only for webhook sources known to use the configured
+	// environment-bound Alertmanager. Missing bindings remain unavailable.
+	GroupPolicySource   GroupPolicySource
+	GroupPolicyBindings map[string]GroupPolicyBinding
+	Location            *time.Location
 }
 
 func New(db *pgxpool.Pool, authorize Authorize, authorizeTx AuthorizeWithTx) *Service {
@@ -46,6 +49,8 @@ func (s *Service) RegisterNew(api *httpapi.Server) {
 	api.MarkV3ObjectRoute("GET /api/v1/inbox", "events", "view")
 	api.Register("GET /api/v1/alert-groups", "viewer", s.AlertGroups)
 	api.MarkV3ObjectRoute("GET /api/v1/alert-groups", "events", "view")
+	api.Register("GET /api/v1/alert-groups/{id}/policy", "viewer", s.AlertGroupPolicy)
+	api.MarkV3ObjectRoute("GET /api/v1/alert-groups/{id}/policy", "events", "view")
 	api.Register("GET /api/v1/alerts/{id}", "viewer", s.AlertDetail)
 	api.MarkV3ObjectRoute("GET /api/v1/alerts/{id}", "events", "view")
 	api.Register("POST /api/v1/alerts/{id}/claim", "operator", s.ClaimAlert)
@@ -67,12 +72,13 @@ func (s *Service) RegisterV3Incidents(api *httpapi.Server) {
 }
 
 type incidentRecord struct {
-	ID, ApplicationID, EnvironmentID, EnvironmentKey, Title, Severity, Status, AlertStatus, Summary, AssigneeID, Commander, InvestigationID string
-	StartsAt, UpdatedAt                                                                                                                     time.Time
-	ResolvedAt                                                                                                                              *time.Time
+	ID, SourceID, Fingerprint, ApplicationID, EnvironmentID, EnvironmentKey, Title, Severity, Status, AlertStatus, Summary, AssigneeID, Commander, InvestigationID string
+	Labels                                                                                                                                                         map[string]string
+	StartsAt, UpdatedAt                                                                                                                                            time.Time
+	ResolvedAt                                                                                                                                                     *time.Time
 }
 
-const incidentSelect = `SELECT i.id,i.application_id,i.environment_id,e.key,i.title,i.severity,i.status,i.alert_status,i.summary,i.assignee_id,COALESCE(u.name,''),i.investigation_id,i.starts_at,i.updated_at,
+const incidentSelect = `SELECT i.id,i.source_id,i.fingerprint,i.labels,i.application_id,i.environment_id,e.key,i.title,i.severity,i.status,i.alert_status,i.summary,i.assignee_id,COALESCE(u.name,''),i.investigation_id,i.starts_at,i.updated_at,
  (SELECT MIN(closed.created_at) FROM events closed WHERE closed.investigation_id=i.investigation_id AND closed.type='investigation.closed')
  FROM ops_incidents i
  JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id AND NOT e.archived
@@ -82,7 +88,7 @@ const incidentSelect = `SELECT i.id,i.application_id,i.environment_id,e.key,i.ti
 
 func scanIncident(row pgx.Row) (incidentRecord, error) {
 	var v incidentRecord
-	err := row.Scan(&v.ID, &v.ApplicationID, &v.EnvironmentID, &v.EnvironmentKey, &v.Title, &v.Severity, &v.Status, &v.AlertStatus, &v.Summary, &v.AssigneeID, &v.Commander, &v.InvestigationID, &v.StartsAt, &v.UpdatedAt, &v.ResolvedAt)
+	err := row.Scan(&v.ID, &v.SourceID, &v.Fingerprint, &v.Labels, &v.ApplicationID, &v.EnvironmentID, &v.EnvironmentKey, &v.Title, &v.Severity, &v.Status, &v.AlertStatus, &v.Summary, &v.AssigneeID, &v.Commander, &v.InvestigationID, &v.StartsAt, &v.UpdatedAt, &v.ResolvedAt)
 	return v, err
 }
 
@@ -152,185 +158,6 @@ type label struct {
 type badge struct {
 	Text string `json:"text"`
 	Tone string `json:"tone"`
-}
-type alertInstance struct {
-	ID       string    `json:"id"`
-	Value    string    `json:"value"`
-	State    string    `json:"state"`
-	Duration string    `json:"duration"`
-	Series   []float64 `json:"series"`
-}
-type alertGroup struct {
-	ID       string  `json:"id"`
-	Severity string  `json:"severity"`
-	Labels   []label `json:"labels"`
-	Service  string  `json:"service"`
-	Count    int     `json:"count"`
-	State    string  `json:"state"`
-	Since    string  `json:"since"`
-	Notify   struct {
-		Channel string `json:"channel,omitempty"`
-		Text    string `json:"text"`
-	} `json:"notify"`
-	Badges    []badge         `json:"badges"`
-	Owner     string          `json:"owner,omitempty"`
-	Instances []alertInstance `json:"instances"`
-}
-
-func (s *Service) AlertGroups(w http.ResponseWriter, r *http.Request) {
-	severities, valid := alertSeverities(r.URL.Query())
-	if !valid {
-		httpapi.Error(w, 422, "invalid_severity", "Choose P1, P2, P3, or P4")
-		return
-	}
-	state := r.URL.Query().Get("state")
-	if state != "" && state != "firing" && state != "pending" && state != "silenced" && state != "resolved" {
-		httpapi.Error(w, 422, "invalid_state", "Unknown alert state")
-		return
-	}
-	q := strings.TrimSpace(r.URL.Query().Get("q"))
-	if len([]rune(q)) > 200 {
-		httpapi.Error(w, 422, "invalid_query", "Search is too long")
-		return
-	}
-	requestedEnv := r.URL.Query().Get("env")
-	if requestedEnv != "" {
-		scope, ok := httpapi.V3ScopeFromContext(r.Context())
-		allowed := false
-		if ok {
-			for _, env := range scope.EnvironmentIDs {
-				if env == requestedEnv {
-					allowed = true
-					break
-				}
-			}
-		}
-		if !allowed {
-			httpapi.Error(w, 403, "forbidden", "Environment access denied")
-			return
-		}
-	}
-	values, err := s.listVisible(r)
-	if err != nil {
-		respondErr(w, err)
-		return
-	}
-	notifications, err := s.latestNotifications(r.Context(), values)
-	if err != nil {
-		respondErr(w, err)
-		return
-	}
-	groups := map[string]*alertGroup{}
-	earliest := map[string]time.Time{}
-	notifiedAt := map[string]time.Time{}
-	now := time.Now()
-	loc := s.Location
-	if loc == nil {
-		loc = time.Local
-	}
-	for _, v := range values {
-		if requestedEnv != "" && v.EnvironmentKey != requestedEnv {
-			continue
-		}
-		if q != "" && !searchtext.Match(v.Title+" "+v.ApplicationID+" "+v.EnvironmentKey, q) {
-			continue
-		}
-		key := v.EnvironmentKey + "\x00" + v.ApplicationID + "\x00" + v.Title
-		g := groups[key]
-		if g == nil {
-			g = &alertGroup{ID: "group:" + store.Hash(key)[:24], Severity: severity(v.Severity), Labels: []label{{K: "service", V: v.ApplicationID}, {K: "alertname", V: v.Title}, {K: "environment", V: v.EnvironmentKey}}, Service: v.ApplicationID, State: "resolved", Since: v.StartsAt.In(loc).Format("01/02 15:04"), Badges: []badge{}, Instances: []alertInstance{}}
-			g.Notify.Text = "通知分组状态未接入"
-			groups[key] = g
-			earliest[key] = v.StartsAt
-		}
-		g.Count++
-		if n, ok := notifications[v.ID]; ok && n.At.After(notifiedAt[key]) {
-			notifiedAt[key] = n.At
-			g.Notify.Channel = n.Channel
-			g.Notify.Text = notificationText(n.Status)
-		}
-		if severityRank(severity(v.Severity)) < severityRank(g.Severity) {
-			g.Severity = severity(v.Severity)
-		}
-		if v.AlertStatus == "firing" {
-			g.State = "firing"
-			g.Instances = append(g.Instances, alertInstance{ID: v.ID, Value: "指标未接入", State: "firing", Duration: duration(v.StartsAt, now), Series: []float64{}})
-		}
-		if v.StartsAt.Before(earliest[key]) {
-			earliest[key] = v.StartsAt
-			g.Since = v.StartsAt.In(loc).Format("01/02 15:04")
-		}
-	}
-	all := make([]alertGroup, 0, len(groups))
-	for _, g := range groups {
-		all = append(all, *g)
-	}
-	sort.Slice(all, func(i, j int) bool {
-		if all[i].Severity != all[j].Severity {
-			return severityRank(all[i].Severity) < severityRank(all[j].Severity)
-		}
-		return all[i].ID < all[j].ID
-	})
-	counts := map[string]int{"all": 0, "firing": 0, "pending": 0, "silenced": 0, "resolved": 0}
-	items := make([]alertGroup, 0, len(all))
-	for _, g := range all {
-		if !matchesAlertSeverity(severities, g.Severity) {
-			continue
-		}
-		counts["all"]++
-		counts[g.State]++
-		if state == "" || state == g.State {
-			items = append(items, g)
-		}
-	}
-	httpapi.WriteJSON(w, 200, map[string]any{"items": items, "counts": counts})
-}
-
-type notificationRecord struct {
-	Channel, Status string
-	At              time.Time
-}
-
-func (s *Service) latestNotifications(ctx context.Context, incidents []incidentRecord) (map[string]notificationRecord, error) {
-	out := map[string]notificationRecord{}
-	if len(incidents) == 0 {
-		return out, nil
-	}
-	ids := make([]string, 0, len(incidents))
-	for _, v := range incidents {
-		ids = append(ids, v.ID)
-	}
-	rows, err := s.DB.Query(ctx, `SELECT DISTINCT ON (incident_id) incident_id,channel,status,created_at FROM ops_notifications WHERE incident_id=ANY($1::text[]) ORDER BY incident_id,created_at DESC`, ids)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id string
-		var n notificationRecord
-		if err := rows.Scan(&id, &n.Channel, &n.Status, &n.At); err != nil {
-			return nil, err
-		}
-		out[id] = n
-	}
-	return out, rows.Err()
-}
-
-func notificationText(status string) string {
-	switch status {
-	case "sent":
-		return "已投递"
-	case "pending":
-		return "待投递"
-	case "sending":
-		return "投递中"
-	case "retrying":
-		return "重试中"
-	case "failed":
-		return "投递失败"
-	default:
-		return "通知状态未知"
-	}
 }
 
 func severityRank(code string) int {

@@ -41,19 +41,62 @@ v3_route('post','/alerts/{id}/claim','Claim a persisted alert with an incident r
     body=obj({'expected_revision':string(pattern='^[1-9][0-9]{0,9}$')},['expected_revision']),
     response=ref('V3AlertDetail'),
     desc='Requires the incident-row revision returned by GET; a missing or invalid token is 422, a stale token is 412. Locks the incident, current application/environment/team mapping, human user and session, and V3 role/grant sources before evaluating both events.change and events.view; a change-only grant cannot receive detail data. An active unassigned alert can be claimed by the current human; same-user retry with the current revision is idempotent, another claimant or inactive alert is 409. Owner and durable audit update atomically. Returns the updated evidence-backed nullable V3AlertDetail, not an assertion that external escalation stopped. The frozen frontend sends no expected_revision and incorrectly says escalation stopped; page acceptance remains pending.')
-S['V3AlertGroupPartial'] = obj({**fieldnames('id service since owner'),
+S['V3AlertGroupInstance'] = obj({
+    'id':string(),'value':{'type':'null'},
+    'state':string(enum=['firing','pending']),'duration':string(),
+    'series':{'type':'null'},'pending':{'type':'null'}},
+    ['id','value','state','duration','series','pending'])
+S['V3AlertGroupLocal'] = obj({
+    **fieldnames('id service source_id fingerprint environment_id environment_key count_kind state since'),
     'severity':string(enum=['P1','P2','P3','P4']),
-    'labels':arr(v3_object('k v')),'count':integer(),
-    'state':string(enum=['firing','pending','silenced','resolved']),
-    'notify':v3_object('channel text'),'badges':arr(v3_object('text tone')),
-    'instances':arr(obj({**fieldnames('id value state duration'), 'series':arr(v3_num())}))})
+    'labels':arr(v3_object('k v')),'count':integer(minimum=1),
+    'notify':obj({'channel':{'type':['string','null']},'text':string(),
+        'status':{'type':['string','null']},'scope':string(enum=['platform_queue'])},
+        ['channel','text','status','scope']),
+    'badges':arr(v3_object('text tone')),
+    'owner':{'type':['string','null']},'inhibited':{'type':'null'},
+    'instances':arr(ref('V3AlertGroupInstance')),
+    'local_grouping':arr(string()),'partial':v3_bool(),'unavailable':arr(string())},
+    ['id','severity','labels','service','source_id','fingerprint','environment_id','environment_key','count','count_kind',
+     'state','since','notify','badges','owner','inhibited','instances','local_grouping','partial','unavailable'])
+S['V3AlertGroupList'] = obj({'items':arr(ref('V3AlertGroupLocal')),
+    'counts':obj({'all':integer(minimum=0),'firing':integer(minimum=0),
+        'pending':integer(minimum=0),'resolved':integer(minimum=0),'silenced':{'type':'null'}},
+        ['all','firing','pending','resolved','silenced']),
+    'partial':v3_bool(),'aggregation':string(enum=['local_persisted_incidents']),
+    'unavailable':arr(string())},['items','counts','partial','aggregation','unavailable'])
+S['V3AlertGroupPolicyTimelineEntry'] = obj({
+    **fieldnames('id time channel text status incident_id'),
+    'done':{'type':'null'},'attempts':integer(minimum=0)},
+    ['id','time','channel','text','done','status','attempts','incident_id'])
+S['V3AlertGroupPolicyTiming'] = obj({
+    'key':string(enum=['group_wait','group_interval','repeat_interval']),
+    **fieldnames('label value help')},['key','label','value','help'])
+S['V3AlertGroupPolicy'] = obj({
+    'group_by':{'type':['array','null'],'items':string()},
+    'route':{'type':['string','null']},
+    'timing':{'type':['array','null'],'items':ref('V3AlertGroupPolicyTiming')},
+    'timeline':{'type':'array','maxItems':500,'items':ref('V3AlertGroupPolicyTimelineEntry')},
+    'inhibition':{'type':'null'},'group_id':string(),
+    'receivers':{'type':['array','null'],'items':string()},
+    'policy_source':{'type':['string','null']},
+    'policy_observed_at':{'type':['string','null'],'format':'date-time'},
+    'local_grouping':arr(string()),'timeline_scope':string(enum=['platform_queue']),
+    'timeline_truncated':v3_bool(),'partial':v3_bool(),'unavailable':arr(string())},
+    ['group_by','route','timing','timeline','inhibition','group_id','receivers','policy_source',
+     'policy_observed_at','local_grouping','timeline_scope','timeline_truncated','partial','unavailable'])
 v3_route('get','/alert-groups','Read incident-backed alert groups',
-    response=obj({'items':arr(ref('V3AlertGroupPartial')),'counts':v3_map(integer())}),
-    query=[v3_query('q'),v3_query('severity',{'type':'array','items':string(enum=['P1','P2','P3','P4','all']),'uniqueItems':True}),v3_query('env'),v3_query('state')],
-    desc='severity accepts repeated query keys (form/explode) and matches each group\'s highest severity; all must stand alone. Partial: pending/silenced/inhibited states, metric series, and full notification grouping are not connected; no synthetic signal values are emitted.')
+    response=ref('V3AlertGroupList'),
+    query=[v3_query('q'),v3_query('severity',{'type':'array','items':string(enum=['P1','P2','P3','P4','all']),'uniqueItems':True}),
+        v3_query('env'),v3_query('state',string(enum=['firing','pending','silenced','resolved'])),
+        v3_query('show_inhibited',v3_bool())],
+    desc='A bounded local aggregation by persisted environment ID, application ID, webhook source ID and alert fingerprint, not an Alertmanager group. Count means persisted incident occurrences; source_id and fingerprint are stored identities. Only currently authorized events.view records are included, under incident/session/mapping/grant locks. Unknown current values, metric series, inhibition and provider grouping are null or named in unavailable. Notify reports only the latest local platform queue transport state and never claims upstream delivery. Counts are before state filtering; silenced count is null because exact silence state is unknown. state=silenced or show_inhibited=false returns 503 rather than a false empty result. Severity accepts repeated form keys. More than 5000 selected incidents returns 503 instead of incomplete totals. Frozen frontend assumes non-null instance metrics and cannot yet render this nullable response.')
 for v3_parameter in P['/alert-groups']['get']['parameters']:
     if v3_parameter['name'] == 'severity':
         v3_parameter.update({'style':'form','explode':True})
+v3_route('get','/alert-groups/{id}/policy','Read configured policy for one authorized local alert group',
+    response=ref('V3AlertGroupPolicy'),
+    desc='The ID resolves only currently authorized persisted incident members. When all members have the same exact captured webhook labels, and an explicit server-owned source/environment/application binding agrees, a trusted environment Alertmanager /api/v2/status read evaluates the matching route tree, inherited group_by and timing, and all matching receiver names without returning raw YAML or receiver secrets. Provider I/O occurs outside database locks; member contents and current session/grants are rechecked afterward. Missing binding, historical labels or ambiguous route return null policy fields with unavailable; malformed or failed configured provider and scope mismatch fail closed. Timeline contains only up to 500 local platform notification rows, with current queue status and done=null; it is not Alertmanager delivery history. Inhibition and current silence remain unknown. Frozen frontend assumes non-null policy fields and a Mock group ID, so page acceptance remains pending.')
 v3_route('get','/incidents','List scoped incidents',response=obj({'items':arr(ref('V3IncidentSummary')),
     'counts':obj({k:integer(minimum=0) for k in ['active','resolved','all']},
         ['active','resolved','all'])}, ['items','counts']),

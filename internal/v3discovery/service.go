@@ -25,8 +25,9 @@ type Access interface {
 }
 
 type Service struct {
-	DB     *pgxpool.Pool
-	Access Access
+	DB           *pgxpool.Pool
+	Access       Access
+	textCommands []TextCommand // configured before serving; nil means unavailable
 }
 
 func New(db *pgxpool.Pool, access Access) *Service { return &Service{DB: db, Access: access} }
@@ -239,12 +240,26 @@ func statusLabel(r *http.Request, item record) string {
 }
 
 func (s *Service) commands(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.ready(w, r); !ok {
+	envs, ok := s.ready(w, r)
+	if !ok {
 		return
 	}
-	// There is no persisted executable command/template registry yet. Returning
-	// hard-coded commands would imply that actions such as silence can run.
-	httpapi.Error(w, 503, "commands_unavailable", "Command catalog is not configured")
+	if s.textCommands == nil {
+		httpapi.Error(w, 503, "commands_unavailable", "Text command catalog is not configured")
+		return
+	}
+	scope, _ := httpapi.V3ScopeFromContext(r.Context())
+	if scope.All {
+		// An aggregate environment cannot submit a conversation or canvas turn.
+		httpapi.WriteJSON(w, 200, map[string]any{"items": []commandItem{}})
+		return
+	}
+	items, err := s.commandItems(r, envs)
+	if err != nil {
+		httpapi.Error(w, 503, "commands_unavailable", "Text command catalog is unavailable")
+		return
+	}
+	httpapi.WriteJSON(w, 200, map[string]any{"items": items})
 }
 
 // A scoped directory reader may mention only active human accounts whose

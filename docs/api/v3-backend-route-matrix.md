@@ -87,7 +87,7 @@
 | 资源与观测 | GET | `/services/{id}/resilience` | 聚合 | mock |
 | 资源与观测 | POST | `/services/{id}/resilience/proposals` | 新增 | mock |
 | 资源与观测 | GET | `/topology` | 聚合 | mock |
-| 资源与观测 | GET | `/metrics/dashboard` | 聚合 | mock |
+| 资源与观测 | GET | `/metrics/dashboard` | 聚合 | implemented |
 | 资源与观测 | POST | `/metrics/ask` | 新增 | mock |
 | 资源与观测 | GET | `/traces` | 聚合 | mock |
 | 资源与观测 | GET | `/traces/{id}` | 聚合 | mock |

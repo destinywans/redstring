@@ -199,7 +199,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | GET | `/services/{id}/resilience` | | `Resilience`（灰度 / 熔断 / 限流 / 开关 / HPA，只读） | mock |
 | POST | `/services/{id}/resilience/proposals` | `{ kind, params }` | `{ proposal_id }`（只生成提案或合并请求） | mock |
 | GET | `/topology` | `cluster`, `around`, `depth`, `group_by` | `Topology`；当前后端仅返回经授权的 CMDB 节点、关系和缺失字段清单，完整 DTO 尚未实现 | mock |
-| GET | `/metrics/dashboard` | `service`, `range`, `align` | `MetricsDashboard` | mock |
+| GET | `/metrics/dashboard` | `service`, `range=1h`, `align?` | `MetricsDashboard`；单环境、单服务、唯一持久 Prometheus 目标和经审查的精确范围查询，完整面板与来源核对后返回 | implemented |
 | POST | `/metrics/ask` | `{ view, question }` | `{ conversation_id }` | mock |
 | GET | `/traces` | `scope: app\|agent`, `view`, `q`（TraceQL / 过滤表达式）, `service` | `TraceList`：分面计数、保存的视图、按状态直方图、耗时散点、表格 | mock |
 | GET | `/traces/{id}` | | `TraceView`：Span（关键路径、属性、事件、日志、关联）、火焰图说明、服务调用图 | mock |
@@ -210,7 +210,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 
 资源发现现在返回 `resource_id`、Kubernetes `uid`、环境与集群；单集群条件在 2000 个候选扫描上限之前执行，整次请求共用 20 秒预算。选定集群之外的可信同名资源，以及同环境、同命名空间中陈旧、缺失或已关联的原始同名身份，均会阻止当前只按名称登记的候选进入结果；`ambiguous_workloads` 只给出数量，不泄露阻挡对象。`registered` 是授权环境内的登记数，不是所示集群的登记数。负责人和等级只作来源提示，`replicas` 可为空，`matched`/`missing` 尚无可信线索。注册时按当前环境、采集新鲜度、存在状态、UID、命名空间、是否已关联及 `resources.view` 重新核对。旧客户端只传名称时仅可匹配唯一工作负载；同名、过期或已关联身份返回 409，不会静默关联。当前前端未传 `cluster`/`resource_id`，并固定展示负责人、SLO、P99 与系统映射，发现到注册交互尚未接通。服务列表和系统映射超过 1000 条可见记录会返回 `422 result_limit`，不会返回不完整总数。拓扑仅显示五分钟内成功采集且环境吻合的现存节点，关联应用不会替资源借用其团队授权。
 
-观测查询只使用持久化应用、环境、负责人团队及已配置的外部目标绑定；不同来源绑定冲突返回 `409 ambiguous_binding`，范围过大返回 `422 scope_limit`。`GET /metrics/samples` 辅助接口可在单环境、唯一显式 V3 Prometheus 指标目标和操作者审查过精确范围的查询目录下返回有界真实标量样本；可见服务缺 `connectors.view` 在目标查询前返回 403，隐藏或不存在的服务同样返回资源不存在，读取中撤权不返回样本。它不提供看板 KPI、SLO、关联变更或完整 `MetricsDashboard`。`GET /logs` 在唯一授权目标及已配置的 Elasticsearch 或 Loki 范围内，分别查询所选等级的全窗总数、错误数、直方图、限量日志行和完整模板模式聚合；逐桶守恒、来源配置及当前授权/绑定均核对后才返回 `200 LogSearch`，包括精确零结果。缺少完整聚合返回 `503 log_patterns_unavailable` 和真实的部分证据；显式空 `levels` 返回空结果。模式来自受信采集模板或 Elasticsearch 类别聚合，不声称 AI 聚类；真实目标的历史映射/租户覆盖、脱敏和查询性能验收见 [日志来源接线](v3-logs-source.md)。Trace 列表返回 `503 trace_aggregation_unavailable`，只提供 `observed_sample` 与缺失的总数/分面/直方图字段；详情 `200` 标记 `partial: true` 和 `missing`，不能把受权 Span 样本当成完整链路。指标与 Trace 主页面仍保持 `mock`，日志页面尚未真实联调。
+观测查询只使用持久化应用、环境、负责人团队及已配置的外部目标绑定；不同来源绑定冲突返回 `409 ambiguous_binding`，范围过大返回 `422 scope_limit`。`GET /metrics/samples` 辅助接口可在单环境、唯一显式 V3 Prometheus 指标目标和操作者审查过精确范围的查询目录下返回有界真实标量样本；可见服务缺 `connectors.view` 在目标查询前返回 403，隐藏或不存在的服务同样返回资源不存在，读取中撤权不返回样本。完整 `GET /metrics/dashboard` 另要求经审查的 `dashboard` 查询目录一次返回 37 个时间点及请求、延迟、CPU、SLO、热力和排名等全部受信面板，再从持久发布、回滚和事件记录取得时间标记；缺项返回 503，不以样本补推。读取后复核精确 Cookie 会话、当前授权、目标绑定和 SLO 配置。图上的时间重合只表示并列证据，不证明发布引发事件。冻结指标页仍硬编码多处标签/版本/SLO/分析文案，且对齐开关未发送 `align`；真实 Prometheus 尚未联调，因此页面和产品未验收。`GET /logs` 在唯一授权目标及已配置的 Elasticsearch 或 Loki 范围内，分别查询所选等级的全窗总数、错误数、直方图、限量日志行和完整模板模式聚合；逐桶守恒、来源配置及当前授权/绑定均核对后才返回 `200 LogSearch`，包括精确零结果。缺少完整聚合返回 `503 log_patterns_unavailable` 和真实的部分证据；显式空 `levels` 返回空结果。模式来自受信采集模板或 Elasticsearch 类别聚合，不声称 AI 聚类；真实目标的历史映射/租户覆盖、脱敏和查询性能验收见 [日志来源接线](v3-logs-source.md)。Trace 列表返回 `503 trace_aggregation_unavailable`，只提供 `observed_sample` 与缺失的总数/分面/直方图字段；详情 `200` 标记 `partial: true` 和 `missing`，不能把受权 Span 样本当成完整链路。指标与 Trace 主页面仍保持 `mock`，日志页面尚未真实联调。
 
 ## v4 新建流程（`create.ts`）
 

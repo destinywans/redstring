@@ -40340,10 +40340,20 @@
     },
     "/metrics/dashboard": {
       "get": {
-        "summary": "Inspect scoped metric dashboard readiness",
+        "summary": "Read a complete scoped Prometheus metrics dashboard",
         "operationId": "get_metrics_dashboard",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires exactly one persisted service/environment Prometheus binding and current services.view. Ambiguous distinct bindings return 409 ambiguous_binding; excessive authorized scope returns 422 scope_limit. The currently registered queries cannot fill the required V3 MetricsDashboard; when scoped data is available, returns 503 dashboard_unavailable with observed query availability and missing sections. No KPI or SLO values are fabricated.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment, current services.view, environment connectors.view and incident events.view, exactly one persisted V3 Prometheus metric-resource binding, and an operator-reviewed exact-scope dashboard query. Distinct metric bindings return 409 ambiguous_binding. One bounded one-hour source read must cover the baseline plus 36 visible bin ends for every labeled panel. Request total must conserve 2xx/4xx/5xx and independently observed other statuses must be zero; SLO budget must agree with monthly availability and persisted request-based target; heat intensities must be normalized to 0..1. Empty, partial or conflicting data returns 503, never invented zeroes or trends. Release, rollback and incident markers require matching persisted success/event records within the window; absent evidence returns 503. These are independent timestamps, not proof that one rollback reversed the displayed release. Source, binding and authorization are rechecked after the external read and local marker reads. align requests an incident-anchored window; the frozen frontend currently does not send it and still hardcodes version, causal and analysis text that must be corrected before page acceptance.",
         "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MetricsDashboard"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Authentication required",
             "content": {
@@ -40395,7 +40405,7 @@
             }
           },
           "503": {
-            "description": "Complete V3 dashboard unavailable from registered sources",
+            "description": "Complete V3 dashboard unavailable from configured source, complete series or persisted markers",
             "content": {
               "application/json": {
                 "schema": {
@@ -40426,7 +40436,8 @@
             "in": "query",
             "schema": {
               "type": "string"
-            }
+            },
+            "required": true
           },
           {
             "name": "range",
@@ -53376,6 +53387,383 @@
           "environment_id",
           "available",
           "missing"
+        ]
+      },
+      "V3MetricsKpi": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "rps",
+              "err",
+              "p99",
+              "wait",
+              "cpu"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "delta": {
+            "type": "string"
+          },
+          "delta_good": {
+            "type": "boolean"
+          },
+          "tone": {
+            "type": "string",
+            "enum": [
+              "neutral",
+              "accent",
+              "ok",
+              "warn",
+              "danger",
+              "info"
+            ]
+          },
+          "sub": {
+            "type": "string"
+          },
+          "series": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": 0
+            },
+            "minItems": 36,
+            "maxItems": 36
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label",
+          "value",
+          "series"
+        ]
+      },
+      "V3MetricsBurn": {
+        "type": "object",
+        "properties": {
+          "window": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "tone": {
+            "type": "string",
+            "enum": [
+              "neutral",
+              "accent",
+              "ok",
+              "warn",
+              "danger",
+              "info"
+            ]
+          },
+          "pct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "window",
+          "value",
+          "tone",
+          "pct"
+        ]
+      },
+      "V3MetricsDashboard": {
+        "type": "object",
+        "properties": {
+          "window": {
+            "type": "object",
+            "properties": {
+              "labels": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 36,
+                "maxItems": 36
+              },
+              "ticks": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 5,
+                "maxItems": 5
+              },
+              "release_at": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 35
+              },
+              "rollback_at": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 35
+              },
+              "incident": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 35
+                },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "incident_label": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "labels",
+              "ticks",
+              "release_at",
+              "rollback_at",
+              "incident",
+              "incident_label"
+            ]
+          },
+          "kpis": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3MetricsKpi"
+            },
+            "minItems": 5,
+            "maxItems": 5
+          },
+          "requests": {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "minItems": 36,
+                "maxItems": 36
+              },
+              "client": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "minItems": 36,
+                "maxItems": 36
+              },
+              "server": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "minItems": 36,
+                "maxItems": 36
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "ok",
+              "client",
+              "server"
+            ]
+          },
+          "slo": {
+            "type": "object",
+            "properties": {
+              "remaining": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "availability": {
+                "type": "string"
+              },
+              "delta": {
+                "type": "string"
+              },
+              "burn": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3MetricsBurn"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "remaining",
+              "availability",
+              "delta",
+              "burn",
+              "note"
+            ]
+          },
+          "latency": {
+            "type": "object",
+            "properties": {
+              "p50": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "minItems": 36,
+                "maxItems": 36
+              },
+              "p95": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "minItems": 36,
+                "maxItems": 36
+              },
+              "p99": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "minItems": 36,
+                "maxItems": 36
+              },
+              "heat": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "minItems": 36,
+                  "maxItems": 36
+                },
+                "minItems": 8,
+                "maxItems": 8
+              },
+              "buckets": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 8,
+                "maxItems": 8
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "p50",
+              "p95",
+              "p99",
+              "heat",
+              "buckets"
+            ]
+          },
+          "endpoints": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 12,
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "tone": {
+                  "type": "string",
+                  "enum": [
+                    "neutral",
+                    "accent",
+                    "ok",
+                    "warn",
+                    "danger",
+                    "info"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "label",
+                "value"
+              ]
+            }
+          },
+          "instances": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 12,
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "values": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "minItems": 36,
+                  "maxItems": 36
+                },
+                "tone": {
+                  "type": "string",
+                  "enum": [
+                    "neutral",
+                    "accent",
+                    "ok",
+                    "warn",
+                    "danger",
+                    "info"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "label",
+                "values"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "window",
+          "kpis",
+          "requests",
+          "slo",
+          "latency",
+          "endpoints",
+          "instances"
         ]
       },
       "V3RegisteredMetricWindow": {

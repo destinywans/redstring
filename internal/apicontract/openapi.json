@@ -25812,7 +25812,7 @@
       "get": {
         "summary": "List scoped persisted canvases and investigations",
         "operationId": "get_canvases",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Generic canvases are private to their owner; investigations use persisted environment and application/team grants. Legacy investigations have unknown participants (null), and their historical IDs do not yet route to a complete V3 detail page. This partial projection does not satisfy the frontend CanvasSummary contract.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Generic canvases are private to their owner; investigations use persisted environment and application/team grants. Current sessions and role sources are checked before a single database snapshot supplies counts and page items. Historical investigations without a recorded creator return an empty participants array. The complete investigation detail page is a separate route and remains unavailable.",
         "responses": {
           "200": {
             "description": "Success",
@@ -25957,9 +25957,9 @@
         ]
       },
       "post": {
-        "summary": "Create a persisted general canvas",
+        "summary": "Create a persisted canvas or investigation",
         "operationId": "post_canvases",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Investigation creation and AI drafting currently return 503; selected services must be mapped to the request environment.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment and a current canvas.change grant. Generic canvases are private and require an environment grant; investigations require exactly one active mapped application and accept environment, application or owner-team grants. Investigation IDs are persisted INV-* IDs with an initial branch and context. Canvas/branch records and creation audit commit together. Optional AI drafting uses one configured model, no tools, and a validated one-to-three-node JSON outline; it is explicitly unverified and a failure leaves no creation. Missing model returns 503 canvas_draft_unavailable. Investigation templates return 422 invalid_template. The separate investigation detail page remains unavailable.",
         "responses": {
           "201": {
             "description": "Success",
@@ -48756,29 +48756,41 @@
           "title": {
             "type": "string"
           },
-          "kind": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          },
           "meta": {
-            "type": "string"
-          },
-          "updated_at": {
             "type": "string"
           },
           "href": {
             "type": "string"
           },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "investigation",
+              "plan",
+              "review",
+              "analysis",
+              "custom"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "waiting_approval",
+              "done",
+              "resolved"
+            ]
+          },
           "participants": {
-            "type": [
-              "array",
-              "null"
-            ],
+            "type": "array",
             "items": {
               "type": "string"
             }
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
           },
           "investigation_id": {
             "type": "string"
@@ -48796,7 +48808,25 @@
                 "type": "array",
                 "items": {
                   "type": "array",
-                  "items": {}
+                  "prefixItems": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "minItems": 5,
+                  "maxItems": 5
                 }
               },
               "edges": {
@@ -48806,7 +48836,11 @@
                 }
               }
             },
-            "additionalProperties": false
+            "additionalProperties": false,
+            "required": [
+              "nodes",
+              "edges"
+            ]
           }
         },
         "additionalProperties": false,

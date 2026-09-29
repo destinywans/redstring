@@ -1,5 +1,7 @@
 # AIOps Canvas 实施计划
 
+**2026-09-29 知识来源、Agent 工具/案例与 Prompt（CP-182）：** WAN-123 主 GET `/knowledge-sources`、`/agent-tools`、`/eval-cases/{id}` 和 Prompt 列表/详情/版本写入共六条按来源、授权及诚实未知字段升后端 `implemented`；评测标签仍缺实际快照生产者，保持 `mock`。主契约现 **116/166、50 mock**；OpenAPI **315 路径、375 操作、393 schema**。迁移 137/138 未在现有库执行；本轮最小编译/静态核对，未跑测试或页面验收，详见 [CP-182](CHECKPOINT.md)。
+
 **2026-09-29 服务与人员悬浮卡（CP-181）：** WAN-121 复用已注册发现服务，按当前对象授权读取持久服务和真人目录；健康、值班、KPI、变更和负载无可信来源时显式可空，不以 Mock 文案补值。两条主 GET 升后端 `implemented`，现 **110/166、56 mock**；OpenAPI **315 路径、374 操作、393 schema**。仅最小编译/静态核对，未跑测试、真实库或页面验收。见 [CP-181](CHECKPOINT.md)。
 
 **2026-09-29 本人关注服务（CP-180）：** WAN-120 在现有服务视图实例上注册 GET 和辅助 PUT/DELETE，持久关注关系只来自本人明确选择，当前权限下读取；状态证据不足保留 `null` 与可用性。主契约现 **108/166、58 mock**，OpenAPI **313 路径、372 操作、390 schema**。迁移 `140_v3_user_watched_services.sql` 尚未在现有库执行；仅最小编译和静态核对，未跑测试或页面验收。见 [CP-180](CHECKPOINT.md)。

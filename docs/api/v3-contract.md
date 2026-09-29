@@ -203,10 +203,10 @@
 | GET | `/memory` | | `MemoryView` | mock |
 | POST | `/memory/facts/{id}/{action}` | `action: confirm\|reject\|expire` | `{ fact, fact_redacted, partial, unavailable_fields }`；清理旧来源时事实正文脱敏 | implemented |
 | POST | `/memory/conflicts/resolve` | `{ keep, drop }`；均为真实事实 ID | `{ id, state, keep, drop }` | implemented |
-| GET | `/knowledge-sources` | | 知识来源 | mock |
+| GET | `/knowledge-sources` | | 当前授权登记与经证明的手动读取；连接、持续同步、分块和索引未知，完整可空证据 DTO | implemented |
 | POST | `/knowledge/search` | `{ q, service?, top_k? }` | `{ hits: RetrievalHit[] }`；关键词与向量共用当前显式环境、有效应用绑定和 V3 授权过滤，团队标记另需匹配当前负责人及团队查看权限；输出前按文档 ID/版本重核。历史归属不明、异常元数据和未验证登记来源不进入结果；独立存储的公开 Web 正文仅在最新观察、哈希、修订和当前授权一致时进入有界关键词片段，全部可见应用/环境合计超过 80 个数据库匹配来源返回 413；整次搜索限时 30 秒 | implemented |
 
-知识治理另有部分证据与人工审核辅助接口，详见 [V3 后端辅助接口](v3-backend-aux.md)。`GET /knowledge-sources/registered-evidence` 只证明受权来源登记、最近读取观察，以及归因于单页公开 Web、精确绑定的 Git Markdown/Confluence/Notion/飞书 Docx 或本人上传文本的有界正文版本；连接、持续同步、总数与索引状态仍未知，不能组成前端完整来源页，主 `/knowledge-sources` 继续 `mock`。`GET /runbooks/{id}` 在同一只读快照中核对文档范围、当前对象授权与结构化步骤：隐藏或非 Runbook 为 404；有权旧文档缺步骤为 `503 structured_steps_unavailable`；有步骤但缺完整用量、事件处置、审核来源与执行核验时为 `503 runbook_read_unavailable`，不补零冒充完整 DTO。已落库字段可从 `/runbooks/{id}/record` 读取，主详情继续 `mock`。`GET /memory` 当前明确返回 `503 memory_view_unavailable`，只提供 `/memory/facts` 的受权、当前来源事实列表；没有可信的层级、置信度、召回次数与过期值。事实状态操作仅支持 `confirm`、`reject`、`expire`，冲突裁决须传入两个真实事实 ID；写入在事务中复核会话、当前授权、来源版本与对象归属并保存审计。清理陈旧来源的 `reject/expire` 回包脱敏，`confirm` 和冲突裁决要求当前发布来源。两条写路由按后端接口标为 `implemented`；现有前端的 `forget`、冲突请求体和整个记忆页仍未对齐，`GET /memory` 继续 `mock`。
+知识治理另有证据与人工审核辅助接口，详见 [V3 后端辅助接口](v3-backend-aux.md)。`GET /knowledge-sources` 与辅助 `registered-evidence` 读取当前有权来源登记和最近经版本、正文哈希、作用域及读取观察核对的证据；Git Markdown、Confluence、Notion 和飞书 Docx 必须仍匹配当前精确服务端绑定，本人上传须仍有原文件。主 GET 现提供完整的可空证据 DTO，`partial: true` 描述证据覆盖范围，不表示响应缺字段；连接健康、持续同步、片段与向量索引仍未知，不能从零或空值推断健康。最终返回前复核会话、来源和授权；前端仍假定确定连接与索引值，页面未验收。`GET /runbooks/{id}` 在同一只读快照中核对文档范围、当前对象授权与结构化步骤：隐藏或非 Runbook 为 404；有权旧文档缺步骤为 `503 structured_steps_unavailable`；有步骤但缺完整用量、事件处置、审核来源与执行核验时为 `503 runbook_read_unavailable`，不补零冒充完整 DTO。已落库字段可从 `/runbooks/{id}/record` 读取，主详情继续 `mock`。`GET /memory` 当前明确返回 `503 memory_view_unavailable`，只提供 `/memory/facts` 的受权、当前来源事实列表；没有可信的层级、置信度、召回次数与过期值。事实状态操作仅支持 `confirm`、`reject`、`expire`，冲突裁决须传入两个真实事实 ID；写入在事务中复核会话、当前授权、来源版本与对象归属并保存审计。清理陈旧来源的 `reject/expire` 回包脱敏，`confirm` 和冲突裁决要求当前发布来源。两条写路由按后端接口标为 `implemented`；现有前端的 `forget`、冲突请求体和整个记忆页仍未对齐，`GET /memory` 继续 `mock`。
 
 V3 知识正文读取按持久环境、有效应用与当前授权失败关闭；带 `team_id` 的文档还要求该值与应用当前负责人一致并有团队查看权限。历史 `knowledge_documents` 中标记了 `source_registration_id` 的来源文档在来源证明链闭合前不参加 V3 检索或来源投影。另设的公开 Web 正文/修订表只接受有持久应用归属、无凭据的单页 HTTPS Markdown 同次抓取；关键词检索在候选及输出前复核最新观察、内容哈希、修订和当前环境/应用/团队授权；不进入旧文档详情/导出或向量索引。可选的 `search_knowledge` Agent 证据组件尚未在正式进程注册；V3 实例关闭旧 Worker，不能把旧检索工具当作当前 V3 调用路径。其他来源正文同步、索引归属与完整页面 DTO 仍待接入。
 
@@ -342,14 +342,14 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | POST | `/agents/{id}/rollout` | `{ to, percent, override?, override_reason? }`；放行未通过门禁须启用的人类管理员填写原因并写审计 | 仅保存发布配置，尚无真实流量路由 | mock |
 | POST | `/agents/{id}/rollback` | | 结果 | mock |
 | PATCH | `/agents/{id}/level` | `{ level: L0..L3 }`（受环境上限约束） | 结果 | mock |
-| GET | `/prompts` | | `{ items: PromptItem[] }` | mock |
-| GET | `/prompts/{id}` | | `PromptDetail` | mock |
+| GET | `/prompts` | | 当前授权、确有持久正文版本的 Prompt 目录；运行时使用和发布状态未知 | implemented |
+| GET | `/prompts/{id}` | | 当前授权持久版本与原始正文；评测覆盖、使用和发布状态未知 | implemented |
 | POST | `/prompts/{id}/trial` | `{ case, a, b }` | `PromptTrial[]` | mock |
-| POST | `/prompts/{id}/versions` | `{ text }` | `{ version }`（`vN`） | mock |
-| GET | `/agent-tools` | `kind: all\|read\|write` | `ToolsView` | mock |
+| POST | `/prompts/{id}/versions` | `{ text }` | `{ version }`（`vN`）；正文、指针与审计同事务 | implemented |
+| GET | `/agent-tools` | `kind: all\|read\|write` | 当前有权登记工具与已记录调用；未接执行器和覆盖证明明确未知 | implemented |
 | GET | `/evals/{id}` | | `EvalExperiment` | mock |
 | POST | `/evals` | `{ agent_id, title, baseline_version, candidate_version }` | `{ id, status: "pending", execution_available: false }`，未启动评测 | implemented |
-| GET | `/eval-cases/{id}` | | `EvalCase` | mock |
+| GET | `/eval-cases/{id}` | | 持久登记及可选可信评测快照；缺快照时输出可空字段和 `missing` | implemented |
 | POST | `/eval-cases/{id}/labels` | `{ next: correct\|incorrect\|partial\|unsure, note? }` | `{ next, id }` | mock |
 | GET | `/agent-runs` | `filter: all\|failed\|blocked\|negative` | `RunsView` | mock |
 | GET | `/agent-runs/{id}` | | `RunDetail`（执行时间线、上下文组成、记忆） | mock |
@@ -357,7 +357,9 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | GET | `/guardrails` | `filter: all\|blocked\|masked` | `GuardrailsView` | mock |
 | PATCH | `/guardrails/{id}` | `{ enabled }`（强制规则不可关闭） | 结果 | mock |
 
-Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评测、发布意图、反馈和护栏设置；尚无评测执行器、流量路由消费者、Prompt trial 或完整运行/护栏观测生产者。Prompt 列表只返回有真实版本的已授权记录，支持最多 160 字符的 `q`，超过 200 条可见项返回 413；详情在同一读取事务中核对 Agent、归属、授权和正文，真实正文与 `vN` 可回读，但发布状态、运行时使用关系和说明均明确为部分/未知，不冒充完整前端 DTO。`POST /prompts/{id}/versions` 对已登记且当前有权的 Prompt 原样保存非空白文本，按 `vN` 返回版本，审计与修订同事务；生产构造尚未登记 Prompt，前端默认 ID 在新库无法成功写入，因此读写主路由仍为 `mock`。`POST /prompts/{id}/trial` 明确返回 `503 prompt_trial_unavailable`；发布和回滚不改变真实流量。`POST /evals` 的主契约仅要求保存 `pending` 元数据：后端已校验目标 Agent、两条已登记且不同的版本、当前应用/环境与授权，并在同一事务保存记录及审计，返回 `{ id, status: "pending", execution_available: false }`，故按后端接口判据标为 `implemented`。它不排队或执行评测；冻结前端重跑发送空请求体却提示“已排队”，不能切换 HTTP 或视为页面验收。创建事务锁定账号与授权来源，但未锁当前 Cookie 会话，并发注销与在途创建的顺序尚未专测，不能承诺注销后立即取消所有在途请求。其他部分读取返回 `null`、`partial: true` 或“未接入”；现有前端对 `score`、发布 token/门禁、评测详情、Trace、运行统计的 DTO 与请求体尚不兼容。管理员门禁放行另需非空 `override_reason`，现有前端未提交；这些未闭合主行继续为 `mock`。
+Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评测、发布意图、反馈和护栏设置；尚无评测执行器、流量路由消费者、Prompt trial 或完整运行/护栏观测生产者。受权 `GET /agent-tools` 从持久工具目录及受信进程内运行 Span 读取已记录调用，缺记录显示未知；开关和风险级别不构成可执行 Agent 工具，响应明确 `execution_available=false` 和部分覆盖。`GET /eval-cases/{id}` 从持久登记及可选的不可变可信评测快照返回；无快照时输出真实登记、可空详情和 `missing`。快照有受限进程内生产 API，但尚无评测执行器接线；标签 POST 依赖快照，当前仍保持 `mock`，也与冻结页面请求/返回语义不符。
+
+Prompt 列表只返回有真实版本的已授权记录，支持最多 160 字符的 `q`，超过 200 条可见项返回 413；详情在同一读取事务中核对 Agent、归属、授权和正文，真实正文与 `vN` 可回读，发布状态与运行时使用关系保持未知。辅助 `POST /prompts` 可在当前有权 Agent 下登记首版，主 `POST /prompts/{id}/versions` 保存下一版非空白原文，身份、版本指针与审计同事务；因此三条主 Prompt 路由按本阶段后端标准计 `implemented`，不表示生产运行时已绑定。冻结前端默认 ID 在新库不存在且“新建”未调用登记接口，页面未验收。`POST /prompts/{id}/trial` 明确返回 `503 prompt_trial_unavailable`；发布和回滚不改变真实流量。`POST /evals` 的主契约仅要求保存 `pending` 元数据：后端已校验目标 Agent、两条已登记且不同的版本、当前应用/环境与授权，并在同一事务保存记录及审计，返回 `{ id, status: "pending", execution_available: false }`。它不排队或执行评测；冻结前端重跑发送空请求体却提示“已排队”。创建事务锁定账号与授权来源，但未锁当前 Cookie 会话，并发注销与在途创建的顺序尚未专测。其他部分读取返回 `null`、`partial: true` 或“未接入”；现有前端对 `score`、发布 token/门禁、评测详情、Trace、运行统计的 DTO 与请求体尚不兼容。管理员门禁放行另需非空 `override_reason`，现有前端未提交；其余未闭合主行继续为 `mock`。
 
 `GET /evals/{id}` 现在只读已保存的部分评测记录：同一事务锁定评测、Agent、有效应用/环境和当前授权，并以创建审计核对原始归属；缺审计或 Agent 改属的历史记录隐藏。`metrics` 仅在有可信结果记录时返回已保存值，待执行状态不合成分数；`radar`、用例输出和数据集仍无生产者，所以完整 `EvalExperiment` 继续 `mock`。大量同应用审计记录的目标查找尚缺专用索引和规模验证。
 

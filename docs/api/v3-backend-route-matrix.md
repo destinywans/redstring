@@ -80,7 +80,7 @@
 | 知识与记忆 | GET | `/memory` | 新增 | mock |
 | 知识与记忆 | POST | `/memory/facts/{id}/{action}` | 新增 | implemented |
 | 知识与记忆 | POST | `/memory/conflicts/resolve` | 新增 | implemented |
-| 知识与记忆 | GET | `/knowledge-sources` | 聚合 | mock |
+| 知识与记忆 | GET | `/knowledge-sources` | 聚合 | implemented |
 | 知识与记忆 | POST | `/knowledge/search` | 旧路径适配 | implemented |
 | 资源与观测 | GET | `/services` | 聚合 | implemented |
 | 资源与观测 | GET | `/services/{id}` | 聚合 | implemented |
@@ -140,14 +140,14 @@
 | Agent 运行台 | POST | `/agents/{id}/rollout` | 新增 | mock |
 | Agent 运行台 | POST | `/agents/{id}/rollback` | 新增 | mock |
 | Agent 运行台 | PATCH | `/agents/{id}/level` | 新增 | mock |
-| Agent 运行台 | GET | `/prompts` | 新增 | mock |
-| Agent 运行台 | GET | `/prompts/{id}` | 新增 | mock |
+| Agent 运行台 | GET | `/prompts` | 新增 | implemented |
+| Agent 运行台 | GET | `/prompts/{id}` | 新增 | implemented |
 | Agent 运行台 | POST | `/prompts/{id}/trial` | 新增 | mock |
-| Agent 运行台 | POST | `/prompts/{id}/versions` | 新增 | mock |
-| Agent 运行台 | GET | `/agent-tools` | 新增 | mock |
+| Agent 运行台 | POST | `/prompts/{id}/versions` | 新增 | implemented |
+| Agent 运行台 | GET | `/agent-tools` | 新增 | implemented |
 | Agent 运行台 | GET | `/evals/{id}` | 新增 | mock |
 | Agent 运行台 | POST | `/evals` | 新增 | implemented |
-| Agent 运行台 | GET | `/eval-cases/{id}` | 新增 | mock |
+| Agent 运行台 | GET | `/eval-cases/{id}` | 新增 | implemented |
 | Agent 运行台 | POST | `/eval-cases/{id}/labels` | 新增 | mock |
 | Agent 运行台 | GET | `/agent-runs` | 聚合 | mock |
 | Agent 运行台 | GET | `/agent-runs/{id}` | 聚合 | mock |

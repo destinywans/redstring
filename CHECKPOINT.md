@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-182 · 2026-09-29 · WAN-123 知识来源、Agent 工具/评测案例与 Prompt
+
+- 从已推送 CP-181 `0944fe6` 接续，知识来源前置 `ee25df8` 合入 `8a72534`。来源 `d857f6e` 同时修改冻结的 `web/src/v3/api/types.ts`，整笔 cherry-pick 被自动审批拒绝；依审核提示仅提取后端、领域契约、文档及源测试文件，形成 `ddf1b2f`，前端类型/Mock 未动。其后 Agent 工具/案例 `4ad4b86`、Prompt 治理 `560c85c` 依次合入 `5eef4dd`、`6f1b40a`。现有 `v3agents.Service.Register` 已注册相关路由，无重复接线。新增迁移 `137_v3_agent_tool_usage.sql` 和 `138_v3_agent_eval_case_snapshots.sql`；后者与邀请迁移前缀同号但全文件名不同。两项尚未在现有库执行。
+- `GET /knowledge-sources` 基于当前有权持久登记、精确服务端来源绑定、最近手动读取及正文/版本证明返回完整可空证据 DTO；连接、持续同步、分块和索引未知，`partial` 只表示证据覆盖。`GET /agent-tools` 读取持久工具登记及已记录的受信运行 Span，未接 Agent 工具执行器与调用覆盖证明明确标出。`GET /eval-cases/{id}` 可读当前有权案例登记和可选不可变可信快照；无快照时详情可空。标签 POST 只有快照存在时可写，但实际评测生产者未接、冻结页面请求语义不同，暂保留 `mock`。
+- 辅助 `POST /prompts` 可在当前有权 Agent 下新建持久首版；Prompt 列表/详情从真实版本正文读取，主版本 POST 原样保存下一版并审计。发布、运行时使用、评测覆盖与试运行没有可信生产者，保持未知或 503；前端默认 ID 和创建/保存交互仍待适配。六条主路由按本阶段后端来源、权限、错误和可空判据升 `implemented`，现 **116/166、50 mock**；OpenAPI **315 路径、375 操作、393 schema**。本批仅重建 OpenAPI、静态矩阵/差异检查与最小 `go build`（退出 0，Go stat 缓存有沙箱权限警告）；未运行测试、现有库迁移、真实评测/外部来源或浏览器。无 PR、合并或部署；下一批接 Runbook 与其他独立来源。
+
 ## CP-181 · 2026-09-29 · WAN-121 服务与人员悬浮卡
 
 - 从已推送 CP-180 `0b3fff6` 接续，WAN-121 来源 `7cea090` 合入为 `9eb4dc9`；既有 `v3discovery.Service.Register` 自动注册 GET `/services/{id}/peek` 与 `/people/{name}/peek`，无额外构造器或迁移。服务按应用/环境复合 ID、真实告警组的应用 ID 或旧页面 key 查找，当前可见范围内歧义返回 409；人员精确名称在可见范围内不唯一也返回 409。对象缺失或无权统一 404，读取后复核来源和授权。

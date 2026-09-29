@@ -37373,6 +37373,18 @@
                       "items": {
                         "type": "string"
                       }
+                    },
+                    "unconfigured_external_bindings": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "git_markdown",
+                          "confluence",
+                          "notion",
+                          "feishu"
+                        ]
+                      }
                     }
                   },
                   "additionalProperties": false,
@@ -37383,7 +37395,8 @@
                     "partial",
                     "reason",
                     "truncated",
-                    "unknown_fields"
+                    "unknown_fields",
+                    "unconfigured_external_bindings"
                   ]
                 }
               }
@@ -37484,7 +37497,7 @@
       "get": {
         "summary": "Read registered knowledge sources and verified observation evidence",
         "operationId": "get_knowledge_sources",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Backend partial main-route projection of actual persisted registrations. It shares the current-scope and fresh final recheck of /knowledge-sources/registered-evidence. Completed public Web, Git Markdown, Confluence, Notion, Feishu and local-upload reads can supply observed_at/count. Document count and last sync time require matching private document, version, scope and observation proof; local upload also requires the original owned file to remain available, unchanged and not revoked. Connection health, scheduled sync, vector chunks and index settings remain unknown. No synthetic catalog cards are emitted; null means unknown or unindexed, never zero or connected.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Complete nullable evidence DTO for the real source page; partial=true describes evidence coverage, not missing response fields. It shares the current-scope and fresh final recheck of /knowledge-sources/registered-evidence. Git Markdown, Confluence, Notion and Feishu require an exact current operator binding to appear; uploaded files require their owner-bound source. Completed public Web, Git Markdown, Confluence, Notion, Feishu and local-upload reads can supply observed_at/count. Document count and last sync time require matching private document, version, scope and observation proof; local upload also requires the original owned file to remain present, unchanged and not revoked. Unconfigured external binding types are named at process level; this does not reveal hidden registrations or prove connectivity for any configured type. Connection health, scheduled sync, vector chunks and index settings remain unknown. No synthetic catalog cards are emitted; null means unknown or unindexed, never zero or connected.",
         "responses": {
           "200": {
             "description": "Success",
@@ -37504,7 +37517,7 @@
                       "type": "null"
                     },
                     "complete_v3_dto": {
-                      "const": false
+                      "const": true
                     },
                     "partial": {
                       "const": true
@@ -37523,6 +37536,18 @@
                       "items": {
                         "type": "string"
                       }
+                    },
+                    "unconfigured_external_bindings": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "git_markdown",
+                          "confluence",
+                          "notion",
+                          "feishu"
+                        ]
+                      }
                     }
                   },
                   "additionalProperties": false,
@@ -37533,7 +37558,8 @@
                     "partial",
                     "reason",
                     "truncated",
-                    "unknown_fields"
+                    "unknown_fields",
+                    "unconfigured_external_bindings"
                   ]
                 }
               }
@@ -38193,7 +38219,7 @@
       "get": {
         "summary": "Read observed source lineage and attributed index evidence",
         "operationId": "get_knowledge_sources_registrations_id_evidence",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read of current authorized registration. An absent read returns null evidence. Git Markdown includes commit_sha and document_count only when the latest read has matching private documents, hashes, scope and observations; Confluence, Notion, Feishu and upload analogously use external_source with source_type, document_count and content_persisted only after proof. Upload evidence also requires the original owned file to remain present and unchanged. Public Web keyword evidence and generic attributed ready documents/chunks never imply a complete source index. No source content is returned.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read of current authorized registration. An absent read returns null evidence. Git Markdown includes commit_sha and document_count only when the latest read has matching private documents, hashes, scope and observations. Before returning Git evidence, the current session, access, exact server binding and latest persisted proof are rechecked; changed state returns 409. Confluence, Notion, Feishu and upload analogously use external_source with source_type, document_count and content_persisted only after proof. Upload evidence also requires the original owned file to remain present and unchanged. Public Web keyword evidence and generic attributed ready documents/chunks never imply a complete source index. No source content is returned.",
         "responses": {
           "200": {
             "description": "Success",
@@ -38284,7 +38310,7 @@
             }
           },
           "409": {
-            "description": "Conflict or stale version",
+            "description": "Git Markdown or external source state, current binding, access or evidence changed; retry",
             "content": {
               "application/json": {
                 "schema": {
@@ -40005,7 +40031,7 @@
       "get": {
         "summary": "List bounded persisted Prompt versions",
         "operationId": "get_prompts",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. At most 200 visible persisted Prompt identities with a nonzero version. Optional q matches ID or name, trimmed and bounded to 160 Unicode characters; excess returns localized 422. More than 200 visible matches returns 413 prompt_list_too_large rather than silent truncation. Skills and publication status are unavailable fields; runtime binding is not attested. The full Prompt page remains mock.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. At most 200 visible persisted Prompt identities whose current version body exists. The read rechecks current session, Agent scope and grants in its transaction. Optional q matches ID or name, trimmed and bounded to 160 Unicode characters; excess returns localized 422. More than 200 visible matches or 1000 grant-prefiltered candidates returns 413 prompt_list_too_large rather than silent truncation. Skills and publication status are unavailable fields; runtime binding is not attested. The full Prompt page remains mock.",
         "responses": {
           "200": {
             "description": "Success",
@@ -40126,7 +40152,7 @@
             }
           },
           "413": {
-            "description": "More than 200 visible Prompt identities; narrow q",
+            "description": "More than 200 visible Prompt identities or 1000 grant-prefiltered candidates; narrow q",
             "content": {
               "application/json": {
                 "schema": {
@@ -40162,13 +40188,153 @@
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
         ]
+      },
+      "post": {
+        "summary": "Register one scoped Prompt draft and first version",
+        "operationId": "post_prompts",
+        "description": "Minimum role: viewer with scoped agents.change. V3 instance and environment scope apply. Requires one selected environment and agents.change on the existing active Agent. Generates a server-side Prompt ID and saves exact nonblank v1 text, current-version pointer and metadata-only audit in one session- and grant-checked transaction. Registration stores a draft; it does not publish, evaluate or bind text to Agent execution.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{32}$"
+                    },
+                    "version": {
+                      "type": "string",
+                      "pattern": "^v[1-9][0-9]*$"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "version"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "prompts"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "agent_id": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "name": {
+                    "type": "string",
+                    "maxLength": 160
+                  },
+                  "text": {
+                    "type": "string",
+                    "maxLength": 20000
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "agent_id",
+                  "name",
+                  "text"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
       }
     },
     "/prompts/{id}": {
       "get": {
         "summary": "Read one stored Prompt version",
         "operationId": "get_prompts_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Reads the current persisted Prompt version and registered Agent under one scoped, authorized transaction. Variables are parsed from persisted text; lines preserve the text for the frontend editor. Publication status, release notes and runtime usage are unavailable, with localized explanatory used_by and notes. Unknown or hidden Prompt returns 404; a Prompt with no version returns 409; storage or policy failure returns 503. This does not prove a runtime-bound Prompt or complete frontend page.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Reads the current persisted Prompt version and registered Agent under one scoped transaction that rechecks current session, active Agent scope and grants. Variables are parsed from persisted text; lines preserve the text for the frontend editor. Evaluation score and coverage, publication status and runtime usage are null; localized used_by and notes explain unknown values required by the frozen page. Unknown or hidden Prompt returns 404; a Prompt with no version returns 409; storage or policy failure returns 503. This does not prove a runtime-bound Prompt or complete frontend page.",
         "responses": {
           "200": {
             "description": "Success",
@@ -40245,6 +40411,18 @@
                         "environment_id"
                       ]
                     },
+                    "evaluation_score": {
+                      "type": "null"
+                    },
+                    "evaluation_coverage": {
+                      "type": "null"
+                    },
+                    "runtime_usage": {
+                      "type": "null"
+                    },
+                    "publication_status": {
+                      "type": "null"
+                    },
                     "partial": {
                       "type": "boolean"
                     },
@@ -40266,6 +40444,10 @@
                     "notes",
                     "registered_agent",
                     "scope",
+                    "evaluation_score",
+                    "evaluation_coverage",
+                    "runtime_usage",
+                    "publication_status",
                     "partial",
                     "unavailable_fields"
                   ]
@@ -40366,7 +40548,7 @@
       "post": {
         "summary": "Store a new Prompt text revision",
         "operationId": "post_prompts_id_versions",
-        "description": "Minimum role: viewer with scoped agents.change. V3 instance and environment scope apply. Stores a nonblank text revision of at most 20000 Unicode characters with original whitespace and transactional audit, returning its vN display version. Invalid JSON, multiple JSON objects or invalid text return 422 with an Accept-Language zh/en message. Requires a registered Prompt under the current scoped Agent; it does not publish or execute the Prompt.",
+        "description": "Minimum role: viewer with scoped agents.change. V3 instance and environment scope apply. Stores a nonblank text revision of at most 20000 Unicode characters with original whitespace and transactional audit, returning its vN display version. Invalid JSON, multiple JSON objects or invalid text return 422 with an Accept-Language zh/en message. Requires a registered Prompt under the current active scoped Agent, rechecked session and grants; it does not publish or execute the Prompt.",
         "responses": {
           "201": {
             "description": "Success",
@@ -40622,7 +40804,7 @@
       "get": {
         "summary": "Read persisted Agent tool governance metadata",
         "operationId": "get_agent_tools",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. At most 200 registered tools. Calls/errors are unavailable and executable is false; no live tool executor is connected. The full ToolsView remains mock.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. At most 200 authorized registered tools, with a bounded scan of 1000 grant-filtered candidates. Governance fields come from the persisted registry; seven-day calls and error rate are observed RecordSpan events only and show an unknown marker when absent. Instrumentation coverage and live tool execution are unavailable. Environment caps do not grant executable authority.",
         "responses": {
           "200": {
             "description": "Success",
@@ -40635,14 +40817,114 @@
                       "type": "array",
                       "items": {
                         "type": "object",
-                        "additionalProperties": true
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "approval": {
+                            "type": "string"
+                          },
+                          "agents": {
+                            "type": "string"
+                          },
+                          "envs": {
+                            "type": "string"
+                          },
+                          "calls": {
+                            "type": "string"
+                          },
+                          "error": {
+                            "type": "string"
+                          },
+                          "agent_id": {
+                            "type": "string"
+                          },
+                          "application_id": {
+                            "type": "string"
+                          },
+                          "environment_id": {
+                            "type": "string"
+                          },
+                          "execution_status": {
+                            "type": "string"
+                          },
+                          "metrics_basis": {
+                            "type": "string"
+                          },
+                          "brand": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "read",
+                              "write"
+                            ]
+                          },
+                          "risk": {
+                            "type": "string",
+                            "enum": [
+                              "low",
+                              "medium",
+                              "high"
+                            ]
+                          },
+                          "registered_enabled": {
+                            "type": "boolean"
+                          },
+                          "executable": {
+                            "type": "boolean"
+                          },
+                          "metrics_complete": {
+                            "type": "boolean"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "name",
+                          "kind",
+                          "risk",
+                          "approval",
+                          "agents",
+                          "envs",
+                          "calls",
+                          "error",
+                          "agent_id",
+                          "application_id",
+                          "environment_id",
+                          "registered_enabled",
+                          "executable",
+                          "execution_status",
+                          "metrics_basis",
+                          "metrics_complete"
+                        ]
                       }
                     },
                     "levels": {
                       "type": "array",
                       "items": {
                         "type": "object",
-                        "additionalProperties": true
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "desc": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "code",
+                          "name",
+                          "desc"
+                        ]
                       }
                     },
                     "env_limits": {
@@ -40682,6 +40964,12 @@
                     },
                     "truncated": {
                       "type": "boolean"
+                    },
+                    "partial": {
+                      "type": "boolean"
+                    },
+                    "execution_available": {
+                      "type": "boolean"
                     }
                   },
                   "additionalProperties": false,
@@ -40691,7 +40979,9 @@
                     "env_limits",
                     "rules",
                     "missing",
-                    "truncated"
+                    "truncated",
+                    "partial",
+                    "execution_available"
                   ]
                 }
               }
@@ -40749,6 +41039,16 @@
           },
           "503": {
             "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "More than 1000 grant-filtered tool candidates; narrow the environment or kind",
             "content": {
               "application/json": {
                 "schema": {
@@ -41133,79 +41433,368 @@
     },
     "/eval-cases/{id}": {
       "get": {
-        "summary": "Read one partially evidenced evaluation case",
+        "summary": "Read a registered evaluation case and any trusted snapshot",
         "operationId": "get_eval_cases_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. At most 50 human labels; input evidence, expected output, baseline and automatic scoring are unavailable. This does not satisfy the frontend EvalCase DTO.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. A complete frontend case DTO is returned only when a trusted in-process evaluator has persisted a validated immutable snapshot with source references, two distinct known Agent versions and the original case scope. References are producer assertions, not independently verified external artifacts. Without a snapshot, evidence and outputs are null with partial=true. At most 50 labels are returned.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string"
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "queue": {
+                          "type": "string"
+                        },
+                        "expected_ref": {
+                          "type": "string"
+                        },
+                        "snapshot_id": {
+                          "type": "string"
+                        },
+                        "snapshot_sha256": {
+                          "type": "string"
+                        },
+                        "labels": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "label": {
+                                "type": "string"
+                              },
+                              "note": {
+                                "type": "string"
+                              },
+                              "actor": {
+                                "type": "string"
+                              },
+                              "time": {
+                                "type": "string"
+                              },
+                              "snapshot_id": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false,
+                            "required": [
+                              "label",
+                              "note",
+                              "actor",
+                              "time",
+                              "snapshot_id"
+                            ]
+                          }
+                        },
+                        "missing": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "alert": {
+                          "type": "object",
+                          "properties": {
+                            "sev": {
+                              "type": "string"
+                            },
+                            "title": {
+                              "type": "string"
+                            },
+                            "labels": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "k": {
+                                    "type": "string"
+                                  },
+                                  "v": {
+                                    "type": "string"
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "required": [
+                                  "k",
+                                  "v"
+                                ]
+                              }
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "sev",
+                            "title",
+                            "labels"
+                          ]
+                        },
+                        "evidence": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "brand": {
+                                "type": "string"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "sub": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false,
+                            "required": [
+                              "brand",
+                              "title",
+                              "sub"
+                            ]
+                          }
+                        },
+                        "expected": {
+                          "type": "object",
+                          "properties": {
+                            "cause": {
+                              "type": "string"
+                            },
+                            "advice": {
+                              "type": "string"
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "cause",
+                            "advice"
+                          ]
+                        },
+                        "output": {
+                          "type": "object",
+                          "properties": {
+                            "version": {
+                              "type": "string"
+                            },
+                            "meta": {
+                              "type": "string"
+                            },
+                            "markdown": {
+                              "type": "string"
+                            },
+                            "tools": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "version",
+                            "meta",
+                            "markdown",
+                            "tools"
+                          ]
+                        },
+                        "baseline": {
+                          "type": "object",
+                          "properties": {
+                            "version": {
+                              "type": "string"
+                            },
+                            "score": {
+                              "type": "string"
+                            },
+                            "text": {
+                              "type": "string"
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "version",
+                            "score",
+                            "text"
+                          ]
+                        },
+                        "auto": {
+                          "type": "object",
+                          "properties": {
+                            "score": {
+                              "type": "string"
+                            },
+                            "note": {
+                              "type": "string"
+                            },
+                            "rules": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "score",
+                            "note",
+                            "rules"
+                          ]
+                        },
+                        "source_state": {
+                          "type": "string",
+                          "enum": [
+                            "trusted_snapshot"
+                          ]
+                        },
+                        "complete_v3_dto": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "partial": {
+                          "type": "boolean",
+                          "const": false
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "id",
+                        "title",
+                        "queue",
+                        "expected_ref",
+                        "snapshot_id",
+                        "snapshot_sha256",
+                        "labels",
+                        "missing",
+                        "alert",
+                        "evidence",
+                        "expected",
+                        "output",
+                        "baseline",
+                        "auto",
+                        "source_state",
+                        "complete_v3_dto",
+                        "partial"
+                      ]
                     },
-                    "title": {
-                      "type": "string"
-                    },
-                    "queue": {
-                      "type": "string"
-                    },
-                    "expected_ref": {
-                      "type": "string"
-                    },
-                    "labels": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                      }
-                    },
-                    "alert": {
-                      "type": "null"
-                    },
-                    "evidence": {
-                      "type": "null"
-                    },
-                    "expected": {
-                      "type": "null"
-                    },
-                    "output": {
-                      "type": "null"
-                    },
-                    "baseline": {
-                      "type": "null"
-                    },
-                    "auto": {
-                      "type": "null"
-                    },
-                    "missing": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
-                    "partial": {
-                      "type": "boolean"
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "queue": {
+                          "type": "string"
+                        },
+                        "expected_ref": {
+                          "type": "string"
+                        },
+                        "snapshot_id": {
+                          "type": "string"
+                        },
+                        "snapshot_sha256": {
+                          "type": "string"
+                        },
+                        "labels": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "label": {
+                                "type": "string"
+                              },
+                              "note": {
+                                "type": "string"
+                              },
+                              "actor": {
+                                "type": "string"
+                              },
+                              "time": {
+                                "type": "string"
+                              },
+                              "snapshot_id": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false,
+                            "required": [
+                              "label",
+                              "note",
+                              "actor",
+                              "time",
+                              "snapshot_id"
+                            ]
+                          }
+                        },
+                        "missing": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "alert": {
+                          "type": "null"
+                        },
+                        "evidence": {
+                          "type": "null"
+                        },
+                        "expected": {
+                          "type": "null"
+                        },
+                        "output": {
+                          "type": "null"
+                        },
+                        "baseline": {
+                          "type": "null"
+                        },
+                        "auto": {
+                          "type": "null"
+                        },
+                        "source_state": {
+                          "type": "string",
+                          "enum": [
+                            "unconfigured",
+                            "awaiting_trusted_snapshot"
+                          ]
+                        },
+                        "complete_v3_dto": {
+                          "type": "boolean",
+                          "const": false
+                        },
+                        "partial": {
+                          "type": "boolean",
+                          "const": true
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "id",
+                        "title",
+                        "queue",
+                        "expected_ref",
+                        "snapshot_id",
+                        "snapshot_sha256",
+                        "labels",
+                        "missing",
+                        "alert",
+                        "evidence",
+                        "expected",
+                        "output",
+                        "baseline",
+                        "auto",
+                        "source_state",
+                        "complete_v3_dto",
+                        "partial"
+                      ]
                     }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "id",
-                    "title",
-                    "queue",
-                    "expected_ref",
-                    "labels",
-                    "alert",
-                    "evidence",
-                    "expected",
-                    "output",
-                    "baseline",
-                    "auto",
-                    "missing",
-                    "partial"
                   ]
                 }
               }
@@ -41304,7 +41893,7 @@
       "post": {
         "summary": "Record one human evaluation label",
         "operationId": "post_eval_cases_id_labels",
-        "description": "Minimum role: viewer with scoped agents.change. V3 instance and environment scope apply. Requires an explicit next label and optional note up to 2000 runes; saved with audit. The current frontend sends different fields and would receive 422.",
+        "description": "Minimum role: viewer with scoped agents.change. V3 instance and environment scope apply. Requires a trusted case snapshot, one selected environment, agents.change and an active session. The selected label is bound to the latest snapshot and saved with audit in the same authorized transaction. No snapshot returns 409 evaluation_case_not_ready. The current frontend sends different fields and would receive 422; its next-case navigation meaning also differs from this response.",
         "responses": {
           "200": {
             "description": "Success",

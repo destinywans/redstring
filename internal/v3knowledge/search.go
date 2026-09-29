@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/wans/aiops-canvas/internal/httpapi"
@@ -50,6 +51,11 @@ func (s *Service) SearchHandler(w http.ResponseWriter, r *http.Request) {
 	if in.TopK == 0 {
 		in.TopK = 5
 	}
+	// Keep the whole search, including source reads and final authorization
+	// checks, within one request budget even across many visible applications.
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	r = r.WithContext(ctx)
 	apps, err := s.searchableApplications(r, in.Service)
 	if err != nil {
 		if errors.Is(err, errScopeTooLarge) {
@@ -94,6 +100,7 @@ func (s *Service) SearchHandler(w http.ResponseWriter, r *http.Request) {
 		publicWeb       []publicWebHit
 	}
 	observed := make([]scopedHits, 0, len(apps))
+	remainingWeb := publicWebCandidateLimit
 	for _, scope := range apps {
 		hits, e := pgRepo.V3KeywordSearch(r.Context(), userID, scope.app, scope.env, in.Q, in.TopK*4)
 		if e != nil {
@@ -101,7 +108,8 @@ func (s *Service) SearchHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		found := scopedHits{scope: scope, keyword: hits}
-		found.publicWeb, e = s.publicWebKeywordSearch(r.Context(), userID, scope.app, scope.env, in.Q, in.TopK*4)
+		var matchedWeb int
+		found.publicWeb, matchedWeb, e = s.publicWebKeywordSearch(r.Context(), userID, scope.app, scope.env, in.Q, in.TopK*4, remainingWeb)
 		if e != nil {
 			if errors.Is(e, errPublicWebScopeTooLarge) {
 				httpapi.Error(w, 413, "public_web_source_scope_too_large", "More than 80 matching public Web sources")
@@ -110,6 +118,7 @@ func (s *Service) SearchHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
+		remainingWeb -= matchedWeb
 		if len(embed) > 0 {
 			if scoped, ok := s.Knowledge.Vectors.(interface {
 				V3SearchScoped(context.Context, string, string, string, inference.EmbeddingDescriptor, []float32, int) ([]knowledge.Hit, error)

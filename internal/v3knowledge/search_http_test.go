@@ -631,16 +631,21 @@ func TestRegisteredKnowledgeSearchPublicWebScopeLimit(t *testing.T) {
 	db := isolatedKnowledgeSearchDB(t)
 	ctx := t.Context()
 	for _, statement := range []string{
+		`INSERT INTO applications(id,key,name) VALUES('a-other','other','Other')`,
+		`INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a-other','test')`,
+		`INSERT INTO application_environments(id,application_id,key) VALUES('other-test','a-other','test')`,
+		`INSERT INTO v3_effective_role_grants(user_id,module,action,scope_kind,scope_id)
+ VALUES('viewer','knowledge','view','application','a-other')`,
 		`INSERT INTO v3_knowledge_source_registrations
  (id,environment_id,application_id,team_id,name,source_type,source_url,secret_ref,spaces,schedule,inherit_acl)
- SELECT 'many-'||i,'test','z-visible',NULL,'Mass source','web',
+ SELECT 'many-'||i,'test',CASE WHEN i<=40 THEN 'a-other' ELSE 'z-visible' END,NULL,'Mass source','web',
  'https://example.invalid/many-'||i||'.md','','[]'::jsonb,'manual',true
  FROM generate_series(1,81) i`,
 		`INSERT INTO v3_knowledge_source_reads(id,registration_id,environment_id,observed_count,reader_type)
  SELECT 'read-many-'||i,'many-'||i,'test',1,'web' FROM generate_series(1,81) i`,
 		`INSERT INTO v3_public_web_documents
  (registration_id,environment_id,application_id,team_id,title,source_url,body,content_hash,item_hash,version,last_read_id)
- SELECT 'many-'||i,'test','z-visible',NULL,'Mass source',
+ SELECT 'many-'||i,'test',CASE WHEN i<=40 THEN 'a-other' ELSE 'z-visible' END,NULL,'Mass source',
  'https://example.invalid/many-'||i||'.md','massneedle',
  encode(sha256(convert_to('massneedle','UTF8')),'hex'),
  encode(sha256(convert_to('https://example.invalid/many-'||i||'.md','UTF8')),'hex'),1,'read-many-'||i
@@ -652,7 +657,8 @@ func TestRegisteredKnowledgeSearchPublicWebScopeLimit(t *testing.T) {
  (read_id,item_hash,content_hash,environment_id,application_id,team_id)
  SELECT 'read-many-'||i,
  encode(sha256(convert_to('https://example.invalid/many-'||i||'.md','UTF8')),'hex'),
- encode(sha256(convert_to('massneedle','UTF8')),'hex'),'test','z-visible',NULL
+ encode(sha256(convert_to('massneedle','UTF8')),'hex'),'test',
+ CASE WHEN i<=40 THEN 'a-other' ELSE 'z-visible' END,NULL
  FROM generate_series(1,81) i`,
 	} {
 		if _, err := db.Exec(ctx, statement); err != nil {
@@ -670,7 +676,7 @@ func TestRegisteredKnowledgeSearchPublicWebScopeLimit(t *testing.T) {
 		}); err != nil {
 		t.Fatal(err)
 	}
-	r := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge/search", strings.NewReader(`{"q":"massneedle","service":"visible"}`))
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge/search", strings.NewReader(`{"q":"massneedle"}`))
 	r.Header.Set("X-AIOps-Environment", "test")
 	r.AddCookie(&http.Cookie{Name: "aiops_session", Value: "search-session"})
 	w := httptest.NewRecorder()
@@ -678,6 +684,6 @@ func TestRegisteredKnowledgeSearchPublicWebScopeLimit(t *testing.T) {
 	if w.Code != http.StatusRequestEntityTooLarge ||
 		!strings.Contains(w.Body.String(), `"code":"public_web_source_scope_too_large"`) ||
 		!strings.Contains(w.Body.String(), "More than 80 matching public Web sources") {
-		t.Fatalf("81 matching sources were truncated or returned unactionable error: %d %s", w.Code, w.Body.String())
+		t.Fatalf("81 matching sources across two applications were truncated or returned unactionable error: %d %s", w.Code, w.Body.String())
 	}
 }

@@ -3846,7 +3846,7 @@
       "post": {
         "summary": "Search scoped knowledge with keyword/vector ranking",
         "operationId": "post_knowledge_search",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Keyword and vector candidates use the same current explicit environment, active application mapping and V3 environment/knowledge grants. A document carrying team_id must match the application current owner team and have an additional team knowledge grant. Candidate document ID/version and current grants are rechecked before output; malformed or unknown scope and source_registration_id documents are excluded pending trusted provenance. When embeddings are unavailable, returns a keyword result with degraded=true; an unavailable keyword index returns 503.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Keyword and vector candidates use the same current explicit environment, active application mapping and V3 environment/knowledge grants. A document carrying team_id must match the application current owner team and have an additional team knowledge grant. Candidate document ID/version and current grants are rechecked before output; malformed or unknown scope and legacy source_registration_id documents are excluded pending trusted provenance. A separately stored, credential-free, single-page public HTTPS Markdown body can supply bounded keyword passages only when its latest read observation, content hash, revision, application/environment/team binding and current grants all match at candidate and final output checks. One 30-second budget covers the whole search, and more than 80 SQL-matched public Web sources across all visible application/environment scopes returns 413 public_web_source_scope_too_large. No public Web vector indexing, Agent tool, source page DTO or full source index is proven. When embeddings are unavailable, returns a keyword result with degraded=true; an unavailable keyword index returns 503.",
         "responses": {
           "200": {
             "description": "Success",
@@ -3939,7 +3939,7 @@
             }
           },
           "413": {
-            "description": "Authorized knowledge candidate scope is too large; narrow the search to one service",
+            "description": "Authorized candidate scope is too large or more than 80 public Web sources match across all visible scopes; narrow the search to one service",
             "content": {
               "application/json": {
                 "schema": {
@@ -23151,6 +23151,819 @@
         ]
       }
     },
+    "/me/passkeys": {
+      "get": {
+        "summary": "List current account passkeys",
+        "operationId": "get_me_passkeys",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Optional self-account WebAuthn route, registered only when AIOPS_V3_PASSKEY_ENABLED=true with a trusted instance RP domain and exact origin. Requires an active human session and one authorized V3 environment. Writes require a same-origin browser signal, an exact trusted HTTPS origin and secure cookies. The current main-process integration does not enable local HTTP fixtures. Challenges are session, account, instance, tier and environment bound; these routes issue no proposal approval assurance. Credential IDs are base64url; no authenticator private key is stored.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "credentials": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3PasskeyCredential"
+                      }
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "credentials"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "me"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/me/passkeys/registration/options": {
+      "post": {
+        "summary": "Begin current account passkey registration",
+        "operationId": "post_me_passkeys_registration_options",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Optional self-account WebAuthn route, registered only when AIOPS_V3_PASSKEY_ENABLED=true with a trusted instance RP domain and exact origin. Requires an active human session and one authorized V3 environment. Writes require a same-origin browser signal, an exact trusted HTTPS origin and secure cookies. The current main-process integration does not enable local HTTP fixtures. Challenges are session, account, instance, tier and environment bound; these routes issue no proposal approval assurance. Empty body and login within ten minutes required; the challenge expires after five minutes.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3PasskeyCeremony"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Credential or challenge state changed, expired or was already used",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Passkey ceremony issuance is temporarily rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "me"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/me/passkeys/registration/finish": {
+      "post": {
+        "summary": "Complete current account passkey registration",
+        "operationId": "post_me_passkeys_registration_finish",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Optional self-account WebAuthn route, registered only when AIOPS_V3_PASSKEY_ENABLED=true with a trusted instance RP domain and exact origin. Requires an active human session and one authorized V3 environment. Writes require a same-origin browser signal, an exact trusted HTTPS origin and secure cookies. The current main-process integration does not enable local HTTP fixtures. Challenges are session, account, instance, tier and environment bound; these routes issue no proposal approval assurance. Accepts the browser WebAuthn credential JSON and optional label. Registration has no hardware attestation trust policy.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3PasskeyCredential"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Credential or challenge state changed, expired or was already used",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Passkey ceremony issuance is temporarily rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "me"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3PasskeyFinish"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/me/passkeys/assertion/options": {
+      "post": {
+        "summary": "Begin account-only passkey assertion",
+        "operationId": "post_me_passkeys_assertion_options",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Optional self-account WebAuthn route, registered only when AIOPS_V3_PASSKEY_ENABLED=true with a trusted instance RP domain and exact origin. Requires an active human session and one authorized V3 environment. Writes require a same-origin browser signal, an exact trusted HTTPS origin and secure cookies. The current main-process integration does not enable local HTTP fixtures. Challenges are session, account, instance, tier and environment bound; these routes issue no proposal approval assurance. Empty body; at least one active credential is required.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3PasskeyCeremony"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Credential or challenge state changed, expired or was already used",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Passkey ceremony issuance is temporarily rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "me"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/me/passkeys/assertion/finish": {
+      "post": {
+        "summary": "Complete account-only passkey assertion",
+        "operationId": "post_me_passkeys_assertion_finish",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Optional self-account WebAuthn route, registered only when AIOPS_V3_PASSKEY_ENABLED=true with a trusted instance RP domain and exact origin. Requires an active human session and one authorized V3 environment. Writes require a same-origin browser signal, an exact trusted HTTPS origin and secure cookies. The current main-process integration does not enable local HTTP fixtures. Challenges are session, account, instance, tier and environment bound; these routes issue no proposal approval assurance. A successful account assertion cannot be used as assurance=passkey for a proposal.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "credential_id": {
+                      "type": "string"
+                    },
+                    "verified": {
+                      "type": "boolean"
+                    },
+                    "scope": {
+                      "type": "string",
+                      "enum": [
+                        "account_only"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "credential_id",
+                    "verified",
+                    "scope"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Credential or challenge state changed, expired or was already used",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Passkey ceremony issuance is temporarily rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "me"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3PasskeyFinish"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/me/passkeys/deletion/options": {
+      "post": {
+        "summary": "Begin current account passkey deletion",
+        "operationId": "post_me_passkeys_deletion_options",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Optional self-account WebAuthn route, registered only when AIOPS_V3_PASSKEY_ENABLED=true with a trusted instance RP domain and exact origin. Requires an active human session and one authorized V3 environment. Writes require a same-origin browser signal, an exact trusted HTTPS origin and secure cookies. The current main-process integration does not enable local HTTP fixtures. Challenges are session, account, instance, tier and environment bound; these routes issue no proposal approval assurance. Requires recent login and an existing base64url credential ID.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3PasskeyCeremony"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Credential or challenge state changed, expired or was already used",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Passkey ceremony issuance is temporarily rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "me"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "credential_id": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "credential_id"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/me/passkeys/deletion/finish": {
+      "post": {
+        "summary": "Complete current account passkey deletion",
+        "operationId": "post_me_passkeys_deletion_finish",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Optional self-account WebAuthn route, registered only when AIOPS_V3_PASSKEY_ENABLED=true with a trusted instance RP domain and exact origin. Requires an active human session and one authorized V3 environment. Writes require a same-origin browser signal, an exact trusted HTTPS origin and secure cookies. The current main-process integration does not enable local HTTP fixtures. Challenges are session, account, instance, tier and environment bound; these routes issue no proposal approval assurance. Requires recent login and a valid assertion for the selected credential; the credential is revoked.",
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Credential or challenge state changed, expired or was already used",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Passkey ceremony issuance is temporarily rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "me"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3PasskeyFinish"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/me/ai-preferences": {
       "get": {
         "summary": "Read personal AI preferences",
@@ -32543,7 +33356,7 @@
       "post": {
         "summary": "Observe one registered source through a configured read-only reader",
         "operationId": "post_knowledge_sources_registrations_id_sync",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary lineage operation requiring one environment and knowledge.manage. Explicit AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true configures only the application-bound, credential-free, single-page public HTTPS Markdown reader. An environment-only public Web registration returns 422 source_application_required before network access; unset/false or another unconfigured source type returns 501 source_reader_unavailable; a credentialed Web source is not supported by this reader. Application/team liveness is checked before network access and again under transaction before persistence. Success proves only a complete bounded ACL-verified hash observation; it does not import document bodies or prove indexing.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary lineage operation requiring one environment and knowledge.manage. Explicit AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true configures only the application-bound, credential-free, single-page public HTTPS Markdown reader. An environment-only public Web registration returns 422 source_application_required before network access; unset/false or another unconfigured source type returns 501 source_reader_unavailable; a credentialed Web source is not supported by this reader. Application/team liveness is checked before network access and again under transaction before persistence. A successful same-fetch observation imports at most 128 KiB of UTF-8 body into separate V3 public Web document/revision tables with matching hash and read identity; version advances only when content changes. The response does not claim indexing or complete V3 source DTO.",
         "responses": {
           "200": {
             "description": "Success",
@@ -38638,7 +39451,7 @@
       "get": {
         "summary": "Read bounded registered Prometheus metric samples",
         "operationId": "get_metrics_samples",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read for one selected environment and a persisted service with exactly one explicit V3 Prometheus metric-resource target. Requires current services.view and connectors.view plus an enabled query_metrics tool. The query ID maps to an operator-reviewed exact connector/application/environment/resource PromQL catalog entry; identifiers do not prove expression data scope. A bounded 15-minute, 30-second-step scalar range read rechecks binding and authorization after the provider returns. Returns at most 32 samples with no labels, raw expression, endpoint or credential. Missing source/catalog returns 503; ambiguous or changed binding returns 409; invalid request/environment returns 422. This does not complete the MetricsDashboard page.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read for one selected environment and a persisted service with exactly one explicit V3 Prometheus metric-resource target. Requires current services.view and connectors.view plus an enabled query_metrics tool. A visible service without connectors.view returns 403 before target binding lookup; a hidden or absent service has the same missing-resource response. The query ID maps to an operator-reviewed exact connector/application/environment/resource PromQL catalog entry; identifiers do not prove expression data scope. A bounded 15-minute, 30-second-step scalar range read rechecks binding and authorization after the provider returns and returns no samples after revocation. Returns at most 32 samples with no labels, raw expression, endpoint or credential. Missing source/catalog returns 503; ambiguous or changed binding returns 409; invalid request/environment returns 422. This does not complete the MetricsDashboard page.",
         "responses": {
           "200": {
             "description": "Success",
@@ -45783,6 +46596,82 @@
         "required": [
           "verified",
           "method"
+        ]
+      },
+      "V3PasskeyCredential": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_used_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "backup_eligible": {
+            "type": "boolean"
+          },
+          "backup_state": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "created_at",
+          "backup_eligible",
+          "backup_state"
+        ]
+      },
+      "V3PasskeyCeremony": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "options": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "options",
+          "expires_at"
+        ]
+      },
+      "V3PasskeyFinish": {
+        "type": "object",
+        "properties": {
+          "challenge_id": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 32
+          },
+          "credential": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "challenge_id",
+          "credential"
         ]
       },
       "V3Part": {

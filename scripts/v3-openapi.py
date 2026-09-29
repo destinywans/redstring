@@ -146,6 +146,55 @@ for _method, _path in [('post','/me/mfa/totp/confirm'),('post','/me/mfa/verify')
     P[_path][_method]['responses']['429'] = {
         'description':'TOTP verification is temporarily rate limited',
         'content':{'application/json':{'schema':ref('Error')}}}
+S['V3PasskeyCredential'] = obj({'id':string(),'label':string(),
+    'created_at':string(format='date-time'),'last_used_at':string(format='date-time'),
+    'backup_eligible':v3_bool(),'backup_state':v3_bool()},
+    ['id','created_at','backup_eligible','backup_state'])
+S['V3PasskeyCeremony'] = obj({'id':string(),'options':{'type':'object','additionalProperties':True},
+    'expires_at':string(format='date-time')},['id','options','expires_at'])
+S['V3PasskeyFinish'] = obj({'challenge_id':string(minLength=32,maxLength=32),
+    'credential':{'type':'object','additionalProperties':True},'label':string()},
+    ['challenge_id','credential'])
+_passkey_boundary = ('Optional self-account WebAuthn route, registered only when '
+    'AIOPS_V3_PASSKEY_ENABLED=true with a trusted instance RP domain and exact origin. '
+    'Requires an active human session and one authorized V3 environment. Writes require '
+    'a same-origin browser signal, an exact trusted HTTPS origin and secure cookies. '
+    'The current main-process integration does not enable local HTTP fixtures. Challenges are session, account, '
+    'instance, tier and environment bound; these routes issue no proposal approval assurance.')
+v3_route('get','/me/passkeys','List current account passkeys',
+    response=obj({'credentials':arr(ref('V3PasskeyCredential'))},['credentials']),
+    desc=_passkey_boundary+' Credential IDs are base64url; no authenticator private key is stored.')
+v3_route('post','/me/passkeys/registration/options','Begin current account passkey registration',
+    status=201,response=ref('V3PasskeyCeremony'),
+    desc=_passkey_boundary+' Empty body and login within ten minutes required; the challenge expires after five minutes.')
+v3_route('post','/me/passkeys/registration/finish','Complete current account passkey registration',
+    status=201,body=ref('V3PasskeyFinish'),response=ref('V3PasskeyCredential'),
+    desc=_passkey_boundary+' Accepts the browser WebAuthn credential JSON and optional label. Registration has no hardware attestation trust policy.')
+v3_route('post','/me/passkeys/assertion/options','Begin account-only passkey assertion',
+    status=201,response=ref('V3PasskeyCeremony'),
+    desc=_passkey_boundary+' Empty body; at least one active credential is required.')
+v3_route('post','/me/passkeys/assertion/finish','Complete account-only passkey assertion',
+    body=ref('V3PasskeyFinish'),
+    response=obj({'credential_id':string(),'verified':v3_bool(),
+        'scope':string(enum=['account_only'])},['credential_id','verified','scope']),
+    desc=_passkey_boundary+' A successful account assertion cannot be used as assurance=passkey for a proposal.')
+v3_route('post','/me/passkeys/deletion/options','Begin current account passkey deletion',
+    status=201,body=obj({'credential_id':string()},['credential_id']),
+    response=ref('V3PasskeyCeremony'),
+    desc=_passkey_boundary+' Requires recent login and an existing base64url credential ID.')
+v3_route('post','/me/passkeys/deletion/finish','Complete current account passkey deletion',
+    status=204,body=ref('V3PasskeyFinish'),
+    desc=_passkey_boundary+' Requires recent login and a valid assertion for the selected credential; the credential is revoked.')
+for _method, _path in [('post','/me/passkeys/registration/options'),
+    ('post','/me/passkeys/registration/finish'),('post','/me/passkeys/assertion/options'),
+    ('post','/me/passkeys/assertion/finish'),('post','/me/passkeys/deletion/options'),
+    ('post','/me/passkeys/deletion/finish')]:
+    P[_path][_method]['responses']['409'] = {
+        'description':'Credential or challenge state changed, expired or was already used',
+        'content':{'application/json':{'schema':ref('Error')}}}
+    P[_path][_method]['responses']['429'] = {
+        'description':'Passkey ceremony issuance is temporarily rate limited',
+        'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('get','/me/ai-preferences','Read personal AI preferences',response=ref('V3AIPreferences'))
 v3_route('put','/me/ai-preferences','Update personal AI preferences',body=ref('V3AIPreferences'),response=ref('V3AIPreferences'))
 v3_route('get','/me/notification-settings','Read personal notification settings',response=ref('V3NotificationSettings'),
@@ -812,9 +861,9 @@ v3_route('post','/knowledge/search','Search scoped knowledge with keyword/vector
     body=obj({'q':string(),'service':string(),'top_k':integer(minimum=1,maximum=20)},['q']),
     response=obj({'hits':arr(ref('V3KnowledgeSearchHit')),
         'mode':string(enum=['hybrid','keyword','none']),'degraded':v3_bool()}),
-    desc='Keyword and vector candidates use the same current explicit environment, active application mapping and V3 environment/knowledge grants. A document carrying team_id must match the application current owner team and have an additional team knowledge grant. Candidate document ID/version and current grants are rechecked before output; malformed or unknown scope and source_registration_id documents are excluded pending trusted provenance. When embeddings are unavailable, returns a keyword result with degraded=true; an unavailable keyword index returns 503.')
+    desc='Keyword and vector candidates use the same current explicit environment, active application mapping and V3 environment/knowledge grants. A document carrying team_id must match the application current owner team and have an additional team knowledge grant. Candidate document ID/version and current grants are rechecked before output; malformed or unknown scope and legacy source_registration_id documents are excluded pending trusted provenance. A separately stored, credential-free, single-page public HTTPS Markdown body can supply bounded keyword passages only when its latest read observation, content hash, revision, application/environment/team binding and current grants all match at candidate and final output checks. One 30-second budget covers the whole search, and more than 80 SQL-matched public Web sources across all visible application/environment scopes returns 413 public_web_source_scope_too_large. No public Web vector indexing, Agent tool, source page DTO or full source index is proven. When embeddings are unavailable, returns a keyword result with degraded=true; an unavailable keyword index returns 503.')
 P['/knowledge/search']['post']['responses']['413'] = {
-    'description':'Authorized knowledge candidate scope is too large; narrow the search to one service',
+    'description':'Authorized candidate scope is too large or more than 80 public Web sources match across all visible scopes; narrow the search to one service',
     'content':{'application/json':{'schema':ref('Error')}}}
 S['V3ObservedKnowledgeDocument'] = obj({**fieldnames('id name kind'),
     'docs':{'type':['integer','null']},
@@ -845,7 +894,7 @@ v3_route('post','/knowledge-sources/registrations/{id}/sync','Observe one regist
     response=obj({'read_id':string(),'observed_count':integer(minimum=0),
         'index_state':string(enum=['not_proven']),'complete_v3_dto':v3_bool()},
         ['read_id','observed_count','index_state','complete_v3_dto']),
-    desc='Auxiliary lineage operation requiring one environment and knowledge.manage. Explicit AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true configures only the application-bound, credential-free, single-page public HTTPS Markdown reader. An environment-only public Web registration returns 422 source_application_required before network access; unset/false or another unconfigured source type returns 501 source_reader_unavailable; a credentialed Web source is not supported by this reader. Application/team liveness is checked before network access and again under transaction before persistence. Success proves only a complete bounded ACL-verified hash observation; it does not import document bodies or prove indexing.')
+    desc='Auxiliary lineage operation requiring one environment and knowledge.manage. Explicit AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true configures only the application-bound, credential-free, single-page public HTTPS Markdown reader. An environment-only public Web registration returns 422 source_application_required before network access; unset/false or another unconfigured source type returns 501 source_reader_unavailable; a credentialed Web source is not supported by this reader. Application/team liveness is checked before network access and again under transaction before persistence. A successful same-fetch observation imports at most 128 KiB of UTF-8 body into separate V3 public Web document/revision tables with matching hash and read identity; version advances only when content changes. The response does not claim indexing or complete V3 source DTO.')
 P['/knowledge-sources/registrations/{id}/sync']['post']['responses']['501'] = {
     'description':'No read-only source reader is configured',
     'content':{'application/json':{'schema':ref('Error')}}}
@@ -1247,7 +1296,7 @@ S['V3RegisteredMetricSamples']['properties']['samples']['maxItems'] = 32
 v3_route('get','/metrics/samples','Read bounded registered Prometheus metric samples',
     query=[v3_query('service'),v3_query('query_id',string(enum=['request_rate','http_p95_seconds']))],
     response=ref('V3RegisteredMetricSamples'),
-    desc='Auxiliary read for one selected environment and a persisted service with exactly one explicit V3 Prometheus metric-resource target. Requires current services.view and connectors.view plus an enabled query_metrics tool. The query ID maps to an operator-reviewed exact connector/application/environment/resource PromQL catalog entry; identifiers do not prove expression data scope. A bounded 15-minute, 30-second-step scalar range read rechecks binding and authorization after the provider returns. Returns at most 32 samples with no labels, raw expression, endpoint or credential. Missing source/catalog returns 503; ambiguous or changed binding returns 409; invalid request/environment returns 422. This does not complete the MetricsDashboard page.')
+    desc='Auxiliary read for one selected environment and a persisted service with exactly one explicit V3 Prometheus metric-resource target. Requires current services.view and connectors.view plus an enabled query_metrics tool. A visible service without connectors.view returns 403 before target binding lookup; a hidden or absent service has the same missing-resource response. The query ID maps to an operator-reviewed exact connector/application/environment/resource PromQL catalog entry; identifiers do not prove expression data scope. A bounded 15-minute, 30-second-step scalar range read rechecks binding and authorization after the provider returns and returns no samples after revocation. Returns at most 32 samples with no labels, raw expression, endpoint or credential. Missing source/catalog returns 503; ambiguous or changed binding returns 409; invalid request/environment returns 422. This does not complete the MetricsDashboard page.')
 for _parameter in P['/metrics/samples']['get']['parameters']:
     if _parameter['name'] in ('service','query_id'):
         _parameter['required'] = True

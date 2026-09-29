@@ -105,30 +105,37 @@ func publicWebTerms(query string) []string {
 	return terms
 }
 
-func (s *Service) publicWebKeywordSearch(ctx context.Context, userID, app, env, query string, limit int) ([]publicWebHit, error) {
+const publicWebCandidateLimit = 80
+
+func (s *Service) publicWebKeywordSearch(ctx context.Context, userID, app, env, query string, limit, remaining int) ([]publicWebHit, int, error) {
 	if app == "" { // A Web page must have an exact registered application.
-		return nil, nil
+		return nil, 0, nil
+	}
+	if remaining < 0 || remaining > publicWebCandidateLimit {
+		return nil, 0, errPublicWebScopeTooLarge
 	}
 	terms := publicWebTerms(query)
 	rows, err := s.DB.Query(ctx, `SELECT d.registration_id,d.title,d.body,d.version,d.content_hash,d.item_hash,d.last_read_id`+
 		publicWebFromSQL+visiblePublicWebSQL+`
  AND EXISTS (SELECT 1 FROM unnest($4::text[]) term
    WHERE aiops_search_match(d.title || ' ' || d.body,term))
- ORDER BY d.registration_id LIMIT 81`, userID, app, env, terms)
+ ORDER BY d.registration_id LIMIT $5`, userID, app, env, terms, remaining+1)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 	hits := make([]publicWebHit, 0)
+	matched := 0
 	for rows.Next() {
 		var id, title, body string
 		var version int
 		var contentHash, itemHash, readID string
 		if err := rows.Scan(&id, &title, &body, &version, &contentHash, &itemHash, &readID); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
-		if len(hits) == 80 {
-			return nil, errPublicWebScopeTooLarge
+		matched++
+		if matched > remaining {
+			return nil, 0, errPublicWebScopeTooLarge
 		}
 		score := publicWebScore(title, body, query, terms)
 		if score > 0 {
@@ -141,7 +148,7 @@ func (s *Service) publicWebKeywordSearch(ctx context.Context, userID, app, env, 
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	// The legacy keyword index scores its own candidates before its limit.
 	// This source-specific path keeps the same bounded top-K behavior.
@@ -155,7 +162,7 @@ func (s *Service) publicWebKeywordSearch(ctx context.Context, userID, app, env, 
 	if len(hits) > limit {
 		hits = hits[:limit]
 	}
-	return hits, nil
+	return hits, matched, nil
 }
 
 func publicWebScore(title, body, query string, terms []string) float64 {
@@ -184,9 +191,12 @@ func publicWebExcerpt(body, query string, terms []string) string {
 		return string(runes)
 	}
 	startAt := -1
+	lowerBody := strings.ToLower(body)
 	for _, term := range append([]string{query}, terms...) {
-		if at := strings.Index(strings.ToLower(body), strings.ToLower(term)); at >= 0 {
-			startAt = utf8.RuneCountInString(body[:at])
+		if at := strings.Index(lowerBody, strings.ToLower(term)); at >= 0 {
+			// Case folding can change UTF-8 byte lengths. Count runes in the
+			// folded string, then slice the original by rune position.
+			startAt = utf8.RuneCountInString(lowerBody[:at])
 			break
 		}
 	}

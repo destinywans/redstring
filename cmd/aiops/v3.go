@@ -122,6 +122,9 @@ func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, 
 	if err := configureV3MFA(s, api, *info, os.Getenv("AIOPS_V3_MFA_KEY_FILE")); err != nil {
 		return err
 	}
+	if err := configureV3Passkey(s, api, *info, os.Getenv("AIOPS_V3_PASSKEY_ENABLED")); err != nil {
+		return err
+	}
 	api.RegisterPublic("GET /api/v1/instance", func(w http.ResponseWriter, _ *http.Request) { httpapi.WriteJSON(w, http.StatusOK, info) })
 	if issuer, clientID, redirect := os.Getenv("AIOPS_V3_OIDC_ISSUER"), os.Getenv("AIOPS_V3_OIDC_CLIENT_ID"), os.Getenv("AIOPS_V3_OIDC_REDIRECT_URL"); issuer != "" || clientID != "" || redirect != "" || os.Getenv("AIOPS_V3_OIDC_CLIENT_SECRET") != "" {
 		identity, err := v3identity.New(ctx, s, v3identity.Config{

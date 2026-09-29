@@ -2,14 +2,17 @@
 
 This package implements self-service WebAuthn registration, account-scoped
 assertion, and credential deletion for a logged-in human member. It is an
-independent backend slice and is not wired into `cmd/aiops` or the public
-OpenAPI contract yet. The integration branch owns those surfaces.
+independent backend slice. The V3 integration registers its seven optional
+self-account routes when `AIOPS_V3_PASSKEY_ENABLED=true` and the trusted
+instance RP/origin configuration passes validation. These routes are included
+in the generated OpenAPI contract.
 
 The integration must construct `New(Config{...})` using a server-managed
 instance ID, RP ID, display name, tier, and exact HTTPS origin from deployment
 configuration. Do not derive these values from request headers. Without a
 stable trusted domain and HTTPS origin, `New` returns `ErrUnavailable`.
-Only an explicit nonproduction localhost fixture may use HTTP. Registration
+The package allows explicit nonproduction localhost HTTP tests, while the
+main-process integration accepts only HTTPS. Registration
 and deletion require a session issued within ten minutes and a selected V3
 environment grant; all operations recheck human account, session, tier, and
 grant in the same transaction.

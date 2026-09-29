@@ -172,11 +172,11 @@
 | POST | `/memory/facts/{id}/{action}` | `action: confirm\|reject\|expire` | 更新后的事实 | mock |
 | POST | `/memory/conflicts/resolve` | `{ keep, drop }` | 结果 | mock |
 | GET | `/knowledge-sources` | | 知识来源 | mock |
-| POST | `/knowledge/search` | `{ q, service?, top_k? }` | `{ hits: RetrievalHit[] }`；关键词与向量共用当前显式环境、有效应用绑定和 V3 授权过滤，团队标记另需匹配当前负责人及团队查看权限；输出前按文档 ID/版本重核。历史归属不明、异常元数据和未验证登记来源不进入结果 | implemented |
+| POST | `/knowledge/search` | `{ q, service?, top_k? }` | `{ hits: RetrievalHit[] }`；关键词与向量共用当前显式环境、有效应用绑定和 V3 授权过滤，团队标记另需匹配当前负责人及团队查看权限；输出前按文档 ID/版本重核。历史归属不明、异常元数据和未验证登记来源不进入结果；独立存储的公开 Web 正文仅在最新观察、哈希、修订和当前授权一致时进入有界关键词片段，全部可见应用/环境合计超过 80 个数据库匹配来源返回 413；整次搜索限时 30 秒 | implemented |
 
 知识治理另有部分证据与人工审核辅助接口，详见 [V3 后端辅助接口](v3-backend-aux.md)。`GET /runbooks/{id}` 在同一只读快照中核对文档范围、当前对象授权与结构化步骤：隐藏或非 Runbook 为 404；有权旧文档缺步骤为 `503 structured_steps_unavailable`；有步骤但缺完整用量、事件处置、审核来源与执行核验时为 `503 runbook_read_unavailable`，不补零冒充完整 DTO。已落库字段可从 `/runbooks/{id}/record` 读取，主详情继续 `mock`。`GET /memory` 当前明确返回 `503 memory_view_unavailable`，只提供 `/memory/facts` 的受权、当前来源事实列表；没有可信的层级、置信度、召回次数与过期值。事实状态操作仅支持 `confirm`、`reject`、`expire`，冲突裁决须传入两个真实事实 ID。现有前端的 `forget` 和冲突请求体不符合此接口，因此上述主页面行保持 `mock`。
 
-V3 知识正文读取按持久环境、有效应用与当前授权失败关闭；带 `team_id` 的文档还要求该值与应用当前负责人一致并有团队查看权限。标记了 `source_registration_id` 的来源文档在来源证明链闭合前不参加 V3 检索或来源投影。可选的 `search_knowledge` Agent 证据组件尚未在正式进程注册；V3 实例关闭旧 Worker，不能把旧检索工具当作当前 V3 调用路径。真实来源正文同步、索引归属与完整页面 DTO 仍待接入。
+V3 知识正文读取按持久环境、有效应用与当前授权失败关闭；带 `team_id` 的文档还要求该值与应用当前负责人一致并有团队查看权限。历史 `knowledge_documents` 中标记了 `source_registration_id` 的来源文档在来源证明链闭合前不参加 V3 检索或来源投影。另设的公开 Web 正文/修订表只接受有持久应用归属、无凭据的单页 HTTPS Markdown 同次抓取；关键词检索在候选及输出前复核最新观察、内容哈希、修订和当前环境/应用/团队授权；不进入旧文档详情/导出或向量索引。可选的 `search_knowledge` Agent 证据组件尚未在正式进程注册；V3 实例关闭旧 Worker，不能把旧检索工具当作当前 V3 调用路径。其他来源正文同步、索引归属与完整页面 DTO 仍待接入。
 
 ## 资源与观测（`observe.ts`）
 
@@ -200,7 +200,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 
 资源发现现在返回 `resource_id`、Kubernetes `uid`、环境与集群；单集群条件在 2000 个候选扫描上限之前执行，整次请求共用 20 秒预算。选定集群之外的可信同名资源，以及同环境、同命名空间中陈旧、缺失或已关联的原始同名身份，均会阻止当前只按名称登记的候选进入结果；`ambiguous_workloads` 只给出数量，不泄露阻挡对象。`registered` 是授权环境内的登记数，不是所示集群的登记数。负责人和等级只作来源提示，`replicas` 可为空，`matched`/`missing` 尚无可信线索。注册时按当前环境、采集新鲜度、存在状态、UID、命名空间、是否已关联及 `resources.view` 重新核对。旧客户端只传名称时仅可匹配唯一工作负载；同名、过期或已关联身份返回 409，不会静默关联。当前前端未传 `cluster`/`resource_id`，并固定展示负责人、SLO、P99 与系统映射，发现到注册交互尚未接通。服务列表和系统映射超过 1000 条可见记录会返回 `422 result_limit`，不会返回不完整总数。拓扑仅显示五分钟内成功采集且环境吻合的现存节点，关联应用不会替资源借用其团队授权。
 
-观测查询只使用持久化应用、环境、负责人团队及已配置的外部目标绑定；不同来源绑定冲突返回 `409 ambiguous_binding`，范围过大返回 `422 scope_limit`。`GET /metrics/samples` 辅助接口可在单环境、唯一显式 V3 Prometheus 指标目标和操作者审查过精确范围的查询目录下返回有界真实标量样本；它不提供看板 KPI、SLO、关联变更或完整 `MetricsDashboard`。普通日志查询返回 `503 log_patterns_unavailable`，其中 `available` 仅包含真实总数、错误数、直方图和有界样本，`missing` 标明模式计数与趋势；只有显式空 `levels` 返回完整空结果。Trace 列表返回 `503 trace_aggregation_unavailable`，只提供 `observed_sample` 与缺失的总数/分面/直方图字段；详情 `200` 标记 `partial: true` 和 `missing`，不能把受权 Span 样本当成完整链路。指标、日志、Trace 主页面均保持 `mock`。
+观测查询只使用持久化应用、环境、负责人团队及已配置的外部目标绑定；不同来源绑定冲突返回 `409 ambiguous_binding`，范围过大返回 `422 scope_limit`。`GET /metrics/samples` 辅助接口可在单环境、唯一显式 V3 Prometheus 指标目标和操作者审查过精确范围的查询目录下返回有界真实标量样本；可见服务缺 `connectors.view` 在目标查询前返回 403，隐藏或不存在的服务同样返回资源不存在，读取中撤权不返回样本。它不提供看板 KPI、SLO、关联变更或完整 `MetricsDashboard`。普通日志查询返回 `503 log_patterns_unavailable`，其中 `available` 仅包含真实总数、错误数、直方图和有界样本，`missing` 标明模式计数与趋势；只有显式空 `levels` 返回完整空结果。Trace 列表返回 `503 trace_aggregation_unavailable`，只提供 `observed_sample` 与缺失的总数/分面/直方图字段；详情 `200` 标记 `partial: true` 和 `missing`，不能把受权 Span 样本当成完整链路。指标、日志、Trace 主页面均保持 `mock`。
 
 ## v4 新建流程（`create.ts`）
 
@@ -226,7 +226,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | POST | `/knowledge-sources/test` | `{ type, url, secret_ref? }`；公开 HTTPS 单页 Markdown 可无凭据，其他类型需 Vault 引用 | 连接结果 | mock |
 | POST | `/knowledge-sources` | `{ type, url, secret_ref?, spaces, schedule, chunk, inherit_acl }`；公开 HTTPS 单页 Markdown 可无凭据，其他类型需 Vault 引用 | `{ id, status }` | mock |
 
-`GET /runbooks/draft` 目前只有传入真实模板 ID 的 `template` 来源可返回无步骤大纲；对话、复盘和导入来源通过验证后返回 `501 draft_generator_unavailable`。前端尚未为模板、对话和导入入口传 `from`，草稿页仍为 `mock`。`GET /postmortems/draft` 仅拼接有结案证据的事件信息与时间线，影响、根因、行动建议均留空，不是 AI 生成稿；主契约同样保持 `mock`。公开 Web 来源仅支持持久应用绑定、无凭据单页 HTTPS Markdown 的手动观察；其他类型仍需 Vault 引用。V3 实例须显式设置 `AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true` 才能记录公开页的哈希观察，未开启时同步返回 501；没有应用归属的登记返回 422。无登记的 `/knowledge-sources/test` 缺持久应用范围，即使开关开启也返回 501。登记、受限观察与归属证据不代表对所有用户公开、正文导入或索引完成；前端完整来源 DTO 未接通。
+`GET /runbooks/draft` 目前只有传入真实模板 ID 的 `template` 来源可返回无步骤大纲；对话、复盘和导入来源通过验证后返回 `501 draft_generator_unavailable`。前端尚未为模板、对话和导入入口传 `from`，草稿页仍为 `mock`。`GET /postmortems/draft` 仅拼接有结案证据的事件信息与时间线，影响、根因、行动建议均留空，不是 AI 生成稿；主契约同样保持 `mock`。公开 Web 来源仅支持持久应用绑定、无凭据单页 HTTPS Markdown 的手动观察；其他类型仍需 Vault 引用。V3 实例须显式设置 `AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true` 才能同次保存公开页的有界 UTF-8 正文、哈希、观察身份和修订，未开启时同步返回 501；没有应用归属的登记返回 422。无登记的 `/knowledge-sources/test` 缺持久应用范围，即使开关开启也返回 501。登记、正文切片与归属证据不代表对所有用户公开、向量索引或完整知识来源页接通；前端完整来源 DTO 未接通。
 
 ## Agent 链路（`traces.ts`）
 
@@ -305,7 +305,7 @@ Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评�
 
 `GET /members` 当前只提供部分真实读取：在读取事务中重核账号及当前环境授权，以单条查询取成员与角色快照。响应有 `complete_v3_dto: false` 和 `unavailable_fields`；未核实的 `last_login`、`counts.no_mfa`、`mfa_grace_days` 为 `null`，`items[].mfa: "na"` 表示未知，不表示未启用。组层级、目录同步来源和 MFA 策略也无可信来源；`filter=no_mfa` 返回 `503 member_mfa_unavailable`，不会以空结果冒充筛选成功。冻结前端仍按数字显示 MFA 数量和宽限期并显示确定的安全提示，因此主接口仍为 `mock`。
 
-可选的本人 TOTP 登记、确认、验证与恢复码辅助接口见 [V3 后端辅助接口](v3-backend-aux.md)。该因素服务只在配置持久服务器密钥后注册，不执行登录或提供 passkey 审批保证；它也未补齐成员目录、`/me` 或 `/security` 的完整前端契约。
+可选的本人 TOTP 登记、确认、验证与恢复码，以及七条本人 WebAuthn 登记、账户断言和删除辅助接口见 [V3 后端辅助接口](v3-backend-aux.md)。TOTP 仅配置持久服务器密钥后注册；passkey 仅在受信实例 RP 域名、精确 HTTPS Origin 和安全 cookie 配置满足条件且显式开启时注册。账户断言不提供提案审批保证；这些接口也未补齐成员目录、`/me` 或 `/security` 的完整前端契约。
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |

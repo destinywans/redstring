@@ -1,5 +1,11 @@
 # AIOps Canvas 检查点
 
+## CP-187 · 2026-09-29 · WAN-121 运行/Trace、WAN-124 评测、WAN-123 生命周期
+
+- 从已推送 CP-186 `996d881` 接续，WAN-121 来源 `e411dba` 合入 `ec01fe2`，WAN-124 来源 `4076163` 合入 `6af3064`，WAN-123 来源 `39906e1` 合入 `25591e0`。三组处理器原已由 `v3agents.Service.Register` 在正式入口注册，本批按依赖顺序装入独立 OpenAPI 片段。评测 cherry-pick 与先前可信快照实现冲突：保留持久原始应用/环境列、不可变案例快照及标签快照绑定，加入案例修订号、当前真人会话/授权复核、受权团队回退和评测详情可空响应；没有以创建审计反查取代更强的现有案例归属。独立只读审查指出评测详情注销竞态，已在事务内锁当前 Cookie 会话并于提交前复核到期。`CompleteRun` 在运行行锁后使用 `clock_timestamp()`，避免等待行锁时事务起始时间早于已记录护栏/Span。
+- 四条运行路由只显示当前有权的持久运行、净化 Span 与本人反馈；统计范围为可见且已保存记录，缺上下文、模型/工具内容和完整覆盖证明时为 `null` 与 `missing`。`GET /evals/{id}` 返回当前受权元数据和受信已上报汇总，数据集/逐例/雷达未知；标签 POST 要求已有可信快照、真人、当前权限与匹配 `expected_revision`，缺快照返回 409。五条生命周期路由只读写当前持久版本、配置发布意图及修订，不切换实际流量；首次稳定版因无既有评测基线，仅真人管理员带非空原因可放行。迁移 `137_v3_eval_origin_lookup.sql` 和 `139_v3_agent_lifecycle_revision.sql` 未在现有库执行。冻结前端没有修订请求或完整可空 DTO，页面未验收。
+- 本批 11 条主路由升后端 `implemented`，现 **141/166、25 mock**；OpenAPI **321 路径、384 操作、429 schema**。最小 Go 编译、生成契约、路由矩阵/readiness 和差异静态检查通过；按当前约束未跑测试、真实数据库/迁移、Agent 执行器或浏览器。无 PR、合并或部署；下一批接通知策略来源，继续隔离 Webhook 重投与尚未闭环的 API token。
+
 ## CP-186 · 2026-09-29 · WAN-124 配置提升与 WAN-119 成员来源
 
 - 从已推送 CP-185 `8339eb8` 接续，WAN-124 来源 `f0869b0` 合入 `2b15797`；WAN-119 成员详情 `eced48d`、同步/MFA 适配 `e49016b` 分别合入 `c9043c0`、`bf0e675`。两次成员 cherry-pick 仅合并独立路由和 OpenAPI，保留已接通的邀请及公开接受流程；已有 `memberIdentityLocks` 与来源重复，保留原共享实现。正式 V3 入口把配置提升的告警规则解析器绑定到与正式告警规则 GET 相同的 Prometheus 来源和受审规则组清单。新增迁移 `125_v3_config_sync_import_targets.sql`、`137_v3_member_revision.sql`、`139_v3_feishu_member_sync.sql`、`140_v3_mfa_reminder_attempts.sql` 均未在现有库执行。

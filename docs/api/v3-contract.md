@@ -284,9 +284,9 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
-| GET | `/agent-runs/{id}/trace` | | `AgentTrace`：汇总、会话各轮模型、Span 树（agent / chain / llm / tool / retriever / guardrail），LLM 消息、参数、token 构成、评分，工具参数与结果 | mock |
+| GET | `/agent-runs/{id}/trace` | | 当前受权持久运行与已记录的净化 Span 元数据；无 Span 时可空，消息、工具参数/结果、评分与回合未知 | implemented |
 
-Agent Trace 后端目前只能读受信生产者上报的有界 Span 元数据；模型消息、工具参数/结果、评分和完整回合仍无生产者。工具 Span 也不证明外部执行器的两阶段审计完成，故整页保持 `mock`。
+Agent Trace 后端只能读受信生产者上报的有界 Span 元数据；模型消息、工具参数/结果、评分和完整回合仍无生产者，响应以 `null` 与 `missing` 标出。工具 Span 也不证明外部执行器的两阶段审计完成。本阶段按受权持久来源的后端口径计 `implemented`，完整追踪页面仍未验收，见[运行记录来源边界](v3-agent-runs.md)。
 
 ## 集成中心（`integrations.ts`）
 
@@ -343,33 +343,33 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
-| GET | `/agents/lifecycle` | | `Lifecycle` | mock |
-| GET | `/agents/{id}` | | `AgentDetail` | mock |
-| POST | `/agents/{id}/rollout` | `{ to, percent, override?, override_reason? }`；放行未通过门禁须启用的人类管理员填写原因并写审计 | 仅保存发布配置，尚无真实流量路由 | mock |
-| POST | `/agents/{id}/rollback` | | 结果 | mock |
-| PATCH | `/agents/{id}/level` | `{ level: L0..L3 }`（受环境上限约束） | 结果 | mock |
+| GET | `/agents/lifecycle` | | 当前受权持久 Agent 与配置发布意图；评分、用量、阶段及待办未知 | implemented |
+| GET | `/agents/{id}` | | 当前版本目录、修订及发布配置；实际流量、门禁展示和统计未知 | implemented |
+| POST | `/agents/{id}/rollout` | `{ to, percent, expected_revision, override?, override_reason? }`；门禁放行需真人管理员与原因 | 保存并审计发布意图；`routing_connected=false`，不切流 | implemented |
+| POST | `/agents/{id}/rollback` | `{ expected_revision }` | 保存并审计配置回退意图，未切实际流量 | implemented |
+| PATCH | `/agents/{id}/level` | `{ level: L0..L3, expected_revision }`（受环境上限约束） | 持久权限等级配置和审计，执行侧未接 | implemented |
 | GET | `/prompts` | | 当前授权、确有持久正文版本的 Prompt 目录；运行时使用和发布状态未知 | implemented |
 | GET | `/prompts/{id}` | | 当前授权持久版本与原始正文；评测覆盖、使用和发布状态未知 | implemented |
 | POST | `/prompts/{id}/trial` | `{ case, a, b }` | `PromptTrial[]` | mock |
 | POST | `/prompts/{id}/versions` | `{ text }` | `{ version }`（`vN`）；正文、指针与审计同事务 | implemented |
 | GET | `/agent-tools` | `kind: all\|read\|write` | 当前有权登记工具与已记录调用；未接执行器和覆盖证明明确未知 | implemented |
-| GET | `/evals/{id}` | | `EvalExperiment` | mock |
+| GET | `/evals/{id}` | | 已保存评测元数据与受信结果汇总；数据集、逐例输出、雷达未知时可空 | implemented |
 | POST | `/evals` | `{ agent_id, title, baseline_version, candidate_version }` | `{ id, status: "pending", execution_available: false }`，未启动评测 | implemented |
 | GET | `/eval-cases/{id}` | | 持久登记及可选可信评测快照；缺快照时输出可空字段和 `missing` | implemented |
-| POST | `/eval-cases/{id}/labels` | `{ next: correct\|incorrect\|partial\|unsure, note? }` | `{ next, id }` | mock |
-| GET | `/agent-runs` | `filter: all\|failed\|blocked\|negative` | `RunsView` | mock |
-| GET | `/agent-runs/{id}` | | `RunDetail`（执行时间线、上下文组成、记忆） | mock |
-| POST | `/agent-runs/{id}/feedback` | `{ vote: up\|down }` | 结果 | mock |
+| POST | `/eval-cases/{id}/labels` | `{ next: correct\|incorrect\|partial\|unsure, note?, expected_revision }`；要求已有可信案例快照 | `{ next, id, revision }`；真人标签、快照绑定及审计同事务 | implemented |
+| GET | `/agent-runs` | `filter: all\|failed\|blocked\|negative` | 当前受权持久运行列表、计数与 UTC 趋势；缺记录为可空未知 | implemented |
+| GET | `/agent-runs/{id}` | | 持久运行/Span 元数据和投票；上下文、记忆、模型及工具内容未知 | implemented |
+| POST | `/agent-runs/{id}/feedback` | `{ vote: up\|down }` | 当前本人对已完成运行的持久投票与计数 | implemented |
 | GET | `/guardrails` | `filter: all\|blocked\|masked` | 当前受权持久策略及已上报护栏事件的七日统计；运行覆盖未知 | implemented |
 | PATCH | `/guardrails/{id}` | `{ enabled }`（强制规则不可关闭）；目标须为受信目录已登记策略 | 持久修订及审计；`runtime_status=unconnected` | implemented |
 
-Agent 治理接口当前只保存目录、版本、Prompt 修订、待执行评测、发布意图、反馈和护栏设置；尚无评测执行器、流量路由消费者、Prompt trial、完整运行观测生产者或真实调用护栏钩子的执行器。受权 `GET /agent-tools` 从持久工具目录及受信进程内运行 Span 读取已记录调用，缺记录显示未知；开关和风险级别不构成可执行 Agent 工具，响应明确 `execution_available=false` 和部分覆盖。`GET /eval-cases/{id}` 从持久登记及可选的不可变可信评测快照返回；无快照时输出真实登记、可空详情和 `missing`。快照有受限进程内生产 API，但尚无评测执行器接线；标签 POST 依赖快照，当前仍保持 `mock`，也与冻结页面请求/返回语义不符。
+Agent 治理接口保存目录、版本、Prompt 修订、待执行评测、发布意图、已上报运行/Span、反馈和护栏设置；尚无评测执行器、流量路由消费者、Prompt trial、完整运行观测覆盖证明或真实调用护栏钩子的执行器。受权 `GET /agent-tools` 从持久工具目录及受信进程内运行 Span 读取已记录调用，缺记录显示未知；开关和风险级别不构成可执行 Agent 工具，响应明确 `execution_available=false` 和部分覆盖。`GET /eval-cases/{id}` 从持久登记及可选的不可变可信评测快照返回；无快照时输出真实登记、可空详情和 `missing`。标签 POST 只对已有可信快照、当前真人会话及匹配修订号写入，快照有受限进程内生产 API，但评测执行器尚未接线；默认新案例因此返回 409，冻结页面请求/返回也不兼容。
 
-Prompt 列表只返回有真实版本的已授权记录，支持最多 160 字符的 `q`，超过 200 条可见项返回 413；详情在同一读取事务中核对 Agent、归属、授权和正文，真实正文与 `vN` 可回读，发布状态与运行时使用关系保持未知。辅助 `POST /prompts` 可在当前有权 Agent 下登记首版，主 `POST /prompts/{id}/versions` 保存下一版非空白原文，身份、版本指针与审计同事务；因此三条主 Prompt 路由按本阶段后端标准计 `implemented`，不表示生产运行时已绑定。冻结前端默认 ID 在新库不存在且“新建”未调用登记接口，页面未验收。`POST /prompts/{id}/trial` 明确返回 `503 prompt_trial_unavailable`；发布和回滚不改变真实流量。`POST /evals` 的主契约仅要求保存 `pending` 元数据：后端已校验目标 Agent、两条已登记且不同的版本、当前应用/环境与授权，并在同一事务保存记录及审计，返回 `{ id, status: "pending", execution_available: false }`。它不排队或执行评测；冻结前端重跑发送空请求体却提示“已排队”。创建事务锁定账号与授权来源，但未锁当前 Cookie 会话，并发注销与在途创建的顺序尚未专测。其他部分读取返回 `null`、`partial: true` 或“未接入”；现有前端对 `score`、发布 token/门禁、评测详情、Trace、运行统计的 DTO 与请求体尚不兼容。管理员门禁放行另需非空 `override_reason`，现有前端未提交；其余未闭合主行继续为 `mock`。
+Prompt 列表只返回有真实版本的已授权记录，支持最多 160 字符的 `q`，超过 200 条可见项返回 413；详情在同一读取事务中核对 Agent、归属、授权和正文，真实正文与 `vN` 可回读，发布状态与运行时使用关系保持未知。辅助 `POST /prompts` 可在当前有权 Agent 下登记首版，主 `POST /prompts/{id}/versions` 保存下一版非空白原文，身份、版本指针与审计同事务；因此三条主 Prompt 路由按本阶段后端标准计 `implemented`，不表示生产运行时已绑定。冻结前端默认 ID 在新库不存在且“新建”未调用登记接口，页面未验收。`POST /prompts/{id}/trial` 明确返回 `503 prompt_trial_unavailable`。`POST /evals` 仅保存 `pending` 元数据，核对两条不同的已登记版本、当前应用/环境与授权，不排队或执行评测；冻结前端重跑发送空请求体却提示“已排队”。创建事务锁定账号与授权来源，但未锁当前 Cookie 会话，并发注销与在途创建的顺序尚未专测。生命周期五路由按受权持久配置、修订冲突和审计计入后端 `implemented`，发布/回滚不改变真实流量；首次稳定版没有既有基线可评测，只能由符合条件的真人管理员填写原因走放行门禁。运行四路由按真实持久运行/Span 与反馈计入，计数仅代表受权已保存记录，缺字段显式可空；详见[生命周期来源](v3-agent-lifecycle.md)及[运行记录来源](v3-agent-runs.md)。现有前端对评分、发布 token/门禁、评测详情、Trace 和运行统计的 DTO 与请求体仍不兼容，也未提交 `expected_revision` 与放行原因，页面未验收。
 
-`GET /evals/{id}` 现在只读已保存的部分评测记录：同一事务锁定评测、Agent、有效应用/环境和当前授权，并以创建审计核对原始归属；缺审计或 Agent 改属的历史记录隐藏。`metrics` 仅在有可信结果记录时返回已保存值，待执行状态不合成分数；`radar`、用例输出和数据集仍无生产者，所以完整 `EvalExperiment` 继续 `mock`。大量同应用审计记录的目标查找尚缺专用索引和规模验证。
+`GET /evals/{id}` 只读已保存的部分评测记录：同一事务锁定评测、Agent、有效应用/环境、当前会话和授权，并以创建审计核对原始归属；缺审计或 Agent 改属的历史记录隐藏。`metrics` 仅在有可信结果记录时返回已保存值，待执行状态不合成分数；`radar`、用例输出和数据集仍无生产者，以 `null` 和 `missing` 标记。主 GET 按本阶段真实来源与未知值标准计 `implemented`，完整 `EvalExperiment` 页面未验收。已新增按应用/目标/行为定位创建审计的索引，迁移尚未在现有库执行；规模未实测。`GET /eval-cases/{id}` 保留原始应用/环境列和可信快照，新增标签修订号及截断标志；POST 在案例行锁下复核真人、来源、当前权限、修订和快照，并将标签、快照 ID 和审计原子保存。
 
-`GET /guardrails` 从当前有权的持久策略及已上报、具备决策时间和修订证明的事件计算七个 UTC 日桶与策略计数；`aggregation_basis=reported_events`、`coverage=unknown`、`partial=true`，零条上报不证明零次实际触发，原始内容与结论保持 `null`。`PATCH /guardrails/{id}` 对已由受信目录登记的策略在单环境 `agents.manage` 下持久修订、阻止关闭强制规则并审计，响应 `runtime_status=unconnected`；当前主程序还没有注册策略的启动来源，干净环境无策略时返回 404。两条路由只按后端持久读取/配置写入能力计 `implemented`，不表示 Agent 执行器消费策略或页面验收。执行器接线前须修正 `CompleteRun` 的完成时间在取得运行行锁后生成，详见[护栏领域边界](v3-guardrails-domain.md)。
+`GET /guardrails` 从当前有权的持久策略及已上报、具备决策时间和修订证明的事件计算七个 UTC 日桶与策略计数；`aggregation_basis=reported_events`、`coverage=unknown`、`partial=true`，零条上报不证明零次实际触发，原始内容与结论保持 `null`。`PATCH /guardrails/{id}` 对已由受信目录登记的策略在单环境 `agents.manage` 下持久修订、阻止关闭强制规则并审计，响应 `runtime_status=unconnected`；当前主程序还没有注册策略的启动来源，干净环境无策略时返回 404。两条路由只按后端持久读取/配置写入能力计 `implemented`，不表示 Agent 执行器消费策略或页面验收。`CompleteRun` 已在取得运行行锁后使用数据库实际时钟写完成时间，仍需在接入执行器时验证顺序与并发，详见[护栏领域边界](v3-guardrails-domain.md)。
 
 ## 设置（`settings.ts`）
 

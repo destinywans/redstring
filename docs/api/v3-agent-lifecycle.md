@@ -23,10 +23,12 @@
 
 `POST /agents/{id}/rollout` 使用 `{ to, percent, expected_revision, override?, override_reason? }`。候选版本必须已登记；常规发布要求当前稳定版到候选版的最新持久评测通过。跳过门禁只允许有效人类管理员给出非空原因，并在同一事务记录审计。`POST /agents/{id}/rollback` 使用 `{ expected_revision }`，要求有已保存的可回退目标。`PATCH /agents/{id}/level` 使用 `{ level, expected_revision }`，等级不得超过该环境持久上限。三条写路径都要求当前人类会话、单一环境与 `agents.manage` 范围权限。
 
+首次稳定版没有当前稳定基线，而评测创建要求两个已登记且不同的非空版本；因此首次发布只能由符合条件的真人管理员提交非空放行原因。后续如需普通评测门禁完成首次发布，须另行定义基线来源，当前不把缺失基线伪装成评测通过。
+
 写响应返回递增 `revision`、`release_effect: "configuration_saved_pending_activation"`、`routing_connected: false`、`observed_traffic: null`。回滚响应中的 `configured_percent: 100` 是回滚目标稳定版的配置比例，`configured_canary_percent: 0` 表示金丝雀配置已清空，两者都不是实测流量。`release_effect` 对权限等级变更也表示其执行侧尚无消费者；不应解释为真实执行状态。读写的归属、授权、版本检查、变更和审计应在同一事务完成。失败按现有 V3 错误包装返回；修订冲突为 `409 version_conflict`，不满足评测门禁或环境上限也是 409，输入不合法为 422，隐藏或不存在对象为 404，存储及权限检查不可用为 503。
 
 ## 契约接线与冻结前端
 
-机器契约增量在 `scripts/v3-openapi-agent-lifecycle.py`。它必须在 `scripts/v3-openapi-agents.py` **之后**执行，以覆盖该片段中五条旧生命周期操作；由 WAN-117 集成到 `scripts/v3-openapi.py` 并重新生成主 OpenAPI。本批不修改主片段、生成文件或前端。
+机器契约增量在 `scripts/v3-openapi-agent-lifecycle.py`，已由 `scripts/v3-openapi.py` 在基础 Agent 片段之后装入，并重新生成主 OpenAPI；前端仍未修改。
 
 冻结的 `web/src/v3/api/types.ts` 把 `AgentSummary.score` 定义为数字，要求生命周期阶段/待办、详情发布门禁、token、差异和配置为数组/对象，也不允许无稳定版本时的 `unconfigured` 状态或 `draft` 版本；真实后端只能提供上述部分字段。冻结页面的 rollout 请求没有 `expected_revision`，门禁放行没有 `override_reason`；rollback 没有请求体；工具页的等级操作没有调用 PATCH。它们不能直接切换真实 API，也不能以 Mock 页面展示作为此批的页面验收。前端接线需要显示未知状态、提交读取到的修订并处理冲突，且不得把配置保存提示成流量切换完成。

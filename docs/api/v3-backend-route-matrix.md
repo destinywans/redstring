@@ -112,7 +112,7 @@
 | v4 新建流程 | POST | `/postmortems` | 新增 | implemented |
 | v4 新建流程 | POST | `/knowledge-sources/test` | 新增 | implemented |
 | v4 新建流程 | POST | `/knowledge-sources` | 新增 | implemented |
-| Agent 链路 | GET | `/agent-runs/{id}/trace` | 聚合 | mock |
+| Agent 链路 | GET | `/agent-runs/{id}/trace` | 聚合 | implemented |
 | 集成中心 | GET | `/connectors` | 新增 | implemented |
 | 集成中心 | GET | `/connectors/{id}` | 新增 | implemented |
 | 集成中心 | POST | `/connectors/{id}/test` | 新增 | implemented |
@@ -135,23 +135,23 @@
 | 集成中心 | GET | `/webhooks` | 聚合 | implemented |
 | 集成中心 | POST | `/webhooks/{id}/redeliver` | 新增 | mock |
 | 集成中心 | POST | `/api-tokens` | 新增 | mock |
-| Agent 运行台 | GET | `/agents/lifecycle` | 新增 | mock |
-| Agent 运行台 | GET | `/agents/{id}` | 新增 | mock |
-| Agent 运行台 | POST | `/agents/{id}/rollout` | 新增 | mock |
-| Agent 运行台 | POST | `/agents/{id}/rollback` | 新增 | mock |
-| Agent 运行台 | PATCH | `/agents/{id}/level` | 新增 | mock |
+| Agent 运行台 | GET | `/agents/lifecycle` | 新增 | implemented |
+| Agent 运行台 | GET | `/agents/{id}` | 新增 | implemented |
+| Agent 运行台 | POST | `/agents/{id}/rollout` | 新增 | implemented |
+| Agent 运行台 | POST | `/agents/{id}/rollback` | 新增 | implemented |
+| Agent 运行台 | PATCH | `/agents/{id}/level` | 新增 | implemented |
 | Agent 运行台 | GET | `/prompts` | 新增 | implemented |
 | Agent 运行台 | GET | `/prompts/{id}` | 新增 | implemented |
 | Agent 运行台 | POST | `/prompts/{id}/trial` | 新增 | mock |
 | Agent 运行台 | POST | `/prompts/{id}/versions` | 新增 | implemented |
 | Agent 运行台 | GET | `/agent-tools` | 新增 | implemented |
-| Agent 运行台 | GET | `/evals/{id}` | 新增 | mock |
+| Agent 运行台 | GET | `/evals/{id}` | 新增 | implemented |
 | Agent 运行台 | POST | `/evals` | 新增 | implemented |
 | Agent 运行台 | GET | `/eval-cases/{id}` | 新增 | implemented |
-| Agent 运行台 | POST | `/eval-cases/{id}/labels` | 新增 | mock |
-| Agent 运行台 | GET | `/agent-runs` | 聚合 | mock |
-| Agent 运行台 | GET | `/agent-runs/{id}` | 聚合 | mock |
-| Agent 运行台 | POST | `/agent-runs/{id}/feedback` | 新增 | mock |
+| Agent 运行台 | POST | `/eval-cases/{id}/labels` | 新增 | implemented |
+| Agent 运行台 | GET | `/agent-runs` | 聚合 | implemented |
+| Agent 运行台 | GET | `/agent-runs/{id}` | 聚合 | implemented |
+| Agent 运行台 | POST | `/agent-runs/{id}/feedback` | 新增 | implemented |
 | Agent 运行台 | GET | `/guardrails` | 新增 | implemented |
 | Agent 运行台 | PATCH | `/guardrails/{id}` | 新增 | implemented |
 | 设置 | GET | `/me/profile` | 聚合 | mock |

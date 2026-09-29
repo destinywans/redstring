@@ -39968,9 +39968,9 @@
     },
     "/agents/lifecycle": {
       "get": {
-        "summary": "Read bounded persisted Agent lifecycle evidence",
+        "summary": "Read bounded persisted Agent lifecycle configuration",
         "operationId": "get_agents_lifecycle",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract projection, at most 200 Agents. Score is null and usage/routing are unavailable; the current frontend requires a number and must not render this as a complete Lifecycle.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. At most 200 currently visible persisted Agents. Status and version describe configured release metadata only. Aggregate lifecycle stages and todos have no producer and are null. Score and usage are null, routing_connected is false, and partial is true. This is not the frozen frontend Lifecycle DTO.",
         "responses": {
           "200": {
             "description": "Success",
@@ -39980,11 +39980,7 @@
                   "type": "object",
                   "properties": {
                     "stages": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                      }
+                      "type": "null"
                     },
                     "agents": {
                       "type": "array",
@@ -39993,11 +39989,7 @@
                       }
                     },
                     "todos": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                      }
+                      "type": "null"
                     },
                     "missing": {
                       "type": "array",
@@ -40108,9 +40100,9 @@
     },
     "/agents/{id}": {
       "get": {
-        "summary": "Read one persisted Agent and version metadata",
+        "summary": "Read persisted Agent configuration and version metadata",
         "operationId": "get_agents_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract projection: at most 100 versions are returned and truncated reports whether more exist. Version status may be draft; actual traffic and token counts are unavailable. Null release fields are incompatible with the current Agent page; no live routing is implied.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. At most 100 real version records are returned. Draft is a valid version status. Configured traffic is distinct from observed traffic, which is null. Release gates, token comparison, diff, config and account binding have no complete producer and are null. The revision is required for conditional writes. Unknown or hidden Agent returns 404.",
         "responses": {
           "200": {
             "description": "Success",
@@ -40140,23 +40132,25 @@
                     "status": {
                       "type": "string"
                     },
-                    "runs_7d": {
-                      "type": "string"
-                    },
-                    "success": {
-                      "type": "string"
-                    },
-                    "avg_tokens": {
-                      "type": "string"
-                    },
                     "status_source": {
                       "type": "string"
+                    },
+                    "revision": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "format": "int64"
                     },
                     "score": {
                       "type": "null"
                     },
-                    "routing_connected": {
-                      "type": "boolean"
+                    "runs_7d": {
+                      "type": "null"
+                    },
+                    "success": {
+                      "type": "null"
+                    },
+                    "avg_tokens": {
+                      "type": "null"
                     },
                     "available": {
                       "type": "object",
@@ -40174,20 +40168,22 @@
                         "usage"
                       ]
                     },
-                    "owner": {
-                      "type": "string"
+                    "routing_connected": {
+                      "type": "boolean"
                     },
-                    "account": {
+                    "owner": {
                       "type": "string"
                     },
                     "summary": {
                       "type": "string"
                     },
+                    "account": {
+                      "type": "null"
+                    },
                     "versions": {
                       "type": "array",
                       "items": {
-                        "type": "object",
-                        "additionalProperties": true
+                        "$ref": "#/components/schemas/V3AgentConfiguredVersion"
                       }
                     },
                     "truncated": {
@@ -40203,13 +40199,14 @@
                           "type": "string"
                         },
                         "target": {
-                          "type": "integer"
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100
                         },
                         "configured_canary_percent": {
-                          "type": "integer"
-                        },
-                        "observed_traffic": {
-                          "type": "null"
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100
                         },
                         "current": {
                           "type": "null"
@@ -40217,12 +40214,11 @@
                         "tokens": {
                           "type": "null"
                         },
+                        "observed_traffic": {
+                          "type": "null"
+                        },
                         "gates": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "additionalProperties": true
-                          }
+                          "type": "null"
                         },
                         "routing_connected": {
                           "type": "boolean"
@@ -40240,31 +40236,38 @@
                         "to",
                         "target",
                         "configured_canary_percent",
-                        "observed_traffic",
                         "current",
                         "tokens",
+                        "observed_traffic",
                         "gates",
                         "routing_connected",
                         "missing"
                       ]
                     },
                     "diff": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                      }
+                      "type": "null"
                     },
                     "config": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                      }
+                      "type": "null"
                     },
                     "scope": {
                       "type": "object",
-                      "additionalProperties": true
+                      "properties": {
+                        "application_id": {
+                          "type": "string"
+                        },
+                        "environment_id": {
+                          "type": "string"
+                        },
+                        "owner_team_id": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "application_id",
+                        "environment_id"
+                      ]
                     }
                   },
                   "additionalProperties": false,
@@ -40276,12 +40279,13 @@
                     "version",
                     "level",
                     "status",
+                    "status_source",
+                    "revision",
                     "score",
                     "runs_7d",
                     "success",
                     "avg_tokens",
                     "available",
-                    "status_source",
                     "routing_connected",
                     "owner",
                     "account",
@@ -40388,9 +40392,9 @@
     },
     "/agents/{id}/rollout": {
       "post": {
-        "summary": "Save a gated Agent release configuration",
+        "summary": "Save a version-bound Agent release configuration",
         "operationId": "post_agents_id_rollout",
-        "description": "Minimum role: viewer with scoped agents.manage. V3 instance and environment scope apply. Persists requested release configuration only; no traffic router is connected. Requires the latest passing evaluation for current stable to candidate. Override requires an enabled human administrator, a nonempty override_reason and audit; machine identities cannot override. The current frontend omits that reason. Observed traffic remains null.",
+        "description": "Minimum role: viewer with scoped agents.manage and active human identity. V3 instance and environment scope apply. Requires one selected environment, current scoped management authority, matching lifecycle revision and a known candidate version. A latest persisted passing evaluation for stable to candidate is required unless an enabled human administrator provides a nonblank override_reason; the override is audited. Returns 409 version_conflict on stale expected_revision. Persists release intent only; there is no traffic router or cutover.",
         "responses": {
           "200": {
             "description": "Success",
@@ -40402,17 +40406,30 @@
                     "id": {
                       "type": "string"
                     },
-                    "to": {
-                      "type": "string"
+                    "revision": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "format": "int64"
                     },
-                    "configured_percent": {
-                      "type": "integer"
+                    "release_effect": {
+                      "type": "string",
+                      "enum": [
+                        "configuration_saved_pending_activation"
+                      ]
+                    },
+                    "routing_connected": {
+                      "type": "boolean"
                     },
                     "observed_traffic": {
                       "type": "null"
                     },
-                    "routing_connected": {
-                      "type": "boolean"
+                    "to": {
+                      "type": "string"
+                    },
+                    "configured_percent": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100
                     },
                     "gate_experiment_id": {
                       "type": "string"
@@ -40424,10 +40441,12 @@
                   "additionalProperties": false,
                   "required": [
                     "id",
+                    "revision",
+                    "release_effect",
+                    "routing_connected",
+                    "observed_traffic",
                     "to",
                     "configured_percent",
-                    "observed_traffic",
-                    "routing_connected",
                     "override"
                   ]
                 }
@@ -40445,7 +40464,7 @@
             }
           },
           "403": {
-            "description": "Forbidden or cross-origin request",
+            "description": "Current human identity or scoped agents.manage is required",
             "content": {
               "application/json": {
                 "schema": {
@@ -40465,7 +40484,7 @@
             }
           },
           "409": {
-            "description": "Conflict or stale version",
+            "description": "version_conflict, release gate or environment cap conflict",
             "content": {
               "application/json": {
                 "schema": {
@@ -40529,24 +40548,32 @@
                 "type": "object",
                 "properties": {
                   "to": {
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 80
                   },
                   "percent": {
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 100
                   },
+                  "expected_revision": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "format": "int64"
+                  },
                   "override": {
                     "type": "boolean"
                   },
                   "override_reason": {
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 500
                   }
                 },
                 "additionalProperties": false,
                 "required": [
                   "to",
-                  "percent"
+                  "percent",
+                  "expected_revision"
                 ]
               }
             }
@@ -40556,9 +40583,9 @@
     },
     "/agents/{id}/rollback": {
       "post": {
-        "summary": "Save a rollback release configuration",
+        "summary": "Save a version-bound Agent rollback configuration",
         "operationId": "post_agents_id_rollback",
-        "description": "Minimum role: viewer with scoped agents.manage. V3 instance and environment scope apply. Requires a prior persisted release target. Saves governance metadata only; no traffic router is connected and no actual traffic change is claimed.",
+        "description": "Minimum role: viewer with scoped agents.manage and active human identity. V3 instance and environment scope apply. Requires a prior persisted release target and matching lifecycle revision; stale expected_revision returns 409 version_conflict. Saves and audits configured rollback intent only. The response does not assert that live traffic changed.",
         "responses": {
           "200": {
             "description": "Success",
@@ -40570,14 +40597,47 @@
                     "id": {
                       "type": "string"
                     },
+                    "revision": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "format": "int64"
+                    },
+                    "release_effect": {
+                      "type": "string",
+                      "enum": [
+                        "configuration_saved_pending_activation"
+                      ]
+                    },
+                    "routing_connected": {
+                      "type": "boolean"
+                    },
+                    "observed_traffic": {
+                      "type": "null"
+                    },
                     "to": {
                       "type": "string"
+                    },
+                    "configured_percent": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100
+                    },
+                    "configured_canary_percent": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100
                     }
                   },
                   "additionalProperties": false,
                   "required": [
                     "id",
-                    "to"
+                    "revision",
+                    "release_effect",
+                    "routing_connected",
+                    "observed_traffic",
+                    "to",
+                    "configured_percent",
+                    "configured_canary_percent"
                   ]
                 }
               }
@@ -40594,7 +40654,7 @@
             }
           },
           "403": {
-            "description": "Forbidden or cross-origin request",
+            "description": "Current human identity or scoped agents.manage is required",
             "content": {
               "application/json": {
                 "schema": {
@@ -40614,7 +40674,7 @@
             }
           },
           "409": {
-            "description": "Conflict or stale version",
+            "description": "version_conflict, release gate or environment cap conflict",
             "content": {
               "application/json": {
                 "schema": {
@@ -40669,14 +40729,35 @@
             },
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
-        ]
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expected_revision": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "format": "int64"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "expected_revision"
+                ]
+              }
+            }
+          }
+        }
       }
     },
     "/agents/{id}/level": {
       "patch": {
-        "summary": "Change an Agent permission level within its environment cap",
+        "summary": "Change version-bound Agent governance level",
         "operationId": "patch_agents_id_level",
-        "description": "Minimum role: viewer with scoped agents.manage. V3 instance and environment scope apply. Requires scoped agents.manage; a requested level above the persisted environment maximum returns 409. This metadata does not grant an unconnected runtime tool execution path.",
+        "description": "Minimum role: viewer with scoped agents.manage and active human identity. V3 instance and environment scope apply. Requires one selected environment, current scoped management authority and matching lifecycle revision. Level above the persisted environment cap returns 409; stale expected_revision returns 409 version_conflict. The saved governance level does not enable an unconnected Agent tool executor.",
         "responses": {
           "200": {
             "description": "Success",
@@ -40685,15 +40766,52 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "level": {
+                    "id": {
                       "type": "string"
                     },
+                    "revision": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "format": "int64"
+                    },
+                    "release_effect": {
+                      "type": "string",
+                      "enum": [
+                        "configuration_saved_pending_activation"
+                      ]
+                    },
+                    "routing_connected": {
+                      "type": "boolean"
+                    },
+                    "observed_traffic": {
+                      "type": "null"
+                    },
+                    "level": {
+                      "type": "string",
+                      "enum": [
+                        "L0",
+                        "L1",
+                        "L2",
+                        "L3"
+                      ]
+                    },
                     "max_level": {
-                      "type": "string"
+                      "type": "string",
+                      "enum": [
+                        "L0",
+                        "L1",
+                        "L2",
+                        "L3"
+                      ]
                     }
                   },
                   "additionalProperties": false,
                   "required": [
+                    "id",
+                    "revision",
+                    "release_effect",
+                    "routing_connected",
+                    "observed_traffic",
                     "level",
                     "max_level"
                   ]
@@ -40712,7 +40830,7 @@
             }
           },
           "403": {
-            "description": "Forbidden or cross-origin request",
+            "description": "Current human identity or scoped agents.manage is required",
             "content": {
               "application/json": {
                 "schema": {
@@ -40732,7 +40850,7 @@
             }
           },
           "409": {
-            "description": "Conflict or stale version",
+            "description": "version_conflict, release gate or environment cap conflict",
             "content": {
               "application/json": {
                 "schema": {
@@ -40803,11 +40921,17 @@
                       "L2",
                       "L3"
                     ]
+                  },
+                  "expected_revision": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "format": "int64"
                   }
                 },
                 "additionalProperties": false,
                 "required": [
-                  "level"
+                  "level",
+                  "expected_revision"
                 ]
               }
             }
@@ -41880,104 +42004,16 @@
     },
     "/evals/{id}": {
       "get": {
-        "summary": "Read one stored Agent evaluation experiment",
+        "summary": "Read a persisted evaluation experiment",
         "operationId": "get_evals_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial stored evaluation record. The read locks and checks the persisted evaluation, Agent, active application/environment and current grants; missing creation-audit origin or later Agent reassignment hides the record. Dataset, radar and case detail are unavailable; a passed status is a persisted trusted-producer report, not proof that this service ran quality thresholds. The creation-audit target lookup lacks a dedicated index for large per-application histories.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Returns the actual baseline/candidate versions and reported aggregate metrics only after a passed or failed outcome. Pending, running and invalid results have null metrics. There is no experiment-case membership, dataset, per-case output, evaluator catalog or radar producer, so those fields are null with explicit missing reasons; no Agent cases are guessed into an experiment. The immutable creation audit must match the current Agent application/environment and active scope. The active Cookie session and application or current owner-team grants are checked in the same transaction. This partial response cannot render the frozen evaluation page without a null-aware frontend adapter.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "title": {
-                      "type": "string"
-                    },
-                    "status": {
-                      "type": "string"
-                    },
-                    "baseline_version": {
-                      "type": "string"
-                    },
-                    "candidate_version": {
-                      "type": "string"
-                    },
-                    "result_ref": {
-                      "type": "string"
-                    },
-                    "created_at": {
-                      "type": "string"
-                    },
-                    "dataset": {
-                      "type": "string"
-                    },
-                    "meta": {
-                      "type": "string"
-                    },
-                    "metrics": {
-                      "type": [
-                        "object",
-                        "null"
-                      ],
-                      "additionalProperties": true
-                    },
-                    "radar": {
-                      "type": "null"
-                    },
-                    "cases": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                      }
-                    },
-                    "datasets": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                      }
-                    },
-                    "evaluators": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                      }
-                    },
-                    "missing": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    },
-                    "partial": {
-                      "type": "boolean"
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "id",
-                    "title",
-                    "dataset",
-                    "meta",
-                    "status",
-                    "baseline_version",
-                    "candidate_version",
-                    "metrics",
-                    "radar",
-                    "cases",
-                    "datasets",
-                    "evaluators",
-                    "result_ref",
-                    "created_at",
-                    "missing",
-                    "partial"
-                  ]
+                  "$ref": "#/components/schemas/V3EvalDetailEvidence"
                 }
               }
             }
@@ -42223,7 +42259,7 @@
       "get": {
         "summary": "Read a registered evaluation case and any trusted snapshot",
         "operationId": "get_eval_cases_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. A complete frontend case DTO is returned only when a trusted in-process evaluator has persisted a validated immutable snapshot with source references, two distinct known Agent versions and the original case scope. References are producer assertions, not independently verified external artifacts. Without a snapshot, evidence and outputs are null with partial=true. At most 50 labels are returned.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. A complete frontend case DTO is returned only when a trusted in-process evaluator has persisted a validated immutable snapshot with source references, two distinct known Agent versions and the original case scope. References are producer assertions, not independently verified external artifacts. Without a snapshot, evidence and outputs are null with partial=true. At most 50 labels are returned. The committed label count is returned as revision for the next human label request; labels_truncated marks the 50-label display limit. Case origin is stored in immutable application/environment columns and a trusted snapshot is required for complete case content.",
         "responses": {
           "200": {
             "description": "Success",
@@ -42447,6 +42483,13 @@
                         "partial": {
                           "type": "boolean",
                           "const": false
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "labels_truncated": {
+                          "type": "boolean"
                         }
                       },
                       "additionalProperties": false,
@@ -42467,7 +42510,9 @@
                         "auto",
                         "source_state",
                         "complete_v3_dto",
-                        "partial"
+                        "partial",
+                        "revision",
+                        "labels_truncated"
                       ]
                     },
                     {
@@ -42560,6 +42605,13 @@
                         "partial": {
                           "type": "boolean",
                           "const": true
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "labels_truncated": {
+                          "type": "boolean"
                         }
                       },
                       "additionalProperties": false,
@@ -42580,7 +42632,9 @@
                         "auto",
                         "source_state",
                         "complete_v3_dto",
-                        "partial"
+                        "partial",
+                        "revision",
+                        "labels_truncated"
                       ]
                     }
                   ]
@@ -42679,9 +42733,9 @@
     },
     "/eval-cases/{id}/labels": {
       "post": {
-        "summary": "Record one human evaluation label",
+        "summary": "Append a human evaluation label",
         "operationId": "post_eval_cases_id_labels",
-        "description": "Minimum role: viewer with scoped agents.change. V3 instance and environment scope apply. Requires a trusted case snapshot, one selected environment, agents.change and an active session. The selected label is bound to the latest snapshot and saved with audit in the same authorized transaction. No snapshot returns 409 evaluation_case_not_ready. The current frontend sends different fields and would receive 422; its next-case navigation meaning also differs from this response.",
+        "description": "Minimum role: viewer with scoped agents.change. V3 instance and environment scope apply. The next field is the selected label, not a next-case ID. Requires one selected environment, an active human Cookie session, matching case origin, active application/environment, current application or owner-team grant, a trusted case snapshot, and expected_revision from GET. The case row serializes concurrent labels; stale revisions return 409. Label, snapshot binding and audit commit together. The frozen case UI sends a different body and must be adapted before wiring.",
         "responses": {
           "200": {
             "description": "Success",
@@ -42691,23 +42745,34 @@
                   "type": "object",
                   "properties": {
                     "next": {
-                      "type": "string"
+                      "type": "string",
+                      "enum": [
+                        "correct",
+                        "incorrect",
+                        "partial",
+                        "unsure"
+                      ]
                     },
                     "id": {
                       "type": "string"
+                    },
+                    "revision": {
+                      "type": "integer",
+                      "minimum": 1
                     }
                   },
                   "additionalProperties": false,
                   "required": [
                     "next",
-                    "id"
+                    "id",
+                    "revision"
                   ]
                 }
               }
             }
           },
           "401": {
-            "description": "Authentication required",
+            "description": "The current Cookie session was revoked or expired",
             "content": {
               "application/json": {
                 "schema": {
@@ -42717,7 +42782,7 @@
             }
           },
           "403": {
-            "description": "Forbidden or cross-origin request",
+            "description": "A human identity with current scoped agents.change permission is required",
             "content": {
               "application/json": {
                 "schema": {
@@ -42727,7 +42792,7 @@
             }
           },
           "404": {
-            "description": "Not found",
+            "description": "Unknown or hidden case, including missing or changed origin",
             "content": {
               "application/json": {
                 "schema": {
@@ -42737,7 +42802,7 @@
             }
           },
           "409": {
-            "description": "Conflict or stale version",
+            "description": "The expected case revision is stale; read the case again",
             "content": {
               "application/json": {
                 "schema": {
@@ -42747,7 +42812,7 @@
             }
           },
           "422": {
-            "description": "Invalid input",
+            "description": "Invalid label body or note",
             "content": {
               "application/json": {
                 "schema": {
@@ -42757,7 +42822,17 @@
             }
           },
           "503": {
-            "description": "Dependency unavailable",
+            "description": "Storage or policy is unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "expected_revision is required",
             "content": {
               "application/json": {
                 "schema": {
@@ -42810,12 +42885,18 @@
                     ]
                   },
                   "note": {
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "expected_revision": {
+                    "type": "integer",
+                    "minimum": 0
                   }
                 },
                 "additionalProperties": false,
                 "required": [
-                  "next"
+                  "next",
+                  "expected_revision"
                 ]
               }
             }
@@ -42825,64 +42906,16 @@
     },
     "/agent-runs": {
       "get": {
-        "summary": "Read bounded reported Agent runs",
+        "summary": "Read authorized persisted Agent run records",
         "operationId": "get_agent_runs",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. At most 200 persisted run reports. Complete steps, aggregate KPIs, trends and counts are unavailable; no live runtime producer is connected.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Session, selected environment, active Agent/application ownership and current scoped agents.view are rechecked in one read transaction; an application with a current owner team also requires separate team-scope access. Aggregates use all authorized persisted records, not just the 200 list items. No visible records produce null summary/trend/durations/counts, not observed zero. More than 200 matching items set truncated true; more than 2000 aggregate candidates return 413. No live runtime producer is connected.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "kpis": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                      }
-                    },
-                    "trend": {
-                      "type": "null"
-                    },
-                    "durations": {
-                      "type": "null"
-                    },
-                    "items": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                      }
-                    },
-                    "counts": {
-                      "type": "null"
-                    },
-                    "partial": {
-                      "type": "boolean"
-                    },
-                    "truncated": {
-                      "type": "boolean"
-                    },
-                    "missing": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "kpis",
-                    "trend",
-                    "durations",
-                    "items",
-                    "counts",
-                    "partial",
-                    "truncated",
-                    "missing"
-                  ]
+                  "$ref": "#/components/schemas/V3AgentRunList"
                 }
               }
             }
@@ -42939,6 +42972,16 @@
           },
           "503": {
             "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Authorized persisted run or span bound exceeded",
             "content": {
               "application/json": {
                 "schema": {
@@ -42983,115 +43026,16 @@
     },
     "/agent-runs/{id}": {
       "get": {
-        "summary": "Read one reported Agent run and bounded spans",
+        "summary": "Read one authorized persisted Agent run",
         "operationId": "get_agent_runs_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. At most 500 reported spans, without complete conversation, context, memory or token accounting. Does not satisfy the RunDetail page DTO.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Current scoped agents.view and persisted Agent/application/environment ownership apply. Only sanitized reported span metadata can appear as steps. Without reported spans, steps is null. More than 500 spans returns 413 instead of a silent partial trace. Conversation context, budget and memory remain null.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "chain": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "label": {
-                            "type": "string"
-                          },
-                          "value": {
-                            "type": "string"
-                          },
-                          "icon": {
-                            "type": "string"
-                          }
-                        },
-                        "additionalProperties": false,
-                        "required": [
-                          "label",
-                          "value",
-                          "icon"
-                        ]
-                      }
-                    },
-                    "stats": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "properties": {
-                          "k": {
-                            "type": "string"
-                          },
-                          "v": {
-                            "type": "string"
-                          }
-                        },
-                        "additionalProperties": false,
-                        "required": [
-                          "k",
-                          "v"
-                        ]
-                      }
-                    },
-                    "steps": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                      }
-                    },
-                    "total": {
-                      "type": [
-                        "number",
-                        "null"
-                      ]
-                    },
-                    "context": {
-                      "type": "null"
-                    },
-                    "budget": {
-                      "type": "string"
-                    },
-                    "isolated": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                      }
-                    },
-                    "memory": {
-                      "type": "null"
-                    },
-                    "partial": {
-                      "type": "boolean"
-                    },
-                    "missing": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "id",
-                    "chain",
-                    "stats",
-                    "steps",
-                    "total",
-                    "context",
-                    "budget",
-                    "isolated",
-                    "memory",
-                    "partial",
-                    "missing"
-                  ]
+                  "$ref": "#/components/schemas/V3AgentRunDetail"
                 }
               }
             }
@@ -43148,6 +43092,16 @@
           },
           "503": {
             "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Authorized persisted run or span bound exceeded",
             "content": {
               "application/json": {
                 "schema": {
@@ -43187,87 +43141,16 @@
     },
     "/agent-runs/{id}/trace": {
       "get": {
-        "summary": "Read bounded reported Agent trace metadata",
+        "summary": "Read authorized reported Agent trace metadata",
         "operationId": "get_agent_runs_id_trace",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. At most 500 producer-reported spans; LLM messages, tool arguments/results, scores and complete session turns are unavailable. Reported tool spans do not prove two-phase executor audit. The full AgentTrace remains mock.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Current scoped agents.view and persisted Agent/application/environment ownership apply. Only sanitized span metadata is exposed; raw model messages, tool arguments/results, session turns and scores have no producer. Without reported spans, spans is null. More than 500 spans returns 413.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "agent": {
-                      "type": "string"
-                    },
-                    "status": {
-                      "type": "string"
-                    },
-                    "stats": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                      }
-                    },
-                    "scores": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                      }
-                    },
-                    "session": {
-                      "type": "string"
-                    },
-                    "turns": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                      }
-                    },
-                    "total": {
-                      "type": [
-                        "number",
-                        "null"
-                      ]
-                    },
-                    "spans": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                      }
-                    },
-                    "partial": {
-                      "type": "boolean"
-                    },
-                    "missing": {
-                      "type": "array",
-                      "items": {
-                        "type": "string"
-                      }
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "id",
-                    "agent",
-                    "status",
-                    "stats",
-                    "scores",
-                    "session",
-                    "turns",
-                    "total",
-                    "spans",
-                    "partial",
-                    "missing"
-                  ]
+                  "$ref": "#/components/schemas/V3AgentRunTrace"
                 }
               }
             }
@@ -43331,6 +43214,16 @@
                 }
               }
             }
+          },
+          "413": {
+            "description": "Authorized persisted run or span bound exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -43363,9 +43256,9 @@
     },
     "/agent-runs/{id}/feedback": {
       "post": {
-        "summary": "Save a user vote for a completed Agent run",
+        "summary": "Save current-user vote on completed Agent run",
         "operationId": "post_agent_runs_id_feedback",
-        "description": "Minimum role: viewer with scoped agents.change. V3 instance and environment scope apply. One current-user vote is upserted on a completed run with transactional audit. An active run returns 409; this does not derive evaluation quality metrics.",
+        "description": "Minimum role: viewer with scoped agents.change. V3 instance and environment scope apply. Requires a current authenticated session, selected environment and active Agent/application/team scope. The completed-run check, scoped permission check, current-user vote upsert and audit are one transaction. Running records return 409; no evaluation score or runtime quality metric is inferred.",
         "responses": {
           "200": {
             "description": "Success",
@@ -43380,11 +43273,15 @@
                         "up",
                         "down"
                       ]
+                    },
+                    "feedback": {
+                      "$ref": "#/components/schemas/V3AgentRunFeedback"
                     }
                   },
                   "additionalProperties": false,
                   "required": [
-                    "vote"
+                    "vote",
+                    "feedback"
                   ]
                 }
               }
@@ -66523,23 +66420,25 @@
           "status": {
             "type": "string"
           },
-          "runs_7d": {
-            "type": "string"
-          },
-          "success": {
-            "type": "string"
-          },
-          "avg_tokens": {
-            "type": "string"
-          },
           "status_source": {
             "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "format": "int64"
           },
           "score": {
             "type": "null"
           },
-          "routing_connected": {
-            "type": "boolean"
+          "runs_7d": {
+            "type": "null"
+          },
+          "success": {
+            "type": "null"
+          },
+          "avg_tokens": {
+            "type": "null"
           },
           "available": {
             "type": "object",
@@ -66556,6 +66455,9 @@
               "evaluation",
               "usage"
             ]
+          },
+          "routing_connected": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false,
@@ -66567,12 +66469,922 @@
           "version",
           "level",
           "status",
+          "status_source",
+          "revision",
           "score",
           "runs_7d",
           "success",
           "avg_tokens",
           "available",
-          "status_source",
+          "routing_connected"
+        ]
+      },
+      "V3AgentRunFeedback": {
+        "type": "object",
+        "properties": {
+          "up": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "down": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "my_vote": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "up",
+                  "down"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "up",
+          "down",
+          "my_vote"
+        ]
+      },
+      "V3AgentRunSummary": {
+        "type": "object",
+        "properties": {
+          "persisted_runs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "success": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "blocked": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "running": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "negative": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "feedback_votes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "avg_duration_ms": {
+            "oneOf": [
+              {
+                "type": "number",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "persisted_runs",
+          "success",
+          "failed",
+          "blocked",
+          "running",
+          "negative",
+          "avg_duration_ms",
+          "feedback_votes"
+        ]
+      },
+      "V3AgentRunTrend": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "minItems": 24,
+            "maxItems": 24
+          },
+          "failed": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "minItems": 24,
+            "maxItems": 24
+          },
+          "blocked": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "minItems": 24,
+            "maxItems": 24
+          },
+          "window_start_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "interval_minutes": {
+            "type": "integer",
+            "const": 60
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "failed",
+          "blocked",
+          "window_start_at",
+          "interval_minutes"
+        ]
+      },
+      "V3AgentRunCounts": {
+        "type": "object",
+        "properties": {
+          "all": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "blocked": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "negative": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "all",
+          "failed",
+          "blocked",
+          "negative"
+        ]
+      },
+      "V3AgentRunItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "trigger": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "success",
+              "failed",
+              "blocked"
+            ]
+          },
+          "steps": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tokens": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "duration_ms": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "feedback": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/V3AgentRunFeedback"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "agent",
+          "agent_id",
+          "application_id",
+          "environment_id",
+          "version",
+          "trigger",
+          "scope",
+          "status",
+          "steps",
+          "tokens",
+          "duration_ms",
+          "started_at",
+          "feedback"
+        ]
+      },
+      "V3AgentRunList": {
+        "type": "object",
+        "properties": {
+          "kpis": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "summary": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/V3AgentRunSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "trend": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/V3AgentRunTrend"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "durations": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3AgentRunItem"
+            }
+          },
+          "counts": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/V3AgentRunCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "partial": {
+            "type": "boolean",
+            "const": true
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "aggregation_scope": {
+            "type": "string",
+            "const": "authorized_persisted_runs"
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "kpis",
+          "summary",
+          "trend",
+          "durations",
+          "items",
+          "counts",
+          "partial",
+          "truncated",
+          "aggregation_scope",
+          "missing"
+        ]
+      },
+      "V3AgentRunStep": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "icon": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "meta": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "connector": {
+            "type": "string"
+          },
+          "start": {
+            "type": "integer"
+          },
+          "dur": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "icon",
+          "name",
+          "start",
+          "dur",
+          "meta",
+          "kind",
+          "connector"
+        ]
+      },
+      "V3AgentRunLabelValue": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "icon": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "label",
+          "value",
+          "icon"
+        ]
+      },
+      "V3AgentRunStat": {
+        "type": "object",
+        "properties": {
+          "k": {
+            "type": "string"
+          },
+          "v": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "k",
+          "v"
+        ]
+      },
+      "V3AgentRunDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "trigger": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "success",
+              "failed",
+              "blocked"
+            ]
+          },
+          "error_code": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finished_at": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chain": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3AgentRunLabelValue"
+            }
+          },
+          "stats": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3AgentRunStat"
+            }
+          },
+          "steps": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3AgentRunStep"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "total": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "context": {
+            "type": "null"
+          },
+          "budget": {
+            "type": "null"
+          },
+          "isolated": {
+            "type": "null"
+          },
+          "memory": {
+            "type": "null"
+          },
+          "feedback": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/V3AgentRunFeedback"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "partial": {
+            "type": "boolean",
+            "const": true
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "agent",
+          "agent_id",
+          "application_id",
+          "environment_id",
+          "version",
+          "trigger",
+          "status",
+          "error_code",
+          "started_at",
+          "finished_at",
+          "chain",
+          "stats",
+          "steps",
+          "total",
+          "context",
+          "budget",
+          "isolated",
+          "memory",
+          "feedback",
+          "partial",
+          "missing"
+        ]
+      },
+      "V3AgentRunSpan": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "parent_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "meta": {
+            "type": "string"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "tool_id": {
+            "type": "string"
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "start": {
+            "type": "integer"
+          },
+          "dur": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "token_input": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "token_output": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "parent_id",
+          "depth",
+          "kind",
+          "name",
+          "meta",
+          "start",
+          "dur",
+          "model_id",
+          "tool_id",
+          "token_input",
+          "token_output"
+        ]
+      },
+      "V3AgentRunTrace": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "success",
+              "failed",
+              "blocked"
+            ]
+          },
+          "stats": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3AgentRunStat"
+            }
+          },
+          "scores": {
+            "type": "null"
+          },
+          "session": {
+            "type": "null"
+          },
+          "turns": {
+            "type": "null"
+          },
+          "total": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "spans": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3AgentRunSpan"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "partial": {
+            "type": "boolean",
+            "const": true
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "agent",
+          "status",
+          "stats",
+          "scores",
+          "session",
+          "turns",
+          "total",
+          "spans",
+          "partial",
+          "missing"
+        ]
+      },
+      "V3EvalDetailEvidence": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "meta": {
+            "type": "string"
+          },
+          "baseline_version": {
+            "type": "string"
+          },
+          "candidate_version": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "passed",
+              "failed",
+              "invalid"
+            ]
+          },
+          "dataset": {
+            "type": "null"
+          },
+          "metrics": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "radar": {
+            "type": "null"
+          },
+          "cases": {
+            "type": "null"
+          },
+          "datasets": {
+            "type": "null"
+          },
+          "evaluators": {
+            "type": "null"
+          },
+          "result_ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "partial": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "meta",
+          "status",
+          "baseline_version",
+          "candidate_version",
+          "created_at",
+          "dataset",
+          "metrics",
+          "radar",
+          "cases",
+          "datasets",
+          "evaluators",
+          "result_ref",
+          "finished_at",
+          "missing",
+          "partial"
+        ]
+      },
+      "V3AgentConfiguredVersion": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "stable",
+              "canary",
+              "retired"
+            ]
+          },
+          "created": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "configured_traffic": {
+            "type": "string"
+          },
+          "traffic": {
+            "type": "null"
+          },
+          "score": {
+            "type": "null"
+          },
+          "success": {
+            "type": "null"
+          },
+          "tokens": {
+            "type": "null"
+          },
+          "routing_connected": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "status",
+          "created",
+          "configured_traffic",
+          "traffic",
+          "score",
+          "success",
+          "tokens",
           "routing_connected"
         ]
       },

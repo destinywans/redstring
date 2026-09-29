@@ -87,8 +87,10 @@ func (s *Service) CompleteRun(ctx context.Context, in RunCompletion) error {
 	if err != nil {
 		return err
 	}
+	// Completion follows the run row lock; transaction-start now() could precede
+	// a guardrail or span recorded while this transaction waited for that lock.
 	_, err = tx.Exec(ctx, `UPDATE v3_agent_runs SET status=$2,error_code=NULLIF($3,''),
- token_input=$4,token_output=$5,finished_at=now() WHERE id=$1`, in.ID, in.Status, in.ErrorCode, in.InputTokens, in.OutputTokens)
+ token_input=$4,token_output=$5,finished_at=clock_timestamp() WHERE id=$1`, in.ID, in.Status, in.ErrorCode, in.InputTokens, in.OutputTokens)
 	if err != nil {
 		return err
 	}

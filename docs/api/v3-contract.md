@@ -57,14 +57,14 @@
 | GET | `/me/watched-services` | | `{ items: WatchedService[] }` | mock |
 | GET | `/search` | `q` | 五类持久且当前有权对象的有界搜索；无真实最近访问记录 | implemented |
 | GET | `/mentions` | `q`, `kind` | 服务、事件、调查、有效人员、本人对话的有界候选 | implemented |
-| GET | `/home` | | 有界授权快照；AI 简报、值班与服务健康缺生产者，返回可空字段和 `availability`，非完整 `HomeSummary` | mock |
+| GET | `/home` | | 有界授权快照；无来源的 AI 简报、值班与服务健康可空，附 `availability` | implemented |
 | GET | `/mentions/{kind}/{id}/preview` | | 当前有权五类对象的有证据预览；指标与关联未知为空，其他类别明确不可用 | implemented |
 | GET | `/commands` | | `{ items: CommandItem[] }`；仅经配置和授权的斜杠文字建议，不执行命令 | implemented |
 | GET | `/models` | | `ModelCatalog`：当前用户可用的模型、接口类型、推理强度档位与默认值 | implemented |
 | GET | `/models/admin` | 单一已授权环境 | `ModelAdminView`；仅服务端明确绑定到该环境的模型、进程配置与持久历史使用；状态保持未验证 | implemented |
 | POST | `/uploads` | multipart `file` + `kind`；链接与折叠粘贴用 JSON `{ kind, name, url \| text }` | `Upload`；单个 ≤ 20 MB，超出返回 413 | implemented |
 
-`GET /home` 已接入按当前会话、环境及服务/事件/提案/对话权限过滤的持久记录聚合。服务登记数、未解决事件数和待复核提案数仅表示当前可见数据库记录，不表示外部平台健康或告警接收完整性；可选趋势只统计已入库且可识别等级的接收记录，未知等级不从关注列表删除。AI 简报、权威值班、服务健康、SLO 与建议没有可信生产者，保持 `null`、空数组与逐项 `availability`。冻结 `HomeSummary` 和首页会直接读取非空简报、趋势与健康字段，当前真实响应可能使页面报错，因此主契约仍为 `mock`，后端部分读取不等于产品验收。
+`GET /home` 已接入按当前会话、环境及服务/事件/提案/对话权限过滤的持久记录聚合。服务登记数、未解决事件数和待复核提案数仅表示当前可见数据库记录，不表示外部平台健康或告警接收完整性；可选趋势只统计已入库且可识别等级的接收记录，未知等级不从关注列表删除。AI 简报、权威值班、服务健康、SLO 与建议没有可信生产者，保持 `null`、空数组与逐项 `availability`。冻结 `HomeSummary` 和首页会直接读取非空简报、趋势与健康字段，当前真实响应可能使页面报错；此处 `implemented` 只表示有来源部分的后端读取、授权、错误和可空契约代码完成，不表示页面或缺失生产者已验收。
 
 `GET/PATCH /me` 按当前真人账号、有效 Cookie 会话及授权环境投影完整 `Me`。团队、部门、角色、偏好和本实例已登记的 TOTP/passkey 来自持久记录；MFA 字段只表示登记状态，不证明登录或审批时已完成二次验证。值班状态必须由运维配置的 HTTPS 权威来源对请求环境给出新鲜、完整且无歧义的回答，未配置或失效返回 503，不能把未知写成未值班。`PATCH` 只接受名称、职务、时区及支持的偏好字段，须选定单一环境；邮箱、电话、团队、角色、MFA 与值班均由服务端管理。账号、会话、授权与值班证据在写入时复核，资料、偏好和审计一起提交。后端接口已闭合；实际权威值班服务接入与前端整页验收仍需单独完成。
 

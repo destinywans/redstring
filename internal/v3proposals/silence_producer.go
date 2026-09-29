@@ -146,6 +146,9 @@ func (s *Service) CreateSilenceProposal(ctx context.Context, actor core.User, in
 	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, lockKey); err != nil {
 		return zero, err
 	}
+	if err = lockSilenceProposalGrantSources(ctx, tx, actor); err != nil {
+		return zero, err
+	}
 	prepared, err := ledger.PrepareCreateProposalWithTx(ctx, tx, actor, in.Silence, client)
 	if err != nil {
 		return zero, err
@@ -245,6 +248,30 @@ func (s *Service) CreateSilenceProposal(ctx context.Context, actor core.User, in
 		return zero, err
 	}
 	return SilenceProposalResult{ProposalID: id, ActionDigest: actionDigest, Status: "pending"}, nil
+}
+
+// Lock every physical source of a V3 grant before the first policy read and
+// hold the locks through proposal commit. A concurrent revoke either commits
+// first and is observed or waits until the proposal is committed. Locking the
+// actor row before the grant tables matches account writers' row/table order;
+// do not lock rbac_roles afterward because role writers lock it first.
+func lockSilenceProposalGrantSources(ctx context.Context, tx pgx.Tx, actor core.User) error {
+	if actor.ID == "" || actor.Disabled {
+		return store.ErrForbidden
+	}
+	var id string
+	err := tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 AND NOT disabled AND deleted_at IS NULL
+ AND source<>'settings_demo' AND v3_identity_kind='human' FOR SHARE`, actor.ID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.ErrForbidden
+	}
+	if err != nil {
+		return err
+	}
+	// Table SHARE locks also cover direct grant/assignment DML that does not
+	// participate in the account and role writers' advisory-lock protocol.
+	_, err = tx.Exec(ctx, `LOCK TABLE rbac_user_roles,rbac_department_roles,v3_role_grants IN SHARE MODE`)
+	return err
 }
 
 // LoadSilenceActionWithTx verifies the immutable snapshot and review content

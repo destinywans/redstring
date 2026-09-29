@@ -73,6 +73,7 @@ func newSilenceProposalFixture(t *testing.T) *silenceProposalFixture {
 		t.Fatal(err)
 	}
 	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["application_name"] = schema
 	cfg.MaxConns = 5
 	f.db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -289,4 +290,173 @@ func TestCreateSilenceProposalRejectsStaleAuthority(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The investigation row lock stops the producer after both authorization
+// checks, at its FOR SHARE query, without adding a production test hook.
+type silenceCreateResult struct {
+	proposal SilenceProposalResult
+	err      error
+}
+
+func TestCreateSilenceProposalRevocationCannotOvertakeCommit(t *testing.T) {
+	for _, revocation := range []struct {
+		name, revokeSQL, waitQuery string
+		setup                      func(*testing.T, *silenceProposalFixture)
+	}{
+		{name: "silences manage", revokeSQL: `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='silences' AND action='manage' AND scope_kind='application' AND scope_id='app-1'`, waitQuery: `DELETE FROM v3_role_grants`},
+		{name: "proposals change", revokeSQL: `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='proposals' AND action='change' AND scope_kind='application' AND scope_id='app-1'`, waitQuery: `DELETE FROM v3_role_grants`},
+		{name: "direct role assignment", setup: func(t *testing.T, f *silenceProposalFixture) {
+			if _, err := f.db.Exec(t.Context(), `UPDATE rbac_user_roles SET origin='direct' WHERE user_id=$1 AND role_id='viewer'`, f.actor.ID); err != nil {
+				t.Fatal(err)
+			}
+		}, revokeSQL: `DELETE FROM rbac_user_roles WHERE user_id=$1 AND role_id='viewer' AND origin='direct'`, waitQuery: `DELETE FROM rbac_user_roles`},
+		{name: "account disabled", revokeSQL: `UPDATE users SET disabled=true WHERE id=$1`, waitQuery: `UPDATE users SET disabled=true`},
+		{name: "department migration", setup: func(t *testing.T, f *silenceProposalFixture) {
+			for _, stmt := range []string{
+				`INSERT INTO teams(id,name) VALUES('proposal-race-dept','Proposal Race Dept')`,
+				`INSERT INTO rbac_department_roles(department_id,role_id) VALUES('proposal-race-dept','viewer')`,
+				`DELETE FROM rbac_user_roles WHERE user_id=$1 AND role_id='viewer'`,
+				`UPDATE users SET department_id='proposal-race-dept' WHERE id=$1`,
+			} {
+				args := []any{}
+				if strings.Contains(stmt, "$1") {
+					args = append(args, f.actor.ID)
+				}
+				if _, err := f.db.Exec(t.Context(), stmt, args...); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}, revokeSQL: `UPDATE users SET department_id=NULL WHERE id=$1`, waitQuery: `UPDATE users SET department_id=NULL`},
+	} {
+		t.Run(revocation.name, func(t *testing.T) {
+			f := newSilenceProposalFixture(t)
+			ctx := t.Context()
+			if revocation.setup != nil {
+				revocation.setup(t, f)
+			}
+			var effective int
+			if err := f.db.QueryRow(ctx, `SELECT count(*) FROM v3_effective_role_grants WHERE user_id=$1
+				AND ((module='silences' AND action='manage') OR (module='proposals' AND action='change'))`, f.actor.ID).Scan(&effective); err != nil || effective != 2 {
+				t.Fatalf("fixture must have both effective grants: count=%d err=%v", effective, err)
+			}
+			blocker, err := f.db.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer blocker.Rollback(context.Background())
+			if _, err := blocker.Exec(ctx, `SELECT id FROM investigations WHERE id='inv-1' FOR UPDATE`); err != nil {
+				t.Fatal(err)
+			}
+
+			created := make(chan silenceCreateResult, 1)
+			go func() {
+				proposal, err := f.svc.CreateSilenceProposal(ctx, f.actor,
+					silenceProposalInput("revoke-race-key-001"), f.ledger, f.client)
+				created <- silenceCreateResult{proposal, err}
+			}()
+			waitForSilenceProposalLock(t, f.db, `SELECT i.updated_at FROM investigations i`, created)
+
+			revoked := make(chan error, 1)
+			go func() {
+				args := []any{}
+				if strings.Contains(revocation.revokeSQL, "$1") {
+					args = append(args, f.actor.ID)
+				}
+				_, err := f.db.Exec(ctx, revocation.revokeSQL, args...)
+				revoked <- err
+			}()
+			// A completed revocation may only precede a rejected proposal. A
+			// guarded producer can instead hold the grant until it commits.
+			revokedBeforeRelease := false
+			deadline := time.NewTimer(5 * time.Second)
+			defer deadline.Stop()
+			ticker := time.NewTicker(10 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case err := <-revoked:
+					if err != nil {
+						t.Fatalf("revoke grant: %v", err)
+					}
+					revokedBeforeRelease = true
+					goto release
+				case <-ticker.C:
+					if pgQueryWaitingForLock(t, f.db, revocation.waitQuery) {
+						goto release
+					}
+				case <-deadline.C:
+					t.Fatal("revocation neither completed nor waited on a PostgreSQL lock")
+				}
+			}
+		release:
+			if err := blocker.Rollback(ctx); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case result := <-created:
+				if revokedBeforeRelease {
+					if result.err == nil || result.proposal.ProposalID != "" {
+						t.Fatalf("proposal committed after completed %s revocation: %+v err=%v", revocation.name, result.proposal, result.err)
+					}
+				} else if result.err != nil || result.proposal.ProposalID == "" {
+					t.Fatalf("proposal did not commit before blocked revocation: %+v err=%v", result.proposal, result.err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("producer did not finish after investigation lock release")
+			}
+			if !revokedBeforeRelease {
+				select {
+				case err := <-revoked:
+					if err != nil {
+						t.Fatalf("revoke grant: %v", err)
+					}
+				case <-time.After(5 * time.Second):
+					t.Fatal("revocation did not finish after producer commit")
+				}
+			}
+			proposals, actions, reservations := f.counts(t)
+			want := 1
+			if revokedBeforeRelease {
+				want = 0
+			}
+			if proposals != want || actions != want || reservations != 0 || f.requests.Load() != 0 {
+				t.Fatalf("after revocation: proposals=%d actions=%d reservations=%d Alertmanager requests=%d; want proposal rows=%d",
+					proposals, actions, reservations, f.requests.Load(), want)
+			}
+		})
+	}
+}
+
+func waitForSilenceProposalLock(t *testing.T, db *pgxpool.Pool, query string, created <-chan silenceCreateResult) {
+	t.Helper()
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case result := <-created:
+			t.Fatalf("producer finished before investigation lock: %+v err=%v", result.proposal, result.err)
+		case <-ticker.C:
+			if pgQueryWaitingForLock(t, db, query) {
+				return
+			}
+		case <-deadline.C:
+			t.Fatal("producer did not wait on investigation row lock")
+		}
+	}
+}
+
+func pgQueryWaitingForLock(t *testing.T, db *pgxpool.Pool, query string) bool {
+	t.Helper()
+	var waiting bool
+	if err := db.QueryRow(t.Context(), `SELECT EXISTS(
+		SELECT 1 FROM pg_stat_activity
+		WHERE pid <> pg_backend_pid() AND wait_event_type='Lock'
+		  AND application_name=$2 AND position($1 in query) > 0)`,
+		query, db.Config().ConnConfig.RuntimeParams["application_name"]).Scan(&waiting); err != nil {
+		t.Fatal(err)
+	}
+	return waiting
 }

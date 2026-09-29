@@ -217,6 +217,7 @@ func (s *Service) Migrate(ctx context.Context) error {
  CREATE UNIQUE INDEX IF NOT EXISTS ops_initial_once ON ops_automation_runs(incident_id) WHERE kind='initial';
  CREATE INDEX IF NOT EXISTS ops_automation_active ON ops_automation_runs(environment_id,status);
  CREATE TABLE IF NOT EXISTS ops_notifications(id text PRIMARY KEY,incident_id text NOT NULL DEFAULT '',application_id text NOT NULL,environment_id text NOT NULL,channel text NOT NULL,event_key text NOT NULL,status text NOT NULL DEFAULT 'pending',attempts integer NOT NULL DEFAULT 0,next_attempt_at timestamptz NOT NULL DEFAULT now(),last_error text NOT NULL DEFAULT '',body text NOT NULL,lease_token text,lease_until timestamptz,created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(channel,event_key));
+ CREATE INDEX IF NOT EXISTS ops_notifications_incident_recent ON ops_notifications(incident_id,created_at DESC,id DESC);
  CREATE TABLE IF NOT EXISTS ops_event_receipts(seq bigint PRIMARY KEY);
  CREATE TABLE IF NOT EXISTS ops_experience_jobs(investigation_id text PRIMARY KEY REFERENCES investigations(id),status text NOT NULL DEFAULT 'queued',actor_id text NOT NULL,attempts integer NOT NULL DEFAULT 0,error text NOT NULL DEFAULT '',lease_token text,lease_until timestamptz);
  `)

@@ -24,12 +24,16 @@ import (
 // the V3 matrix. It must not fall back to the historical application ACL.
 type Authorize func(context.Context, core.User, string, string, string) error
 type AuthorizeWithTx func(context.Context, pgx.Tx, core.User, string, string, string) error
+type AuthorizeTeamWithTx func(context.Context, pgx.Tx, core.User, string, string, string) error
 
 type Service struct {
 	DB          *pgxpool.Pool
 	Authorize   Authorize
 	AuthorizeTx AuthorizeWithTx
-	Location    *time.Location
+	// AuthorizeTeamTx checks events grants against the current locked owner team.
+	// The composition root injects the same V3 policy used by AuthorizeTx.
+	AuthorizeTeamTx AuthorizeTeamWithTx
+	Location        *time.Location
 }
 
 func New(db *pgxpool.Pool, authorize Authorize, authorizeTx AuthorizeWithTx) *Service {
@@ -42,6 +46,8 @@ func (s *Service) RegisterNew(api *httpapi.Server) {
 	api.MarkV3ObjectRoute("GET /api/v1/inbox", "events", "view")
 	api.Register("GET /api/v1/alert-groups", "viewer", s.AlertGroups)
 	api.MarkV3ObjectRoute("GET /api/v1/alert-groups", "events", "view")
+	api.Register("GET /api/v1/alerts/{id}", "viewer", s.AlertDetail)
+	api.MarkV3ObjectRoute("GET /api/v1/alerts/{id}", "events", "view")
 	api.Register("POST /api/v1/alerts/{id}/claim", "operator", s.ClaimAlert)
 	api.MarkV3ObjectRoute("POST /api/v1/alerts/{id}/claim", "events", "change")
 	api.Register("POST /api/v1/incidents/{id}/timeline", "operator", s.AppendTimeline)

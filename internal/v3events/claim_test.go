@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,7 +72,7 @@ func TestClaimAlertAuthorizesOnLockedTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	cfg.MaxConns = 1 // A pool-scoped authorization call cannot acquire a second connection.
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -120,19 +121,52 @@ func TestClaimAlertAuthorizesOnLockedTransaction(t *testing.T) {
 	}, policy, st.Session, nil); err != nil {
 		t.Fatal(err)
 	}
-	request := func() *httptest.ResponseRecorder {
-		t.Helper()
+	requestBody := func(body string) *httptest.ResponseRecorder {
 		requestCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
-		r := httptest.NewRequest(http.MethodPost, "/api/v1/alerts/incident/claim", nil).WithContext(requestCtx)
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/alerts/incident/claim", strings.NewReader(body)).WithContext(requestCtx)
 		r.Header.Set("X-AIOps-Environment", "dev")
 		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
 		w := httptest.NewRecorder()
 		api.ServeHTTP(w, r)
 		return w
 	}
-	response := request()
-	if poolAuthorizations != 0 || txAuthorizations != 1 {
+	currentRevision := func() string {
+		t.Helper()
+		var revision string
+		if err := db.QueryRow(ctx, `SELECT xmin::text FROM ops_incidents WHERE id='incident'`).Scan(&revision); err != nil {
+			t.Fatal(err)
+		}
+		return revision
+	}
+	request := func() *httptest.ResponseRecorder {
+		return requestBody(`{"expected_revision":"` + currentRevision() + `"}`)
+	}
+	readDetail := func() AlertDetailResponse {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/alerts/incident", nil)
+		r.Header.Set("X-AIOps-Environment", "dev")
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET alert detail status=%d body=%s", w.Code, w.Body.String())
+		}
+		var detail AlertDetailResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &detail); err != nil {
+			t.Fatal(err)
+		}
+		return detail
+	}
+	if response := requestBody(`{}`); response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("missing revision status=%d body=%s", response.Code, response.Body.String())
+	}
+	initialRevision := readDetail().Revision
+	if initialRevision == "" || initialRevision != currentRevision() {
+		t.Fatalf("GET did not return current claim revision: %q", initialRevision)
+	}
+	response := requestBody(`{"expected_revision":"` + initialRevision + `"}`)
+	if poolAuthorizations != 0 || txAuthorizations != 3 {
 		t.Fatalf("claim authorizations: pool=%d tx=%d; body=%s", poolAuthorizations, txAuthorizations, response.Body.String())
 	}
 	if response.Code != http.StatusOK {
@@ -140,9 +174,30 @@ func TestClaimAlertAuthorizesOnLockedTransaction(t *testing.T) {
 	}
 	var claimed struct {
 		AssigneeID string `json:"assignee_id"`
+		Revision   string `json:"revision"`
 	}
-	if err := json.Unmarshal(response.Body.Bytes(), &claimed); err != nil || claimed.AssigneeID != user.ID {
+	if err := json.Unmarshal(response.Body.Bytes(), &claimed); err != nil || claimed.AssigneeID != user.ID || claimed.Revision == "" || claimed.Revision == initialRevision {
 		t.Fatalf("claim response=%s error=%v", response.Body.String(), err)
+	}
+	if response.Header().Get("ETag") != "" {
+		t.Fatalf("claim unexpectedly returned representation ETag: %q", response.Header().Get("ETag"))
+	}
+	refreshed := readDetail()
+	if refreshed.Revision != claimed.Revision || refreshed.AssigneeID != user.ID {
+		t.Fatalf("GET after claim disagrees with claim result: %+v", refreshed)
+	}
+	if response := requestBody(`{"expected_revision":"` + initialRevision + `"}`); response.Code != http.StatusPreconditionFailed {
+		t.Fatalf("stale revision status=%d body=%s", response.Code, response.Body.String())
+	}
+	response = request()
+	if response.Code != http.StatusOK {
+		t.Fatalf("same-user retry status=%d body=%s", response.Code, response.Body.String())
+	}
+	var retried struct {
+		Revision string `json:"revision"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &retried); err != nil || retried.Revision != claimed.Revision {
+		t.Fatalf("same-user retry changed revision: %s error=%v", response.Body.String(), err)
 	}
 	var assignee string
 	var audits int

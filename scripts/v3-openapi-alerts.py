@@ -14,11 +14,33 @@ S['V3IncidentTimelineEntry'] = obj({'time':string(format='date-time'),
 v3_route('get','/inbox','Read scoped inbox',response=obj({'items':arr(ref('V3InboxItem')),
     'counts':v3_map(integer())}),query=[v3_query('filter',string(enum=['all','mine','mentions','subscribed'])),v3_query('tab')],
     desc='Currently includes recent incident-backed alerts; other inbox kinds are not yet connected. tab remains an alias for filter.')
-v3_route('post','/alerts/{id}/claim','Claim a persisted active alert',role='operator',
-    response=obj({'id':string(),'assignee_id':string()},['id','assignee_id']),
-    desc='Partial V3 behavior: rechecks the current application/environment change grant while the incident row is locked, then transactionally sets platform ownership and audits the change; '
-         'same-user retry is idempotent. The full AlertDetail response, metric series, and '
-         'grouping policy are not available yet; no external escalation is stopped.')
+S['V3AlertNotification'] = obj({
+    'id':string(),'channel':string(),
+    'status':string(enum=['pending','sending','retrying','failed','sent']),
+    'created_at':string(format='date-time',description='Local enqueue time, not upstream delivery or human receipt time.'),
+    'attempts':integer(minimum=0)},['id','channel','status','created_at','attempts'])
+S['V3AlertDetail'] = obj({
+    **fieldnames('id title source_id env summary assignee_id investigation_id revision'),
+    'severity':string(enum=['P1','P2','P3','P4']),
+    'state':string(enum=['firing','pending','resolved']),
+    'since':string(format='date-time'),
+    **{name:{'type':'null'} for name in ['source','rule','triage','series','labels','runbook']},
+    'notifications':{'type':'array','maxItems':500,'items':ref('V3AlertNotification')},
+    'notifications_truncated':v3_bool(),
+    'grouping':obj({'group':{'type':'null'},'inhibited':{'type':'null'},
+        'incident':obj({'id':string()},['id']),'change':{'type':'null'}},
+        ['group','inhibited','incident','change']),
+    'unavailable':arr(string())},
+    ['id','revision','severity','title','state','source_id','source','env','since',
+     'rule','triage','series','labels','summary','runbook','notifications','notifications_truncated',
+     'grouping','assignee_id','investigation_id','unavailable'])
+v3_route('get','/alerts/{id}','Read evidence-backed persisted alert detail',
+    response=ref('V3AlertDetail'),
+    desc='Resolves a persisted ops_incidents ID in the selected V3 environment. Current session, mapped application, current owner team, and events.view are checked under transaction locks before returning. revision is the incident-row xmin action token, not a representation ETag: notification status can change independently. Notification rows report local enqueue time and transport status only; at most the latest 500 are returned, with notifications_truncated and unavailable when more exist. The nonempty source_id is the persisted ingress identity, not proof that its configuration remains active. Provider name, original alert labels, metric series and threshold, rule, triage, runbook, real notification group, inhibition and change association have no exact occurrence binding; these fields are null and named in unavailable. The persisted incident ID is the only established grouping link. Malformed severity/state or cross-scope notification records return 503, not a synthetic value. This is a backend nullable contract; the frozen AlertDetail page requires non-null fields and is not yet accepted.')
+v3_route('post','/alerts/{id}/claim','Claim a persisted alert with an incident revision',role='operator',
+    body=obj({'expected_revision':string(pattern='^[1-9][0-9]{0,9}$')},['expected_revision']),
+    response=ref('V3AlertDetail'),
+    desc='Requires the incident-row revision returned by GET; a missing or invalid token is 422, a stale token is 412. Locks the incident, current application/environment/team mapping, human user and session, and V3 role/grant sources before evaluating both events.change and events.view; a change-only grant cannot receive detail data. An active unassigned alert can be claimed by the current human; same-user retry with the current revision is idempotent, another claimant or inactive alert is 409. Owner and durable audit update atomically. Returns the updated evidence-backed nullable V3AlertDetail, not an assertion that external escalation stopped. The frozen frontend sends no expected_revision and incorrectly says escalation stopped; page acceptance remains pending.')
 S['V3AlertGroupPartial'] = obj({**fieldnames('id service since owner'),
     'severity':string(enum=['P1','P2','P3','P4']),
     'labels':arr(v3_object('k v')),'count':integer(),

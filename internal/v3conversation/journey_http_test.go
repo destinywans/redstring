@@ -317,7 +317,8 @@ func TestConversationRegisteredJourneyPersistsReplayAndReads(t *testing.T) {
 	if status != http.StatusOK || json.Unmarshal(body, &page) != nil || page.Total != 1 || len(page.Items) != 1 || page.Items[0].ID != created.ID || page.Items[0].Tokens == nil || *page.Items[0].Tokens != 22 {
 		t.Fatalf("same owner list: %d %s", status, body)
 	}
-	assertPolicy("conversation:view")
+	// The mixed chat/canvas list checks source-specific grants inside its
+	// snapshot rather than asking the route gate for conversation.view.
 	status, body = call(http.MethodGet, path, "test", "journey-owner-session", "", nil)
 	var detail Conversation
 	if status != http.StatusOK || json.Unmarshal(body, &detail) != nil || detail.ID != created.ID || detail.Scope["service"] != "checkout-api" || len(detail.Messages) != 2 || detail.Messages[0].ID != accepted.Message.ID || detail.Messages[1].Role != "assistant" {

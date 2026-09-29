@@ -219,13 +219,30 @@ func (s *Service) authorizeActiveTurn(ctx context.Context, owner, env, sessionTo
 	return s.authorizeBackgroundTurn(ctx, owner, env)
 }
 
-func (s *Service) create(ctx context.Context, owner, env, title, contextRef, model string) (string, error) {
+func (s *Service) create(ctx context.Context, sessionToken, owner, env, title, contextRef, model string) (string, error) {
 	id := store.ID()
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return "", err
 	}
 	defer tx.Rollback(ctx)
+	// Keep the initiating account and Cookie session live through the create
+	// commit. A concurrent logout that wins first must prevent this write;
+	// one that follows waits until the audited create has committed.
+	var currentOwner string
+	if err = tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 AND NOT disabled AND deleted_at IS NULL FOR SHARE`, owner).Scan(&currentOwner); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", errListSessionRevoked
+		}
+		return "", err
+	}
+	if err = tx.QueryRow(ctx, `SELECT user_id FROM sessions WHERE token_hash=$1 AND user_id=$2
+		AND expires_at>clock_timestamp() FOR SHARE`, store.Hash(sessionToken), currentOwner).Scan(&currentOwner); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", errListSessionRevoked
+		}
+		return "", err
+	}
 	if err = s.authorizeBackgroundTurnTx(ctx, tx, owner, env); err != nil {
 		return "", err
 	}

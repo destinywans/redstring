@@ -88,6 +88,11 @@ func (s *Service) createHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil || cookie.Value == "" {
+		apiError(w, 401, "unauthorized", "Login required")
+		return
+	}
 	env, err := s.environment(r, true)
 	if err != nil {
 		operationError(w, err)
@@ -138,7 +143,7 @@ func (s *Service) createHTTP(w http.ResponseWriter, r *http.Request) {
 	if len(title) > 80 {
 		title = title[:80]
 	}
-	id, err := s.create(r.Context(), u.ID, env, string(title), in.Context, selectedModel.ID)
+	id, err := s.create(r.Context(), cookie.Value, u.ID, env, string(title), in.Context, selectedModel.ID)
 	if err != nil {
 		operationError(w, err)
 		return

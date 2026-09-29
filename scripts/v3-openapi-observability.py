@@ -154,6 +154,65 @@ v3_route('post','/service-mappings/accept','Accept current scoped service mappin
     response=obj({'accepted':integer(minimum=0),
         'items':arr(ref('V3MappingAcceptItem'))},['accepted','items']),
     desc='In exactly one selected environment, accepts only explicitly identified, reviewed GitLab code candidates. The request must match candidate ID, monotonic version, service/environment/system and expected binding revision; stale or changed review snapshots return 409 and old service:system cell requests are rejected. Transaction-local services view/change and connectors view/manage checks, exact source identity, activation, unique target, binding CAS, a final wall-clock expiry check, the current Cookie session and active account, and V3-only binding validation precede an atomic binding/candidate/audit commit. Each success item returns the persisted binding and post-write revision; a verified repeat may return status=already_accepted and accepted=0. The frozen frontend sends the old cell shape and marks success before response, so page integration remains pending.')
+S['V3ChangeKpi'] = obj({
+    'id':string(enum=['runs','succeeded','failed','deployments']),
+    'label':string(), 'value':string(), 'unit':string(), 'delta':string(),
+    'delta_good':v3_bool(), 'tone':string(enum=['neutral','accent','ok','warn','danger','info']),
+    'sub':string(), 'series':arr(v3_num())},
+    ['id','label','value','series'])
+S['V3ChangePipeline'] = obj({
+    **fieldnames('id brand ref service title trigger duration time'),
+    'status':string(enum=['success','failed','running','canceled']),
+    'stages':arr(string(enum=['ok','danger','accent','neutral']))},
+    ['id','brand','ref','service','title','trigger','status','stages','duration','time'])
+S['V3ChangeLane'] = obj({
+    'service':string(),
+    'marks':arr(obj({'at':v3_num(),'tone':string(enum=['ok','danger']),
+                     'label':string()},['at','tone'])),
+    'alerts':arr({'type':'array','items':v3_num(),'minItems':2,'maxItems':2})},
+    ['service','marks','alerts'])
+S['V3ChangeDetail'] = obj({
+    **fieldnames('id title meta brand'),
+    'stages':arr(obj({'name':string(),
+                      'jobs':arr(obj({'name':string(),
+                                      'state':string(enum=['ok','running']),
+                                      'brand':string()},['name','state']))},['name','jobs'])),
+    'diff':obj(fieldnames('path minus plus'),['path','minus','plus']),
+    'risk':obj(fieldnames('title meta text'),['title','meta','text']),
+    'alert':obj(fieldnames('text incident'),['text','incident'])},
+    ['id','title','meta','brand','stages','diff','risk','alert'])
+S['V3ChangesView'] = obj({
+    'kpis':arr(ref('V3ChangeKpi')),
+    'sources':arr(obj({'brand':string(),'name':string(),
+                       'count':integer(minimum=0),'on':v3_bool()},
+                      ['brand','name','count','on'])),
+    'lanes':arr(ref('V3ChangeLane')),
+    'axis':arr(string()),
+    'pipelines':{'type':'array','items':ref('V3ChangePipeline'),'minItems':1,'maxItems':1},
+    'detail':ref('V3ChangeDetail')},
+    ['kpis','sources','lanes','axis','pipelines','detail'])
+v3_route('get','/changes','Read one evidence-bound native delivery run',
+    query=[v3_query('service_id'),v3_query('run_id'),
+           v3_query('range',string(enum=['24h','7d'],default='24h')),
+           v3_query('sources',string(enum=['native'],default='native'))],
+    response=ref('V3ChangesView'),
+    desc='Requires one selected environment, an exact base64url application-NUL-environment service_id, '
+         'and one persisted native Argo Workflows delivery run_id. Current services.view, events.view, '
+         'source identity and session are rechecked before returning. Only that run appears in pipelines and detail. '
+         'The selected 24h or 7d window bounds persisted delivery runs, verified GitOps deployment events and '
+         'covered ops_incidents. KPIs are countable run and deployment facts, never inferred change failure rate, '
+         'lead time, MTTR or alert causality. Complete diff, risk and alert text require separately reviewed evidence '
+         'anchored to the exact run, snapshot and artifact digests, execution and incident; missing or changed review evidence, deployment '
+         'verification or alert coverage returns 503 rather than invented values. The current frontend omits '
+         'service_id and run_id and cannot receive a 200 until updated.')
+for parameter in P['/changes']['get']['parameters']:
+    if parameter['name'] in ('service_id','run_id'):
+        parameter['required'] = True
+P['/changes']['get']['responses']['422']['description'] = 'Missing, repeated or invalid service_id, run_id, range or sources'
+P['/changes']['get']['responses']['413'] = {
+    'description':'Bounded change source exceeds 500 runs or deployment events or 200 incidents',
+    'content':{'application/json':{'schema':ref('Error')}}}
+P['/changes']['get']['responses']['503']['description'] = 'Required delivery, GitOps, incident coverage or reviewed detail evidence unavailable or changed'
 S['V3GitLabPipelineRecord'] = obj({**fieldnames('id provider service_id environment_id binding_id connector_id project_id status ref sha source created_at updated_at')},
     ['id','provider','service_id','environment_id','binding_id','connector_id','project_id','status','ref','sha','source','created_at','updated_at'])
 S['V3GitLabPipelineRecord']['properties']['provider'] = string(enum=['gitlab'])

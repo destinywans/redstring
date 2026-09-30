@@ -362,7 +362,9 @@ class Runner:
                 else:
                     status = item.get("status")
                     if status == "running":
-                        progress = {"suite_id": suite["id"], "name": scrub(item.get("name", ""), secrets), "actual": scrub(item.get("actual", ""), secrets), "elapsed": item.get("elapsed"), "planned_seconds": item.get("planned_seconds")}
+                        actual = item.get("actual")
+                        timing = actual if isinstance(actual, dict) else {}
+                        progress = {"suite_id": suite["id"], "name": scrub(item.get("name", ""), secrets), "actual": scrub(item.get("actual", ""), secrets), "elapsed": item.get("elapsed", timing.get("elapsed_seconds")), "planned_seconds": item.get("planned_seconds", timing.get("planned_seconds"))}
                         self.store.update("runs", self.run_id, current_test=progress["name"], elapsed=progress["elapsed"], planned_seconds=progress["planned_seconds"], last_progress=now())
                         self.store.emit(self.run_id, "progress", progress)
                         continue

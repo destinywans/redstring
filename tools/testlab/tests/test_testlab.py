@@ -146,6 +146,18 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(run["planned_seconds"], 86400)
         self.assertTrue(run["last_progress"])
 
+    def test_nested_gitops_timing_is_persisted_without_a_fake_completed_case(self):
+        detail = self.run_fixture([
+            {"name": "gitops.final_receipt", "status": "running", "actual": {"elapsed_seconds": 17, "planned_seconds": 240}},
+            {"id": "receipt", "name": "gitops.final_receipt", "status": "failed", "actual": "deadline reached"},
+        ], parser="testlab_json", exit_code=1)
+        self.assertEqual(detail["run"]["elapsed"], 17)
+        self.assertEqual(detail["run"]["planned_seconds"], 240)
+        self.assertEqual(detail["summary"]["passed"], 0)
+        self.assertEqual(detail["summary"]["failed"], 2)  # receipt plus parent command
+        progress = [e for e in detail["events"] if e.get("type") == "progress"]
+        self.assertEqual(len(progress), 1)
+
     def test_environment_not_inherited_and_expansion_explicit(self):
         with patch.dict(os.environ, {"TEST_DATABASE_URL": "production", "AIOPS_ENABLE_EXECUTION": "true"}):
             env = command_env({"TEST_DATABASE_URL": "${TEMP_DSN}"}, {"TEMP_DSN": "isolated"})

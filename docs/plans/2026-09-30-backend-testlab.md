@@ -83,3 +83,7 @@ SSE按持久事件序号恢复，刷新/服务重启读SQLite。运行中断不�
 - 2026-09-30：doctor存在依赖或隔离阻塞时退出2，不允许打印阻塞后exit0。定向回归纳入v3webhook专用PG opt-in及token，用明确fixture开启此前跳过的本地可覆盖项；无测试包和外部真实供应商跳过分类保留。
 
 - 2026-09-30：正式entry首轮a205fa0a（216通过/10失败条含父/命令重复）保持不可变。Token正常读取503根因为本轮native夹具分类observability违反产品observe枚举，按owner/精确ID/provider/endpoint校验只修自有那一行，补初始化category断言；保留正常200和撤销断言，不扩scope或放宽产品projection。其他新增用例的Header空格、发布后cleanup、对话来源字段先按真实契约判定，测试错误与产品缺陷分别记。
+
+- 2026-09-30：冻结前正式接线审计确认当前230条entry通过仅41个正常method/path、48个实际响应，不等于全部V3接口覆盖。先补真实Keycloak正式条件注册、HTTPS邀请SMTP465跨组件提交及Vault六scope凭据绑定；原因是模块handler/Resolver测试没有经过cmd/aiops真实配置。使用新唯一合成账号与独立短生命周期入口，不修改base或已有续期trial，不改变产品465/SecureCookie/权限保护。用户授权自主决定，记录后待本人Review。
+- 2026-09-30：旧12个local live gates区分可直接用现有组件补、须新建组件和重型原生交付链。Argo CD规则链不能替代Argo Workflows/image&binary build/归档/VM发布；Jenkins、Grafana、Ollama是本地可搭环境，不能泛称需要用户外部密钥。必要环境未搭/资源不足保持独立高优先级工作包与阻塞事实。
+- 2026-09-30：看板用例终态占比只是已登记用例的比例；custom长命令中会继续增加用例。明确提示运行结束由run及suite状态决定，不让暂时3/3误导为整个链完成。GitOps嵌套actual.elapsed_seconds/计划时长也持久保存，恢复页面不依赖内存。

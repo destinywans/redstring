@@ -1,6 +1,19 @@
 # AIOps Canvas 检查点
 
 
+## CP-211 · 2026-09-30 · 已交付入口与看板、冻结前正式接线补测
+
+- 用户外出期间授权自主决定并留记录。分支 `codex/wan-138-backend-testlab`；基础设施 `6b37ff47f6df2fefb800b1695f6b82a4c35c8d73`、看板 `eef38ba729413560b68917f348a9be34382c759f` 已提交推送，远端一致。未合并/部署。无产品前端修改或测试，保留无关 `.claude/`。
+- 正式entry首轮 `a205fa0a` 216通过/10失败（含父/命令重复）；4类均确认为测试工具或夹具问题：Header OWS、简化DTO source_ref、清理索引FK、connector分类枚举。首红保留。修后 `b8241602-b09f-47bd-a736-bdc0c3293c92` 230通过/0失败/跳过/阻塞，Go源始末 `ee995059ddd7fc022c4c8a444c015bca681a909e5dc73a29c03e552d4b1aa7e6` 一致。41个正常method/path、48个实际响应，不能当166项V3或407项历史库存全部覆盖。
+- 冻结定向/专项 `f01915c1-8aa2-4753-b3f1-d92fbc6c1173` 648通过/0失败/1跳过：唯一 `TestV3DeepSeekHTTPPGSmoke` 是付费真实外部opt-in，原因明确；运行仍诚实blocked。新baseline `2d58418a-fe91-4813-9245-91c2c1a43bbf` 因确认WAN-155须改源码而由本轮Runner提前停止：463通过/0失败/17跳过/2中断，全部记录保留；不是冻结验收，修后重新跑。
+- 真实停机恢复 `5b3913ec-bbe5-461a-bb3d-e14b3a673594` 7通过/0失败/1付费模型外部待办，源一致。TERM取消/SSE持久重放，KILL后租约30s+10s sweep失败回收、无重复推理、原流和恢复流精确相等、其他实例Token撤销401已验证；不是付费供应商故障证明。
+- 真实GitOps `1f93d97f-e844-4708-8596-cb28678d121b` 3通过/2失败（含父命令）。第一票pending且DB无执行、第二票双独立真实投票/决议已通过；worker精确最终生效读回240s超时正在定位。此前labels和approval assurance是夹具缺配置，未放宽产品要求；首红保持。完整产品台账MR/Argo/Prom链尚未通过。随后精确定位WAN-155：MR列表缺changes_count/diff_refs却被当详情，导致prepare_unknown；实际Argo/Prom已生效仍未可持久读回。独立High issue已创建，先红再最小mrByIID详情修复；工具同步收紧持久receipt+pending_review后才能独立merge。
+- 12秒 `92792779-1e38-4298-91f4-dfae2d37315e` 5项接线通过：50正常/10慢SSE及真实CPU/RSS/FD/PG采样已导入看板，3RPS无非预期错误；仅工具接线，不计正式性能或24h。七视图/筛选/分页/原失败不被同run后续成功覆盖/持久恢复/报告下载/真实性能卡片已浏览器QA。
+- 决定性能和24h前补三条正式条件式接线：Keycloak OIDC、HTTPS邀请→TLS465 SMTP→一次性接受/默认无权限/发送拒绝、六项精确binding→最小权限Vault→受权上游。纯Python独立owned短实例，端口18586/OIDC、18590临时KC、18588/18589邀请，465仅自有捕获；不改变base双实例或其持续配置，不读业务.env，产品新Bug先留首红独立issue。
+- 旧live gates仍包括Jenkins/Grafana/Ollama、六个Argo Workflows/原生build/归档和一个VM/应用部署恢复链；新Argo CD规则链不能关闭这些。现有组件可补readcheck/probes独立安排，资源不足明确阻塞，不归外部账号待办。
+- 正式18分钟性能和真实连续24h **尚未开始**。WAN-152聚合安全限额规模验收方向High待用户Review；本轮不删证据/拆环境/提高限额造成功，受支持接口性能可独立运行。所有新增决定追加计划并同步WAN-138；最新源及运行数据以SQLite/实际资源核验。
+- 下一步：最终GitOps根因/原链→三个正式条件式短链→局部必要回归及全量baseline终态/明确skip→提交推送证据与原51子项→正式性能→冻结新trial和真实86400窗口。长期运行不累计碎片时间。
+
 ## CP-210 · 2026-09-30 · 冻结前修复与审批入口契约
 
 - 当前分支 `codex/wan-138-backend-testlab`，最新已提交推送 `cb88e64c97f71c39cc638a6aebad6275a4341213`，远端回读一致；WAN-153 Ready真实PG 28 race通过。4b60b4b为60旧测试夹具契约修正工作包，严格保留授权/隐私/保留负边界。未合并/部署；产品前端无改动/测试；无关 `.claude/` 保留。

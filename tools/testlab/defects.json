@@ -255,5 +255,77 @@
     "case_ids": "正式POST canvases -> POST alert-rules enabled",
     "fix_commit": "cb88e64",
     "fix": "https://github.com/destinywans/aiops-canvas/commit/cb88e64"
+  },
+  {
+    "id": "TOOL-OWS",
+    "title": "测试预期错误：HTTP Header前导空格",
+    "category": "测试工具/夹具",
+    "status": "in_review",
+    "before": "HTTP transport正常剥离OWS，错误期待422",
+    "after": "OWS正常200/内部空白422分别断言",
+    "fix_commit": "6b37ff4",
+    "first_failure_runs": [
+      "a205fa0a-63f5-4c7c-a800-c75b1e27321f"
+    ],
+    "regression_runs": [
+      "b8241602-b09f-47bd-a736-bdc0c3293c92"
+    ],
+    "local_evidence": [
+      ".local/testlab/first-failures/entry-a205-tool-contracts-red.json"
+    ]
+  },
+  {
+    "id": "TOOL-SOURCE-DTO",
+    "title": "测试字段错误：简化record DTO未暴露私有source_ref",
+    "category": "测试工具/夹具",
+    "status": "in_review",
+    "before": "错误断言record返回source_ref",
+    "after": "完整detail DTO与DB source_ref/conversation_id/snapshot SHA精确验证",
+    "fix_commit": "6b37ff4",
+    "first_failure_runs": [
+      "a205fa0a-63f5-4c7c-a800-c75b1e27321f"
+    ],
+    "regression_runs": [
+      "b8241602-b09f-47bd-a736-bdc0c3293c92"
+    ],
+    "local_evidence": [
+      ".local/testlab/first-failures/entry-a205-tool-contracts-red.json"
+    ]
+  },
+  {
+    "id": "TOOL-RUNBOOK-CLEANUP",
+    "title": "测试清理错误：遗漏发布后的索引外键子资源",
+    "category": "测试工具/夹具",
+    "status": "in_review",
+    "before": "按阶段非原子清理遗漏chunks/generations导致文档残留",
+    "after": "精确本轮id/source限定、10秒有界事务及行锁，保留审计和首红遗留",
+    "fix_commit": "6b37ff4",
+    "first_failure_runs": [
+      "a205fa0a-63f5-4c7c-a800-c75b1e27321f"
+    ],
+    "regression_runs": [
+      "b8241602-b09f-47bd-a736-bdc0c3293c92"
+    ],
+    "local_evidence": [
+      ".local/testlab/first-failures/entry-a205-tool-contracts-red.json"
+    ]
+  },
+  {
+    "id": "FIXTURE-CONNECTOR-CATEGORY",
+    "title": "真实组件夹具错误：连接器分类枚举不合法",
+    "category": "测试工具/夹具",
+    "status": "in_review",
+    "before": "自有seed observability导致正常读取503",
+    "after": "修为observe并限定owner/id/provider/endpoint，只纠正自有那一行；保留Token正常200/撤销401",
+    "fix_commit": "6b37ff4",
+    "first_failure_runs": [
+      "a205fa0a-63f5-4c7c-a800-c75b1e27321f"
+    ],
+    "regression_runs": [
+      "b8241602-b09f-47bd-a736-bdc0c3293c92"
+    ],
+    "local_evidence": [
+      ".local/testlab/first-failures/entry-a205-tool-contracts-red.json"
+    ]
   }
 ]

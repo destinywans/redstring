@@ -125,10 +125,10 @@ type CreateInput struct {
 
 var kinds = map[string]string{"application": "应用", "cluster": "集群", "node": "节点", "deployment": "工作负载", "pod": "Pod", "event": "Kubernetes 事件", "namespace": "命名空间", "host": "主机", "network": "网络", "storage": "存储", "redis": "Redis", "mysql": "MySQL", "kafka": "Kafka"}
 
-func (s *Service) create(ctx context.Context, in CreateInput) (string, error) {
+func (s *Service) create(ctx context.Context, in CreateInput) (Resource, error) {
 	in.Name = strings.TrimSpace(in.Name)
 	if in.Name == "" || len(in.Name) > 200 || kinds[in.Kind] == "" || len(in.Description) > 4000 || len(in.ExternalID) > 500 || len(in.Applications) > 50 || len(in.Tags) > 50 {
-		return "", store.ErrInvalidReference
+		return Resource{}, store.ErrInvalidReference
 	}
 	// Metadata registration cannot report a collected health state.
 	if in.Attributes == nil {
@@ -139,43 +139,61 @@ func (s *Service) create(ctx context.Context, in CreateInput) (string, error) {
 	}
 	attrs, e := json.Marshal(in.Attributes)
 	if e != nil || len(attrs) > 65536 {
-		return "", store.ErrInvalidReference
+		return Resource{}, store.ErrInvalidReference
 	}
 	tags, _ := json.Marshal(in.Tags)
 	tx, e := s.DB.Begin(ctx)
 	if e != nil {
-		return "", e
+		return Resource{}, e
 	}
 	defer tx.Rollback(ctx)
 	for _, a := range in.Applications {
 		var exists bool
 		e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM application_environments WHERE id=$1 AND application_id=$2 AND NOT archived)`, a.EnvironmentID, a.ID).Scan(&exists)
 		if e != nil {
-			return "", e
+			return Resource{}, e
 		}
 		if !exists {
-			return "", store.ErrInvalidReference
+			return Resource{}, store.ErrInvalidReference
 		}
 	}
 	id := store.ID()
-	_, e = tx.Exec(ctx, `INSERT INTO cmdb_resources(id,name,kind,description,external_id,source_kind,source_id,owner_user_id,owner_team_id,attributes,tags) VALUES($1,$2,$3,$4,$5,'manual','',NULLIF($6,''),NULLIF($7,''),$8,$9)`, id, in.Name, in.Kind, in.Description, in.ExternalID, in.OwnerUserID, in.OwnerTeamID, attrs, tags)
+	// Return only the receipt of this transaction. Registration does not grant
+	// view permission on the new object, and a post-commit visibility query
+	// would incorrectly turn a committed creation into a 404.
+	receipt := Resource{ID: id, Kind: in.Kind, Name: in.Name, Description: in.Description,
+		ExternalID: in.ExternalID, SourceKind: "manual", OwnerUserID: in.OwnerUserID,
+		OwnerTeamID: in.OwnerTeamID, Attributes: map[string]any{}, Tags: in.Tags,
+		Applications: []ApplicationLink{}}
+	for key, value := range in.Attributes {
+		if key != "application" && key != "application_id" {
+			receipt.Attributes[key] = value
+		}
+	}
+	for _, app := range in.Applications {
+		receipt.Applications = append(receipt.Applications, ApplicationLink{ID: app.ID, EnvironmentID: app.EnvironmentID})
+	}
+	e = tx.QueryRow(ctx, `INSERT INTO cmdb_resources(id,name,kind,description,external_id,source_kind,source_id,owner_user_id,owner_team_id,attributes,tags) VALUES($1,$2,$3,$4,$5,'manual','',NULLIF($6,''),NULLIF($7,''),$8,$9) RETURNING created_at,updated_at`, id, in.Name, in.Kind, in.Description, in.ExternalID, in.OwnerUserID, in.OwnerTeamID, attrs, tags).Scan(&receipt.CreatedAt, &receipt.UpdatedAt)
 	if e != nil {
-		return "", store.ClassifyError(e)
+		return Resource{}, store.ClassifyError(e)
 	}
 	for _, a := range in.Applications {
 		_, e = tx.Exec(ctx, `INSERT INTO cmdb_resource_applications(resource_id,application_id,environment_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`, id, a.ID, a.EnvironmentID)
 		if e != nil {
-			return "", store.ClassifyError(e)
+			return Resource{}, store.ClassifyError(e)
 		}
 	}
 	_, e = tx.Exec(ctx, `INSERT INTO cmdb_resource_changes(resource_id,action,description) VALUES($1,'resource.created','手动登记资源资料；尚未采集运行状态')`, id)
 	if e != nil {
-		return "", e
+		return Resource{}, e
 	}
 	changes, _ := json.Marshal(map[string]any{"resource_id": id, "name": in.Name, "kind": in.Kind, "source_kind": "manual"})
 	_, e = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes) VALUES($1,'resource.created',$2,'success',$3)`, store.Principal(ctx).ID, id, changes)
 	if e != nil {
-		return "", e
+		return Resource{}, e
 	}
-	return id, tx.Commit(ctx)
+	if e = tx.Commit(ctx); e != nil {
+		return Resource{}, e
+	}
+	return receipt, nil
 }

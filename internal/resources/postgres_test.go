@@ -39,7 +39,7 @@ func TestPostgresResourceScopeAndACL(t *testing.T) {
 		t.Fatal(e)
 	}
 	q := u.Query()
-	q.Set("search_path", schema)
+	q.Set("search_path", schema+",public")
 	u.RawQuery = q.Encode()
 	db, e := store.New(ctx, u.String())
 	if e != nil {
@@ -53,14 +53,33 @@ func TestPostgresResourceScopeAndACL(t *testing.T) {
  INSERT INTO applications(id,key,name) VALUES('a','a','Application A'),('b','b','Application B');
  INSERT INTO application_environments(id,application_id,key,name) VALUES('ea','a','production','Production'),('eb','b','production','Production');
  INSERT INTO application_grants(application_id,subject_type,subject_id,permission) VALUES('a','user','ua','view'),('b','user','ub','view');
- INSERT INTO cmdb_resources(id,kind,name,source_kind,is_mock) VALUES('ra','deployment','A workload','mock',true),('rb','deployment','B workload','mock',true),('shared','redis','Shared cache','mock',true),('unlinked','host','Unlinked','manual',false);
+ INSERT INTO cmdb_resources(id,kind,name,source_kind,is_mock) VALUES('ra','deployment','A workload','manual',false),('rb','deployment','B workload','manual',false),('shared','redis','Shared cache','manual',false),('unlinked','host','Unlinked','manual',false);
  UPDATE cmdb_resources SET attributes='{"application":"Application A","application_id":"a","ip":"10.0.0.7"}' WHERE id='shared';
  INSERT INTO cmdb_resource_applications VALUES('ra','a','ea'),('rb','b','eb'),('shared','a','ea'),('shared','b','eb');
- INSERT INTO cmdb_resource_relations(id,source_resource_id,target_resource_id,kind,provenance,source_kind,is_mock) VALUES('as','ra','shared','depends_on','declared','mock',true),('bs','rb','shared','depends_on','declared','mock',true);`)
+ INSERT INTO cmdb_resource_relations(id,source_resource_id,target_resource_id,kind,provenance,source_kind,is_mock) VALUES('as','ra','shared','depends_on','declared','manual',false),('bs','rb','shared','depends_on','declared','manual',false);`)
 	if e != nil {
 		t.Fatal(e)
 	}
 	for _, id := range []string{"ua", "ub", "admin"} {
+		if id != "admin" {
+			app := strings.TrimPrefix(id, "u")
+			// Each viewer receives only its two infrastructure objects. A
+			// shared object's resource grant does not grant the other app.
+			for _, statement := range []struct {
+				sql  string
+				args []any
+			}{
+				{`INSERT INTO rbac_roles(id,name) VALUES($1,$1)`, []any{"resource-fixture-" + app}},
+				{`INSERT INTO rbac_permissions(id,name) VALUES($1,$1)`, []any{"resource-fixture-view-" + app}},
+				{`INSERT INTO rbac_role_permissions(role_id,permission_id) VALUES($1,$2)`, []any{"resource-fixture-" + app, "resource-fixture-view-" + app}},
+				{`INSERT INTO rbac_permission_resources(permission_id,scope_type,resource_id,action) VALUES($1,'resource',$2,'view'),($1,'resource','shared','view')`, []any{"resource-fixture-view-" + app, "r" + app}},
+				{`INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,$2)`, []any{id, "resource-fixture-" + app}},
+			} {
+				if _, e = db.DB.Exec(ctx, statement.sql, statement.args...); e != nil {
+					t.Fatal(e)
+				}
+			}
+		}
 		if _, e = db.DB.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '1 hour')`, store.Hash("resource-test-"+id), id); e != nil {
 			t.Fatal(e)
 		}
@@ -145,7 +164,18 @@ func TestPostgresResourceScopeAndACL(t *testing.T) {
 	if created.IsMock || created.SourceKind != "manual" || created.ObservedAt != nil {
 		t.Fatalf("manual registration fabricated observations %#v", created)
 	}
+	if created.CreatedAt.IsZero() || created.UpdatedAt.IsZero() {
+		t.Fatal("creation receipt lost persisted timestamps")
+	}
 	var count int
+	// Creation acknowledges the committed registration but grants no read
+	// authority. Retrying a false 404 previously created another resource.
+	if got := request("admin", "GET", "/api/v1/resources/"+created.ID, ""); got.Code != 404 {
+		t.Fatalf("registration unexpectedly granted view: %d %s", got.Code, got.Body.String())
+	}
+	if e = db.DB.QueryRow(ctx, `SELECT count(*) FROM cmdb_resources WHERE name='Registered only'`).Scan(&count); e != nil || count != 1 {
+		t.Fatalf("registration count=%d err=%v", count, e)
+	}
 	if e = db.DB.QueryRow(ctx, "SELECT count(*) FROM management_audit WHERE action='resource.created'").Scan(&count); e != nil || count != 1 {
 		t.Fatalf("audit missing: %d %v", count, e)
 	}

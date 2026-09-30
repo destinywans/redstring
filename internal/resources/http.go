@@ -301,28 +301,11 @@ func (s *Service) Register(api *httpapi.Server) {
 		if !httpapi.Decode(w, r, &in) {
 			return
 		}
-		id, e := s.create(r.Context(), in)
+		receipt, e := s.create(r.Context(), in)
 		if e != nil {
 			httpapi.AuthorizationError(w, e)
 			return
 		}
-		u := httpapi.CurrentUser(r)
-		ids, e := api.VisibleApplicationIDs(r.Context(), u)
-		if e != nil {
-			httpapi.AuthorizationError(w, e)
-			return
-		}
-		rows, e := s.visible(r.Context(), ids, true, "")
-		if e != nil {
-			httpapi.AuthorizationError(w, e)
-			return
-		}
-		for _, v := range rows {
-			if v.ID == id {
-				httpapi.WriteJSON(w, 201, v)
-				return
-			}
-		}
-		httpapi.AuthorizationError(w, store.ErrNotFound)
+		httpapi.WriteJSON(w, 201, receipt)
 	})
 }

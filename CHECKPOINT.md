@@ -1,3 +1,20 @@
+## CP-244 · 2026-10-01 · 单接口延迟稳定复现，限定读授权往返修复继续
+
+- 同bee/实际cf9/exact-base的唯一原25RPS300s稳定复验 **be0ab384-8b76-4e92-8d53-1723203007c4** 于 **23:44:12→23:50:38Z** 完成。实际 **300.412s/7501请求/0error0drop**，Inbox1500次 **P95 541.126/P99 657.201ms**，仍越原纯DB500/2000门槛；DBmix421.311/548.391、Groups555.076/674.405通过。SSE50正常10慢读、60秒重连、quiet60资源恢复及数据一致性全部通过。source始末bee。仅原单阶段诊断，不能代正式两档18分钟或连续24h。
+- root新增独立失败case **6780d1a5-d02c-4790-870d-90fe1cef4fb4**/证据 **6b39506c-391b-4de7-8270-818553d8bb36**，原mixed通过attempt不覆写。终态 **failed9P1F1B**，三报告已导出；原b9失败仍11P1F1B保持。两次越线不当作噪声，也不能靠重试绿覆盖失败。
+- 私有repeat recipe SHA49b81210经XHigh只读及6项离线ownedPG不可变ID守卫验证；实际9点新增host aggregate top-n0和每次重新核exact owner/image/ID的PG stats/cgroup，缺backend goroutines/heap明确。host idle8.64–22.79%，PG119.81–163.77%（2CPU配额）；271.254s实际采样区间usage增325.927CPU秒、nr_throttled增38、throttled增3.489秒。PGactive1–2/0wait/0lock。数值提供资源证据，**不能确定唯一原因或自行停止其他项目**。
+- 自主选择并记录：继续WAN163的最小限定list/view授权入口，将原两次fresh RBAC EXISTS合为一条当前statement，避免每100scope多100次往返；新可选Service.AuthorizeListTx仅实际guard/view显式接线使用，普通Authorize/WithTx/Claim/写与Team fallback保持原实现。锁、actor/session、逐scope binding/mapping/team/权限、等待后及末尾PG wallclock、Policy外部后fresh tx不可省。不缓存授权，不放宽阈值/负载/权限。不宣称收益已验证。
+- High独占rbac/v3_policy.go、v3events/events.go字段、alert_authority.go、cmd/aiops/v3.go限定wiring及必要targeted tests：可执行隔离PG首红→最小修→定向PG/race；root后续相关模块回归、XHigh只读复审、scoped提交推送、真实新非race API、正式入口和原负载复验。**当前零active负载/24h未开始**，禁止重复run/seed/归档。新Go edits开始后bee只证明上述已完成run，不能冒新源码验收。
+- WAN152/聚合上限、7原生CI/CD暂停、Ollama容量/外部/缺能力及本地主接口余项仍可见高待办；strict58/166+aux18仅已证明normal契约范围，整体未收口。产品前端、业务.env/DB、其他项目/集群/通知不触及；.claude保留，未合并部署。
+
+## CP-243 · 2026-10-01 · 混合延迟通过，但Inbox单路径仍越线
+
+- 固定原诊断 **b9c56ab7-b99a-47e4-9880-c188063346ff** 23:15:08→23:28:41Z结束，Go始末bee/实际binarycf9未变。三原阶段120/300/300完整执行，SSE50/10/60重连、实际quiet60资源恢复和数据一致性全部passed。25实际 **300.416s/7501/0error/0drop**，DBmix P95**419.572**/P99518.506通过，Groups aggregate511.526/627.986通过；但Inbox1500样本P95**510.716>500**/P99623.283仍未达到单个纯DB接口目标。
+- 不让快速接口混合掩盖Inbox。原k6混合stage/diagnostic.summary passed attempts保持；root按原计划单接口门槛**新增独立失败case perf.inbox.per_route_gate**，证据 **d836e003-d183-4034-8069-d65a127b7fe1**/private first-failures/wan163-inbox-postfix-route-red.json，原run最终 **failed11P/1F/1B**（home限额block保持）。报告3格式已导出。WAN163不能称性能已修，**完整两档及24h均未开始**。
+- High独立只读raw/resources/wiring：10资源点PGactive1–4/25conn/0waiting-lock；GoCPU13.1–51.4%/RSS89–147MiB，缺host/Docker/PGCPU，不归因10ms噪声或闲置GitOps。cmd/v3.go795–801确每scope调用rbac.AuthorizeWithTx，v3_policy.go96/100两个freshEXISTS。下一步先同bee/exactbase/原25RPS300s有界稳定复验，补host aggregate与ownedPG CPU/quota；若稳定失败才评估两个当前policyEXISTS单statement，不缓存policy/team、不放宽阈值/锁/身份。现公共helper影响无锁与write，不能广泛改。
+- root准备私有fixed recipe `.local/testlab/wan163-rps25-repeat.py`/manifest，复用诊断取消、自身+原helper冻结、相同50/10/60SSE/恢复一致性，只一原25阶段300s，twoformal=false、显式不代三阶段/两档。top只aggregate-n0，stats/cgroup仅exactownedPG，缺项明示；原helpers/Go/config不编辑。目前**未执行**，XHigh只读审查中。无active负载，不重档/seed/重启API/停任何组件；旧runner22165/caffeinate22574已随结束失效，不能按PID信号。
+- XHigh最后raw复核core0b62 71P/61HTTP/零duplicate、cleanup及strict主58/166+aux18准确，原8e失败/151bae外部待办不改；只是相应normal响应契约，空200或合成audit不代业务/权威。整体未收口，高待办/WAN152/暂停7CI-CD/外部缺实现仍留，无前端/合并部署、.claude保留。
+
 ## CP-242 · 2026-10-01 · 新源固定原负载诊断运行中
 
 - 核心测试包及新源证明记录 **1df24a755cbc3005919956c0d31a9af5235745e1** 已推送并精确远端回读；Go bee/实际binarycf9/runtime338未变。WAN138/163和原51文档同步了312/239+1external/71、严格主58/166及首红闭环；未合并部署。

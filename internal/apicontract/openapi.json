@@ -9092,7 +9092,7 @@
       "get": {
         "summary": "Read persisted incident facts and manual notes",
         "operationId": "get_incidents_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Resolves either a persisted alert occurrence or a human-confirmed case under current V3 application, environment, owner-team, session and events.view authorization in one transaction. Case details include exact linked alert IDs, human-entered impact/commander with provenance, creation time, and nullable alert-only facts; every link and optional investigation is checked against the persisted application/environment. Existing alert-occurrence details retain their earlier partial contract. More than 500 notes, over 64 links, or inconsistent persisted references fail closed. The frozen page still assumes non-null duration, stage and SLO impact, so page acceptance is pending.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Resolves either a persisted alert occurrence or a human-confirmed case under current V3 application, environment, owner-team, session and events.view authorization in one transaction. Case details include exact linked alert IDs, human-entered impact/commander with provenance, creation time, separate status_revision and a real resolved status event/time when present; a preexisting resolved case with no transition evidence keeps these source fields null. Every link and optional investigation is checked against the persisted application/environment. Existing alert-occurrence details retain their earlier partial contract. More than 500 notes, over 64 links, or inconsistent persisted references fail closed. The frozen page still assumes non-null duration, stage and SLO impact, so page acceptance is pending.",
         "responses": {
           "200": {
             "description": "Success",
@@ -34009,6 +34009,171 @@
         ]
       }
     },
+    "/incidents/{id}/status": {
+      "post": {
+        "summary": "Record a human incident case status transition",
+        "operationId": "post_incidents_id_status",
+        "description": "Minimum role: operator. V3 instance and environment scope apply. Auxiliary governance-only write for a durable human-confirmed INC-* case, not an alert occurrence or infrastructure action. Requires current human session, selected environment, application and owner-team scope, and events.view plus events.change. The case status_revision is an optimistic token: active may become mitigated or resolved; mitigated may become resolved; resolved is terminal. A new transition, immutable event and audit commit atomically; only a real resolved event can anchor a postmortem. Same actor/request_id and body retries return 200 with the historical event and separately labeled current status/revision after reauthorization; changed payload conflicts, stale revision returns 412. The frozen frontend has no status request binding.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3IncidentCaseStatusResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Exact idempotent replay; event is historical while current fields reflect the locked case",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3IncidentCaseStatusResult"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "Case status_revision changed; refresh the case before retrying",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "incidents"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "mitigated",
+                      "resolved"
+                    ]
+                  },
+                  "expected_revision": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "request_id": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "status",
+                  "expected_revision",
+                  "request_id"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
     "/alert-rules": {
       "get": {
         "summary": "Read complete authorized alert rule summaries",
@@ -39397,7 +39562,7 @@
       "post": {
         "summary": "Create a governed incident postmortem",
         "operationId": "post_postmortems",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires a single selected environment, source_close_event_seq from GET /postmortems/draft, and current events:view plus knowledge:manage on the incident application or its persisted owner team. A missing or invalid source sequence returns 422 and requires re-preview. The write transaction locks current session, role sources, application/environment mapping, incident, investigation, report and selected close event. A changed source state or a different current close event returns 409 and requires re-preview. One postmortem per incident; sections, actions and audit are stored together without executing or notifying. Publishing requires a separate human review.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires a single selected environment and current events:view plus knowledge:manage on the source application or its persisted owner team. GET /postmortems/draft returns source_revision: ops:<close event seq> or case:<resolved status event id>. A case create must submit that exact source_revision; legacy ops create also accepts the existing source_close_event_seq for compatibility. Missing or invalid source identity returns 422; a changed lifecycle revision or closing source returns 409 and requires re-preview. The write locks session, grants, scope and current source, then stores sections, actions, exact source reference and audit together without executing or notifying. A separate human reviewer publishes.",
         "responses": {
           "201": {
             "description": "Success",
@@ -39497,6 +39662,10 @@
                   "incident_id": {
                     "type": "string"
                   },
+                  "source_revision": {
+                    "type": "string",
+                    "pattern": "^(ops|case):[1-9][0-9]*$"
+                  },
                   "source_close_event_seq": {
                     "type": "integer",
                     "minimum": 1
@@ -39524,7 +39693,6 @@
                 "additionalProperties": false,
                 "required": [
                   "incident_id",
-                  "source_close_event_seq",
                   "sections",
                   "actions",
                   "status"
@@ -39549,7 +39717,7 @@
       "get": {
         "summary": "List resolved incidents eligible for a postmortem",
         "operationId": "get_postmortems_candidates",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Only incidents with a persisted closing event and investigation report, no existing postmortem, and current events:view plus knowledge:view on their registered application or owner team. Evidence and duration come from stored records. More than 1000 visible candidates returns 413; unknown source severity returns 503 rather than an invented classification.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Legacy ops incidents require a real investigation.closed event and retained report; human-confirmed cases require a real resolved status event and may have no Canvas. Both require no existing postmortem and current events:view plus knowledge:view on their registered application or owner team. source_revision binds the observed close event or case status event. Case outage duration and investigation evidence remain null/unknown unless independently proven. More than 1000 visible candidates returns 413; unknown severity returns 503 rather than an invented classification.",
         "responses": {
           "200": {
             "description": "Success",
@@ -39800,7 +39968,7 @@
       "get": {
         "summary": "Read an evidence-only postmortem starting point",
         "operationId": "get_postmortems_draft",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract operation. A repeatable snapshot with session and role grant locks uses a resolved incident and the earliest exact persisted close event plus its investigation report. source_close_event_seq identifies the observed closing event and is required by POST /postmortems; saving compares it with the current locked source, returning 409 on change. Impact, root cause and action recommendations remain blank. This does not generate the AI-drafted page. More than 200 timeline rows returns 413.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial evidence-only operation in one authorized repeatable snapshot. Legacy ops incidents require their investigation report and exact investigation.closed event; a human case requires its persisted resolved status event and may have no investigation. source_revision is the exact source token required for case create; ops also returns the existing source_close_event_seq. Source changes return 409 on save and require re-preview. NoCanvas cases have no fabricated report/timeline or outage duration; impact, root cause and recommendations remain blank or unknown. More than 200 real timeline rows returns 413.",
         "responses": {
           "200": {
             "description": "Success",
@@ -39822,10 +39990,16 @@
                           "type": "string"
                         },
                         "window": {
-                          "type": "string"
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         },
                         "duration": {
-                          "type": "string"
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         }
                       },
                       "additionalProperties": false,
@@ -39872,6 +40046,10 @@
                         "$ref": "#/components/schemas/V3PostmortemActionInput"
                       }
                     },
+                    "source_revision": {
+                      "type": "string",
+                      "pattern": "^(ops|case):[1-9][0-9]*$"
+                    },
                     "source_close_event_seq": {
                       "type": "integer",
                       "minimum": 1
@@ -39901,7 +40079,7 @@
                     "sections",
                     "timeline",
                     "actions",
-                    "source_close_event_seq",
+                    "source_revision",
                     "draft_mode",
                     "complete_v3_dto",
                     "partial",
@@ -40013,7 +40191,7 @@
       "post": {
         "summary": "Publish a reviewed postmortem",
         "operationId": "post_postmortems_id_publish",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary human review operation requiring scoped knowledge.manage. The author cannot publish their own report; the resolved incident, closed investigation, retained investigation report and saved close event are checked again before publication.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary human review operation requiring scoped knowledge.manage. The author cannot publish their own report. The saved exact legacy investigation close source or human case resolved status event and current source revision are rechecked under authorization before publication; drift returns 409 and requires refresh. This records review and audit locally without external publication.",
         "responses": {
           "200": {
             "description": "Success",
@@ -66595,9 +66773,6 @@
           "alert_started_at": {
             "type": "null"
           },
-          "resolved_at": {
-            "type": "null"
-          },
           "duration": {
             "type": "null"
           },
@@ -66612,6 +66787,24 @@
           },
           "stage": {
             "type": "null"
+          },
+          "resolved_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "resolved_status_event_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
           },
           "created_at": {
             "type": "string",
@@ -66704,6 +66897,8 @@
           "severity",
           "title",
           "status",
+          "status_revision",
+          "resolved_status_event_id",
           "work_status",
           "alert_status",
           "summary",
@@ -66728,6 +66923,98 @@
           "alert_ids",
           "partial",
           "unavailable"
+        ]
+      },
+      "V3IncidentCaseStatusEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "case_id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 2
+          },
+          "from_status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "mitigated"
+            ]
+          },
+          "to_status": {
+            "type": "string",
+            "enum": [
+              "mitigated",
+              "resolved"
+            ]
+          },
+          "actor_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "case_id",
+          "revision",
+          "from_status",
+          "to_status",
+          "actor_id",
+          "reason",
+          "created_at"
+        ]
+      },
+      "V3IncidentCaseStatusResult": {
+        "type": "object",
+        "properties": {
+          "event": {
+            "$ref": "#/components/schemas/V3IncidentCaseStatusEvent"
+          },
+          "current_status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "mitigated",
+              "resolved"
+            ]
+          },
+          "current_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "current_resolved_status_event_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "event",
+          "current_status",
+          "current_revision",
+          "current_resolved_status_event_id",
+          "replayed"
         ]
       },
       "V3ObservedAlertRuleSummary": {
@@ -69835,8 +70122,14 @@
           "resolved": {
             "type": "string"
           },
-          "duration": {
+          "source_revision": {
             "type": "string"
+          },
+          "duration": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "severity": {
             "type": "string",
@@ -69848,8 +70141,17 @@
             ]
           },
           "evidence": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "minimum": 0
+          },
+          "unknown_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "additionalProperties": false,
@@ -69859,7 +70161,7 @@
           "severity",
           "resolved",
           "duration",
-          "evidence"
+          "source_revision"
         ]
       },
       "V3PostmortemSectionInput": {
@@ -69917,11 +70219,17 @@
           "resolved": {
             "type": "string"
           },
-          "duration": {
-            "type": "string"
-          },
           "created_at": {
             "type": "string"
+          },
+          "source_revision": {
+            "type": "string"
+          },
+          "duration": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "severity": {
             "type": "string",
@@ -69943,6 +70251,12 @@
           "action_count": {
             "type": "integer",
             "minimum": 0
+          },
+          "unknown_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "additionalProperties": false,
@@ -69955,7 +70269,8 @@
           "duration",
           "status",
           "created_at",
-          "action_count"
+          "action_count",
+          "source_revision"
         ]
       },
       "V3KnowledgeSearchHit": {

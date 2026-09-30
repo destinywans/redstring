@@ -52,6 +52,8 @@ func (s *Service) RegisterNew(api *httpapi.Server) {
 	api.MarkV3ObjectRoute("GET /api/v1/incidents/draft", "events", "view")
 	api.Register("POST /api/v1/incidents", "operator", s.CreateIncident)
 	api.MarkV3ObjectRoute("POST /api/v1/incidents", "events", "change")
+	api.Register("POST /api/v1/incidents/{id}/status", "operator", s.ChangeIncidentCaseStatus)
+	api.MarkV3ObjectRoute("POST /api/v1/incidents/{id}/status", "events", "change")
 	api.Register("GET /api/v1/alert-groups", "viewer", s.AlertGroups)
 	api.MarkV3ObjectRoute("GET /api/v1/alert-groups", "events", "view")
 	api.Register("GET /api/v1/alert-groups/{id}/policy", "viewer", s.AlertGroupPolicy)
@@ -103,11 +105,14 @@ type caseRecord struct {
 	ID, ApplicationID, EnvironmentID, EnvironmentKey, Title, Severity, Status, ActorID string
 	Impact, CommanderText, InvestigationID                                             *string
 	CreatedAt, UpdatedAt                                                               time.Time
+	StatusRevision                                                                     int64
+	ResolvedStatusEventID                                                              *int64
+	ResolvedAt                                                                         *time.Time
 }
 
 const caseSelect = `SELECT c.id,c.application_id,c.environment_id,c.environment_key,
  c.title,c.severity,c.impact,c.commander_text,c.status,c.actor_id,c.investigation_id,
- c.created_at,c.updated_at
+ c.created_at,c.updated_at,c.status_revision,c.resolved_status_event_id,c.resolved_at
  FROM v3_incident_cases c
  JOIN application_environments e ON e.id=c.environment_id AND e.application_id=c.application_id
    AND e.key=c.environment_key AND NOT e.archived
@@ -119,14 +124,17 @@ func scanCase(row pgx.Row) (caseRecord, error) {
 	var v caseRecord
 	err := row.Scan(&v.ID, &v.ApplicationID, &v.EnvironmentID, &v.EnvironmentKey,
 		&v.Title, &v.Severity, &v.Impact, &v.CommanderText, &v.Status,
-		&v.ActorID, &v.InvestigationID, &v.CreatedAt, &v.UpdatedAt)
+		&v.ActorID, &v.InvestigationID, &v.CreatedAt, &v.UpdatedAt,
+		&v.StatusRevision, &v.ResolvedStatusEventID, &v.ResolvedAt)
 	return v, err
 }
 
 func validCase(v caseRecord) bool {
 	if v.ID == "" || v.ApplicationID == "" || v.EnvironmentID == "" || v.EnvironmentKey == "" ||
 		v.ActorID == "" || strings.TrimSpace(v.Title) == "" || v.CreatedAt.IsZero() || v.UpdatedAt.IsZero() ||
-		v.UpdatedAt.Before(v.CreatedAt) {
+		v.UpdatedAt.Before(v.CreatedAt) || v.StatusRevision < 1 ||
+		(v.ResolvedStatusEventID == nil) != (v.ResolvedAt == nil) ||
+		(v.ResolvedStatusEventID != nil && v.Status != "resolved") {
 		return false
 	}
 	switch v.Severity {

@@ -28,7 +28,8 @@ func TestValidateCreateInput(t *testing.T) {
 		t.Fatal("valid draft rejected")
 	}
 	for _, change := range []func(*CreateInput){
-		func(v *CreateInput) { v.SourceCloseEventSeq = 0 },
+		func(v *CreateInput) { v.SourceCloseEventSeq = -1 },
+		func(v *CreateInput) { v.SourceRevision = "invalid" },
 		func(v *CreateInput) { v.Status = "published" },
 		func(v *CreateInput) { v.IncidentID = "" },
 		func(v *CreateInput) { v.Sections = nil },

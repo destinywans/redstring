@@ -52,26 +52,19 @@ type summaryItem struct {
 	IncidentID     string  `json:"incident_id"`
 }
 
-const summarySQL = `SELECT pm.id,pm.incident_id,pm.status,pm.created_by,
- i.application_id,COALESCE(a.owner_team_id,''),e.key,i.title,i.severity,i.starts_at,closed.created_at,
+const summarySQL = postmortemSources + ` SELECT pm.id,pm.incident_id,pm.status,pm.created_by,
+ s.application_id,s.team_id,s.environment_id,s.title,s.severity,s.started_at,
+ CASE WHEN pm.source_kind='ops' THEN saved_close.created_at ELSE saved_case.created_at END,
  pm.sections,pm.actions,pm.created_at
- FROM v3_postmortems pm
- JOIN ops_incidents i ON i.id=pm.incident_id AND i.application_id=pm.application_id
-   AND i.investigation_id=pm.investigation_id
- JOIN applications a ON a.id=pm.application_id AND NOT a.archived
- JOIN application_environments e ON e.id=i.environment_id AND e.application_id=pm.application_id
-   AND e.key=pm.environment_id AND NOT e.archived
- JOIN v3_application_environments ve ON ve.application_id=pm.application_id AND ve.environment_id=pm.environment_id
- JOIN events closed ON closed.seq=pm.close_event_seq AND closed.investigation_id=pm.investigation_id
-   AND closed.type='investigation.closed'
- WHERE pm.environment_id=ANY($1::text[])
-   AND ($2::timestamptz IS NULL OR (pm.created_at,pm.id)<($2::timestamptz,$3::text))
- ORDER BY pm.created_at DESC,pm.id DESC LIMIT 256
- FOR SHARE OF pm,i,a,e,ve,closed`
+ ` + recordSourceFrom + `
+ WHERE ` + validRecordedSource + ` AND pm.environment_id=ANY($1::text[])
+ AND ($2::timestamptz IS NULL OR (pm.created_at,pm.id)<($2::timestamptz,$3::text))
+ ORDER BY pm.created_at DESC,pm.id DESC LIMIT 256 FOR SHARE OF pm`
 
 type summaryRow struct {
 	id, incident, status, author, app, team, env, title, rawSeverity string
-	started, closed, created                                         time.Time
+	started                                                          *time.Time
+	closed, created                                                  time.Time
 	sections, actions                                                []byte
 }
 
@@ -164,10 +157,10 @@ func (s *Service) Summary(w http.ResponseWriter, r *http.Request) {
 				unknownSeverity = true
 			}
 			var visibleDuration *string
-			if !v.closed.Before(v.started) {
-				value := duration(v.started, v.closed)
+			if v.started != nil && !v.closed.Before(*v.started) {
+				value := duration(*v.started, v.closed)
 				visibleDuration = &value
-				resolutionSeconds += v.closed.Sub(v.started).Seconds()
+				resolutionSeconds += v.closed.Sub(*v.started).Seconds()
 				validDurations++
 			} else {
 				unknownDuration = true

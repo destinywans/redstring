@@ -158,7 +158,7 @@
 | GET | `/services/{id}/peek` | | 当前有权服务的持久身份/档案；健康、KPI、值班和变更未知字段可空 | implemented |
 | GET | `/people/{name}/peek` | | 当前有权真人账号与资料职务；值班和负载未知字段可空 | implemented |
 | GET | `/incidents` | `status: active\|resolved\|all` | `{ items, counts }` | implemented |
-| GET | `/incidents/{id}` | | 当前授权的持久事件及人工时间线；时长、影响与系统/AI 时间线未知 | implemented |
+| GET | `/incidents/{id}` | | 当前授权的持久事件及人工时间线；手工事件另给状态修订与真实解决事件/时间，时长、指标与系统/AI 时间线未知 | implemented |
 | POST | `/incidents/{id}/timeline` | `{ text }` | 时间线条目 | implemented |
 | GET | `/alert-rules` | | `AlertRuleSummary[]` 与完整可见范围的 `all/firing/scheduled` 计数；仅展示服务端按 Prometheus 规则文件和组明确绑定到应用、标签和环境均匹配，且当前应用或其负责团队有 `alert_rules.view` 的规则；上游读取后复核负责人和授权，范围变化不返回旧列表。来源失败或超限明确报错，不返回部分计数；无可信周期来源时 `scheduled=0` | implemented |
 | GET | `/alert-rules/{id}` | | 当前受权 Prometheus 规则详情；编辑、通知和 AI 字段未知时可空 | implemented |
@@ -207,7 +207,7 @@
 | GET | `/runbooks/{id}` | | 当前授权的结构化 Runbook；用量、事件关联与执行核验未知时可空 | implemented |
 | POST | `/runbooks/{id}/dry-run` | 当前对象需 `knowledge.manage`；验证持久化步骤并保存预览/审计，不执行外部动作 | 演练结果 | implemented |
 | POST | `/runbooks/{id}/submit` | 当前持久化草稿，无请求体 | 提交审核 | implemented |
-| GET | `/postmortems` | `tab?`, `q?`, `page?`, `page_size?` | 当前受权的持久复盘及有来源的结案时长；其他趋势、影响与跟进未知 | implemented |
+| GET | `/postmortems` | `tab?`, `q?`, `page?`, `page_size?` | 当前受权的旧事故或已解决手工事件复盘；无可信事故时长、趋势、影响与跟进时明确未知 | implemented |
 | GET | `/memory` | `service?` | 当前受权、发布来源锚定的事实与真实冲突；置信度、召回和过期未知时可空 | implemented |
 | POST | `/memory/facts/{id}/{action}` | `action: confirm\|reject\|expire` | `{ fact, fact_redacted, partial, unavailable_fields }`；清理旧来源时事实正文脱敏 | implemented |
 | POST | `/memory/conflicts/resolve` | `{ keep, drop }`；均为真实事实 ID | `{ id, state, keep, drop }` | implemented |
@@ -216,7 +216,7 @@
 
 知识治理另有证据与人工审核辅助接口，详见 [V3 后端辅助接口](v3-backend-aux.md)。`GET /knowledge-sources` 与辅助 `registered-evidence` 读取当前有权来源登记和最近经版本、正文哈希、作用域及读取观察核对的证据；Git Markdown、Confluence、Notion 和飞书 Docx 必须仍匹配当前精确服务端绑定，本人上传须仍有原文件。主 GET 现提供完整的可空证据 DTO，`partial: true` 描述证据覆盖范围，不表示响应缺字段；连接健康、持续同步、片段与向量索引仍未知，不能从零或空值推断健康。最终返回前复核会话、来源和授权；前端仍假定确定连接与索引值，页面未验收。`GET /runbooks` 在同一事务快照中锁定当前会话与角色授权来源，逐项核文档环境、应用、团队及对象权限后过滤、计数与分页；至多接受 10000 条可见匹配。未记录核验时间时 `stale` 为 `null` 且计入 `verification_unknown`，引用、处置率、KPI 与建议保持可空。`GET /runbooks/{id}` 在同样的授权快照中读取结构化步骤、修订与已记录批准：隐藏或非 Runbook 为 404，有权旧文档缺结构化记录为 `503 structured_steps_unavailable`；用量、事件关联、待审人员与执行核验缺可信来源时返回可空字段及 `unknown_fields`，不补零。两条主 GET 均只按本阶段后端真实来源与诚实未知口径计为 `implemented`，`complete_v3_dto=false` 和 `partial=true` 明确冻结页面 DTO 未闭合、页面未验收；`last_verified_at` 仅是记录时间，不证明执行成功。`GET /memory` 现从当前有权、仍发布且版本/正文锚定的持久事实投影服务与工作区计数及双方可见的人工记录冲突；`confidence`、`recalls`、`expires`、`policy` 为 `null`，不推断工作、情景或语义召回。超过有界事实/冲突数返回 413，来源或授权不可用返回 503；冻结页面仍按非空 Mock 类型渲染，需另行适配，详见[记忆主视图证据边界](v3-memory-view.md)。事实状态操作仅支持 `confirm`、`reject`、`expire`，冲突裁决须传入两个真实事实 ID；写入在事务中复核会话、当前授权、来源版本与对象归属并保存审计。清理陈旧来源的 `reject/expire` 回包脱敏，`confirm` 和冲突裁决要求当前发布来源。两条写路由按后端接口标为 `implemented`；现有前端的 `forget`、冲突请求体和整个记忆页仍未对齐，`GET /memory` 继续 `mock`。
 
-`GET /postmortems` 在当前会话、环境、事件及知识权限下读取持久复盘、对应旧事故和实际结案事件；可计算可见复盘数及有结案证据的时长。根因类别、跨服务影响、行动完成率、MTTA 与趋势缺来源时列为 `unknown_fields`，空集合不表示测得为零；超过 1000 条可见复盘返回 413。它与草稿 GET 只按后端来源、权限和诚实未知字段计 `implemented`，`complete_v3_dto=false`，冻结仪表盘仍未验收。新建的独立人工事件尚未具备解决转移和复盘候选路径。
+`GET /postmortems` 在当前会话、环境、事件及知识权限下读取持久复盘、对应旧事故的调查结案事件或手工事件的真实 resolved 状态事件；可计算可见复盘数，只有旧事故具备可信结案时长时才展示时长。根因类别、跨服务影响、行动完成率、MTTA 与趋势缺来源时列为 `unknown_fields`，空集合不表示测得为零；超过 1000 条可见复盘返回 413。它与草稿 GET 只按后端来源、权限和诚实未知字段计 `implemented`，`complete_v3_dto=false`，冻结仪表盘仍未验收。手工事件现有带修订及真实操作者/时间的治理状态转移，resolved 来源可进入候选、草稿、创建、读取与独立审核发布；无 Canvas 的事件不补造调查报告或事故时长。
 
 V3 知识正文读取按持久环境、有效应用与当前授权失败关闭；带 `team_id` 的文档还要求该值与应用当前负责人一致并有团队查看权限。历史 `knowledge_documents` 中标记了 `source_registration_id` 的来源文档在来源证明链闭合前不参加 V3 检索或来源投影。另设的公开 Web 正文/修订表只接受有持久应用归属、无凭据的单页 HTTPS Markdown 同次抓取；关键词检索在候选及输出前复核最新观察、内容哈希、修订和当前环境/应用/团队授权；不进入旧文档详情/导出或向量索引。可选的 `search_knowledge` Agent 证据组件尚未在正式进程注册；V3 实例关闭旧 Worker，不能把旧检索工具当作当前 V3 调用路径。其他来源正文同步、索引归属与完整页面 DTO 仍待接入。
 
@@ -274,9 +274,9 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | POST | `/inhibitions` | 单环境、`application_id`、`{ source, target, equal }`、`Idempotency-Key` 与 GET 强 ETag 的 `If-Match`；P1 不允许 | `202 pending_review`、本地草稿及经核对的 GitLab MR；不激活规则 | implemented |
 | GET | `/runbooks/draft` | `source: template\|postmortem\|conversation\|import`, 必需 `from` | 有界、来源可核的确定性大纲及 `source_sha256`；不是 AI 生成或已核实操作步骤 | implemented |
 | POST | `/runbooks` | `{ title, source, from?, expected_source_sha256?, steps, status: draft\|review }`；非空白来源必需引用，空白来源不得填写 | `{ id }`；来源变更 409，写动作步骤必需 `approval`，不发布或执行 | implemented |
-| GET | `/postmortems/candidates` | | 有真实结案证据、尚无复盘且当前有权访问的事件；含实际证据数与持续时长 | implemented |
-| GET | `/postmortems/draft` | 必需 `incident`：当前受权且有结案事件的旧事故 ID | 结案事实和时间线构成的部分草稿，返回 `source_close_event_seq`；根因、影响与行动留空待人填写 | implemented |
-| POST | `/postmortems` | `{ incident_id, source_close_event_seq, sections, actions, status: draft\|review }` | `{ id }`；同事务复核草稿所见结案事件，变化时 409 要求重预览；写入复盘与审计，不触发外部动作 | implemented |
+| GET | `/postmortems/candidates` | | 旧事故的调查结案事件或手工事件的真实 resolved 状态事件；尚无复盘且当前受权，返回精确 `source_revision`，缺失时长/证据为未知 | implemented |
+| GET | `/postmortems/draft` | 必需 `incident`：当前受权且有真实解决来源的旧事故或手工事件 ID | 证据型部分草稿与精确 `source_revision`；旧事故另有 `source_close_event_seq`，无 Canvas 手工事件不虚构调查报告或调查事件时间线 | implemented |
+| POST | `/postmortems` | `{ incident_id, source_revision?, source_close_event_seq?, sections, actions, status: draft\|review }`；手工事件必需 `source_revision`，旧事故仍接受结案序号 | `{ id }`；同事务复核精确解决来源及修订，变化时 409 要求重预览；写入复盘与审计，不触发外部动作 | implemented |
 | POST | `/knowledge-sources/test` | `{ type, url, secret_ref?, application_id, team_id?, spaces? }`；`type` 限受支持的公开 Web Markdown、绑定 GitLab Markdown/Confluence/Notion/飞书 Docx 或本人上传文本 | 即时受限只读探测；不证明持续健康、同步或索引 | implemented |
 | POST | `/knowledge-sources` | `{ name, type, url, secret_ref?, application_id, team_id?, spaces, schedule: "manual", chunk: "heading"\|"fixed", inherit_acl: true }`；类型与探测相同 | `{ id, status }`；登记不自动同步或索引 | implemented |
 
@@ -286,9 +286,9 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 
 规则写入三条主路由原按 `draft` 的条件式后端成功路径计为 `implemented`，新增 `dry_run`、`enabled` 路径不改变主路由计数。草稿导出需要已配置且与配置提升、通知路由及抑制草稿隔离的 GitLab 目标和固定 `aiops-alert-rule-drafts/` 分支前缀；外部写入期间保持当前会话、应用授权和草稿操作锁，结果不确定时保留同身份对账。导出的是待人工审阅的不可部署 JSON，不合并、不写入生效 Prometheus 或 GitOps YAML。YAML 导入支持页面的 `{yaml}` 请求，但规则须自带一致的应用、环境和严重级别标签；省略幂等键时仅对未完成操作及来源身份未变的近五分钟完成操作保留重放。页面示例缺必需标签，“解析”按钮实际会持久写入，随后“导入为草稿”没有第二次服务端请求，页面未验收。正式入口可选接入按应用隔离的 24 小时试运行 worker，以及私有 GitOps 目标、双真人 Passkey 审批和独立启用 worker；配置或 worker 不就绪时失败关闭。`enabled` 提交只产生待审提案，后续执行另经固定目标、批准证明、MR 最终差异、Argo CD 同步及 Prometheus 精确读回；不自动合并或同步。真实隔离端点、GitLab/Argo/Prometheus、现有库迁移与冻结页面均未验收；见[规则写入来源与边界](v3-alert-rule-writes.md)。
 
-`GET /incidents/draft` 要求显式选择 1–20 条当前受权、同应用环境且未关联人工事件的活跃持久告警，按事实预填标题和最高严重度；影响、指挥官、参与者、作战群与 AI 分析未知。`POST /incidents` 要求人类会话、事件查看和修改权、单一服务与有效 `Idempotency-Key`；独立人工事件、告警关联、可选空白调查与审计在同一事务提交，重试同键同体返回既有结果，不发送外部通知。`war_room`、`notify`、`status_page` 请求在缺执行器时返回 503；`open_canvas` 另须画布查看与修改权。新增 `137_v3_incident_cases.sql` 未在现有库执行，案例相关的既有读取同样依赖它；人工事件目前无状态转移写入，而现有复盘只从已解决的 `ops_incidents` 选择，故不能宣称人工事件到复盘的端到端流程已闭合。冻结页面缺选中告警和幂等键，页面未验收。
+`GET /incidents/draft` 要求显式选择 1–20 条当前受权、同应用环境且未关联人工事件的活跃持久告警，按事实预填标题和最高严重度；影响、指挥官、参与者、作战群与 AI 分析未知。`POST /incidents` 要求人类会话、事件查看和修改权、单一服务与有效 `Idempotency-Key`；独立人工事件、告警关联、可选空白调查与审计在同一事务提交，重试同键同体返回既有结果，不发送外部通知。`war_room`、`notify`、`status_page` 请求在缺执行器时返回 503；`open_canvas` 另须画布查看与修改权。新增 `137_v3_incident_cases.sql` 未在现有库执行，案例相关的既有读取同样依赖它；新增辅助 `POST /incidents/{id}/status` 只处理人工 `INC-*`，以状态修订、稳定请求 ID、当前授权及持久操作者/时间事件约束 active→mitigated/resolved 或 mitigated→resolved；真实 resolved 事件才可成为复盘来源。状态变更不执行基础设施动作；迁移 151/152 尚未在现有业务库执行，运行链路仍未验收。冻结页面缺选中告警和幂等键，页面未验收。
 
-`GET /runbooks/draft` 从已登记代码模板、已发布复盘、本人已完成对话或本人 Markdown 导入生成有界、来源可核的确定性大纲；模板在人工补充前没有操作步骤。来源文本作为不可信数据，响应 `source_sha256` 可供后续保存时比较，不能证明 AI 生成或恢复操作正确。`POST /runbooks` 在同一事务重核精确会话、单环境、当前知识管理权、来源状态与可选摘要；来源变化返回 409，初版、结构化步骤、来源快照、修订历史与审计原子提交，动作步骤必须要求人工批准，创建本身不发布或执行。未审核草稿只向维护者开放，review 向当前知识管理员开放；旧 Knowledge 和 Memory 读写入口同时以 `runbook://v3/` 来源前缀及持久 Runbook 关联阻断旁路，来源字段被旧路径改写亦不能绕过。冻结新建页缺 `from`、来源摘要及编辑步骤/动作请求绑定，页面未验。`GET /postmortems/draft` 在同一授权快照中读取有结案事件的旧事故及有界时间线，影响、根因、行动建议留给人填写，不是 AI 生成稿；响应携带精确结案事件序号。后续 `POST /postmortems` 必须提交该 `source_close_event_seq`，缺失返回 422，当前结案来源变化返回 409 并要求重预览。按本阶段后端判据计 `implemented`，冻结页面未验收。
+`GET /runbooks/draft` 从已登记代码模板、已发布复盘、本人已完成对话或本人 Markdown 导入生成有界、来源可核的确定性大纲；模板在人工补充前没有操作步骤。来源文本作为不可信数据，响应 `source_sha256` 可供后续保存时比较，不能证明 AI 生成或恢复操作正确。`POST /runbooks` 在同一事务重核精确会话、单环境、当前知识管理权、来源状态与可选摘要；来源变化返回 409，初版、结构化步骤、来源快照、修订历史与审计原子提交，动作步骤必须要求人工批准，创建本身不发布或执行。未审核草稿只向维护者开放，review 向当前知识管理员开放；旧 Knowledge 和 Memory 读写入口同时以 `runbook://v3/` 来源前缀及持久 Runbook 关联阻断旁路，来源字段被旧路径改写亦不能绕过。冻结新建页缺 `from`、来源摘要及编辑步骤/动作请求绑定，页面未验。`GET /postmortems/draft` 在同一授权快照中读取旧事故的真实调查结案事件及有界时间线，或手工事件的真实 resolved 状态事件；后一类可以没有 Canvas，不补造报告、时间线或时长。草稿返回 `source_revision`（旧事故另保留 `source_close_event_seq`），影响、根因和行动建议留给人填写，不是 AI 生成稿。`POST /postmortems` 对手工事件必须提交精确 `source_revision`；旧事故兼容结案序号。来源修订或生命周期变化返回 409，要求重预览；缺失/无效来源参数返回 422。按本阶段后端判据计 `implemented`，冻结页面未验收。
 
 公开 Web 来源只支持持久应用绑定、无凭据单页 HTTPS Markdown 的即时探测、登记及手动观察；V3 实例须显式设置 `AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true`，未开启时相应读取返回 501。Git Markdown 只支持服务端配置的精确 GitLab HTTPS 仓库、数字项目、分支和 Markdown 路径前缀，凭据由 Vault 绑定读取；`/knowledge-sources/test` 先检查提交的应用/团队身份和当前授权再读取凭据，登记保存不含密钥的绑定指纹，手动同步将固定提交 SHA 的正文与证据一同持久保存，配置漂移、上游失败和读取后撤权均拒绝，详见 [Git Markdown 来源边界](v3-git-markdown-source.md)。Confluence 与 Notion 通过服务端精确环境/应用/团队、空间或页面、只读 API 与 Vault 绑定读取，详见[受限来源边界](v3-confluence-notion-sources.md)。飞书只读来源限服务端精确绑定的一篇 Docx，固定调用 `open.feishu.cn` 并比较两次文档修订，Wiki 目录/子页不在范围内，详见[飞书 Docx 边界](v3-feishu-source.md)。上传来源只接受当前本人、当前环境、服务器保存的原始 UTF-8 文本文件；登记和手动同步重核版本及授权，撤销原文件会删除其私有正文副本，详见[上传来源边界](v3-upload-source.md)。六类来源的探测只说明当次可读，登记不自动同步，手动读取证据不表示向量索引、持续连接或完整来源页。主 POST 两行按后端接口标准计入；主 GET 仍是部分 DTO，连接/同步/索引未知。冻结创建页真实模式目前只开放 Web/Git Markdown，Feishu 文案写 Wiki 且其余类型缺必需应用/团队请求与上传选择；真实 GitLab/Confluence/Notion/Feishu/Vault、浏览器和索引生产者尚未联调。
 

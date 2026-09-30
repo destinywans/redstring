@@ -189,7 +189,10 @@ S['V3IncidentCaseDetail'] = obj({
     'source_id':{'type':'null'},'severity':string(enum=['P1','P2','P3','P4']),
     'status':string(enum=['active','mitigated','resolved']),
     **{name:{'type':'null'} for name in ['work_status','alert_status','summary','alert_started_at',
-        'resolved_at','duration','duration_basis','assignee_id','assignee','stage']},
+        'duration','duration_basis','assignee_id','assignee','stage']},
+    'resolved_at':{'type':['string','null'],'format':'date-time'},
+    'status_revision':integer(minimum=1),
+    'resolved_status_event_id':{'type':['integer','null'],'minimum':1},
     'created_at':string(format='date-time'),'updated_at':string(format='date-time'),
     'commander':{'type':['string','null']},
     'commander_provenance':string(enum=['unknown','human_confirmed']),
@@ -202,13 +205,13 @@ S['V3IncidentCaseDetail'] = obj({
     'alert_ids':{'type':'array','minItems':1,'maxItems':64,'items':string()},
     'partial':v3_bool(),'unavailable':arr(string())},
     ['id','record_kind','application_id','environment_id','environment_key','source_id','severity','title',
-     'status','work_status','alert_status','summary','created_at','alert_started_at','updated_at',
+     'status','status_revision','resolved_status_event_id','work_status','alert_status','summary','created_at','alert_started_at','updated_at',
      'resolved_at','duration','duration_basis','assignee_id','assignee','commander',
      'commander_provenance','stage','timeline','timeline_scope','impact','impact_provenance',
      'roles','links','investigation_id','alert_ids','partial','unavailable'])
 v3_route('get','/incidents/{id}','Read persisted incident facts and manual notes',
     response={'oneOf':[ref('V3IncidentDetail'),ref('V3IncidentCaseDetail')]},
-    desc='Resolves either a persisted alert occurrence or a human-confirmed case under current V3 application, environment, owner-team, session and events.view authorization in one transaction. Case details include exact linked alert IDs, human-entered impact/commander with provenance, creation time, and nullable alert-only facts; every link and optional investigation is checked against the persisted application/environment. Existing alert-occurrence details retain their earlier partial contract. More than 500 notes, over 64 links, or inconsistent persisted references fail closed. The frozen page still assumes non-null duration, stage and SLO impact, so page acceptance is pending.')
+    desc='Resolves either a persisted alert occurrence or a human-confirmed case under current V3 application, environment, owner-team, session and events.view authorization in one transaction. Case details include exact linked alert IDs, human-entered impact/commander with provenance, creation time, separate status_revision and a real resolved status event/time when present; a preexisting resolved case with no transition evidence keeps these source fields null. Every link and optional investigation is checked against the persisted application/environment. Existing alert-occurrence details retain their earlier partial contract. More than 500 notes, over 64 links, or inconsistent persisted references fail closed. The frozen page still assumes non-null duration, stage and SLO impact, so page acceptance is pending.')
 v3_route('post','/incidents/{id}/timeline','Append a durable incident note',
     role='operator',body=obj({'text':string()},['text']),response=ref('V3IncidentTimelineEntry'),status=201,
     desc='Human-confirmed cases accept manual notes under current V3 events.change, application/environment/team and session locks. The note, case updated_at and audit commit atomically; linked alert occurrences are not mutated. The historical alert-backed path retains its existing behavior.')
@@ -216,6 +219,35 @@ v3_route('get','/incidents/{id}/timeline/manual','Read persisted human incident 
     response=obj({'items':{'type':'array','items':ref('V3IncidentTimelineEntry'),'maxItems':500},
         'scope':string(enum=['manual_only'])}, ['items','scope']),
     desc='Auxiliary read outside the 166 V3 page contracts. Resolves either a human-confirmed case or the historical alert occurrence, checks current events.view, and reads manually authored v3_incident_timeline rows. Case reads recheck current application/environment/team, session and grants in one transaction. Items are ordered by persisted created_at and ID; actor names come from current user records. The response contains no inferred system or AI entries, impact, error budget, or complete incident detail. An absent or inaccessible incident returns 404; more than 500 manual entries or storage failure returns 503 without a partial list. This route does not replace GET /incidents/{id}.')
+S['V3IncidentCaseStatusEvent'] = obj({
+    'id':integer(minimum=1),'case_id':string(),'revision':integer(minimum=2),
+    'from_status':string(enum=['active','mitigated']),
+    'to_status':string(enum=['mitigated','resolved']),
+    'actor_id':string(),'reason':{'type':['string','null']},
+    'created_at':string(format='date-time')},
+    ['id','case_id','revision','from_status','to_status','actor_id','reason','created_at'])
+S['V3IncidentCaseStatusResult'] = obj({
+    'event':ref('V3IncidentCaseStatusEvent'),
+    'current_status':string(enum=['active','mitigated','resolved']),
+    'current_revision':integer(minimum=1),
+    'current_resolved_status_event_id':{'type':['integer','null'],'minimum':1},
+    'replayed':v3_bool()},
+    ['event','current_status','current_revision','current_resolved_status_event_id','replayed'])
+v3_route('post','/incidents/{id}/status','Record a human incident case status transition',
+    role='operator',
+    body=obj({'status':string(enum=['mitigated','resolved']),
+        'expected_revision':integer(minimum=1),
+        'request_id':string(minLength=8,maxLength=128,pattern='^[A-Za-z0-9][A-Za-z0-9._:-]*$'),
+        'reason':string(minLength=1,maxLength=2000)},
+        ['status','expected_revision','request_id']),
+    response=ref('V3IncidentCaseStatusResult'),status=201,
+    desc='Auxiliary governance-only write for a durable human-confirmed INC-* case, not an alert occurrence or infrastructure action. Requires current human session, selected environment, application and owner-team scope, and events.view plus events.change. The case status_revision is an optimistic token: active may become mitigated or resolved; mitigated may become resolved; resolved is terminal. A new transition, immutable event and audit commit atomically; only a real resolved event can anchor a postmortem. Same actor/request_id and body retries return 200 with the historical event and separately labeled current status/revision after reauthorization; changed payload conflicts, stale revision returns 412. The frozen frontend has no status request binding.')
+P['/incidents/{id}/status']['post']['responses']['200'] = {
+    'description':'Exact idempotent replay; event is historical while current fields reflect the locked case',
+    'content':{'application/json':{'schema':ref('V3IncidentCaseStatusResult')}}}
+P['/incidents/{id}/status']['post']['responses']['412'] = {
+    'description':'Case status_revision changed; refresh the case before retrying',
+    'content':{'application/json':{'schema':ref('Error')}}}
 S['V3ObservedAlertRuleSummary'] = obj({**fieldnames('id folder name environment_id application_id'),
     'state':string(enum=['firing','pending','ok'])},
     ['id','folder','name','state','environment_id','application_id'])

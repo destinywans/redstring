@@ -136,60 +136,67 @@ v3_route('get','/postmortems','Read scoped persisted postmortem dashboard eviden
         'page':integer(minimum=1),'page_size':integer(minimum=1),'total':integer(minimum=0)},
         ['kpis','items','causes','impact_by_service','followups','complete_v3_dto','partial',
          'unknown_fields','page','page_size','total']),
-    desc='Reads persisted reports, registered incident scope and exact closing event in one repeatable snapshot with current session and role grant locks, then checks events:view and knowledge:view on each object; unpublished reports additionally require the author or knowledge:manage. Visible records supply title, close date, recorded workflow status and action total; invalid severity or duration and absent root text are nullable instead of blocking other valid reports. The unknown cause category is labeled Unknown, never inferred from prose. KPI values count visible reports and mean resolution time only for valid reported durations; time series have no producer and remain null. Cause categories, action completion, impact minutes, MTTA and recurrence lack producers, so those collections are null and complete_v3_dto=false. This partial main-route response does not meet the frozen dashboard DTO. More than 1000 visible records returns 413.')
+    desc='Reads persisted reports and their exact legacy investigation close or manual case resolved status event in one repeatable snapshot with current session and role grant locks, then checks events:view and knowledge:view on each object; unpublished reports additionally require the author or knowledge:manage. Visible records supply title, real source event date, recorded workflow status and action total. A manual case has no proven outage duration, so duration stays null and dashboard duration coverage is unknown. Invalid severity or absent root text are nullable rather than blocking other valid reports. The unknown cause category is labeled Unknown, never inferred from prose. KPI values count visible reports and mean resolution time only for valid legacy durations; time series have no producer and remain null. Cause categories, action completion, impact minutes, MTTA and recurrence lack producers, so those collections are null and complete_v3_dto=false. This partial main-route response does not meet the frozen dashboard DTO. More than 1000 visible records returns 413.')
 P['/postmortems']['get']['responses']['413'] = {
     'description':'More than 1000 visible reports exceed the bounded dashboard view',
     'content':{'application/json':{'schema':ref('Error')}}}
-S['V3PostmortemCandidate'] = obj({**fieldnames('id title resolved duration'),
-    'severity':string(enum=['P1','P2','P3','P4']), 'evidence':integer(minimum=0)},
-    ['id','title','severity','resolved','duration','evidence'])
+S['V3PostmortemCandidate'] = obj({**fieldnames('id title resolved source_revision'),
+    'duration':{'type':['string','null']},
+    'severity':string(enum=['P1','P2','P3','P4']),
+    'evidence':{'type':['integer','null'],'minimum':0},
+    'unknown_fields':arr(string())},
+    ['id','title','severity','resolved','duration','source_revision'])
 S['V3PostmortemSectionInput'] = obj(fieldnames('key title text'),['key','title','text'])
 S['V3PostmortemActionInput'] = obj(fieldnames('text owner due'),['text','owner','due'])
-S['V3PersistedPostmortemRecord'] = obj({**fieldnames('id incident_id title resolved duration created_at'),
+S['V3PersistedPostmortemRecord'] = obj({**fieldnames('id incident_id title resolved created_at source_revision'),
+    'duration':{'type':['string','null']},
     'severity':string(enum=['P1','P2','P3','P4']),
     'status':string(enum=['draft','review','published']),
-    'action_count':integer(minimum=0)},
-    ['id','incident_id','title','severity','resolved','duration','status','created_at','action_count'])
+    'action_count':integer(minimum=0),'unknown_fields':arr(string())},
+    ['id','incident_id','title','severity','resolved','duration','status','created_at','action_count','source_revision'])
 v3_route('get','/postmortems/candidates','List resolved incidents eligible for a postmortem',
     response=obj({'items':arr(ref('V3PostmortemCandidate'))},['items']),
-    desc='Only incidents with a persisted closing event and investigation report, no existing postmortem, and current events:view plus knowledge:view on their registered application or owner team. Evidence and duration come from stored records. More than 1000 visible candidates returns 413; unknown source severity returns 503 rather than an invented classification.')
+    desc='Legacy ops incidents require a real investigation.closed event and retained report; human-confirmed cases require a real resolved status event and may have no Canvas. Both require no existing postmortem and current events:view plus knowledge:view on their registered application or owner team. source_revision binds the observed close event or case status event. Case outage duration and investigation evidence remain null/unknown unless independently proven. More than 1000 visible candidates returns 413; unknown severity returns 503 rather than an invented classification.')
 P['/postmortems/candidates']['get']['responses']['413'] = {
     'description':'More than 1000 visible eligible incidents exceed the unpaged response limit',
     'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('get','/postmortems/records','Read scoped persisted postmortem records',
     query=[v3_query('tab',string(enum=['all','draft','review','published']))],
     response=obj({'items':arr(ref('V3PersistedPostmortemRecord'))},['items']),
-    desc='Auxiliary read-only inventory, not the PostmortemSummary dashboard DTO. Requires current events:view and knowledge:view on each registered incident application or owner team. Returns stored status, close time, duration and action count; no invented cause categories, completion rate or KPI. More than 1000 visible records returns 413.')
+    desc='Auxiliary read-only inventory, not the PostmortemSummary dashboard DTO. Requires current events:view and knowledge:view on each source application or owner team. Returns stored status, real source event time, source_revision and action count; unproven manual-case outage duration is null with unknown_fields. No invented cause categories, completion rate or KPI. More than 1000 visible records returns 413.')
 P['/postmortems/records']['get']['responses']['413'] = {
     'description':'More than 1000 visible persisted records',
     'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('post','/postmortems','Create a governed incident postmortem',
-    body=obj({'incident_id':string(),'source_close_event_seq':integer(minimum=1),
+    body=obj({'incident_id':string(),'source_revision':string(pattern='^(ops|case):[1-9][0-9]*$'),
+        'source_close_event_seq':integer(minimum=1),
         'sections':arr(ref('V3PostmortemSectionInput')),
         'actions':arr(ref('V3PostmortemActionInput')),
         'status':string(enum=['draft','review'])},
-        ['incident_id','source_close_event_seq','sections','actions','status']),
+        ['incident_id','sections','actions','status']),
     response=obj({'id':string()},['id']),status=201,
-    desc='Requires a single selected environment, source_close_event_seq from GET /postmortems/draft, and current events:view plus knowledge:manage on the incident application or its persisted owner team. A missing or invalid source sequence returns 422 and requires re-preview. The write transaction locks current session, role sources, application/environment mapping, incident, investigation, report and selected close event. A changed source state or a different current close event returns 409 and requires re-preview. One postmortem per incident; sections, actions and audit are stored together without executing or notifying. Publishing requires a separate human review.')
+    desc='Requires a single selected environment and current events:view plus knowledge:manage on the source application or its persisted owner team. GET /postmortems/draft returns source_revision: ops:<close event seq> or case:<resolved status event id>. A case create must submit that exact source_revision; legacy ops create also accepts the existing source_close_event_seq for compatibility. Missing or invalid source identity returns 422; a changed lifecycle revision or closing source returns 409 and requires re-preview. The write locks session, grants, scope and current source, then stores sections, actions, exact source reference and audit together without executing or notifying. A separate human reviewer publishes.')
 v3_route('get','/postmortems/draft','Read an evidence-only postmortem starting point',
     query=[v3_query('incident')],
-    response=obj({'incident':obj({**fieldnames('id title severity window duration')},
+    response=obj({'incident':obj({**fieldnames('id title severity'),
+            'window':{'type':['string','null']},'duration':{'type':['string','null']}},
             ['id','title','severity','window','duration']),
         'sections':arr(ref('V3PostmortemSectionInput')),
         'timeline':arr(obj({**fieldnames('at text tone')},['at','text','tone'])),
         'actions':arr(ref('V3PostmortemActionInput')),
+        'source_revision':string(pattern='^(ops|case):[1-9][0-9]*$'),
         'source_close_event_seq':integer(minimum=1),
         'draft_mode':string(enum=['evidence_only']),'complete_v3_dto':{'const':False},
         'partial':{'const':True},'missing':arr(string())},
-        ['incident','sections','timeline','actions','source_close_event_seq','draft_mode',
+        ['incident','sections','timeline','actions','source_revision','draft_mode',
          'complete_v3_dto','partial','missing']),
-    desc='Partial main-contract operation. A repeatable snapshot with session and role grant locks uses a resolved incident and the earliest exact persisted close event plus its investigation report. source_close_event_seq identifies the observed closing event and is required by POST /postmortems; saving compares it with the current locked source, returning 409 on change. Impact, root cause and action recommendations remain blank. This does not generate the AI-drafted page. More than 200 timeline rows returns 413.')
+    desc='Partial evidence-only operation in one authorized repeatable snapshot. Legacy ops incidents require their investigation report and exact investigation.closed event; a human case requires its persisted resolved status event and may have no investigation. source_revision is the exact source token required for case create; ops also returns the existing source_close_event_seq. Source changes return 409 on save and require re-preview. NoCanvas cases have no fabricated report/timeline or outage duration; impact, root cause and recommendations remain blank or unknown. More than 200 real timeline rows returns 413.')
 P['/postmortems/draft']['get']['responses']['413'] = {
     'description':'Incident evidence timeline exceeds 200 events',
     'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('post','/postmortems/{id}/publish','Publish a reviewed postmortem',
     response=obj({'id':string(),'status':string(enum=['published'])},['id','status']),
-    desc='Auxiliary human review operation requiring scoped knowledge.manage. The author cannot publish their own report; the resolved incident, closed investigation, retained investigation report and saved close event are checked again before publication.')
+    desc='Auxiliary human review operation requiring scoped knowledge.manage. The author cannot publish their own report. The saved exact legacy investigation close source or human case resolved status event and current source revision are rechecked under authorization before publication; drift returns 409 and requires refresh. This records review and audit locally without external publication.')
 S['V3KnowledgeSearchHit'] = obj({**fieldnames('title snippet'),
     'keyword':v3_num(),'vector':v3_num(),'score':v3_num()})
 v3_route('post','/knowledge/search','Search scoped knowledge with keyword/vector ranking',

@@ -24,6 +24,7 @@
 | GET | `/api/v1/investigations/{id}/nodes/{node}/messages` | 只读当前持久化分支的 `{ branch_id, revision, messages }`，以持久化调查/应用/环境/所属团队核对当前 `canvas.view`。返回原始历史消息 JSON，旧记录的可选字段（包括 `created_at`）可能缺失，不合成图节点、时间、摘要或模型输出。上下文最大 24 KiB；对象不存在、路径不匹配或无访问权返回 404，当前上下文缺失、过大或损坏返回 503。完整调查图、节点写入和祖先回写仍未接通。 |
 | GET | `/api/v1/canvases/{id}/nodes/{node}/messages` | 私人通用画布节点的持久交换分页读取；`page_size` 1–50，默认 20，不透明游标固定首批排序上界，每页复核本人、环境及 `canvas.view`。不把运行/失败交换补造为完成回复；单次交换超页容量明确返回 413。详见[通用画布历史读取与恢复](v3-canvas-history.md)。 |
 | GET | `/api/v1/incidents/{id}/timeline/manual` | 按当前事件应用/环境及 `events.view` 读取已持久化的人工备注，按保存时间/ID 排序；返回 `{ items, scope: "manual_only" }`，展示姓名取当前成员记录。未知或无权事件 404，超过 500 条或读取故障 503，不返回部分结果。不合成系统/AI 时间线、影响或错误预算，主详情现单独返回部分持久事实，此辅助读取不证明影响和系统/AI 时间线完整。 |
+| POST | `/api/v1/incidents/{id}/status` | 仅人工 `INC-*` 事件的治理状态写入；严格 `{ status, expected_revision, request_id, reason? }`，当前真人会话、单环境、应用/团队与 `events.view`、`events.change` 均须有效。只允许 active→mitigated/resolved 或 mitigated→resolved；新状态事件、版本、真人/时间和审计同事务，原体重试返回历史事件及单列的当前状态。真实 resolved 事件可作为复盘来源；不修改告警或基础设施，不执行外部恢复。详见[手工事件与复盘生命周期](v3-incident-postmortem-lifecycle.md)。 |
 | GET | `/api/v1/connectors/{id}/tool-settings` | 按当前授权环境和 `connectors.view` 读取持久登记的工具开关及本地化目录名称，返回 `{ connector_id, environment_id, connector_enabled, registered_tools, agent_execution_available: false }`。不返回端点、Vault 引用或 Agent 工具能力；未知/越界 ID 返回 404，已存工具与当前目录冲突返回 503，不静默丢弃设置。此辅助读取不使主页面的 PATCH 开关交互完成。 |
 | POST | `/api/v1/mcp-servers/{id}/discover` | 单环境、显式绑定及当前 `connectors.manage` 下发起有界 MCP `tools/list`，无请求体。保存不可变的未信任工具声明快照、版本/摘要和同事务管理审计；响应仅返回快照身份、摘要、数量、时间以及 `approved=false`、`health_verified=false`，不含原始声明、端点或凭据。请求后再核对授权、登记版本/内容和绑定实例。上游失败或声明无效时记录脱敏失败审计并返回 502；发现不授予审核、启用或执行权。 |
 | GET | `/api/v1/mcp-servers/{id}/review-candidate` | 单环境、显式绑定与当前 `connectors.manage` 下读取最新未信任发现快照的工具名称、描述、只读提示、输入 schema 和各自摘要；已完成同版本人工审核时另返回决定与开关修订。初始一致性读取后，在新事务中重新核账号、会话、授权、应用/绑定、最新快照与审核状态，持锁至有界响应写完；失效/变更不披露候选。`trust=untrusted_observation`、`health_verified=false`、`execution_available=false`，没有 Agent 执行权。 |
@@ -45,7 +46,7 @@
 | POST | `/api/v1/runbooks/{id}/reindex` | 单环境、对象级 `knowledge.manage` 下重试已发布 Runbook 的语义索引；请求审计先落库，索引在事务外执行。响应分别给出 `index_status`、`semantic_search_ready` 与 `index_retry_required`；Embedding 失败不撤销人工发布，关键词检索仍可用。 |
 | GET | `/api/v1/runbooks/{id}/record` | 读取持久化的结构化步骤及版本、维护者、应用/环境、来源类型；返回 `partial: true`，明确缺少用量、事件处置和执行核验。旧文档无结构化步骤时 503，不把全文猜成步骤。 |
 | GET | `/api/v1/runbooks/{id}/history` | 读取版本、审核与只读验证预览，各集合最多 100 条；审核说明只对维护者/管理者显示。`execution_verification_available: false`。超限返回 413，不截断冒充完整。 |
-| POST | `/api/v1/postmortems/{id}/publish` | 复盘创建者以外的当前 `knowledge.manage` 成员在 `review` 状态发布；要求原事件仍已解决且结案事件仍存在，发布与审计同事务。完整复盘详情与 AI 生成仍未接通。 |
+| POST | `/api/v1/postmortems/{id}/publish` | 复盘创建者以外的当前 `knowledge.manage` 成员在 `review` 状态发布；旧事故须保有原调查结案与报告，手工事件须保有创建时绑定的精确 resolved 状态事件和当前修订。来源变化返回 409，发布与审计同事务；无外部发布或 AI 生成。详见[手工事件与复盘生命周期](v3-incident-postmortem-lifecycle.md)。 |
 | GET | `/api/v1/memory/facts` | 仅列出当前受权、来源文档仍已发布且版本/正文归属匹配的事实，返回 `partial: true` 与缺失置信度、召回、过期及层级/策略字段；超过 500 个候选事实返回 413。此接口不替代完整 `MemoryView`。 |
 | GET | `/api/v1/uploads/{id}/content` | 下载本人上传的文件，或内联读取经重新验证格式的图片。可不传环境头；后端根据上传记录核对实例环境、当前 `conversation.view` 授权和所有者。普通文件以附件下载，响应禁缓存、禁 MIME 猜测；损坏图片拒绝返回。该辅助读取不改变 `POST /uploads` 的主契约状态。 |
 

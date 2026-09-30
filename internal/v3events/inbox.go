@@ -65,13 +65,17 @@ func (s *Service) visibleInboxIncidentsTx(r *http.Request, tx pgx.Tx, since, unt
 	if err := store.LockActiveSession(r.Context(), tx, cookie.Value, httpapi.CurrentUser(r).ID); err != nil {
 		return nil, err
 	}
+	// Preserve the inbox's precheck ordering, and carry only its successful
+	// held-lock fact into this transaction's scope checks.
+	guard := newListAuthorityGuard(r, tx)
+	guard.sessionHeld = true
 	allowed := make(map[string]bool)
 	denied := make(map[string]bool)
 	visible := make([]incidentRecord, 0, len(candidates))
 	for _, v := range candidates {
 		key := v.ApplicationID + "\x00" + v.EnvironmentID
 		if !allowed[key] && !denied[key] {
-			authErr := s.authorizeAlertTx(r, tx, v, "view")
+			authErr := s.authorizeAlertWithGuard(r, tx, v, "view", guard)
 			if errors.Is(authErr, store.ErrForbidden) || errors.Is(authErr, store.ErrNotFound) {
 				denied[key] = true
 			} else if authErr != nil {

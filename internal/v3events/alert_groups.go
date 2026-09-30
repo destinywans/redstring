@@ -175,13 +175,16 @@ func (s *Service) visibleAlertIncidentsTx(r *http.Request, tx pgx.Tx, requestedE
 	if err != nil {
 		return nil, err
 	}
+	// The first scope still locks app, then actor/session, then grants. Later
+	// scopes reuse those held locks, but re-read scope, policy and DB expiry.
+	guard := newListAuthorityGuard(r, tx)
 	allowed := make(map[string]bool)
 	denied := make(map[string]bool)
 	visible := make([]incidentRecord, 0, len(candidates))
 	for _, v := range candidates {
 		key := v.ApplicationID + "\x00" + v.EnvironmentID
 		if !allowed[key] && !denied[key] {
-			authErr := s.authorizeAlertTx(r, tx, v, "view")
+			authErr := s.authorizeAlertWithGuard(r, tx, v, "view", guard)
 			if errors.Is(authErr, store.ErrForbidden) || errors.Is(authErr, store.ErrNotFound) {
 				denied[key] = true
 			} else if authErr != nil {

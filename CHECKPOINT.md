@@ -1,3 +1,17 @@
+## CP-240 · 2026-10-01 · WAN163并发修复及原始证据复审完成
+
+- 三生产files held-lock guard + 新list_authority_guard_test已完成，最终Go输入 **bee47136f25c9f5abec761c60fd3f2572eb31ad42d0b1a7d2e57d8ac895cbb56**。普通authorizeAlertTx/写锁路径保持；只本read helper/top-level tx/request/actor/token成功锁事实复用，每scope app/env/policy/team及等待后的actual DB clock、最终clock仍当前；Policy后第二tx用新guard。100scope Groups402/Inbox403 authority SQL，不能据此宣称性能已改善。
+- 首红实际编译/运行：三scope Inbox actor/session/table4/4/3、Groups3/3/3；不冒工具编译红。完整events race **78 pass/0fail/skip**（guard30+原48）、相关auth **29 pass/0fail/skip**均在071fab7始末一致；生产3file之后完全不变。仅NoRows测试精炼后最终bee定向race另pass9.862s，实际候选捕获→首binding SELECT0→B锁等待→disable先提交→B401。**不能写78全在bee运行**。XHigh已逐份raw/metadata/SHA复审，无阻断，cleanup无failed。summary registered evidence **7f6b9b00-2267-47f7-a330-b7fa0bc00676**，原3d failed不改。
+- root下一步scoped提交推送此修复/记录，再实际非race重建自有API，fresh HMAC/binary/source/APP11131999检查、受影响正式HTTP和原固定负载复验；旧12115/12116/12117仍1512快照不能验新源。无active load、无24h，不重复归档/seed。
+- Medium独立core HTTP包完成离线初版，但XHigh已确认漏GET roles/POST audit/export canonical inventory，禁止live，先保留离线真首红最小修/定向验证。仅两个新Python文件，不影响Go指纹；不得用工具Mock绿冒实际接口。继续真实非空本地补验而不把37/166既有正证冒全覆盖。聚合上限/WAN152、暂停7CI/CD、容量/外部/缺能力HighTODO保留，无前端/合并/部署，.claude保留。
+
+## CP-239 · 2026-10-01 · 主接口正常证明精确分母及并行本地补验
+
+- Medium使用SQLite mode=ro+主契约核对：主166=165 implemented声明+1 mock。1512同源终态passed04c(323)的normal50=**主37/aux13**；fresh9c(244)normal41=主30/aux11且完全被04c包含，不能相加。合并仍**37/166**，129缺两run同源结构化normal正证（128声明implemented+1 webhook redeliver mock），不是129缺实现。另5主只有negative/boundary，SSE独立协议证明不能无映射塞normal。新guard源变后的受影响接口仍需新proof；全主/51都未收口。
+- 自主选择：WAN138下Medium独占新增api_core_coverage.py+offline测试，复用现有正式fixture/owner/nonce-HMAC/interfaces记录，仅编写groups1+2已有本地事件/角色/本人会话/审计固定包。全部per-run真实HTTP创建及审计，不伪造、不能删perf用户或revoke主admin；不先live/prepare/PG/Go/修改既有helpers。root在WAN163最终green+新actualbinary后串行集成/运行/首失败修复。不会用样本正常37自动宣称166或全部权限覆盖。
+- 之后groups3–5 Canvas/调查模板/非空knowledge/postmortem/connector/mappings/MCP登记正常入口仍需追踪；外部/权威缺实现/暂停7native分开，不随登记或Mock关项。WAN163 High真实PG初green121s、actor/session/table100scope1/1/1与Inbox403/Groups402 authoritySQL已观测，完整v3events race还在执行；相关auth29PASS。XHigh first源审无阻断，完整raw二审仍待收，不称原性能已修。
+- 无正式负载，无24h，旧API12115/12116/12117为1512仅快照不能驗新Go；不重复保全/seed，fresh11131999仍base。独占代码与测试文件隔离，root负责集成/Go实际构建/正规chain和完整性能。无前端/合并部署，.claude保留。
+
 ## CP-238 · 2026-10-01 · 原负载稳定定位Inbox，WAN163最小修复启动
 
 - 原诊断 **3d8d1002-d292-45c3-b442-83cd9e277b7f** 已22:18:11Z **failed**，source始末1512，9pass/3fail/1block（阶段/summary/命令审计，不是3Bug）。rps25实际 **300.525s/7501请求/0error/0drop**，DBP95**674.397ms**>500，Inbox**836.002ms**，Groups808.472ms，其他DB route P95<72；单接口Inbox也未达到本地500ms目标。SSE50+10/真实重连、资源恢复、数据一致性全部passed；sample PG0Lockwait。warmup120/rps10 300均完整通过。home_result_limit503明确block，无法用boundarypass关掉性能。私有wan163-performance-red及registered evidence **4f9a36e6-be87-4d55-92e3-28b474341b97**；三格式报告导出，原8ac/3d状态不改，24h未开始。

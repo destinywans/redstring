@@ -545,19 +545,21 @@
     "status": "in_progress",
     "description": "确认性能验收失败；尚未判定产品SQL、资源或工具问题。1512原认领锁超时消退不代表其他接口延迟通过。",
     "before": "8ac基础25完整300.794s/7500请求/0error/0drop，database_latency P95676.033ms>500；P99861.518过，aggregate95/99过。base50仅知23.184s Blocked。",
-    "after": "固定原三阶段3d稳定复现：完整25RPS/7501/0error0drop，DBP95674、Inbox836/Groups808，其他DB<72；SSE/恢复/一致性通过。原状态留存。WAN163每tx held-lock facts最小候选正在红绿实施；保留每scope实际clock，约4N，不冒303收益或已修性能。",
+    "after": "固定原3d稳定复现：25RPS7501/0error0drop，DBP95674、Inbox836/Groups808。WAN163只复用本list/本tx已成功持有user/session/authority表锁事实，每scope仍当前app/policy/实际DB时钟，写入不走guard。真实SQL100scope Groups402/Inbox403；原例首红保留。events完整race78+auth29在071fab7通过，生产文件未再改变；仅测试NoRows精炼在最终bee47136另定向race通过，真SELECT0/撤权时序。XHigh raw复审无阻断。正式新binary HTTP、原负载性能收益和24h仍待验，不称已修性能。",
     "first_failure_run_id": "8ac896b5-70c4-43c8-a934-309ce357e31d",
     "first_failure_source": "15125d6ecd371864b894edfd91b7ca4944bf69dc305359d0e385a879f8cc090a",
     "local_evidence": [
       ".local/testlab/wan162-postfix-performance-first-red.json",
       ".local/testlab/performance-stop-8ac.json",
-      ".local/testlab/wan163-performance-red.json"
+      ".local/testlab/wan163-performance-red.json",
+      ".local/testlab/wan163-evidence-summary.json"
     ],
     "case_ids": [
       "perf.rps25",
       "perf.rps50"
     ],
-    "linked_issue": "WAN-163 / WAN-138"
+    "linked_issue": "WAN-163 / WAN-138",
+    "regression_evidence_id": "7f6b9b00-2267-47f7-a330-b7fa0bc00676"
   },
   {
     "id": "TOOL-PERF-DIAGNOSTIC-DEADLINE",

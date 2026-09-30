@@ -158,6 +158,7 @@ class Runner:
         self.prepared = prepared or {}
         self.stop = threading.Event()
         self.process = None
+        self.cleanup_grace = 3
         self.run_id = None
 
     def request_stop(self):
@@ -173,7 +174,7 @@ class Runner:
                 os.killpg(proc.pid, signal.SIGTERM)
             else:
                 proc.terminate()
-            proc.wait(timeout=3)
+            proc.wait(timeout=self.cleanup_grace)
         except subprocess.TimeoutExpired:
             if os.name == "posix":
                 os.killpg(proc.pid, signal.SIGKILL)
@@ -294,6 +295,9 @@ class Runner:
         cases = {}
         saw_terminal = False
         timeout = float(command.get("timeout_seconds", 600))
+        self.cleanup_grace = float(command.get("cleanup_grace_seconds", 3))
+        if not 0 < self.cleanup_grace <= 45:
+            return self.blocked_command(spec, suite, "清理宽限必须在0至45秒内")
         evidence_text = "命令：" + scrub(json.dumps(argv, ensure_ascii=False), secrets) + "\n"
         shell_case = None
         if parser == "command":
@@ -392,7 +396,15 @@ class Runner:
                                 if isinstance(value, list):
                                     return [redact_values(v) for v in value]
                                 return value
-                            self.store.add_record(self.run_id, kind, redact_values(item[field]))
+                            record=redact_values(item[field])
+                            if kind=='interfaces' and 'scenarios' not in record:
+                                from inventory import actual_interface
+                                try:record=actual_interface(record)
+                                except (KeyError,TypeError,ValueError):
+                                    malformed=True
+                                    self.store.add_record(self.run_id,'environment',{'kind':'interface_evidence_error','case_id':case['id'],'reason':'invalid actual HTTP interface evidence; command audit will fail'})
+                                    continue
+                            self.store.add_record(self.run_id, kind, record)
         exit_code = self.process.wait(timeout=3)
         self.process = None
         duration = time.monotonic() - started
@@ -408,7 +420,9 @@ class Runner:
                 self.store.add_record(self.run_id, "environment", {"kind": "command_evidence", "case_id": case["id"], "attempt_id": attempt["id"], "evidence_id": evidence})
         if parser != "command" and (not saw_terminal or malformed or timed_out or exit_code != 0) and not self.stop.is_set():
             case, attempt = self.new_case(spec, suite, command.get("name", "命令结果审计"), "runner")
-            self.store.finish_attempt(case, attempt, "failed" if exit_code or timed_out or malformed else "blocked", f"exit={exit_code}; timeout={timed_out}; malformed={malformed}; terminal_results={saw_terminal}", duration, [evidence])
+            handled_block = parser == "testlab_json" and exit_code == 2 and saw_terminal and not malformed and not timed_out and any(a.get("status") == "blocked" for _, a in cases.values()) and all(a.get("status") not in ("failed", "running", "queued") for _, a in cases.values())
+            audit_status = "blocked" if handled_block else "failed" if exit_code or timed_out or malformed else "blocked"
+            self.store.finish_attempt(case, attempt, audit_status, f"exit={exit_code}; timeout={timed_out}; malformed={malformed}; terminal_results={saw_terminal}; handled_environment_block={handled_block}", duration, [evidence])
 
     def new_case(self, spec, suite, name, module, **fields):
         fields.setdefault("type", spec.get("type", "functional"))

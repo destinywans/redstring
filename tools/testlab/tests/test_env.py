@@ -17,6 +17,8 @@ import env
 
 class EnvironmentTests(unittest.TestCase):
     def setUp(self):
+        ports=patch.object(env,'_port_open',return_value=False)
+        ports.start();self.addCleanup(ports.stop)
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name).resolve();self.state=self.root/'.local/testlab/environment.json'
         self.owner='testlab-unittest';self.work=self.root/'.local/testlab/environments'/self.owner
@@ -102,6 +104,14 @@ class EnvironmentTests(unittest.TestCase):
         with patch.object(env,'_port_open',side_effect=lambda p:p==18583),patch.object(env,'_inspect') as inspect:
             with self.assertRaisesRegex(RuntimeError,'HTTPS'):env.cleanup(self.root,'run-one')
             inspect.assert_not_called()
+
+    def test_temporary_consumer_ports_refuse_cleanup_before_any_docker_mutation(self):
+        self.write()
+        for port in (465, 18586, 18587, 18588, 18589, 18590, 18591, 18592, 18594, 18595, 18596, 18597, 18598, 18599, 18600):
+            with self.subTest(port=port), patch.object(env, '_port_open', side_effect=lambda p: p == port), patch.object(env, '_inspect') as inspect:
+                with self.assertRaisesRegex(RuntimeError, 'consumer entry'):
+                    env.cleanup(self.root, 'run-one')
+                inspect.assert_not_called()
 
     def test_owned_heavy_cleanup_retains_only_its_records_and_volumes(self):
         self.write();heavy={'owner':self.owner,'work':str(self.work/'gitops'),'gitlab_name':'aiops-'+self.owner+'-gitlab','cluster':'aiops-backend-testlab','kubeconfig':str(self.work/'gitops/kubeconfig')}

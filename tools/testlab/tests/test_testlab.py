@@ -138,6 +138,16 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(detail["metrics"][0]["p95"], 10)
         self.assertEqual(detail["run"]["status"], "blocked")
 
+    def test_explicit_environment_exit_two_never_becomes_pass_or_hides_failure(self):
+        detail = self.run_fixture([{"id": "ready", "name": "owned environment", "status": "blocked", "actual": "observed OOMKilled"}], parser="testlab_json", exit_code=2)
+        self.assertEqual(detail["run"]["status"], "blocked")
+        self.assertEqual(detail["summary"]["failed"], 0)
+        self.assertEqual(detail["summary"]["blocked"], 2)
+        for rows in ([{"id": "ready", "status": "passed"}], [{"id": "ready", "status": "blocked"}, {"id": "assertion", "status": "failed"}]):
+            with self.subTest(rows=rows):
+                detail = self.run_fixture(rows, parser="testlab_json", exit_code=2)
+                self.assertEqual(detail["run"]["status"], "failed")
+
     def test_running_progress_survives_detail_reload(self):
         detail = self.run_fixture([{"name": "持续验收", "status": "running", "elapsed": 63, "planned_seconds": 86400, "actual": "窗口未完成"}, {"id":"soak", "name":"持续验收", "status":"blocked", "actual":"fixture intentionally stopped"}], parser="testlab_json")
         run = detail["run"]
@@ -157,6 +167,42 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(detail["summary"]["failed"], 2)  # receipt plus parent command
         progress = [e for e in detail["events"] if e.get("type") == "progress"]
         self.assertEqual(len(progress), 1)
+
+    def test_timeout_leaves_time_for_helper_finally_and_stays_failed(self):
+        marker = self.root / "cleanup-completed"
+        helper = self.root / "helper.py"
+        helper.write_text("import signal,time\nfrom pathlib import Path\n"
+                          "def stop(signum,frame): raise KeyboardInterrupt()\n"
+                          "signal.signal(signal.SIGTERM,stop)\n"
+                          "try: time.sleep(20)\n"
+                          "finally:\n time.sleep(3.5)\n Path(" + repr(str(marker)) + ").write_text('done')\n")
+        manifest = self.root / "tools/testlab/suites.json"
+        manifest.write_text(json.dumps({"suites": [{"id": "fixture", "commands": [{"argv": [sys.executable, str(helper)], "parser": "command", "timeout_seconds": .25, "cleanup_grace_seconds": 5}]}]}))
+        with patch("runner.source_fingerprint", return_value="fixture-source"):
+            detail = Runner(self.root).run("fixture")
+        self.assertTrue(marker.exists())
+        self.assertEqual(detail["run"]["status"], "failed")
+
+    def test_flat_http_evidence_becomes_persistent_matrix_cells(self):
+        base={'method':'GET','path':'/api/v1/me','expected':{'status':[200]},'actual':{'status':200},'status':'passed'}
+        detail=self.run_fixture([
+            {'name':'normal','status':'passed','interface':dict(base,scenario='normal')},
+            {'name':'denied','status':'passed','interface':dict(base,scenario='authorization',expected={'status':[403]},actual={'status':403})},
+        ],parser='testlab_json')
+        actual=[row for row in detail['interfaces'] if row.get('evidence_mode')=='real_local']
+        self.assertEqual(len(actual),2)
+        self.assertEqual(actual[0]['scenarios']['normal']['actual_status'],200)
+        self.assertEqual(actual[0]['scenarios']['normal']['status'],'passed')
+        self.assertTrue(actual[0]['registration_evidence'])
+        self.assertFalse(actual[1]['registration_evidence'])
+        self.assertEqual(actual[1]['scenarios']['authorization']['status'],'passed')
+
+    def test_contradictory_interface_evidence_fails_command_audit(self):
+        row={'method':'GET','path':'/api/v1/me','scenario':'normal','expected':{'status':[200]},'actual':{'status':500},'status':'passed'}
+        detail=self.run_fixture([{'name':'false-positive','status':'passed','interface':row}],parser='testlab_json')
+        self.assertEqual(detail['run']['status'],'failed')
+        self.assertFalse(any(r.get('evidence_mode')=='real_local' for r in detail['interfaces']))
+        self.assertTrue(any(r.get('kind')=='interface_evidence_error' for r in detail['environment']))
 
     def test_environment_not_inherited_and_expansion_explicit(self):
         with patch.dict(os.environ, {"TEST_DATABASE_URL": "production", "AIOPS_ENABLE_EXECUTION": "true"}):

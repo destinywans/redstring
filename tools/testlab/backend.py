@@ -1,6 +1,6 @@
 """Explicit V3 binaries on an owned database; no business environment discovery."""
 from __future__ import annotations
-import argparse, hashlib, hmac, json, os, secrets, signal, socket, subprocess, sys, threading, time, urllib.request
+import argparse, hashlib, hmac, json, os, re, secrets, signal, socket, subprocess, sys, threading, time, urllib.parse, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from env import _private, _cmd, prepare
@@ -20,6 +20,21 @@ def get(url):
 def identity():
     try:return get(f'http://127.0.0.1:{CONTROL}/identity')
     except (OSError,ValueError):return None
+
+def control_proof(secret, nonce, current):
+    if not isinstance(nonce, str) or not re.fullmatch(r'[a-f0-9]{32}', nonce):
+        raise ValueError('invalid controller attestation nonce')
+    payload = json.dumps({'nonce':nonce,'identity':current},sort_keys=True,separators=(',',':')).encode()
+    return hmac.new(secret.encode(),payload,hashlib.sha256).hexdigest()
+
+def attest(data):
+    nonce = secrets.token_hex(16)
+    record = get(f'http://127.0.0.1:{CONTROL}/attest?nonce='+nonce)
+    current = record.get('identity')
+    proof = record.get('proof')
+    if record.get('nonce') != nonce or not isinstance(current,dict) or not isinstance(proof,str) or not hmac.compare_digest(proof,control_proof(data['control_secret'],nonce,current)):
+        raise ValueError('controller ownership attestation failed')
+    return current
 
 def stop(data):
     current = identity()
@@ -116,8 +131,18 @@ def daemon():
     class Identity(BaseHTTPRequestHandler):
         def log_message(self,*args):pass
         def do_GET(self):
-            if self.path!='/identity':self.send_error(404);return
-            body=json.dumps(snapshot()).encode();self.send_response(200);self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+            parsed=urllib.parse.urlsplit(self.path)
+            if parsed.path=='/identity' and not parsed.query:
+                output=snapshot()
+            elif parsed.path=='/attest':
+                try:query=urllib.parse.parse_qs(parsed.query,strict_parsing=True,max_num_fields=2)
+                except ValueError:self.send_error(400);return
+                nonce=query.get('nonce',[])
+                if set(query)!={'nonce'} or len(nonce)!=1 or not re.fullmatch(r'[a-f0-9]{32}',nonce[0]):self.send_error(400);return
+                current=snapshot()
+                output={'nonce':nonce[0],'identity':current,'proof':control_proof(data['control_secret'],nonce[0],current)}
+            else:self.send_error(404);return
+            body=json.dumps(output).encode();self.send_response(200);self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
         def do_POST(self):
             if self.path not in ('/shutdown','/fault'):self.send_error(404);return
             if not hmac.compare_digest(self.headers.get('Authorization',''),'Bearer '+data['control_secret']):self.send_error(403);return

@@ -20,10 +20,21 @@ def interfaces(root):
 def actual_interface(row):
     scenario=row['scenario']
     if scenario not in SCENARIOS:raise ValueError('unknown interface scenario')
+    actual=row['actual'];expected=row['expected']
+    actual_status=actual.get('status') if isinstance(actual,dict) else actual
+    expected_status=expected.get('status') if isinstance(expected,dict) else expected
+    expected_codes=expected_status if isinstance(expected_status,(list,tuple)) else [expected_status]
+    if type(actual_status) is not int or not 100<=actual_status<=599 or not expected_codes or any(type(code) is not int or not 100<=code<=599 for code in expected_codes):
+        raise ValueError('actual HTTP status and expected status codes required')
+    if row['status'] not in ('passed','failed') or (row['status']=='passed' and actual_status not in expected_codes):
+        raise ValueError('interface outcome contradicts actual HTTP status')
+    method=row['method'];path=row['path']
+    if method not in ('GET','POST','PUT','PATCH','DELETE') or not isinstance(path,str) or not path.startswith('/api/') or any(marker in path for marker in ('://','?','#')):
+        raise ValueError('canonical local interface method/path required')
     # 401/403 can originate in middleware before a handler is selected.
-    registered=bool(row.get('registration_evidence')) and row.get('actual') not in (401,403,404)
-    return {'method':row['method'],'path':row['path'],'evidence_mode':'real_local',
-            'scenarios':{scenario:{'status':row['status'],'expected_status':row['expected'],'actual_status':row['actual']}},
+    registered=(bool(row.get('registration_evidence')) or (row['status']=='passed' and 200<=actual_status<300)) and actual_status not in (401,403,404)
+    return {'method':method,'path':path,'evidence_mode':'real_local',
+            'scenarios':{scenario:{'status':row['status'],'expected_status':expected_codes[0] if len(expected_codes)==1 else list(expected_codes),'actual_status':actual_status,'expected_detail':expected,'actual_detail':actual}},
             'registration_evidence':registered,'test_name':row.get('test_name'),
             'note':'正式双V3实例真实HTTP断言；'+('响应支持已注册路径' if registered else '本次响应不单独证明路由注册')}
 

@@ -76,7 +76,7 @@ func (s *WriteService) handleEnable(w http.ResponseWriter, r *http.Request, env 
 		writeError(w, problem(503, "enable_not_connected", "Alert rule approval worker is not connected"))
 		return
 	}
-	if !hexID(in.InvestigationID) || len(key) < 8 {
+	if !validEnableInvestigationID(in.InvestigationID) || len(key) < 8 {
 		writeError(w, problem(422, "invalid_enable_request", "An investigation ID and an Idempotency-Key of at least eight characters are required"))
 		return
 	}
@@ -130,6 +130,17 @@ func (s *WriteService) handleEnable(w http.ResponseWriter, r *http.Request, env 
 		return
 	}
 	s.writeEnabledResult(w, r, actor, env, key, digest, in.InvestigationID, result)
+}
+
+// Canvas creates INV-prefixed IDs; legacy investigations retain naked IDs.
+// Validate both formats without normalizing the persisted lookup identity.
+// Proposal, draft and execution IDs continue to use the stricter hexID helper.
+func validEnableInvestigationID(id string) bool {
+	if hexID(id) {
+		return true
+	}
+	suffix, prefixed := strings.CutPrefix(id, "INV-")
+	return prefixed && hexID(suffix)
 }
 
 func (s *WriteService) writeEnabledResult(w http.ResponseWriter, r *http.Request, actor core.User,

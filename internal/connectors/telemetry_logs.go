@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"net/url"
 	"sort"
 	"strconv"
@@ -159,8 +160,28 @@ func lokiIntegerValue(raw []json.RawMessage, at time.Time) (int64, error) {
 		return 0, errors.New("invalid Loki vector value")
 	}
 	var sampleTime float64
-	if json.Unmarshal(raw[0], &sampleTime) != nil || math.IsNaN(sampleTime) || math.IsInf(sampleTime, 0) ||
-		math.Abs(sampleTime-float64(at.UnixNano())/float64(time.Second)) > 0.001 {
+	numeric := strings.TrimSpace(string(raw[0]))
+	if len(numeric) > 64 || json.Unmarshal(raw[0], &sampleTime) != nil || math.IsNaN(sampleTime) || math.IsInf(sampleTime, 0) {
+		return 0, errors.New("Loki vector evaluation time does not match requested instant")
+	}
+	// Bound rational parsing, including tiny exponents that float64 would
+	// silently underflow to zero, before allocating the exact decimal value.
+	if i := strings.IndexAny(numeric, "eE"); i >= 0 {
+		exponent, err := strconv.ParseInt(numeric[i+1:], 10, 16)
+		if err != nil || exponent < -4096 || exponent > 4096 {
+			return 0, errors.New("Loki vector evaluation time does not match requested instant")
+		}
+	}
+	seconds, ok := new(big.Rat).SetString(numeric)
+	if !ok {
+		return 0, errors.New("Loki vector evaluation time does not match requested instant")
+	}
+	// Loki truncates vector evaluation timestamps to milliseconds. Compare
+	// exact decimal nanoseconds: epoch float subtraction can reject a valid
+	// end-1ns timestamp as 1.000166ms apart, or accept a truly >1ms sample.
+	nanoseconds := seconds.Mul(seconds, new(big.Rat).SetInt64(int64(time.Second)))
+	delta := nanoseconds.Sub(nanoseconds, new(big.Rat).SetInt64(at.UnixNano()))
+	if delta.Abs(delta).Cmp(new(big.Rat).SetInt64(int64(time.Millisecond))) > 0 {
 		return 0, errors.New("Loki vector evaluation time does not match requested instant")
 	}
 	var str string

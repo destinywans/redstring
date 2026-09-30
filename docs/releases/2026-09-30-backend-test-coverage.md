@@ -308,3 +308,9 @@ profile两guard修后30offline通过并经XHigh定向复核；修前24测试/57�
 162f0b33新774始末同源：277passed/3failed/1external_todo；其中entry/components244及Discovery33本地断言/完成/清理全部通过，实际47个normal2xx method/path含aux、非主166全部。非空keyword检索、people展示名、原生审核审计和受限CSV成功；企业身份/权威目录值班/向量provider外部待办显式保留。content第一登录401源于手动fresh准备遗漏原perf.prepare(base)，两合成用户实际不存在（OID9270802/0user/1admin），不是产品auth错误。补原prepare步骤精确100/5000/10000/20seed，不改断言/产品；原content b3db6372全部69passed，原失败/三报告保留。
 
 最终doctor53与fresh HMAC双实例/774非racebinary、90000秒证书余窗核验通过，当前无其他active test。下步提交推送profile与记录后启动原base+scale真实18分钟阶段。base现inbox/groups200可测，home503blocked，scale以actualpreflight计，不沿用旧三路径都blocked快照。原失败数据库保持原OID与数据、不得第二UUID归档/删seed。性能/24h仍未完成，goroutine/heap不可采仍明确缺失，整体原51/166不收口。
+
+### 2026-10-01 03:35 · 新基础档25RPS认领超时
+
+be78e046-38f9-4abc-a045-45cc2ff16c16源774/bfb71212正式性能已中断，保留6passed/1failed/1blocked。预热120秒及10RPS完整300秒零错误；25RPS完整300.687秒7500请求中285失败（3.8%），全部是300次同用户幂等认领中的285次15秒超时。整体P95 908.619ms/P99 15001.204ms，聚合P95 919.578ms/P99 1025.102ms。PG精确窗口285次statement cancel均在认领首个incident FOR UPDATE查询；最终15锁等待。首红三格式报告、原k6/resources/PG日志与owner核验停负载证据完整保留。只停止本runner90360，正式双API未重启，规模档未seed/执行，24h尚未开始。
+
+当前正在受限定位持锁来源。inbox/groups批量5000行SHARE为主要嫌疑，未确认实际持有者前不将猜测宣告根因；不通过放宽超时、删除有界写或仅优化脚本幂等掩盖首次写问题。稳定复现后最小修复、原场景及相关并发/权限回归，再原两档性能。旧归档数据库不变且不再次归档。助手依睡前授权自主停止更高负载并记录决定，继续修复，无产品前端/部署/合并。

@@ -1,3 +1,20 @@
+## CP-225 · 2026-10-01 · 基础25RPS认领锁等待首红，停止本轮负载定位
+
+- performance **be78e046-38f9-4abc-a045-45cc2ff16c16** 已终态 **interrupted**，6通过/1失败/1阻塞；原基础 **rps25真实300.687秒** 失败保留，不能当性能通过。7500请求中285非预期失败（3.8%），均为300次有界同用户认领重试中的285次15秒超时；全局P95 908.619ms/P99 15001.204ms，聚合P95 919.578ms/P99 1025.102ms。预热120秒和10RPS完整300秒零错误；规模档尚未seed/执行。
+- 精确rps25窗口PG日志285取消均在claim首条 `WHERE i.id=$1 FOR UPDATE OF i`，不是权限/revision/详情阶段；最后PG25连接/18active/15waiting/15未授予锁。主要嫌疑是inbox/groups批量5000行SHARE与claim强锁竞争，**实际持有者及可靠修法尚需确认**。不能只优化幂等让脚本变绿却隐去首次认领饥饿。内部诊断代理仅受限ownAPP只读快照和新隔离schema交错，不修改正式API/权限/阈值。
+- root经SQLite当前run/实际命令及fresh nonce/HMAC核验，仅向本runner90360发SIGTERM，session1795已退出2；API88866/88867及监督88865未重启，旧runner不可再发信号。owned caffeinate随runner自动退出。私有performance-stop-be78.json、原perf/3f0c223fa7d6各阶段k6/resources、PG首红日志及本run HTML/JSON/MD均保存；原06a failed与2e interrupted不变。
+- 产品源774、最新已推送bfb71212、非racebinary adfbd085/runtime338e1478未变；无其他活动负载。归档eeb805fd操作已完成，原OID16388数据库与完整数据保留，新OID9270802仍准确base100/5000/10000/20，不另UUID重归档/删seed。当前24h**尚未开始**；先稳定复现/最小可靠修/原例和受影响race及HTTP回归，再重新冻结原base→scale性能，支持路径/恢复/一致性完整通过才准入新连续86400。
+- aiops-24已更新为本终态/诊断状态，禁止按CP224旧快照重复运行；当前源已完成2482/0fail/79解释skip、static426/18/14六命令、entry/components244、Discovery33本地+1外部、content69证明保留。WAN152、暂停7CI/CD、Ollama容量和真实外部/缺能力仍High待办，整体未收口。未改测产品前端/未合并部署，保留无关.claude。
+
+## CP-224 · 2026-10-01 · 原负载性能复测已启动
+
+- **bfb71212fa12e04e8612f49253e181d05182ed29** 本工作包已提交推送且精确远端回读；产品Go源固定774223bb3e48b34b1f2c4cb0358f2de9747088594e1aba9fb1934120373eafe2。新非racebinary adfbd085…、runtime338e1478，当前nonce/HMAC确认88865/88866/88867，任何PID操作仍必须重新核验。无关.claude保留，未前端/合并/部署。
+- 正式 **performance be78e046-38f9-4abc-a045-45cc2ff16c16** /session1795，**started 2026-09-30T19:09:17.279308+00:00** /实际runner **90360**，新base→scale各完整18min（无缩窗/阈值放宽）正在执行。owned caffeinate **90646** 仅 `-i -w90360` 绑定已核验命令的本runner，自动随退出结束，不改系统。不得重复启动/准备/归档/重启API/改冻结Go/runtime/helper/并行heavytests！
+- latest实际CPU/RSS/FD/PG均可采，**backend_goroutines/heap_profile仍缺失**；原资源JSONL目录 perf/3f0c223fa7d6/warmup。新fresh base准确100/5000/10000/20，inbox/groups200在实际计量范围，home503 blocked；scale依实际preflight，不能把W152聚合blocked当绿。first06a性能failed/2e interrupted原样保留，W161修后真实效果须整两档/资源恢复/SSE/一致性，不以query-plan代原压力结果。
+- latest新774Go2482/0fail/79解释skip、static426/18/14六命令、entry/components244/Discovery33本地passed+1外部todo、原content重验69passed均已收齐（CP223）。profile整库archive eeb805fd操作完成/原OID16388数据保留/新OID9270802，不得另UUID重归档/删seed。根登记TypeError c118与content准备遗漏162首红已另tool/fixture条目+实际复验，不是新增产品Bug。
+- **24h尚未开始**。本轮先监督当前performance，结果未变且不可操作静默；结束核真实stage/基础25RPS/scale/SSE资源恢复/一致性及报告。关键红→稳定复现/最小修/原例与相关回归→重新freeze。支持路径通过且无关键缺陷后，新actualtrial1440/0missing、10RPS/86400、真实12h续登连续完整窗口；beforelaunch再doctor/HMAC/cert90000s（当前cert2026-10-02T08:58:11Z）。外部/缺实现/W152/暂停7CI/CD/Ollama容量HighTODO继续可见，整体未收口。
+- aiops-24 ACTIVE每5分钟绑定本会话，需更新本新performance状态，不恢复旧暂停任务、不碰业务.env/库/其他集群或真实通知。当前run处理完成/交付记录后停止此自动化。下一检查Store当前唯一活动run和metric文件，不开启新负载；三可见独立会话与内部代理均已停负载。
+
 ## CP-223 · 2026-10-01 · 新正式链收齐，准备原性能重测
 
 - 新774源正式 **162f0b33-b15d-4a7d-a546-34a03ff8441b** 已终态：277pass/3fail/1external_todo。entry/components共244本地断言passed；Discovery33本地断言/readonly.complete及cleanup passed，企业物理身份/权威目录值班/向量provider为明确external_todo，父run不能算passed。新知识非空/auditCSV/people正常路由实际核验，nativeRunbook发布/审核与3audit匹配；本run47个全部分类正常2xx method/path（含aux，不等于主166全覆盖），source始末774一致。两临时process/专属DB/角色确已清理，未动shared。

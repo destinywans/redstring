@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
@@ -248,6 +249,37 @@ func (s *Service) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
+	// Parsing a bounded body can still take a long time. Recheck the exact
+	// original session and grant inside the persistence transaction, keeping
+	// revocation serialized with the upload/audit commit.
+	cookie, cookieErr := r.Cookie("aiops_session")
+	if cookieErr != nil {
+		httpapi.Error(w, http.StatusUnauthorized, "unauthorized", "Login required")
+		return
+	}
+	if err := store.LockActiveSession(r.Context(), tx, cookie.Value, user.ID); err != nil {
+		if errors.Is(err, store.ErrSessionRevoked) {
+			httpapi.Error(w, http.StatusUnauthorized, "unauthorized", "Login required")
+		} else {
+			httpapi.Error(w, http.StatusServiceUnavailable, "authorization_unavailable", "Authorization unavailable")
+		}
+		return
+	}
+	if _, err := tx.Exec(r.Context(), `LOCK TABLE rbac_user_roles,rbac_department_roles,v3_role_grants IN SHARE MODE`); err != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, "authorization_unavailable", "Authorization unavailable")
+		return
+	}
+	policy := &rbac.V3Policy{Store: &store.Store{DB: s.DB}}
+	if err := policy.AuthorizeWithTx(r.Context(), tx, user, rbac.V3Decision{
+		Module: "conversation", Action: "change", EnvironmentID: scope.EnvironmentIDs[0],
+	}); err != nil {
+		if errors.Is(err, store.ErrForbidden) {
+			httpapi.Error(w, http.StatusForbidden, "forbidden", "Upload access denied")
+		} else {
+			httpapi.Error(w, http.StatusServiceUnavailable, "authorization_unavailable", "Authorization unavailable")
+		}
+		return
+	}
 	storedURL := v.URL
 	if v.Kind == "file" || v.Kind == "image" {
 		// The database URL column is reserved for external link attachments.
@@ -258,6 +290,17 @@ func (s *Service) upload(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		changes, _ := json.Marshal(map[string]any{"kind": v.Kind, "size": v.Size, "mime": v.MIME, "environment_id": scope.EnvironmentIDs[0]})
 		_, err = tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,action,target,outcome,changes) VALUES($1,'v3.upload.created',$2,'success',$3)`, user.ID, v.ID, changes)
+	}
+	if err == nil {
+		// Natural expiry is not prevented by a row lock. A write/audit may wait
+		// on other database locks, so use the database wall clock again.
+		var active bool
+		err = tx.QueryRow(r.Context(), `SELECT expires_at>clock_timestamp() FROM sessions WHERE token_hash=$1 AND user_id=$2`,
+			store.Hash(cookie.Value), user.ID).Scan(&active)
+		if errors.Is(err, pgx.ErrNoRows) || err == nil && !active {
+			httpapi.Error(w, http.StatusUnauthorized, "unauthorized", "Login required")
+			return
+		}
 	}
 	if err == nil {
 		err = tx.Commit(r.Context())

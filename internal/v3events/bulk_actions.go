@@ -178,9 +178,16 @@ func (b *BulkService) applyBulkGroup(r *http.Request, env, id string, key groupK
 	case "investigate":
 		result, err = investigateBulkGroup(r.Context(), tx, httpapi.CurrentUser(r), id, env, key, group)
 	case "silence":
+		if err = releaseTerminalBulkReservation(r.Context(), tx, httpapi.CurrentUser(r), key); err != nil {
+			return safeBulkError(id, matched, err)
+		}
 		plan, prepareErr := b.prepareBulkSilence(r.Context(), tx, httpapi.CurrentUser(r), id, env, key, group)
 		if prepareErr != nil {
 			return safeBulkError(id, matched, prepareErr)
+		}
+		if err = bulkReservationAvailable(r.Context(), tx, httpapi.CurrentUser(r),
+			plan.Evidence, plan.Input.IdempotencyKey, ""); err != nil {
+			return safeBulkError(id, matched, err)
 		}
 		if err = bulkSessionCanCoverProposal(r.Context(), tx, token, httpapi.CurrentUser(r).ID); err != nil {
 			return safeBulkError(id, matched, err)

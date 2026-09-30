@@ -268,9 +268,17 @@ func (b *BulkService) prepareBulkSilence(ctx context.Context, tx pgx.Tx, actor c
 	if err != nil {
 		return zero, err
 	}
-	keyHash := store.Hash("v3.bulk.silence.v2\x00" + actor.ID + "\x00" + id + "\x00" +
+	generation, err := bulkReservationGeneration(ctx, tx, key)
+	if err != nil {
+		return zero, err
+	}
+	keyMaterial := "v3.bulk.silence.v2\x00" + actor.ID + "\x00" + id + "\x00" +
 		linked + "\x00" + binding.AttestationDigest + "\x00" + binding.ConfigRevision +
-		"\x00" + binding.LabelName + "\x00" + identityValue + "\x00" + memberDigest)
+		"\x00" + binding.LabelName + "\x00" + identityValue + "\x00" + memberDigest
+	if generation != "" {
+		keyMaterial += "\x00released:" + generation
+	}
+	keyHash := store.Hash(keyMaterial)
 	comment := fmt.Sprintf("AIOps Canvas alert group %s; scope config %s/%s; member evidence %s; one-hour silence pending approval",
 		id, binding.ConfigRevision, binding.AttestationDigest, memberDigest)
 	input := v3alertmanager.SilenceCreateInput{
@@ -396,6 +404,10 @@ func (b *BulkService) attachBulkSilenceEvidence(r *http.Request, env, id string,
 	}
 	if !equalBulkPlan(initial, current) {
 		return store.ErrConflict
+	}
+	if err = bulkReservationAvailable(r.Context(), tx, httpapi.CurrentUser(r),
+		current.Evidence, current.Input.IdempotencyKey, result.ProposalID); err != nil {
+		return err
 	}
 	if digest != result.ActionDigest || proposalKey != current.Input.IdempotencyKey ||
 		binding != current.Evidence.EndpointBindingFingerprint ||

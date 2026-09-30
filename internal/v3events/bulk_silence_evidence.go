@@ -8,10 +8,138 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3alertmanager"
 )
+
+// A reservation is separate from immutable evidence. A terminal, never-sent
+// proposal can release its current group and matcher scope without erasing the
+// old proposal or its evidence. The caller already holds the current group
+// rows and authorization; lock the old proposal before updating its slot so
+// approval and rejection cannot race the release decision.
+func releaseTerminalBulkReservation(ctx context.Context, tx pgx.Tx, actor core.User,
+	key groupKey) error {
+	var proposalID string
+	err := tx.QueryRow(ctx, `SELECT proposal_id FROM v3_bulk_group_silence_reservations
+ WHERE environment_row_id=$1 AND application_id=$2 AND source_id=$3 AND fingerprint=$4
+   AND released_at IS NULL`, key.EnvironmentID, key.ApplicationID, key.SourceID,
+		key.Fingerprint).Scan(&proposalID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var status string
+	var expired bool
+	err = tx.QueryRow(ctx, `SELECT p.status,e.attestation_expires_at<=clock_timestamp()
+ FROM v3_proposals p JOIN v3_bulk_group_silence_evidence e ON e.proposal_id=p.id
+ WHERE p.id=$1 FOR UPDATE OF p`, proposalID).Scan(&status, &expired)
+	if err != nil {
+		return err
+	}
+	reason := ""
+	switch {
+	case status == "rejected":
+		reason = "rejected"
+	case status == "pending" && expired:
+		reason = "expired"
+	default:
+		return nil // The availability check below refuses a different live proposal.
+	}
+	var releasedID string
+	err = tx.QueryRow(ctx, `UPDATE v3_bulk_group_silence_reservations
+ SET released_at=clock_timestamp(),release_reason=$2,released_by=$3
+ WHERE proposal_id=$1 AND released_at IS NULL RETURNING proposal_id`,
+		proposalID, reason, actor.ID).Scan(&releasedID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.ErrConflict
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23514" {
+		return store.ErrConflict
+	}
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO management_audit
+ (actor_id,actor_kind,application_id,action,target,outcome,changes)
+ VALUES($1,'user',$2,'alert.group.silence_reservation_released',$3,'succeeded',
+ jsonb_build_object('reason',$4::text,'environment_row_id',$5::text,
+                    'source_id',$6::text,'fingerprint',$7::text))`,
+		actor.ID, key.ApplicationID, releasedID, reason, key.EnvironmentID, key.SourceID, key.Fingerprint)
+	return err
+}
+
+// The last released proposal is the stable idempotency generation. It changes
+// only after a verified release, so retries of the new pending proposal keep
+// their key while a rejected or expired predecessor can be proposed again.
+func bulkReservationGeneration(ctx context.Context, tx pgx.Tx, key groupKey) (string, error) {
+	var proposalID string
+	err := tx.QueryRow(ctx, `SELECT proposal_id FROM v3_bulk_group_silence_reservations
+ WHERE environment_row_id=$1 AND application_id=$2 AND source_id=$3 AND fingerprint=$4
+   AND released_at IS NOT NULL ORDER BY reservation_seq DESC LIMIT 1`,
+		key.EnvironmentID, key.ApplicationID, key.SourceID, key.Fingerprint).Scan(&proposalID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return proposalID, err
+}
+
+func bulkReservationAvailable(ctx context.Context, tx pgx.Tx, actor core.User,
+	e bulkSilenceEvidence, idempotencyKey, expectedProposalID string) error {
+	rows, err := tx.Query(ctx, `SELECT r.proposal_id,a.creator_id,a.idempotency_key,p.status,
+ r.environment_row_id,r.application_id,r.source_id,r.fingerprint,
+ r.endpoint_binding_fingerprint,r.identity_label_name,r.identity_label_value
+ FROM v3_bulk_group_silence_reservations r
+ JOIN v3_proposal_actions a ON a.proposal_id=r.proposal_id
+ JOIN v3_proposals p ON p.id=r.proposal_id
+ WHERE r.released_at IS NULL AND (
+  (r.environment_row_id=$1 AND r.application_id=$2 AND r.source_id=$3 AND r.fingerprint=$4)
+  OR (r.endpoint_binding_fingerprint=$5 AND r.identity_label_name=$6 AND r.identity_label_value=$7))`,
+		e.EnvironmentRowID, e.ApplicationID, e.SourceID, e.Fingerprint,
+		e.EndpointBindingFingerprint, e.LabelName, e.LabelValue)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var proposalID, creator, key, status string
+		var environmentRowID, applicationID, sourceID, fingerprint string
+		var endpoint, labelName, labelValue string
+		if err = rows.Scan(&proposalID, &creator, &key, &status,
+			&environmentRowID, &applicationID, &sourceID, &fingerprint,
+			&endpoint, &labelName, &labelValue); err != nil {
+			return err
+		}
+		if status != "pending" || creator != actor.ID || key != idempotencyKey ||
+			(expectedProposalID != "" && proposalID != expectedProposalID) ||
+			environmentRowID != e.EnvironmentRowID || applicationID != e.ApplicationID ||
+			sourceID != e.SourceID || fingerprint != e.Fingerprint ||
+			endpoint != e.EndpointBindingFingerprint || labelName != e.LabelName ||
+			labelValue != e.LabelValue {
+			return store.ErrConflict
+		}
+	}
+	return rows.Err()
+}
+
+func bulkReservationActive(ctx context.Context, tx pgx.Tx, proposalID string,
+	e bulkSilenceEvidence) error {
+	var one int
+	err := tx.QueryRow(ctx, `SELECT 1 FROM v3_bulk_group_silence_reservations
+ WHERE proposal_id=$1 AND released_at IS NULL AND environment_row_id=$2
+   AND application_id=$3 AND source_id=$4 AND fingerprint=$5
+   AND endpoint_binding_fingerprint=$6 AND identity_label_name=$7 AND identity_label_value=$8
+ FOR SHARE`, proposalID, e.EnvironmentRowID, e.ApplicationID, e.SourceID, e.Fingerprint,
+		e.EndpointBindingFingerprint, e.LabelName, e.LabelValue).Scan(&one)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return store.ErrConflict
+	}
+	return err
+}
 
 func insertBulkSilenceEvidence(ctx context.Context, tx pgx.Tx, proposalID, actionDigest string,
 	e bulkSilenceEvidence) error {
@@ -26,6 +154,10 @@ func insertBulkSilenceEvidence(ctx context.Context, tx pgx.Tx, proposalID, actio
 		e.LabelName, e.LabelValue, e.ConfigRevision, e.AttestationDigest,
 		e.EndpointBindingFingerprint, e.MemberDigest, e.AttestationExpiresAt)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return store.ErrConflict
+		}
 		return store.ClassifyError(err)
 	}
 	stored, storedDigest, err := loadBulkSilenceEvidence(ctx, tx, proposalID, true)
@@ -87,6 +219,9 @@ func (b *BulkService) bulkEvidenceReadyWithTx(ctx context.Context, tx pgx.Tx,
 	}
 	e, digest, err := loadBulkSilenceEvidence(ctx, tx, action.ProposalID, true)
 	if err != nil {
+		return err
+	}
+	if err = bulkReservationActive(ctx, tx, action.ProposalID, e); err != nil {
 		return err
 	}
 	if digest != action.ActionDigest || e.EnvironmentID != action.EnvironmentID ||
@@ -156,7 +291,7 @@ func (b *BulkService) PrelockBulkSilenceWithTx(ctx context.Context, tx pgx.Tx,
 	if group.OverLimit {
 		return errBulkGroupTooLarge
 	}
-	return nil
+	return bulkReservationActive(ctx, tx, proposalID, e)
 }
 
 // RevalidateBulkSilenceWithTx must run after the worker loads the verified,

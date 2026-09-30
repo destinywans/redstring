@@ -1,3 +1,12 @@
+## CP-219 · 2026-10-01 · WAN161热路径修复实施中，持续验收仍待
+
+- 最新4c9c5a4已提交推送并远端确认（源码修复前Go8d0a）。performance06a848d7真实failed与2e7d6d01interrupted不可改；CP218细节和报告保留。性能负载已全部结束，同原API进程仍ready但源若变旧binary不能继续验收。
+- 新 **WAN-161 High/In Progress** https://linear.app/wansss/issue/WAN-161/定位并修复会话列表统计关联告警的重复全表扫描。真实只读EXPLAIN：scale COUNT JITon1448.855ms/240functions/cost2,006,460；16linked全扫描100005rows_each，~160万行，缺investigation/app/env索引。session-local jitoff仅诊断267ms，不能关闭JIT作修复。尚不能断言唯一性能失败根因。
+- /root/backend_test_plan已明确授权独占 internal/operations/operations.go 的Migrate新增covering index（investigation_id,application_id,environment_id）INCLUDE(id)，新 v3conversation/list_plan_regression_test.go 和必要 operations/investigation_index_test.go；PG新ownfixture红绿/计划+0/1/2/跨scope语义+重复/并发迁移与两个模块race。现已有tx/advisory锁752018996复用，不加global154（ops在store后创建），不改ACL/COUNT语义/health/JIT/timeout。根需收实际diff/结果再审查/提交推送/Linear。
+- /root/promotion_chain离线discovery小包ready/停编辑，仅两个新文件238+226行/14offline通过，9操作实Runbook发布→keyword非空检索、people展示名、audit原生→受限CSV下载，复用readonly清理/18602/03。**未live**。待WAN161完成、Go重新冻结/正式binary重建后串行discovery及content补当前源，再性能/24h；不对旧binary启动新source绑定链。根需加manifest审查/验收/提交，未跟踪两文件是当前任务不是用户无关工作。
+- 当前APP已有scale数据，重跑base必须fresh own数据环境，保留首红scale，不删seed冒base。实现可以精确HMAC/owner停止自有base、归属/连接核验后归档重命名整个APP数据库并新建同canonical名称，保留原数据/卷；但尚未执行/尚需核验运行配置和hooks重新初始化，不先发送旧PID信号。runtime/load.seed当前hardcodedaiops_testlab_app，不能擅用外部或不同库。
+- heartbeat **aiops-24 ACTIVE**每5min静默先读本CP、Git/Store/runtime；旧snapshot源8d/runner77575已失效（runner退出）。先收实施代理/审查/原回归和必要同源冻结，再性能两档，关键失败未解释不启动24h。证书主到2026-10-02T08:58:11Z，启动前重新核窗口；若不足只自有轮换并TLS复验。不恢复暂停CI/CD，不前端/合并部署，保留.claude。
+
 ## CP-218 · 2026-10-01 · 正式性能失败待根因，不进入24h
 
 - performance06a848d7终态failed，14pass/4fail/8blocked（重复阶段/父项，不等于4产品缺陷）。base warmup120s、rps10 300s零错误；base25RPS约105s及随后scale warmup13s因双APIready检查失败。source始末8d0a，无源变化/进程退出；同59598/59599/59600停负载后ready true。API1两次Health 2s contextdeadline exceeded，PG25conn/13–16active/0锁，日志大量conversations COUNT UNION被取消；根因未定，三格式报告/原k6资源全保留。

@@ -267,3 +267,12 @@ WAN160管理包由独立会话完成44离线，根正式fdd28078-b649-45b0-b103-
 性能06a848d7已终态failed，14通过/4失败/8blocked（含父项及两档重复聚合blocked，非4个产品Bug）。基础warmup及rps10真实满窗零错误；rps25约105s冻结就绪检查Blocked: two ready registered child PIDs required，API健康两秒context deadline exceeded；随后规模warmup13s也同样失败。停止负载后同59598/59599/59600存活且ready true，未重启。PG当时25conn、13–16active、0锁等待，实际日志大量conversation COUNT UNION取消，checkpoint同时存在；现有证据不能断言唯一根因。
 
 已派内部只读专业诊断区分产品查询/索引、PG环境与工具门槛，不改health时限、数据量、权限或性能阈值掩盖；所有stage原始k6/resources/日志和三格式报告留存。scale已真实seed1000/100000/500000，若需要重验基础档必须新的自有数据环境，不悄悄删除记录或把scale当base。关键性能可靠性失败未解释之前不启动24h。后台aiops-24负责继续收结论/修复原例与相关回归/重新冻结，其旧'正在性能'快照由本条终态取代。
+
+
+### 2026-10-01 01:40 · WAN161最小索引修复授权
+
+新增High WAN161（会话列表关联告警重复全扫），已记录事实与边界。当前规模受限真实EXPLAIN默认JIT on COUNT 1448.855ms/240 JITfunctions/cost2,006,460；16调查每次linked扫描100005行，约160万行/80k buffers。仅session-local jit off诊断约267ms，其中16×16.52ms linked占约264ms；不关闭JIT当修复，不断言它是唯一25RPS根因。
+
+决定最小composite covering索引ops_incidents(investigation_id,application_id,environment_id) INCLUDE(id)，置Operations.Service.Migrate表建立后，复用已有tx/advisory_xact_lock752018996。不能塞全局154，因为ops表由主store之后Operations创建，会漏fresh初始化。内部代理独占该Migrate片段+新的有意义PG计划/语义/迁移回归文件；只在新自有fixture红绿，原scale首红APP不先加index。root负责审查、二进制重建/同源回归、fresh基础数据环境与原性能两档。预计计划改善尚未验证不能宣绿，DDL部署大表锁/WAL仍需独立限定验证。
+
+Discovery离线包ready并停止编辑：新238+226行复用readonly深工具，14offline+语法通过；9操作用正式blank Runbook创建→提交→独立发布生成真实published source（SQL不伪发布），非空keyword/draft排除、people精确展示名、audit原生记录和export+ownerCSV下载/跨用户环境撤权。它没有live证据，待WAN161/source重新冻结后串行验证；不从离线镜像协议冒检索真实验收。

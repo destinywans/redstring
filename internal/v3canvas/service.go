@@ -18,6 +18,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3templatecapacity"
 )
 
 // Investigation visibility depends on mutable application ownership and both
@@ -141,7 +142,7 @@ type template struct {
 	IsDefault bool   `json:"is_default,omitempty"`
 }
 
-const maxTemplateItems = 500
+const maxTemplateItems = v3templatecapacity.MaxVisibleItems
 
 func nodeCountLabel(r *http.Request, count int) string {
 	if strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "en") {
@@ -835,9 +836,13 @@ func (s *Service) saveTemplate(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "unsafe_template_structure", "Canvas graph cannot be saved as a structural template")
 		return
 	}
-	// Serialize all template saves for this owner, including different names
-	// and environments, so duplicate checks and the bounded list capacity are
-	// reliable across concurrent API instances without rewriting old records.
+	// A system import also changes this owner's visible list. Hold the shared
+	// capacity lock through the count, insert and audit before taking the
+	// existing owner lock used by duplicate-name checks.
+	if err = v3templatecapacity.Lock(r.Context(), tx); err != nil {
+		httpapi.Error(w, 503, "template_unavailable", "Template save failed")
+		return
+	}
 	_, err = tx.Exec(r.Context(), `SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))`, "v3.canvas.template.owner:"+owner.ID)
 	if err != nil {
 		httpapi.Error(w, 503, "template_unavailable", "Template save failed")
@@ -855,14 +860,12 @@ func (s *Service) saveTemplate(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 409, "duplicate_template", "A template with this name already exists in this environment and kind")
 		return
 	}
-	var total int
-	err = tx.QueryRow(r.Context(), `SELECT count(*) FROM v3_canvas_templates WHERE owner_id IS NULL OR owner_id=$1`, owner.ID).Scan(&total)
-	if err != nil {
-		httpapi.Error(w, 503, "template_unavailable", "Template save failed")
-		return
-	}
-	if total >= maxTemplateItems {
-		httpapi.Error(w, 422, "template_scope_too_broad", "Template list exceeds the bounded result")
+	if err = v3templatecapacity.CheckPrivate(r.Context(), tx, owner.ID); err != nil {
+		if errors.Is(err, v3templatecapacity.ErrFull) {
+			httpapi.Error(w, 422, "template_scope_too_broad", "Template list exceeds the bounded result")
+		} else {
+			httpapi.Error(w, 503, "template_unavailable", "Template save failed")
+		}
 		return
 	}
 	id := "CT-" + store.ID()

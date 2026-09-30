@@ -20,6 +20,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3templatecapacity"
 )
 
 type Access interface {
@@ -199,6 +200,8 @@ func (s *Service) writeError(w http.ResponseWriter, r *http.Request, err error) 
 		problem(w, r, 404, "not_found", "配置项不存在", "Configuration item not found")
 	case errors.Is(err, errInvalid):
 		problem(w, r, 422, "invalid_promotion", "配置提升请求无效", "Invalid configuration promotion")
+	case errors.Is(err, v3templatecapacity.ErrFull):
+		problem(w, r, 422, "template_scope_too_broad", "画布模板列表超出上限", "Canvas template list exceeds its limit")
 	case errors.Is(err, errResultLimit), errors.Is(err, ErrListTooLarge):
 		problem(w, r, 413, "scope_too_large", "配置项超出列表上限", "Configuration list exceeds its limit")
 	case errors.Is(err, errBusy):
@@ -826,6 +829,14 @@ func (s *Service) saveImport(ctx context.Context, user core.User, mr MR, manifes
 		return tx.Commit(ctx)
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	// The MR idempotency path above remains valid at capacity. New system
+	// templates must fit every user's list, including concurrent private saves.
+	if err = v3templatecapacity.Lock(ctx, tx); err != nil {
+		return err
+	}
+	if err = v3templatecapacity.CheckSystem(ctx, tx); err != nil {
 		return err
 	}
 	// Imported templates are shared system definitions only after a trusted

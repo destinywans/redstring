@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -427,7 +426,6 @@ func (s *Service) latestReply(ctx context.Context, conv string) (string, error) 
 }
 
 func (s *Service) events(w http.ResponseWriter, r *http.Request) {
-	const replayBatchSize = 64
 	u, ok := s.user(w, r)
 	if !ok {
 		return
@@ -493,8 +491,13 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 		operationError(w, err)
 		return
 	}
-	flusher, ok := w.(http.Flusher)
+	_, ok = w.(http.Flusher)
 	if !ok {
+		apiError(w, 503, "stream_unavailable", "Streaming unavailable")
+		return
+	}
+	stream := newEventStreamWriter(w, sseWriteTimeout)
+	if err := stream.deadline(); err != nil {
 		apiError(w, 503, "stream_unavailable", "Streaming unavailable")
 		return
 	}
@@ -502,7 +505,9 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(200)
-	flusher.Flush()
+	if err := stream.flush(); err != nil {
+		return
+	}
 	// A terminal event closes this reply, even if a stale writer left events
 	// behind it. Reconnecting at or past that cursor is an empty stream.
 	if pastTerminal {
@@ -532,48 +537,38 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 		if authErr = s.authorizeReplay(r.Context(), id, reply, current.ID, actual); authErr != nil {
 			return
 		}
-		rows, err := s.db.Query(r.Context(), `SELECT seq,payload FROM v3_conversation_events
-			WHERE reply_id=$1 AND seq>$2 ORDER BY seq LIMIT $3`, reply, cursor, replayBatchSize)
+		batch, more, err := s.replayBatch(r.Context(), reply, cursor)
 		if err != nil {
 			return
 		}
 		terminal := false
-		sent := false
-		batchCount := 0
-		for rows.Next() {
-			var seq int64
-			var raw []byte
-			if err = rows.Scan(&seq, &raw); err != nil {
-				break
+		// replayBatch has already closed the rows and released its pool
+		// connection. A slow client can only hold this bounded in-memory batch.
+		for _, event := range batch {
+			if err = stream.writeEvent(event); err != nil {
+				return
 			}
-			if _, err = fmt.Fprintf(w, "id: %d\ndata: %s\n\n", seq, raw); err != nil {
-				break
-			}
-			cursor = seq
-			sent = true
-			batchCount++
+			cursor = event.seq
 			var marker struct {
 				Type string `json:"type"`
 			}
-			_ = json.Unmarshal(raw, &marker)
+			_ = json.Unmarshal(event.raw, &marker)
 			if marker.Type == "message.completed" {
 				terminal = true
 				break
 			}
 		}
-		rows.Close()
-		if err != nil || rows.Err() != nil {
+		if err = stream.flush(); err != nil {
 			return
 		}
-		flusher.Flush()
 		if terminal {
 			return
 		}
-		if batchCount == replayBatchSize {
+		if more {
 			// Recheck current access before streaming more retained events.
 			continue
 		}
-		if !sent {
+		if len(batch) == 0 {
 			var state string
 			if err := s.db.QueryRow(r.Context(), `SELECT state FROM v3_conversation_replies WHERE id=$1`, reply).Scan(&state); err != nil {
 				return
@@ -594,8 +589,9 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-ticker.C:
 			if time.Since(lastKeepalive) >= 15*time.Second {
-				_, _ = io.WriteString(w, ": keepalive\n\n")
-				flusher.Flush()
+				if err = stream.keepalive(); err != nil {
+					return
+				}
 				lastKeepalive = time.Now()
 			}
 		}

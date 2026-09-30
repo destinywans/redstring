@@ -1,3 +1,11 @@
+## CP-242 · 2026-10-01 · 新源固定原负载诊断运行中
+
+- 核心测试包及新源证明记录 **1df24a755cbc3005919956c0d31a9af5235745e1** 已推送并精确远端回读；Go bee/实际binarycf9/runtime338未变。WAN138/163和原51文档同步了312/239+1external/71、严格主58/166及首红闭环；未合并部署。
+- root freshdoctor **53/53**、无active其他run、nonce/HMAC监督19716/APIs19717/19718、精确APP **OID11131999/base100服务5000告警10000消息20用户**、实际CPU/RSS/FD/PG可采/certcheckend90000通过。private wan163-performance-readmission.json。cert仍到Oct2 08:58:11Z无需提前轮；goroutines/heap明确缺失，不冒已采。
+- 唯一 **perf-diagnosis b9c56ab7-b99a-47e4-9880-c188063346ff /session51220** 于 **2026-09-30T23:15:08.458377+00:00** 运行固定原120warm10→300rps10→300rps25、原50正常10慢SSE+60重连/资源恢复/一致性。root实际ps仅核SQLite已登记本runner **22165** 命令、freshHMAC后绑定独占caffeinate **22574**，自动随runner退出，无系统设置。private wan163-diagnostic-b9-freeze.json。PID仅快照，不能旧PID发信号。
+- warmup120.294秒/1201/0error0drop已通过，InboxP95311.77/Groups323.24ms仅warmup，不是25RPS结论。所有结果diagnostic_only/两个formal=false，不代完整性能两档或24h。home_result_limit仍明确blocked（boundary通过不关性能项），无需改原失败或隐藏限制。等终态raw/单routeInbox500ms及DB混合/原SSE恢复一致性，再决定完整原performance；若仍有红稳定复现最小修+原例，不放宽阈值/权限/负载。
+- 负载期间不并行heavy测试/改Go、helper/runtime/重启API；两archive/现base不重保全或删seed。24h未开始、整体未收口；WAN152聚合上限/暂停7CI-CD/Ollama/真实外部/缺能力HighTODO保留。产品前端未改测，.claude保留。
+
 ## CP-241 · 2026-10-01 · 新源正式链与非空核心接口补验通过
 
 - WAN163 **3139fc8a5904e885ebe2aa2ca6a80d78e86125a4** 已推送精确远端回读；实际非race重建完成。23:00前fresh nonce/HMAC监督19716/API19717、19718，source **bee47136…bb56**、binary **cf9ab09f19b0da922f2cc4f1e59db2709752756320710620bb9ae7af31e34fe6**、runtime338e1478。private wan163-new-binary-freeze。所有旧12115等PID失效，值只是快照，操作仍重新HMAC。APP11131999及两个archive未重建/seed。

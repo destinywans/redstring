@@ -153,6 +153,47 @@ func exactPreparedBulkMatchers(prepared v3alertmanager.ProposedSilenceCreate,
 	return len(expected) == 0
 }
 
+// Scan the complete authenticated ingress source up to the same bounded
+// candidate ceiling as GET /alert-groups. The source_id prefix of the
+// (source_id,fingerprint,starts_at) unique index bounds the rows fetched.
+// If the source has more history than this limit, refuse a proposal instead
+// of treating an incomplete scan as proof of no current collision. Alerts
+// on other sources and future inserts remain covered by the operator's
+// endpoint-wide attestation, not by this finite database check.
+func currentBulkIdentityCollision(ctx context.Context, tx pgx.Tx, key groupKey,
+	labelName, labelValue string) error {
+	scanCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	rows, err := tx.Query(scanCtx, `SELECT environment_id,application_id,fingerprint,labels->>$2
+ FROM ops_incidents WHERE source_id=$1
+ ORDER BY fingerprint,starts_at LIMIT $3`, key.SourceID, labelName, bulkMaxCandidates+1)
+	if err != nil {
+		return errBulkNotConnected
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		count++
+		if count > bulkMaxCandidates {
+			return errBulkNotConnected
+		}
+		var environmentID, applicationID, fingerprint string
+		var value *string
+		if err = rows.Scan(&environmentID, &applicationID, &fingerprint, &value); err != nil {
+			return errBulkNotConnected
+		}
+		if value != nil && *value == labelValue &&
+			(environmentID != key.EnvironmentID || applicationID != key.ApplicationID ||
+				fingerprint != key.Fingerprint) {
+			return errBulkNotConnected
+		}
+	}
+	if rows.Err() != nil || scanCtx.Err() != nil {
+		return errBulkNotConnected
+	}
+	return nil
+}
+
 // prepareBulkSilence reads only trusted process configuration and locked,
 // persisted incident labels. The attestation must promise that its dedicated
 // label is stable, propagated unchanged to this Alertmanager endpoint and the
@@ -208,6 +249,9 @@ func (b *BulkService) prepareBulkSilence(ctx context.Context, tx pgx.Tx, actor c
 	}
 	if err = b.attestedSilenceSource(ctx, env, key, group, appLabel, envLabel,
 		binding.LabelName, identityValue, oldest); err != nil {
+		return zero, err
+	}
+	if err = currentBulkIdentityCollision(ctx, tx, key, binding.LabelName, identityValue); err != nil {
 		return zero, err
 	}
 	var status string

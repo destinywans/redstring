@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
@@ -25,7 +26,7 @@ func insertBulkSilenceEvidence(ctx context.Context, tx pgx.Tx, proposalID, actio
 		e.LabelName, e.LabelValue, e.ConfigRevision, e.AttestationDigest,
 		e.EndpointBindingFingerprint, e.MemberDigest, e.AttestationExpiresAt)
 	if err != nil {
-		return err
+		return store.ClassifyError(err)
 	}
 	stored, storedDigest, err := loadBulkSilenceEvidence(ctx, tx, proposalID, true)
 	if err != nil {
@@ -58,8 +59,69 @@ func loadBulkSilenceEvidence(ctx context.Context, tx pgx.Tx, proposalID string,
 	return e, digest, err
 }
 
+// BulkEvidenceReadyWithTx is the approval-side gate. Call it after the
+// proposal/action has been locked and digest-verified, before offering a
+// passkey challenge and again before recording a vote. It only reads immutable
+// evidence, process configuration and a bounded current source snapshot:
+// approval must not acquire group or catalog locks in the reverse order of
+// evidence attachment. Migration 148 also rejects bulk votes and approval
+// state changes if this hook is missed.
+func (b *BulkService) BulkEvidenceReadyWithTx(ctx context.Context, tx pgx.Tx,
+	action v3alertmanager.SilenceReviewedAction) error {
+	return b.bulkEvidenceReadyWithTx(ctx, tx, action, true)
+}
+
+func (b *BulkService) bulkEvidenceReadyWithTx(ctx context.Context, tx pgx.Tx,
+	action v3alertmanager.SilenceReviewedAction, checkCollision bool) error {
+	if action.Kind != v3alertmanager.ProposedSilenceCreateKind {
+		return nil
+	}
+	if action.Create == nil {
+		return store.ErrConflict
+	}
+	if !strings.HasPrefix(action.Create.IdempotencyKey, "bulk-") {
+		return nil
+	}
+	if b == nil || b.DB == nil || b.Silence == nil || tx == nil {
+		return errBulkNotConnected
+	}
+	e, digest, err := loadBulkSilenceEvidence(ctx, tx, action.ProposalID, true)
+	if err != nil {
+		return err
+	}
+	if digest != action.ActionDigest || e.EnvironmentID != action.EnvironmentID ||
+		e.ApplicationID != action.ApplicationID || e.InvestigationID != action.InvestigationID ||
+		e.EndpointBindingFingerprint != action.Create.BindingFingerprint ||
+		action.CreatorID != action.Create.ActorID ||
+		!e.AttestationExpiresAt.After(time.Now().UTC().Add(time.Hour)) {
+		return store.ErrConflict
+	}
+	envLabel := b.Silence.EnvironmentLabels[e.EnvironmentID]
+	appLabel, err := b.applicationLabel(e.EnvironmentID, e.ApplicationID)
+	if err != nil || envLabel == "" || b.Silence.Ledger.EnvironmentLabel(e.EnvironmentID) != envLabel {
+		return errBulkNotConnected
+	}
+	binding, err := b.identityBinding(e.EnvironmentID, e.SourceID, e.ApplicationID, envLabel)
+	if err != nil || binding.LabelName != e.LabelName ||
+		binding.ConfigRevision != e.ConfigRevision ||
+		binding.AttestationDigest != e.AttestationDigest ||
+		binding.EndpointBindingFingerprint != e.EndpointBindingFingerprint ||
+		!binding.ExpiresAt.Equal(e.AttestationExpiresAt) ||
+		!exactPreparedBulkMatchers(*action.Create, envLabel, e.EnvironmentID,
+			appLabel, e.LabelName, e.LabelValue) {
+		return errBulkNotConnected
+	}
+	if checkCollision {
+		return currentBulkIdentityCollision(ctx, tx, groupKey{
+			EnvironmentID: e.EnvironmentRowID, ApplicationID: e.ApplicationID,
+			SourceID: e.SourceID, Fingerprint: e.Fingerprint,
+		}, e.LabelName, e.LabelValue)
+	}
+	return nil
+}
+
 // PrelockBulkSilenceWithTx is the worker's first group-domain step, before
-// locking the proposal or grant-source tables. The independent worker must
+// locking the catalog target, proposal or grant-source tables. The independent worker must
 // call it in its execution-claim transaction for every silence-create action.
 // Ordinary non-bulk proposals need no group evidence; a bulk key without a
 // committed companion row fails closed.
@@ -111,6 +173,11 @@ func (b *BulkService) RevalidateBulkSilenceWithTx(ctx context.Context, tx pgx.Tx
 	}
 	if b == nil || b.DB == nil || b.Silence == nil || tx == nil || action.Status != "approved" {
 		return errBulkNotConnected
+	}
+	// prepareBulkSilence below performs the current collision check while
+	// revalidating locked members, so avoid scanning the source twice.
+	if err := b.bulkEvidenceReadyWithTx(ctx, tx, action, false); err != nil {
+		return err
 	}
 	e, digest, err := loadBulkSilenceEvidence(ctx, tx, action.ProposalID, true)
 	if err != nil {

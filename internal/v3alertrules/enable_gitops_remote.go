@@ -60,7 +60,14 @@ func (a *GitOpsAlertRuleApplier) mrByBranch(ctx context.Context, b AlertRuleGitO
 	if err := a.validMR(b, branch, list[0]); err != nil {
 		return enableGitMRWire{}, false, err
 	}
-	return list[0], true, nil
+	// Native list responses omit receipt metadata such as changes_count and
+	// diff_refs. Fetch the canonical MR after checking list uniqueness and scope,
+	// then revalidate its IID and identity before exact content verification.
+	m, err := a.mrByIID(ctx, b, list[0].IID, branch)
+	if err != nil {
+		return enableGitMRWire{}, false, err
+	}
+	return m, true, nil
 }
 
 func (a *GitOpsAlertRuleApplier) mrByIID(ctx context.Context, b AlertRuleGitOpsBinding, iid int64, branch string) (enableGitMRWire, error) {

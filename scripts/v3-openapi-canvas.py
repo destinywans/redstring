@@ -61,6 +61,36 @@ S['V3CanvasDoc'] = obj({**fieldnames('id title kind status note env'),
     'artifacts':{'type':'array','items':ref('V3CanvasArtifact'),'maxItems':100},
     'threads':v3_map(ref('V3CanvasThread'))},
     ['id','title','kind','status','participants','note','nodes','edges','artifacts','threads'])
+S['V3CanvasDocWithoutThreads'] = obj({
+    **{name: schema for name, schema in S['V3CanvasDoc']['properties'].items()
+       if name != 'threads'},
+    'threads_included': {'type':'boolean','const':False}},
+    [name for name in S['V3CanvasDoc']['required'] if name != 'threads'] +
+    ['threads_included'])
+S['V3CanvasHistoryRecoveryLink'] = obj({
+    'node_id':string(),'href':string()},['node_id','href'])
+S['V3CanvasHistoryRecovery'] = obj({
+    'canvas_href':string(),
+    'node_messages':arr(ref('V3CanvasHistoryRecoveryLink'))},
+    ['canvas_href','node_messages'])
+S['V3CanvasHistoryTooLarge'] = obj({
+    'error':obj({'code':string(enum=['canvas_history_too_large']),
+                 'message':string()},['code','message']),
+    'recovery':ref('V3CanvasHistoryRecovery')},['error','recovery'])
+S['V3CanvasExchangeState'] = obj({
+    'id':string(), 'state':string(enum=['running','completed','failed'])},
+    ['id','state'])
+S['V3CanvasNodeMessagesPage'] = obj({
+    'canvas_id':string(), 'node_id':string(),
+    'thread':ref('V3CanvasThread'),
+    'exchange_states':arr(ref('V3CanvasExchangeState')),
+    'has_more':v3_bool(),
+    'next_cursor':{'type':['string','null']},
+    'snapshot_through_sort_order':integer(minimum=0,format='int64'),
+    'after_sort_order':{'type':['integer','null'],'minimum':0,'format':'int64'},
+    'returned_through_sort_order':{'type':['integer','null'],'minimum':0,'format':'int64'}},
+    ['canvas_id','node_id','thread','exchange_states','has_more','next_cursor',
+     'snapshot_through_sort_order','after_sort_order','returned_through_sort_order'])
 v3_route('get','/canvases','List scoped persisted canvases and investigations',
     response=obj({'items':arr(ref('V3CanvasSummary')),'counts':v3_map(integer()),
       'total':integer(),'page':integer(),'page_size':integer()}),
@@ -71,13 +101,24 @@ v3_route('post','/canvases','Create a persisted canvas or investigation',
       'services':arr(string()),'ai_draft':v3_bool()},['title','kind']),
     response=obj(fieldnames('id href'),['id','href']),status=201,
     desc='Requires one selected environment and a current canvas.change grant. Generic canvases are private and require an environment grant; investigations require exactly one active mapped application and accept environment, application or owner-team grants. Investigation IDs are persisted INV-* IDs with an initial branch and context. Canvas/branch records and creation audit commit together. Optional AI drafting uses one configured model, no tools, and a validated one-to-three-node JSON outline; it is explicitly unverified and a failure leaves no creation. Missing model returns 503 canvas_draft_unavailable. Investigation templates return 422 invalid_template. Persisted investigation graph detail is available at /investigations/{id}/canvas.')
-v3_route('get','/canvases/{id}','Read owner-scoped general canvas',response=ref('V3CanvasDoc'),
-    desc='General canvases return validated typed nodes, seven block variants, edges and artifacts plus persisted per-node exchanges in threads. Failed user prompts remain visible without a fabricated assistant reply; only completed exchanges are used as later model context. More than 500 exchanges, 2 MiB of thread history, or one assistant answer over 64 KiB returns 413 canvas_history_too_large. Invalid persisted canvas structure returns 503 canvas_unavailable. Investigation canvas detail is not implemented by this route.')
+v3_route('get','/canvases/{id}','Read owner-scoped general canvas',
+    response={'oneOf':[ref('V3CanvasDoc'),ref('V3CanvasDocWithoutThreads')]},
+    query=[v3_query('include_threads',{'type':'boolean'})],
+    desc='Default response is the unchanged full V3CanvasDoc with persisted per-node exchanges in threads. Explicit include_threads=false returns the same canvas structure without a threads property and with threads_included=false; this is an omission marker, not empty history. The current owner, an allowed environment, and current canvas.view are required. In the default response, more than 500 exchanges, 2 MiB of thread history, or one assistant answer over 64 KiB returns 413 canvas_history_too_large with concrete recovery links for the omitted canvas and each node message page. Failed user prompts remain visible without a fabricated assistant reply. Invalid persisted canvas structure returns 503 canvas_unavailable. Investigation canvas detail is separate.')
 P['/canvases/{id}']['get']['responses']['413'] = {
-    'description':'Conversation history exceeds the bounded canvas detail limit',
-    'content':{'application/json':{'schema':ref('Error')}}}
+    'description':'Default full history exceeds a bounded canvas detail limit; recovery links provide an omitted canvas and per-node pages',
+    'content':{'application/json':{'schema':ref('V3CanvasHistoryTooLarge')}}}
 P['/canvases/{id}']['get']['responses']['503'] = {
     'description':'Persisted canvas structure, conversation history, or authorization source is unavailable',
+    'content':{'application/json':{'schema':ref('Error')}}}
+v3_route('get','/canvases/{id}/nodes/{node}/messages',
+    'Read a bounded persisted general-canvas node history page',
+    response=ref('V3CanvasNodeMessagesPage'),
+    query=[v3_query('page_size',integer(minimum=1,maximum=50,default=20)),
+           v3_query('cursor',string(minLength=1))],
+    desc='Auxiliary read-only route outside the frozen 165 V3 page contracts. Requires the current owner, allowed canvas environment, and current canvas.view on every page. Reads at most page_size (1–50, default 20) persisted exchanges in stable sort_order within 2 MiB raw history. A completed exchange contributes user and assistant turns; running and failed exchanges contribute only the saved user turn, with state in exchange_states. The opaque cursor binds canvas, node, environment, and the first-page snapshot upper sort_order; later pages reauthorize and never silently truncate a visible exchange. The range fields describe the bounded snapshot without claiming a total count. Invalid query/cursor returns 422. One exchange over the 2 MiB page budget returns 413; investigation node history uses its separate route.')
+P['/canvases/{id}/nodes/{node}/messages']['get']['responses']['413'] = {
+    'description':'A single persisted exchange exceeds the 2 MiB page budget',
     'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('post','/canvases/{id}/nodes/{node}/messages','Run a scoped general-canvas node reply',
     body=obj({'text':string(),'model':string(),'reasoning':string()},['text']),

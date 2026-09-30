@@ -77,6 +77,7 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"GET /api/v1/canvases", "view", s.list},
 		{"POST /api/v1/canvases", "change", s.createCanvas},
 		{"GET /api/v1/canvases/{id}", "view", s.get},
+		{"GET /api/v1/canvases/{id}/nodes/{node}/messages", "view", s.readNodeMessages},
 		{"GET /api/v1/investigations/{id}/canvas", "view", s.investigationCanvas},
 		{"POST /api/v1/investigations/{id}/branches", "change", s.createInvestigationBranch},
 		{"PATCH /api/v1/investigations/{id}/nodes/{node}", "change", s.patchInvestigationNode},
@@ -547,6 +548,10 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	includeThreads, ok := parseIncludeCanvasThreads(w, r)
+	if !ok {
+		return
+	}
 	// Every accepted node start/completion takes a conflicting canvas row
 	// lock. READ COMMITTED lets a detail request wait for such a completion
 	// and then read its final row and exchanges without a stale-snapshot 40001.
@@ -556,77 +561,42 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	cookie, cookieErr := r.Cookie("aiops_session")
-	if cookieErr != nil || cookie.Value == "" {
-		httpapi.Error(w, 401, "unauthorized", "Login required")
-		return
-	}
-	var sessionUser string
-	err = tx.QueryRow(r.Context(), `SELECT s.user_id FROM sessions s JOIN users u ON u.id=s.user_id
-	 WHERE s.token_hash=$1 AND s.user_id=$2 AND s.expires_at>clock_timestamp()
-	 AND NOT u.disabled AND u.deleted_at IS NULL FOR SHARE OF s,u`, store.Hash(cookie.Value), httpapi.CurrentUser(r).ID).Scan(&sessionUser)
-	if errors.Is(err, pgx.ErrNoRows) {
-		httpapi.Error(w, 401, "unauthorized", "Login required")
-		return
-	}
-	if err != nil {
-		httpapi.Error(w, 503, "canvas_unavailable", "Canvas authorization unavailable")
-		return
-	}
-	if err = lockCanvasGrantSources(r.Context(), tx, sessionUser); err != nil {
-		httpapi.Error(w, 503, "canvas_unavailable", "Canvas authorization unavailable")
-		return
-	}
-	var title, kind, status, goal, env, owner string
-	var services []string
-	var nodeRaw, edgeRaw, artifactRaw []byte
-	err = tx.QueryRow(r.Context(), `SELECT c.title,c.kind,c.status,c.goal,c.environment_id,c.services,c.nodes,c.edges,c.artifacts,COALESCE(u.name,'')
- FROM v3_canvases c JOIN users u ON u.id=c.owner_id
-	WHERE c.id=$1 AND c.owner_id=$2 AND c.environment_id=ANY($3::text[])
-	FOR SHARE OF c`, r.PathValue("id"), httpapi.CurrentUser(r).ID, envs).Scan(&title, &kind, &status, &goal, &env, &services, &nodeRaw, &edgeRaw, &artifactRaw, &owner)
-	if errors.Is(err, pgx.ErrNoRows) {
-		httpapi.Error(w, 404, "not_found", "Canvas not found")
-		return
-	}
-	if err != nil {
-		httpapi.Error(w, 503, "canvas_unavailable", "Canvas unavailable")
-		return
-	}
-	if err = (&rbac.V3Policy{Store: s.Store}).AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), rbac.V3Decision{Module: "canvas", Action: "view", EnvironmentID: env}); err != nil {
-		if errors.Is(err, store.ErrForbidden) {
-			httpapi.Error(w, 404, "not_found", "Canvas not found")
-		} else {
-			httpapi.Error(w, 503, "canvas_unavailable", "Canvas authorization unavailable")
-		}
-		return
-	}
-	nodes, edges, artifacts, err := decodeCanvasDocument(nodeRaw, edgeRaw, artifactRaw)
-	if err != nil {
-		httpapi.Error(w, 503, "canvas_unavailable", "Canvas structure is invalid")
+	detail, ok := s.readCanvasDocTx(w, r, tx, envs)
+	if !ok {
 		return
 	}
 	people := []string{}
-	if owner != "" {
-		people = append(people, owner)
+	if detail.Owner != "" {
+		people = append(people, detail.Owner)
 	}
-	threads, err := s.nodeThreads(r.Context(), tx, r.PathValue("id"), nodes)
-	if err != nil {
-		if errors.Is(err, errCanvasHistoryTooLarge) {
-			httpapi.Error(w, 413, "canvas_history_too_large", "Canvas conversation history exceeds the detail limit")
-		} else {
-			httpapi.Error(w, 503, "canvas_unavailable", "Canvas conversations unavailable")
+	var threads map[string]nodeThread
+	if includeThreads {
+		threads, err = s.nodeThreads(r.Context(), tx, r.PathValue("id"), detail.Nodes)
+		if err != nil {
+			if errors.Is(err, errCanvasHistoryTooLarge) {
+				writeCanvasHistoryTooLarge(w, r.PathValue("id"), detail.Nodes)
+			} else {
+				httpapi.Error(w, 503, "canvas_unavailable", "Canvas conversations unavailable")
+			}
+			return
 		}
-		return
 	}
 	if err = tx.Commit(r.Context()); err != nil {
 		httpapi.Error(w, 503, "canvas_unavailable", "Canvas unavailable")
 		return
 	}
-	doc := map[string]any{"id": r.PathValue("id"), "title": title, "kind": kind, "status": status, "participants": people, "note": goal, "nodes": nodes, "edges": edges, "artifacts": artifacts, "threads": threads}
+	doc := map[string]any{"id": r.PathValue("id"), "title": detail.Title, "kind": detail.Kind,
+		"status": detail.Status, "participants": people, "note": detail.Goal,
+		"nodes": detail.Nodes, "edges": detail.Edges, "artifacts": detail.Artifacts}
+	if includeThreads {
+		doc["threads"] = threads
+	} else {
+		doc["threads_included"] = false
+	}
 	// EnvName in the current frontend cannot represent every configured V3
 	// environment. Omit unsupported names instead of labeling them incorrectly.
-	if env == "prod" || env == "staging" || env == "test" {
-		doc["env"] = env
+	if detail.Env == "prod" || detail.Env == "staging" || detail.Env == "test" {
+		doc["env"] = detail.Env
 	}
 	httpapi.WriteJSON(w, 200, doc)
 }

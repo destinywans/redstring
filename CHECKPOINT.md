@@ -1,3 +1,18 @@
+## CP-218 · 2026-10-01 · 正式性能失败待根因，不进入24h
+
+- performance06a848d7终态failed，14pass/4fail/8blocked（重复阶段/父项，不等于4产品缺陷）。base warmup120s、rps10 300s零错误；base25RPS约105s及随后scale warmup13s因双APIready检查失败。source始末8d0a，无源变化/进程退出；同59598/59599/59600停负载后ready true。API1两次Health 2s contextdeadline exceeded，PG25conn/13–16active/0锁，日志大量conversations COUNT UNION被取消；根因未定，三格式报告/原k6资源全保留。
+- /root/backend_test_plan 仅只读专业诊断产品query/index vs资源/PG vs工具健康门槛，允许ownedPG受限EXPLAIN，不改文件/重启/负载/Git。/root/promotion_chain 仅offline discovery小包独占两新文件；收结论后root实际验收。原166只读审计已完成，无直接阻断24h证据，具体83/78/71快照见CP217及报告；缺结构化记录不是缺实现证明。
+- 已seedscale1000/100000/500000，不可用其重跑base门槛；若修需基础重新验须fresh owned数据环境。不能放宽health/25RPS阈值或删历史变绿。24h **尚未开始**，重要可靠性失败未解释前不进入持续准入；源/配置/二进制若变必须重冻结并相关回归。
+- heartbeat aiops-24继续ACTIVE，本条取代其performance-running快照；先收诊断/最小修复和原例/相关回归、discovery+content当前源补证，再正式两档与真实86400。当前perf caffeinate绑定77575在退出后自动结束；不得用旧PID续/发信号。
+- 当前branch codex/wan-138-backend-testlab，最新推送2a63663（远端确认），本条/docs/CP217待scoped提交推送/Linear；无关.claude保留，产品前端未改/测，不合并/部署。
+
+## CP-217 · 2026-10-01 · 性能不中断，剩余低依赖接口离线准备
+
+- CP216的正式性能06a848d7/session99106仍运行，源8d0a/649cc19基线；最新记录提交2a63663已推送并远端确认。cpu/rss/FD/PG可采，goroutine/heap仍缺失。未Go/前端/合并/部署，保留.claude。
+- 独立审计17:14:49Z快照：当前源78条实际结构化HTTP/71正常2xx，其中67终态passed且源始末8d；4本地正证据在promotion父run外部待办blocked里。历史跨版本83条有/83条无实际结构化HTTP，不能全166完成。具体最终清单 /root/cancel_migration_review 待收。
+- 决策：性能结束后串行补keyword知识非空正常命中、audit export→ownerCSV下载、people peek小包；/root/promotion_chain只offline，独占新tools/testlab/discovery_chain.py及tests/test_discovery_chain.py，复用已提交readonly深工具。不改Go/helper冻结依赖、不live/启动资源。复用WAN158追踪。再用现有content suite刷新8d同源证据。两项完成/必要修复相关回归后启动24h，当前仍未开始。
+- heartbeat aiops-24仍ACTIVE静默接续；它提到三可见会话停负载仍正确，新增仅内部offline准备不会干扰性能。根需收两代理结论，集成manifest/实际实测/提交推送/Linear，再按CP216下一步持续窗口。
+
 ## CP-216 · 2026-10-01 · 正式性能运行中，后台接续已登记
 
 - 源8d0a稳定，branch codex/wan-138-backend-testlab，649cc19已提交推送并远端确认；管理389e994、只读2a81bfb、GitOps8353均已推送。无关.claude保留，未前端/合并/部署。CP215的当前实测130/98/11等与静态382+18+14仍有效，无产品Go修改。

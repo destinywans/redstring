@@ -151,3 +151,17 @@ WAN160管理包由独立会话完成44离线，根正式fdd28078-b649-45b0-b103-
 完整重run06a848d7-6821-463f-96bd-1ee2639ea6f8于2026-09-30T17:15:03Z启动，require_escalated仅为自有进程采样；最新120秒预热实际完成，0错误、P95约238ms/P99约274ms，不替代基础25RPS验收。CPU/RSS/FD/PG实际有样本，goroutine/heap仍标缺失。登记runner77575，仅为它配置临时caffeinate -i -w，退出自动结束，不改系统电源配置/保持屏幕。
 
 已创建本会话heartbeat aiops-24（每5分钟、状态不变静默），先检查既有run和精确冻结事实，收只读166接口剩余审计，修必要失败，再按原scale/86400新trial持续；不得重复启动、改冻结源码/配置/重启API/并行重型负载或恢复原暂停CI/CD。真实24h还未开始；结束后报告、Linear、commit/push且暂停本接续，不扩大长期监控。用户睡前自主选择授权与原24h计划为接续依据。
+
+
+### 2026-10-01 01:25 · 剩余接口本地补测选择
+
+独立只读审计17:14:49UTC快照：主166条，当前源8d0a有78条实际结构化HTTP，71条正常passed2xx，其中67在source始末一致且终态passed运行；另外4条正证据来自promotion55c仅external_todo使父runblocked，core与cleanuppassed不能抹去其本地正证据。跨版本83条有实际结构化HTTP，另83条从未有这类记录，不能从407库存推出正常覆盖。当前7条只有负例/降级（me、GET/PUT me/profile、security、traces、knowledge/search、timeline），具体属于配置/夹具/能力而不是自动视为产品Bug。
+
+选择在性能结束后串行补现有本地低依赖知识keyword非空搜索、审计export→ownerCSV下载、people peek；内部代理仅offline独占新discovery_chain.py与对应测试，复用readonly生命周期工具、不改Go/perf冻结输入/不启动资源。另旧content未被159影响的证据仍可复用，但再原包串行实测可刷新当前8d来源。当前性能不并行live，24h前先收结果/必要修复/受影响回归。新增工作复用WAN158，不为聊天或单文件新建Linear项。该选择为助手依用户自主授权决定，供事后review；覆盖审计不是源缺陷证明或新的架构需求。
+
+
+### 2026-10-01 01:30 · 性能真实失败，暂停持续准入
+
+性能06a848d7已终态failed，14通过/4失败/8blocked（含父项及两档重复聚合blocked，非4个产品Bug）。基础warmup及rps10真实满窗零错误；rps25约105s冻结就绪检查Blocked: two ready registered child PIDs required，API健康两秒context deadline exceeded；随后规模warmup13s也同样失败。停止负载后同59598/59599/59600存活且ready true，未重启。PG当时25conn、13–16active、0锁等待，实际日志大量conversation COUNT UNION取消，checkpoint同时存在；现有证据不能断言唯一根因。
+
+已派内部只读专业诊断区分产品查询/索引、PG环境与工具门槛，不改health时限、数据量、权限或性能阈值掩盖；所有stage原始k6/resources/日志和三格式报告留存。scale已真实seed1000/100000/500000，若需要重验基础档必须新的自有数据环境，不悄悄删除记录或把scale当base。关键性能可靠性失败未解释之前不启动24h。后台aiops-24负责继续收结论/修复原例与相关回归/重新冻结，其旧'正在性能'快照由本条终态取代。

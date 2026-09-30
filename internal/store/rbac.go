@@ -71,20 +71,21 @@ func (s *Store) authorizeApplicationRBAC(ctx context.Context, u core.User, app, 
 	if action != "view" {
 		required = "update"
 	}
-	var exists, allowed bool
+	var exists, archived, allowed bool
 	err := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM applications WHERE id=$2),
+ COALESCE((SELECT archived FROM applications WHERE id=$2),false),
  EXISTS(SELECT 1 FROM cmdb_resource_applications l JOIN cmdb_resources r ON r.id=l.resource_id WHERE l.application_id=$2 AND rbac_is_infrastructure_kind(r.kind))
  AND NOT EXISTS(SELECT 1 FROM cmdb_resource_applications l JOIN cmdb_resources r ON r.id=l.resource_id
  WHERE l.application_id=$2 AND rbac_is_infrastructure_kind(r.kind)
  AND (NOT EXISTS(SELECT 1 FROM rbac_effective_permissions p WHERE p.user_id=$1 AND p.action='view' AND p.scope_type='resource' AND p.resource_id=r.id)
- OR NOT EXISTS(SELECT 1 FROM rbac_effective_permissions p WHERE p.user_id=$1 AND p.action=$3 AND p.scope_type='resource' AND p.resource_id=r.id)))`, u.ID, app, required).Scan(&exists, &allowed)
+	 OR NOT EXISTS(SELECT 1 FROM rbac_effective_permissions p WHERE p.user_id=$1 AND p.action=$3 AND p.scope_type='resource' AND p.resource_id=r.id)))`, u.ID, app, required).Scan(&exists, &archived, &allowed)
 	if err != nil {
 		return err
 	}
 	if !exists {
 		return ErrNotFound
 	}
-	if !allowed {
+	if !allowed || (archived && action != "view") {
 		return ErrForbidden
 	}
 	return nil

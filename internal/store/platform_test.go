@@ -44,7 +44,7 @@ func platformDatabase(t *testing.T) *Store {
 	if e != nil {
 		t.Fatal("invalid isolated database configuration")
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	db, e = pgxpool.NewWithConfig(ctx, cfg)
 	if e != nil {
 		t.Fatal("isolated database unavailable")
@@ -107,6 +107,20 @@ func TestPlatformFoundationPostgres(t *testing.T) {
 	if e = s.SetGrants(ctx, "legacy", []core.Grant{{SubjectType: "team", SubjectID: team.ID, Permission: "operate"}}); e != nil {
 		t.Fatal(e)
 	}
+	// Current application authorization is derived from exact infrastructure
+	// grants. Preserve separate read/change roles and department revocation.
+	if _, e = s.DB.Exec(ctx, `INSERT INTO cmdb_resources(id,kind,name,source_kind) VALUES('foundation-host','host','Foundation host','manual');
+INSERT INTO cmdb_resource_applications(resource_id,application_id,environment_id) VALUES('foundation-host','legacy','legacy-default');
+INSERT INTO rbac_roles(id,name) VALUES('foundation-view','Foundation view'),('foundation-change','Foundation change');
+INSERT INTO rbac_permissions(id,name) VALUES('foundation-view','Foundation view'),('foundation-change','Foundation change');
+INSERT INTO rbac_permission_resources(permission_id,scope_type,resource_id,action) VALUES('foundation-view','resource','foundation-host','view'),('foundation-change','resource','foundation-host','update');
+INSERT INTO rbac_role_permissions(role_id,permission_id) VALUES('foundation-view','foundation-view'),('foundation-change','foundation-change');
+INSERT INTO rbac_user_roles(user_id,role_id) VALUES('operator','foundation-change'),('admin','foundation-view'),('admin','foundation-change')`); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.DB.Exec(ctx, `INSERT INTO rbac_department_roles(department_id,role_id) VALUES($1,'foundation-view')`, team.ID); e != nil {
+		t.Fatal(e)
+	}
 	if e = s.AuthorizeApplication(ctx, operator, "legacy", "operate"); e != nil {
 		t.Fatal(e)
 	}
@@ -134,6 +148,9 @@ func TestPlatformFoundationPostgres(t *testing.T) {
 		t.Fatal("revocation not immediate")
 	}
 	if e = s.SetGrants(ctx, "legacy", []core.Grant{{SubjectType: "user", SubjectID: operator.ID, Permission: "operate"}}); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.DB.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES('operator','foundation-view')`); e != nil {
 		t.Fatal(e)
 	}
 	env, e := s.SaveEnvironment(ctx, core.Environment{ApplicationID: "legacy", Key: "staging", Name: "Staging"})

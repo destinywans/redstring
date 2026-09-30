@@ -271,7 +271,9 @@ func run() error {
 	}
 	shutdown, stop := context.WithTimeout(context.Background(), 15*time.Second)
 	defer stop()
-	_ = server.Shutdown(shutdown)
+	if err := shutdownHTTPServer(shutdown, server); err != nil {
+		slog.Warn("HTTP graceful shutdown exceeded deadline; closed active connections", "error", err)
+	}
 	cancel()
 	<-workerDone
 	<-actionDone

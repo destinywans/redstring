@@ -164,11 +164,13 @@ P['/postmortems/records']['get']['responses']['413'] = {
     'description':'More than 1000 visible persisted records',
     'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('post','/postmortems','Create a governed incident postmortem',
-    body=obj({'incident_id':string(),'sections':arr(ref('V3PostmortemSectionInput')),
+    body=obj({'incident_id':string(),'source_close_event_seq':integer(minimum=1),
+        'sections':arr(ref('V3PostmortemSectionInput')),
         'actions':arr(ref('V3PostmortemActionInput')),
-        'status':string(enum=['draft','review'])},['incident_id','sections','actions','status']),
+        'status':string(enum=['draft','review'])},
+        ['incident_id','source_close_event_seq','sections','actions','status']),
     response=obj({'id':string()},['id']),status=201,
-    desc='Requires a single selected environment and current events:view plus knowledge:manage on the incident application or its persisted owner team. Locks and rechecks the resolved incident, investigation report and closing event; one postmortem per incident. Stores sections and actions with an audit record in one transaction, without executing or notifying. Publishing requires a separate human review.')
+    desc='Requires a single selected environment, source_close_event_seq from GET /postmortems/draft, and current events:view plus knowledge:manage on the incident application or its persisted owner team. A missing or invalid source sequence returns 422 and requires re-preview. The write transaction locks current session, role sources, application/environment mapping, incident, investigation, report and selected close event. A changed source state or a different current close event returns 409 and requires re-preview. One postmortem per incident; sections, actions and audit are stored together without executing or notifying. Publishing requires a separate human review.')
 v3_route('get','/postmortems/draft','Read an evidence-only postmortem starting point',
     query=[v3_query('incident')],
     response=obj({'incident':obj({**fieldnames('id title severity window duration')},
@@ -181,7 +183,7 @@ v3_route('get','/postmortems/draft','Read an evidence-only postmortem starting p
         'partial':{'const':True},'missing':arr(string())},
         ['incident','sections','timeline','actions','source_close_event_seq','draft_mode',
          'complete_v3_dto','partial','missing']),
-    desc='Partial main-contract operation. A repeatable snapshot with session and role grant locks uses a resolved incident and the earliest exact persisted close event plus its investigation report. source_close_event_seq identifies the observed closing event; saving rechecks the current source independently. Impact, root cause and action recommendations remain blank. This does not generate the AI-drafted page. More than 200 timeline rows returns 413.')
+    desc='Partial main-contract operation. A repeatable snapshot with session and role grant locks uses a resolved incident and the earliest exact persisted close event plus its investigation report. source_close_event_seq identifies the observed closing event and is required by POST /postmortems; saving compares it with the current locked source, returning 409 on change. Impact, root cause and action recommendations remain blank. This does not generate the AI-drafted page. More than 200 timeline rows returns 413.')
 P['/postmortems/draft']['get']['responses']['413'] = {
     'description':'Incident evidence timeline exceeds 200 events',
     'content':{'application/json':{'schema':ref('Error')}}}

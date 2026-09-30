@@ -60,10 +60,11 @@ type Action struct {
 }
 
 type CreateInput struct {
-	IncidentID string    `json:"incident_id"`
-	Sections   []Section `json:"sections"`
-	Actions    []Action  `json:"actions"`
-	Status     string    `json:"status"`
+	IncidentID          string    `json:"incident_id"`
+	SourceCloseEventSeq int64     `json:"source_close_event_seq"`
+	Sections            []Section `json:"sections"`
+	Actions             []Action  `json:"actions"`
+	Status              string    `json:"status"`
 }
 
 func bounded(v string, max int) bool {
@@ -71,7 +72,8 @@ func bounded(v string, max int) bool {
 }
 
 func validate(in CreateInput) bool {
-	if !bounded(in.IncidentID, 128) || (in.Status != "draft" && in.Status != "review") ||
+	if !bounded(in.IncidentID, 128) || in.SourceCloseEventSeq <= 0 ||
+		(in.Status != "draft" && in.Status != "review") ||
 		len(in.Sections) == 0 || len(in.Sections) > 40 || len(in.Actions) > 100 {
 		return false
 	}
@@ -277,6 +279,10 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 	if !httpapi.Decode(w, r, &in) {
 		return
 	}
+	if in.SourceCloseEventSeq <= 0 {
+		httpapi.Error(w, 422, "source_close_event_seq_required", "Re-preview the incident and submit its source_close_event_seq")
+		return
+	}
 	if !validate(in) {
 		httpapi.Error(w, 422, "invalid_postmortem", "Incident, sections, actions or status is invalid")
 		return
@@ -287,6 +293,14 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
+	// Hold the current session and effective role sources through the write.
+	if err = postmortemReadSession(r.Context(), tx, r); err == nil {
+		err = lockPostmortemReadGrants(r.Context(), tx, httpapi.CurrentUser(r).ID)
+	}
+	if err != nil {
+		postmortemReadError(w, err)
+		return
+	}
 	var app, team, env, investigation, incidentStatus string
 	var started time.Time
 	err = tx.QueryRow(r.Context(), `SELECT i.application_id,COALESCE(a.owner_team_id,''),e.key,i.investigation_id,i.status,i.starts_at
@@ -294,7 +308,7 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
  JOIN applications a ON a.id=i.application_id AND NOT a.archived
  JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id AND NOT e.archived
  JOIN v3_application_environments ve ON ve.application_id=i.application_id AND ve.environment_id=e.key
- WHERE i.id=$1 FOR UPDATE OF i`, in.IncidentID).Scan(&app, &team, &env, &investigation, &incidentStatus, &started)
+ WHERE i.id=$1 FOR UPDATE OF i FOR SHARE OF a,e,ve`, in.IncidentID).Scan(&app, &team, &env, &investigation, &incidentStatus, &started)
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && !inScope(scope, env) {
 		httpapi.Error(w, 404, "not_found", "Incident not found")
 		return
@@ -304,6 +318,10 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := httpapi.CurrentUser(r)
+	if err = postmortemReadSession(r.Context(), tx, r); err != nil {
+		postmortemReadError(w, err)
+		return
+	}
 	if err = s.authorizeTx(r.Context(), tx, user, app, team, env, "manage"); err != nil {
 		if errors.Is(err, store.ErrForbidden) {
 			httpapi.Error(w, 403, "forbidden", "Postmortem permission required")
@@ -313,21 +331,52 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if incidentStatus != "resolved" || investigation == "" {
-		httpapi.Error(w, 409, "incident_not_resolved", "Incident has no verified resolution")
+		postmortemSourceChanged(w)
+		return
+	}
+	var investigationStatus string
+	err = tx.QueryRow(r.Context(), `SELECT status FROM investigations
+ WHERE id=$1 AND application_id=$2 FOR UPDATE`, investigation, app).Scan(&investigationStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		postmortemSourceChanged(w)
+		return
+	}
+	if err != nil {
+		httpapi.Error(w, 503, "postmortems_unavailable", "Investigation unavailable")
+		return
+	}
+	if investigationStatus != "closed" {
+		postmortemSourceChanged(w)
+		return
+	}
+	// A new event's investigation FK takes a KEY SHARE lock. The parent UPDATE
+	// lock prevents a newly inserted earlier close event from changing which
+	// event is current before this transaction commits.
+	var reportInvestigation string
+	err = tx.QueryRow(r.Context(), `SELECT investigation_id FROM investigation_reports
+ WHERE investigation_id=$1 FOR SHARE`, investigation).Scan(&reportInvestigation)
+	if errors.Is(err, pgx.ErrNoRows) {
+		postmortemSourceChanged(w)
+		return
+	}
+	if err != nil {
+		httpapi.Error(w, 503, "postmortems_unavailable", "Investigation report unavailable")
 		return
 	}
 	var closedSeq int64
-	err = tx.QueryRow(r.Context(), `SELECT ev.seq FROM investigations inv
- JOIN investigation_reports report ON report.investigation_id=inv.id
- JOIN events ev ON ev.investigation_id=inv.id AND ev.type='investigation.closed' AND ev.created_at>=$3
- WHERE inv.id=$1 AND inv.application_id=$2 AND inv.status='closed'
- ORDER BY ev.created_at,ev.seq LIMIT 1`, investigation, app, started).Scan(&closedSeq)
+	err = tx.QueryRow(r.Context(), `SELECT ev.seq FROM events ev
+ WHERE ev.investigation_id=$1 AND ev.type='investigation.closed' AND ev.created_at>=$2
+ ORDER BY ev.created_at,ev.seq LIMIT 1 FOR SHARE`, investigation, started).Scan(&closedSeq)
 	if errors.Is(err, pgx.ErrNoRows) {
-		httpapi.Error(w, 409, "incident_not_resolved", "Incident has no verified closing event")
+		postmortemSourceChanged(w)
 		return
 	}
 	if err != nil {
 		httpapi.Error(w, 503, "postmortems_unavailable", "Closing evidence unavailable")
+		return
+	}
+	if closedSeq != in.SourceCloseEventSeq {
+		postmortemSourceChanged(w)
 		return
 	}
 	sections, _ := json.Marshal(in.Sections)
@@ -353,9 +402,17 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "postmortems_unavailable", "Could not audit postmortem")
 		return
 	}
+	if err = postmortemReadSession(r.Context(), tx, r); err != nil {
+		postmortemReadError(w, err)
+		return
+	}
 	if err = tx.Commit(r.Context()); err != nil {
 		httpapi.Error(w, 503, "postmortems_unavailable", "Could not commit postmortem")
 		return
 	}
 	httpapi.WriteJSON(w, 201, map[string]string{"id": id})
+}
+
+func postmortemSourceChanged(w http.ResponseWriter) {
+	httpapi.Error(w, 409, "postmortem_source_changed", "Incident closing evidence changed; re-preview before saving")
 }

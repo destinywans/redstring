@@ -3,6 +3,7 @@ package v3postmortems
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -22,11 +23,12 @@ import (
 )
 
 func TestValidateCreateInput(t *testing.T) {
-	base := CreateInput{IncidentID: "INC-1", Sections: []Section{{Key: "cause", Title: "Cause", Text: "Observed facts"}}, Actions: []Action{}, Status: "draft"}
+	base := CreateInput{IncidentID: "INC-1", SourceCloseEventSeq: 1, Sections: []Section{{Key: "cause", Title: "Cause", Text: "Observed facts"}}, Actions: []Action{}, Status: "draft"}
 	if !validate(base) {
 		t.Fatal("valid draft rejected")
 	}
 	for _, change := range []func(*CreateInput){
+		func(v *CreateInput) { v.SourceCloseEventSeq = 0 },
 		func(v *CreateInput) { v.Status = "published" },
 		func(v *CreateInput) { v.IncidentID = "" },
 		func(v *CreateInput) { v.Sections = nil },
@@ -243,14 +245,26 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 		strings.Contains(draft.Body.String(), "connection_pool.max") {
 		t.Fatalf("draft invented incident details or missed evidence: %d %s", draft.Code, draft.Body.String())
 	}
+	var draftSource struct {
+		SourceCloseEventSeq int64 `json:"source_close_event_seq"`
+	}
+	if err := json.Unmarshal(draft.Body.Bytes(), &draftSource); err != nil || draftSource.SourceCloseEventSeq <= 0 {
+		t.Fatalf("draft missing closing source: %s err=%v", draft.Body.String(), err)
+	}
 	assertError(call("GET", "/api/v1/postmortems/draft?incident=hidden-1", "dev", viewerToken, ""), 404, "not_found")
 	assertError(call("GET", "/api/v1/postmortems/draft?incident=open", "dev", teamToken, ""), 404, "not_found")
-	input := `{"incident_id":"ready","sections":[{"key":"cause","title":"Root cause","text":"Observed"}],"actions":[{"text":"Fix","owner":"SRE","due":"2026-10-01"}],"status":"review"}`
+	input := fmt.Sprintf(`{"incident_id":"ready","source_close_event_seq":%d,"sections":[{"key":"cause","title":"Root cause","text":"Observed"}],"actions":[{"text":"Fix","owner":"SRE","due":"2026-10-01"}],"status":"review"}`, draftSource.SourceCloseEventSeq)
+	assertError(call("POST", "/api/v1/postmortems", "dev", adminToken,
+		strings.Replace(input, fmt.Sprintf(`"source_close_event_seq":%d,`, draftSource.SourceCloseEventSeq), "", 1)),
+		422, "source_close_event_seq_required")
+	assertError(call("POST", "/api/v1/postmortems", "dev", adminToken,
+		strings.Replace(input, fmt.Sprintf(`"source_close_event_seq":%d`, draftSource.SourceCloseEventSeq), `"source_close_event_seq":999999`, 1)),
+		409, "postmortem_source_changed")
 	assertError(call("POST", "/api/v1/postmortems", "all", adminToken, input), 409, "env_view_only")
 	assertError(call("POST", "/api/v1/postmortems", "dev", viewerToken, input), 403, "forbidden")
 	assertError(call("POST", "/api/v1/postmortems", "dev", teamToken, strings.Replace(input, `"ready"`, `"hidden-1"`, 1)), 403, "forbidden")
 	assertError(call("POST", "/api/v1/postmortems", "dev", adminToken, strings.Replace(input, `"review"`, `"published"`, 1)), 422, "invalid_postmortem")
-	assertError(call("POST", "/api/v1/postmortems", "dev", adminToken, strings.Replace(input, `"ready"`, `"missing"`, 1)), 409, "incident_not_resolved")
+	assertError(call("POST", "/api/v1/postmortems", "dev", adminToken, strings.Replace(input, `"ready"`, `"missing"`, 1)), 409, "postmortem_source_changed")
 	assertError(call("POST", "/api/v1/postmortems", "dev", adminToken, strings.Replace(input, `"ready"`, `"other"`, 1)), 404, "not_found")
 	created := call("POST", "/api/v1/postmortems", "dev", teamToken, input)
 	if created.Code != 201 {

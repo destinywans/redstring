@@ -106,6 +106,10 @@ func (s *Service) Verify(ctx context.Context, a Actor, code string) (Verificatio
 		return Verification{}, err
 	}
 	f, err := s.loadFactor(ctx, tx, a.UserID)
+	if _, _, authErr := s.lockedActor(ctx, tx, a, s.clock(), false); authErr != nil {
+		return Verification{}, authErr
+	}
+	now = s.clock()
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && f.state != "active" {
 		return Verification{}, ErrNoFactor
 	}
@@ -128,10 +132,14 @@ func (s *Service) Verify(ctx context.Context, a Actor, code string) (Verificatio
 	if err = s.consumeCode(ctx, tx, a, f, checked, now); err != nil {
 		return Verification{}, err
 	}
+	var acceptedStep *int64
+	if checked.method == "totp" {
+		acceptedStep = &checked.step
+	}
 	if err = s.audit(ctx, tx, a, sessionHash, "mfa.totp.verified", "success", checked.method); err != nil {
 		return Verification{}, err
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = s.commitCurrent(ctx, tx, a, false, time.Time{}, acceptedStep); err != nil {
 		return Verification{}, err
 	}
 	return Verification{Verified: true, Method: checked.method}, nil
@@ -154,6 +162,10 @@ func (s *Service) Cancel(ctx context.Context, a Actor, code string) error {
 		return err
 	}
 	f, err := s.loadFactor(ctx, tx, a.UserID)
+	if _, _, authErr := s.lockedActor(ctx, tx, a, s.clock(), true); authErr != nil {
+		return authErr
+	}
+	now = s.clock()
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && f.state != "active" {
 		return ErrNoFactor
 	}
@@ -180,8 +192,12 @@ func (s *Service) Cancel(ctx context.Context, a Actor, code string) error {
 		s.instanceID, a.UserID); err != nil {
 		return err
 	}
+	var acceptedStep *int64
+	if checked.method == "totp" {
+		acceptedStep = &checked.step
+	}
 	if err = s.audit(ctx, tx, a, sessionHash, "mfa.totp.cancelled", "success", checked.method); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	return s.commitCurrent(ctx, tx, a, true, time.Time{}, acceptedStep)
 }

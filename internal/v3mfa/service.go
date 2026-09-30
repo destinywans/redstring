@@ -140,13 +140,20 @@ func (s *Service) lockedActor(ctx context.Context, tx pgx.Tx, a Actor, now time.
 	}
 	sessionHash := store.Hash(a.SessionToken)
 	var issuedAt sql.NullTime
-	err = tx.QueryRow(ctx, `SELECT issued_at FROM sessions WHERE token_hash=$1
-	 AND user_id=$2 AND expires_at>$3 FOR SHARE`, sessionHash, a.UserID, now).Scan(&issuedAt)
+	var expiresAt time.Time
+	err = tx.QueryRow(ctx, `SELECT issued_at,expires_at FROM sessions WHERE token_hash=$1
+	 AND user_id=$2 FOR SHARE`, sessionHash, a.UserID).Scan(&issuedAt, &expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", ErrForbidden
 	}
 	if err != nil {
 		return "", "", err
+	}
+	// A session or governance lock may have waited past the time sampled by
+	// the caller. Validate only after the session lock has been acquired.
+	now = s.clock()
+	if !now.Before(expiresAt) {
+		return "", "", ErrForbidden
 	}
 	if fresh && (!issuedAt.Valid || now.Sub(issuedAt.Time) > freshLoginWindow ||
 		issuedAt.Time.After(now.Add(2*time.Minute))) {
@@ -189,3 +196,23 @@ func (s *Service) beginTx(ctx context.Context) (pgx.Tx, error) {
 }
 
 func (s *Service) clock() time.Time { return s.now().UTC() }
+
+// All authorization locks are already held. Re-read time at the successful
+// commit boundary so audit/database waits cannot extend a credential's life.
+func (s *Service) commitCurrent(ctx context.Context, tx pgx.Tx, a Actor, fresh bool, expires time.Time, step *int64) error {
+	now := s.clock()
+	if _, _, err := s.lockedActor(ctx, tx, a, now, fresh); err != nil {
+		return err
+	}
+	now = s.clock()
+	if !expires.IsZero() && !now.Before(expires) {
+		return ErrConflict
+	}
+	if step != nil {
+		current := now.Unix() / int64(totpPeriod/time.Second)
+		if *step < current-1 || *step > current+1 {
+			return ErrInvalidCode
+		}
+	}
+	return tx.Commit(ctx)
+}

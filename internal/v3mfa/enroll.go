@@ -22,8 +22,12 @@ func (s *Service) Status(ctx context.Context, a Actor) (Status, error) {
 		return Status{}, err
 	}
 	f, err := s.loadFactor(ctx, tx, a.UserID)
+	if _, _, authErr := s.lockedActor(ctx, tx, a, s.clock(), false); authErr != nil {
+		return Status{}, authErr
+	}
+	now = s.clock()
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Status{State: "none"}, tx.Commit(ctx)
+		return Status{State: "none"}, s.commitCurrent(ctx, tx, a, false, time.Time{}, nil)
 	}
 	if err != nil {
 		return Status{}, err
@@ -43,7 +47,7 @@ func (s *Service) Status(ctx context.Context, a Actor) (Status, error) {
 			return Status{}, err
 		}
 	}
-	return result, tx.Commit(ctx)
+	return result, s.commitCurrent(ctx, tx, a, false, time.Time{}, nil)
 }
 
 // BeginEnrollment returns the seed exactly once. An unexpired pending
@@ -60,6 +64,10 @@ func (s *Service) BeginEnrollment(ctx context.Context, a Actor) (Enrollment, err
 		return Enrollment{}, err
 	}
 	f, err := s.loadFactor(ctx, tx, a.UserID)
+	if _, _, authErr := s.lockedActor(ctx, tx, a, s.clock(), true); authErr != nil {
+		return Enrollment{}, authErr
+	}
+	now = s.clock()
 	if err == nil {
 		if f.state == "active" || now.Before(f.pendingExpiresAt) {
 			return Enrollment{}, ErrConflict
@@ -94,7 +102,7 @@ func (s *Service) BeginEnrollment(ctx context.Context, a Actor) (Enrollment, err
 	if err = s.audit(ctx, tx, a, sessionHash, "mfa.totp.enrollment_started", "success", "totp"); err != nil {
 		return Enrollment{}, err
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = s.commitCurrent(ctx, tx, a, true, expiresAt, nil); err != nil {
 		return Enrollment{}, err
 	}
 	secret := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(seed)
@@ -118,6 +126,10 @@ func (s *Service) ConfirmEnrollment(ctx context.Context, a Actor, code string) (
 		return Confirmation{}, err
 	}
 	f, err := s.loadFactor(ctx, tx, a.UserID)
+	if _, _, authErr := s.lockedActor(ctx, tx, a, s.clock(), true); authErr != nil {
+		return Confirmation{}, authErr
+	}
+	now = s.clock()
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Confirmation{}, ErrConflict
 	}
@@ -166,7 +178,7 @@ func (s *Service) ConfirmEnrollment(ctx context.Context, a Actor, code string) (
 	if err = s.audit(ctx, tx, a, sessionHash, "mfa.totp.enrollment_confirmed", "success", "totp"); err != nil {
 		return Confirmation{}, err
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = s.commitCurrent(ctx, tx, a, true, f.pendingExpiresAt, &step); err != nil {
 		return Confirmation{}, err
 	}
 	return Confirmation{Enabled: true, RecoveryCodes: codes}, nil
@@ -186,6 +198,10 @@ func (s *Service) CancelEnrollment(ctx context.Context, a Actor) error {
 		return err
 	}
 	f, err := s.loadFactor(ctx, tx, a.UserID)
+	if _, _, authErr := s.lockedActor(ctx, tx, a, s.clock(), true); authErr != nil {
+		return authErr
+	}
+	now = s.clock()
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && f.state != "pending" {
 		return ErrConflict
 	}
@@ -206,7 +222,7 @@ func (s *Service) CancelEnrollment(ctx context.Context, a Actor) error {
 	if err = s.audit(ctx, tx, a, sessionHash, "mfa.totp.enrollment_cancelled", "success", "totp"); err != nil {
 		return err
 	}
-	return tx.Commit(ctx)
+	return s.commitCurrent(ctx, tx, a, true, time.Time{}, nil)
 }
 
 func (s *Service) decryptFactor(f factor, userID string) ([]byte, error) {

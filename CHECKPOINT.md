@@ -1,5 +1,13 @@
 # AIOps Canvas 检查点
 
+## CP-205 · 2026-09-30 · WAN-117/118/123/124 后端源码集成，待用户 Review
+
+- 在既有 `codex/wan-117-v3-integration` 从 CP-204 `7c84b69` 继续。WAN-118 手工事件与 WAN-123 复盘来源整合提交 `c6947e3`；WAN-123 Runbook 引用来源 `6526335` 合入为 `eb9d8a7`；WAN-124 私人模板保留来源 `6aaee8a` 合入为 `3c9d035`。模板 OpenAPI 的单处冲突同时保留历史恢复与模板复用契约。聚合 OpenAPI、主契约、就绪基线及本检查点由后续公共提交收束。未创建 PR，未合并 GitHub 默认分支，未部署。
+- 手工 `INC-*` 状态现以当前真人、环境及 `events.view/change`、预期修订、受限请求 ID 和事务审计记录 `active → mitigated`、`active → resolved` 或 `mitigated → resolved`；精确重放返回原事件，详情暴露状态修订和真实 resolved 事件。复盘候选、草稿、创建、记录、汇总与发布共用旧调查关闭事件或手工事件真实 resolved 状态事件的来源映射；无 Canvas 和未证实故障时长保持未知。创建绑定 `source_revision`，发布在事务内要求不同于作者的当前真人、当前管理权限与仍有效的精确来源。独立源码审查指出缺真人校验及无效来源版本误报 409，两项均已修正；未做运行时并发验证。
+- 发现搜索、提及与预览现提供当前受权的持久 Runbook 引用及缺失观测项；私人通用画布模板可选择保留待复核步骤、静态文字和精确已发布 Runbook 链接，复用时重核版本和范围，不复制执行结果。模板不自动脱敏；冻结页面“团队模板”和自动脱敏文案仍需对齐。Runbook 源码批次与模板批次无新迁移。
+- 聚合 OpenAPI **336 路径、407 操作、496 schema**，主契约 **165/166 implemented、1 mock**，唯一 mock 仍是保持关闭的 Webhook 重投。最小 `go build -mod=readonly ./cmd/aiops`、V3 契约与就绪检查、路由矩阵生成和差异检查通过；Go 模块 stat cache 有非致命 sandbox 权限提示，构建退出码为 0。按用户当前要求，**未运行任何测试**、迁移、数据库/HTTP、外部模型/服务或浏览器；源码合并可供 Review，不等于产品验收。
+- 迁移链中旧 `137_v3_incident_cases.sql` 为前置，新增 `151_v3_incident_case_lifecycle.sql` 与 `152_v3_postmortem_case_sources.sql` 均未在现有业务库执行；旧 resolved case 若无真实状态事件仍不能作为复盘来源。评测执行器和案例输入生产者没有在本批实现，未创建保留编号 153 的迁移；现有 `POST /evals` 只保存 pending 元数据。冻结前端尚不提交状态修订/请求 ID、手工事件复盘来源版本或模板正确文案，页面未验收。下一步是用户 Review；测试种类由用户随后决定。
+
 ## CP-204 · 2026-09-30 · WAN-120/121 画布历史与 Agent 链路列表
 
 - 从已推送 CP-203 `4313c87` 接续，在 `codex/wan-117-v3-integration` 按依赖顺序将 WAN-121 来源 `20ffef7` 合入为 `45f4779`，WAN-120 来源 `9d6a52f` 合入为 `106238f`；公共契约、聚合 OpenAPI 与文档索引提交 `c465c3f3b231c79bbbf5cffaabc69056751bfa2d`。三笔已推送到现有私有 GitHub 集成分支，`ls-remote` 回读该完整 SHA；无 PR、合并或部署。两项领域提交均无新迁移或启动配置。

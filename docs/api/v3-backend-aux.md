@@ -46,7 +46,7 @@
 | POST | `/api/v1/runbooks/{id}/reindex` | 单环境、对象级 `knowledge.manage` 下重试已发布 Runbook 的语义索引；请求审计先落库，索引在事务外执行。响应分别给出 `index_status`、`semantic_search_ready` 与 `index_retry_required`；Embedding 失败不撤销人工发布，关键词检索仍可用。 |
 | GET | `/api/v1/runbooks/{id}/record` | 读取持久化的结构化步骤及版本、维护者、应用/环境、来源类型；返回 `partial: true`，明确缺少用量、事件处置和执行核验。旧文档无结构化步骤时 503，不把全文猜成步骤。 |
 | GET | `/api/v1/runbooks/{id}/history` | 读取版本、审核与只读验证预览，各集合最多 100 条；审核说明只对维护者/管理者显示。`execution_verification_available: false`。超限返回 413，不截断冒充完整。 |
-| POST | `/api/v1/postmortems/{id}/publish` | 复盘创建者以外的当前 `knowledge.manage` 成员在 `review` 状态发布；旧事故须保有原调查结案与报告，手工事件须保有创建时绑定的精确 resolved 状态事件和当前修订。来源变化返回 409，发布与审计同事务；无外部发布或 AI 生成。详见[手工事件与复盘生命周期](v3-incident-postmortem-lifecycle.md)。 |
+| POST | `/api/v1/postmortems/{id}/publish` | 复盘创建者以外、持久身份为 `human` 的当前 `knowledge.manage` 成员在 `review` 状态发布；旧事故须保有原调查结案与报告，手工事件须保有创建时绑定的精确 resolved 状态事件和当前修订。来源变化返回 409，发布与审计同事务；无外部发布或 AI 生成。详见[手工事件与复盘生命周期](v3-incident-postmortem-lifecycle.md)。 |
 | GET | `/api/v1/memory/facts` | 仅列出当前受权、来源文档仍已发布且版本/正文归属匹配的事实，返回 `partial: true` 与缺失置信度、召回、过期及层级/策略字段；超过 500 个候选事实返回 413。此接口不替代完整 `MemoryView`。 |
 | GET | `/api/v1/uploads/{id}/content` | 下载本人上传的文件，或内联读取经重新验证格式的图片。可不传环境头；后端根据上传记录核对实例环境、当前 `conversation.view` 授权和所有者。普通文件以附件下载，响应禁缓存、禁 MIME 猜测；损坏图片拒绝返回。该辅助读取不改变 `POST /uploads` 的主契约状态。 |
 

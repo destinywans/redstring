@@ -117,7 +117,7 @@
 | GET | `/canvases/{id}` | `include_threads=false?` | 默认 `CanvasDoc` 包含各节点完整对话；显式省略历史时返回结构及 `threads_included=false`，超限 413 提供恢复入口 | implemented |
 | POST | `/canvases/{id}/nodes/{node}/messages` | `{ text, model?, reasoning? }` | `{ reply }` | implemented |
 | GET | `/canvas-templates` | | `{ items: CanvasTemplateOption[] }`；系统空白模板与当前本人有权环境中的私有通用画布模板，超过 500 项受控 422 | implemented |
-| POST | `/canvas-templates` | `{ from_canvas, name, keep: { nodes, steps?, runbooks?, content? } }`；`nodes` 必须显式给出，其他保留项为 true 时 422 | 本人私有通用画布结构模板 | implemented |
+| POST | `/canvas-templates` | `{ from_canvas, name, keep: { nodes, steps?, runbooks?, content? } }`；`nodes` 必须显式给出 | 本人同环境私有模板；按选项保留安全复核后的步骤、文字与精确 Runbook 引用，不复制执行结果 | implemented |
 | GET | `/investigations/{id}/canvas` | | `CanvasGraph`；持久分支、上下文修订、证据及布局，未知 token 用量为 `null` | implemented |
 | POST | `/investigations/{id}/branches` | `{ parent_id?, parent?, title, x?, y?, expected_parent_revision? }`；至少一个父 ID | `CanvasNode`；锁定父修订后复制上下文，分支、布局、事件、审计同事务 | implemented |
 | PATCH | `/investigations/{id}/nodes/{node}` | `{ x?, y?, collapsed?, title?, expected_layout_version, expected_title? }`；改标题必带 `expected_title` | `CanvasNode`；版本冲突 409、缺前置条件 428 | implemented |
@@ -135,7 +135,7 @@
 
 `GET /canvases` 在同一数据库快照中合并本人私人通用画布与当前应用/团队、环境有权的持久调查，按 `kind`、搜索和分页给出列表与完整计数。调查状态由持久 `open/closed` 映射；历史调查无记录的创建者返回空参与者数组，不编造人员。`POST /canvases` 在单一环境中创建通用画布，调查类要求恰好一个有效且已映射的服务；保存时重核当前 Cookie、画布权限、服务及负责人团队，画布/调查、初始节点与审计共同提交。可选 AI 草稿只用用户标题、目标和服务 ID，拒绝工具及非结构化结果；模型不可用则 503 且不创建。列表中的调查链接不代表完整调查详情已接通；冻结新建页会发送三个固定服务，调查创建会返回 422，页面仍待适配。
 
-通用画布模板 GET 在同一有界快照中重核精确会话、当前环境与 `canvas.view`，只列系统空白模板和本人有权环境中的私有结构模板；超过 500 项明确返回 422，不截断。POST 在同一事务复核会话、本人同环境源画布和当前 `canvas.change`，`keep.nodes=true` 只复制净化后的节点/边布局，false 保存空结构，均排除源节点标题、内容块、产物与对话；按本人串行化重复名称与容量检查，模板和审计原子提交。私人保存与受审系统模板导入现共用数据库容量锁：新私人模板按本人可见的全部环境与系统模板计数，新系统模板按系统总数加现有最大私人集合计数；达到 500 项时都拒绝新增并返回受控 422，已有同一系统导入的幂等重放不新增项目。历史已超限数据仍需单独治理，现有 GET 继续受控 422。模板名称仍是可持久化文本：当前前端名称留空时会沿用源画布标题，可能包含需用户检查的业务信息。前端默认提交 `steps=true`、`runbooks=true`，而后端明确 422；页面还称“团队模板”，但当前仅为私有模板，列表不含调查模板。两条路由只按后端接口标准计入，页面未验收。
+通用画布模板 GET 在同一有界快照中重核精确会话、当前环境与 `canvas.view`，只列系统空白模板和本人有权环境中的私有模板；超过 500 项明确返回 422，不截断。POST 在同一事务复核会话、本人同环境源画布、引用应用及当前 `canvas.change`；`keep.nodes` 决定是否保留经验证的布局/边，`keep.steps` 保留持久步骤并重置为待复核，`keep.content` 仅在显式选择时保留私人文字和静态块，`keep.runbooks` 只接受精确本地链接且复核已发布文档版本、环境/应用范围与 `knowledge.view`。没有结构化 Runbook 引用时返回零保留项，不从自由文字猜测；模板复用再次核对原应用和引用版本/权限，不复制对话、证据或执行结果。私人丰富模板不能通过严格系统配置导出。私人保存与受审系统导入共用 500 项数据库容量锁；已超限历史数据仍需单独治理。源标题与正文可能含业务信息，后端不会自动脱敏。冻结页面仍称“团队模板”并承诺自动脱敏，页面未验收；详见[私有模板保留项](v3-canvas-template-retention.md)。
 
 通用画布节点 `POST /canvases/{id}/nodes/{node}/messages` 的后端已接持久化同步回复：限定本人画布、单一环境和当前 `canvas.change`，一次只运行一条回复。模型上下文包含当前节点及沿有向边可达的祖先节点块与已完成回合，不包含兄弟或失败回合，超过 24 KiB 返回 413；工具调用被拒绝。运行期间约每 2 秒检查当前会话与授权，失败时取消模型请求；完成事务再次核对原会话、画布归属与当前 `canvas.change`，完成时无权限则不保存助手回复。若撤权又恢复全部落在两次检查之间，不能保证取消本轮。失败的用户输入保留供刷新核对，不生成虚假助手消息。`GET /canvases/{id}` 校验节点、七种块、边和产物结构，默认在 `threads` 返回各节点完整已保存回合；历史超过 500 次交换、2 MiB 总量或单条助手消息 64 KiB 时返回 413，不截断。写入仍可继续；413 提供画布结构读取与逐节点分页的恢复 URL。显式 `include_threads=false` 返回画布结构、省略整个 `threads` 属性，并标记 `threads_included=false`。辅助 `GET /canvases/{id}/nodes/{node}/messages` 以有界快照游标分页读取持久回合，每页重新核对当前授权。恢复 URL 在非生产环境仍需随请求发送 `X-AIOps-Environment`。两条主路由按后端判据标为 `implemented`，仅适用于私人通用画布；调查节点接口仍分开。前端尚无超限恢复/分页，且错误客户端丢弃 `recovery`，发送失败也未清除 `busy`，真实 409/413/422/503 可卡住输入框，因此画布整页尚未验收；详见[通用画布历史读取与恢复](v3-canvas-history.md)。
 

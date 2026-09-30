@@ -43,6 +43,7 @@
 - [V3 手工事件与复盘生命周期](api/v3-incident-postmortem-lifecycle.md)：真实状态修订、两类解决来源及 Review 边界。
 - [V3 Agent 范围链路列表](api/v3-agent-trace-list.md)：持久运行与已报告 Span 的授权范围、完整性上限和缺失字段。
 - [V3 通用画布历史恢复](api/v3-canvas-history.md)：省略历史的画布结构读取及逐节点分页。
+- [V3 私有画布模板保留项](api/v3-canvas-template-retention.md)：受权步骤、静态文字及精确 Runbook 引用的保留与复用边界。
 - [V3 Agent 生命周期](api/v3-agent-lifecycle.md)：版本化发布意图、权限等级修订、评测门禁与实际流量边界。
 - [V3 Prompt 试运行](api/v3-prompt-trial.md)：双版本真实文本、可信案例输入、模型预算/幂等与未接生产者边界。
 - [V3 服务告警覆盖绑定](examples/v3-service-alert-coverage.md)：逐应用、环境的完整来源声明及撤销方式。

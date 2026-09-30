@@ -1,0 +1,15 @@
+{
+  "public_host": "aiops.example.invalid",
+  "sources": [
+    {
+      "id": "build-system",
+      "provider": "generic",
+      "application_id": "persisted-application-id",
+      "environment_id": "dev",
+      "token_file": "/absolute/private/path/build-system.token",
+      "hmac_secret_file": "/absolute/private/path/build-system.hmac",
+      "types": ["alert", "change", "incident", "resource", "oncall"],
+      "rate_per_minute": 120
+    }
+  ]
+}

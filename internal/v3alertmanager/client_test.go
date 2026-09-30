@@ -81,6 +81,18 @@ func TestListAlertsReadsObservedSilenceIDs(t *testing.T) {
 	}
 }
 
+func TestAlertmanagerNullListsAreNotEmptySnapshots(t *testing.T) {
+	client, _ := localClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`null`))
+	}, "")
+	if alerts, err := client.ListAlerts(context.Background(), "dev"); err == nil || alerts != nil {
+		t.Fatalf("null alerts became empty snapshot: %+v %v", alerts, err)
+	}
+	if silences, err := client.ListSilences(context.Background(), "dev"); err == nil || silences != nil {
+		t.Fatalf("null silences became empty snapshot: %+v %v", silences, err)
+	}
+}
+
 func TestInhibitionRulesComeFromStatusWithoutReturningReceiverSecrets(t *testing.T) {
 	client, _ := localClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/alertmanager/api/v2/status" {

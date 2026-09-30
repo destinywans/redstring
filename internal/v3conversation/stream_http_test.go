@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,19 +20,31 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3uploads"
 )
 
 type gatedStreamRuntime struct {
-	first   chan struct{}
-	release chan struct{}
-	once    sync.Once
+	first     chan struct{}
+	release   chan struct{}
+	once      sync.Once
+	requestMu sync.Mutex
+	request   inference.Request
 }
 
 func (r *gatedStreamRuntime) Models() []inference.Model {
-	return []inference.Model{{ID: "test-model", Name: "Fake model", InputBudget: 8192, Streaming: true}, {ID: "preferred-model", Name: "Preferred fake model", InputBudget: 8192, Streaming: true}}
+	return []inference.Model{{ID: "test-model", Name: "Fake model", InputBudget: 8192, Tools: true, Streaming: true}, {ID: "preferred-model", Name: "Preferred fake model", Provider: "configured-provider", ReasoningLevels: []string{"high"}, InputBudget: 8192, Tools: true, Streaming: true}}
 }
 
-func (r *gatedStreamRuntime) Run(ctx context.Context, _ inference.Request, emit func(inference.Event) error) (string, error) {
+func (r *gatedStreamRuntime) Run(ctx context.Context, request inference.Request, emit func(inference.Event) error) (string, error) {
+	r.requestMu.Lock()
+	r.request = request
+	r.requestMu.Unlock()
+	if len(request.Tools) != 1 {
+		return "", fmt.Errorf("expected one authorized fake read tool, got %d", len(request.Tools))
+	}
+	if _, err := request.Tools[0].Read(ctx, "health"); err != nil {
+		return "", err
+	}
 	if err := emit(inference.Event{Type: "delta", Delta: "first"}); err != nil {
 		return "", err
 	}
@@ -48,6 +61,12 @@ func (r *gatedStreamRuntime) Run(ctx context.Context, _ inference.Request, emit 
 		return "", err
 	}
 	return "first rest", nil
+}
+
+func (r *gatedStreamRuntime) lastRequest() inference.Request {
+	r.requestMu.Lock()
+	defer r.requestMu.Unlock()
+	return r.request
 }
 
 type streamEnvironmentAuthorizer struct{}
@@ -108,10 +127,15 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 		ALTER TABLE v3_conversation_messages ALTER COLUMN state SET DEFAULT 'completed';
 		ALTER TABLE v3_conversation_replies ADD COLUMN user_message_id text NOT NULL DEFAULT '', ADD COLUMN model_id text NOT NULL DEFAULT '', ADD COLUMN reasoning text NOT NULL DEFAULT '', ADD COLUMN started_at timestamptz NOT NULL DEFAULT now();
 		ALTER TABLE management_audit ALTER COLUMN actor_kind SET DEFAULT 'user';
-		CREATE TABLE users (id text PRIMARY KEY,email text NOT NULL,name text NOT NULL,role text NOT NULL,disabled boolean NOT NULL DEFAULT false);
+		CREATE TABLE IF NOT EXISTS users (id text PRIMARY KEY,email text NOT NULL,name text NOT NULL,role text NOT NULL,disabled boolean NOT NULL DEFAULT false,deleted_at timestamptz);
 		CREATE TABLE rbac_platform_administrators (user_id text PRIMARY KEY);
-		CREATE TABLE rbac_user_roles (user_id text NOT NULL,role_id text NOT NULL);
+		CREATE TABLE IF NOT EXISTS rbac_user_roles (user_id text NOT NULL,role_id text NOT NULL);
+		CREATE TABLE v3_uploads (id text PRIMARY KEY,owner_id text NOT NULL,environment_id text NOT NULL,kind text NOT NULL,name text NOT NULL,size_bytes integer NOT NULL,mime text NOT NULL,url text NOT NULL DEFAULT '',content bytea);
 		INSERT INTO users(id,email,name,role) VALUES('stream-owner','stream@local','Stream Owner','viewer');
+		INSERT INTO v3_uploads(id,owner_id,environment_id,kind,name,size_bytes,mime,url,content)
+			VALUES('upload-1','stream-owner','test','paste','log snippet',4,'text/plain','',convert_to('data','UTF8')),
+			('upload-link','stream-owner','test','link','external page',0,'text/uri-list','https://example.test/',NULL),
+			('upload-large','stream-owner','test','paste','long log',7000,'text/plain','',convert_to(repeat('x',7000),'UTF8'));
 		INSERT INTO v3_conversations(id,owner_id,environment_id,default_model_id) VALUES('stream-conv','stream-owner','test','test-model');`)
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +157,7 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 	chat := New(db, runtime, Options{
 		CurrentUser:    httpapi.CurrentUser,
 		RefreshSession: repository.Session,
-		DefaultModel: func(_ context.Context, owner string) (string, error) {
+		DefaultModel: func(_ context.Context, owner, env string) (string, error) {
 			if owner != "stream-owner" {
 				return "", ErrForbidden
 			}
@@ -167,6 +191,18 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 			}
 			return ErrForbidden
 		},
+		ToolsForTurn: func(_ context.Context, owner, env, _ string) ([]inference.EvidenceTool, error) {
+			if owner != "stream-owner" || env != "test" {
+				return nil, ErrForbidden
+			}
+			return []inference.EvidenceTool{{Name: "fake_read", Description: "Read test health", Read: func(_ context.Context, query string) (inference.Evidence, error) {
+				if query != "health" {
+					return inference.Evidence{}, fmt.Errorf("unexpected fake read query %q", query)
+				}
+				return inference.Evidence{Source: "fake", Title: "health", Content: "healthy"}, nil
+			}}}, nil
+		},
+		ValidateAttachments: (&v3uploads.Service{DB: db}).ValidateAttachments,
 	})
 	chat.Register(server.Register)
 	server.MarkV3Route("POST /api/v1/conversations/{id}/messages", "conversation", "change")
@@ -218,7 +254,35 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 			t.Fatalf("invalid model: %d %s", response.StatusCode, body)
 		}
 	}
-	response, err := client.Do(request(http.MethodPost, url+"/messages", "test", "", strings.NewReader(`{"text":"investigate"}`), true))
+	for _, payload := range []string{
+		`{"text":"","attachments":[{"id":"upload-link","kind":"link","name":"forged page","size":0,"mime":"text/uri-list","url":"https://example.test/"}]}`,
+		`{"text":"investigate","attachments":[{"id":"upload-link","kind":"link","name":"forged page","size":0,"mime":"text/uri-list","url":"https://example.test/"}]}`,
+	} {
+		response, err := client.Do(request(http.MethodPost, url+"/messages", "test", "", strings.NewReader(payload), true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(response.Body)
+		response.Body.Close()
+		if response.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(string(body), "invalid_attachment") {
+			t.Fatalf("forged attachment must fail before turn commit: %d %s", response.StatusCode, body)
+		}
+	}
+	largePayload := `{"text":"investigate","attachments":[{"id":"upload-large","kind":"paste","name":"long log","size":7000,"mime":"text/plain"}]}`
+	if response, err := client.Do(request(http.MethodPost, url+"/messages", "test", "", strings.NewReader(largePayload), true)); err != nil {
+		t.Fatal(err)
+	} else {
+		body, _ := io.ReadAll(response.Body)
+		response.Body.Close()
+		if response.StatusCode != http.StatusRequestEntityTooLarge || !strings.Contains(string(body), "model_input_too_large") {
+			t.Fatalf("oversized model context must fail before turn commit: %d %s", response.StatusCode, body)
+		}
+	}
+	var rejectedMessages int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_conversation_messages WHERE conversation_id='stream-conv'`).Scan(&rejectedMessages); err != nil || rejectedMessages != 0 {
+		t.Fatalf("rejected attachment persisted a turn: count=%d err=%v", rejectedMessages, err)
+	}
+	response, err := client.Do(request(http.MethodPost, url+"/messages", "test", "", strings.NewReader(`{"text":"investigate","reasoning":"high","attachments":[{"id":"upload-1","kind":"paste","name":"log snippet","size":4,"mime":"text/plain"}]}`), true))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,18 +301,25 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 	if response.StatusCode != http.StatusAccepted || accepted.Message.ID == "" || accepted.ReplyID == "" {
 		t.Fatalf("send: %d %s", response.StatusCode, sendBody)
 	}
+	if len(accepted.Message.Attachments) != 1 || len(accepted.Message.Parts) != 1 || strings.Contains(string(accepted.Message.Parts[0]), "data") {
+		t.Fatalf("public message should retain only user text and attachment reference: %s", sendBody)
+	}
 	var selectedModel string
 	if err := db.QueryRow(ctx, `SELECT model_id FROM v3_conversation_replies WHERE id=$1`, accepted.ReplyID).Scan(&selectedModel); err != nil || selectedModel != "preferred-model" {
 		t.Fatalf("turn did not use current default model: %q %v", selectedModel, err)
 	}
-	var saved string
-	if err := db.QueryRow(ctx, `SELECT parts::text FROM v3_conversation_messages WHERE id=$1`, accepted.Message.ID).Scan(&saved); err != nil || !strings.Contains(saved, "investigate") {
-		t.Fatalf("202 before user message persisted: %q %v", saved, err)
+	var saved, snapshot string
+	if err := db.QueryRow(ctx, `SELECT parts::text,attachment_context FROM v3_conversation_messages WHERE id=$1`, accepted.Message.ID).Scan(&saved, &snapshot); err != nil || !strings.Contains(saved, "investigate") || !strings.Contains(snapshot, `"text":"data"`) || strings.Contains(saved, `"text":"data"`) {
+		t.Fatalf("202 before distinct public/private message data persisted: parts=%q snapshot=%q err=%v", saved, snapshot, err)
 	}
 	select {
 	case <-runtime.first:
 	case <-time.After(3 * time.Second):
 		t.Fatal("fake runtime did not reach first streamed delta")
+	}
+	modelRequest := runtime.lastRequest()
+	if len(modelRequest.Tools) != 1 || len(modelRequest.Messages) == 0 || !strings.Contains(modelRequest.Messages[len(modelRequest.Messages)-1].Content, `"text":"data"`) || !strings.Contains(modelRequest.Messages[len(modelRequest.Messages)-1].Content, "untrusted user-provided data") {
+		t.Fatalf("fake model did not receive bounded untrusted attachment snapshot: %#v", modelRequest.Messages)
 	}
 	response, err = client.Do(request(http.MethodPost, url+"/messages", "test", "", strings.NewReader(`{"text":"second reply"}`), true))
 	if err != nil {
@@ -305,6 +376,12 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	// A later text-only turn also prechecks the combined saved history,
+	// including the private attachment snapshot, before accepting a turn.
+	if _, _, err := chat.startTurn(ctx, "stream-conv", "stream-owner", "test", "Stream Owner",
+		store.Hash("stream-session"), TurnInput{Text: strings.Repeat("x", 1500)}, inference.Model{ID: "test-model", InputBudget: 2048}, nil); !errors.Is(err, ErrModelInputTooLarge) {
+		t.Fatalf("text-only follow-up with oversized saved context: %v", err)
+	}
 	response, err = client.Do(request(http.MethodGet, url+"/events", "", fmt.Sprint(cursor), nil, true))
 	if err != nil {
 		t.Fatal(err)
@@ -332,9 +409,12 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 				t.Fatalf("completion event before full message commit: state=%q parts=%q err=%v", state, parts, err)
 			}
 			var completed, persisted struct {
-				Tokens int `json:"tokens"`
+				Tokens         int    `json:"tokens"`
+				Brand          string `json:"brand"`
+				Reasoning      string `json:"reasoning"`
+				ReasoningLabel string `json:"reasoning_label"`
 			}
-			if json.Unmarshal(item.run, &completed) != nil || json.Unmarshal([]byte(savedRun), &persisted) != nil || completed.Tokens != 22 || persisted.Tokens != 22 {
+			if json.Unmarshal(item.run, &completed) != nil || json.Unmarshal([]byte(savedRun), &persisted) != nil || completed.Tokens != 22 || persisted.Tokens != 22 || completed.Brand != "configured-provider" || persisted.Brand != completed.Brand || completed.Reasoning != "high" || completed.ReasoningLabel != "high" || persisted.ReasoningLabel != completed.ReasoningLabel {
 				t.Fatalf("completed usage differs from persisted provider usage: event=%s saved=%s", item.run, savedRun)
 			}
 		}
@@ -349,5 +429,41 @@ func TestConversationSendAndSSERegisteredRoutesResumeAfterDisconnect(t *testing.
 	defer response.Body.Close()
 	if body, err := io.ReadAll(response.Body); err != nil || len(body) != 0 {
 		t.Fatalf("resume after terminal must not duplicate event: %q %v", body, err)
+	}
+	// Later turns reconstruct the model context from the accepted message
+	// snapshot, even if the original upload is no longer present.
+	if _, err := db.Exec(ctx, `DELETE FROM v3_uploads WHERE id='upload-1'`); err != nil {
+		t.Fatal(err)
+	}
+	response, err = client.Do(request(http.MethodPost, url+"/messages", "test", "", strings.NewReader(`{"text":"follow up"}`), true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var followUp struct {
+		ReplyID string `json:"reply_id"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&followUp); err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusAccepted || followUp.ReplyID == "" {
+		t.Fatalf("follow-up send: %d", response.StatusCode)
+	}
+	deadline = time.Now().Add(3 * time.Second)
+	for {
+		var state string
+		if err := db.QueryRow(ctx, `SELECT state FROM v3_conversation_replies WHERE id=$1`, followUp.ReplyID).Scan(&state); err != nil {
+			t.Fatal(err)
+		} else if state == "completed" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("follow-up worker did not complete: %s", state)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	modelRequest = runtime.lastRequest()
+	if len(modelRequest.Messages) < 3 || !strings.Contains(modelRequest.Messages[0].Content, `"text":"data"`) || modelRequest.Messages[len(modelRequest.Messages)-1].Content != "follow up" {
+		t.Fatalf("later turn lost persisted attachment context: %#v", modelRequest.Messages)
 	}
 }

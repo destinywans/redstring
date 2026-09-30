@@ -165,16 +165,33 @@ func v3ReadOnlyPost(r *http.Request) bool {
 
 func v3EnvironmentExempt(r *http.Request) bool {
 	switch r.Method + " " + r.URL.Path {
-	case "POST /api/v1/auth/login", "POST /api/v1/auth/logout", "GET /api/v1/auth/me", "GET /api/v1/instance", "GET /api/v1/auth/oidc/start", "GET /api/v1/auth/oidc/callback":
+	case "POST /api/v1/auth/login", "POST /api/v1/auth/logout", "GET /api/v1/auth/me", "GET /api/v1/instance", "GET /api/v1/auth/oidc/start", "GET /api/v1/auth/oidc/callback", "POST /api/v1/auth/invitations/accept":
 		return true
 	}
-	// The one inbound Alertmanager route authenticates its configured source
-	// token and validates its fixed application/environment mapping in its own
-	// handler. It has no browser session or selectable environment header.
+	// These handlers authenticate a configured source and bind it to a fixed
+	// application and environment. They do not accept browser session scope.
+	if v3SignedPushRoute(r) {
+		return true
+	}
+	// Native inbound receivers authenticate their configured source tokens and
+	// bind payloads to server-owned targets. They have no browser session or
+	// selectable environment header. Use escaped path segments so a configured
+	// source ID containing a slash remains one route parameter.
 	if r.Method == http.MethodPost {
-		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		parts := strings.Split(strings.Trim(r.URL.EscapedPath(), "/"), "/")
 		return len(parts) == 5 && parts[0] == "api" && parts[1] == "v1" &&
-			parts[2] == "webhooks" && parts[3] == "alertmanager" && parts[4] != ""
+			parts[2] == "webhooks" && (parts[3] == "alertmanager" || parts[3] == "gitlab") && parts[4] != ""
+	}
+	return false
+}
+
+func v3SignedPushRoute(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	switch r.URL.Path {
+	case "/api/v1/events/alert", "/api/v1/events/change", "/api/v1/events/incident", "/api/v1/events/resource", "/api/v1/events/oncall":
+		return true
 	}
 	return false
 }

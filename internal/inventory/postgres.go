@@ -162,19 +162,34 @@ func SaveSnapshot(ctx context.Context, db *pgxpool.Pool, snapshot Snapshot) erro
 	if err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM cmdb_resource_relations WHERE source_kind=$1 AND source_id=$2 AND provenance='discovered'`, snapshot.SourceKind, snapshot.SourceID); err != nil {
-		return err
-	}
+	seenRelations := make([]string, 0, len(snapshot.Relations))
 	for _, edge := range snapshot.Relations {
 		a, b := ids[edge.SourceExternalID], ids[edge.TargetExternalID]
 		if a == "" || b == "" || a == b {
 			continue
 		}
 		id := ResourceID(snapshot.SourceKind, snapshot.SourceID, a+":"+edge.Kind+":"+b)
-		_, err = tx.Exec(ctx, `INSERT INTO cmdb_resource_relations(id,source_resource_id,target_resource_id,kind,provenance,source_kind,source_id,is_mock) VALUES($1,$2,$3,$4,'discovered',$5,$6,false) ON CONFLICT DO NOTHING`, id, a, b, edge.Kind, snapshot.SourceKind, snapshot.SourceID)
+		seenRelations = append(seenRelations, id)
+		// The relation ID is derived from its source-owned endpoints and kind.
+		// Preserve updated_at when that evidence has not changed, so metrics
+		// bound to this revision remain valid across collector refreshes.
+		_, err = tx.Exec(ctx, `INSERT INTO cmdb_resource_relations(id,source_resource_id,target_resource_id,kind,provenance,source_kind,source_id,is_mock)
+ VALUES($1,$2,$3,$4,'discovered',$5,$6,false)
+ ON CONFLICT(id) DO UPDATE SET is_mock=false,updated_at=now()
+ WHERE cmdb_resource_relations.provenance='discovered'
+  AND cmdb_resource_relations.source_kind=excluded.source_kind
+  AND cmdb_resource_relations.source_id=excluded.source_id
+  AND cmdb_resource_relations.source_resource_id=excluded.source_resource_id
+  AND cmdb_resource_relations.target_resource_id=excluded.target_resource_id
+  AND cmdb_resource_relations.kind=excluded.kind
+  AND cmdb_resource_relations.is_mock`, id, a, b, edge.Kind, snapshot.SourceKind, snapshot.SourceID)
 		if err != nil {
 			return err
 		}
+	}
+	_, err = tx.Exec(ctx, `DELETE FROM cmdb_resource_relations WHERE source_kind=$1 AND source_id=$2 AND provenance='discovered' AND NOT(id=ANY($3::text[]))`, snapshot.SourceKind, snapshot.SourceID, seenRelations)
+	if err != nil {
+		return err
 	}
 	_, err = tx.Exec(ctx, `UPDATE cmdb_sync_sources SET kind=$2,name=$3,last_success_at=$4,last_error='',resource_count=$5,
  environment_key=CASE WHEN $6='' THEN environment_key ELSE $6 END,updated_at=now() WHERE id=$1`,

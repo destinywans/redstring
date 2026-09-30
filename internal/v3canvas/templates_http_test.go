@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -168,15 +169,137 @@ func TestCanvasTemplatesHTTPV3ScopeSanitizationAndBoundedList(t *testing.T) {
 	}
 	assert(canvasGet("/api/v1/canvases/CV-stage", "all", ownerToken), 200, "")
 	assert(canvasGet("/api/v1/canvases/CV-source", "all", otherToken), 404, "not_found")
-	assert(canvasGet("/api/v1/canvases?kind=investigation", "dev", ownerToken), 503, "investigation_canvas_unavailable")
+	// The persisted investigation list is now available; this fixture has no
+	// investigation in the owner's authorized environment.
+	investigationList := canvasGet("/api/v1/canvases?kind=investigation", "dev", ownerToken)
+	assert(investigationList, 200, "")
+	if !strings.Contains(investigationList.Body.String(), `"items":[]`) || !strings.Contains(investigationList.Body.String(), `"total":0`) {
+		t.Fatalf("unexpected investigation rows: %s", investigationList.Body.String())
+	}
 	assert(request(http.MethodGet, "dev", "", ""), 401, "")
 	assert(request(http.MethodPost, "dev", "", `{}`), 401, "")
 	assert(request(http.MethodPost, "dev", otherToken, `{}`), 403, "forbidden")
 	assert(request(http.MethodPost, "all", ownerToken, `{}`), 409, "env_view_only")
+	// The registered detail route must return typed nested blocks, edges,
+	// artifacts and empty per-node threads, not opaque database JSON.
+	const shapeNodes = `[
+ {"id":"root","x":10,"y":20,"w":240,"icon":"layers","tone":"info","title":"Root","sub":"Scope","badge":{"text":"ready","tone":"ok"},"blocks":[{"type":"kv","items":[["target","36k"]],"unknown":"private-extra"}]},
+ {"id":"child","x":290,"y":20,"w":240,"icon":"activity","tone":"warn","title":"Child","sub":"Branch","blocks":[{"type":"steps","items":[{"text":"approve","sub":"human","state":"gate"}]}]}
+]`
+	const shapeEdges = `[{"from":"root","to":"child","tone":"accent","live":true}]`
+	const shapeArtifacts = `[{"id":"artifact-1","x":290,"y":320,"icon":"file","tone":"info","title":"Plan","sub":"plan.md","href":"/artifacts/one","unknown":"private-extra"}]`
+	if _, err = db.Exec(ctx, `INSERT INTO v3_canvases(id,owner_id,environment_id,title,kind,nodes,edges,artifacts)
+ VALUES('CV-shapes',$1,'dev','Typed plan','plan',$2::jsonb,$3::jsonb,$4::jsonb)`, owner.ID, shapeNodes, shapeEdges, shapeArtifacts); err != nil {
+		t.Fatal(err)
+	}
+	shaped := canvasGet("/api/v1/canvases/CV-shapes", "dev", ownerToken)
+	assert(shaped, 200, "")
+	var shapedDoc struct {
+		Nodes     []Node                `json:"nodes"`
+		Edges     []Edge                `json:"edges"`
+		Artifacts []CanvasArtifact      `json:"artifacts"`
+		Threads   map[string]nodeThread `json:"threads"`
+	}
+	if err = json.Unmarshal(shaped.Body.Bytes(), &shapedDoc); err != nil ||
+		len(shapedDoc.Nodes) != 2 || shapedDoc.Nodes[0].Badge == nil || len(shapedDoc.Nodes[0].Blocks) != 1 ||
+		len(shapedDoc.Edges) != 1 || len(shapedDoc.Artifacts) != 1 ||
+		len(shapedDoc.Threads) != 2 || shapedDoc.Threads["child"].Turns == nil ||
+		strings.Contains(shaped.Body.String(), "private-extra") {
+		t.Fatalf("invalid typed canvas detail: %s (%v)", shaped.Body.String(), err)
+	}
+	if _, err = db.Exec(ctx, `UPDATE v3_canvases SET nodes=$1::jsonb WHERE id='CV-shapes'`, `[{"id":"root","x":10,"y":20,"w":240,"icon":"layers","tone":"info","title":"Root","sub":"Scope","blocks":[{"type":"kv"}]}]`); err != nil {
+		t.Fatal(err)
+	}
+	assert(canvasGet("/api/v1/canvases/CV-shapes", "dev", ownerToken), 503, "canvas_unavailable")
+	if _, err = db.Exec(ctx, `UPDATE v3_canvases SET nodes=$1::jsonb WHERE id='CV-shapes'`, shapeNodes); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO v3_canvas_node_exchanges
+	 (id,canvas_id,node_id,user_id,author,user_text,model_id,model_name,model_provider,state,lease_expires_at)
+	 SELECT 'CNT-bulk-' || gs::text,'CV-shapes','root',$1,'Owner','prompt','fake','Fake','Test','failed',clock_timestamp()
+	 FROM generate_series(1,$2) gs`, owner.ID, maxCanvasExchanges+1); err != nil {
+		t.Fatal(err)
+	}
+	assert(canvasGet("/api/v1/canvases/CV-shapes", "dev", ownerToken), 413, "canvas_history_too_large")
+	// A detail read holds the grant source until its consistent document
+	// snapshot has been read. Revocation either precedes the read or waits.
+	historyLock, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer historyLock.Rollback(context.Background())
+	if _, err = historyLock.Exec(ctx, `LOCK TABLE v3_canvas_node_exchanges IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatal(err)
+	}
+	reading := make(chan *httptest.ResponseRecorder, 1)
+	go func() { reading <- canvasGet("/api/v1/canvases/CV-source", "dev", ownerToken) }()
+	waiting := false
+	for until := time.Now().Add(2 * time.Second); time.Now().Before(until); time.Sleep(10 * time.Millisecond) {
+		if err = adminDB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+ WHERE datname=current_database() AND wait_event_type='Lock'
+ AND query LIKE '%SELECT node_id,id,author,user_text,left(assistant_text,65537)%')`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			break
+		}
+	}
+	if !waiting {
+		t.Fatal("detail did not reach locked history read")
+	}
+	revoked := make(chan error, 1)
+	go func() {
+		_, revokeErr := db.Exec(ctx, `DELETE FROM rbac_user_roles WHERE user_id=$1 AND role_id='canvas-editor'`, owner.ID)
+		revoked <- revokeErr
+	}()
+	waiting = false
+	for until := time.Now().Add(2 * time.Second); time.Now().Before(until); time.Sleep(10 * time.Millisecond) {
+		if err = adminDB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+ WHERE datname=current_database() AND wait_event_type='Lock'
+ AND query LIKE '%DELETE FROM rbac_user_roles WHERE user_id=%')`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			break
+		}
+	}
+	if !waiting {
+		t.Fatal("canvas grant revocation did not wait for read")
+	}
+	if err = historyLock.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assert(<-reading, 200, "")
+	if err = <-revoked; err != nil {
+		t.Fatal(err)
+	}
+	assert(canvasGet("/api/v1/canvases/CV-source", "dev", ownerToken), 403, "forbidden")
+	if _, err = db.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'canvas-editor')`, owner.ID); err != nil {
+		t.Fatal(err)
+	}
 	assert(request(http.MethodPost, "staging", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":{"nodes":true}}`), 404, "not_found")
 	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-other","name":"Unsafe","keep":{"nodes":true}}`), 404, "not_found")
 	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":{"nodes":true,"steps":true}}`), 422, "unsafe_template_content")
 	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":{"nodes":true,"runbooks":true}}`), 422, "unsafe_template_content")
+	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":{"nodes":true,"content":true}}`), 422, "unsafe_template_content")
+	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":{"nodes":true,"evidence":true}}`), 422, "invalid_body")
+	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":null}`), 422, "invalid_template")
+	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":{}}`), 422, "invalid_template")
+	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":{"steps":false}}`), 422, "invalid_template")
+	if _, err = db.Exec(ctx, `UPDATE v3_canvases SET artifacts=$2::jsonb WHERE id=$1`, "CV-source",
+		mustJSON([]CanvasArtifact{{ID: "secret-artifact", Title: secret, Sub: secret}})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO v3_canvas_node_exchanges
+	 (id,canvas_id,node_id,user_id,author,user_text,assistant_text,model_id,model_name,model_provider,state,lease_expires_at,completed_at)
+	 VALUES('CNT-source-private','CV-source','source',$1,'Owner',$2,$2,'fake','Fake','Test','completed',clock_timestamp(),clock_timestamp())`, owner.ID, secret); err != nil {
+		t.Fatal(err)
+	}
+	sourceDetail := canvasGet("/api/v1/canvases/CV-source", "dev", ownerToken)
+	assert(sourceDetail, 200, "")
+	if !strings.Contains(sourceDetail.Body.String(), "secret-artifact") || !strings.Contains(sourceDetail.Body.String(), "CNT-source-private") {
+		t.Fatalf("source must contain an artifact and conversation before saving: %s", sourceDetail.Body.String())
+	}
 	created := request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Safe layout","keep":{"nodes":true}}`)
 	assert(created, 201, "")
 	var result template
@@ -196,6 +319,19 @@ func TestCanvasTemplatesHTTPV3ScopeSanitizationAndBoundedList(t *testing.T) {
 	}
 	if auditCount != 1 {
 		t.Fatalf("save must have one audit record, got %d", auditCount)
+	}
+	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":" safe LAYOUT ","keep":{"nodes":true}}`), 409, "duplicate_template")
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM v3_canvas_templates WHERE owner_id=$1`, owner.ID).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("duplicate name wrote a second template, count=%d", auditCount)
+	}
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE actor_id=$1 AND action='v3.canvas_template.saved'`, owner.ID).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("duplicate name wrote a second audit record, count=%d", auditCount)
 	}
 	listed := request(http.MethodGet, "dev", ownerToken, "")
 	assert(listed, 200, "")
@@ -220,25 +356,223 @@ func TestCanvasTemplatesHTTPV3ScopeSanitizationAndBoundedList(t *testing.T) {
 	if !strings.Contains(listed.Body.String(), result.ID) {
 		t.Fatalf("owner all scope omitted own dev template: %s", listed.Body.String())
 	}
+	// A saved structural template must create a readable generic canvas. The
+	// source's evidence and conversation content must not reappear there.
+	canvasBody := fmt.Sprintf(`{"kind":"plan","title":"From safe layout","template_id":%q,"services":[]}`, result.ID)
+	createdCanvas := httptest.NewRequest(http.MethodPost, "/api/v1/canvases", strings.NewReader(canvasBody))
+	createdCanvas.Header.Set("X-AIOps-Environment", "dev")
+	createdCanvas.Header.Set("Content-Type", "application/json")
+	createdCanvas.AddCookie(&http.Cookie{Name: "aiops_session", Value: ownerToken})
+	createdCanvasResponse := httptest.NewRecorder()
+	api.ServeHTTP(createdCanvasResponse, createdCanvas)
+	assert(createdCanvasResponse, 201, "")
+	var canvasResult struct {
+		ID string `json:"id"`
+	}
+	if err = json.Unmarshal(createdCanvasResponse.Body.Bytes(), &canvasResult); err != nil || canvasResult.ID == "" {
+		t.Fatalf("created canvas ID missing: %s (%v)", createdCanvasResponse.Body.String(), err)
+	}
+	createdDetail := canvasGet("/api/v1/canvases/"+canvasResult.ID, "dev", ownerToken)
+	assert(createdDetail, 200, "")
+	if strings.Contains(createdDetail.Body.String(), secret) || !strings.Contains(createdDetail.Body.String(), `"title":"From safe layout"`) || !strings.Contains(createdDetail.Body.String(), `"id":"node-1"`) {
+		t.Fatalf("created canvas lost structure or exposed source content: %s", createdDetail.Body.String())
+	}
+	var freshDoc struct {
+		Artifacts []CanvasArtifact      `json:"artifacts"`
+		Threads   map[string]nodeThread `json:"threads"`
+	}
+	if err = json.Unmarshal(createdDetail.Body.Bytes(), &freshDoc); err != nil || len(freshDoc.Artifacts) != 0 || len(freshDoc.Threads) != 1 || len(freshDoc.Threads["node-1"].Turns) != 0 {
+		t.Fatalf("source artifact or conversation copied into created canvas: %s (%v)", createdDetail.Body.String(), err)
+	}
+	assert(canvasGet("/api/v1/canvases/"+canvasResult.ID, "dev", otherToken), 404, "not_found")
+	assert(canvasGet("/api/v1/canvases/"+canvasResult.ID, "staging", ownerToken), 404, "not_found")
+	english := httptest.NewRequest(http.MethodGet, "/api/v1/canvas-templates", nil)
+	english.Header.Set("X-AIOps-Environment", "dev")
+	english.Header.Set("Accept-Language", "en-US")
+	english.AddCookie(&http.Cookie{Name: "aiops_session", Value: ownerToken})
+	englishResponse := httptest.NewRecorder()
+	api.ServeHTTP(englishResponse, english)
+	assert(englishResponse, 200, "")
+	if !strings.Contains(englishResponse.Body.String(), `"nodes":"1 node"`) {
+		t.Fatalf("English node count missing: %s", englishResponse.Body.String())
+	}
+	// An existing source may contain a cycle from legacy data. Saving it as a
+	// new template must fail before either the template or audit is written.
+	cycleNodes := []Node{{ID: "a", W: 240}, {ID: "b", W: 240}}
+	cycleEdges := []Edge{{From: "a", To: "b"}, {From: "b", To: "a"}}
+	if _, err = db.Exec(ctx, `UPDATE v3_canvases SET nodes=$2::jsonb,edges=$3::jsonb WHERE id=$1`, "CV-source", mustJSON(cycleNodes), mustJSON(cycleEdges)); err != nil {
+		t.Fatal(err)
+	}
+	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Cyclic","keep":{"nodes":true}}`), 422, "unsafe_template_structure")
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM v3_canvas_templates WHERE owner_id=$1`, owner.ID).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("cyclic graph wrote a template, count=%d", auditCount)
+	}
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE actor_id=$1 AND action='v3.canvas_template.saved'`, owner.ID).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("cyclic graph wrote an audit record, count=%d", auditCount)
+	}
+	// A role revocation cannot commit between the save's current grant check
+	// and its template/audit commit. The next request sees the revoked grant.
+	auditLock, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer auditLock.Rollback(context.Background())
+	if _, err = auditLock.Exec(ctx, `LOCK TABLE management_audit IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatal(err)
+	}
+	saving := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		saving <- request(http.MethodPost, "dev", ownerToken,
+			fmt.Sprintf(`{"from_canvas":%q,"name":"Concurrent save","keep":{"nodes":true}}`, canvasResult.ID))
+	}()
+	waiting = false
+	for until := time.Now().Add(2 * time.Second); time.Now().Before(until); time.Sleep(10 * time.Millisecond) {
+		if err = adminDB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+ WHERE datname=current_database() AND wait_event_type='Lock'
+ AND query LIKE '%INSERT INTO management_audit(actor_id,action,target,outcome,changes)%')`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			break
+		}
+	}
+	if !waiting {
+		t.Fatal("template save did not reach the blocked audit write")
+	}
+	revoked = make(chan error, 1)
+	go func() {
+		_, revokeErr := db.Exec(ctx, `DELETE FROM rbac_user_roles WHERE user_id=$1 AND role_id='canvas-editor'`, owner.ID)
+		revoked <- revokeErr
+	}()
+	waiting = false
+	for until := time.Now().Add(2 * time.Second); time.Now().Before(until); time.Sleep(10 * time.Millisecond) {
+		if err = adminDB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+ WHERE datname=current_database() AND wait_event_type='Lock'
+ AND query LIKE '%DELETE FROM rbac_user_roles WHERE user_id=%')`).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting {
+			break
+		}
+	}
+	if !waiting {
+		t.Fatal("role revocation did not wait for template save")
+	}
+	if err = auditLock.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assert(<-saving, 201, "")
+	if err = <-revoked; err != nil {
+		t.Fatal(err)
+	}
+	assert(request(http.MethodPost, "dev", ownerToken,
+		fmt.Sprintf(`{"from_canvas":%q,"name":"After revoke","keep":{"nodes":true}}`, canvasResult.ID)), 403, "forbidden")
+	assert(request(http.MethodGet, "dev", ownerToken, ""), 403, "forbidden")
+	if _, err = db.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'canvas-editor')`, owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	assert(request(http.MethodGet, "dev", ownerToken, ""), 200, "")
 	// A large but valid graph is rejected before any template or audit write.
 	large := make([]Node, 101)
 	for i := range large {
 		large[i] = Node{ID: fmt.Sprintf("n-%d", i), W: 260}
 	}
-	if _, err = db.Exec(ctx, `UPDATE v3_canvases SET nodes=$2::jsonb WHERE id=$1`, "CV-source", mustJSON(large)); err != nil {
+	if _, err = db.Exec(ctx, `UPDATE v3_canvases SET nodes=$2::jsonb,edges='[]'::jsonb WHERE id=$1`, "CV-source", mustJSON(large)); err != nil {
 		t.Fatal(err)
 	}
 	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Too large","keep":{"nodes":true}}`), 422, "unsafe_template_structure")
 	if err = db.QueryRow(ctx, `SELECT count(*) FROM v3_canvas_templates WHERE owner_id=$1`, owner.ID).Scan(&auditCount); err != nil {
 		t.Fatal(err)
 	}
-	if auditCount != 1 {
+	if auditCount != 2 {
 		t.Fatalf("oversize graph wrote a template, count=%d", auditCount)
 	}
-	// Do not silently truncate a template list beyond its documented bound.
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE actor_id=$1 AND action='v3.canvas_template.saved'`, owner.ID).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 2 {
+		t.Fatalf("oversize graph wrote an audit record, count=%d", auditCount)
+	}
+	// Explicitly keeping no nodes produces a private blank structural template,
+	// even when the source itself exceeds the node-copy limit.
+	blank := request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Blank structure","keep":{"nodes":false}}`)
+	assert(blank, 201, "")
+	var blankTemplate template
+	if err = json.Unmarshal(blank.Body.Bytes(), &blankTemplate); err != nil || blankTemplate.ID == "" || blankTemplate.Nodes != "0 个节点" {
+		t.Fatalf("blank template response mismatch: %s (%v)", blank.Body.String(), err)
+	}
+	var rawEdges string
+	if err = db.QueryRow(ctx, `SELECT nodes::text,edges::text FROM v3_canvas_templates WHERE id=$1 AND owner_id=$2 AND environment_id='dev'`, blankTemplate.ID, owner.ID).Scan(&rawNodes, &rawEdges); err != nil {
+		t.Fatal(err)
+	}
+	if rawNodes != "[]" || rawEdges != "[]" {
+		t.Fatalf("blank keep copied source structure: nodes=%s edges=%s", rawNodes, rawEdges)
+	}
+	// Names are private to one owner, environment, and canvas kind.
+	assert(request(http.MethodPost, "staging", ownerToken, `{"from_canvas":"CV-stage","name":"Safe layout","keep":{"nodes":true}}`), 201, "")
+	if _, err = db.Exec(ctx, `INSERT INTO v3_canvases(id,owner_id,environment_id,title,kind)
+ VALUES('CV-review-template-source',$1,'dev','Review source','review')`, owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-review-template-source","name":"Safe layout","keep":{"nodes":true}}`), 201, "")
+	// Concurrent duplicate saves must have one winner and one conflict, with
+	// exactly one persisted template and one success audit.
+	const raceName = "Race layout"
+	parallel := make(chan *httptest.ResponseRecorder, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			parallel <- request(http.MethodPost, "staging", ownerToken,
+				`{"from_canvas":"CV-stage","name":"`+raceName+`","keep":{"nodes":true}}`)
+		}()
+	}
+	first, second := <-parallel, <-parallel
+	if first.Code == second.Code || (first.Code != 201 && second.Code != 201) || (first.Code != 409 && second.Code != 409) {
+		t.Fatalf("duplicate race must produce one save and one conflict: first=%d %s second=%d %s", first.Code, first.Body.String(), second.Code, second.Body.String())
+	}
+	for _, response := range []*httptest.ResponseRecorder{first, second} {
+		if response.Code == 409 {
+			assert(response, 409, "duplicate_template")
+		}
+	}
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM v3_canvas_templates WHERE owner_id=$1 AND environment_id='staging' AND kind='plan' AND name=$2`, owner.ID, raceName).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("concurrent duplicate save wrote %d templates", auditCount)
+	}
+	winner := first
+	if winner.Code != 201 {
+		winner = second
+	}
+	var winnerTemplate template
+	if err = json.Unmarshal(winner.Body.Bytes(), &winnerTemplate); err != nil || winnerTemplate.ID == "" {
+		t.Fatalf("concurrent winner omitted template ID: %s (%v)", winner.Body.String(), err)
+	}
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE actor_id=$1
+ AND action='v3.canvas_template.saved' AND target=$2`, owner.ID, winnerTemplate.ID).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("concurrent duplicate save wrote %d winner audits", auditCount)
+	}
+	// Read authorization must reflect an expired session, even when the role
+	// grants and template rows still exist.
+	if _, err = db.Exec(ctx, `UPDATE sessions SET expires_at=clock_timestamp()-interval '1 second' WHERE token_hash=$1`, store.Hash(otherToken)); err != nil {
+		t.Fatal(err)
+	}
+	assert(request(http.MethodGet, "dev", otherToken, ""), 401, "")
+	// Do not silently truncate a template list beyond its documented bound,
+	// or allow another save whose result would immediately be unreadable.
 	if _, err = db.Exec(ctx, `INSERT INTO v3_canvas_templates(id,owner_id,environment_id,kind,name)
  SELECT 'bulk-' || gs::text,$1,'dev','plan','Bulk' FROM generate_series(1,$2) AS gs`, owner.ID, maxTemplateItems); err != nil {
 		t.Fatal(err)
 	}
 	assert(request(http.MethodGet, "dev", ownerToken, ""), 422, "template_scope_too_broad")
+	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-review-template-source","name":"After capacity","keep":{"nodes":true}}`), 422, "template_scope_too_broad")
 }

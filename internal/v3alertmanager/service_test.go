@@ -35,6 +35,30 @@ type fakeSilenceAccess struct{}
 
 func (fakeSilenceAccess) Authorize(context.Context, core.User, rbac.V3Decision) error { return nil }
 
+type inhibitionTeamCatalog struct{}
+
+func (inhibitionTeamCatalog) Applications(context.Context, []string) ([]Application, error) {
+	return []Application{{ID: "owned-id", EnvironmentID: "test", OwnerTeamID: "ops"}}, nil
+}
+func (inhibitionTeamCatalog) EnvironmentAdmin(context.Context, core.User, string) (bool, error) {
+	return false, nil
+}
+
+type inhibitionTeamAccess struct{}
+
+func (inhibitionTeamAccess) Authorize(_ context.Context, _ core.User, decision rbac.V3Decision) error {
+	if decision.Module == "silences" && decision.Action == "view" && decision.ApplicationID == "owned-id" {
+		return nil
+	}
+	return store.ErrForbidden
+}
+
+type inhibitionDeniedAccess struct{}
+
+func (inhibitionDeniedAccess) Authorize(context.Context, core.User, rbac.V3Decision) error {
+	return store.ErrForbidden
+}
+
 func (f fakeEnvAccess) AuthorizeEnvironment(_ context.Context, _ core.User, env string) error {
 	if env == "staging" && !f.allowStaging {
 		return store.ErrForbidden
@@ -309,12 +333,132 @@ func TestInhibitionsArePartialAndEnvironmentBound(t *testing.T) {
 	}
 }
 
+func TestInhibitionMatchersWhitespaceQuotingAndOperators(t *testing.T) {
+	matchers, err := ruleMatchers([]string{
+		" \t\nenvironment \t=\n \"test\" \t",
+		`application = "owned"`,
+		`severity != "critical"`,
+		`team =~ "ops|sre"`,
+		`note !~ "a,b"`,
+		`escaped = "quote\" and slash\\"`,
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []matcherView{
+		{K: "environment", Op: "=", V: "test"},
+		{K: "application", Op: "=", V: "owned"},
+		{K: "severity", Op: "!=", V: "! critical"},
+		{K: "team", Op: "=~", V: "~ ops|sre"},
+		{K: "note", Op: "!~", V: "!~ a,b"},
+		{K: "escaped", Op: "=", V: `quote" and slash\`},
+	}
+	if len(matchers) != len(want) {
+		t.Fatalf("matchers=%+v", matchers)
+	}
+	for i := range want {
+		if matchers[i] != want[i] {
+			t.Fatalf("matcher[%d]=%+v, want %+v", i, matchers[i], want[i])
+		}
+	}
+}
+
+func TestInhibitionMatchersRejectUnsupportedComposition(t *testing.T) {
+	for _, raw := range []string{
+		`environment="test",application="hidden"`,
+		`application="owned",application=~"owned|hidden"`,
+		`environment = test, environment != staging`,
+		`{environment="test",application="owned"}`,
+		`application=owned environment="staging"`,
+		`note=unquoted,bad`,
+		`note="unterminated`,
+	} {
+		if _, err := ruleMatchers([]string{raw}, nil, nil); !errors.Is(err, ErrInvalidMatcher) {
+			t.Errorf("raw=%q err=%v", raw, err)
+		}
+	}
+}
+
+func TestMalformedInhibitionMatcherFailsWholeResponse(t *testing.T) {
+	source := fakeSource{rules: map[string][]InhibitionRule{"test": {
+		{SourceMatchers: []string{`environment="test"`}, TargetMatchers: []string{`environment="test"`}},
+		{SourceMatchers: []string{`environment="test",application="hidden"`}, TargetMatchers: []string{`environment="test"`}},
+	}}}
+	w := request(t, testServer(t, source), "/api/v1/inhibitions", "test")
+	if w.Code != 503 || !strings.Contains(w.Body.String(), "invalid_inhibition_source") ||
+		strings.Contains(w.Body.String(), `"items"`) || strings.Contains(w.Body.String(), `"partial"`) {
+		t.Fatalf("malformed inhibition status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestForeignInhibitionRulesDoNotChangeCoverage(t *testing.T) {
 	source := fakeSource{rules: map[string][]InhibitionRule{"test": {
 		{SourceMatchers: []string{`environment="staging"`}, TargetMatchers: []string{`environment="staging"`}},
 	}}}
 	w := request(t, testServer(t, source), "/api/v1/inhibitions", "test")
-	if w.Code != 200 || !strings.Contains(w.Body.String(), `"items":[]`) || !strings.Contains(w.Body.String(), `"unscoped_present":false`) {
+	if w.Code != 206 || !strings.Contains(w.Body.String(), `"items":[]`) || !strings.Contains(w.Body.String(), `"unscoped_present":false`) {
 		t.Fatalf("foreign rule status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestForeignSourceLocalTargetReportsAdminCoverage(t *testing.T) {
+	for _, target := range [][]string{{`environment="test"`}, {`severity="warning"`}} {
+		source := fakeSource{rules: map[string][]InhibitionRule{"test": {{
+			SourceMatchers: []string{`environment="staging"`}, TargetMatchers: target,
+		}}}}
+		w := request(t, testServer(t, source), "/api/v1/inhibitions", "test")
+		if w.Code != 206 || !strings.Contains(w.Body.String(), `"items":[]`) ||
+			!strings.Contains(w.Body.String(), `"unscoped_present":true`) || strings.Contains(w.Body.String(), "staging") {
+			t.Fatalf("foreign source target=%v status=%d body=%s", target, w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestUnboundExactInhibitionOnlyReportsAdminCoverage(t *testing.T) {
+	// The sole rule has exact environment and application matchers, but no
+	// current server binding. There is no broad rule to create this flag.
+	source := fakeSource{rules: map[string][]InhibitionRule{"test": {{
+		SourceMatchers: []string{`environment="test"`, `application="retired"`},
+		TargetMatchers: []string{`environment="test"`, `application="retired"`},
+	}}}}
+	w := request(t, testServer(t, source), "/api/v1/inhibitions", "test")
+	if w.Code != 206 || !strings.Contains(w.Body.String(), `"items":[]`) ||
+		!strings.Contains(w.Body.String(), `"unscoped_present":true`) || strings.Contains(w.Body.String(), `"retired"`) {
+		t.Fatalf("unbound admin coverage status=%d body=%s", w.Code, w.Body.String())
+	}
+	api := httpapi.New(fakeStore{}, nil, true)
+	err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "test", EnvironmentIDs: []string{"test"}},
+		fakeEnvAccess{}, func(context.Context, string) (core.User, error) { return core.User{ID: "reader"}, nil },
+		func(context.Context, core.User, string, string, string) error { return store.ErrForbidden })
+	if err != nil {
+		t.Fatal(err)
+	}
+	(&Service{Source: source, Catalog: inhibitionTeamCatalog{}, Access: inhibitionTeamAccess{},
+		EnvironmentLabels:   map[string]string{"test": "environment"},
+		ApplicationBindings: map[string]map[string]string{"test": {"owned": "owned-id"}}}).Register(api)
+	w = request(t, api, "/api/v1/inhibitions", "test")
+	if w.Code != 206 || !strings.Contains(w.Body.String(), `"items":[]`) ||
+		!strings.Contains(w.Body.String(), `"unscoped_present":false`) || strings.Contains(w.Body.String(), `"retired"`) {
+		t.Fatalf("unbound team coverage status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestInhibitionDeniedBeforeSourceCapabilityCheck(t *testing.T) {
+	for _, source := range []Source{nil, fakeSource{rules: map[string][]InhibitionRule{"test": {}}}} {
+		api := httpapi.New(fakeStore{}, nil, true)
+		err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "test", EnvironmentIDs: []string{"test"}},
+			fakeEnvAccess{}, func(context.Context, string) (core.User, error) { return core.User{ID: "reader"}, nil },
+			func(context.Context, core.User, string, string, string) error { return store.ErrForbidden })
+		if err != nil {
+			t.Fatal(err)
+		}
+		(&Service{Source: source, Catalog: inhibitionTeamCatalog{}, Access: inhibitionDeniedAccess{},
+			EnvironmentLabels:   map[string]string{"test": "environment"},
+			ApplicationBindings: map[string]map[string]string{"test": {"owned": "owned-id"}}}).Register(api)
+		w := request(t, api, "/api/v1/inhibitions", "test")
+		if w.Code != 403 || !strings.Contains(w.Body.String(), `"forbidden"`) ||
+			strings.Contains(w.Body.String(), "alertmanager") || strings.Contains(w.Body.String(), `"items"`) {
+			t.Fatalf("denied inhibition source=%T status=%d body=%s", source, w.Code, w.Body.String())
+		}
 	}
 }

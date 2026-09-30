@@ -1,0 +1,160 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AIOps Canvas V3 security domain fragment",
+    "version": "0.1.0",
+    "description": "WAN-119 domain contract. WAN-117 merges these paths and schemas into the generated V3 aggregate."
+  },
+  "servers": [{"url": "/api/v1"}],
+  "security": [{"sessionCookie": []}],
+  "paths": {
+    "/security": {
+      "get": {
+        "operationId": "get_v3_security",
+        "summary": "Read effective security controls",
+        "description": "Requires an active human platform administrator with global workspace.manage and access to one selected environment. The response is a complete, fresh, scope-bound snapshot from the configured security authority. A persisted request, local default, mock, or incomplete authority snapshot is not returned as an effective policy.",
+        "parameters": [{"$ref": "#/components/parameters/SelectedEnvironment"}],
+        "responses": {
+          "200": {
+            "description": "Complete effective SecurityView at the returned revision",
+            "headers": {"ETag": {"description": "Strong runtime revision tag for If-Match", "schema": {"type": "string"}}},
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SecurityView"}}}
+          },
+          "401": {"$ref": "#/components/responses/Unauthenticated"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      },
+      "put": {
+        "operationId": "put_v3_security",
+        "summary": "Apply and verify editable security controls",
+        "description": "Requires an active human platform administrator with global workspace.manage, one selected environment, and an If-Match revision from GET. Accepts the complete frozen SecurityView. SSO providers, display labels, session idle/max, Vault, token TTL, and password policy are read-only and must equal the current effective snapshot. Editable fields are scim, mfa_policy, mfa_methods enabled flags by stable ID, approval_passkey, session.ip_allow, and session.new_device_notice. Success requires an authority apply receipt and a fresh complete readback proving the new controls are effective, then a durable local ledger and audit commit. An unknown external outcome is never reported as success.",
+        "parameters": [
+          {"$ref": "#/components/parameters/SelectedEnvironment"},
+          {"name": "If-Match", "in": "header", "required": true, "description": "Strong ETag from GET /security; wildcards and weak tags are invalid", "schema": {"type": "string"}}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SecurityView"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "Requested controls applied, read back as effective, and durably recorded",
+            "headers": {"ETag": {"description": "New strong runtime revision tag", "schema": {"type": "string"}}},
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SecurityView"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthenticated"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "412": {"$ref": "#/components/responses/PreconditionFailed"},
+          "422": {"$ref": "#/components/responses/Unprocessable"},
+          "428": {"$ref": "#/components/responses/PreconditionRequired"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {"type": "apiKey", "in": "cookie", "name": "aiops_session"}
+    },
+    "parameters": {
+      "SelectedEnvironment": {
+        "name": "X-AIOps-Environment",
+        "in": "header",
+        "required": false,
+        "description": "One authorized environment; when omitted the instance default is selected by V3 middleware. all is not valid for security policy reads or writes",
+        "schema": {"type": "string", "minLength": 1, "not": {"const": "all"}}
+      }
+    },
+    "schemas": {
+      "SecuritySSOProvider": {
+        "type": "object",
+        "properties": {
+          "brand": {"type": "string"},
+          "name": {"type": "string"},
+          "sub": {"type": "string"},
+          "enabled": {"type": "boolean"},
+          "default": {"type": "boolean"}
+        },
+        "required": ["brand", "name", "sub", "enabled"],
+        "additionalProperties": false
+      },
+      "SecurityMFAMethod": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "label": {"type": "string"},
+          "enabled": {"type": "boolean"},
+          "note": {"type": "string"}
+        },
+        "required": ["id", "label", "enabled"],
+        "additionalProperties": false
+      },
+      "SecuritySession": {
+        "type": "object",
+        "properties": {
+          "idle": {"type": "string"},
+          "max": {"type": "string"},
+          "ip_allow": {"type": "string"},
+          "new_device_notice": {"type": "boolean"}
+        },
+        "required": ["idle", "max", "ip_allow", "new_device_notice"],
+        "additionalProperties": false
+      },
+      "SecurityVault": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string"},
+          "sub": {"type": "string"},
+          "connected": {"type": "boolean"}
+        },
+        "required": ["name", "sub", "connected"],
+        "additionalProperties": false
+      },
+      "SecurityView": {
+        "type": "object",
+        "properties": {
+          "sso": {"type": "array", "items": {"$ref": "#/components/schemas/SecuritySSOProvider"}},
+          "scim": {"type": "boolean"},
+          "mfa_policy": {"type": "string", "enum": ["all", "privileged", "none"]},
+          "mfa_methods": {"type": "array", "items": {"$ref": "#/components/schemas/SecurityMFAMethod"}},
+          "approval_passkey": {"type": "boolean"},
+          "session": {"$ref": "#/components/schemas/SecuritySession"},
+          "vault": {"$ref": "#/components/schemas/SecurityVault"},
+          "token_ttl": {"type": "string"},
+          "password_policy": {"type": "string"}
+        },
+        "required": ["sso", "scim", "mfa_policy", "mfa_methods", "approval_passkey", "session", "vault", "token_ttl", "password_policy"],
+        "additionalProperties": false
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {"type": "string"},
+              "message": {"type": "string"}
+            },
+            "required": ["code", "message"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["error"],
+        "additionalProperties": false
+      }
+    },
+    "responses": {
+      "BadRequest": {"description": "Malformed body, content type, scope, or If-Match tag", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "Unauthenticated": {"description": "Missing, expired, or revoked Cookie session", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "Forbidden": {"description": "Human platform administrator or selected-environment authorization missing", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "Conflict": {"description": "A prior operation remains unresolved, or the authority rejected a concurrent application", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "PreconditionFailed": {"description": "If-Match does not match the current effective revision", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "Unprocessable": {"description": "A field is immutable, invalid, or not enforceable by the configured authority", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "PreconditionRequired": {"description": "If-Match is missing", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+      "Unavailable": {"description": "The trustworthy authority, complete effective readback, or policy ledger is unavailable", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+    }
+  }
+}

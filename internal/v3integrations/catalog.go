@@ -15,7 +15,7 @@ type descriptor struct {
 }
 
 var descriptors = map[string]descriptor{
-	"gitlab":          {"gitlab", "delivery", "GitLab", "Code and pipelines", "/api/v4/user", []string{"oauth", "pat"}, []string{"list_pipelines", "get_pipeline", "get_commit_diff", "list_merge_requests"}},
+	"gitlab":          {"gitlab", "delivery", "GitLab", "Code and pipelines", "/api/v4/user", []string{"oauth", "pat"}, []string{"list_pipelines", "get_pipeline", "get_commit", "get_commit_diff", "list_merge_requests"}},
 	"prometheus":      {"prometheus", "observe", "Prometheus", "Metrics", "/-/ready", []string{"none", "bearer"}, []string{"query_metrics"}},
 	"victoriametrics": {"victoriametrics", "observe", "VictoriaMetrics", "Metrics", "/health", []string{"none", "bearer"}, []string{"query_metrics"}},
 	"loki":            {"loki", "observe", "Loki", "Logs", "/ready", []string{"none", "bearer"}, []string{"search_logs"}},
@@ -80,6 +80,8 @@ func toolCopy(name, lang string) string {
 		return localized(lang, "读取流水线列表与状态", "Read pipeline list and status")
 	case "get_pipeline":
 		return localized(lang, "读取流水线详情", "Read pipeline details")
+	case "get_commit":
+		return localized(lang, "读取提交元数据", "Read commit metadata")
 	case "get_commit_diff":
 		return localized(lang, "读取提交差异", "Read commit differences")
 	case "list_merge_requests":

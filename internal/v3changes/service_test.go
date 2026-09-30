@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -150,11 +151,14 @@ func TestChangesRecordsHTTPPersistedBindingScopeAndRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	const secret = "synthetic-token"
+	commitSHA := strings.Repeat("a", 40)
+	parentSHA := strings.Repeat("b", 40)
 	remoteCalls := 0
 	revokeDuringRead := false
+	changeBindingDuringRead := false
 	gitlab := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		remoteCalls++
-		if r.URL.Path != "/api/v4/projects/42/pipelines" || r.Header.Get("PRIVATE-TOKEN") != secret {
+		if r.Method != http.MethodGet || r.Header.Get("PRIVATE-TOKEN") != secret {
 			t.Errorf("unexpected GitLab call: %s", r.URL.Path)
 		}
 		if revokeDuringRead {
@@ -163,7 +167,25 @@ func TestChangesRecordsHTTPPersistedBindingScopeAndRevocation(t *testing.T) {
 				t.Errorf("revoke grant: %v", err)
 			}
 		}
-		_, _ = w.Write([]byte(`[{"id":9,"project_id":42,"status":"success","ref":"main","sha":"abcd","source":"push","created_at":"2026-09-28T10:00:00.123Z","updated_at":"2026-09-28T10:01:00.456Z"}]`))
+		if changeBindingDuringRead {
+			_, err := db.Exec(context.Background(), `UPDATE v3_connector_targets SET external_id='43' WHERE id='binding-1'`)
+			if err != nil {
+				t.Errorf("change binding: %v", err)
+			}
+		}
+		switch r.URL.Path {
+		case "/api/v4/projects/42/pipelines":
+			_, _ = w.Write([]byte(`[{"id":9,"project_id":42,"status":"success","ref":"main","sha":"abcd","source":"push","created_at":"2026-09-28T10:00:00.123Z","updated_at":"2026-09-28T10:01:00.456Z"}]`))
+		case "/api/v4/projects/42/merge_requests":
+			_, _ = w.Write([]byte(`[{"iid":7,"project_id":42,"target_project_id":42,"state":"merged","source_branch":"topic","target_branch":"main","sha":"abcd","created_at":"2026-09-28T10:00:00Z","updated_at":"2026-09-28T10:02:00Z","merged_at":"2026-09-28T10:01:00Z"}]`))
+		case "/api/v4/projects/42/repository/commits/" + commitSHA:
+			if r.URL.RawQuery != "stats=false" {
+				t.Errorf("commit query: %s", r.URL.RawQuery)
+			}
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"id":%q,"title":"Bound commit","authored_date":"2026-09-28T10:00:00Z","committed_date":"2026-09-28T10:01:00Z","parent_ids":[%q],"message":"private body"}`, commitSHA, parentSHA)))
+		default:
+			t.Errorf("unexpected GitLab path: %s", r.URL.Path)
+		}
 	}))
 	defer gitlab.Close()
 	for _, sql := range []string{
@@ -199,6 +221,8 @@ func TestChangesRecordsHTTPPersistedBindingScopeAndRevocation(t *testing.T) {
 	serviceID := base64.RawURLEncoding.EncodeToString([]byte("app\x00dev"))
 	otherService := base64.RawURLEncoding.EncodeToString([]byte("other\x00dev"))
 	path := "/api/v1/changes/records?" + url.Values{"service_id": {serviceID}, "binding_id": {"binding-1"}}.Encode()
+	mrPath := "/api/v1/changes/merge-requests?" + url.Values{"service_id": {serviceID}, "binding_id": {"binding-1"}, "state": {"merged"}, "target_branch": {"main"}}.Encode()
+	commitPath := "/api/v1/changes/commits/" + commitSHA + "?" + url.Values{"service_id": {serviceID}, "binding_id": {"binding-1"}}.Encode()
 	otherPath := "/api/v1/changes/records?" + url.Values{"service_id": {otherService}, "binding_id": {"binding-1"}}.Encode()
 	request := func(target, env, cookie string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(http.MethodGet, target, nil)
@@ -217,7 +241,11 @@ func TestChangesRecordsHTTPPersistedBindingScopeAndRevocation(t *testing.T) {
 		}
 	}
 	assert(request(path, "dev", ""), 401, "unauthorized")
+	assert(request(mrPath, "dev", ""), 401, "unauthorized")
+	assert(request(commitPath, "dev", ""), 401, "unauthorized")
 	assert(request(path, "dev", session), 404, "not_found")
+	assert(request(mrPath, "dev", session), 404, "not_found")
+	assert(request(commitPath, "dev", session), 404, "not_found")
 	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES ('viewer','services','view','application','app')`); err != nil {
 		t.Fatal(err)
 	}
@@ -227,6 +255,18 @@ func TestChangesRecordsHTTPPersistedBindingScopeAndRevocation(t *testing.T) {
 	}
 	assert(request(otherPath, "dev", session), 404, "not_found")
 	assert(request(path, "test", session), 403, "forbidden")
+	assert(request(mrPath, "test", session), 403, "forbidden")
+	assert(request(commitPath, "test", session), 403, "forbidden")
+	assert(request(mrPath, "dev", session), 503, "source_unavailable")
+	assert(request(commitPath, "dev", session), 503, "source_unavailable")
+	assert(request(strings.Replace(commitPath, commitSHA, "main", 1), "dev", session), 422, "invalid_sha")
+	for _, invalid := range []struct{ query, code string }{
+		{"&page=1001", "invalid_page"},
+		{"&state=unknown", "invalid_state"},
+		{"&target_branch=bad%0Abranch", "invalid_branch"},
+	} {
+		assert(request(mrPath+invalid.query, "dev", session), 422, invalid.code)
+	}
 	good := request(path, "dev", session)
 	assert(good, 200, "")
 	var result struct {
@@ -245,19 +285,92 @@ func TestChangesRecordsHTTPPersistedBindingScopeAndRevocation(t *testing.T) {
 	if remoteCalls != 1 {
 		t.Fatalf("remoteCalls=%d; unauthorized request reached GitLab", remoteCalls)
 	}
+	if _, err := db.Exec(ctx, `UPDATE v3_connectors SET tools='[{"name":"list_pipelines","enabled":true},{"name":"list_merge_requests","enabled":true},{"name":"get_commit_diff","enabled":true}]' WHERE id='gitlab-dev'`); err != nil {
+		t.Fatal(err)
+	}
+	mergeResponse := request(mrPath, "dev", session)
+	assert(mergeResponse, 200, "")
+	var mergeResult struct {
+		Items    []mergeRequestRecord `json:"items"`
+		PageSize int                  `json:"page_size"`
+	}
+	if err := json.Unmarshal(mergeResponse.Body.Bytes(), &mergeResult); err != nil || len(mergeResult.Items) != 1 ||
+		mergeResult.Items[0].IID != "7" || mergeResult.Items[0].MergedAt == nil || mergeResult.PageSize != 20 {
+		t.Fatalf("merge request response: %s error=%v", mergeResponse.Body.String(), err)
+	}
+	if strings.Contains(mergeResponse.Body.String(), secret) || strings.Contains(mergeResponse.Body.String(), "vault://") {
+		t.Fatalf("credential leaked in merge response: %s", mergeResponse.Body.String())
+	}
+	if remoteCalls != 2 {
+		t.Fatalf("merge request calls=%d", remoteCalls)
+	}
+	assert(request(commitPath, "dev", session), 503, "source_unavailable")
+	if remoteCalls != 2 {
+		t.Fatalf("get_commit_diff enabled a metadata read: calls=%d", remoteCalls)
+	}
+	if _, err := db.Exec(ctx, `UPDATE v3_connectors SET tools='[{"name":"list_pipelines","enabled":true},{"name":"list_merge_requests","enabled":true},{"name":"get_commit_diff","enabled":true},{"name":"get_commit","enabled":true}]' WHERE id='gitlab-dev'`); err != nil {
+		t.Fatal(err)
+	}
+	commitResponse := request(commitPath, "dev", session)
+	assert(commitResponse, 200, "")
+	var commitResult commitRecord
+	if err := json.Unmarshal(commitResponse.Body.Bytes(), &commitResult); err != nil ||
+		commitResult.SHA != commitSHA || commitResult.Title != "Bound commit" ||
+		len(commitResult.ParentSHAs) != 1 || commitResult.ParentSHAs[0] != parentSHA {
+		t.Fatalf("commit response: %s error=%v", commitResponse.Body.String(), err)
+	}
+	if strings.Contains(commitResponse.Body.String(), secret) || strings.Contains(commitResponse.Body.String(), "vault://") ||
+		strings.Contains(commitResponse.Body.String(), "private body") {
+		t.Fatalf("sensitive commit data leaked: %s", commitResponse.Body.String())
+	}
+	if remoteCalls != 3 {
+		t.Fatalf("commit calls=%d", remoteCalls)
+	}
 	if _, err := db.Exec(ctx, `UPDATE v3_connectors SET enabled=false WHERE id='gitlab-dev'`); err != nil {
 		t.Fatal(err)
 	}
 	assert(request(path, "dev", session), 404, "not_found")
-	if remoteCalls != 1 {
+	assert(request(mrPath, "dev", session), 404, "not_found")
+	assert(request(commitPath, "dev", session), 404, "not_found")
+	if remoteCalls != 3 {
 		t.Fatalf("disabled connector reached GitLab: remoteCalls=%d", remoteCalls)
 	}
 	if _, err := db.Exec(ctx, `UPDATE v3_connectors SET enabled=true WHERE id='gitlab-dev'`); err != nil {
 		t.Fatal(err)
 	}
 	revokeDuringRead = true
-	assert(request(path, "dev", session), 404, "not_found")
-	if remoteCalls != 2 {
+	assert(request(mrPath, "dev", session), 404, "not_found")
+	if remoteCalls != 4 {
 		t.Fatalf("remoteCalls=%d; missing revocation check", remoteCalls)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES ('viewer','connectors','view','environment','dev')`); err != nil {
+		t.Fatal(err)
+	}
+	assert(request(path, "dev", session), 404, "not_found")
+	if remoteCalls != 5 {
+		t.Fatalf("remoteCalls=%d; missing pipeline revocation check", remoteCalls)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES ('viewer','connectors','view','environment','dev')`); err != nil {
+		t.Fatal(err)
+	}
+	assert(request(commitPath, "dev", session), 404, "not_found")
+	if remoteCalls != 6 {
+		t.Fatalf("remoteCalls=%d; missing commit revocation check", remoteCalls)
+	}
+	revokeDuringRead = false
+	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES ('viewer','connectors','view','environment','dev')`); err != nil {
+		t.Fatal(err)
+	}
+	changeBindingDuringRead = true
+	assert(request(mrPath, "dev", session), 409, "source_changed")
+	if remoteCalls != 7 {
+		t.Fatalf("remoteCalls=%d; missing binding change check", remoteCalls)
+	}
+	if _, err := db.Exec(ctx, `UPDATE v3_connector_targets SET external_id='42' WHERE id='binding-1'`); err != nil {
+		t.Fatal(err)
+	}
+	assert(request(commitPath, "dev", session), 409, "source_changed")
+	if remoteCalls != 8 {
+		t.Fatalf("remoteCalls=%d; missing commit binding change check", remoteCalls)
 	}
 }

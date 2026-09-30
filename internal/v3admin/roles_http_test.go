@@ -46,7 +46,7 @@ func TestRolesHTTPReadsCurrentGrantsWithinAuthorizedEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -65,21 +65,29 @@ func TestRolesHTTPReadsCurrentGrantsWithinAuthorizedEnvironment(t *testing.T) {
 	for _, statement := range []string{
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
 VALUES ('viewer','environment','view','environment','dev'),
-       ('viewer','roles','view','environment','dev')`,
+       ('viewer','roles','view','global','*')`,
 		`INSERT INTO rbac_roles(id,name,description) VALUES
  ('dev-role','Dev Role','Dev grant'),('test-role','Test Role','Test grant'),
 	 ('partial-role','Partial Role','Partial grouped grant'),
-	 ('team-role','Team Role','Team-scoped grant'),('app-role','Application Role','Application-scoped grant')`,
+	 ('team-role','Team Role','Team-scoped grant'),('app-role','Application Role','Application-scoped grant'),
+	 ('unassigned-role','Unassigned Role','No grants')`,
 		`INSERT INTO teams(id,name) VALUES('ops-team','Operations')`,
 		`INSERT INTO applications(id,name,key,environment,owner_team_id) VALUES('app','App','app','dev','ops-team')`,
 		`INSERT INTO application_environments(id,application_id,key,name) VALUES('app-dev','app','dev','Dev')`,
 		`INSERT INTO v3_application_environments(application_id,environment_id) VALUES('app','dev')`,
+		`INSERT INTO users(id,email,name,role,password_hash) VALUES
+ ('test-only-user','test-only@example.invalid','Test Only Member','viewer','')`,
+		`DELETE FROM rbac_user_roles WHERE user_id='test-only-user' AND role_id='viewer'`,
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
  ('dev-role','services','view','environment','dev'),
+	 ('dev-role','services','change','environment','test'),
  ('test-role','services','view','environment','test'),
+	 ('test-role','environment','view','environment','test'),
 	 ('partial-role','members','view','environment','dev'),
 	 ('team-role','services','view','team','ops-team'),
 	 ('app-role','services','view','application','app')`,
+		`INSERT INTO rbac_user_roles(user_id,role_id) VALUES
+ ('test-only-user','dev-role'),('test-only-user','test-role')`,
 	} {
 		if _, err := db.Exec(ctx, statement); err != nil {
 			t.Fatal(err)
@@ -129,38 +137,50 @@ VALUES ('viewer','environment','view','environment','dev'),
 	}
 	assertError(request("/api/v1/roles", "dev", ""), 401, "unauthorized")
 	assertError(request("/api/v1/roles/test-role", "dev", viewerToken), 404, "not_found")
+	assertError(request("/api/v1/roles/test-role", "all", viewerToken), 404, "not_found")
+	assertError(request("/api/v1/roles/unassigned-role", "dev", viewerToken), 404, "not_found")
+	assertError(request("/api/v1/roles/unassigned-role", "all", viewerToken), 404, "not_found")
 	assertError(request("/api/v1/roles", "test", viewerToken), 403, "forbidden")
-	w := request("/api/v1/roles", "dev", viewerToken)
-	if w.Code != 200 {
-		t.Fatalf("list status=%d body=%s", w.Code, w.Body.String())
-	}
 	var listed struct {
 		Items []role `json:"items"`
 	}
-	if err := json.Unmarshal(w.Body.Bytes(), &listed); err != nil {
-		t.Fatal(err)
-	}
-	seen := map[string]role{}
-	for _, item := range listed.Items {
-		seen[item.ID] = item
-	}
-	if seen["dev-role"].Members != 1 || seen["dev-role"].Kind != "business" || seen["test-role"].ID != "" ||
-		seen["partial-role"].ID == "" || seen["team-role"].ID == "" || seen["app-role"].ID == "" {
-		t.Fatalf("scoped role list=%+v", listed.Items)
-	}
-	w = request("/api/v1/roles/dev-role", "dev", viewerToken)
-	if w.Code != 200 {
-		t.Fatalf("detail status=%d body=%s", w.Code, w.Body.String())
-	}
+	var w *httptest.ResponseRecorder
 	var detail roleDetail
-	if err := json.Unmarshal(w.Body.Bytes(), &detail); err != nil {
-		t.Fatal(err)
-	}
-	if detail.Name != "Dev Role" || detail.Desc != "Dev grant" || detail.Members != 1 ||
-		len(detail.MemberNames) != 1 || detail.MemberNames[0] != "Scoped Viewer" ||
-		len(detail.Scope) != 1 || detail.Scope[0] != "environment:dev" ||
-		len(detail.Actions) != 5 || len(detail.Matrix) != len(matrixCatalog) {
-		t.Fatalf("detail=%+v", detail)
+	for _, environment := range []string{"dev", "all"} {
+		w = request("/api/v1/roles", environment, viewerToken)
+		if w.Code != 200 {
+			t.Fatalf("%s list status=%d body=%s", environment, w.Code, w.Body.String())
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &listed); err != nil {
+			t.Fatal(err)
+		}
+		seen := map[string]role{}
+		for _, item := range listed.Items {
+			seen[item.ID] = item
+		}
+		if seen["dev-role"].Members != 1 || seen["dev-role"].Kind != "business" ||
+			seen["test-role"].ID != "" || seen["unassigned-role"].ID != "" ||
+			seen["partial-role"].ID == "" || seen["team-role"].ID == "" || seen["app-role"].ID == "" {
+			t.Fatalf("%s list leaked test role or member: %+v", environment, listed.Items)
+		}
+		w = request("/api/v1/roles/dev-role", environment, viewerToken)
+		if w.Code != 200 {
+			t.Fatalf("%s detail status=%d body=%s", environment, w.Code, w.Body.String())
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &detail); err != nil {
+			t.Fatal(err)
+		}
+		if detail.Name != "Dev Role" || detail.Desc != "Dev grant" || detail.Members != 1 ||
+			len(detail.MemberNames) != 1 || detail.MemberNames[0] != "Scoped Viewer" ||
+			len(detail.Scope) != 1 || detail.Scope[0] != "environment:dev" ||
+			len(detail.Actions) != 5 || len(detail.Matrix) != len(matrixCatalog) {
+			t.Fatalf("%s detail leaked test scope/member: %+v", environment, detail)
+		}
+		for _, row := range detail.Matrix {
+			if row.Resource == "服务目录" && (len(row.Grants) != 5 || row.Grants[0] != 1 || row.Grants[1] != 0) {
+				t.Fatalf("%s detail leaked test-only grant: %+v", environment, row)
+			}
+		}
 	}
 	for _, tc := range []struct{ id, scope string }{{"team-role", "team:ops-team"}, {"app-role", "application:app"}} {
 		w = request("/api/v1/roles/"+tc.id, "dev", viewerToken)
@@ -188,8 +208,8 @@ VALUES ('viewer','environment','view','environment','dev'),
 	for _, item := range listed.Items {
 		globalIDs[item.ID] = true
 	}
-	if !globalIDs["test-role"] {
-		t.Fatalf("global manager could not inspect test-scoped role: %+v", listed.Items)
+	if !globalIDs["test-role"] || !globalIDs["unassigned-role"] {
+		t.Fatalf("global manager could not inspect test-scoped or unassigned role: %+v", listed.Items)
 	}
 	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='roles' AND action='view'`); err != nil {
 		t.Fatal(err)

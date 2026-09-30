@@ -280,7 +280,7 @@ for suffix,summary in [('', 'Read linked GitLab project'),('/pipelines','List ex
     route('get',base+suffix,summary,response=obj({'items':arr({'type':'object','additionalProperties':True}),'next_page':integer()}) if suffix in ['/pipelines','/pipelines/{pipeline}/jobs'] else {'type':'object','additionalProperties':True},query=[{'name':'page','in':'query','schema':integer(minimum=1)}] if suffix in ['/pipelines','/pipelines/{pipeline}/jobs'] else None)
 route('get',base+'/jobs/{job}/logs','Read bounded GitLab job trace',response=ref('DeliveryLog'),query=[{'name':'cursor','in':'query','schema':integer(minimum=0)}])
 route('post',base+'/pipelines/{pipeline}/import','Associate actual external run without converting CI definition','operator',response=ref('DeliveryRun'))
-route('post','/webhooks/gitlab/{source}','Persist idempotent authenticated external event identity',body={'type':'object','additionalProperties':True},response=obj({'accepted':boolean,'duplicate':boolean,'ignored':boolean}),status=202,desc='Requires X-Gitlab-Token. Only registered projects; webhook status is not trusted, worker fetches engine truth.')
+route('post','/webhooks/gitlab/{source}','Persist idempotent authenticated external event identity',body={'type':'object','additionalProperties':True},response=obj({'accepted':boolean,'duplicate':boolean,'ignored':boolean}),status=202,desc='Requires X-Gitlab-Token. Only registered projects; in V3, the current active application/environment, V3 binding and instance environment are locked through receipt insertion. Webhook status is not trusted; worker fetches engine truth.')
 P['/webhooks/gitlab/{source}']['post']['security']=[{'gitlabWebhookToken':[]}]
 route('get','/deployments/targets','Read authorized registered release targets',response=obj({'items':arr(obj(fieldnames('id name kind application_id environment_id config_digest')))}))
 route('post','/deployments/plans','Prepare verified immutable artifact for a registered target','operator',obj(fieldnames('run_id node_id artifact_digest target_id intent_id'),['run_id','node_id','artifact_digest','target_id']),ref('DeploymentPlan'))
@@ -329,6 +329,18 @@ exec(Path('scripts/rbac-openapi.py').read_text())
 v3_contract_source = Path('scripts/v3-openapi.py')
 exec(compile(v3_contract_source.read_text(encoding='utf-8'), str(v3_contract_source), 'exec'))
 
-spec={'openapi':'3.1.0','info':{'title':'AIOps Canvas Backend API','version':'0.7.0','description':'Single-workspace multi-application SRE API. All business history is server authoritative; application authorization is enforced beyond minimum workspace role.','license':{'name':'Apache-2.0','identifier':'Apache-2.0'}},'servers':[{'url':'/api/v1'}],'security':[{'sessionCookie':[]}],'paths':P,'components':{'schemas':S,'securitySchemes':{'sessionCookie':{'type':'apiKey','in':'cookie','name':'aiops_session'},'alertSourceToken':{'type':'http','scheme':'bearer'},'gitlabWebhookToken':{'type':'apiKey','in':'header','name':'X-Gitlab-Token'}}}}
+security_domain = json.loads(Path('internal/v3security/openapi.json').read_text(encoding='utf-8'))
+for security_path, operations in security_domain['paths'].items():
+    if security_path in P:
+        raise ValueError(f'duplicate V3 security path: {security_path}')
+    P[security_path] = operations
+for security_name, schema in security_domain['components']['schemas'].items():
+    if security_name == 'Error':
+        continue  # The aggregate already defines the shared error envelope.
+    if security_name in S:
+        raise ValueError(f'duplicate V3 security schema: {security_name}')
+    S[security_name] = schema
+
+spec={'openapi':'3.1.0','info':{'title':'AIOps Canvas Backend API','version':'0.7.0','description':'Single-workspace multi-application SRE API. All business history is server authoritative; application authorization is enforced beyond minimum workspace role.','license':{'name':'Apache-2.0','identifier':'Apache-2.0'}},'servers':[{'url':'/api/v1'}],'security':[{'sessionCookie':[]}],'paths':P,'components':{'schemas':S,'parameters':security_domain['components']['parameters'],'responses':security_domain['components']['responses'],'securitySchemes':{'sessionCookie':{'type':'apiKey','in':'cookie','name':'aiops_session'},'alertSourceToken':{'type':'http','scheme':'bearer'},'pushSourceToken':{'type':'http','scheme':'bearer'},'gitlabWebhookToken':{'type':'apiKey','in':'header','name':'X-Gitlab-Token'},'v3ApiToken':{'type':'http','scheme':'bearer','description':'Only GET /connectors accepts an aiops_pat_ token.'}}}}
 Path('internal/apicontract/openapi.json').write_text(json.dumps(spec,ensure_ascii=False,indent=2)+'\n')
 print(f'Generated {len(P)} paths, {sum(len(x) for x in P.values())} operations, {len(S)} schemas.')

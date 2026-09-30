@@ -71,8 +71,34 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 		t.Fatal(err)
 	}
 	var providerCalls atomic.Int32
+	var lokiCalls atomic.Int32
+	var completePatterns atomic.Bool
+	var zeroMatches atomic.Bool
+	var blockBindingChange, blockRevocation atomic.Bool
+	bindingQueryStarted, revokedQueryStarted := make(chan struct{}), make(chan struct{})
+	releaseBindingQuery, releaseRevokedQuery := make(chan struct{}), make(chan struct{})
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/app-logs/_mapping/field/cluster,cluster.keyword" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"app-logs": map[string]any{"mappings": map[string]any{
+				"cluster.keyword": map[string]any{"full_name": "cluster.keyword", "mapping": map[string]any{
+					"keyword": map[string]any{"type": "keyword", "ignore_above": 256},
+				}},
+			}}})
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/app-logs/_settings/index.mapping.ignore_above" && r.URL.Query().Get("flat_settings") == "true" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"app-logs": map[string]any{"settings": map[string]any{}}})
+			return
+		}
 		providerCalls.Add(1)
+		if blockBindingChange.CompareAndSwap(true, false) {
+			close(bindingQueryStarted)
+			<-releaseBindingQuery
+		}
+		if blockRevocation.CompareAndSwap(true, false) {
+			close(revokedQueryStarted)
+			<-releaseRevokedQuery
+		}
 		if r.Method != http.MethodPost || r.URL.Path != "/app-logs/_search" {
 			t.Errorf("unexpected provider request: %s %s", r.Method, r.URL.Path)
 			http.Error(w, "unexpected request", 404)
@@ -92,24 +118,101 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 		if request["track_total_hits"] != true || request["size"] != float64(100) {
 			t.Errorf("incomplete or unbounded provider query: %+v", request)
 		}
-		at := time.Now().UTC().Add(-time.Minute)
-		bucket := at.Add(-time.Minute).UnixMilli()
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		aggregations, ok := request["aggs"].(map[string]any)
+		if !ok || aggregations["patterns"] == nil || aggregations["missing_patterns"] == nil {
+			t.Errorf("missing full-population pattern aggregation: %+v", request["aggs"])
+		}
+		if patterns, ok := aggregations["patterns"].(map[string]any); ok {
+			terms, _ := patterns["terms"].(map[string]any)
+			if terms["field"] != "message_template.keyword" {
+				t.Errorf("missing registered template field: %+v", patterns)
+			}
+		}
+		filters := request["query"].(map[string]any)["bool"].(map[string]any)["filter"].([]any)
+		startText := filters[0].(map[string]any)["range"].(map[string]any)["@timestamp"].(map[string]any)["gte"].(string)
+		start, err := time.Parse(time.RFC3339Nano, startText)
+		if err != nil {
+			t.Error(err)
+			http.Error(w, "invalid test request", http.StatusBadRequest)
+			return
+		}
+		at := start.Add(29 * time.Minute)
+		count := 1
+		if zeroMatches.Load() {
+			count = 0
+		}
+		volume := make([]any, 30)
+		trend := make([]any, 30)
+		for i := range volume {
+			bucketCount := 0
+			if i == 29 {
+				bucketCount = count
+			}
+			bucket := map[string]any{"key": start.Add(time.Duration(i) * time.Minute).UnixMilli(), "doc_count": bucketCount}
+			volume[i], trend[i] = bucket, bucket
+		}
+		hits := []any{}
+		if count > 0 {
+			hits = append(hits, map[string]any{"_source": map[string]any{"@timestamp": at.Format(time.RFC3339Nano),
+				"message": "checkout accepted", "cluster": "lab", "level": "info"}})
+		}
+		response := map[string]any{
+			"timed_out": false,
+			"_shards":   map[string]any{"total": 1, "successful": 1, "skipped": 0, "failed": 0},
 			"hits": map[string]any{
-				"total": map[string]any{"value": 1, "relation": "eq"},
-				"hits": []any{map[string]any{"_source": map[string]any{"@timestamp": at.Format(time.RFC3339Nano),
-					"message": "checkout accepted", "cluster": "lab", "level": "info"}}},
+				"total": map[string]any{"value": count, "relation": "eq"},
+				"hits":  hits,
 			},
-			"aggregations": map[string]any{"volume": map[string]any{"buckets": []any{map[string]any{"key": bucket, "doc_count": 1}}},
-				"errors": map[string]any{"doc_count": 0}},
-		})
+			"aggregations": map[string]any{"volume": map[string]any{"buckets": volume},
+				"errors": map[string]any{"doc_count": 0}, "missing_patterns": map[string]any{"doc_count": 0}},
+		}
+		if completePatterns.Load() {
+			buckets := []any{}
+			if count > 0 {
+				buckets = append(buckets, map[string]any{"key": "checkout accepted", "doc_count": count, "doc_count_error_upper_bound": 0, "trend": map[string]any{"buckets": trend}})
+			}
+			response["aggregations"].(map[string]any)["patterns"] = map[string]any{"sum_other_doc_count": 0, "doc_count_error_upper_bound": 0, "buckets": buckets}
+		}
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer upstream.Close()
+	loki := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lokiCalls.Add(1)
+		query := r.URL.Query().Get("query")
+		if !strings.Contains(query, `{application="checkout",environment="dev"}`) ||
+			!strings.Contains(query, `|= "checkout"`) || !strings.Contains(query, "level") {
+			t.Errorf("Loki query escaped registered scope or filters: %s", query)
+		}
+		switch r.URL.Path {
+		case "/loki/api/v1/query_range":
+			if r.URL.Query().Get("limit") != "100" || r.URL.Query().Get("direction") != "backward" ||
+				r.URL.Query().Get("start") == "" || r.URL.Query().Get("end") == "" {
+				t.Errorf("unbounded Loki sample: %s", r.URL)
+			}
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"streams","result":[]}}`))
+		case "/loki/api/v1/query":
+			if r.URL.Query().Get("time") == "" || !strings.Contains(query, "count_over_time(") {
+				t.Errorf("unbounded Loki aggregation: %s", r.URL)
+			}
+			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+		default:
+			t.Errorf("unexpected Loki route: %s", r.URL)
+			http.Error(w, "missing", http.StatusNotFound)
+		}
+	}))
+	defer loki.Close()
 	telemetry, err := connectors.NewTelemetry(connectors.TelemetryConfig{
 		Elasticsearch: connectors.TelemetryEndpoint{URL: upstream.URL, AllowHTTP: true},
-		Applications: map[string]connectors.ApplicationTelemetry{"registered-app": {
-			ElasticsearchIndex: "app-logs", ElasticsearchFilters: map[string]string{"cluster": "lab"},
-		}},
+		Loki:          connectors.TelemetryEndpoint{URL: loki.URL, AllowHTTP: true},
+		Applications: map[string]connectors.ApplicationTelemetry{
+			"registered-app": {
+				ElasticsearchIndex: "app-logs", ElasticsearchPatternField: "message_template.keyword", ElasticsearchFilters: map[string]string{"cluster": "lab"},
+			},
+			"same-app-different-source": {
+				LokiLabels:       map[string]string{"application": "checkout", "environment": "dev"},
+				LokiPatternField: "message_template", LokiCompleteLookbackSeconds: 7200,
+			},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +220,6 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
 	New(st, policy, telemetry).Register(api)
-	api.MarkV3ObjectRoute("GET /api/v1/logs", "logs", "view")
 	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{
 		Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"},
 	}, policy, st.Session, nil); err != nil {
@@ -151,34 +253,140 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 		t.Fatal(err)
 	}
 	w := request("?service=app&levels=INFO&q=checkout")
-	if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" {
+	checkError(w, 503, "log_patterns_unavailable")
+	if w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("status=%d headers=%v body=%s", w.Code, w.Header(), w.Body.String())
 	}
 	var body struct {
-		Total     string    `json:"total"`
-		Errors    string    `json:"errors"`
-		Histogram [][]int64 `json:"histogram"`
-		Items     []logLine `json:"items"`
-		Patterns  []any     `json:"patterns"`
+		Available struct {
+			Total     string    `json:"total"`
+			Errors    string    `json:"errors"`
+			Histogram [][]int64 `json:"histogram"`
+			Items     []logLine `json:"items_sample"`
+		} `json:"available"`
+		Missing []string `json:"missing"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Total != "1" || body.Errors != "0" || len(body.Items) != 1 || body.Items[0].Level != "INFO" ||
-		body.Items[0].Service != "app" || body.Items[0].Message != "checkout accepted" || len(body.Histogram) != 1 ||
-		len(body.Histogram[0]) != 3 || body.Histogram[0][2] != 1 || len(body.Patterns) != 0 {
+	if body.Available.Total != "1" || body.Available.Errors != "0" || len(body.Available.Items) != 1 || body.Available.Items[0].Level != "INFO" ||
+		body.Available.Items[0].Service != "app" || body.Available.Items[0].Message != "checkout accepted" || len(body.Available.Histogram) != 30 ||
+		len(body.Available.Histogram[29]) != 3 || body.Available.Histogram[29][2] != 1 || len(body.Missing) == 0 {
 		t.Fatalf("unexpected scoped log result: %+v", body)
+	}
+	completePatterns.Store(true)
+	w = request("?service=app&levels=INFO&q=checkout")
+	var complete struct {
+		Total     string    `json:"total"`
+		Errors    string    `json:"errors"`
+		Histogram [][]int64 `json:"histogram"`
+		Items     []logLine `json:"items"`
+		Patterns  []struct {
+			Template string  `json:"template"`
+			Level    string  `json:"level"`
+			Count    string  `json:"count"`
+			Trend    []int64 `json:"trend"`
+		} `json:"patterns"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &complete); err != nil || w.Code != 200 ||
+		complete.Total != "1" || complete.Errors != "0" || len(complete.Histogram) != 30 ||
+		len(complete.Items) != 1 || len(complete.Patterns) != 1 ||
+		complete.Patterns[0].Template != "checkout accepted" || complete.Patterns[0].Level != "INFO" ||
+		complete.Patterns[0].Count != "1" || len(complete.Patterns[0].Trend) != 30 || complete.Patterns[0].Trend[29] != 1 {
+		t.Fatalf("incomplete scoped log pattern response: status=%d body=%s", w.Code, w.Body.String())
+	}
+	zeroMatches.Store(true)
+	w = request("?service=app&levels=INFO&q=checkout")
+	var empty struct {
+		Total     string    `json:"total"`
+		Errors    string    `json:"errors"`
+		Histogram [][]int64 `json:"histogram"`
+		Items     []logLine `json:"items"`
+		Patterns  []struct {
+			Template string `json:"template"`
+		} `json:"patterns"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &empty); err != nil || w.Code != 200 ||
+		empty.Total != "0" || empty.Errors != "0" || len(empty.Histogram) != 30 ||
+		len(empty.Items) != 0 || len(empty.Patterns) != 0 {
+		t.Fatalf("exact empty scoped log response failed: status=%d body=%s", w.Code, w.Body.String())
+	}
+	for _, bucket := range empty.Histogram {
+		if len(bucket) != 3 || bucket[2] != 0 {
+			t.Fatalf("exact empty scoped log histogram failed: %v", empty.Histogram)
+		}
+	}
+	zeroMatches.Store(false)
+	blockBindingChange.Store(true)
+	changedResult := make(chan *httptest.ResponseRecorder, 1)
+	go func() { changedResult <- request("?service=app&levels=INFO&q=checkout") }()
+	select {
+	case <-bindingQueryStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Elasticsearch query did not start")
+	}
+	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"elasticsearch","resource":"replacement-app"}]'::jsonb WHERE id='app-dev'`); err != nil {
+		t.Fatal(err)
+	}
+	close(releaseBindingQuery)
+	checkError(<-changedResult, 409, "log_scope_changed")
+	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"elasticsearch","resource":"registered-app"}]'::jsonb WHERE id='app-dev'`); err != nil {
+		t.Fatal(err)
 	}
 	before := providerCalls.Load()
 	w = request("?service=app&levels=")
 	if w.Code != 200 || providerCalls.Load() != before || !strings.Contains(w.Body.String(), `"total":"0"`) {
 		t.Fatalf("empty explicit level selection queried provider: %d %s", w.Code, w.Body.String())
 	}
+	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"elasticsearch","resource":"registered-app"},{"kind":"loki","resource":"same-app-different-source"}]'::jsonb WHERE id='app-dev'`); err != nil {
+		t.Fatal(err)
+	}
+	checkError(request("?service=app&levels=INFO"), 409, "ambiguous_binding")
+	if providerCalls.Load() != before {
+		t.Fatal("ambiguous log providers must not be queried")
+	}
+	w = request("?service=app&levels=INFO&q=checkout&provider=elasticsearch")
+	if w.Code != 200 || providerCalls.Load() != before+1 {
+		t.Fatalf("explicit persisted Elasticsearch source failed: status=%d calls=%d body=%s", w.Code, providerCalls.Load(), w.Body.String())
+	}
+	before = providerCalls.Load()
+	w = request("?service=app&levels=INFO&q=checkout&provider=loki")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"total":"0"`) ||
+		!strings.Contains(w.Body.String(), `"patterns":[]`) || lokiCalls.Load() == 0 {
+		t.Fatalf("configured Loki exact zero failed: status=%d calls=%d body=%s", w.Code, lokiCalls.Load(), w.Body.String())
+	}
+	checkError(request("?service=app&levels=INFO&provider=unknown"), 422, "invalid_provider")
+	checkError(request("?service=app&levels=INFO&provider=loki&provider=elasticsearch"), 422, "invalid_provider")
+	if providerCalls.Load() != before {
+		t.Fatal("unconfigured or invalid source queried Elasticsearch")
+	}
+	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"elasticsearch","resource":"registered-app"}]'::jsonb WHERE id='app-dev'`); err != nil {
+		t.Fatal(err)
+	}
+	blockRevocation.Store(true)
+	revokedResult := make(chan *httptest.ResponseRecorder, 1)
+	go func() { revokedResult <- request("?service=app&levels=INFO&q=checkout") }()
+	select {
+	case <-revokedQueryStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Elasticsearch query did not start before revocation")
+	}
 	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='admin' AND module='logs' AND action='view'`); err != nil {
 		t.Fatal(err)
 	}
+	close(releaseRevokedQuery)
+	checkError(<-revokedResult, 403, "forbidden")
+	before = providerCalls.Load()
 	checkError(request("?service=app&levels=INFO&q=checkout"), 403, "forbidden")
 	if providerCalls.Load() != before {
 		t.Fatal("provider queried after logs grant was revoked")
+	}
+	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"elasticsearch","resource":"registered-app"},{"kind":"loki","resource":"same-app-different-source"}]'::jsonb WHERE id='app-dev'`); err != nil {
+		t.Fatal(err)
+	}
+	lokiBefore := lokiCalls.Load()
+	checkError(request("?service=app&levels=INFO&provider=loki"), 403, "forbidden")
+	if lokiCalls.Load() != lokiBefore {
+		t.Fatal("Loki queried after logs grant was revoked")
 	}
 }

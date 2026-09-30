@@ -128,6 +128,23 @@ func lockMembers(ctx context.Context, tx pgx.Tx) error {
 	}
 	return nil
 }
+
+// New local and directory members inherit only defaults backed by personal
+// fields. The workspace week start has no per-member setting or calendar
+// consumer yet, so it is intentionally not represented here.
+func newMemberWorkspaceDefaults(ctx context.Context, tx pgx.Tx) (timezone, locale string, err error) {
+	err = tx.QueryRow(ctx, `SELECT timezone,language FROM workspace_settings WHERE id='default' FOR SHARE`).Scan(&timezone, &locale)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", fmt.Errorf("workspace defaults unavailable: %w", ErrNotFound)
+	}
+	if err != nil {
+		return "", "", err
+	}
+	if _, e := time.LoadLocation(timezone); timezone == "" || e != nil || locale != "zh-CN" && locale != "en-US" {
+		return "", "", ErrMemberInvalid
+	}
+	return timezone, locale, nil
+}
 func (s *Store) CreateMember(ctx context.Context, v MemberCreate) (Member, error) {
 	v.Email = strings.ToLower(strings.TrimSpace(v.Email))
 	v.Name = strings.TrimSpace(v.Name)
@@ -154,10 +171,17 @@ func (s *Store) CreateMember(ctx context.Context, v MemberCreate) (Member, error
 			return Member{}, e
 		}
 	}
+	timezone, locale, e := newMemberWorkspaceDefaults(ctx, tx)
+	if e != nil {
+		return Member{}, e
+	}
 	id := ID()
-	_, e = tx.Exec(ctx, "INSERT INTO users(id,email,name,role,password_hash,department,job_title) VALUES($1,$2,$3,$4,$5,$6,$7)", id, v.Email, v.Name, v.Role, PasswordHash(v.Password), v.Department, v.JobTitle)
+	_, e = tx.Exec(ctx, "INSERT INTO users(id,email,name,role,password_hash,department,job_title,v3_timezone) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", id, v.Email, v.Name, v.Role, PasswordHash(v.Password), v.Department, v.JobTitle, timezone)
 	if e != nil {
 		return Member{}, ClassifyError(e)
+	}
+	if _, e = tx.Exec(ctx, `INSERT INTO v3_user_settings(user_id,locale) VALUES($1,$2)`, id, locale); e != nil {
+		return Member{}, e
 	}
 	if e = auditTx(ctx, tx, "", "account.created", id, map[string]string{"role": v.Role, "source": "local"}); e != nil {
 		return Member{}, e
@@ -443,9 +467,20 @@ func (s *Store) ImportMembers(ctx context.Context, v MemberImportRequest) (Membe
 	if !p.CanImport {
 		return out, ErrMemberImportConflict
 	}
+	var timezone, locale string
 	for i, r := range v.Rows {
 		if p.Items[i].Action == "create" {
-			_, e = tx.Exec(ctx, "INSERT INTO users(id,email,name,role,password_hash,disabled,department,job_title,source,external_id) VALUES($1,$2,$3,'viewer','',true,$4,$5,$6,$7)", ID(), r.Email, r.Name, r.Department, r.JobTitle, v.Source, r.ExternalID)
+			if timezone == "" {
+				timezone, locale, e = newMemberWorkspaceDefaults(ctx, tx)
+				if e != nil {
+					return MemberImportResult{}, e
+				}
+			}
+			id := ID()
+			_, e = tx.Exec(ctx, "INSERT INTO users(id,email,name,role,password_hash,disabled,department,job_title,source,external_id,v3_timezone) VALUES($1,$2,$3,'viewer','',true,$4,$5,$6,$7,$8)", id, r.Email, r.Name, r.Department, r.JobTitle, v.Source, r.ExternalID, timezone)
+			if e == nil {
+				_, e = tx.Exec(ctx, `INSERT INTO v3_user_settings(user_id,locale) VALUES($1,$2)`, id, locale)
+			}
 			out.Created++
 		} else {
 			_, e = tx.Exec(ctx, "UPDATE users SET email=$3,name=$4,department=$5,job_title=$6 WHERE source=$1 AND external_id=$2 AND deleted_at IS NULL", v.Source, r.ExternalID, r.Email, r.Name, r.Department, r.JobTitle)

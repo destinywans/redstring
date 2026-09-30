@@ -52,7 +52,12 @@ func (v *VaultResolver) Resolve(ctx context.Context, reference string) (string, 
 	if client == nil {
 		client = NewVaultResolver(v.Address, v.Token).Client
 	}
-	resp, err := client.Do(req)
+	copyClient := *client
+	copyClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	if copyClient.Timeout == 0 || copyClient.Timeout > 5*time.Second {
+		copyClient.Timeout = 5 * time.Second
+	}
+	resp, err := copyClient.Do(req)
 	if err != nil {
 		return "", ErrCredentialUnavailable
 	}

@@ -8,10 +8,60 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/store"
 )
+
+// Legacy application authorization now follows explicit infrastructure
+// bindings and resource permissions, rather than application_grants alone.
+func grantLegacyKnowledgeResource(t *testing.T, db *pgxpool.Pool, user, app, environment string, operate bool) {
+	t.Helper()
+	resource := "knowledge-resource-" + app
+	role := "knowledge-role-" + user + "-" + app
+	permission := "knowledge-permission-" + user + "-" + app
+	ctx := context.Background()
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	for _, step := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO cmdb_resources(id,kind,name,source_kind) VALUES($1,'host',$1,'manual') ON CONFLICT (id) DO NOTHING`, []any{resource}},
+		{`INSERT INTO cmdb_resource_applications(resource_id,application_id,environment_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`, []any{resource, app, environment}},
+		{`INSERT INTO rbac_roles(id,name) VALUES($1,$1)`, []any{role}},
+		{`INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,$2)`, []any{user, role}},
+		{`INSERT INTO rbac_permissions(id,name) VALUES($1,$1)`, []any{permission}},
+		{`INSERT INTO rbac_role_permissions(role_id,permission_id) VALUES($1,$2)`, []any{role, permission}},
+		{`INSERT INTO rbac_permission_resources(permission_id,scope_type,resource_id,action) VALUES($1,'resource',$2,'view')`, []any{permission, resource}},
+	} {
+		if _, err = tx.Exec(ctx, step.query, step.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if operate {
+		if _, err = tx.Exec(ctx, `INSERT INTO rbac_permission_resources(permission_id,scope_type,resource_id,action) VALUES($1,'resource',$2,'update')`, permission, resource); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	st := &store.Store{DB: db}
+	for _, action := range []string{"view", "operate"} {
+		if action == "operate" && !operate {
+			continue
+		}
+		if err = st.AuthorizeApplication(ctx, core.User{ID: user}, app, action); err != nil {
+			t.Fatalf("fixture lacks %s on %s for %s: %v", action, app, user, err)
+		}
+	}
+}
 
 // This fake deliberately has no SQL handle. It validates that orchestration can
 // work with an alternate source repository and vector index independently.
@@ -123,13 +173,14 @@ func TestPostgresKnowledgeHTTPInvalidInputIs422(t *testing.T) {
 	s, _ := isolatedKnowledge(t)
 	db := s.Repository.(*PGRepository).DB
 	ctx := context.Background()
+	grantLegacyKnowledgeResource(t, db, "u", "a", "a-default", true)
 	token := "test-token"
 	if _, e := db.Exec(ctx, "INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,'u',now()+interval '1 hour')", store.Hash(token)); e != nil {
 		t.Fatal(e)
 	}
 	api := httpapi.New(&store.Store{DB: db}, nil)
 	s.Register(api)
-	for _, tc := range []struct{ path, body string }{{"/api/v1/knowledge", `{"title":"","body":"runbook"}`}, {"/api/v1/knowledge/search", `{"application_id":"a","query":" "}`}, {"/api/v1/knowledge", `{"unknown":true}`}} {
+	for _, tc := range []struct{ path, body string }{{"/api/v1/knowledge", `{"application_id":"a","title":"","body":"runbook"}`}, {"/api/v1/knowledge/search", `{"application_id":"a","query":" "}`}, {"/api/v1/knowledge", `{"unknown":true}`}} {
 		r := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
 		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
 		w := httptest.NewRecorder()

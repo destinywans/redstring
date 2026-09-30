@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3uploads"
@@ -48,8 +49,12 @@ func operationError(w http.ResponseWriter, err error) {
 		apiError(w, 422, "environment_required", "Select an environment")
 	case errors.Is(err, ErrModel):
 		apiError(w, 503, "model_unavailable", "No configured model is available")
+	case errors.Is(err, errMetricsListSourceLimit):
+		apiError(w, 503, "metrics_list_scope_limit", "Too many metric conversations to authorize in one list")
 	case errors.Is(err, ErrForbidden):
 		apiError(w, 403, "forbidden", "Environment access required")
+	case errors.Is(err, errListSessionRevoked):
+		apiError(w, 401, "unauthorized", "Login required")
 	default:
 		apiError(w, 503, "conversation_unavailable", "Conversation operation failed")
 	}
@@ -85,6 +90,11 @@ func (s *Service) createHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil || cookie.Value == "" {
+		apiError(w, 401, "unauthorized", "Login required")
+		return
+	}
 	env, err := s.environment(r, true)
 	if err != nil {
 		operationError(w, err)
@@ -109,19 +119,21 @@ func (s *Service) createHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	requestedModel := in.Model
 	if requestedModel == "" {
-		if s.opts.DefaultModel == nil {
+		if s.opts.DefaultModel == nil && !s.hasModelBindings() {
 			operationError(w, ErrModel)
 			return
 		}
-		requestedModel, err = s.opts.DefaultModel(r.Context(), u.ID)
-		if err != nil {
-			operationError(w, err)
-			return
+		if s.opts.DefaultModel != nil {
+			requestedModel, err = s.opts.DefaultModel(r.Context(), u.ID, env)
+			if err != nil {
+				operationError(w, err)
+				return
+			}
 		}
 	}
-	selectedModel, err := s.model(requestedModel, "")
+	selectedModel, err := s.modelForEnvironment(env, requestedModel, "")
 	if err != nil && in.Model == "" {
-		selectedModel, err = s.model("", "")
+		selectedModel, err = s.modelForEnvironment(env, "", "")
 	}
 	if err != nil {
 		if in.Model != "" && errors.Is(err, ErrModel) {
@@ -135,7 +147,7 @@ func (s *Service) createHTTP(w http.ResponseWriter, r *http.Request) {
 	if len(title) > 80 {
 		title = title[:80]
 	}
-	id, err := s.create(r.Context(), u.ID, env, string(title), in.Context, selectedModel.ID)
+	id, err := s.create(r.Context(), cookie.Value, u.ID, env, string(title), in.Context, selectedModel.ID)
 	if err != nil {
 		operationError(w, err)
 		return
@@ -168,15 +180,11 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Text = strings.TrimSpace(in.Text)
-	if in.Text == "" || len(in.Text) > 2<<20 {
+	if (in.Text == "" && len(in.Attachments) == 0) || len(in.Text) > 2<<20 {
 		apiError(w, 422, "invalid_text", "Enter a message under 2 MiB")
 		return
 	}
-	if len(in.Attachments) > 0 {
-		if s.opts.ValidateAttachments == nil {
-			apiError(w, 503, "uploads_unavailable", "Attachment verification is not available")
-			return
-		}
+	if len(in.Attachments) > 0 && s.opts.ValidateAttachments != nil {
 		if err := s.opts.ValidateAttachments(r.Context(), u, env, in.Attachments); err != nil {
 			if errors.Is(err, v3uploads.ErrInvalidReference) {
 				apiError(w, 422, "invalid_attachment", "Attachment is unavailable or outside this environment")
@@ -192,17 +200,17 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) {
 	}
 	selectedModel := in.Model
 	if selectedModel == "" && s.opts.DefaultModel != nil {
-		selectedModel, err = s.opts.DefaultModel(r.Context(), u.ID)
+		selectedModel, err = s.opts.DefaultModel(r.Context(), u.ID, env)
 		if err != nil {
 			operationError(w, err)
 			return
 		}
 	}
-	model, err := s.model(selectedModel, fallback)
+	model, err := s.modelForEnvironment(env, selectedModel, fallback)
 	if err != nil && in.Model == "" {
-		// A removed preferred model falls back to the same first configured
-		// model advertised by GET /models, without changing this turn's choice.
-		model, err = s.model("", "")
+		// A removed preference uses the environment's configured default (or
+		// the legacy catalog fallback), without changing this turn's choice.
+		model, err = s.modelForEnvironment(env, "", "")
 	}
 	if err != nil {
 		if in.Model != "" && errors.Is(err, ErrModel) {
@@ -221,14 +229,54 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 401, "unauthorized", "Sign in again")
 		return
 	}
-	msg, reply, err := s.startTurn(r.Context(), id, u.ID, env, u.Name, store.Hash(cookie.Value), in, model)
-	if err != nil {
+	guard := s.sendGuard(id)
+	guard.Lock()
+	defer guard.Unlock()
+	if err := s.sendAvailable(r.Context(), id, u.ID, env); err != nil {
 		operationError(w, err)
 		return
 	}
-	// The request's context ends with the HTTP response. A bounded worker owns the reply.
-	go s.runTurn(id, reply, model, in.Reasoning, cookie.Value)
-	write(w, 202, map[string]any{"message": msg, "reply_id": reply})
+	if len(in.Attachments) > 0 {
+		// Outbound link fetches may take seconds. Recheck the live session and
+		// grant first; the acceptance transaction checks them again.
+		if err := s.authorizeActiveTurn(r.Context(), u.ID, env, cookie.Value); err != nil {
+			operationError(w, err)
+			return
+		}
+	}
+	links, err := s.fetchLinksForTurn(r.Context(), u.ID, env, in.Attachments)
+	if err == nil {
+		var msg Message
+		var reply string
+		msg, reply, err = s.startTurn(r.Context(), id, u.ID, env, u.Name, store.Hash(cookie.Value), in, model, links)
+		if err == nil {
+			// The request's context ends with the HTTP response. A bounded worker owns the reply.
+			go s.runTurn(id, reply, model, in.Reasoning, cookie.Value)
+			write(w, 202, map[string]any{"message": msg, "reply_id": reply})
+			return
+		}
+	}
+	if err != nil {
+		switch {
+		case errors.Is(err, v3uploads.ErrInvalidReference):
+			apiError(w, 422, "invalid_attachment", "Attachment is unavailable or outside this environment")
+		case errors.Is(err, v3uploads.ErrModelUnsupportedAttachment):
+			apiError(w, 422, "attachment_model_unsupported", "This model reply cannot read this attachment type")
+		case errors.Is(err, v3uploads.ErrAttachmentContextTooLarge):
+			apiError(w, 413, "attachment_context_too_large", "Attachment text exceeds this model's input budget")
+		case errors.Is(err, v3uploads.ErrAttachmentMediaTooLarge):
+			apiError(w, 413, "attachment_media_too_large", "Attachment media exceeds the model request byte limit")
+		case errors.Is(err, ErrLinkUnreadable):
+			apiError(w, 422, "attachment_link_unreadable", "This link cannot be read as public HTTPS Markdown")
+		case errors.Is(err, ErrLinkFetchFailed):
+			apiError(w, 503, "attachment_link_unavailable", "Link content could not be fetched")
+		case errors.Is(err, ErrModelInputTooLarge):
+			apiError(w, 413, "model_input_too_large", "Conversation input exceeds this model's input budget")
+		default:
+			operationError(w, err)
+		}
+		return
+	}
 }
 
 func (s *Service) get(w http.ResponseWriter, r *http.Request) {
@@ -241,57 +289,42 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) {
 		operationError(w, err)
 		return
 	}
-	id := r.PathValue("id")
-	actual, _, err := s.owned(r.Context(), id, u.ID, env)
+	scope, ok := httpapi.V3ScopeFromContext(r.Context())
+	if !ok || len(scope.EnvironmentIDs) == 0 ||
+		(env == "all" && !scope.All) ||
+		(env != "all" && (scope.All || len(scope.EnvironmentIDs) != 1 || scope.EnvironmentIDs[0] != env)) {
+		operationError(w, ErrForbidden)
+		return
+	}
+	visible, err := s.allowed(r.Context(), u, env)
 	if err != nil {
 		operationError(w, err)
 		return
 	}
-	if _, err = s.allowed(r.Context(), u, actual); err != nil {
-		operationError(w, err)
+	selected := make([]string, 0, len(visible))
+	for _, environmentID := range visible {
+		for _, scopedID := range scope.EnvironmentIDs {
+			if environmentID == scopedID {
+				selected = append(selected, environmentID)
+				break
+			}
+		}
+	}
+	if len(selected) == 0 {
+		operationError(w, ErrForbidden)
 		return
 	}
-	var title, status, contextRef, defaultModel string
-	err = s.db.QueryRow(r.Context(), `SELECT title,status,context_ref,default_model_id FROM v3_conversations WHERE id=$1 AND owner_id=$2 AND environment_id=$3`, id, u.ID, actual).Scan(&title, &status, &contextRef, &defaultModel)
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil || cookie.Value == "" {
+		apiError(w, 401, "unauthorized", "Login required")
+		return
+	}
+	detail, err := s.readOwnedDetail(r.Context(), cookie.Value, u, r.PathValue("id"), env, selected)
 	if err != nil {
 		operationError(w, err)
 		return
 	}
-	rows, err := s.db.Query(r.Context(), `SELECT id,role,author,parts,attachments,run,state,created_at FROM v3_conversation_messages WHERE conversation_id=$1 ORDER BY created_at,id`, id)
-	if err != nil {
-		operationError(w, err)
-		return
-	}
-	defer rows.Close()
-	messages := []Message{}
-	for rows.Next() {
-		var m Message
-		var parts, attachments []byte
-		var run []byte
-		var state string
-		if err = rows.Scan(&m.ID, &m.Role, &m.Author, &parts, &attachments, &run, &state, &m.CreatedAt); err != nil {
-			operationError(w, err)
-			return
-		}
-		if err = json.Unmarshal(parts, &m.Parts); err != nil {
-			operationError(w, err)
-			return
-		}
-		if err = json.Unmarshal(attachments, &m.Attachments); err != nil {
-			operationError(w, err)
-			return
-		}
-		if len(run) > 0 && string(run) != "null" {
-			m.Run = run
-		}
-		m.Streaming = state == "streaming"
-		messages = append(messages, m)
-	}
-	if err = rows.Err(); err != nil {
-		operationError(w, err)
-		return
-	}
-	write(w, 200, s.conversationDetail(id, title, status, actual, contextRef, defaultModel, messages))
+	write(w, 200, detail)
 }
 
 func (s *Service) list(w http.ResponseWriter, r *http.Request) {
@@ -309,7 +342,11 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		operationError(w, err)
 		return
 	}
-	page, size := pagination(r)
+	page, size, pageError := pagination(r)
+	if pageError != "" {
+		apiError(w, 422, pageError, "Invalid pagination")
+		return
+	}
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	filter := r.URL.Query().Get("tab")
 	if filter == "" {
@@ -332,75 +369,21 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 422, "invalid_status", "Unknown conversation status")
 		return
 	}
-	// Team, triage and canvas entries have separate stores and grant models.
-	// Until they are joined into this owner-scoped index, an empty list would
-	// falsely tell the user that those conversations do not exist.
-	if filter == "team" || filter == "triage" || modeFilter == "canvas" {
-		apiError(w, 503, "conversation_source_unavailable", "This conversation source is not connected to the unified list")
-		return
-	}
 	if len(q) > 256 {
 		apiError(w, 422, "invalid_query", "Search is too long")
 		return
 	}
-	var total int
-	err = s.db.QueryRow(r.Context(), `SELECT count(*) FROM v3_conversations WHERE owner_id=$1 AND environment_id=ANY($2) AND ($3='' OR aiops_search_match(concat_ws(' ',id,title,context_ref,environment_id),$3)) AND ($4='mine' AND status<>'archived' OR $4='archived' AND status='archived') AND ($5='' OR status=$5)`, u.ID, visible, q, filter, statusFilter).Scan(&total)
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil || cookie.Value == "" {
+		apiError(w, 401, "unauthorized", "Login required")
+		return
+	}
+	items, total, counts, err := s.readOwnedList(r.Context(), cookie.Value, u, visible, filter, modeFilter, statusFilter, q, page, size, r.Header.Get("Accept-Language"))
 	if err != nil {
 		operationError(w, err)
 		return
 	}
-	var mineCount, archivedCount int
-	err = s.db.QueryRow(r.Context(), `SELECT count(*) FILTER (WHERE status<>'archived'), count(*) FILTER (WHERE status='archived') FROM v3_conversations WHERE owner_id=$1 AND environment_id=ANY($2)`, u.ID, visible).Scan(&mineCount, &archivedCount)
-	if err != nil {
-		operationError(w, err)
-		return
-	}
-	rows, err := s.db.Query(r.Context(), `WITH selected AS MATERIALIZED (
-		SELECT id,title,status,environment_id,context_ref,updated_at FROM v3_conversations
-		WHERE owner_id=$1 AND environment_id=ANY($2)
-			AND ($3='' OR aiops_search_match(concat_ws(' ',id,title,context_ref,environment_id),$3))
-			AND ($4='mine' AND status<>'archived' OR $4='archived' AND status='archived')
-			AND ($5='' OR status=$5)
-		ORDER BY updated_at DESC,id LIMIT $6 OFFSET $7
-	) SELECT c.id,c.title,c.status,c.environment_id,c.context_ref,c.updated_at,
-		COALESCE(m.turns,0),COALESCE(m.assistants,0),COALESCE(m.reported_tokens,0)
-		FROM selected c LEFT JOIN LATERAL (
-			SELECT count(*) FILTER (WHERE role='user') AS turns,
-				count(*) FILTER (WHERE role='assistant' AND state='completed') AS assistants,
-				COALESCE(sum(CASE WHEN role='assistant' AND state='completed' AND jsonb_typeof(run->'tokens')='number'
-					THEN (run->>'tokens')::bigint ELSE 0 END),0) AS reported_tokens
-			FROM v3_conversation_messages WHERE conversation_id=c.id
-		) m ON true
-		ORDER BY c.updated_at DESC,c.id`, u.ID, visible, q, filter, statusFilter, size, (page-1)*size)
-	if err != nil {
-		operationError(w, err)
-		return
-	}
-	defer rows.Close()
-	items := []map[string]any{}
-	for rows.Next() {
-		var id, title, status, envID, contextRef string
-		var updated time.Time
-		var turns, assistants, reportedTokens int64
-		if err = rows.Scan(&id, &title, &status, &envID, &contextRef, &updated, &turns, &assistants, &reportedTokens); err != nil {
-			operationError(w, err)
-			return
-		}
-		participants := []string{u.Name}
-		if assistants > 0 {
-			participants = append(participants, "AI")
-		}
-		sizeLabel := fmt.Sprintf("%d 轮", turns)
-		if strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "en") {
-			sizeLabel = fmt.Sprintf("%d turns", turns)
-		}
-		items = append(items, map[string]any{"id": id, "title": title, "mode": "chat", "status": status, "source": "manual", "scope": conversationScopeLabel(contextRef, envID), "participants": participants, "size": sizeLabel, "updated_at": updated, "tokens": reportedTokens})
-	}
-	if err = rows.Err(); err != nil {
-		operationError(w, err)
-		return
-	}
-	write(w, 200, map[string]any{"items": items, "total": total, "page": page, "page_size": size, "stats": []any{}, "counts": map[string]int{"mine": mineCount, "team": 0, "triage": 0, "archived": archivedCount}})
+	write(w, 200, map[string]any{"items": items, "total": total, "page": page, "page_size": size, "stats": []any{}, "counts": map[string]int{"mine": counts.Mine, "team": counts.Team, "triage": counts.Triage, "archived": counts.Archived}})
 }
 
 func conversationScopeLabel(refs, env string) string {
@@ -413,24 +396,30 @@ func conversationScopeLabel(refs, env string) string {
 	return env
 }
 
-func pagination(r *http.Request) (int, int) {
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page < 1 {
-		page = 1
+func pagination(r *http.Request) (int, int, string) {
+	page, size := 1, 50
+	if raw := r.URL.Query().Get("page"); raw != "" {
+		var err error
+		page, err = strconv.Atoi(raw)
+		if err != nil || page < 1 || page > 100000 {
+			return 0, 0, "invalid_page"
+		}
 	}
-	size, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
-	if size < 1 {
-		size = 50
+	if raw := r.URL.Query().Get("page_size"); raw != "" {
+		var err error
+		size, err = strconv.Atoi(raw)
+		if err != nil || size < 1 || size > 100 {
+			return 0, 0, "invalid_page_size"
+		}
 	}
-	if size > 100 {
-		size = 100
-	}
-	return page, size
+	return page, size, ""
 }
 
 func (s *Service) latestReply(ctx context.Context, conv string) (string, error) {
 	var id string
-	err := s.db.QueryRow(ctx, `SELECT id FROM v3_conversation_replies WHERE conversation_id=$1 ORDER BY started_at DESC,id DESC LIMIT 1`, conv).Scan(&id)
+	err := s.db.QueryRow(ctx, `SELECT r.id FROM v3_conversation_replies r
+		JOIN v3_conversation_messages m ON m.id=r.user_message_id AND m.conversation_id=r.conversation_id
+		WHERE r.conversation_id=$1 ORDER BY m.sort_order DESC,r.id DESC LIMIT 1`, conv).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound
 	}
@@ -438,6 +427,7 @@ func (s *Service) latestReply(ctx context.Context, conv string) (string, error) 
 }
 
 func (s *Service) events(w http.ResponseWriter, r *http.Request) {
+	const replayBatchSize = 64
 	u, ok := s.user(w, r)
 	if !ok {
 		return
@@ -454,8 +444,52 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 		operationError(w, err)
 		return
 	}
-	reply, err := s.latestReply(r.Context(), id)
+	cursor, ok := lastEventCursor(r.Header.Values("Last-Event-ID"))
+	if !ok {
+		apiError(w, 422, "invalid_event_cursor", "Last-Event-ID must be a nonnegative event ID")
+		return
+	}
+	var reply string
+	var pastTerminal bool
+	requestedReply := r.URL.Query().Get("reply_id")
+	if values, present := r.URL.Query()["reply_id"]; present {
+		if len(values) != 1 || requestedReply == "" || strings.TrimSpace(requestedReply) != requestedReply || len(requestedReply) > 128 {
+			apiError(w, 422, "invalid_reply", "Reply ID is unavailable for this conversation")
+			return
+		}
+	}
+	if cursor > 0 {
+		// Event IDs are global. Resolve a reconnect cursor to its own reply
+		// within the authorized conversation, even after a newer turn starts.
+		err = s.db.QueryRow(r.Context(), `SELECT e.reply_id, EXISTS (
+			SELECT 1 FROM v3_conversation_events terminal
+			WHERE terminal.conversation_id=e.conversation_id AND terminal.reply_id=e.reply_id
+				AND terminal.seq<=e.seq AND terminal.payload->>'type'='message.completed'
+		) FROM v3_conversation_events e
+			WHERE e.seq=$1 AND e.conversation_id=$2`, cursor, id).Scan(&reply, &pastTerminal)
+		if errors.Is(err, pgx.ErrNoRows) {
+			apiError(w, 422, "invalid_event_cursor", "Last-Event-ID is unavailable for this conversation")
+			return
+		}
+		if err == nil && requestedReply != "" && requestedReply != reply {
+			apiError(w, 422, "invalid_event_cursor", "Last-Event-ID does not belong to this reply")
+			return
+		}
+	} else if requestedReply != "" {
+		err = s.db.QueryRow(r.Context(), `SELECT id FROM v3_conversation_replies
+			WHERE id=$1 AND conversation_id=$2`, requestedReply, id).Scan(&reply)
+		if errors.Is(err, pgx.ErrNoRows) {
+			apiError(w, 422, "invalid_reply", "Reply ID is unavailable for this conversation")
+			return
+		}
+	} else {
+		reply, err = s.latestReply(r.Context(), id)
+	}
 	if err != nil {
+		operationError(w, err)
+		return
+	}
+	if err = s.authorizeReplay(r.Context(), id, reply, u.ID, actual); err != nil {
 		operationError(w, err)
 		return
 	}
@@ -464,15 +498,16 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 503, "stream_unavailable", "Streaming unavailable")
 		return
 	}
-	cursor := int64(0)
-	if raw := r.Header.Get("Last-Event-ID"); raw != "" {
-		cursor, _ = strconv.ParseInt(raw, 10, 64)
-	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(200)
 	flusher.Flush()
+	// A terminal event closes this reply, even if a stale writer left events
+	// behind it. Reconnecting at or past that cursor is an empty stream.
+	if pastTerminal {
+		return
+	}
 	lastKeepalive := time.Now()
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
@@ -480,6 +515,7 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 	if err != nil || s.opts.RefreshSession == nil {
 		return
 	}
+	terminalRecheck := false
 	for {
 		// Authorization may change after EventSource opens. Revalidate before
 		// each event batch so revoked sessions or grants stop receiving output.
@@ -493,12 +529,17 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 		if _, authErr = s.allowed(r.Context(), current, actual); authErr != nil {
 			return
 		}
-		rows, err := s.db.Query(r.Context(), `SELECT seq,payload FROM v3_conversation_events WHERE reply_id=$1 AND seq>$2 ORDER BY seq`, reply, cursor)
+		if authErr = s.authorizeReplay(r.Context(), id, reply, current.ID, actual); authErr != nil {
+			return
+		}
+		rows, err := s.db.Query(r.Context(), `SELECT seq,payload FROM v3_conversation_events
+			WHERE reply_id=$1 AND seq>$2 ORDER BY seq LIMIT $3`, reply, cursor, replayBatchSize)
 		if err != nil {
 			return
 		}
 		terminal := false
 		sent := false
+		batchCount := 0
 		for rows.Next() {
 			var seq int64
 			var raw []byte
@@ -510,12 +551,14 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 			}
 			cursor = seq
 			sent = true
+			batchCount++
 			var marker struct {
 				Type string `json:"type"`
 			}
 			_ = json.Unmarshal(raw, &marker)
 			if marker.Type == "message.completed" {
 				terminal = true
+				break
 			}
 		}
 		rows.Close()
@@ -526,23 +569,24 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 		if terminal {
 			return
 		}
+		if batchCount == replayBatchSize {
+			// Recheck current access before streaming more retained events.
+			continue
+		}
 		if !sent {
 			var state string
 			if err := s.db.QueryRow(r.Context(), `SELECT state FROM v3_conversation_replies WHERE id=$1`, reply).Scan(&state); err != nil {
 				return
 			}
 			if state == "completed" || state == "failed" {
-				var seq int64
-				var raw []byte
-				if err := s.db.QueryRow(r.Context(), `SELECT seq,payload FROM v3_conversation_events WHERE reply_id=$1 ORDER BY seq DESC LIMIT 1`, reply).Scan(&seq, &raw); err == nil {
-					// The terminal state and event commit in one transaction. A
-					// reconnect at or after its sequence has nothing left to replay.
-					if seq > cursor {
-						_, _ = fmt.Fprintf(w, "id: %d\ndata: %s\n\n", seq, raw)
-						flusher.Flush()
-					}
+				// Completion may commit between the empty event query and this
+				// state read. Query the ordered events once more rather than
+				// jumping to the final event and losing earlier frames.
+				if terminalRecheck {
+					return
 				}
-				return
+				terminalRecheck = true
+				continue
 			}
 		}
 		select {
@@ -556,4 +600,60 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// authorizeReplay keeps an active model reply bound to the session and change
+// permission that started it. Completed replies are immutable history and need
+// only the caller's conversation view permission, checked by events itself.
+func (s *Service) authorizeReplay(ctx context.Context, conv, reply, owner, env string) error {
+	var state, sessionHash string
+	err := s.db.QueryRow(ctx, `SELECT state,initiating_session_hash FROM v3_conversation_replies
+		WHERE id=$1 AND conversation_id=$2`, reply, conv).Scan(&state, &sessionHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if err := s.authorizeMetricsSource(ctx, conv, owner, env); err != nil {
+		return err
+	}
+	if state == "completed" || state == "failed" {
+		return nil
+	}
+	if state != "queued" && state != "running" {
+		return ErrForbidden
+	}
+	if sessionHash == "" {
+		return ErrForbidden
+	}
+	var active bool
+	err = s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM sessions
+		WHERE token_hash=$1 AND user_id=$2 AND expires_at>clock_timestamp())`, sessionHash, owner).Scan(&active)
+	if err != nil {
+		return err
+	}
+	if !active {
+		return ErrForbidden
+	}
+	return s.authorizeBackgroundTurn(ctx, owner, env)
+}
+
+func lastEventCursor(values []string) (int64, bool) {
+	if len(values) == 0 {
+		return 0, true
+	}
+	if len(values) != 1 || values[0] == "" {
+		return 0, false
+	}
+	for _, digit := range values[0] {
+		if digit < '0' || digit > '9' {
+			return 0, false
+		}
+	}
+	id, err := strconv.ParseInt(values[0], 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return id, true
 }

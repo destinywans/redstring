@@ -18,6 +18,7 @@ type TraceSpan struct {
 	SpanID       string           `json:"span_id"`
 	ParentSpanID string           `json:"parent_span_id,omitempty"`
 	Service      string           `json:"service"`
+	Version      string           `json:"version,omitempty"`
 	Name         string           `json:"name"`
 	Start        time.Time        `json:"start"`
 	DurationMS   float64          `json:"duration_ms"`

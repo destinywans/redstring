@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
@@ -16,6 +19,20 @@ type matrixUpdate struct {
 }
 
 func (s *Service) putRole(w http.ResponseWriter, r *http.Request) {
+	values := r.Header.Values("If-Role-Matrix-Revision")
+	if len(values) == 0 || strings.TrimSpace(r.Header.Get("If-Role-Matrix-Revision")) == "" {
+		httpapi.Error(w, http.StatusPreconditionRequired, "role_revision_required", "Read the role matrix revision before saving")
+		return
+	}
+	if len(values) != 1 {
+		httpapi.Error(w, http.StatusBadRequest, "invalid_precondition", "Exactly one role matrix revision is required")
+		return
+	}
+	expected, err := strconv.ParseInt(values[0], 10, 64)
+	if err != nil || expected < 1 || strconv.FormatInt(expected, 10) != values[0] {
+		httpapi.Error(w, http.StatusBadRequest, "invalid_precondition", "Role matrix revision must be a positive decimal integer")
+		return
+	}
 	var req matrixUpdate
 	if !httpapi.Decode(w, r, &req) {
 		return
@@ -30,25 +47,16 @@ func (s *Service) putRole(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "environment_required", "Select one environment to change a role")
 		return
 	}
-	// The management grant may be scoped to a chosen environment, but a
-	// summary matrix has no scope editor. Such a caller cannot create global
-	// grants through this route.
-	global, err := s.hasGlobalGrant(r.Context(), httpapi.CurrentUser(r).ID, "roles", "manage")
+	revision, err := s.saveMatrix(r.Context(), r.PathValue("id"), envs[0], roleSessionToken(r), expected, wanted)
 	if err != nil {
 		respond(w, nil, err)
 		return
 	}
-	if !global {
-		httpapi.Error(w, 403, "global_role_manager_required", "Global role management is required for the summary matrix")
-		return
-	}
-	err = s.saveMatrix(r.Context(), r.PathValue("id"), wanted)
-	if err != nil {
-		respond(w, nil, err)
-		return
-	}
-	v, err := s.getRole(r.Context(), r.PathValue("id"), envs, true, englishLanguage(r.Header.Get("Accept-Language")))
-	respond(w, v, err)
+	// A manager is not automatically a reader. Returning a fresh detail after
+	// commit could disclose member names or describe somebody else's later edit.
+	w.Header().Set("X-Role-Matrix-Revision", strconv.FormatInt(revision, 10))
+	w.Header().Set("Cache-Control", "private, no-store")
+	httpapi.WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 type queryer interface {
@@ -73,45 +81,78 @@ func loadGrants(ctx context.Context, db queryer, roleID string) ([]grant, error)
 	return grants, rows.Err()
 }
 
-func (s *Service) saveMatrix(ctx context.Context, roleID string, wanted map[string][]int) error {
+func (s *Service) saveMatrix(ctx context.Context, roleID, environment, sessionToken string, expected int64, wanted map[string][]int) (int64, error) {
 	tx, err := s.Store.DB.Begin(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tx.Rollback(ctx)
-	// Serializing all role matrix changes also protects the last-manager
-	// invariant when two different roles are edited concurrently.
-	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(752018998)`); err != nil {
-		return err
+	// Account and legacy role-association writers take 992 then 995. Hold
+	// those locks before the matrix lock and authority reads, so a queued
+	// matrix write cannot use a role assignment revoked by either writer.
+	// The final lock serializes matrix writes for the last-manager invariant.
+	for _, key := range []int64{752018992, 752018995, 752018998} {
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, key); err != nil {
+			return 0, err
+		}
+	}
+	// Middleware authorizes before entering this transaction. Recheck on the
+	// same connection after the write lock so a removed grant cannot authorize
+	// a later matrix change. The flat editor can only create global grants.
+	actor := store.Principal(ctx)
+	if err = store.LockActiveSession(ctx, tx, sessionToken, actor.ID); err != nil {
+		return 0, err
+	}
+	if err = (&rbac.V3Policy{Store: s.Store}).AuthorizeWithTx(ctx, tx, actor, rbac.V3Decision{
+		Module: "roles", Action: "manage", EnvironmentID: environment,
+	}); err != nil {
+		return 0, err
+	}
+	var globalManage, globalEnvironmentView bool
+	if err = tx.QueryRow(ctx, `SELECT
+ EXISTS (SELECT 1 FROM v3_effective_role_grants WHERE user_id=$1
+  AND module='roles' AND action='manage' AND scope_kind='global' AND scope_id='*'),
+ EXISTS (SELECT 1 FROM v3_effective_role_grants WHERE user_id=$1
+  AND module='environment' AND action='view' AND scope_kind='global' AND scope_id='*')`, actor.ID).Scan(&globalManage, &globalEnvironmentView); err != nil {
+		return 0, err
+	}
+	// The flat editor changes global grants, including environments outside
+	// the selected request scope. Require instance-wide environment admission.
+	if !globalManage || !globalEnvironmentView {
+		return 0, store.ErrForbidden
 	}
 	var kind string
-	err = tx.QueryRow(ctx, `SELECT v3_kind FROM rbac_roles WHERE id=$1 FOR UPDATE`, roleID).Scan(&kind)
+	var revision int64
+	err = tx.QueryRow(ctx, `SELECT v3_kind,v3_matrix_revision FROM rbac_roles WHERE id=$1 FOR UPDATE`, roleID).Scan(&kind, &revision)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return store.ErrNotFound
+		return 0, store.ErrNotFound
 	}
 	if err != nil {
-		return err
+		return 0, err
+	}
+	if revision != expected {
+		return 0, errRoleChanged
 	}
 	if kind == "machine" {
 		for _, cells := range wanted {
 			if cells[3] > 0 {
-				return errMachineApproval
+				return 0, errMachineApproval
 			}
 		}
 	}
 	beforeGrants, err := loadGrants(ctx, tx, roleID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if err := validateMatrixEditable(beforeGrants); err != nil {
-		return err
+		return 0, err
 	}
 	before := matrixForRole(beforeGrants)
 	changed := false
 	for index, definition := range matrixCatalog {
 		cells := wanted[definition.Code]
 		if cells == nil {
-			return errInvalidMatrix
+			return 0, errInvalidMatrix
 		}
 		for col, action := range matrixActions {
 			oldValue := before[index].Grants[col]
@@ -129,7 +170,7 @@ func (s *Service) saveMatrix(ctx context.Context, roleID string, wanted map[stri
 				if oldValue > 0 {
 					if _, err = tx.Exec(ctx, `DELETE FROM v3_role_grants
  WHERE role_id=$1 AND module=$2 AND action=$3 AND scope_kind='global' AND scope_id='*'`, roleID, module, action); err != nil {
-						return err
+						return 0, err
 					}
 				}
 				if newValue > 0 {
@@ -140,7 +181,7 @@ func (s *Service) saveMatrix(ctx context.Context, roleID string, wanted map[stri
 					if _, err = tx.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id,assurance)
  VALUES($1,$2,$3,'global','*',$4) ON CONFLICT (role_id,module,action,scope_kind,scope_id)
  DO UPDATE SET assurance=excluded.assurance`, roleID, module, action, assurance); err != nil {
-						return err
+						return 0, err
 					}
 				}
 				changed = true
@@ -148,31 +189,40 @@ func (s *Service) saveMatrix(ctx context.Context, roleID string, wanted map[stri
 		}
 	}
 	if !changed {
-		return tx.Commit(ctx)
+		if err = store.LockActiveSession(ctx, tx, sessionToken, actor.ID); err != nil {
+			return 0, err
+		}
+		return revision, tx.Commit(ctx)
 	}
 	var managers int
-	err = tx.QueryRow(ctx, `SELECT count(DISTINCT user_id) FROM v3_effective_role_grants
- WHERE module='roles' AND action='manage' AND v3_identity_kind='human'
- AND scope_kind='global' AND scope_id='*'`).Scan(&managers)
+	err = tx.QueryRow(ctx, `SELECT count(DISTINCT manager.user_id) FROM v3_effective_role_grants manager
+ WHERE manager.module='roles' AND manager.action='manage' AND manager.v3_identity_kind='human'
+ AND manager.scope_kind='global' AND manager.scope_id='*'
+ AND EXISTS (SELECT 1 FROM v3_effective_role_grants admission
+  WHERE admission.user_id=manager.user_id AND admission.module='environment'
+   AND admission.action='view' AND admission.scope_kind='global' AND admission.scope_id='*')`).Scan(&managers)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if managers == 0 {
-		return errLastRoleManager
+		return 0, errLastRoleManager
 	}
-	if _, err = tx.Exec(ctx, `UPDATE rbac_roles SET v3_matrix_revision=v3_matrix_revision+1 WHERE id=$1`, roleID); err != nil {
-		return err
+	if err = tx.QueryRow(ctx, `UPDATE rbac_roles SET v3_matrix_revision=v3_matrix_revision+1 WHERE id=$1 RETURNING v3_matrix_revision`, roleID).Scan(&revision); err != nil {
+		return 0, err
 	}
 	afterGrants, err := loadGrants(ctx, tx, roleID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	// Use stable operation and resource codes in audit records, so language
 	// changes never rewrite the meaning of an earlier decision.
 	if err = auditMatrixCodes(ctx, tx, roleID, before, matrixForRole(afterGrants)); err != nil {
-		return err
+		return 0, err
 	}
-	return tx.Commit(ctx)
+	if err = store.LockActiveSession(ctx, tx, sessionToken, actor.ID); err != nil {
+		return 0, err
+	}
+	return revision, tx.Commit(ctx)
 }
 
 // validateMatrixEditable keeps the flat V3 editor from silently widening a
@@ -184,7 +234,46 @@ func validateMatrixEditable(grants []grant) error {
 			return errScopedCell
 		}
 	}
-	return validateMatrixGroups(grants)
+	return validateMatrixProjection(grants)
+}
+
+// The role detail has one scope list for the whole matrix and only five
+// operation columns. It cannot truthfully display an execute grant, a direct
+// approval without step-up, or cells with different scope sets. Reject these
+// roles instead of turning a partially visible matrix into an editor input.
+func validateMatrixProjection(grants []grant) error {
+	if err := validateMatrixGroups(grants); err != nil {
+		return err
+	}
+	var common map[string]bool
+	cellScopes := map[string]map[string]bool{}
+	for _, g := range grants {
+		if g.Action == "execute" || g.Action == "approve" && g.Assurance != "passkey" ||
+			g.Action != "approve" && g.Assurance != "standard" {
+			return errUnrepresentableMatrix
+		}
+		scope := g.ScopeKind + "\x00" + g.ScopeID
+		cell := g.Module + "\x00" + g.Action
+		if cellScopes[cell] == nil {
+			cellScopes[cell] = map[string]bool{}
+		}
+		cellScopes[cell][scope] = true
+	}
+	for _, scopes := range cellScopes {
+		if common == nil {
+			common = scopes
+			continue
+		}
+		if len(common) != len(scopes) {
+			return errUnrepresentableMatrix
+		}
+		for scope := range common {
+			if !scopes[scope] {
+				return errUnrepresentableMatrix
+			}
+		}
+	}
+	return nil
 }
 
 // A grouped cell is truthful only when every underlying module has the same

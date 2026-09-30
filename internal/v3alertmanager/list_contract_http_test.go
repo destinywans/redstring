@@ -125,6 +125,7 @@ func TestSilenceListRegisteredHTTPUsesPersistedTeamAndAdministrativeScope(t *tes
 		return a
 	}
 	var stageFails atomic.Bool
+	var malformedInhibition atomic.Bool
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/staging/") && stageFails.Load() {
 			w.WriteHeader(503)
@@ -137,6 +138,35 @@ func TestSilenceListRegisteredHTTPUsesPersistedTeamAndAdministrativeScope(t *tes
 				mixedAppNegative, mixedAppRegex, mixedEnvNegative, mixedEnvRegex, foreign, stage}
 		case strings.HasSuffix(r.URL.Path, "/api/v2/alerts"):
 			payload = []Alert{alert("test", "owned", "owned", "owned"), alert("test", "hidden", "owned", "hidden", "wide"), alert("test", "archived", "archived"), alert("staging", "stage", "stage")}
+		case strings.HasSuffix(r.URL.Path, "/api/v2/status"):
+			original := `inhibit_rules:
+  - source_matchers: ['environment = "test"', 'application 	= "owned"', 'rule="owned"']
+    target_matchers: ['environment = "test"', 'application = "owned"']
+  - source_matchers: ['environment="test"', 'application="owned"', 'rule="cross"']
+    target_matchers: ['environment="test"', 'application="hidden"']
+  - source_matchers: ['environment="test"', 'application="hidden"', 'rule="hidden"']
+    target_matchers: ['environment="test"', 'application="hidden"']
+  - source_matchers: ['environment="test"', 'rule="broad"']
+    target_matchers: ['environment="test"']
+  - source_matchers: ['environment="test"', 'application="unbound"', 'rule="unbound"']
+    target_matchers: ['environment="test"', 'application="unbound"']
+  - source_matchers: ['environment = "test"', 'application = "owned"', 'application =~ "owned|hidden"', 'rule="mixed-app"']
+    target_matchers: ['environment="test"', 'application="owned"']
+  - source_matchers: ['environment = "test"', 'application = "owned"', 'application !~ "hidden"', 'rule="mixed-app-negative"']
+    target_matchers: ['environment="test"', 'application="owned"']
+  - source_matchers: ['environment = "test"', 'environment != "staging"', 'application = "owned"', 'rule="mixed-env"']
+    target_matchers: ['environment="test"', 'application="owned"']
+  - source_matchers: ['environment = "test"', 'environment =~ "test|staging"', 'application = "owned"', 'rule="mixed-env-regex"']
+    target_matchers: ['environment="test"', 'application="owned"']
+  - source_matchers: ['environment="staging"', 'application="stage"', 'rule="foreign"']
+    target_matchers: ['environment="staging"', 'application="stage"']
+`
+			if malformedInhibition.Load() {
+				original += `  - source_matchers: ['environment="test",application="hidden"']
+    target_matchers: ['environment="test"']
+`
+			}
+			payload = map[string]any{"config": map[string]string{"original": original}}
 		default:
 			w.WriteHeader(404)
 			return
@@ -175,6 +205,46 @@ func TestSilenceListRegisteredHTTPUsesPersistedTeamAndAdministrativeScope(t *tes
 		api.ServeHTTP(w, r)
 		return w
 	}
+	preview := func(body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/silences/preview", strings.NewReader(body))
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		r.Header.Set("X-AIOps-Environment", "test")
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		return w
+	}
+	inhibitions := func(env string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/inhibitions", nil)
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		r.Header.Set("X-AIOps-Environment", env)
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		return w
+	}
+	if got := inhibitions("test"); got.Code != 206 || strings.Count(got.Body.String(), `"stat":`) != 1 ||
+		!strings.Contains(got.Body.String(), `"v":"owned"`) || !strings.Contains(got.Body.String(), `"unscoped_present":false`) ||
+		strings.Contains(got.Body.String(), `"v":"cross"`) || strings.Contains(got.Body.String(), `"v":"hidden"`) ||
+		strings.Contains(got.Body.String(), `"v":"broad"`) || strings.Contains(got.Body.String(), `"v":"unbound"`) ||
+		strings.Contains(got.Body.String(), `"v":"mixed-app"`) || strings.Contains(got.Body.String(), `"v":"mixed-env"`) ||
+		strings.Contains(got.Body.String(), `"v":"mixed-app-negative"`) || strings.Contains(got.Body.String(), `"v":"mixed-env-regex"`) ||
+		strings.Contains(got.Body.String(), `"v":"foreign"`) {
+		t.Fatalf("team inhibition scope status=%d body=%s", got.Code, got.Body.String())
+	}
+	malformedInhibition.Store(true)
+	if got := inhibitions("test"); got.Code != 503 || !strings.Contains(got.Body.String(), "invalid_inhibition_source") ||
+		strings.Contains(got.Body.String(), `"items"`) || strings.Contains(got.Body.String(), `"partial"`) {
+		t.Fatalf("malformed registered inhibition status=%d body=%s", got.Code, got.Body.String())
+	}
+	malformedInhibition.Store(false)
+	if p := preview(`{"matchers":[{"k":"application","op":"=","v":"owned"}]}`); p.Code != 200 || !strings.Contains(p.Body.String(), `"affects":1`) {
+		t.Fatalf("team preview status=%d body=%s", p.Code, p.Body.String())
+	}
+	if p := preview(`{"matchers":[{"k":"application","op":"=","v":"hidden"}]}`); p.Code != 404 || strings.Contains(p.Body.String(), `"affects"`) {
+		t.Fatalf("hidden app preview status=%d body=%s", p.Code, p.Body.String())
+	}
+	if p := preview(`{"matchers":[{"k":"alertname","op":"!=","v":"unmatched"}]}`); p.Code != 403 {
+		t.Fatalf("broad preview without environment grant status=%d body=%s", p.Code, p.Body.String())
+	}
 	w := request("test")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"id":"owned"`) || !strings.Contains(w.Body.String(), `"affects":1`) || !strings.Contains(w.Body.String(), `"active":1`) {
 		t.Fatalf("team visible status=%d body=%s", w.Code, w.Body.String())
@@ -201,6 +271,10 @@ func TestSilenceListRegisteredHTTPUsesPersistedTeamAndAdministrativeScope(t *tes
 	w = request("test")
 	if w.Code != 403 || strings.Contains(w.Body.String(), `"counts"`) {
 		t.Fatalf("ownership change status=%d body=%s", w.Code, w.Body.String())
+	}
+	if got := inhibitions("test"); got.Code != 403 || strings.Contains(got.Body.String(), `"items"`) ||
+		strings.Contains(got.Body.String(), `"unscoped_present"`) {
+		t.Fatalf("revoked team inhibition scope status=%d body=%s", got.Code, got.Body.String())
 	}
 	if _, err := db.Exec(ctx, `UPDATE applications SET owner_team_id='ops' WHERE id='owned-id'`); err != nil {
 		t.Fatal(err)
@@ -245,6 +319,17 @@ func TestSilenceListRegisteredHTTPUsesPersistedTeamAndAdministrativeScope(t *tes
 	if w.Code != 206 || !strings.Contains(w.Body.String(), `"active":4`) || !strings.Contains(w.Body.String(), `"unscoped_present":true`) {
 		t.Fatalf("admin visible status=%d body=%s", w.Code, w.Body.String())
 	}
+	if got := inhibitions("test"); got.Code != 206 || strings.Count(got.Body.String(), `"stat":`) != 4 ||
+		!strings.Contains(got.Body.String(), `"v":"cross"`) || !strings.Contains(got.Body.String(), `"v":"hidden"`) ||
+		!strings.Contains(got.Body.String(), `"v":"broad"`) || !strings.Contains(got.Body.String(), `"unscoped_present":true`) ||
+		strings.Contains(got.Body.String(), `"v":"unbound"`) || strings.Contains(got.Body.String(), `"v":"mixed-app"`) ||
+		strings.Contains(got.Body.String(), `"v":"mixed-env"`) || strings.Contains(got.Body.String(), `"v":"mixed-app-negative"`) ||
+		strings.Contains(got.Body.String(), `"v":"mixed-env-regex"`) || strings.Contains(got.Body.String(), `"v":"foreign"`) {
+		t.Fatalf("admin inhibition scope status=%d body=%s", got.Code, got.Body.String())
+	}
+	if p := preview(`{"matchers":[{"k":"environment","op":"=","v":"test"}]}`); p.Code != 200 || !strings.Contains(p.Body.String(), `"affects":3`) {
+		t.Fatalf("environment-wide preview status=%d body=%s", p.Code, p.Body.String())
+	}
 	for _, visible := range []string{"owned", "hidden", "wide", "regex"} {
 		if !strings.Contains(w.Body.String(), `"id":"`+visible+`"`) {
 			t.Fatalf("admin missing %s: %s", visible, w.Body.String())
@@ -263,5 +348,9 @@ func TestSilenceListRegisteredHTTPUsesPersistedTeamAndAdministrativeScope(t *tes
 	w = request("all")
 	if w.Code != 503 || strings.Contains(w.Body.String(), `"counts"`) {
 		t.Fatalf("partial all status=%d body=%s", w.Code, w.Body.String())
+	}
+	if got := inhibitions("all"); got.Code != 503 || strings.Contains(got.Body.String(), `"items"`) ||
+		strings.Contains(got.Body.String(), `"unavailable_environments"`) {
+		t.Fatalf("partial inhibition source status=%d body=%s", got.Code, got.Body.String())
 	}
 }

@@ -1,5 +1,6 @@
 // Package v3alertmanager reads environment-bound Alertmanager silences and
-// inhibition configuration. It never changes Alertmanager state.
+// inhibition configuration. Its durable create intent ledger and low-level
+// write adapter are not registered as product write routes.
 package v3alertmanager
 
 import (
@@ -117,6 +118,9 @@ func (c *Client) ListAlerts(ctx context.Context, environment string) ([]Alert, e
 	if err := decodeOne(body, &alerts); err != nil {
 		return nil, fmt.Errorf("invalid Alertmanager alerts: %w", err)
 	}
+	if alerts == nil {
+		return nil, errors.New("invalid Alertmanager alerts: expected an array")
+	}
 	// The shared upstream can contain many other environments. The 2 MiB
 	// response bound is enforced by get; the service applies its 500-record
 	// bound only after it has selected records visible in this environment.
@@ -124,9 +128,6 @@ func (c *Client) ListAlerts(ctx context.Context, environment string) ([]Alert, e
 		if len(alert.Labels) == 0 || len(alert.Status.SilencedBy) > 100 {
 			return nil, errors.New("invalid Alertmanager alert record")
 		}
-	}
-	if alerts == nil {
-		alerts = []Alert{}
 	}
 	return alerts, nil
 }
@@ -142,6 +143,9 @@ func (c *Client) ListSilences(ctx context.Context, environment string) ([]Silenc
 	if err := decodeOne(body, &silences); err != nil {
 		return nil, fmt.Errorf("invalid Alertmanager silences: %w", err)
 	}
+	if silences == nil {
+		return nil, errors.New("invalid Alertmanager silences: expected an array")
+	}
 	// Do not reject 501 shared-upstream records before environment filtering.
 	// get has already bounded the complete provider response to 2 MiB.
 	for _, silence := range silences {
@@ -155,9 +159,6 @@ func (c *Client) ListSilences(ctx context.Context, environment string) ([]Silenc
 				return nil, errors.New("invalid Alertmanager silence matcher")
 			}
 		}
-	}
-	if silences == nil {
-		silences = []Silence{}
 	}
 	return silences, nil
 }

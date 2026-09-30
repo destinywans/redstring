@@ -17,7 +17,11 @@ CREATE TABLE IF NOT EXISTS v3_runbooks (
 -- its rows while adding the durable conversation reference.
 ALTER TABLE v3_runbooks ADD COLUMN IF NOT EXISTS conversation_id text REFERENCES v3_conversations(id) ON DELETE RESTRICT;
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'v3_runbooks_conversation_source_check') THEN
+  -- Constraint names are only unique per table. Isolated schemas may migrate
+  -- in the same database, so do not let another schema skip this table's check.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                 WHERE conrelid = 'v3_runbooks'::regclass
+                   AND conname = 'v3_runbooks_conversation_source_check') THEN
     ALTER TABLE v3_runbooks ADD CONSTRAINT v3_runbooks_conversation_source_check
       CHECK ((source_kind = 'conversation' AND conversation_id IS NOT NULL AND source_ref = conversation_id)
           OR (source_kind <> 'conversation' AND conversation_id IS NULL)) NOT VALID;

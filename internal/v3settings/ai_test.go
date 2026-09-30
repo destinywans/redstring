@@ -45,7 +45,7 @@ func TestModelCatalogToolsFollowV3Allowlist(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			service.ToolModels = test.allowlist
-			items, err := service.modelCatalogItems(request)
+			items, err := service.modelCatalogItems(request, "")
 			if err != nil {
 				t.Fatal(err)
 			}

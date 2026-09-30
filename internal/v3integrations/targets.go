@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -135,6 +136,11 @@ func targetAuthorizationError(w http.ResponseWriter, err error) bool {
 }
 
 func validExternalTarget(provider, kind, id string) bool {
+	// The resource is an opaque, administrator-reviewed catalog key. It is
+	// never interpolated into a URL or a PromQL expression.
+	if provider == "prometheus" && kind == "metric_resource" {
+		return prometheusResourceID.MatchString(id)
+	}
 	// Jenkins currently accepts only server-configured aliases, but this
 	// service has no verified alias registry. Harbor has no safe reader yet.
 	// Keep both unavailable until those execution boundaries are connected.
@@ -149,6 +155,8 @@ func validExternalTarget(provider, kind, id string) bool {
 	value, err := strconv.ParseInt(id, 10, 64)
 	return err == nil && value > 0
 }
+
+var prometheusResourceID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 
 func (s *Service) listTargets(w http.ResponseWriter, r *http.Request) {
 	envs, ok := s.scope(w, r, false)

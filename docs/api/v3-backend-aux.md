@@ -1,18 +1,71 @@
-# V3 后端辅助只读接口
+# V3 后端辅助接口
 
-这些接口用于检查已接入的真实来源，**不替代** `v3-contract.md` 中的页面接口，也不计入其 166 项完成数。它们使用同源会话、`X-AIOps-Environment` 和 V3 角色矩阵；响应只含能核实的字段。页面目前按完整 `AlertRule` / `KnowledgeSource` 读取数据，不能直接接这些部分响应。
+这些接口用于检查或记录已接入的真实来源，**不替代** `v3-contract.md` 中的页面接口，也不计入其 166 项完成数。它们使用同源会话、`X-AIOps-Environment` 和 V3 角色矩阵；响应只含能核实的字段。页面目前按完整 `AlertRule` / `KnowledgeSource` 读取数据，不能直接接这些部分响应。
 
 | 方法 | 路径 | 参数与含义 |
 | --- | --- | --- |
+| POST | `/api/v1/auth/invitations/accept` | 公开的 JSON 辅助接口。受邀人提交 `{ code, name, password }`；一次性 256 位随机码只放请求体，数据库仅保存哈希，24 小时内且邮件投递方已接受后才可使用。接受与创建本地 `viewer` 账号、消费邀请码及无资料值审计在同一事务；新账号不自动取得环境或应用授权。共享 V3 环境与身份门禁仅对这一精确 POST 路由豁免；产品目前没有接受邀请的页面。 |
+| GET | `/api/v1/members/{id}` | 选定且已授权的环境内，当前有效账号具 `members.view` 时读取单个可见成员的 `MemberDetail`。返回持久账号字段、关联团队、该环境可见的角色 ID/名称和姓名/电话修订；`recorded_source` 只是保存的来源标记，不证明当前同步。`mfa` 与 `directory_sync_state` 为 `unknown`，`last_login` 为 `null`，不合成未登记或从未登录。调用者缺少权限返回 403；目标已删除、属于演示数据或在所选环境不可见时统一返回 404。账号或授权在读取排队中撤销时拒绝。 |
+| PATCH | `/api/v1/members/{id}` | 单一环境；当前有效人类账号须有该环境的 `members.view`、全局 `members.manage` 和全局 `environment.view`，目标须在所选环境可见且来源标记为本地 `local`。外部/未确认来源不由此接口覆盖，返回 409 `member_source_managed`。严格对象 `{ expected_revision: "十进制正整数", name?: string, phone?: string \| null }`，至少提交一个可编辑字段；姓名去空白后须非空且最多 120 字符，电话去空白后须非空且最多 64 字符，`null` 清除电话。写入只影响全局账号的姓名/电话，不授予跨环境角色或修改目录来源；事务内复核权限、对象范围与修订，保存及仅记录字段名的审计原子提交，返回当前 `MemberDetail`。旧修订为 409 `member_changed`，无效正文 422；其他账号/本人资料路径变更姓名/电话也推进修订。冻结成员页未调用此辅助接口。 |
+| GET | `/api/v1/me/mfa/totp` | 可选账户辅助接口；单一授权环境内读取本人 TOTP 状态 `none/pending/expired/active` 与剩余恢复码数，不返回种子或码。仅配置持久的 `AIOPS_V3_MFA_KEY_FILE` 后注册。 |
+| POST | `/api/v1/me/mfa/totp/enrollment` | 空请求体；同源浏览器信号、近 10 分钟登录和当前人类账号。返回一次性的种子、`otpauth_url` 与 10 分钟到期时间；待确认记录绑定原会话、实例层级与环境。 |
+| POST | `/api/v1/me/mfa/totp/confirm` | `{ code }` 确认待登记 TOTP，消费该时间步并仅在本次响应返回一次性恢复码；服务端只留独立加盐哈希。 |
+| DELETE | `/api/v1/me/mfa/totp/enrollment` | 空请求体；由原会话在近期登录条件下取消待确认登记，成功返回 204。 |
+| POST | `/api/v1/me/mfa/verify` | `{ code }` 验证并消费一个 TOTP 时间步或恢复码，返回 `{ verified, method }`；重复错误限流。本次验证不创建登录会话、提权令牌或 passkey 审批保证。 |
+| DELETE | `/api/v1/me/mfa/totp` | `{ code }` 加近 10 分钟登录删除本人已启用的 TOTP 与未用恢复码，成功返回 204；不改变审批规则。 |
+| GET | `/api/v1/me/passkeys` | 可选本人 WebAuthn 凭据列表；只返回 base64url 凭据 ID、标签、创建/使用时间及备份状态，不返回公钥内部记录或私钥。 |
+| POST | `/api/v1/me/passkeys/registration/options` | 空请求体、近期登录；返回 `{ id, options, expires_at }`，其中 `options` 交给浏览器 WebAuthn API。 |
+| POST | `/api/v1/me/passkeys/registration/finish` | `{ challenge_id, credential, label? }`；验证并保存本人凭据，返回凭据摘要；无设备型号可信认证策略。 |
+| POST | `/api/v1/me/passkeys/assertion/options` | 空请求体；为已有凭据签发五分钟有效的本人账户断言挑战。 |
+| POST | `/api/v1/me/passkeys/assertion/finish` | `{ challenge_id, credential }`；成功返回 `{ credential_id, verified: true, scope: "account_only" }`，不提供提案审批保证。 |
+| POST | `/api/v1/me/passkeys/deletion/options` | `{ credential_id }` 加近期登录，开始删除本人指定凭据的挑战。 |
+| POST | `/api/v1/me/passkeys/deletion/finish` | `{ challenge_id, credential }` 加近期登录，验证后撤销凭据并返回 204。 |
+| GET | `/api/v1/metrics/samples` | 必填 `service`（持久应用 ID/key）与 `query_id`（`request_rate` 或 `http_p95_seconds`），只允许单一环境。按当前 `services.view`、`connectors.view`、唯一 V3 `metric_resource` 目标、启用的 Prometheus `query_metrics` 和私有精确范围查询目录读取固定 15 分钟/30 秒的最多 32 个标量样本。可见服务缺 `connectors.view` 在查目标绑定前返回 403；隐藏或不存在的服务同样返回资源不存在；读取期间撤权不返回样本。结果不含标签、原始表达式、端点或凭据；无样本标记 `no_samples`。无来源/目录 503，歧义或读取期间绑定变化 409。该辅助响应不组成完整指标看板。 |
+| GET | `/api/v1/investigations/{id}/nodes/{node}/messages` | 只读当前持久化分支的 `{ branch_id, revision, messages }`，以持久化调查/应用/环境/所属团队核对当前 `canvas.view`。返回原始历史消息 JSON，旧记录的可选字段（包括 `created_at`）可能缺失，不合成图节点、时间、摘要或模型输出。上下文最大 24 KiB；对象不存在、路径不匹配或无访问权返回 404，当前上下文缺失、过大或损坏返回 503。完整调查图、节点写入和祖先回写仍未接通。 |
+| GET | `/api/v1/canvases/{id}/nodes/{node}/messages` | 私人通用画布节点的持久交换分页读取；`page_size` 1–50，默认 20，不透明游标固定首批排序上界，每页复核本人、环境及 `canvas.view`。不把运行/失败交换补造为完成回复；单次交换超页容量明确返回 413。详见[通用画布历史读取与恢复](v3-canvas-history.md)。 |
+| GET | `/api/v1/incidents/{id}/timeline/manual` | 按当前事件应用/环境及 `events.view` 读取已持久化的人工备注，按保存时间/ID 排序；返回 `{ items, scope: "manual_only" }`，展示姓名取当前成员记录。未知或无权事件 404，超过 500 条或读取故障 503，不返回部分结果。不合成系统/AI 时间线、影响或错误预算，主详情现单独返回部分持久事实，此辅助读取不证明影响和系统/AI 时间线完整。 |
+| POST | `/api/v1/incidents/{id}/status` | 仅人工 `INC-*` 事件的治理状态写入；严格 `{ status, expected_revision, request_id, reason? }`，当前真人会话、单环境、应用/团队与 `events.view`、`events.change` 均须有效。只允许 active→mitigated/resolved 或 mitigated→resolved；新状态事件、版本、真人/时间和审计同事务，原体重试返回历史事件及单列的当前状态。真实 resolved 事件可作为复盘来源；不修改告警或基础设施，不执行外部恢复。详见[手工事件与复盘生命周期](v3-incident-postmortem-lifecycle.md)。 |
+| GET | `/api/v1/connectors/{id}/tool-settings` | 按当前授权环境和 `connectors.view` 读取持久登记的工具开关及本地化目录名称，返回 `{ connector_id, environment_id, connector_enabled, registered_tools, agent_execution_available: false }`。不返回端点、Vault 引用或 Agent 工具能力；未知/越界 ID 返回 404，已存工具与当前目录冲突返回 503，不静默丢弃设置。此辅助读取不使主页面的 PATCH 开关交互完成。 |
+| POST | `/api/v1/mcp-servers/{id}/discover` | 单环境、显式绑定及当前 `connectors.manage` 下发起有界 MCP `tools/list`，无请求体。保存不可变的未信任工具声明快照、版本/摘要和同事务管理审计；响应仅返回快照身份、摘要、数量、时间以及 `approved=false`、`health_verified=false`，不含原始声明、端点或凭据。请求后再核对授权、登记版本/内容和绑定实例。上游失败或声明无效时记录脱敏失败审计并返回 502；发现不授予审核、启用或执行权。 |
+| GET | `/api/v1/mcp-servers/{id}/review-candidate` | 单环境、显式绑定与当前 `connectors.manage` 下读取最新未信任发现快照的工具名称、描述、只读提示、输入 schema 和各自摘要；已完成同版本人工审核时另返回决定与开关修订。初始一致性读取后，在新事务中重新核账号、会话、授权、应用/绑定、最新快照与审核状态，持锁至有界响应写完；失效/变更不披露候选。`trust=untrusted_observation`、`health_verified=false`、`execution_available=false`，没有 Agent 执行权。 |
+| POST | `/api/v1/mcp-servers/{id}/review-version` | `{ snapshot_id, registration_version, registration_hash, tools_hash, decisions: [{ name, tool_hash, decision: "allow_read_only" | "deny" }] }`；当前人类 `connectors.manage` 审核人须逐个决定最新版本的全部工具，不接受省略、重复或版本漂移。审核、逐工具默认关闭的决定与脱敏审计同事务；远端只读提示不是批准，允许的只读工具也不自动启用或进入 Agent 执行。 |
+| PATCH | `/api/v1/mcp-servers/{id}/reviewed-tools/{name}` | `{ snapshot_id, tools_hash, tool_hash, expected_revision, enabled }`；当前人类 `connectors.manage` 审核人仅能在匹配最新发现及完整审核时修改开关，拒绝开启 `deny` 工具。按修订并发控制并在变化时同事务审计；响应 `execution_available=false`，开关不授予 Agent 调用权。 |
 | GET | `/api/v1/changes/records` | 必填 `service_id`、`binding_id`，可选 `page`（1–1000）；从已显式绑定的同环境 GitLab 项目读取每页 20 条流水线记录。调用前后均复核服务和连接器权限，缺少来源返回未接入，上游错误返回 502。只证明流水线自身状态与时间，不推断部署、风险或告警关联。 |
-| GET | `/api/v1/alert-rules/observed` | 读取受权环境及应用内、与受信规则组绑定的 Prometheus 告警规则摘要。来源未配置/全部不可用时返回 503；部分环境失败返回 206，并列出 `unavailable_environments`。 |
-| GET | `/api/v1/alert-rules/observed/{id}` | 读取同一来源中的规则表达式、状态、标签和实际评估时间。没有可信的历史预览、阈值、通知路径或 AI 初查设置。 |
-| GET | `/api/v1/knowledge-sources/observed-documents` | 仅读取有明确环境归属、已发布且受权的文档身份。本接口不提供来源登记或同步状态，`partial` 为 true，未接入字段为 null；不返回正文。 |
+| GET | `/api/v1/changes/merge-requests` | 必填 `service_id`、`binding_id`；可选 `page`（1–1000）、`state`（`all`/`opened`/`closed`/`locked`/`merged`）、`target_branch`。在同一明确绑定的 GitLab 项目按页读取 20 条合并请求身份、分支、状态、提交标识和上游时间；须启用 `list_merge_requests`。请求和上游响应均有界，读取前后复核来源和授权；非法筛选 422，变更 409，来源不可用 503，上游失败或损坏 502。无差异、部署或风险判定。 |
+| GET | `/api/v1/changes/commits/{sha}` | 必填 `service_id`、`binding_id` 和完整 40/64 位十六进制 SHA；从同一绑定项目读取标题、作者/提交时间及父 SHA，须单独启用 `get_commit`，不调用差异接口。读取前后复核来源和授权；目标无效 422，缺失 404，变更 409，来源不可用 503，上游失败或损坏 502。无正文、差异、邮箱、部署或风险判定。 |
+| GET | `/api/v1/alert-rules/observed` | 读取受权环境及应用内、与受信规则组绑定的 Prometheus 告警规则摘要；应用级权限不足时可用当前负责团队的 `alert_rules.view`，上游读取后再核授权和负责人，范围变化不输出旧摘要。来源未配置/全部不可用时返回 503；部分环境失败返回 206，并列出 `unavailable_environments`。 |
+| GET | `/api/v1/alert-rules/observed/{id}` | 从同一当前授权应用或负责团队范围中读取稳定 ID 唯一的规则表达式、状态、标签和实际评估时间，上游读取后复核范围；可见重复 ID 返回 `503 alert_rule_identity_conflict`，不会任选一条。未知 ID 且范围内来源失败返回 `503 rule_source_partial`，完整来源无匹配返回 404。没有可信的历史预览、阈值、通知路径或 AI 初查设置。 |
+| GET | `/api/v1/knowledge-sources/observed-documents` | 仅读取有明确环境归属、已发布且当前受权的文档身份，并在输出前按文档 ID 复核当前标题、有效应用/环境映射及团队归属；历史归属不明、异常元数据和带 `source_registration_id` 的未验证来源文档不显示。来源登记另有接口；本响应不联接登记、同步或索引归属，`reason: "document_only_projection"`、`partial: true`，未接入字段为 null；不返回正文。 |
+| GET | `/api/v1/knowledge-sources/registered-evidence` | 当前环境与应用/团队授权内的来源登记及最近一次读取观察；仅当公开 Web Markdown 正文与最新观察、哈希和修订版本完全对应时给出 `keyword_content` 的单页持久正文证据。登记状态固定 `unverified`；连接、同步、总文档/分块数、索引状态和错误均为 null，`complete_v3_dto: false`、`partial: true`，不返回正文或凭据。最多返回 200 条，更多可见来源标记 `truncated`；扫描超过 10000 个候选返回 413。输出前以新的 SQL 语句快照重核选中来源、账号、授权、应用/团队及正文版本，变更返回 409 且不输出来源；最终语句取快照后到响应写出前的撤权窗口不在此保证内。存储或策略不可用返回 503。主 `/knowledge-sources` 仍为 Mock。 |
 | GET | `/api/v1/knowledge-sources/registrations` | 读取当前环境与授权范围内的来源登记配置，不返回 Vault 引用。连接、同步、文档数和索引状态仍未知；返回 `complete_v3_dto: false`。 |
-| POST | `/api/v1/knowledge-sources/registrations` | 在单一环境下登记来源及 Vault 引用，需要 `knowledge.manage`，审计与登记同事务。只返回 `unverified`，不启动同步。 |
-| POST | `/api/v1/knowledge-sources/test` | 当前仅校验参数和管理权限，缺少 Vault 来源连接器时返回 `501 source_connection_test_unavailable`，不会返回模拟成功。此路径在 166 项主契约内，状态仍为 `mock`。 |
+| POST | `/api/v1/knowledge-sources/registrations` | 在单一环境下登记来源，需要 `knowledge.manage`，审计与登记同事务。仅无凭据、单页、HTTPS Markdown Web 来源可省略 `secret_ref`，且要求空 `spaces`、手动计划与继承来源访问；其他类型仍需 Vault 引用。只返回 `unverified`，不启动同步。 |
+| POST | `/api/v1/knowledge-sources/registrations/{id}/sync` | 单环境、`knowledge.manage` 下通过明确配置的只读 Reader 观察已登记来源；须完整遍历、逐项验证 ACL 与归属，至多 500 项，成功只返回读取 ID、观察数、`index_state: "not_proven"` 和 `complete_v3_dto: false`。V3 显式开启公开 Web Reader 后，仅持久绑定有效应用、无凭据单页 HTTPS Markdown 能把同次 TLS 抓取的最多 128 KiB UTF-8 正文、哈希和观察身份原子保存到独立 V3 正文/修订表；内容变化才增加版本。环境级公开 Web 登记返回 `422 source_application_required`，未开启或其他未配置类型返回 `501 source_reader_unavailable`，带凭据的 Web 来源不能由该 Reader 读取。外部读取前与落库前均重核应用/环境/团队有效性；响应不证明向量索引或完整来源 DTO。 |
+| GET | `/api/v1/knowledge-sources/registrations/{id}/evidence` | 只读当前受权来源最近一次观察及可精确归属到该观察的 ready 文档/分块数量。无观察时 `last_read`、`index` 为 null；即使有归属记录，`index.complete` 仍为 false，不推断完整索引。 |
+| POST | `/api/v1/knowledge-sources/test` | 来源类型有明确配置的只读 Prober 时，成功仅表示当时服务端可读取，不持久化同步或证明应用/团队范围及索引。生产公开 Web Reader 只接受持久应用登记的同步，不实现无登记来源的 Prober；即使开关为 `true`，此路径仍返回 `501 source_connection_test_unavailable`，不会返回模拟成功。其他类型的登记仍需 Vault 引用。此路径在 166 项主契约内，状态仍为 `mock`。 |
+| POST | `/api/v1/runbooks/{id}/reviews` | 独立管理者按已提交版本选择 `approve` 或 `request_changes`，后者必须填写说明；拒绝自审和非法状态。审核、版本历史与审计持久化；批准后才在事务外尝试索引，响应单独报告语义检索就绪和是否需重试。 |
+| POST | `/api/v1/runbooks/{id}/reindex` | 单环境、对象级 `knowledge.manage` 下重试已发布 Runbook 的语义索引；请求审计先落库，索引在事务外执行。响应分别给出 `index_status`、`semantic_search_ready` 与 `index_retry_required`；Embedding 失败不撤销人工发布，关键词检索仍可用。 |
+| GET | `/api/v1/runbooks/{id}/record` | 读取持久化的结构化步骤及版本、维护者、应用/环境、来源类型；返回 `partial: true`，明确缺少用量、事件处置和执行核验。旧文档无结构化步骤时 503，不把全文猜成步骤。 |
+| GET | `/api/v1/runbooks/{id}/history` | 读取版本、审核与只读验证预览，各集合最多 100 条；审核说明只对维护者/管理者显示。`execution_verification_available: false`。超限返回 413，不截断冒充完整。 |
+| POST | `/api/v1/postmortems/{id}/publish` | 复盘创建者以外、持久身份为 `human` 的当前 `knowledge.manage` 成员在 `review` 状态发布；旧事故须保有原调查结案与报告，手工事件须保有创建时绑定的精确 resolved 状态事件和当前修订。来源变化返回 409，发布与审计同事务；无外部发布或 AI 生成。详见[手工事件与复盘生命周期](v3-incident-postmortem-lifecycle.md)。 |
+| GET | `/api/v1/memory/facts` | 仅列出当前受权、来源文档仍已发布且版本/正文归属匹配的事实，返回 `partial: true` 与缺失置信度、召回、过期及层级/策略字段；超过 500 个候选事实返回 413。此接口不替代完整 `MemoryView`。 |
 | GET | `/api/v1/uploads/{id}/content` | 下载本人上传的文件，或内联读取经重新验证格式的图片。可不传环境头；后端根据上传记录核对实例环境、当前 `conversation.view` 授权和所有者。普通文件以附件下载，响应禁缓存、禁 MIME 猜测；损坏图片拒绝返回。该辅助读取不改变 `POST /uploads` 的主契约状态。 |
 
-告警规则源由 `AIOPS_V3_ALERT_RULES_CONFIG` 指向私有 JSON，字段示例见 [v3-alert-rules.json](../examples/v3-alert-rules.json)。每个环境只可绑定一个 Prometheus 只读端点；还需把响应中的精确规则组 `file` + `name` 绑定到一个已登记的应用。标签中的 `environment` 和 `application` 只是交叉校验，不能单独决定归属。配置文件中的令牌文件路径为绝对路径，令牌值不写入配置、日志或仓库。未配置时辅助规则接口明确返回未接入，主页面接口仍保持 `mock`。
+变更证据三接口的 `service_id` 是 `base64url(application_id + NUL + environment_id)`；`binding_id` 必须指向该服务在所选环境中持久化的数字 GitLab 项目绑定。请求需要当前 `services.view` 和 `connectors.view`，连接器及相应只读工具均须启用。返回值仅是 GitLab 报告的源记录，不使主 `/changes` 页面变成已接通。
 
-来源登记由迁移 `045_v3_knowledge_source_registry.sql` 单独保存，保留现有文档与索引。知识来源主接口仍需实际连接、同步结果和索引状态；不能把单篇文档或仅登记的配置伪装成已连接来源。没有前端契约适配之前，不将辅助响应接到现有知识来源页。迁移尚未在 PostgreSQL 执行。
+TOTP 辅助接口由迁移 `122_v3_mfa_totp.sql` 保存密文种子与哈希恢复码；`AIOPS_V3_MFA_KEY_FILE` 必须指向服务器持久保管、绝对路径、权限 `0600` 的原始 32 字节密钥文件，未设置时六条路由不注册，设置错误时 V3 启动失败。账户操作在事务中复核当前会话、人类身份与单一环境授权；旧会话无可信签发时间，须重新登录才能登记或删除。密钥轮换需先设计重加密流程；验证仅是本次调用结果，不替代登录、完整 `/me`/`/security` 页面或人工批准所需的 passkey。
+
+Passkey 七条辅助路由须显式设置 `AIOPS_V3_PASSKEY_ENABLED=true`，使用实例受信 RP 域名和精确 HTTPS Origin；代理终止 TLS 时还需同一允许源与 Secure cookie，不信任请求中的转发协议头。当前主程序不启用包内的非生产 localhost HTTP 测试例外。本人会话、人类身份、单一环境授权在事务内复核；写请求需要同源浏览器信号，登记/删除需要近十分钟登录。挑战绑定账户、会话、实例、环境和 RP，五分钟到期，完成尝试即消费。迁移 `123_v3_passkey_foundation.sql` 保存公开凭据材料及计数/备份状态；账户断言不能作为提案的 `assurance=passkey`，提案摘要绑定、证明消费与批准仍未接通。
+
+指标样本辅助接口只读取迁移 `060_v3_prometheus_metric_targets.sql` 允许的显式 V3 Prometheus `metric_resource` 目标，不使用旧 CMDB 遥测绑定。部署方用 `AIOPS_V3_PROMETHEUS_QUERIES_CONFIG` 指向私有 JSON：`{"queries":[{"connector_id":"...","application_id":"...","environment_id":"...","resource_id":"...","query_id":"request_rate","expression":"..."}]}`。每个查询须由操作者审查表达式本身确实限定至该应用、环境与资源；目录键相等不能证明 PromQL 的数据范围。文件缺省时辅助接口返回 503，显式文件无效则 V3 启动失败。查询前后复核当前服务、授权和绑定；真实只读 Prometheus 返回异常、截断、多条序列或结果无从证明完整时明确报错，不把无样本等同健康。未连接真实生产 Prometheus，也未执行现有业务库迁移。
+
+`POST /metrics/ask` 复用该受审查来源的一条有限指标快照，交给持久对话与模型回复；其增量请求、重试、撤权和前端缺口见 [指标提问后端契约](v3-metrics-ask.md)。
+
+告警规则源由 `AIOPS_V3_ALERT_RULES_CONFIG` 指向私有 JSON，字段示例见 [v3-alert-rules.json](../examples/v3-alert-rules.json)。每个环境只可绑定一个 Prometheus 只读端点；还需把响应中的精确规则组 `file` + `name` 绑定到一个已登记的应用。标签中的 `environment` 和 `application` 只是交叉校验，不能单独决定归属。配置文件中的令牌文件路径为绝对路径，令牌值不写入配置、日志或仓库。未配置时规则读取明确返回未接入；主规则接口按受信来源齐备时的后端条件路径计入，真实 Prometheus 和页面仍未验收。独立 `dry_run` 隔离来源见[规则写入契约](v3-alert-rule-writes.md)。
+
+来源登记由迁移 `045_v3_knowledge_source_registry.sql` 单独保存，迁移 `119_v3_public_web_source.sql` 放宽公开 Web 的空凭据规则，独立正文/修订表由迁移 `119_z_v3_public_web_documents.sql` 建立；旧知识文档与索引不读取这些正文。`AIOPS_V3_PUBLIC_WEB_READER_ENABLED=true` 仅在 V3 实例中启用持久应用绑定、无凭据的公开单页 HTTPS Markdown 手动观察；严格使用系统 DNS 与信任根，不接收代理、私网地址或自定义凭据。同次抓取至多 128 KiB UTF-8 正文、哈希与观察身份原子保存，内容变化才增版。V3 关键词搜索只返回有界片段，要求最新观察、对应修订、哈希、应用/环境/团队当前授权一致，在候选与输出前复核；全部可见应用/环境合计超过 80 个数据库匹配来源明确返回 413，整次搜索限时 30 秒。尚无向量索引、Agent 工具和完整来源页 DTO，不能把单页导入视为完整索引或来源连接。新增迁移只在一次性隔离 PostgreSQL 中验证，尚未在现有业务库执行。
+
+Runbook/复盘治理新增迁移 `110`；来源观察证据为 `111`–`112`；来源锚定的记忆事实/冲突为 `113`–`114`。它们仅在一次性隔离 PostgreSQL 中执行过验证，尚未在现有业务库迁移。`GET /runbooks/draft`、`GET /postmortems/draft`、`GET /memory` 以及记忆状态/冲突操作虽有路由，均不满足当前整页 DTO 与交互契约；状态见 [V3 页面契约](v3-contract.md)。
+
+Agent 目录、评测记录、运行上报与护栏策略分别使用迁移 `115`–`118`。护栏事件可附带受信生产者在策略决策时获取的数据库时间与策略修订，晚到记录按该历史区间核对；当前没有实际执行器接入或完整护栏覆盖证据。Agent 的 20 条主路由均为部分治理/上报能力，不计作整页 `implemented`，具体缺失字段和固定不可用响应见 [V3 页面契约](v3-contract.md) 与机器 OpenAPI。
+
+MCP 发现快照由迁移 `070_v3_mcp_discovery_snapshots.sql` 保存，并以新绑定实例 ID 区分解绑后重绑。迁移在 `store.Migrate` 阶段执行；既有业务库尚未执行。快照不可更新或删除，当前没有历史保留期，后续审核与运维设计需要定义容量与留存策略。真实 MCP 服务尚未连接验证。

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -33,12 +34,18 @@ type Service struct {
 func New(db *pgxpool.Pool, access Access) *Service { return &Service{DB: db, Access: access} }
 
 func (s *Service) Register(api *httpapi.Server) {
+	api.Register("GET /api/v1/postmortems", "viewer", s.Summary)
+	api.MarkV3ObjectRoute("GET /api/v1/postmortems", "knowledge", "view")
 	api.Register("GET /api/v1/postmortems/candidates", "viewer", s.Candidates)
 	api.MarkV3ObjectRoute("GET /api/v1/postmortems/candidates", "knowledge", "view")
+	api.Register("GET /api/v1/postmortems/draft", "viewer", s.Draft)
+	api.MarkV3ObjectRoute("GET /api/v1/postmortems/draft", "knowledge", "view")
 	api.Register("GET /api/v1/postmortems/records", "viewer", s.Records)
 	api.MarkV3ObjectRoute("GET /api/v1/postmortems/records", "knowledge", "view")
 	api.Register("POST /api/v1/postmortems", "viewer", s.Create)
 	api.MarkV3ObjectRoute("POST /api/v1/postmortems", "knowledge", "manage")
+	api.Register("POST /api/v1/postmortems/{id}/publish", "viewer", s.Publish)
+	api.MarkV3ObjectRoute("POST /api/v1/postmortems/{id}/publish", "knowledge", "manage")
 }
 
 type Section struct {
@@ -54,18 +61,25 @@ type Action struct {
 }
 
 type CreateInput struct {
-	IncidentID string    `json:"incident_id"`
-	Sections   []Section `json:"sections"`
-	Actions    []Action  `json:"actions"`
-	Status     string    `json:"status"`
+	IncidentID          string    `json:"incident_id"`
+	SourceCloseEventSeq int64     `json:"source_close_event_seq"`
+	SourceRevision      string    `json:"source_revision"`
+	Sections            []Section `json:"sections"`
+	Actions             []Action  `json:"actions"`
+	Status              string    `json:"status"`
 }
 
 func bounded(v string, max int) bool {
 	return v != "" && strings.TrimSpace(v) == v && len([]rune(v)) <= max
 }
 
+var sourceRevisionPattern = regexp.MustCompile(`^(ops|case):[1-9][0-9]*$`)
+
 func validate(in CreateInput) bool {
-	if !bounded(in.IncidentID, 128) || (in.Status != "draft" && in.Status != "review") ||
+	if !bounded(in.IncidentID, 128) || in.SourceCloseEventSeq < 0 ||
+		len(in.SourceRevision) > 80 ||
+		(in.SourceRevision != "" && !sourceRevisionPattern.MatchString(in.SourceRevision)) ||
+		(in.Status != "draft" && in.Status != "review") ||
 		len(in.Sections) == 0 || len(in.Sections) > 40 || len(in.Actions) > 100 {
 		return false
 	}
@@ -141,12 +155,34 @@ func (s *Service) authorizeModuleTx(ctx context.Context, tx pgx.Tx, user core.Us
 }
 
 type Candidate struct {
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	Severity string `json:"severity"`
-	Resolved string `json:"resolved"`
-	Duration string `json:"duration"`
-	Evidence int    `json:"evidence"`
+	ID             string   `json:"id"`
+	Title          string   `json:"title"`
+	Severity       string   `json:"severity"`
+	Resolved       string   `json:"resolved"`
+	Duration       string   `json:"duration"`
+	Evidence       int      `json:"evidence"`
+	SourceRevision string   `json:"source_revision"`
+	UnknownFields  []string `json:"unknown_fields,omitempty"`
+}
+
+func (v Candidate) MarshalJSON() ([]byte, error) {
+	type candidateJSON struct {
+		ID             string   `json:"id"`
+		Title          string   `json:"title"`
+		Severity       string   `json:"severity"`
+		Resolved       string   `json:"resolved"`
+		Duration       any      `json:"duration"`
+		Evidence       any      `json:"evidence"`
+		SourceRevision string   `json:"source_revision"`
+		UnknownFields  []string `json:"unknown_fields,omitempty"`
+	}
+	out := candidateJSON{ID: v.ID, Title: v.Title, Severity: v.Severity, Resolved: v.Resolved,
+		Duration: v.Duration, Evidence: v.Evidence, SourceRevision: v.SourceRevision, UnknownFields: v.UnknownFields}
+	if len(v.UnknownFields) > 0 {
+		out.Duration = nil
+		out.Evidence = nil
+	}
+	return json.Marshal(out)
 }
 
 func severity(raw string) (string, bool) {
@@ -177,21 +213,14 @@ func duration(start, end time.Time) string {
 	return fmt.Sprintf("%dd %dh", int(d.Hours())/24, int(d.Hours())%24)
 }
 
-const candidatesSQL = `SELECT i.id,i.application_id,COALESCE(a.owner_team_id,''),e.key,i.title,i.severity,i.starts_at,closed.created_at,
- (SELECT count(*) FROM evidence ev JOIN branches b ON b.id=ev.branch_id WHERE b.investigation_id=i.investigation_id)::int
- FROM ops_incidents i
- JOIN applications a ON a.id=i.application_id AND NOT a.archived
- JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id AND NOT e.archived
- JOIN v3_application_environments ve ON ve.application_id=i.application_id AND ve.environment_id=e.key
- JOIN investigations inv ON inv.id=i.investigation_id AND inv.application_id=i.application_id AND inv.status='closed'
- JOIN investigation_reports report ON report.investigation_id=inv.id
- JOIN LATERAL (SELECT MIN(ev.created_at) AS created_at FROM events ev
-   WHERE ev.investigation_id=inv.id AND ev.type='investigation.closed' AND ev.created_at>=i.starts_at) closed
-   ON closed.created_at IS NOT NULL
- WHERE i.status='resolved' AND e.key=ANY($1::text[])
-   AND NOT EXISTS(SELECT 1 FROM v3_postmortems pm WHERE pm.incident_id=i.id)
-   AND ($2::timestamptz IS NULL OR (closed.created_at,i.id)<($2::timestamptz,$3::text))
- ORDER BY closed.created_at DESC,i.id DESC LIMIT 256`
+const candidatesSQL = postmortemSources + ` SELECT s.incident_id,s.source_kind,s.application_id,s.team_id,s.environment_id,
+ s.title,s.severity,s.started_at,s.resolved_at,s.close_event_seq,s.status_event_id,COALESCE(s.evidence_count,0)
+ FROM source s
+ WHERE s.status='resolved' AND s.eligible AND s.resolved_at IS NOT NULL
+   AND s.environment_id=ANY($1::text[])
+   AND NOT EXISTS(SELECT 1 FROM v3_postmortems pm WHERE pm.incident_id=s.incident_id)
+   AND ($2::timestamptz IS NULL OR (s.resolved_at,s.incident_id)<($2::timestamptz,$3::text))
+ ORDER BY s.resolved_at DESC,s.incident_id DESC LIMIT 256`
 
 func (s *Service) Candidates(w http.ResponseWriter, r *http.Request) {
 	scope, ok := s.ready(w, r)
@@ -199,9 +228,12 @@ func (s *Service) Candidates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type row struct {
-		candidate      Candidate
-		app, team, env string
-		start, closed  time.Time
+		candidate               Candidate
+		app, team, env          string
+		start                   *time.Time
+		closed                  time.Time
+		closeSeq, statusEventID *int64
+		kind                    string
 	}
 	items := make([]Candidate, 0)
 	user := httpapi.CurrentUser(r)
@@ -217,7 +249,7 @@ func (s *Service) Candidates(w http.ResponseWriter, r *http.Request) {
 		batch := make([]row, 0, 256)
 		for rows.Next() {
 			var v row
-			if err = rows.Scan(&v.candidate.ID, &v.app, &v.team, &v.env, &v.candidate.Title, &v.candidate.Severity, &v.start, &v.closed, &v.candidate.Evidence); err != nil {
+			if err = rows.Scan(&v.candidate.ID, &v.kind, &v.app, &v.team, &v.env, &v.candidate.Title, &v.candidate.Severity, &v.start, &v.closed, &v.closeSeq, &v.statusEventID, &v.candidate.Evidence); err != nil {
 				break
 			}
 			batch = append(batch, v)
@@ -245,7 +277,12 @@ func (s *Service) Candidates(w http.ResponseWriter, r *http.Request) {
 			}
 			v.candidate.Severity = parsed
 			v.candidate.Resolved = v.closed.UTC().Format(time.RFC3339)
-			v.candidate.Duration = duration(v.start, v.closed)
+			v.candidate.SourceRevision = sourceRevision(v.kind, v.closeSeq, v.statusEventID)
+			if v.start != nil {
+				v.candidate.Duration = duration(*v.start, v.closed)
+			} else {
+				v.candidate.UnknownFields = []string{"duration", "evidence"}
+			}
 			items = append(items, v.candidate)
 			if len(items) > 1000 {
 				httpapi.Error(w, 413, "scope_too_large", "Candidate collection exceeds the unpaged V3 response limit")
@@ -271,6 +308,7 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 	if !httpapi.Decode(w, r, &in) {
 		return
 	}
+
 	if !validate(in) {
 		httpapi.Error(w, 422, "invalid_postmortem", "Incident, sections, actions or status is invalid")
 		return
@@ -281,15 +319,16 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	var app, team, env, investigation, incidentStatus string
-	var started time.Time
-	err = tx.QueryRow(r.Context(), `SELECT i.application_id,COALESCE(a.owner_team_id,''),e.key,i.investigation_id,i.status,i.starts_at
- FROM ops_incidents i
- JOIN applications a ON a.id=i.application_id AND NOT a.archived
- JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id AND NOT e.archived
- JOIN v3_application_environments ve ON ve.application_id=i.application_id AND ve.environment_id=e.key
- WHERE i.id=$1 FOR UPDATE OF i`, in.IncidentID).Scan(&app, &team, &env, &investigation, &incidentStatus, &started)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && !inScope(scope, env) {
+	// Hold the current session and effective role sources through the write.
+	if err = postmortemReadSession(r.Context(), tx, r); err == nil {
+		err = lockPostmortemReadGrants(r.Context(), tx, httpapi.CurrentUser(r).ID)
+	}
+	if err != nil {
+		postmortemReadError(w, err)
+		return
+	}
+	source, err := lockSource(r.Context(), tx, in.IncidentID)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && !inScope(scope, source.env) {
 		httpapi.Error(w, 404, "not_found", "Incident not found")
 		return
 	}
@@ -298,7 +337,11 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := httpapi.CurrentUser(r)
-	if err = s.authorizeTx(r.Context(), tx, user, app, team, env, "manage"); err != nil {
+	if err = postmortemReadSession(r.Context(), tx, r); err != nil {
+		postmortemReadError(w, err)
+		return
+	}
+	if err = s.authorizeTx(r.Context(), tx, user, source.app, source.team, source.env, "manage"); err != nil {
 		if errors.Is(err, store.ErrForbidden) {
 			httpapi.Error(w, 403, "forbidden", "Postmortem permission required")
 		} else {
@@ -306,31 +349,37 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if incidentStatus != "resolved" || investigation == "" {
-		httpapi.Error(w, 409, "incident_not_resolved", "Incident has no verified resolution")
+	if source.kind == "ops" && in.SourceCloseEventSeq <= 0 && in.SourceRevision == "" {
+		httpapi.Error(w, 422, "source_close_event_seq_required", "Re-preview the incident and submit its source_close_event_seq")
 		return
 	}
-	var closedSeq int64
-	err = tx.QueryRow(r.Context(), `SELECT ev.seq FROM investigations inv
- JOIN investigation_reports report ON report.investigation_id=inv.id
- JOIN events ev ON ev.investigation_id=inv.id AND ev.type='investigation.closed' AND ev.created_at>=$3
- WHERE inv.id=$1 AND inv.application_id=$2 AND inv.status='closed'
- ORDER BY ev.created_at,ev.seq LIMIT 1`, investigation, app, started).Scan(&closedSeq)
-	if errors.Is(err, pgx.ErrNoRows) {
-		httpapi.Error(w, 409, "incident_not_resolved", "Incident has no verified closing event")
+	if source.kind == "case" && in.SourceRevision == "" {
+		httpapi.Error(w, 422, "source_revision_required", "Re-preview the incident and submit its source_revision")
 		return
 	}
-	if err != nil {
-		httpapi.Error(w, 503, "postmortems_unavailable", "Closing evidence unavailable")
+	if source.kind == "case" && in.SourceCloseEventSeq != 0 {
+		httpapi.Error(w, 422, "invalid_postmortem", "A manual incident uses source_revision, not source_close_event_seq")
+		return
+	}
+	if !source.eligible || source.kind == "case" && in.SourceRevision != source.revision() ||
+		source.kind == "ops" && (in.SourceCloseEventSeq > 0 && (source.closeSeq == nil || in.SourceCloseEventSeq != *source.closeSeq) ||
+			in.SourceRevision != "" && in.SourceRevision != source.revision()) {
+		postmortemSourceChanged(w)
 		return
 	}
 	sections, _ := json.Marshal(in.Sections)
 	actions, _ := json.Marshal(in.Actions)
 	id := store.ID()
+	investigationID := ""
+	if source.kind == "ops" {
+		investigationID = source.investigation
+	}
 	_, err = tx.Exec(r.Context(), `INSERT INTO v3_postmortems
- (id,incident_id,investigation_id,application_id,environment_id,close_event_seq,sections,actions,status,created_by)
- VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,$10)`,
-		id, in.IncidentID, investigation, app, env, closedSeq, sections, actions, in.Status, user.ID)
+ (id,incident_id,investigation_id,application_id,environment_id,close_event_seq,
+  source_kind,source_case_status_event_id,sections,actions,status,created_by)
+ VALUES($1,$2,NULLIF($3,''),$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12)`,
+		id, in.IncidentID, investigationID, source.app, source.env, source.closeSeq,
+		source.kind, source.statusEventID, sections, actions, in.Status, user.ID)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -341,10 +390,16 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err = tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,actor_kind,application_id,action,target,outcome,changes)
- VALUES($1,'user',$2,'postmortem.created',$3,'succeeded',jsonb_build_object('incident_id',$4::text,'environment_id',$5::text,'status',$6::text,'close_event_seq',$7::bigint))`,
-		user.ID, app, id, in.IncidentID, env, in.Status, closedSeq)
+ VALUES($1,'user',$2,'postmortem.created',$3,'succeeded',jsonb_build_object(
+ 'incident_id',$4::text,'environment_id',$5::text,'status',$6::text,
+ 'source_kind',$7::text,'source_revision',$8::text))`,
+		user.ID, source.app, id, in.IncidentID, source.env, in.Status, source.kind, source.revision())
 	if err != nil {
 		httpapi.Error(w, 503, "postmortems_unavailable", "Could not audit postmortem")
+		return
+	}
+	if err = postmortemReadSession(r.Context(), tx, r); err != nil {
+		postmortemReadError(w, err)
 		return
 	}
 	if err = tx.Commit(r.Context()); err != nil {
@@ -352,4 +407,8 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpapi.WriteJSON(w, 201, map[string]string{"id": id})
+}
+
+func postmortemSourceChanged(w http.ResponseWriter) {
+	httpapi.Error(w, 409, "postmortem_source_changed", "Incident lifecycle source changed; re-preview before saving")
 }

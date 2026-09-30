@@ -11,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/aiextensions"
 	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 var mcpIdentifier = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,100}$`)
@@ -54,28 +53,38 @@ func (s *Service) changeBinding(w http.ResponseWriter, r *http.Request, bind boo
 	defer tx.Rollback(r.Context())
 	var v registration
 	v.EnvironmentID = envs[0]
-	err = tx.QueryRow(r.Context(), `SELECT e.id,e.application_id,a.name,e.record
+	sourceErr := tx.QueryRow(r.Context(), `SELECT e.id,e.application_id,a.name,COALESCE(a.owner_team_id,''),e.version,e.record
  FROM ai_extensions e
  JOIN applications a ON a.id=e.application_id AND NOT a.archived
  JOIN v3_application_environments ae ON ae.application_id=a.id AND ae.environment_id=$2
  JOIN application_environments app_env ON app_env.application_id=a.id
   AND app_env.key=$2 AND NOT app_env.archived
  WHERE e.id=$1 AND e.kind='mcp'
- FOR UPDATE OF e,a,ae,app_env`, id, v.EnvironmentID).Scan(&v.ID, &v.ApplicationID, &v.Application, &v.raw)
-	if errors.Is(err, pgx.ErrNoRows) {
-		httpapi.Error(w, http.StatusNotFound, "not_found", "MCP registration not found in this environment")
-		return
+ FOR UPDATE OF e,a,ae,app_env`, id, v.EnvironmentID).Scan(&v.ID, &v.ApplicationID, &v.Application, &v.OwnerTeamID, &v.Version, &v.raw)
+	// Use the same source -> account -> session -> grant lock order as review
+	// and discovery. Even a missing source is reported only after the caller's
+	// current session and role sources have been checked.
+	actorID := httpapi.CurrentUser(r).ID
+	if err = lockReviewerAccount(r.Context(), tx, actorID); err == nil {
+		err = lockReviewerWriteSession(r, tx, actorID)
+	}
+	if err == nil {
+		err = lockReviewerRoleGrantSources(r.Context(), tx, actorID)
 	}
 	if err != nil {
+		writeDiscoveryAuthorizationError(w, err, true)
+		return
+	}
+	if errors.Is(sourceErr, pgx.ErrNoRows) {
+		httpapi.Error(w, http.StatusNotFound, "not_found", "MCP server not found")
+		return
+	}
+	if sourceErr != nil {
 		httpapi.Error(w, http.StatusServiceUnavailable, "mcp_unavailable", "MCP registration is unavailable")
 		return
 	}
-	if err = s.allowed(r, v, "manage"); err != nil {
-		if errors.Is(err, store.ErrForbidden) {
-			httpapi.Error(w, http.StatusForbidden, "forbidden", "Insufficient connector permission")
-		} else {
-			httpapi.Error(w, http.StatusServiceUnavailable, "authorization_unavailable", "MCP authorization is unavailable")
-		}
+	if err = s.allowedTx(r, tx, v, "manage"); err != nil {
+		writeDiscoveryAuthorizationError(w, err, true)
 		return
 	}
 	if bind {
@@ -120,12 +129,16 @@ func (s *Service) changeBinding(w http.ResponseWriter, r *http.Request, bind boo
 		}
 		_, err = tx.Exec(r.Context(), `INSERT INTO management_audit
  (actor_id,application_id,action,target,outcome,changes)
- VALUES($1,$2,$3,$4,'success',jsonb_build_object('environment_id',$5))`,
+ VALUES($1,$2,$3,$4,'success',jsonb_build_object('environment_id',$5::text))`,
 			httpapi.CurrentUser(r).ID, v.ApplicationID, action, v.ID, v.EnvironmentID)
 		if err != nil {
 			httpapi.Error(w, http.StatusServiceUnavailable, "audit_unavailable", "MCP binding audit is unavailable")
 			return
 		}
+	}
+	if err = lockReviewerWriteSession(r, tx, actorID); err != nil {
+		writeDiscoveryAuthorizationError(w, err, true)
+		return
 	}
 	if err = tx.Commit(r.Context()); err != nil {
 		httpapi.Error(w, http.StatusServiceUnavailable, "mcp_unavailable", "MCP binding could not be committed")

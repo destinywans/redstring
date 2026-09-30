@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -66,7 +67,7 @@ type createRequest struct {
 type patchRequest struct {
 	Tools []struct {
 		Name    string `json:"name"`
-		Enabled bool   `json:"enabled"`
+		Enabled *bool  `json:"enabled"`
 	} `json:"tools"`
 }
 
@@ -92,11 +93,12 @@ func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/connector-types/{type}", "viewer", s.connectorType)
 	api.Register("GET /api/v1/connectors", "admin", s.list)
 	api.Register("GET /api/v1/connectors/{id}", "admin", s.detail)
+	api.Register("GET /api/v1/connectors/{id}/tool-settings", "admin", s.toolSettings)
 	api.Register("POST /api/v1/connectors", "admin", s.create)
 	api.Register("POST /api/v1/connectors/{id}/activate", "admin", s.activate)
 	api.Register("PATCH /api/v1/connectors/{id}", "admin", s.patch)
 	api.Register("POST /api/v1/connectors/{id}/test", "admin", s.test)
-	for _, pattern := range []string{"GET /api/v1/connector-types/{type}", "GET /api/v1/connectors", "GET /api/v1/connectors/{id}"} {
+	for _, pattern := range []string{"GET /api/v1/connector-types/{type}", "GET /api/v1/connectors", "GET /api/v1/connectors/{id}", "GET /api/v1/connectors/{id}/tool-settings"} {
 		api.MarkV3Route(pattern, "connectors", "view")
 	}
 	for _, pattern := range []string{"POST /api/v1/connectors", "POST /api/v1/connectors/{id}/activate", "PATCH /api/v1/connectors/{id}", "POST /api/v1/connectors/{id}/test"} {
@@ -105,24 +107,22 @@ func (s *Service) Register(api *httpapi.Server) {
 }
 
 func (s *Service) connectorType(w http.ResponseWriter, r *http.Request) {
+	lang := r.Header.Get("Accept-Language")
 	d, ok := descriptors[r.PathValue("type")]
 	if !ok {
-		httpapi.Error(w, 404, "not_found", "Connector type is not available")
+		httpapi.Error(w, 404, "not_found", localized(lang, "连接器类型不可用", "Connector type is not available"))
 		return
 	}
-	lang := r.Header.Get("Accept-Language")
 	auth := make([]map[string]string, 0, len(d.Methods))
 	for _, method := range d.Methods {
 		label, desc := authMethodCopy(method, lang)
 		auth = append(auth, map[string]string{"id": method, "label": label, "desc": desc})
 	}
-	tools := make([]map[string]string, 0, len(d.Tools))
-	for _, name := range d.Tools {
-		tools = append(tools, map[string]string{"name": name, "desc": toolCopy(name, lang)})
-	}
 	// This is a provider type, not a connected instance: its version and token
 	// scopes cannot be verified here. Webhook provisioning is unsupported.
-	httpapi.WriteJSON(w, 200, map[string]any{"brand": d.Provider, "name": d.Name, "kind": kindCopy(d.Kind, lang), "version": "", "auth_methods": auth, "scopes": []any{}, "tools": tools, "webhook_url": ""})
+	// Descriptor tools are accepted registration preferences, not Agent tools.
+	// No connector-backed Agent execution is wired, so do not advertise them.
+	httpapi.WriteJSON(w, 200, map[string]any{"brand": d.Provider, "name": d.Name, "kind": kindCopy(d.Kind, lang), "version": "", "auth_methods": auth, "scopes": []any{}, "tools": []any{}, "webhook_url": ""})
 }
 
 func scanConnector(rows pgx.Row) (connector, error) {
@@ -163,6 +163,58 @@ func (s *Service) authorizeWriteTx(w http.ResponseWriter, r *http.Request, tx pg
 		return false
 	}
 	return true
+}
+
+// Pin the permission sources until this transaction commits. The V3 route
+// check and a plain policy read alone cannot protect a write from a concurrent
+// role, grant, account or session revoke.
+func (s *Service) authorizeLockedWriteTx(w http.ResponseWriter, r *http.Request, tx pgx.Tx, environment string) bool {
+	if err := lockConnectorAuthority(r.Context(), tx, r, environment); err != nil {
+		if errors.Is(err, store.ErrForbidden) {
+			httpapi.Error(w, 403, "forbidden", "Connector management permission required")
+		} else {
+			httpapi.Error(w, 503, "authorization_unavailable", "Connector authorization unavailable")
+		}
+		return false
+	}
+	return s.authorizeWriteTx(w, r, tx, environment)
+}
+
+func (s *Service) credentialBound(c connector, reference string) bool {
+	if c.AuthMethod == "none" {
+		return true
+	}
+	if s.Prober.Resolver == nil || reference == "" {
+		return false
+	}
+	// Production supplies a BoundResolver. Other resolvers are limited to
+	// isolated adapter tests; an unbound production registration is projected
+	// as disabled and cannot reach Vault or its upstream endpoint.
+	if policy, ok := s.Prober.Resolver.(interface {
+		CredentialAllowed(CredentialUse, string) bool
+	}); ok {
+		return policy.CredentialAllowed(CredentialUse{
+			Tier: s.Tier, EnvironmentID: c.EnvironmentID, ConnectorID: c.ID,
+			Provider: c.Provider, Endpoint: c.Endpoint,
+		}, reference)
+	}
+	return true
+}
+
+func (s *Service) effectiveConnector(c connector) connector {
+	if !s.credentialBound(c, c.CredentialRef) {
+		c.Enabled = false
+		c.Status = "unverified"
+	}
+	return c
+}
+
+func (s *Service) connectorSummary(c connector, lang string, now time.Time) map[string]any {
+	result := observedSummary(s.effectiveConnector(c), lang, now)
+	if c.AuthMethod != "none" && c.CredentialRef != "" && !s.credentialBound(c, c.CredentialRef) {
+		result["meta"] = localized(lang, "未启用 · 服务端凭据绑定未配置", "Disabled · server credential binding not configured")
+	}
+	return result
 }
 
 func (s *Service) list(w http.ResponseWriter, r *http.Request) {
@@ -206,13 +258,39 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 	policy := &rbac.V3Policy{Store: &store.Store{DB: s.DB}}
 	user := httpapi.CurrentUser(r)
+	s.listInTx(w, r, tx, env, category, query, false, func(ctx context.Context, tx pgx.Tx, c connector) error {
+		return policy.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{
+			Module: "connectors", Action: "view", EnvironmentID: c.EnvironmentID,
+		})
+	}, nil)
+}
+
+// listInTx projects the existing connector-list contract after its caller has
+// established an authorization boundary on this same transaction. Neither
+// the HTTP authentication mode nor its credential enters the response.
+func (s *Service) listInTx(w http.ResponseWriter, r *http.Request, tx pgx.Tx, env []string,
+	category, query string, singleSnapshot bool, authorize func(context.Context, pgx.Tx, connector) error,
+	finalize func(context.Context, pgx.Tx) error) {
 	items := make([]map[string]any, 0)
 	counts := map[string]int{"ok": 0, "unverified": 0, "error": 0}
 	categoryCounts := map[string]int{"all": 0}
 	now := time.Now()
 	lastName, lastID := "", ""
 	for {
-		rows, err := tx.Query(r.Context(), "SELECT "+columns+" FROM v3_connectors WHERE environment_id = ANY($1::text[]) AND (name,id)>($2,$3) ORDER BY name,id LIMIT 201", env, lastName, lastID)
+		statement := "SELECT " + columns + " FROM v3_connectors WHERE environment_id = ANY($1::text[]) AND (name,id)>($2,$3) ORDER BY name,id LIMIT 201"
+		if singleSnapshot {
+			// The Bearer path uses READ COMMITTED for revocation safety. One
+			// statement snapshot prevents a concurrent connector update from
+			// changing the collection or counts between pages.
+			statement = "SELECT " + columns + " FROM v3_connectors WHERE environment_id = ANY($1::text[]) ORDER BY name,id LIMIT 1001"
+		}
+		var rows pgx.Rows
+		var err error
+		if singleSnapshot {
+			rows, err = tx.Query(r.Context(), statement, env)
+		} else {
+			rows, err = tx.Query(r.Context(), statement, env, lastName, lastID)
+		}
 		if err != nil {
 			httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 			return
@@ -238,9 +316,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 			// A connector registration belongs to exactly one environment. It
 			// carries no application/team owner; those scopes apply separately to
 			// its explicit target bindings, never to the registration itself.
-			err := policy.AuthorizeWithTx(r.Context(), tx, user, rbac.V3Decision{
-				Module: "connectors", Action: "view", EnvironmentID: c.EnvironmentID,
-			})
+			err := authorize(r.Context(), tx, c)
 			if errors.Is(err, store.ErrForbidden) {
 				continue
 			}
@@ -256,7 +332,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 				httpapi.Error(w, 413, "scope_too_large", "Connector collection exceeds the unpaged V3 response limit")
 				return
 			}
-			projected := observedSummary(c, r.Header.Get("Accept-Language"), now)
+			projected := s.connectorSummary(c, r.Header.Get("Accept-Language"), now)
 			counts[projected["status"].(string)]++
 			categoryCounts["all"]++
 			categoryCounts[c.Category]++
@@ -268,7 +344,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 			}
 			items = append(items, projected)
 		}
-		if len(batch) < 201 {
+		if singleSnapshot || len(batch) < 201 {
 			break
 		}
 		lastName, lastID = batch[len(batch)-1].Name, batch[len(batch)-1].ID
@@ -276,6 +352,12 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	cats := make([]map[string]any, 0, len(categories))
 	for _, id := range categories {
 		cats = append(cats, map[string]any{"id": id, "label": categoryLabel(id, r.Header.Get("Accept-Language")), "count": categoryCounts[id]})
+	}
+	if finalize != nil {
+		if err := finalize(r.Context(), tx); err != nil {
+			bearerListError(w, err)
+			return
+		}
 	}
 	if err := tx.Commit(r.Context()); err != nil {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
@@ -297,6 +379,18 @@ func validConnectorProjection(c connector) bool {
 // status is never a claim that the upstream remains healthy between tests.
 // Call only after validConnectorProjection, which checks Checked before use.
 func observedSummary(c connector, lang string, now time.Time) map[string]any {
+	if c.AuthMethod != "none" && c.CredentialRef == "" {
+		// A stored successful probe cannot be current when the selected
+		// authentication method has no credential reference to resolve.
+		c.Status = "unverified"
+		result := summary(c, lang)
+		if c.Enabled {
+			result["meta"] = localized(lang, "凭据未配置", "Credentials not configured")
+		} else {
+			result["meta"] = localized(lang, "未启用 · 凭据未配置", "Disabled · credentials not configured")
+		}
+		return result
+	}
 	if !c.Enabled {
 		c.Status = "unverified"
 		result := summary(c, lang)
@@ -322,12 +416,9 @@ func observedSummary(c connector, lang string, now time.Time) map[string]any {
 }
 
 func summary(c connector, lang string) map[string]any {
-	tags := make([]map[string]string, 0)
-	for _, t := range c.Tools {
-		if c.Enabled && t.Enabled {
-			tags = append(tags, map[string]string{"label": t.Name, "tone": "accent"})
-		}
-	}
+	// Persisted tool choices are registration preferences. They are not
+	// connector-backed Agent grants and must not appear as capability badges.
+	tags := []map[string]string{}
 	meta := localized(lang, "尚未检查连接", "Connection not tested")
 	if c.Status == "ok" && c.Checked != nil {
 		meta = localized(lang, "已检查 ", "Checked ") + c.Checked.UTC().Format(time.RFC3339)
@@ -349,6 +440,20 @@ func displayTools(items []tool, lang string) []tool {
 		tools = append(tools, item)
 	}
 	return tools
+}
+
+func validRegisteredTools(c connector, d descriptor) bool {
+	if c.Tools == nil {
+		return false
+	}
+	seen := make(map[string]bool, len(c.Tools))
+	for _, item := range c.Tools {
+		if seen[item.Name] || !knownTool(d, item.Name) {
+			return false
+		}
+		seen[item.Name] = true
+	}
+	return true
 }
 
 var errConnectorServiceLimit = errors.New("connector service result limit exceeded")
@@ -452,7 +557,7 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lang := r.Header.Get("Accept-Language")
-	result := observedSummary(c, lang, time.Now())
+	result := s.connectorSummary(c, lang, time.Now())
 	checked := localized(lang, "尚未检查", "Never checked")
 	if c.Checked != nil {
 		checked = c.Checked.UTC().Format(time.RFC3339)
@@ -461,17 +566,58 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 	result["address"] = c.Endpoint
 	if c.AuthMethod == "none" {
 		result["auth"] = map[string]string{"text": localized(lang, "无需认证", "No authentication")}
+	} else if c.CredentialRef == "" {
+		label, _ := authMethodCopy(c.AuthMethod, lang)
+		result["auth"] = map[string]string{"text": label + localized(lang, " · 凭据未配置", " · credentials not configured")}
+	} else if !s.credentialBound(c, c.CredentialRef) {
+		label, _ := authMethodCopy(c.AuthMethod, lang)
+		result["auth"] = map[string]string{"text": label + localized(lang, " · 服务端绑定未配置", " · server binding not configured")}
 	} else {
 		label, _ := authMethodCopy(c.AuthMethod, lang)
-		result["auth"] = map[string]string{"brand": "vault", "text": label + localized(lang, " · Vault 引用", " · Vault reference")}
+		result["auth"] = map[string]string{"brand": "vault", "text": label + localized(lang, " · Vault 引用已登记", " · Vault reference registered")}
 	}
 	result["checked"] = checked
 	result["services"] = services
 	// Query IDs are not yet bound to a V3 connector instance. Tool settings
 	// only describe desired configuration and do not grant execution.
 	result["queries"] = []string{}
-	result["tools"] = displayTools(c.Tools, lang)
+	// Connector-backed Agent execution is not wired. Keep registration
+	// preferences in storage, but expose no executable tools in this DTO.
+	result["tools"] = []tool{}
 	httpapi.WriteJSON(w, 200, result)
+}
+
+// toolSettings reads the stored connector tool switches separately from the
+// Agent-facing detail DTO. Some scoped source readers consult these switches;
+// they do not grant connector-backed Agent execution.
+func (s *Service) toolSettings(w http.ResponseWriter, r *http.Request) {
+	env, ok := s.scope(w, r, false)
+	if !ok {
+		return
+	}
+	if s.DB == nil {
+		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
+		return
+	}
+	c, err := s.lookup(r.Context(), r.PathValue("id"), env)
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpapi.Error(w, 404, "not_found", "Connector not found")
+		return
+	}
+	if err != nil {
+		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
+		return
+	}
+	d, known := descriptors[c.Provider]
+	if !known || !validRegisteredTools(c, d) {
+		httpapi.Error(w, 503, "connector_state_unavailable", "Connector tool settings are inconsistent with the current catalog")
+		return
+	}
+	httpapi.WriteJSON(w, 200, map[string]any{
+		"connector_id": c.ID, "environment_id": c.EnvironmentID, "connector_enabled": s.effectiveConnector(c).Enabled,
+		"registered_tools":          displayTools(c.Tools, r.Header.Get("Accept-Language")),
+		"agent_execution_available": false,
+	})
 }
 
 func (s *Service) create(w http.ResponseWriter, r *http.Request) {
@@ -511,7 +657,12 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 	// A connector with an explicit environment scope and complete credentials
 	// can retain the existing read-only registration behavior for providers
 	// that do not require project enrollment.
-	enabled := d.Provider != "gitlab" && !in.Webhook && (in.Auth == "none" || in.CredentialRef != "")
+	// A Vault reference supplied by the caller is not an authorization to
+	// read it. Credentialed registrations stay disabled until their generated
+	// ID is bound to an exact server-managed credential policy and activation
+	// performs a bounded check. Unauthenticated read-only sources can start
+	// without that separate approval.
+	enabled := d.Provider != "gitlab" && !in.Webhook && in.Auth == "none"
 	seen := map[string]bool{}
 	tools := make([]tool, 0, len(in.Tools))
 	for _, name := range in.Tools {
@@ -524,13 +675,19 @@ func (s *Service) create(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, _ := json.Marshal(tools)
 	id := store.ID()
-	tx, err := s.DB.Begin(r.Context())
+	writeCtx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	r = r.WithContext(writeCtx)
+	tx, err := s.DB.Begin(writeCtx)
 	if err != nil {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 		return
 	}
-	defer tx.Rollback(r.Context())
+	defer rollbackConnectorWrite(tx)
 	if !s.authorizeWriteTx(w, r, tx, env[0]) {
+		return
+	}
+	if !s.authorizeLockedWriteTx(w, r, tx, env[0]) {
 		return
 	}
 	_, err = tx.Exec(r.Context(), `INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,credential_ref,webhook_requested,enabled,tools) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, id, env[0], d.Provider, d.Name, d.Category, strings.TrimRight(strings.TrimSpace(in.URL), "/"), in.Auth, in.CredentialRef, in.Webhook, enabled, raw)
@@ -571,12 +728,17 @@ func (s *Service) patch(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "invalid_tools", "Choose at least one tool to update")
 		return
 	}
-	tx, err := s.DB.Begin(r.Context())
+	// Bound the row and authorization lock waits while this write transaction
+	// holds the connector. A canceled request must not leave its row locked.
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	r = r.WithContext(ctx)
+	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 		return
 	}
-	defer tx.Rollback(r.Context())
+	defer rollbackConnectorWrite(tx)
 	if !s.authorizeWriteTx(w, r, tx, env[0]) {
 		return
 	}
@@ -589,30 +751,34 @@ func (s *Service) patch(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 		return
 	}
+	if !s.authorizeLockedWriteTx(w, r, tx, env[0]) {
+		return
+	}
 	d, known := descriptors[c.Provider]
 	if !known {
 		httpapi.Error(w, 422, "invalid_connector", "Connector type is not supported")
 		return
 	}
+	if !validRegisteredTools(c, d) {
+		httpapi.Error(w, 409, "tool_catalog_changed", "Stored connector tools do not match the current catalog")
+		return
+	}
 	seen := map[string]bool{}
 	requested := make(map[string]bool, len(in.Tools))
 	for _, item := range in.Tools {
-		if seen[item.Name] || !knownTool(d, item.Name) {
+		if item.Enabled == nil || seen[item.Name] || !knownTool(d, item.Name) {
 			httpapi.Error(w, 422, "invalid_tools", "Choose distinct supported read-only tools")
 			return
 		}
 		seen[item.Name] = true
-		if item.Enabled && !c.Enabled {
+		if *item.Enabled && (!c.Enabled || !s.credentialBound(c, c.CredentialRef)) {
 			httpapi.Error(w, 409, "connector_disabled", "Complete connector credentials and scope before enabling tools")
 			return
 		}
-		requested[item.Name] = item.Enabled
+		requested[item.Name] = *item.Enabled
 	}
 	updated := make([]tool, 0, len(c.Tools)+len(requested))
 	for _, item := range c.Tools {
-		if !knownTool(d, item.Name) {
-			continue
-		}
 		if enabled, ok := requested[item.Name]; ok {
 			item.Enabled = enabled
 			delete(requested, item.Name)
@@ -676,7 +842,15 @@ func (s *Service) test(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 409, "connector_disabled", "Complete connector credentials and scope before testing")
 		return
 	}
-	result, err := s.Prober.Check(r.Context(), c.Provider, c.Endpoint, c.AuthMethod, c.CredentialRef)
+	if !s.credentialBound(c, c.CredentialRef) {
+		httpapi.Error(w, 503, "credential_not_authorized", "Connector credential has no server-side binding")
+		return
+	}
+	probeCtx := WithCredentialUse(r.Context(), CredentialUse{
+		Tier: s.Tier, EnvironmentID: c.EnvironmentID, ConnectorID: c.ID,
+		Provider: c.Provider, Endpoint: c.Endpoint,
+	})
+	result, err := s.Prober.Check(probeCtx, c.Provider, c.Endpoint, c.AuthMethod, c.CredentialRef)
 	if errors.Is(err, ErrCredentialUnavailable) {
 		httpapi.Error(w, 503, "credential_unavailable", "Vault credential is unavailable")
 		return
@@ -689,12 +863,37 @@ func (s *Service) test(w http.ResponseWriter, r *http.Request) {
 	if result.OK {
 		status = "ok"
 	}
-	tx, err := s.DB.Begin(r.Context())
+	writeCtx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	r = r.WithContext(writeCtx)
+	tx, err := s.DB.Begin(writeCtx)
 	if err != nil {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 		return
 	}
-	defer tx.Rollback(r.Context())
+	defer rollbackConnectorWrite(tx)
+	current, err := scanConnector(tx.QueryRow(r.Context(), "SELECT "+columns+" FROM v3_connectors WHERE id=$1 AND environment_id=$2 FOR UPDATE", c.ID, c.EnvironmentID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpapi.Error(w, 409, "connector_changed", "Connector scope changed during connection check")
+		return
+	}
+	if err != nil {
+		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
+		return
+	}
+	if !s.authorizeWriteTx(w, r, tx, c.EnvironmentID) {
+		return
+	}
+	if !s.authorizeLockedWriteTx(w, r, tx, c.EnvironmentID) {
+		return
+	}
+	if !current.Enabled || current.Provider != c.Provider || current.Name != c.Name ||
+		current.Category != c.Category || current.Endpoint != c.Endpoint ||
+		current.AuthMethod != c.AuthMethod || current.CredentialRef != c.CredentialRef ||
+		current.Webhook != c.Webhook || !reflect.DeepEqual(current.Tools, c.Tools) {
+		httpapi.Error(w, 409, "connector_changed", "Connector configuration changed during connection check")
+		return
+	}
 	_, err = tx.Exec(r.Context(), "UPDATE v3_connectors SET status=$1,last_checked_at=now(),last_latency_ms=$2,last_error_code=$3,updated_at=now() WHERE id=$4 AND environment_id=$5", status, result.LatencyMS, result.ErrorCode, c.ID, c.EnvironmentID)
 	if err != nil {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")

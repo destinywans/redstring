@@ -7,21 +7,31 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
+	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
 type Service struct {
 	Store   *store.Store
 	Runtime inference.Runner
+	// MeEvidence supplies current, verifiable identity and on-call state.
+	MeEvidence MeEvidence
+	// ProfileEvidence supplies exact current contact, MFA and session-device
+	// evidence for the frozen ProfileView. ProfileInstanceID is the relying
+	// party boundary that the authority must echo in every snapshot.
+	ProfileEvidence   ProfileEvidenceSource
+	ProfileInstanceID string
 	// ToolModels is the operator-enabled V3 read-tool allowlist. Legacy model
 	// capabilities remain on Runtime and are not changed by this catalog.
 	ToolModels map[string]bool
@@ -62,7 +72,7 @@ type workspace struct {
 
 var slugPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{1,62}$`)
 var errInvalid = errors.New("invalid V3 settings")
-var errIdentityUnavailable = errors.New("verified MFA and on-call status are unavailable")
+var errIdentityUnavailable = errors.New("verified profile and security evidence are unavailable")
 var errModelCatalogUnavailable = errors.New("model protocol cannot be represented by the V3 catalog")
 
 func validTimezone(s string) bool { _, e := time.LoadLocation(s); return s != "" && e == nil }
@@ -76,7 +86,7 @@ func respond(w http.ResponseWriter, v any, err error) {
 		return
 	}
 	if errors.Is(err, errIdentityUnavailable) {
-		httpapi.Error(w, http.StatusServiceUnavailable, "identity_evidence_unavailable", "MFA and on-call status are not connected")
+		httpapi.Error(w, http.StatusServiceUnavailable, "identity_evidence_unavailable", "Profile and security evidence are not connected")
 		return
 	}
 	if errors.Is(err, errModelCatalogUnavailable) {
@@ -176,46 +186,165 @@ func decodePreferencesPatch(w http.ResponseWriter, r *http.Request) (preferences
 
 func mustJSON(v any) []byte { b, _ := json.Marshal(v); return b }
 
-func (s *Service) getWorkspace(ctx context.Context) (workspace, error) {
-	v := workspace{}
-	err := s.Store.DB.QueryRow(ctx, `SELECT name,v3_slug,timezone,language,v3_week_start,v3_retention_days,v3_data_region,v3_brand_name,v3_brand_logo,v3_brand_pending FROM workspace_settings WHERE id='default'`).Scan(&v.Name, &v.Slug, &v.Timezone, &v.Locale, &v.WeekStart, &v.RetentionDays, &v.DataRegion, &v.Brand.Name, &v.Brand.Logo, &v.Brand.Pending)
+type workspaceReader interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func readWorkspace(ctx context.Context, q workspaceReader) (workspace, error) {
+	v, _, err := readWorkspaceRevision(ctx, q)
 	return v, err
 }
 
-func (s *Service) putWorkspace(ctx context.Context, id string, w workspace) (workspace, error) {
-	if strings.TrimSpace(w.Name) == "" || utf8.RuneCountInString(w.Name) > 120 || !slugPattern.MatchString(w.Slug) || !validTimezone(w.Timezone) ||
-		(w.Locale != "zh-CN" && w.Locale != "en-US") || (w.WeekStart != "monday" && w.WeekStart != "sunday") || w.RetentionDays < 1 || w.RetentionDays > 3650 {
-		return workspace{}, errInvalid
+func readWorkspaceRevision(ctx context.Context, q workspaceReader) (workspace, int64, error) {
+	v := workspace{}
+	var revision int64
+	err := q.QueryRow(ctx, `SELECT name,v3_slug,timezone,language,v3_week_start,v3_retention_days,v3_data_region,v3_brand_name,v3_brand_logo,v3_brand_pending,revision FROM workspace_settings WHERE id='default'`).Scan(&v.Name, &v.Slug, &v.Timezone, &v.Locale, &v.WeekStart, &v.RetentionDays, &v.DataRegion, &v.Brand.Name, &v.Brand.Logo, &v.Brand.Pending, &revision)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return workspace{}, 0, errWorkspaceUnavailable
+	}
+	if err != nil {
+		return workspace{}, 0, err
+	}
+	if revision < 1 || !validStoredWorkspace(v) {
+		return workspace{}, 0, errWorkspaceUnavailable
+	}
+	return v, revision, nil
+}
+
+func (s *Service) getWorkspace(ctx context.Context) (workspace, error) {
+	return readWorkspace(ctx, s.Store.DB)
+}
+
+func (s *Service) getAuthorizedWorkspace(ctx context.Context, user core.User, scope httpapi.V3EnvironmentScope) (workspace, int64, error) {
+	if user.ID == "" || len(scope.EnvironmentIDs) == 0 {
+		return workspace{}, 0, store.ErrForbidden
 	}
 	tx, err := s.Store.DB.Begin(ctx)
 	if err != nil {
-		return workspace{}, err
+		return workspace{}, 0, err
 	}
 	defer tx.Rollback(ctx)
+	// Account and role writers take these locks exclusively before changing
+	// authority. Shared read locks keep concurrent reads independent while a
+	// queued revocation must complete before this read checks permissions.
+	for _, key := range []int64{752018992, 752018995, 752018998} {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock_shared($1)`, key); err != nil {
+			return workspace{}, 0, err
+		}
+	}
+	var activeID string
+	if err := tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 AND NOT disabled AND deleted_at IS NULL AND source<>'settings_demo' FOR SHARE`, user.ID).Scan(&activeID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return workspace{}, 0, store.ErrForbidden
+		}
+		return workspace{}, 0, err
+	}
+	policy := &rbac.V3Policy{Store: s.Store}
+	allowed := false
+	for _, environmentID := range scope.EnvironmentIDs {
+		err := policy.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{Module: "workspace", Action: "view", EnvironmentID: environmentID})
+		if err == nil {
+			allowed = true
+			break
+		}
+		if !errors.Is(err, store.ErrForbidden) {
+			return workspace{}, 0, err
+		}
+	}
+	if !allowed {
+		return workspace{}, 0, store.ErrForbidden
+	}
+	v, revision, err := readWorkspaceRevision(ctx, tx)
+	if err != nil {
+		return workspace{}, 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return workspace{}, 0, err
+	}
+	return v, revision, nil
+}
+
+func (s *Service) putWorkspace(ctx context.Context, user core.User, environmentID string, expectedRevision int64, w workspace) (workspace, int64, error) {
+	if expectedRevision < 1 || !validEditableWorkspace(w) {
+		return workspace{}, 0, errInvalid
+	}
+	tx, err := s.Store.DB.Begin(ctx)
+	if err != nil {
+		return workspace{}, 0, err
+	}
+	defer tx.Rollback(ctx)
+	// Account, department, legacy role association, and V3 matrix writers use
+	// these locks. Take them in the existing account-writer order before reading
+	// authority, then retain them through the workspace update and audit.
+	for _, key := range []int64{752018992, 752018995, 752018998} {
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, key); err != nil {
+			return workspace{}, 0, err
+		}
+	}
+	var activeID string
+	if err = tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 AND NOT disabled AND deleted_at IS NULL AND source<>'settings_demo' FOR SHARE`, user.ID).Scan(&activeID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return workspace{}, 0, store.ErrForbidden
+		}
+		return workspace{}, 0, err
+	}
+	// Workspace settings apply to the whole instance. A scoped environment
+	// grant can pass the route gate, but must not mutate instance-wide state.
+	// The contract's administrator is the effective platform administrator,
+	// not any member delegated one V3 manage cell.
+	if err = (&rbac.V3Policy{Store: s.Store}).AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{Module: "workspace", Action: "manage", EnvironmentID: environmentID}); err != nil {
+		return workspace{}, 0, err
+	}
+	var globalManage bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_effective_role_grants g
+ JOIN rbac_platform_administrators a ON a.user_id=g.user_id
+ WHERE g.user_id=$1 AND g.module='workspace' AND g.action='manage' AND g.scope_kind='global' AND g.scope_id='*')`, user.ID).Scan(&globalManage); err != nil {
+		return workspace{}, 0, err
+	}
+	if !globalManage {
+		return workspace{}, 0, store.ErrForbidden
+	}
 	// Read the immutable deployment fields under the same row lock as the
 	// update. A concurrent branding/deployment change must not be overwritten
 	// or validated against an earlier snapshot.
 	current := workspace{}
-	err = tx.QueryRow(ctx, `SELECT v3_data_region,v3_brand_name,v3_brand_logo,v3_brand_pending FROM workspace_settings WHERE id='default' FOR UPDATE`).Scan(&current.DataRegion, &current.Brand.Name, &current.Brand.Logo, &current.Brand.Pending)
-	if err != nil {
-		return workspace{}, err
+	var revision int64
+	err = tx.QueryRow(ctx, `SELECT name,v3_slug,timezone,language,v3_week_start,v3_retention_days,v3_data_region,v3_brand_name,v3_brand_logo,v3_brand_pending,revision FROM workspace_settings WHERE id='default' FOR UPDATE`).Scan(&current.Name, &current.Slug, &current.Timezone, &current.Locale, &current.WeekStart, &current.RetentionDays, &current.DataRegion, &current.Brand.Name, &current.Brand.Logo, &current.Brand.Pending, &revision)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return workspace{}, 0, errWorkspaceUnavailable
 	}
-	// Data residency and branding assets are deployment choices, not editable text.
+	if err != nil {
+		return workspace{}, 0, err
+	}
+	if revision < 1 || !validStoredWorkspace(current) {
+		return workspace{}, 0, errWorkspaceUnavailable
+	}
+	if revision != expectedRevision {
+		return workspace{}, 0, errWorkspaceRevisionConflict
+	}
+	// Region is a saved deployment declaration, not observed physical residency.
+	// Branding assets are also deployment-owned rather than editable form text.
 	if w.DataRegion != current.DataRegion || w.Brand.Name != current.Brand.Name || !equalStringPointers(w.Brand.Logo, current.Brand.Logo) || w.Brand.Pending != current.Brand.Pending {
-		return workspace{}, errInvalid
+		return workspace{}, 0, errInvalid
 	}
-	_, err = tx.Exec(ctx, `UPDATE workspace_settings SET name=$1,v3_slug=$2,timezone=$3,language=$4,v3_week_start=$5,v3_retention_days=$6,revision=revision+1,updated_at=now() WHERE id='default'`, w.Name, w.Slug, w.Timezone, w.Locale, w.WeekStart, w.RetentionDays)
+	var saved workspace
+	var savedRevision int64
+	err = tx.QueryRow(ctx, `UPDATE workspace_settings SET name=$1,v3_slug=$2,timezone=$3,language=$4,v3_week_start=$5,v3_retention_days=$6,revision=revision+1,updated_at=now() WHERE id='default'
+ RETURNING name,v3_slug,timezone,language,v3_week_start,v3_retention_days,v3_data_region,v3_brand_name,v3_brand_logo,v3_brand_pending,revision`, w.Name, w.Slug, w.Timezone, w.Locale, w.WeekStart, w.RetentionDays).Scan(&saved.Name, &saved.Slug, &saved.Timezone, &saved.Locale, &saved.WeekStart, &saved.RetentionDays, &saved.DataRegion, &saved.Brand.Name, &saved.Brand.Logo, &saved.Brand.Pending, &savedRevision)
 	if err != nil {
-		return workspace{}, err
+		return workspace{}, 0, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes) VALUES($1,'v3.workspace.updated','default','success',$2)`, id, mustJSON(map[string]any{"name": w.Name, "slug": w.Slug, "timezone": w.Timezone, "locale": w.Locale, "week_start": w.WeekStart, "retention_days": w.RetentionDays}))
+	if savedRevision != revision+1 || !validStoredWorkspace(saved) {
+		return workspace{}, 0, errWorkspaceUnavailable
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes) VALUES($1,'v3.workspace.updated','default','success',$2)`, user.ID, mustJSON(map[string]any{"revision_before": revision, "revision_after": savedRevision, "name": saved.Name, "slug": saved.Slug, "timezone": saved.Timezone, "locale": saved.Locale, "week_start": saved.WeekStart, "retention_days": saved.RetentionDays}))
 	if err != nil {
-		return workspace{}, err
+		return workspace{}, 0, err
 	}
 	if err = tx.Commit(ctx); err != nil {
-		return workspace{}, err
+		return workspace{}, 0, err
 	}
-	return s.getWorkspace(ctx)
+	return saved, savedRevision, nil
 }
 
 func equalStringPointers(a, b *string) bool {
@@ -225,19 +354,27 @@ func equalStringPointers(a, b *string) bool {
 	return *a == *b
 }
 
+func workspaceETag(revision int64) string { return fmt.Sprintf(`"%d"`, revision) }
+
+func parseWorkspaceIfMatch(value string) (int64, bool) {
+	value = strings.TrimSpace(value)
+	if len(value) < 3 || value[0] != '"' || value[len(value)-1] != '"' {
+		return 0, false
+	}
+	revision, err := strconv.ParseInt(value[1:len(value)-1], 10, 64)
+	return revision, err == nil && revision > 0 && value == workspaceETag(revision)
+}
+
 // Register installs the account routes that have durable semantics. Callers
 // register /instance separately because it is public bootstrap configuration.
 func (s *Service) Register(api *httpapi.Server) {
 	s.registerProfile(api)
 	s.registerAI(api)
-	// The current identity store has no MFA enrollment or live on-call source.
-	// Both are required by Me, so these routes fail explicitly until their
-	// sources are integrated. PATCH must not commit a partial update first.
 	api.Register("GET /api/v1/me", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		respond(w, nil, errIdentityUnavailable)
+		s.getMeHTTP(w, r)
 	})
 	api.Register("PATCH /api/v1/me", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		respond(w, nil, errIdentityUnavailable)
+		s.patchMeHTTP(w, r)
 	})
 	api.Register("PATCH /api/v1/me/preferences", "viewer", func(w http.ResponseWriter, r *http.Request) {
 		p, ok := decodePreferencesPatch(w, r)
@@ -247,13 +384,60 @@ func (s *Service) Register(api *httpapi.Server) {
 		v, e := s.savePrefs(r.Context(), httpapi.CurrentUser(r).ID, p)
 		respond(w, v, e)
 	})
-	api.Register("GET /api/v1/workspace", "viewer", func(w http.ResponseWriter, r *http.Request) { v, e := s.getWorkspace(r.Context()); respond(w, v, e) })
-	api.Register("PUT /api/v1/workspace", "admin", func(w http.ResponseWriter, r *http.Request) {
-		var v workspace
-		if !httpapi.Decode(w, r, &v) {
+	api.Register("GET /api/v1/workspace", "viewer", func(w http.ResponseWriter, r *http.Request) {
+		scope, ok := httpapi.V3ScopeFromContext(r.Context())
+		if !ok {
+			httpapi.Error(w, http.StatusServiceUnavailable, "environment_unavailable", localize(r, "工作区读取需要已授权环境", "Workspace read requires an authorized environment"))
 			return
 		}
-		updated, e := s.putWorkspace(r.Context(), httpapi.CurrentUser(r).ID, v)
-		respond(w, updated, e)
+		v, revision, e := s.getAuthorizedWorkspace(r.Context(), httpapi.CurrentUser(r), scope)
+		if e == nil {
+			w.Header().Set("ETag", workspaceETag(revision))
+			w.Header().Set("Cache-Control", "private, no-store")
+		}
+		respondWorkspace(w, r, v, e)
 	})
+	api.Register("PUT /api/v1/workspace", "admin", func(w http.ResponseWriter, r *http.Request) {
+		if len(r.Header.Values("If-Match")) == 0 || strings.TrimSpace(r.Header.Get("If-Match")) == "" {
+			httpapi.Error(w, http.StatusPreconditionRequired, "workspace_precondition_required", localize(r, "保存前需要读取当前工作区版本", "Read the current workspace version before saving"))
+			return
+		}
+		if len(r.Header.Values("If-Match")) != 1 {
+			httpapi.Error(w, http.StatusBadRequest, "invalid_precondition", localize(r, "只接受一个工作区版本标签", "Exactly one workspace revision tag is required"))
+			return
+		}
+		expectedRevision, ok := parseWorkspaceIfMatch(r.Header.Get("If-Match"))
+		if !ok {
+			httpapi.Error(w, http.StatusBadRequest, "invalid_precondition", localize(r, "If-Match 必须是工作区版本标签", "If-Match must be a workspace revision tag"))
+			return
+		}
+		v, ok := decodeWorkspace(w, r)
+		if !ok {
+			return
+		}
+		scope, ok := httpapi.V3ScopeFromContext(r.Context())
+		if !ok || scope.All || len(scope.EnvironmentIDs) != 1 {
+			httpapi.Error(w, http.StatusServiceUnavailable, "environment_unavailable", localize(r, "工作区更新需要一个已授权环境", "Workspace write requires one authorized environment"))
+			return
+		}
+		updated, revision, e := s.putWorkspace(r.Context(), httpapi.CurrentUser(r), scope.EnvironmentIDs[0], expectedRevision, v)
+		if e == nil {
+			w.Header().Set("ETag", workspaceETag(revision))
+			w.Header().Set("Cache-Control", "private, no-store")
+		}
+		respondWorkspace(w, r, updated, e)
+	})
+	for _, pattern := range []string{
+		"GET /api/v1/me", "PATCH /api/v1/me", "PATCH /api/v1/me/preferences",
+		"GET /api/v1/me/profile", "PUT /api/v1/me/profile", "DELETE /api/v1/me/sessions/{id}",
+		"GET /api/v1/me/ai-preferences", "PUT /api/v1/me/ai-preferences",
+		"GET /api/v1/me/notification-settings", "PUT /api/v1/me/notification-settings",
+	} {
+		api.MarkV3Route(pattern, "", "")
+	}
+	// httpapi owns the /models handler and delegates to ModelsHandler. Only its
+	// V3 policy mark belongs here; registering the route again would collide.
+	api.MarkV3Route("GET /api/v1/models", "models", "view")
+	api.MarkV3Route("GET /api/v1/workspace", "workspace", "view")
+	api.MarkV3Route("PUT /api/v1/workspace", "workspace", "manage")
 }

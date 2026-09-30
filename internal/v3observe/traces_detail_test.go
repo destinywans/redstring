@@ -19,6 +19,9 @@ func TestTraceDetailPayloadUsesOnlyObservedScopedSpanData(t *testing.T) {
 	if payload["duration_ms"].(float64) != 100 || payload["op"] != "request" || payload["time"] != start.Format(time.RFC3339Nano) {
 		t.Fatalf("wrong observed trace envelope: %+v", payload)
 	}
+	if payload["partial"] != true {
+		t.Fatalf("scoped Span view must state it is partial: %+v", payload)
+	}
 	items := payload["spans"].([]map[string]any)
 	if len(items) != 2 || items[0]["id"] != "root" || items[1]["depth"] != 1 || items[1]["status"] != "error" {
 		t.Fatalf("wrong scoped span tree: %+v", items)

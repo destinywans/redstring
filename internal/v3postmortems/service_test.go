@@ -3,6 +3,7 @@ package v3postmortems
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,17 +15,21 @@ import (
 	"github.com/wans/aiops-canvas/internal/actions"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/knowledge"
 	"github.com/wans/aiops-canvas/internal/operations"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3knowledge"
 )
 
 func TestValidateCreateInput(t *testing.T) {
-	base := CreateInput{IncidentID: "INC-1", Sections: []Section{{Key: "cause", Title: "Cause", Text: "Observed facts"}}, Actions: []Action{}, Status: "draft"}
+	base := CreateInput{IncidentID: "INC-1", SourceCloseEventSeq: 1, Sections: []Section{{Key: "cause", Title: "Cause", Text: "Observed facts"}}, Actions: []Action{}, Status: "draft"}
 	if !validate(base) {
 		t.Fatal("valid draft rejected")
 	}
 	for _, change := range []func(*CreateInput){
+		func(v *CreateInput) { v.SourceCloseEventSeq = -1 },
+		func(v *CreateInput) { v.SourceRevision = "invalid" },
 		func(v *CreateInput) { v.Status = "published" },
 		func(v *CreateInput) { v.IncidentID = "" },
 		func(v *CreateInput) { v.Sections = nil },
@@ -62,6 +67,10 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := adminDB.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public; CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public"); err != nil {
+		adminDB.Close()
+		t.Fatal(err)
+	}
 	schema := "v3_postmortem_http_" + store.ID()
 	quoted := pgx.Identifier{schema}.Sanitize()
 	if _, err := adminDB.Exec(ctx, "CREATE SCHEMA "+quoted); err != nil {
@@ -89,6 +98,10 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 	}
 	st := &store.Store{DB: db}
 	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	know := knowledge.New(db, nil)
+	if err := know.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if err := operations.New(db, st, nil, nil, operations.Config{}).Migrate(ctx); err != nil {
@@ -154,7 +167,11 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
 	New(db, policy).Register(api)
-	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev", "test"}}, policy, st.Session, nil); err != nil {
+	(&v3knowledge.Service{DB: db, Knowledge: know, Policy: policy}).Register(api)
+	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev", "test"}}, policy, st.Session,
+		func(ctx context.Context, u core.User, module, action, environment string) error {
+			return policy.Authorize(ctx, u, rbac.V3Decision{Module: module, Action: action, EnvironmentID: environment})
+		}); err != nil {
 		t.Fatal(err)
 	}
 	call := func(method, path, env, token, body string) *httptest.ResponseRecorder {
@@ -222,12 +239,33 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 	if teamCandidates.Code != 200 || !strings.Contains(teamCandidates.Body.String(), `"id":"ready"`) || strings.Contains(teamCandidates.Body.String(), `"id":"hidden-`) {
 		t.Fatalf("team scope: %d %s", teamCandidates.Code, teamCandidates.Body.String())
 	}
-	input := `{"incident_id":"ready","sections":[{"key":"cause","title":"Root cause","text":"Observed"}],"actions":[{"text":"Fix","owner":"SRE","due":"2026-10-01"}],"status":"review"}`
+	draft := call("GET", "/api/v1/postmortems/draft?incident=ready", "dev", teamToken, "")
+	if draft.Code != 200 || !strings.Contains(draft.Body.String(), `"draft_mode":"evidence_only"`) ||
+		!strings.Contains(draft.Body.String(), `"text":"investigation.closed"`) ||
+		!strings.Contains(draft.Body.String(), `"key":"root"`) ||
+		strings.Contains(draft.Body.String(), "connection_pool.max") {
+		t.Fatalf("draft invented incident details or missed evidence: %d %s", draft.Code, draft.Body.String())
+	}
+	var draftSource struct {
+		SourceCloseEventSeq int64 `json:"source_close_event_seq"`
+	}
+	if err := json.Unmarshal(draft.Body.Bytes(), &draftSource); err != nil || draftSource.SourceCloseEventSeq <= 0 {
+		t.Fatalf("draft missing closing source: %s err=%v", draft.Body.String(), err)
+	}
+	assertError(call("GET", "/api/v1/postmortems/draft?incident=hidden-1", "dev", viewerToken, ""), 404, "not_found")
+	assertError(call("GET", "/api/v1/postmortems/draft?incident=open", "dev", teamToken, ""), 404, "not_found")
+	input := fmt.Sprintf(`{"incident_id":"ready","source_close_event_seq":%d,"sections":[{"key":"cause","title":"Root cause","text":"Observed"}],"actions":[{"text":"Fix","owner":"SRE","due":"2026-10-01"}],"status":"review"}`, draftSource.SourceCloseEventSeq)
+	assertError(call("POST", "/api/v1/postmortems", "dev", adminToken,
+		strings.Replace(input, fmt.Sprintf(`"source_close_event_seq":%d,`, draftSource.SourceCloseEventSeq), "", 1)),
+		422, "source_close_event_seq_required")
+	assertError(call("POST", "/api/v1/postmortems", "dev", adminToken,
+		strings.Replace(input, fmt.Sprintf(`"source_close_event_seq":%d`, draftSource.SourceCloseEventSeq), `"source_close_event_seq":999999`, 1)),
+		409, "postmortem_source_changed")
 	assertError(call("POST", "/api/v1/postmortems", "all", adminToken, input), 409, "env_view_only")
 	assertError(call("POST", "/api/v1/postmortems", "dev", viewerToken, input), 403, "forbidden")
 	assertError(call("POST", "/api/v1/postmortems", "dev", teamToken, strings.Replace(input, `"ready"`, `"hidden-1"`, 1)), 403, "forbidden")
 	assertError(call("POST", "/api/v1/postmortems", "dev", adminToken, strings.Replace(input, `"review"`, `"published"`, 1)), 422, "invalid_postmortem")
-	assertError(call("POST", "/api/v1/postmortems", "dev", adminToken, strings.Replace(input, `"ready"`, `"missing"`, 1)), 409, "incident_not_resolved")
+	assertError(call("POST", "/api/v1/postmortems", "dev", adminToken, strings.Replace(input, `"ready"`, `"missing"`, 1)), 409, "postmortem_source_changed")
 	assertError(call("POST", "/api/v1/postmortems", "dev", adminToken, strings.Replace(input, `"ready"`, `"other"`, 1)), 404, "not_found")
 	created := call("POST", "/api/v1/postmortems", "dev", teamToken, input)
 	if created.Code != 201 {
@@ -293,7 +331,11 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	visible := call("GET", "/api/v1/postmortems/records", "all", viewerToken, "")
+	viewerRecords := call("GET", "/api/v1/postmortems/records", "all", viewerToken, "")
+	if viewerRecords.Code != 200 || !strings.Contains(viewerRecords.Body.String(), `"items":[]`) {
+		t.Fatalf("unpublished review leaked to ordinary viewer: %d %s", viewerRecords.Code, viewerRecords.Body.String())
+	}
+	visible := call("GET", "/api/v1/postmortems/records", "all", teamToken, "")
 	var visibleResult struct {
 		Items []Record `json:"items"`
 	}
@@ -302,4 +344,45 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 		t.Fatalf("visible records: %d %+v err=%v", visible.Code, visibleResult.Items, err)
 	}
 	assertError(call("GET", "/api/v1/postmortems/records", "dev", adminToken, ""), 413, "scope_too_large")
+	postmortemRunbook := `{"title":"Evidence based response","source":"postmortem","from":"ready","steps":[{"n":1,"kind":"check","title":"Inspect evidence","readonly":true}],"status":"draft"}`
+	assertError(call("POST", "/api/v1/runbooks", "dev", adminToken, postmortemRunbook), 422, "invalid_source")
+	assertError(call("POST", "/api/v1/postmortems/"+made.ID+"/publish", "dev", teamToken, ""), 403, "self_review_forbidden")
+	if _, err := db.Exec(ctx, `UPDATE investigations SET status='active' WHERE id='closed-inv'`); err != nil {
+		t.Fatal(err)
+	}
+	assertError(call("POST", "/api/v1/postmortems/"+made.ID+"/publish", "dev", adminToken, ""), 409, "invalid_state")
+	if _, err := db.Exec(ctx, `UPDATE investigations SET status='closed' WHERE id='closed-inv'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM investigation_reports WHERE investigation_id='closed-inv'`); err != nil {
+		t.Fatal(err)
+	}
+	assertError(call("POST", "/api/v1/postmortems/"+made.ID+"/publish", "dev", adminToken, ""), 409, "invalid_state")
+	if _, err := db.Exec(ctx, `INSERT INTO investigation_reports(investigation_id,execution_id,report)
+ VALUES('closed-inv','execution','{}')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, `SELECT status FROM v3_postmortems WHERE id=$1`, made.ID).Scan(&status); err != nil || status != "review" {
+		t.Fatalf("stale evidence advanced postmortem: status=%q err=%v", status, err)
+	}
+	published := call("POST", "/api/v1/postmortems/"+made.ID+"/publish", "dev", adminToken, "")
+	if published.Code != 200 || !strings.Contains(published.Body.String(), `"status":"published"`) {
+		t.Fatalf("publish: %d %s", published.Code, published.Body.String())
+	}
+	assertError(call("POST", "/api/v1/postmortems/"+made.ID+"/publish", "dev", adminToken, ""), 409, "invalid_state")
+	runbook := call("POST", "/api/v1/runbooks", "dev", adminToken, postmortemRunbook)
+	if runbook.Code != 201 {
+		t.Fatalf("published postmortem source rejected: %d %s", runbook.Code, runbook.Body.String())
+	}
+	var runbookID struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(runbook.Body.Bytes(), &runbookID); err != nil || runbookID.ID == "" {
+		t.Fatalf("runbook id: %s (%v)", runbook.Body.String(), err)
+	}
+	var runbookApp, runbookEnv string
+	if err := db.QueryRow(ctx, `SELECT COALESCE(application_id,''),metadata->'environment_ids'->>0 FROM knowledge_documents WHERE id=$1`, runbookID.ID).
+		Scan(&runbookApp, &runbookEnv); err != nil || runbookApp != "app" || runbookEnv != "dev" {
+		t.Fatalf("postmortem-derived runbook scope app=%q env=%q err=%v", runbookApp, runbookEnv, err)
+	}
 }

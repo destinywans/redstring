@@ -50,7 +50,7 @@ func TestUploadRegisteredHTTPPersistsOnlyAuthorizedEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -163,6 +163,19 @@ func TestUploadRegisteredHTTPPersistsOnlyAuthorizedEnvironment(t *testing.T) {
 	if file.URL != "/api/v1/uploads/"+file.ID+"/content" {
 		t.Fatalf("file content URL=%q", file.URL)
 	}
+	for _, tc := range []struct {
+		name, content, mime string
+	}{
+		{"app.conf", "enabled=true", "text/plain"},
+		{"app.toml", "version=1", "text/plain"},
+		{"manual.pdf", "%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n", "application/pdf"},
+	} {
+		body, mediaType := multipartBody("file", tc.name, []byte(tc.content))
+		got := assertUpload(t, request(body, mediaType, "dev", token), "file", tc.name, tc.mime, int64(len(tc.content)))
+		if got.URL != "/api/v1/uploads/"+got.ID+"/content" {
+			t.Fatalf("file %s content URL=%q", tc.name, got.URL)
+		}
+	}
 	png, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8a8AAAAASUVORK5CYII=")
 	if err != nil {
 		t.Fatal(err)
@@ -173,10 +186,10 @@ func TestUploadRegisteredHTTPPersistsOnlyAuthorizedEnvironment(t *testing.T) {
 		t.Fatalf("image content URL=%q", image.URL)
 	}
 	var count, audits int
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_uploads WHERE owner_id=$1 AND environment_id='dev'`, user.ID).Scan(&count); err != nil || count != 4 {
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_uploads WHERE owner_id=$1 AND environment_id='dev'`, user.ID).Scan(&count); err != nil || count != 7 {
 		t.Fatalf("persisted uploads=%d err=%v", count, err)
 	}
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE actor_id=$1 AND action='v3.upload.created' AND outcome='success'`, user.ID).Scan(&audits); err != nil || audits != 4 {
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE actor_id=$1 AND action='v3.upload.created' AND outcome='success'`, user.ID).Scan(&audits); err != nil || audits != 7 {
 		t.Fatalf("upload audit=%d err=%v", audits, err)
 	}
 	var content []byte

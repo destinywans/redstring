@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
@@ -26,6 +28,37 @@ type Alert struct {
 }
 type AlertEnvelope struct {
 	Alerts []Alert `json:"alerts"`
+}
+
+var (
+	ErrInvalidAlertLabels  = errors.New("invalid alert labels")
+	ErrAlertLabelsConflict = errors.New("alert occurrence labels or scope conflict")
+)
+
+// MarshalAlertLabels validates the entire inbound set before persistence. No
+// label is silently dropped or shortened: a caller can safely compare this
+// payload against the JSONB value of an existing occurrence.
+func MarshalAlertLabels(labels map[string]string) ([]byte, error) {
+	if len(labels) == 0 || len(labels) > 64 {
+		return nil, ErrInvalidAlertLabels
+	}
+	for name, value := range labels {
+		if name == "" || len(name) > 256 || len(value) > 4096 || !utf8.ValidString(name) || !utf8.ValidString(value) {
+			return nil, ErrInvalidAlertLabels
+		}
+		for _, part := range []string{name, value} {
+			for _, r := range part {
+				if unicode.IsControl(r) || r == utf8.RuneError {
+					return nil, ErrInvalidAlertLabels
+				}
+			}
+		}
+	}
+	payload, err := json.Marshal(labels)
+	if err != nil || len(payload) > 16<<10 {
+		return nil, ErrInvalidAlertLabels
+	}
+	return payload, nil
 }
 
 const incidentColumns = "id,source_id,application_id,environment_id,fingerprint,title,severity,status,alert_status,suspected,assignee_id,investigation_id,summary,starts_at,ends_at,updated_at"
@@ -100,11 +133,19 @@ func (s *Service) webhook(w http.ResponseWriter, r *http.Request) {
 			httpapi.Error(w, 422, "invalid_alert", "Fingerprint, start time and valid status are required")
 			return
 		}
+		if _, e := MarshalAlertLabels(a.Labels); e != nil {
+			httpapi.Error(w, 422, "invalid_alert_labels", "Alert labels exceed limits or contain invalid text")
+			return
+		}
 	}
 	// Each alert is independently idempotent, so retrying a partially accepted
 	// envelope is safe after a database failure.
 	for _, a := range input.Alerts {
 		if e = s.Ingest(r.Context(), *source, a); e != nil {
+			if errors.Is(e, ErrAlertLabelsConflict) {
+				httpapi.Error(w, 409, "alert_identity_conflict", "Alert occurrence identity conflicts with stored labels or scope")
+				return
+			}
 			httpapi.Error(w, 503, "unavailable", "Alert persistence failed; retry the envelope")
 			return
 		}
@@ -136,6 +177,10 @@ func (s *Service) mapping(ctx context.Context, source Source, labels map[string]
 	return app, m.EnvironmentID
 }
 func (s *Service) Ingest(ctx context.Context, source Source, a Alert) error {
+	labels, e := MarshalAlertLabels(a.Labels)
+	if e != nil {
+		return e
+	}
 	app, env := s.mapping(ctx, source, a.Labels)
 	tx, e := s.DB.Begin(ctx)
 	if e != nil {
@@ -156,7 +201,7 @@ func (s *Service) Ingest(ctx context.Context, source Source, a Alert) error {
 	if a.Status == "resolved" {
 		ends = &a.EndsAt
 	}
-	_, e = tx.Exec(ctx, "INSERT INTO ops_incidents(id,source_id,application_id,environment_id,fingerprint,title,severity,alert_status,summary,starts_at,ends_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(source_id,fingerprint,starts_at) DO NOTHING", id, source.ID, app, env, a.Fingerprint, title, severity, a.Status, summary, a.StartsAt, ends)
+	_, e = tx.Exec(ctx, "INSERT INTO ops_incidents(id,source_id,application_id,environment_id,fingerprint,title,severity,alert_status,summary,labels,starts_at,ends_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13) ON CONFLICT(source_id,fingerprint,starts_at) DO NOTHING", id, source.ID, app, env, a.Fingerprint, title, severity, a.Status, summary, string(labels), a.StartsAt, ends)
 	if e != nil {
 		return e
 	}
@@ -165,6 +210,15 @@ func (s *Service) Ingest(ctx context.Context, source Source, a Alert) error {
 		return e
 	}
 	b, _ := json.Marshal(a)
+	var labelsMatch, labelsKnown bool
+	if e = tx.QueryRow(ctx, "SELECT labels IS NOT NULL,COALESCE(labels=$2::jsonb,false) FROM ops_incidents WHERE id=$1", v.ID, string(labels)).Scan(&labelsKnown, &labelsMatch); e != nil {
+		return e
+	}
+	if v.ApplicationID != app || v.EnvironmentID != env || (labelsKnown && !labelsMatch) {
+		return ErrAlertLabelsConflict
+	}
+	// Historical incidents retain NULL labels. A current authenticated status
+	// update may still resolve one, but cannot reconstruct its original labels.
 	tag, e := tx.Exec(ctx, "INSERT INTO ops_alert_occurrences(incident_id,status,payload_hash) VALUES($1,$2,$3) ON CONFLICT DO NOTHING", v.ID, a.Status, store.Hash(string(b)))
 	if e != nil {
 		return e

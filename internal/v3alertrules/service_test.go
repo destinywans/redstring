@@ -82,7 +82,7 @@ func TestListFiltersByPersistedApplicationAndRuleLabels(t *testing.T) {
 	}
 	unbound := rule("test", "allowed", "spoofed")
 	unbound.GroupIdentity = "/etc/prometheus/rules/unbound.yml\x00g"
-	s := mustService(t, fakeCatalog{{"allowed", "test"}, {"denied", "test"}, {"other", "staging"}}, fakeAccess{denied: map[string]bool{"test/denied": true}}, fakeSource{rules: map[string][]ObservedRule{
+	s := mustService(t, fakeCatalog{{ID: "allowed", EnvironmentID: "test"}, {ID: "denied", EnvironmentID: "test"}, {ID: "other", EnvironmentID: "staging"}}, fakeAccess{denied: map[string]bool{"test/denied": true}}, fakeSource{rules: map[string][]ObservedRule{
 		"test":    {rule("test", "allowed", "visible"), rule("test", "denied", "denied"), rule("staging", "allowed", "wrong-env"), rule("test", "unknown", "unmapped"), rule("", "allowed", "unscoped"), unbound},
 		"staging": {rule("staging", "other", "other-env")},
 	}}, RuleGroupBinding{EnvironmentID: "test", ApplicationID: "allowed", File: testRuleFile, Group: "g"})
@@ -103,7 +103,7 @@ func TestListFiltersByPersistedApplicationAndRuleLabels(t *testing.T) {
 }
 
 func TestListPartialAndUnavailableAreExplicit(t *testing.T) {
-	s := mustService(t, fakeCatalog{{"a", "test"}, {"b", "staging"}}, fakeAccess{}, fakeSource{rules: map[string][]ObservedRule{"test": {{GroupIdentity: testRuleFile + "\x00g", Group: "g", Name: "A", Expression: "up", Labels: map[string]string{"environment": "test", "application": "a"}}}}, fail: map[string]bool{"staging": true}}, RuleGroupBinding{EnvironmentID: "test", ApplicationID: "a", File: testRuleFile, Group: "g"})
+	s := mustService(t, fakeCatalog{{ID: "a", EnvironmentID: "test"}, {ID: "b", EnvironmentID: "staging"}}, fakeAccess{}, fakeSource{rules: map[string][]ObservedRule{"test": {{GroupIdentity: testRuleFile + "\x00g", Group: "g", Name: "A", Expression: "up", Labels: map[string]string{"environment": "test", "application": "a"}}}}, fail: map[string]bool{"staging": true}}, RuleGroupBinding{EnvironmentID: "test", ApplicationID: "a", File: testRuleFile, Group: "g"})
 	w := call(t, scopedHandler(t, http.HandlerFunc(s.List)), "GET", "/api/v1/alert-rules/observed", "all")
 	if w.Code != 206 || !strings.Contains(w.Body.String(), `"unavailable_environments":["staging"]`) {
 		t.Fatalf("partial status=%d body=%s", w.Code, w.Body.String())
@@ -115,8 +115,8 @@ func TestListPartialAndUnavailableAreExplicit(t *testing.T) {
 	}
 }
 
-func TestDetailNeverUsesFallbackAndDryRunNeverClaimsResult(t *testing.T) {
-	s := mustService(t, fakeCatalog{{"a", "test"}}, fakeAccess{}, fakeSource{rules: map[string][]ObservedRule{"test": {{GroupIdentity: testRuleFile + "\x00g", Group: "g", Name: "A", Expression: "up", Labels: map[string]string{"environment": "test", "application": "a"}}}}}, RuleGroupBinding{EnvironmentID: "test", ApplicationID: "a", File: testRuleFile, Group: "g"})
+func TestDetailNeverUsesFallbackAndDryRunRejectsMissingBody(t *testing.T) {
+	s := mustService(t, fakeCatalog{{ID: "a", EnvironmentID: "test"}}, fakeAccess{}, fakeSource{rules: map[string][]ObservedRule{"test": {{GroupIdentity: testRuleFile + "\x00g", Group: "g", Name: "A", Expression: "up", Labels: map[string]string{"environment": "test", "application": "a"}}}}}, RuleGroupBinding{EnvironmentID: "test", ApplicationID: "a", File: testRuleFile, Group: "g"})
 	h := scopedHandler(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.SetPathValue("id", "nonexistent")
 		s.Detail(w, r)
@@ -126,7 +126,7 @@ func TestDetailNeverUsesFallbackAndDryRunNeverClaimsResult(t *testing.T) {
 		t.Fatalf("unknown detail status=%d body=%s", w.Code, w.Body.String())
 	}
 	w = call(t, scopedHandler(t, http.HandlerFunc(s.DryRun)), "POST", "/api/v1/alert-rules/anything/dry-run", "test")
-	if w.Code != 503 || !strings.Contains(w.Body.String(), "dry_run_unavailable") || strings.Contains(w.Body.String(), "would_fire") {
+	if w.Code != 422 || !strings.Contains(w.Body.String(), "invalid_body") || strings.Contains(w.Body.String(), "would_fire") {
 		t.Fatalf("dry-run status=%d body=%s", w.Code, w.Body.String())
 	}
 }

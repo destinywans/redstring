@@ -45,12 +45,24 @@ func New(db *pgxpool.Pool, tier string, access Access, resolver v3integrations.C
 func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/changes/records", "viewer", s.Records)
 	api.MarkV3ObjectRoute("GET /api/v1/changes/records", "services", "view")
+	api.Register("GET /api/v1/changes/merge-requests", "viewer", s.MergeRequests)
+	api.MarkV3ObjectRoute("GET /api/v1/changes/merge-requests", "services", "view")
+	api.Register("GET /api/v1/changes/commits/{sha}", "viewer", s.Commit)
+	api.MarkV3ObjectRoute("GET /api/v1/changes/commits/{sha}", "services", "view")
 }
 
 type target struct {
 	BindingID, ServiceID, ApplicationID, EnvironmentID, TeamID  string
 	ConnectorID, ProjectID, Endpoint, AuthMethod, CredentialRef string
 	Tools                                                       []byte
+}
+
+func (s *Service) resolveTargetCredential(ctx context.Context, t target) (string, error) {
+	use := v3integrations.CredentialUse{
+		Tier: s.Tier, EnvironmentID: t.EnvironmentID, ConnectorID: t.ConnectorID,
+		Provider: "gitlab", Endpoint: t.Endpoint,
+	}
+	return s.Resolver.Resolve(v3integrations.WithCredentialUse(ctx, use), t.CredentialRef)
 }
 
 type pipeline struct {
@@ -128,11 +140,11 @@ func (s *Service) authorize(ctx context.Context, tx pgx.Tx, user core.User, t ta
 
 var errMissing = errors.New("external target not found")
 var errDenied = errors.New("external target access denied")
-var errDisabled = errors.New("GitLab pipeline reader is not enabled")
+var errDisabled = errors.New("GitLab reader is not enabled")
 
 // loadTarget repeats the authorization and binding read after the upstream
 // request. A revoked grant or removed binding cannot return stale evidence.
-func (s *Service) loadTarget(ctx context.Context, user core.User, app, env, serviceID, bindingID string) (target, error) {
+func (s *Service) loadTarget(ctx context.Context, user core.User, app, env, serviceID, bindingID, requiredTool string) (target, error) {
 	var t target
 	tx, err := s.DB.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
@@ -176,7 +188,7 @@ func (s *Service) loadTarget(ctx context.Context, user core.User, app, env, serv
 	}
 	enabled := false
 	for _, tool := range tools {
-		if tool.Name == "list_pipelines" && tool.Enabled {
+		if tool.Name == requiredTool && tool.Enabled {
 			enabled = true
 		}
 	}
@@ -208,7 +220,7 @@ func (s *Service) fetch(ctx context.Context, t target, page int) ([]pipeline, in
 	if !ok || (t.AuthMethod != "pat" && t.AuthMethod != "oauth") || s.Resolver == nil || t.CredentialRef == "" {
 		return nil, 0, errDisabled
 	}
-	token, err := s.Resolver.Resolve(ctx, t.CredentialRef)
+	token, err := s.resolveTargetCredential(ctx, t)
 	if err != nil || token == "" || len(token) > 4096 || strings.ContainsAny(token, "\r\n\x00") {
 		return nil, 0, errDisabled
 	}
@@ -311,7 +323,7 @@ func (s *Service) Records(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	user := httpapi.CurrentUser(r)
-	t, err := s.loadTarget(r.Context(), user, app, env, serviceID, bindingID)
+	t, err := s.loadTarget(r.Context(), user, app, env, serviceID, bindingID, "list_pipelines")
 	if writeLookupError(w, err) {
 		return
 	}
@@ -324,7 +336,7 @@ func (s *Service) Records(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	refreshed, err := s.loadTarget(r.Context(), user, app, env, serviceID, bindingID)
+	refreshed, err := s.loadTarget(r.Context(), user, app, env, serviceID, bindingID, "list_pipelines")
 	if writeLookupError(w, err) {
 		return
 	}
@@ -353,7 +365,7 @@ func writeLookupError(w http.ResponseWriter, err error) bool {
 	case errors.Is(err, errMissing), errors.Is(err, errDenied):
 		httpapi.Error(w, 404, "not_found", "Change source not found")
 	case errors.Is(err, errDisabled):
-		httpapi.Error(w, 503, "source_unavailable", "GitLab source is not configured for pipeline reads")
+		httpapi.Error(w, 503, "source_unavailable", "GitLab source is not configured for the requested read")
 	default:
 		httpapi.Error(w, 503, "changes_unavailable", "Change source or authorization unavailable")
 	}

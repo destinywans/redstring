@@ -1,6 +1,5 @@
-// Package v3topology exposes an evidence-backed, deliberately partial topology
-// projection. The V3 page's layout, health, blast radius, and telemetry panels
-// have no trustworthy CMDB equivalents and are not manufactured here.
+// Package v3topology exposes an authorized CMDB graph and a bounded V3 view
+// when complete source-bound observations are configured.
 package v3topology
 
 import (
@@ -11,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wans/aiops-canvas/internal/core"
@@ -24,11 +24,24 @@ type Access interface {
 }
 
 type Service struct {
-	DB     *pgxpool.Pool
-	Access Access
+	DB           *pgxpool.Pool
+	Access       Access
+	MetricReader MetricReader
+	Now          func() time.Time
 }
 
-func New(db *pgxpool.Pool, access Access) *Service { return &Service{DB: db, Access: access} }
+func New(db *pgxpool.Pool, access Access) *Service {
+	return &Service{DB: db, Access: access, Now: time.Now}
+}
+
+// NewWithMetrics enables the complete, source-bound V3 projection. The
+// existing constructor retains its explicitly partial CMDB response until the
+// composition root configures a reviewed topology_v1 Prometheus query.
+func NewWithMetrics(db *pgxpool.Pool, access Access, reader MetricReader) *Service {
+	s := New(db, access)
+	s.MetricReader = reader
+	return s
+}
 
 // GET /topology checks each persisted resource before projecting it. The route
 // must be marked object-scoped: a route-level module decision has no resource
@@ -45,26 +58,39 @@ type appLink struct {
 }
 
 type candidate struct {
-	ID, Name, Kind, Cluster, EnvironmentID, TeamID string
-	Links                                          []appLink
-	FallbackEligible                               bool
+	ID, Name, Kind, Cluster, Namespace, Zone, EnvironmentID, TeamID string
+	SourceKind, SourceID, ExternalID, Owner                         string
+	ObservedAt                                                      *time.Time
+	UpdatedAt                                                       time.Time
+	Links                                                           []appLink
+	FallbackEligible                                                bool
 }
 
 type node struct {
-	ID             string   `json:"id"`
-	Name           string   `json:"name"`
-	Kind           string   `json:"kind"`
-	Cluster        string   `json:"cluster,omitempty"`
-	EnvironmentIDs []string `json:"environment_ids"`
+	ID             string     `json:"id"`
+	Name           string     `json:"name"`
+	Kind           string     `json:"kind"`
+	Cluster        string     `json:"cluster,omitempty"`
+	EnvironmentIDs []string   `json:"environment_ids"`
+	Namespace      string     `json:"-"`
+	Zone           string     `json:"-"`
+	SourceKind     string     `json:"-"`
+	SourceID       string     `json:"-"`
+	ExternalID     string     `json:"-"`
+	Owner          string     `json:"-"`
+	ObservedAt     *time.Time `json:"-"`
+	UpdatedAt      time.Time  `json:"-"`
+	AppLinks       []appLink  `json:"-"`
 }
 
 type edge struct {
-	ID             string   `json:"id"`
-	From           string   `json:"from"`
-	To             string   `json:"to"`
-	Kind           string   `json:"kind"`
-	Provenance     string   `json:"provenance"`
-	EnvironmentIDs []string `json:"environment_ids"`
+	ID             string    `json:"id"`
+	From           string    `json:"from"`
+	To             string    `json:"to"`
+	Kind           string    `json:"kind"`
+	Provenance     string    `json:"provenance"`
+	EnvironmentIDs []string  `json:"environment_ids"`
+	UpdatedAt      time.Time `json:"-"`
 }
 
 type projection struct {
@@ -87,6 +113,10 @@ func (s *Service) topology(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "environment_scope_unavailable", "Environment scope is unavailable")
 		return
 	}
+	if s.MetricReader != nil {
+		s.serveFullTopology(w, r, scope)
+		return
+	}
 	q := r.URL.Query()
 	for _, key := range []string{"cluster", "around", "depth", "group_by"} {
 		if len(q[key]) > 1 || len(q.Get(key)) > 200 {
@@ -107,7 +137,7 @@ func (s *Service) topology(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	candidates, err := s.loadCandidates(r.Context(), scope.EnvironmentIDs, strings.TrimSpace(q.Get("cluster")))
+	candidates, err := s.loadCandidates(r.Context(), scope.EnvironmentIDs, strings.TrimSpace(q.Get("cluster")), "", nil, 1000)
 	if err != nil {
 		httpapi.Error(w, 503, "topology_unavailable", "Resource index unavailable")
 		return
@@ -171,23 +201,39 @@ var errTooBroad = errors.New("topology scope exceeds bounded read")
 // a recognized inventory collector, with a matching persisted source record.
 // Manually edited attributes cannot create an additional environment scope.
 const resourceQuery = `SELECT r.id,r.name,r.kind,COALESCE(r.attributes->>'cluster',''),
- COALESCE(r.attributes->>'environment_key',''),COALESCE(r.owner_team_id,''),links.items,
+ COALESCE(r.attributes->>'namespace',''),COALESCE(r.attributes->>'zone',''),
+ COALESCE(r.attributes->>'environment_key',''),COALESCE(r.owner_team_id,''),
+ r.source_kind,r.source_id,r.external_id,COALESCE(ou.name,ot.name,'Unassigned'),
+ r.observed_at,r.updated_at,links.items,
  r.source_kind IN ('kubernetes','docker','lima') AND r.observed_at IS NOT NULL
  AND EXISTS (SELECT 1 FROM cmdb_sync_sources src WHERE src.id=r.source_id AND src.kind=r.source_kind
   AND src.last_success_at IS NOT NULL AND src.environment_key<>''
   AND src.environment_key=r.attributes->>'environment_key')
  AND NOT EXISTS (SELECT 1 FROM cmdb_resource_applications l WHERE l.resource_id=r.id)
 FROM cmdb_resources r
+LEFT JOIN users ou ON ou.id=r.owner_user_id
+LEFT JOIN teams ot ON ot.id=r.owner_team_id
 LEFT JOIN LATERAL (
  SELECT COALESCE(jsonb_agg(jsonb_build_object('application_id',a.id,
-  'environment_id',ve.environment_id,'team_id',COALESCE(a.owner_team_id,''))), '[]'::jsonb) items
+  'environment_id',ve.environment_id,'team_id',COALESCE(a.owner_team_id,''))
+  ORDER BY a.id,ve.environment_id), '[]'::jsonb) items
  FROM cmdb_resource_applications l
  JOIN applications a ON a.id=l.application_id AND NOT a.archived
  JOIN application_environments e ON e.id=l.environment_id AND e.application_id=a.id AND NOT e.archived
  JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=e.key
  WHERE l.resource_id=r.id AND ve.environment_id=ANY($1::text[])
+ AND (r.source_kind='manual' OR EXISTS (SELECT 1 FROM cmdb_sync_sources src
+  WHERE src.id=r.source_id AND src.kind=r.source_kind AND src.environment_key=ve.environment_id))
 ) links ON true
 WHERE NOT r.is_mock AND r.kind NOT IN ('event','pod')
+ -- A collector record is an observation, not a timeless CMDB declaration.
+ -- Both the object and its source must have fresh successful evidence.
+ AND (r.source_kind='manual' OR (
+  r.source_kind IN ('kubernetes','docker','lima')
+  AND r.attributes->>'inventory_presence'='present'
+  AND r.observed_at BETWEEN now()-interval '5 minutes' AND now()+interval '1 minute'
+  AND EXISTS (SELECT 1 FROM cmdb_sync_sources src WHERE src.id=r.source_id AND src.kind=r.source_kind
+   AND src.last_success_at BETWEEN now()-interval '5 minutes' AND now()+interval '1 minute')))
  AND (links.items<>'[]'::jsonb OR (
   r.source_kind IN ('kubernetes','docker','lima') AND r.observed_at IS NOT NULL
   AND EXISTS (SELECT 1 FROM cmdb_sync_sources src WHERE src.id=r.source_id AND src.kind=r.source_kind
@@ -196,12 +242,14 @@ WHERE NOT r.is_mock AND r.kind NOT IN ('event','pod')
   AND NOT EXISTS (SELECT 1 FROM cmdb_resource_applications l WHERE l.resource_id=r.id)
   AND r.attributes->>'environment_key'=ANY($1::text[])))
  AND ($2='' OR r.attributes->>'cluster'=$2)
+ AND ($3='' OR r.id=$3)
+ AND ($5::text[] IS NULL OR r.id=ANY($5::text[]))
 -- The response is explicitly partial: never expose a count or limit error
 -- based on pre-authorization candidates, which would reveal hidden clusters.
-ORDER BY r.id LIMIT 1000`
+ORDER BY r.id LIMIT $4`
 
-func (s *Service) loadCandidates(ctx context.Context, envs []string, cluster string) ([]candidate, error) {
-	rows, err := s.DB.Query(ctx, resourceQuery, envs, cluster)
+func (s *Service) loadCandidates(ctx context.Context, envs []string, cluster, around string, ids []string, limit int) ([]candidate, error) {
+	rows, err := s.DB.Query(ctx, resourceQuery, envs, cluster, around, limit, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +258,10 @@ func (s *Service) loadCandidates(ctx context.Context, envs []string, cluster str
 	for rows.Next() {
 		var item candidate
 		var links []byte
-		if err = rows.Scan(&item.ID, &item.Name, &item.Kind, &item.Cluster, &item.EnvironmentID, &item.TeamID, &links, &item.FallbackEligible); err != nil {
+		if err = rows.Scan(&item.ID, &item.Name, &item.Kind, &item.Cluster, &item.Namespace,
+			&item.Zone, &item.EnvironmentID, &item.TeamID, &item.SourceKind, &item.SourceID,
+			&item.ExternalID, &item.Owner, &item.ObservedAt, &item.UpdatedAt, &links,
+			&item.FallbackEligible); err != nil {
 			return nil, err
 		}
 		if err = json.Unmarshal(links, &item.Links); err != nil {
@@ -239,7 +290,11 @@ func (s *Service) authorizedNodes(ctx context.Context, user core.User, candidate
 		}
 		if len(authorized) > 0 {
 			sort.Strings(authorized)
-			out[item.ID] = node{ID: item.ID, Name: item.Name, Kind: item.Kind, Cluster: item.Cluster, EnvironmentIDs: authorized}
+			out[item.ID] = node{ID: item.ID, Name: item.Name, Kind: item.Kind, Cluster: item.Cluster,
+				EnvironmentIDs: authorized, Namespace: item.Namespace, Zone: item.Zone,
+				SourceKind: item.SourceKind, SourceID: item.SourceID, ExternalID: item.ExternalID,
+				Owner: item.Owner, ObservedAt: item.ObservedAt, UpdatedAt: item.UpdatedAt,
+				AppLinks: item.Links}
 		}
 	}
 	return out, nil
@@ -271,7 +326,7 @@ func (s *Service) canView(ctx context.Context, user core.User, item candidate, e
 	}
 	// A resource's own scoped team or a global/environment grant can authorize
 	// an unlinked infrastructure item; inferred topology edges cannot grant it.
-	if eligibleEnvironment(item, env) {
+	if len(item.Links) == 0 && eligibleEnvironment(item, env) {
 		decisions = append(decisions, rbac.V3Decision{Module: "resources", Action: "view", EnvironmentID: env, TeamID: item.TeamID})
 	}
 	for _, decision := range decisions {
@@ -294,9 +349,18 @@ func (s *Service) loadEdges(ctx context.Context, nodes map[string]node) ([]edge,
 	if len(ids) == 0 {
 		return []edge{}, nil
 	}
-	rows, err := s.DB.Query(ctx, `SELECT id,source_resource_id,target_resource_id,kind,provenance
-FROM cmdb_resource_relations WHERE NOT is_mock AND source_resource_id=ANY($1::text[])
- AND target_resource_id=ANY($1::text[]) ORDER BY id LIMIT 2001`, ids)
+	rows, err := s.DB.Query(ctx, `SELECT rel.id,rel.source_resource_id,rel.target_resource_id,
+ rel.kind,rel.provenance,rel.updated_at,rel.source_kind,rel.source_id,
+ COALESCE(src.environment_key,'')
+FROM cmdb_resource_relations rel
+LEFT JOIN cmdb_sync_sources src ON src.id=rel.source_id AND src.kind=rel.source_kind
+WHERE NOT rel.is_mock AND rel.source_resource_id=ANY($1::text[])
+ AND rel.target_resource_id=ANY($1::text[])
+ AND (rel.provenance='declared' OR (
+  rel.provenance='discovered' AND src.last_success_at
+   BETWEEN now()-interval '5 minutes' AND now()+interval '1 minute'
+  AND src.environment_key<>''))
+ORDER BY rel.id LIMIT 2001`, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -309,15 +373,38 @@ FROM cmdb_resource_relations WHERE NOT is_mock AND source_resource_id=ANY($1::te
 			return nil, errTooBroad
 		}
 		var item edge
-		if err = rows.Scan(&item.ID, &item.From, &item.To, &item.Kind, &item.Provenance); err != nil {
+		var sourceKind, sourceID, sourceEnv string
+		if err = rows.Scan(&item.ID, &item.From, &item.To, &item.Kind, &item.Provenance,
+			&item.UpdatedAt, &sourceKind, &sourceID, &sourceEnv); err != nil {
 			return nil, err
 		}
 		item.EnvironmentIDs = intersection(nodes[item.From].EnvironmentIDs, nodes[item.To].EnvironmentIDs)
+		if item.Provenance == "discovered" {
+			// A relation observed in another collector/environment cannot gain
+			// this graph's scope merely because its endpoints are visible.
+			if sourceKind != nodes[item.From].SourceKind || sourceKind != nodes[item.To].SourceKind ||
+				sourceID != nodes[item.From].SourceID || sourceID != nodes[item.To].SourceID {
+				continue
+			}
+			if !containsEnvironment(item.EnvironmentIDs, sourceEnv) {
+				continue
+			}
+			item.EnvironmentIDs = []string{sourceEnv}
+		}
 		if len(item.EnvironmentIDs) > 0 {
 			out = append(out, item)
 		}
 	}
 	return out, rows.Err()
+}
+
+func containsEnvironment(environments []string, wanted string) bool {
+	for _, id := range environments {
+		if id == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 func intersection(a, b []string) []string {

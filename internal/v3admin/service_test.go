@@ -98,3 +98,36 @@ func TestRoleDetailRejectsMisleadingGroupedGrant(t *testing.T) {
 		t.Fatalf("equivalent scoped grants rejected: %v", err)
 	}
 }
+
+func TestMatrixProjectionRejectsUnrepresentedGrantsAndScopes(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		grants []grant
+	}{
+		{"execute is not a five-column operation", []grant{{Module: "proposals", Action: "execute", ScopeKind: "global", ScopeID: "*", Assurance: "standard"}}},
+		{"approval without step-up", []grant{{Module: "proposals", Action: "approve", ScopeKind: "global", ScopeID: "*", Assurance: "standard"}}},
+		{"different cell scopes", []grant{
+			{Module: "events", Action: "view", ScopeKind: "environment", ScopeID: "dev", Assurance: "standard"},
+			{Module: "events", Action: "change", ScopeKind: "environment", ScopeID: "test", Assurance: "standard"},
+		}},
+		{"hidden platform grant has a different scope", []grant{
+			{Module: "environment", Action: "view", ScopeKind: "global", ScopeID: "*", Assurance: "standard"},
+			{Module: "events", Action: "view", ScopeKind: "environment", ScopeID: "dev", Assurance: "standard"},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validateMatrixProjection(tc.grants); !errors.Is(err, errUnrepresentableMatrix) {
+				t.Fatalf("projection accepted misleading grants: %v", err)
+			}
+		})
+	}
+	uniform := []grant{
+		{Module: "events", Action: "view", ScopeKind: "environment", ScopeID: "dev", Assurance: "standard"},
+		{Module: "events", Action: "view", ScopeKind: "environment", ScopeID: "test", Assurance: "standard"},
+		{Module: "events", Action: "change", ScopeKind: "environment", ScopeID: "dev", Assurance: "standard"},
+		{Module: "events", Action: "change", ScopeKind: "environment", ScopeID: "test", Assurance: "standard"},
+	}
+	if err := validateMatrixProjection(uniform); err != nil {
+		t.Fatalf("uniform multi-scope role rejected: %v", err)
+	}
+}

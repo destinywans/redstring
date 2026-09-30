@@ -62,7 +62,7 @@ func (p Prober) Check(ctx context.Context, provider, rawURL, authMethod, credent
 			return ProbeResult{}, ErrCredentialUnavailable
 		}
 		credential, err = p.Resolver.Resolve(ctx, credentialRef)
-		if err != nil || credential == "" {
+		if err != nil || credential == "" || len(credential) > 4096 || strings.ContainsAny(credential, "\r\n\x00") {
 			return ProbeResult{}, ErrCredentialUnavailable
 		}
 	}
@@ -86,10 +86,17 @@ func (p Prober) Check(ctx context.Context, provider, rawURL, authMethod, credent
 	}
 	client := p.Client
 	if client == nil {
-		client = &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		client = &http.Client{}
+	}
+	// Preserve a caller's transport for controlled tests, but never let it
+	// redirect a credentialed probe to an endpoint outside its binding.
+	copyClient := *client
+	copyClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	if copyClient.Timeout == 0 || copyClient.Timeout > 5*time.Second {
+		copyClient.Timeout = 5 * time.Second
 	}
 	start := time.Now()
-	response, err := client.Do(request)
+	response, err := copyClient.Do(request)
 	result := ProbeResult{LatencyMS: time.Since(start).Milliseconds()}
 	if err != nil {
 		result.ErrorCode = "connection_failed"

@@ -1,0 +1,14 @@
+{
+  "tier": "production",
+  "gitlab": {
+    "base_url": "https://gitlab.example.com",
+    "project_id": 123,
+    "target_branch": "main",
+    "branch_prefix": "aiops/promotions/",
+    "token_file": "/run/secrets/aiops-config-sync-gitlab-token",
+    "allow_loopback_http": false
+  },
+  "trusted_sources": {
+    "aiops-test": "/run/secrets/aiops-config-sync-aiops-test-public-key"
+  }
+}

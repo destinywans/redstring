@@ -1,5 +1,5 @@
-// Package v3knowledgesources exposes the document lineage that is actually
-// persisted today. A connector/sync source registry does not yet exist.
+// Package v3knowledgesources exposes persisted source registration, read and
+// content lineage. A registration or read does not prove full sync state.
 package v3knowledgesources
 
 import (
@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
@@ -20,6 +21,7 @@ const maxCandidates = 2001
 
 type Access interface {
 	Authorize(context.Context, core.User, rbac.V3Decision) error
+	AuthorizeWithTx(context.Context, pgx.Tx, core.User, rbac.V3Decision) error
 }
 
 type document struct {
@@ -29,21 +31,62 @@ type document struct {
 
 type repository interface {
 	Documents(context.Context, string, []string) ([]document, error)
+	CurrentDocuments(context.Context, string, []string, []string) ([]document, error)
 }
 
 type Service struct {
-	repository repository
-	access     Access
+	db                  *pgxpool.Pool
+	repository          repository
+	access              Access
+	gitMarkdownBindings []GitMarkdownBinding
+	externalBindings    []ExternalBinding
+	feishuBindings      []FeishuBinding
 }
 
 func New(db *pgxpool.Pool, access Access) *Service {
-	return &Service{repository: pgRepository{db}, access: access}
+	return &Service{db: db, repository: pgRepository{db}, access: access}
+}
+
+// NewWithGitMarkdownBindings accepts only server-validated Git source
+// bindings. Registrations cannot select a project, branch, path or credential
+// outside these bindings.
+func NewWithGitMarkdownBindings(db *pgxpool.Pool, access Access, bindings []GitMarkdownBinding) *Service {
+	s := New(db, access)
+	s.gitMarkdownBindings = append([]GitMarkdownBinding(nil), bindings...)
+	return s
+}
+
+// NewWithSourceBindings enables only the operator-owned bindings supplied by
+// startup configuration. A request cannot provide source IDs or API endpoints.
+func NewWithSourceBindings(db *pgxpool.Pool, access Access, gitBindings []GitMarkdownBinding, externalBindings []ExternalBinding) *Service {
+	s := NewWithGitMarkdownBindings(db, access, gitBindings)
+	s.externalBindings = append([]ExternalBinding(nil), externalBindings...)
+	return s
+}
+
+// NewWithAllSourceBindings adds exact Feishu Docx bindings to the existing
+// operator-owned source configuration. Local uploads are owner-bound rows in
+// this database and need no external credential binding.
+func NewWithAllSourceBindings(db *pgxpool.Pool, access Access, gitBindings []GitMarkdownBinding,
+	externalBindings []ExternalBinding, feishuBindings []FeishuBinding) *Service {
+	s := NewWithSourceBindings(db, access, gitBindings, externalBindings)
+	s.feishuBindings = append([]FeishuBinding(nil), feishuBindings...)
+	return s
 }
 
 func (s *Service) Register(api *httpapi.Server) {
+	const mainReadRoute = "GET /api/v1/knowledge-sources"
+	api.Register(mainReadRoute, "viewer", s.registeredEvidence)
+	api.MarkV3ObjectRoute(mainReadRoute, "knowledge", "view")
+	const mainCreateRoute = "POST /api/v1/knowledge-sources"
+	api.Register(mainCreateRoute, "viewer", s.createMain)
+	api.MarkV3ObjectRoute(mainCreateRoute, "knowledge", "manage")
 	const route = "GET /api/v1/knowledge-sources/observed-documents"
 	api.Register(route, "viewer", s.list)
 	api.MarkV3ObjectRoute(route, "knowledge", "view")
+	const evidenceRoute = "GET /api/v1/knowledge-sources/registered-evidence"
+	api.Register(evidenceRoute, "viewer", s.registeredEvidence)
+	api.MarkV3ObjectRoute(evidenceRoute, "knowledge", "view")
 }
 
 // DocumentSource is a partial projection, one item per authorized published
@@ -88,7 +131,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "knowledge_sources_unavailable", "Knowledge sources unavailable")
 		return
 	}
-	httpapi.WriteJSON(w, 200, response{Items: items, Index: nil, Partial: true, Reason: "source_registry_unavailable", Truncated: truncated})
+	httpapi.WriteJSON(w, 200, response{Items: items, Index: nil, Partial: true, Reason: "document_only_projection", Truncated: truncated})
 }
 
 func (s *Service) visible(ctx context.Context, user core.User, environments []string) ([]DocumentSource, bool, error) {
@@ -98,6 +141,21 @@ func (s *Service) visible(ctx context.Context, user core.User, environments []st
 	// Object-scoped grants can be application-only. Query the already validated
 	// V3 environment set, then authorize each persisted document separately.
 	docs, err := s.repository.Documents(ctx, user.ID, environments)
+	if err != nil {
+		return nil, false, err
+	}
+	ids := make([]string, 0, len(docs))
+	for _, d := range docs {
+		if d.ID != "" {
+			ids = append(ids, d.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return []DocumentSource{}, false, nil
+	}
+	// Re-read only candidates with current document metadata, app mappings and
+	// grants. Never emit the title or scope cached by the first query.
+	docs, err = s.repository.CurrentDocuments(ctx, user.ID, environments, ids)
 	if err != nil {
 		return nil, false, err
 	}
@@ -145,43 +203,70 @@ func has(values []string, target string) bool {
 type pgRepository struct{ db *pgxpool.Pool }
 
 func (p pgRepository) Documents(ctx context.Context, userID string, environments []string) ([]document, error) {
+	return p.documents(ctx, userID, environments, nil)
+}
+
+func (p pgRepository) CurrentDocuments(ctx context.Context, userID string, environments, ids []string) ([]document, error) {
+	if len(ids) == 0 {
+		return []document{}, nil
+	}
+	return p.documents(ctx, userID, environments, ids)
+}
+
+func (p pgRepository) documents(ctx context.Context, userID string, environments, ids []string) ([]document, error) {
 	if p.db == nil {
 		return nil, errors.New("knowledge database unavailable")
 	}
-	rows, err := p.db.Query(ctx, `SELECT id,title,COALESCE(application_id,''),COALESCE(metadata->>'team_id',''),metadata->'environment_ids'
-FROM knowledge_documents
-WHERE lifecycle='published'
-  AND jsonb_typeof(metadata->'environment_ids')='array'
+	rows, err := p.db.Query(ctx, `SELECT d.id,d.title,COALESCE(d.application_id,''),COALESCE(d.metadata->>'team_id',''),d.metadata->'environment_ids'
+FROM knowledge_documents d
+WHERE d.lifecycle='published'
+  AND ($4::text[] IS NULL OR d.id=ANY($4::text[]))
+  AND jsonb_typeof(d.metadata)='object'
+  AND NOT (d.metadata ? 'source_registration_id')
+  AND CASE WHEN jsonb_typeof(d.metadata->'environment_ids')='array'
+    THEN jsonb_array_length(d.metadata->'environment_ids')>0
+      AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(d.metadata->'environment_ids') env_item
+        WHERE jsonb_typeof(env_item)<>'string' OR btrim(env_item #>> '{}')='')
+    ELSE false END
   AND EXISTS (
     SELECT 1 FROM unnest($2::text[]) selected(environment_id)
-    WHERE metadata->'environment_ids' ? selected.environment_id
+    WHERE d.metadata->'environment_ids' ? selected.environment_id
       AND EXISTS (
         SELECT 1 FROM v3_effective_role_grants g
         WHERE g.user_id=$1 AND g.module='environment' AND g.action='view'
           AND ((g.scope_kind='global' AND g.scope_id='*')
             OR (g.scope_kind='environment' AND g.scope_id=selected.environment_id))
       )
-      AND (application_id IS NULL OR EXISTS (
-        SELECT 1 FROM v3_application_environments ae
-        WHERE ae.application_id=knowledge_documents.application_id
-          AND ae.environment_id=selected.environment_id
-      ))
-      AND EXISTS (
-        SELECT 1 FROM v3_effective_role_grants g
-        WHERE g.user_id=$1 AND g.module='knowledge' AND g.action='view'
-          AND ((g.scope_kind='global' AND g.scope_id='*')
-            OR (g.scope_kind='environment' AND g.scope_id=selected.environment_id)
-            OR (application_id IS NOT NULL AND g.scope_kind='application' AND g.scope_id=application_id))
+      AND (
+        (d.application_id IS NOT NULL AND EXISTS (
+          SELECT 1 FROM applications a
+          JOIN v3_application_environments vae ON vae.application_id=a.id AND vae.environment_id=selected.environment_id
+          JOIN application_environments ae ON ae.application_id=a.id AND ae.key=selected.environment_id AND NOT ae.archived
+          WHERE a.id=d.application_id AND NOT a.archived
+            AND EXISTS (SELECT 1 FROM v3_effective_role_grants kg
+              WHERE kg.user_id=$1 AND kg.module='knowledge' AND kg.action='view'
+                AND ((kg.scope_kind='global' AND kg.scope_id='*')
+                  OR (kg.scope_kind='environment' AND kg.scope_id=selected.environment_id)
+                  OR (kg.scope_kind='application' AND kg.scope_id=a.id)))
+            AND (NOT (d.metadata ? 'team_id') OR (
+              jsonb_typeof(d.metadata->'team_id')='string'
+              AND d.metadata->>'team_id'<>''
+              AND d.metadata->>'team_id'=a.owner_team_id
+              AND EXISTS (SELECT 1 FROM v3_effective_role_grants tg
+                WHERE tg.user_id=$1 AND tg.module='knowledge' AND tg.action='view'
+                  AND ((tg.scope_kind='global' AND tg.scope_id='*')
+                    OR (tg.scope_kind='environment' AND tg.scope_id=selected.environment_id)
+                    OR (tg.scope_kind='team' AND tg.scope_id=a.owner_team_id)))))
+        ))
+        OR (d.application_id IS NULL AND d.metadata->>'visibility'='workspace'
+          AND NOT (d.metadata ? 'team_id')
+          AND EXISTS (SELECT 1 FROM v3_effective_role_grants wg
+            WHERE wg.user_id=$1 AND wg.module='knowledge' AND wg.action='view'
+              AND ((wg.scope_kind='global' AND wg.scope_id='*')
+                OR (wg.scope_kind='environment' AND wg.scope_id=selected.environment_id))))
       )
-      AND (COALESCE(metadata->>'team_id','')='' OR EXISTS (
-        SELECT 1 FROM v3_effective_role_grants g
-        WHERE g.user_id=$1 AND g.module='knowledge' AND g.action='view'
-          AND ((g.scope_kind='global' AND g.scope_id='*')
-            OR (g.scope_kind='environment' AND g.scope_id=selected.environment_id)
-            OR (g.scope_kind='team' AND g.scope_id=metadata->>'team_id'))
-      ))
   )
-ORDER BY created_at DESC,id LIMIT $3`, userID, environments, maxCandidates)
+ORDER BY d.created_at DESC,d.id LIMIT $3`, userID, environments, maxCandidates, ids)
 	if err != nil {
 		return nil, err
 	}

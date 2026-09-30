@@ -1,0 +1,10 @@
+{
+  "tier": "production",
+  "environments": [
+    {
+      "id": "prod",
+      "models": ["openai:approved-example"],
+      "default_model": "openai:approved-example"
+    }
+  ]
+}

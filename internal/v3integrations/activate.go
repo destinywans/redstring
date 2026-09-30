@@ -17,8 +17,8 @@ import (
 )
 
 // Activation is separate from connector creation. The wizard's Webhook toggle
-// is only a recorded request. This enables the platform's read-only GitLab
-// reader after point-in-time project GET checks; token scope is not proven.
+// is only a recorded request. GitLab additionally requires point-in-time
+// project GET checks; neither check proves an upstream token's permission scope.
 type activateRequest struct {
 	CredentialRef string `json:"credential_ref"`
 }
@@ -38,6 +38,9 @@ func (s *Service) activationSnapshot(ctx context.Context, tx pgx.Tx, id, environ
 	c, err := scanConnector(tx.QueryRow(ctx, query, id, environment))
 	if err != nil {
 		return c, nil, err
+	}
+	if c.Provider != "gitlab" {
+		return c, nil, nil
 	}
 	rows, err := tx.Query(ctx, `SELECT t.id,t.target_kind,t.external_id,
  COALESCE(NOT a.archived,false) AND ve.application_id IS NOT NULL AND COALESCE(NOT e.archived,false)
@@ -131,10 +134,6 @@ func (s *Service) activate(w http.ResponseWriter, r *http.Request) {
 	if !httpapi.Decode(w, r, &in) {
 		return
 	}
-	if validateReference(in.CredentialRef) != nil {
-		httpapi.Error(w, 422, "invalid_credential_ref", "Specify a Vault credential field")
-		return
-	}
 	ctx := r.Context()
 	tx, err := s.DB.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
@@ -147,6 +146,26 @@ func (s *Service) activate(w http.ResponseWriter, r *http.Request) {
 	}
 	c, targets, err := s.activationSnapshot(ctx, tx, r.PathValue("id"), env[0], false)
 	if activationLookupError(w, err) {
+		return
+	}
+	if c.Provider != "gitlab" {
+		if err = tx.Commit(ctx); err != nil {
+			httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
+			return
+		}
+		s.activateGeneric(w, r, c, in)
+		return
+	}
+	credentialRef := in.CredentialRef
+	if credentialRef == "" {
+		credentialRef = c.CredentialRef
+	}
+	if validateReference(credentialRef) != nil {
+		httpapi.Error(w, 422, "invalid_credential_ref", "Specify a Vault credential field")
+		return
+	}
+	if !s.credentialBound(c, credentialRef) {
+		httpapi.Error(w, 503, "credential_not_authorized", "Connector credential has no server-side binding")
 		return
 	}
 	if c.Provider != "gitlab" || (c.AuthMethod != "pat" && c.AuthMethod != "oauth") {
@@ -170,11 +189,21 @@ func (s *Service) activate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.Prober.Resolver == nil {
+		if !s.auditGitLabActivationFailure(w, r, c, targets, "credential_unavailable") {
+			return
+		}
 		httpapi.Error(w, 503, "credential_unavailable", "Vault credential is unavailable")
 		return
 	}
-	token, err := s.Prober.Resolver.Resolve(ctx, in.CredentialRef)
+	credentialCtx := WithCredentialUse(ctx, CredentialUse{
+		Tier: s.Tier, EnvironmentID: c.EnvironmentID, ConnectorID: c.ID,
+		Provider: c.Provider, Endpoint: c.Endpoint,
+	})
+	token, err := s.Prober.Resolver.Resolve(credentialCtx, credentialRef)
 	if err != nil || len(token) == 0 || len(token) > 4096 || strings.ContainsAny(token, "\r\n\x00") {
+		if !s.auditGitLabActivationFailure(w, r, c, targets, "credential_unavailable") {
+			return
+		}
 		httpapi.Error(w, 503, "credential_unavailable", "Vault credential is unavailable")
 		return
 	}
@@ -182,50 +211,103 @@ func (s *Service) activate(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	for _, target := range targets {
 		if err = s.verifyGitLabProject(probeCtx, c, target.ProjectID, token); err != nil {
+			if !s.auditGitLabActivationFailure(w, r, c, targets, "project_unavailable") {
+				return
+			}
 			httpapi.Error(w, 502, "project_unavailable", "GitLab project could not be verified")
 			return
 		}
 	}
-	tx, err = s.DB.Begin(ctx)
+	writeCtx, writeCancel := context.WithTimeout(ctx, 15*time.Second)
+	defer writeCancel()
+	r = r.WithContext(writeCtx)
+	tx, err = s.DB.Begin(writeCtx)
 	if err != nil {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 		return
 	}
-	defer tx.Rollback(ctx)
+	defer rollbackConnectorWrite(tx)
 	if !s.authorizeWriteTx(w, r, tx, env[0]) {
 		return
 	}
-	current, currentTargets, err := s.activationSnapshot(ctx, tx, c.ID, env[0], true)
+	current, currentTargets, err := s.activationSnapshot(writeCtx, tx, c.ID, env[0], true)
 	if activationLookupError(w, err) {
 		return
 	}
-	if current.Enabled || current.Provider != c.Provider || current.Endpoint != c.Endpoint ||
-		current.AuthMethod != c.AuthMethod || current.CredentialRef != c.CredentialRef ||
-		!reflect.DeepEqual(currentTargets, targets) {
+	if !s.authorizeLockedWriteTx(w, r, tx, c.EnvironmentID) {
+		return
+	}
+	if !sameGitLabActivationSnapshot(current, currentTargets, c, targets) {
 		httpapi.Error(w, 409, "connector_changed", "Connector or project scope changed during verification")
 		return
 	}
-	_, err = tx.Exec(ctx, `UPDATE v3_connectors c SET credential_ref=$1,enabled=true,status='ok',
+	_, err = tx.Exec(writeCtx, `UPDATE v3_connectors c SET credential_ref=$1,enabled=true,status='ok',
  last_checked_at=now(),last_error_code='',last_latency_ms=NULL,updated_at=now(),
  tools=COALESCE((SELECT jsonb_agg(jsonb_set(value,'{enabled}','false'::jsonb,true))
  FROM jsonb_array_elements(c.tools) AS item(value)),'[]'::jsonb)
- WHERE id=$2 AND environment_id=$3`, in.CredentialRef, c.ID, c.EnvironmentID)
+ WHERE id=$2 AND environment_id=$3`, credentialRef, c.ID, c.EnvironmentID)
 	if err != nil {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 		return
 	}
-	if err = audit(ctx, tx, "connector.activated", c.ID, map[string]any{
+	if err = audit(writeCtx, tx, "connector.activated", c.ID, map[string]any{
 		"environment": c.EnvironmentID, "provider": c.Provider,
 		"verified_projects": len(targets), "webhook_active": false,
 	}); err != nil {
 		httpapi.Error(w, 503, "audit_unavailable", "Could not audit connector activation")
 		return
 	}
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(writeCtx); err != nil {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
 		return
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"enabled": true, "status": "ok", "verified_projects": len(targets), "webhook_active": false})
+}
+
+func sameGitLabActivationSnapshot(current connector, currentTargets []activationTarget, initial connector, initialTargets []activationTarget) bool {
+	return !current.Enabled && current.Provider == initial.Provider && current.Name == initial.Name &&
+		current.Category == initial.Category && current.Endpoint == initial.Endpoint &&
+		current.AuthMethod == initial.AuthMethod && current.CredentialRef == initial.CredentialRef &&
+		current.Webhook == initial.Webhook && reflect.DeepEqual(current.Tools, initial.Tools) &&
+		reflect.DeepEqual(currentTargets, initialTargets)
+}
+
+// The credential resolver and project GET run outside the write transaction.
+// A failed attempt is audited only after rechecking the exact connector and
+// project scope with current manage authority. The fixed reason omits secret
+// references, tokens, resolver errors and upstream response bodies.
+func (s *Service) auditGitLabActivationFailure(w http.ResponseWriter, r *http.Request, initial connector, targets []activationTarget, reason string) bool {
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	r = r.WithContext(ctx)
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
+		return false
+	}
+	defer rollbackConnectorWrite(tx)
+	current, currentTargets, err := s.activationSnapshot(ctx, tx, initial.ID, initial.EnvironmentID, true)
+	if activationLookupError(w, err) {
+		return false
+	}
+	if !s.authorizeLockedWriteTx(w, r, tx, initial.EnvironmentID) {
+		return false
+	}
+	if !sameGitLabActivationSnapshot(current, currentTargets, initial, targets) {
+		httpapi.Error(w, 409, "connector_changed", "Connector or project scope changed during verification")
+		return false
+	}
+	if err = auditOutcome(ctx, tx, "connector.activation.attempted", current.ID, "failure", map[string]any{
+		"environment": current.EnvironmentID, "provider": current.Provider, "reason": reason,
+	}); err != nil {
+		httpapi.Error(w, 503, "audit_unavailable", "Could not audit connector activation attempt")
+		return false
+	}
+	if err = tx.Commit(ctx); err != nil {
+		httpapi.Error(w, 503, "storage_unavailable", "Connector storage is unavailable")
+		return false
+	}
+	return true
 }
 
 func activationLookupError(w http.ResponseWriter, err error) bool {

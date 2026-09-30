@@ -28,7 +28,7 @@ func TestTemplateSanitizationDropsCanvasContent(t *testing.T) {
 func TestSummaryHasRealCountsAndNoInventedParticipants(t *testing.T) {
 	at := time.Date(2026, 9, 28, 1, 2, 3, 0, time.UTC)
 	s := publicSummary("CV-1", "Review", "review", "draft", "", nil, at, []Node{{ID: "root"}})
-	if s.Meta != "1 个节点" || len(s.Participants) != 0 || len(s.Services) != 0 || s.Href != "/canvas/CV-1" || len(s.Thumb.Nodes) != 1 {
+	if s.Meta != "1 个节点" || s.Participants == nil || len(*s.Participants) != 0 || len(s.Services) != 0 || s.Href != "/canvas/CV-1" || len(s.Thumb.Nodes) != 1 {
 		t.Fatalf("incorrect summary: %#v", s)
 	}
 }

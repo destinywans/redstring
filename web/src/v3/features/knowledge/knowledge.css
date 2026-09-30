@@ -3,6 +3,20 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
+.knowledge-sources-layout {
+  flex-direction: column;
+  overflow-y: auto;
+}
+.knowledge-sources-layout > .main,
+.knowledge-sources-layout > .aside {
+  flex: none;
+  overflow: visible;
+}
+.knowledge-sources-layout > .aside {
+  width: auto;
+  border-left: 0;
+  border-top: 1px solid var(--border);
+}
 .rb-suggestions {
   padding: 16px;
   display: flex;

@@ -104,6 +104,16 @@ func TestTimelineAuthenticatedHTTPPersistsAndHonorsCurrentGrant(t *testing.T) {
 		api.ServeHTTP(w, r)
 		return w
 	}
+	read := func(environment, id string, authenticated bool) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/incidents/"+id+"/timeline/manual", nil)
+		r.Header.Set("X-AIOps-Environment", environment)
+		if authenticated {
+			r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		}
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		return w
+	}
 	assertError := func(w *httptest.ResponseRecorder, status int, code string) {
 		t.Helper()
 		var body struct {
@@ -119,6 +129,10 @@ func TestTimelineAuthenticatedHTTPPersistsAndHonorsCurrentGrant(t *testing.T) {
 	assertError(request("all", `{"text":"note"}`, true), 409, "env_view_only")
 	assertError(request("test", `{"text":"note"}`, true), 404, "not_found")
 	assertError(request("dev", `{"text":" "}`, true), 422, "invalid_text")
+	empty := read("dev", "incident", true)
+	if empty.Code != 200 || empty.Body.String() != "{\"items\":[],\"scope\":\"manual_only\"}\n" {
+		t.Fatalf("empty manual timeline status=%d body=%s", empty.Code, empty.Body.String())
+	}
 	response := request("dev", `{"text":"Operator note"}`, true)
 	if response.Code != 201 {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
@@ -142,12 +156,49 @@ func TestTimelineAuthenticatedHTTPPersistsAndHonorsCurrentGrant(t *testing.T) {
 	if text != entry.Text || actorID == "" || auditAction != "incident.timeline.append" || auditedEntryID == "" || auditedEnv != "dev" {
 		t.Fatalf("durable timeline/audit mismatch: %q %q %q %q %q", text, actorID, auditAction, auditedEntryID, auditedEnv)
 	}
+	assertError(read("dev", "incident", false), 401, "unauthorized")
+	assertError(read("test", "incident", true), 404, "not_found")
+	assertError(read("dev", "missing", true), 404, "not_found")
+	if second := request("dev", `{"text":"Second note"}`, true); second.Code != 201 {
+		t.Fatalf("second append status=%d body=%s", second.Code, second.Body.String())
+	}
+	got := read("dev", "incident", true)
+	var manual struct {
+		Items []timelineEntry `json:"items"`
+		Scope string          `json:"scope"`
+	}
+	if got.Code != 200 || json.Unmarshal(got.Body.Bytes(), &manual) != nil {
+		t.Fatalf("manual read status=%d body=%s", got.Code, got.Body.String())
+	}
+	if manual.Scope != "manual_only" || len(manual.Items) != 2 || manual.Items[0].Text != "Operator note" || manual.Items[1].Text != "Second note" {
+		t.Fatalf("manual timeline=%+v", manual)
+	}
+	for _, item := range manual.Items {
+		if item.Actor.Kind != "person" || item.Actor.Name != "Administrator" {
+			t.Fatalf("manual actor=%+v", item.Actor)
+		}
+		if _, err := time.Parse(time.RFC3339Nano, item.Time); err != nil {
+			t.Fatalf("manual time=%q error=%v", item.Time, err)
+		}
+	}
+	if manual.Items[0].Time > manual.Items[1].Time {
+		t.Fatalf("manual timeline out of chronological order: %+v", manual.Items)
+	}
 	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='admin' AND module='events' AND action='change'`); err != nil {
 		t.Fatal(err)
 	}
 	assertError(request("dev", `{"text":"denied after revocation"}`, true), 403, "forbidden")
 	var count int
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_incident_timeline WHERE incident_id='incident'`).Scan(&count); err != nil || count != 1 {
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_incident_timeline WHERE incident_id='incident'`).Scan(&count); err != nil || count != 2 {
 		t.Fatalf("revocation changed timeline count=%d error=%v", count, err)
 	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_incident_timeline(id,incident_id,actor_id,text)
+		SELECT 'bulk-'||g,'incident',$1,'bulk note' FROM generate_series(1,499) g`, actorID); err != nil {
+		t.Fatal(err)
+	}
+	assertError(read("dev", "incident", true), 503, "pagination_required")
+	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='admin' AND module='events' AND action='view'`); err != nil {
+		t.Fatal(err)
+	}
+	assertError(read("dev", "incident", true), 404, "not_found")
 }

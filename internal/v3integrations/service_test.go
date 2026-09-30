@@ -47,17 +47,12 @@ func TestConnectorTypeDescribesRegisteredProbeWithoutInventedCapabilities(t *tes
 				if got.Brand != provider || got.Kind == "" || got.Version != "" || len(got.Scopes) != 0 || got.WebhookURL != "" {
 					t.Fatalf("invented or missing metadata: %+v", got)
 				}
-				if len(got.AuthMethods) != len(descriptor.Methods) || len(got.Tools) != len(descriptor.Tools) {
+				if len(got.AuthMethods) != len(descriptor.Methods) || got.Scopes == nil || got.Tools == nil || len(got.Tools) != 0 {
 					t.Fatalf("descriptor mismatch: %+v", got)
 				}
 				for i, method := range descriptor.Methods {
 					if got.AuthMethods[i].ID != method || got.AuthMethods[i].Label == "" || got.AuthMethods[i].Desc == "" {
 						t.Fatalf("auth method %d: %+v", i, got.AuthMethods[i])
-					}
-				}
-				for i, name := range descriptor.Tools {
-					if got.Tools[i].Name != name || got.Tools[i].Desc == "" || got.Tools[i].Desc == "Read-only" || got.Tools[i].Desc == "只读" {
-						t.Fatalf("tool %d: %+v", i, got.Tools[i])
 					}
 				}
 			})

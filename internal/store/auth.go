@@ -5,11 +5,47 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
 	"golang.org/x/crypto/argon2"
 	"strings"
 )
+
+// ErrSessionRevoked means the request's session or user is no longer active.
+var ErrSessionRevoked = errors.New("session revoked")
+
+// LockActiveSession rechecks the current request's raw Cookie token and
+// authenticated actor within tx. Call it after domain lock waits, immediately
+// before the final authorization check and write or commit. It holds both the
+// user and session rows until tx ends, so logout or user disable cannot commit
+// concurrently. Lock the user before the session, matching account updates
+// that update users before deleting their sessions. Expiry is checked at the
+// session query's wall-clock instant; callers
+// with long transactions must check it again before committing if needed.
+func LockActiveSession(ctx context.Context, tx pgx.Tx, token, actorID string) error {
+	if token == "" || actorID == "" {
+		return ErrSessionRevoked
+	}
+	var activeID string
+	err := tx.QueryRow(ctx, `SELECT id FROM users
+		WHERE id=$1 AND NOT disabled AND deleted_at IS NULL
+		FOR SHARE`, actorID).Scan(&activeID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrSessionRevoked
+	}
+	if err != nil {
+		return err
+	}
+	err = tx.QueryRow(ctx, `SELECT user_id FROM sessions
+		WHERE token_hash=$1 AND user_id=$2 AND expires_at>clock_timestamp()
+		FOR SHARE`, Hash(token), actorID).Scan(&activeID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrSessionRevoked
+	}
+	return err
+}
 
 func PasswordHash(password string) string {
 	salt := make([]byte, 16)
@@ -64,7 +100,7 @@ func (s *Store) Login(ctx context.Context, email, password string) (core.User, s
 	defer tx.Rollback(ctx)
 	// Serialize login with password changes: a revoked password cannot create
 	// a session after the password-changing transaction has invalidated sessions.
-	e = tx.QueryRow(ctx, "SELECT u.id,u.email,u.name,"+sessionLegacyRole+",u.password_hash FROM users u WHERE u.email=$1 AND NOT u.disabled FOR UPDATE OF u", strings.ToLower(email)).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &hash)
+	e = tx.QueryRow(ctx, "SELECT u.id,u.email,u.name,"+sessionLegacyRole+",u.password_hash FROM users u WHERE u.email=$1 AND NOT u.disabled AND u.deleted_at IS NULL FOR UPDATE OF u", strings.ToLower(email)).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &hash)
 	if e != nil || !CheckPassword(password, hash) {
 		return u, "", ErrNotFound
 	}
@@ -79,7 +115,7 @@ func (s *Store) Login(ctx context.Context, email, password string) (core.User, s
 }
 func (s *Store) Session(ctx context.Context, token string) (core.User, error) {
 	var u core.User
-	e := s.DB.QueryRow(ctx, "SELECT u.id,u.email,u.name,"+sessionLegacyRole+" FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND NOT u.disabled", Hash(token)).Scan(&u.ID, &u.Email, &u.Name, &u.Role)
+	e := s.DB.QueryRow(ctx, "SELECT u.id,u.email,u.name,"+sessionLegacyRole+" FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND NOT u.disabled AND u.deleted_at IS NULL", Hash(token)).Scan(&u.ID, &u.Email, &u.Name, &u.Role)
 	return u, e
 }
 func (s *Store) Applications(ctx context.Context) ([]core.Application, error) {

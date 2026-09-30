@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -50,6 +51,7 @@ func TestConnectorCRUDHTTPV3ScopePersistenceAndAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["application_name"] = schema
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -164,6 +166,50 @@ func TestConnectorCRUDHTTPV3ScopePersistenceAndAudit(t *testing.T) {
 	if err := json.Unmarshal(created.Body.Bytes(), &result); err != nil || result.ID == "" {
 		t.Fatalf("create DTO: %s %v", created.Body.String(), err)
 	}
+	settingsPath := "/api/v1/connectors/" + result.ID + "/tool-settings"
+	assert(request(http.MethodGet, settingsPath, "dev", "", ""), 401, "unauthorized")
+	assert(request(http.MethodGet, "/api/v1/connectors/other-environment/tool-settings", "dev", token, ""), 404, "not_found")
+	settings := request(http.MethodGet, settingsPath, "dev", token, "")
+	assert(settings, 200, "")
+	var registered struct {
+		ConnectorID             string `json:"connector_id"`
+		EnvironmentID           string `json:"environment_id"`
+		ConnectorEnabled        bool   `json:"connector_enabled"`
+		AgentExecutionAvailable bool   `json:"agent_execution_available"`
+		RegisteredTools         []tool `json:"registered_tools"`
+	}
+	if err := json.Unmarshal(settings.Body.Bytes(), &registered); err != nil || registered.ConnectorID != result.ID ||
+		registered.EnvironmentID != "dev" || registered.ConnectorEnabled || registered.AgentExecutionAvailable ||
+		len(registered.RegisteredTools) != 2 || registered.RegisteredTools[0].Enabled || registered.RegisteredTools[1].Enabled ||
+		strings.Contains(settings.Body.String(), "vault://") {
+		t.Fatalf("tool settings misreported registration or Agent capability: %s %v", settings.Body.String(), err)
+	}
+	ready := request(http.MethodPost, "/api/v1/connectors", "dev", token,
+		`{"type":"prometheus","url":"https://metrics.example.invalid","auth":"none","tools":["query_metrics"]}`)
+	assert(ready, 201, "")
+	var readyResult struct{ ID string }
+	if err := json.Unmarshal(ready.Body.Bytes(), &readyResult); err != nil || readyResult.ID == "" {
+		t.Fatalf("ready registration: %s %v", ready.Body.String(), err)
+	}
+	readySettingsPath := "/api/v1/connectors/" + readyResult.ID + "/tool-settings"
+	readySettings := request(http.MethodGet, readySettingsPath, "dev", token, "")
+	assert(readySettings, 200, "")
+	var readyTools struct {
+		ConnectorEnabled        bool   `json:"connector_enabled"`
+		AgentExecutionAvailable bool   `json:"agent_execution_available"`
+		RegisteredTools         []tool `json:"registered_tools"`
+	}
+	if err := json.Unmarshal(readySettings.Body.Bytes(), &readyTools); err != nil || !readyTools.ConnectorEnabled ||
+		readyTools.AgentExecutionAvailable || len(readyTools.RegisteredTools) != 1 || !readyTools.RegisteredTools[0].Enabled {
+		t.Fatalf("enabled setting was not read back honestly: %s %v", readySettings.Body.String(), err)
+	}
+	assert(request(http.MethodPatch, "/api/v1/connectors/"+readyResult.ID, "dev", token,
+		`{"tools":[{"name":"query_metrics","enabled":false}]}`), 200, "")
+	readySettings = request(http.MethodGet, readySettingsPath, "dev", token, "")
+	assert(readySettings, 200, "")
+	if err := json.Unmarshal(readySettings.Body.Bytes(), &readyTools); err != nil || len(readyTools.RegisteredTools) != 1 || readyTools.RegisteredTools[0].Enabled {
+		t.Fatalf("disabled setting was not read back: %s %v", readySettings.Body.String(), err)
+	}
 	assert(request(http.MethodPost, "/api/v1/connectors", "dev", token, createBody), 409, "connector_exists")
 	var environment, credential, status string
 	var enabled bool
@@ -205,6 +251,10 @@ func TestConnectorCRUDHTTPV3ScopePersistenceAndAudit(t *testing.T) {
 		t.Fatalf("partial tool update lost other selection: %s %v", persistedTools, err)
 	}
 	assert(request(http.MethodPatch, "/api/v1/connectors/"+result.ID, "dev", token,
+		`{"tools":[{"name":"list_pipelines"}]}`), 422, "invalid_tools")
+	assert(request(http.MethodPatch, "/api/v1/connectors/"+result.ID, "dev", token,
+		`{"tools":[{"name":"list_pipelines","enabled":null}]}`), 422, "invalid_tools")
+	assert(request(http.MethodPatch, "/api/v1/connectors/"+result.ID, "dev", token,
 		`{"tools":[{"name":"unknown","enabled":true}]}`), 422, "invalid_tools")
 	var audits int
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE target=$1 AND action IN ('connector.created','connector.tools.updated')`, result.ID).Scan(&audits); err != nil || audits != 2 {
@@ -217,11 +267,268 @@ func TestConnectorCRUDHTTPV3ScopePersistenceAndAudit(t *testing.T) {
 	if strings.Contains(auditChanges, "vault://") || strings.Contains(auditChanges, "gitlab.example.invalid") {
 		t.Fatalf("audit leaked connection settings: %s", auditChanges)
 	}
+	// Revoke manage after PATCH has passed its first authorization check and
+	// reached the connector row lock. The committed revoke must win before
+	// PATCH can update the stored tools or write its audit entry.
+	var readyAuditsBefore int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE target=$1 AND action='connector.tools.updated'`, readyResult.ID).Scan(&readyAuditsBefore); err != nil {
+		t.Fatal(err)
+	}
+	revokeLockTx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer revokeLockTx.Rollback(ctx)
+	var revokeLockedID string
+	if err := revokeLockTx.QueryRow(ctx, `SELECT id FROM v3_connectors WHERE id=$1 FOR UPDATE`, readyResult.ID).Scan(&revokeLockedID); err != nil || revokeLockedID != readyResult.ID {
+		t.Fatalf("hold connector row for revoke race: %s %v", revokeLockedID, err)
+	}
+	revokeResponse := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		revokeResponse <- request(http.MethodPatch, "/api/v1/connectors/"+readyResult.ID, "dev", token,
+			`{"tools":[{"name":"query_metrics","enabled":true}]}`)
+	}()
+	revokeDeadline := time.Now().Add(10 * time.Second)
+	for {
+		var waiting int
+		if err := adminDB.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+ WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE '%FROM v3_connectors%FOR UPDATE%'`, schema).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting == 1 {
+			break
+		}
+		if time.Now().After(revokeDeadline) {
+			t.Fatalf("expected PATCH waiting on connector row before revoke, saw %d", waiting)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	revokeTag, err := adminDB.Exec(ctx, `DELETE FROM `+quoted+`.v3_role_grants
+	 WHERE role_id='viewer' AND module='connectors' AND action='manage' AND scope_kind='environment' AND scope_id='dev'`)
+	if err != nil {
+		t.Fatalf("commit manage revoke during PATCH: %v", err)
+	}
+	if revokeTag.RowsAffected() != 1 {
+		t.Fatalf("expected exactly one committed manage grant revoke, got %d", revokeTag.RowsAffected())
+	}
+	if err := revokeLockTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case response := <-revokeResponse:
+		assert(response, 403, "forbidden")
+	case <-time.After(10 * time.Second):
+		t.Fatal("revoked PATCH did not complete after connector row release")
+	}
+	if err := db.QueryRow(ctx, `SELECT tools FROM v3_connectors WHERE id=$1`, readyResult.ID).Scan(&persistedTools); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(persistedTools, &readyTools.RegisteredTools); err != nil || len(readyTools.RegisteredTools) != 1 || readyTools.RegisteredTools[0].Enabled {
+		t.Fatalf("revoked PATCH changed tools: %s %v", persistedTools, err)
+	}
+	var readyAuditsAfter int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE target=$1 AND action='connector.tools.updated'`, readyResult.ID).Scan(&readyAuditsAfter); err != nil || readyAuditsAfter != readyAuditsBefore {
+		t.Fatalf("revoked PATCH audit count=%d before=%d err=%v", readyAuditsAfter, readyAuditsBefore, err)
+	}
+	if _, err := adminDB.Exec(ctx, `INSERT INTO `+quoted+`.v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('viewer','connectors','manage','environment','dev')`); err != nil {
+		t.Fatal(err)
+	}
+	// A new manage role committed after PATCH locked its original grant set
+	// cannot become a permission witness for this in-flight PATCH.
+	var viewerID string
+	if err := db.QueryRow(ctx, `SELECT id FROM users WHERE email='viewer@example.invalid'`).Scan(&viewerID); err != nil {
+		t.Fatal(err)
+	}
+	phantomLockTx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer phantomLockTx.Rollback(ctx)
+	var phantomLockedID string
+	if err := phantomLockTx.QueryRow(ctx, `SELECT id FROM v3_connectors WHERE id=$1 FOR UPDATE`, readyResult.ID).Scan(&phantomLockedID); err != nil || phantomLockedID != readyResult.ID {
+		t.Fatalf("hold connector row for role insertion race: %s %v", phantomLockedID, err)
+	}
+	phantomResponse := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		phantomResponse <- request(http.MethodPatch, "/api/v1/connectors/"+readyResult.ID, "dev", token,
+			`{"tools":[{"name":"query_metrics","enabled":true}]}`)
+	}()
+	phantomDeadline := time.Now().Add(10 * time.Second)
+	for {
+		var waiting int
+		if err := adminDB.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+ WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE '%FROM v3_connectors%FOR UPDATE%'`, schema).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting == 1 {
+			break
+		}
+		if time.Now().After(phantomDeadline) {
+			t.Fatalf("expected PATCH waiting on connector row before role insertion, saw %d", waiting)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	sessionLockTx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sessionLockTx.Rollback(ctx)
+	var sessionHash string
+	if err := sessionLockTx.QueryRow(ctx, `SELECT token_hash FROM sessions WHERE token_hash=$1 FOR UPDATE`, store.Hash(token)).Scan(&sessionHash); err != nil || sessionHash != store.Hash(token) {
+		t.Fatalf("hold session row for role insertion race: %s %v", sessionHash, err)
+	}
+	revokeTag, err = adminDB.Exec(ctx, `DELETE FROM `+quoted+`.v3_role_grants
+ WHERE role_id='viewer' AND module='connectors' AND action='manage' AND scope_kind='environment' AND scope_id='dev'`)
+	if err != nil || revokeTag.RowsAffected() != 1 {
+		t.Fatalf("commit original manage grant revoke: rows=%d err=%v", revokeTag.RowsAffected(), err)
+	}
+	if err := phantomLockTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		var waiting int
+		if err := adminDB.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+ WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE '%FROM sessions%FOR SHARE%'`, schema).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting == 1 {
+			break
+		}
+		if time.Now().After(phantomDeadline) {
+			t.Fatalf("expected PATCH waiting on session after locked grant scan, saw %d", waiting)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	phantomRoleTx, err := adminDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer phantomRoleTx.Rollback(ctx)
+	for _, statement := range []string{
+		`INSERT INTO ` + quoted + `.rbac_roles(id,name) VALUES('phantom-manage','Phantom manage')`,
+		`INSERT INTO ` + quoted + `.v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES('phantom-manage','connectors','manage','environment','dev')`,
+	} {
+		if _, err := phantomRoleTx.Exec(ctx, statement); err != nil {
+			t.Fatalf("insert new manage role during PATCH: %v", err)
+		}
+	}
+	if _, err := phantomRoleTx.Exec(ctx, `INSERT INTO `+quoted+`.rbac_user_roles(user_id,role_id,origin)
+ VALUES($1,'phantom-manage','direct')`, viewerID); err != nil {
+		t.Fatalf("assign new manage role during PATCH: %v", err)
+	}
+	if err := phantomRoleTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := sessionLockTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case response := <-phantomResponse:
+		assert(response, 403, "forbidden")
+	case <-time.After(10 * time.Second):
+		t.Fatal("PATCH did not complete after session row release")
+	}
+	if err := db.QueryRow(ctx, `SELECT tools FROM v3_connectors WHERE id=$1`, readyResult.ID).Scan(&persistedTools); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(persistedTools, &readyTools.RegisteredTools); err != nil || len(readyTools.RegisteredTools) != 1 || readyTools.RegisteredTools[0].Enabled {
+		t.Fatalf("new role authorized revoked PATCH tool update: %s %v", persistedTools, err)
+	}
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE target=$1 AND action='connector.tools.updated'`, readyResult.ID).Scan(&readyAuditsAfter); err != nil || readyAuditsAfter != readyAuditsBefore {
+		t.Fatalf("new role authorized revoked PATCH audit: count=%d before=%d err=%v", readyAuditsAfter, readyAuditsBefore, err)
+	}
+	if _, err := adminDB.Exec(ctx, `DELETE FROM `+quoted+`.rbac_user_roles WHERE user_id=$1 AND role_id='phantom-manage'`, viewerID); err != nil {
+		t.Fatalf("clean new manage role assignment: %v", err)
+	}
+	for _, statement := range []string{
+		`DELETE FROM ` + quoted + `.v3_role_grants WHERE role_id='phantom-manage'`,
+		`DELETE FROM ` + quoted + `.rbac_roles WHERE id='phantom-manage'`,
+	} {
+		if _, err := adminDB.Exec(ctx, statement); err != nil {
+			t.Fatalf("clean new manage role: %v", err)
+		}
+	}
+	if _, err := adminDB.Exec(ctx, `INSERT INTO `+quoted+`.v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('viewer','connectors','manage','environment','dev')`); err != nil {
+		t.Fatal(err)
+	}
+	// Hold the row until both PATCH transactions are waiting for its lock.
+	// Releasing it then proves that both partial updates merge in lock order.
+	lockTx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lockTx.Rollback(ctx)
+	var lockedID string
+	if err := lockTx.QueryRow(ctx, `SELECT id FROM v3_connectors WHERE id=$1 FOR UPDATE`, result.ID).Scan(&lockedID); err != nil || lockedID != result.ID {
+		t.Fatalf("hold connector lock: %s %v", lockedID, err)
+	}
+	responses := make(chan *httptest.ResponseRecorder, 2)
+	for _, name := range []string{"get_commit", "list_merge_requests"} {
+		go func(name string) {
+			responses <- request(http.MethodPatch, "/api/v1/connectors/"+result.ID, "dev", token,
+				fmt.Sprintf(`{"tools":[{"name":%q,"enabled":false}]}`, name))
+		}(name)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var waiting int
+		if err := adminDB.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity
+ WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE '%FROM v3_connectors%FOR UPDATE%'`, schema).Scan(&waiting); err != nil {
+			t.Fatal(err)
+		}
+		if waiting == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected two PATCH transactions waiting for row lock, saw %d", waiting)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := lockTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		assert(<-responses, 200, "")
+	}
+	settings = request(http.MethodGet, settingsPath, "dev", token, "")
+	assert(settings, 200, "")
+	if err := json.Unmarshal(settings.Body.Bytes(), &registered); err != nil || len(registered.RegisteredTools) != 4 {
+		t.Fatalf("concurrent settings were lost: %s %v", settings.Body.String(), err)
+	}
+	if _, err := db.Exec(ctx, `ALTER TABLE management_audit ADD CONSTRAINT reject_tool_update_audit
+ CHECK (action <> 'connector.tools.updated') NOT VALID`); err != nil {
+		t.Fatal(err)
+	}
+	assert(request(http.MethodPatch, "/api/v1/connectors/"+readyResult.ID, "dev", token,
+		`{"tools":[{"name":"query_metrics","enabled":true}]}`), 503, "audit_unavailable")
+	readySettings = request(http.MethodGet, readySettingsPath, "dev", token, "")
+	assert(readySettings, 200, "")
+	if err := json.Unmarshal(readySettings.Body.Bytes(), &readyTools); err != nil || len(readyTools.RegisteredTools) != 1 || readyTools.RegisteredTools[0].Enabled {
+		t.Fatalf("audit failure left a tool setting enabled: %s %v", readySettings.Body.String(), err)
+	}
+	if _, err := db.Exec(ctx, `ALTER TABLE management_audit DROP CONSTRAINT reject_tool_update_audit`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE v3_connectors SET tools=tools || '[{"name":"retired_tool","desc":"old catalog entry","enabled":true}]'::jsonb WHERE id=$1`, result.ID); err != nil {
+		t.Fatal(err)
+	}
+	assert(request(http.MethodGet, settingsPath, "dev", token, ""), 503, "connector_state_unavailable")
+	assert(request(http.MethodPatch, "/api/v1/connectors/"+result.ID, "dev", token,
+		`{"tools":[{"name":"list_pipelines","enabled":false}]}`), 409, "tool_catalog_changed")
+	if err := db.QueryRow(ctx, `SELECT tools FROM v3_connectors WHERE id=$1`, result.ID).Scan(&persistedTools); err != nil || !strings.Contains(string(persistedTools), "retired_tool") {
+		t.Fatalf("catalog drift silently erased stored settings: %s %v", persistedTools, err)
+	}
 	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='connectors' AND action='manage'`); err != nil {
 		t.Fatal(err)
 	}
 	assert(request(http.MethodPatch, "/api/v1/connectors/"+result.ID, "dev", token,
 		`{"tools":[{"name":"get_pipeline","enabled":false}]}`), 403, "forbidden")
+	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='connectors' AND action='view'`); err != nil {
+		t.Fatal(err)
+	}
+	assert(request(http.MethodGet, settingsPath, "dev", token, ""), 403, "forbidden")
 	assert(request(http.MethodPost, "/api/v1/connectors", "dev", token,
 		`{"type":"prometheus","url":"https://metrics.example.invalid","auth":"none"}`), 403, "forbidden")
 }

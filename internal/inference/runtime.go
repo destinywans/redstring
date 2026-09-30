@@ -3,12 +3,14 @@
 package inference
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,9 +30,71 @@ import (
 )
 
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string  `json:"role"`
+	Content string  `json:"content"`
+	Media   []Media `json:"media,omitempty"`
 }
+
+// Media is an already authorized, bounded upload snapshot. Name is the
+// filename used for PDF input; Data is never persisted in a public message.
+// Only the OpenAI Responses adapter currently serializes these kinds.
+type Media struct {
+	Kind string `json:"kind"` // image or pdf
+	MIME string `json:"mime"`
+	Name string `json:"name,omitempty"`
+	Data []byte `json:"data"`
+}
+
+// MaxInlineMediaBytes bounds the aggregate image/PDF bytes carried in one
+// frozen model request. It matches the upload size ceiling; the provider's
+// own limits and actual media token usage remain authoritative.
+const MaxInlineMediaBytes = 20 << 20
+
+var ErrUnsupportedMedia = errors.New("model does not support media input")
+var ErrInvalidMedia = errors.New("invalid model media input")
+var ErrMediaTooLarge = errors.New("model media input exceeds byte limit")
+
+// ValidateMediaForModel is also used by product callers before they commit a
+// durable turn. It never guesses whether a model understands a MIME type.
+func ValidateMediaForModel(model Model, media []Media) error {
+	total := 0
+	for _, item := range media {
+		if len(item.Data) == 0 {
+			return ErrInvalidMedia
+		}
+		if len(item.Data) > MaxInlineMediaBytes-total {
+			return ErrMediaTooLarge
+		}
+		total += len(item.Data)
+		switch item.Kind {
+		case "image":
+			if !model.ImageInput {
+				return ErrUnsupportedMedia
+			}
+			switch item.MIME {
+			case "image/png", "image/jpeg", "image/gif", "image/webp":
+			default:
+				return ErrInvalidMedia
+			}
+			if http.DetectContentType(item.Data) != item.MIME {
+				return ErrInvalidMedia
+			}
+		case "pdf":
+			if !model.PDFInput || !model.ImageInput {
+				return ErrUnsupportedMedia
+			}
+			if item.MIME != "application/pdf" || item.Name == "" || len(item.Name) > 256 ||
+				path.Base(item.Name) != item.Name || strings.Contains(item.Name, "\\") ||
+				!strings.EqualFold(path.Ext(item.Name), ".pdf") || !bytes.HasPrefix(item.Data, []byte("%PDF-")) {
+				return ErrInvalidMedia
+			}
+		default:
+			return ErrUnsupportedMedia
+		}
+	}
+	return nil
+}
+
 type Model struct {
 	ID            string `json:"id"`
 	Provider      string `json:"provider"`
@@ -40,6 +104,8 @@ type Model struct {
 	Streaming     bool   `json:"streaming"`
 	ContextWindow int    `json:"context_window"`
 	InputBudget   int    `json:"input_budget"`
+	ImageInput    bool   `json:"image_input"`
+	PDFInput      bool   `json:"pdf_input"`
 	// ReasoningKind and ReasoningLevels are configured per provider model.
 	// Empty values mean no selectable effort is advertised or accepted.
 	ReasoningKind   string   `json:"reasoning_kind,omitempty"`
@@ -83,12 +149,14 @@ type EvidenceTool struct {
 }
 type Request struct {
 	RunID, AttemptID, BranchID, ModelID string
-	Reasoning                           string
-	Messages                            []Message
-	Tools                               []EvidenceTool
-	MaxCalls, MaxToolCalls              int
-	TimeoutSeconds                      int
-	Deadline                            time.Time
+	// EnvironmentID is required by V3 bound runners before provider execution.
+	EnvironmentID          string
+	Reasoning              string
+	Messages               []Message
+	Tools                  []EvidenceTool
+	MaxCalls, MaxToolCalls int
+	TimeoutSeconds         int
+	Deadline               time.Time
 }
 type Runner interface {
 	Models() []Model
@@ -105,6 +173,10 @@ type Provider struct {
 	ContextWindow, InputBudget int
 	// MaxOutputTokens bounds OpenAI-compatible requests; zero uses 4096.
 	MaxOutputTokens int
+	// ImageInput and PDFInput are explicit per-model capabilities. They are
+	// available only through the Responses wire adapter; PDF needs vision.
+	ImageInput      bool
+	PDFInput        bool
 	ReasoningKind   string
 	ReasoningLevels []string
 }
@@ -240,6 +312,12 @@ func New(cfg Config) (*Runtime, error) {
 			(p.Kind == "ollama" && (p.API == "ollama" || p.API == "chat_completions"))) {
 			return nil, fmt.Errorf("model %s: unsupported provider/API combination %s/%s", p.ID, p.Kind, p.API)
 		}
+		if (p.ImageInput || p.PDFInput) && (p.Kind != "openai" || p.API != "responses") {
+			return nil, fmt.Errorf("model %s: media input requires OpenAI Responses", p.ID)
+		}
+		if p.PDFInput && !p.ImageInput {
+			return nil, fmt.Errorf("model %s: PDF input requires image input", p.ID)
+		}
 		if p.API == "ollama" && u.Path != "" && u.Path != "/" {
 			return nil, fmt.Errorf("model %s: native Ollama endpoint must be the server root", p.ID)
 		}
@@ -257,6 +335,14 @@ func NewFromEnv() (Runner, error) {
 		return nil, err
 	}
 	maxOutputTokens, err := envBoundedInt("OPENAI_MAX_OUTPUT_TOKENS", 4096, 4096)
+	if err != nil {
+		return nil, err
+	}
+	imageModels, err := envModelNames("OPENAI_IMAGE_MODELS")
+	if err != nil {
+		return nil, err
+	}
+	pdfModels, err := envModelNames("OPENAI_PDF_MODELS")
 	if err != nil {
 		return nil, err
 	}
@@ -296,11 +382,34 @@ func NewFromEnv() (Runner, error) {
 			p := Provider{ID: v.kind + ":" + m, Kind: v.kind, API: os.Getenv(v.prefix + "_API"), Model: m, BaseURL: strings.TrimRight(b, "/"), APIKey: os.Getenv(v.prefix + "_API_KEY"), ContextWindow: window, InputBudget: input, ReasoningKind: os.Getenv(v.prefix + "_REASONING_KIND"), ReasoningLevels: levels, DisplayProvider: strings.TrimSpace(os.Getenv(v.prefix + "_PROVIDER_NAME"))}
 			if v.kind == "openai" {
 				p.MaxOutputTokens = maxOutputTokens
+				p.ImageInput = imageModels[m]
+				p.PDFInput = pdfModels[m]
+				delete(imageModels, m)
+				delete(pdfModels, m)
 			}
 			ps = append(ps, p)
 		}
 	}
+	if len(imageModels) > 0 || len(pdfModels) > 0 {
+		return nil, errors.New("media capabilities name an unconfigured OpenAI model")
+	}
 	return New(Config{Providers: ps, MaxCalls: maxCalls})
+}
+
+func envModelNames(name string) (map[string]bool, error) {
+	models := map[string]bool{}
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return models, nil
+	}
+	for _, item := range strings.Split(raw, ",") {
+		model := strings.TrimSpace(item)
+		if model == "" || models[model] {
+			return nil, fmt.Errorf("invalid %s: expected distinct configured model names", name)
+		}
+		models[model] = true
+	}
+	return models, nil
 }
 
 func envBoundedInt(name string, fallback, maximum int) (int, error) {
@@ -321,7 +430,7 @@ func (r *Runtime) Models() []Model {
 		if providerName == "" {
 			providerName = p.Kind
 		}
-		ms = append(ms, Model{ID: p.ID, Name: p.Model, Provider: providerName, API: p.API, Tools: true, Streaming: true, ContextWindow: p.ContextWindow, InputBudget: p.InputBudget, ReasoningKind: p.ReasoningKind, ReasoningLevels: append([]string(nil), p.ReasoningLevels...)})
+		ms = append(ms, Model{ID: p.ID, Name: p.Model, Provider: providerName, API: p.API, Tools: true, Streaming: true, ContextWindow: p.ContextWindow, InputBudget: p.InputBudget, ImageInput: p.ImageInput, PDFInput: p.PDFInput, ReasoningKind: p.ReasoningKind, ReasoningLevels: append([]string(nil), p.ReasoningLevels...)})
 	}
 	return ms
 }
@@ -365,14 +474,22 @@ func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) 
 		return "", err
 	}
 	total := 0
+	var media []Media
 	for _, m := range req.Messages {
 		total += len(m.Content)
 		if m.Role != "user" && m.Role != "assistant" && m.Role != "system" {
 			return "", errors.New("invalid message role")
 		}
+		if len(m.Media) > 0 && m.Role != "user" {
+			return "", ErrInvalidMedia
+		}
+		media = append(media, m.Media...)
 	}
 	if total > 2<<20 {
 		return "", errors.New("frozen context exceeds 2 MiB")
+	}
+	if err := ValidateMediaForModel(Model{ImageInput: p.ImageInput, PDFInput: p.PDFInput}, media); err != nil {
+		return "", err
 	}
 	timeout := r.cfg.Timeout
 	if req.TimeoutSeconds > 0 && time.Duration(req.TimeoutSeconds)*time.Second < timeout {
@@ -488,7 +605,7 @@ func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) 
 		return "", err
 	}
 	var final string
-	for ev, runErr := range run.Run(ctx, "worker", sid, genai.NewContentFromText(req.Messages[len(req.Messages)-1].Content, genai.RoleUser), agent.RunConfig{StreamingMode: agent.StreamingModeSSE}) {
+	for ev, runErr := range run.Run(ctx, "worker", sid, contentFromMessage(req.Messages[len(req.Messages)-1], genai.RoleUser), agent.RunConfig{StreamingMode: agent.StreamingModeSSE}) {
 		if runErr != nil {
 			mu.Lock()
 			e := persistErr
@@ -533,4 +650,17 @@ func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) 
 		return "", errors.New("model returned no final answer")
 	}
 	return final, nil
+}
+
+func contentFromMessage(message Message, role genai.Role) *genai.Content {
+	parts := make([]*genai.Part, 0, len(message.Media)+1)
+	if message.Content != "" {
+		parts = append(parts, genai.NewPartFromText(message.Content))
+	}
+	for _, item := range message.Media {
+		part := genai.NewPartFromBytes(item.Data, item.MIME)
+		part.InlineData.DisplayName = item.Name
+		parts = append(parts, part)
+	}
+	return &genai.Content{Role: string(role), Parts: parts}
 }

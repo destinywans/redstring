@@ -197,6 +197,23 @@ func (s *Service) Register(api *httpapi.Server) {
 			fail(w, e)
 			return
 		}
+		// This legacy route cannot enforce V3 knowledge, team and environment
+		// grants. The V3 record still identifies a Runbook after a legacy edit
+		// changes its source; all V3 references belong to the V3 read path.
+		if strings.HasPrefix(d.Source, "runbook://v3/") {
+			fail(w, store.ErrNotFound)
+			return
+		}
+		var v3Runbook bool
+		e = s.Store.DB.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM v3_runbooks WHERE document_id=$1)`, d.ID).Scan(&v3Runbook)
+		if e != nil {
+			fail(w, e)
+			return
+		}
+		if v3Runbook {
+			fail(w, store.ErrNotFound)
+			return
+		}
 		apps, e := api.VisibleApplicationIDs(r.Context(), httpapi.CurrentUser(r))
 		if e != nil {
 			fail(w, e)
@@ -245,7 +262,9 @@ WITH selected AS (
  SELECT ARRAY(SELECT unnest($2::text[]) INTERSECT SELECT unnest($1::text[])) AS apps
 )
 SELECT d.id FROM knowledge_documents d CROSS JOIN selected
-WHERE (d.application_id=ANY($1::text[]) OR d.metadata->>'visibility'='workspace'
+WHERE d.source NOT LIKE 'runbook://v3/%'
+AND NOT EXISTS (SELECT 1 FROM v3_runbooks vr WHERE vr.document_id=d.id)
+AND (d.application_id=ANY($1::text[]) OR d.metadata->>'visibility'='workspace'
  OR COALESCE(d.metadata->'shared_application_ids','[]'::jsonb) ?| $1::text[])
 AND (COALESCE(cardinality($2::text[]),0)=0 OR
  (cardinality(selected.apps)>0 AND (d.application_id=ANY(selected.apps)

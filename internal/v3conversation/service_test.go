@@ -2,6 +2,7 @@ package v3conversation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -55,10 +56,48 @@ func TestModelSelectionConfiguredOnly(t *testing.T) {
 }
 
 func TestPageBounds(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/conversations?page=-1&page_size=99999", nil)
-	page, size := pagination(req)
-	if page != 1 || size != 100 {
-		t.Fatalf("page=%d size=%d", page, size)
+	for _, tc := range []struct {
+		query string
+		code  string
+	}{
+		{query: "?page=-1", code: "invalid_page"},
+		{query: "?page=9223372036854775807", code: "invalid_page"},
+		{query: "?page_size=99999", code: "invalid_page_size"},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/conversations"+tc.query, nil)
+		if _, _, code := pagination(req); code != tc.code {
+			t.Fatalf("query=%s code=%q, want %q", tc.query, code, tc.code)
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/conversations?page=100000&page_size=100", nil)
+	page, size, code := pagination(req)
+	if code != "" || page != 100000 || size != 100 {
+		t.Fatalf("page=%d size=%d code=%q", page, size, code)
+	}
+}
+
+func TestLastEventCursorRejectsAmbiguousOrInvalidReplayPositions(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		values []string
+		want   int64
+		valid  bool
+	}{
+		{name: "initial", valid: true},
+		{name: "last committed", values: []string{"42"}, want: 42, valid: true},
+		{name: "explicit zero", values: []string{"0"}, valid: true},
+		{name: "empty", values: []string{""}},
+		{name: "negative", values: []string{"-1"}},
+		{name: "non decimal", values: []string{"4x"}},
+		{name: "overflow", values: []string{"9223372036854775808"}},
+		{name: "duplicate", values: []string{"4", "5"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, valid := lastEventCursor(tc.values)
+			if got != tc.want || valid != tc.valid {
+				t.Fatalf("lastEventCursor(%q) = (%d,%t), want (%d,%t)", tc.values, got, valid, tc.want, tc.valid)
+			}
+		})
 	}
 }
 
@@ -217,12 +256,20 @@ func isolatedConversationDBWithConns(t *testing.T, maxConns int32) *pgxpool.Pool
 		t.Fatal(err)
 	}
 	_, err = db.Exec(ctx, `
-		CREATE TABLE v3_conversations (id text PRIMARY KEY, owner_id text NOT NULL, environment_id text NOT NULL, active_reply_id text, updated_at timestamptz);
-		CREATE TABLE v3_conversation_messages (id text PRIMARY KEY, conversation_id text NOT NULL, role text NOT NULL, author text NOT NULL, parts jsonb NOT NULL, attachments jsonb NOT NULL DEFAULT '[]', run jsonb, state text NOT NULL, created_at timestamptz NOT NULL DEFAULT now());
+		CREATE TABLE v3_conversations (id text PRIMARY KEY, owner_id text NOT NULL, environment_id text NOT NULL, active_reply_id text, updated_at timestamptz, metrics_source_required boolean NOT NULL DEFAULT false);
+		CREATE SEQUENCE v3_conversation_message_order_seq;
+		CREATE TABLE v3_conversation_messages (id text PRIMARY KEY, conversation_id text NOT NULL, role text NOT NULL, author text NOT NULL, parts jsonb NOT NULL, attachments jsonb NOT NULL DEFAULT '[]', attachment_context text NOT NULL DEFAULT '', run jsonb, state text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), sort_order bigint NOT NULL DEFAULT nextval('v3_conversation_message_order_seq'), UNIQUE(conversation_id,sort_order));
 		CREATE TABLE v3_conversation_replies (id text PRIMARY KEY, conversation_id text NOT NULL, assistant_message_id text NOT NULL, initiating_session_hash text NOT NULL DEFAULT '', worker_claim_id text NOT NULL DEFAULT '', lease_expires_at timestamptz, state text NOT NULL, error text NOT NULL DEFAULT '', finished_at timestamptz);
+		CREATE TABLE v3_metrics_questions (owner_id text NOT NULL,request_id text NOT NULL,conversation_id text NOT NULL UNIQUE,initial_reply_id text NOT NULL,environment_id text NOT NULL,application_id text NOT NULL,view_id text NOT NULL,range_id text NOT NULL,payload_hash text NOT NULL,binding_id text NOT NULL,connector_id text NOT NULL,resource_id text NOT NULL,query_id text NOT NULL,source_fingerprint text NOT NULL,window_start timestamptz NOT NULL,window_end timestamptz NOT NULL,evidence_sha256 text NOT NULL,PRIMARY KEY(owner_id,request_id));
 		CREATE TABLE v3_conversation_events (seq bigserial PRIMARY KEY, conversation_id text NOT NULL, reply_id text NOT NULL, payload jsonb NOT NULL);
 		CREATE TABLE sessions (token_hash text PRIMARY KEY, user_id text NOT NULL, expires_at timestamptz NOT NULL);
-		CREATE TABLE management_audit (actor_id text NOT NULL, actor_kind text NOT NULL, action text NOT NULL, target text NOT NULL, outcome text NOT NULL, changes jsonb NOT NULL);
+		CREATE TABLE users (id text PRIMARY KEY,email text NOT NULL DEFAULT '',name text NOT NULL DEFAULT '',role text NOT NULL DEFAULT '',department_id text,disabled boolean NOT NULL DEFAULT false,deleted_at timestamptz);
+		CREATE TABLE rbac_user_roles (user_id text NOT NULL,role_id text NOT NULL);
+		CREATE TABLE rbac_department_roles (department_id text NOT NULL,role_id text NOT NULL);
+		CREATE TABLE rbac_roles (id text PRIMARY KEY);
+		CREATE TABLE v3_role_grants (role_id text NOT NULL,module text NOT NULL,action text NOT NULL,scope_kind text NOT NULL,scope_id text NOT NULL);
+		CREATE TABLE management_audit (id bigserial PRIMARY KEY, chain_seq bigserial NOT NULL UNIQUE, actor_id text NOT NULL, actor_kind text NOT NULL, action text NOT NULL, target text NOT NULL, outcome text NOT NULL, changes jsonb NOT NULL);
+		INSERT INTO users(id,email,name,role) VALUES('persisted-owner','owner@local','Owner','viewer');
 		INSERT INTO v3_conversations(id,owner_id,environment_id,active_reply_id) VALUES('c','persisted-owner','test','r');
 		INSERT INTO v3_conversation_messages(id,conversation_id,role,author,parts,state) VALUES('u','c','user','user','[{"type":"text","markdown":"private history"}]','completed'),('a','c','assistant','AI','[]','streaming');
 		INSERT INTO v3_conversation_replies(id,conversation_id,assistant_message_id,worker_claim_id,lease_expires_at,state) VALUES('r','c','a','r',clock_timestamp()+interval '1 hour','queued');`)
@@ -305,6 +352,299 @@ func TestBackgroundTurnRevocationBeforeCompletionDiscardsOutput(t *testing.T) {
 	}
 	if leaked {
 		t.Fatal("replayable model output survived revocation")
+	}
+}
+
+func TestFinishRechecksSessionAndGrantInTerminalTransaction(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		revokeSession bool
+		revokeGrant   bool
+		providerError bool
+		wantState     string
+	}{
+		{name: "active", wantState: "completed"},
+		{name: "session revoked", revokeSession: true, wantState: "failed"},
+		{name: "grant revoked", revokeGrant: true, wantState: "failed"},
+		{name: "provider failed after session revocation", revokeSession: true, providerError: true, wantState: "failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := isolatedConversationDBWithConns(t, 1)
+			ctx := context.Background()
+			if _, err := db.Exec(ctx, `UPDATE v3_conversation_replies SET state='running' WHERE id='r';
+				INSERT INTO v3_conversation_events(conversation_id,reply_id,payload)
+				VALUES('c','r','{"type":"text.delta","message_id":"a","delta":"private answer"}')`); err != nil {
+				t.Fatal(err)
+			}
+			if tc.revokeSession {
+				if _, err := db.Exec(ctx, `DELETE FROM sessions WHERE user_id='persisted-owner'`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			checks := 0
+			svc := New(db, nil, Options{AuthorizeBackgroundTurnTx: func(ctx context.Context, tx pgx.Tx, owner, env string) error {
+				checks++
+				if owner != "persisted-owner" || env != "test" {
+					t.Fatalf("wrong persisted scope: %q %q", owner, env)
+				}
+				var one int
+				if err := tx.QueryRow(ctx, `SELECT 1`).Scan(&one); err != nil || one != 1 {
+					t.Fatalf("transaction callback used another connection: %d %v", one, err)
+				}
+				if tc.revokeGrant {
+					return ErrForbidden
+				}
+				return nil
+			}})
+			var modelErr error
+			if tc.providerError {
+				modelErr = errors.New("provider failed after partial output")
+			}
+			if err := svc.finish(ctx, "c", "r", "r", "a", []json.RawMessage{textPart("private answer")}, map[string]any{"id": "r", "tokens": 2}, modelErr); err != nil {
+				t.Fatal(err)
+			}
+			if tc.revokeSession && checks != 0 || !tc.revokeSession && checks != 1 {
+				t.Fatalf("grant checks=%d", checks)
+			}
+			var state, parts string
+			var run []byte
+			if err := db.QueryRow(ctx, `SELECT state,parts::text,run FROM v3_conversation_messages WHERE id='a'`).Scan(&state, &parts, &run); err != nil {
+				t.Fatal(err)
+			}
+			if state != tc.wantState {
+				t.Fatalf("state=%s want=%s", state, tc.wantState)
+			}
+			var count int
+			if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_conversation_events WHERE reply_id='r' AND payload->>'type'='message.completed'`).Scan(&count); err != nil || count != 1 {
+				t.Fatalf("terminal events=%d err=%v", count, err)
+			}
+			if tc.wantState == "failed" {
+				var replayed bool
+				if err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_conversation_events WHERE reply_id='r' AND payload::text LIKE '%private answer%')`).Scan(&replayed); err != nil || replayed || strings.Contains(parts, "private answer") || run != nil {
+					t.Fatalf("revoked answer retained: replayed=%v parts=%s run=%s err=%v", replayed, parts, run, err)
+				}
+			} else if !strings.Contains(parts, "private answer") || !strings.Contains(string(run), `"tokens": 2`) {
+				t.Fatalf("successful answer missing: parts=%s run=%s", parts, run)
+			}
+		})
+	}
+}
+
+func TestTerminalGrantLockSerializesRevocation(t *testing.T) {
+	db := isolatedConversationDBWithConns(t, 4)
+	ctx := context.Background()
+	if _, err := db.Exec(ctx, `UPDATE v3_conversation_replies SET state='running' WHERE id='r';
+		INSERT INTO rbac_roles(id) VALUES('conversation-role');
+		INSERT INTO rbac_user_roles(user_id,role_id) VALUES('persisted-owner','conversation-role');
+		INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+			VALUES('conversation-role','conversation','change','environment','test')`); err != nil {
+		t.Fatal(err)
+	}
+	checked := make(chan struct{})
+	release := make(chan struct{})
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	svc := New(db, nil, Options{AuthorizeBackgroundTurnTx: func(ctx context.Context, tx pgx.Tx, owner, env string) error {
+		var granted bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_role_grants
+			WHERE role_id='conversation-role' AND module='conversation' AND action='change')`).Scan(&granted); err != nil {
+			return err
+		}
+		if !granted || owner != "persisted-owner" || env != "test" {
+			return ErrForbidden
+		}
+		close(checked)
+		<-release
+		return nil
+	}})
+	done := make(chan error, 1)
+	go func() { done <- svc.finish(ctx, "c", "r", "r", "a", []json.RawMessage{textPart("answer")}, nil, nil) }()
+	select {
+	case <-checked:
+	case err := <-done:
+		t.Fatalf("finish returned before grant check: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("finish did not reach grant check")
+	}
+	deleteCtx, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
+	_, deleteErr := db.Exec(deleteCtx, `DELETE FROM v3_role_grants
+		WHERE role_id='conversation-role' AND module='conversation' AND action='change'`)
+	cancel()
+	if !errors.Is(deleteErr, context.DeadlineExceeded) {
+		close(release)
+		t.Fatalf("grant deletion should wait for terminal commit: %v", deleteErr)
+	}
+	insertCtx, insertCancel := context.WithTimeout(ctx, 150*time.Millisecond)
+	_, insertErr := db.Exec(insertCtx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+		VALUES('conversation-role','conversation','view','environment','test')`)
+	insertCancel()
+	if !errors.Is(insertErr, context.DeadlineExceeded) {
+		close(release)
+		t.Fatalf("new grant should wait for terminal commit: %v", insertErr)
+	}
+	close(release)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("terminal commit did not finish")
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='conversation-role'`); err != nil {
+		t.Fatal(err)
+	}
+	var state string
+	if err := db.QueryRow(ctx, `SELECT state FROM v3_conversation_replies WHERE id='r'`).Scan(&state); err != nil || state != "completed" {
+		t.Fatalf("revocation after terminal commit state=%s err=%v", state, err)
+	}
+}
+
+func TestRecoveryLocksAuthorizationBeforeRetainingPartialOutput(t *testing.T) {
+	db := isolatedConversationDBWithConns(t, 4)
+	ctx := context.Background()
+	if _, err := db.Exec(ctx, `UPDATE v3_conversation_replies
+		SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE id='r';
+		INSERT INTO rbac_roles(id) VALUES('conversation-role');
+		INSERT INTO rbac_user_roles(user_id,role_id) VALUES('persisted-owner','conversation-role');
+		INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+			VALUES('conversation-role','conversation','change','environment','test');
+		INSERT INTO v3_conversation_events(conversation_id,reply_id,payload)
+			VALUES('c','r','{"type":"text.delta","message_id":"a","delta":"authorized partial"}')`); err != nil {
+		t.Fatal(err)
+	}
+	checked := make(chan struct{})
+	release := make(chan struct{})
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	svc := New(db, nil, Options{AuthorizeBackgroundTurnTx: func(ctx context.Context, tx pgx.Tx, owner, env string) error {
+		var granted bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_role_grants
+			WHERE role_id='conversation-role' AND action='change')`).Scan(&granted); err != nil {
+			return err
+		}
+		if !granted || owner != "persisted-owner" || env != "test" {
+			return ErrForbidden
+		}
+		close(checked)
+		<-release
+		return nil
+	}})
+	done := make(chan error, 1)
+	go func() { done <- svc.recoverOne(ctx, "c", "r") }()
+	select {
+	case <-checked:
+	case err := <-done:
+		t.Fatalf("recovery returned before grant check: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("recovery did not reach grant check")
+	}
+	deleteCtx, cancel := context.WithTimeout(ctx, 150*time.Millisecond)
+	_, deleteErr := db.Exec(deleteCtx, `DELETE FROM sessions WHERE user_id='persisted-owner'`)
+	cancel()
+	if !errors.Is(deleteErr, context.DeadlineExceeded) {
+		close(release)
+		t.Fatalf("session revocation should wait for recovery commit: %v", deleteErr)
+	}
+	close(release)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("recovery did not finish")
+	}
+	var state, parts string
+	if err := db.QueryRow(ctx, `SELECT state,parts::text FROM v3_conversation_messages WHERE id='a'`).Scan(&state, &parts); err != nil || state != "failed" || !strings.Contains(parts, "authorized partial") {
+		t.Fatalf("authorized recovery state=%s parts=%s err=%v", state, parts, err)
+	}
+}
+
+func TestTerminalLockFollowsRoleWriterOrder(t *testing.T) {
+	db := isolatedConversationDBWithConns(t, 4)
+	ctx := context.Background()
+	if _, err := db.Exec(ctx, `UPDATE v3_conversation_replies SET state='running' WHERE id='r';
+		INSERT INTO rbac_roles(id) VALUES('conversation-role');
+		INSERT INTO rbac_user_roles(user_id,role_id) VALUES('persisted-owner','conversation-role');
+		INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+			VALUES('conversation-role','conversation','change','environment','test')`); err != nil {
+		t.Fatal(err)
+	}
+	writer, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Rollback(ctx)
+	var role string
+	if err := writer.QueryRow(ctx, `SELECT id FROM rbac_roles WHERE id='conversation-role' FOR UPDATE`).Scan(&role); err != nil {
+		t.Fatal(err)
+	}
+	checked := make(chan struct{})
+	release := make(chan struct{})
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	svc := New(db, nil, Options{AuthorizeBackgroundTurnTx: func(context.Context, pgx.Tx, string, string) error {
+		close(checked)
+		<-release
+		return nil
+	}})
+	done := make(chan error, 1)
+	go func() { done <- svc.finish(ctx, "c", "r", "r", "a", []json.RawMessage{textPart("answer")}, nil, nil) }()
+	select {
+	case <-checked:
+		// The terminal transaction reached its policy read despite a role
+		// writer holding the rbac_roles row first.
+	case err := <-done:
+		t.Fatalf("terminal write returned before policy read: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("terminal write waited on the role row held by the writer")
+	}
+	writerDone := make(chan error, 1)
+	go func() {
+		_, err := writer.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='conversation-role'`)
+		if err == nil {
+			err = writer.Commit(ctx)
+		}
+		writerDone <- err
+	}()
+	select {
+	case err := <-writerDone:
+		close(release)
+		t.Fatalf("role writer passed terminal table lock early: %v", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("terminal write deadlocked with role writer")
+	}
+	select {
+	case err := <-writerDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("role writer did not resume after terminal commit")
 	}
 }
 

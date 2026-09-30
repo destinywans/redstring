@@ -72,6 +72,16 @@ func (s *PGRepository) UpdateDocument(ctx context.Context, id string, in UpdateI
 	if err != nil {
 		return d, err
 	}
+	if strings.HasPrefix(d.Source, "runbook://v3/") {
+		return Document{}, store.ErrNotFound
+	}
+	var v3Runbook bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_runbooks WHERE document_id=$1)`, id).Scan(&v3Runbook); err != nil {
+		return Document{}, err
+	}
+	if v3Runbook {
+		return Document{}, store.ErrNotFound
+	}
 	if d.Version != in.ExpectedVersion {
 		return d, store.ErrConflict
 	}
@@ -110,6 +120,16 @@ func (s *PGRepository) TransitionDocument(ctx context.Context, id string, versio
 	d, err := scanDoc(tx.QueryRow(ctx, selectDoc+" WHERE d.id=$1 FOR UPDATE OF d", id))
 	if err != nil {
 		return d, err
+	}
+	if strings.HasPrefix(d.Source, "runbook://v3/") {
+		return Document{}, store.ErrNotFound
+	}
+	var v3Runbook bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_runbooks WHERE document_id=$1)`, id).Scan(&v3Runbook); err != nil {
+		return Document{}, err
+	}
+	if v3Runbook {
+		return Document{}, store.ErrNotFound
 	}
 	if d.Version != version {
 		return d, store.ErrConflict
@@ -172,7 +192,9 @@ func (s *PGRepository) ReserveRevisionGeneration(ctx context.Context, id string,
 // bigrams works without requiring an unavailable Chinese text-search extension.
 func (s *PGRepository) KeywordSearch(ctx context.Context, app, environment, query string, limit int) ([]Hit, error) {
 	terms := queryTerms(query)
-	rows, err := s.DB.Query(ctx, `SELECT d.id,coalesce(d.application_id,''),d.title,d.source,d.version,d.body,d.metadata FROM knowledge_documents d WHERE d.lifecycle='published' AND (d.application_id=$1 OR d.metadata->>'visibility'='workspace' OR COALESCE(d.metadata->'shared_application_ids','[]'::jsonb) ? $1) AND ($2='' OR COALESCE(d.metadata->'environment_ids','[]'::jsonb)='[]'::jsonb OR d.metadata->'environment_ids' ? $2) AND EXISTS(SELECT 1 FROM unnest($3::text[]) term WHERE aiops_search_match(d.title || ' ' || d.body || ' ' || coalesce(d.metadata->'tags','[]')::text,term)) ORDER BY d.id`, app, environment, terms)
+	// Legacy callers have no V3 team principal. Never expose team-scoped or
+	// unverified source documents through this application-only path.
+	rows, err := s.DB.Query(ctx, `SELECT d.id,coalesce(d.application_id,''),d.title,d.source,d.version,d.body,d.metadata FROM knowledge_documents d WHERE `+legacyV3RunbookFilter+` AND d.lifecycle='published' AND NOT (d.metadata ? 'source_registration_id') AND NOT (d.metadata ? 'team_id') AND (NOT (d.metadata ? 'environment_ids') OR CASE WHEN jsonb_typeof(d.metadata->'environment_ids')='array' THEN NOT EXISTS (SELECT 1 FROM jsonb_array_elements(d.metadata->'environment_ids') env_item WHERE jsonb_typeof(env_item)<>'string' OR btrim(env_item #>> '{}')='') ELSE false END) AND (d.application_id=$1 OR d.metadata->>'visibility'='workspace' OR COALESCE(d.metadata->'shared_application_ids','[]'::jsonb) ? $1) AND ($2='' OR COALESCE(d.metadata->'environment_ids','[]'::jsonb)='[]'::jsonb OR d.metadata->'environment_ids' ? $2) AND EXISTS(SELECT 1 FROM unnest($3::text[]) term WHERE aiops_search_match(d.title || ' ' || d.body || ' ' || coalesce(d.metadata->'tags','[]')::text,term)) ORDER BY d.id`, app, environment, terms)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +225,7 @@ func (s *PGRepository) KeywordSearch(ctx context.Context, app, environment, quer
 // Filter before LIMIT, so documents outside the actor's applications cannot
 // displace visible records from the first result page.
 func (s *PGRepository) ListVisible(ctx context.Context, apps []string) ([]Document, error) {
-	rows, err := s.DB.Query(ctx, selectDoc+" WHERE d.application_id=ANY($1::text[]) OR d.metadata->>'visibility'='workspace' OR COALESCE(d.metadata->'shared_application_ids','[]'::jsonb) ?| $1::text[] ORDER BY d.created_at DESC LIMIT 200", apps)
+	rows, err := s.DB.Query(ctx, selectDoc+" WHERE "+legacyV3RunbookFilter+" AND (d.application_id=ANY($1::text[]) OR d.metadata->>'visibility'='workspace' OR COALESCE(d.metadata->'shared_application_ids','[]'::jsonb) ?| $1::text[]) ORDER BY d.created_at DESC LIMIT 200", apps)
 	if err != nil {
 		return nil, err
 	}

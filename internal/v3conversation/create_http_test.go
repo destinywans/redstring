@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/inference"
+	"github.com/wans/aiops-canvas/internal/store"
 )
 
 func TestCreateConversationHTTPPersistsScopeModelAndAudit(t *testing.T) {
@@ -23,6 +24,12 @@ func TestCreateConversationHTTPPersistsScopeModelAndAudit(t *testing.T) {
 	if _, err := db.Exec(ctx, `ALTER TABLE management_audit ALTER COLUMN actor_kind SET DEFAULT 'user'`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(ctx, `INSERT INTO users(id,email,name,role) VALUES('owner-1','owner-1@local','Owner','viewer')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,'owner-1',now()+interval '1 hour')`, store.Hash("owner-session")); err != nil {
+		t.Fatal(err)
+	}
 	granted, writeGranted := true, true
 	defaultModel := "model-2"
 	svc := New(db, testRuntime{models: []inference.Model{{ID: "model-1"}, {ID: "model-2"}}}, Options{
@@ -33,7 +40,7 @@ func TestCreateConversationHTTPPersistsScopeModelAndAudit(t *testing.T) {
 			}
 			return nil, nil
 		},
-		DefaultModel: func(_ context.Context, owner string) (string, error) {
+		DefaultModel: func(_ context.Context, owner, env string) (string, error) {
 			if owner != "owner-1" {
 				t.Fatalf("unexpected model owner %q", owner)
 			}
@@ -50,6 +57,7 @@ func TestCreateConversationHTTPPersistsScopeModelAndAudit(t *testing.T) {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/conversations", strings.NewReader(body))
 		req.Header.Set("X-AIOps-Environment", env)
+		req.AddCookie(&http.Cookie{Name: "aiops_session", Value: "owner-session"})
 		rr := httptest.NewRecorder()
 		svc.createHTTP(rr, req)
 		return rr
@@ -134,5 +142,15 @@ func TestCreateConversationHTTPPersistsScopeModelAndAudit(t *testing.T) {
 	var total int
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_conversations WHERE owner_id='owner-1'`).Scan(&total); err != nil || total != 3 {
 		t.Fatalf("conversation count=%d err=%v", total, err)
+	}
+	granted = true
+	if _, err := db.Exec(ctx, `DELETE FROM sessions WHERE token_hash=$1`, store.Hash("owner-session")); err != nil {
+		t.Fatal(err)
+	}
+	if got := post("test", `{"text":"after session revocation"}`); got.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked session status=%d body=%s", got.Code, got.Body.String())
+	}
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_conversations WHERE owner_id='owner-1'`).Scan(&total); err != nil || total != 3 {
+		t.Fatalf("revoked session created conversation: count=%d err=%v", total, err)
 	}
 }

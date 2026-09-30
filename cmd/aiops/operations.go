@@ -16,11 +16,8 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3webhook"
 )
 
-func configureOperations(ctx context.Context, db *store.Store, api *httpapi.Server, worker *httpapi.Worker, know *knowledge.Service, v3Scope *httpapi.V3InstanceConfig) (*operations.Service, error) {
-	config, e := operations.LoadConfig(os.Getenv("AIOPS_OPERATIONS_CONFIG"))
-	if e != nil {
-		return nil, e
-	}
+func configureOperations(ctx context.Context, db *store.Store, api *httpapi.Server, worker *httpapi.Worker, know *knowledge.Service, v3Scope *httpapi.V3InstanceConfig, config operations.Config) (*operations.Service, error) {
+	var e error
 	ops := operations.New(db.DB, db, api, worker.Runtime, config)
 	ops.Tools = worker.Tools
 	if e = ops.Migrate(ctx); e != nil {

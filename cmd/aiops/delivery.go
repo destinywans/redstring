@@ -16,22 +16,47 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
-func configureDelivery(ctx context.Context, s *store.Store, api *httpapi.Server, acts *actions.Service) (*delivery.Service, *deployment.Service, error) {
+func loadDeliveryConfig(path string) (delivery.Config, error) {
 	var config delivery.Config
-	if path := os.Getenv("AIOPS_DELIVERY_CONFIG"); path != "" {
+	if path != "" {
 		b, e := os.ReadFile(path)
 		if e != nil {
-			return nil, nil, e
+			return config, e
 		}
 		d := json.NewDecoder(strings.NewReader(string(b)))
 		d.DisallowUnknownFields()
 		if e = d.Decode(&config); e != nil {
-			return nil, nil, e
+			return config, e
 		}
 	}
+	return config, nil
+}
+
+func configureDelivery(ctx context.Context, s *store.Store, api *httpapi.Server, acts *actions.Service, config delivery.Config, v3Scope *httpapi.V3InstanceConfig) (*delivery.Service, *deployment.Service, error) {
 	d, e := delivery.New(s.DB, config)
 	if e != nil {
 		return nil, nil, e
+	}
+	if v3Scope != nil {
+		// Native GitLab ingress has no browser environment header. Its fixed
+		// project binding must still belong to this V3 instance at receipt time.
+		environments := append([]string(nil), v3Scope.EnvironmentIDs...)
+		d.V3WebhookEnvironments = environments
+		d.ValidateEnvironment = func(ctx context.Context, app, env string) error {
+			var active bool
+			err := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM application_environments e
+			 JOIN applications a ON a.id=e.application_id AND NOT a.archived
+			 JOIN v3_application_environments ve ON ve.application_id=e.application_id AND ve.environment_id=e.key
+			 WHERE e.id=$1 AND e.application_id=$2 AND e.key=ANY($3::text[]) AND NOT e.archived)`,
+				env, app, environments).Scan(&active)
+			if err != nil {
+				return err
+			}
+			if !active {
+				return store.ErrForbidden
+			}
+			return nil
+		}
 	}
 	if e = d.Migrate(ctx); e != nil {
 		return nil, nil, e

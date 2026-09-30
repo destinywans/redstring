@@ -1,6 +1,7 @@
 package v3postmortems
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -12,32 +13,51 @@ import (
 // Record is a persisted postmortem list item. It intentionally omits the
 // dashboard's untracked cause categories and action completion metrics.
 type Record struct {
-	ID          string `json:"id"`
-	IncidentID  string `json:"incident_id"`
-	Title       string `json:"title"`
-	Severity    string `json:"severity"`
-	Resolved    string `json:"resolved"`
-	Duration    string `json:"duration"`
-	Status      string `json:"status"`
-	CreatedAt   string `json:"created_at"`
-	ActionCount int    `json:"action_count"`
+	ID             string   `json:"id"`
+	IncidentID     string   `json:"incident_id"`
+	Title          string   `json:"title"`
+	Severity       string   `json:"severity"`
+	Resolved       string   `json:"resolved"`
+	Duration       string   `json:"duration"`
+	SourceRevision string   `json:"source_revision"`
+	UnknownFields  []string `json:"unknown_fields,omitempty"`
+	Status         string   `json:"status"`
+	CreatedAt      string   `json:"created_at"`
+	ActionCount    int      `json:"action_count"`
 }
 
-const recordsSQL = `SELECT pm.id,pm.incident_id,pm.status,pm.created_at,
- i.application_id,COALESCE(a.owner_team_id,''),e.key,i.title,i.severity,i.starts_at,closed.created_at,
- jsonb_array_length(pm.actions)
- FROM v3_postmortems pm
- JOIN ops_incidents i ON i.id=pm.incident_id AND i.application_id=pm.application_id
-   AND i.investigation_id=pm.investigation_id
- JOIN applications a ON a.id=pm.application_id AND NOT a.archived
- JOIN application_environments e ON e.id=i.environment_id AND e.application_id=pm.application_id
-   AND e.key=pm.environment_id AND NOT e.archived
- JOIN v3_application_environments ve ON ve.application_id=pm.application_id AND ve.environment_id=pm.environment_id
- JOIN events closed ON closed.seq=pm.close_event_seq AND closed.investigation_id=pm.investigation_id
-   AND closed.type='investigation.closed'
- WHERE pm.environment_id=ANY($1::text[]) AND ($2::text='all' OR pm.status=$2)
-   AND ($3::timestamptz IS NULL OR (pm.created_at,pm.id)<($3::timestamptz,$4::text))
+const recordsSQL = postmortemSources + ` SELECT pm.id,pm.incident_id,pm.status,pm.created_at,pm.created_by,
+ s.application_id,s.team_id,s.environment_id,s.title,s.severity,s.started_at,
+ CASE WHEN pm.source_kind='ops' THEN saved_close.created_at ELSE saved_case.created_at END,
+ pm.source_kind,pm.close_event_seq,pm.source_case_status_event_id,jsonb_array_length(pm.actions)
+ ` + recordSourceFrom + `
+ WHERE ` + validRecordedSource + ` AND pm.environment_id=ANY($1::text[])
+ AND ($2::text='all' OR pm.status=$2)
+ AND ($3::timestamptz IS NULL OR (pm.created_at,pm.id)<($3::timestamptz,$4::text))
  ORDER BY pm.created_at DESC,pm.id DESC LIMIT 256`
+
+func (v Record) MarshalJSON() ([]byte, error) {
+	type recordJSON struct {
+		ID             string   `json:"id"`
+		IncidentID     string   `json:"incident_id"`
+		Title          string   `json:"title"`
+		Severity       string   `json:"severity"`
+		Resolved       string   `json:"resolved"`
+		Duration       any      `json:"duration"`
+		Status         string   `json:"status"`
+		CreatedAt      string   `json:"created_at"`
+		ActionCount    int      `json:"action_count"`
+		SourceRevision string   `json:"source_revision"`
+		UnknownFields  []string `json:"unknown_fields,omitempty"`
+	}
+	out := recordJSON{ID: v.ID, IncidentID: v.IncidentID, Title: v.Title, Severity: v.Severity,
+		Resolved: v.Resolved, Duration: v.Duration, Status: v.Status, CreatedAt: v.CreatedAt,
+		ActionCount: v.ActionCount, SourceRevision: v.SourceRevision, UnknownFields: v.UnknownFields}
+	if len(v.UnknownFields) > 0 {
+		out.Duration = nil
+	}
+	return json.Marshal(out)
+}
 
 // Records exposes only fields backed by durable incident and postmortem data.
 // The dashboard's PostmortemSummary contract remains separate and unavailable.
@@ -55,10 +75,13 @@ func (s *Service) Records(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type row struct {
-		record         Record
-		app, team, env string
-		start, closed  time.Time
-		created        time.Time
+		record                  Record
+		app, team, env, author  string
+		start                   *time.Time
+		closed                  time.Time
+		kind                    string
+		closeSeq, statusEventID *int64
+		created                 time.Time
 	}
 	items := make([]Record, 0)
 	user := httpapi.CurrentUser(r)
@@ -74,9 +97,9 @@ func (s *Service) Records(w http.ResponseWriter, r *http.Request) {
 		batch := make([]row, 0, 256)
 		for rows.Next() {
 			var v row
-			if err = rows.Scan(&v.record.ID, &v.record.IncidentID, &v.record.Status, &v.created,
+			if err = rows.Scan(&v.record.ID, &v.record.IncidentID, &v.record.Status, &v.created, &v.author,
 				&v.app, &v.team, &v.env, &v.record.Title, &v.record.Severity, &v.start, &v.closed,
-				&v.record.ActionCount); err != nil {
+				&v.kind, &v.closeSeq, &v.statusEventID, &v.record.ActionCount); err != nil {
 				break
 			}
 			batch = append(batch, v)
@@ -97,6 +120,15 @@ func (s *Service) Records(w http.ResponseWriter, r *http.Request) {
 				httpapi.Error(w, 503, "authorization_unavailable", "Postmortem access could not be checked")
 				return
 			}
+			if v.record.Status != "published" && v.author != user.ID {
+				if err = s.authorizeModule(r.Context(), user, v.app, v.team, v.env, "knowledge", "manage"); err != nil {
+					if errors.Is(err, store.ErrForbidden) {
+						continue
+					}
+					httpapi.Error(w, 503, "authorization_unavailable", "Postmortem review access could not be checked")
+					return
+				}
+			}
 			parsed, valid := severity(v.record.Severity)
 			if !valid {
 				httpapi.Error(w, 503, "source_unavailable", "Incident severity cannot be represented by the V3 contract")
@@ -104,7 +136,12 @@ func (s *Service) Records(w http.ResponseWriter, r *http.Request) {
 			}
 			v.record.Severity = parsed
 			v.record.Resolved = v.closed.UTC().Format(time.RFC3339)
-			v.record.Duration = duration(v.start, v.closed)
+			v.record.SourceRevision = sourceRevision(v.kind, v.closeSeq, v.statusEventID)
+			if v.start != nil {
+				v.record.Duration = duration(*v.start, v.closed)
+			} else {
+				v.record.UnknownFields = []string{"duration"}
+			}
 			v.record.CreatedAt = v.created.UTC().Format(time.RFC3339)
 			items = append(items, v.record)
 			if len(items) > 1000 {

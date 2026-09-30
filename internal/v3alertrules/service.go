@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3rulemodel"
 )
 
 type Access interface {
@@ -30,7 +32,7 @@ type Catalog interface {
 }
 
 type Application struct {
-	ID, EnvironmentID string
+	ID, EnvironmentID, OwnerTeamID string
 }
 
 type DatabaseCatalog struct{ DB *pgxpool.Pool }
@@ -39,7 +41,7 @@ func (c DatabaseCatalog) Applications(ctx context.Context, environments []string
 	if c.DB == nil {
 		return nil, errors.New("application catalog unavailable")
 	}
-	rows, err := c.DB.Query(ctx, `SELECT a.id,ve.environment_id FROM applications a
+	rows, err := c.DB.Query(ctx, `SELECT a.id,ve.environment_id,COALESCE(a.owner_team_id,'') FROM applications a
  JOIN v3_application_environments ve ON ve.application_id=a.id
  JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
  WHERE NOT a.archived AND ve.environment_id=ANY($1::text[])
@@ -54,7 +56,7 @@ func (c DatabaseCatalog) Applications(ctx context.Context, environments []string
 			return nil, errors.New("application catalog exceeds 500-row bound")
 		}
 		var app Application
-		if err := rows.Scan(&app.ID, &app.EnvironmentID); err != nil {
+		if err := rows.Scan(&app.ID, &app.EnvironmentID, &app.OwnerTeamID); err != nil {
 			return nil, err
 		}
 		apps = append(apps, app)
@@ -62,24 +64,10 @@ func (c DatabaseCatalog) Applications(ctx context.Context, environments []string
 	return apps, rows.Err()
 }
 
-// Source is trusted process configuration. List must read a real provider and
-// return only its observed rules. The service still enforces labels and RBAC.
-type Source interface {
-	List(context.Context, string) ([]ObservedRule, error)
-}
-
-type ObservedRule struct {
-	GroupIdentity  string // exact provider file + NUL + group name
-	Group          string
-	Name           string
-	Expression     string
-	State          string
-	Duration       float64
-	Labels         map[string]string
-	Annotations    map[string]string
-	LastEvaluation time.Time
-	EvaluationTime float64
-}
+// Aliases preserve the public read API while keeping shared observation types
+// below both the alert-rule and configuration-promotion packages.
+type Source = v3rulemodel.Source
+type ObservedRule = v3rulemodel.ObservedRule
 
 type Summary struct {
 	ID            string `json:"id"`
@@ -94,32 +82,27 @@ type Summary struct {
 // preview, route, AI triage and threshold are unavailable from Prometheus.
 type Detail struct {
 	Summary
-	Datasource     string            `json:"datasource"`
-	Expr           string            `json:"expr"`
-	ForSeconds     float64           `json:"for_seconds"`
-	Labels         map[string]string `json:"labels"`
-	Annotations    map[string]string `json:"annotations"`
-	LastEvaluation string            `json:"last_evaluation,omitempty"`
-	EvaluationMS   float64           `json:"evaluation_ms"`
-	Partial        bool              `json:"partial"`
-	Unavailable    []string          `json:"unavailable"`
+	Datasource         string  `json:"datasource"`
+	Expr               string  `json:"expr"`
+	ForSeconds         float64 `json:"for_seconds"`
+	evaluationInterval time.Duration
+	Labels             map[string]string `json:"labels"`
+	Annotations        map[string]string `json:"annotations"`
+	LastEvaluation     string            `json:"last_evaluation,omitempty"`
+	EvaluationMS       float64           `json:"evaluation_ms"`
+	Partial            bool              `json:"partial"`
+	Unavailable        []string          `json:"unavailable"`
 }
 
 type Service struct {
 	Catalog  Catalog
 	Access   Access
 	Source   Source
+	Now      func() time.Time
 	bindings map[string]string // environment + provider group identity -> application ID
 }
 
-// RuleGroupBinding is trusted process configuration, reviewed alongside the
-// provider rule file. Labels from Prometheus cannot create or change ownership.
-type RuleGroupBinding struct {
-	EnvironmentID string
-	ApplicationID string
-	File          string
-	Group         string
-}
+type RuleGroupBinding = v3rulemodel.RuleGroupBinding
 
 func New(catalog Catalog, access Access, source Source, bindings []RuleGroupBinding) (*Service, error) {
 	index := make(map[string]string, len(bindings))
@@ -144,10 +127,14 @@ func bindingKey(env, identity string) string {
 func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/alert-rules", "viewer", s.MainList)
 	api.MarkV3ObjectRoute("GET /api/v1/alert-rules", "alert_rules", "view")
+	api.Register("GET /api/v1/alert-rules/{id}", "viewer", s.MainDetail)
+	api.MarkV3ObjectRoute("GET /api/v1/alert-rules/{id}", "alert_rules", "view")
 	api.Register("GET /api/v1/alert-rules/observed", "viewer", s.List)
 	api.MarkV3ObjectRoute("GET /api/v1/alert-rules/observed", "alert_rules", "view")
 	api.Register("GET /api/v1/alert-rules/observed/{id}", "viewer", s.Detail)
 	api.MarkV3ObjectRoute("GET /api/v1/alert-rules/observed/{id}", "alert_rules", "view")
+	api.Register("POST /api/v1/alert-rules/{id}/dry-run", "viewer", s.DryRun)
+	api.MarkV3ObjectRoute("POST /api/v1/alert-rules/{id}/dry-run", "alert_rules", "view")
 }
 
 // MainList serves the complete V3 rule-list contract. Unlike the auxiliary
@@ -193,29 +180,10 @@ func (s *Service) visible(r *http.Request) ([]Detail, []string, int, error) {
 	if !ok || len(scope.EnvironmentIDs) == 0 || s.Catalog == nil || s.Access == nil {
 		return nil, nil, http.StatusServiceUnavailable, errors.New("environment scope, catalog or policy unavailable")
 	}
-	apps, err := s.Catalog.Applications(r.Context(), scope.EnvironmentIDs)
+	user := httpapi.CurrentUser(r)
+	allowed, status, err := s.authorizedApplications(r.Context(), user, scope.EnvironmentIDs)
 	if err != nil {
-		return nil, nil, http.StatusServiceUnavailable, err
-	}
-	allowed := map[string]map[string]bool{}
-	for _, app := range apps {
-		if !contains(scope.EnvironmentIDs, app.EnvironmentID) || app.ID == "" {
-			continue
-		}
-		err := s.Access.Authorize(r.Context(), httpapi.CurrentUser(r), rbac.V3Decision{Module: "alert_rules", Action: "view", EnvironmentID: app.EnvironmentID, ApplicationID: app.ID})
-		if errors.Is(err, store.ErrForbidden) {
-			continue
-		}
-		if err != nil {
-			return nil, nil, http.StatusServiceUnavailable, err
-		}
-		if allowed[app.EnvironmentID] == nil {
-			allowed[app.EnvironmentID] = map[string]bool{}
-		}
-		allowed[app.EnvironmentID][app.ID] = true
-	}
-	if len(allowed) == 0 {
-		return nil, nil, http.StatusForbidden, store.ErrForbidden
+		return nil, nil, status, err
 	}
 	if s.Source == nil || len(s.bindings) == 0 {
 		return nil, nil, http.StatusServiceUnavailable, errors.New("alert rule provider or group bindings not configured")
@@ -236,17 +204,60 @@ func (s *Service) visible(r *http.Request) ([]Detail, []string, int, error) {
 		}
 		for _, rule := range rules {
 			app, bound := s.bindings[bindingKey(env, rule.GroupIdentity)]
-			if !bound || rule.Labels["environment"] != env || rule.Labels["application"] != app || !allowed[env][app] || rule.Name == "" || rule.Group == "" {
+			if _, authorized := allowed[env][app]; !bound || rule.Labels["environment"] != env || rule.Labels["application"] != app || !authorized || rule.Name == "" || rule.Group == "" {
 				continue
 			}
 			items = append(items, toDetail(env, app, rule))
 		}
+	}
+	// A provider read can wait long enough for a grant, catalog mapping or team
+	// owner to change. Refuse to publish a list built from a different scope.
+	current, status, err := s.authorizedApplications(r.Context(), user, scope.EnvironmentIDs)
+	if err != nil {
+		return nil, nil, status, err
+	}
+	if !reflect.DeepEqual(allowed, current) {
+		return nil, nil, http.StatusServiceUnavailable, errors.New("alert rule scope changed while reading provider")
 	}
 	if len(unavailable) > 0 && len(unavailable) == len(allowed) {
 		return nil, nil, http.StatusServiceUnavailable, errors.New("all authorized rule providers unavailable")
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	return items, unavailable, http.StatusOK, nil
+}
+
+func (s *Service) authorizedApplications(ctx context.Context, user core.User, environments []string) (map[string]map[string]Application, int, error) {
+	apps, err := s.Catalog.Applications(ctx, environments)
+	if err != nil {
+		return nil, http.StatusServiceUnavailable, err
+	}
+	allowed := map[string]map[string]Application{}
+	for _, app := range apps {
+		if !contains(environments, app.EnvironmentID) || app.ID == "" {
+			continue
+		}
+		decision := rbac.V3Decision{Module: "alert_rules", Action: "view", EnvironmentID: app.EnvironmentID, ApplicationID: app.ID}
+		err := s.Access.Authorize(ctx, user, decision)
+		if errors.Is(err, store.ErrForbidden) && app.OwnerTeamID != "" {
+			decision.ApplicationID = ""
+			decision.TeamID = app.OwnerTeamID
+			err = s.Access.Authorize(ctx, user, decision)
+		}
+		if errors.Is(err, store.ErrForbidden) {
+			continue
+		}
+		if err != nil {
+			return nil, http.StatusServiceUnavailable, err
+		}
+		if allowed[app.EnvironmentID] == nil {
+			allowed[app.EnvironmentID] = map[string]Application{}
+		}
+		allowed[app.EnvironmentID][app.ID] = app
+	}
+	if len(allowed) == 0 {
+		return nil, http.StatusForbidden, store.ErrForbidden
+	}
+	return allowed, http.StatusOK, nil
 }
 
 func contains(values []string, wanted string) bool {
@@ -271,7 +282,8 @@ func toDetail(env, app string, rule ObservedRule) Detail {
 	return Detail{
 		Summary:    Summary{ID: "prom-" + hex.EncodeToString(idBytes[:12]), Folder: rule.Group, Name: rule.Name, State: state, EnvironmentID: env, ApplicationID: app},
 		Datasource: "prometheus", Expr: rule.Expression, ForSeconds: rule.Duration,
-		Labels: rule.Labels, Annotations: rule.Annotations, LastEvaluation: last,
+		evaluationInterval: rule.EvaluationInterval,
+		Labels:             rule.Labels, Annotations: rule.Annotations, LastEvaluation: last,
 		EvaluationMS: rule.EvaluationTime * 1000, Partial: true,
 		Unavailable: []string{"preview", "condition", "evaluation_schedule", "route_path", "ai_triage", "runbook"},
 	}
@@ -299,33 +311,46 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) Detail(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimSpace(r.PathValue("id"))
-	if len(id) > 100 || id == "" {
-		httpapi.Error(w, 404, "not_found", "Alert rule not found")
+	item, lookupError := s.findRule(r, r.PathValue("id"))
+	if lookupError != nil {
+		httpapi.Error(w, lookupError.status, lookupError.code, lookupError.message)
 		return
+	}
+	httpapi.WriteJSON(w, http.StatusOK, item)
+}
+
+type ruleLookupError struct {
+	status  int
+	code    string
+	message string
+}
+
+func (s *Service) findRule(r *http.Request, rawID string) (Detail, *ruleLookupError) {
+	id := strings.TrimSpace(rawID)
+	if len(id) > 100 || id == "" {
+		return Detail{}, &ruleLookupError{http.StatusNotFound, "not_found", "Alert rule not found"}
 	}
 	items, unavailable, status, err := s.visible(r)
 	if err != nil {
-		httpapi.Error(w, status, errorCode(status), "Alert rule source or authorization is unavailable")
-		return
+		return Detail{}, &ruleLookupError{status, errorCode(status), "Alert rule source or authorization is unavailable"}
 	}
-	for _, item := range items {
+	var match *Detail
+	for i := range items {
+		item := &items[i]
 		if item.ID == id {
-			httpapi.WriteJSON(w, 200, item)
-			return
+			if match != nil {
+				return Detail{}, &ruleLookupError{http.StatusServiceUnavailable, "alert_rule_identity_conflict", "Observed rule identity is ambiguous"}
+			}
+			match = item
 		}
 	}
-	if len(unavailable) > 0 {
-		httpapi.Error(w, 503, "rule_source_partial", "A rule provider is unavailable; the rule cannot be resolved")
-		return
+	if match != nil {
+		return *match, nil
 	}
-	httpapi.Error(w, 404, "not_found", "Alert rule not found")
-}
-
-func (s *Service) DryRun(w http.ResponseWriter, r *http.Request) {
-	// No reviewed expression/threshold and historical evaluator is available.
-	// In particular, accepting a request body here would permit arbitrary PromQL.
-	httpapi.Error(w, 503, "dry_run_unavailable", "Historical alert rule evaluation is not configured")
+	if len(unavailable) > 0 {
+		return Detail{}, &ruleLookupError{http.StatusServiceUnavailable, "rule_source_partial", "A rule provider is unavailable; the rule cannot be resolved"}
+	}
+	return Detail{}, &ruleLookupError{http.StatusNotFound, "not_found", "Alert rule not found"}
 }
 
 func errorCode(status int) string {

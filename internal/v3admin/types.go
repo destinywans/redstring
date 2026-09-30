@@ -40,14 +40,46 @@ type member struct {
 	MFA        string   `json:"mfa"`
 	Source     string   `json:"source"`
 	Status     string   `json:"status"`
-	LastLogin  string   `json:"last_login"`
+	LastLogin  *string  `json:"last_login"`
 	Agent      bool     `json:"agent,omitempty"`
 }
 
+type memberRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// memberDetail exposes only fields the account and association stores can
+// prove. External sync, MFA, and login evidence remain explicit unknowns.
+type memberDetail struct {
+	ID                 string      `json:"id"`
+	Name               string      `json:"name"`
+	Email              string      `json:"email"`
+	Department         *memberRef  `json:"department"`
+	Roles              []memberRef `json:"roles"`
+	Phone              *string     `json:"phone"`
+	Status             string      `json:"status"`
+	IdentityKind       string      `json:"identity_kind"`
+	RecordedSource     string      `json:"recorded_source"`
+	MFA                string      `json:"mfa"`
+	LastLogin          *string     `json:"last_login"`
+	DirectorySyncState string      `json:"directory_sync_state"`
+	Revision           string      `json:"revision"`
+}
+
+type memberCounts struct {
+	All      int  `json:"all"`
+	Admin    int  `json:"admin"`
+	NoMFA    *int `json:"no_mfa"`
+	Disabled int  `json:"disabled"`
+}
+
 type membersView struct {
-	Org          []orgNode      `json:"org"`
-	Groups       []orgNode      `json:"groups"`
-	Items        []member       `json:"items"`
-	Counts       map[string]int `json:"counts"`
-	MFAGraceDays int            `json:"mfa_grace_days"`
+	Org               []orgNode    `json:"org"`
+	Groups            []orgNode    `json:"groups"`
+	Items             []member     `json:"items"`
+	Counts            memberCounts `json:"counts"`
+	MFAGraceDays      *int         `json:"mfa_grace_days"`
+	CompleteV3DTO     bool         `json:"complete_v3_dto"`
+	UnavailableFields []string     `json:"unavailable_fields"`
 }

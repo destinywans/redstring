@@ -73,6 +73,34 @@ func TestCollectorFallbackCannotOverrideApplicationLink(t *testing.T) {
 	}
 }
 
+func TestLinkedResourceCannotUseUnrelatedResourceOwnerTeam(t *testing.T) {
+	decisions := []rbac.V3Decision{}
+	s := Service{Access: accessFunc(func(d rbac.V3Decision) error {
+		decisions = append(decisions, d)
+		if d.TeamID == "resource-owner" {
+			return nil
+		}
+		return store.ErrForbidden
+	})}
+	linked := candidate{ID: "linked", EnvironmentID: "test", TeamID: "resource-owner",
+		Links: []appLink{{ApplicationID: "app-1", EnvironmentID: "test", TeamID: "app-owner"}}}
+	allowed, err := s.canView(context.Background(), core.User{ID: "user-1"}, linked, "test")
+	if err != nil || allowed {
+		t.Fatalf("unrelated resource team granted linked application: allowed=%t err=%v", allowed, err)
+	}
+	for _, d := range decisions {
+		if d.TeamID == "resource-owner" {
+			t.Fatalf("consulted unrelated resource team: %+v", decisions)
+		}
+	}
+	allowed, err = s.canView(context.Background(), core.User{ID: "user-1"}, candidate{
+		ID: "unlinked", EnvironmentID: "test", TeamID: "resource-owner", FallbackEligible: true,
+	}, "test")
+	if err != nil || !allowed {
+		t.Fatalf("unlinked collector team grant lost: allowed=%t err=%v", allowed, err)
+	}
+}
+
 func TestHiddenAndAbsentCandidatesHaveIdenticalEmptyResponse(t *testing.T) {
 	s := Service{Access: accessFunc(func(rbac.V3Decision) error { return store.ErrForbidden })}
 	var expected string

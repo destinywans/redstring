@@ -173,7 +173,7 @@ func validateContent(title, body, source string) error {
 	return nil
 }
 func (s *Service) Update(ctx context.Context, id string, in UpdateInput, user string) (Document, error) {
-	d, err := s.Get(ctx, id)
+	d, err := s.legacyGet(ctx, id)
 	if err != nil {
 		return d, err
 	}
@@ -200,7 +200,7 @@ func (s *Service) Update(ctx context.Context, id string, in UpdateInput, user st
 	return repo.UpdateDocument(ctx, id, in, user)
 }
 func (s *Service) Transition(ctx context.Context, id string, in TransitionInput, user string) (Document, error) {
-	d, err := s.Get(ctx, id)
+	d, err := s.legacyGet(ctx, id)
 	if err != nil {
 		return d, err
 	}
@@ -231,7 +231,7 @@ func (s *Service) Transition(ctx context.Context, id string, in TransitionInput,
 	return d, err
 }
 func (s *Service) Revisions(ctx context.Context, id string) ([]Document, error) {
-	if _, err := s.Get(ctx, id); err != nil {
+	if _, err := s.legacyGet(ctx, id); err != nil {
 		return nil, err
 	}
 	r, err := s.governance()
@@ -251,7 +251,7 @@ func (s *Service) Revisions(ctx context.Context, id string) ([]Document, error) 
 	return out, nil
 }
 func (s *Service) Revision(ctx context.Context, id string, version int) (Document, error) {
-	if _, err := s.Get(ctx, id); err != nil {
+	if _, err := s.legacyGet(ctx, id); err != nil {
 		return Document{}, err
 	}
 	r, err := s.governance()
@@ -274,7 +274,7 @@ type Export struct {
 }
 
 func (s *Service) Export(ctx context.Context, id string) (Export, error) {
-	d, err := s.Get(ctx, id)
+	d, err := s.legacyGet(ctx, id)
 	if err != nil {
 		return Export{}, err
 	}

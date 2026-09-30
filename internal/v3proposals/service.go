@@ -1,5 +1,6 @@
-// Package v3proposals owns the V3 review record and discussion. It has no
-// approval or execution API; historical action_plans are a different model.
+// Package v3proposals owns V3 review records, discussion, and durable
+// passkey-bound approval. Execution remains with an independent worker;
+// historical action_plans are a different model.
 package v3proposals
 
 import (
@@ -17,6 +18,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3alertmanager"
 )
 
 type Access interface {
@@ -24,9 +26,37 @@ type Access interface {
 	AuthorizeWithTx(context.Context, pgx.Tx, core.User, rbac.V3Decision) error
 }
 
+// ApprovalEvidence checks committed action-specific evidence after the
+// approval transaction has locked and verified the proposal and action.
+// It must not acquire group or catalog locks in this transaction.
+type ApprovalEvidence interface {
+	BulkEvidenceReadyWithTx(context.Context, pgx.Tx, v3alertmanager.SilenceReviewedAction) error
+}
+
+// AlertRuleEnableReview is the scope returned by the domain's immutable
+// intent verifier. The domain depends on proposals, so cmd injects its loader
+// without adding a reverse package dependency here.
+type AlertRuleEnableReview struct {
+	Kind                   string
+	EnvironmentID          string
+	ApplicationID          string
+	InvestigationID        string
+	InvestigationUpdatedAt time.Time
+}
+
 type Service struct {
-	DB     *pgxpool.Pool
-	Access Access
+	DB                    *pgxpool.Pool
+	Access                Access
+	ApprovalPasskeys      ProposalPasskeys
+	ApprovalEvidence      ApprovalEvidence
+	AlertRuleEnableIntent func(context.Context, pgx.Tx, string) (AlertRuleEnableReview, error)
+	// The callback must prove the independent enable worker is running for the
+	// exact environment, as well as the reviewed GitOps target being configured.
+	AlertRuleEnableReady func(context.Context, string) error
+	ApprovalWorkflow     interface {
+		CreateReady(context.Context, string) error
+		CancelReady(context.Context, string) error
+	}
 }
 
 func New(db *pgxpool.Pool, access Access) *Service { return &Service{DB: db, Access: access} }
@@ -179,23 +209,50 @@ func (s *Service) Create(ctx context.Context, in NewProposal) (string, error) {
 }
 
 type record struct {
-	ID, InvestigationID, ApplicationID, EnvironmentID, Status string
-	Content                                                   Content
-	CreatedAt                                                 time.Time
+	ID, InvestigationID, ApplicationID, EnvironmentID, TeamID, Status string
+	RejectedBy, RejectionReason                                       string
+	Content                                                           Content
+	CreatedAt                                                         time.Time
 }
 
-func (s *Service) load(ctx context.Context, id string) (record, error) {
+func loadReviewTx(ctx context.Context, tx pgx.Tx, id string, write bool) (record, error) {
 	var v record
 	var raw []byte
-	err := s.DB.QueryRow(ctx, `SELECT p.id,p.investigation_id,p.application_id,p.environment_id,p.status,p.content,p.created_at
- FROM v3_proposals p
- JOIN investigations i ON i.id=p.investigation_id AND i.application_id=p.application_id
- JOIN applications a ON a.id=p.application_id AND NOT a.archived
- JOIN v3_application_environments ve ON ve.application_id=p.application_id AND ve.environment_id=p.environment_id
- JOIN application_environments e ON e.application_id=p.application_id AND e.key=ve.environment_id AND NOT e.archived
- WHERE p.id=$1`, id).Scan(&v.ID, &v.InvestigationID, &v.ApplicationID, &v.EnvironmentID, &v.Status, &raw, &v.CreatedAt)
+	lock := " FOR SHARE"
+	if write {
+		lock = " FOR UPDATE"
+	}
+	err := tx.QueryRow(ctx, `SELECT id,investigation_id,application_id,environment_id,status,
+ COALESCE(rejected_by,''),rejection_reason,content,created_at
+ FROM v3_proposals WHERE id=$1`+lock, id).Scan(&v.ID, &v.InvestigationID, &v.ApplicationID,
+		&v.EnvironmentID, &v.Status, &v.RejectedBy, &v.RejectionReason, &raw, &v.CreatedAt)
 	if err != nil {
 		return v, err
+	}
+	// Keep the target and its current scope stable through authorization and
+	// response assembly. Each lock is row-scoped and taken in the same order.
+	err = tx.QueryRow(ctx, `SELECT COALESCE(owner_team_id,'') FROM applications
+ WHERE id=$1 AND NOT archived FOR SHARE`, v.ApplicationID).Scan(&v.TeamID)
+	if err != nil {
+		return record{}, err
+	}
+	var investigationEnvironment string
+	err = tx.QueryRow(ctx, `SELECT environment_id FROM investigations
+ WHERE id=$1 AND application_id=$2 FOR SHARE`, v.InvestigationID, v.ApplicationID).Scan(&investigationEnvironment)
+	if err != nil {
+		return record{}, err
+	}
+	var mappedEnvironment string
+	err = tx.QueryRow(ctx, `SELECT key FROM application_environments
+ WHERE id=$1 AND application_id=$2 AND key=$3 AND NOT archived FOR SHARE`,
+		investigationEnvironment, v.ApplicationID, v.EnvironmentID).Scan(&mappedEnvironment)
+	if err != nil {
+		return record{}, err
+	}
+	err = tx.QueryRow(ctx, `SELECT environment_id FROM v3_application_environments
+ WHERE application_id=$1 AND environment_id=$2 FOR SHARE`, v.ApplicationID, v.EnvironmentID).Scan(&mappedEnvironment)
+	if err != nil {
+		return record{}, err
 	}
 	if err = json.Unmarshal(raw, &v.Content); err != nil || !validContent(v.Content) {
 		return record{}, ErrInvalidProposal
@@ -206,11 +263,20 @@ func (s *Service) load(ctx context.Context, id string) (record, error) {
 	return v, nil
 }
 
-func (s *Service) scoped(w http.ResponseWriter, r *http.Request, action string) (record, bool) {
+func (s *Service) beginReview(w http.ResponseWriter, r *http.Request) (pgx.Tx, bool) {
 	if s == nil || s.DB == nil || s.Access == nil {
 		httpapi.Error(w, 503, "proposal_unavailable", "Proposal storage or policy is unavailable")
-		return record{}, false
+		return nil, false
 	}
+	tx, err := s.DB.Begin(r.Context())
+	if err != nil {
+		unavailable(w)
+		return nil, false
+	}
+	return tx, true
+}
+
+func (s *Service) scopedTx(w http.ResponseWriter, r *http.Request, tx pgx.Tx, action string, beforeAuthorization func(record) error) (record, bool) {
 	scope, ok := httpapi.V3ScopeFromContext(r.Context())
 	if !ok || len(scope.EnvironmentIDs) == 0 {
 		httpapi.Error(w, 503, "environment_scope_unavailable", "Environment scope is unavailable")
@@ -220,7 +286,7 @@ func (s *Service) scoped(w http.ResponseWriter, r *http.Request, action string) 
 		httpapi.Error(w, 409, "env_view_only", "Select one environment before writing")
 		return record{}, false
 	}
-	v, err := s.load(r.Context(), r.PathValue("id"))
+	v, err := loadReviewTx(r.Context(), tx, r.PathValue("id"), action != "view")
 	if errors.Is(err, pgx.ErrNoRows) {
 		httpapi.Error(w, 404, "not_found", "Proposal not found")
 		return record{}, false
@@ -237,9 +303,86 @@ func (s *Service) scoped(w http.ResponseWriter, r *http.Request, action string) 
 		httpapi.Error(w, 404, "not_found", "Proposal not found")
 		return record{}, false
 	}
-	err = s.Access.Authorize(r.Context(), httpapi.CurrentUser(r), rbac.V3Decision{
-		Module: "proposals", Action: action, EnvironmentID: v.EnvironmentID, ApplicationID: v.ApplicationID,
-	})
+	user := httpapi.CurrentUser(r)
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil {
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		return record{}, false
+	}
+	var activeUser string
+	err = tx.QueryRow(r.Context(), `SELECT id FROM users
+ WHERE id=$1 AND NOT disabled AND deleted_at IS NULL AND source<>'settings_demo' FOR SHARE`, user.ID).Scan(&activeUser)
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		return record{}, false
+	}
+	if err != nil {
+		unavailable(w)
+		return record{}, false
+	}
+	var sessionUser string
+	err = tx.QueryRow(r.Context(), `SELECT user_id FROM sessions
+ WHERE token_hash=$1 AND user_id=$2 AND expires_at>clock_timestamp() FOR SHARE`,
+		store.Hash(cookie.Value), user.ID).Scan(&sessionUser)
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		return record{}, false
+	}
+	if err != nil {
+		unavailable(w)
+		return record{}, false
+	}
+	// Refuse discussion reads from callers with no current proposal grant.
+	// This first check is only admission to the potentially long query: the
+	// final check below still decides whether its result may be returned.
+	if beforeAuthorization != nil {
+		err = s.authorizeTx(r.Context(), tx, user, v, action)
+		if errors.Is(err, store.ErrForbidden) {
+			httpapi.Error(w, 403, "forbidden", "Proposal permission required")
+			return record{}, false
+		}
+		if err != nil {
+			httpapi.Error(w, 503, "authorization_unavailable", "Proposal authorization unavailable")
+			return record{}, false
+		}
+		if action == "manage" {
+			// Reject is a human decision. The final check remains in Reject,
+			// but a machine must not scan the discussion before reaching it.
+			var human bool
+			err = tx.QueryRow(r.Context(), `SELECT v3_identity_kind='human' FROM users
+ WHERE id=$1 AND NOT disabled AND deleted_at IS NULL FOR SHARE`, user.ID).Scan(&human)
+			if errors.Is(err, pgx.ErrNoRows) || err == nil && !human {
+				httpapi.Error(w, 403, "forbidden", "Human reviewer required")
+				return record{}, false
+			}
+			if err != nil {
+				unavailable(w)
+				return record{}, false
+			}
+		}
+		if err = beforeAuthorization(v); err != nil {
+			unavailable(w)
+			return record{}, false
+		}
+	}
+	if err = lockReviewAuthorityTables(r.Context(), tx); err != nil {
+		unavailable(w)
+		return record{}, false
+	}
+	// A session may expire while waiting for the authority tables. Use wall time after
+	// every lock has been acquired, then evaluate policy on this transaction.
+	var active bool
+	err = tx.QueryRow(r.Context(), `SELECT expires_at>clock_timestamp() FROM sessions
+ WHERE token_hash=$1 AND user_id=$2`, store.Hash(cookie.Value), user.ID).Scan(&active)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && !active {
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		return record{}, false
+	}
+	if err != nil {
+		unavailable(w)
+		return record{}, false
+	}
+	err = s.authorizeTx(r.Context(), tx, user, v, action)
 	if errors.Is(err, store.ErrForbidden) {
 		httpapi.Error(w, 403, "forbidden", "Proposal permission required")
 		return record{}, false
@@ -251,27 +394,32 @@ func (s *Service) scoped(w http.ResponseWriter, r *http.Request, action string) 
 	return v, true
 }
 
-// A review write must recheck the persisted grant on its transaction's
-// connection after locking the proposal. The earlier HTTP check is useful for
-// response scoping, but a grant may be revoked before the write begins.
-func (s *Service) authorizeLocked(w http.ResponseWriter, r *http.Request, tx pgx.Tx, v record, action string) bool {
-	err := s.Access.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), rbac.V3Decision{
-		Module: "proposals", Action: action, EnvironmentID: v.EnvironmentID, ApplicationID: v.ApplicationID,
-	})
-	if errors.Is(err, store.ErrForbidden) {
-		httpapi.Error(w, 403, "forbidden", "Proposal permission required")
-		return false
-	}
-	if err != nil {
-		httpapi.Error(w, 503, "authorization_unavailable", "Proposal authorization unavailable")
-		return false
-	}
-	return true
+// Locking only rows found by a role scan leaves new assignments and grants
+// unlocked. A role writer also locks the role before deleting assignments,
+// so an assignment-then-role row-lock order can deadlock. These three SHARE
+// locks serialize all V3 authorization source writes for the short final
+// authorization/commit window, without taking any role row lock.
+func lockReviewAuthorityTables(ctx context.Context, tx pgx.Tx) error {
+	_, err := tx.Exec(ctx, `LOCK TABLE rbac_user_roles, rbac_department_roles, v3_role_grants IN SHARE MODE`)
+	return err
 }
 
-func (s *Service) detail(ctx context.Context, v record) (Proposal, error) {
+func (s *Service) authorizeTx(ctx context.Context, tx pgx.Tx, user core.User, v record, action string) error {
+	decision := rbac.V3Decision{
+		Module: "proposals", Action: action, EnvironmentID: v.EnvironmentID, ApplicationID: v.ApplicationID,
+	}
+	err := s.Access.AuthorizeWithTx(ctx, tx, user, decision)
+	if !errors.Is(err, store.ErrForbidden) || v.TeamID == "" {
+		return err
+	}
+	decision.ApplicationID = ""
+	decision.TeamID = v.TeamID
+	return s.Access.AuthorizeWithTx(ctx, tx, user, decision)
+}
+
+func detailTx(ctx context.Context, tx pgx.Tx, v record) (Proposal, error) {
 	out := Proposal{ID: v.ID, Status: v.Status, ProposedAt: v.CreatedAt.UTC().Format(time.RFC3339), Content: v.Content, Discussion: []CommentItem{}}
-	rows, err := s.DB.Query(ctx, `SELECT COALESCE(NULLIF(u.name,''),c.author_id),c.created_at,c.body
+	rows, err := tx.Query(ctx, `SELECT COALESCE(NULLIF(u.name,''),c.author_id),c.created_at,c.body
  FROM v3_proposal_comments c JOIN users u ON u.id=c.author_id
  WHERE c.proposal_id=$1 ORDER BY c.created_at,c.id`, v.ID)
 	if err != nil {
@@ -289,14 +437,48 @@ func (s *Service) detail(ctx context.Context, v record) (Proposal, error) {
 	return out, rows.Err()
 }
 
+// Row locks hold account, scope, and grant changes until commit. Session
+// expiry is time-based, so check wall time again immediately before commit.
+func commitReview(w http.ResponseWriter, r *http.Request, tx pgx.Tx) bool {
+	cookie, err := r.Cookie("aiops_session")
+	if err != nil {
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		return false
+	}
+	var active bool
+	err = tx.QueryRow(r.Context(), `SELECT expires_at>clock_timestamp() FROM sessions
+ WHERE token_hash=$1 AND user_id=$2`, store.Hash(cookie.Value), httpapi.CurrentUser(r).ID).Scan(&active)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && !active {
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		return false
+	}
+	if err != nil {
+		unavailable(w)
+		return false
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		unavailable(w)
+		return false
+	}
+	return true
+}
+
 func (s *Service) Detail(w http.ResponseWriter, r *http.Request) {
-	v, ok := s.scoped(w, r, "view")
+	tx, ok := s.beginReview(w, r)
 	if !ok {
 		return
 	}
-	out, err := s.detail(r.Context(), v)
-	if err != nil {
-		httpapi.Error(w, 503, "proposal_unavailable", "Proposal unavailable")
+	defer tx.Rollback(r.Context())
+	var out Proposal
+	_, ok = s.scopedTx(w, r, tx, "view", func(v record) error {
+		var err error
+		out, err = detailTx(r.Context(), tx, v)
+		return err
+	})
+	if !ok {
+		return
+	}
+	if !commitReview(w, r, tx) {
 		return
 	}
 	httpapi.WriteJSON(w, 200, out)
@@ -305,10 +487,6 @@ func (s *Service) Detail(w http.ResponseWriter, r *http.Request) {
 var idempotencyKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 
 func (s *Service) Comment(w http.ResponseWriter, r *http.Request) {
-	v, ok := s.scoped(w, r, "change")
-	if !ok {
-		return
-	}
 	var in struct {
 		Text string `json:"text"`
 	}
@@ -325,33 +503,30 @@ func (s *Service) Comment(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "invalid_idempotency_key", "Invalid idempotency key")
 		return
 	}
+	tx, ok := s.beginReview(w, r)
+	if !ok {
+		return
+	}
+	defer tx.Rollback(r.Context())
+	v, ok := s.scopedTx(w, r, tx, "change", nil)
+	if !ok {
+		return
+	}
 	ctx := r.Context()
 	user := httpapi.CurrentUser(r)
-	tx, err := s.DB.Begin(ctx)
-	if err != nil {
-		unavailable(w)
-		return
-	}
-	defer tx.Rollback(ctx)
-	var status string
-	err = tx.QueryRow(ctx, `SELECT status FROM v3_proposals WHERE id=$1 AND application_id=$2 AND environment_id=$3 FOR UPDATE`, v.ID, v.ApplicationID, v.EnvironmentID).Scan(&status)
-	if err != nil {
-		unavailable(w)
-		return
-	}
-	if !s.authorizeLocked(w, r, tx, v, "change") {
-		return
-	}
 	hash := store.Hash(in.Text)
 	if key != "" {
 		var priorHash, author, body string
 		var at time.Time
-		err = tx.QueryRow(ctx, `SELECT c.request_hash,COALESCE(NULLIF(u.name,''),c.author_id),c.body,c.created_at
+		err := tx.QueryRow(ctx, `SELECT c.request_hash,COALESCE(NULLIF(u.name,''),c.author_id),c.body,c.created_at
  FROM v3_proposal_comments c JOIN users u ON u.id=c.author_id
  WHERE c.proposal_id=$1 AND c.author_id=$2 AND c.idempotency_key=$3`, v.ID, user.ID, key).Scan(&priorHash, &author, &body, &at)
 		if err == nil {
 			if priorHash != hash {
 				httpapi.Error(w, 409, "idempotency_conflict", "Key was used for a different comment")
+				return
+			}
+			if !commitReview(w, r, tx) {
 				return
 			}
 			httpapi.WriteJSON(w, 200, CommentItem{Author: author, Time: at.UTC().Format(time.RFC3339), Text: body})
@@ -362,13 +537,13 @@ func (s *Service) Comment(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if status != "pending" {
+	if v.Status != "pending" {
 		httpapi.Error(w, 409, "proposal_closed", "Proposal is no longer pending")
 		return
 	}
 	id := store.ID()
 	var at time.Time
-	err = tx.QueryRow(ctx, `INSERT INTO v3_proposal_comments(id,proposal_id,author_id,body,idempotency_key,request_hash)
+	err := tx.QueryRow(ctx, `INSERT INTO v3_proposal_comments(id,proposal_id,author_id,body,idempotency_key,request_hash)
  VALUES($1,$2,$3,$4,NULLIF($5,''),$6) RETURNING created_at`, id, v.ID, user.ID, in.Text, key, hash).Scan(&at)
 	if err != nil {
 		unavailable(w)
@@ -380,8 +555,7 @@ func (s *Service) Comment(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
-	if err = tx.Commit(ctx); err != nil {
-		unavailable(w)
+	if !commitReview(w, r, tx) {
 		return
 	}
 	name := user.Name
@@ -392,10 +566,6 @@ func (s *Service) Comment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) Reject(w http.ResponseWriter, r *http.Request) {
-	v, ok := s.scoped(w, r, "manage")
-	if !ok {
-		return
-	}
 	var in struct {
 		Comment string `json:"comment"`
 		Note    string `json:"note"`
@@ -415,29 +585,27 @@ func (s *Service) Reject(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "invalid_reason", "Reason is too long")
 		return
 	}
+	tx, ok := s.beginReview(w, r)
+	if !ok {
+		return
+	}
+	defer tx.Rollback(r.Context())
+	var out Proposal
+	v, ok := s.scopedTx(w, r, tx, "manage", func(v record) error {
+		var err error
+		out, err = detailTx(r.Context(), tx, v)
+		return err
+	})
+	if !ok {
+		return
+	}
 	ctx := r.Context()
 	user := httpapi.CurrentUser(r)
-	tx, err := s.DB.Begin(ctx)
-	if err != nil {
-		unavailable(w)
-		return
-	}
-	defer tx.Rollback(ctx)
-	var status, rejectedBy, priorReason string
-	err = tx.QueryRow(ctx, `SELECT status,COALESCE(rejected_by,''),rejection_reason
- FROM v3_proposals WHERE id=$1 AND application_id=$2 AND environment_id=$3 FOR UPDATE`, v.ID, v.ApplicationID, v.EnvironmentID).Scan(&status, &rejectedBy, &priorReason)
-	if err != nil {
-		unavailable(w)
-		return
-	}
-	if !s.authorizeLocked(w, r, tx, v, "manage") {
-		return
-	}
 	// Rejection is a human review decision even though it cannot enqueue work.
 	// Lock the identity until commit so a simultaneous machine conversion or
 	// disable cannot race this decision.
 	var human bool
-	if err = tx.QueryRow(ctx, `SELECT v3_identity_kind='human' FROM users WHERE id=$1 AND NOT disabled FOR SHARE`, user.ID).Scan(&human); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT v3_identity_kind='human' FROM users WHERE id=$1 AND NOT disabled FOR SHARE`, user.ID).Scan(&human); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			httpapi.Error(w, 403, "forbidden", "Human reviewer required")
 		} else {
@@ -449,17 +617,13 @@ func (s *Service) Reject(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 403, "forbidden", "Human reviewer required")
 		return
 	}
-	if status == "rejected" && rejectedBy == user.ID && priorReason == reason {
-		if err = tx.Commit(ctx); err != nil {
-			unavailable(w)
-			return
-		}
+	if v.Status == "rejected" && v.RejectedBy == user.ID && v.RejectionReason == reason {
 		v.Status = "rejected"
-	} else if status != "pending" {
+	} else if v.Status != "pending" {
 		httpapi.Error(w, 409, "proposal_closed", "Proposal is no longer pending")
 		return
 	} else {
-		_, err = tx.Exec(ctx, `UPDATE v3_proposals SET status='rejected',rejected_by=$2,rejected_at=now(),rejection_reason=$3 WHERE id=$1`, v.ID, user.ID, reason)
+		_, err := tx.Exec(ctx, `UPDATE v3_proposals SET status='rejected',rejected_by=$2,rejected_at=now(),rejection_reason=$3 WHERE id=$1`, v.ID, user.ID, reason)
 		if err != nil {
 			unavailable(w)
 			return
@@ -470,15 +634,10 @@ func (s *Service) Reject(w http.ResponseWriter, r *http.Request) {
 			unavailable(w)
 			return
 		}
-		if err = tx.Commit(ctx); err != nil {
-			unavailable(w)
-			return
-		}
 		v.Status = "rejected"
 	}
-	out, err := s.detail(ctx, v)
-	if err != nil {
-		unavailable(w)
+	out.Status = v.Status
+	if !commitReview(w, r, tx) {
 		return
 	}
 	httpapi.WriteJSON(w, 200, out)

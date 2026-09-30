@@ -131,6 +131,10 @@ func (s *Service) Handler(w http.ResponseWriter, r *http.Request) {
 			httpapi.Error(w, http.StatusUnprocessableEntity, "invalid_alert", "Fingerprint, start time and valid status are required")
 			return
 		}
+		if _, err = operations.MarshalAlertLabels(alert.Labels); err != nil {
+			httpapi.Error(w, http.StatusUnprocessableEntity, "invalid_alert_labels", "Alert labels exceed limits or contain invalid text")
+			return
+		}
 		mapping, unique := selectMapping(source, alert.Labels)
 		if !unique {
 			httpapi.Error(w, http.StatusUnprocessableEntity, "unmapped_alert", "Alert must match exactly one configured application and environment")
@@ -141,6 +145,8 @@ func (s *Service) Handler(w http.ResponseWriter, r *http.Request) {
 	if err = s.persist(r.Context(), source, alerts); err != nil {
 		if errors.Is(err, errStaleMapping) {
 			httpapi.Error(w, http.StatusServiceUnavailable, "mapping_unavailable", "Alert source mapping is not active in this instance")
+		} else if errors.Is(err, operations.ErrAlertLabelsConflict) {
+			httpapi.Error(w, http.StatusConflict, "alert_identity_conflict", "Alert occurrence identity conflicts with stored labels or scope")
 		} else {
 			httpapi.Error(w, http.StatusServiceUnavailable, "unavailable", "Alert persistence failed; retry the envelope")
 		}
@@ -196,6 +202,10 @@ func short(value string, max int) string {
 func (s *Service) ingestOne(ctx context.Context, tx pgx.Tx, sourceID string, item mappedAlert) error {
 	a := item.alert
 	m := item.mapping
+	labels, err := operations.MarshalAlertLabels(a.Labels)
+	if err != nil {
+		return err
+	}
 	title := short(a.Labels["alertname"], 300)
 	if title == "" {
 		title = "Alert"
@@ -209,27 +219,30 @@ func (s *Service) ingestOne(ctx context.Context, tx pgx.Tx, sourceID string, ite
 	if a.Status == "resolved" {
 		ends = &a.EndsAt
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO ops_incidents(id,source_id,application_id,environment_id,fingerprint,title,severity,alert_status,summary,starts_at,ends_at)
-	 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-	 ON CONFLICT(source_id,fingerprint,starts_at) DO NOTHING`, store.ID(), sourceID, m.ApplicationID, m.EnvironmentID, a.Fingerprint, title, severity, a.Status, summary, a.StartsAt, ends)
+	_, err = tx.Exec(ctx, `INSERT INTO ops_incidents(id,source_id,application_id,environment_id,fingerprint,title,severity,alert_status,summary,labels,starts_at,ends_at)
+	 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13)
+	 ON CONFLICT(source_id,fingerprint,starts_at) DO NOTHING`, store.ID(), sourceID, m.ApplicationID, m.EnvironmentID, a.Fingerprint, title, severity, a.Status, summary, string(labels), a.StartsAt, ends)
 	if err != nil {
 		return err
 	}
 	var incidentID, existingApp, existingEnv, state string
-	err = tx.QueryRow(ctx, `SELECT id,application_id,environment_id,alert_status FROM ops_incidents
-	 WHERE source_id=$1 AND fingerprint=$2 AND starts_at=$3 FOR UPDATE`, sourceID, a.Fingerprint, a.StartsAt).Scan(&incidentID, &existingApp, &existingEnv, &state)
+	var labelsKnown, labelsMatch bool
+	err = tx.QueryRow(ctx, `SELECT id,application_id,environment_id,alert_status,labels IS NOT NULL,COALESCE(labels=$4::jsonb,false) FROM ops_incidents
+	 WHERE source_id=$1 AND fingerprint=$2 AND starts_at=$3 FOR UPDATE`, sourceID, a.Fingerprint, a.StartsAt, string(labels)).Scan(&incidentID, &existingApp, &existingEnv, &state, &labelsKnown, &labelsMatch)
 	if err != nil {
 		return err
 	}
 	// Source mapping changes cannot silently move an existing occurrence into
 	// a different application or environment.
-	if existingApp != m.ApplicationID || existingEnv != m.EnvironmentID {
-		return errStaleMapping
+	if existingApp != m.ApplicationID || existingEnv != m.EnvironmentID || (labelsKnown && !labelsMatch) {
+		return operations.ErrAlertLabelsConflict
 	}
 	payload, err := json.Marshal(a)
 	if err != nil {
 		return err
 	}
+	// Historical incidents retain NULL labels. This occurrence can still
+	// advance their alert state, without claiming to know the original labels.
 	tag, err := tx.Exec(ctx, `INSERT INTO ops_alert_occurrences(incident_id,status,payload_hash)
 	 VALUES($1,$2,$3) ON CONFLICT DO NOTHING`, incidentID, a.Status, store.Hash(string(payload)))
 	if err != nil || tag.RowsAffected() == 0 {

@@ -82,10 +82,12 @@ func isolatedGovernance(t *testing.T) (*Service, *fakeEmbedder, *store.Store) {
 	if err = db.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM pg_extension e JOIN pg_namespace n ON n.oid=e.extnamespace WHERE e.extname='vector' AND n.nspname='public')").Scan(&vectorReady); err != nil || !vectorReady {
 		t.Fatal("requires existing public.vector")
 	}
-	_, err = db.Exec(ctx, `INSERT INTO users(id,email,name,role,password_hash) VALUES('u','u@example.invalid','Maintainer','operator','unused'),('v','v@example.invalid','Other','operator','unused'),('admin','admin@example.invalid','Admin','admin','unused'); INSERT INTO applications(id,key,name) VALUES('a','a','A'),('b','b','B');INSERT INTO application_grants(application_id,subject_type,subject_id,permission) VALUES('a','user','u','operate'),('b','user','v','operate');`)
+	_, err = db.Exec(ctx, `INSERT INTO users(id,email,name,role,password_hash) VALUES('u','u@example.invalid','Maintainer','operator','unused'),('v','v@example.invalid','Other','operator','unused'),('admin','admin@example.invalid','Admin','admin','unused'); INSERT INTO applications(id,key,name) VALUES('a','a','A'),('b','b','B'); INSERT INTO application_environments(id,application_id,key,name) VALUES('a-default','a','default','Default'),('b-default','b','default','Default');`)
 	if err != nil {
 		t.Fatal(err)
 	}
+	grantLegacyKnowledgeResource(t, db, "u", "a", "a-default", true)
+	grantLegacyKnowledgeResource(t, db, "v", "b", "b-default", true)
 	f := &fakeEmbedder{desc: inference.EmbeddingDescriptor{Provider: "test", Model: "fake"}, dimensions: 3}
 	s := New(db, f)
 	if err = s.Migrate(ctx); err != nil {

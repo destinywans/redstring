@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/searchtext"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3knowledge"
 )
 
 type Access interface {
@@ -25,11 +27,21 @@ type Access interface {
 }
 
 type Service struct {
-	DB     *pgxpool.Pool
-	Access Access
+	DB           *pgxpool.Pool
+	Access       Access
+	runbooks     *v3knowledge.Service
+	textCommands []TextCommand // configured before serving; nil means unavailable
 }
 
-func New(db *pgxpool.Pool, access Access) *Service { return &Service{DB: db, Access: access} }
+func New(db *pgxpool.Pool, access Access) *Service {
+	s := &Service{DB: db, Access: access}
+	// Production passes the transaction-capable policy. A fake Access cannot
+	// stand in for Runbook's version-bound, conjunctive object authorization.
+	if policy, ok := access.(*rbac.V3Policy); ok && policy != nil {
+		s.runbooks = &v3knowledge.Service{DB: db, Policy: policy}
+	}
+	return s
+}
 
 // These composite routes enforce per-result policy, so they have no single
 // module code to mark at the API boundary. The V3 environment middleware and
@@ -43,6 +55,8 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"GET /api/v1/mentions", s.mentions},
 		{"GET /api/v1/mentions/{kind}/{id}/preview", s.preview},
 		{"GET /api/v1/commands", s.commands},
+		{"GET /api/v1/services/{id}/peek", s.servicePeek},
+		{"GET /api/v1/people/{name}/peek", s.personPeek},
 	} {
 		api.Register(route.pattern, "viewer", route.handler)
 		api.MarkV3Route(route.pattern, "", "")
@@ -50,45 +64,54 @@ func (s *Service) Register(api *httpapi.Server) {
 }
 
 type record struct {
-	Kind          string
-	ID            string
-	Title         string
-	EnvironmentID string
-	ApplicationID string
-	TeamID        string
-	Tier          string
-	State         string
+	Kind            string
+	ID              string
+	Title           string
+	EnvironmentID   string
+	ApplicationID   string
+	TeamID          string
+	Tier            string
+	State           string
+	Version         int
+	DetailAvailable bool
 }
 
 type hit struct {
-	Kind     string `json:"kind"`
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	Subtitle string `json:"subtitle,omitempty"`
-	Status   string `json:"status,omitempty"`
-	Href     string `json:"href"`
+	Kind             string `json:"kind"`
+	ID               string `json:"id"`
+	Title            string `json:"title"`
+	Subtitle         string `json:"subtitle,omitempty"`
+	Status           string `json:"status,omitempty"`
+	Version          int    `json:"version,omitempty"`
+	GovernanceStatus string `json:"governance_status,omitempty"`
+	Href             string `json:"href"`
 }
 
 type candidate struct {
-	Kind   string `json:"kind"`
-	ID     string `json:"id"`
-	Label  string `json:"label"`
-	Meta   string `json:"meta,omitempty"`
-	Status string `json:"status,omitempty"`
-	Tier   string `json:"tier,omitempty"`
+	Kind             string `json:"kind"`
+	ID               string `json:"id"`
+	Label            string `json:"label"`
+	Meta             string `json:"meta,omitempty"`
+	Status           string `json:"status,omitempty"`
+	Tier             string `json:"tier,omitempty"`
+	Version          int    `json:"version,omitempty"`
+	GovernanceStatus string `json:"governance_status,omitempty"`
 }
 
 type mentionPreview struct {
-	Kind        string `json:"kind"`
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Subtitle    string `json:"subtitle"`
-	Tier        string `json:"tier,omitempty"`
-	Status      string `json:"status,omitempty"`
-	StatusLabel string `json:"status_label,omitempty"`
-	Metrics     []any  `json:"metrics"`
-	Related     []any  `json:"related"`
-	Href        string `json:"href,omitempty"`
+	Kind             string   `json:"kind"`
+	ID               string   `json:"id"`
+	Title            string   `json:"title"`
+	Subtitle         string   `json:"subtitle"`
+	Tier             string   `json:"tier,omitempty"`
+	Status           string   `json:"status,omitempty"`
+	StatusLabel      string   `json:"status_label,omitempty"`
+	Metrics          []any    `json:"metrics"`
+	Related          []any    `json:"related"`
+	Href             string   `json:"href,omitempty"`
+	Version          int      `json:"version,omitempty"`
+	GovernanceStatus string   `json:"governance_status,omitempty"`
+	Missing          []string `json:"missing,omitempty"`
 }
 
 func (s *Service) ready(w http.ResponseWriter, r *http.Request) ([]string, bool) {
@@ -133,12 +156,10 @@ func (s *Service) search(w http.ResponseWriter, r *http.Request) {
 			listError(w, err)
 			return
 		}
-		for _, item := range records {
+		for _, item := range balanced(records, 8) {
 			result = append(result, hit{Kind: item.Kind, ID: item.ID, Title: item.Title,
-				Subtitle: meta(r, item), Status: tone(item), Href: href(item)})
-			if len(result) == 8 {
-				break
-			}
+				Subtitle: meta(r, item), Status: tone(item), Href: href(item),
+				Version: item.Version, GovernanceStatus: governanceStatus(item)})
 		}
 	}
 	// No persisted per-user navigation history exists yet. An empty recent list
@@ -160,7 +181,7 @@ func (s *Service) mentions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kind := strings.TrimSpace(r.URL.Query().Get("kind"))
-	if kind != "" && kind != "service" && kind != "incident" && kind != "conversation" {
+	if kind != "" && kind != "service" && kind != "incident" && kind != "investigation" && kind != "conversation" && kind != "person" && kind != "runbook" {
 		httpapi.Error(w, 422, "unsupported_kind", "Mention kind is not available")
 		return
 	}
@@ -170,12 +191,10 @@ func (s *Service) mentions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items := []candidate{}
-	for _, item := range records {
+	for _, item := range balanced(records, 30) {
 		items = append(items, candidate{Kind: item.Kind, ID: item.ID, Label: item.Title,
-			Meta: meta(r, item), Status: tone(item), Tier: item.Tier})
-		if len(items) == 30 {
-			break
-		}
+			Meta: meta(r, item), Status: tone(item), Tier: item.Tier,
+			Version: item.Version, GovernanceStatus: governanceStatus(item)})
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items})
 }
@@ -186,7 +205,7 @@ func (s *Service) preview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kind, id := r.PathValue("kind"), r.PathValue("id")
-	if kind != "service" && kind != "incident" && kind != "conversation" {
+	if kind != "service" && kind != "incident" && kind != "investigation" && kind != "conversation" && kind != "person" && kind != "runbook" {
 		httpapi.Error(w, 503, "preview_unavailable", "This reference kind has no verified preview source")
 		return
 	}
@@ -202,6 +221,10 @@ func (s *Service) preview(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 404, "not_found", "Reference not found")
 		return
 	}
+	if errors.Is(err, store.ErrSessionRevoked) {
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		return
+	}
 	if err != nil {
 		httpapi.Error(w, 503, "preview_unavailable", "Reference preview unavailable")
 		return
@@ -210,16 +233,45 @@ func (s *Service) preview(w http.ResponseWriter, r *http.Request) {
 }
 
 func previewOf(r *http.Request, item record) mentionPreview {
-	return mentionPreview{
+	preview := mentionPreview{
 		Kind: item.Kind, ID: item.ID, Title: item.Title, Subtitle: meta(r, item),
 		Tier: item.Tier, Status: tone(item), StatusLabel: statusLabel(r, item),
 		// No verified telemetry or relationship source is connected to this
 		// preview. Never render synthetic metrics or inferred associations.
 		Metrics: []any{}, Related: []any{}, Href: href(item),
+		Version: item.Version, GovernanceStatus: governanceStatus(item),
 	}
+	if item.Kind == "runbook" {
+		preview.Missing = []string{"metrics", "related", "usage", "execution_verification"}
+		if !item.DetailAvailable {
+			preview.Missing = append(preview.Missing, "structured_detail")
+		}
+	}
+	return preview
 }
 
 func statusLabel(r *http.Request, item record) string {
+	if item.Kind == "runbook" {
+		en := strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "en")
+		switch item.State {
+		case "draft":
+			if en {
+				return "Draft"
+			}
+			return "草稿"
+		case "review":
+			if en {
+				return "In review"
+			}
+			return "待审核"
+		case "published":
+			if en {
+				return "Published"
+			}
+			return "已发布"
+		}
+		return ""
+	}
 	if item.Kind != "incident" {
 		return ""
 	}
@@ -245,19 +297,67 @@ func statusLabel(r *http.Request, item record) string {
 }
 
 func (s *Service) commands(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.ready(w, r); !ok {
+	envs, ok := s.ready(w, r)
+	if !ok {
 		return
 	}
-	// There is no persisted executable command/template registry yet. Returning
-	// hard-coded commands would imply that actions such as silence can run.
-	httpapi.Error(w, 503, "commands_unavailable", "Command catalog is not configured")
+	if s.textCommands == nil {
+		httpapi.Error(w, 503, "commands_unavailable", "Text command catalog is not configured")
+		return
+	}
+	scope, _ := httpapi.V3ScopeFromContext(r.Context())
+	if scope.All {
+		// An aggregate environment cannot submit a conversation or canvas turn.
+		httpapi.WriteJSON(w, 200, map[string]any{"items": []commandItem{}})
+		return
+	}
+	items, err := s.commandItems(r, envs)
+	if err != nil {
+		httpapi.Error(w, 503, "commands_unavailable", "Text command catalog is unavailable")
+		return
+	}
+	httpapi.WriteJSON(w, 200, map[string]any{"items": items})
 }
+
+// A scoped directory reader may mention only active human accounts whose
+// effective assignments overlap the selected environment. A global members
+// reader has the same unassigned-account visibility as GET /members. The
+// object read below repeats this predicate so a guessed ID cannot bypass it.
+const personSource = `SELECT DISTINCT ON (u.id) u.id,u.name,selected.env
+FROM users u CROSS JOIN unnest($1::text[]) AS selected(env)
+WHERE u.deleted_at IS NULL AND NOT u.disabled AND u.source<>'settings_demo'
+ AND u.v3_identity_kind='human'
+ AND ($3='' OR aiops_search_match(u.id||' '||u.name,$3))
+ AND ($4='' OR u.id=$4)
+ AND ($6='' OR u.name=$6)
+ AND EXISTS (SELECT 1 FROM v3_effective_role_grants actor
+  WHERE actor.user_id=$2 AND actor.module='members' AND actor.action='view'
+  AND ((actor.scope_kind='global' AND actor.scope_id='*')
+    OR (actor.scope_kind='environment' AND actor.scope_id=selected.env)))
+ AND (EXISTS (SELECT 1 FROM v3_effective_role_grants actor
+       WHERE actor.user_id=$2 AND actor.module='members' AND actor.action='view'
+       AND actor.scope_kind='global' AND actor.scope_id='*')
+   OR EXISTS (SELECT 1 FROM v3_effective_role_grants target
+       WHERE target.user_id=u.id AND (
+        (target.scope_kind='global' AND target.scope_id='*')
+        OR (target.scope_kind='environment' AND target.scope_id=selected.env)
+        OR (target.scope_kind='application' AND EXISTS (
+         SELECT 1 FROM v3_application_environments vae
+         JOIN applications a ON a.id=vae.application_id AND NOT a.archived
+         JOIN application_environments ae ON ae.application_id=a.id AND ae.key=vae.environment_id AND NOT ae.archived
+         WHERE vae.application_id=target.scope_id AND vae.environment_id=selected.env))
+        OR (target.scope_kind='team' AND EXISTS (
+         SELECT 1 FROM applications a
+         JOIN v3_application_environments vae ON vae.application_id=a.id
+         JOIN application_environments ae ON ae.application_id=a.id AND ae.key=vae.environment_id AND NOT ae.archived
+         WHERE a.owner_team_id=target.scope_id AND NOT a.archived AND vae.environment_id=selected.env)))))
+ORDER BY u.id,selected.env LIMIT $5`
 
 // records uses the existing SQL pinyin matcher to narrow bounded persisted
 // candidates. The policy check happens before any candidate is serialized.
 func (s *Service) records(r *http.Request, envs []string, q, kind string) ([]record, error) {
 	items := []record{}
-	limit := 50 // A blank @ query shows the newest candidates, not an unbounded catalog.
+	limit := 50 // A blank @ query shows bounded persisted candidates.
 	if q != "" {
 		limit = 101
 	}
@@ -320,6 +420,7 @@ ORDER BY i.updated_at DESC,i.id LIMIT $3`, envs, q, limit, httpapi.CurrentUser(r
 		if err != nil {
 			return nil, err
 		}
+		count := 0
 		for rows.Next() {
 			var v record
 			v.Kind = "incident"
@@ -327,6 +428,7 @@ ORDER BY i.updated_at DESC,i.id LIMIT $3`, envs, q, limit, httpapi.CurrentUser(r
 				break
 			}
 			items = append(items, v)
+			count++
 		}
 		if err == nil {
 			err = rows.Err()
@@ -335,7 +437,45 @@ ORDER BY i.updated_at DESC,i.id LIMIT $3`, envs, q, limit, httpapi.CurrentUser(r
 		if err != nil {
 			return nil, err
 		}
-		if q != "" && len(items) > 100 {
+		if q != "" && count > 100 {
+			return nil, errTooBroad
+		}
+	}
+	if kind == "" || kind == "investigation" {
+		rows, err := s.DB.Query(r.Context(), `SELECT i.id,i.title,ae.key,i.application_id,COALESCE(a.owner_team_id,'')
+FROM investigations i
+JOIN applications a ON a.id=i.application_id AND NOT a.archived
+JOIN application_environments ae ON ae.id=i.environment_id AND ae.application_id=i.application_id AND NOT ae.archived
+JOIN v3_application_environments vae ON vae.application_id=i.application_id AND vae.environment_id=ae.key
+WHERE ae.key=ANY($1::text[]) AND ($2='' OR aiops_search_match(i.id||' '||i.title,$2))
+AND EXISTS (SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$4
+ AND g.module='canvas' AND g.action='view' AND (
+  (g.scope_kind='global' AND g.scope_id='*') OR
+  (g.scope_kind='environment' AND g.scope_id=ae.key) OR
+  (g.scope_kind='application' AND g.scope_id=i.application_id) OR
+  (a.owner_team_id IS NOT NULL AND g.scope_kind='team' AND g.scope_id=a.owner_team_id)))
+ORDER BY i.updated_at DESC,i.id LIMIT $3`, envs, q, limit, httpapi.CurrentUser(r).ID)
+		if err != nil {
+			return nil, err
+		}
+		count := 0
+		for rows.Next() {
+			var v record
+			v.Kind = "investigation"
+			if err = rows.Scan(&v.ID, &v.Title, &v.EnvironmentID, &v.ApplicationID, &v.TeamID); err != nil {
+				break
+			}
+			items = append(items, v)
+			count++
+		}
+		if err == nil {
+			err = rows.Err()
+		}
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		if q != "" && count > 100 {
 			return nil, errTooBroad
 		}
 	}
@@ -371,6 +511,32 @@ ORDER BY updated_at DESC,id LIMIT $4`, httpapi.CurrentUser(r).ID, envs, q, limit
 			return nil, errTooBroad
 		}
 	}
+	if kind == "" || kind == "person" {
+		rows, err := s.DB.Query(r.Context(), personSource, envs, httpapi.CurrentUser(r).ID, q, "", limit, "")
+		if err != nil {
+			return nil, err
+		}
+		count := 0
+		for rows.Next() {
+			var v record
+			v.Kind = "person"
+			if err = rows.Scan(&v.ID, &v.Title, &v.EnvironmentID); err != nil {
+				break
+			}
+			items = append(items, v)
+			count++
+		}
+		if err == nil {
+			err = rows.Err()
+		}
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		if q != "" && count > 100 {
+			return nil, errTooBroad
+		}
+	}
 	visible := make([]record, 0, len(items))
 	authorized := map[string]error{}
 	for _, item := range items {
@@ -389,13 +555,80 @@ ORDER BY updated_at DESC,id LIMIT $4`, httpapi.CurrentUser(r).ID, envs, q, limit
 			return nil, err
 		}
 	}
+	// Read Runbooks last in a session/grant/version-bound transaction, after
+	// ordinary kinds have been resolved, to minimize stale mixed-kind output.
+	if kind == "" || kind == "runbook" {
+		if s.runbooks == nil {
+			if kind == "runbook" {
+				return nil, v3knowledge.ErrRunbookReferencesUnavailable
+			}
+		} else {
+			refs, err := s.runbooks.ListRunbookReferences(r, q, limit)
+			if err != nil {
+				return nil, err
+			}
+			if q != "" && len(refs) > 100 {
+				return nil, errTooBroad
+			}
+			for _, ref := range refs {
+				visible = append(visible, recordFromRunbookReference(ref))
+			}
+		}
+	}
 	return visible, nil
+}
+
+// Reserve a fair share of bounded palette slots for each visible kind, then
+// group the selected rows by kind as the Composer expects.
+func balanced(items []record, max int) []record {
+	if len(items) <= max {
+		return items
+	}
+	order := []string{}
+	buckets := make(map[string][]record)
+	for _, item := range items {
+		if _, ok := buckets[item.Kind]; !ok {
+			order = append(order, item.Kind)
+		}
+		buckets[item.Kind] = append(buckets[item.Kind], item)
+	}
+	selected := make(map[string][]record, len(order))
+	count := 0
+	for count < max {
+		progress := false
+		for _, kind := range order {
+			if count == max || len(buckets[kind]) == 0 {
+				continue
+			}
+			selected[kind] = append(selected[kind], buckets[kind][0])
+			buckets[kind] = buckets[kind][1:]
+			count++
+			progress = true
+		}
+		if !progress {
+			break
+		}
+	}
+	out := make([]record, 0, count)
+	for _, kind := range order {
+		out = append(out, selected[kind]...)
+	}
+	return out
 }
 
 func (s *Service) recordByID(r *http.Request, envs []string, kind, id string) (record, error) {
 	v := record{Kind: kind}
 	var err error
-	if kind == "service" {
+	if kind == "runbook" {
+		if s.runbooks == nil {
+			return v, v3knowledge.ErrRunbookReferencesUnavailable
+		}
+		ref, err := s.runbooks.RunbookReferenceByID(r, id)
+		if err != nil {
+			return v, err
+		}
+		return recordFromRunbookReference(ref), nil
+	} else if kind == "service" {
 		appID, env, valid := parseServiceRecordID(id)
 		if !valid {
 			return v, pgx.ErrNoRows
@@ -414,6 +647,15 @@ JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.
 JOIN v3_application_environments ve ON ve.application_id=i.application_id AND ve.environment_id=e.key
 JOIN applications a ON a.id=i.application_id AND NOT a.archived
 WHERE i.id=$1 AND e.key=ANY($2::text[])`, id, envs).Scan(&v.ID, &v.Title, &v.EnvironmentID, &v.ApplicationID, &v.State)
+	} else if kind == "investigation" {
+		err = s.DB.QueryRow(r.Context(), `SELECT i.id,i.title,ae.key,i.application_id,COALESCE(a.owner_team_id,'')
+FROM investigations i
+JOIN applications a ON a.id=i.application_id AND NOT a.archived
+JOIN application_environments ae ON ae.id=i.environment_id AND ae.application_id=i.application_id AND NOT ae.archived
+JOIN v3_application_environments vae ON vae.application_id=i.application_id AND vae.environment_id=ae.key
+WHERE i.id=$1 AND ae.key=ANY($2::text[])`, id, envs).Scan(&v.ID, &v.Title, &v.EnvironmentID, &v.ApplicationID, &v.TeamID)
+	} else if kind == "person" {
+		err = s.DB.QueryRow(r.Context(), personSource, envs, httpapi.CurrentUser(r).ID, "", id, 1, "").Scan(&v.ID, &v.Title, &v.EnvironmentID)
 	} else {
 		err = s.DB.QueryRow(r.Context(), `SELECT id,title,environment_id,status FROM v3_conversations
 WHERE id=$1 AND owner_id=$2 AND environment_id=ANY($3)`, id, httpapi.CurrentUser(r).ID, envs).Scan(&v.ID, &v.Title, &v.EnvironmentID, &v.State)
@@ -430,11 +672,16 @@ func (s *Service) authorize(r *http.Request, v record) error {
 		module = "conversation"
 	} else if v.Kind == "service" {
 		module = "services"
+	} else if v.Kind == "investigation" {
+		module = "canvas"
+	} else if v.Kind == "person" {
+		module = "members"
 	}
 	err := s.Access.Authorize(r.Context(), httpapi.CurrentUser(r), rbac.V3Decision{
 		Module: module, Action: "view", EnvironmentID: v.EnvironmentID, ApplicationID: v.ApplicationID,
 	})
-	if err == nil || !errors.Is(err, store.ErrForbidden) || v.Kind != "service" || v.TeamID == "" {
+	if err == nil || !errors.Is(err, store.ErrForbidden) ||
+		(v.Kind != "service" && v.Kind != "investigation") || v.TeamID == "" {
 		return err
 	}
 	return s.Access.Authorize(r.Context(), httpapi.CurrentUser(r), rbac.V3Decision{
@@ -475,21 +722,45 @@ func listError(w http.ResponseWriter, err error) {
 		httpapi.Error(w, 413, "scope_too_large", "Narrow the search query")
 		return
 	}
+	if errors.Is(err, store.ErrSessionRevoked) {
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		return
+	}
 	httpapi.Error(w, 503, "discovery_unavailable", "Discovery records unavailable")
 }
 
 func href(v record) string {
+	if v.Kind == "runbook" {
+		if !v.DetailAvailable {
+			return "/runbooks"
+		}
+		return "/runbooks/" + url.PathEscape(v.ID)
+	}
 	if v.Kind == "incident" {
 		return "/incidents/" + url.PathEscape(v.ID)
 	}
 	if v.Kind == "service" {
 		return "/services/" + url.PathEscape(v.ID)
 	}
+	if v.Kind == "investigation" {
+		// The current web router recognizes only demo INV-* IDs as investigation
+		// canvases. Real persisted IDs can still be found on the canvas list.
+		return "/canvases"
+	}
+	if v.Kind == "person" {
+		return "/settings/members"
+	}
 	return "/conversations/" + url.PathEscape(v.ID)
 }
 
 func label(r *http.Request, kind string) string {
 	en := strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "en")
+	if kind == "runbook" {
+		if en {
+			return "Runbook"
+		}
+		return "运行手册"
+	}
 	if kind == "service" {
 		if en {
 			return "Service"
@@ -502,6 +773,18 @@ func label(r *http.Request, kind string) string {
 		}
 		return "事件"
 	}
+	if kind == "investigation" {
+		if en {
+			return "Investigation"
+		}
+		return "调查"
+	}
+	if kind == "person" {
+		if en {
+			return "Person"
+		}
+		return "人员"
+	}
 	if en {
 		return "Conversation"
 	}
@@ -509,6 +792,16 @@ func label(r *http.Request, kind string) string {
 }
 
 func meta(r *http.Request, v record) string {
+	if v.Kind == "runbook" {
+		parts := []string{label(r, v.Kind), "v" + strconv.Itoa(v.Version), statusLabel(r, v)}
+		if v.EnvironmentID != "" {
+			parts = append(parts, v.EnvironmentID)
+		}
+		return strings.Join(parts, " · ")
+	}
+	if v.Kind == "person" {
+		return label(r, v.Kind)
+	}
 	if v.EnvironmentID == "" {
 		return label(r, v.Kind)
 	}
@@ -525,4 +818,18 @@ func tone(v record) string {
 		}
 	}
 	return ""
+}
+
+func governanceStatus(v record) string {
+	if v.Kind == "runbook" {
+		return v.State
+	}
+	return ""
+}
+
+func recordFromRunbookReference(ref v3knowledge.RunbookReference) record {
+	return record{Kind: "runbook", ID: ref.ID, Title: ref.Title,
+		EnvironmentID: ref.EnvironmentID, ApplicationID: ref.ApplicationID,
+		TeamID: ref.TeamID, State: ref.GovernanceStatus, Version: ref.Version,
+		DetailAvailable: ref.DetailAvailable}
 }

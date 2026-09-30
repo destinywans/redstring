@@ -1,0 +1,64 @@
+package v3ingestpush
+
+import (
+	"encoding/json"
+	"net/http"
+	"strings"
+	"testing"
+)
+
+func TestWebhookViewProjectsOnlyVisibleRealPushReceipts(t *testing.T) {
+	f := setupPush(t, 0)
+	f.s.RegisterPublic(f.api)
+	if got := pushBrowserRequest(f, http.MethodGet, "/api/v1/webhooks", "dev", "en-US", ""); got.Code != http.StatusOK {
+		t.Fatalf("empty receipt view status=%d body=%s", got.Code, got.Body.String())
+	} else {
+		var view webhookView
+		if err := json.Unmarshal(got.Body.Bytes(), &view); err != nil {
+			t.Fatal(err)
+		}
+		if len(view.Inbound) != 2 || len(view.Deliveries) != 0 || view.Inbound[0].Status != "unverified" ||
+			view.Inbound[0].Count != "0" || view.Availability.APITokens != "not_connected" ||
+			view.Availability.NativeInbound != "not_connected" || view.Availability.PublicMCP != "not_connected" ||
+			view.Availability.Outbound != "not_connected" || strings.Contains(got.Body.String(), "source-b") {
+			t.Fatalf("unobserved or cross-environment source was misrepresented: %s", got.Body.String())
+		}
+	}
+	if got := callPush(f, signedPush(f, "change", "webhooks-real", eventBody("change", "webhooks-real"))); got.Code != http.StatusAccepted {
+		t.Fatalf("real ingress status=%d body=%s", got.Code, got.Body.String())
+	}
+	got := pushBrowserRequest(f, http.MethodGet, "/api/v1/webhooks", "dev", "en-US", "")
+	if got.Code != http.StatusOK {
+		t.Fatalf("read status=%d body=%s", got.Code, got.Body.String())
+	}
+	var view webhookView
+	if err := json.Unmarshal(got.Body.Bytes(), &view); err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Inbound) != 2 || len(view.Deliveries) != 1 {
+		t.Fatalf("unexpected webhook view: %s", got.Body.String())
+	}
+	var change *webhookInbound
+	for i := range view.Inbound {
+		if view.Inbound[i].EventType == "change" {
+			change = &view.Inbound[i]
+		}
+	}
+	if change == nil || change.Status != "ok" || change.Count != "1" ||
+		change.URL != "/api/v1/events/change" || change.StatusBasis != "latest_receipt_in_window" ||
+		view.Deliveries[0].Code != "202" || strings.Contains(got.Body.String(), "source-b") ||
+		strings.Contains(got.Body.String(), f.token) || strings.Contains(got.Body.String(), f.secret) {
+		t.Fatalf("real receipt or credential boundary incorrect: %s", got.Body.String())
+	}
+	if stage := pushBrowserRequest(f, http.MethodGet, "/api/v1/webhooks", "stage", "en-US", ""); stage.Code != http.StatusOK {
+		t.Fatalf("stage scoped view status=%d body=%s", stage.Code, stage.Body.String())
+	} else if strings.Contains(stage.Body.String(), "source-a") || !strings.Contains(stage.Body.String(), "source-b") {
+		t.Fatalf("stage view crossed application environment: %s", stage.Body.String())
+	}
+	if _, err := f.db.Exec(t.Context(), `DELETE FROM v3_role_grants WHERE role_id='admin' AND module='connectors' AND action='view'`); err != nil {
+		t.Fatal(err)
+	}
+	if denied := pushBrowserRequest(f, http.MethodGet, "/api/v1/webhooks", "dev", "en-US", ""); denied.Code != http.StatusForbidden || strings.Contains(denied.Body.String(), "source-a") {
+		t.Fatalf("revoked connector view leaked source: %d %s", denied.Code, denied.Body.String())
+	}
+}

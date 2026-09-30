@@ -3,6 +3,7 @@ package delivery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -440,6 +441,33 @@ func (p *PostgresRepository) Commands(ctx context.Context, id string) ([]Command
 func (p *PostgresRepository) RecordWebhook(ctx context.Context, source, event string, project int64, external string) (bool, error) {
 	tag, err := p.DB.Exec(ctx, "INSERT INTO delivery_webhook_inbox(source_id,event_id,project_id,external_id) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING", source, event, project, external)
 	return tag.RowsAffected() > 0, err
+}
+func (p *PostgresRepository) RecordV3Webhook(ctx context.Context, source, event string, project int64, external, app, env string, instanceEnvironments []string) (bool, error) {
+	tx, err := p.DB.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+	var environmentID string
+	err = tx.QueryRow(ctx, `SELECT e.id FROM application_environments e
+	 JOIN applications a ON a.id=e.application_id AND NOT a.archived
+	 JOIN v3_application_environments ve ON ve.application_id=e.application_id AND ve.environment_id=e.key
+	 WHERE e.id=$1 AND e.application_id=$2 AND e.key=ANY($3::text[]) AND NOT e.archived
+	 FOR SHARE OF e,a,ve`, env, app, instanceEnvironments).Scan(&environmentID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, store.ErrForbidden
+	}
+	if err != nil {
+		return false, err
+	}
+	tag, err := tx.Exec(ctx, "INSERT INTO delivery_webhook_inbox(source_id,event_id,project_id,external_id) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING", source, event, project, external)
+	if err != nil {
+		return false, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
 }
 func (p *PostgresRepository) GitLabRuns(ctx context.Context, source string, project int64, external string) ([]Run, error) {
 	rows, err := p.DB.Query(ctx, "SELECT "+runColumns+" FROM delivery_runs WHERE provider='gitlab' AND external_id=$3 AND snapshot->'definition'->>'source_id'=$1 AND (snapshot->'definition'->>'project_id')::bigint=$2", source, project, external)

@@ -39,6 +39,21 @@ Claude adaptive thinking, or Ollama `think`. Unsupported choices fail before
 the provider request. Responses calls send `store: false` and reconstruct tool
 turns from the caller-owned transcript.
 
+Image and PDF input are opt-in per exact `OPENAI_MODEL` name through
+`OPENAI_IMAGE_MODELS` and `OPENAI_PDF_MODELS` (comma-separated). Both require
+`OPENAI_API=responses`; PDF also requires the same model in the image list.
+Other protocols advertise neither capability and reject media before calling a
+provider. The Responses adapter sends authorized image bytes as an `input_image`
+base64 data URL and PDF bytes as an `input_file` with the original checked
+filename and a `data:application/pdf;base64,...` value. Model catalog `vision`
+reflects the configured image capability; it is not a live provider probe.
+One frozen request is limited to 20 MiB aggregate media bytes. Text is checked
+against the configured input budget, while actual image/PDF token usage is
+provider-reported rather than estimated from base64 length. The model may
+still reject media for its own limits or unsupported format. These wire forms
+follow the official [image input](https://developers.openai.com/api/docs/guides/images-vision)
+and [file input](https://developers.openai.com/api/docs/guides/file-inputs) guides.
+
 The bounded defaults are 5 minutes per attempt, 8 model calls, 32 evidence reads,
 16 registered tools, 2 MiB frozen input, 8 KiB tool query, 256 KiB evidence content,
 8 MiB response stream, and 4096 output tokens per model call. Provider calls are

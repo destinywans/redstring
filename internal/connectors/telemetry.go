@@ -22,17 +22,20 @@ import (
 // TelemetryConfig is trusted server configuration. Models can choose a registered
 // query ID, but cannot change a query expression, endpoint, credential or scope.
 type TelemetryConfig struct {
-	Prometheus          TelemetryEndpoint               `json:"prometheus"`
-	Elasticsearch       TelemetryEndpoint               `json:"elasticsearch"`
-	Tempo               TelemetryEndpoint               `json:"tempo"`
-	Loki                TelemetryEndpoint               `json:"loki"`
-	Applications        map[string]ApplicationTelemetry `json:"applications"`
-	TimeoutSeconds      int                             `json:"timeout_seconds"`
-	MaxWindowSeconds    int                             `json:"max_window_seconds"`
-	MaxLookbackSeconds  int                             `json:"max_lookback_seconds"`
-	MinStepSeconds      int                             `json:"min_step_seconds"`
-	MaxSamplesPerSeries int                             `json:"max_samples_per_series"`
-	MaxLogEntries       int                             `json:"max_log_entries"`
+	Prometheus    TelemetryEndpoint `json:"prometheus"`
+	Elasticsearch TelemetryEndpoint `json:"elasticsearch"`
+	Tempo         TelemetryEndpoint `json:"tempo"`
+	// Set only after the target Tempo deployment is verified to fail search
+	// requests on high live-store lag; otherwise HTTP 200 can be incomplete.
+	TempoSearchFailClosed bool                            `json:"tempo_search_fail_closed,omitempty"`
+	Loki                  TelemetryEndpoint               `json:"loki"`
+	Applications          map[string]ApplicationTelemetry `json:"applications"`
+	TimeoutSeconds        int                             `json:"timeout_seconds"`
+	MaxWindowSeconds      int                             `json:"max_window_seconds"`
+	MaxLookbackSeconds    int                             `json:"max_lookback_seconds"`
+	MinStepSeconds        int                             `json:"min_step_seconds"`
+	MaxSamplesPerSeries   int                             `json:"max_samples_per_series"`
+	MaxLogEntries         int                             `json:"max_log_entries"`
 }
 type TelemetryEndpoint struct {
 	URL             string `json:"url"`
@@ -46,13 +49,26 @@ type TelemetryEndpoint struct {
 type ApplicationTelemetry struct {
 	// Every expression is reviewed and registered for this application by an admin.
 	// Arbitrary PromQL is intentionally absent from the public request interface.
-	PrometheusQueries     map[string]string `json:"prometheus_queries"`
-	LokiLabels            map[string]string `json:"loki_labels"`
-	ElasticsearchIndex    string            `json:"elasticsearch_index"`
-	ElasticsearchFilters  map[string]string `json:"elasticsearch_filters"`
-	ElasticsearchPrefixes map[string]string `json:"elasticsearch_prefixes"`
-	TempoService          string            `json:"tempo_service"`
-	TempoAttributes       map[string]string `json:"tempo_attributes"`
+	PrometheusQueries map[string]string `json:"prometheus_queries"`
+	LokiLabels        map[string]string `json:"loki_labels"`
+	// A trusted ingestion pipeline must put a reviewed, sanitized template in
+	// each JSON log line. The registered effective tenant query lookback and
+	// retention must both cover this many seconds; Loki may silently trim older
+	// data when max_query_lookback is shorter than the requested window.
+	LokiPatternField            string `json:"loki_pattern_field,omitempty"`
+	LokiCompleteLookbackSeconds int    `json:"loki_complete_lookback_seconds,omitempty"`
+	ElasticsearchIndex          string `json:"elasticsearch_index"`
+	// Only message_template.keyword is accepted. The trusted ingestion pipeline
+	// must supply a stable, reviewed, sanitized template on every log document.
+	// Empty preserves the categorize_text path.
+	ElasticsearchPatternField string            `json:"elasticsearch_pattern_field,omitempty"`
+	ElasticsearchFilters      map[string]string `json:"elasticsearch_filters"`
+	ElasticsearchPrefixes     map[string]string `json:"elasticsearch_prefixes"`
+	TempoService              string            `json:"tempo_service"`
+	TempoAttributes           map[string]string `json:"tempo_attributes"`
+	// Exact, administrator-reviewed names or HTTP method + route templates that
+	// may appear in a shared trace view. Unknown names are withheld.
+	TempoSafeOperations []string `json:"tempo_safe_operations,omitempty"`
 }
 type TimeWindow struct {
 	Start       time.Time `json:"start"`
@@ -113,13 +129,23 @@ type LogSummary struct {
 	BucketSeconds int         `json:"bucket_seconds"`
 	Buckets       []LogBucket `json:"buckets"`
 }
+type LogPattern struct {
+	Template string      `json:"template"`
+	Count    int64       `json:"count"`
+	Buckets  []LogBucket `json:"buckets"`
+}
+type LogPatternSummary struct {
+	Patterns []LogPattern `json:"patterns"`
+}
 type LogEvidence struct {
-	Summary      *LogSummary     `json:"summary,omitempty"`
-	SummaryError string          `json:"summary_error,omitempty"`
-	Source       TelemetrySource `json:"source"`
-	Entries      []LogEntry      `json:"entries"`
-	Empty        bool            `json:"empty"`
-	LimitReached bool            `json:"limit_reached"`
+	Summary        *LogSummary        `json:"summary,omitempty"`
+	SummaryError   string             `json:"summary_error,omitempty"`
+	PatternSummary *LogPatternSummary `json:"pattern_summary,omitempty"`
+	PatternError   string             `json:"pattern_error,omitempty"`
+	Source         TelemetrySource    `json:"source"`
+	Entries        []LogEntry         `json:"entries"`
+	Empty          bool               `json:"empty"`
+	LimitReached   bool               `json:"limit_reached"`
 }
 type telemetryClient struct {
 	config TelemetryEndpoint
@@ -191,6 +217,19 @@ func NewTelemetry(config TelemetryConfig) (*Telemetry, error) {
 		for key, value := range a.LokiLabels {
 			if !telemetryLabelName.MatchString(key) || value == "" || len(value) > 1024 {
 				return nil, fmt.Errorf("invalid Loki scope for %s", app)
+			}
+		}
+		if a.LokiPatternField != "" && a.LokiPatternField != "message_template" ||
+			a.LokiCompleteLookbackSeconds < 0 || a.LokiCompleteLookbackSeconds > 366*86400 ||
+			(a.LokiPatternField == "") != (a.LokiCompleteLookbackSeconds == 0) {
+			return nil, fmt.Errorf("invalid registered Loki pattern source for %s", app)
+		}
+		if len(a.TempoSafeOperations) > 100 {
+			return nil, fmt.Errorf("too many reviewed Tempo operations for %s", app)
+		}
+		for _, operation := range a.TempoSafeOperations {
+			if !safeTraceOperationConfig.MatchString(operation) || strings.Contains(operation, "//") {
+				return nil, fmt.Errorf("invalid reviewed Tempo operation for %s", app)
 			}
 		}
 	}
@@ -549,7 +588,16 @@ func (t *Telemetry) queryLokiOptions(ctx context.Context, appID string, w TimeWi
 			if len(out.Entries) >= limit {
 				return out, failure(s, "limit", "Loki returned more entries than requested", nil)
 			}
-			out.Entries = append(out.Entries, enrichLogEntry(LogEntry{Timestamp: at, Line: pair[1], Labels: stream.Stream}))
+			entry := enrichLogEntry(LogEntry{Timestamp: at, Line: pair[1], Labels: stream.Stream})
+			if level != "" {
+				canonical, e := canonicalLokiLevel(pair[1])
+				if e != nil || canonical != level {
+					return out, failure(s, "scope", "Loki sample level differs from the selected top-level JSON level", e)
+				}
+				// Do not let an older stream label override the parsed line level.
+				entry.Level = canonical
+			}
+			out.Entries = append(out.Entries, entry)
 		}
 	}
 	sort.SliceStable(out.Entries, func(i, j int) bool { return out.Entries[i].Timestamp.Before(out.Entries[j].Timestamp) })

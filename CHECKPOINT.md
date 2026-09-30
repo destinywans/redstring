@@ -1,3 +1,16 @@
+## CP-238 · 2026-10-01 · 原负载稳定定位Inbox，WAN163最小修复启动
+
+- 原诊断 **3d8d1002-d292-45c3-b442-83cd9e277b7f** 已22:18:11Z **failed**，source始末1512，9pass/3fail/1block（阶段/summary/命令审计，不是3Bug）。rps25实际 **300.525s/7501请求/0error/0drop**，DBP95**674.397ms**>500，Inbox**836.002ms**，Groups808.472ms，其他DB route P95<72；单接口Inbox也未达到本地500ms目标。SSE50+10/真实重连、资源恢复、数据一致性全部passed；sample PG0Lockwait。warmup120/rps10 300均完整通过。home_result_limit503明确block，无法用boundarypass关掉性能。私有wan163-performance-red及registered evidence **4f9a36e6-be87-4d55-92e3-28b474341b97**；三格式报告导出，原8ac/3d状态不改，24h未开始。
+- 创建 **WAN-163 ca3fe73a-edd1-492f-957f-83d58bb2b283** High/InProgress，记录原用户场景、假设/事实、选择、约束和验收，复用当前集成分支依赖未合并V3+WAN162，不机械切换。High独占alert_authority/inbox/alert_groups与新guard定向tests，实际随机schema PG隔离证据→首红→最小修→原绿/模块race；禁止正式API/负载/重启/归档。root只工具台账/集成/正式复验，XHigh只读审。
+- XHigh修正此前**303估算**：Inbox本已user/session预锁，必须保留；held user/session/table锁只能在本list本top-level tx实际成功后复用，不跨scope授权或跨tx/savepoint。首/后app/environment/policy/team仍当前查询，cached分支**等待后保留DB actual-clock session query**及末尾clock_timestamp，约**4N**而非3N；Claim普通写保持原函数，Policy外部后新tx新guard。初查角色数据来自当前policy的users视图及已持users锁，不缓存snapshot。不能为了数字收益省过期检查。性能因果/收益等原例修后验证，不宣称已修。
+- 无active load，新API12115/12116/12117仍旧1512仅快照；未来Go修后必须root实际非race重建再HMAC核新源，不能用旧binary验新源。不重复seed/保全（fresh11131999仍base，两个archive完整），不改原阈值/配比/JIT/权限。聚合/暂停7CI-CD/容量/外部/缺实现HighTODO，整体未收口；无前端/合并/部署，.claude保留。
+
+## CP-237 · 2026-10-01 · 单一基础档诊断运行中
+
+- **ea96f4b5ce476a583f93415a8897ecbf01854719** 工具/实保全/新基础244链记录已推送精确回读；Go1512/新binary30c7固定，新APP11131999准确base，两个archive完整保持。root fresh doctor53/53、HMAC12115/12116/12117/实际CPU-RSS-FD-PG准入，private diagnostic-readmission。
+- 唯一 **perf-diagnosis 3d8d1002-d292-45c3-b442-83cd9e277b7f /session34021** 于 **2026-09-30T22:04:39.043216+00:00** 运行原warmup120→rps10 300→rps25 300/50正常10慢SSE+恢复/一致性。run/source/私有manifest/入口SHA及自身冻结已登记；rootSQLite+actualps+freshHMAC确认runner **13075** 并仅对它绑定caffeinate **13475**。PID仅快照，不可旧值信号；不重复run，不并行heavy/改Go、frozen helper、runtime配置或API重启。所有結果diagnostic_only/twoformal=false，不代两档完整性能和24h。原8ac始末缺审计不补造、failed/interrupted不改。
+- High只读确认scope内map已有、6SQL只指broad环境events.view成功分支（其他1/5/8），候选仅每list每tx已持有actor/session/三authoritytable guard的memoize，保持第一锁序和后续fresh app+policy/末wallclock；未确认主因、未实施。先收七路由实际性能证据。WAN152/暂停7CI-CD/容量/外部/缺实现High待办保留；24h未开始、整体未收口，无前端/合并部署。
+
 ## CP-236 · 2026-10-01 · 新基础档正式链及诊断入口已验证
 
 - prepare_all完成，freshAPP11131999实查准确 **100服务/5000告警/10000消息/20用户**、pgcrypto/vector public、search_path明确；22:00:41Z fresh nonce/HMAC监督 **12115/API12116、12117** source1512 ready，旧98778等停止且不再使用。实际非racebinary **30c7c6c80c29f02a54920fc7ddb150c0b7758512286738aabb953ed5d2555fe9**，重建记录和运行源一致；CPU/RSS/FD/PG实际可采，goroutines/heap仍缺失。private second-profile-fresh-base.json。PID仅快照，任何操作重新核验。

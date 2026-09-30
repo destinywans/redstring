@@ -545,18 +545,19 @@
     "status": "in_progress",
     "description": "确认性能验收失败；尚未判定产品SQL、资源或工具问题。1512原认领锁超时消退不代表其他接口延迟通过。",
     "before": "8ac基础25完整300.794s/7500请求/0error/0drop，database_latency P95676.033ms>500；P99861.518过，aggregate95/99过。base50仅知23.184s Blocked。",
-    "after": "只停止经SQLite/actualps/freshHMAC核验的本轮runner；只读诊断中，不放阈值/删请求/改JIT。当前APP已scale；未来重跑base须保留本次scale库另建fresh，不复用旧归档UUID或删seed。",
+    "after": "固定原三阶段3d稳定复现：完整25RPS/7501/0error0drop，DBP95674、Inbox836/Groups808，其他DB<72；SSE/恢复/一致性通过。原状态留存。WAN163每tx held-lock facts最小候选正在红绿实施；保留每scope实际clock，约4N，不冒303收益或已修性能。",
     "first_failure_run_id": "8ac896b5-70c4-43c8-a934-309ce357e31d",
     "first_failure_source": "15125d6ecd371864b894edfd91b7ca4944bf69dc305359d0e385a879f8cc090a",
     "local_evidence": [
       ".local/testlab/wan162-postfix-performance-first-red.json",
-      ".local/testlab/performance-stop-8ac.json"
+      ".local/testlab/performance-stop-8ac.json",
+      ".local/testlab/wan163-performance-red.json"
     ],
     "case_ids": [
       "perf.rps25",
       "perf.rps50"
     ],
-    "linked_issue": "WAN-138 / WAN-161（诊断上下文；确认根因后按领域复用或拆独立项）"
+    "linked_issue": "WAN-163 / WAN-138"
   },
   {
     "id": "TOOL-PERF-DIAGNOSTIC-DEADLINE",

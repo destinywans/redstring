@@ -354,10 +354,16 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) {
 	var content *ContentReadResult
 	var gitContent *GitMarkdownReadResult
 	var externalContent *ExternalReadResult
+	var publicWebToken string
 	if initial.Type == "web" && initial.SecretRef == "" {
 		contentReader, available := reader.(ContentReader)
 		if !available {
 			httpapi.Error(w, 501, "source_content_reader_unavailable", "No bounded content reader is configured for this public Web source")
+			return
+		}
+		publicWebToken, err = publicWebReadToken(ctx, s.DB, initial.ID)
+		if err != nil {
+			unavailable(w)
 			return
 		}
 		var fetched ContentReadResult
@@ -541,6 +547,20 @@ func (s *Service) sync(w http.ResponseWriter, r *http.Request) {
 			file.ContentHash != doc.Observation.ContentHash ||
 			file.Name != doc.Title || file.MIME != doc.UploadMIME || file.Body != doc.Body {
 			httpapi.Error(w, 409, "source_content_changed", "Upload changed during read")
+			return
+		}
+	}
+	if content != nil {
+		// The registration is locked above, serializing all imports for this
+		// source. A newer successful read must never be overwritten by an
+		// older fetch that only completed its network operation later.
+		currentToken, tokenErr := publicWebReadToken(ctx, tx, current.ID)
+		if tokenErr != nil {
+			unavailable(w)
+			return
+		}
+		if currentToken != publicWebToken {
+			httpapi.Error(w, 409, "source_content_changed", "Public Web content changed during read; retry from the current snapshot")
 			return
 		}
 	}

@@ -15,6 +15,20 @@ const maxPublicWebBodyBytes = 128 << 10
 var errContentScopeConflict = errors.New("public Web content belongs to a different source scope")
 var errContentCorrupt = errors.New("stored public Web content fails its hash or version check")
 
+// A successful sync changes last_read_id even if the fetched body is unchanged.
+// Capture this token before fetching and compare it after locking the source
+// row. Content version alone cannot fence overlapping unchanged-body reads.
+func publicWebReadToken(ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, registrationID string) (string, error) {
+	var token string
+	err := q.QueryRow(ctx, `SELECT last_read_id FROM v3_public_web_documents WHERE registration_id=$1`, registrationID).Scan(&token)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return token, err
+}
+
 func validPublicWebContent(source registration, result ContentReadResult) bool {
 	if source.Type != "web" || source.SecretRef != "" || source.ApplicationID == "" ||
 		source.Schedule != "manual" || !source.InheritACL || len(source.Spaces) != 0 ||

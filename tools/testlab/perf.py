@@ -1,10 +1,12 @@
 """Real owned-DB k6 load and continuous wall-clock soak. No compressed acceptance."""
 from __future__ import annotations
-import argparse,datetime,hashlib,http.client,json,os,re,signal,subprocess,sys,threading,time,uuid
+import argparse,datetime,hashlib,hmac,http.client,json,os,re,secrets,signal,subprocess,sys,threading,time,uuid
 from pathlib import Path
 from urllib.parse import urlparse
 from load.seed import fixture,seed,sql,quote,private,stream_seed,stream_emit,stream_finish
 from runner import source_fingerprint
+from backend import control_proof
+from faults import validate_identity
 ROOT=Path(__file__).resolve().parents[2]
 K6_IMAGE='grafana/k6:1.5.0@sha256:2072ea9eafa596532d9aee0cc0e0a50cfb0e7fb703981a46179af5f4f22c5ea4'
 K6_RELEASE='https://github.com/grafana/k6/releases/tag/v1.5.0'
@@ -103,13 +105,21 @@ def prepare(profile):
 
 def identity(data):
     c=http.client.HTTPConnection('127.0.0.1',18560,timeout=5)
-    try:c.request('GET','/identity');r=c.getresponse();v=json.loads(r.read())
+    nonce=secrets.token_hex(16)
+    try:
+        c.request('GET','/attest?nonce='+nonce);r=c.getresponse();raw=r.read((1<<16)+1)
+        if r.status!=200 or len(raw)>1<<16:raise RuntimeError('bounded supervisor attestation unavailable')
+        receipt=json.loads(raw)
     finally:c.close()
-    if v.get('owner')!=data['owner'] or not v.get('ready'):raise RuntimeError('formal backend supervisor is not owned and ready')
+    if (not isinstance(receipt,dict) or set(receipt)!={'nonce','identity','proof'} or receipt['nonce']!=nonce
+        or not isinstance(receipt['identity'],dict) or not isinstance(receipt['proof'],str)
+        or not hmac.compare_digest(receipt['proof'],control_proof(data['control_secret'],nonce,receipt['identity']))):
+        raise RuntimeError('supervisor nonce/HMAC attestation mismatch')
+    v=receipt['identity'];validate_identity(data,v)
     return v
 
 def frozen_inputs(data):
-    names={Path(data['instance_config']),ROOT/'tools/testlab/perf.py',ROOT/'tools/testlab/load/seed.py',ROOT/'tools/testlab/load/traffic.js',ROOT/'tools/testlab/fixtures.py',ROOT/'.local/testlab/component-environment.json'}
+    names={Path(data['instance_config']),Path(data['binary']),ROOT/'tools/testlab/perf.py',ROOT/'tools/testlab/backend.py',ROOT/'tools/testlab/faults.py',ROOT/'tools/testlab/load/seed.py',ROOT/'tools/testlab/load/traffic.js',ROOT/'tools/testlab/fixtures.py',ROOT/'.local/testlab/component-environment.json'}
     owner_work=Path(data['perf_work']).parent.resolve()
     runtime=ROOT/'.local/testlab/runtime-config.json'
     hook=Path(data['perf_work'])/'soak-hooks.json'

@@ -2,21 +2,22 @@
 import importlib.util,json,sys,tempfile,unittest
 import threading
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch,Mock
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import perf
 
 class FrozenInputTest(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name);self.work=self.root/'.local/testlab/environments/testlab-0123456789ab';(self.work/'perf').mkdir(parents=True);(self.work/'trial').mkdir()
-        for name in ('perf.py','load/seed.py','load/traffic.js','fixtures.py'):
+        for name in ('perf.py','backend.py','faults.py','load/seed.py','load/traffic.js','fixtures.py'):
             p=self.root/'tools/testlab'/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('fixed test helper')
         self.token=self.work/'trial/source-token';self.token.write_text('synthetic token')
         self.rules=self.work/'trial/rules.json';self.rules.write_text(json.dumps({'bearer_token_file':str(self.token)}))
         self.instance=self.work/'instance.json';self.instance.write_text('{}')
         (self.root/'.local/testlab/component-environment.json').write_text('{}')
         (self.root/'.local/testlab/runtime-config.json').write_text(json.dumps({'owner':'testlab-0123456789ab','work':str(self.work/'trial'),'env':{'AIOPS_V3_ALERT_RULES_CONFIG':str(self.rules)}}))
-        self.data={'owner':'testlab-0123456789ab','perf_work':str(self.work/'perf'),'instance_config':str(self.instance),'source_tree_sha':'same'}
+        self.binary=self.work/'aiops';self.binary.write_bytes(b'synthetic binary')
+        self.data={'owner':'testlab-0123456789ab','perf_work':str(self.work/'perf'),'instance_config':str(self.instance),'binary':str(self.binary),'source_tree_sha':'same'}
         self.patches=[patch.object(perf,'ROOT',self.root),patch.object(perf,'source_fingerprint',return_value='same'),patch.object(perf,'identity',return_value={'pid':1,'api_pids':[2,3],'source_tree_sha':'same'})]
         for p in self.patches:p.start()
     def tearDown(self):
@@ -24,6 +25,9 @@ class FrozenInputTest(unittest.TestCase):
         self.tmp.cleanup()
     def test_token_rotation_invalidates_continuous_window(self):
         perf.frozen(self.data);self.token.write_text('changed synthetic token')
+        with self.assertRaisesRegex(RuntimeError,'configuration changed'):perf.frozen(self.data)
+    def test_binary_replacement_invalidates_continuous_window(self):
+        perf.frozen(self.data);self.binary.write_bytes(b'changed binary')
         with self.assertRaisesRegex(RuntimeError,'configuration changed'):perf.frozen(self.data)
     def test_uppercase_env_file_is_frozen(self):
         ca=self.work/'combined-ca.pem';ca.write_text('synthetic CA')
@@ -42,6 +46,25 @@ class FrozenInputTest(unittest.TestCase):
         self.rules.write_text(json.dumps({'bearer_token_file':'/etc/passwd'}))
         with self.assertRaisesRegex(RuntimeError,'escapes'):perf.frozen(self.data)
 
+
+class IdentityAttestationTest(unittest.TestCase):
+    def test_signed_receipt_and_invalid_replay_or_forged_proof(self):
+        data={'owner':'testlab-0123456789ab','control_secret':'synthetic-secret','supervisor_pid':12,'source_tree_sha':'same'}
+        nonce='a'*32
+        identity={'owner':data['owner'],'pid':12,'api_pids':[13,14],'ready':True,'source_tree_sha':'same'}
+        valid={'nonce':nonce,'identity':identity,'proof':perf.control_proof(data['control_secret'],nonce,identity)}
+        for receipt,ok in ((valid,True),({**valid,'nonce':'b'*32},False),({**valid,'identity':{**identity,'pid':99}},False)):
+            conn=Mock();response=conn.getresponse.return_value;response.status=200;response.read.return_value=json.dumps(receipt).encode()
+            with patch.object(perf.secrets,'token_hex',return_value=nonce),patch.object(perf.http.client,'HTTPConnection',return_value=conn):
+                if ok:self.assertEqual(perf.identity(data),identity)
+                else:
+                    with self.assertRaisesRegex(RuntimeError,'attestation mismatch'):perf.identity(data)
+            conn.request.assert_called_once_with('GET','/attest?nonce='+nonce);conn.close.assert_called_once()
+    def test_oversized_or_non_success_receipt_rejected(self):
+        for status,raw in ((503,b'{}'),(200,b'x'*((1<<16)+1))):
+            conn=Mock();conn.getresponse.return_value.status=status;conn.getresponse.return_value.read.return_value=raw
+            with patch.object(perf.http.client,'HTTPConnection',return_value=conn),self.assertRaisesRegex(RuntimeError,'unavailable'):perf.identity({})
+            conn.close.assert_called_once()
 
 class TrialFinishTest(unittest.TestCase):
     def trial(self,**changes):

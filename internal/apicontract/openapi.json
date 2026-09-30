@@ -26387,14 +26387,21 @@
       "get": {
         "summary": "Read owner-scoped general canvas",
         "operationId": "get_canvases_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. General canvases return validated typed nodes, seven block variants, edges and artifacts plus persisted per-node exchanges in threads. Failed user prompts remain visible without a fabricated assistant reply; only completed exchanges are used as later model context. More than 500 exchanges, 2 MiB of thread history, or one assistant answer over 64 KiB returns 413 canvas_history_too_large. Invalid persisted canvas structure returns 503 canvas_unavailable. Investigation canvas detail is not implemented by this route.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Default response is the unchanged full V3CanvasDoc with persisted per-node exchanges in threads. Explicit include_threads=false returns the same canvas structure without a threads property and with threads_included=false; this is an omission marker, not empty history. The current owner, an allowed environment, and current canvas.view are required. In the default response, more than 500 exchanges, 2 MiB of thread history, or one assistant answer over 64 KiB returns 413 canvas_history_too_large with concrete recovery links for the omitted canvas and each node message page. Failed user prompts remain visible without a fabricated assistant reply. Invalid persisted canvas structure returns 503 canvas_unavailable. Investigation canvas detail is separate.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/V3CanvasDoc"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/V3CanvasDoc"
+                    },
+                    {
+                      "$ref": "#/components/schemas/V3CanvasDocWithoutThreads"
+                    }
+                  ]
                 }
               }
             }
@@ -26460,7 +26467,129 @@
             }
           },
           "413": {
-            "description": "Conversation history exceeds the bounded canvas detail limit",
+            "description": "Default full history exceeds a bounded canvas detail limit; recovery links provide an omitted canvas and per-node pages",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3CanvasHistoryTooLarge"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "canvases"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "include_threads",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/canvases/{id}/nodes/{node}/messages": {
+      "get": {
+        "summary": "Read a bounded persisted general-canvas node history page",
+        "operationId": "get_canvases_id_nodes_node_messages",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read-only route outside the frozen 165 V3 page contracts. Requires the current owner, allowed canvas environment, and current canvas.view on every page. Reads at most page_size (1–50, default 20) persisted exchanges in stable sort_order within 2 MiB raw history. A completed exchange contributes user and assistant turns; running and failed exchanges contribute only the saved user turn, with state in exchange_states. The opaque cursor binds canvas, node, environment, and the first-page snapshot upper sort_order; later pages reauthorize and never silently truncate a visible exchange. The range fields describe the bounded snapshot without claiming a total count. Invalid query/cursor returns 422. One exchange over the 2 MiB page budget returns 413; investigation node history uses its separate route.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3CanvasNodeMessagesPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "A single persisted exchange exceeds the 2 MiB page budget",
             "content": {
               "application/json": {
                 "schema": {
@@ -26488,6 +26617,32 @@
             }
           },
           {
+            "name": "node",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
             "name": "X-AIOps-Environment",
             "in": "header",
             "schema": {
@@ -26496,9 +26651,7 @@
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
         ]
-      }
-    },
-    "/canvases/{id}/nodes/{node}/messages": {
+      },
       "post": {
         "summary": "Run a scoped general-canvas node reply",
         "operationId": "post_canvases_id_nodes_node_messages",
@@ -48850,7 +49003,7 @@
       "get": {
         "summary": "Query scoped traces",
         "operationId": "get_traces",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires persisted service/environment/owner-team Tempo binding and current traces.view. App scope exhausts a one-hour search by bounded window splitting; all 200 counts, facets, histogram and scatter refer to that full result set. At most 40 traces, 64 searches, 6 targets and 500 spans per trace; a reached cap returns 413 rather than a sampled 200. q accepts one bounded TraceQL span selector with simple comparisons and inner AND/OR, but no regex, pipeline or outer union. Complete counts require a server-attested fail-closed Tempo search configuration; otherwise 503. Agent scope has no complete provider and returns 503. Source and grants are rechecked before response.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires persisted service/environment/owner-team Tempo binding and current traces.view. App scope exhausts a one-hour search by bounded window splitting; all 200 counts, facets, histogram and scatter refer to that full result set. At most 40 traces, 64 searches, 6 targets and 500 spans per trace; a reached cap returns 413 rather than a sampled 200. q accepts one bounded TraceQL span selector with simple comparisons and inner AND/OR, but no regex, pipeline or outer union. Complete counts require a server-attested fail-closed Tempo search configuration; otherwise 503. Agent scope instead reads the complete bounded set of currently authorized persisted terminal runs started in the database-clock last 24 hours, requiring both agents.view and traces.view. Current application and owner-team grant boundaries, Agent catalog relationships and Cookie session are checked in one transaction; up to 2000 qualifying runs and 20000 run/model identities, otherwise 413 without sampled counts. Running runs are excluded explicitly rather than assigned fabricated final duration. Optional service matches persisted app ID or key. Agent q accepts at most eight agent/model/status/version/trigger equality terms and duration comparisons joined by AND; unknown grammar returns 422. Token/model/cost or instrumentation coverage with no trusted report remain absent and listed as missing; span/error counts mean persisted reported rows only. Agent rows link to the separately authorized Agent run detail, not the Tempo detail route. Sources and grants are rechecked before response.",
         "responses": {
           "200": {
             "description": "Success",
@@ -59799,6 +59952,223 @@
           "edges",
           "artifacts",
           "threads"
+        ]
+      },
+      "V3CanvasDocWithoutThreads": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "env": {
+            "type": "string"
+          },
+          "participants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3CanvasNode"
+            },
+            "maxItems": 100
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3CanvasEdge"
+            },
+            "maxItems": 200
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3CanvasArtifact"
+            },
+            "maxItems": 100
+          },
+          "threads_included": {
+            "type": "boolean",
+            "const": false
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "kind",
+          "status",
+          "participants",
+          "note",
+          "nodes",
+          "edges",
+          "artifacts",
+          "threads_included"
+        ]
+      },
+      "V3CanvasHistoryRecoveryLink": {
+        "type": "object",
+        "properties": {
+          "node_id": {
+            "type": "string"
+          },
+          "href": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "node_id",
+          "href"
+        ]
+      },
+      "V3CanvasHistoryRecovery": {
+        "type": "object",
+        "properties": {
+          "canvas_href": {
+            "type": "string"
+          },
+          "node_messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3CanvasHistoryRecoveryLink"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "canvas_href",
+          "node_messages"
+        ]
+      },
+      "V3CanvasHistoryTooLarge": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "canvas_history_too_large"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "message"
+            ]
+          },
+          "recovery": {
+            "$ref": "#/components/schemas/V3CanvasHistoryRecovery"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "error",
+          "recovery"
+        ]
+      },
+      "V3CanvasExchangeState": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "running",
+              "completed",
+              "failed"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "state"
+        ]
+      },
+      "V3CanvasNodeMessagesPage": {
+        "type": "object",
+        "properties": {
+          "canvas_id": {
+            "type": "string"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "thread": {
+            "$ref": "#/components/schemas/V3CanvasThread"
+          },
+          "exchange_states": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3CanvasExchangeState"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "snapshot_through_sort_order": {
+            "type": "integer",
+            "minimum": 0,
+            "format": "int64"
+          },
+          "after_sort_order": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "format": "int64"
+          },
+          "returned_through_sort_order": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "format": "int64"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "canvas_id",
+          "node_id",
+          "thread",
+          "exchange_states",
+          "has_more",
+          "next_cursor",
+          "snapshot_through_sort_order",
+          "after_sort_order",
+          "returned_through_sort_order"
         ]
       },
       "V3InvestigationCanvasContext": {
@@ -75519,6 +75889,38 @@
           },
           "errors": {
             "type": "integer"
+          },
+          "agent": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "tokens": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "failed",
+              "blocked"
+            ]
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "additionalProperties": false,
@@ -75682,6 +76084,39 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/V3TraceRow"
+            }
+          },
+          "source": {
+            "type": "string"
+          },
+          "aggregation_scope": {
+            "type": "string"
+          },
+          "window_start_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "window_end_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "excluded_running": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "partial": {
+            "type": "boolean"
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "histogram_non_success_states": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           }
         },

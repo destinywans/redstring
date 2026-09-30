@@ -40,6 +40,8 @@
 - [V3 服务与人员悬浮卡](api/v3-peeks.md)：持久对象预览、未知值与冻结前端差异。
 - [V3 记忆主视图](api/v3-memory-view.md)：持久事实的证据、受权范围、未知字段与冻结前端差异。
 - [V3 Agent 运行记录](api/v3-agent-runs.md)：持久运行与反馈的受权汇总、未知生产者及冻结前端差异。
+- [V3 Agent 范围链路列表](api/v3-agent-trace-list.md)：持久运行与已报告 Span 的授权范围、完整性上限和缺失字段。
+- [V3 通用画布历史恢复](api/v3-canvas-history.md)：省略历史的画布结构读取及逐节点分页。
 - [V3 Agent 生命周期](api/v3-agent-lifecycle.md)：版本化发布意图、权限等级修订、评测门禁与实际流量边界。
 - [V3 Prompt 试运行](api/v3-prompt-trial.md)：双版本真实文本、可信案例输入、模型预算/幂等与未接生产者边界。
 - [V3 服务告警覆盖绑定](examples/v3-service-alert-coverage.md)：逐应用、环境的完整来源声明及撤销方式。

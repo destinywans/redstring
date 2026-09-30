@@ -6,6 +6,8 @@
 
 `GET /api/v1/canvases/{id}` 默认继续返回完整 `V3CanvasDoc`，包括 `threads`；历史超过 500 次交换、2 MiB 原始总量或单条助手回答超过 64 KiB 时，返回 `413 canvas_history_too_large`，不截断成功响应。该错误同时给出实际可用的 `recovery.canvas_href` 和逐节点 `recovery.node_messages[]`：每项包含 `node_id` 与首个分页 URL `href`。URL 指向当前画布的明确恢复入口，不表示用户此后仍有权限。
 
+非生产环境请求恢复 URL 时仍须发送所选环境的 `X-AIOps-Environment` 头。当前冻结前端的错误客户端没有向页面传递 `recovery` 字段，因此页面尚不能使用这些后端入口。
+
 显式请求 `GET /api/v1/canvases/{id}?include_threads=false` 返回相同的画布结构字段，省略整个 `threads` 属性，并带 `threads_included: false`。这表示历史未包含，不能按空历史解释；无需为了读取结构而加载全部对话。只有明确的 `false` 值采用此形态。默认详情的既有响应结构保留。
 
 ## 节点历史分页
@@ -30,4 +32,4 @@
 
 顺序来自持久 `sort_order`。游标绑定当前画布、节点、环境和第一页的排序上界；新写入的交换不插入这次分页范围。运行中的交换可能在后续请求前完成，状态始终按该页读取时的持久值返回。`snapshot_through_sort_order` 是排序上界，空范围为 0；`after_sort_order` 为本页之前的位置，首页为 `null`；`returned_through_sort_order` 为本页最后返回的位置，空页为 `null`。`has_more` 为真时 `next_cursor` 为下一页游标，否则为 `null`。这些字段描述有界范围，不声称历史总数。要获取新写入的记录，重新开始第一页。
 
-这条 GET 是冻结 165 条 V3 页面契约之外的辅助读取接口，不改变原有前端对默认画布详情的消费方式。这里只定义和实现后端恢复路径；前端分页展示与真实页面验收分别进行。
+这条 GET 是 166 条 V3 主页面契约之外的辅助读取接口，不改变原有前端对默认画布详情的消费方式。这里只定义和实现后端恢复路径；前端分页展示与真实页面验收分别进行。

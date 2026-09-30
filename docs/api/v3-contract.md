@@ -114,7 +114,7 @@
 | GET | `/conversations/{id}/events` | `reply_id?`、`Last-Event-ID?` | SSE：`StreamEvent`（见「流式对话」）；回复结束后服务端保存完整消息 | implemented |
 | GET | `/canvases` | `kind`, `q`, 分页 | `{ items: CanvasSummary[], counts }`；`kind`：investigation / plan / review / analysis / custom | implemented |
 | POST | `/canvases` | `{ title, kind, template_id, goal, services, ai_draft }` | `{ id, href }`；调查类返回 `INV-*` | implemented |
-| GET | `/canvases/{id}` | | `CanvasDoc`（非调查类画布：通用节点块、边、产物、各节点对话） | implemented |
+| GET | `/canvases/{id}` | `include_threads=false?` | 默认 `CanvasDoc` 包含各节点完整对话；显式省略历史时返回结构及 `threads_included=false`，超限 413 提供恢复入口 | implemented |
 | POST | `/canvases/{id}/nodes/{node}/messages` | `{ text, model?, reasoning? }` | `{ reply }` | implemented |
 | GET | `/canvas-templates` | | `{ items: CanvasTemplateOption[] }`；系统空白模板与当前本人有权环境中的私有通用画布模板，超过 500 项受控 422 | implemented |
 | POST | `/canvas-templates` | `{ from_canvas, name, keep: { nodes, steps?, runbooks?, content? } }`；`nodes` 必须显式给出，其他保留项为 true 时 422 | 本人私有通用画布结构模板 | implemented |
@@ -137,7 +137,7 @@
 
 通用画布模板 GET 在同一有界快照中重核精确会话、当前环境与 `canvas.view`，只列系统空白模板和本人有权环境中的私有结构模板；超过 500 项明确返回 422，不截断。POST 在同一事务复核会话、本人同环境源画布和当前 `canvas.change`，`keep.nodes=true` 只复制净化后的节点/边布局，false 保存空结构，均排除源节点标题、内容块、产物与对话；按本人串行化重复名称与容量检查，模板和审计原子提交。私人保存与受审系统模板导入现共用数据库容量锁：新私人模板按本人可见的全部环境与系统模板计数，新系统模板按系统总数加现有最大私人集合计数；达到 500 项时都拒绝新增并返回受控 422，已有同一系统导入的幂等重放不新增项目。历史已超限数据仍需单独治理，现有 GET 继续受控 422。模板名称仍是可持久化文本：当前前端名称留空时会沿用源画布标题，可能包含需用户检查的业务信息。前端默认提交 `steps=true`、`runbooks=true`，而后端明确 422；页面还称“团队模板”，但当前仅为私有模板，列表不含调查模板。两条路由只按后端接口标准计入，页面未验收。
 
-通用画布节点 `POST /canvases/{id}/nodes/{node}/messages` 的后端已接持久化同步回复：限定本人画布、单一环境和当前 `canvas.change`，一次只运行一条回复。模型上下文包含当前节点及沿有向边可达的祖先节点块与已完成回合，不包含兄弟或失败回合，超过 24 KiB 返回 413；工具调用被拒绝。运行期间约每 2 秒检查当前会话与授权，失败时取消模型请求；完成事务再次核对原会话、画布归属与当前 `canvas.change`，完成时无权限则不保存助手回复。若撤权又恢复全部落在两次检查之间，不能保证取消本轮。失败的用户输入保留供刷新核对，不生成虚假助手消息。`GET /canvases/{id}` 校验节点、七种块、边和产物结构，在 `threads` 返回各节点完整已保存回合；历史超过 500 次交换、2 MiB 总量或单条助手消息 64 KiB 时返回 413，不截断。写入仍可继续，故达到上限后详情会持续 413，当前没有分页或归档恢复。两条主路由按后端判据标为 `implemented`，仅适用于私人通用画布；调查节点接口仍分开。前端尚无超限恢复/分页，发送失败也未清除 `busy`，真实 409/413/422/503 可卡住输入框，因此画布整页尚未验收。
+通用画布节点 `POST /canvases/{id}/nodes/{node}/messages` 的后端已接持久化同步回复：限定本人画布、单一环境和当前 `canvas.change`，一次只运行一条回复。模型上下文包含当前节点及沿有向边可达的祖先节点块与已完成回合，不包含兄弟或失败回合，超过 24 KiB 返回 413；工具调用被拒绝。运行期间约每 2 秒检查当前会话与授权，失败时取消模型请求；完成事务再次核对原会话、画布归属与当前 `canvas.change`，完成时无权限则不保存助手回复。若撤权又恢复全部落在两次检查之间，不能保证取消本轮。失败的用户输入保留供刷新核对，不生成虚假助手消息。`GET /canvases/{id}` 校验节点、七种块、边和产物结构，默认在 `threads` 返回各节点完整已保存回合；历史超过 500 次交换、2 MiB 总量或单条助手消息 64 KiB 时返回 413，不截断。写入仍可继续；413 提供画布结构读取与逐节点分页的恢复 URL。显式 `include_threads=false` 返回画布结构、省略整个 `threads` 属性，并标记 `threads_included=false`。辅助 `GET /canvases/{id}/nodes/{node}/messages` 以有界快照游标分页读取持久回合，每页重新核对当前授权。恢复 URL 在非生产环境仍需随请求发送 `X-AIOps-Environment`。两条主路由按后端判据标为 `implemented`，仅适用于私人通用画布；调查节点接口仍分开。前端尚无超限恢复/分页，且错误客户端丢弃 `recovery`，发送失败也未清除 `busy`，真实 409/413/422/503 可卡住输入框，因此画布整页尚未验收；详见[通用画布历史读取与恢复](v3-canvas-history.md)。
 
 调查画布按持久调查、分支、修订、证据和节点布局工作：读取在同一事务中核当前应用、环境、负责人团队及 `canvas.view`，节点/修订/证据分别超过 100/1000/100 条或单条展示证据超过 16 KiB 返回 413，不截断为貌似完整的图。分支派生要求单环境、开放调查及 `canvas.change`，锁定父分支并复制其当前修订；节点修改用布局版本比较，标题另与当前标题比较。成功写入与事件、管理审计原子提交，两个写接口均不调用模型；入口和提交前按原始 Cookie 复核精确会话及当前授权来源。历史运行的 token 用量不是当前上下文用量，因此返回 `null`；没有可信调查循环状态时 `loop` 为空。
 
@@ -233,7 +233,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | GET | `/topology` | `cluster`, `around`, `depth`, `group_by` | 无 `topology_v1` 目录项时为授权 CMDB 部分响应；配置经审查的精确来源后可返回完整 `Topology`，来源不全返回 503 | implemented |
 | GET | `/metrics/dashboard` | `service`, `range=1h`, `align?` | `MetricsDashboard`；单环境、单服务、唯一持久 Prometheus 目标和经审查的精确范围查询，完整面板与来源核对后返回 | implemented |
 | POST | `/metrics/ask` | `{ service, view, range, question, request_id }`；`service` 为持久应用 ID，`view=request_rate\|http_p95_seconds`，`range=15m\|1h`，`request_id` 是 16–128 字符重试标识 | 首次接受为 201 `{ conversation_id }`；同一操作者同参数重试为 200，修改同一重试标识的内容返回 409。仅用当前有权的精确 Prometheus 来源快照；前端尚未发送必要字段 | implemented |
-| GET | `/traces` | `scope: app\|agent`, `view`, `q`（有界 TraceQL 选择器）, `service` | 应用范围 `TraceList`：同一完整来源集上的计数、分面、直方图、散点与表格；Agent 范围 503 | implemented |
+| GET | `/traces` | `scope: app\|agent`, `view`, `q`（应用：有界 TraceQL 选择器；Agent：有界精确过滤）, `service` | 应用范围读取有界完整 Tempo 集合；Agent 范围读取当前受权的持久已结束运行及已报告 Span，均返回 `TraceList` | implemented |
 | GET | `/traces/{id}` | | 应用范围 `TraceView`：已存储且闭合的 Span 树、关键路径说明与服务调用图；无可靠关联时省略日志/链接 | implemented |
 | GET | `/services/discover` | 单个可选 `cluster`；重复参数返回 422 | 只读发现经授权的新鲜 Kubernetes 工作负载快照；返回稳定资源 ID、采集来源与时间、未知字段清单；同名歧义候选不返回 | implemented |
 | POST | `/services` | `{ items: [{ id, namespace, resource_id?, tier, owner, slo, p99 }] }`；`resource_id` 为发现接口返回的稳定 CMDB 标识，提供时必须有 namespace | `{ created }` | implemented |
@@ -254,7 +254,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 
 `POST /metrics/ask` 已有单环境、单持久应用及唯一授权 Prometheus 指标目标的有界快照与持久对话实现，正式入口也接入来源版本复核。快照只含实际样本，稀疏样本不证明整窗趋势；模型上下文将其视为未信任观察，不向该对话开放通用工具。首次接受和相同请求重试分别返回 201/200；来源或权限撤销后，对话读取、SSE 和后续模型工作拒绝继续使用该快照。冻结页面只提交 `view`/`question` 并跳普通对话，缺稳定应用、时间窗与重试标识；本批遵照用户要求未运行定向测试或真实 Prometheus/模型调用，`implemented` 仅指配置来源后后端具完整处理链。多实例上线前必须先让所有对话读取和模型工作实例识别 `metrics_source_required`，再开放创建流量；见 [指标提问来源与恢复](v3-metrics-ask.md)。
 
-应用范围 Trace 由单环境持久 Tempo 目标绑定及当前 `traces.view` 确定；同一静态目标跨隐藏范围复用、选择器重叠或目标修订变化均拒绝。列表把最近一小时搜索触顶窗口继续拆分，最多 64 次查询、40 条 Trace、6 个目标，每条无时间界限拉取最多 500 个 Span 并验证唯一根、父链闭合与无环；超预算或来源失败返回 413/503，不用部分样本推总量。`200 TraceList` 的分面、十二个时间桶和散点来自同一返回全集。列表要求服务端 `tempo_search_fail_closed` 配置，设置前需核目标 Tempo 的 `fail_on_high_lag=true`；该配置默认关闭，不是运行时证明。详情的操作名称仅显示服务端白名单或路由模板，缺可靠日志/变更/Runbook 关联时省略链接。Agent 范围缺完整来源而返回 503。完整性仅指当次 Tempo 返回的已存储且闭合的 Trace，不证明采样遗漏或未插桩 Span；真实 Tempo、延迟配置及冻结页面 `q`/散点 `service` 接线尚未验收，见 [Trace 来源边界](v3-traces-source.md)。
+应用范围 Trace 由单环境持久 Tempo 目标绑定及当前 `traces.view` 确定；同一静态目标跨隐藏范围复用、选择器重叠或目标修订变化均拒绝。列表把最近一小时搜索触顶窗口继续拆分，最多 64 次查询、40 条 Trace、6 个目标，每条无时间界限拉取最多 500 个 Span 并验证唯一根、父链闭合与无环；超预算或来源失败返回 413/503，不用部分样本推总量。`200 TraceList` 的分面、十二个时间桶和散点来自同一返回全集。列表要求服务端 `tempo_search_fail_closed` 配置，设置前需核目标 Tempo 的 `fail_on_high_lag=true`；该配置默认关闭，不是运行时证明。详情的操作名称仅显示服务端白名单或路由模板，缺可靠日志/变更/Runbook 关联时省略链接。Agent 范围无需 Tempo，读取数据库时钟最近 24 小时内当前受权的持久已结束运行和已报告 Span，要求 `agents.view` 与 `traces.view`；运行中数量单列，超过 2000 项运行或 20000 个运行/模型身份上限时返回 413，不把截断样本当全量。未报告的 token、模型、成本和插桩覆盖率明确列为缺失；详见[Agent 范围的链路列表](v3-agent-trace-list.md)。应用范围的完整性仅指当次 Tempo 返回的已存储且闭合的 Trace，不证明采样遗漏或未插桩 Span；真实 Tempo、延迟配置及冻结页面 `q`/散点 `service` 接线尚未验收，见 [Trace 来源边界](v3-traces-source.md)。
 
 ## v4 新建流程（`create.ts`）
 

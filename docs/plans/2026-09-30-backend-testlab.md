@@ -183,3 +183,26 @@ c14c2593b71b3466edf5e2c30ad30d32b47bc731已提交推送并远端确认，源7742
 新source全量+专项8ad097ae-5d4f-4e40-a03f-e0dad03835e7正在运行（baseline/mfa/passkey/configsync/regressions，新增index optin明确开启）；旧8d2479证明保留但不能冒新冻结。当前正式base仍旧8d二进制，不能用它跑new774 Discovery/entry/perf；先无活动测试时精确archive旧APP→新空canonical数据库→重新runtime初始化/正式binary重建。原scaleAPP未变且不得删seed降低档位。
 
 profile工具独占两新文件仅offline准备。自主决定唯一fresh staging创建→run COMMENT→extensions→rename canonical；未tagged CREATE-loss仍blocked，WAL意图与唯一name不单独构成归属证据。PG没有run label、原environment.run_id为wan-138-20260930，不伪造不存在的保证；CLI操作UUID/环境摘要/containerID/owner/image/volumes/原DBOID作为绑定。base未有PGAPPNAME，采取fresh HMAC二API+lsof当前15461 hostclient归属和停后零APP连接/原子rename，绝不PGterminate/FORCE。所有partial states保守，root实际apply仍未发生。
+
+
+### 2026-10-01 02:35 · 新源冻结回归及归档审查
+
+2db2a1b63b5cd68f782b18c6d460907b165f69eb测试补包已推送确认。Go始末774一致；完整8ad097ae 2482通过/0失败/79跳过，按18无测试包、12旧local-live、3付费记录、46专项开关分类，30跳过名在同run专项另有实测通过；保持原跳过不改绿。static56c03688六项通过，417工具/18性能/14GitOps/407源码契约/readiness/Go vet。三个报告和skip分类保存在私有目录，不能视为全166接口/24h通过。
+
+归档工具profile已离线21通过，实际只读plan原APP OID16388/归档及staging不存在，操作UUID eeb805fd-25d9-4651-8ee3-fd399359df15；未实际停机/DDL。独立审查确证DSN query覆盖host等与40s预算未覆盖共享stop两处工具Bug，先两文件最小修与反例/有界停机回归，修后定向独审再apply。实际五DSN严格sslmode=disable并无目标漂移，首性能数据库仍原样。不能把工具问题记为产品Bug；未知staging拒绝接管、旧OID/tag、全失败证据继续保留。
+
+助手依睡前授权自主决定，待用户事后Review；WAN138主线与WAN158补覆盖记录复用。24h仍未启动，当前正式API还是旧8d binary；fresh APP后重建774正式binary及runtime/原本地链，再原基础/规模18分钟负载。聚合WAN152、暂停原生CI/CD、容量Ollama和真实外部/缺能力继续高待办，整体不收口。
+
+
+### 2026-10-01 03:00 · 归档安全修复与新正式实例
+
+profile两guard修后30offline通过并经XHigh定向复核；修前24测试/57子失败保留。新static d68b5efa 六命令全过（426工具/18perf/14GitOps/407契约/readiness/vet），报告导出。实际归档operation eeb805fd-25d9-4651-8ee3-fd399359df15 7.303秒成功，旧APP OID16388和1018应用/100005告警/501326消息/16调查计数原样保留，新canonical OID9270802起始无业务表/扩展正确。未知资源不接管、无DROP/FORCE/backend termination；实际同UUID完成重放不再归档。结果登记脚本自身TypeError导致c11803a2 failed保留，修正登记后582de809三真实归档验收passed，与产品Bug分开。
+
+已实际重建新774正式非racebinary adfbd085de53d6edcf1741e1f3dfc312cf8030e9a5b24b237198b10685c2cb17和runtime338e1478，新监督者88865/双API88866、88867 fresh HMAC核验ready；旧59598等登记快照失效。fresh DB迁移/native runtime/binding已初始化，soak freshID模板hooks保留，无复用旧trial ID。162f0b33正在entry/components/discovery/content串行实际验收，性能复验及24h仍待；不再重复归档/提前重启。旧06a性能failed、2e interrupted、全部首红与私有证据留存。
+
+
+### 2026-10-01 03:07 · 新正式本地链结果与性能准入
+
+162f0b33新774始末同源：277passed/3failed/1external_todo；其中entry/components244及Discovery33本地断言/完成/清理全部通过，实际47个normal2xx method/path含aux、非主166全部。非空keyword检索、people展示名、原生审核审计和受限CSV成功；企业身份/权威目录值班/向量provider外部待办显式保留。content第一登录401源于手动fresh准备遗漏原perf.prepare(base)，两合成用户实际不存在（OID9270802/0user/1admin），不是产品auth错误。补原prepare步骤精确100/5000/10000/20seed，不改断言/产品；原content b3db6372全部69passed，原失败/三报告保留。
+
+最终doctor53与fresh HMAC双实例/774非racebinary、90000秒证书余窗核验通过，当前无其他active test。下步提交推送profile与记录后启动原base+scale真实18分钟阶段。base现inbox/groups200可测，home503blocked，scale以actualpreflight计，不沿用旧三路径都blocked快照。原失败数据库保持原OID与数据、不得第二UUID归档/删seed。性能/24h仍未完成，goroutine/heap不可采仍明确缺失，整体原51/166不收口。

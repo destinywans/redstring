@@ -33,3 +33,11 @@ prepare 一次性准备自有PG、轻型真实组件、证书、正式双V3账�
 条件式正式链只使用本轮生成的私有账号/配置/证书。`identity` 使用独立 HTTPS Keycloak，不放宽 Secure Cookie；`invitations` 使用专有TLS465捕获器，不向真实邮箱发送；`vault` 用实际 least-policy KV 和 TLS受控上游验证六scope绑定。`content` 通过真实上传URL/注册/同步、模板复制和事件时间线，SQL仅提供明示合成graph和本轮application-bound未发布Runbook draft/v1 snapshot输入，不伪造审批/发布结果。Jenkins原live必须读回唯一实际build，不能以仅包pass或skip代替。首次红、primary与cleanup错误分别保留，临时组件均按owner/run/image/name清理。
 
 执行中的 custom helper 会继续登记用例；暂时3/3不是整个组结束。整体结果以持久run/suite终态为准。环境block、外部待办、缺实现、跳过均不计通过；`full` 有这些结果就不能宣称全部验收完成。主166条契约与407历史库存分开核对，新增正常method/path仍不能证明所有输入和失败时序。
+
+
+WAN161 的原性能红证据保留操作使用 `profile.py`，仅匹配当前专属owner与06a848d7原failed运行。先用一个固定UUID仅读plan，确认无活动测试、真实HMAC进程/容器/五DSN归属，再同参数加 `--apply`。partial恢复必须沿用原UUID；日志0600保存在owner的profile目录，旧库以原OID留存，不DROP、不FORCE、不terminate PG backend。staging创建回执丢失而无可靠OID/tag证明时阻塞，不自动接管。apply上限40秒（quiescence8秒），超时保留WAL；实际进程和DDL结束不能因客户端超时而假定失败。成功只说明旧库留存和新空canonical/two extensions，始终ready=false，迁移/new binary/runtime需主会话另行初始化核验。
+
+```sh
+python3 tools/testlab/profile.py --owner testlab-3cbde3095125 --run <同一操作UUID> --before-evidence-run 06a848d7-6821-463f-96bd-1ee2639ea6f8
+# 归属与独立审查通过后，在同一命令末尾添加 --apply；不得与活动测试并行。
+```

@@ -1,3 +1,26 @@
+## CP-223 · 2026-10-01 · 新正式链收齐，准备原性能重测
+
+- 新774源正式 **162f0b33-b15d-4a7d-a546-34a03ff8441b** 已终态：277pass/3fail/1external_todo。entry/components共244本地断言passed；Discovery33本地断言/readonly.complete及cleanup passed，企业物理身份/权威目录值班/向量provider为明确external_todo，父run不能算passed。新知识非空/auditCSV/people正常路由实际核验，nativeRunbook发布/审核与3audit匹配；本run47个全部分类正常2xx method/path（含aux，不等于主166全覆盖），source始末774一致。两临时process/专属DB/角色确已清理，未动shared。
+- 该run content第一登录401真实首红保留：手动fresh流程尚未执行prepare_all最后perf.prepare(base)，new canonical OID9270802中content_users=0/admin=1已精确读回，属准备遗漏而非鉴权Bug。补原有base准备（100service/5000alert/10000message/20users精确seed readback，不删原archive），原 **content b3db6372-ab1b-42a3-a21b-5bab7a621f3e** 全部69passed，始末774/报告已导出。FIXTURE条目单列，未改产品/断言/权限。
+- 所有运行现已终态，无并行重负载。最终doctor53项全部passed，nonce/HMAC当前 **88865 / 88866 / 88867**、Go774/非racebinary **adfbd085de53d6edcf1741e1f3dfc312cf8030e9a5b24b237198b10685c2cb17**和runtime338e1478已核验；openssl90000s覆盖通过，证书仍2026-10-02T08:58:11Z。私有refreeze.json与归档/replay/首红完整；旧PID/oldAPP均不能再启动或删除。
+- 下步scoped commit/push当前profile两文件及README/defects/docs→require_escalated正式 **performance** (fresh base再scale，各120warm+300/300/300+60burst即真实18min，SSE50/10，CPU/RSS/FD/PG实际采、goroutine/heap仍缺失)。base最新preflight inbox/groups已200可计量，home503 blocked；scale是否3路径blocked以实际preflight为准，WAN152不偷偷绕过。不能因父run仅聚合blocked而抹去本地支持正证据，但整体仍未收口。
+- 未启动24h；性能支持路径/资源恢复/一致性完整通过且无关键新缺陷后，freeze→新actualtrial1440points/10RPS/86400/真实12h续登，启动前再cert/HMAC/无活动run。新runner独占caffeinate可授权，不改系统配置。aiops-24继续本会话静默接续，需更新prompt为本状态，不能重做归档/准备或并行重测。未改测前端、未恢复7原生CI/CD、无默认merge/deploy，保留.claude。
+
+## CP-222 · 2026-10-01 · 归档完成，新774正式接口链运行
+
+- 最新推送仍2db2a1b。新774完整8ad097ae 2482通过/0fail/79分类skip，始末一致；原红均留存。profile两工具Bug最小修后30 offline通过、实际首red24测试/57子失败0600保留；XHigh定向复核无阻断。最新static **d68b5efa-30f7-4a04-9382-2dff9366352b** 六命令通过，426工具/18perf/14GitOps/407契约/readiness/vet；3报告已导出，不以此前417代新修证明。
+- 实际 **profile operation eeb805fd-25d9-4651-8ee3-fd399359df15** 7.303s成功，原APP OID **16388**完整保留于 **aiops_testlab_app_evidence_eeb805fd25d946518ee3fd399359df15**；前后1018app/100005incident/501326message/16investigation完全相同。新canonical OID **9270802**，初始0业务表/public pgcrypto+vector；无DROP/FORCE/PGsignal。WAL与private apply/before/after/replay证据存 .local/testlab。根登记脚本误把write_evidence UUID当dict导致 **c11803a2** failed原记录保留（工具问题）；修正后真实归档/空库/完成重放 **582de809-91c8-4a19-9aa1-03223c8c83d7** 三项passed并报告导出。同UUIDreplay applied=false/already_complete=true，**不再另UUID归档/删seed！**
+- 新formal source **774223bb3e48b34b1f2c4cb0358f2de9747088594e1aba9fb1934120373eafe2** /非race binary **adfbd085de53d6edcf1741e1f3dfc312cf8030e9a5b24b237198b10685c2cb17**。新runtime **338e14784bb40f2d05000a8b76322cc8bea158e65ce3357c014f1111373fe48d**、nonce/HMAC核验 supervisor **88865** / APIs **88866/88867**（仍须live核验，旧59598/99/600失效）。新DB迁移和runtime/nativebindings重新初始化；旧completed-only/fresh-ID模板hooks字节保留，没有复用旧trial ID，新的24h尚未启动。
+- 当前 **162f0b33-b15d-4a7d-a546-34a03ff8441b** /session72653，entry/components/discovery/content串行running，禁止并行负载、prepare、profile apply或重启。结束核对source/HMAC/cleanup/实际HTTP及报告，再修首红/相关回归或进入fresh base+scale原18分钟performance（采CPU/RSS须require_escalated），支持路径完整通过且无关键缺陷再新真实86400。证书仍至2026-10-02T08:58:11Z，启动前重新checkend，caffeinate只绑定新真实runner。WAN152聚合/暂停7gate/Ollama/外部缺能力HighTODO仍不算全收口。
+- profile两文件与README/defects/docs仍待本次scoped提交推送/Linear；产品前端未改测、无默认merge/deploy、无关.claude保留。aiops-24需沿本最新状态接续，不能重做归档或使用旧PID。
+
+## CP-221 · 2026-10-01 · 新源完整回归结束，归档工具审查补修
+
+- 最新 **2db2a1b63b5cd68f782b18c6d460907b165f69eb** 已提交推送并精确回读。源始末 **774223bb3e48b34b1f2c4cb0358f2de9747088594e1aba9fb1934120373eafe2**：完整 baseline/mfa/passkey/configsync/regressions **8ad097ae-5d4f-4e40-a03f-e0dad03835e7** 2482通过/0失败/79跳过（终态blocked诚实保留），18无测试包/12旧local-live/3付费记录/46专项opt-in；同run30条另专项实测pass，原skip不改。3报告及private skip-classification已导出。static **56c03688-9f50-4c96-9175-30b7d6c59c4b** 6commands通过：417工具（含新Discovery14/profile21）、perf18、GitOps14、契约407/readiness/Go vet。profile随后两guard修订须定向复验，不能以417旧结果覆盖新修。
+- readonly profile真实plan通过（只读、未停机/DDL），操作UUID固定 **eeb805fd-25d9-4651-8ee3-fd399359df15**，原APP OID **16388**，archive/fresh均不存在；旧正式binary源8d0a与当前774分列。操作私有record .local/testlab/profile-operation.json；恢复必须同UUID，不能开启第二归档。doctor所有隔离/端口检查通过。原性能06a failed和2e interrupted均保持；24h尚未开始。
+- 独立XHigh发现profile两个工具Bug：DSN query host/port/dbname/user能覆盖已验证authority/path；supervisor lsof/共享stop不遵循40s总budget。原worker仅profile.py/tests补严格唯一sslmode=disable、剩余deadline贯穿所有归属/认证shutdown，不修改共享runtime/backend或产品Go；保留首red/未taggedCREATE失败关闭。当前五DSN实际query均sslmode=disable，无真实目标漂移；**apply须修后offline与定向独审后执行**，无需用户新选择。
+- Discovery两文件/manifest已提交，14offline+独立审查通过但live未做；WAN158已追加已推送及待真实验收范围。下一步收profile两修/复核→同UUIDapply完整归档旧APP→新空canonical/两扩展→正式774非racebuild/新PID/HMAC→runtime和native bindings重建（旧hooks是completed-only+fresh trial模板，不复用任何旧trial ID）→entry/components/discovery/content→原两档性能/24h。性能/24h前再次cert窗口/doctor/资源检查；不改测前端、不恢复暂停CI/CD、无默认合并部署，保留.claude。
+
 ## CP-220 · 2026-10-01 · WAN161已推送，新774源完整回归运行
 
 - **c14c2593b71b3466edf5e2c30ad30d32b47bc731** 已提交推送并精确远端回读；Go指纹 **774223bb3e48b34b1f2c4cb0358f2de9747088594e1aba9fb1934120373eafe2**。WAN161仅Operations Migrate一覆盖索引+两测试，未改query/ACL/Health/JIT。两模块135PASS/0FAIL/1paidSKIP，root query-plan3f1ef462两项passed/无skip始末774，报告3格式已导出。实际fixture分布0/1/2/跨scope与8并发迁移通过，默认JIT cost427万→1.79万/扫描16→16索引；单app偏斜仍JIT、建索引写锁边界不隐去。WAN161仍InProgress直到原两档实测，未24h/部署。

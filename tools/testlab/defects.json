@@ -462,5 +462,50 @@
     ],
     "case_ids": "06a848d7-6821-463f-96bd-1ee2639ea6f8 / 3f1ef462-71f4-4adb-abf9-e651d71f994a",
     "limitations": "单应用高偏斜仍可能触发JIT；普通事务index构建暂阻写，生产大表升级需独立窗口；未改变health/JIT/权限/负载阈值。"
+  },
+  {
+    "id": "TOOL-PROFILE-DSN",
+    "title": "归档工具DSN query未防连接目标覆盖",
+    "status": "in_review",
+    "description": "XHigh只读审查确认pgx query host/port/dbname/user可覆盖authority/path，当前五实际DSN均sslmode=disable、未apply。工具缺陷而非产品Bug。",
+    "before": "profile.py初版只校验urlsplit authority/path。 新反例修前24测试/57失败子例（55query与2budget）已保存。",
+    "after": "两文件最小修后30 offline测试及py_compile通过；五DSN严格唯一sslmode=disable/片段拒绝，逐call remaining deadline、fresh HMAC后一次token shutdown和关闭确认。待XHigh定向复核及root真实apply。 XHigh定向复核无阻断；实际7.303s同UUID归档及3项证据582de809通过。",
+    "case_ids": "56c03688-9f50-4c96-9175-30b7d6c59c4b / profile operation eeb805fd-25d9-4651-8ee3-fd399359df15",
+    "local_evidence": [
+      ".local/testlab/profile-review-red.log"
+    ]
+  },
+  {
+    "id": "TOOL-PROFILE-DEADLINE",
+    "title": "归档工具40秒预算未覆盖进程鉴权与认证停机",
+    "status": "in_review",
+    "description": "lsof固定timeout与共享stop循环未限制剩余deadline；尚未apply。工具缺陷。",
+    "before": "原profile.py supervisor/共享backend.stop调用固定预算。 新反例修前24测试/57失败子例（55query与2budget）已保存。",
+    "after": "两文件最小修后30 offline测试及py_compile通过；五DSN严格唯一sslmode=disable/片段拒绝，逐call remaining deadline、fresh HMAC后一次token shutdown和关闭确认。待XHigh定向复核及root真实apply。 XHigh定向复核无阻断；实际7.303s同UUID归档及3项证据582de809通过。",
+    "case_ids": "profile operation eeb805fd-25d9-4651-8ee3-fd399359df15",
+    "local_evidence": [
+      ".local/testlab/profile-review-red.log"
+    ]
+  },
+  {
+    "id": "TOOL-PROFILE-EVIDENCE",
+    "title": "根归档结果登记脚本将证据UUID误当对象",
+    "status": "in_review",
+    "description": "根临时登记脚本TypeError，只影响证据记录；真实归档/计数及重放此前成功，无新增产品缺陷。",
+    "before": "c11803a2-a629-40fe-bc95-f74daa199144首failed保留。",
+    "after": "改用write_evidence实际UUID字符串；实际三项582de809-91c8-4a19-9aa1-03223c8c83d7通过，所有报告保留；未重复归档。",
+    "case_ids": "c11803a2-a629-40fe-bc95-f74daa199144 / 582de809-91c8-4a19-9aa1-03223c8c83d7"
+  },
+  {
+    "id": "FIXTURE-FRESH-CONTENT-USERS",
+    "title": "新空库准备遗漏内容链依赖的合成性能用户",
+    "status": "in_review",
+    "description": "手动fresh流程完成binary/runtime后尚未执行prepare_all中的perf.prepare(base)，故两合成用户不存在，content第一登录401；原生产品鉴权正确拒绝。",
+    "before": "162f0b33-b15d-4a7d-a546-34a03ff8441b 保留首failed（content3父/子记录）；私有content-reprepare-proof数据库OID9270802/content_users=0/admin=1。",
+    "after": "已补原有perf.prepare(base)，真实100服务/5000告警/10000消息/20用户精确readback；不改产品/权限/登录断言，原content正在复验。 原content b3db6372-ab1b-42a3-a21b-5bab7a621f3e全部69passed，源码始末774，报告导出。",
+    "local_evidence": [
+      ".local/testlab/content-reprepare-proof.json"
+    ],
+    "case_ids": "162f0b33-b15d-4a7d-a546-34a03ff8441b / b3db6372-ab1b-42a3-a21b-5bab7a621f3e"
   }
 ]

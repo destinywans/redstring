@@ -304,12 +304,12 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	r = r.WithContext(ctx)
 	scope := r.URL.Query().Get("scope")
+	if scope == "agent" {
+		s.listAgent(w, r)
+		return
+	}
 	if scope != "" && scope != "app" {
-		if scope == "agent" {
-			httpapi.Error(w, 503, "not_configured", "Complete Agent trace provider is not configured")
-		} else {
-			httpapi.Error(w, 422, "invalid_scope", "Unknown trace scope")
-		}
+		httpapi.Error(w, 422, "invalid_scope", "Unknown trace scope")
 		return
 	}
 	view := r.URL.Query().Get("view")

@@ -13,15 +13,23 @@ import (
 )
 
 type TraceRow struct {
-	ID         string   `json:"id"`
-	Time       string   `json:"time"`
-	Op         string   `json:"op"`
-	Services   []string `json:"services"`
-	DurationMS float64  `json:"duration_ms"`
-	Spans      int      `json:"spans"`
-	Errors     int      `json:"errors"`
-	Href       string   `json:"href"`
-	Version    string   `json:"-"`
+	ID            string   `json:"id"`
+	Time          string   `json:"time"`
+	Op            string   `json:"op"`
+	Services      []string `json:"services"`
+	DurationMS    float64  `json:"duration_ms"`
+	Spans         int      `json:"spans"`
+	Errors        int      `json:"errors"`
+	Href          string   `json:"href"`
+	Version       string   `json:"-"`
+	Agent         string   `json:"agent,omitempty"`
+	AgentID       string   `json:"agent_id,omitempty"`
+	Model         string   `json:"model,omitempty"`
+	Tokens        string   `json:"tokens,omitempty"`
+	Status        string   `json:"status,omitempty"`
+	ApplicationID string   `json:"application_id,omitempty"`
+	EnvironmentID string   `json:"environment_id,omitempty"`
+	Missing       []string `json:"missing,omitempty"`
 }
 
 type TraceFacet struct {
@@ -44,8 +52,16 @@ type TraceList struct {
 		Counts [][2]int `json:"counts"`
 		Axis   []string `json:"axis"`
 	} `json:"histogram"`
-	Scatter []TraceScatter `json:"scatter"`
-	Items   []TraceRow     `json:"items"`
+	Scatter          []TraceScatter `json:"scatter"`
+	Items            []TraceRow     `json:"items"`
+	Source           string         `json:"source,omitempty"`
+	AggregationScope string         `json:"aggregation_scope,omitempty"`
+	WindowStartAt    string         `json:"window_start_at,omitempty"`
+	WindowEndAt      string         `json:"window_end_at,omitempty"`
+	ExcludedRunning  *int           `json:"excluded_running,omitempty"`
+	Partial          bool           `json:"partial,omitempty"`
+	Missing          []string       `json:"missing,omitempty"`
+	HistogramStates  []string       `json:"histogram_non_success_states,omitempty"`
 }
 
 type TraceViewOption struct {

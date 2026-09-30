@@ -502,7 +502,9 @@ P['/logs']['get']['responses']['503'] = {
     'description':'Complete log patterns unavailable or configured provider failed',
     'content':{'application/json':{'schema':{'oneOf':[ref('Error'),ref('V3IncompleteLogs')]}}}}
 S['V3TraceRow'] = obj({**fieldnames('id time op href'),
-    'services':arr(string()),'duration_ms':v3_num(),'spans':integer(),'errors':integer()},
+    'services':arr(string()),'duration_ms':v3_num(),'spans':integer(),'errors':integer(),
+    **fieldnames('agent agent_id model tokens application_id environment_id'),
+    'status':string(enum=['success','failed','blocked']),'missing':arr(string())},
     ['id','time','op','href','services','duration_ms','spans','errors'])
 S['V3TraceFacet'] = obj({'key':string(),'label':string(),'items':arr(obj({
     'value':string(),'count':integer(minimum=0)},['value','count']))},['key','label','items'])
@@ -513,7 +515,10 @@ S['V3TraceList'] = obj({'scope':string(enum=['app','agent']),'total':integer(min
     'histogram':obj({'counts':arr(arr(integer(minimum=0))),'axis':arr(string())},['counts','axis']),
     'scatter':arr(obj({'x':v3_num(),'y':v3_num(),'error':v3_bool(),'id':string()},
         ['x','y','error'])),
-    'items':arr(ref('V3TraceRow'))},
+    'items':arr(ref('V3TraceRow')),
+    'source':string(),'aggregation_scope':string(),'window_start_at':string(format='date-time'),
+    'window_end_at':string(format='date-time'),'excluded_running':integer(minimum=0),
+    'partial':v3_bool(),'missing':arr(string()),'histogram_non_success_states':arr(string())},
     ['scope','total','took','colors','facets','views','histogram','scatter','items'])
 S['V3TraceSpan'] = obj({**fieldnames('id service op'),'depth':integer(),'start':v3_num(),'end':v3_num(),
     'status':string(enum=['ok','error']),'critical':v3_bool(),
@@ -532,7 +537,7 @@ S['V3TraceView'] = obj({**fieldnames('id trace_id op time version flame_note'),
 v3_route('get','/traces','Query scoped traces',
     response=ref('V3TraceList'),
     query=[v3_query(x) for x in ['scope','view','service','q']],
-    desc='Requires persisted service/environment/owner-team Tempo binding and current traces.view. App scope exhausts a one-hour search by bounded window splitting; all 200 counts, facets, histogram and scatter refer to that full result set. At most 40 traces, 64 searches, 6 targets and 500 spans per trace; a reached cap returns 413 rather than a sampled 200. q accepts one bounded TraceQL span selector with simple comparisons and inner AND/OR, but no regex, pipeline or outer union. Complete counts require a server-attested fail-closed Tempo search configuration; otherwise 503. Agent scope has no complete provider and returns 503. Source and grants are rechecked before response.')
+    desc='Requires persisted service/environment/owner-team Tempo binding and current traces.view. App scope exhausts a one-hour search by bounded window splitting; all 200 counts, facets, histogram and scatter refer to that full result set. At most 40 traces, 64 searches, 6 targets and 500 spans per trace; a reached cap returns 413 rather than a sampled 200. q accepts one bounded TraceQL span selector with simple comparisons and inner AND/OR, but no regex, pipeline or outer union. Complete counts require a server-attested fail-closed Tempo search configuration; otherwise 503. Agent scope instead reads the complete bounded set of currently authorized persisted terminal runs started in the database-clock last 24 hours, requiring both agents.view and traces.view. Current application and owner-team grant boundaries, Agent catalog relationships and Cookie session are checked in one transaction; up to 2000 qualifying runs and 20000 run/model identities, otherwise 413 without sampled counts. Running runs are excluded explicitly rather than assigned fabricated final duration. Optional service matches persisted app ID or key. Agent q accepts at most eight agent/model/status/version/trigger equality terms and duration comparisons joined by AND; unknown grammar returns 422. Token/model/cost or instrumentation coverage with no trusted report remain absent and listed as missing; span/error counts mean persisted reported rows only. Agent rows link to the separately authorized Agent run detail, not the Tempo detail route. Sources and grants are rechecked before response.')
 P['/traces']['get']['responses']['413'] = {
     'description':'Complete trace population exceeds the bounded query budget',
     'content':{'application/json':{'schema':ref('Error')}}}

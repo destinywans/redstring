@@ -500,6 +500,74 @@
       ]
     },
     {
+      "id": "readonly",
+      "name": "正式V3只读目录/分页/跨环境权限补测",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_readonly_chain.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 1200,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        11,
+        15,
+        46
+      ]
+    },
+    {
+      "id": "management",
+      "name": "服务与管理写接口 / 并发版本冲突",
+      "type": "interface",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_management_chain.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 1200,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        46
+      ]
+    },
+    {
+      "id": "promotion",
+      "name": "正式配置提升/受保护GitLab/生产独立导入",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/promotion_chain.py",
+            "chain"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 1800,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        2,
+        11,
+        13,
+        46
+      ]
+    },
+    {
       "id": "gitops",
       "name": "真实 GitLab / Argo / 软件认证器审批链",
       "type": "integration",

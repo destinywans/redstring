@@ -11,6 +11,8 @@ python3 tools/testlab/testlab.py run --suite static
 python3 tools/testlab/testlab.py run --suite baseline,mfa,passkey,configsync
 python3 tools/testlab/testlab.py run --suite regressions,entry,components
 python3 tools/testlab/testlab.py run --suite content
+python3 tools/testlab/testlab.py run --suite readonly,management
+python3 tools/testlab/testlab.py run --suite promotion
 python3 tools/testlab/testlab.py run --suite identity,invitations,vault
 python3 tools/testlab/testlab.py run --suite local-live-gates,jenkins
 python3 tools/testlab/testlab.py run --suite gitops

@@ -1,3 +1,11 @@
+## CP-215 · 2026-10-01 · 三并行包收齐，性能前最终检查
+
+- 用户睡前授权自主选择并留记录。分支codex/wan-138-backend-testlab；最新2a81bfb已推送并远端确认，Go指纹8d0a76d1069495f779859cee2704ae745133d9625f7074bb24ed0a0dc5a1b126。产品前端未改/未测；未合并部署；保留无关.claude/。
+- 当前同源实测：readonly 1fbdd662 98全过/53离线，management fdd28078 130全过/44离线（17目标15正常2xx、2profile503仅降级），GitOps d017a14b11全过、配置提升55c2d57f75通过/1外部待办、identity+Vault6c911b2f42全过、ordinary silence bd46318f55全过、entry05ccc193244全过。全量c5063e10 2479/0fail/79skip分类保留，不能称无跳过或166全部业务覆盖。
+- readonly旧三个专属库/角色已按登记record精确恢复清理，b732dd59四项/f95aaa9e两项全过；autovacuum只读归属等待，绝不后台PID信号/force。最初848/980/79失败及重复manifest键22e8首红保留。
+- 并行可见三会话已结束/要求停止，不与性能争用。management独立XHigh审查无阻断，2文件389e994已提交待push确认；manifest/README/台账/docs本次提交。静态b082ef71六命令通过：382工具+18性能+14GitOps、contract407、readiness、go vet。
+- doctor隔离/资源/全部端口通过；base supervisor59598/API59599/59600/source8d0a。证书至2026-10-02T08:58:11Z，90000s剩余校验通过。正式两档18分钟性能2e7d6d01已启动，24小时尚未开始；先性能（WAN152聚合阻塞可支持路由继续）→冻结→新真实trial/10RPS86400→报告/Linear，不能压缩或拼碎片。外部租户/物理认证器/模型、暂停域与缺能力保留HighTODO。
+
 ## CP-214 · 2026-09-30 · 双会话补测、正式静默修复与冻结回归
 
 - 用户授权并行独立测试与外出期间自主决定留档。分支 `codex/wan-138-backend-testlab`；`a00c245` WAN159、`b083243` 看板、`6b4d32d` 隔离端口/用例键均已提交推送并确认，最新性能保护 `c784eac` 已提交（push需回读）。Go源码指纹 `8d0a76d1069495f779859cee2704ae745133d9625f7074bb24ed0a0dc5a1b126`。未合并/部署，产品前端未改/未测，无关 `.claude/`保留。

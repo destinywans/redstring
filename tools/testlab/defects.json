@@ -411,7 +411,7 @@
     "status": "in_review",
     "description": "测试工具缺陷；独立审查确认readonly/shared identity错误记录不在cleanup finally保护内，IO失败跳过cleanup/覆盖原业务错误。",
     "before": "独立Mock分别复现cleanup_calls=0；共享identity新增9个异常子场景先红。",
-    "after": "identity37+依赖101离线通过，finally cleanup、独立证据sink、原异常对象优先；真实identity/Vault6c911b2f复验中，readonly会话对应修复中。",
+    "after": "identity37+依赖101离线通过，finally/独立sink/原异常优先；源8d0a实际identity+Vault6c911b2f42全过。readonly最终53离线、1fbdd662真实98全过，首次失败留存。",
     "fix_commit": "f902cc0",
     "fix": "https://github.com/destinywans/aiops-canvas/commit/f902cc0"
   },
@@ -428,10 +428,23 @@
   {
     "id": "WAN-138-gitops-reprepare",
     "title": "重复Argo准备覆盖GitLab可信CA后继续半准备链",
-    "status": "open",
+    "status": "in_review",
     "description": "本地测试编排缺陷；apply官方manifest清空argocd-tls-certs-cm，runtime初始化TLS失败后未恢复repo CA，后续sync400。",
     "before": "327be9707pass/2fail/2blocked含父项；actualArgoComparisonError及日志x509 unknownauthority，owned节点无OOM/端口漂移。",
-    "after": "原包最小准备顺序/TLS readiness/半准备guard修复中，不关闭失败。",
-    "case_ids": "327be970-fc5b-46a5-8a54-a507c8a3a44c"
+    "after": "9新bootstrap+14旧offline，原suite d017a14b11全部通过；官方apply后恢复精确ownedCA、TLS只读readiness、bootstrap失败关闭/chain预检，未insecure/未绕审核",
+    "case_ids": "327be970-fc5b-46a5-8a54-a507c8a3a44c",
+    "fix_commit": "8353fdc",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/8353fdc"
+  },
+  {
+    "id": "WAN-158-autovacuum-cleanup",
+    "title": "自有数据库PG维护进程被误判为外部连接",
+    "status": "in_review",
+    "description": "测试工具误判；79e7e458实际快照显示精确自有库autovacuum worker，无用户/客户端、application_name为空。",
+    "before": "96业务通过，外层清理失败/阻塞；连接未强制终止，库与角色保留。",
+    "after": "精确DB/PID/backend_start及内部字段全核对，只读8s等待/总40s，不发信号、不FORCE；53离线，1fbdd66298全部通过。旧三次资源按登记record恢复，b732dd594项、f95aaa9e2项通过且精确库/角色不存在。恢复manifest重复终态22e8首红保留并拆命令复验。",
+    "fix_commit": "2a81bfb",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/2a81bfb",
+    "case_ids": "79e7e458-fb35-4308-a0c8-a6fae7077d8c / 1fbdd662-d5e8-464b-a0dd-5684d64b830b"
   }
 ]

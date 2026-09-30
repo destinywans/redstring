@@ -462,7 +462,7 @@
     "source": "CP-185～205；WAN-125/127/128",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "entry b8241602 230断言中主30/166正常证明；content e8814ea6 69断言/62实际HTTP，上传/Runbook三模式模板/事件复盘/跨scope；更多只读路由WAN158并行补测",
+    "completed_subscenarios": "entry b8241602 230断言中主30/166正常证明；content e8814ea6 69断言/62实际HTTP；源8d0a readonly 1fbdd662 98通过/89实际HTTP、26主+1辅助GET正常；management fdd28078 130通过/113实际HTTP、17目标中15正常、2profile仅503；双实例ETag/role revision单赢家、幂等关注/取消、撤session、原生事务审计一致性。不同源和重复路由不简单相加。",
     "proof_scope": "仅所列本地真实组件/PG/正式HTTP；整体未关闭"
   },
   {

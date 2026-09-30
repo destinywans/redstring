@@ -38,9 +38,13 @@ prepare 一次性准备自有PG、轻型真实组件、证书、正式双V3账�
 执行中的 custom helper 会继续登记用例；暂时3/3不是整个组结束。整体结果以持久run/suite终态为准。环境block、外部待办、缺实现、跳过均不计通过；`full` 有这些结果就不能宣称全部验收完成。主166条契约与407历史库存分开核对，新增正常method/path仍不能证明所有输入和失败时序。
 
 
-WAN161 的原性能红证据保留操作使用 `profile.py`，仅匹配当前专属owner与06a848d7原failed运行。先用一个固定UUID仅读plan，确认无活动测试、真实HMAC进程/容器/五DSN归属，再同参数加 `--apply`。partial恢复必须沿用原UUID；日志0600保存在owner的profile目录，旧库以原OID留存，不DROP、不FORCE、不terminate PG backend。staging创建回执丢失而无可靠OID/tag证明时阻塞，不自动接管。apply上限40秒（quiescence8秒），超时保留WAL；实际进程和DDL结束不能因客户端超时而假定失败。成功只说明旧库留存和新空canonical/two extensions，始终ready=false，迁移/new binary/runtime需主会话另行初始化核验。
+性能首红证据保留操作使用 `profile.py`，只允许专属owner的两项明确上下文：06a848d7原failed运行，或8ac896b5原interrupted且基础rps25实际failed运行。第二项严格绑定Go1512、Git d6f7bd1、原APP OID9270802和固定三份0600 receipt；解析与SHA使用同一稳定FD字节批次，任何读取漂移失败关闭。8ac原SQLite缺末尾source审计，后停观察以actual_post_stop_observation明确记录，不补造原run字段。先用一个固定UUID仅读plan，确认无活动测试、真实HMAC进程/容器/五DSN归属，再同参数加 `--apply`。partial恢复必须沿用原UUID；日志0600保存在owner的profile目录，旧库以原OID留存，不DROP、不FORCE、不terminate PG backend。staging创建回执丢失而无可靠OID/tag证明时阻塞，不自动接管。apply上限40秒（quiescence8秒），超时保留WAL；实际进程和DDL结束不能因客户端超时而假定失败。成功只说明旧库留存和新空canonical/two extensions，始终ready=false，迁移/new binary/runtime需主会话另行初始化核验。
 
 ```sh
 python3 tools/testlab/profile.py --owner testlab-3cbde3095125 --run <同一操作UUID> --before-evidence-run 06a848d7-6821-463f-96bd-1ee2639ea6f8
 # 归属与独立审查通过后，在同一命令末尾添加 --apply；不得与活动测试并行。
 ```
+
+第二项使用 `--before-evidence-run 8ac896b5-70c4-43c8-a934-309ce357e31d` 和一个新的固定操作UUID；旧eeb805fd操作已经完成，不重复归档。每次operation保留原库完整OID/数据，完成后的同UUID重放返回applied=false。工具离线测试与只读审查通过仍不能替代现场plan/apply证据。
+
+固定七个路由的延迟/错误/次数指标用于定位真实HTTP瓶颈，不带用户、ID或URL高基数标签。阶段失败诊断仅访问已HMAC绑定的自有controller与两冻结API的`/healthz`，共用3秒墙钟预算；不带Cookie，仅保存允许状态及响应hash/长度，不改变原阶段失败和负载清理。

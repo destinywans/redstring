@@ -19,6 +19,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 spec = importlib.util.spec_from_file_location('testlab_profile', Path(__file__).resolve().parents[1] / 'profile.py')
 profile = importlib.util.module_from_spec(spec); spec.loader.exec_module(profile)
 native_process_port = profile.process_port
+SECOND_BEFORE = '8ac896b5-70c4-43c8-a934-309ce357e31d'
+SECOND_SHA = 'd6f7bd11d4cf06e4b14ab56df83c4ef737e71c6c'
+SECOND_SOURCE = '15125d6ecd371864b894edfd91b7ca4944bf69dc305359d0e385a879f8cc090a'
+SECOND_OID = 9270802
 
 
 class ProfileSafetyTests(unittest.TestCase):
@@ -67,8 +71,276 @@ class ProfileSafetyTests(unittest.TestCase):
 
     def attestation(self, url):
         nonce = url.rsplit('=', 1)[1]
-        identity = dict(owner=profile.OWNER, pid=100, api_pids=[101, 102], ready=True, source_tree_sha='a' * 64)
+        identity = dict(owner=profile.OWNER, pid=100, api_pids=[101, 102], ready=True, source_tree_sha=self.fixture['source_tree_sha'])
         return dict(nonce=nonce, identity=identity, proof=profile.backend.control_proof(self.fixture['control_secret'], nonce, identity))
+
+    def second_context(self):
+        self.fixture['source_tree_sha'] = SECOND_SOURCE
+        profile.env._private(self.fixture_path, self.fixture)
+        self.catalog['canonical']['oid'] = SECOND_OID
+        self.catalog['canonical']['tag'] = 'prior approved fresh database marker'
+        evidence = dict(status='interrupted', ended_at='2026-09-30T21:14:05.906231+00:00',
+            started_at='2026-09-30T20:59:40.504994+00:00', selected_suite='performance',
+            sha=SECOND_SHA, source_tree_sha=SECOND_SOURCE, pid=4118)
+        with contextlib.closing(sqlite3.connect(self.ledger)) as connection, connection:
+            connection.execute('CREATE TABLE cases(id TEXT PRIMARY KEY,run_id TEXT,data TEXT NOT NULL)')
+            connection.execute('INSERT INTO runs VALUES(?,?)', (SECOND_BEFORE, json.dumps(evidence)))
+            connection.execute('INSERT INTO cases VALUES(?,?,?)', ('second-rps25-red', SECOND_BEFORE,
+                json.dumps({'name': 'perf.rps25', 'status': 'failed'})))
+        identity = dict(owner=profile.OWNER, pid=100, api_pids=[101, 102], ready=True,
+            failed=False, source_tree_sha=SECOND_SOURCE)
+        freeze = dict(run_id=SECOND_BEFORE, git_sha=SECOND_SHA, source_tree_sha=SECOND_SOURCE,
+            run_started_at=evidence['started_at'], runner_pid=4118, fresh_hmac_identity=identity)
+        stopped = dict(run_id=SECOND_BEFORE, source_tree_sha=SECOND_SOURCE, runner_pid=4118,
+            at=1790802844.500179, fresh_hmac_identity=identity)
+        directory = self.ledger.parent
+        profile.env._private(directory / 'performance-run-8ac-freeze.json', freeze)
+        profile.env._private(directory / 'performance-stop-8ac.json', stopped)
+        observed = dict(run_id=SECOND_BEFORE, run_status='interrupted', run_ended_at=evidence['ended_at'],
+            observed_at='2026-09-30T21:32:02.782537+00:00', observed_source_tree_sha=SECOND_SOURCE,
+            original_ledger_end_source_present=False, fresh_hmac_identity=identity,
+            binary_sha256=profile.digest(self.fixture['binary']),
+            freeze_evidence_sha256=profile.digest(directory / 'performance-run-8ac-freeze.json'),
+            stop_evidence_sha256=profile.digest(directory / 'performance-stop-8ac.json'))
+        profile.env._private(directory / 'performance-post-stop-8ac-source.json', observed)
+        return evidence
+
+    def make_second(self, run=None):
+        return profile.Rotation(self.root, profile.OWNER, run or self.run, SECOND_BEFORE)
+
+    def test_second_approved_context_plan_apply_and_same_uuid_replay_preserve_old_archive(self):
+        self.second_context()
+        with patch.object(profile, 'source_fingerprint', return_value=SECOND_SOURCE):
+            self.rotation = self.make_second()
+            planned = self.rotation.plan()
+            self.assertTrue(planned['before_evidence']['original_ledger_source_end_missing'])
+            self.assertEqual(planned['before_evidence']['source_post_stop'], SECOND_SOURCE)
+            self.assertNotIn('source_tree_sha_end', planned['before_evidence'])
+            self.assertEqual(planned['catalog']['canonical']['oid'], SECOND_OID)
+            self.assertEqual(self.commands, []); self.stop.assert_not_called()
+            self.assertTrue(self.rotation.apply()['applied'])
+            before = list(self.commands)
+            self.assertEqual(self.catalog['archive']['oid'], SECOND_OID)
+            replay = self.make_second().apply()
+            self.assertTrue(replay['already_complete']); self.assertFalse(replay['applied'])
+            self.assertEqual(self.commands, before); self.assertEqual(len(before), 6)
+
+    def test_second_context_another_operation_cannot_archive_later_fresh_canonical(self):
+        self.second_context()
+        with patch.object(profile, 'source_fingerprint', return_value=SECOND_SOURCE):
+            self.rotation = self.make_second(); self.rotation.apply()
+            count = self.stop.call_count; statements = list(self.commands)
+            # A new UUID names different absent archive/staging databases; it
+            # must reject the later canonical OID, not borrow the old catalog.
+            later = copy.deepcopy(self.catalog); later['archive'] = None; later['fresh'] = None
+            other = self.make_second(str(uuid.uuid4()))
+            with patch.object(other, 'catalog', return_value=later), self.assertRaisesRegex(profile.Blocked, 'OID differs'):
+                other.plan()
+            self.assertEqual(self.stop.call_count, count); self.assertEqual(self.commands, statements)
+
+    def test_second_context_exact_terminal_source_suite_sha_failure_and_oid_are_required(self):
+        good = self.second_context()
+        changes = [('status', 'failed'), ('ended_at', None), ('selected_suite', 'entry'),
+            ('sha', 'other'), ('source_tree_sha', 'a' * 64), ('source_tree_sha_end', 'b' * 64),
+            ('source_tree_sha_end', None)]
+        for key, value in changes:
+            bad = {**good, key: value}
+            with contextlib.closing(sqlite3.connect(self.ledger)) as connection, connection:
+                connection.execute('UPDATE runs SET data=? WHERE id=?', (json.dumps(bad), SECOND_BEFORE))
+            with self.subTest(key=key, value=value), patch.object(profile, 'source_fingerprint', return_value=SECOND_SOURCE), self.assertRaises(profile.Blocked):
+                self.make_second()
+        with contextlib.closing(sqlite3.connect(self.ledger)) as connection, connection:
+            connection.execute('UPDATE runs SET data=? WHERE id=?', (json.dumps(good), SECOND_BEFORE))
+            connection.execute('DELETE FROM cases WHERE run_id=?', (SECOND_BEFORE,))
+        with patch.object(profile, 'source_fingerprint', return_value=SECOND_SOURCE), self.assertRaises(profile.Blocked): self.make_second()
+        self.assertEqual(self.commands, []); self.stop.assert_not_called()
+
+    def test_second_context_canonical_oid_and_registered_binary_source_are_bound(self):
+        self.second_context()
+        with patch.object(profile, 'source_fingerprint', return_value=SECOND_SOURCE):
+            self.rotation = self.make_second()
+            self.catalog['canonical']['oid'] = SECOND_OID + 1
+            with self.assertRaises(profile.Blocked): self.rotation.plan()
+            self.catalog['canonical']['oid'] = SECOND_OID
+            self.fixture['source_tree_sha'] = 'a' * 64
+            profile.env._private(self.fixture_path, self.fixture)
+            with self.assertRaises(profile.Blocked): self.make_second()
+        self.assertEqual(self.commands, []); self.stop.assert_not_called()
+
+    def test_second_context_external_files_missing_malformed_symlink_or_public_are_rejected(self):
+        self.second_context()
+        paths = [self.ledger.parent / name for name in ('performance-run-8ac-freeze.json',
+            'performance-stop-8ac.json', 'performance-post-stop-8ac-source.json')]
+        for path in paths:
+            original = path.read_bytes()
+            for attack in ('missing', 'malformed', 'symlink', 'public'):
+                with self.subTest(file=path.name, attack=attack):
+                    if attack == 'missing': path.unlink()
+                    elif attack == 'malformed': path.write_text('{invalid')
+                    elif attack == 'public': os.chmod(path, 0o644)
+                    else:
+                        target = path.with_name(path.name + '.target'); target.write_bytes(original)
+                        os.chmod(target, 0o600); path.unlink(); path.symlink_to(target)
+                    with patch.object(profile, 'source_fingerprint', return_value=SECOND_SOURCE), self.assertRaises((profile.Blocked, ValueError, OSError)):
+                        self.make_second()
+                    if path.is_symlink(): path.unlink(); target.unlink()
+                    path.write_bytes(original); os.chmod(path, 0o600)
+        self.assertEqual(self.commands, []); self.stop.assert_not_called()
+
+    def test_second_context_external_crosslinks_times_and_process_identity_are_exact(self):
+        self.second_context()
+        names = ('performance-run-8ac-freeze.json', 'performance-stop-8ac.json', 'performance-post-stop-8ac-source.json')
+        paths = [self.ledger.parent / name for name in names]
+        original = [json.loads(path.read_text()) for path in paths]
+        attacks = [(0, 'run_id', str(uuid.uuid4())), (0, 'git_sha', 'foreign'),
+            (0, 'source_tree_sha', 'a' * 64), (0, 'run_started_at', '2026-09-30T20:00:00+00:00'),
+            (0, 'runner_pid', 999), (1, 'source_tree_sha', 'a' * 64), (1, 'at', 1790802944),
+            (1, 'at', float('nan')), (1, 'at', True), (1, 'runner_pid', 999),
+            (2, 'observed_source_tree_sha', 'a' * 64), (2, 'observed_at', '2026-09-30T21:00:00+00:00'),
+            (2, 'observed_at', '2026-09-30T21:32:02'), (2, 'run_ended_at', 'foreign'),
+            (2, 'run_status', 'failed'), (2, 'freeze_evidence_sha256', 'a' * 64),
+            (2, 'stop_evidence_sha256', 'a' * 64), (2, 'binary_sha256', 'a' * 64),
+            (2, 'original_ledger_end_source_present', True), (2, 'original_ledger_end_source_present', None)]
+        for index in range(3):
+            for field, value in [('owner', 'foreign'), ('pid', 999), ('api_pids', [101, 999]),
+                    ('api_pids', [101, 101]), ('api_pids', [{}, {}]), ('ready', False),
+                    ('failed', True), ('source_tree_sha', 'a' * 64)]:
+                identity = {**original[index]['fresh_hmac_identity'], field: value}
+                attacks.append((index, 'fresh_hmac_identity', identity))
+        for index, field, value in attacks:
+            rows = copy.deepcopy(original); rows[index][field] = value
+            for path, row in zip(paths[:2], rows[:2]): profile.env._private(path, row)
+            # Update valid crosslinks to reach the semantic guard, except when
+            # the crosslink itself is the attack under test.
+            if index != 2 or field not in ('freeze_evidence_sha256', 'stop_evidence_sha256'):
+                rows[2]['freeze_evidence_sha256'] = profile.digest(paths[0])
+                rows[2]['stop_evidence_sha256'] = profile.digest(paths[1])
+            profile.env._private(paths[2], rows[2])
+            with self.subTest(file=names[index], field=field), patch.object(profile, 'source_fingerprint', return_value=SECOND_SOURCE), self.assertRaises(profile.Blocked):
+                self.make_second()
+        self.assertEqual(self.commands, []); self.stop.assert_not_called()
+
+    def test_second_context_failed_case_must_belong_to_exact_run_and_completed_replay_accepts_later_source(self):
+        self.second_context()
+        for row in ({'name': 'perf.rps25', 'status': 'passed'}, {'name': 'perf.rps50', 'status': 'failed'},
+                    {'name': 'perf.rps25', 'status': 'blocked'}):
+            with contextlib.closing(sqlite3.connect(self.ledger)) as connection, connection:
+                connection.execute('UPDATE cases SET data=?', (json.dumps(row),))
+            with patch.object(profile, 'source_fingerprint', return_value=SECOND_SOURCE), self.assertRaises(profile.Blocked): self.make_second()
+        with contextlib.closing(sqlite3.connect(self.ledger)) as connection, connection:
+            connection.execute('UPDATE cases SET data=?,run_id=?',
+                (json.dumps({'name': 'perf.rps25', 'status': 'failed'}), profile.BEFORE))
+        with patch.object(profile, 'source_fingerprint', return_value=SECOND_SOURCE), self.assertRaises(profile.Blocked): self.make_second()
+        with contextlib.closing(sqlite3.connect(self.ledger)) as connection, connection:
+            connection.execute('UPDATE cases SET run_id=?', (SECOND_BEFORE,))
+        legacy_keys = set(self.make().plan()['before_evidence'])
+        self.assertEqual(legacy_keys, {'status', 'sha', 'started_at', 'ended_at'})
+        with patch.object(profile, 'source_fingerprint', return_value=SECOND_SOURCE):
+            self.rotation = self.make_second(); self.rotation.apply()
+        statements = list(self.commands)
+        self.fixture['source_tree_sha'] = 'b' * 64; self.fixture['supervisor_pid'] = 500
+        Path(self.fixture['binary']).write_bytes(b'new later source binary')
+        profile.env._private(self.fixture_path, self.fixture)
+        with patch.object(profile, 'source_fingerprint', return_value='b' * 64):
+            result = self.make_second().apply()
+        self.assertTrue(result['already_complete']); self.assertEqual(self.commands, statements)
+
+    def test_second_context_matching_ledger_end_is_optional_but_conflicting_end_and_receipt_changes_block(self):
+        evidence = self.second_context()
+        evidence['source_tree_sha_end'] = SECOND_SOURCE
+        with contextlib.closing(sqlite3.connect(self.ledger)) as connection, connection:
+            connection.execute('UPDATE runs SET data=? WHERE id=?', (json.dumps(evidence), SECOND_BEFORE))
+        with patch.object(profile, 'source_fingerprint', return_value=SECOND_SOURCE):
+            self.rotation = self.make_second()
+            self.assertFalse(self.rotation.evidence['original_ledger_source_end_missing'])
+            self.assertEqual(self.rotation.evidence['ledger_source_tree_sha_end'], SECOND_SOURCE)
+            self.rotation.apply()
+            before = list(self.commands)
+            path = self.ledger.parent / 'performance-post-stop-8ac-source.json'
+            changed = json.loads(path.read_text()); changed['boundary'] = 'changed receipt'
+            profile.env._private(path, changed)
+            with self.assertRaisesRegex(profile.Blocked, 'receipt changed'): self.make_second()
+        self.assertEqual(self.commands, before)
+
+    def test_second_context_partial_resume_requires_exact_source_and_preserves_legacy_journal(self):
+        self.second_context()
+        legacy = self.ledger.parent / 'environments' / profile.OWNER / 'profile' / str(uuid.uuid4()) / 'journal.json'
+        profile.env._private(legacy, {'schema': 1, 'before_evidence_run': profile.BEFORE, 'stage': 'complete'})
+        original = legacy.read_bytes()
+        with patch.object(profile, 'source_fingerprint', return_value=SECOND_SOURCE):
+            self.rotation = self.make_second(); self.fail_after = 'create-fresh'
+            with self.assertRaisesRegex(profile.Blocked, 'CREATE receipt'): self.rotation.apply()
+        statements = list(self.commands)
+        with patch.object(profile, 'source_fingerprint', return_value='b' * 64), self.assertRaisesRegex(profile.Blocked, 'current and registered'):
+            self.make_second()
+        self.assertEqual(self.commands, statements); self.assertEqual(legacy.read_bytes(), original)
+
+    def test_receipt_atomic_replace_between_parse_and_hash_blocks_before_stop(self):
+        self.second_context(); path = self.ledger.parent / 'performance-post-stop-8ac-source.json'
+        native = json.loads; changed = [False]
+        def parse(raw, *args, **kwargs):
+            row = native(raw, *args, **kwargs)
+            if isinstance(row, dict) and 'observed_source_tree_sha' in row and not changed[0]:
+                changed[0] = True
+                replacement = path.with_name('receipt-replacement.json')
+                replacement.write_text(json.dumps({**row, 'observed_source_tree_sha': 'b' * 64}))
+                os.chmod(replacement, 0o600); os.replace(replacement, path)
+            return row
+        with patch.object(profile, 'source_fingerprint', return_value=SECOND_SOURCE), \
+             patch.object(profile.json, 'loads', side_effect=parse), self.assertRaises(profile.Blocked):
+            self.make_second()
+        self.assertTrue(changed[0]); self.stop.assert_not_called(); self.assertEqual(self.commands, [])
+
+    def test_receipt_first_file_replace_after_read_blocks_even_with_identical_bytes_and_valid_third(self):
+        self.second_context(); path = self.ledger.parent / 'performance-run-8ac-freeze.json'
+        raw = path.read_bytes(); native = json.loads; changed = [False]
+        def parse(value, *args, **kwargs):
+            row = native(value, *args, **kwargs)
+            if isinstance(row, dict) and 'run_started_at' in row and not changed[0]:
+                changed[0] = True
+                replacement = path.with_name('receipt-replacement.json'); replacement.write_bytes(raw)
+                os.chmod(replacement, 0o600); os.replace(replacement, path)
+            return row
+        with patch.object(profile, 'source_fingerprint', return_value=SECOND_SOURCE), \
+             patch.object(profile.json, 'loads', side_effect=parse), self.assertRaises(profile.Blocked):
+            self.make_second()
+        self.assertTrue(changed[0]); self.stop.assert_not_called(); self.assertEqual(self.commands, [])
+
+    def test_receipt_in_place_rewrite_during_capture_blocks_even_with_identical_bytes(self):
+        self.second_context(); path = self.ledger.parent / 'performance-post-stop-8ac-source.json'
+        raw = path.read_bytes(); original_stat = path.stat(); native = json.loads; changed = [False]
+        def parse(value, *args, **kwargs):
+            row = native(value, *args, **kwargs)
+            if isinstance(row, dict) and 'observed_source_tree_sha' in row and not changed[0]:
+                changed[0] = True; path.write_bytes(raw)
+                os.utime(path, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns + 1000000000))
+            return row
+        with patch.object(profile, 'source_fingerprint', return_value=SECOND_SOURCE), \
+             patch.object(profile.json, 'loads', side_effect=parse), self.assertRaises(profile.Blocked):
+            self.make_second()
+        self.assertTrue(changed[0]); self.stop.assert_not_called(); self.assertEqual(self.commands, [])
+
+    def test_receipt_symlink_or_permission_swap_between_lstat_and_open_blocks(self):
+        self.second_context(); path = self.ledger.parent / 'performance-post-stop-8ac-source.json'
+        raw = path.read_bytes(); native = Path.lstat
+        for attack in ('symlink', 'permission'):
+            changed = [False]; target = path.with_name('receipt-target.json')
+            def inspect(candidate, *args, **kwargs):
+                info = native(candidate, *args, **kwargs)
+                if candidate == path and not changed[0]:
+                    changed[0] = True
+                    if attack == 'permission': os.chmod(path, 0o644)
+                    else:
+                        target.write_bytes(raw)
+                        os.chmod(target, 0o600); path.unlink(); path.symlink_to(target)
+                return info
+            with self.subTest(attack=attack), patch.object(profile, 'source_fingerprint', return_value=SECOND_SOURCE), \
+                 patch.object(Path, 'lstat', inspect), self.assertRaises(profile.Blocked):
+                self.make_second()
+            self.assertTrue(changed[0])
+            if path.is_symlink(): path.unlink(); target.unlink()
+            path.write_bytes(raw); os.chmod(path, 0o600)
+        self.stop.assert_not_called(); self.assertEqual(self.commands, [])
 
     def shutdown(self, data):
         self.assertEqual(data['owner'], profile.OWNER); self.running = False
@@ -359,6 +631,55 @@ class ProfileSafetyTests(unittest.TestCase):
 
 
 class ProfileTopologyTests(unittest.TestCase):
+    def test_receipt_snapshots_hash_exact_parsed_bytes_and_close_every_fd_on_success_and_failure(self):
+        native_open, native_close, native_read = os.open, os.close, os.read
+        with tempfile.TemporaryDirectory() as directory:
+            paths = [Path(directory) / name for name in ('freeze.json', 'stop.json', 'observed.json')]
+            for failure in ('none', 'parse', 'read', 'open'):
+                opened, closed = [], []
+                for index, path in enumerate(paths):
+                    path.write_bytes(json.dumps({'row': index}).encode()); os.chmod(path, 0o600)
+                if failure == 'parse': paths[1].write_text('{invalid')
+                def open_file(path, flags, *args):
+                    self.assertTrue(flags & os.O_NOFOLLOW); self.assertTrue(flags & os.O_NONBLOCK)
+                    if failure == 'open' and path == paths[2]: raise OSError(profile.errno.EIO, 'offline open failure')
+                    fd = native_open(path, flags, *args); opened.append(fd); return fd
+                def close_file(fd): closed.append(fd); return native_close(fd)
+                def read_file(fd, size):
+                    if failure == 'read': raise OSError(profile.errno.EIO, 'offline read failure')
+                    return native_read(fd, size)
+                with self.subTest(failure=failure), patch.object(profile.os, 'open', side_effect=open_file), \
+                     patch.object(profile.os, 'close', side_effect=close_file), patch.object(profile.os, 'read', side_effect=read_file):
+                    if failure == 'none':
+                        rows, hashes = profile.receipt_snapshots(paths)
+                        self.assertEqual(rows, [{'row': index} for index in range(3)])
+                        self.assertEqual(hashes, {path.name: profile.digest(path) for path in paths})
+                    else:
+                        with self.assertRaises(profile.Blocked): profile.receipt_snapshots(paths)
+                self.assertEqual(closed, list(reversed(opened)))
+                self.assertEqual(len(opened), {'none': 3, 'parse': 2, 'read': 1, 'open': 2}[failure])
+                for fd in opened:
+                    with self.assertRaises(OSError) as error: os.fstat(fd)
+                    self.assertEqual(error.exception.errno, profile.errno.EBADF)
+
+    def test_receipt_snapshot_size_type_and_midread_change_are_failclosed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'receipt.json'; path.write_text('{}'); os.chmod(path, 0o600)
+            path.write_bytes(b'x' * ((4 << 20) + 1))
+            with self.assertRaises(profile.Blocked): profile.receipt_snapshots([path])
+            path.unlink(); path.mkdir(mode=0o700)
+            with self.assertRaises(profile.Blocked): profile.receipt_snapshots([path])
+            path.rmdir(); path.write_text('{}'); os.chmod(path, 0o600)
+            native_read, changed = os.read, [False]
+            def read_and_append(fd, size):
+                raw = native_read(fd, size)
+                if not changed[0]:
+                    changed[0] = True
+                    with path.open('ab') as stream: stream.write(b' ')
+                return raw
+            with patch.object(profile.os, 'read', side_effect=read_and_append), self.assertRaises(profile.Blocked):
+                profile.receipt_snapshots([path])
+
     def rotation(self, deadline):
         rotation = object.__new__(profile.Rotation)
         rotation.deadline = deadline; rotation.data = {'control_secret': 'synthetic-private-token'}

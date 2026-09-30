@@ -1,6 +1,6 @@
 """Real owned-DB k6 load and continuous wall-clock soak. No compressed acceptance."""
 from __future__ import annotations
-import argparse,datetime,hashlib,hmac,http.client,json,os,re,secrets,signal,subprocess,sys,threading,time,uuid
+import argparse,datetime,hashlib,hmac,http.client,json,os,re,secrets,signal,socket,subprocess,sys,threading,time,uuid
 from pathlib import Path
 from urllib.parse import urlparse
 from load.seed import fixture,seed,sql,quote,private,stream_seed,stream_emit,stream_finish
@@ -11,6 +11,7 @@ ROOT=Path(__file__).resolve().parents[2]
 K6_IMAGE='grafana/k6:1.5.0@sha256:2072ea9eafa596532d9aee0cc0e0a50cfb0e7fb703981a46179af5f4f22c5ea4'
 K6_RELEASE='https://github.com/grafana/k6/releases/tag/v1.5.0'
 STOP=threading.Event()
+DIAGNOSTIC_BUDGET=3
 
 def result(id,status,actual,started=None,**fields):
     if isinstance(actual,dict):
@@ -103,20 +104,123 @@ def prepare(profile):
     result('perf.route_preflight','passed',{'routes':preflight,'coverage_limit':'only currently legal measured routes; explicitly blocked aggregates are not performance acceptance','excluded_aggregate_paths':excluded},expected='全部实际计量路由200且非error envelope；精确限额allowlist单列blocked性能路径')
     return data
 
-def identity(data):
-    c=http.client.HTTPConnection('127.0.0.1',18560,timeout=5)
-    nonce=secrets.token_hex(16)
+def diagnostic_get(port,path,limit,deadline):
+    """One total wall-clock budget, including headers and EOF-delimited bodies."""
+    if not (port==18560 and re.fullmatch(r'/attest\?nonce=[a-f0-9]{32}',path) or port in (18561,18562) and path=='/healthz'):raise RuntimeError('unknown diagnostic endpoint')
+    remaining=deadline-time.monotonic()
+    if remaining<=0:raise TimeoutError('diagnostic deadline elapsed')
+    conn=http.client.HTTPConnection('127.0.0.1',port,timeout=min(1,remaining))
+    expired=threading.Event();lock=threading.Lock();transport=[None];response=None
+    def abort():
+        expired.set()
+        with lock:sock=transport[0]
+        if sock:
+            try:sock.shutdown(socket.SHUT_RDWR)
+            except OSError:pass
+    timer=threading.Timer(remaining,abort);timer.name='testlab-diagnostic-deadline';timer.daemon=True;timer.start()
     try:
-        c.request('GET','/attest?nonce='+nonce);r=c.getresponse();raw=r.read((1<<16)+1)
-        if r.status!=200 or len(raw)>1<<16:raise RuntimeError('bounded supervisor attestation unavailable')
+        conn.connect()
+        # getresponse() can transfer this socket to HTTPResponse and clear conn.sock.
+        with lock:transport[0]=conn.sock
+        if expired.is_set() or time.monotonic()>=deadline:abort();raise TimeoutError('diagnostic deadline elapsed')
+        conn.request('GET',path);response=conn.getresponse();raw=response.read(limit+1)
+        if expired.is_set() or time.monotonic()>=deadline:raise TimeoutError('diagnostic deadline elapsed')
+        return response.status,raw
+    except Exception:
+        if expired.is_set() or time.monotonic()>=deadline:raise TimeoutError('diagnostic deadline elapsed') from None
+        raise
+    finally:
+        timer.cancel();timer.join()
+        if response is not None:response.close()
+        conn.close()
+        if transport[0] is not None:transport[0].close()
+
+
+def identity(data,timeout=5,diagnostic_deadline=None):
+    nonce=secrets.token_hex(16)
+    if diagnostic_deadline is not None:
+        status,raw=diagnostic_get(18560,'/attest?nonce='+nonce,1<<16,diagnostic_deadline)
+        if status!=200 or len(raw)>1<<16:raise RuntimeError('bounded supervisor attestation unavailable')
         receipt=json.loads(raw)
-    finally:c.close()
+    else:
+        c=http.client.HTTPConnection('127.0.0.1',18560,timeout=timeout)
+        try:
+            c.request('GET','/attest?nonce='+nonce);r=c.getresponse();raw=r.read((1<<16)+1)
+            if r.status!=200 or len(raw)>1<<16:raise RuntimeError('bounded supervisor attestation unavailable')
+            receipt=json.loads(raw)
+        finally:c.close()
     if (not isinstance(receipt,dict) or set(receipt)!={'nonce','identity','proof'} or receipt['nonce']!=nonce
         or not isinstance(receipt['identity'],dict) or not isinstance(receipt['proof'],str)
         or not hmac.compare_digest(receipt['proof'],control_proof(data['control_secret'],nonce,receipt['identity']))):
         raise RuntimeError('supervisor nonce/HMAC attestation mismatch')
-    v=receipt['identity'];validate_identity(data,v)
+    v=receipt['identity']
+    try:validate_identity(data,v)
+    except Exception as error:
+        # Preserve the authenticated failing snapshot without relaxing readiness.
+        if v.get('owner')==data['owner'] and v.get('pid')==data['supervisor_pid']:
+            error.testlab_authenticated_identity=dict(v)
+        raise
     return v
+
+
+def stage_error_evidence(data,work,error,last_resource=None):
+    """Bounded diagnostics only; never make an unready identity acceptable."""
+    deadline=time.monotonic()+DIAGNOSTIC_BUDGET
+    def owned(value):
+        return isinstance(value,dict) and value.get('owner')==data['owner'] and value.get('pid')==data['supervisor_pid']
+    def snapshot(value):
+        return {'owner':data['owner'],'pid':data['supervisor_pid'],'api_pids':[pid for pid in value.get('api_pids',[])[:2] if type(pid) is int],'source_tree_sha':str(value.get('source_tree_sha',''))[:64],'ready':value.get('ready') is True,'failed':value.get('failed') is True}
+    def numeric_sample(value):
+        if not isinstance(value,dict):return None
+        # Existing metrics contain numeric counters; no arbitrary strings or credentials.
+        sampled={'at':value.get('at') if isinstance(value.get('at'),(int,float)) else None}
+        sampled['postgres']={key:val for key,val in value.get('postgres',{}).items() if key in ('connections','active','waiting','locks','queued_replies','running_replies','database_bytes') and isinstance(val,(int,float))}
+        for key,fields in (('backend_processes',('pid','rss_kib','cpu_percent')),('backend_fds',('pid','open_fds'))):
+            sampled[key]=[{field:row[field] for field in fields if isinstance(row.get(field),(int,float))} for row in value.get(key,[])[:2] if isinstance(row,dict)]
+        sampled['missing']=[item for item in value.get('missing',[])[:16] if isinstance(item,str) and re.fullmatch(r'[a-z_]{1,64}',item)]
+        return sampled
+    failed=getattr(error,'testlab_authenticated_identity',None)
+    reason=str(error) if str(error) in ('two ready registered child PIDs required','supervisor identity changed; refusing fault','supervisor nonce/HMAC attestation mismatch','bounded supervisor attestation unavailable','backend restarted or runtime/helper configuration changed; continuous window invalid','backend source changed or binary does not match source; restart/re-freeze required') else 'stage guard or execution exception'
+    evidence={'at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'error_type':type(error).__name__,'reason':reason,'failure_authenticated_identity':snapshot(failed) if owned(failed) else None,'fresh_authenticated_identity':None,'health':[],'resources_last':numeric_sample(last_resource),'missing':['postgres_pool_internal_wait'],'diagnostic_scope':'fixed own public health endpoints; no auth material or response headers'}
+    if last_resource is None:evidence['missing'].append('last_resource_sample')
+    if not owned(failed):evidence['missing'].append('failure_authenticated_controller_identity')
+    path=Path(work)/'error-evidence.json'
+    if path.parent.is_symlink() or not path.parent.resolve().is_relative_to(Path(data['perf_work']).resolve()) or not path.resolve().is_relative_to((ROOT/'.local/testlab').resolve()):raise RuntimeError('diagnostic evidence outside owned stage')
+    # Keep the failure-instant snapshot even if later diagnostic collection fails.
+    private(path,evidence)
+    fresh=None
+    try:fresh=identity(data,timeout=1,diagnostic_deadline=deadline)
+    except Exception as diagnostic_error:
+        fresh=getattr(diagnostic_error,'testlab_authenticated_identity',None)
+        evidence['attestation_error_type']=type(diagnostic_error).__name__
+        if isinstance(diagnostic_error,TimeoutError):evidence['missing'].append('controller_attestation_deadline')
+    baseline=data.get('_freeze_baseline')
+    if owned(fresh):evidence['fresh_authenticated_identity']=snapshot(fresh)
+    else:evidence['missing'].append('fresh_authenticated_controller_identity')
+    # A failed proof/owner is not a basis for probing any API, even if data contains URLs.
+    pids=fresh.get('api_pids',[]) if owned(fresh) else []
+    mapped=owned(fresh) and fresh.get('source_tree_sha')==data['source_tree_sha'] and baseline and len(baseline)>=2 and baseline[0]==fresh['pid'] and len(pids)==2 and all(type(pid) is int and pid>1 for pid in pids) and len(set(pids))==2 and tuple(pids)==baseline[1]
+    if mapped:
+        for port in (18561,18562):
+            started=time.monotonic();row={'url':f'http://127.0.0.1:{port}/healthz'}
+            try:
+                status,raw=diagnostic_get(port,'/healthz',4096,deadline)
+                row.update(http_status=status,body_bytes_observed=len(raw),body_truncated=len(raw)>4096,body_sha256=hashlib.sha256(raw).hexdigest())
+                if len(raw)<=4096:
+                    try:body=json.loads(raw)
+                    except ValueError:body=None
+                    if isinstance(body,dict):
+                        if body.get('status')=='ok':row['status']='ok'
+                        code=body.get('error',{}).get('code') if isinstance(body.get('error'),dict) else None
+                        if isinstance(code,str) and re.fullmatch(r'[a-z_]{1,64}',code):row['error_code']=code
+            except Exception as diagnostic_error:
+                row['error_type']=type(diagnostic_error).__name__
+                if isinstance(diagnostic_error,TimeoutError):evidence['missing'].append('health_'+str(port)+'_deadline')
+            row['elapsed_seconds']=round(time.monotonic()-started,3);evidence['health'].append(row)
+    else:evidence['missing'].append('owned_api_health_mapping')
+    evidence['diagnostic_elapsed_seconds']=round(time.monotonic()-(deadline-DIAGNOSTIC_BUDGET),3)
+    private(path,evidence)
+    return {'error_evidence':str(path.relative_to(ROOT)),'reason':reason,'diagnostic_missing':evidence['missing']}
 
 def frozen_inputs(data):
     names={Path(data['instance_config']),Path(data['binary']),ROOT/'tools/testlab/perf.py',ROOT/'tools/testlab/backend.py',ROOT/'tools/testlab/faults.py',ROOT/'tools/testlab/load/seed.py',ROOT/'tools/testlab/load/traffic.js',ROOT/'tools/testlab/fixtures.py',ROOT/'.local/testlab/component-environment.json'}
@@ -375,8 +479,10 @@ def k6(data,run,stage,rate,duration,gate=False,streams=None,hooks=None,strict_so
     except KeyboardInterrupt:
         own_remove(name,data['owner']);proc.wait(timeout=30);result('perf.'+stage,'interrupted',{'elapsed_seconds':time.monotonic()-started,'planned_seconds':duration,'acceptance':False},started);raise
     except Exception as error:
+        try:diagnostic=stage_error_evidence(data,work,error,resources[-1] if resources else None)
+        except Exception as diagnostic_error:diagnostic={'diagnostic_error_type':type(diagnostic_error).__name__,'diagnostic_missing':['stage_error_evidence']}
         own_remove(name,data['owner']);proc.wait(timeout=30)
-        result('perf.'+stage,'failed',{'error':type(error).__name__,'elapsed_seconds':time.monotonic()-started,'planned_seconds':duration,'continuous_acceptance':False},started)
+        result('perf.'+stage,'failed',{'error':type(error).__name__,'elapsed_seconds':time.monotonic()-started,'planned_seconds':duration,'continuous_acceptance':False,**diagnostic},started)
         raise
     finally:resource.close();log.close()
 

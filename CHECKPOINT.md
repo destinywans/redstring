@@ -1,3 +1,19 @@
+## CP-234 · 2026-10-01 · 两项测试工具首红修复及独立审查通过
+
+- 当前37e527d已推送精确回读，Go1512/双API98779、98780及监督98778仅最新HMAC快照；本次实际SQLite零active，8ac interrupted原状态和报告保持，APP9270802仍scale。产品源未改、24h未开始。
+- perf七固定路由21指标保留原负载/15s超时/4%认领/分类/门槛；新诊断先有XHigh墙钟阻断，再真实自有临时socket red→修复共享3s monotonic/保留transport/Timer清理→29离线通过，0.6s测试budget实测0.603–0.609s；XHigh最终无阻断。未运行新正式k6，不将工具证明冒性能通过。
+- profile第二精确8ac上下文与旧eeb完成重放保持；XHigh另查出receipt解析/hash双路径读取竞态，High新增稳定FD/O_NOFOLLOW/O_NONBLOCK/0600 regular/4MiB/同bytes/前后及最终三路径身份检查/finally全部FD关闭，corrected red4test5预期fail及早期fixture cleanup错误全保留。45离线通过（原39保留），open/read/parse成功失败所有FD实证EBADF、stop/DDL未调用；XHigh最终无阻断。尚未真实plan/apply，不冒已保全。
+- 自主选择：root下一步生成唯一新operation UUID，用8ac原因先只读plan→现场own/source/binary/OID/五DSN/客户端/无测试/证书/资源通过才同UUIDapply，完整保留本scale和旧16388证据库；再prepare_all准确base（包含20用户种子），新API HMAC/入口证明后固定warmup120+rps10 300+rps25 300的有界原混合诊断，七路由定位。此诊断独立标diagnostic_only，不计完整性能/24h，禁止猜测产品优化/改阈值。
+- Medium独占新增diagnose.py及离线测试，禁止live；root集成/现场保全/准入；XHigh只读审查。无产品前端/合并部署，保留.claude及WAN152/暂停7CI/CD/Ollama/外部/缺实现High待办；整体未收口。
+
+## CP-233 · 2026-10-01 · 只读诊断完成，固定路由证据与第二次证据保全准备
+
+- **37e527d81c9bed7be51fb67250c40dc9317a2e96** 首红记录已推送并精确回读，Linear WAN138/161/162及原51文档已同步。8ac terminal与三格式报告保持。当前无active load；Go1512/实际API仍原98778/98779/98780仅快照，任何操作仍fresh nonce/HMAC。
+- High只读结论已在private **perf-8ac-readonly-diagnosis.json**：base25的database Trend包含6750次完整HTTP，不是PG单语句。base100个scope每Inbox约600次授权SQL往返是确认开销、主导P95仍Medium未定。base50确为 **Blocked: two ready registered child PIDs required**，200VU exhausted/同秒Inbox取消+API deadline，并缺失败瞬间health/pool证据，不能判唯一瓶颈。当前100k scale原Inbox只读1042.712ms、关联10万再34MiB磁盘sort/LIMIT5001，无JIT；COUNT1.034ms/无JIT。scale证据不能冒原5k根因，尚不实施猜测产品修法。
+- Medium仅工具新增7固定route latency/error/count，按实际fallback和claim采样，原分配/分类/门槛/超时/权限完全保留；failure路径另保存已认证identity、一次短新attestation、仅两冻结PID/owner/source/supervisor匹配才固定 **/healthz**（真实端点）bounded诊断、无cookie/原失败不变/0600/缺pool内部等待明示。仅离线26工具测试通过，未live。XHigh正只读审这3files，未通过前不新load；不扩产品debug/UI或Go。
+- profile工具原只允许06a failed，不能把它错称当前8ac保全原因。High独占profile.py/tests/test_profile.py做第二**明确8ac** allowlist/context安全扩展，保留旧eeb replay/所有40s/8s/HMAC/OID/tag/sixDDL/WAL保护，根尚未实际plan/apply/停止API。8ac interrupted的SQLite缺source_tree_sha_end（原Runner中断分支未末采集），**不补写/冒造字段**；新增上下文绑定固定0600 freeze/stop及root实际21:32:02Z post-stop观察证据的SHA，明确source_post_stop非原end审计、expected source1512/gitd6/OID9270802/至少perf.rps25真实failed/精确terminal。私有performance-post-stop-8ac-source.json已实际currentGo/HMAC/binary观测；旧eeb16388不动。最终工具与独审完成后root唯一新UUID先plan再apply完整保留当前scale，再fresh准确base有界诊断；不是性能/24h验收。
+- 24h未开始，WAN152/暂停7nativeCI/CD/Ollama/外部/缺能力High待办保留；本轮仍未收口。无产品前端/合并部署、保留.claude。agent职责：backend_test_plan只offline profile2files；claim_lock_review readonly perf3files→后续profile；perf_route_evidence已停止编辑。禁止其他线程重复load/源重建或按旧UUID重档。
+
 ## CP-232 · 2026-10-01 · 认领恢复，但基础DB延迟仍失败，停止负载诊断
 
 - 新性能 **8ac896b5-70c4-43c8-a934-309ce357e31d** 已 **21:14:05Z interrupted**，12pass/3failed/5blocked（父项/子项不等于3产品Bug），三格式报告与private wan162-postfix-performance-first-red完整保存，按evidence **28bccd29-b9ba-489e-8506-f3ec3e663317** 登记。源1512未变，未启动24h。

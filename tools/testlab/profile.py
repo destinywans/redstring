@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import datetime
 import errno
 import fcntl
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -33,6 +35,10 @@ from runner import source_fingerprint
 ROOT = Path(__file__).resolve().parents[2]
 OWNER = 'testlab-3cbde3095125'
 BEFORE = '06a848d7-6821-463f-96bd-1ee2639ea6f8'
+SECOND_BEFORE = '8ac896b5-70c4-43c8-a934-309ce357e31d'
+SECOND_SHA = 'd6f7bd11d4cf06e4b14ab56df83c4ef737e71c6c'
+SECOND_SOURCE = '15125d6ecd371864b894edfd91b7ca4944bf69dc305359d0e385a879f8cc090a'
+SECOND_OID = 9270802
 APP = 'aiops_testlab_app'
 PORTS = (18560, 18561, 18562)
 DSNS = {'TEST_DATABASE_URL': 'aiops_testlab', 'TESTLAB_MFA_DSN': 'wan124mfa',
@@ -41,6 +47,51 @@ DSNS = {'TEST_DATABASE_URL': 'aiops_testlab', 'TESTLAB_MFA_DSN': 'wan124mfa',
 
 def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def receipt_snapshots(paths):
+    """Capture private receipts once; retain all FDs through batch validation."""
+    limit, handles, rows, hashes = 4 << 20, [], [], {}
+    def signature(info):
+        return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns,
+                info.st_ctime_ns, info.st_mode)
+    def private(info):
+        if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600 or not 0 <= info.st_size <= limit:
+            raise Blocked('second approved source receipt must be a bounded private regular file')
+    try:
+        for path in paths:
+            original = path.lstat(); private(original)
+            # NONBLOCK prevents a racing FIFO replacement from blocking open;
+            # fstat immediately rejects anything except the original regular file.
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            handles.append((path, fd, original))
+            before = os.fstat(fd); private(before)
+            if signature(before) != signature(original):
+                raise Blocked('second approved source receipt changed before open')
+            chunks, size = [], 0
+            while True:
+                part = os.read(fd, min(65536, limit + 1 - size))
+                if not part:
+                    break
+                chunks.append(part); size += len(part)
+                if size > limit:
+                    raise Blocked('second approved source receipt exceeds bounded size')
+            raw = b''.join(chunks)
+            if size != before.st_size or signature(os.fstat(fd)) != signature(before):
+                raise Blocked('second approved source receipt changed during read')
+            rows.append(json.loads(raw))
+            hashes[path.name] = hashlib.sha256(raw).hexdigest()
+        # A later read/parse can race changes to any earlier receipt. Recheck
+        # every still-open inode and every pathname before exposing the batch.
+        for path, fd, original in handles:
+            if signature(os.fstat(fd)) != signature(original) or signature(path.lstat()) != signature(original):
+                raise Blocked('second approved source receipt changed during snapshot')
+        return rows, hashes
+    except (OSError, ValueError) as error:
+        raise Blocked('second approved private external source receipt unavailable or malformed') from error
+    finally:
+        for _, fd, _ in reversed(handles):
+            os.close(fd)
 
 
 def canonical_uuid(value):
@@ -126,7 +177,7 @@ def process_port(pid, port, *, timeout=3):
 
 class Rotation:
     def __init__(self, root, owner, run_id, before):
-        if owner != OWNER or before != BEFORE:
+        if owner != OWNER or before not in (BEFORE, SECOND_BEFORE):
             raise Blocked('profile is restricted to the explicit current owner and before-evidence run')
         self.nonce = canonical_uuid(run_id)
         self.root, self.run_id, self.before = Path(root).resolve(), run_id, before
@@ -160,6 +211,11 @@ class Rotation:
         if self.journal:
             if any(self.journal.get(k) != v for k, v in self.identity_fields().items()):
                 raise Blocked('profile journal operation/owner/name/evidence identity differs')
+            if before == SECOND_BEFORE and self.journal.get('original_oid') != SECOND_OID:
+                raise Blocked('second approved evidence journal original APP OID differs')
+        if before == SECOND_BEFORE and not (self.journal and self.journal.get('stage') == 'complete'):
+            if self.data['source_tree_sha'] != SECOND_SOURCE or self.current_source != SECOND_SOURCE:
+                raise Blocked('second approved evidence requires its exact current and registered binary source')
         self.info = self.pg_guard()
         self.ledger_guard()
 
@@ -189,13 +245,90 @@ class Rotation:
                     raise Blocked('unknown ledger test state blocks profile rotation')
                 if identifier_ == self.before:
                     evidence = row
-            if not evidence or evidence.get('status') != 'failed' or not evidence.get('ended_at'):
+            required_status = 'interrupted' if self.before == SECOND_BEFORE else 'failed'
+            if not evidence or evidence.get('status') != required_status or not evidence.get('ended_at'):
                 raise Blocked('exact terminal before-evidence performance red required')
             self.evidence = {key: evidence.get(key) for key in ('status', 'sha', 'started_at', 'ended_at')}
+            if self.before == SECOND_BEFORE:
+                expected = dict(selected_suite='performance', sha=SECOND_SHA,
+                    source_tree_sha=SECOND_SOURCE)
+                if any(evidence.get(key) != value for key, value in expected.items()):
+                    raise Blocked('second approved performance evidence suite/commit/source differs or is missing')
+                if 'source_tree_sha_end' in evidence and evidence['source_tree_sha_end'] != SECOND_SOURCE:
+                    raise Blocked('second approved ledger end source conflicts with its frozen source')
+                failures = []
+                for case_id, raw in connection.execute('SELECT id,data FROM cases WHERE run_id=?', (self.before,)):
+                    self.budget(2)
+                    case = json.loads(raw)
+                    if case.get('name') == 'perf.rps25' and case.get('status') == 'failed':
+                        failures.append(case_id)
+                if not failures:
+                    raise Blocked('second approved interruption lacks the actual failed perf.rps25 case')
+                self.evidence.update(expected, failed_rps25_case_ids=sorted(failures))
+                self.evidence.update(self.second_external_evidence(evidence))
             if self.journal and self.journal['before_evidence'] != self.evidence:
                 raise Blocked('historical before-evidence receipt changed')
         finally:
             connection.close()
+
+    def second_external_evidence(self, evidence):
+        # This is a later observation, not the missing Runner end fingerprint.
+        # Fixed private receipts bind only the second explicitly approved run.
+        names = ('performance-run-8ac-freeze.json', 'performance-stop-8ac.json',
+                 'performance-post-stop-8ac-source.json')
+        paths = [safe_path(self.root / '.local/testlab' / name) for name in names]
+        rows, hashes = receipt_snapshots(paths)
+        freeze, stopped, observed = rows
+        if any(not isinstance(row, dict) for row in (freeze, stopped, observed)):
+            raise Blocked('second approved external source receipts must be objects')
+        if any(row.get('run_id') != SECOND_BEFORE for row in (freeze, stopped, observed)):
+            raise Blocked('second approved external source evidence run differs')
+        if (freeze.get('git_sha') != SECOND_SHA or freeze.get('source_tree_sha') != SECOND_SOURCE
+                or freeze.get('run_started_at') != evidence.get('started_at')
+                or stopped.get('source_tree_sha') != SECOND_SOURCE
+                or observed.get('observed_source_tree_sha') != SECOND_SOURCE
+                or observed.get('run_status') != 'interrupted'
+                or observed.get('run_ended_at') != evidence.get('ended_at')
+                or observed.get('freeze_evidence_sha256') != hashes[names[0]]
+                or observed.get('stop_evidence_sha256') != hashes[names[1]]
+                or type(observed.get('original_ledger_end_source_present')) is not bool):
+            raise Blocked('second approved external source/commit/hash/ledger receipt differs')
+        if 'source_tree_sha_end' not in evidence and observed['original_ledger_end_source_present']:
+            raise Blocked('post-stop receipt claims a missing original ledger end source')
+        try:
+            def timestamp(value):
+                parsed = datetime.datetime.fromisoformat(value)
+                if parsed.tzinfo is None:
+                    raise ValueError('timezone required')
+                return parsed.timestamp()
+            start, end, later = (timestamp(value) for value in
+                (evidence['started_at'], evidence['ended_at'], observed['observed_at']))
+            stop = stopped['at']
+            if type(stop) not in (int, float) or not math.isfinite(stop) or not start <= stop <= end + 5 or not start <= end <= later:
+                raise ValueError('source observation times differ')
+        except (ValueError, TypeError, KeyError, OverflowError) as error:
+            raise Blocked('second approved external source observation times invalid') from error
+        initial = self.journal.get('initial_hmac_identity') if self.journal else None
+        pid = initial.get('pid') if initial else self.data['supervisor_pid']
+        identities = [row.get('fresh_hmac_identity') for row in (freeze, stopped, observed)]
+        for identity in identities:
+            if not isinstance(identity, dict):
+                raise Blocked('second approved authenticated source identity missing')
+            pids = identity.get('api_pids', [])
+            if (identity.get('owner') != OWNER or identity.get('pid') != pid
+                    or identity.get('source_tree_sha') != SECOND_SOURCE
+                    or identity.get('ready') is not True or identity.get('failed') is not False
+                    or not isinstance(pids, list) or len(pids) != 2
+                    or any(type(p) is not int or p <= 1 for p in pids) or len(set(pids)) != 2):
+                raise Blocked('second approved authenticated source identity differs')
+        if (identities[1] != identities[0] or identities[2] != identities[0]
+                or freeze.get('runner_pid') != evidence.get('pid') or stopped.get('runner_pid') != evidence.get('pid')
+                or observed.get('binary_sha256') != (self.journal['binary_sha256'] if self.journal else self.binary_sha)):
+            raise Blocked('second approved source process/binary identity differs')
+        return dict(source_post_stop=SECOND_SOURCE, source_observed_at=observed['observed_at'],
+            source_evidence_mode='actual_post_stop_observation', source_evidence_sha256=hashes,
+            original_ledger_source_end_missing='source_tree_sha_end' not in evidence,
+            ledger_source_tree_sha_end=evidence.get('source_tree_sha_end'))
 
     def pg_guard(self):
         info = guard_pg(inspect_pg(self.data['postgres_container'], self.budget(3)), OWNER,
@@ -378,6 +511,8 @@ class Rotation:
             canonical = catalog['canonical']
             if not canonical or canonical['owner'] != 'testlab' or catalog['archive'] or catalog['fresh']:
                 raise Blocked('canonical APP missing/foreign or archive/staging name already exists')
+            if self.before == SECOND_BEFORE and canonical['oid'] != SECOND_OID:
+                raise Blocked('second approved evidence original APP OID differs; refusing re-archive')
             state = 'original'
             self.initial_identity = current
         return dict(self.identity_fields(), phase=state, catalog=catalog, environment_run_id=self.environment['run_id'],

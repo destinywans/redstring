@@ -1,6 +1,6 @@
 """Small offline tests for continuous-window invalidation, never performance proof."""
 import importlib.util,json,sys,tempfile,unittest
-import threading
+import threading,shutil,subprocess,socket,time
 from pathlib import Path
 from unittest.mock import patch,Mock
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
@@ -65,6 +65,145 @@ class IdentityAttestationTest(unittest.TestCase):
             conn=Mock();conn.getresponse.return_value.status=status;conn.getresponse.return_value.read.return_value=raw
             with patch.object(perf.http.client,'HTTPConnection',return_value=conn),self.assertRaisesRegex(RuntimeError,'unavailable'):perf.identity({})
             conn.close.assert_called_once()
+
+
+class StageFailureEvidenceTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
+        self.work=self.root/'.local/testlab/environments/testlab-0123456789ab/perf/run/rps50';self.work.mkdir(parents=True)
+        self.data={'owner':'testlab-0123456789ab','supervisor_pid':12,'control_secret':'synthetic-secret','source_tree_sha':'same','perf_work':str(self.work.parent.parent),'_freeze_baseline':(12,(13,14),'hash')}
+        self.current={'owner':self.data['owner'],'pid':12,'api_pids':[13,14],'source_tree_sha':'same','ready':False,'failed':False}
+        self.root_patch=patch.object(perf,'ROOT',self.root);self.root_patch.start()
+    def tearDown(self):self.root_patch.stop();self.tmp.cleanup()
+    def receipt_connection(self,current=None,proof=None):
+        current=current or self.current;nonce='a'*32
+        conn=Mock();conn.getresponse.return_value.status=200
+        conn.getresponse.return_value.read.return_value=json.dumps({'nonce':nonce,'identity':current,'proof':proof or perf.control_proof(self.data['control_secret'],nonce,current)}).encode()
+        return conn
+    def test_authenticated_unready_exception_keeps_guard_and_failure_snapshot(self):
+        with patch.object(perf.secrets,'token_hex',return_value='a'*32),patch.object(perf.http.client,'HTTPConnection',return_value=self.receipt_connection()):
+            with self.assertRaisesRegex(Exception,'two ready registered child PIDs required') as caught:perf.identity(self.data)
+        self.assertEqual(caught.exception.testlab_authenticated_identity,self.current)
+    def test_valid_failure_and_fresh_snapshot_health_are_private_and_bounded(self):
+        error=RuntimeError('secret must not be stored');error.testlab_authenticated_identity=dict(self.current)
+        conn=Mock();conn.getresponse.return_value.status=503
+        conn.getresponse.return_value.read.return_value=b'{"error":{"code":"unavailable","message":"private-secret"}}'
+        fresh_error=RuntimeError('still unready');fresh_error.testlab_authenticated_identity=dict(self.current)
+        with patch.object(perf,'identity',side_effect=fresh_error) as identity,patch.object(perf.http.client,'HTTPConnection',return_value=conn) as constructor:
+            actual=perf.stage_error_evidence(self.data,self.work,error,{'at':1,'postgres':{'waiting':3}})
+        self.assertEqual(identity.call_args.args,(self.data,));self.assertEqual(identity.call_args.kwargs['timeout'],1)
+        self.assertIsInstance(identity.call_args.kwargs['diagnostic_deadline'],float)
+        self.assertEqual(constructor.call_args_list,[unittest.mock.call('127.0.0.1',18561,timeout=1),unittest.mock.call('127.0.0.1',18562,timeout=1)])
+        self.assertEqual(conn.request.call_args_list,[unittest.mock.call('GET','/healthz')]*2)
+        self.assertEqual(conn.getresponse.return_value.read.call_args_list,[unittest.mock.call(4097)]*2)
+        path=self.root/actual['error_evidence'];raw=path.read_text();stored=json.loads(raw)
+        self.assertEqual(path.stat().st_mode&0o777,0o600)
+        self.assertNotIn('private-secret',raw);self.assertNotIn('secret must not',raw);self.assertNotIn('synthetic-secret',raw)
+        self.assertEqual(stored['failure_authenticated_identity'],self.current)
+        self.assertEqual(stored['fresh_authenticated_identity'],self.current)
+        self.assertEqual(stored['health'][0]['http_status'],503);self.assertEqual(stored['health'][0]['error_code'],'unavailable')
+        self.assertEqual(stored['resources_last']['postgres']['waiting'],3)
+        self.assertIn('postgres_pool_internal_wait',stored['missing'])
+    def test_invalid_hmac_owner_source_or_child_generation_never_probes_health(self):
+        altered=[('bad-proof',self.current),('different-owner',{**self.current,'owner':'other'}),('different-source',{**self.current,'source_tree_sha':'other'}),('different-child',{**self.current,'api_pids':[15,16]}),('missing-child',{**self.current,'api_pids':[]})]
+        for label,current in altered:
+            with self.subTest(label=label),patch.object(perf.secrets,'token_hex',return_value='a'*32),patch.object(perf.http.client,'HTTPConnection',return_value=self.receipt_connection(current,proof='forged' if label=='bad-proof' else None)) as constructor:
+                actual=perf.stage_error_evidence(self.data,self.work,RuntimeError('failure'))
+            self.assertEqual(constructor.call_count,1) # only fixed controller attestation
+            stored=json.loads((self.root/actual['error_evidence']).read_text())
+            self.assertEqual(stored['health'],[]);self.assertIn('owned_api_health_mapping',stored['missing'])
+            if label in ('bad-proof','different-owner'):self.assertIsNone(stored['fresh_authenticated_identity'])
+    def test_stage_original_exception_and_failed_acceptance_are_preserved(self):
+        data={**self.data,'base_urls':['http://127.0.0.1:18561','http://127.0.0.1:18562'],'environment':'test','users':[{'session_expires_at':9999999999}],'perf_password':'synthetic'}
+        original=RuntimeError('original guard failure');proc=Mock();proc.poll.return_value=None
+        diagnostic={'error_evidence':'.local/testlab/fixed/error-evidence.json','reason':'retained'}
+        with patch.object(perf.subprocess,'Popen',return_value=proc),patch.object(perf,'frozen',side_effect=original),patch.object(perf,'stage_error_evidence',return_value=diagnostic) as capture,patch.object(perf,'own_remove'),patch.object(perf,'result') as result:
+            with self.assertRaises(RuntimeError) as caught:perf.k6(data,'run','rps50',50,300)
+        self.assertIs(caught.exception,original)
+        self.assertIs(capture.call_args.args[2],original)
+        self.assertEqual(result.call_args.args[1],'failed');self.assertFalse(result.call_args.args[2]['continuous_acceptance'])
+        self.assertEqual(result.call_args.args[2]['error_evidence'],diagnostic['error_evidence'])
+    def test_health_body_size_and_timeout_errors_do_not_expose_secrets(self):
+        conn=Mock();conn.getresponse.return_value.status=200
+        conn.getresponse.return_value.read.side_effect=[b'x'*4097,TimeoutError('private-secret')]
+        fresh_error=RuntimeError('unready');fresh_error.testlab_authenticated_identity=dict(self.current)
+        with patch.object(perf,'identity',side_effect=fresh_error),patch.object(perf.http.client,'HTTPConnection',return_value=conn):
+            actual=perf.stage_error_evidence(self.data,self.work,RuntimeError('original-private-secret'))
+        raw=(self.root/actual['error_evidence']).read_text();stored=json.loads(raw)
+        self.assertLess(len(raw),8192);self.assertNotIn('private-secret',raw)
+        self.assertTrue(stored['health'][0]['body_truncated']);self.assertEqual(stored['health'][1]['error_type'],'TimeoutError')
+        self.assertIn('last_resource_sample',stored['missing'])
+
+
+class DiagnosticWallClockTest(unittest.TestCase):
+    """Only ephemeral self-owned loopback sockets, never the formal API ports."""
+    setUp=StageFailureEvidenceTest.setUp
+    tearDown=StageFailureEvidenceTest.tearDown
+    evidence=[]
+    def slow_server(self,mode):
+        listener=socket.socket();listener.bind(('127.0.0.1',0));listener.listen(4);listener.settimeout(.1)
+        stopped=threading.Event();clients=[];errors=[]
+        def serve():
+            try:
+                while not stopped.is_set():
+                    try:conn,_=listener.accept()
+                    except socket.timeout:continue
+                    clients.append(conn);conn.settimeout(.2)
+                    try:
+                        conn.recv(8192)
+                        if mode=='headers':chunks=[b'HTTP/1.1 200 OK\r\nX-Slow: ']+[b'a'*8]*32+[b'\r\nConnection: close\r\n\r\n{}']
+                        else:chunks=[b'HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n']+[b' '*8]*32+[b'{}']
+                        for chunk in chunks:
+                            if stopped.is_set():break
+                            conn.sendall(chunk)
+                            if stopped.wait(.05):break
+                    except (OSError,TimeoutError):pass
+                    finally:conn.close();clients.remove(conn)
+            except Exception as error:errors.append(error)
+        thread=threading.Thread(target=serve,name='owned-diagnostic-fixture');thread.start()
+        original=perf.http.client.HTTPConnection
+        def connection(host,port,timeout):
+            self.assertEqual(host,'127.0.0.1');self.assertIn(port,(18560,18561,18562))
+            return original('127.0.0.1',listener.getsockname()[1],timeout=timeout)
+        def cleanup():
+            stopped.set()
+            for client in list(clients):
+                try:client.shutdown(socket.SHUT_RDWR)
+                except OSError:pass
+            thread.join(2);listener.close()
+            self.assertFalse(thread.is_alive());self.assertEqual(clients,[]);self.assertEqual(errors,[])
+            self.assertEqual(listener.fileno(),-1)
+        self.addCleanup(cleanup)
+        return connection
+    def run_slow_diagnostic(self,mode,authenticated):
+        connection=self.slow_server(mode);original=RuntimeError('original failure')
+        patches=[patch.object(perf.http.client,'HTTPConnection',side_effect=connection)]
+        if authenticated:
+            original.testlab_authenticated_identity=dict(self.current)
+            fresh=RuntimeError('not ready');fresh.testlab_authenticated_identity=dict(self.current)
+            patches.append(patch.object(perf,'identity',side_effect=fresh))
+        for item in patches:item.start();self.addCleanup(item.stop)
+        started=time.monotonic();actual=perf.stage_error_evidence(self.data,self.work,original)
+        elapsed=time.monotonic()-started
+        self.evidence.append({'scenario':mode,'fresh_mock_authenticated':authenticated,'elapsed_seconds':elapsed})
+        self.assertLess(elapsed,1.5,f'diagnostic wall time {elapsed:.3f}s')
+        self.assertIsNotNone(actual['error_evidence'])
+        self.assertFalse(any(thread.name=='testlab-diagnostic-deadline' for thread in threading.enumerate()))
+    def test_slow_header_trickle_has_total_deadline(self):
+        with patch.object(perf,'DIAGNOSTIC_BUDGET',.6,create=True):self.run_slow_diagnostic('headers',False)
+    def test_connection_close_slow_body_has_total_deadline(self):
+        with patch.object(perf,'DIAGNOSTIC_BUDGET',.6,create=True):self.run_slow_diagnostic('body',True)
+    def test_diagnostic_deadline_does_not_delay_original_stage_cleanup(self):
+        connection=self.slow_server('body');original=RuntimeError('original guard failure')
+        fresh=RuntimeError('unready');fresh.testlab_authenticated_identity=dict(self.current)
+        data={**self.data,'base_urls':['http://127.0.0.1:18561','http://127.0.0.1:18562'],'environment':'test','users':[{'session_expires_at':9999999999}],'perf_password':'synthetic'}
+        proc=Mock();proc.poll.return_value=None;cleanup_times=[];started=time.monotonic()
+        with patch.object(perf,'DIAGNOSTIC_BUDGET',.6),patch.object(perf.http.client,'HTTPConnection',side_effect=connection),patch.object(perf,'identity',side_effect=fresh),patch.object(perf.subprocess,'Popen',return_value=proc),patch.object(perf,'frozen',side_effect=original),patch.object(perf,'own_remove',side_effect=lambda *args:cleanup_times.append(time.monotonic()-started)),patch.object(perf,'result') as result:
+            with self.assertRaises(RuntimeError) as caught:perf.k6(data,'run','rps50',50,300)
+        self.assertIs(caught.exception,original);self.assertEqual(len(cleanup_times),1);self.assertLess(cleanup_times[0],1.5)
+        self.evidence.append({'scenario':'stage_cleanup','elapsed_to_cleanup_seconds':cleanup_times[0],'original_exception_preserved':True})
+        self.assertEqual(result.call_args.args[1],'failed');self.assertFalse(result.call_args.args[2]['continuous_acceptance'])
+        self.assertFalse(any(thread.name=='testlab-diagnostic-deadline' for thread in threading.enumerate()))
 
 class TrialFinishTest(unittest.TestCase):
     def trial(self,**changes):
@@ -133,5 +272,69 @@ class SSEAcceptanceTest(unittest.TestCase):
         stream=perf.Streams.__new__(perf.Streams);stream.lock=threading.Lock();stream.renew_until=130;stream.stats=self.good();stream.stats['stable_samples']=0;stream.clients={}
         with patch.object(perf.time,'monotonic',return_value=100):stream.sample_health(5,300);stream.sample_health(60,300)
         self.assertFalse(perf.sse_accepted(stream.stats))
+
+
+class TrafficRouteEvidenceTest(unittest.TestCase):
+    """Execute the load script with offline HTTP/metric stubs; no k6 or API load."""
+    def execute(self,excluded=(),status=200,body='{}'):
+        node=shutil.which('node')
+        if not node:self.skipTest('Node required for offline JavaScript execution')
+        source=(Path(__file__).parent/'traffic.js').read_text()
+        source='\n'.join(line for line in source.splitlines() if not line.startswith('import '))
+        source=source.replace('export const options=','const options=').replace('export default function(){','function iteration(){').replace('export function handleSummary','function handleSummary')
+        harness=r'''
+const vm=require('vm');const input=JSON.parse(require('fs').readFileSync(0,'utf8'));
+const metrics={},calls=[];
+class Metric {constructor(name){if(metrics[name])throw Error('duplicate metric');this.name=name;metrics[name]=[];}add(value){metrics[this.name].push(value);}}
+const config={users:[{cookie:'synthetic',session_expires_at:Date.now()/1000+86400,conversation_id:'conversation-id',claim_alert_id:'alert-id',claim_revision:3}],base_urls:['http://127.0.0.1:18561'],environment:'synthetic',excluded_aggregate_paths:input.excluded,aggregate_measurement_supported:true};
+const execution={vu:{idInTest:1},scenario:{iterationInTest:0}};
+const respond=(method,url,body,options)=>{calls.push({method,url,body,options});return {status:input.status,body:input.body,timings:{duration:7}};};
+const context={Counter:Metric,Rate:Metric,Trend:Metric,open:()=>JSON.stringify(config),__ENV:{GATE:'1'},execution,http:{get:(url,options)=>respond('GET',url,null,options),post:(url,body,options)=>respond('POST',url,body,options)}};
+vm.createContext(context);vm.runInContext(input.source+`;for(let i=0;i<50;i++){execution.scenario.iterationInTest=i;iteration();}globalThis.testOptions=options;globalThis.summary=handleSummary({metrics:'synthetic'});`,context);
+process.stdout.write(JSON.stringify({metrics,calls,options:context.testOptions,summary:context.summary}));
+'''
+        result=subprocess.run([node,'-e',harness],input=json.dumps({'source':source,'excluded':list(excluded),'status':status,'body':body}),text=True,capture_output=True,check=True,timeout=10)
+        return json.loads(result.stdout)
+    def test_fixed_routes_cover_actual_requests_and_preserve_load_gates(self):
+        result=self.execute();metrics=result['metrics'];calls=result['calls']
+        expected={'conversation_list':15,'conversation_detail':14,'inbox':10,'alert_detail':0,'alert_claim':2,'alert_groups':5,'home':4}
+        self.assertEqual(len(calls),50)
+        for route,count in expected.items():
+            self.assertEqual(len(metrics['route_'+route+'_latency']),count)
+            self.assertEqual(metrics['route_'+route+'_latency'],[7]*count)
+            self.assertEqual(metrics['route_'+route+'_errors'],[False]*count)
+            self.assertEqual(metrics['route_'+route+'_requests'],[1]*count)
+        expected_paths=['/api/v1/conversations','/api/v1/conversations/conversation-id','/api/v1/inbox','/api/v1/conversations','/api/v1/conversations/conversation-id','/api/v1/inbox','/api/v1/conversations','/api/v1/conversations/conversation-id','/api/v1/alert-groups','/api/v1/home']
+        for i,call in enumerate(calls):
+            write=i%25==24
+            self.assertEqual(call['method'],'POST' if write else 'GET')
+            self.assertEqual(call['url'],'http://host.docker.internal:18561'+('/api/v1/alerts/alert-id/claim' if write else expected_paths[i%10]))
+            self.assertEqual(call['options']['timeout'],'15s')
+            self.assertEqual(call['options']['headers']['Cookie'],'aiops_session=synthetic')
+            if write:self.assertEqual(json.loads(call['body']),{'expected_revision':3})
+        self.assertEqual(len(metrics['database_latency']),41)
+        self.assertEqual(len(metrics['aggregate_latency']),9)
+        self.assertEqual(metrics['bounded_write_latency'],[7,7])
+        self.assertEqual(result['options']['thresholds'],{'dropped_iterations':['count==0'],'unexpected_errors':['rate<0.001'],'bounded_write_errors':['rate<0.001'],'database_latency':['p(95)<=500','p(99)<=2000'],'aggregate_latency':['p(95)<=2000','p(99)<=5000']})
+        self.assertEqual(result['options']['summaryTrendStats'],['avg','min','med','max','p(95)','p(99)'])
+        self.assertEqual(result['options']['scenarios']['traffic'],{'executor':'constant-arrival-rate','rate':10,'timeUnit':'1s','duration':'300s','preAllocatedVUs':40,'maxVUs':200,'gracefulStop':'15s'})
+        self.assertIn('/private/summary.json',result['summary'])
+        self.assertEqual(len([name for name in metrics if name.startswith('route_')]),21)
+    def test_excluded_routes_record_actual_fallback_and_existing_classification(self):
+        result=self.execute(['/api/v1/home','/api/v1/alert-groups','/api/v1/inbox'])
+        metrics=result['metrics']
+        self.assertEqual(len(metrics['route_alert_detail_requests']),19)
+        for route in ('home','alert_groups','inbox'):self.assertEqual(metrics['route_'+route+'_requests'],[])
+        self.assertEqual(len(metrics['database_latency']),50)
+        self.assertEqual(metrics['aggregate_latency'],[])
+        self.assertEqual(len(metrics['route_alert_claim_requests']),2)
+    def test_status_error_envelope_and_malformed_body_remain_failures(self):
+        for status,body in ((503,'{}'),(200,'{"error":"synthetic"}'),(200,'malformed')):
+            with self.subTest(status=status,body=body):
+                metrics=self.execute(status=status,body=body)['metrics']
+                self.assertEqual(metrics['unexpected_errors'],[True]*50)
+                self.assertEqual(metrics['bounded_write_errors'],[True]*2)
+                for name,values in metrics.items():
+                    if name.startswith('route_') and name.endswith('_errors'):self.assertTrue(all(values))
 
 if __name__=='__main__':unittest.main()

@@ -557,5 +557,31 @@
       "perf.rps50"
     ],
     "linked_issue": "WAN-138 / WAN-161（诊断上下文；确认根因后按领域复用或拆独立项）"
+  },
+  {
+    "id": "TOOL-PERF-DIAGNOSTIC-DEADLINE",
+    "title": "新增失败诊断的socket单次超时不能保证墙钟预算",
+    "status": "fixed",
+    "description": "独立XHigh查源码及本机stdlib确认：attest trickle可重复重置I/O超时，Connection:close时HTTPResponse保有transport而conn.sock为None，Timer无法中断body；会延迟负载停止/原异常落账。属于尚未投入live的新诊断工具，非产品Bug。",
+    "before": "第一版只做即刻返回/主动Timeout mock，未覆盖真实慢headers/body/Connection:close。未真实执行这个新诊断逻辑。",
+    "after": "共享3秒monotonic总预算，连接前Timer、保留实际transport、finally取消join及关闭；真实临时慢headers/body/Connection:close首红保留，29离线用例通过，0.6s测试预算实测0.603–0.609s。独立XHigh复审无阻断。尚未投入正式负载，不计性能验收。",
+    "linked_issue": "WAN-138",
+    "local_evidence": [
+      ".local/testlab/diagnostic-wall-clock-red.txt",
+      ".local/testlab/diagnostic-wall-clock-green.json"
+    ]
+  },
+  {
+    "id": "TOOL-PROFILE-RECEIPT-SNAPSHOT",
+    "title": "证据保全工具分次解析和hash读取可能混用receipt版本",
+    "status": "fixed",
+    "description": "独立XHigh在第二次8ac保全上下文扩展中发现新工具路径二次读取竞态；实际三receipt一致，未发现错误库操作。尚未实际plan/apply。",
+    "before": "路径解析后再次读路径计算SHA，原子替换或权限变化可混用版本；原始及修正离线首红保留。",
+    "after": "固定三receipt O_NOFOLLOW/O_NONBLOCK稳定FD、0600 regular/4MiB限制；同bytes解析/hash，前后fstat及全部最终path身份复核、finally全部FD关闭。45离线测试通过，原39保留，XHigh无阻断。OID/HMAC/6DDL/40s/8s/legacy完成重放保持。",
+    "linked_issue": "WAN-138",
+    "local_evidence": [
+      ".local/testlab/first-failures/profile-8ac-context-red.log",
+      ".local/testlab/profile-8ac-receipt-snapshot-evidence.json"
+    ]
   }
 ]

@@ -8,6 +8,11 @@ const writeLatency=new Trend('bounded_write_latency',true);
 const db=new Trend('database_latency',true);
 const aggregate=new Trend('aggregate_latency',true);
 const relogins=new Counter('session_relogins');
+// Fixed route names keep diagnostic evidence independent of IDs, users and URLs.
+const routeMetrics={};
+for(const route of ['conversation_list','conversation_detail','inbox','alert_detail','alert_claim','alert_groups','home']){
+ routeMetrics[route]={latency:new Trend('route_'+route+'_latency',true),errors:new Rate('route_'+route+'_errors'),requests:new Counter('route_'+route+'_requests')};
+}
 const thresholds={};
 if(__ENV.GATE==='1'||__ENV.SELF_CHECK==='1')thresholds.dropped_iterations=['count==0'];
 if(__ENV.GATE==='1'||__ENV.SELF_CHECK==='1')thresholds.unexpected_errors=['rate<0.001'];
@@ -43,6 +48,10 @@ export default function(){
  let valid=response.status===200;
  if(valid){try{const body=JSON.parse(response.body);valid=!!body&&typeof body==='object'&&!body.error;}catch(_){valid=false;}}
  errors.add(!valid);
+ const route=boundedWrite?'alert_claim':path==='/api/v1/conversations'?'conversation_list':path.startsWith('/api/v1/conversations/')?'conversation_detail':path==='/api/v1/inbox'?'inbox':path.startsWith('/api/v1/alerts/')?'alert_detail':path==='/api/v1/alert-groups'?'alert_groups':'home';
+ routeMetrics[route].latency.add(response.timings.duration);
+ routeMetrics[route].errors.add(!valid);
+ routeMetrics[route].requests.add(1);
  if(boundedWrite){writeErrors.add(!valid);writeLatency.add(response.timings.duration);db.add(response.timings.duration);}
  else (kind==='db'?db:aggregate).add(response.timings.duration);
 }

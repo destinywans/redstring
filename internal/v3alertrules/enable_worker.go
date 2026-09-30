@@ -2,7 +2,15 @@ package v3alertrules
 
 import (
 	"context"
+	"errors"
+	"io"
+	"log/slog"
+	"net"
+	"reflect"
+	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // RunEnableWorker is the independent execution/reconciliation loop. The HTTP
@@ -16,21 +24,55 @@ func (s *WriteService) RunEnableWorker(ctx context.Context) error {
 		s.Reader.Source == nil || s.EnableApproval == nil || s.EnableApplier == nil {
 		return problem(503, "enable_not_connected", "Alert rule executor is not connected")
 	}
-	ticker := time.NewTicker(15 * time.Second)
-	defer ticker.Stop()
 	var after string
+	backoff := time.Second
 	for {
 		var err error
 		after, err = s.enableWorkerPass(ctx, after)
-		if err != nil && ctx.Err() == nil {
-			return err
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
+		delay := 15 * time.Second
+		if err != nil {
+			if !retryableEnableWorkerError(err) {
+				return err
+			}
+			delay = backoff
+			backoff = min(backoff*2, 15*time.Second)
+			// Connection errors can include provider details. Report only the
+			// classification and retry delay, never a connection string.
+			var sqlState string
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) {
+				sqlState = pgErr.Code
+			}
+			slog.Warn("V3 alert rule enable queue read failed; retrying", "error_type", reflect.TypeOf(err).String(), "sqlstate", sqlState, "retry_after", delay)
+		} else {
+			backoff = time.Second
+		}
+		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return ctx.Err()
-		case <-ticker.C:
+		case <-timer.C:
 		}
 	}
+}
+
+// Schema, permission and decoding errors require operator/code correction;
+// retry only interrupted transports and database failures that can recover.
+func retryableEnableWorkerError(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return strings.HasPrefix(pgErr.Code, "08") || strings.HasPrefix(pgErr.Code, "53") ||
+			pgErr.Code == "57P01" || pgErr.Code == "57P02" || pgErr.Code == "57P03" ||
+			pgErr.Code == "55P03" || pgErr.Code == "57014" || pgErr.Code == "40001" || pgErr.Code == "40P01"
+	}
+	var network net.Error
+	var connection *pgconn.ConnectError
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.As(err, &network) || errors.As(err, &connection)
 }
 
 func (s *WriteService) enableWorkerPass(ctx context.Context, after string) (string, error) {

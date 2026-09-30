@@ -2,6 +2,7 @@ package v3admin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -314,7 +315,13 @@ func (s *Service) prepareMFAReminder(ctx context.Context, actor core.User, token
 	}
 	// pg advisory lock is scoped per target and environment, including when no
 	// ledger row exists yet. It prevents duplicate concurrent first sends.
-	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,752018999))`, env+"\x00"+target); err != nil {
+	// PostgreSQL text rejects NUL bytes. A JSON tuple keeps both components
+	// unambiguous without a forbidden delimiter or concatenation collisions.
+	lockKey, err := json.Marshal([]string{env, target})
+	if err != nil {
+		return "", false, err
+	}
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,752018999))`, string(lockKey)); err != nil {
 		return "", false, err
 	}
 	var status string
@@ -413,7 +420,9 @@ func (s *Service) sendAuthorizedMFAReminder(ctx context.Context, actor core.User
 		return false, err
 	}
 	deadline, _ := operationCtx.Deadline()
-	if !recordedAt.Equal(evidenceAt) || evidenceAt.IsZero() || time.Since(evidenceAt) > 5*time.Minute ||
+	// pgx persists timestamptz at microsecond precision. Compare the exact
+	// persisted representation without rejecting valid nanosecond evidence.
+	if !recordedAt.Equal(evidenceAt.Truncate(time.Microsecond)) || evidenceAt.IsZero() || time.Since(evidenceAt) > 5*time.Minute ||
 		!feishuOpenIDPattern.MatchString(openID) || time.Until(deadline) < 9*time.Second {
 		return false, errMFAReminderUnavailable
 	}
@@ -448,7 +457,7 @@ func (s *Service) sendAuthorizedMFAReminder(ctx context.Context, actor core.User
 	}
 	if _, err = tx.Exec(operationCtx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes)
  VALUES($1,'v3.member.mfa_reminder.feishu_accepted',$2,'success',
- jsonb_build_object('environment',$3,'attempt_id',$4,'feishu_message_id',$5,
+ jsonb_build_object('environment',$3::text,'attempt_id',$4::text,'feishu_message_id',$5::text,
  'mfa_observed_at',(SELECT mfa_observed_at FROM v3_mfa_reminder_attempts WHERE id=$4)))`,
 		actor.ID, target, env, id, receipt.MessageID); err != nil {
 		return true, errMFAReminderUncertain

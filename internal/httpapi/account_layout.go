@@ -4,13 +4,12 @@ import (
 	"encoding/json"
 
 	"github.com/wans/aiops-canvas/internal/store"
-	"net"
 	"net/http"
 	"time"
 )
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
-	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	host := s.loginClientIP(r)
 	now := time.Now()
 	s.loginMu.Lock()
 	attempts := s.loginAttempts[host]

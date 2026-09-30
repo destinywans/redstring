@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -38,6 +39,7 @@ type Server struct {
 	V3ConnectorBearerHandler http.HandlerFunc
 	loginMu                  sync.Mutex
 	loginAttempts            map[string][]time.Time
+	trustedProxyPrefixes     []netip.Prefix
 	v3Environment            http.Handler
 	v3Policy                 V3PolicyFunc
 	v3Routes                 map[string]V3RoutePermission

@@ -88,6 +88,9 @@ func run() error {
 		return e
 	}
 	api := httpapi.New(s, runtime, v3Info != nil)
+	if e = api.SetTrustedProxyCIDRs(os.Getenv("AIOPS_TRUSTED_PROXY_CIDRS")); e != nil {
+		return e
+	}
 	api.SecureCookies = os.Getenv("AIOPS_SECURE_COOKIES") == "true"
 	api.AllowedOrigin = os.Getenv("AIOPS_PUBLIC_ORIGIN")
 	embedder, e := inference.NewEmbedderFromEnv()

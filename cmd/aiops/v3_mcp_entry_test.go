@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/wans/aiops-canvas/internal/actions"
 	"github.com/wans/aiops-canvas/internal/aiextensions"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
@@ -60,6 +61,11 @@ func TestConfiguredV3MCPCatalogAndReviewRoutes(t *testing.T) {
 	}
 	st := &store.Store{DB: db}
 	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Match main's prerequisite: the V3 execution read projection references
+	// the recovery ledger even though V3 does not start its legacy workers.
+	if err := actions.New(db, nil, "dev").Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if err := aiextensions.New(db, "").Migrate(ctx); err != nil {

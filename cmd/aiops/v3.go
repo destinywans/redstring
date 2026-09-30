@@ -215,11 +215,6 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		return err
 	}
 	policy := &rbac.V3Policy{Store: s}
-	executions := v3executions.New(s.DB, policy)
-	if err := executions.Migrate(ctx); err != nil {
-		return fmt.Errorf("migrate V3 execution publication: %w", err)
-	}
-	executions.Register(api)
 	gitMarkdownBindings, err := v3knowledgesources.ParseGitMarkdownBindings(os.Getenv("AIOPS_V3_GIT_MARKDOWN_BINDINGS"))
 	if err != nil {
 		return fmt.Errorf("configure V3 Git Markdown bindings: %w", err)
@@ -275,6 +270,14 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	}); err != nil {
 		return err
 	}
+	// Pure source/configuration validation must finish before schema writes or
+	// route registration. A malformed source must not touch a dependency (or
+	// obscure its actual configuration error with a database failure).
+	executions := v3executions.New(s.DB, policy)
+	if err := executions.Migrate(ctx); err != nil {
+		return fmt.Errorf("migrate V3 execution publication: %w", err)
+	}
+	executions.Register(api)
 	if err := configureV3MFA(s, api, *info, os.Getenv("AIOPS_V3_MFA_KEY_FILE")); err != nil {
 		return err
 	}

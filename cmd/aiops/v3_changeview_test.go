@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/wans/aiops-canvas/internal/actions"
 	"github.com/wans/aiops-canvas/internal/delivery"
 	"github.com/wans/aiops-canvas/internal/deployment"
 	"github.com/wans/aiops-canvas/internal/httpapi"
@@ -63,6 +64,8 @@ func TestConfiguredV3ChangeRoutesReviewAndCoverage(t *testing.T) {
 	st := &store.Store{DB: db}
 	for _, migrate := range []func(context.Context) error{
 		st.Migrate,
+		// Production main migrates recovery executions before V3 projections.
+		actions.New(db, nil, "test").Migrate,
 		(&delivery.PostgresRepository{DB: db}).Migrate,
 		(&deployment.Service{DB: db}).Migrate,
 		(&operations.Service{DB: db}).Migrate,

@@ -1,5 +1,12 @@
 # AIOps Canvas 检查点
 
+## CP-204 · 2026-09-30 · WAN-120/121 画布历史与 Agent 链路列表
+
+- 从已推送 CP-203 `4313c87` 接续，在 `codex/wan-117-v3-integration` 按依赖顺序将 WAN-121 来源 `20ffef7` 合入为 `45f4779`，WAN-120 来源 `9d6a52f` 合入为 `106238f`；公共契约、聚合 OpenAPI 与文档索引提交 `c465c3f3b231c79bbbf5cffaabc69056751bfa2d`。三笔已推送到现有私有 GitHub 集成分支，`ls-remote` 回读该完整 SHA；无 PR、合并或部署。两项领域提交均无新迁移或启动配置。
+- WAN-121 的默认 `GET /canvases/{id}` 仍返回完整节点 `threads`；超限 413 给出真实画布结构读取与逐节点分页恢复 URL。显式 `include_threads=false` 省略 `threads` 并标记 `threads_included=false`；辅助节点历史 GET 以绑定画布/节点/环境/首批排序上界的游标分页，每次重新核对当前会话、本人和 `canvas.view`。非生产环境调用恢复 URL 仍需环境头。冻结前端错误客户端丢弃 `recovery`，也尚无分页交互，页面恢复未验收。
+- WAN-120 的 `/traces?scope=agent` 现读取数据库时钟最近 24 小时内当前受权、持久且已结束的 Agent 运行和已报告 Span，要求 `agents.view` 与 `traces.view`；2000 运行及 20000 运行/模型身份上限失败关闭，运行中数另报。token、模型、成本及覆盖率无可信报告时明确缺失，不能把已报告 Span 当完整执行追踪；应用 Tempo 路径保持原样。冻结页面的 Agent 查询与未知覆盖率呈现仍未验收。
+- 聚合 OpenAPI 为 **335 路径、406 操作、493 schema**；主契约仍 **165/166 implemented、1 mock**，唯一 mock 为保持关闭的 Webhook 重投。`go build -mod=readonly ./cmd/aiops`、V3 契约/就绪检查、路由矩阵生成和 `git diff --check` 通过；Go 模块 stat cache 曾给出非致命 sandbox 权限提示，构建退出码为 0。按当前限制未运行测试、迁移、真实数据库/HTTP/Tempo、外部模型或浏览器验收。下一步需要获准的产品联调核对真实数据与冻结前端恢复/查询体验；这批后端与契约状态不等于产品验收。
+
 ## CP-203 · 2026-09-30 · WAN-117/118 条件式告警写入补齐
 
 - 从已推送 CP-202 `d4cfe2e` 接续，在 `codex/wan-117-v3-integration` 合入 WAN-118 批量组证据 `262c708`、证据唯一性与批准闸门 `36018f9`、规则启用领域 `03d5c98`、静默占位释放 `ae2d21b`，以及 WAN-123 复盘结案序号绑定 `b94d710`、WAN-124 模板容量并发锁 `0e2fd39`；正式接线、契约与静态修正为 `280ad7063f959cb4da557dbf830d87f6561cb631`。已推送现有私有 GitHub 分支并由 `ls-remote` 回读该完整 SHA；无 PR、合并或部署。

@@ -24,12 +24,12 @@ for path,methods in spec['paths'].items():
         ids.add(op['operationId'])
         assert 'responses' in op and 'description' in op
 actual=set()
-for directory in ('httpapi','actions','knowledge','operations','delivery','deployment','memoryview','aiextensions','resources','settings','profile','rbac',
-                  'v3admin','v3agents','v3alertmanager','v3alertrules','v3audit','v3canvas','v3catalog','v3changes','v3changeview','v3configsync','v3conversation','v3discovery','v3events','v3identity','v3ingestpull','v3ingestpush','v3integrations','v3knowledge','v3knowledgesources','v3lowersources','v3memory','v3mfa','v3models','v3passkey','v3sourceregistry','v3mcp','v3observe','v3postmortems','v3proposals','v3serviceviews','v3settings','v3topology','v3traces','v3uploads','v3webhook'):
-    for f in (root/'internal'/directory).glob('*.go'):
-        if f.name.endswith('_test.go'):continue
-        actual.update(re.findall(r'"(GET|POST|PUT|PATCH|DELETE) (/api/v1/[^\"]+)"',f.read_text()))
+# Discover all production modules; runtime registration is tested separately.
+for f in (root/'internal').rglob('*.go'):
+    if f.name.endswith('_test.go'):continue
+    actual.update(re.findall(r'"(GET|POST|PUT|PATCH|DELETE) (/api/v1/[^\"]+)"',f.read_text()))
 for f in (root/'cmd/aiops').glob('*.go'):
+    if f.name.endswith('_test.go'):continue
     actual.update(re.findall(r'"(GET|POST|PUT|PATCH|DELETE) (/api/v1/[^\"]+)"',f.read_text()))
 assert actual==declared,{'undocumented':sorted(actual-declared),'unimplemented':sorted(declared-actual)}
-print(f'Contract references and {len(declared)} registered operations match.')
+print(f'Contract references and {len(declared)} source-declared operations match; runtime registration requires HTTP evidence.')

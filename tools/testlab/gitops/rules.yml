@@ -1,0 +1,12 @@
+groups:
+  - name: testlab-rules
+    rules:
+      - alert: TestlabHighFailureRate
+        expr: testlab_request_failures_total{application="testlab",environment="test"} > 0
+        for: 30s
+        labels:
+          severity: P3
+          application: testlab
+          environment: test
+        annotations:
+          summary: Controlled testlab failure counter

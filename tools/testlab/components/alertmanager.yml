@@ -1,0 +1,11 @@
+route:
+  receiver: testlab-capture
+  group_by: [application, environment, alertname]
+  group_wait: 1s
+  group_interval: 3s
+  repeat_interval: 1h
+receivers:
+  - name: testlab-capture
+    webhook_configs:
+      - url: http://host.docker.internal:18578/capture/alertmanager
+        send_resolved: true

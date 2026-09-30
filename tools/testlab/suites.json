@@ -1,0 +1,480 @@
+{
+  "suites": [
+    {
+      "id": "static",
+      "name": "静态与契约",
+      "type": "contract",
+      "evidence_mode": "source",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tools/testlab/tests",
+            "-p",
+            "test_*.py"
+          ],
+          "parser": "command",
+          "timeout_seconds": 120
+        },
+        {
+          "argv": [
+            "python3",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tools/testlab/load",
+            "-p",
+            "test_*.py"
+          ],
+          "parser": "command",
+          "timeout_seconds": 120,
+          "name": "持续窗口与性能工具离线守卫"
+        },
+        {
+          "argv": [
+            "python3",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tools/testlab/gitops",
+            "-p",
+            "test_*.py"
+          ],
+          "parser": "command",
+          "timeout_seconds": 120,
+          "name": "GitOps软件认证器和独立接线工具守卫"
+        },
+        {
+          "argv": [
+            "python3",
+            "scripts/check-contract.py"
+          ],
+          "parser": "command",
+          "timeout_seconds": 30
+        },
+        {
+          "argv": [
+            "python3",
+            "scripts/check-v3-readiness.py"
+          ],
+          "parser": "command",
+          "timeout_seconds": 30
+        },
+        {
+          "argv": [
+            "go",
+            "vet",
+            "-mod=readonly",
+            "./..."
+          ],
+          "parser": "command",
+          "timeout_seconds": 600,
+          "env": {}
+        }
+      ],
+      "gap_ids": [
+        36,
+        45,
+        46
+      ]
+    },
+    {
+      "id": "baseline",
+      "name": "全量后端隔离PG / race",
+      "type": "logic",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "go",
+            "test",
+            "-mod=readonly",
+            "-race",
+            "-json",
+            "-count=1",
+            "-p",
+            "2",
+            "-parallel",
+            "4",
+            "-timeout",
+            "20m",
+            "./..."
+          ],
+          "parser": "go_json",
+          "timeout_seconds": 1800,
+          "env": {
+            "TEST_DATABASE_URL": "${TEST_DATABASE_URL}"
+          }
+        }
+      ],
+      "gap_ids": [
+        8,
+        10,
+        11,
+        15,
+        18,
+        19,
+        20,
+        26,
+        27,
+        28,
+        33,
+        34,
+        36,
+        40,
+        43,
+        51
+      ]
+    },
+    {
+      "id": "mfa",
+      "name": "TOTP专项库 / 锁等待",
+      "type": "authorization",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "go",
+            "test",
+            "-mod=readonly",
+            "-race",
+            "-json",
+            "-count=1",
+            "-p",
+            "2",
+            "-parallel",
+            "4",
+            "-timeout",
+            "20m",
+            "./internal/v3mfa"
+          ],
+          "env": {
+            "TEST_DATABASE_URL": "${TESTLAB_MFA_DSN}",
+            "AIOPS_TEST_WAN124_MFA_PG": "dedicated-temp-container"
+          },
+          "parser": "go_json",
+          "timeout_seconds": 600
+        }
+      ],
+      "gap_ids": [
+        3,
+        39
+      ]
+    },
+    {
+      "id": "passkey",
+      "name": "Passkey专项库 / 认证器协议",
+      "type": "authorization",
+      "evidence_mode": "protocol_mock",
+      "commands": [
+        {
+          "argv": [
+            "go",
+            "test",
+            "-mod=readonly",
+            "-race",
+            "-json",
+            "-count=1",
+            "-p",
+            "2",
+            "-parallel",
+            "4",
+            "-timeout",
+            "20m",
+            "./internal/v3passkey"
+          ],
+          "env": {
+            "TEST_DATABASE_URL": "${TESTLAB_PASSKEY_DSN}",
+            "AIOPS_TEST_WAN124_PASSKEY_PG": "dedicated-temp-container"
+          },
+          "parser": "go_json",
+          "timeout_seconds": 900
+        }
+      ],
+      "gap_ids": [
+        2,
+        10
+      ]
+    },
+    {
+      "id": "configsync",
+      "name": "配置提升双schema",
+      "type": "integration",
+      "evidence_mode": "protocol_mock",
+      "commands": [
+        {
+          "argv": [
+            "go",
+            "test",
+            "-mod=readonly",
+            "-race",
+            "-json",
+            "-count=1",
+            "-p",
+            "2",
+            "-parallel",
+            "4",
+            "-timeout",
+            "20m",
+            "./internal/v3configsync"
+          ],
+          "env": {
+            "TEST_DATABASE_URL": "${TESTLAB_FORMAL_DSN}",
+            "AIOPS_TEST_WAN124_FORMAL_PG": "dedicated-temp-container"
+          },
+          "parser": "go_json",
+          "timeout_seconds": 900
+        }
+      ],
+      "gap_ids": [
+        13,
+        36
+      ]
+    },
+    {
+      "id": "regressions",
+      "name": "已知风险定向复现与回归",
+      "type": "concurrency",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "go",
+            "test",
+            "-mod=readonly",
+            "-race",
+            "-json",
+            "-count=1",
+            "-p",
+            "2",
+            "-parallel",
+            "4",
+            "-timeout",
+            "20m",
+            "./internal/v3alertrules",
+            "./internal/v3sourceregistry",
+            "./internal/v3uploads",
+            "./internal/httpapi",
+            "./internal/v3conversation",
+            "./internal/v3webhook",
+            "./internal/v3tokens",
+            "./cmd/aiops"
+          ],
+          "parser": "go_json",
+          "timeout_seconds": 900,
+          "env": {
+            "TEST_DATABASE_URL": "${TEST_DATABASE_URL}",
+            "AIOPS_TESTLAB_BACKEND_ENABLED": "dedicated-temp-container"
+          }
+        }
+      ],
+      "gap_ids": [
+        11,
+        14,
+        37,
+        38,
+        40
+      ]
+    },
+    {
+      "id": "entry",
+      "name": "正式V3双实例与接口矩阵",
+      "type": "api",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/backend.py",
+            "entry"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900
+        }
+      ],
+      "gap_ids": [
+        5,
+        22,
+        23,
+        25,
+        26,
+        27,
+        28,
+        32,
+        36,
+        37,
+        40
+      ]
+    },
+    {
+      "id": "components",
+      "name": "本地真实观测/身份/凭据组件",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/components.py",
+            "verify"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 1800
+        }
+      ],
+      "gap_ids": [
+        1,
+        8,
+        9,
+        17,
+        18,
+        19,
+        20
+      ]
+    },
+    {
+      "id": "gitops",
+      "name": "真实 GitLab / Argo / 软件认证器审批链",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/gitops.py",
+            "prepare"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 1800
+        },
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/gitops.py",
+            "chain"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 1200
+        }
+      ],
+      "gap_ids": [
+        2,
+        13,
+        36,
+        37,
+        40
+      ]
+    },
+    {
+      "id": "faults",
+      "name": "正式双实例停机与进程恢复",
+      "type": "recovery",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/faults.py",
+            "--serial-window"
+          ],
+          "env": {
+            "AIOPS_TESTLAB_FAULTS_ENABLED": "dedicated-temp-container"
+          },
+          "parser": "testlab_json",
+          "timeout_seconds": 600
+        }
+      ],
+      "gap_ids": [
+        37,
+        40
+      ]
+    },
+    {
+      "id": "performance",
+      "name": "k6阶梯压测 / SSE",
+      "type": "performance",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/perf.py",
+            "load",
+            "--profile",
+            "base"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 1800
+        },
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/perf.py",
+            "load",
+            "--profile",
+            "scale"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 1800
+        }
+      ],
+      "gap_ids": [
+        37,
+        43
+      ]
+    },
+    {
+      "id": "soak",
+      "name": "真实24小时持续验收",
+      "type": "soak",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/perf.py",
+            "soak",
+            "--duration",
+            "86400",
+            "--profile",
+            "scale"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 90000
+        }
+      ],
+      "gap_ids": [
+        7,
+        12,
+        40,
+        41,
+        42,
+        43
+      ]
+    },
+    {
+      "id": "external",
+      "name": "外部真实接入待办",
+      "type": "integration",
+      "evidence_mode": "external",
+      "status": "external_todo",
+      "reason": "飞书/Notion/Confluence/付费供应商/物理认证器/真实邮箱留待用户提供条件",
+      "commands": [],
+      "gap_ids": [
+        1,
+        2,
+        4,
+        5,
+        6,
+        7,
+        14
+      ]
+    }
+  ]
+}

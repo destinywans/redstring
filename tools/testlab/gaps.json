@@ -1,0 +1,512 @@
+[
+  {
+    "id": 1,
+    "name": "生产 IdP / OIDC",
+    "remaining": "临时 Keycloak 回调和本轮会话栅栏回归有证据；生产 IdP、浏览器首次登录、新成员开通、IdP 撤权与本地会话策略未完整验收。",
+    "required": "真实 IdP、固定 HTTPS/回调、测试账号与明确撤权策略。",
+    "source": "CP-091、206；WAN-124/129/136",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "本地Keycloak授权码→正式Go回调→PG会话/审计；OIDC旧会话撤销回归",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 2,
+    "name": "Passkey 实物与审批",
+    "remaining": "辅助账户流程、绑定提案双人审批已接线；真实浏览器/认证器、RP/Origin、两位审核人及失败恢复未验收。",
+    "required": "可信域/TLS、测试认证器、独立账号；不可用普通 assertion 替代审批。",
+    "source": "CP-202；internal/v3passkey/README.md",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "软件认证器协议模块专项；双真人批准与物理认证器仍待验",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 3,
+    "name": "TOTP 密钥生命周期",
+    "remaining": "可选账户 TOTP 不等于强制 MFA 登录。持久密钥跨重启不可更换；种子重加密轮换流程未实现。",
+    "required": "持久 0600 密钥、备份恢复与轮换设计；锁等待到期另见 WAN-135。",
+    "source": "internal/v3mfa/README.md；WAN-135",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "真实PG advisory/factor/audit锁跨session、OTP、fresh login八例与回滚；账户生命周期专项",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 4,
+    "name": "成员目录和 MFA 提醒",
+    "remaining": "飞书目录/MFA 来源/提醒发送适配已接；实际完整目录、权威 MFA 来源、真实收件人和机器人权限未验，仓库不提供完整 MFA authority。",
+    "required": "实际租户、来源完整性和权限证据、受控发送/结果不明核对。",
+    "source": "CP-196；WAN-119",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "完整目录/权限/去重本地逻辑；Mock MFA receipt→真实PG/audit；响应丢失不重发",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 5,
+    "name": "邀请邮件与接受页",
+    "remaining": "SMTP TLS 发送及公开接受接口已实现；真实最终投递和新账号全流程未验，产品尚无邀请码接受页。",
+    "required": "SMTP relay 凭据、HTTPS 入口、收件邮箱、接受页；多副本共享入口限速。",
+    "source": "CP-175；WAN-119",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "本地TLS SMTP DATA捕获；尚未证明正式邀请发送全流程",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 6,
+    "name": "真实模型能力矩阵",
+    "remaining": "历史 Qwen 工具和 DeepSeek V3 单次调用已验；所有拟启用协议、工具轮次、切换、图片/推理能力并未逐一实测。本轮多协议工具回归用替身。",
+    "required": "供应商受控额度、真实能力绑定、限定成本的测试用例。",
+    "source": "CP-009、085/086、156、161、206；WAN-54/122/131",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "正式异步对话→受控协议Mock回复→另实例completed回读",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 7,
+    "name": "模型付费与总预算",
+    "remaining": "Prompt 双版本和规则生成具备有界调用；累计费用、跨幂等键/并发总配额、真实账单未闭环，新键仍可能再次计费。",
+    "required": "部署层总额度/限流、真实用量报告和账单核对。",
+    "source": "CP-190、192；WAN-123/118",
+    "status": "queued",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 8,
+    "name": "Prometheus 数据隔离",
+    "remaining": "配置只证明端点声明；真实应用/环境标签隔离、查询目录/录制规则的语义和历史完整性未验。",
+    "required": "受审数据源、真实隔离证据、七天/24小时完整数据窗口。",
+    "source": "CP-172、191/192、200；WAN-118/120",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "真实Prom受控指标采集与API读回",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 9,
+    "name": "通知路由与抑制草稿",
+    "remaining": "读取/试算/待审 MR 已接；真实 Alertmanager 配置子树独占、匿名接收者映射、完整历史及 GitLab 草稿隔离未验。",
+    "required": "真实来源和最小权限 GitLab；确认自动化不会合并/部署草稿。",
+    "source": "CP-188、191、194；WAN-118",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "真实AM接受Prom firing→本地capture receiver；产品route MR待验",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 10,
+    "name": "静默与批量范围",
+    "remaining": "审批和静默 worker 已接、默认关闭；真实 Passkey→Alertmanager 链路未验，分组静默须有独占组标签/完整覆盖证明，旧 null 标签不能补造。",
+    "required": "受审来源/唯一组标签，明确授权启动和故障用例。",
+    "source": "CP-202、203；WAN-118",
+    "status": "queued",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 11,
+    "name": "规则启用与未知外写恢复",
+    "remaining": "GitLab→独立审批→Argo/GitOps→实际 Prometheus 验证已接、默认关闭；本轮只读恢复通过本地 TLS 替身/PG回归，真实多组件链未验。",
+    "required": "受保护仓库、审阅人与 Argo/Prometheus；覆盖超时成功、崩溃、租约和重启。",
+    "source": "CP-203、206；WAN-132/136",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "规则worker数据库瞬断保留cursor；TLS source/trial隔离准备",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 12,
+    "name": "24小时 dry-run",
+    "remaining": "非通知有界观察已实现；真实24小时任务、专用数据源隔离、重启/迟到样本未验。",
+    "required": "独立审查数据源、持续观察与恢复证据。",
+    "source": "CP-200；WAN-118",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "本地真实24h试运行准备；未开始持续验收",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 13,
+    "name": "配置提升跨实例",
+    "remaining": "临时 GitLab 和独立 PG 各有验证，但未串成真实非生产导出→独立治理合并→生产导入。事后 API 不能证明合并时治理。",
+    "required": "隔离实例、签名与受保护仓库、历史治理证据；导入不等于目标启用。",
+    "source": "CP-126、186；docs/api/v3-config-sync.md",
+    "status": "queued",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 14,
+    "name": "外部连接器和内容读取",
+    "remaining": "GitLab 新 V3 精确入口、Harbor、Notion/Confluence/飞书文档、MCP 业务服务的完整实连/授权/失败链缺验收记录；并非全部从未实测。",
+    "required": "逐模块最小权限账户、固定源范围/内容样例；MCP发现不等于工具执行。",
+    "source": "CP-085、093、162、165～167；WAN-122",
+    "status": "queued",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 15,
+    "name": "真实 Runbook / 检索质量",
+    "remaining": "旧 BGE 混合检索有成功证据；新实验应用完整审核内容、代表问题的命中/版本/范围与误判评测未闭环。",
+    "required": "当前内容盘点、已审核 Runbook、标注问题集。",
+    "source": "CP-009；docs/releases/2026-09-20-lab-integration.md；WAN-62/68",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "正式Runbook创建/版本引用；业务流程接口",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 16,
+    "name": "自动初查/巡查的质量",
+    "remaining": "默认关闭的预算/权限测试不能证明真实模型对正常、故障、缺采样的判断；历史 Qwen 曾在有限证据下报无异常。",
+    "required": "受控实验策略、标注案例与误报漏报/预算评测。",
+    "source": "CP-006、009；WAN-76/68",
+    "status": "queued",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 17,
+    "name": "Vault 权限与网络出口",
+    "remaining": "Vault凭据用途绑定不证明上游token最小权限；现有本机GitLab token过宽不能用作只读验收。统一DNS/IP/代理出口准入缺实现/验收。",
+    "required": "专用最小权限令牌、实际Vault策略；可信管理员和网络出口策略，开放范围变化须另定代码。",
+    "source": "docs/api/v3-connector-credentials.md:8-20",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "真实Vault写/读及无权限拒绝",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 18,
+    "name": "服务健康/指标 AI 提问",
+    "remaining": "完整服务目录对缺档案/面板/健康来源可能503；指标提问真实Prometheus+模型+SSE、多实例/新旧版本混跑未验。",
+    "required": "精确dashboard/覆盖声明；所有对话读写/SSE/worker先升级再开放metrics_source_required。",
+    "source": "docs/api/v3-service-views.md；v3-metrics-ask.md:15-25",
+    "status": "queued",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 19,
+    "name": "日志采集完整性",
+    "remaining": "ES .keyword/ignore_above历史漏索引、模板/等级生产者、Loki租户lookback/保留和真实30分钟聚合性能未验。",
+    "required": "映射/回填、受信脱敏模板、采集覆盖声明；100条样本不当全集。",
+    "source": "docs/api/v3-logs-source.md:23-46",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "真实Loki受控日志写入/读取",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 20,
+    "name": "Tempo 与拓扑完整性",
+    "remaining": "高lag/采样/未插桩可能缺Trace；topology_v1真实生产者/高扇出/零流量未验，完整模式8节点12边不适合大拓扑。",
+    "required": "实际Tempo fail_on_high_lag、录制规则/6点测量、稳定资源身份和规模策略。",
+    "source": "docs/api/v3-traces-source.md；v3-topology-view.md",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "真实OTel→Tempo指定span exact读回",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 21,
+    "name": "真实变更因果链",
+    "remaining": "pipeline不证明部署或告警因果；缺真实Workflow→GitOps→部署→完整告警窗口→人工review整链，DORA/CFR/MTTR来源不足。",
+    "required": "真实delivery记录和变更审阅，持续覆盖而非静态声明。",
+    "source": "docs/api/v3-change-view.md:13-41",
+    "status": "queued",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 22,
+    "name": "个人资料全字段 authority",
+    "remaining": "完整设备/会话、登录方式、联系方式和 factor 的权威数据生产者不由仓库提供；缺可信来源时 GET/PUT 不可用。",
+    "required": "部署实际完整 producer；仅提供 URL/token 不会生成数据。",
+    "source": "CP-195；WAN-119",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "正式Canvas/对话关键业务路径；真实用户完整产品语义仍待验",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 23,
+    "name": "安全策略 authority",
+    "remaining": "SSO/SCIM/MFA/会话/Vault 等全部字段须证明真正执行；当前 HTTPS 适配器不提供完整控制器。",
+    "required": "实现/提供能持久幂等 apply、完整 snapshot 和实时控制的 authority。",
+    "source": "CP-198；internal/v3security/README.md",
+    "status": "not_implemented",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 24,
+    "name": "安全策略 pending/unknown 恢复",
+    "remaining": "崩溃或丢响应后可阻断同 scope 读写；保留操作 ID 台账，但仓库没有公开/自动 reconcile 工具。",
+    "required": "受控按原 operation ID 对账工具、权威回执及审计，不能删台账解锁。",
+    "source": "internal/v3security/README.md:17-21",
+    "status": "not_implemented",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 25,
+    "name": "韧性五类聚合来源",
+    "remaining": "读取适配器已有；仓库不提供五类完整上游聚合服务，提案只供审阅，不执行故障注入。",
+    "required": "真正的五类权威数据聚合器、修订/采集时间/完整性。",
+    "source": "CP-172；WAN-120",
+    "status": "not_implemented",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 26,
+    "name": "评测执行器与可信案例",
+    "remaining": "POST /evals 只存 pending；executor、可信案例正文/快照输入、逐例评分生产者未实现，不能显示完成分数。",
+    "required": "受限可执行评测流水线、版本化案例、真实结果汇报。",
+    "source": "CP-187、190、205；WAN-123/124",
+    "status": "not_implemented",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 27,
+    "name": "Agent 版本发布与工具运行",
+    "remaining": "生命周期保存版本和发布意图；缺实际流量路由消费者/完整工具执行器，发布不代表线上已切换。",
+    "required": "运行消费者、工具授权边界、版本生效与回退验证。",
+    "source": "CP-187；cmd/aiops/v3.go；WAN-123",
+    "status": "not_implemented",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 28,
+    "name": "Guardrails 真正拦截",
+    "remaining": "能读已上报事件/改已登记策略；缺策略启动生产者和执行器运行钩子，runtime_status=unconnected。",
+    "required": "受信策略目录、执行路径强制调用和覆盖证明。",
+    "source": "CP-185、187；WAN-124",
+    "status": "not_implemented",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 29,
+    "name": "完整 Agent Trace / Memory / Coverage",
+    "remaining": "主要读已持久/上报事实；未报告模型、用量、成本、完整覆盖/记忆命中/最近使用仍未知，已有 API 不代表完整遥测。",
+    "required": "真实运行上报者与持续覆盖、字段来源、保留窗口证明。",
+    "source": "CP-173、184、187、204；WAN-120/121",
+    "status": "not_implemented",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 30,
+    "name": "首页业务权威信息",
+    "remaining": "简报、值班、健康/SLO、建议/待办动作缺可信来源；返回 null/availability，不能用本地事件推断实时健康。",
+    "required": "权威值班/SLO/简报生产者及来源失败状态。",
+    "source": "CP-176、177；WAN-117",
+    "status": "not_implemented",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 31,
+    "name": "通知偏好实际消费",
+    "remaining": "持久化偏好不证明渠道投递、免打扰/摘要真正被所有发送消费者执行。",
+    "required": "核对发送消费者、真实收件及结果不明处理。",
+    "source": "CP-094～096；WAN-119",
+    "status": "not_implemented",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 32,
+    "name": "API Token 的更多 scope",
+    "remaining": "当前只闭合 connectors:view 的精确只读消费路径，其余 scope 没有通用 API 消费能力。",
+    "required": "按需求逐一实现精确路由/权限/撤销契约；不直接推广通用Bearer。",
+    "source": "CP-199；WAN-119/122",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "Token签发/受权消费/跨env拒绝/撤销；60并发容量50/10",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 33,
+    "name": "MCP 实际调用",
+    "remaining": "发现与人工审核开关已有；V3受审执行器和按登记/环境/快照归属的调用记录生产者未接。",
+    "required": "具体只读执行器、授权/取消/记录契约；开关不等于执行授权。",
+    "source": "docs/api/v3-contract.md:318-320",
+    "status": "not_implemented",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 34,
+    "name": "知识同步到正式V3检索",
+    "remaining": "人工正文同步不等于自动刷新/向量索引；Git Markdown缺检索消费者，正式V3未注册search_knowledge旧组件。",
+    "required": "V3授权的检索/索引消费者与重建/撤权测试；不能沿旧授权表直接查。",
+    "source": "docs/api/v3-contract.md:217-221；[v3-git-markdown-source.md:22](<http://v3-git-markdown-source.md:22>)",
+    "status": "not_implemented",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 35,
+    "name": "工作空间配置效果",
+    "remaining": "slug/week_start/retention持久化，但链接/日历/清理消费者未接；data_region仅声明不证明实际驻留。",
+    "required": "实际消费者及生效/恢复验证。",
+    "source": "docs/api/v3-contract.md:424",
+    "status": "not_implemented",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 36,
+    "name": "业务数据库升级链",
+    "remaining": "最新多批迁移未在现有业务库执行；本轮临时 PG 成功不证明旧数据升级、清洁安装和回滚。",
+    "required": "迁移账本/旧库副本、大表锁与WAL评估、备份恢复；含151/152前置137。",
+    "source": "CP-205、206；WAN-136",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "两轮真实PG完整文件迁移：空库/重复/并发/合成旧版/失败整批rollback/pg_dump restore",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 37,
+    "name": "代理/多实例/监督",
+    "remaining": "真实代理超时、缓冲、连接池、Secure Cookie/Origin、实例开关、worker supervision 未核验；本轮 TCP/停机测试不替代部署。",
+    "required": "脱敏部署清单、受控SIGTERM/重启/断依赖、实际进程管理。",
+    "source": "CP-206；WAN-133",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "正式显式V3双API；真实PG跨实例回读",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 38,
+    "name": "代理登录限流",
+    "remaining": "RemoteAddr 共享桶在真实代理下是否合并所有用户仍待确认。",
+    "required": "确认可信代理与真实地址边界，不盲信 X-Forwarded-For。",
+    "source": "WAN-134",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "trusted CIDR+真实PG登录限流、IPv6/伪造链模块回归；真实HTTPS代理流待验",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 39,
+    "name": "MFA 跨锁等待到期",
+    "remaining": "锁前取时钟的路径已记录，实际等待和timeout使会话/OTP超期的幅度尚无隔离复现。",
+    "required": "一次性 PG 锁等待/时钟用例，核对锁后时间。",
+    "source": "WAN-135",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "advisory、factor、audit等待跨有效期全部真实PG/race rollback",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 40,
+    "name": "重启与滚动升级",
+    "remaining": "租约恢复、旧attempt失败/人工重试有设计与局部测试；当前多进程死亡、恢复、旧新worker/迁移兼容和完整部署未验。",
+    "required": "当前镜像/空库/旧库、受控进程终止及明确兼容切换。",
+    "source": "CP-073、080、171、206；WAN-133/136",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "已覆盖worker数据库瞬断与晚提交generation；实际TERM/KILL/持续24h未完成",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 41,
+    "name": "凭据到期与轮换",
+    "remaining": "历史实验 K8S token7天、手动刷新/进程重启有记录；自动续期和自启未配置，当前状态未实时探测。",
+    "required": "脱敏凭据生命周期盘点、续期/过期/重启验证。",
+    "source": "docs/releases/2026-09-22-live-platform-integration.md；WAN-133",
+    "status": "queued",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 42,
+    "name": "长期保留与清理",
+    "remaining": "legacy S3/OCI 引用保护/保留已实现，自动删除器未实现；Passkey闲置challenge缺定期维护路径。",
+    "required": "确认仍部署的legacy；受控保留/回收和challenge清理策略。",
+    "source": "CP-011；internal/v3passkey/README.md",
+    "status": "queued",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 43,
+    "name": "规模与依赖可靠性",
+    "remaining": "大图/发现候选有上限与小样本测试；代表规模锁竞争/查询计划、大表升级/连接池及长期负载无充分验收。",
+    "required": "脱敏代表规模、依赖慢/失联和并发撤权测试。 另需核定聚合规模安全契约，不能本轮自动放宽保护。",
+    "source": "CP-073、080、101、105、124、188；WAN-133/136；WAN-152",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "基础/规模合成seed及真实受限认领、50正常/10慢读SSE短自检、连续窗口和冻结工具守卫；18分钟负载及真实24h尚未验收",
+    "proof_scope": "短自检只证明负载工具和协议链；Mock模型不证明推理性能；现有home1000/groups及inbox5000安全限额阻塞5000/100k聚合性能，WAN-152高优先级待Review；受支持接口继续，不能声称全接口规模验收",
+    "priority": "HIGH"
+  },
+  {
+    "id": 44,
+    "name": "实验拓扑生产可靠性",
+    "remaining": "单控制面、本机 Compose 不是HA；旧VM时钟故障已修但底层复发未保证根治，无自动VM重启。中间件up不等于业务健康。",
+    "required": "明确实验还是生产目标；备份/依赖故障、真实业务/连接池/积压指标。",
+    "source": "docs/releases/2026-09-22-live-platform-integration.md；infrastructure-dashboard.md",
+    "status": "queued",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 45,
+    "name": "冻结前端与可空 DTO",
+    "remaining": "首页/告警/资源/Trace/Coverage/评测等仍按非空或Mock含义渲染，未知状态可能报错或误显示绿色。",
+    "required": "真实HTTP、unknown/partial/503等页面状态；不是补key即可。",
+    "source": "CP-173～205；WAN-126",
+    "status": "queued",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 46,
+    "name": "写接口安全参数",
+    "remaining": "多个页面尚未提交 If-Match、revision/source_revision、request ID、幂等键/application_id；Security/事件/规则/抑制/生命周期/复盘需逐页接。",
+    "required": "按机器契约传参，覆盖过期/撤权/重放/不确定结果。",
+    "source": "CP-185～205；WAN-125/127/128",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "正式权限/Token/Canvas/Runbook/会话/事件/复盘8关键HTTP场景",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 47,
+    "name": "Canvas 大历史恢复",
+    "remaining": "后端413含恢复URL并支持逐节点分页；前端丢 recovery 且缺分页交互。",
+    "required": "真实长历史、刷新/断线/分页恢复浏览器验收。",
+    "source": "CP-204；WAN-121",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "正式Canvas创建分支上下文/消息回读及异步对话",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  },
+  {
+    "id": 48,
+    "name": "UI 能力语义误差",
+    "remaining": "私人模板被称团队模板/自动脱敏；本地发布被称同步复盘；草稿MR被当立即生效；token一次性秘密和邀请接受页缺完整交互。",
+    "required": "逐项改为实际能力，并验证真实用户流程。",
+    "source": "CP-175、188～205；WAN-125",
+    "status": "queued",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 49,
+    "name": "当前发布与用户体验",
+    "remaining": "最新镜像/新用户干净安装、全权限交互、跨浏览器/移动端/辅助设备没有当前整套验收；历史页面证明只覆盖历史版本。",
+    "required": "当前版本部署与真实产品验收，许可证分发检查。",
+    "source": "WAN-67/69/70/136；历史releases",
+    "status": "queued",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 50,
+    "name": "历史恢复/交付完整链",
+    "remaining": "早期真实回滚180秒、三目标/Compose7节点/S3回读已有证明；暂停留下GitOps/systemd及evidence API收口，V3关闭旧worker，是否仍部署待确认。",
+    "required": "先确认legacy当前启用范围，再有授权的回读和恢复/交付演练。",
+    "source": "CP-001、011、189；WAN-137",
+    "status": "queued",
+    "evidence_mode": "pending"
+  },
+  {
+    "id": 51,
+    "name": "恢复目标边界",
+    "remaining": "首条回滚仅登记Deployment Pod模板、单副本计数器；任意Shell/ConfigMap/DB变更和多副本恢复指标未实现。",
+    "required": "若扩展需求，另定动作与审批契约；多副本需窗口聚合/重置/零流量设计。",
+    "source": "docs/demo.md:39-47；docs/backend-handoff.md",
+    "status": "queued",
+    "evidence_mode": "pending",
+    "completed_subscenarios": "真实PG合成旧版/迁移回滚/备份restore；历史不能冒充24h",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+  }
+]

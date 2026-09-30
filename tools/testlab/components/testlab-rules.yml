@@ -1,0 +1,10 @@
+groups:
+  - name: testlab-rules
+    rules:
+      - alert: TestlabRequestFailures
+        expr: testlab_request_failures_total{application="testlab",environment="test"} > 0
+        for: 0s
+        labels:
+          severity: P3
+        annotations:
+          summary: Controlled local testlab request failure

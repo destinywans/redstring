@@ -1,0 +1,259 @@
+[
+  {
+    "id": "WAN-140",
+    "title": "规则worker数据库错误后保留游标并重试",
+    "status": "in_review",
+    "description": "测试确认的产品缺陷；本项回归已通过，全轮冻结回归和用户验收继续。",
+    "before": "瞬时数据库错误使worker退出",
+    "after": "原故障注入及完整模块race通过",
+    "fix_commit": "ca1e15b",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/ca1e15b",
+    "first_failure_source": "对应首次失败运行的source_tree_sha；并行发现阶段不能冒充冻结验收",
+    "local_evidence": [
+      ".local/testlab/first-failures/WAN-140-red.log",
+      ".local/testlab/fix-regressions/wan140-142-race.log"
+    ],
+    "case_ids": "按对应运行和证据检索"
+  },
+  {
+    "id": "WAN-141",
+    "title": "Public Web旧抓取晚提交覆盖",
+    "status": "in_review",
+    "description": "测试确认的产品缺陷；本项回归已通过，全轮冻结回归和用户验收继续。",
+    "before": "旧读取晚返回覆盖新正文",
+    "after": "last_read_id CAS，晚返回/首次注册/正文相同回归通过",
+    "fix_commit": "f62b520",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/f62b520",
+    "first_failure_source": "对应首次失败运行的source_tree_sha；并行发现阶段不能冒充冻结验收",
+    "local_evidence": [
+      ".local/testlab/first-failures/WAN-141-red.log",
+      ".local/testlab/fix-regressions/wan140-142-race.log"
+    ],
+    "case_ids": "按对应运行和证据检索"
+  },
+  {
+    "id": "WAN-142",
+    "title": "慢正文期间撤权仍保存",
+    "status": "in_review",
+    "description": "测试确认的产品缺陷；本项回归已通过，全轮冻结回归和用户验收继续。",
+    "before": "会话或写权限撤销后上传仍201",
+    "after": "原session/权限复核，INSERT锁跨expiry回滚，完整race通过",
+    "fix_commit": "db00b41",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/db00b41",
+    "first_failure_source": "对应首次失败运行的source_tree_sha；并行发现阶段不能冒充冻结验收",
+    "local_evidence": [
+      ".local/testlab/first-failures/WAN-142-red.log",
+      ".local/testlab/fix-regressions/wan140-142-race.log"
+    ],
+    "case_ids": "按对应运行和证据检索"
+  },
+  {
+    "id": "WAN-134",
+    "title": "反向代理登录共享限流",
+    "status": "in_review",
+    "description": "测试确认的产品缺陷；本项回归已通过，全轮冻结回归和用户验收继续。",
+    "before": "不同客户端共享代理RemoteAddr，第二客户端429",
+    "after": "可信链/IPv6/伪造/无配置用例race通过",
+    "fix_commit": "5eea470",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/5eea470",
+    "first_failure_source": "对应首次失败运行的source_tree_sha；并行发现阶段不能冒充冻结验收",
+    "local_evidence": [
+      ".local/testlab/first-failures/WAN-134-red.log",
+      ".local/testlab/fix-regressions/root-remaining-tests.log"
+    ],
+    "case_ids": "按对应运行和证据检索"
+  },
+  {
+    "id": "WAN-135",
+    "title": "MFA锁等待跨会话和验证码有效期",
+    "status": "in_review",
+    "description": "测试确认的产品缺陷；本项回归已通过，全轮冻结回归和用户验收继续。",
+    "before": "锁等待后过期会话或OTP仍成功",
+    "after": "23专项真实PG/race及8因子/审计等待边界用例通过；附加提交d73c550",
+    "fix_commit": "2b982d5",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/2b982d5",
+    "first_failure_source": "对应首次失败运行的source_tree_sha；并行发现阶段不能冒充冻结验收",
+    "local_evidence": [
+      ".local/testlab/first-failures/WAN-135-red.log"
+    ],
+    "case_ids": "按对应运行和证据检索"
+  },
+  {
+    "id": "WAN-143",
+    "title": "告警事故写入SQL占位符错误",
+    "status": "in_review",
+    "description": "测试确认的产品缺陷；本项回归已通过，全轮冻结回归和用户验收继续。",
+    "before": "12列13值，SQL42601",
+    "after": "原事故创建/重复/状态回归通过；0089bcbb运行",
+    "fix_commit": "ac2fbc0",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/ac2fbc0",
+    "first_failure_source": "对应首次失败运行的source_tree_sha；并行发现阶段不能冒充冻结验收",
+    "local_evidence": [],
+    "case_ids": "按对应运行和证据检索"
+  },
+  {
+    "id": "WAN-144",
+    "title": "归档应用仍具备写权限",
+    "status": "in_review",
+    "description": "测试确认的产品缺陷；本项回归已通过，全轮冻结回归和用户验收继续。",
+    "before": "resource update权限允许归档后继续操作",
+    "after": "归档403，历史read及正常write通过；0089bcbb运行",
+    "fix_commit": "3484144",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/3484144",
+    "first_failure_source": "对应首次失败运行的source_tree_sha；并行发现阶段不能冒充冻结验收",
+    "local_evidence": [],
+    "case_ids": "按对应运行和证据检索"
+  },
+  {
+    "id": "WAN-145",
+    "title": "资源登记提交成功却返回404",
+    "status": "in_review",
+    "description": "测试确认的产品缺陷；本项回归已通过，全轮冻结回归和用户验收继续。",
+    "before": "提交后可见性查询隐藏新资源导致404",
+    "after": "仅返回事务receipt201，DB/audit1，无view后GET404；0089bcbb运行",
+    "fix_commit": "d8afeb9",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/d8afeb9",
+    "first_failure_source": "对应首次失败运行的source_tree_sha；并行发现阶段不能冒充冻结验收",
+    "local_evidence": [],
+    "case_ids": "按对应运行和证据检索"
+  },
+  {
+    "id": "WAN-146",
+    "title": "Token签发容量锁包含PostgreSQL非法NUL",
+    "status": "in_review",
+    "description": "测试确认的产品缺陷；本项回归已通过，全轮冻结回归和用户验收继续。",
+    "before": "22021导致签发503",
+    "after": "JSONtuple，60并发50成功10上限；正式双实例生命周期通过",
+    "fix_commit": "e3f0e44",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/e3f0e44",
+    "first_failure_source": "对应首次失败运行的source_tree_sha；并行发现阶段不能冒充冻结验收",
+    "local_evidence": [
+      ".local/testlab/first-failures/token-issue-postgres-red.log",
+      ".local/testlab/fix-regressions/token-module-race.log",
+      ".local/testlab/fix-regressions/backend-http-green.log"
+    ],
+    "case_ids": "按对应运行和证据检索"
+  },
+  {
+    "id": "WAN-147",
+    "title": "告警通知500/501截断后连接busy",
+    "status": "in_review",
+    "before": "501条通知后详情503",
+    "after": "Rows关闭后500恰好及501截断均200，真实PG/race",
+    "fix_commit": "bb1470a",
+    "case_ids": "TestAlertDetailReadsOnlyEvidenceBackedFields",
+    "local_evidence": [
+      ".local/testlab/first-failures/remaining-baseline-red.jsonl"
+    ]
+  },
+  {
+    "id": "WAN-148",
+    "title": "MFA提醒锁键、审计类型和时标持久化",
+    "status": "in_review",
+    "before": "NUL22021、receipt后audit42P08、纳秒Equal误拒绝",
+    "after": "JSONtuple、显式text、PG微秒规范化；一次receipt/audit及丢响应不重发",
+    "fix_commit": "f66883d",
+    "case_ids": "TestMFAReminderHTTPMockReceiptAndAuditPostgres",
+    "first_failure_runs": [
+      "054a3c50-9da3-4f94-9f56-4e0867adfa22",
+      "a4972392-b282-4d27-8b13-8a7d4af6d753",
+      "85cbffd7-c99d-4a83-998e-27b2455f7125"
+    ],
+    "regression_runs": [
+      "96bcd368-1a43-45f1-98c0-79bfc67170c2",
+      "d8412258-69ea-4f48-a945-ceedd9eb31d5"
+    ],
+    "local_evidence": []
+  },
+  {
+    "id": "WAN-149",
+    "title": "正式 V3 Webhook 告警 SQL 绑定失败",
+    "status": "in_review",
+    "before": "真实 PG SQL42601，正式入口503，12列13值及labels偏移",
+    "after": "真实PG firing/duplicate/resolved/late-firing/冲突/批次回滚/归档scope race全部通过",
+    "fix_commit": "ab4a210",
+    "first_failure_source": "首次日志对应源码；正式冻结入口复验继续",
+    "local_evidence": [
+      ".local/testlab/first-failures/v3-webhook-persistence-red.log",
+      ".local/testlab/first-failures/v3-webhook-sql-binding-red.log",
+      ".local/testlab/fix-regressions/v3-webhook-persistence-green.log"
+    ],
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/ab4a210"
+  },
+  {
+    "id": "WAN-150",
+    "title": "真实 Loki 统计向量毫秒时间被浮点误拒绝",
+    "status": "in_review",
+    "description": "真实本地采集和正式 HTTP 可复现；冻结全轮及用户验收继续。",
+    "before": "真实差999999ns却被计算为1.000166ms，合法查询503；也可能接受1ms+1ns越界",
+    "after": "精确十进制纳秒比较；原1ms边界不放宽。确定性red/green、native3/3、connectors race及正式HTTP5/5通过",
+    "fix_commit": "93cc4de",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/93cc4de",
+    "local_evidence": [
+      ".local/testlab/first-failures/WAN-150-loki-precision-red.log",
+      ".local/testlab/first-failures/native-loki-count-diagnosis.log",
+      ".local/testlab/fix-regressions/WAN-150-connectors-race.log",
+      ".local/testlab/fix-regressions/formal-native-consumers-race.log"
+    ],
+    "case_ids": "TestLokiCountTimestampPrecision / TestFormalNativeConsumers"
+  },
+  {
+    "id": "WAN-151",
+    "title": "正式规则/抑制草稿可选仓储typed-nil启动panic",
+    "status": "in_review",
+    "before": "未配通知route时nil指针转接口被判非nil，规则草稿及独立抑制构造panic；接口接线也可误判ready",
+    "after": "两个loader保留具体指针，仅non-nil注入Service接口；四种配置组合、命名空间冲突拒绝共21 race通过，正式第三入口复验继续",
+    "fix_commit": "8233cd3",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/8233cd3",
+    "first_failure_runs": [
+      "d21be121-96bf-431b-a43d-d52be75c2b1b"
+    ],
+    "regression_runs": [
+      "8f8d2a2c-963b-40c9-85e8-60cb747895c4"
+    ],
+    "local_evidence": [
+      ".local/testlab/first-failures/draft-constructors-typed-nil-red.json"
+    ],
+    "case_ids": "TestV3AlertRuleDraftRepositoriesOptional / TestV3InhibitionDraftRepositoryWithoutNotificationRoutes"
+  },
+  {
+    "id": "WAN-153",
+    "title": "规则启用worker Ready查询未创建表导致永久503",
+    "status": "in_review",
+    "before": "完整迁移后42P01，正式规则启用enable_not_connected",
+    "after": "核对真实队列5表；Run空队列、逐一缺表、取消/停机/环境及构造28race通过；正式整链继续",
+    "fix_commit": "8f8ff0c",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/8f8ff0c",
+    "first_failure_runs": [
+      "d9c18993-29be-4a9d-bfff-0d0274afb961"
+    ],
+    "regression_runs": [
+      "88838c98-41f1-4a45-883d-3b162ceb5eb0"
+    ],
+    "local_evidence": [
+      ".local/testlab/first-failures/wan153-ready-schema-red.json",
+      ".local/testlab/first-failures/WAN-153-enable-ready-http-red.json"
+    ],
+    "case_ids": "TestV3AlertRuleEnableWorkerReadyMigratedSchema"
+  },
+  {
+    "id": "WAN-154",
+    "title": "正式Canvas返回INV-调查ID被规则启用422拒绝",
+    "status": "in_review",
+    "before": "POST canvases201 -> 原样INV-32hex规则启用invalid_enable_request；同scope/open在真实PG已核对",
+    "after": "格式/scope/持久化21新子项及整模块103 race通过；source audit因别处Go修改阻塞，仍需冻结复验及原真实GitOps链",
+    "first_failure_runs": [
+      "10cd93b2-25a0-43ff-9fd3-97b2da082339"
+    ],
+    "regression_runs": [
+      "43118cf8-ff45-43c8-813f-1254cbbfc0ac"
+    ],
+    "local_evidence": [
+      ".local/testlab/first-failures/gitops-investigation-contract-http-red-0b67dd0eec114a67a982c4c4e3d419d1.json",
+      ".local/testlab/first-failures/wan154-investigation-id-product-red.json"
+    ],
+    "case_ids": "正式POST canvases -> POST alert-rules enabled",
+    "fix_commit": "cb88e64",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/cb88e64"
+  }
+]

@@ -81,7 +81,7 @@ func (s *Service) bind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(ctx)
-	if !lockIdentity(ctx, tx, w) {
+	if !lockBindingAuthority(ctx, tx, w) {
 		return
 	}
 	if !managerInTx(ctx, tx, w, httpapi.CurrentUser(r).ID) {
@@ -91,6 +91,9 @@ func (s *Service) bind(w http.ResponseWriter, r *http.Request) {
 	if err = tx.QueryRow(ctx, `SELECT NOT disabled AND deleted_at IS NULL AND v3_identity_kind='human' AND source<>'settings_demo'
 		FROM users WHERE id=$1 FOR UPDATE`, input.UserID).Scan(&eligible); err != nil || !eligible {
 		httpapi.Error(w, 422, "invalid_identity", "Existing enabled human user required")
+		return
+	}
+	if !bindingSessionInTx(ctx, tx, w, r) {
 		return
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO v3_oidc_identities(issuer_hash,subject,user_id,created_by) VALUES($1,$2,$3,$4)`,
@@ -131,7 +134,7 @@ func (s *Service) unbind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(ctx)
-	if !lockIdentity(ctx, tx, w) {
+	if !lockBindingAuthority(ctx, tx, w) {
 		return
 	}
 	if !managerInTx(ctx, tx, w, httpapi.CurrentUser(r).ID) {
@@ -150,6 +153,9 @@ func (s *Service) unbind(w http.ResponseWriter, r *http.Request) {
 	var locked string
 	if err = tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 FOR UPDATE`, userID).Scan(&locked); err != nil {
 		httpapi.Error(w, 503, "identity_unavailable", "Identity management unavailable")
+		return
+	}
+	if !bindingSessionInTx(ctx, tx, w, r) {
 		return
 	}
 	if _, err = tx.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, userID); err != nil {
@@ -179,10 +185,59 @@ func lockIdentity(ctx context.Context, tx pgx.Tx, w http.ResponseWriter) bool {
 	return true
 }
 
+// Account and role writers acquire these locks before user rows. Keep that
+// order, then serialize identity changes with OIDC callbacks. Holding the
+// governance locks makes the final permission check valid through commit.
+func lockBindingAuthority(ctx context.Context, tx pgx.Tx, w http.ResponseWriter) bool {
+	for _, key := range []int64{752018992, 752018995, 752018998} {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock_shared($1)`, key); err != nil {
+			httpapi.Error(w, 503, "identity_unavailable", "Identity management unavailable")
+			return false
+		}
+	}
+	return lockIdentity(ctx, tx, w)
+}
+
+// Recheck after all identity/user lock waits, before any mutation. In a
+// self-bind/unbind the next step deliberately deletes this session; its locked
+// authorization must therefore be established before that deletion.
+func bindingSessionInTx(ctx context.Context, tx pgx.Tx, w http.ResponseWriter, r *http.Request) bool {
+	cookie, err := r.Cookie("aiops_session")
+	if err == nil {
+		err = store.LockActiveSession(ctx, tx, cookie.Value, httpapi.CurrentUser(r).ID)
+		if err == nil {
+			// A session-row lock can itself wait past expiry. Its predicate may
+			// have been evaluated before that wait, so use the current clock now
+			// that the session is locked and cannot be revoked concurrently.
+			var active bool
+			err = tx.QueryRow(ctx, `SELECT expires_at>clock_timestamp() FROM sessions
+				WHERE token_hash=$1 AND user_id=$2`, store.Hash(cookie.Value), httpapi.CurrentUser(r).ID).Scan(&active)
+			if errors.Is(err, pgx.ErrNoRows) || err == nil && !active {
+				err = store.ErrSessionRevoked
+			}
+		}
+	} else {
+		err = store.ErrSessionRevoked
+	}
+	if errors.Is(err, store.ErrSessionRevoked) {
+		httpapi.Error(w, 401, "session_revoked", "Session is no longer active")
+		return false
+	}
+	if err != nil {
+		httpapi.Error(w, 503, "identity_unavailable", "Identity management unavailable")
+		return false
+	}
+	return true
+}
+
 func managerInTx(ctx context.Context, tx pgx.Tx, w http.ResponseWriter, actor string) bool {
 	var locked string
 	if err := tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 AND NOT disabled AND deleted_at IS NULL FOR UPDATE`, actor).Scan(&locked); err != nil {
-		httpapi.Error(w, 403, "forbidden", "Platform administrator and global member management required")
+		if errors.Is(err, pgx.ErrNoRows) {
+			httpapi.Error(w, 403, "forbidden", "Platform administrator and global member management required")
+		} else {
+			httpapi.Error(w, 503, "identity_unavailable", "Identity management unavailable")
+		}
 		return false
 	}
 	var allowed bool

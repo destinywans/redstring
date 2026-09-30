@@ -10,8 +10,14 @@ S['V3CanvasSummary'] = obj({**fieldnames('id title meta href'),
     'thumb':obj({'nodes':arr({'type':'array','prefixItems':[integer(),integer(),integer(),integer(),string()],
         'minItems':5,'maxItems':5}), 'edges':arr(string())},['nodes','edges'])},
     ['id','title','kind','status','meta','participants','updated_at','href','services','thumb'])
+S['V3CanvasTemplateRetention'] = obj({
+    'steps':integer(minimum=0),'runbooks':integer(minimum=0),
+    'content_blocks':integer(minimum=0),
+    'runbook_source':string(enum=['linked_artifacts','no_structured_reference'])},
+    ['steps','runbooks','content_blocks'])
 S['V3CanvasTemplate'] = obj({**fieldnames('id kind name desc nodes'),
-    'is_default':v3_bool()},['id','kind','name','desc','nodes'])
+    'is_default':v3_bool(),'retention':ref('V3CanvasTemplateRetention')},
+    ['id','kind','name','desc','nodes'])
 S['V3CanvasTurn'] = obj({**fieldnames('id author text model reasoning_label brand'),
     'role':string(enum=['user','assistant'])},['id','role','author','text'])
 S['V3CanvasThread'] = obj({'context':string(),'turns':arr(ref('V3CanvasTurn'))},
@@ -100,7 +106,7 @@ v3_route('post','/canvases','Create a persisted canvas or investigation',
     body=obj({**fieldnames('title kind template_id goal'),
       'services':arr(string()),'ai_draft':v3_bool()},['title','kind']),
     response=obj(fieldnames('id href'),['id','href']),status=201,
-    desc='Requires one selected environment and a current canvas.change grant. Generic canvases are private and require an environment grant; investigations require exactly one active mapped application and accept environment, application or owner-team grants. Investigation IDs are persisted INV-* IDs with an initial branch and context. Canvas/branch records and creation audit commit together. Optional AI drafting uses one configured model, no tools, and a validated one-to-three-node JSON outline; it is explicitly unverified and a failure leaves no creation. Missing model returns 503 canvas_draft_unavailable. Investigation templates return 422 invalid_template. Persisted investigation graph detail is available at /investigations/{id}/canvas.')
+    desc='Requires one selected environment and a current canvas.change grant. Generic canvases are private and require an environment grant; investigations require exactly one active mapped application and accept environment, application or owner-team grants. A private generic template can be reused only by its owner in the same environment; retained read-only steps are reset to unexecuted review state, and exact linked Runbook references require the saved document version, current publication, service scope and knowledge.view again. A new generic canvas starts as draft, without copied exchanges or execution results. Investigation IDs are persisted INV-* IDs with an initial branch and context. Canvas/branch records and creation audit commit together. Optional AI drafting uses one configured model, no tools, and a validated one-to-three-node JSON outline; it is explicitly unverified and a failure leaves no creation. Missing model returns 503 canvas_draft_unavailable. Investigation templates return 422 invalid_template. Persisted investigation graph detail is available at /investigations/{id}/canvas.')
 v3_route('get','/canvases/{id}','Read owner-scoped general canvas',
     response={'oneOf':[ref('V3CanvasDoc'),ref('V3CanvasDocWithoutThreads')]},
     query=[v3_query('include_threads',{'type':'boolean'})],
@@ -268,13 +274,16 @@ v3_route('get','/canvas-templates','List available canvas structures',
 P['/canvas-templates']['get']['responses']['422'] = {
     'description':'Visible template list exceeds 500 items',
     'content':{'application/json':{'schema':ref('Error')}}}
-v3_route('post','/canvas-templates','Save a safe canvas structure template',
+v3_route('post','/canvas-templates','Save a private canvas template with selected retention',
     body=obj({'from_canvas':string(),'name':string(),
       'keep':obj({k:v3_bool() for k in ['nodes','steps','runbooks','content']},['nodes'])},
       ['from_canvas','name','keep']),response=ref('V3CanvasTemplate'),status=201,
-    desc='Requires one selected environment, the current owner of a generic source canvas, and current canvas.change grant; session, role sources, source and authorization are rechecked in the save transaction. keep.nodes must be explicit; true copies sanitized node/edge layout and false saves an empty structure. A user-chosen name is retained, while node titles, blocks, artifacts, evidence, conversation turns and identifiers are not copied. The graph is validated before template and audit commit together. A case-insensitive duplicate name in the same owner/environment/kind returns 409; API saves serialize per owner and check the 500-item combined system/private list capacity. A separate system-template import path does not share this lock and can cause a later list to return 422; that integration requires a shared capacity policy. keep.steps, keep.runbooks and keep.content true return 422 because no safe persisted source exists. The current frontend sends steps/runbooks by default and describes a team template; it needs a separate safe page adaptation. Investigation/team template creation remains unavailable.')
+    desc='Requires one selected environment, current ownership of the generic source canvas, active referenced services and current canvas.change grants in the save transaction. keep.nodes is explicit: false discards graph edges/layout but allows selected content or steps as unlinked nodes. keep.steps retains persisted steps descriptions and resets done to todo with an unexecuted review marker. keep.content copies validated private node text and selected static blocks only when explicitly true; it does not automatically redact service names or numbers. Live bars, row values/states, badges, evidence, exchanges and execution results are never copied. keep.runbooks accepts only exact /runbooks/{id} source artifact links, confirms current published document identity/version, same selected environment, application binding and knowledge.view, then saves version-bound private metadata. No explicit link returns retention.runbooks=0 and runbook_source=no_structured_reference; plain text never becomes a Runbook reference. Use of the template rechecks version and scope and recreates only a read-only Runbook link artifact. Rich private templates cannot pass strict system/config-export validation; the template is usable only by the same owner in the same environment. Shared capacity admission protects the 500-item list across private saves and system imports. Template and audit commit together. Duplicate names, changed Runbooks or source bindings return a controlled conflict; invalid structure returns 422. The frozen page still calls these team templates and promises content redaction, so its product copy remains unverified. Investigation/team template creation remains separate.')
 P['/canvas-templates']['post']['responses']['422'] = {
-    'description':'Unsupported keep option, invalid structure, or template list capacity exceeded',
+    'description':'Invalid retained structure, malformed explicit Runbook link, or template list capacity exceeded',
+    'content':{'application/json':{'schema':ref('Error')}}}
+P['/canvas-templates']['post']['responses']['409'] = {
+    'description':'Duplicate template name, changed source service, or unavailable linked Runbook',
     'content':{'application/json':{'schema':ref('Error')}}}
 
 S['V3InvestigationTemplateBranch'] = obj({

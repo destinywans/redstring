@@ -135,12 +135,13 @@ type Edge struct {
 	Live bool   `json:"live,omitempty"`
 }
 type template struct {
-	ID        string `json:"id"`
-	Kind      string `json:"kind"`
-	Name      string `json:"name"`
-	Desc      string `json:"desc"`
-	Nodes     string `json:"nodes"`
-	IsDefault bool   `json:"is_default,omitempty"`
+	ID        string             `json:"id"`
+	Kind      string             `json:"kind"`
+	Name      string             `json:"name"`
+	Desc      string             `json:"desc"`
+	Nodes     string             `json:"nodes"`
+	IsDefault bool               `json:"is_default,omitempty"`
+	Retention *templateRetention `json:"retention,omitempty"`
 }
 
 const maxTemplateItems = v3templatecapacity.MaxVisibleItems
@@ -696,15 +697,17 @@ func (s *Service) templates(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items})
 }
 
+type templateKeepOptions struct {
+	Nodes    *bool `json:"nodes"`
+	Steps    bool  `json:"steps"`
+	Runbooks bool  `json:"runbooks"`
+	Content  bool  `json:"content"`
+}
+
 type saveTemplateRequest struct {
-	FromCanvas string `json:"from_canvas"`
-	Name       string `json:"name"`
-	Keep       *struct {
-		Nodes    *bool `json:"nodes"`
-		Steps    bool  `json:"steps"`
-		Runbooks bool  `json:"runbooks"`
-		Content  bool  `json:"content"`
-	} `json:"keep"`
+	FromCanvas string               `json:"from_canvas"`
+	Name       string               `json:"name"`
+	Keep       *templateKeepOptions `json:"keep"`
 }
 
 func (s *Service) saveTemplate(w http.ResponseWriter, r *http.Request) {
@@ -722,10 +725,6 @@ func (s *Service) saveTemplate(w http.ResponseWriter, r *http.Request) {
 	in.Name = strings.TrimSpace(in.Name)
 	if in.Name == "" || len([]rune(in.Name)) > 200 || in.FromCanvas == "" || in.Keep == nil || in.Keep.Nodes == nil {
 		httpapi.Error(w, 422, "invalid_template", "Select a canvas, template name and whether to keep nodes")
-		return
-	}
-	if in.Keep.Steps || in.Keep.Runbooks || in.Keep.Content {
-		httpapi.Error(w, 422, "unsafe_template_content", "Only node structure can currently be saved; evidence, steps and content are excluded")
 		return
 	}
 	tx, err := s.Store.DB.Begin(r.Context())
@@ -757,9 +756,11 @@ func (s *Service) saveTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var kind string
-	var rawNodes, rawEdges []byte
-	err = tx.QueryRow(r.Context(), `SELECT kind,nodes,edges FROM v3_canvases
- WHERE id=$1 AND owner_id=$2 AND environment_id=$3 FOR SHARE`, in.FromCanvas, owner.ID, envs[0]).Scan(&kind, &rawNodes, &rawEdges)
+	var rawNodes, rawEdges, rawArtifacts []byte
+	var sourceServices []string
+	err = tx.QueryRow(r.Context(), `SELECT kind,nodes,edges,artifacts,services FROM v3_canvases
+ WHERE id=$1 AND owner_id=$2 AND environment_id=$3 FOR SHARE`, in.FromCanvas, owner.ID, envs[0]).
+		Scan(&kind, &rawNodes, &rawEdges, &rawArtifacts, &sourceServices)
 	if errors.Is(err, pgx.ErrNoRows) {
 		httpapi.Error(w, 404, "not_found", "Source canvas not found")
 		return
@@ -776,33 +777,51 @@ func (s *Service) saveTemplate(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	var nodes []Node
-	var edges []Edge
-	if !*in.Keep.Nodes {
-		nodes = []Node{}
-		edges = []Edge{}
-	} else {
-		if len(rawNodes) > 1<<20 || len(rawEdges) > 1<<20 {
-			httpapi.Error(w, 422, "unsafe_template_structure", "Canvas structure exceeds template limits")
+	if failure := checkTemplateSourceServices(r.Context(), tx, s.Store, owner, envs[0], sourceServices); failure != nil {
+		failure.write(w)
+		return
+	}
+	nodes, edges := []Node{}, []Edge{}
+	retention := &templateRetention{}
+	refs := []privateTemplateRunbookRef{}
+	if *in.Keep.Nodes || in.Keep.Steps || in.Keep.Runbooks || in.Keep.Content {
+		sourceNodes, sourceEdges, sourceArtifacts, decodeErr := decodeCanvasDocument(rawNodes, rawEdges, rawArtifacts)
+		if decodeErr != nil {
+			httpapi.Error(w, 422, "unsafe_template_structure", "Source canvas structure is invalid or exceeds template limits")
 			return
 		}
-		nodes, err = decodeNodes(rawNodes)
-		if err != nil {
-			httpapi.Error(w, 503, "canvas_unavailable", "Invalid source structure")
-			return
+		if *in.Keep.Nodes || in.Keep.Steps || in.Keep.Content {
+			nodes, edges, retention.Steps, retention.ContentBlocks, err = retainTemplateNodes(sourceNodes, sourceEdges, *in.Keep)
+			if err != nil {
+				httpapi.Error(w, 422, "unsafe_template_structure", "Canvas graph or retained blocks exceed template limits")
+				return
+			}
 		}
-		edges, err = decodeEdges(rawEdges)
-		if err != nil {
-			httpapi.Error(w, 503, "canvas_unavailable", "Invalid source structure")
-			return
-		}
-		nodes, edges, err = sanitizeTemplateStructure(nodes, edges)
-		if err != nil {
-			httpapi.Error(w, 422, "unsafe_template_structure", "Canvas graph cannot be saved as a structural template")
-			return
+		if in.Keep.Runbooks {
+			refs, err = collectPrivateRunbookRefs(r.Context(), tx, s.Store, owner, envs[0], sourceServices, sourceArtifacts)
+			if err != nil {
+				templateRunbookFailure(err).write(w)
+				return
+			}
+			retention.Runbooks = len(refs)
+			retention.RunbookSource = "linked_artifacts"
+			if len(refs) == 0 {
+				retention.RunbookSource = "no_structured_reference"
+			}
 		}
 	}
-	if _, _, _, err = decodeCanvasDocument(mustJSON(nodes), mustJSON(edges), []byte("[]")); err != nil {
+	if len(nodes) == 0 && (in.Keep.Steps || in.Keep.Runbooks || in.Keep.Content) {
+		nodes = []Node{blankRetainedTemplateNode()}
+	}
+	storedNodes, err := marshalPrivateTemplateNodes(nodes, privateTemplateMetadata{
+		Steps: in.Keep.Steps, Content: in.Keep.Content, Runbooks: refs,
+		SourceServices: append([]string{}, sourceServices...),
+	})
+	if err != nil {
+		httpapi.Error(w, 422, "unsafe_template_structure", "Retained template structure is invalid")
+		return
+	}
+	if _, _, _, err = decodeCanvasDocument(storedNodes, mustJSON(edges), []byte("[]")); err != nil {
 		httpapi.Error(w, 422, "unsafe_template_structure", "Canvas graph cannot be saved as a structural template")
 		return
 	}
@@ -840,13 +859,16 @@ func (s *Service) saveTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 	id := "CT-" + store.ID()
 	_, err = tx.Exec(r.Context(), `INSERT INTO v3_canvas_templates(id,owner_id,environment_id,kind,name,description,nodes,edges)
-		VALUES($1,$2,$3,$4,$5,'', $6::jsonb,$7::jsonb)`, id, owner.ID, envs[0], kind, in.Name, mustJSON(nodes), mustJSON(edges))
+		VALUES($1,$2,$3,$4,$5,'', $6::jsonb,$7::jsonb)`, id, owner.ID, envs[0], kind, in.Name, storedNodes, mustJSON(edges))
 	if err != nil {
 		httpapi.Error(w, 503, "template_unavailable", "Template save failed")
 		return
 	}
 	auditChanges := mustJSON(map[string]any{"environment_id": envs[0], "source_canvas_id": in.FromCanvas,
-		"kind": kind, "keep_nodes": *in.Keep.Nodes, "node_count": len(nodes), "edge_count": len(edges)})
+		"kind": kind, "keep_nodes": *in.Keep.Nodes, "keep_steps": in.Keep.Steps,
+		"keep_runbooks": in.Keep.Runbooks, "keep_content": in.Keep.Content,
+		"node_count": len(nodes), "edge_count": len(edges), "retained_steps": retention.Steps,
+		"retained_runbooks": retention.Runbooks, "retained_content_blocks": retention.ContentBlocks})
 	_, err = tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,action,target,outcome,changes)
 	 VALUES($1,'v3.canvas_template.saved',$2,'success',$3::jsonb)`,
 		owner.ID, id, auditChanges)
@@ -861,11 +883,11 @@ func (s *Service) saveTemplate(w http.ResponseWriter, r *http.Request) {
 	// Persisted owner and environment make this a private template; the V3 DTO
 	// has no scope field, so the response contains only contracted fields.
 	httpapi.WriteJSON(w, 201, template{ID: id, Kind: kind, Name: in.Name, Desc: "",
-		Nodes: nodeCountLabel(r, len(nodes))})
+		Nodes: nodeCountLabel(r, len(nodes)), Retention: retention})
 }
 
-// sanitizeNodes copies only layout and harmless presentation tokens. Titles,
-// annotations, evidence, content blocks and turns never enter a template.
+// sanitizeNodes builds the structural base. Explicit private retention may add
+// selected node text and blocks after this step; evidence and turns stay out.
 func sanitizeNodes(src []Node) []Node {
 	dst := make([]Node, len(src))
 	for i, n := range src {

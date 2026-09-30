@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -215,7 +216,7 @@ func (s *Service) createCanvas(w http.ResponseWriter, r *http.Request) {
 		if failure == nil && in.Kind != "investigation" && in.TemplateID != "" {
 			var nodes []Node
 			var edges []Edge
-			nodes, edges, failure = loadCreationTemplate(r.Context(), preflight, user.ID, env, in)
+			nodes, edges, _, _, failure = s.loadCreationTemplate(r.Context(), preflight, user, env, in)
 			if failure == nil && (len(nodes) > maxCanvasNodes-3 || len(edges) > maxCanvasEdges-3) {
 				failure = &creationFailure{422, "invalid_canvas", "Template has no room for an AI draft"}
 			}
@@ -262,13 +263,17 @@ func (s *Service) createCanvas(w http.ResponseWriter, r *http.Request) {
 func (s *Service) createGenericCanvas(ctx context.Context, tx pgx.Tx, user core.User, env string, in createRequest, draft []draftNode, modelID string) (string, *creationFailure) {
 	nodes := []Node{{ID: "root", X: 16, Y: 140, W: 260, Icon: "layers", Tone: "info", Title: in.Title, Sub: "主线", Blocks: []json.RawMessage{}}}
 	edges := []Edge{}
+	artifacts := []CanvasArtifact{}
 	if in.TemplateID != "" {
 		var failure *creationFailure
-		nodes, edges, failure = loadCreationTemplate(ctx, tx, user.ID, env, in)
+		var privateContent bool
+		nodes, edges, artifacts, privateContent, failure = s.loadCreationTemplate(ctx, tx, user, env, in)
 		if failure != nil {
 			return "", failure
 		}
-		nodes[0].Title = in.Title
+		if !privateContent {
+			nodes[0].Title = in.Title
+		}
 	}
 	root := nodes[0].ID
 	used := make(map[string]bool, len(nodes))
@@ -285,16 +290,18 @@ func (s *Service) createGenericCanvas(ctx context.Context, tx pgx.Tx, user core.
 		nodes = append(nodes, Node{ID: id, X: 320, Y: 60 + i*160, W: 240, Icon: "sparkles", Tone: "accent", Title: item.Title, Sub: "AI 草稿", Blocks: []json.RawMessage{block}})
 		edges = append(edges, Edge{From: root, To: id})
 	}
-	if _, _, _, err := decodeCanvasDocument(mustJSON(nodes), mustJSON(edges), []byte(`[]`)); err != nil {
+	if _, _, _, err := decodeCanvasDocument(mustJSON(nodes), mustJSON(edges), mustJSON(artifacts)); err != nil {
 		return "", &creationFailure{422, "invalid_canvas", "Canvas structure exceeds limits"}
 	}
 	id := "CV-" + store.ID()
-	_, err := tx.Exec(ctx, `INSERT INTO v3_canvases(id,owner_id,environment_id,title,kind,goal,services,nodes,edges)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb)`, id, user.ID, env, in.Title, in.Kind, in.Goal, in.Services, mustJSON(nodes), mustJSON(edges))
+	_, err := tx.Exec(ctx, `INSERT INTO v3_canvases(id,owner_id,environment_id,title,kind,goal,services,nodes,edges,artifacts)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb)`, id, user.ID, env, in.Title, in.Kind, in.Goal, in.Services, mustJSON(nodes), mustJSON(edges), mustJSON(artifacts))
 	if err != nil {
 		return "", creationUnavailable()
 	}
-	changes := mustJSON(map[string]any{"environment_id": env, "kind": in.Kind, "services": in.Services, "ai_draft": in.AIDraft, "model_id": modelID})
+	changes := mustJSON(map[string]any{"environment_id": env, "kind": in.Kind, "services": in.Services,
+		"template_id": in.TemplateID, "retained_runbooks": len(artifacts),
+		"ai_draft": in.AIDraft, "model_id": modelID})
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes)
  VALUES($1,'v3.canvas.created',$2,'success',$3::jsonb)`, user.ID, id, changes)
 	if err != nil {
@@ -303,25 +310,49 @@ func (s *Service) createGenericCanvas(ctx context.Context, tx pgx.Tx, user core.
 	return id, nil
 }
 
-func loadCreationTemplate(ctx context.Context, tx pgx.Tx, owner, env string, in createRequest) ([]Node, []Edge, *creationFailure) {
+func (s *Service) loadCreationTemplate(ctx context.Context, tx pgx.Tx, user core.User, env string, in createRequest) ([]Node, []Edge, []CanvasArtifact, bool, *creationFailure) {
 	var rawNodes, rawEdges []byte
-	err := tx.QueryRow(ctx, `SELECT nodes,edges FROM v3_canvas_templates
+	var templateOwner string
+	err := tx.QueryRow(ctx, `SELECT COALESCE(owner_id,''),nodes,edges FROM v3_canvas_templates
  WHERE id=$1 AND kind=$2 AND (owner_id IS NULL OR (owner_id=$3 AND environment_id=$4))
- FOR SHARE`, in.TemplateID, in.Kind, owner, env).Scan(&rawNodes, &rawEdges)
+	 FOR SHARE`, in.TemplateID, in.Kind, user.ID, env).Scan(&templateOwner, &rawNodes, &rawEdges)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil, &creationFailure{404, "template_not_found", "Template not found"}
+		return nil, nil, nil, false, &creationFailure{404, "template_not_found", "Template not found"}
 	}
 	if err != nil {
-		return nil, nil, creationUnavailable()
+		return nil, nil, nil, false, creationUnavailable()
+	}
+	metadata, err := decodePrivateTemplateMetadata(rawNodes, templateOwner != "")
+	if err != nil {
+		return nil, nil, nil, false, &creationFailure{503, "template_unavailable", "Private template metadata is invalid"}
+	}
+	if metadata.SourceServices != nil {
+		if failure := checkTemplateSourceServices(ctx, tx, s.Store, user, env, metadata.SourceServices); failure != nil {
+			return nil, nil, nil, false, failure
+		}
 	}
 	nodes, edges, _, err := decodeCanvasDocument(rawNodes, rawEdges, []byte(`[]`))
 	if err != nil {
-		return nil, nil, &creationFailure{503, "template_unavailable", "Template structure is invalid"}
+		return nil, nil, nil, false, &creationFailure{503, "template_unavailable", "Template structure is invalid"}
+	}
+	if err = resetLoadedTemplateSteps(nodes); err != nil {
+		return nil, nil, nil, false, &creationFailure{503, "template_unavailable", "Template steps are invalid"}
 	}
 	if len(nodes) == 0 {
 		nodes = []Node{{ID: "root", X: 16, Y: 140, W: 260, Icon: "layers", Tone: "info", Title: in.Title, Sub: "主线", Blocks: []json.RawMessage{}}}
 	}
-	return nodes, edges, nil
+	artifacts := make([]CanvasArtifact, 0, len(metadata.Runbooks))
+	for i, ref := range metadata.Runbooks {
+		title, _, checkErr := checkPrivateTemplateRunbook(ctx, tx, s.Store, user, env,
+			in.Services, ref.ID, ref.Version)
+		if checkErr != nil {
+			return nil, nil, nil, false, templateRunbookFailure(checkErr)
+		}
+		artifacts = append(artifacts, CanvasArtifact{ID: fmt.Sprintf("runbook-%d", i+1),
+			X: ref.X, Y: ref.Y, Icon: "file-text", Tone: "info", Title: title,
+			Sub: fmt.Sprintf("Runbook v%d · 未执行，待复核", ref.Version), Href: "/runbooks/" + ref.ID})
+	}
+	return nodes, edges, artifacts, metadata.Content, nil
 }
 
 func (s *Service) createInvestigationCanvas(ctx context.Context, tx pgx.Tx, user core.User, env string, in createRequest, service mappedService, draft []draftNode, modelID string) (string, *creationFailure) {

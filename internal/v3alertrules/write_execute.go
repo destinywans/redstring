@@ -86,7 +86,7 @@ type AlertRuleDeploymentReceipt struct {
 	TargetBranch  string `json:"target_branch"`
 	Path          string `json:"path"`
 	ContentDigest string `json:"content_digest"`
-	State         string `json:"state"` // opened; never merged by Prepare
+	State         string `json:"state"` // Prepare returns opened; read-only recovery may record merged.
 }
 
 type AlertRuleDeploymentObservation struct {
@@ -232,10 +232,21 @@ func (s *WriteService) ExecuteApproved(ctx context.Context, proposalID string) (
 	}
 	intent, approval, digest, err := s.approvedIntent(ctx, proposalID)
 	if err != nil {
+		if result, handled, recoveryErr := s.reconcileEnableExecution(ctx, proposalID); handled {
+			return result, recoveryErr
+		}
 		return zero, err
 	}
 	record, ready, err := s.claimEnableExecution(ctx, proposalID, intent, approval, digest)
 	if err != nil {
+		// Approval can expire or be revoked between the first verification and
+		// the transactional claim. Recover an existing identity without writing
+		// remotely, while leaving ordinary live-approval claim errors unchanged.
+		if _, _, _, approvalErr := s.approvedIntent(ctx, proposalID); approvalErr != nil {
+			if result, handled, recoveryErr := s.reconcileEnableExecution(ctx, proposalID); handled {
+				return result, recoveryErr
+			}
+		}
 		return zero, err
 	}
 	if ready {
@@ -360,7 +371,7 @@ func (s *WriteService) claimEnableExecution(ctx context.Context, proposalID stri
 		return record, false, problem(503, "execution_invalid", "Execution record is invalid")
 	}
 	if record.State == "pending_review" || record.State == "awaiting_provider" || record.State == "enabled" {
-		if !validDeploymentReceipt(intent.Deployment, record.ID, record.Deployment) {
+		if !validRecoveryReceipt(intent.Deployment, record.ID, record.Deployment) {
 			return record, false, problem(503, "execution_invalid", "Deployment MR record is invalid")
 		}
 		return record, true, tx.Commit(ctx)
@@ -465,14 +476,21 @@ func (s *WriteService) ObserveEnabled(ctx context.Context, proposalID string) (A
 	}
 	record.ProposalID = proposalID
 	if record.ActionDigest != actionDigest || json.Unmarshal(raw, &record.Deployment) != nil ||
-		!validDeploymentReceipt(intent.Deployment, record.ID, record.Deployment) ||
+		!validRecoveryReceipt(intent.Deployment, record.ID, record.Deployment) ||
 		record.FirstApproverID == "" || record.FirstApproverID == record.ApproverID {
 		return zero, problem(503, "execution_invalid", "Deployment receipt is invalid")
 	}
 	if record.State != "pending_review" && record.State != "awaiting_provider" && record.State != "enabled" {
 		return zero, problem(409, "execution_not_observable", "Deployment is not ready for observation")
 	}
-	observation, err := s.EnableApplier.Observe(ctx, intent, record.Deployment)
+	// Adapters historically accept the original opened creation receipt and
+	// independently re-read the current MR state. Recovery may retain merged
+	// as factual evidence, so normalize only this read-only adapter argument.
+	// The adapter still GETs the real MR and verifies review, merge and sync;
+	// this does not change the remote state or skip factual observation.
+	observationReceipt := record.Deployment
+	observationReceipt.State = "opened"
+	observation, err := s.EnableApplier.Observe(ctx, intent, observationReceipt)
 	if err != nil {
 		return zero, problem(503, "deployment_observation_unavailable", "Deployment state is unavailable")
 	}

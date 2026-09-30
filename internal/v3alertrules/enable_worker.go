@@ -9,6 +9,8 @@ import (
 // request only creates an immutable proposal; the composition root must start
 // this worker separately after binding approval and GitOps sources. Every
 // selected proposal is reverified by ExecuteApproved before a remote write.
+// Existing unknown results remain eligible for read-only recovery after expiry
+// or revocation; only a new execution requires a live approval.
 func (s *WriteService) RunEnableWorker(ctx context.Context) error {
 	if s == nil || s.DB == nil || s.Access == nil || s.Reader == nil ||
 		s.Reader.Source == nil || s.EnableApproval == nil || s.EnableApplier == nil {
@@ -40,11 +42,9 @@ func (s *WriteService) enableWorkerPass(ctx context.Context, after string) (stri
  JOIN v3_proposal_approval_decisions d ON d.proposal_id=a.proposal_id
  LEFT JOIN v3_alert_rule_enable_executions x ON x.proposal_id=a.proposal_id
  WHERE a.action_kind=$1 AND p.status='approved' AND a.proposal_id>$2
- AND ((x.state IN ('pending_review','awaiting_provider')
+ AND ((x.state IN ('pending_review','awaiting_provider','reserved','uncertain','exporting')
        AND x.updated_at<clock_timestamp()-interval '15 seconds')
-   OR ((x.proposal_id IS NULL OR
-        (x.state IN ('reserved','uncertain','exporting')
-         AND x.updated_at<clock_timestamp()-interval '15 seconds'))
+   OR (x.proposal_id IS NULL
        AND d.expires_at>clock_timestamp()
        AND NOT EXISTS(SELECT 1 FROM v3_proposal_approval_revocations r
                       WHERE r.proposal_id=a.proposal_id)))

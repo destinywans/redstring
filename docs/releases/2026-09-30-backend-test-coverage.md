@@ -314,3 +314,13 @@ profile两guard修后30offline通过并经XHigh定向复核；修前24测试/57�
 be78e046-38f9-4abc-a045-45cc2ff16c16源774/bfb71212正式性能已中断，保留6passed/1failed/1blocked。预热120秒及10RPS完整300秒零错误；25RPS完整300.687秒7500请求中285失败（3.8%），全部是300次同用户幂等认领中的285次15秒超时。整体P95 908.619ms/P99 15001.204ms，聚合P95 919.578ms/P99 1025.102ms。PG精确窗口285次statement cancel均在认领首个incident FOR UPDATE查询；最终15锁等待。首红三格式报告、原k6/resources/PG日志与owner核验停负载证据完整保留。只停止本runner90360，正式双API未重启，规模档未seed/执行，24h尚未开始。
 
 当前正在受限定位持锁来源。inbox/groups批量5000行SHARE为主要嫌疑，未确认实际持有者前不将猜测宣告根因；不通过放宽超时、删除有界写或仅优化脚本幂等掩盖首次写问题。稳定复现后最小修复、原场景及相关并发/权限回归，再原两档性能。旧归档数据库不变且不再次归档。助手依睡前授权自主停止更高负载并记录决定，继续修复，无产品前端/部署/合并。
+
+### 2026-10-01 · WAN-162 受控复现与最小修复
+
+自有隔离schema的SHARE接力实证首次认领与同用户重试均等待至1502ms测试截止；停止读后两者完成，原APP停负载后无残留锁或事务。KEY SHARE允许scope漂移、简单REPEATABLE READ在晚锁授权表后仍读撤销前grant，故未采用这两个替代方案。修复改为捕获实体SELECT的MVCC投影，并保持READ COMMITTED下当前app/env/team/user/session权限锁与末尾真实时钟到期检查；通知scope不匹配仍失败关闭、policy调用后仍完整重查成员与权限。Incidents两次实体读取之间的link TABLE SHARE保留，避免并发创建关联事件造成重复。数量上限、写锁、API结构和权限边界不变，未混入分页或N+1重构。
+
+四helper源码与契约描述已提交推送并精确远端回读：`8d3bcf99b90c2b657af6037ec313843ab7a9de6e`。最终Go输入指纹 `15125d6ecd371864b894edfd91b7ca4944bf69dc305359d0e385a879f8cc090a` 始末一致，完整v3events真实PG/race127.732秒、48 PASS（21顶层/27子测试）、0失败/跳过。新增17业务场景覆盖三列表首次/幂等认领、旧scope快照、通知不匹配、等待期间撤权和自然到期、policy两阶段重查、人工事件status CAS及唯一event、两种创建提交顺序的去重。创建先完成再读取为顺序证据；列表先持link锁再创建是实际并发等待，不能声称两个方向都实际锁竞争。测试脚本最初误写status首次200，依据真实201契约修正并断言幂等重放200，fixture首红保留；未修改产品成功码或放宽断言。独立XHigh读取原始日志、metadata及diff，无阻断。相关纯鉴权29 PASS为c8版本中未改变实现的复用证明，最终全量将另取1512证据。
+
+私有原red/green及 `.local/testlab/wan162-three-lists-evidence-summary.json` 保留。GroupPolicy外部响应使用协议Mock，数据库、路由handler、权限、真实时钟、认领和状态事务为真实本地；不能替代真实组织或正式V3黑盒验收。模块green不能关闭原25RPS失败。
+
+正式双实例已按新源码重建并fresh nonce/HMAC核验：非racebinary `cb7f3d80a307256512a8e5ecd41a3ed95f2242b726816e573c2fa4a0668b4c60`，runtime `338e14784bb40f2d05000a8b76322cc8bea158e65ce3357c014f1111373fe48d`。完整静态/PG/race/专项回归 `862b1c94-dc3c-4932-8403-ba6527704831` 运行中；随后串行正式接口和原两档完整性能复测。旧归档操作不重做，原性能失败不覆盖，24小时尚未开始。WAN-162保持In Progress，原51项及全166接口尚未收口。

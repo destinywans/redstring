@@ -1,3 +1,25 @@
+## CP-228 · 2026-10-01 · WAN162最终定向回归通过，1512正式实例与完整复验
+
+- 四个只读entity helper最小快照修复及新17业务场景已完成。最终 **15125d6ecd371864b894edfd91b7ca4944bf69dc305359d0e385a879f8cc090a** 始末一致，v3events真实PG/race127.732秒、**48PASS（21top/27sub）/0fail/0skip**；独立XHigh已读raw/metadata并确认无阻断。相关auth29PASS复用c8源码并明示对应实现未改；本轮完整862会另收新源证据。所有原red/fixture错误与green均保存，不能拿模块green代原k6。
+- case CAS首次正确契约201，重复request200/replayedtrue/revision2/唯一event，草稿200预期的fixture失败保留后修正（未改产品、未接受任意码）。创建先完成→读是顺序验证；list先持link SHARE→creator RowExclusive等待是实测并发。仅称两种提交顺序覆盖，**不宣称双方向锁竞争都实测**。link TABLE SHARE、RC/current authority/finalexpiry/caps/写锁完整保留；无N+1/分页或新能力改动。
+- root在零SQLite活动run、fresh nonce/HMAC验证原774归属后实际重建本轮专属非raceAPI；新nonce/HMAC **supervisor98778 / API98779、98780**、source1512 ready，binary **cb7f3d80a307256512a8e5ecd41a3ed95f2242b726816e573c2fa4a0668b4c60**，runtime仍 **338e14784bb40f2d05000a8b76322cc8bea158e65ce3357c014f1111373fe48d**。私有wan162-new-runtime.json；旧88865等快照失效，任何信号仍需重新核验。APP/归档/seed均未重置，不需要第二次archive。
+- 当前 **862b1c94-dc3c-4932-8403-ba6527704831** /session40228：static、baseline、mfa、passkey、configsync、regressions新1512完整串行run执行中，static6passed、后端baseline在跑；不得同时性能或重启/改Go/新PG重型测试。最终收Go-json/skips/源码始末→正式entry/components及必要event原业务链→scoped push/原18min base+scale性能。已验证domain可独立提交，其余manifest/记录随后同工作包；**24h尚未开始**。
+- WAN162仍InProgress直到原性能支持路径/资源恢复/一致性复验，原be78 interrupted及failed case、06a failed、2e interrupted原样留存。aggregate WAN152、暂停7CI/CD、Ollama/外部/缺能力High待办仍可见；源若不变则性能/24h严禁重型并行。产品前端未改测、无合并部署、保留.claude。
+
+## CP-227 · 2026-10-01 · 初始回归通过，补同型事件列表写交错
+
+- 初始WAN162两helper新真实10leaf（corrected-red 4fail/6pass）现10全部green；完整v3events race40PASS/0fail/skip，相关RBAC/store/session/HTTP race29PASS/0fail/skip。源始末 **c8bded58496920ba3211df9c5db20929d4e308844e9ed4864106211573d8c37d**；private wan162-evidence-summary.json原红/green/metadata/cleanup留存。静态 **defa4ec5-b6bb-4cde-893f-0d9e100671c9** 六命令passed/报告已导出；这是初始两helper版本证据，后追加不冒最终新源。
+- 沿调用链新查正式 **Incidents→events.go:listVisible/listVisibleCases** 也批量entity SHARE；助手自主决定同WAN162追加本地可覆盖的同型问题，避免只修k6选中路径。独立XHigh支持纯capture RAM实体投影不持entity行锁；**Incidents关联表SHARE仍保留**，使case+links同事务创建不能在两次列表间提交造成alert+case重复。current authority/finalexpiry/RC/5000边界和所有写锁不变，不顺手做N+1/分页/新能力。
+- worker新增第三Incidents路径首次/幂等/漂移/撤权/实际到期，以及人工case暂停读期间正式status写/旧snapshot计数/两方向case创建去重；当前先新增原例red→两个events helper最小修→green/最终v3events race。root独占机器契约第3description，准确写两实体语句快照+稳定links+当前权限，而非整个响应单statement。claim-concurrency suite与README已加入，最终由rootSQLite跑原例/适当冻结回归。
+- 未正式API重建、未性能、**24h未开始**；旧API仍774/88865等，current源正在追加，不能冒同源。静态和模块结果若受新增影响需定向复验；先收最终独审/Go metadata/清理→scoped commit/push/Linear→nonrace实际重建/正式HTTP→原base+scale18分钟。不得另UUID归档或删原seed，原archive与firstred完好；其他高TODO/暂停域不变，产品前端未改测/无合并部署。
+
+## CP-226 · 2026-10-01 · WAN162受控交错确认，最小快照修复实施中
+
+- **960c18e56596a75b5e585e4bfead885c6b8c73bc** 已提交推送并精确回读，原be78首红报告/原样终态留存。停负载19:35:10Z ownAPP只读实证6idle连接、0Lock等待/未授予锁/阻塞/idle-in-tx，无永久残留。新独立schema实证5次SHARE接力使首次认领与同用户重试都1502ms截止，停止读后两者完成；KEY SHARE允许scope漂移，RR晚锁授权表仍读撤销前旧grant，两简单替代拒绝采用。private claim-be78-interleaving-v2.json明确仅合成锁机制，不代正式HTTP验收；相关证据按ID登记于原run，原完成attempt不可变/原failed未修改。
+- 新 **[WAN-162](https://linear.app/wansss/issue/WAN-162/修复告警聚合读持锁阻塞认领的并发可靠性问题)** High/InProgress，复用当前测试分支依赖未合并V3基线。自主决定仅Inbox/AlertGroups候选查询去批量incident SHARE，采用该SELECT单次MVCC完整投影；保留RC当前app/env/team/user/session/grant锁、末尾wall-clockexpiry、通知逐行scope失败关闭及policy外部前后完整重读/digest。ClaimAlert强锁/版本/权限/原子写审计不变，避免幂等-only修掩盖首次写。
+- 独立XHigh源码核验未见按旧ID读取新scope正文路径，认可方案而不引入RR；机器契约两锁描述需同步（root已修改v3-openapi-alerts.py及仅2处生成描述，未改变响应结构）。实现代理独占2list查询和新list_claim_concurrency_test.go，先真实PG首红→最小修→同例green/受影响race，再root定向独审、正式非race重建/当前HTTP链/原完整性能。未得修后证据前不标已修。
+- 无活动正式负载，旧正式API仍原774 binary，尚不能用于新源验收；**24h尚未开始**，不重归档/删seed/改阈值/权限，不恢复暂停7CI/CD，不前端/合并/部署。当前未提交为WAN162本工作包契约/台账/记录和实现代理3文件，保留无关.claude。aiops-24需按本最新状态收实施结果，不重启或重复测试。
+
 ## CP-225 · 2026-10-01 · 基础25RPS认领锁等待首红，停止本轮负载定位
 
 - performance **be78e046-38f9-4abc-a045-45cc2ff16c16** 已终态 **interrupted**，6通过/1失败/1阻塞；原基础 **rps25真实300.687秒** 失败保留，不能当性能通过。7500请求中285非预期失败（3.8%），均为300次有界同用户认领重试中的285次15秒超时；全局P95 908.619ms/P99 15001.204ms，聚合P95 919.578ms/P99 1025.102ms。预热120秒和10RPS完整300秒零错误；规模档尚未seed/执行。

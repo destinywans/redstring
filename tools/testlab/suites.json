@@ -240,6 +240,39 @@
       ]
     },
     {
+      "id": "claim-concurrency",
+      "name": "告警与事件列表快照/首次与幂等认领/CAS及去重交错",
+      "type": "concurrency",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "go",
+            "test",
+            "-mod=readonly",
+            "-race",
+            "-json",
+            "-count=1",
+            "-timeout",
+            "10m",
+            "-run",
+            "Test(EventList|EventIncidentList|EventGroupPolicy|Claim)",
+            "./internal/v3events"
+          ],
+          "parser": "go_json",
+          "timeout_seconds": 660,
+          "env": {
+            "TEST_DATABASE_URL": "${TEST_DATABASE_URL}"
+          }
+        }
+      ],
+      "gap_ids": [
+        11,
+        37,
+        43
+      ]
+    },
+    {
       "id": "regressions",
       "name": "已知风险定向复现与回归",
       "type": "concurrency",

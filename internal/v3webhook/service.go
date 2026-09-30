@@ -220,7 +220,7 @@ func (s *Service) ingestOne(ctx context.Context, tx pgx.Tx, sourceID string, ite
 		ends = &a.EndsAt
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO ops_incidents(id,source_id,application_id,environment_id,fingerprint,title,severity,alert_status,summary,labels,starts_at,ends_at)
-	 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13)
+	 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12)
 	 ON CONFLICT(source_id,fingerprint,starts_at) DO NOTHING`, store.ID(), sourceID, m.ApplicationID, m.EnvironmentID, a.Fingerprint, title, severity, a.Status, summary, string(labels), a.StartsAt, ends)
 	if err != nil {
 		return err

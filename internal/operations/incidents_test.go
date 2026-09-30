@@ -66,7 +66,7 @@ func TestIncidentDedupOrderIsolationAndAtomicInvestigation(t *testing.T) {
 	if e != nil || len(all) != 2 {
 		t.Fatal("admin unassigned queue missing", e)
 	}
-	if _, e = s.DB.Exec(ctx, "DELETE FROM application_grants WHERE subject_id='op'"); e != nil {
+	if _, e = s.DB.Exec(ctx, "DELETE FROM rbac_user_roles WHERE user_id='op' AND role_id='auto-fixture'"); e != nil {
 		t.Fatal(e)
 	}
 	items, e = s.Incidents(ctx, op, "", "")

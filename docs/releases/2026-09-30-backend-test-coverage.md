@@ -179,3 +179,55 @@
 - GitOps `1f93d97f` 真双人投票与DB边界通过，最终240秒生效读回超时仍失败。labels/assurance首红属于夹具，不改变产品限制；完整MR→独立审核→Argo→实际Prom规则尚未关闭。
 - 12秒 `92792779` 接线自检5项通过，实测50正常/10慢SSE及资源数据已呈现在独立看板；它不能计为正式18分钟性能/24h。后者尚未启动。
 - 正式OIDC、SMTP邀请及Vault凭据三条本地短链将在最终性能/24h前补；真实外部租户/最终邮件投递保持待办。baseline `2d58418a` 因新确认WAN-155修复将改变源码而提前停止：463通过/0失败/17跳过/2中断，保留记录，修后重跑。
+
+## 追加：当前真实短链及接口分母校正
+
+原entry41个正常method/path与主166契约交集为**30**；另11为辅助/历史。主135条正常路径还没有该entry证明，不等同缺实现。后续每条新短链独立登记真实HTTP矩阵，不从模块通过补推断注册。
+
+- WAN155 `e9046eb` 后 `0bce4262` 5通过：真实软件WebAuthn独立双人投票/第一票不执行、持久receipt、GitLab MR5独立审阅合并、Argo同步、实际Prom规则生效；原1f93失败保持。物理认证器与生产治理不关闭。
+- WAN156 `4d43d21` 两审计SQL类型修后 `611892f9` 整v3admin30真实PG/race、`7edb56a7` 正式HTTPS+TLS465四跨组件时序6项通过。上游已接收、本地audit提交失败、响应丢失分别有证据，最终外部投递仍待办。
+- `796b27b7` 24通过：正式connector六scope credential绑定、真实Vault least-policy/deny与受控TLS上游。不是所有企业Vault权限/网络出口验收。
+- `9997769d` 10通过：原TestLocalReadcheck及四provider probe使用真实本地组件，Grafana12.1.1为临时专有容器已清理。Jenkins仍在复验，原Groovy import首红属工具fixture，新的启动退出须另诊断，不无证据归为OOM。
+- OIDC935f尚未通过，实际KC登录cookie_not_found确认HTTP loopback Secure cookie工具差异，决定仅临时KC改HTTPS可信CA。原512MiB OOM另为有证据环境阻塞。content a98首次8pass+SQLfixture block保持，确认setup两个角色同name违反UNIQUE(name)，业务阶段尚未开始，改精确run-owned角色name复验。
+- 当前全量 baseline324a进行中；旧2bfa847pass/17skip/1interrupt与2d58463pass/17skip/2interrupt因产品修复前停止，不能作最终冻结证明。正式18分钟性能/真实连续24h仍未开始。
+
+## 2026-09-30 最终Go指纹与独立短链补验
+
+- Go指纹`be282465cdf1078ec20e393bdf98b091817b9f1eda7704a9d737e4e46f26ca65`，全量`324a7add-47f6-4db8-a9ce-7840c7048cdb`1815通过/0失败/75跳过，始末一致。75分类18无测试包、11旧local_live、2付费外部、44独立opt-in；原skip保留，专项证据分别关联。
+- 专项/定向`55654252-6fd2-4a6e-9072-4cec58f3e3fc`664通过/0失败/1付费DeepSeek跳过，运行诚实blocked。不能把独立验证覆盖过的opt-in改写为原全量无跳过。
+- 正式HTTPS OIDC18及Vault24按新cleanup/matrix重验`fa8fbd5f-12e9-4de9-8d06-ba9db2780991`42全部通过，27实际HTTP矩阵记录；企业IdP/组织策略待办。内容`e8814ea6-326b-4a5c-b73b-1571a9998e57`69全部通过/62实际HTTP矩阵记录，明确合成application-bound unpublished draft和Canvas输入；正式独立审核、版本引用、模板三保留模式、上传URL/SSRF、事件复盘正常与跨scope均由API执行。
+- Jenkins`4cc8cd6d-edf4-481b-a825-e1e1834824a1`原live1通过，本轮任务真实成功并读取console/时间和结果，另受限reader请求build403；非产品认证constructor/真实交付流水线证明。三工具首红原样保留。
+- 普通静默`16772598`KeyError以及`3e0709ac`seed UNIQUE(role name)均在正式HTTP前；工具错误按真实schema修复中，不能宣称已验静默能力。配置提升WAN157工具准备中。
+- 用户授权并行后，WAN158独立HTTP只读补测与WAN139独立看板QA已派发可见会话；新增独立DB/18602/18603，主会话统筹修复与最终性能/24h冻结。未重复已完成全量/迁移，未改测产品前端。
+- 各最新完整运行已导出HTML/JSON/Markdown至`.local/testlab/reports/<run-id>/`，运行/证据持久保留，不提交数据。正式18分钟/规模性能与真实连续24h尚未开始。
+
+### 原生交付历史跳过的范围核对
+
+Linear WAN89/90/91/92最后确认仍明确暂停CI/CD开发、构建测试、部署和故障验证。本轮规则审批/GitOps为明确批准工作包，已实际验收；delivery6/deployment1七个旧live与该规则链不同。它们不是外部账号阻塞，而是暂停域范围待用户后续Review，本轮暂不启动Runner/Registry/原生构建/VM发布。此决定更正此前把所有旧live视为继续执行工作的推断，保留原历史/skip和高优先级台账，不把它们计passed。Ollama本地model仍独立待本轮隔离配置/容量核对，不属于这7项暂停域。
+
+
+### 2026-09-30 23:45 · 并行包首轮与源8d0a验收记录
+
+WAN159 a00c245修143迁移漏cancel并新增153已记录数据库补迁移；3真实PG迁移红绿及独立审查完成。源8d0a正式普通静默bd46318f55全通过、entry+components05ccc193244全通过，报告保留；全量c5063e10仍运行，旧be2821815/664结果保留但不是当前冻结验收。
+
+可见HTTP会话WAN158完成31离线守卫；根首live848ce917发现home缺oncall时503的夹具契约预期错误、5秒cleanup超时及malformed事件，留首红并返回独占两文件修正，不静默放宽断言。独立看板QA完成，两实际问题已b083243最小修并22离线/实际三报告下载复验；旧flat无结构化场景明确证据不足，实际/预期HTTP码显示，fresh连接和持久刷新恢复已验，同tab跨重启自动重连未直接验。
+
+配置提升471d5d0e73业务/故障断言通过（真实GitLab branch201/MR201接收后丢响应、直接上游读回、安全同digest重试；签名对象跨项目200拒绝与去故障成功因果对照）。源/生产DB清理超时导致父run失败，分别保留产品业务与清理错误，不计完整通过，原工具代理继续最小修后根复验。
+
+性能监督者由plain identity改为新nonce/HMAC校验，二进制与依赖验证工具纳入22输入冻结；18离线和实际owned实例核验通过c784eac。本轮性能/24h尚未开始，禁止以12秒自检或并行总耗时替代连续窗口。主证书至2026-10-02T08:58:11Z，启动前仍需实际窗口校验。
+
+
+2026-09-30 23:54定位更正：848ce917首红精确路径为GET /me（权威oncall缺配置→503 oncall_unavailable），此前记录将http.7误认为/home；/home成功断言保留。fixture、pagination、dependency_unavailable三个工具场景名不在Runner枚举，malformed为采集协议问题；按canonical场景记录细分purpose，不扩大允许值或冒正常覆盖。原首次失败不覆写。当前冻结回归c5063e10已2479通过/0失败/79跳过，源始末8d0a一致；分类18无测试包/12本地live/3付费外部记录/46专项开关，30个skip对应同run另专项实际pass，全部原skip保留。
+
+
+### 2026-10-01 00:30 · 并行策略及工具异常修复
+
+用户再次授权睡觉期间自主选择、留记录并次日Review。三条可见测试包加根统筹构成最多4工作流：HTTP只读WAN158、看板QA WAN139（已结束）、新服务/管理写入WAN160会话01a0f31a-4262-75a2-806d-088f6c9e19f7（只offline、独占2文件、新DB/18606/07、限定12–20本地无需账号路由）。根内部模块代理处理逻辑/迁移/配置提升/GitOps，重型资源与正式性能仍串行，未量化壁钟节省百分比。追加管理包原因：历史44/166正常主路由证明仍不足，优先补现有本地能力，避免把匿名/越权断言、Mock和库存当正常验证。
+
+配置提升55c2d57f75本地实际断言通过/0失败/1external_todo、62离线，3944284提交推送；源/生产DB精确无残留、进程exit0/PAT已撤销，GitLab项目8/9/10仅accepted延迟删除，不宣称物理回收。首471d清理超时由精确reconcile修，不重复DROP，总40秒不变。
+
+共享identity错误留证可能跳过cleanup或覆盖原始业务异常，f902cc0最小finally/独立sink修后37身份/101依赖offline及源8d0a实际identity+Vault6c911b2f42全通过；IO故障无法写证据时仍失败/保留原异常，不冒绿色。readonly对应41offline、原live980275ad96业务通过0业务失败，但PG连接尚在导致清理阻塞，保持整体failed；精确源8d0a，继续只读定位、有界quiescence、不force连接/盲目DROP。
+
+规则GitOps重复prepare327be9707通过/2失败/2阻塞：官方Argo安装清单覆盖repo CA，准备HTTPS启动窗口失败后半准备chain同步400。owned集群/node精确归属、无OOM/映射漂移，actual Argo日志unknownauthority与ComparisonError证明环境根因；首TLS精确URL历史无法还原仅静态首session推断，保留。工具修恢复CA顺序+验证TLS只读health/readiness+bootstrap_ready失效/精确预检，9新增/14已有offline通过，原suite d017a14b复验中。禁止insecure或绕过独立审核。
+
+冻结全量c5063e10最终2479通过/0失败/79跳过，源始末8d0a一致。分类18无测试包、12local_live、3付费外部记录、46专项opt-in（78unique module/name，30条在同run专项另pass，原skip不改）；同源entry244补16backend gates，另有原local telemetry/Jenkins/OIDC事实。7旧CI/CD live保持暂停范围HighTODO、Ollama容量High阻塞、付费/真实租户外部待办。正式性能与86400连续窗口仍未开始。

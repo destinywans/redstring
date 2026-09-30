@@ -1,3 +1,39 @@
+## CP-214 · 2026-09-30 · 双会话补测、正式静默修复与冻结回归
+
+- 用户授权并行独立测试与外出期间自主决定留档。分支 `codex/wan-138-backend-testlab`；`a00c245` WAN159、`b083243` 看板、`6b4d32d` 隔离端口/用例键均已提交推送并确认，最新性能保护 `c784eac` 已提交（push需回读）。Go源码指纹 `8d0a76d1069495f779859cee2704ae745133d9625f7074bb24ed0a0dc5a1b126`。未合并/部署，产品前端未改/未测，无关 `.claude/`保留。
+- WAN159：普通静默DELETE真实503→PG23514确定143迁移遗漏cancel（140原已允许）。最小143+153修复和3个真实PG迁移用例红绿完成；独立XHigh检查批次事务/并发锁/旧ledger补迁移无阻断。原正式链 `bd46318f-3d44-4a92-9233-df0e67526cd4` 55通过/0失败，含真实AM POST/DELETE丢响应、软件双审批、SIGKILL后read-only恢复，精确写1；组批量/自然expiry/物理身份仍待办。
+- 最新正式entry+真实组件 `05ccc193-0d8d-45c3-96e7-cf1c7534d4d8` 244全部通过，源8d0a；新全量+专项 `c5063e10-f1f5-46e2-926f-ccc8732feff8` 仍运行（最近1949通过/78跳过/0失败，须以SQLite终态为准）。旧1815/664结果只对应旧be282源，不能替代当前冻结。
+- 可见并行会话：HTTP WAN158 `01a0f2c9-e88f-7ba0-bf56-1d54273313c2`，独占2工具文件、新DB/18602/03；首run `848ce917-04db-422a-90a3-a0b258495009` 10通过/5失败含父项，home条件式缺oncall配置503与工具200预期冲突、清理5秒超时及事件malformed正在修工具，不计接口正常覆盖。
+- 看板QA会话 `01a0f2c9-fe91-7372-b8e3-947d17c854f0` 已完成实际七视图/筛选/持久恢复/报告验证，两问题由根修复b083243：矩阵保留预期/实际HTTP码且旧flat记录明确证据不足；HTML加下载attachment。22核心离线及3格式实际下载通过，源码HTML与下载字节相等；同tab跨重启自动重连未直接验，fresh连接/刷新/事件序号恢复已验。QA私有 `.local/testlab/dashboard-qa/20260930-225110/QA.md`。
+- WAN157配置提升扩展 `471d5d0e-3aaf-4019-84ae-e89251084773` 73业务/故障断言通过，真实GitLab branch/MR201已接收丢响应和跨项目恶意200因果对照已完成；父run失败源于owned源/生产DB清理TimeoutExpired，持有进程退出0、3项目删除accepted/PAT撤销已成功。原两工具文件独占代理修清理并保留首红，不能宣称运行成功。
+- 最新性能保护18离线通过，实际nonce/HMAC监督者/双API身份核验、二进制和22个runtime输入纳入冻结。owned supervisor59598/APIs59599/59600。主证书实际有效至2026-10-02 08:58:11 UTC（16:58本地）；24h启动前再次核对剩余窗口，不能中途轮换。
+- 原CI/CD领域WAN89/90/91/92已明确暂停，新的规则GitOps授权不等于恢复原生构建/Workflows/VM发布；7旧live高优先级范围待Review（非外部密钥阻塞），修订取代CP213相应推测。真实Ollama旧gate要求23GB qwen权重，当前Docker23.43GiB总预算/约17GiB使用，不触碰用户daemon/替换小模型冒原gate通过，环境容量待办。WAN152聚合限额方向High待Review，受支持接口可性能验但整体未收口。
+- 正式18分钟基础/规模性能和真实连续24h尚未开始。当前源已冻结，收齐并行HTTP和配置提升cleanup→最小修原例回归→scoped提交推送/Linear与原51子场景→最终静态/doctor/无重负载→正式性能→新trial和真实86400窗口。待提交包括两测试包、manifest、docs/缺陷/51台账；私有运行证据不提交。
+
+## CP-213 · 2026-09-30 · 冻结回归与多会话独立补测
+
+- 用户明确授权互不关联测试多会话并行，并继续外出期间自主决定留档。分支`codex/wan-138-backend-testlab`，当前已提交推送`a48768b1561a32319d29a951fd74f7c56450d38a`并远端回读；Go指纹`be282465cdf1078ec20e393bdf98b091817b9f1eda7704a9d737e4e46f26ca65`稳定。未合并/部署/改测产品前端，保留无关`.claude/`。
+- 完整冻结全量`324a7add-47f6-4db8-a9ce-7840c7048cdb`1815通过/0失败/75跳过（18无测试包、11旧local_live、2付费外部、44专项开关）；专项`55654252-6fd2-4a6e-9072-4cec58f3e3fc`664通过/0失败/1付费DeepSeek跳过。运行均如实blocked，不能声称全量无skip或24h完成。源始末一致，最新报告已导出。
+- 修订首次TERM清理保护/Runner矩阵后原真实OIDC+Vault`fa8fbd5f-12e9-4de9-8d06-ba9db2780991`42全部通过/27实际矩阵；内容`e8814ea6-326b-4a5c-b73b-1571a9998e57`69全部通过/62实际矩阵。Jenkins原live`4cc8cd6d-edf4-481b-a825-e1e1834824a1`1通过，准确单类序列化白名单与READ所需DISCOVER，没有BUILD；不证明认证constructor/原生交付链。最新6链工具102离线通过，核心47通过并提交推送。
+- 普通静默首次`16772598`KeyError、随后`3e0709ac`role name唯一约束均在正式HTTP前；27离线红绿修复后第三正式`3c71700a-529d-47cb-a542-0e8c6ee2434f`进行中，状态以SQLite核对。精确私有SQL错误诊断补齐，不回填已丢首轮stderr。配置提升WAN157工具末轮离线准备，源/prod新DB/精确受保护新仓，无Go变化。
+- WAN158正式只读HTTP会话`01a0f2c9-e88f-7ba0-bf56-1d54273313c2`独占两个工具文件、新DB/18602/18603，WAN139只读看板QA会话`01a0f2c9-fe91-7372-b8e3-947d17c854f0`用独立tab。不重跑已完成全量/迁移；主会话控制manifest/产品修复/最终冻结。所有测试统一SQLite与源/Binary身份。
+- 旧local_live11项中Jenkins/provider/OIDC已有独立关联证明，其余delivery6/deployment1/Ollama1需要新owner Workflows/S3/Runner/Registry/VM或模型；均属本地可搭环境，不归外部密钥待办。旧hardcoded aiops-test/2746等不得直接运行，ArgoCD规则链不能替代Workflows构建/归档/部署。实际资源预算待doctor；重型仍串行。
+- 正式18分钟基础/规模性能与真实连续24h尚未开始。WAN152聚合范围High待Review，支持接口性能可独立继续但整体未收口。性能/24h前停止所有并行负载、检查证书窗口及源码/runtime冻结。
+- 已记录计划与覆盖报告，最新工具/条件链/manifest/docs仍待scoped提交；运行证据私有`.local/testlab/`不提交。下一步读普通静默/配置提升结果→收集并行包→必要修复/原例回归→提交推送/Linear原51子项→静态与正式entry冻结→性能→真实24h新窗口。
+
+## CP-212 · 2026-09-30 · 正式SMTP/Vault/规则GitOps复验与本地夹具诊断
+
+- 用户外出期间继续自主决定并留档。当前 `codex/wan-138-backend-testlab`，产品修复最新已提交推送 `4d43d2161dc2081d6b83adaff09b165f70f45349`、远端精确回读，Go指纹 `be282465cdf1078ec20e393bdf98b091817b9f1eda7704a9d737e4e46f26ca65`。未合并/部署/改测产品前端，保留无关 `.claude/`。
+- WAN-155 canonical MR详情修 `e9046eb`：真实PG整模块119race通过；正式原链 `0bce4262-fa61-4291-ab88-a31081ea0f25` 5通过，第一票不执行、第二票双独立软件WebAuthn、持久receipt、MR5独立审核/合并 `39f38c65f9149ca862e7841ac729fdc400857fdb`、Argo/Prom规则精确生效。不是物理认证器/企业治理验收。
+- WAN-156两邀请审计SQL `::text` 修 `4d43d21`：`611892f9` 整v3admin真实PG/race30通过；正式原HTTPS/TLS465 `7edb56a7-6550-49ed-a796-27d5db6e8f6e` 6通过，覆盖正常发送/接受/重用/默认无envgrant、拒绝DATA、接收后丢250、250后丢QUIT。触发器验证本地提交失败事务回滚；首次SMTP已接受而PG未确认红与SQL42P18原红保留。最终邮箱和产品接受页待办。
+- Vault正式接线 `796b27b7-f63d-43f6-b82d-77030300a167` 24通过：六scope漂移拒绝、真实最小权限KV/拒绝token、TLS受控上游、真实DB审计；不称企业策略全验。原遥测/四provider实际probe `9997769d` 10通过，临时Grafana12.1.1仅本轮owned，已清理，不证明历史完整性或Dashboard查询。
+- OIDC `935f699d` 5通过/2失败含父命令，失败在Keycloak POST尚未进入产品callback。第二次 `ea354e27` 512MiB确实OOMKilled/137，仅自有临时KC提高1GiB；第三实际KC日志cookie_not_found与Python CookieJar不回传HTTP Secure cookie确认夹具差异。决定切自有HTTPS/可信CA复验，不伪造UA或放宽cookie政策；真实IdP继续待办。Jenkins37a首红为Groovy import错误已确认真实core JAR；修后8fcd启动退出仍block，精确诊断继续，未放宽180s。
+- 新内容链首次 `a98eb6c7` 8通过/2block含父命令，8项前置检查通过但setup角色name重复违反UNIQUE(name)，业务阶段尚未开始；按实际schema修工具夹具中；不转为产品Bug或静默重试。普通静默正式双批准/真实AM最小链工具准备中，分组覆盖与自然30分钟expiry另计。
+- 自有controller增加只读nonce/HMAC-SHA256 attestation，实际签名/源/PID监听核验和4非法挑战400通过；仅重启自有controller，API当前45676/45677。看板仍只读8787。custom helper清理宽限45s不改变超时失败，明确exit2的环境阻塞保持blocked；primary和cleanup错误分别保留。
+- entry230中41个正常method/path与主166契约仅30交集，其他11辅助/历史，主135尚无该entry正向证明；不等同缺实现。配置提升三路由已存在，但需要新受保护专属GitLab仓库和真实production-tier独立DB，不用header冒充生产。此本地链继续。
+- baseline两次因155/156源码修复被本轮Runner提前停止，证据保留、不计冻结。最新 `324a7add-47f6-4db8-a9ce-7840c7048cdb` 全量真实隔离PG/race进行中，最终以持久台账为准。正式18分钟性能、真实连续24h仍未开始；WAN-152聚合范围高优先级待Review，不能全收口。
+- Linear156已In Review，138及原51文档追加本次结果/自主决定/未完成项。工具新增模块、manifest、cleanup、文档仍待scoped提交；运行数据/私有凭据仅`.local/testlab/`。下一步修工具首红→原live复验→配置提升/普通静默→最终冻结回归/正式性能→真实24h新窗口。
+
 # AIOps Canvas 检查点
 
 
@@ -1536,3 +1572,6 @@
 - 源码阅读发现的结案竞态和遥测默认值问题已修改；日志工具使用适配器默认上限。仅做源码阅读、编辑和格式化，未运行测试、构建、校验器、服务或迁移。
 - OpenAPI 0.2.0 已生成：37 路径、44 操作、26 Schema；已上传 WAN-52 为附件。生成文件不等同于契约验证通过。
 - 前端暂缓；最新后端不是已验收或已发布 MVP。后续从 docs/backend-handoff.md 继续，保留 CP-001 历史证据边界。
+
+
+2026-09-30 23:54定位更正：848ce917首红精确路径为GET /me（权威oncall缺配置→503 oncall_unavailable），此前记录将http.7误认为/home；/home成功断言保留。fixture、pagination、dependency_unavailable三个工具场景名不在Runner枚举，malformed为采集协议问题；按canonical场景记录细分purpose，不扩大允许值或冒正常覆盖。原首次失败不覆写。当前冻结回归c5063e10已2479通过/0失败/79跳过，源始末8d0a一致；分类18无测试包/12本地live/3付费外部记录/46专项开关，30个skip对应同run另专项实际pass，全部原skip保留。

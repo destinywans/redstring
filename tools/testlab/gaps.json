@@ -2,24 +2,24 @@
   {
     "id": 1,
     "name": "生产 IdP / OIDC",
-    "remaining": "临时 Keycloak 回调和本轮会话栅栏回归有证据；生产 IdP、浏览器首次登录、新成员开通、IdP 撤权与本地会话策略未完整验收。",
+    "remaining": "真实生产IdP目录与撤权策略/组织SSO仍外部待办；本地正式链已通过，不自动关闭生产项。",
     "required": "真实 IdP、固定 HTTPS/回调、测试账号与明确撤权策略。",
     "source": "CP-091、206；WAN-124/129/136",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "本地Keycloak授权码→正式Go回调→PG会话/审计；OIDC旧会话撤销回归",
-    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+    "completed_subscenarios": "fa8fbd5f正式HTTPS Keycloak授权码→真实Go callback→本地绑定/session/audit、重放与撤销；OIDC18/42合并短链通过",
+    "proof_scope": "仅所列本地真实组件/PG/正式HTTP；整体未关闭"
   },
   {
     "id": 2,
     "name": "Passkey 实物与审批",
-    "remaining": "辅助账户流程、绑定提案双人审批已接线；真实浏览器/认证器、RP/Origin、两位审核人及失败恢复未验收。",
+    "remaining": "物理认证器、真实浏览器硬件与企业审批仍外部待办。",
     "required": "可信域/TLS、测试认证器、独立账号；不可用普通 assertion 替代审批。",
     "source": "CP-202；internal/v3passkey/README.md",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "软件认证器协议模块专项；双真人批准与物理认证器仍待验",
-    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+    "completed_subscenarios": "正式软件ES256注册、真实独立两人proposal投票与第一票无执行；GitOps0bce4262五项通过",
+    "proof_scope": "仅所列本地真实组件/PG/正式HTTP；整体未关闭"
   },
   {
     "id": 3,
@@ -46,24 +46,25 @@
   {
     "id": 5,
     "name": "邀请邮件与接受页",
-    "remaining": "SMTP TLS 发送及公开接受接口已实现；真实最终投递和新账号全流程未验，产品尚无邀请码接受页。",
+    "remaining": "最终外部邮箱送达/真实组织、产品接受页未验，前端本轮排除。",
     "required": "SMTP relay 凭据、HTTPS 入口、收件邮箱、接受页；多副本共享入口限速。",
     "source": "CP-175；WAN-119",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "本地TLS SMTP DATA捕获；尚未证明正式邀请发送全流程",
-    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+    "completed_subscenarios": "7edb56a7正式HTTPS/TLS465四SMTP时序6项通过；611892f9真实PG30race/本地audit提交失败回滚",
+    "proof_scope": "仅所列本地真实组件/PG/正式HTTP；整体未关闭"
   },
   {
     "id": 6,
     "name": "真实模型能力矩阵",
-    "remaining": "历史 Qwen 工具和 DeepSeek V3 单次调用已验；所有拟启用协议、工具轮次、切换、图片/推理能力并未逐一实测。本轮多协议工具回归用替身。",
-    "required": "供应商受控额度、真实能力绑定、限定成本的测试用例。",
+    "remaining": "付费供应商/真实模型语义验收外部待办；旧Ollama真实smoke要求qwen3.6:latest+bge-m3:latest且硬绑11434。本轮新隔离Ollama未启动：官方当前qwen latest权重23GB(096fdbd02fe6)，Docker总23.43GiB且当前组件占用约17GiB，完整运行/KV额外资源未满足；不碰用户daemon或换小模型冒原gate通过。",
+    "required": "付费测试账户或有足够容量的全私有Ollama环境、显式endpoint/模型版本；官方https://ollama.com/library/qwen3.6/tags；实际资源与模型RSS另验。",
     "source": "CP-009、085/086、156、161、206；WAN-54/122/131",
     "status": "queued",
     "evidence_mode": "pending",
     "completed_subscenarios": "正式异步对话→受控协议Mock回复→另实例completed回读",
-    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入",
+    "priority": "High"
   },
   {
     "id": 7,
@@ -99,22 +100,24 @@
   {
     "id": 10,
     "name": "静默与批量范围",
-    "remaining": "审批和静默 worker 已接、默认关闭；真实 Passkey→Alertmanager 链路未验，分组静默须有独占组标签/完整覆盖证明，旧 null 标签不能补造。",
+    "remaining": "物理Passkey/企业审批外部待办；分组批量静默须唯一group标签/权威完整覆盖生产者，旧NULL不能补造；自然30分钟expiry未验，手动cancel不能替代。",
     "required": "受审来源/唯一组标签，明确授权启动和故障用例。",
     "source": "CP-202、203；WAN-118",
     "status": "queued",
-    "evidence_mode": "pending"
+    "evidence_mode": "pending",
+    "completed_subscenarios": "WAN159143+153修后正式bd46318f55全部通过：普通静默/双独立软件Passkey、第一票无执行、create+cancel持久台账、真实AMPOST/DELETE成功丢响应/精确write1、SIGKILL后read-only恢复",
+    "proof_scope": "仅本地真实AM/PG/HTTPS/软件ES256和所列故障；55运行/源码8d0a，整体未关闭"
   },
   {
     "id": 11,
     "name": "规则启用与未知外写恢复",
-    "remaining": "GitLab→独立审批→Argo/GitOps→实际 Prometheus 验证已接、默认关闭；本轮只读恢复通过本地 TLS 替身/PG回归，真实多组件链未验。",
+    "remaining": "真实生产治理、crash未知外写部分时序仍未全部证明。",
     "required": "受保护仓库、审阅人与 Argo/Prometheus；覆盖超时成功、崩溃、租约和重启。",
     "source": "CP-203、206；WAN-132/136",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "规则worker数据库瞬断保留cursor；TLS source/trial隔离准备",
-    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+    "completed_subscenarios": "WAN140 DB重试；0bce4262双软件Passkey/MR5独立审核→Argo→实际Prom规则精确生效五项",
+    "proof_scope": "仅所列本地真实组件/PG/正式HTTP；整体未关闭"
   },
   {
     "id": 12,
@@ -130,11 +133,13 @@
   {
     "id": 13,
     "name": "配置提升跨实例",
-    "remaining": "临时 GitLab 和独立 PG 各有验证，但未串成真实非生产导出→独立治理合并→生产导入。事后 API 不能证明合并时治理。",
+    "remaining": "真实企业历史审批治理/物理审核人身份external_todo；GitLabowned项目删除为已accepted延迟调度，物理回收未证明；导入不等于目标启用。",
     "required": "隔离实例、签名与受保护仓库、历史治理证据；导入不等于目标启用。",
     "source": "CP-126、186；docs/api/v3-config-sync.md",
     "status": "queued",
-    "evidence_mode": "pending"
+    "evidence_mode": "pending",
+    "completed_subscenarios": "55c2d57f75本地实际断言通过/0失败：源和production独立DB、签名净化模板、受保护新仓/latest diff/exactSHA独立审核、正常/并发/本地commit后丢响应/重启导入；真实branch201与MR201接受丢响应同digest精确读回重试、跨项目恶意200拒绝及去故障正向对照、清理精确读回",
+    "proof_scope": "真实本地GitLab19.3.2/独立production-tier/PG/正式HTTP，源8d0a；62离线守卫；首run471d清理超时原红保留，整体真实企业验收未关闭"
   },
   {
     "id": 14,
@@ -168,13 +173,13 @@
   {
     "id": 17,
     "name": "Vault 权限与网络出口",
-    "remaining": "Vault凭据用途绑定不证明上游token最小权限；现有本机GitLab token过宽不能用作只读验收。统一DNS/IP/代理出口准入缺实现/验收。",
+    "remaining": "企业策略、非受控上游token最小权限及统一网络出口治理仍待办。",
     "required": "专用最小权限令牌、实际Vault策略；可信管理员和网络出口策略，开放范围变化须另定代码。",
     "source": "docs/api/v3-connector-credentials.md:8-20",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "真实Vault写/读及无权限拒绝",
-    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+    "completed_subscenarios": "796b27b7正式六scope精确credential绑定、Vault least-policy/deny/TLS受控上游24项",
+    "proof_scope": "仅所列本地真实组件/PG/正式HTTP；整体未关闭"
   },
   {
     "id": 18,
@@ -393,13 +398,13 @@
   {
     "id": 40,
     "name": "重启与滚动升级",
-    "remaining": "租约恢复、旧attempt失败/人工重试有设计与局部测试；当前多进程死亡、恢复、旧新worker/迁移兼容和完整部署未验。",
+    "remaining": "真实供应商故障/连续24h尚未验收。",
     "required": "当前镜像/空库/旧库、受控进程终止及明确兼容切换。",
     "source": "CP-073、080、171、206；WAN-133/136",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "已覆盖worker数据库瞬断与晚提交generation；实际TERM/KILL/持续24h未完成",
-    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+    "completed_subscenarios": "规则DB故障/晚提交模块；5b3913ec双实例真实TERM/KILL/PG租约/SSE精确恢复7项",
+    "proof_scope": "仅所列本地真实组件/PG/正式HTTP；整体未关闭"
   },
   {
     "id": 41,
@@ -452,13 +457,13 @@
   {
     "id": 46,
     "name": "写接口安全参数",
-    "remaining": "多个页面尚未提交 If-Match、revision/source_revision、request ID、幂等键/application_id；Security/事件/规则/抑制/生命周期/复盘需逐页接。",
+    "remaining": "产品页面If-Match/revision/requestID等接线本轮前端排除；主路由全部业务场景仍需矩阵逐项覆盖，不从响应数或401/403推断完成。",
     "required": "按机器契约传参，覆盖过期/撤权/重放/不确定结果。",
     "source": "CP-185～205；WAN-125/127/128",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "正式权限/Token/Canvas/Runbook/会话/事件/复盘8关键HTTP场景",
-    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+    "completed_subscenarios": "entry b8241602 230断言中主30/166正常证明；content e8814ea6 69断言/62实际HTTP，上传/Runbook三模式模板/事件复盘/跨scope；更多只读路由WAN158并行补测",
+    "proof_scope": "仅所列本地真实组件/PG/正式HTTP；整体未关闭"
   },
   {
     "id": 47,
@@ -492,11 +497,12 @@
   {
     "id": 50,
     "name": "历史恢复/交付完整链",
-    "remaining": "早期真实回滚180秒、三目标/Compose7节点/S3回读已有证明；暂停留下GitOps/systemd及evidence API收口，V3关闭旧worker，是否仍部署待确认。",
-    "required": "先确认legacy当前启用范围，再有授权的回读和恢复/交付演练。",
+    "remaining": "delivery6/deployment1历史live为WAN89/90/91/92已暂停CI/CD域范围待Review；本轮规则GitOps不能替代原生构建/Workflows/VM发布，暂不恢复。",
+    "required": "用户事后确认是否恢复原生CI/CD测试；若恢复需新owner Workflows/S3/Runner/Registry/VM和独立fixture，不能复用旧练习环境。",
     "source": "CP-001、011、189；WAN-137",
     "status": "queued",
-    "evidence_mode": "pending"
+    "evidence_mode": "pending",
+    "priority": "High"
   },
   {
     "id": 51,

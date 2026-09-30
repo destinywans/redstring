@@ -327,5 +327,111 @@
     "local_evidence": [
       ".local/testlab/first-failures/entry-a205-tool-contracts-red.json"
     ]
+  },
+  {
+    "id": "WAN-155",
+    "title": "GitOps MR列表缺详情导致持久receipt不确定",
+    "status": "in_review",
+    "description": "真实完整链确认产品缺陷，canonical详情最小修，原链已复验。",
+    "before": "MR列表不保证changes_count/diff_refs，MR已merge且Argo/Prom已生效但本地receipt不确定。",
+    "after": "精确mrByIID详情/身份约束；119真实PG/race及完整链0bce4262五项通过。",
+    "fix_commit": "e9046eb",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/e9046eb",
+    "local_evidence": [
+      ".local/testlab/first-failures/WAN-155-native-mr-list-contract-red.jsonl"
+    ],
+    "case_ids": "0bce4262-fa61-4291-ab88-a31081ea0f25"
+  },
+  {
+    "id": "WAN-156",
+    "title": "SMTP成功后邀请审计SQL无法推断参数类型",
+    "status": "in_review",
+    "description": "确认发送与接受审计两SQLSTATE42P18；邮件已接受但PG事务回滚。",
+    "before": "relay fsync/250一次，POST503、pending/delivered=false。",
+    "after": "两text casts；611892f9 v3admin30真实PG/race，7edb56a7 TLS465四时序6项通过。",
+    "fix_commit": "4d43d21",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/4d43d21",
+    "local_evidence": [
+      ".local/testlab/first-failures/wan156-invitation-audit-red-2d03a3c9-be76-4634-94af-44ff30c62733.json"
+    ],
+    "case_ids": "7edb56a7-6550-49ed-a796-27d5db6e8f6e"
+  },
+  {
+    "id": "TOOL-JENKINS-IMPORT",
+    "title": "测试Jenkins Groovy Permission导错包",
+    "status": "in_review",
+    "description": "真实本地夹具错误，不是产品后端缺陷；三轮首红37a1658d/8fcd95d1/f4b9543d保留，Jenkins只读constructor认证能力仍未验。",
+    "before": "37a1658d已fully up但初始化编译失败，不创建job/build，180s block。",
+    "after": "原正式gate4cc8cd6d通过，12离线守卫通过；准确Permission包/精确单类JEP200白名单/READ所需DISCOVER；build403，首TERM清理完整。",
+    "local_evidence": [
+      ".local/testlab/environments/testlab-3cbde3095125/jenkins/f24931e6f7774e3e9b73a6428430b3f1/controller.log"
+    ],
+    "case_ids": "37a1658d-8c11-4ea0-82be-1e26504613a5"
+  },
+  {
+    "id": "ENV-KEYCLOAK-MEMORY",
+    "title": "临时Keycloak512MiB真实OOM",
+    "status": "in_review",
+    "description": "有容器State.OOMKilled=true/ExitCode137证据，其他旧RemoteDisconnected不推断同因。",
+    "before": "ea354e27容器未ready、OOMKilled/137。",
+    "after": "仅临时1GiB在935f699d ready，登录仍有独立SecureCookie夹具问题，未关闭完整链。",
+    "local_evidence": [
+      ".local/testlab/environments/testlab-3cbde3095125/identity/a1fa42e180144cb583e433df6e956c1a/keycloak-final-state.json"
+    ],
+    "case_ids": "ea354e27"
+  },
+  {
+    "id": "TOOL-INTERFACE-MATRIX",
+    "title": "独立短链flat HTTP证据未填入看板矩阵",
+    "status": "in_review",
+    "before": "真实用例通过但scenarios缺失，接口矩阵仍queued",
+    "after": "Runner统一canonical矩阵并拒绝status矛盾；e8814ea6 62和fa8fbd5f27真实记录已落库",
+    "fix_commit": "a48768b",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/a48768b",
+    "description": "测试工具问题；旧运行保持原证据不覆写，新链42及69均通过。2采集回归/总47核心工具验证。"
+  },
+  {
+    "id": "WAN-159",
+    "title": "迁移143遗漏静默取消动作造成正式取消503",
+    "status": "in_review",
+    "description": "真实PG与正式HTTP确认产品缺陷，最小143+forward153已推送；最终全轮与用户接受继续。",
+    "before": "3c71700a18pass后cancel503；143旧CHECK仅create/enable，cancel23514/整事务回滚",
+    "after": "3真实PG/race新库/历史升级/repair红绿；bd46318f原真实AM/双批准/丢响应/崩溃55全过；entry+组件244通过；冻结c5063e10全量+专项2479pass/0fail/79skip（分类记录），源8d0a始末一致",
+    "fix_commit": "a00c245",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/a00c245",
+    "local_evidence": [
+      ".local/testlab/first-failures/wan-159-proposal-action-migration-red.json",
+      ".local/testlab/first-failures/wan-159-proposal-action-migration-green.json"
+    ],
+    "case_ids": "3c71700a-529d-47cb-a542-0e8c6ee2434f / bd46318f-3d44-4a92-9233-df0e67526cd4"
+  },
+  {
+    "id": "WAN-138-cleanup-evidence",
+    "title": "错误留证失败可短路测试资源清理",
+    "status": "in_review",
+    "description": "测试工具缺陷；独立审查确认readonly/shared identity错误记录不在cleanup finally保护内，IO失败跳过cleanup/覆盖原业务错误。",
+    "before": "独立Mock分别复现cleanup_calls=0；共享identity新增9个异常子场景先红。",
+    "after": "identity37+依赖101离线通过，finally cleanup、独立证据sink、原异常对象优先；真实identity/Vault6c911b2f复验中，readonly会话对应修复中。",
+    "fix_commit": "f902cc0",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/f902cc0"
+  },
+  {
+    "id": "WAN-138-promotion-cleanup",
+    "title": "DROP响应超时被当成确定清理失败",
+    "status": "in_review",
+    "description": "测试工具清理误判；真实共享PG checkpoint超过单命令8s，DROP后库已消失。",
+    "before": "471d5d0e73业务pass，清理TimeoutExpired导致run失败；精确只读确认库不存在。",
+    "after": "55c2d57f75pass/0fail/1external_todo；只读精确reconcile无重复DROP，owner/catalog/active命令/总40s守卫；GitLab仅延迟删除调度明确保留。",
+    "fix_commit": "3944284",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/3944284"
+  },
+  {
+    "id": "WAN-138-gitops-reprepare",
+    "title": "重复Argo准备覆盖GitLab可信CA后继续半准备链",
+    "status": "open",
+    "description": "本地测试编排缺陷；apply官方manifest清空argocd-tls-certs-cm，runtime初始化TLS失败后未恢复repo CA，后续sync400。",
+    "before": "327be9707pass/2fail/2blocked含父项；actualArgoComparisonError及日志x509 unknownauthority，owned节点无OOM/端口漂移。",
+    "after": "原包最小准备顺序/TLS readiness/半准备guard修复中，不关闭失败。",
+    "case_ids": "327be970-fc5b-46a5-8a54-a507c8a3a44c"
   }
 ]

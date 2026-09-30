@@ -11,7 +11,7 @@ ALTER TABLE v3_proposal_actions
  DROP CONSTRAINT v3_proposal_actions_action_kind_check;
 ALTER TABLE v3_proposal_actions
  ADD CONSTRAINT v3_proposal_actions_action_kind_check
- CHECK (action_kind IN ('alertmanager.silence.create','prometheus.alert_rule.enable'));
+ CHECK (action_kind IN ('alertmanager.silence.create','alertmanager.silence.cancel','prometheus.alert_rule.enable'));
 
 -- One proposal is bound to exactly one confirmed draft export. An immutable
 -- proposal action (migration 102) carries the full review and source digests.

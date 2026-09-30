@@ -1,12 +1,12 @@
 # V3 告警规则写入与试运行（WAN-118）
 
-本文件描述领域后端代码的真实边界。正式入口已装配 `draft` 创建、修订和导入；仅在受信 Prometheus 规则来源、独立 GitLab 草稿目标和迁移就绪时存在条件式成功路径。`dry_run` 已接入可选的应用隔离查询配置与持久 worker；缺配置时继续返回 503。`enabled` 仍缺批准证明和独立执行链。迁移 141–143 未在现有业务库执行，也未运行真实 Prometheus、GitLab 或 Argo CD 联调。
+本文件描述领域后端代码的真实边界。正式入口已装配 `draft` 创建、修订和导入；仅在受信 Prometheus 规则来源、独立 GitLab 草稿目标和迁移就绪时存在条件式成功路径。`dry_run` 已接入可选的应用隔离查询配置与持久 worker；缺配置时继续返回 503。`enabled` 的领域内双人批准验证、GitOps 待审部署 MR、独立执行及读回路径已实现，仍须 WAN-117 接入告警规则的公共批准入口、配置受信目标并启动独立 worker。迁移 141–143、145、147 未在现有业务库执行，也未运行真实 Prometheus、GitLab 或 Argo CD 联调。
 
 ## 路由与状态
 
 - `POST /api/v1/alert-rules` 的 `draft`：单环境、当前有效账号、有效应用及 `alert_rules.change`；校验完整规则，将**不可部署** JSON 修订写入专用 `aiops-alert-rule-drafts/` GitLab MR，返回 `201 pending_review`。`PUT /alert-rules/{id}` 和 `POST /alert-rules/import` 仍只接受 `draft`。
 - `mode=dry_run`：同一规则形状及授权，使用受信的按应用隔离查询源和运行中的持久 worker，返回 `202` 与 `trial_id`；不修改 Prometheus 规则、GitOps 部署文件或通知。`GET /alert-rules/dry-runs/{id}` 仅允许创建者在当前环境和应用授权下读取真实进度。每分钟一次、持续 24 小时；任何漏采、来源错误或截断都使结果 `inconclusive`，不会把缺口当零次触发。
-- `mode=enabled`：除上述条件外要求当前 `proposals.change`、同应用环境的开放调查，以及受信部署计划。先导出不可部署草稿 MR，再在一笔数据库事务中保存与完整动作、审查内容、目标 YAML 摘要绑定的不可变提案；返回 `202 pending_approval`。**POST 本身不启用规则。** 拒绝后同键重试返回原提案状态。
+- `mode=enabled`：除上述条件外要求当前 `proposals.change`、同应用环境的开放调查，以及受信部署计划。先导出不可部署草稿 MR，再在一笔数据库事务中保存与完整动作、审查内容、目标 YAML 摘要绑定的不可变提案；返回 `202 pending_approval`。**POST 本身不启用规则。** 拒绝后同键重试返回原提案状态，批准后同键重试只返回 `approved_pending_execution`，不声称已启用。
 
 三个模式使用 `Idempotency-Key`。同一创建者、同一操作、同一键的请求身份绑定完整请求与环境；冲突返回 409。试运行容量由数据库唯一索引限制为全局一个活跃任务，超额返回 429。远端写入不确定时按固定操作 ID 对账，不另建 MR。草稿导出后如当前授权、来源或提案键变化，MR 标为 `stale_remote`，需人工检查。
 
@@ -38,11 +38,17 @@
 
 `AlertRuleEnableIntent` 是审查快照，不是执行授权。它包含完整规则、绑定文件身份、已观测规则身份、草稿 MR/修订摘要，以及 `AlertRuleDeploymentPlan` 的项目、目标 YAML 路径、基础提交、完整拟议 YAML 摘要和范围指纹。人类审查内容逐段显示完整动作 JSON，包括所有标签和注解；加载时校验动作和审查摘要及二者关系。
 
-WAN-117 需要装配两个服务端接口，不能由浏览器请求伪造实现：
+领域提供以下服务端接口与实现，不能由浏览器请求伪造执行：
 
-1. `AlertRuleApprovalSource.VerifyWithTx(ctx, tx, proposalID, actionDigest)`：在同一事务中核验当前有效、独立于创建者的真人 Passkey 提案批准；证明须绑定提案 ID、精确动作摘要、已消费挑战、当前账号/会话/权限与应用环境。普通账户断言不是批准。返回不可变 `ID/Digest/ActionDigest/ApproverID/ApprovedAt`。
-2. `AlertRuleApplier.Plan/Prepare/Lookup/Observe`：服务端固定 GitOps 项目、受保护目标分支、真实 Prometheus YAML 文件及源版本。`Plan` 根据完整文件字节计算拟议内容摘要；`Prepare` 使用固定 `executionID` 幂等创建待审部署 MR，绝不自行合并；`Lookup` 只读对账同一分支；`Observe` 核验独立 MR 审查、精确摘要的合并提交和 Argo CD 同 revision 同步。不可部署草稿 JSON MR 不能当作部署制品。
+1. `AlertRuleApprovalAuthority.VerifyWithTx(ctx, tx, proposalID, actionDigest)`：在执行认领事务中核验当前有效、与发起人不同的两名真人 Passkey 提案批准；证明绑定提案 ID、动作与审查摘要、已消费挑战、当前账号/会话/凭据/权限与应用环境。普通账户断言不是批准。执行 ID 来自持久批准决议，执行记录保存两名审批者。此核验器只消费已批准决议；WAN-117 公共批准入口目前仍只接受静默动作，须加入告警规则动作读取及就绪分支，才能生产决议。
+2. `GitOpsAlertRuleApplier.Plan/Prepare/Lookup/Observe`：仅由服务端配置固定 GitOps 项目、受保护目标分支、真实 Prometheus YAML 文件与 Argo CD 应用。`Plan` 根据完整文件字节计算拟议内容摘要；`Prepare` 使用固定执行 ID 对账后创建待审部署 MR，绝不自行合并或请求 Argo CD 同步；`Lookup` 只读对账同一分支；`Observe` 只在独立 MR 审查、精确摘要的合并提交与 Argo CD 同修订同步均可核验时报告 `synced`。不可部署草稿 JSON MR 不能当作部署制品。
 
-独立 worker 在批准后调用 `ExecuteApproved`，领取持久执行 ID 与租约；当前授权、批准、调查、绑定、来源规则和 YAML 计划均需在远端动作前复核，远端动作后再核。状态先为 `pending_review`。合并与同步后调用 `ObserveEnabled`；只有当前绑定 Prometheus 组中唯一规则的表达式、持续时间、全部标签与注解精确匹配，才记录 `enabled`。观察是只读对账：即使创建者之后撤权或调查结案，仍须能准确记录已生效规则，不能把不可读等同于未启用。证据不完整时保持待观察或失败关闭，不能报告 `enabled`。
+独立 `RunEnableWorker` 在批准后调用 `ExecuteApproved`，领取持久执行 ID 与租约；当前授权、批准、调查、绑定、来源规则和 YAML 计划均需在远端动作前复核，远端动作后再核。状态先为 `pending_review`。合并与同步后调用 `ObserveEnabled`；只有当前绑定 Prometheus 组中唯一规则的表达式、持续时间、全部标签与注解精确匹配，才记录 `enabled`。观察是只读对账：即使创建者之后撤权或调查结案，仍须能准确记录已生效规则，不能把不可读等同于未启用。证据不完整时保持待观察或失败关闭，不能报告 `enabled`。
 
-`cmd/aiops` 已有可选隔离查询源和 worker 接线，但尚无真实隔离端点与迁移运行证据。批准证明和规则应用器仍未接线；`v3passkey` 的现有提案断言显式拒绝，`v3_proposals` 本身只有审查/拒绝状态。主 POST 原按 `draft` 条件式成功路径计数，新增 `dry_run` 条件式路径不增加主路由计数；这不代表 `enabled` 或启用流程完成。冻结新建页仍发送 `query/op/threshold/for_minutes`，与后端的完整规则输入不一致，页面提示也会把待批准误写成已启用，须由 WAN-117 对齐。
+`NewGitOpsAlertRuleApplier(AlertRuleGitOpsConfig)` 只接受服务端构造的明确绑定。GitLab 与 Argo CD URL、各自 0600 凭据文件，以及每项环境、应用、规则组、Prometheus 文件身份、GitLab 项目、受保护目标分支、YAML 文件、仓库 URL、Argo CD 应用/项目/命名空间/来源目录/目标集群与命名空间都必须显式给出。`AllowLoopbackHTTP` 仅供隔离本地适配检查，产品配置必须关闭。运维还须确认 Argo CD 应用实际消费这个原生规则文件；来源目录与同步状态本身不能证明该文件已被 Prometheus 加载，最终仍以精确的 Prometheus 规则读回为准。配置不齐则构造失败或请求返回未接入。
+
+GitLab 目标分支必须被精确保护，禁用强制推送及直接推送，允许受控人员合并；适配器核对与目标匹配的保护规则。部署分支名由持久执行 ID 唯一决定，远端结果不明时只查同一分支与 MR。待审 MR 只改一个既有 YAML 文件；观察时要求独立真人批准发生在最终 collected 差异版本生成之后、合并之前，最终差异 head SHA 还必须匹配源提交。合并与 Argo CD 同步均不由适配器发起。当前 GitLab API 的批准和保护读回是观察时证据，不能单独证明历史合并瞬间的治理策略；真实仓库应保留独立的审查与保护审计记录。协议依据：[GitLab protected branches](https://docs.gitlab.com/api/protected_branches/)、[GitLab MR diff versions](https://docs.gitlab.com/api/merge_requests/#retrieve-merge-request-diff-versions)、[GitLab MR approvals](https://docs.gitlab.com/api/merge_request_approvals/) 和 [Argo CD application API](https://argo-cd.readthedocs.io/en/stable/developer-guide/api-docs/)。
+
+回滚接线时先停止独立 worker 并移除启用适配配置，新请求随即失败关闭；保留持久操作和远端待审 MR 供人工核对。已经合并且由 Prometheus 读到的规则不能靠停用 worker 撤回，需另走受审 GitOps 回滚。不要删除未核对的远端分支、MR 或执行记录。
+
+`cmd/aiops` 已有可选隔离查询源和 worker 接线，但尚无真实隔离端点与迁移运行证据。WAN-117 需另行注入批准核验器、部署适配器并启动启用 worker；缺任何绑定时 `enabled` 明确失败，不降级为假成功。主 POST 原按 `draft` 条件式成功路径计数，新增 `dry_run` 和 `enabled` 领域条件式路径不增加主路由完成数；页面及真实 GitLab、Argo CD、Prometheus 均未验收。冻结新建页仍发送 `query/op/threshold/for_minutes`，与后端的完整规则输入不一致，页面提示也会把待批准误写成已启用，须由 WAN-117 对齐。

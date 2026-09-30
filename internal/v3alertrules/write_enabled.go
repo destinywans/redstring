@@ -431,16 +431,17 @@ func enabledResponse(draft map[string]any, proposalID, proposalStatus string) ma
 	status := "pending_approval"
 	if proposalStatus == "rejected" {
 		status = "rejected"
+	} else if proposalStatus == "approved" {
+		status = "approved_pending_execution"
 	}
 	return map[string]any{"draft_id": draft["draft_id"], "version": draft["version"],
 		"mr": draft["mr"], "proposal_id": proposalID, "status": status}
 }
 
 // LoadAlertRuleEnableIntentWithTx verifies the immutable action and review
-// bytes. It does not assert approval or permission to execute. WAN-117 must
-// revalidate all current remote and authorization facts before any apply.
+// bytes for proposal review. It does not assert approval or execution authority.
 func LoadAlertRuleEnableIntentWithTx(ctx context.Context, tx pgx.Tx, proposalID string) (AlertRuleEnableIntent, error) {
-	return loadAlertRuleEnableIntentWithTx(ctx, tx, proposalID, true)
+	return loadAlertRuleEnableIntentWithTx(ctx, tx, proposalID, false)
 }
 
 func loadAlertRuleEnableIntentWithTx(ctx context.Context, tx pgx.Tx, proposalID string, requirePending bool) (AlertRuleEnableIntent, error) {
@@ -459,7 +460,7 @@ func loadAlertRuleEnableIntentWithTx(ctx context.Context, tx pgx.Tx, proposalID 
 	canonicalAction, actionErr := canonicalEnableJSON(actionRaw)
 	canonicalReview, reviewErr := canonicalEnableJSON(reviewRaw)
 	if kind != alertRuleEnableKind || schemaVersion != 1 || source != "human_request" ||
-		(requirePending && status != "pending") || (status != "pending" && status != "rejected") ||
+		(requirePending && status != "pending") || (status != "pending" && status != "rejected" && status != "approved") ||
 		actionErr != nil || reviewErr != nil ||
 		enableDigest("aiops.v3.proposal.action.v1", canonicalAction) != actionHash ||
 		enableDigest("aiops.v3.proposal.review.v1", canonicalReview) != reviewHash ||

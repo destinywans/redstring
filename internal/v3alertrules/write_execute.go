@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"path"
 	"reflect"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 var (
@@ -60,8 +60,10 @@ type AlertRuleApproval struct {
 	ID           string
 	Digest       string // SHA-256 of immutable, proposal-bound proof record
 	ActionDigest string
-	ApproverID   string
+	ApproverID   string   // Second approver, retained for the original audit actor column.
+	ApproverIDs  []string // Both independent human approvers in vote order.
 	ApprovedAt   time.Time
+	ExpiresAt    time.Time
 }
 
 // WAN-117 wires a server-configured, exact GitOps Prometheus YAML adapter.
@@ -103,16 +105,21 @@ type AlertRuleExecutionResult struct {
 }
 
 type enableExecutionRecord struct {
-	ProposalID, ID, ActionDigest, ApprovalID, ApprovalDigest, ApproverID, State, ObservedRuleID string
-	Generation                                                                                  int64
-	LeaseUntil                                                                                  *time.Time
-	Deployment                                                                                  AlertRuleDeploymentReceipt
+	ProposalID, ID, ActionDigest, ApprovalID, ApprovalDigest, ApproverID, FirstApproverID, State, ObservedRuleID string
+	Generation                                                                                                   int64
+	LeaseUntil                                                                                                   *time.Time
+	Deployment                                                                                                   AlertRuleDeploymentReceipt
 }
 
 func validApproval(approval AlertRuleApproval, actionDigest, creator string) bool {
-	return approval.ID != "" && len(approval.ID) <= 128 && trialFingerprintRE.MatchString(approval.Digest) &&
-		approval.ActionDigest == actionDigest && approval.ApproverID != "" && approval.ApproverID != creator &&
-		!approval.ApprovedAt.IsZero() && !approval.ApprovedAt.After(time.Now().UTC().Add(time.Minute))
+	now := time.Now().UTC()
+	return hexID(approval.ID) && len(approval.ID) == 32 && trialFingerprintRE.MatchString(approval.Digest) &&
+		approval.ActionDigest == actionDigest && len(approval.ApproverIDs) == 2 &&
+		approval.ApproverIDs[0] != "" && approval.ApproverIDs[1] != "" &&
+		approval.ApproverIDs[0] != approval.ApproverIDs[1] &&
+		approval.ApproverIDs[0] != creator && approval.ApproverIDs[1] != creator &&
+		approval.ApproverID == approval.ApproverIDs[1] &&
+		!approval.ApprovedAt.IsZero() && !approval.ApprovedAt.After(now) && approval.ExpiresAt.After(now)
 }
 
 func (s *WriteService) approvedIntentTx(ctx context.Context, tx pgx.Tx, proposalID string) (AlertRuleEnableIntent, AlertRuleApproval, string, error) {
@@ -124,11 +131,16 @@ func (s *WriteService) approvedIntentTx(ctx context.Context, tx pgx.Tx, proposal
 	if err != nil {
 		return zero, AlertRuleApproval{}, "", err
 	}
-	var creator, actionDigest string
-	err = tx.QueryRow(ctx, `SELECT creator_id,action_digest FROM v3_proposal_actions
- WHERE proposal_id=$1 AND action_kind=$2 FOR SHARE`, proposalID, alertRuleEnableKind).Scan(&creator, &actionDigest)
+	var creator, actionDigest, status string
+	err = tx.QueryRow(ctx, `SELECT a.creator_id,a.action_digest,p.status FROM v3_proposal_actions a
+ JOIN v3_proposals p ON p.id=a.proposal_id
+ WHERE a.proposal_id=$1 AND a.action_kind=$2 FOR SHARE OF a,p`, proposalID, alertRuleEnableKind).
+		Scan(&creator, &actionDigest, &status)
 	if err != nil {
 		return zero, AlertRuleApproval{}, "", err
+	}
+	if status != "approved" {
+		return zero, AlertRuleApproval{}, "", problem(409, "approval_required", "A current independent approval is required")
 	}
 	if _, err := s.enableScopeTx(ctx, tx, core.User{ID: creator}, intent.EnvironmentID, intent.ApplicationID, intent.InvestigationID); err != nil {
 		return zero, AlertRuleApproval{}, "", err
@@ -261,7 +273,7 @@ func (s *WriteService) ExecuteApproved(ctx context.Context, proposalID string) (
 	}
 	if _, currentApproval, currentDigest, err := s.approvedIntent(ctx, proposalID); err != nil ||
 		currentDigest != digest || currentApproval.ID != approval.ID || currentApproval.Digest != approval.Digest ||
-		currentApproval.ApproverID != approval.ApproverID {
+		!reflect.DeepEqual(currentApproval.ApproverIDs, approval.ApproverIDs) {
 		if markErr := s.markEnableExecution(ctx, record, "stale_remote", &receipt, "approval_or_access_changed_after_prepare"); markErr != nil {
 			return zero, markErr
 		}
@@ -316,28 +328,32 @@ func (s *WriteService) claimEnableExecution(ctx context.Context, proposalID stri
 		return enableExecutionRecord{}, false, err
 	}
 	if currentDigest != digest || currentApproval.ID != approval.ID || currentApproval.Digest != approval.Digest ||
-		currentApproval.ApproverID != approval.ApproverID {
+		!reflect.DeepEqual(currentApproval.ApproverIDs, approval.ApproverIDs) {
 		return enableExecutionRecord{}, false, problem(409, "approval_changed", "Approval evidence changed before execution")
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO v3_alert_rule_enable_executions
- (proposal_id,execution_id,action_digest,approval_id,approval_digest,approver_id,state)
- VALUES($1,$2,$3,$4,$5,$6,'reserved') ON CONFLICT(proposal_id) DO NOTHING`,
-		proposalID, store.ID(), digest, approval.ID, approval.Digest, approval.ApproverID)
+ (proposal_id,execution_id,action_digest,approval_id,approval_digest,first_approver_id,approver_id,state)
+ VALUES($1,$2,$3,$4,$5,$6,$7,'reserved') ON CONFLICT(proposal_id) DO NOTHING`,
+		proposalID, approval.ID, digest, approval.ID, approval.Digest,
+		approval.ApproverIDs[0], approval.ApproverIDs[1])
 	if err != nil {
 		return enableExecutionRecord{}, false, err
 	}
 	var record enableExecutionRecord
 	var deploymentRaw []byte
-	err = tx.QueryRow(ctx, `SELECT proposal_id,execution_id,action_digest,approval_id,approval_digest,approver_id,
+	err = tx.QueryRow(ctx, `SELECT proposal_id,execution_id,action_digest,approval_id,approval_digest,
+ COALESCE(first_approver_id,''),approver_id,
  state,generation,lease_until,deployment,observed_rule_id FROM v3_alert_rule_enable_executions
  WHERE proposal_id=$1 FOR UPDATE`, proposalID).
 		Scan(&record.ProposalID, &record.ID, &record.ActionDigest, &record.ApprovalID, &record.ApprovalDigest,
-			&record.ApproverID, &record.State, &record.Generation, &record.LeaseUntil, &deploymentRaw, &record.ObservedRuleID)
+			&record.FirstApproverID, &record.ApproverID, &record.State, &record.Generation,
+			&record.LeaseUntil, &deploymentRaw, &record.ObservedRuleID)
 	if err != nil {
 		return record, false, err
 	}
 	if record.ActionDigest != digest || record.ApprovalID != approval.ID || record.ApprovalDigest != approval.Digest ||
-		record.ApproverID != approval.ApproverID {
+		record.ID != approval.ID || record.FirstApproverID != approval.ApproverIDs[0] ||
+		record.ApproverID != approval.ApproverIDs[1] {
 		return record, false, problem(409, "approval_changed", "Approval evidence changed")
 	}
 	if err := json.Unmarshal(deploymentRaw, &record.Deployment); err != nil {
@@ -363,8 +379,10 @@ func (s *WriteService) claimEnableExecution(ctx context.Context, proposalID stri
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes)
  VALUES($1,$2,'v3.alert_rule.enable.prepare',$3,'pending',jsonb_build_object(
- 'execution_id',$4::text,'generation',$5::bigint,'approval_id',$6::text))`,
-		approval.ApproverID, intent.ApplicationID, proposalID, record.ID, record.Generation, approval.ID)
+ 'execution_id',$4::text,'generation',$5::bigint,'approval_id',$6::text,
+ 'first_approver_id',$7::text))`,
+		approval.ApproverID, intent.ApplicationID, proposalID, record.ID,
+		record.Generation, approval.ID, approval.ApproverIDs[0])
 	if err != nil {
 		return record, false, err
 	}
@@ -437,21 +455,21 @@ func (s *WriteService) ObserveEnabled(ctx context.Context, proposalID string) (A
 	}
 	var record enableExecutionRecord
 	var raw []byte
-	err = s.DB.QueryRow(ctx, `SELECT execution_id,action_digest,state,deployment,observed_rule_id
+	err = s.DB.QueryRow(ctx, `SELECT execution_id,action_digest,COALESCE(first_approver_id,''),approver_id,
+ state,deployment,observed_rule_id
  FROM v3_alert_rule_enable_executions WHERE proposal_id=$1`, proposalID).
-		Scan(&record.ID, &record.ActionDigest, &record.State, &raw, &record.ObservedRuleID)
+		Scan(&record.ID, &record.ActionDigest, &record.FirstApproverID, &record.ApproverID,
+			&record.State, &raw, &record.ObservedRuleID)
 	if err != nil {
 		return zero, err
 	}
 	record.ProposalID = proposalID
 	if record.ActionDigest != actionDigest || json.Unmarshal(raw, &record.Deployment) != nil ||
-		!validDeploymentReceipt(intent.Deployment, record.ID, record.Deployment) {
+		!validDeploymentReceipt(intent.Deployment, record.ID, record.Deployment) ||
+		record.FirstApproverID == "" || record.FirstApproverID == record.ApproverID {
 		return zero, problem(503, "execution_invalid", "Deployment receipt is invalid")
 	}
-	if record.State == "enabled" {
-		return executionResult(record), nil
-	}
-	if record.State != "pending_review" && record.State != "awaiting_provider" {
+	if record.State != "pending_review" && record.State != "awaiting_provider" && record.State != "enabled" {
 		return zero, problem(409, "execution_not_observable", "Deployment is not ready for observation")
 	}
 	observation, err := s.EnableApplier.Observe(ctx, intent, record.Deployment)
@@ -459,6 +477,10 @@ func (s *WriteService) ObserveEnabled(ctx context.Context, proposalID string) (A
 		return zero, problem(503, "deployment_observation_unavailable", "Deployment state is unavailable")
 	}
 	if observation.State == "pending_review" || observation.State == "waiting_sync" {
+		if record.State == "enabled" {
+			return zero, problem(409, "deployment_drift", "Previously enabled deployment no longer has confirmed sync")
+		}
+		record.State = observation.State
 		return executionResult(record), nil
 	}
 	if observation.State != "synced" || !deploymentRevisionRE.MatchString(observation.MergeRevision) ||
@@ -472,6 +494,12 @@ func (s *WriteService) ObserveEnabled(ctx context.Context, proposalID string) (A
 	state := "awaiting_provider"
 	if matched {
 		state = "enabled"
+	}
+	if record.State == "enabled" {
+		if !matched || record.ObservedRuleID != observedID {
+			return zero, problem(409, "rule_content_changed", "Previously enabled rule is no longer active with approved content")
+		}
+		return executionResult(record), nil
 	}
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
@@ -566,7 +594,7 @@ func (s *WriteService) observeEnabledRule(ctx context.Context, intent AlertRuleE
 		return "", false, problem(503, "execution_invalid", "Approved rule duration is invalid")
 	}
 	if found.Expression != intent.Spec.Expr || found.Duration != forDuration.Seconds() ||
-		!reflect.DeepEqual(found.Labels, intent.Spec.Labels) || !reflect.DeepEqual(found.Annotations, intent.Spec.Annotations) ||
+		!maps.Equal(found.Labels, intent.Spec.Labels) || !maps.Equal(found.Annotations, intent.Spec.Annotations) ||
 		found.Labels["application"] != intent.ApplicationID || found.Labels["environment"] != intent.EnvironmentID {
 		return "", false, problem(409, "rule_content_changed", "Observed rule differs from approved bytes")
 	}

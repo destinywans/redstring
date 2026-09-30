@@ -1,3 +1,12 @@
+## CP-216 · 2026-10-01 · 正式性能运行中，后台接续已登记
+
+- 源8d0a稳定，branch codex/wan-138-backend-testlab，649cc19已提交推送并远端确认；管理389e994、只读2a81bfb、GitOps8353均已推送。无关.claude保留，未前端/合并/部署。CP215的当前实测130/98/11等与静态382+18+14仍有效，无产品Go修改。
+- 性能first 2e7d6d01因沙箱ps禁止→CPU/RSS缺失被准确interrupted，报告保留；只向已核验command/SQLite的runner76384发TERM，未动API或放宽阈值。重run **06a848d7-6821-463f-96bd-1ee2639ea6f8** started2026-09-30T17:15:03Z，runner77575/session99106，基础后规模各18分钟，正在rps10。PS提升权限采自有指标；最新预热120s零错误/P95约238ms/P99约274ms，非25RPS结论。CPU/RSS/FD/PG实际可采，goroutine/heap明确缺失。
+- idle sleep仅绑定已核验当前runner的caffeinate -i -w，自动退出，不修改电源配置。主证书到2026-10-02T08:58:11Z。24小时未开始；启动前再次checkend覆盖86400+裕量/doctor/nonce-HMAC。
+- heartbeat **aiops-24** 已创建ACTIVE每5分钟绑定本会话，正常静默，沿用户授权继续性能→必要本地覆盖/失败修复→新真实trial/scale86400→报告/Linear/提交推送；处理结束停用。原aiops-v3其他线程自动化保持PAUSED。任何既有活动run不能重复开启；不改冻结Go/helper/runtime/重启/并行重型测试。
+- 独立只读审计 /root/cancel_migration_review 正核主166与实际HTTP剩余本地能力；先收结论并记录必要缺口，不宣称全166覆盖。WAN152聚合3路径blocked、7CI/CD明确暂停、Ollama容量/外部账号/权威生产者继续High待办；支持路径性能与24h可继续但整体仍未收口。
+- 下步检查06a848d7 SQLite及原k6 stage/resources；失败保持证据并最小修原用例/相关回归。性能两档支持路径/SSE/资源恢复/一致性通过后再真实24h，不累计片段；24h开始准确记录起止和新的runner/caffeinate。
+
 ## CP-215 · 2026-10-01 · 三并行包收齐，性能前最终检查
 
 - 用户睡前授权自主选择并留记录。分支codex/wan-138-backend-testlab；最新2a81bfb已推送并远端确认，Go指纹8d0a76d1069495f779859cee2704ae745133d9625f7074bb24ed0a0dc5a1b126。产品前端未改/未测；未合并部署；保留无关.claude/。

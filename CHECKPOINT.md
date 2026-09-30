@@ -1,3 +1,18 @@
+## CP-232 · 2026-10-01 · 认领恢复，但基础DB延迟仍失败，停止负载诊断
+
+- 新性能 **8ac896b5-70c4-43c8-a934-309ce357e31d** 已 **21:14:05Z interrupted**，12pass/3failed/5blocked（父项/子项不等于3产品Bug），三格式报告与private wan162-postfix-performance-first-red完整保存，按evidence **28bccd29-b9ba-489e-8506-f3ec3e663317** 登记。源1512未变，未启动24h。
+- 原基础rps25实际 **300.794秒/7500请求/0非预期错误/0丢失iteration**。原认领饥饿已消退：300次有界claim错误0、P9560.772/P99**122.116ms**，PG本窗口实际sample0锁等待。聚合P95882.335/P991142.778通过，但 **database_latency P95 676.033ms >500ms** 失败（P99861.518通过）；global P95712.310/P99918.820。不能因修复原超时便将此阶段改通过或放门槛。
+- base50约 **23.184秒 Blocked**，实际根因待核，**尚不称Health故障**。Runner已自动接第二profile，scale1000/100000/500000已seed，warmup约51秒未满120。root按新SQLite/actualps/fresh nonceHMAC验证只TERM本runner4118；session20996已退出2，旧runner不能再发信号。API98778/98779/98780保持ready、未重启。私有performance-stop-8ac.json。caffeinate绑定本runner退出而结束。
+- /root/backend_test_plan重新受限只读诊断traffic分类/实际路由/原25和50 raw/PG日志及bounded EXPLAIN、数据/资源，禁止编辑/负载/归档/重启。先确认产品SQL、环境或工具问题，未定根因不新设Bug结论。Go/helper/runtime仍1512冻结；原全量2510/0fail/79解释skip及正式323证明保留，但不能代失败性能。
+- **当前APP9270802已scale，不再是base**；旧eeb归档16388仍保留且操作已完成，不重复旧UUID。若确需新fix后的base，需另行保留本8ac当前scale证据库再建fresh专属base，先核工具/归属/无活动运行，不能删seed/假称base，也不在根因未明时先操作。原51/WAN152/暂停7CI/CD/Ollama/外部/缺能力High待办仍留存。整体未收口，支持路径无关键红前不准入24h；产品前端未改测/无合并部署、保留.claude。
+
+## CP-231 · 2026-10-01 · 修后原两档性能运行中
+
+- 记录工作包 **d6f7bd11d4cf06e4b14ab56df83c4ef737e71c6c** 已推送并精确远端确认；Go1512/binarycb7/runtime338冻结未变，正式323与全量2510/0fail/79解释skip有效。WAN136/138/161/162及原51项Linear文档已同步这次复验、选择理由与版本边界。
+- 新正式 **performance 8ac896b5-70c4-43c8-a934-309ce357e31d** /session20996 于 **2026-09-30T20:59:40Z** 启动，当前基础档rps10（warmup完整120秒已pass，非25RPS结论）。base精确100服务/5000告警/10000消息/20用户、inbox/groups200可测、home_result_limit503 blocked独立显示。原18分钟base→18分钟scale、门槛/认领重试/SSE/恢复/一致性均未削减。
+- root按SQLite新run、实际ps命令与fresh nonce/HMAC核验 **runner4118**，只对它绑定caffeinate4306 `-i -w`，退出自动结束；PID均仅快照，不能依旧PID发信号。监督98778/API98779、98780当前1512 ready。private performance-run-8ac-freeze.json。已批准require_escalated采自有CPU/RSS，真实resources已有CPU/RSS/FD/PG，goroutine/heap仍明确缺失；当前无并行重型测试/代理负载，不改Go/helper/运行配置/重启API。
+- 下一步收原基础25门槛及两档完整终态/SSE/资源恢复/一致性：真实失败保持首红、稳定复现最小修原例及相关回归；全支持路径通过才新trial/真实连续86400。**24小时未开始**，证书到Oct2 08:58:11Z，启动前再checkend90000。不重归档/删seed，不自动实现WAN152分页，不恢复暂停7nativeCI/CD，不产品前端/合并/部署；Ollama/外部/缺能力HighTODO留存。当前性能与后续真实窗口处理后才暂停aiops-24，不扩大长期监控。
+
 ## CP-230 · 2026-10-01 · 1512正式链通过，原性能复验准入
 
 - 最终全量862为2510passed/0failed/79skipped、source始末1512；逐项分类 **18无测试包、46专项opt-in、4local-live、7暂停nativeCI/CD、1Ollama容量、3付费外部**，0未解释。30条原skip在同run专项另pass；其余20必要本地gate已由新正式链补正证，原skip与blocked终态不改。私有final-862-skip-classification与followup-04c-gate-coverage按evidence ID登记，三格式报告已导出。

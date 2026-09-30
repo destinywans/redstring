@@ -514,7 +514,7 @@
     "status": "in_progress",
     "description": "四个列表entity selector改为单次语句投影，保留RC/current authority/会话/通知scope/claim与case写强锁及link去重表锁。三列表17业务场景全绿，最终v3events48PASS含子测试/0fail/skip且独立复审通过；源码15125d6e，新正式binary已重建，原完整性能和24h仍待。",
     "before": "性能be78：7500请求285错误3.8%，PG285cancel均incident FOR UPDATE；停负载后锁消退，无残留事务。",
-    "after": "17业务场景/v3events48PASS；最终1512完整862：2510passed/0fail/79解释skip，原skip保留；正式04c链323passed且20原本地gate补当前正证。doctor53/cert/HMAC准入通过；原25RPS及两档性能仍待，24h未开始。",
+    "after": "17业务场景/模块48PASS、全量2510/0fail/79解释skip、正式323有效；原8ac基础25完整7500请求零错误，300次claim零错误/P99122.116ms，原认领饥饿消退。独立database P95676.033>500及base50 Blocked尚待诊断，原性能整体未通过，24h未开始。",
     "fix_commit": "8d3bcf99b90c2b657af6037ec313843ab7a9de6e",
     "fix": "https://github.com/destinywans/aiops-canvas/commit/8d3bcf99b90c2b657af6037ec313843ab7a9de6e",
     "first_failure_source": "774223bb3e48b34b1f2c4cb0358f2de9747088594e1aba9fb1934120373eafe2",
@@ -530,10 +530,32 @@
       ".local/testlab/wan162-final-three-lists-full-race.jsonl",
       ".local/testlab/final-862-skip-classification.json",
       ".local/testlab/followup-04c-gate-coverage.json",
-      ".local/testlab/wan162-performance-readmission.json"
+      ".local/testlab/wan162-performance-readmission.json",
+      ".local/testlab/wan162-postfix-performance-first-red.json",
+      ".local/testlab/performance-stop-8ac.json",
+      ".local/testlab/reports/8ac896b5-70c4-43c8-a934-309ce357e31d/report.json"
     ],
     "case_ids": [
       "perf.rps25"
     ]
+  },
+  {
+    "id": "PERF-1512-DB-LATENCY",
+    "title": "修后原基础25RPS数据库接口延迟门槛失败，原因待确认",
+    "status": "in_progress",
+    "description": "确认性能验收失败；尚未判定产品SQL、资源或工具问题。1512原认领锁超时消退不代表其他接口延迟通过。",
+    "before": "8ac基础25完整300.794s/7500请求/0error/0drop，database_latency P95676.033ms>500；P99861.518过，aggregate95/99过。base50仅知23.184s Blocked。",
+    "after": "只停止经SQLite/actualps/freshHMAC核验的本轮runner；只读诊断中，不放阈值/删请求/改JIT。当前APP已scale；未来重跑base须保留本次scale库另建fresh，不复用旧归档UUID或删seed。",
+    "first_failure_run_id": "8ac896b5-70c4-43c8-a934-309ce357e31d",
+    "first_failure_source": "15125d6ecd371864b894edfd91b7ca4944bf69dc305359d0e385a879f8cc090a",
+    "local_evidence": [
+      ".local/testlab/wan162-postfix-performance-first-red.json",
+      ".local/testlab/performance-stop-8ac.json"
+    ],
+    "case_ids": [
+      "perf.rps25",
+      "perf.rps50"
+    ],
+    "linked_issue": "WAN-138 / WAN-161（诊断上下文；确认根因后按领域复用或拆独立项）"
   }
 ]

@@ -333,3 +333,12 @@ be78e046-38f9-4abc-a045-45cc2ff16c16源774/bfb71212正式性能已中断，保�
 04c97c68-c676-4d1d-8388-643ff4cef5e3新正式链20:55:40Z通过，1512始末同源，323pass/0fail/skip：entry232、components11、content69、local-live10、Jenkins1。原16 backend+4 local-live门控均补当前源证据；OIDC通过组件调用原named Go test并断言pass，按formal_test映射，其余19有同名记录。原skip与blocked终态不改。当前50个normal2xx method/path含aux，不是主166完整覆盖。临时Grafana/Jenkins按owner/run清理；唯一已完成Jenkins合成job读回区别于7暂停原生CI/CD，未启动SCM/远程agent/镜像构建或部署。
 
 三格式报告导出；final-862-skip-classification及followup-04c-gate-coverage私有0600，分别按5e0504e1/3d57b9cf/5dc4e7b3证据ID登记于862报告。doctor53/53、零活动run、fresh nonce/HMAC、实际1512非racebinarycb7/runtime338以及证书90000秒余窗均通过。助手自主决定补齐4旧本地live的同源证据后再压测，未扩张暂停域。原两档18分钟性能复验及连续24h尚未开始，WAN162仍InProgress，原51/主166未收口；原性能首红、归档库和所有外部/暂停/缺能力待办保留。
+
+
+### 2026-10-01 · 原认领超时消退，数据库延迟仍失败
+
+8ac896b5-70c4-43c8-a934-309ce357e31d新1512源性能21:14:05Z准确interrupted：12pass/3failed/5blocked，父/子记录非3个独立产品Bug。基础25RPS完整300.794秒7500请求0非预期错误、0丢失iteration；300次有界认领错误0，P9560.772/P99122.116ms，原SHARE饥饿未复现，PG实际samples0Lock等待。聚合P95882.335/P991142.778通过；database_latency P95676.033ms超过原500ms，P99861.518ms通过。原stage仍failed，不能因认领恢复或全局P99改善改绿。
+
+base50约23.184秒Blocked，具体根因待核，不能先称Health故障。Runner自动接scale command，已精确seed1000/100000/500000后warmup约51秒；root fresh HMAC/SQLite/实际命令验证后只TERM runner4118，API未重启。当前APP9270802已经scale，不是base；旧eeb归档OID16388完整保留且操作完成，不重复旧UUID。若新修后确需base，须保留本次scale证据库另建fresh，不能删seed或假称基础档；当前根因未明不先操作。
+
+三格式报告、wan162-postfix-performance-first-red及performance-stop-8ac保存，诊断摘要按28bccd29-b9ba-489e-8506-f3ec3e663317登记。独立只读高阶代理核traffic分类/具体路由/PG资源日志及bounded EXPLAIN，尚未判定产品/工具/环境根因；不放门槛/超时/权限、不删有界写/替换真实组件。24小时尚未启动，所有旧首红与新源完整/正式证明保留，整体验收仍未收口。

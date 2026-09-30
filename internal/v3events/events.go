@@ -330,6 +330,9 @@ func summarize(v incidentRecord, now time.Time) incidentSummary {
 	return incidentSummary{ID: v.ID, Severity: severity(v.Severity), Title: v.Title, Status: status, Duration: elapsed, Commander: v.Commander}
 }
 
+// listVisible captures alert fields in one statement before checking current
+// authority. The caller's link-table lock keeps case membership stable; the
+// read projection must not hold incident row locks against claims.
 func (s *Service) listVisible(r *http.Request, tx pgx.Tx) ([]incidentRecord, error) {
 	scope, ok := httpapi.V3ScopeFromContext(r.Context())
 	if !ok || len(scope.EnvironmentIDs) == 0 || tx == nil || (s.Authorize == nil && s.AuthorizeTx == nil) {
@@ -337,7 +340,7 @@ func (s *Service) listVisible(r *http.Request, tx pgx.Tx) ([]incidentRecord, err
 	}
 	rows, err := tx.Query(r.Context(), incidentSelect+` WHERE e.key=ANY($1::text[])
  AND NOT EXISTS (SELECT 1 FROM v3_incident_case_alerts linked WHERE linked.alert_id=i.id)
- ORDER BY i.updated_at DESC,i.id DESC LIMIT 5001 FOR SHARE OF i`, scope.EnvironmentIDs)
+ ORDER BY i.updated_at DESC,i.id DESC LIMIT 5001`, scope.EnvironmentIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -382,13 +385,16 @@ func (s *Service) listVisible(r *http.Request, tx pgx.Tx) ([]incidentRecord, err
 	return out, nil
 }
 
+// listVisibleCases similarly captures case fields without blocking lifecycle
+// writes. Current authority is checked against each captured scope, and the
+// caller retains the link-table boundary until both list reads finish.
 func (s *Service) listVisibleCases(r *http.Request, tx pgx.Tx) ([]caseRecord, error) {
 	scope, ok := httpapi.V3ScopeFromContext(r.Context())
 	if !ok || len(scope.EnvironmentIDs) == 0 || tx == nil {
 		return nil, store.ErrForbidden
 	}
 	rows, err := tx.Query(r.Context(), caseSelect+` WHERE c.environment_key=ANY($1::text[])
- ORDER BY c.updated_at DESC,c.id DESC LIMIT 5001 FOR SHARE OF c`, scope.EnvironmentIDs)
+ ORDER BY c.updated_at DESC,c.id DESC LIMIT 5001`, scope.EnvironmentIDs)
 	if err != nil {
 		return nil, err
 	}

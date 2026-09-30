@@ -27,15 +27,16 @@ type persistedInboxItem struct {
 }
 
 // visibleInboxIncidentsTx limits the query to the two displayed calendar days
-// before applying V3 grants. Incident and authorization locks live through the
-// response transaction, including the final session check.
+// before applying current V3 grants. The first statement captures the incident
+// projection; it must not hold row locks that block claims while authorizing
+// the list. Authorization locks and the final session check remain in tx.
 func (s *Service) visibleInboxIncidentsTx(r *http.Request, tx pgx.Tx, since, until time.Time) ([]incidentRecord, error) {
 	scope, ok := httpapi.V3ScopeFromContext(r.Context())
 	if !ok || len(scope.EnvironmentIDs) == 0 || s.AuthorizeTx == nil {
 		return nil, store.ErrForbidden
 	}
 	rows, err := tx.Query(r.Context(), incidentSelect+` WHERE e.key=ANY($1::text[]) AND NOT i.suspected AND i.updated_at >= $2 AND i.updated_at <= $3
-		ORDER BY i.updated_at DESC,i.id DESC LIMIT 5001 FOR SHARE OF i`, scope.EnvironmentIDs, since, until)
+		ORDER BY i.updated_at DESC,i.id DESC LIMIT 5001`, scope.EnvironmentIDs, since, until)
 	if err != nil {
 		return nil, err
 	}

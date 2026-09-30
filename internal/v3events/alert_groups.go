@@ -143,16 +143,17 @@ func alertGroupQuery(w http.ResponseWriter, r *http.Request) (string, string, st
 	return q, env, state, severities, true
 }
 
-// visibleAlertIncidentsTx retains the incident and authorization locks until
-// the response snapshot is complete. It never treats a missing team callback
-// as permission to fall back to a legacy ACL.
+// visibleAlertIncidentsTx captures incident fields from one statement snapshot
+// without locking every incident against claims. Current authorization locks
+// remain through the response transaction; a missing team callback never
+// permits falling back to a legacy ACL.
 func (s *Service) visibleAlertIncidentsTx(r *http.Request, tx pgx.Tx, requestedEnv string) ([]incidentRecord, error) {
 	scope, ok := httpapi.V3ScopeFromContext(r.Context())
 	if !ok || len(scope.EnvironmentIDs) == 0 || s.AuthorizeTx == nil {
 		return nil, store.ErrForbidden
 	}
 	rows, err := tx.Query(r.Context(), incidentSelect+` WHERE e.key=ANY($1::text[]) AND ($2='' OR e.key=$2)
-		ORDER BY i.updated_at DESC,i.id DESC LIMIT 5001 FOR SHARE OF i`, scope.EnvironmentIDs, requestedEnv)
+		ORDER BY i.updated_at DESC,i.id DESC LIMIT 5001`, scope.EnvironmentIDs, requestedEnv)
 	if err != nil {
 		return nil, err
 	}

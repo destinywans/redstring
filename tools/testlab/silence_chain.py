@@ -320,7 +320,7 @@ class Chain(identity.Chain):
             if index==0:
                 observed=self.observe("SELECT json_build_object('decisions',(SELECT count(*) FROM v3_proposal_approval_decisions WHERE proposal_id="+q(pid)+"),'claims',(SELECT count(*) FROM v3_silence_execution_claims WHERE proposal_id="+q(pid)+"));")
                 if observed!={'decisions':0,'claims':0} or vote.get('status')!='pending_review' or vote.get('execution_id') or vote.get('received_approvals')!=1:raise AssertionError('first vote created execution authority')
-                identity.emit('silence.first_vote','passed',observed,module=self.module)
+                identity.emit('silence.first_vote.'+pid,'passed',observed,module=self.module)
             else:
                 proof=self.observe("SELECT json_build_object('creator',d.creator_id,'first',v1.approver_id,'second',v2.approver_id,'execution',d.execution_id,'count',d.required_count) FROM v3_proposal_approval_decisions d JOIN v3_proposal_approval_votes v1 ON v1.id=d.first_vote_id JOIN v3_proposal_approval_votes v2 ON v2.id=d.second_vote_id WHERE d.proposal_id="+q(pid)+';')
                 if proof['creator']!=self.uids[0] or {proof['first'],proof['second']}!=set(self.uids[1:]) or proof['count']!=2 or proof['execution']!=vote.get('execution_id') or vote.get('status')!='approved':raise AssertionError('second vote durable independent approval proof mismatch')
@@ -422,7 +422,7 @@ class Chain(identity.Chain):
                     guard_component(self.backend,'alertmanager',18571,self.cleanup_deadline)
                     status,_,_=request_local(18571,'DELETE','/api/v2/silence/'+actual['id'],timeout=identity.remaining(self.cleanup_deadline,3))
                     if status!=200:raise AssertionError('owned fixture teardown expiration failed')
-                    identity.emit('silence.fixture_teardown','passed',{'upstream_id':actual['id'],'business_acceptance':False},module=self.module)
+                    identity.emit('silence.fixture_teardown.'+actual['id'],'passed',{'upstream_id':actual['id'],'business_acceptance':False},module=self.module)
             except Exception:failures.append('owned AM silence fixture teardown failed; precise marker evidence retained')
         if self.seeded:
             try:

@@ -124,6 +124,17 @@ class SilenceProtectionTests(unittest.TestCase):
         with patch.object(self.chain,'call',side_effect=[(options,{}),(vote,{})]),patch.object(self.chain,'observe',return_value={'decisions':0,'claims':1}),patch.object(identity,'emit'),self.assertRaisesRegex(AssertionError,'first vote'):
             self.chain.approve('a'*32)
 
+    def test_distinct_first_votes_have_immutable_distinct_result_keys(self):
+        self.chain.approvers=[(self.chain.uids[1],'synthetic-cookie',Mock(spec=['assertion','save']))]
+        options={'challenge_id':'own-challenge','options':{'challenge':'own-challenge'}}
+        vote={'status':'pending_review','received_approvals':1}
+        with patch.object(self.chain,'call',side_effect=[(options,{}),(vote,{}),(options,{}),(vote,{})]),patch.object(self.chain,'observe',return_value={'decisions':0,'claims':0}),patch.object(identity,'emit') as emit:
+            self.chain.approve('b'*32)
+            self.chain.approve('c'*32)
+        keys=[call.args[0] for call in emit.call_args_list]
+        self.assertEqual(len(set(keys)),2)
+        self.assertTrue(all(key.startswith('silence.first_vote.') for key in keys))
+
     def test_manual_review_is_failure_and_keeps_exact_private_evidence(self):
         pid='b'*32;claim={'state':'manual_review','operation':'own-op','payload':self.payload}
         with patch.object(self.chain,'claim',return_value=claim),self.assertRaisesRegex(AssertionError,'manual_review'):

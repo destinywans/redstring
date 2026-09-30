@@ -1,17 +1,22 @@
 # Search and @mentions use persisted, scoped service, incident, investigation,
-# person and conversation records. There is no persisted recent navigation list.
-v3_discovery_kinds = ['service','incident','investigation','conversation','person']
+# person, conversation and governed Runbook records. There is no persisted recent navigation list.
+v3_discovery_kinds = ['service','incident','investigation','conversation','person','runbook']
 v3_discovery_tones = ['neutral','accent','ok','warn','danger','info']
+v3_runbook_governance = ['draft','review','published']
 S['V3SearchHit'] = obj({**fieldnames('id title subtitle href'),
-    'kind':string(enum=v3_discovery_kinds), 'status':string(enum=v3_discovery_tones)},
+    'kind':string(enum=v3_discovery_kinds), 'status':string(enum=v3_discovery_tones),
+    'version':integer(), 'governance_status':string(enum=v3_runbook_governance)},
     ['kind','id','title','href'])
 S['V3MentionCandidate'] = obj({**fieldnames('id label meta'),
     'kind':string(enum=v3_discovery_kinds), 'status':string(enum=v3_discovery_tones),
-    'tier':string(enum=['T0','T1','T2'])}, ['kind','id','label'])
+    'tier':string(enum=['T0','T1','T2']), 'version':integer(),
+    'governance_status':string(enum=v3_runbook_governance)}, ['kind','id','label'])
 S['V3MentionPreviewPartial'] = obj({**fieldnames('id title subtitle status_label href'),
     'kind':string(enum=v3_discovery_kinds),
     'tier':string(enum=['T0','T1','T2']),
     'status':string(enum=v3_discovery_tones),
+    'version':integer(), 'governance_status':string(enum=v3_runbook_governance),
+    'missing':arr(string()),
     'metrics':arr(obj({**fieldnames('label value tone'),'series':arr(v3_num())},
         ['label','value','series'])),
     'change':obj(fieldnames('brand text meta'), ['brand','text','meta']),
@@ -21,14 +26,14 @@ v3_route('get','/search','Search available persisted records',
     response=obj({'query':string(),'hits':arr(ref('V3SearchHit')),'recent':arr(ref('V3SearchHit'))},
         ['query','hits','recent']),
     query=[v3_query('q')],
-    desc='The supported persisted kinds are scoped services, incidents, investigations, active visible human members and own conversations, with Chinese or pinyin matching. At most eight balanced hits are returned; real investigation IDs link to the canvas list until the frontend route accepts them. Recent is always empty until user navigation history exists; no navigation history is synthesized.')
+    desc='The supported persisted kinds are scoped services, incidents, investigations, active visible human members, own conversations and currently authorized governed Runbooks, with Chinese or pinyin matching. Runbook IDs, names, versions and governance states come from persisted records; no health is inferred from governance. Runbooks without structured detail link to the Runbook list. At most eight balanced hits are returned; real investigation IDs link to the canvas list until the frontend route accepts them. Recent is always empty until user navigation history exists; no navigation history is synthesized.')
 v3_route('get','/mentions','List available mention candidates',
     response=obj({'items':arr(ref('V3MentionCandidate'))},['items']),
-    query=[v3_query('q'),v3_query('kind',string(enum=['service','incident','investigation','conversation','person']))],
-    desc='Scoped service, incident, investigation, active visible human member and own conversation references are supported. At most 30 balanced candidates are returned; clients need a kind-specific query for a complete tab. Other RefKind values return 422 unsupported_kind when requested by kind, because their complete scope and reference-send path are not established.')
+    query=[v3_query('q'),v3_query('kind',string(enum=v3_discovery_kinds))],
+    desc='Scoped service, incident, investigation, active visible human member, own conversation and currently authorized governed Runbook references are supported, including kind=runbook. Runbook version and governance status are persisted facts, not health or execution evidence. At most 30 balanced candidates are returned; clients need a kind-specific query for a complete tab. Other RefKind values return 422 unsupported_kind when requested by kind, because their complete scope and reference-send path are not established.')
 v3_route('get','/mentions/{kind}/{id}/preview','Preview an accessible reference',
     response=ref('V3MentionPreviewPartial'),
-    desc='Scoped service, incident, investigation, active visible human member and own conversation records have verified previews; other kinds return 503 preview_unavailable. A missing or unauthorized ID returns 404 without revealing existence. Metrics and related records are empty until sources are connected. Incident status labels reflect persisted incident workflow state, not live alert health.')
+    desc='Scoped service, incident, investigation, active visible human member, own conversation and governed Runbook records have verified previews; other kinds return 503 preview_unavailable. A missing or unauthorized ID returns 404 without revealing existence. A Runbook preview exposes its persisted version and governance_status, and lists unavailable observations in missing; it never infers health, execution results, metrics, usage or relations. Runbooks without structured detail include structured_detail in missing and link to the Runbook list, because their detail route is unavailable. Metrics and related records are empty until sources are connected. Incident status labels reflect persisted incident workflow state, not live alert health. The frozen frontend still requires real-mode adaptation and acceptance.')
 for _path in ['/search','/mentions']:
     P[_path]['get']['responses']['413'] = {
         'description':'More than 100 matching records in a source kind exceed the bounded query; narrow the search',

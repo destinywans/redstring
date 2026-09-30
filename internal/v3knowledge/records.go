@@ -57,21 +57,36 @@ func runbookReadAuthorityError(w http.ResponseWriter, err error) {
 
 // Session and grant row locks serialize a response with logout and changes to
 // the locked role grants while document and permission reads use one snapshot.
+var errRunbookReadStart = errors.New("runbook read transaction could not start")
+
 func (s *Service) beginRunbookRead(w http.ResponseWriter, r *http.Request, ctx context.Context) (pgx.Tx, bool) {
+	tx, err := s.beginRunbookReadTx(r, ctx)
+	if err != nil {
+		if errors.Is(err, errRunbookReadStart) {
+			knowledgeError(w, err)
+		} else {
+			runbookReadAuthorityError(w, err)
+		}
+		return nil, false
+	}
+	return tx, true
+}
+
+// Keep the reference projection and the full Runbook reads on the same
+// session/grant locking policy. The caller owns rollback or commit.
+func (s *Service) beginRunbookReadTx(r *http.Request, ctx context.Context) (pgx.Tx, error) {
 	tx, err := s.DB.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
-		knowledgeError(w, err)
-		return nil, false
+		return nil, errors.Join(errRunbookReadStart, err)
 	}
 	if err = lockRunbookReadSession(ctx, tx, r); err == nil {
 		err = lockRunbookGrantSources(ctx, tx, httpapi.CurrentUser(r).ID)
 	}
 	if err != nil {
 		_ = tx.Rollback(ctx)
-		runbookReadAuthorityError(w, err)
-		return nil, false
+		return nil, err
 	}
-	return tx, true
+	return tx, nil
 }
 
 func (s *Service) readableRunbook(w http.ResponseWriter, r *http.Request) (pgx.Tx, knowledge.Document, bool) {

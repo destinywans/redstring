@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/searchtext"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3knowledge"
 )
 
 type Access interface {
@@ -27,10 +29,19 @@ type Access interface {
 type Service struct {
 	DB           *pgxpool.Pool
 	Access       Access
+	runbooks     *v3knowledge.Service
 	textCommands []TextCommand // configured before serving; nil means unavailable
 }
 
-func New(db *pgxpool.Pool, access Access) *Service { return &Service{DB: db, Access: access} }
+func New(db *pgxpool.Pool, access Access) *Service {
+	s := &Service{DB: db, Access: access}
+	// Production passes the transaction-capable policy. A fake Access cannot
+	// stand in for Runbook's version-bound, conjunctive object authorization.
+	if policy, ok := access.(*rbac.V3Policy); ok && policy != nil {
+		s.runbooks = &v3knowledge.Service{DB: db, Policy: policy}
+	}
+	return s
+}
 
 // These composite routes enforce per-result policy, so they have no single
 // module code to mark at the API boundary. The V3 environment middleware and
@@ -53,45 +64,54 @@ func (s *Service) Register(api *httpapi.Server) {
 }
 
 type record struct {
-	Kind          string
-	ID            string
-	Title         string
-	EnvironmentID string
-	ApplicationID string
-	TeamID        string
-	Tier          string
-	State         string
+	Kind            string
+	ID              string
+	Title           string
+	EnvironmentID   string
+	ApplicationID   string
+	TeamID          string
+	Tier            string
+	State           string
+	Version         int
+	DetailAvailable bool
 }
 
 type hit struct {
-	Kind     string `json:"kind"`
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	Subtitle string `json:"subtitle,omitempty"`
-	Status   string `json:"status,omitempty"`
-	Href     string `json:"href"`
+	Kind             string `json:"kind"`
+	ID               string `json:"id"`
+	Title            string `json:"title"`
+	Subtitle         string `json:"subtitle,omitempty"`
+	Status           string `json:"status,omitempty"`
+	Version          int    `json:"version,omitempty"`
+	GovernanceStatus string `json:"governance_status,omitempty"`
+	Href             string `json:"href"`
 }
 
 type candidate struct {
-	Kind   string `json:"kind"`
-	ID     string `json:"id"`
-	Label  string `json:"label"`
-	Meta   string `json:"meta,omitempty"`
-	Status string `json:"status,omitempty"`
-	Tier   string `json:"tier,omitempty"`
+	Kind             string `json:"kind"`
+	ID               string `json:"id"`
+	Label            string `json:"label"`
+	Meta             string `json:"meta,omitempty"`
+	Status           string `json:"status,omitempty"`
+	Tier             string `json:"tier,omitempty"`
+	Version          int    `json:"version,omitempty"`
+	GovernanceStatus string `json:"governance_status,omitempty"`
 }
 
 type mentionPreview struct {
-	Kind        string `json:"kind"`
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Subtitle    string `json:"subtitle"`
-	Tier        string `json:"tier,omitempty"`
-	Status      string `json:"status,omitempty"`
-	StatusLabel string `json:"status_label,omitempty"`
-	Metrics     []any  `json:"metrics"`
-	Related     []any  `json:"related"`
-	Href        string `json:"href,omitempty"`
+	Kind             string   `json:"kind"`
+	ID               string   `json:"id"`
+	Title            string   `json:"title"`
+	Subtitle         string   `json:"subtitle"`
+	Tier             string   `json:"tier,omitempty"`
+	Status           string   `json:"status,omitempty"`
+	StatusLabel      string   `json:"status_label,omitempty"`
+	Metrics          []any    `json:"metrics"`
+	Related          []any    `json:"related"`
+	Href             string   `json:"href,omitempty"`
+	Version          int      `json:"version,omitempty"`
+	GovernanceStatus string   `json:"governance_status,omitempty"`
+	Missing          []string `json:"missing,omitempty"`
 }
 
 func (s *Service) ready(w http.ResponseWriter, r *http.Request) ([]string, bool) {
@@ -138,7 +158,8 @@ func (s *Service) search(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, item := range balanced(records, 8) {
 			result = append(result, hit{Kind: item.Kind, ID: item.ID, Title: item.Title,
-				Subtitle: meta(r, item), Status: tone(item), Href: href(item)})
+				Subtitle: meta(r, item), Status: tone(item), Href: href(item),
+				Version: item.Version, GovernanceStatus: governanceStatus(item)})
 		}
 	}
 	// No persisted per-user navigation history exists yet. An empty recent list
@@ -160,7 +181,7 @@ func (s *Service) mentions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kind := strings.TrimSpace(r.URL.Query().Get("kind"))
-	if kind != "" && kind != "service" && kind != "incident" && kind != "investigation" && kind != "conversation" && kind != "person" {
+	if kind != "" && kind != "service" && kind != "incident" && kind != "investigation" && kind != "conversation" && kind != "person" && kind != "runbook" {
 		httpapi.Error(w, 422, "unsupported_kind", "Mention kind is not available")
 		return
 	}
@@ -172,7 +193,8 @@ func (s *Service) mentions(w http.ResponseWriter, r *http.Request) {
 	items := []candidate{}
 	for _, item := range balanced(records, 30) {
 		items = append(items, candidate{Kind: item.Kind, ID: item.ID, Label: item.Title,
-			Meta: meta(r, item), Status: tone(item), Tier: item.Tier})
+			Meta: meta(r, item), Status: tone(item), Tier: item.Tier,
+			Version: item.Version, GovernanceStatus: governanceStatus(item)})
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items})
 }
@@ -183,7 +205,7 @@ func (s *Service) preview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kind, id := r.PathValue("kind"), r.PathValue("id")
-	if kind != "service" && kind != "incident" && kind != "investigation" && kind != "conversation" && kind != "person" {
+	if kind != "service" && kind != "incident" && kind != "investigation" && kind != "conversation" && kind != "person" && kind != "runbook" {
 		httpapi.Error(w, 503, "preview_unavailable", "This reference kind has no verified preview source")
 		return
 	}
@@ -199,6 +221,10 @@ func (s *Service) preview(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 404, "not_found", "Reference not found")
 		return
 	}
+	if errors.Is(err, store.ErrSessionRevoked) {
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		return
+	}
 	if err != nil {
 		httpapi.Error(w, 503, "preview_unavailable", "Reference preview unavailable")
 		return
@@ -207,16 +233,45 @@ func (s *Service) preview(w http.ResponseWriter, r *http.Request) {
 }
 
 func previewOf(r *http.Request, item record) mentionPreview {
-	return mentionPreview{
+	preview := mentionPreview{
 		Kind: item.Kind, ID: item.ID, Title: item.Title, Subtitle: meta(r, item),
 		Tier: item.Tier, Status: tone(item), StatusLabel: statusLabel(r, item),
 		// No verified telemetry or relationship source is connected to this
 		// preview. Never render synthetic metrics or inferred associations.
 		Metrics: []any{}, Related: []any{}, Href: href(item),
+		Version: item.Version, GovernanceStatus: governanceStatus(item),
 	}
+	if item.Kind == "runbook" {
+		preview.Missing = []string{"metrics", "related", "usage", "execution_verification"}
+		if !item.DetailAvailable {
+			preview.Missing = append(preview.Missing, "structured_detail")
+		}
+	}
+	return preview
 }
 
 func statusLabel(r *http.Request, item record) string {
+	if item.Kind == "runbook" {
+		en := strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "en")
+		switch item.State {
+		case "draft":
+			if en {
+				return "Draft"
+			}
+			return "草稿"
+		case "review":
+			if en {
+				return "In review"
+			}
+			return "待审核"
+		case "published":
+			if en {
+				return "Published"
+			}
+			return "已发布"
+		}
+		return ""
+	}
 	if item.Kind != "incident" {
 		return ""
 	}
@@ -500,6 +555,26 @@ ORDER BY updated_at DESC,id LIMIT $4`, httpapi.CurrentUser(r).ID, envs, q, limit
 			return nil, err
 		}
 	}
+	// Read Runbooks last in a session/grant/version-bound transaction, after
+	// ordinary kinds have been resolved, to minimize stale mixed-kind output.
+	if kind == "" || kind == "runbook" {
+		if s.runbooks == nil {
+			if kind == "runbook" {
+				return nil, v3knowledge.ErrRunbookReferencesUnavailable
+			}
+		} else {
+			refs, err := s.runbooks.ListRunbookReferences(r, q, limit)
+			if err != nil {
+				return nil, err
+			}
+			if q != "" && len(refs) > 100 {
+				return nil, errTooBroad
+			}
+			for _, ref := range refs {
+				visible = append(visible, recordFromRunbookReference(ref))
+			}
+		}
+	}
 	return visible, nil
 }
 
@@ -544,7 +619,16 @@ func balanced(items []record, max int) []record {
 func (s *Service) recordByID(r *http.Request, envs []string, kind, id string) (record, error) {
 	v := record{Kind: kind}
 	var err error
-	if kind == "service" {
+	if kind == "runbook" {
+		if s.runbooks == nil {
+			return v, v3knowledge.ErrRunbookReferencesUnavailable
+		}
+		ref, err := s.runbooks.RunbookReferenceByID(r, id)
+		if err != nil {
+			return v, err
+		}
+		return recordFromRunbookReference(ref), nil
+	} else if kind == "service" {
 		appID, env, valid := parseServiceRecordID(id)
 		if !valid {
 			return v, pgx.ErrNoRows
@@ -638,10 +722,20 @@ func listError(w http.ResponseWriter, err error) {
 		httpapi.Error(w, 413, "scope_too_large", "Narrow the search query")
 		return
 	}
+	if errors.Is(err, store.ErrSessionRevoked) {
+		httpapi.Error(w, 401, "unauthorized", "Session expired")
+		return
+	}
 	httpapi.Error(w, 503, "discovery_unavailable", "Discovery records unavailable")
 }
 
 func href(v record) string {
+	if v.Kind == "runbook" {
+		if !v.DetailAvailable {
+			return "/runbooks"
+		}
+		return "/runbooks/" + url.PathEscape(v.ID)
+	}
 	if v.Kind == "incident" {
 		return "/incidents/" + url.PathEscape(v.ID)
 	}
@@ -661,6 +755,12 @@ func href(v record) string {
 
 func label(r *http.Request, kind string) string {
 	en := strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "en")
+	if kind == "runbook" {
+		if en {
+			return "Runbook"
+		}
+		return "运行手册"
+	}
 	if kind == "service" {
 		if en {
 			return "Service"
@@ -692,6 +792,13 @@ func label(r *http.Request, kind string) string {
 }
 
 func meta(r *http.Request, v record) string {
+	if v.Kind == "runbook" {
+		parts := []string{label(r, v.Kind), "v" + strconv.Itoa(v.Version), statusLabel(r, v)}
+		if v.EnvironmentID != "" {
+			parts = append(parts, v.EnvironmentID)
+		}
+		return strings.Join(parts, " · ")
+	}
 	if v.Kind == "person" {
 		return label(r, v.Kind)
 	}
@@ -711,4 +818,18 @@ func tone(v record) string {
 		}
 	}
 	return ""
+}
+
+func governanceStatus(v record) string {
+	if v.Kind == "runbook" {
+		return v.State
+	}
+	return ""
+}
+
+func recordFromRunbookReference(ref v3knowledge.RunbookReference) record {
+	return record{Kind: "runbook", ID: ref.ID, Title: ref.Title,
+		EnvironmentID: ref.EnvironmentID, ApplicationID: ref.ApplicationID,
+		TeamID: ref.TeamID, State: ref.GovernanceStatus, Version: ref.Version,
+		DetailAvailable: ref.DetailAvailable}
 }

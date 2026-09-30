@@ -276,3 +276,12 @@ WAN160管理包由独立会话完成44离线，根正式fdd28078-b649-45b0-b103-
 决定最小composite covering索引ops_incidents(investigation_id,application_id,environment_id) INCLUDE(id)，置Operations.Service.Migrate表建立后，复用已有tx/advisory_xact_lock752018996。不能塞全局154，因为ops表由主store之后Operations创建，会漏fresh初始化。内部代理独占该Migrate片段+新的有意义PG计划/语义/迁移回归文件；只在新自有fixture红绿，原scale首红APP不先加index。root负责审查、二进制重建/同源回归、fresh基础数据环境与原性能两档。预计计划改善尚未验证不能宣绿，DDL部署大表锁/WAL仍需独立限定验证。
 
 Discovery离线包ready并停止编辑：新238+226行复用readonly深工具，14offline+语法通过；9操作用正式blank Runbook创建→提交→独立发布生成真实published source（SQL不伪发布），非空keyword/draft排除、people精确展示名、audit原生记录和export+ownerCSV下载/跨用户环境撤权。它没有live证据，待WAN161/source重新冻结后串行验证；不从离线镜像协议冒检索真实验收。
+
+
+### 2026-10-01 02:00 · WAN161修复与新源回归
+
+c14c2593b71b3466edf5e2c30ad30d32b47bc731已提交推送并远端确认，源774223bb3e48b34b1f2c4cb0358f2de9747088594e1aba9fb1934120373eafe2。仅Operations Migrate一覆盖索引+两有意义测试。完整两模块race135PASS行/0FAIL/1paidSKIP；根query-plan3f1ef462两项全过，source始末774一致且三报告导出。独立新schema真实1000app/100kalerts生产COUNT cost4276153→17900.8/defaultJIT不再触发、1561ms→0.975ms诊断；0/1/2与跨app/env、fresh/旧表8并发迁移语义均验。单app高偏斜对照仍JIT和普通index建时写锁已记录，不假装已解决全性能形态。
+
+新source全量+专项8ad097ae-5d4f-4e40-a03f-e0dad03835e7正在运行（baseline/mfa/passkey/configsync/regressions，新增index optin明确开启）；旧8d2479证明保留但不能冒新冻结。当前正式base仍旧8d二进制，不能用它跑new774 Discovery/entry/perf；先无活动测试时精确archive旧APP→新空canonical数据库→重新runtime初始化/正式binary重建。原scaleAPP未变且不得删seed降低档位。
+
+profile工具独占两新文件仅offline准备。自主决定唯一fresh staging创建→run COMMENT→extensions→rename canonical；未tagged CREATE-loss仍blocked，WAL意图与唯一name不单独构成归属证据。PG没有run label、原environment.run_id为wan-138-20260930，不伪造不存在的保证；CLI操作UUID/环境摘要/containerID/owner/image/volumes/原DBOID作为绑定。base未有PGAPPNAME，采取fresh HMAC二API+lsof当前15461 hostclient归属和停后零APP连接/原子rename，绝不PGterminate/FORCE。所有partial states保守，root实际apply仍未发生。

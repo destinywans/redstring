@@ -1,3 +1,11 @@
+## CP-220 · 2026-10-01 · WAN161已推送，新774源完整回归运行
+
+- **c14c2593b71b3466edf5e2c30ad30d32b47bc731** 已提交推送并精确远端回读；Go指纹 **774223bb3e48b34b1f2c4cb0358f2de9747088594e1aba9fb1934120373eafe2**。WAN161仅Operations Migrate一覆盖索引+两测试，未改query/ACL/Health/JIT。两模块135PASS/0FAIL/1paidSKIP，root query-plan3f1ef462两项passed/无skip始末774，报告3格式已导出。实际fixture分布0/1/2/跨scope与8并发迁移通过，默认JIT cost427万→1.79万/扫描16→16索引；单app偏斜仍JIT、建索引写锁边界不隐去。WAN161仍InProgress直到原两档实测，未24h/部署。
+- **全量+专项8ad097ae-5d4f-4e40-a03f-e0dad03835e7** session91135 正在跑baseline,mfa,passkey,configsync,regressions；index optin加入baseline/regressions，plan原始证据wan161-runner-plans随机schema文件不覆写。活动run未终态前不可profile apply/restart/性能！旧8d2479与首06a性能失败/2e中断保留。
+- Discovery14offline+独立只读Review无阻断，未live。root已加discovery/query-plan manifest与README（待提交），以及WAN161 defect条目。现在正式base fixture仍old8d、source新774，不可冒newbinary证明；profile先归档APP/fresh，然后重建正式binary/runtime→entry/组件/discovery+content及必要native相关回归→静态/doctor→原两档perf→24h。
+- /root/promotion_chain只offline独占新profile.py/tests/test_profile.py实现保守WAL工具。新APP采用唯一staging→精确tag→扩展→canonical rename；untagged CREATE-loss保持blocked不能adopt。PG旧run无Dockerlabel，用私有environment真实run_id/摘要+owner/name/image/containerID/volumes/原APP OID绑定。停机前fresh HMAC+hostclient只允许当前二API，停后8s bounded PG zero clients/no backend termination/FORCE；root真正apply须审查/无活动run/归属核验。不改runtime/五DSN/组件/证书/卷；后续runtime/hooks必须root重新初始化。
+- 主证书2026-10-02T08:58:11Z，启动24h前checkend余窗；aiops-24仍ACTIVE静默沿最新CP接续，旧heartbeat中8d/649/runner77575快照失效。当前所剩未提交为manifest/README/defects/docs、Discovery2文件与profile2文件草稿（本任务）；无关.claude保留，产品前端未改/测，不合并/部署。
+
 ## CP-219 · 2026-10-01 · WAN161热路径修复实施中，持续验收仍待
 
 - 最新4c9c5a4已提交推送并远端确认（源码修复前Go8d0a）。performance06a848d7真实failed与2e7d6d01interrupted不可改；CP218细节和报告保留。性能负载已全部结束，同原API进程仍ready但源若变旧binary不能继续验收。

@@ -109,7 +109,9 @@
           "parser": "go_json",
           "timeout_seconds": 1800,
           "env": {
-            "TEST_DATABASE_URL": "${TEST_DATABASE_URL}"
+            "TEST_DATABASE_URL": "${TEST_DATABASE_URL}",
+            "AIOPS_TESTLAB_INDEX_REGRESSION_ENABLED": "dedicated-temp-container",
+            "AIOPS_TESTLAB_PLAN_EVIDENCE": "/Users/wans/Home/code/codex/aiops/.local/testlab/wan161-runner-plans"
           }
         }
       ],
@@ -270,7 +272,9 @@
           "timeout_seconds": 900,
           "env": {
             "TEST_DATABASE_URL": "${TEST_DATABASE_URL}",
-            "AIOPS_TESTLAB_BACKEND_ENABLED": "dedicated-temp-container"
+            "AIOPS_TESTLAB_BACKEND_ENABLED": "dedicated-temp-container",
+            "AIOPS_TESTLAB_INDEX_REGRESSION_ENABLED": "dedicated-temp-container",
+            "AIOPS_TESTLAB_PLAN_EVIDENCE": "/Users/wans/Home/code/codex/aiops/.local/testlab/wan161-runner-plans"
           }
         }
       ],
@@ -280,6 +284,44 @@
         37,
         38,
         40
+      ]
+    },
+    {
+      "id": "query-plan",
+      "name": "WAN161真实查询计划及并发迁移回归",
+      "type": "performance",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "go",
+            "test",
+            "-mod=readonly",
+            "-race",
+            "-json",
+            "-count=1",
+            "-p",
+            "2",
+            "-timeout",
+            "5m",
+            "-run",
+            "TestConversationListInvestigationPlan|TestOperationsInvestigationIndexConcurrentMigration",
+            "./internal/v3conversation",
+            "./internal/operations"
+          ],
+          "parser": "go_json",
+          "timeout_seconds": 360,
+          "env": {
+            "TEST_DATABASE_URL": "${TEST_DATABASE_URL}",
+            "AIOPS_TESTLAB_INDEX_REGRESSION_ENABLED": "dedicated-temp-container",
+            "AIOPS_TESTLAB_PLAN_EVIDENCE": "/Users/wans/Home/code/codex/aiops/.local/testlab/wan161-runner-plans"
+          }
+        }
+      ],
+      "gap_ids": [
+        37,
+        43,
+        46
       ]
     },
     {
@@ -519,6 +561,28 @@
       "gap_ids": [
         11,
         15,
+        46
+      ]
+    },
+    {
+      "id": "discovery",
+      "name": "知识非空搜索/人员预览/审计导出权限",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/discovery_chain.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 1200,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        25,
         46
       ]
     },

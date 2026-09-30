@@ -446,5 +446,21 @@
     "fix_commit": "2a81bfb",
     "fix": "https://github.com/destinywans/aiops-canvas/commit/2a81bfb",
     "case_ids": "79e7e458-fb35-4308-a0c8-a6fae7077d8c / 1fbdd662-d5e8-464b-a0dd-5684d64b830b"
+  },
+  {
+    "id": "WAN-161",
+    "title": "会话列表关联告警重复全表扫描导致性能压力下健康超时",
+    "status": "in_progress",
+    "description": "已验证缺索引放大；首性能失败完整保留，尚未断言索引是全部压力问题的唯一原因。",
+    "before": "06a848d7 base25RPS/scale warmup Health2s超时；原EXPLAIN16次全扫100005rows各次，JIT高开销。",
+    "after": "c14c259一条复合覆盖索引；独立真实1000app/100kalerts相同COUNT16 index lookups、cost427万→1.79万/defaultJIT不触发，0/1/2及跨app/env语义、旧表8并发重复迁移通过；两个模块135PASS/1paidSKIP/0fail；root同源query-plan3f1ef462两项全过。fresh base/scale完整负载仍待复验。",
+    "fix_commit": "c14c259",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/c14c259",
+    "local_evidence": [
+      ".local/testlab/wan161-evidence-summary.json",
+      ".local/testlab/wan161-affected-full-race.log"
+    ],
+    "case_ids": "06a848d7-6821-463f-96bd-1ee2639ea6f8 / 3f1ef462-71f4-4adb-abf9-e651d71f994a",
+    "limitations": "单应用高偏斜仍可能触发JIT；普通事务index构建暂阻写，生产大表升级需独立窗口；未改变health/JIT/权限/负载阈值。"
   }
 ]

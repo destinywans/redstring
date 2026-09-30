@@ -641,6 +641,35 @@
       ]
     },
     {
+      "id": "core",
+      "name": "非空事件/角色/本人会话/审计正式链",
+      "type": "api",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_core_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        5,
+        22,
+        23,
+        25,
+        26,
+        27,
+        28,
+        36,
+        40
+      ]
+    },
+    {
       "id": "promotion",
       "name": "正式配置提升/受保护GitLab/生产独立导入",
       "type": "integration",

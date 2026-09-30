@@ -599,5 +599,48 @@
       ".local/testlab/diagnose-signal-red.txt",
       ".local/testlab/diagnose-signal-green.txt"
     ]
+  },
+  {
+    "id": "TOOL-CORE-CANONICAL",
+    "title": "核心接口包漏列两个实际正常路由",
+    "status": "fixed",
+    "description": "仅测试工具；GET roles与POST audit/export不在限定inventory，离线真实canonical拒绝。",
+    "before": "7离线tests中两路径实际Blocked；未live。",
+    "after": "仅补两个既有公开operation并逐实际路径核canonical；不放宽为任意契约。独立复审通过，后续live已执行至导出。",
+    "local_evidence": [
+      ".local/testlab/first-failures/core-canonical-first-red.txt",
+      ".local/testlab/core-canonical-green.txt"
+    ],
+    "linked_issue": "WAN-138"
+  },
+  {
+    "id": "TOOL-CORE-EXPORT-SCOPE",
+    "title": "导出测试误用只读全部环境导致handler前拒绝",
+    "status": "fixed",
+    "description": "仅测试参数问题；产品all写gate409符合现契约。",
+    "before": "正常及invalid_filter两POST错误选择all，handler前409；strictargs首红8tests/1failure。",
+    "after": "显式test环境执行正常200/invalid422，all409单独边界；8离线通过，真实live200/422/409均通过，不修改产品gate。",
+    "local_evidence": [
+      ".local/testlab/first-failures/core-export-scope-first-red.txt",
+      ".local/testlab/core-export-scope-green.txt"
+    ],
+    "linked_issue": "WAN-138"
+  },
+  {
+    "id": "TOOL-CORE-READINESS-ID",
+    "title": "自身source配置重启重复就绪记录触发采集审计失败",
+    "status": "fixed",
+    "description": "两次继承start重用immutable result key，Runner正确拒绝，非产品业务失败。",
+    "before": "8e2c302d69passed/1command-audit failed，实际71stdout/61HTTP，management.api_ready.0/.1各重复；cleanup DB/role均absent。",
+    "after": "只映射固定setup/source两phase exact readiness IDs，其他emit/异常不变并finally恢复。原base.start离线真重复首红及10绿，XHigh源码/raw无阻断；原live复验0b62执行中。 原链复验0b62bb45正式71passed/0failed/skip，source始末bee，命令审计无malformed、actual cleanup DB/role absent。原8e failed及两个离线夹具错误保持。",
+    "first_failure_run_id": "8e2c302d-944e-4465-ae24-cac5e3c622ab",
+    "first_failure_source": "bee47136f25c9f5abec761c60fd3f2572eb31ad42d0b1a7d2e57d8ac895cbb56",
+    "local_evidence": [
+      ".local/testlab/first-failures/core-readiness-duplicate-live.json",
+      ".local/testlab/first-failures/core-readiness-duplicate-red-verified.txt",
+      ".local/testlab/core-readiness-phase-green-verified.txt"
+    ],
+    "linked_issue": "WAN-138",
+    "verification_run_id": "0b62bb45-8872-4b97-9986-e4c3e7dc1d86"
   }
 ]

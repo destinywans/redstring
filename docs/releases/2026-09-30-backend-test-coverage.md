@@ -342,3 +342,12 @@ be78e046-38f9-4abc-a045-45cc2ff16c16源774/bfb71212正式性能已中断，保�
 base50约23.184秒Blocked，具体根因待核，不能先称Health故障。Runner自动接scale command，已精确seed1000/100000/500000后warmup约51秒；root fresh HMAC/SQLite/实际命令验证后只TERM runner4118，API未重启。当前APP9270802已经scale，不是base；旧eeb归档OID16388完整保留且操作完成，不重复旧UUID。若新修后确需base，须保留本次scale证据库另建fresh，不能删seed或假称基础档；当前根因未明不先操作。
 
 三格式报告、wan162-postfix-performance-first-red及performance-stop-8ac保存，诊断摘要按28bccd29-b9ba-489e-8506-f3ec3e663317登记。独立只读高阶代理核traffic分类/具体路由/PG资源日志及bounded EXPLAIN，尚未判定产品/工具/环境根因；不放门槛/超时/权限、不删有界写/替换真实组件。24小时尚未启动，所有旧首红与新源完整/正式证明保留，整体验收仍未收口。
+
+
+### 2026-10-01 WAN163 新源接口与工具闭环（CP241）
+
+WAN163生产修复3139fc8已推送；当前Go输入bee47136，实际非racebinarycf9ab09f、runtime338e1478。完整78/auth29回归仍按071fab7及生产未再变的边界，最终NoRows测试单独bee定向。性能与连续24h尚待复验，原3d/8ac失败保持。
+
+正式8cd312pass，readonly/discovery/management151bae239pass+1external_todo，core原8e69pass+1采集审计failed后最小phase命名修，原链0b62正式71pass/0fail/skip、61HTTP、actualclean DB/role absent。工具canonical/export scope/重复ready id三首次失败证据及定向离线回归均保留，XHigh二审放行。原生Webhooks/人工case/roles/session/audit来自HTTP；SQL只是身份输入和读回，不发送实际通知。
+
+当前严格normal2xx主并集58/166，aux18分开，排除GET/home只有registration。空200/只读合成audit/Mock不关闭非空业务或权威验收。私有coverage证据39765127及每run三格式报告可在只读看板访问；core CSV owner下载未验证，discovery CSV另有本地真实链。剩余108路由正常证明、缺生产执行器/外部和暂停域仍需追踪；整体未收口。

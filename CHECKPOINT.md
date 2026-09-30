@@ -1,3 +1,12 @@
+## CP-241 · 2026-10-01 · 新源正式链与非空核心接口补验通过
+
+- WAN163 **3139fc8a5904e885ebe2aa2ca6a80d78e86125a4** 已推送精确远端回读；实际非race重建完成。23:00前fresh nonce/HMAC监督19716/API19717、19718，source **bee47136…bb56**、binary **cf9ab09f19b0da922f2cc4f1e59db2709752756320710620bb9ae7af31e34fe6**、runtime338e1478。private wan163-new-binary-freeze。所有旧12115等PID失效，值只是快照，操作仍重新HMAC。APP11131999及两个archive未重建/seed。
+- **8cd24997-8782-4342-8e79-c04f1193f168** 22:59:16→23:00:40Z **312pass/0fail/skip**，source始末bee；entry232/components11/content69。**151bae56-9d44-4759-9350-9f3cda779400** readonly/discovery/management **239pass/0fail +1external_todo**终态blocked（directory/oncall/vector/physical authority等外部待办诚实保留，不产品失败），source始末bee，三个报告已导出。
+- core新包已独审，真实small HTTP两service→认证原生Webhook三alert→非空Inbox/Groups/Incidents/draft→人工case+重放去重→roles+本人其他session撤销→原生transactionaudit/export。SQL只身份最小授权及只读，所有通知关闭，独立UUID DB/role及18606/07、本invocation Popen。第一live **8e2c302d** 69pass/1auditfailed：业务71stdout/61HTTP均pass及cleanup，但setup/source二次start复用就绪immutable id，Runner正确拒绝。首红raw f8a27fdf/登记74b56ff0保持。
+- 三工具缺陷先真实离线/首次live失败→最小修：canonical仅补GETroles/POSTaudit-export；export正常/invalid显式test且all409边界独立；启动emit只exact两个readiness映固定setup/source phase，其他emit/异常不变finally恢复。10离线绿（早两fixture错误单列保留），XHigh最终无阻断。原live复验 **0b62bb45-8872-4b97-9986-e4c3e7dc1d86** 23:11:18→23:11:34Z **71pass/0fail/skip**，source始末bee，61HTTP及actualcleanup DB/role absent/4own processes exited，私有证据保留。三格式报告导出，不修改Runner或产品gate。
+- 按严格normal scenario/pass/actual2xx，当前新bee三run并集 **58/166主 +18aux**；此前宽registration计数会额外误含GET/home，现排除。注册/空列表和只读工具合成audit不冒非空业务/权威证明，core是真非空功能样本但不代性能档/完整权限所有参数。coverage证据 **39765127-1e5b-46ed-a723-736f33abbbee** /private bee-core-coverage.json，108剩余路由及范围限制可见。CSV owner download在core未验证，discovery真实CSV证据分开。
+- 下一步scoped工具/记录提交推送，fresh doctor/HMAC/cert/自有CPU-RSS-FD-PG准入后唯一原固定120/300/300诊断核性能收益/Inbox单route门槛，绿再完整两档18min。无active load、无24h；不能以上述绿覆盖原3d/8ac性能失败，或把外部/缺实现/暂停7CI/CD/WAN152上限/Ollama容量当pass。无前端/合并部署、.claude保留。
+
 ## CP-240 · 2026-10-01 · WAN163并发修复及原始证据复审完成
 
 - 三生产files held-lock guard + 新list_authority_guard_test已完成，最终Go输入 **bee47136f25c9f5abec761c60fd3f2572eb31ad42d0b1a7d2e57d8ac895cbb56**。普通authorizeAlertTx/写锁路径保持；只本read helper/top-level tx/request/actor/token成功锁事实复用，每scope app/env/policy/team及等待后的actual DB clock、最终clock仍当前；Policy后第二tx用新guard。100scope Groups402/Inbox403 authority SQL，不能据此宣称性能已改善。

@@ -286,8 +286,13 @@ class ServerTests(unittest.TestCase):
     def test_reports_download_same_persisted_run(self):
         run_id = self.run["id"]
         for fmt in ("json", "html", "md"):
-            status, body = self.request("GET", f"/api/runs/{run_id}/report.{fmt}")
-            self.assertEqual(status, 200)
+            conn = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
+            conn.request("GET", f"/api/runs/{run_id}/report.{fmt}")
+            response = conn.getresponse()
+            body = response.read()
+            conn.close()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.getheader("Content-Disposition"), f'attachment; filename="testlab-{run_id}.{fmt}"')
             self.assertIn(run_id.encode(), body)
             self.assertIn(b"abc", body)
         self.assertEqual(self.request("GET", "/api/runs/00000000-0000-0000-0000-000000000000/report.json")[0], 404)

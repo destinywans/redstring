@@ -33,13 +33,15 @@ def make_server(root, port=8787):
         def log_message(self, format, *args):
             pass
 
-        def send(self, status, body=b"", mime="application/json; charset=utf-8"):
+        def send(self, status, body=b"", mime="application/json; charset=utf-8", download_name=None):
             if isinstance(body, str):
                 body = body.encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", mime)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            if download_name:
+                self.send_header("Content-Disposition", f'attachment; filename="{download_name}"')
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'")
             self.end_headers()
@@ -64,7 +66,7 @@ def make_server(root, port=8787):
                     fmt = match.group(2)
                     if fmt:
                         mime = {"json": "application/json; charset=utf-8", "html": "text/html; charset=utf-8", "md": "text/markdown; charset=utf-8"}[fmt]
-                        return self.send(200, render_report(detail, fmt), mime)
+                        return self.send(200, render_report(detail, fmt), mime, f"testlab-{match.group(1)}.{fmt}")
                     return self.send(200, json.dumps(detail, ensure_ascii=False))
                 if path == "/api/events":
                     params = parse_qs(parsed.query)

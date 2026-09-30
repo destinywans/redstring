@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 
 	"github.com/jackc/pgx/v5"
@@ -13,6 +14,13 @@ import (
 )
 
 const secretPrefix = "aiops_pat_"
+
+// PostgreSQL text cannot contain NUL. A JSON tuple preserves boundaries for
+// arbitrary owner/environment strings without an invalid text delimiter.
+func issueLockKey(owner, environment string) string {
+	raw, _ := json.Marshal([]string{"v3.api_tokens.issue", owner, environment})
+	return string(raw)
+}
 
 func newSecret() (string, [32]byte, error) {
 	var random [32]byte
@@ -49,7 +57,7 @@ func (s *Service) Issue(ctx context.Context, actor Actor, in IssueInput) (IssueR
 	// Serialize the active-token cap for this owner and environment without
 	// serializing independent owners. This is not the credential lookup key.
 	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`,
-		"v3.api_tokens.issue\x00"+actor.User.ID+"\x00"+actor.EnvironmentID); err != nil {
+		issueLockKey(actor.User.ID, actor.EnvironmentID)); err != nil {
 		return out, err
 	}
 	if err = currentHuman(ctx, tx, actor); err != nil {

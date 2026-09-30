@@ -48,3 +48,5 @@ python3 tools/testlab/profile.py --owner testlab-3cbde3095125 --run <同一操�
 第二项使用 `--before-evidence-run 8ac896b5-70c4-43c8-a934-309ce357e31d` 和一个新的固定操作UUID；旧eeb805fd操作已经完成，不重复归档。每次operation保留原库完整OID/数据，完成后的同UUID重放返回applied=false。工具离线测试与只读审查通过仍不能替代现场plan/apply证据。
 
 固定七个路由的延迟/错误/次数指标用于定位真实HTTP瓶颈，不带用户、ID或URL高基数标签。阶段失败诊断仅访问已HMAC绑定的自有controller与两冻结API的`/healthz`，共用3秒墙钟预算；不带Cookie，仅保存允许状态及响应hash/长度，不改变原阶段失败和负载清理。
+
+`python3 tools/testlab/diagnose.py` 仅用于准确基础档定位：固定原预热10RPS/120秒、10RPS/300秒、25RPS/300秒及原门槛，50正常/10慢读SSE与60秒重连、恢复/一致性核验。保留原混合负载、权限、超时及认领重试；要求exact base及冻结源码/配置/入口自身SHA。七路由指标定位实际HTTP延迟，不能代表全部阶段/规模档/24h；所有结果显式diagnostic_only和两个formal acceptance=false。SIGINT/SIGTERM交接及末段均返回interrupted/130。可通过私有固定manifest以testlab_json登记看板；现场准入与完整性能命令分别执行，不用诊断通过替代验收。

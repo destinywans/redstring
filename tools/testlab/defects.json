@@ -583,5 +583,18 @@
       ".local/testlab/first-failures/profile-8ac-context-red.log",
       ".local/testlab/profile-8ac-receipt-snapshot-evidence.json"
     ]
+  },
+  {
+    "id": "TOOL-DIAGNOSE-STOP",
+    "title": "诊断末段取消可能输出成功并退出0",
+    "status": "fixed",
+    "description": "新独立诊断入口在consistency或final frozen期间SIGTERM仅STOP.set后没有末检查。工具尚未live，非产品Bug。",
+    "before": "真实注册SIGTERM handler在两末段模拟，首红9tests/2subfail均错误0。",
+    "after": "阶段交接和最后验收前check_stop转interrupted/130，不清除取消，不再启动下一k6。10离线通过，原函数恢复/Streams清理，XHigh最终无阻断。未计性能/24h。",
+    "linked_issue": "WAN-138",
+    "local_evidence": [
+      ".local/testlab/diagnose-signal-red.txt",
+      ".local/testlab/diagnose-signal-green.txt"
+    ]
   }
 ]

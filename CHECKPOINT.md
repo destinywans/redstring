@@ -1,3 +1,18 @@
+## CP-236 · 2026-10-01 · 新基础档正式链及诊断入口已验证
+
+- prepare_all完成，freshAPP11131999实查准确 **100服务/5000告警/10000消息/20用户**、pgcrypto/vector public、search_path明确；22:00:41Z fresh nonce/HMAC监督 **12115/API12116、12117** source1512 ready，旧98778等停止且不再使用。实际非racebinary **30c7c6c80c29f02a54920fc7ddb150c0b7758512286738aabb953ed5d2555fe9**，重建记录和运行源一致；CPU/RSS/FD/PG实际可采，goroutines/heap仍缺失。private second-profile-fresh-base.json。PID仅快照，任何操作重新核验。
+- 新正式 **9c1b2568-b226-4b6c-84f0-756fe0bb77c5** entry/components **244passed/0fail/skip/block**，source始末1512；已三格式报告。完整862源1512的2510/79已分类skip、04c323历史完整链继续按原版本有效，不把fresh244叫全主166覆盖。
+- 独立诊断入口最后SIGTERM错误0先首红9test/2subfail→check_stop交接及最后consistency/frozen后130/不清除取消→10离线通过，XHigh最终无阻断。root另通过Runner运行diagnostic-tools **234bd5ea-f293-4326-bdf0-8b19e0ad687f** 定向通过（1command记录=10unit，不冒10业务case）。原函数恢复/stream cleanup/原120/300/300及50/10/60/负载分类门槛和全部formal=false保持。
+- 下一步scoped提交/推送→fresh准入→单一perf-diagnosis固定原三阶段定位七route，不rps50/规模/24，不计完整性能通过；SSE/资源恢复/一致性仍执行。High仅只读准备authority六SQL/scope候选，不产品编辑/猜根因。无其他负载，不重复保全/prepare。原8ac失败/两个完整archive不改。WAN152/暂停7CI/CD/Ollama/真实外部/缺实现High待办，整体未收口，24h未开始。无前端/合并部署，.claude保留。
+
+## CP-235 · 2026-10-01 · 第二次实际证据保全完成，专属基础库初始化中
+
+- 工具包808278c23acdc876631becd3c147f56175fc2e0d已推送精确回读、WAN138/原51文档同步；Go1512未改。doctor53/53、证书checkend90000通过、无active run，nonce/HMAC/五DSN/原OID/binary/port客户端现场守卫通过。
+- 唯一operation **8a8aa6c1-de2c-4161-8760-02d4e3e81b00** 因8ac首红已先readonly plan再同UUIDapply成功；原APP **OID9270802** 完整更名证据库 **aiops_testlab_app_evidence_8a8aa6c1de2c4161876002d4e3e81b00**，应用1011/告警100002/消息500360/调查0在前后完全相同。旧eeb **OID16388** 应用1018/告警100005/消息501326/调查16也前后一致。新APP **OID11131999** 初始0user tables且pgcrypto/vector；same UUID实际replay applied=false。**不重复归档/不删seed**。私有second-profile-plan/counts-before/preservation完整保留；原8ac终态/原失败不改。
+- root初次前置只读校验因PG JSON OID是字符串与int断言不等而停在stop/DDL前；实查旧journal/OID/tag/HMAC确认一致，query显式oid::bigint后沿同UUID继续。这是root校验脚本类型错误，非产品或工具Bug，证据second-profile-preapply-oid-correction保存；未绕过归属断言。
+- 当前 **prepare --run-id wan-138-20260930 /session57085** 进行中，使用prepare_all新库迁移→正式V3→runtime配置→准确base100/5000/10000/20种子。原监督98778/API98779/98780已认证停止、旧PID全部失效；不得据此发信号或重复prepare。新API和新schema未核验前不能叫ready/验收通过。
+- 新固定diagnose.py尚未live，XHigh发现最后consistency/frozen期间SIGTERM仅设STOP后可能误报成功，Medium补真实handler信号路径红绿。此工具阻断须关闭再准入；原120/300/300+50/10SSE+恢复/一致性、diagnostic_only和全部formal=false保持。产品源未改、24h未开始；聚合/暂停域/容量/外部/缺实现High待办仍在，整体未收口。无前端/合并/部署，.claude保留。
+
 ## CP-234 · 2026-10-01 · 两项测试工具首红修复及独立审查通过
 
 - 当前37e527d已推送精确回读，Go1512/双API98779、98780及监督98778仅最新HMAC快照；本次实际SQLite零active，8ac interrupted原状态和报告保持，APP9270802仍scale。产品源未改、24h未开始。

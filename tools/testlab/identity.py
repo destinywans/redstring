@@ -309,29 +309,49 @@ def safe_error(error):
 def execute(chain):
     primary = cleanup = None
     actual = None
-    try:
-        actual = chain.run()
-    except BaseException as error:
-        primary = error
-        row = dict(stage='business_contract', error_type=type(error).__name__, error=safe_error(error))
-        _private(chain.work / 'primary-error.json', row)
-        preserve_first_failure(chain.work, row)
-    with cleanup_signals() as interrupted:
+    evidence_failures = []
+    def best_effort(operation, action):
         try:
-            chain.cleanup()
+            action()
         except BaseException as error:
-            cleanup = error
-            row = dict(stage='cleanup', error_type=type(error).__name__, error=safe_error(error))
-            _private(chain.work / 'cleanup-error.json', row)
-            preserve_first_failure(chain.work, row)
-            emit(chain.module + '.cleanup_failure', 'failed', row, module=chain.module)
+            # Diagnostics cannot replace the contract error or strand owned
+            # resources. Retain only the operation and type, never IO payloads
+            # which can contain private paths or credentials.
+            evidence_failures.append({'operation': operation, 'error_type': type(error).__name__})
+    def report(stage, filename, error, event=None):
+        row = dict(stage=stage, error_type=type(error).__name__, error=safe_error(error))
+        best_effort(filename, lambda: _private(chain.work / filename, row))
+        best_effort(stage+'.first_failure', lambda: preserve_first_failure(chain.work, row))
+        if event is not None:
+            best_effort(event+'.emit', lambda: emit(chain.module + '.' + event, 'failed', row, module=chain.module))
+    try:
+        try:
+            actual = chain.run()
+        except BaseException as error:
+            primary = error
+            best_effort('business_contract.report', lambda: report('business_contract', 'primary-error.json', error))
+    finally:
+        with cleanup_signals() as interrupted:
+            try:
+                chain.cleanup()
+            except BaseException as error:
+                cleanup = error
+                best_effort('cleanup.report', lambda: report('cleanup', 'cleanup-error.json', error, 'cleanup_failure'))
     if interrupted['interrupted']:
-        row=dict(stage='cleanup_interrupted',interrupted=True,cleanup_completed=cleanup is None)
-        _private(chain.work/'cleanup-interrupted.json',row)
-        preserve_first_failure(chain.work,row)
-        emit(chain.module+'.cleanup_interrupted','blocked',row,module=chain.module)
+        # Set the outcome before reporting so cancellation stays non-green
+        # even when every evidence sink is unavailable.
         if primary is None and cleanup is None:
             primary=Blocked('local chain interrupted during cleanup; bounded cleanup completed')
+        row=dict(stage='cleanup_interrupted',interrupted=True,cleanup_completed=cleanup is None)
+        best_effort('cleanup-interrupted.json',lambda: _private(chain.work/'cleanup-interrupted.json',row))
+        best_effort('cleanup_interrupted.first_failure',lambda: preserve_first_failure(chain.work,row))
+        best_effort('cleanup_interrupted.emit',lambda: emit(chain.module+'.cleanup_interrupted','blocked',row,module=chain.module))
+    if evidence_failures:
+        best_effort('evidence_failure.emit', lambda: emit(chain.module+'.evidence_failure','failed',
+                    {'failures':list(evidence_failures)},module=chain.module))
+        error = primary if primary is not None else cleanup
+        if error is not None:
+            best_effort('evidence_failure.note',lambda: error.add_note('testlab evidence failures: '+json.dumps(evidence_failures)))
     if primary is not None:
         raise primary
     if cleanup is not None:

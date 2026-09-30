@@ -153,6 +153,68 @@ class IdentityProtectionTests(unittest.TestCase):
     def test_successful_business_with_failed_cleanup_is_not_green(self):
         with patch.object(self.chain,'run',return_value={'positive':True}),patch.object(self.chain,'cleanup',side_effect=AssertionError('cleanup failed')),patch.object(identity,'emit'),self.assertRaises(AssertionError):identity.execute(self.chain)
 
+    def test_primary_evidence_io_failure_still_cleans_and_keeps_original_business_error(self):
+        original=AssertionError('original business failure')
+        with patch.object(self.chain,'run',side_effect=original),patch.object(self.chain,'cleanup') as cleanup, \
+             patch.object(identity,'_private',side_effect=OSError('private storage unavailable')), \
+             patch.object(identity,'preserve_first_failure') as first,patch.object(identity,'emit') as output:
+            with self.assertRaises(AssertionError) as result:identity.execute(self.chain)
+        cleanup.assert_called_once();self.assertIs(result.exception,original)
+        first.assert_called_once()
+        output.assert_called_once()
+        self.assertEqual(output.call_args.args[0],self.chain.module+'.evidence_failure')
+        self.assertEqual(output.call_args.args[2]['failures'],[{'operation':'primary-error.json','error_type':'OSError'}])
+        self.assertNotIn('private storage unavailable',' '.join(result.exception.__notes__))
+
+    def test_first_red_preservation_io_failure_still_cleans_and_keeps_original_business_error(self):
+        original=AssertionError('original first red')
+        with patch.object(self.chain,'run',side_effect=original),patch.object(self.chain,'cleanup') as cleanup, \
+             patch.object(identity,'preserve_first_failure',side_effect=OSError('exclusive creation failed')),patch.object(identity,'emit'):
+            with self.assertRaises(AssertionError) as result:identity.execute(self.chain)
+        cleanup.assert_called_once();self.assertIs(result.exception,original)
+        self.assertEqual(json.loads((self.chain.work/'primary-error.json').read_text())['error'],'original first red')
+
+    def test_cleanup_error_reporting_failure_preserves_original_error_and_attempts_every_report(self):
+        for business_failed in [False,True]:
+            for failing in ['private','first','emit']:
+                with self.subTest(business_failed=business_failed,failing=failing):
+                    primary=AssertionError('original business red');failure=identity.Blocked('original cleanup red')
+                    original=primary if business_failed else failure
+                    storage=Mock(side_effect=OSError('storage unavailable')) if failing=='private' else Mock()
+                    first=Mock(side_effect=OSError('first red unavailable')) if failing=='first' else Mock()
+                    output=Mock(side_effect=OSError('output pipe closed')) if failing=='emit' else Mock()
+                    with patch.object(self.chain,'run',side_effect=primary if business_failed else None,return_value={'ok':True}), \
+                         patch.object(self.chain,'cleanup',side_effect=failure) as cleanup,patch.object(identity,'_private',storage), \
+                         patch.object(identity,'preserve_first_failure',first),patch.object(identity,'emit',output):
+                        with self.assertRaises(type(original)) as result:identity.execute(self.chain)
+                    self.assertIs(result.exception,original);cleanup.assert_called_once()
+                    self.assertTrue(any(call.args[0].name=='cleanup-error.json' for call in storage.call_args_list))
+                    self.assertTrue(any(call.args[1]['stage']=='cleanup' for call in first.call_args_list))
+                    self.assertTrue(any(call.args[0].endswith('.cleanup_failure') for call in output.call_args_list))
+
+    def test_cleanup_interrupted_reporting_io_failure_cannot_turn_cancellation_into_success(self):
+        def cleanup():os.kill(os.getpid(),signal.SIGTERM)
+        with identity.cooperative_signals(),patch.object(self.chain,'run',return_value={'ok':True}), \
+             patch.object(self.chain,'cleanup',side_effect=cleanup) as cleaned, \
+             patch.object(identity,'_private',side_effect=OSError('storage failed')), \
+             patch.object(identity,'preserve_first_failure',side_effect=OSError('first failed')), \
+             patch.object(identity,'emit',side_effect=OSError('stdout failed')):
+            with self.assertRaisesRegex(identity.Blocked,'interrupted during cleanup') as result:identity.execute(self.chain)
+        cleaned.assert_called_once()
+        notes=' '.join(result.exception.__notes__)
+        for operation in ['cleanup-interrupted.json','cleanup_interrupted.first_failure','cleanup_interrupted.emit','evidence_failure.emit']:
+            self.assertIn(operation,notes)
+        for secret in ['storage failed','first failed','stdout failed']:
+            self.assertNotIn(secret,notes)
+
+    def test_execute_success_preserves_result_and_emits_no_failure_diagnostics(self):
+        actual={'contract':'unchanged'}
+        with patch.object(self.chain,'run',return_value=actual),patch.object(self.chain,'cleanup') as cleanup, \
+             patch.object(identity,'_private') as storage,patch.object(identity,'preserve_first_failure') as first, \
+             patch.object(identity,'emit') as output:
+            self.assertIs(identity.execute(self.chain),actual)
+        cleanup.assert_called_once();storage.assert_not_called();first.assert_not_called();output.assert_not_called()
+
     def test_keycloak_transport_failure_records_stage_and_oom_before_cleanup(self):
         info=dict(Name='/'+self.chain.container,Config=dict(Image=identity.IMAGE,Labels={identity.OWNER_LABEL:self.backend['owner'],identity.RUN_LABEL:'abc123'}),
                   State=dict(Running=False,OOMKilled=True,ExitCode=137,FinishedAt='known-test-time'))

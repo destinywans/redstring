@@ -68,6 +68,7 @@ func TestObservationBatchACLPartialAndBounds(t *testing.T) {
 		if _, err = repo.SaveEnvironment(ctx, env); err != nil {
 			t.Fatal(err)
 		}
+		applicationACLFixtureResource(t, repo, app.ID, env.ID, viewer.ID, key == "visible")
 		if key == "visible" {
 			if err = repo.SetGrants(ctx, app.ID, []core.Grant{{SubjectType: "user", SubjectID: viewer.ID, Permission: "view"}}); err != nil {
 				t.Fatal(err)
@@ -138,6 +139,19 @@ func TestObservationBatchACLPartialAndBounds(t *testing.T) {
 	code, _, _ = postBatch(ObservationBatchRequest{Targets: make([]ObservationTarget, 21)})
 	if code != 422 {
 		t.Fatal("batch bound missing")
+	}
+	reader.mu.Lock()
+	callsBeforeRevocation := reader.calls
+	reader.mu.Unlock()
+	if _, err := repo.DB.Exec(ctx, `DELETE FROM rbac_user_roles WHERE user_id=$1 AND role_id LIKE 'fixture-role-%'`, viewer.ID); err != nil {
+		t.Fatal(err)
+	}
+	code, _, _ = postBatch(ObservationBatchRequest{Targets: []ObservationTarget{targets[0]}})
+	reader.mu.Lock()
+	callsAfterRevocation := reader.calls
+	reader.mu.Unlock()
+	if code != 403 || callsAfterRevocation != callsBeforeRevocation {
+		t.Fatalf("revoked grant dispatched a query: status=%d before=%d after=%d", code, callsBeforeRevocation, callsAfterRevocation)
 	}
 }
 

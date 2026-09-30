@@ -32,7 +32,7 @@ func isolatedDBSeeded(t *testing.T, seed bool) *store.Store {
 	if e != nil {
 		t.Fatal(e)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	db, e := pgxpool.NewWithConfig(ctx, cfg)
 	if e != nil {
 		t.Fatal(e)

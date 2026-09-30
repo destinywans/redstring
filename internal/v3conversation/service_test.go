@@ -247,7 +247,7 @@ func isolatedConversationDBWithConns(t *testing.T, maxConns int32) *pgxpool.Pool
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	if maxConns > 0 {
 		cfg.MaxConns = maxConns
 	}

@@ -65,7 +65,7 @@ func isolatedKnowledge(t *testing.T) (*Service, *fakeEmbedder) {
 	if e != nil {
 		t.Fatal("cannot configure test pool")
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	pool, e = pgxpool.NewWithConfig(ctx, cfg)
 	if e != nil {
 		t.Fatal(e)

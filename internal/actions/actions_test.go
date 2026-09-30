@@ -83,7 +83,7 @@ func isolatedActions(t *testing.T, maxConns int32) (*Service, *fakeConnector, st
 	if e != nil {
 		t.Fatal("cannot configure test pool")
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	cfg.MaxConns = maxConns
 	pool, e = pgxpool.NewWithConfig(ctx, cfg)
 	if e != nil {

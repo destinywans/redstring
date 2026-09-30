@@ -77,7 +77,7 @@ func TestPostgresPersonalProfileIsolation(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	cfg.ConnConfig.RuntimeParams["application_name"] = schema
 	pool, e := pgxpool.NewWithConfig(ctx, cfg)
 	if e != nil {

@@ -584,6 +584,7 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 		PolicyRevision: mandatoryDecision.Revision, ObservedAt: mandatoryDecision.ObservedAt}); err == nil {
 		t.Fatal("secret-shaped guard reason accepted")
 	}
+	assert(request("GET", "/api/v1/guardrails", adminToken, "dev", ""), 200, `"id":"guard1"`)
 	if _, err = db.Exec(ctx, `INSERT INTO v3_agent_guard_events
  (id,run_id,policy_id,action,target_kind,reason_code,created_at,observed_at,policy_revision)
  SELECT 'hidden-guard-'||lpad(g::text,3,'0'),'hidden-run-'||lpad(g::text,3,'0'),
@@ -594,10 +595,30 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 	}
 	assert(request("GET", "/api/v1/guardrails", adminToken, "dev", ""), 200, `"truncated":true`)
 	viewerGuards := request("GET", "/api/v1/guardrails", viewerToken, "dev", "")
-	assert(viewerGuards, 200, `"id":"guard1"`)
+	// An application grant can expose that agent but cannot disclose an
+	// environment-wide policy. Both policy and event scopes must be granted.
+	assert(viewerGuards, 200, `"events":[]`)
+	assert(viewerGuards, 200, `"policies":[]`)
 	if strings.Contains(viewerGuards.Body.String(), `"id":"hidden-guard-`) {
 		t.Fatalf("hidden guard event leaked: %s", viewerGuards.Body.String())
 	}
+	envViewer, err := st.CreateUser(ctx, core.User{Email: "environment-viewer@example.invalid", Name: "Environment Viewer", Role: "viewer"}, "isolated-env-viewer-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO rbac_roles(id,name) VALUES('environment-agent-viewer','Environment Agent Viewer'); INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES('environment-agent-viewer','agents','view','environment','dev')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'environment-agent-viewer')`, envViewer.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, envViewerToken, err := st.Login(ctx, envViewer.Email, "isolated-env-viewer-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Unlike the app-only viewer, this identity is entitled to all agents
+	// and policies in dev; the 200-row list remains bounded and truncated.
+	assert(request("GET", "/api/v1/guardrails", envViewerToken, "dev", ""), 200, `"truncated":true`)
 	assert(request("PATCH", "/api/v1/guardrails/mandatory", adminToken, "dev", `{"enabled":false}`), 409, `"code":"forced_guardrail"`)
 	if err = svc.StartRun(ctx, "run2", "triage", "v1", "manual"); err != nil {
 		t.Fatal(err)

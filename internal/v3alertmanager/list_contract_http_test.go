@@ -2,6 +2,8 @@ package v3alertmanager
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -49,7 +51,7 @@ func TestSilenceListRegisteredHTTPUsesPersistedTeamAndAdministrativeScope(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	cfg.MaxConns = 2
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -221,15 +223,54 @@ func TestSilenceListRegisteredHTTPUsesPersistedTeamAndAdministrativeScope(t *tes
 		api.ServeHTTP(w, r)
 		return w
 	}
-	if got := inhibitions("test"); got.Code != 206 || strings.Count(got.Body.String(), `"stat":`) != 1 ||
-		!strings.Contains(got.Body.String(), `"v":"owned"`) || !strings.Contains(got.Body.String(), `"unscoped_present":false`) ||
-		strings.Contains(got.Body.String(), `"v":"cross"`) || strings.Contains(got.Body.String(), `"v":"hidden"`) ||
-		strings.Contains(got.Body.String(), `"v":"broad"`) || strings.Contains(got.Body.String(), `"v":"unbound"`) ||
-		strings.Contains(got.Body.String(), `"v":"mixed-app"`) || strings.Contains(got.Body.String(), `"v":"mixed-env"`) ||
-		strings.Contains(got.Body.String(), `"v":"mixed-app-negative"`) || strings.Contains(got.Body.String(), `"v":"mixed-env-regex"`) ||
-		strings.Contains(got.Body.String(), `"v":"foreign"`) {
-		t.Fatalf("team inhibition scope status=%d body=%s", got.Code, got.Body.String())
+	// Rule IDs are the public stable identity; matcher values are deliberately
+	// redacted. The controlled source has known order: team permits only 0,
+	// environment administrator permits exactly 0..3, never mixed/unknown ones.
+	configuredRules, err := source.ListInhibitionRules(ctx, "test")
+	if err != nil || len(configuredRules) != 10 {
+		t.Fatalf("controlled inhibition rules: count=%d err=%v", len(configuredRules), err)
 	}
+	assertInhibitions := func(got *httptest.ResponseRecorder, indices []int, unscoped bool) {
+		t.Helper()
+		var response struct {
+			Items []struct {
+				ID             string `json:"id"`
+				Source, Target []map[string]json.RawMessage
+				Stat           string `json:"stat"`
+				Active         any    `json:"active"`
+				Hits7D         any    `json:"hits_7d"`
+			} `json:"items"`
+			Partial         bool     `json:"partial"`
+			UnscopedPresent bool     `json:"unscoped_present"`
+			Unavailable     []string `json:"unavailable"`
+		}
+		if err := json.Unmarshal(got.Body.Bytes(), &response); err != nil || got.Code != 206 || !response.Partial || response.UnscopedPresent != unscoped ||
+			len(response.Items) != len(indices) || strings.Join(response.Unavailable, ",") != "activity,hit_counts" {
+			t.Fatalf("inhibition scope/partial contract: status=%d body=%s err=%v", got.Code, got.Body.String(), err)
+		}
+		for i, index := range indices {
+			raw, err := json.Marshal(struct {
+				Environment string
+				Index       int
+				Rule        InhibitionRule
+			}{"test", index, configuredRules[index]})
+			if err != nil {
+				t.Fatal(err)
+			}
+			hash := sha256.Sum256(raw)
+			item := response.Items[i]
+			if item.ID != hex.EncodeToString(hash[:12]) || item.Stat == "" || item.Active != nil || item.Hits7D != nil || len(item.Source) == 0 || len(item.Target) == 0 {
+				t.Fatalf("unexpected inhibition identity/activity at index %d: %+v", index, item)
+			}
+			for _, matcher := range append(item.Source, item.Target...) {
+				var redacted bool
+				if _, present := matcher["v"]; present || json.Unmarshal(matcher["value_redacted"], &redacted) != nil || !redacted {
+					t.Fatalf("matcher value was not fully redacted for rule %s", item.ID)
+				}
+			}
+		}
+	}
+	assertInhibitions(inhibitions("test"), []int{0}, false)
 	malformedInhibition.Store(true)
 	if got := inhibitions("test"); got.Code != 503 || !strings.Contains(got.Body.String(), "invalid_inhibition_source") ||
 		strings.Contains(got.Body.String(), `"items"`) || strings.Contains(got.Body.String(), `"partial"`) {
@@ -319,14 +360,7 @@ func TestSilenceListRegisteredHTTPUsesPersistedTeamAndAdministrativeScope(t *tes
 	if w.Code != 206 || !strings.Contains(w.Body.String(), `"active":4`) || !strings.Contains(w.Body.String(), `"unscoped_present":true`) {
 		t.Fatalf("admin visible status=%d body=%s", w.Code, w.Body.String())
 	}
-	if got := inhibitions("test"); got.Code != 206 || strings.Count(got.Body.String(), `"stat":`) != 4 ||
-		!strings.Contains(got.Body.String(), `"v":"cross"`) || !strings.Contains(got.Body.String(), `"v":"hidden"`) ||
-		!strings.Contains(got.Body.String(), `"v":"broad"`) || !strings.Contains(got.Body.String(), `"unscoped_present":true`) ||
-		strings.Contains(got.Body.String(), `"v":"unbound"`) || strings.Contains(got.Body.String(), `"v":"mixed-app"`) ||
-		strings.Contains(got.Body.String(), `"v":"mixed-env"`) || strings.Contains(got.Body.String(), `"v":"mixed-app-negative"`) ||
-		strings.Contains(got.Body.String(), `"v":"mixed-env-regex"`) || strings.Contains(got.Body.String(), `"v":"foreign"`) {
-		t.Fatalf("admin inhibition scope status=%d body=%s", got.Code, got.Body.String())
-	}
+	assertInhibitions(inhibitions("test"), []int{0, 1, 2, 3}, true)
 	if p := preview(`{"matchers":[{"k":"environment","op":"=","v":"test"}]}`); p.Code != 200 || !strings.Contains(p.Body.String(), `"affects":3`) {
 		t.Fatalf("environment-wide preview status=%d body=%s", p.Code, p.Body.String())
 	}

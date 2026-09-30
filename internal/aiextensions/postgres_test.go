@@ -40,7 +40,7 @@ func TestPostgresVersionCASAuditAndReload(t *testing.T) {
 			t.Error(e)
 		}
 	}()
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	db, e := pgxpool.NewWithConfig(ctx, cfg)
 	if e != nil {
 		t.Fatal(e)
@@ -51,6 +51,12 @@ func TestPostgresVersionCASAuditAndReload(t *testing.T) {
 		t.Fatal(e)
 	}
 	if _, e = db.Exec(ctx, `INSERT INTO users(id,email,name,role,password_hash) VALUES('user','extensions@example.invalid','Extension test','admin','unused'); INSERT INTO applications(id,name) VALUES('app-a','Synthetic extension app')`); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = db.Exec(ctx, `INSERT INTO application_environments(id,application_id,key,name) VALUES('app-a-test','app-a','test','Test');
+INSERT INTO cmdb_resources(id,kind,name,source_kind) VALUES('extension-host','host','Extension host','manual');
+INSERT INTO cmdb_resource_applications(resource_id,application_id,environment_id) VALUES('extension-host','app-a','app-a-test');
+INSERT INTO rbac_permission_resources(permission_id,scope_type,resource_id,action) VALUES('resource-view','resource','extension-host','view'),('resource-update','resource','extension-host','update');`); e != nil {
 		t.Fatal(e)
 	}
 	s := New(db, "")

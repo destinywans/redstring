@@ -70,7 +70,7 @@ func isolatedAutomation(t *testing.T) *Service {
 	if err != nil {
 		t.Fatal("config")
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal("connect")
@@ -84,6 +84,18 @@ func isolatedAutomation(t *testing.T) *Service {
 		t.Fatal(err)
 	}
 	r := automationFakeRuntime{}
+	// Seed actual infrastructure grants instead of relying on the retired
+	// application ACL to authorize investigations and automatic admission.
+	_, err = db.Exec(ctx, `INSERT INTO cmdb_resources(id,kind,name,source_kind) VALUES('auto-host','host','Test host','manual');
+INSERT INTO cmdb_resource_applications(resource_id,application_id,environment_id) VALUES('auto-host','a','e1');
+INSERT INTO rbac_roles(id,name) VALUES('auto-fixture','Automation fixture');
+INSERT INTO rbac_permissions(id,name) VALUES('auto-view','Automation fixture view'),('auto-update','Automation fixture update');
+INSERT INTO rbac_permission_resources(permission_id,scope_type,resource_id,action) VALUES('auto-view','resource','auto-host','view'),('auto-update','resource','auto-host','update');
+INSERT INTO rbac_role_permissions(role_id,permission_id) VALUES('auto-fixture','auto-view'),('auto-fixture','auto-update');
+INSERT INTO rbac_user_roles(user_id,role_id) VALUES('op','auto-fixture'),('admin','auto-fixture');`)
+	if err != nil {
+		t.Fatal(err)
+	}
 	s := New(db, st, httpapi.New(st, r), r, Config{})
 	if err = s.Migrate(ctx); err != nil {
 		t.Fatal(err)
@@ -158,7 +170,7 @@ func TestAutomationAdmissionBudgetScopeAndRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.DB.Exec(ctx, "DELETE FROM application_grants WHERE subject_id='op'"); err != nil {
+	if _, err = s.DB.Exec(ctx, "DELETE FROM rbac_user_roles WHERE user_id='op' AND role_id='auto-fixture'"); err != nil {
 		t.Fatal(err)
 	}
 	if err = s.checkAutomation(ctx, c); err == nil {

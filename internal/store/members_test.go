@@ -11,7 +11,19 @@ import (
 func TestMemberLifecycleAndImportPostgres(t *testing.T) {
 	s := platformDatabase(t)
 	ctx := context.Background()
-	admin, err := s.CreateMember(ctx, MemberCreate{Email: "admin@example.invalid", Name: "Administrator", Role: "admin", Password: "isolated-test-password"})
+	// Privileged member creation requires an existing authenticated manager;
+	// first installation uses Bootstrap rather than an unauthenticated grant.
+	if _, err := s.CreateMember(ctx, MemberCreate{Email: "admin@example.invalid", Name: "Administrator", Role: "admin", Password: "isolated-test-password"}); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("unauthenticated administrator grant: %v", err)
+	}
+	if err := s.Bootstrap(ctx, "admin@example.invalid", "isolated-test-password"); err != nil {
+		t.Fatal(err)
+	}
+	adminUser, _, err := s.Login(ctx, "admin@example.invalid", "isolated-test-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin, err := s.Member(ctx, adminUser.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

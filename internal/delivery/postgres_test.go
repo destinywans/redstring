@@ -52,7 +52,7 @@ func deliveryDatabase(t *testing.T) (*PostgresRepository, *store.Store) {
 	if err != nil {
 		t.Fatal("invalid isolated database config")
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	pool, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -62,6 +62,22 @@ func deliveryDatabase(t *testing.T) (*PostgresRepository, *store.Store) {
 		t.Fatal(err)
 	}
 	_, err = pool.Exec(ctx, `INSERT INTO users(id,email,name,role,password_hash) VALUES('operator','operator@delivery.test','Operator','operator','unused'),('viewer','viewer@delivery.test','Viewer','viewer','unused'); INSERT INTO applications(id,key,name) VALUES('app','app','Application'),('hidden','hidden','Hidden'); INSERT INTO application_environments(id,application_id,key,name) VALUES('env','app','test','Test'),('hidden-env','hidden','test','Test'); INSERT INTO application_grants(application_id,subject_type,subject_id,permission) VALUES('app','user','operator','operate'),('app','user','viewer','view');`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Legacy application_grants are not infrastructure authority. Both
+	// applications have registered resources; only app's host is granted.
+	_, err = pool.Exec(ctx, `INSERT INTO cmdb_resources(id,kind,name,source_kind) VALUES
+ ('delivery-host','host','Delivery host','manual'),('hidden-host','host','Hidden host','manual');
+ INSERT INTO cmdb_resource_applications(resource_id,application_id,environment_id) VALUES
+ ('delivery-host','app','env'),('hidden-host','hidden','hidden-env');
+ INSERT INTO rbac_roles(id,name) VALUES('delivery-fixture-view','Delivery fixture view'),('delivery-fixture-write','Delivery fixture write');
+ INSERT INTO rbac_permissions(id,name) VALUES('delivery-fixture-view','Delivery host view'),('delivery-fixture-update','Delivery host update');
+ INSERT INTO rbac_permission_resources(permission_id,scope_type,resource_id,action) VALUES
+ ('delivery-fixture-view','resource','delivery-host','view'),('delivery-fixture-update','resource','delivery-host','update');
+ INSERT INTO rbac_role_permissions(role_id,permission_id) VALUES
+ ('delivery-fixture-view','delivery-fixture-view'),('delivery-fixture-write','delivery-fixture-view'),('delivery-fixture-write','delivery-fixture-update');
+ INSERT INTO rbac_user_roles(user_id,role_id) VALUES('viewer','delivery-fixture-view'),('operator','delivery-fixture-write');`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,6 +236,12 @@ func TestPostgresDeliveryWebhookDedupAndApplicationACL(t *testing.T) {
 	if err != nil || unchanged.Status != "queued" {
 		t.Fatal("webhook untrusted status became authoritative")
 	}
+	if _, err := p.DB.Exec(ctx, `DELETE FROM rbac_user_roles WHERE user_id='viewer' AND role_id='delivery-fixture-view'`); err != nil {
+		t.Fatal(err)
+	}
+	if got := request("GET", "/api/v1/delivery/runs/"+run.ID, "viewer", ""); got.Code != 403 {
+		t.Fatalf("revoked resource grant still reads run: status=%d", got.Code)
+	}
 }
 
 func TestPostgresDeliveryRetentionProtectsReferencesAndRequiresAdmin(t *testing.T) {
@@ -246,7 +268,8 @@ func TestPostgresDeliveryRetentionProtectsReferencesAndRequiresAdmin(t *testing.
 	if err != nil || !policy.Reclaimable {
 		t.Fatal("expired unreferenced run not eligible", err)
 	}
-	_, err = p.DB.Exec(ctx, `INSERT INTO users(id,email,name,role,password_hash) VALUES('admin','admin@delivery.test','Admin','admin','unused');`)
+	_, err = p.DB.Exec(ctx, `INSERT INTO users(id,email,name,role,password_hash) VALUES('admin','admin@delivery.test','Admin','admin','unused');
+ INSERT INTO rbac_user_roles(user_id,role_id) VALUES('admin','delivery-fixture-write');`)
 	if err != nil {
 		t.Fatal(err)
 	}

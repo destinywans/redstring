@@ -51,7 +51,7 @@ func isolatedModelStore(t *testing.T) *store.Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	cfg.ConnConfig.RuntimeParams["application_name"] = schema
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

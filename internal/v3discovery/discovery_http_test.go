@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/knowledge"
 	"github.com/wans/aiops-canvas/internal/operations"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
@@ -50,7 +51,7 @@ func TestDiscoveryReferencesRegisteredHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -60,6 +61,11 @@ func TestDiscoveryReferencesRegisteredHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := operations.New(db, st, nil, nil, operations.Config{}).Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Mixed-kind discovery now reads persisted Runbook references as well as
+	// legacy investigations; establish the same knowledge schema as startup.
+	if err := knowledge.New(db, nil).Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.Bootstrap(ctx, "admin@example.invalid", "isolated-admin-password"); err != nil {

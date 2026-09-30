@@ -54,17 +54,21 @@ func isolatedConfigStore(t *testing.T) *store.Store {
 		t.Fatal(err)
 	}
 	cfg.MaxConns = 1 // catch queries that borrow a second connection while rows or tx are open
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = db.Exec(ctx, `
 CREATE TABLE users(id text PRIMARY KEY,email text NOT NULL,name text NOT NULL,role text NOT NULL,
- disabled boolean NOT NULL DEFAULT false,deleted_at timestamptz,source text NOT NULL DEFAULT 'local');
+ disabled boolean NOT NULL DEFAULT false,deleted_at timestamptz,source text NOT NULL DEFAULT 'local',department_id text);
 CREATE TABLE sessions(token_hash text PRIMARY KEY,user_id text NOT NULL,expires_at timestamptz NOT NULL);
 CREATE TABLE rbac_platform_administrators(user_id text PRIMARY KEY);
 CREATE TABLE rbac_user_roles(user_id text NOT NULL,role_id text NOT NULL);
+CREATE TABLE rbac_roles(id text PRIMARY KEY);
+CREATE TABLE rbac_department_roles(department_id text NOT NULL,role_id text NOT NULL);
+CREATE TABLE v3_role_grants(role_id text NOT NULL,module text NOT NULL,action text NOT NULL,scope_kind text NOT NULL,scope_id text NOT NULL);
+INSERT INTO rbac_roles(id) VALUES('admin'),('viewer');
 CREATE TABLE teams(id text PRIMARY KEY,name text NOT NULL);
 CREATE TABLE team_members(team_id text NOT NULL,user_id text NOT NULL,PRIMARY KEY(team_id,user_id));
 CREATE TABLE applications(id text PRIMARY KEY,name text NOT NULL,owner_team_id text,archived boolean NOT NULL DEFAULT false);

@@ -176,6 +176,25 @@ func TestInfrastructurePermissionsPostgres(t *testing.T) {
 	}
 	visible := map[string]bool{}
 	for _, item := range runtimePage.Items {
+		if item.Kind == "pod" || item.Kind == "event" {
+			t.Fatalf("runtime record appeared in default CMDB inventory: %s", item.ID)
+		}
+		visible[item.ID] = true
+	}
+	if !visible["r1"] || !visible["deploy1"] || visible["r2"] {
+		t.Fatal("default infrastructure inventory ignored exact grants", visible)
+	}
+	// Runtime records are an explicit kind query, with the same inherited
+	// authorization as their owner. Default CMDB filtering is not denial.
+	r = httptest.NewRequest("GET", "/api/v1/resources?page_size=100&kind=pod&kind=event", nil)
+	r.AddCookie(&http.Cookie{Name: "aiops_session", Value: "runtime-test"})
+	w = httptest.NewRecorder()
+	api.ServeHTTP(w, r)
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &runtimePage) != nil {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	visible = map[string]bool{}
+	for _, item := range runtimePage.Items {
 		visible[item.ID] = true
 	}
 	if !visible["pod-ok"] || !visible["event-ok"] || visible["pod-unowned"] || visible["event-bad"] || visible["r2"] {

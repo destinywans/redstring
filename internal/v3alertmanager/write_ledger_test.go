@@ -49,7 +49,7 @@ func testSilenceLedger(t *testing.T) (*pgxpool.Pool, *DatabaseSilenceLedger, cor
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	cfg.MaxConns = 3
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

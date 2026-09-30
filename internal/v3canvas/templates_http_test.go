@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/knowledge"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 )
@@ -49,7 +50,7 @@ func TestCanvasTemplatesHTTPV3ScopeSanitizationAndBoundedList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -279,9 +280,8 @@ func TestCanvasTemplatesHTTPV3ScopeSanitizationAndBoundedList(t *testing.T) {
 	}
 	assert(request(http.MethodPost, "staging", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":{"nodes":true}}`), 404, "not_found")
 	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-other","name":"Unsafe","keep":{"nodes":true}}`), 404, "not_found")
-	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":{"nodes":true,"steps":true}}`), 422, "unsafe_template_content")
-	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":{"nodes":true,"runbooks":true}}`), 422, "unsafe_template_content")
-	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":{"nodes":true,"content":true}}`), 422, "unsafe_template_content")
+	// Explicit retention is supported; its content, state and privacy contract
+	// is exercised with populated sources in TestCanvasTemplateRetentionHTTPPrivateSnapshots.
 	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":{"nodes":true,"evidence":true}}`), 422, "invalid_body")
 	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":null}`), 422, "invalid_template")
 	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-source","name":"Unsafe","keep":{}}`), 422, "invalid_template")
@@ -575,4 +575,320 @@ func TestCanvasTemplatesHTTPV3ScopeSanitizationAndBoundedList(t *testing.T) {
 	}
 	assert(request(http.MethodGet, "dev", ownerToken, ""), 422, "template_scope_too_broad")
 	assert(request(http.MethodPost, "dev", ownerToken, `{"from_canvas":"CV-review-template-source","name":"After capacity","keep":{"nodes":true}}`), 422, "template_scope_too_broad")
+}
+
+// Retention deliberately stores private snapshots. It must never carry execution
+// state, live metric samples, arbitrary artifacts or conversations into a new canvas.
+func TestCanvasTemplateRetentionHTTPPrivateSnapshots(t *testing.T) {
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL required; creates and drops one isolated schema")
+	}
+	ctx := t.Context()
+	adminDB, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := "v3_canvas_retention_" + store.ID()
+	quoted := pgx.Identifier{schema}.Sanitize()
+	if _, err = adminDB.Exec(ctx, "CREATE SCHEMA "+quoted); err != nil {
+		adminDB.Close()
+		t.Fatal(err)
+	}
+	var db *pgxpool.Pool
+	t.Cleanup(func() {
+		if db != nil {
+			db.Close()
+		}
+		if _, err := adminDB.Exec(context.Background(), "DROP SCHEMA "+quoted+" CASCADE"); err != nil {
+			t.Error(err)
+		}
+		adminDB.Close()
+	})
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
+	db, err = pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &store.Store{DB: db}
+	if err = st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = (&knowledge.PGRepository{DB: db}).Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = st.Bootstrap(ctx, "admin@example.invalid", "isolated-admin-password"); err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`DELETE FROM v3_role_grants WHERE role_id='viewer'`,
+		`INSERT INTO rbac_roles(id,name) VALUES ('canvas-editor','Canvas Editor'),('canvas-reader','Canvas Reader')`,
+		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
+ ('canvas-editor','environment','view','environment','dev'),
+ ('canvas-editor','environment','view','environment','staging'),
+ ('canvas-editor','canvas','view','environment','dev'),
+ ('canvas-editor','canvas','view','environment','staging'),
+ ('canvas-editor','canvas','change','environment','dev'),
+ ('canvas-editor','canvas','change','environment','staging'),
+ ('canvas-reader','environment','view','environment','dev'),
+ ('canvas-reader','canvas','view','environment','dev'),
+ ('canvas-reader','canvas','change','environment','dev'),
+ ('canvas-editor','knowledge','view','application','retention-app')`,
+		`INSERT INTO applications(id,name,key,archived) VALUES('retention-app','Retention App','retention-app',false)`,
+		`INSERT INTO application_environments(id,application_id,key,name,archived) VALUES('retention-ae','retention-app','dev','Development',false)`,
+		`INSERT INTO v3_application_environments(application_id,environment_id) VALUES('retention-app','dev')`,
+	} {
+		if _, err = db.Exec(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	owner, err := st.CreateUser(ctx, core.User{Email: "owner@example.invalid", Name: "Owner", Role: "viewer"}, "isolated-owner-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := st.CreateUser(ctx, core.User{Email: "other@example.invalid", Name: "Other", Role: "viewer"}, "isolated-other-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []struct{ user, role string }{{owner.ID, "canvas-editor"}, {other.ID, "canvas-reader"}} {
+		if _, err = db.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,$2)`, row.user, row.role); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, ownerToken, err := st.Login(ctx, "owner@example.invalid", "isolated-owner-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, otherToken, err := st.Login(ctx, "other@example.invalid", "isolated-other-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := &rbac.V3Policy{Store: st}
+	api := httpapi.New(st, nil, true)
+	New(st).Register(api)
+	if err = api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev", "staging"}},
+		policy, st.Session, func(ctx context.Context, u core.User, module, action, environment string) error {
+			return policy.Authorize(ctx, u, rbac.V3Decision{Module: module, Action: action, EnvironmentID: environment})
+		}); err != nil {
+		t.Fatal(err)
+	}
+	request := func(method, path, environment, token, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Header.Set("X-AIOps-Environment", environment)
+		r.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		}
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		return w
+	}
+	assert := func(w *httptest.ResponseRecorder, status int, code string) {
+		t.Helper()
+		if w.Code != status || code != "" && !strings.Contains(w.Body.String(), `"code":"`+code+`"`) {
+			t.Fatalf("status=%d body=%s; want status=%d code=%q", w.Code, w.Body.String(), status, code)
+		}
+	}
+	const sourceID = "CV-retention-source"
+	const snapshotText = "private-snapshot-text"
+	const threadText = "private-conversation-never-retained"
+	const artifactText = "unstructured-artifact-never-retained"
+	original := []Node{{ID: "source", X: 20, Y: 30, W: 240, Icon: "alert", Tone: "warn", Title: snapshotText,
+		Blocks: []json.RawMessage{
+			json.RawMessage(`{"type":"steps","items":[{"text":"Check service","sub":"source completed","state":"done"},{"text":"Approve","sub":"human required","state":"gate"}]}`),
+			json.RawMessage(`{"type":"text","text":"` + snapshotText + `"}`),
+			json.RawMessage(`{"type":"rows","items":[{"text":"Latency","value":"stale-live-value","state":"stale-live-state"}]}`),
+			json.RawMessage(`{"type":"bars","values":[123456789]}`),
+		}}}
+	artifacts := []CanvasArtifact{
+		{ID: "published-runbook", X: 30, Y: 40, Title: "stale artifact title", Href: "/runbooks/retained-runbook"},
+		{ID: "unstructured-artifact", X: 30, Y: 50, Title: artifactText},
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO knowledge_documents
+ (id,application_id,title,body,source,version,content_hash,created_by,lifecycle,metadata)
+ VALUES('retained-runbook','retention-app','Published Runbook','Never execute automatically','runbook://v3/manual',1,'fixture-hash',$1,'published',
+ '{"visibility":"application","environment_ids":["dev"]}'::jsonb)`, owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO v3_runbooks(document_id,source_kind,steps)
+ VALUES('retained-runbook','blank','[{"title":"Inspect metrics"}]'::jsonb)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO v3_canvases(id,owner_id,environment_id,title,kind,services,nodes,edges,artifacts)
+ VALUES($1,$2,'dev','Retention source','plan',ARRAY['retention-app'],$3::jsonb,'[]'::jsonb,$4::jsonb)`, sourceID, owner.ID, mustJSON(original), mustJSON(artifacts)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO v3_canvas_node_exchanges
+ (id,canvas_id,node_id,user_id,author,user_text,assistant_text,model_id,model_name,model_provider,state,lease_expires_at,completed_at)
+ VALUES('CNT-retention-private',$1,'source',$2,'Owner',$3,$3,'fake','Fake','Test','completed',clock_timestamp(),clock_timestamp())`, sourceID, owner.ID, threadText); err != nil {
+		t.Fatal(err)
+	}
+	saved := map[string]string{}
+	for _, scenario := range []struct {
+		option                   string
+		steps, runbooks, content int
+	}{{"steps", 2, 0, 0}, {"runbooks", 0, 1, 0}, {"content", 0, 0, 2}} {
+		t.Run(scenario.option, func(t *testing.T) {
+			body := fmt.Sprintf(`{"from_canvas":%q,"name":%q,"keep":{"nodes":true,%q:true}}`, sourceID, scenario.option, scenario.option)
+			created := request(http.MethodPost, "/api/v1/canvas-templates", "dev", ownerToken, body)
+			assert(created, 201, "")
+			var result template
+			if err := json.Unmarshal(created.Body.Bytes(), &result); err != nil || result.ID == "" || result.Retention == nil {
+				t.Fatalf("retention receipt missing: %s (%v)", created.Body.String(), err)
+			}
+			if result.Retention.Steps != scenario.steps || result.Retention.Runbooks != scenario.runbooks || result.Retention.ContentBlocks != scenario.content {
+				t.Fatalf("incorrect retained counts: %+v", result.Retention)
+			}
+			if scenario.option == "runbooks" && result.Retention.RunbookSource != "linked_artifacts" {
+				t.Fatalf("Runbook provenance missing: %+v", result.Retention)
+			}
+			saved[scenario.option] = result.ID
+			var ownerID, env string
+			var raw []byte
+			if err := db.QueryRow(ctx, `SELECT owner_id,environment_id,nodes FROM v3_canvas_templates WHERE id=$1`, result.ID).Scan(&ownerID, &env, &raw); err != nil {
+				t.Fatal(err)
+			}
+			if ownerID != owner.ID || env != "dev" || strings.Contains(string(raw), threadText) || strings.Contains(string(raw), artifactText) {
+				t.Fatal("retention persisted wrong privacy scope or unselected source data")
+			}
+			if strings.Contains(string(raw), snapshotText) != (scenario.option == "content") {
+				t.Fatal("only explicit content retention may persist private node text")
+			}
+			metadata, err := decodePrivateTemplateMetadata(raw, true)
+			if err != nil || len(metadata.SourceServices) != 1 || metadata.SourceServices[0] != "retention-app" {
+				t.Fatalf("source scope not retained: %+v (%v)", metadata, err)
+			}
+			var audit struct {
+				Steps    int    `json:"retained_steps"`
+				Runbooks int    `json:"retained_runbooks"`
+				Content  int    `json:"retained_content_blocks"`
+				Source   string `json:"source_canvas_id"`
+			}
+			var auditRaw []byte
+			if err := db.QueryRow(ctx, `SELECT changes FROM management_audit WHERE actor_id=$1 AND target=$2 AND action='v3.canvas_template.saved'`, owner.ID, result.ID).Scan(&auditRaw); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(auditRaw, &audit); err != nil || audit.Steps != scenario.steps || audit.Runbooks != scenario.runbooks || audit.Content != scenario.content || audit.Source != sourceID {
+				t.Fatalf("retention receipt/audit mismatch: %s (%v)", auditRaw, err)
+			}
+			createBody := fmt.Sprintf(`{"kind":"plan","title":"Fresh canvas","template_id":%q,"services":["retention-app"]}`, result.ID)
+			fresh := request(http.MethodPost, "/api/v1/canvases", "dev", ownerToken, createBody)
+			assert(fresh, 201, "")
+			var createdID struct {
+				ID string `json:"id"`
+			}
+			if err := json.Unmarshal(fresh.Body.Bytes(), &createdID); err != nil || createdID.ID == "" {
+				t.Fatal("created canvas ID missing")
+			}
+			detail := request(http.MethodGet, "/api/v1/canvases/"+createdID.ID, "dev", ownerToken, "")
+			assert(detail, 200, "")
+			var doc struct {
+				Nodes     []Node                `json:"nodes"`
+				Artifacts []CanvasArtifact      `json:"artifacts"`
+				Threads   map[string]nodeThread `json:"threads"`
+			}
+			if err := json.Unmarshal(detail.Body.Bytes(), &doc); err != nil || len(doc.Nodes) != 1 {
+				t.Fatalf("invalid fresh canvas: %s (%v)", detail.Body.String(), err)
+			}
+			for _, thread := range doc.Threads {
+				if len(thread.Turns) != 0 {
+					t.Fatal("source conversation copied")
+				}
+			}
+			if strings.Contains(detail.Body.String(), threadText) || strings.Contains(detail.Body.String(), artifactText) || strings.Contains(detail.Body.String(), "private_template_v1") {
+				t.Fatal("private source data or internal metadata leaked into canvas")
+			}
+			switch scenario.option {
+			case "steps":
+				var block struct {
+					Type  string       `json:"type"`
+					Items []canvasStep `json:"items"`
+				}
+				if len(doc.Nodes[0].Blocks) != 1 || json.Unmarshal(doc.Nodes[0].Blocks[0], &block) != nil || block.Type != "steps" || len(block.Items) != 2 {
+					t.Fatal("retained steps missing")
+				}
+				if block.Items[0].State != "todo" || block.Items[1].State != "gate" {
+					t.Fatalf("execution/approval states changed unsafely: %+v", block.Items)
+				}
+				for _, step := range block.Items {
+					if !strings.HasPrefix(step.Sub, pendingTemplateStepPrefix) {
+						t.Fatal("retained step lacks pending review notice")
+					}
+				}
+			case "content":
+				if doc.Nodes[0].Title != snapshotText || len(doc.Nodes[0].Blocks) != 2 || !strings.Contains(detail.Body.String(), snapshotText) {
+					t.Fatal("explicit private snapshot not retained")
+				}
+				if strings.Contains(detail.Body.String(), "stale-live-") || strings.Contains(detail.Body.String(), "123456789") {
+					t.Fatal("live observation copied as current content")
+				}
+			case "runbooks":
+				if len(doc.Artifacts) != 1 || doc.Artifacts[0].Href != "/runbooks/retained-runbook" || doc.Artifacts[0].Title != "Published Runbook" || !strings.Contains(doc.Artifacts[0].Sub, "Runbook v1") || !strings.Contains(doc.Artifacts[0].Sub, "未执行，待复核") || len(doc.Nodes[0].Blocks) != 0 {
+					t.Fatalf("Runbook reference not resolved safely: %+v", doc.Artifacts)
+				}
+			}
+			assert(request(http.MethodGet, "/api/v1/canvases/"+createdID.ID, "dev", otherToken, ""), 404, "not_found")
+			assert(request(http.MethodPost, "/api/v1/canvases", "dev", otherToken, createBody), 404, "template_not_found")
+			assert(request(http.MethodPost, "/api/v1/canvases", "staging", ownerToken, fmt.Sprintf(`{"kind":"plan","title":"Wrong environment","template_id":%q,"services":[]}`, result.ID)), 404, "template_not_found")
+		})
+	}
+	otherList := request(http.MethodGet, "/api/v1/canvas-templates", "dev", otherToken, "")
+	assert(otherList, 200, "")
+	for _, id := range saved {
+		if strings.Contains(otherList.Body.String(), id) {
+			t.Fatal("another owner can list private retained template")
+		}
+	}
+	if strings.Contains(otherList.Body.String(), snapshotText) {
+		t.Fatal("private content leaked through template list")
+	}
+	// Source changes do not rewrite the explicitly selected private content snapshot.
+	if _, err = db.Exec(ctx, `UPDATE v3_canvases SET nodes=$2::jsonb WHERE id=$1`, sourceID, mustJSON([]Node{{ID: "source", X: 20, Y: 30, W: 240, Icon: "alert", Tone: "warn", Title: "source changed after save", Blocks: []json.RawMessage{}}})); err != nil {
+		t.Fatal(err)
+	}
+	contentCopy := request(http.MethodPost, "/api/v1/canvases", "dev", ownerToken, fmt.Sprintf(`{"kind":"plan","title":"Snapshot copy","template_id":%q,"services":["retention-app"]}`, saved["content"]))
+	assert(contentCopy, 201, "")
+	var copied struct {
+		ID string `json:"id"`
+	}
+	if err = json.Unmarshal(contentCopy.Body.Bytes(), &copied); err != nil {
+		t.Fatal(err)
+	}
+	copyDetail := request(http.MethodGet, "/api/v1/canvases/"+copied.ID, "dev", ownerToken, "")
+	assert(copyDetail, 200, "")
+	if !strings.Contains(copyDetail.Body.String(), snapshotText) || strings.Contains(copyDetail.Body.String(), "source changed after save") {
+		t.Fatal("template content was reread from changed source")
+	}
+	createRunbook := fmt.Sprintf(`{"kind":"plan","title":"Runbook copy","template_id":%q,"services":["retention-app"]}`, saved["runbooks"])
+	var beforeCanvases, beforeTemplates, beforeAudit int
+	if err = db.QueryRow(ctx, `SELECT (SELECT count(*) FROM v3_canvases),(SELECT count(*) FROM v3_canvas_templates),(SELECT count(*) FROM management_audit)`).Scan(&beforeCanvases, &beforeTemplates, &beforeAudit); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='canvas-editor' AND module='knowledge'`); err != nil {
+		t.Fatal(err)
+	}
+	assert(request(http.MethodPost, "/api/v1/canvases", "dev", ownerToken, createRunbook), 403, "template_reference_forbidden")
+	assert(request(http.MethodPost, "/api/v1/canvas-templates", "dev", ownerToken, fmt.Sprintf(`{"from_canvas":%q,"name":"Revoked Runbook","keep":{"nodes":true,"runbooks":true}}`, sourceID)), 403, "template_reference_forbidden")
+	if _, err = db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES('canvas-editor','knowledge','view','application','retention-app')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `UPDATE knowledge_documents SET version=2 WHERE id='retained-runbook'`); err != nil {
+		t.Fatal(err)
+	}
+	assert(request(http.MethodPost, "/api/v1/canvases", "dev", ownerToken, createRunbook), 409, "template_runbook_unavailable")
+	if _, err = db.Exec(ctx, `UPDATE knowledge_documents SET version=1,lifecycle='draft' WHERE id='retained-runbook'`); err != nil {
+		t.Fatal(err)
+	}
+	assert(request(http.MethodPost, "/api/v1/canvases", "dev", ownerToken, createRunbook), 409, "template_runbook_unavailable")
+	var afterCanvases, afterTemplates, afterAudit int
+	if err = db.QueryRow(ctx, `SELECT (SELECT count(*) FROM v3_canvases),(SELECT count(*) FROM v3_canvas_templates),(SELECT count(*) FROM management_audit)`).Scan(&afterCanvases, &afterTemplates, &afterAudit); err != nil {
+		t.Fatal(err)
+	}
+	if afterCanvases != beforeCanvases || afterTemplates != beforeTemplates || afterAudit != beforeAudit {
+		t.Fatal("rejected references must roll back canvas/template and audit together")
+	}
 }

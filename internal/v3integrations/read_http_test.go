@@ -48,7 +48,7 @@ func TestConnectorReadsUsePersistedScopedRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -175,7 +175,7 @@ func TestConnectorReadsUsePersistedScopedRecords(t *testing.T) {
 		id, language, brand, text, checked, meta string
 	}{
 		{"credential-draft", "zh-CN", "", "个人访问令牌 · 凭据未配置", "尚未检查", "未启用 · 凭据未配置"},
-		{"credential-registered", "en-US", "vault", "Personal access token · Vault reference registered", "Never checked", "Connection not tested"},
+		{"credential-registered", "en-US", "", "Personal access token · server binding not configured", "Never checked", "Disabled · server credential binding not configured"},
 	} {
 		w := request("/api/v1/connectors/"+tc.id, "dev", token, tc.language)
 		if w.Code != http.StatusOK {
@@ -218,7 +218,7 @@ func TestConnectorReadsUsePersistedScopedRecords(t *testing.T) {
 	if err := json.Unmarshal(unusable.Body.Bytes(), &state); err != nil {
 		t.Fatal(err)
 	}
-	if state.Status != "unverified" || state.Meta != "凭据未配置" || state.Checked == "" || state.Checked == "尚未检查" {
+	if state.Status != "unverified" || state.Meta != "未启用 · 凭据未配置" || state.Checked == "" || state.Checked == "尚未检查" {
 		t.Fatalf("missing credentials appeared healthy: %s", unusable.Body.String())
 	}
 	if strings.Contains(detail.Body.String(), "vault://") {

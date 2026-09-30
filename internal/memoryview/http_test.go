@@ -103,6 +103,35 @@ func TestMemoryScopePaginationAndReadOnly(t *testing.T) {
 	if _, e = db.DB.Exec(ctx, "INSERT INTO application_grants(application_id,subject_type,subject_id,permission) VALUES('allowed','user',$1,'view')", viewer.ID); e != nil {
 		t.Fatal(e)
 	}
+	grantMemoryResource := func(app, environment string) {
+		t.Helper()
+		role := "memory-fixture-" + app
+		for _, statement := range []struct {
+			sql  string
+			args []any
+		}{
+			{`INSERT INTO cmdb_resources(id,kind,name,source_kind) VALUES($1,'host',$1,'manual')`, []any{role}},
+			{`INSERT INTO cmdb_resource_applications(resource_id,application_id,environment_id) VALUES($1,$2,$3)`, []any{role, app, environment}},
+			{`INSERT INTO rbac_roles(id,name) VALUES($1,$1)`, []any{role}},
+			{`INSERT INTO rbac_permissions(id,name) VALUES($1,$1)`, []any{role}},
+			{`INSERT INTO rbac_permission_resources(permission_id,scope_type,resource_id,action) VALUES($1,'resource',$1,'view')`, []any{role}},
+			{`INSERT INTO rbac_role_permissions(role_id,permission_id) VALUES($1,$1)`, []any{role}},
+			{`INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,$2)`, []any{viewer.ID, role}},
+		} {
+			if _, e = db.DB.Exec(ctx, statement.sql, statement.args...); e != nil {
+				t.Fatal(e)
+			}
+		}
+	}
+	if _, e = db.DB.Exec(ctx, `INSERT INTO application_environments(id,application_id,key,name) VALUES('memory-allowed','allowed','memory','Memory')`); e != nil {
+		t.Fatal(e)
+	}
+	grantMemoryResource("allowed", "memory-allowed")
+	// The later stale-write assertions use the administrator's session, which
+	// also needs an explicit update binding; its role alone is not resource ACL.
+	if _, e = db.DB.Exec(ctx, `INSERT INTO rbac_permission_resources(permission_id,scope_type,resource_id,action) VALUES('resource-view','resource','memory-fixture-allowed','view'),('resource-update','resource','memory-fixture-allowed','update')`); e != nil {
+		t.Fatal(e)
+	}
 	_, viewerToken, e := db.Login(ctx, viewer.Email, "memory-test-password")
 	if e != nil {
 		t.Fatal(e)
@@ -196,6 +225,7 @@ func TestMemoryScopePaginationAndReadOnly(t *testing.T) {
 	 ('other-env','other','one','one'),('hidden-env','hidden','one','one')`); e != nil {
 		t.Fatal(e)
 	}
+	grantMemoryResource("other", "other-env")
 	if _, e = db.DB.Exec(ctx, `INSERT INTO knowledge_documents(id,application_id,title,body,source,version,content_hash,created_by,created_at,lifecycle,metadata)
 	 SELECT 'batch-'||lpad(n::text,3,'0'),'allowed','batch memory','batch-body','test',1,'hash',$1,now()-interval '2 days','published','{"visibility":"application"}'::jsonb FROM generate_series(1,260) n`, adminUser.ID); e != nil {
 		t.Fatal(e)

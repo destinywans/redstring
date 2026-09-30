@@ -32,7 +32,7 @@ func isolated(t *testing.T) *Store {
 		t.Fatal(e)
 	}
 	q := u.Query()
-	q.Set("search_path", schema)
+	q.Set("search_path", schema+",public")
 	u.RawQuery = q.Encode()
 	s, e := New(ctx, u.String())
 	if e != nil {

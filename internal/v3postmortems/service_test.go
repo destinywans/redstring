@@ -350,14 +350,15 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 	if _, err := db.Exec(ctx, `UPDATE investigations SET status='active' WHERE id='closed-inv'`); err != nil {
 		t.Fatal(err)
 	}
-	assertError(call("POST", "/api/v1/postmortems/"+made.ID+"/publish", "dev", adminToken, ""), 409, "invalid_state")
+	// Reopening invalidates the draft's frozen close source before publication.
+	assertError(call("POST", "/api/v1/postmortems/"+made.ID+"/publish", "dev", adminToken, ""), 409, "postmortem_source_changed")
 	if _, err := db.Exec(ctx, `UPDATE investigations SET status='closed' WHERE id='closed-inv'`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `DELETE FROM investigation_reports WHERE investigation_id='closed-inv'`); err != nil {
 		t.Fatal(err)
 	}
-	assertError(call("POST", "/api/v1/postmortems/"+made.ID+"/publish", "dev", adminToken, ""), 409, "invalid_state")
+	assertError(call("POST", "/api/v1/postmortems/"+made.ID+"/publish", "dev", adminToken, ""), 409, "postmortem_source_changed")
 	if _, err := db.Exec(ctx, `INSERT INTO investigation_reports(investigation_id,execution_id,report)
  VALUES('closed-inv','execution','{}')`); err != nil {
 		t.Fatal(err)

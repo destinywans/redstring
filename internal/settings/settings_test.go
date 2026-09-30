@@ -47,7 +47,7 @@ func TestPostgresSettingsBoundaries(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	pool, e := pgxpool.NewWithConfig(ctx, cfg)
 	if e != nil {
 		t.Fatal(e)
@@ -73,7 +73,15 @@ func TestPostgresSettingsBoundaries(t *testing.T) {
 		}
 	}
 	disabled := true
-	if _, e = db.UpdateMember(ctx, "admin", store.MemberUpdate{AccountUpdate: store.AccountUpdate{Disabled: &disabled}}); !errors.Is(e, store.ErrLastAdmin) {
+	if _, e = db.UpdateMember(ctx, "admin", store.MemberUpdate{AccountUpdate: store.AccountUpdate{Disabled: &disabled}}); !errors.Is(e, store.ErrForbidden) {
+		t.Fatalf("missing principal authorized privileged account mutation: %v", e)
+	}
+	actor, err := db.ActiveUser(ctx, "admin")
+	if err != nil || actor.Role != "admin" {
+		t.Fatalf("persisted administrator role fixture unavailable: role=%q err=%v", actor.Role, err)
+	}
+	adminCtx := store.WithPrincipal(ctx, actor)
+	if _, e = db.UpdateMember(adminCtx, "admin", store.MemberUpdate{AccountUpdate: store.AccountUpdate{Disabled: &disabled}}); !errors.Is(e, store.ErrLastAdmin) {
 		t.Fatalf("mock admin weakened last-admin protection: %v", e)
 	}
 	for _, id := range []string{"admin", "viewer"} {
@@ -185,7 +193,13 @@ func TestPostgresSettingsBoundaries(t *testing.T) {
 			foundDeleted = m.DeletedAt != nil
 		}
 	}
-	if !foundDeleted || deletedDirectory.Roles[0].MemberCount != 1 {
+	adminMembers := -1
+	for _, role := range deletedDirectory.Roles {
+		if role.ID == "admin" {
+			adminMembers = role.MemberCount
+		}
+	}
+	if !foundDeleted || adminMembers != 1 {
 		t.Fatalf("deleted members must be browseable but excluded from role counts: %#v", deletedDirectory)
 	}
 	for _, department := range deletedDirectory.Departments {
@@ -220,7 +234,9 @@ print(module.build_seed_sql(json.loads(sys.argv[1])))`
 	if e = pool.QueryRow(ctx, `SELECT count(*) FROM application_grants WHERE subject_id LIKE 'settings-demo-%'`).Scan(&count); e != nil || count != 2 {
 		t.Fatalf("first seed must skip team with real member: %d %v", count, e)
 	}
-	if _, e = pool.Exec(ctx, `INSERT INTO applications(id,key,name) VALUES('new-app','aaa-new','New app'); INSERT INTO team_members VALUES('settings-demo-infrastructure','viewer'); DELETE FROM application_grants WHERE subject_id='settings-demo-data'`); e != nil {
+	// A real member has one department. Move the fixture membership before
+	// checking that a seed rerun cannot expand or restore application grants.
+	if _, e = pool.Exec(ctx, `INSERT INTO applications(id,key,name) VALUES('new-app','aaa-new','New app'); DELETE FROM team_members WHERE user_id='viewer'; INSERT INTO team_members VALUES('settings-demo-infrastructure','viewer'); DELETE FROM application_grants WHERE subject_id='settings-demo-data'`); e != nil {
 		t.Fatal(e)
 	}
 	seed(`["new-app","app"]`)

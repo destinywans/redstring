@@ -45,7 +45,7 @@ func testServer(t *testing.T) (*Server, *httptest.Server) {
 		t.Fatal(e)
 	}
 	q := u.Query()
-	q.Set("search_path", schema)
+	q.Set("search_path", schema+",public")
 	u.RawQuery = q.Encode()
 	db, e := store.New(ctx, u.String())
 	if e != nil {
@@ -139,6 +139,29 @@ func TestHTTPRolesCSRFAndDurableReplay(t *testing.T) {
 		t.Fatal(e)
 	}
 	if e = api.Store.(*store.Store).SetGrants(context.Background(), app.ID, []core.Grant{{SubjectType: "user", SubjectID: viewerUser.ID, Permission: "view"}}); e != nil {
+		t.Fatal(e)
+	}
+	adminUser, e := api.Store.Session(context.Background(), cookie.Value)
+	if e != nil {
+		t.Fatal(e)
+	}
+	// Legacy application routes now require explicit grants on each linked
+	// infrastructure resource. Give the writer update and the viewer view only.
+	if _, e = api.Store.(*store.Store).DB.Exec(context.Background(), `
+INSERT INTO cmdb_resources(id,kind,name,source_kind) VALUES('layout-host','host','Layout test host','manual');
+INSERT INTO rbac_roles(id,name) VALUES('layout-reader','Layout reader'),('layout-writer','Layout writer');
+INSERT INTO rbac_permissions(id,name) VALUES('layout-read','Layout read'),('layout-write','Layout write');
+INSERT INTO rbac_permission_resources(permission_id,scope_type,resource_id,action)
+ VALUES('layout-read','resource','layout-host','view'),('layout-write','resource','layout-host','update');
+INSERT INTO rbac_role_permissions(role_id,permission_id)
+ VALUES('layout-reader','layout-read'),('layout-writer','layout-read'),('layout-writer','layout-write');`); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = api.Store.(*store.Store).DB.Exec(context.Background(), `INSERT INTO cmdb_resource_applications(resource_id,application_id,environment_id)
+SELECT 'layout-host',$1,id FROM application_environments WHERE application_id=$1 ORDER BY id LIMIT 1`, app.ID); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = api.Store.(*store.Store).DB.Exec(context.Background(), `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'layout-reader'),($2,'layout-writer')`, viewerUser.ID, adminUser.ID); e != nil {
 		t.Fatal(e)
 	}
 	inv, e := api.Store.CreateInvestigation(context.Background(), app.ID, "test")

@@ -62,7 +62,7 @@ func isolatedGovernance(t *testing.T) (*Service, *fakeEmbedder, *store.Store) {
 	if err != nil {
 		t.Fatal("parse isolated database")
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	db, err = pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal("open isolated database")

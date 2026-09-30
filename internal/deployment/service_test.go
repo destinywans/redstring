@@ -60,7 +60,7 @@ func isolatedDeployment(t *testing.T) (*Service, core.User, *fakeAdapter) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
 	db, e := pgxpool.NewWithConfig(ctx, cfg)
 	if e != nil {
 		t.Fatal(e)
@@ -78,6 +78,18 @@ func isolatedDeployment(t *testing.T) (*Service, core.User, *fakeAdapter) {
 		t.Fatal(e)
 	}
 	_, e = db.Exec(ctx, `INSERT INTO users(id,email,name,role,password_hash) VALUES('op','op@example.invalid','Operator','operator','unused'),('view','view@example.invalid','View','viewer','unused'),('other','other@example.invalid','Other','operator','unused'); INSERT INTO applications(id,key,name) VALUES('a','a','App'); INSERT INTO application_environments(id,application_id,key,name) VALUES('env','a','prod','Production'); INSERT INTO application_grants(application_id,subject_type,subject_id,permission) VALUES('a','user','op','operate'),('a','user','view','view');`)
+	if e != nil {
+		t.Fatal(e)
+	}
+	// Application ACLs no longer imply infrastructure authority. Give only
+	// this operator explicit view/update on this application's test host.
+	_, e = db.Exec(ctx, `INSERT INTO cmdb_resources(id,kind,name,source_kind) VALUES('deploy-host','host','Test host','manual');
+INSERT INTO cmdb_resource_applications(resource_id,application_id,environment_id) VALUES('deploy-host','a','env');
+INSERT INTO rbac_roles(id,name) VALUES('deploy-fixture','Deployment fixture');
+INSERT INTO rbac_permissions(id,name) VALUES('deploy-view','Deployment fixture view'),('deploy-update','Deployment fixture update');
+INSERT INTO rbac_permission_resources(permission_id,scope_type,resource_id,action) VALUES('deploy-view','resource','deploy-host','view'),('deploy-update','resource','deploy-host','update');
+INSERT INTO rbac_role_permissions(role_id,permission_id) VALUES('deploy-fixture','deploy-view'),('deploy-fixture','deploy-update');
+INSERT INTO rbac_user_roles(user_id,role_id) VALUES('op','deploy-fixture');`)
 	if e != nil {
 		t.Fatal(e)
 	}

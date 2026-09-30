@@ -13,10 +13,21 @@ import (
 
 const alertRuleDraftPrefix = "aiops-alert-rule-drafts/"
 
+// Preserve disabled repositories as a nil interface at the Service boundary.
+// This adapter is specific to the optional GitLab draft loaders above it.
+func optionalV3AlertmanagerRepository(repository *v3alertmanager.RouteGitLabRepository) v3alertmanager.RouteRepository {
+	if repository == nil {
+		return nil
+	}
+	return repository
+}
+
 // A configured pair enables reviewed, nondeployable draft exports. No pair
 // means the write routes remain registered but cannot contact GitLab.
+// Optional repositories retain their concrete pointer type: the loaders return
+// nil pointers when disabled, which would be non-nil inside RouteRepository.
 func loadV3AlertRuleDraftRepository(promotion *v3configsync.Service,
-	route, inhibition v3alertmanager.RouteRepository, target, prefix string) (v3alertrules.DraftRepository, error) {
+	route, inhibition *v3alertmanager.RouteGitLabRepository, target, prefix string) (v3alertrules.DraftRepository, error) {
 	if target == "" && prefix == "" {
 		return nil, nil
 	}

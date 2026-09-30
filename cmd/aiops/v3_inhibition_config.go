@@ -10,7 +10,7 @@ import (
 
 // Inhibition MRs must be review-only in a separate target, source namespace
 // and label; an unset pair leaves outbound GitLab draft writes disabled.
-func loadV3InhibitionRepository(promotion *v3configsync.Service, route v3alertmanager.RouteRepository,
+func loadV3InhibitionRepository(promotion *v3configsync.Service, route *v3alertmanager.RouteGitLabRepository,
 	target, prefix string) (*v3alertmanager.RouteGitLabRepository, error) {
 	if target == "" && prefix == "" {
 		return nil, nil

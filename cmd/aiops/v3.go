@@ -476,8 +476,9 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	alertmanagerService := &v3alertmanager.Service{
 		Source: alertmanagerSource, Catalog: v3alertmanager.DatabaseCatalog{DB: s.DB}, Access: policy,
 		EnvironmentLabels: alertmanagerLabels, ApplicationBindings: alertmanagerBindings,
-		RouteRepository: routeDraftRepository, InhibitionRepository: inhibitionRepository,
-		InhibitionHistory: inhibitionHistory,
+		RouteRepository:      optionalV3AlertmanagerRepository(routeDraftRepository),
+		InhibitionRepository: optionalV3AlertmanagerRepository(inhibitionRepository),
+		InhibitionHistory:    inhibitionHistory,
 	}
 	var silenceWorker *v3SilenceWorker
 	var silenceLedger *v3alertmanager.DatabaseSilenceLedger

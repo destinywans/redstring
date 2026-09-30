@@ -118,6 +118,9 @@ func (s *Service) alertDetailTx(ctx context.Context, tx pgx.Tx, v incidentRecord
 		n.CreatedAt = at.UTC().Format(time.RFC3339Nano)
 		notifications = append(notifications, n)
 	}
+	// The 501st row is a truncation sentinel. Breaking before Next returns
+	// false leaves the transaction connection busy until Rows is closed.
+	rows.Close()
 	if err := rows.Err(); err != nil {
 		return AlertDetailResponse{}, err
 	}

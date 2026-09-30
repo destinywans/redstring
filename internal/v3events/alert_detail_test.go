@@ -169,7 +169,20 @@ func TestAlertDetailReadsOnlyEvidenceBackedFields(t *testing.T) {
 	}
 	if _, err := db.Exec(ctx, `INSERT INTO ops_notifications(id,incident_id,application_id,environment_id,channel,event_key,body,created_at)
 		SELECT 'bulk-'||i,'alert','app','app-dev','feishu','bulk-'||i,'private body',now()+i*interval '1 second'
-		FROM generate_series(1,501) AS i`); err != nil {
+		FROM generate_series(1,498) AS i`); err != nil {
+		t.Fatal(err)
+	}
+	exact := request("alert", "dev")
+	var exactDetail AlertDetailResponse
+	if err := json.Unmarshal(exact.Body.Bytes(), &exactDetail); err != nil || exact.Code != http.StatusOK ||
+		exactDetail.NotificationsTruncated || len(exactDetail.Notifications) != 500 ||
+		exactDetail.Notifications[0].ID != "first" || exactDetail.Notifications[499].ID != "bulk-498" {
+		t.Fatalf("exact notification bound: status=%d count=%d truncated=%t err=%v", exact.Code,
+			len(exactDetail.Notifications), exactDetail.NotificationsTruncated, err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO ops_notifications(id,incident_id,application_id,environment_id,channel,event_key,body,created_at)
+		SELECT 'bulk-'||i,'alert','app','app-dev','feishu','bulk-'||i,'private body',now()+i*interval '1 second'
+		FROM generate_series(499,501) AS i`); err != nil {
 		t.Fatal(err)
 	}
 	bounded := request("alert", "dev")

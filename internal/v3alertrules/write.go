@@ -51,6 +51,7 @@ type WriteService struct {
 	TrialRuntime   TrialRuntime
 	EnableApproval AlertRuleApprovalSource
 	EnableApplier  AlertRuleApplier
+	EnableReady    func(context.Context, string) error
 }
 
 func NewWriteService(db *pgxpool.Pool, access WriteAccess, reader *Service, repository DraftRepository) *WriteService {

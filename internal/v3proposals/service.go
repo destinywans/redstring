@@ -18,6 +18,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3alertmanager"
 )
 
 type Access interface {
@@ -25,11 +26,34 @@ type Access interface {
 	AuthorizeWithTx(context.Context, pgx.Tx, core.User, rbac.V3Decision) error
 }
 
+// ApprovalEvidence checks committed action-specific evidence after the
+// approval transaction has locked and verified the proposal and action.
+// It must not acquire group or catalog locks in this transaction.
+type ApprovalEvidence interface {
+	BulkEvidenceReadyWithTx(context.Context, pgx.Tx, v3alertmanager.SilenceReviewedAction) error
+}
+
+// AlertRuleEnableReview is the scope returned by the domain's immutable
+// intent verifier. The domain depends on proposals, so cmd injects its loader
+// without adding a reverse package dependency here.
+type AlertRuleEnableReview struct {
+	Kind                   string
+	EnvironmentID          string
+	ApplicationID          string
+	InvestigationID        string
+	InvestigationUpdatedAt time.Time
+}
+
 type Service struct {
-	DB               *pgxpool.Pool
-	Access           Access
-	ApprovalPasskeys ProposalPasskeys
-	ApprovalWorkflow interface {
+	DB                    *pgxpool.Pool
+	Access                Access
+	ApprovalPasskeys      ProposalPasskeys
+	ApprovalEvidence      ApprovalEvidence
+	AlertRuleEnableIntent func(context.Context, pgx.Tx, string) (AlertRuleEnableReview, error)
+	// The callback must prove the independent enable worker is running for the
+	// exact environment, as well as the reviewed GitOps target being configured.
+	AlertRuleEnableReady func(context.Context, string) error
+	ApprovalWorkflow     interface {
 		CreateReady(context.Context, string) error
 		CancelReady(context.Context, string) error
 	}

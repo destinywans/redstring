@@ -37,9 +37,12 @@ type BulkAccess interface {
 // BulkSilenceSource is trusted process configuration. ApplicationBindings is
 // provider-label -> persisted application ID, never a client-supplied mapping.
 type BulkSilenceSource struct {
-	Proposals           *v3proposals.Service
-	Ledger              *v3alertmanager.DatabaseSilenceLedger
-	Client              *v3alertmanager.Client
+	Proposals *v3proposals.Service
+	Ledger    *v3alertmanager.DatabaseSilenceLedger
+	Client    *v3alertmanager.Client
+	// CreateReady probes the same independent worker and approval store as the
+	// ordinary silence route, after the group transaction has been released.
+	CreateReady         func(context.Context, string) error
 	ApplicationBindings map[string]map[string]string
 	EnvironmentLabels   map[string]string
 	IngressSources      []operations.Source

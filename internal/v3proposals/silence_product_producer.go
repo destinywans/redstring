@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -28,6 +29,9 @@ type SilenceProductProducer struct {
 func (p *SilenceProductProducer) SubmitSilenceCreate(ctx context.Context, actor core.User,
 	sessionTokenHash, investigationID string, in v3alertmanager.SilenceCreateInput) (v3alertmanager.SilenceProductProposal, error) {
 	var zero v3alertmanager.SilenceProductProposal
+	if strings.HasPrefix(in.IdempotencyKey, "bulk-") {
+		return zero, v3alertmanager.ErrSilenceCreateInvalid
+	}
 	if p == nil || p.Proposals == nil || p.Ledger == nil || p.Client == nil ||
 		p.Proposals.DB == nil || p.Proposals.DB != p.Ledger.DB {
 		return zero, v3alertmanager.ErrNotConfigured

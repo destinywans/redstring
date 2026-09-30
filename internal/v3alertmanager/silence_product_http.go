@@ -191,7 +191,10 @@ func (s *Service) silenceProductRequest(w http.ResponseWriter, r *http.Request, 
 
 func silenceProductKey(w http.ResponseWriter, r *http.Request) (string, bool) {
 	key := r.Header.Get("Idempotency-Key")
-	if len(r.Header.Values("Idempotency-Key")) != 1 || !silenceKeyPattern.MatchString(key) {
+	// Bulk group proposals use an internal key namespace with mandatory
+	// companion evidence. An ordinary product request cannot claim it.
+	if len(r.Header.Values("Idempotency-Key")) != 1 || !silenceKeyPattern.MatchString(key) ||
+		strings.HasPrefix(key, "bulk-") {
 		httpapi.Error(w, http.StatusUnprocessableEntity, "idempotency_key_required", "Provide one bounded Idempotency-Key")
 		return "", false
 	}

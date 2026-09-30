@@ -33955,7 +33955,7 @@
       "post": {
         "summary": "Create a governed alert-rule draft, isolated trial, or enable proposal",
         "operationId": "post_alert_rules",
-        "description": "Minimum role: operator. V3 instance and environment scope apply. Requires one selected environment, one active application, alert_rules.change and a safe Idempotency-Key. draft creates an immutable nondeployable GitOps JSON revision and pending GitLab MR; no rule is applied. dry_run requires an explicitly reviewed, hard application-isolated Prometheus query view plus a running durable worker; the entrypoint accepts private per-application configuration but none is configured by default. It records one bounded 24-hour non-notifying trial and returns 202, or 503/429 when unavailable or full. enabled requires an open investigation, current human and proposals.change, a trusted exact deployable YAML plan, and persists a digest-bound proposal action with pending_approval status after exporting a nondeployable draft MR; it returns 202 and does not enable the rule. A separate passkey-bound human approval, independent executor, protected deployable MR and observed GitOps sync plus exact Prometheus rule readback are required before enabled is recorded. No approval producer or rule applier is wired into the product entrypoint.",
+        "description": "Minimum role: operator. V3 instance and environment scope apply. Requires one selected environment, one active application, alert_rules.change and a safe Idempotency-Key. draft creates an immutable nondeployable GitOps JSON revision and pending GitLab MR; no rule is applied. dry_run requires an explicitly reviewed, hard application-isolated Prometheus query view plus a running durable worker; the entrypoint accepts private per-application configuration but none is configured by default. It records one bounded 24-hour non-notifying trial and returns 202, or 503/429 when unavailable or full. enabled requires an open investigation, current human and proposals.change, a trusted exact deployable YAML plan, configured proposal-bound passkey approval and a running independent worker; it persists a digest-bound proposal action with pending_approval status after exporting a nondeployable draft MR, returns 202 and does not enable the rule. Same-key replay after independent approval reports approved_pending_execution without claiming the rule is active. A separate worker revalidates two-human approval, current grants and source/target scope before creating a protected deployable MR. It never merges the MR or requests Argo CD sync; GitLab/Argo CD/Prometheus readback is required before reporting enabled. Private configuration is off by default, and missing configuration fails closed. Migrations and real providers remain unverified.",
         "responses": {
           "201": {
             "description": "Success",
@@ -34028,7 +34028,7 @@
             }
           },
           "202": {
-            "description": "Isolated trial queued or enable intent pending human approval",
+            "description": "Isolated trial queued or enable intent awaiting independent execution",
             "content": {
               "application/json": {
                 "schema": {
@@ -35422,7 +35422,8 @@
             "schema": {
               "type": "string",
               "minLength": 8,
-              "maxLength": 128
+              "maxLength": 128,
+              "description": "The bulk- prefix is reserved for internal alert-group proposals."
             }
           }
         ]
@@ -35967,7 +35968,8 @@
             "schema": {
               "type": "string",
               "minLength": 8,
-              "maxLength": 128
+              "maxLength": 128,
+              "description": "The bulk- prefix is reserved for internal alert-group proposals."
             }
           }
         ],
@@ -36240,7 +36242,7 @@
       "post": {
         "summary": "Apply bounded actions to persisted alert groups",
         "operationId": "post_alert_groups_bulk",
-        "description": "Minimum role: operator with current application or owner-team grants. V3 instance and environment scope apply. Requires exactly one selected environment. Each group ID is recomputed using the same persisted environment row ID, application ID, source ID and fingerprint as GET /alert-groups; the handler locks only that current group and checks its current application or owner-team grant. Investigate also requires canvas.change. Input order and one result per ID are preserved. A missing or hidden group returns not_found; per-group failures do not erase successful groups. Claim changes platform assignees only, with same-user retries idempotent. Investigate creates or reuses a real persisted investigation and root branch for the locked group snapshot, returning the real ID. Silence always returns item-level not_connected and creates no proposal because the available Alertmanager matcher cannot prove exact fingerprint scope. changed counts incident rows changed. A response with only successful item outcomes is 200; any per-item failure yields 207 with all item results.",
+        "description": "Minimum role: operator with current application or owner-team grants. V3 instance and environment scope apply. Requires exactly one selected environment. Each group ID is recomputed using the same persisted environment row ID, application ID, source ID and fingerprint as GET /alert-groups; the handler locks only that current group and checks its current application or owner-team grant. Investigate also requires canvas.change. Input order and one result per ID are preserved. A missing or hidden group returns not_found; per-group failures do not erase successful groups. Claim changes platform assignees only, with same-user retries idempotent. Investigate creates or reuses a real persisted investigation and root branch for the locked group snapshot, returning the real ID. Silence requires an operator-attested dedicated exact group identity label in every immutable persisted member label set, plus source and fingerprint evidence for the local group. Its proposed Alertmanager silence uses exact equality matchers for environment, application and that dedicated identity. Missing configuration or proof returns item-level not_connected. Complete evidence creates a pending review proposal, returning pending_approval, proposal_id and changed=0; this route does not write upstream or claim that alerts are silenced. Two-person approval and an independent worker with group-evidence revalidation are required before execution. For other actions, changed counts incident rows changed. A response with only successful item outcomes is 200; any per-item failure yields 207 with all item results.",
         "responses": {
           "200": {
             "description": "Success",
@@ -39242,7 +39244,7 @@
       "post": {
         "summary": "Create a governed incident postmortem",
         "operationId": "post_postmortems",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires a single selected environment and current events:view plus knowledge:manage on the incident application or its persisted owner team. Locks and rechecks the resolved incident, investigation report and closing event; one postmortem per incident. Stores sections and actions with an audit record in one transaction, without executing or notifying. Publishing requires a separate human review.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires a single selected environment, source_close_event_seq from GET /postmortems/draft, and current events:view plus knowledge:manage on the incident application or its persisted owner team. A missing or invalid source sequence returns 422 and requires re-preview. The write transaction locks current session, role sources, application/environment mapping, incident, investigation, report and selected close event. A changed source state or a different current close event returns 409 and requires re-preview. One postmortem per incident; sections, actions and audit are stored together without executing or notifying. Publishing requires a separate human review.",
         "responses": {
           "201": {
             "description": "Success",
@@ -39342,6 +39344,10 @@
                   "incident_id": {
                     "type": "string"
                   },
+                  "source_close_event_seq": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
                   "sections": {
                     "type": "array",
                     "items": {
@@ -39365,6 +39371,7 @@
                 "additionalProperties": false,
                 "required": [
                   "incident_id",
+                  "source_close_event_seq",
                   "sections",
                   "actions",
                   "status"
@@ -39640,7 +39647,7 @@
       "get": {
         "summary": "Read an evidence-only postmortem starting point",
         "operationId": "get_postmortems_draft",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract operation. A repeatable snapshot with session and role grant locks uses a resolved incident and the earliest exact persisted close event plus its investigation report. source_close_event_seq identifies the observed closing event; saving rechecks the current source independently. Impact, root cause and action recommendations remain blank. This does not generate the AI-drafted page. More than 200 timeline rows returns 413.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Partial main-contract operation. A repeatable snapshot with session and role grant locks uses a resolved incident and the earliest exact persisted close event plus its investigation report. source_close_event_seq identifies the observed closing event and is required by POST /postmortems; saving compares it with the current locked source, returning 409 on change. Impact, root cause and action recommendations remain blank. This does not generate the AI-drafted page. More than 200 timeline rows returns 413.",
         "responses": {
           "200": {
             "description": "Success",
@@ -67738,6 +67745,7 @@
             "type": "string",
             "enum": [
               "pending_approval",
+              "approved_pending_execution",
               "rejected"
             ]
           },
@@ -67974,6 +67982,7 @@
               "already_claimed",
               "investigating",
               "already_investigating",
+              "pending_approval",
               "not_found",
               "conflict",
               "not_connected",

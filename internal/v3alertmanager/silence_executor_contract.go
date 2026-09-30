@@ -51,6 +51,14 @@ type SilenceWorkerReadiness interface {
 	Ready(context.Context) error
 }
 
+// SilenceGroupEvidence lets the independent executor lock and revalidate a
+// bulk alert group's frozen scope in the same transaction as its one-shot
+// execution claim. Ordinary silence proposals are a no-op for this source.
+type SilenceGroupEvidence interface {
+	PrelockBulkSilenceWithTx(context.Context, pgx.Tx, string) error
+	RevalidateBulkSilenceWithTx(context.Context, pgx.Tx, SilenceReviewedAction) error
+}
+
 type SilenceHumanApproval struct {
 	UserID         string
 	PasskeyProofID string
@@ -103,11 +111,12 @@ type SilenceExecutionResult struct {
 // WAN-117 supplies the immutable action source and durable passkey approval
 // authority and starts this worker only after those pieces are connected.
 type SilenceExecutor struct {
-	Ledger    *DatabaseSilenceLedger
-	Client    *Client
-	Actions   SilenceReviewedActionSource
-	Approvals SilenceApprovalAuthority
-	Worker    SilenceWorkerReadiness
+	Ledger        *DatabaseSilenceLedger
+	Client        *Client
+	Actions       SilenceReviewedActionSource
+	Approvals     SilenceApprovalAuthority
+	GroupEvidence SilenceGroupEvidence
+	Worker        SilenceWorkerReadiness
 }
 
 func (e *SilenceExecutor) CreateReady(ctx context.Context, environmentID string) error {

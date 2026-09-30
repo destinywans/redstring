@@ -61,7 +61,7 @@ func NewGitOpsAlertRuleApplier(config AlertRuleGitOpsConfig) (*GitOpsAlertRuleAp
 			b.YAMLPath == "" || len(b.YAMLPath) > 240 || path.Clean(b.YAMLPath) != b.YAMLPath || strings.HasPrefix(b.YAMLPath, "/") ||
 			strings.Contains(b.YAMLPath, "\\") || strings.HasPrefix(b.YAMLPath, "../") ||
 			!(strings.HasSuffix(b.YAMLPath, ".yaml") || strings.HasSuffix(b.YAMLPath, ".yml")) ||
-			b.ArgoApplication == "" || b.ArgoProject == "" || b.ArgoSourcePath == "" ||
+			b.ArgoApplication == "" || b.ArgoProject == "" || b.ArgoNamespace == "" || b.ArgoSourcePath == "" ||
 			b.DestinationServer == "" || b.DestinationNamespace == "" || !validGitOpsRepoURL(b.RepoURL) {
 			return nil, errors.New("invalid alert rule deployment binding")
 		}

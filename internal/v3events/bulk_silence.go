@@ -333,6 +333,12 @@ func equalBulkPlan(a, b bulkSilencePlan) bool {
 
 func (b *BulkService) createBulkSilenceProposal(r *http.Request,
 	id, env string, key groupKey, matched int, plan bulkSilencePlan) bulkResult {
+	if b.Silence == nil || b.Silence.CreateReady == nil {
+		return bulkFailed(id, "not_connected", matched)
+	}
+	if err := b.Silence.CreateReady(r.Context(), env); err != nil {
+		return safeBulkError(id, matched, err)
+	}
 	actor := httpapi.CurrentUser(r)
 	result, err := b.Silence.Proposals.CreateSilenceProposalForSession(r.Context(), actor,
 		store.Hash(bulkCookie(r)), v3proposals.SilenceProposalRequest{

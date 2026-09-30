@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -36,10 +37,17 @@ func (e *SilenceExecutor) ExecuteApprovedCreate(ctx context.Context, proposalID 
 	}
 	defer tx.Rollback(ctx)
 
-	// Prelock the current catalog binding before proposal and grant rows. The
-	// preview is untrusted; the locked canonical source must match it below.
+	// The preview is untrusted. Lock the bulk group first, then the catalog
+	// binding, proposal and grant rows; the canonical source must match below.
 	preview, err := previewSilenceCreate(ctx, tx, proposalID)
 	if err != nil {
+		return zero, err
+	}
+	if e.GroupEvidence == nil {
+		if strings.HasPrefix(preview.IdempotencyKey, "bulk-") {
+			return zero, ErrNotConfigured
+		}
+	} else if err := e.GroupEvidence.PrelockBulkSilenceWithTx(ctx, tx, proposalID); err != nil {
 		return zero, err
 	}
 	previewInput := silenceCreateInput(preview)
@@ -91,6 +99,11 @@ func (e *SilenceExecutor) ExecuteApprovedCreate(ctx context.Context, proposalID 
 	if !investigationUpdatedAt.Equal(action.InvestigationUpdatedAt) ||
 		action.InvestigationUpdatedAt.IsZero() || action.Create.EnvironmentID != in.EnvironmentID {
 		return zero, store.ErrConflict
+	}
+	if e.GroupEvidence != nil {
+		if err = e.GroupEvidence.RevalidateBulkSilenceWithTx(ctx, tx, action); err != nil {
+			return zero, err
+		}
 	}
 	matchers, appLabel, envLabel, err := e.Ledger.prepare(in)
 	if err != nil {

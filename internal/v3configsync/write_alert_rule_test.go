@@ -9,21 +9,21 @@ import (
 	"testing"
 
 	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3alertrules"
+	"github.com/wans/aiops-canvas/internal/v3rulemodel"
 )
 
 type alertRuleSourceStub struct {
-	rules []v3alertrules.ObservedRule
+	rules []v3rulemodel.ObservedRule
 	err   error
 }
 
-func (s alertRuleSourceStub) List(_ context.Context, _ string) ([]v3alertrules.ObservedRule, error) {
+func (s alertRuleSourceStub) List(_ context.Context, _ string) ([]v3rulemodel.ObservedRule, error) {
 	return s.rules, s.err
 }
 
-func alertFixture() (v3alertrules.ObservedRule, string, v3alertrules.RuleGroupBinding) {
-	bind := v3alertrules.RuleGroupBinding{EnvironmentID: "test", ApplicationID: "app-a", File: "/rules/app.yaml", Group: "app"}
-	rule := v3alertrules.ObservedRule{GroupIdentity: bind.File + "\x00" + bind.Group, Group: bind.Group,
+func alertFixture() (v3rulemodel.ObservedRule, string, v3rulemodel.RuleGroupBinding) {
+	bind := v3rulemodel.RuleGroupBinding{EnvironmentID: "test", ApplicationID: "app-a", File: "/rules/app.yaml", Group: "app"}
+	rule := v3rulemodel.ObservedRule{GroupIdentity: bind.File + "\x00" + bind.Group, Group: bind.Group,
 		Name: "HighErrors", Expression: "sum(rate(http_errors_total[5m])) > 10", Duration: 60,
 		Labels:      map[string]string{"environment": "test", "application": "app-a", "severity": "critical"},
 		Annotations: map[string]string{}}
@@ -33,7 +33,7 @@ func alertFixture() (v3alertrules.ObservedRule, string, v3alertrules.RuleGroupBi
 
 func TestAlertRuleResolverCapturesExactBoundDefinition(t *testing.T) {
 	rule, id, bind := alertFixture()
-	resolver, err := NewAlertRuleResolver(alertRuleSourceStub{rules: []v3alertrules.ObservedRule{rule}}, []v3alertrules.RuleGroupBinding{bind})
+	resolver, err := NewAlertRuleResolver(alertRuleSourceStub{rules: []v3rulemodel.ObservedRule{rule}}, []v3rulemodel.RuleGroupBinding{bind})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestAlertRuleResolverCapturesExactBoundDefinition(t *testing.T) {
 	}
 	changed := rule
 	changed.Expression = "sum(rate(http_errors_total[5m])) > 20"
-	second, err := NewAlertRuleResolver(alertRuleSourceStub{rules: []v3alertrules.ObservedRule{changed}}, []v3alertrules.RuleGroupBinding{bind})
+	second, err := NewAlertRuleResolver(alertRuleSourceStub{rules: []v3rulemodel.ObservedRule{changed}}, []v3rulemodel.RuleGroupBinding{bind})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,34 +63,34 @@ func TestAlertRuleResolverRejectsUnboundAmbiguousAndUnsanitizedSources(t *testin
 	rule, id, bind := alertFixture()
 	cases := []struct {
 		name string
-		rule v3alertrules.ObservedRule
+		rule v3rulemodel.ObservedRule
 		want error
 	}{
-		{"wrong application label", func() v3alertrules.ObservedRule {
+		{"wrong application label", func() v3rulemodel.ObservedRule {
 			v := rule
 			v.Labels = map[string]string{"environment": "test", "application": "other"}
 			return v
 		}(), store.ErrNotFound},
-		{"unknown label", func() v3alertrules.ObservedRule {
+		{"unknown label", func() v3rulemodel.ObservedRule {
 			v := rule
 			v.Labels = map[string]string{"environment": "test", "application": "app-a", "secret": "x"}
 			return v
 		}(), errInvalidManifest},
-		{"quoted expression", func() v3alertrules.ObservedRule {
+		{"quoted expression", func() v3rulemodel.ObservedRule {
 			v := rule
 			v.Expression = `http_requests_total{token="private"} > 0`
 			return v
 		}(), errInvalidManifest},
-		{"free text annotation", func() v3alertrules.ObservedRule {
+		{"free text annotation", func() v3rulemodel.ObservedRule {
 			v := rule
 			v.Annotations = map[string]string{"summary": "private"}
 			return v
 		}(), errInvalidManifest},
-		{"fractional duration", func() v3alertrules.ObservedRule { v := rule; v.Duration = 1.5; return v }(), errInvalidManifest},
+		{"fractional duration", func() v3rulemodel.ObservedRule { v := rule; v.Duration = 1.5; return v }(), errInvalidManifest},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			resolver, err := NewAlertRuleResolver(alertRuleSourceStub{rules: []v3alertrules.ObservedRule{tc.rule}}, []v3alertrules.RuleGroupBinding{bind})
+			resolver, err := NewAlertRuleResolver(alertRuleSourceStub{rules: []v3rulemodel.ObservedRule{tc.rule}}, []v3rulemodel.RuleGroupBinding{bind})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -100,14 +100,14 @@ func TestAlertRuleResolverRejectsUnboundAmbiguousAndUnsanitizedSources(t *testin
 			}
 		})
 	}
-	resolver, err := NewAlertRuleResolver(alertRuleSourceStub{rules: []v3alertrules.ObservedRule{rule, rule}}, []v3alertrules.RuleGroupBinding{bind})
+	resolver, err := NewAlertRuleResolver(alertRuleSourceStub{rules: []v3rulemodel.ObservedRule{rule, rule}}, []v3rulemodel.RuleGroupBinding{bind})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := resolver.Resolve(t.Context(), "test", id); !errors.Is(err, errUntrusted) {
 		t.Fatalf("duplicate provider identity = %v", err)
 	}
-	resolver, err = NewAlertRuleResolver(alertRuleSourceStub{err: errors.New("down")}, []v3alertrules.RuleGroupBinding{bind})
+	resolver, err = NewAlertRuleResolver(alertRuleSourceStub{err: errors.New("down")}, []v3rulemodel.RuleGroupBinding{bind})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestAlertRuleResolverRejectsUnboundAmbiguousAndUnsanitizedSources(t *testin
 
 func TestNewAlertRuleResolverRejectsDuplicateOrUntrustedBindings(t *testing.T) {
 	_, _, bind := alertFixture()
-	for _, bindings := range [][]v3alertrules.RuleGroupBinding{
+	for _, bindings := range [][]v3rulemodel.RuleGroupBinding{
 		{bind, bind},
 		{{EnvironmentID: "all", ApplicationID: "app-a", File: bind.File, Group: bind.Group}},
 		{{EnvironmentID: "test", ApplicationID: "app-a", File: bind.File, Group: ""}},

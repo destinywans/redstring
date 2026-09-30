@@ -39,7 +39,7 @@ func (s *Service) RegisterApprovals(api *httpapi.Server) {
 		handler := route.handler
 		api.Register(route.pattern, "viewer", func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Cache-Control", "no-store")
-			if s == nil || s.DB == nil || s.ApprovalPasskeys == nil || s.ApprovalWorkflow == nil {
+			if s == nil || s.DB == nil || s.ApprovalPasskeys == nil {
 				httpapi.Error(w, 503, "proposal_approval_unavailable", "Proposal approval is unavailable")
 				return
 			}
@@ -142,11 +142,11 @@ func (s *Service) Approve(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, status, result)
 }
 
-// The finish preflight runs before opening the approval transaction because
-// workflow readiness probes use their own DB connection. The domain still
-// locks and rechecks the proposal, action, human and passkey proof on commit.
+// Workflow readiness runs before opening the approval transaction because its
+// probes use their own DB connection. The domain locks and checks the exact
+// action, committed group evidence, human and passkey proof before a new vote.
 func (s *Service) approvalWorkflowReadyForProposal(ctx context.Context, proposalID, environmentID string) error {
-	if s == nil || s.DB == nil || s.ApprovalWorkflow == nil {
+	if s == nil || s.DB == nil {
 		return v3alertmanager.ErrNotConfigured
 	}
 	var kind string
@@ -162,14 +162,25 @@ func (s *Service) approvalWorkflowReadyForProposal(ctx context.Context, proposal
 }
 
 func (s *Service) approvalWorkflowReady(ctx context.Context, kind, environmentID string) error {
-	if s == nil || s.ApprovalWorkflow == nil {
+	if s == nil {
 		return v3alertmanager.ErrNotConfigured
 	}
 	switch kind {
 	case v3alertmanager.ProposedSilenceCreateKind:
+		if s.ApprovalWorkflow == nil {
+			return v3alertmanager.ErrNotConfigured
+		}
 		return s.ApprovalWorkflow.CreateReady(ctx, environmentID)
 	case v3alertmanager.ProposedSilenceCancelKind:
+		if s.ApprovalWorkflow == nil {
+			return v3alertmanager.ErrNotConfigured
+		}
 		return s.ApprovalWorkflow.CancelReady(ctx, environmentID)
+	case alertRuleEnableActionKind:
+		if s.AlertRuleEnableIntent == nil || s.AlertRuleEnableReady == nil {
+			return v3alertmanager.ErrNotConfigured
+		}
+		return s.AlertRuleEnableReady(ctx, environmentID)
 	default:
 		return v3alertmanager.ErrNotConfigured
 	}

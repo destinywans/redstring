@@ -59,11 +59,63 @@ alone is not confirmation: readback must prove the result. Missing, duplicate,
 changed, or uncertain upstream evidence remains `unknown` or
 `manual_review` for an operator.
 
+## Bulk alert-group silence
+
+`POST /alert-groups/bulk` with `action=silence` also needs
+`AIOPS_V3_BULK_GROUP_SILENCE_CONFIG`. An empty path leaves this action
+disconnected; the file is read only when the main silence execution switch is
+enabled. It must be an absolute regular 0600 JSON file with 1–500 `bindings`
+entries. Each entry names one `environment_id`, authenticated ingress
+`source_id`, and persisted `application_id`, plus `label_name`,
+`config_revision`, `attestation_digest`, `endpoint_binding_fingerprint`,
+`attestation`, and RFC 3339 `expires_at`. The attestation value is exactly
+`upstream-equality-unique-stable-v1`; both digests are 64 lowercase hex
+characters, and expiry must exceed the next hour. The dedicated label is
+supplied by a reviewed upstream producer and forwarded unchanged to the
+authenticated webhook and the bound Alertmanager endpoint. A source ID or
+envelope fingerprint is never treated as an Alertmanager matcher label.
+
+Startup validates each binding against the current instance, Alertmanager
+HTTPS write source and endpoint fingerprint, policy source, unique application
+label, and authenticated ingress mapping. It also requires a configured
+historical alert-range coverage callback and a database pool with at least two
+connections. Each request separately requires that the callback prove complete
+coverage from its oldest active occurrence; an empty or incomplete coverage
+binding yields `not_connected` for that group. The bulk handler requires the
+same dedicated label value on all locked group members. After releasing the
+group transaction, it checks the same independent
+worker and approval-store readiness as ordinary silence creation before
+storing an immutable proposal and group evidence. Passkey options
+and finish require committed evidence before proceeding. The independent
+executor prelocks the group before proposal and grant rows, and revalidates
+its current members, source, matcher scope, evidence and creator authorization
+inside the one-shot claim transaction. Missing or changed evidence denies
+dispatch; a pending proposal alone is never permission to write upstream.
+
+The code can check persisted current groups and bound configuration. It cannot
+prove that future upstream alerts will keep the label unique, so enabling this
+path requires an operator-reviewed producer/forwarder contract and a fresh
+attestation. A private file by itself is not deployment or product acceptance.
+
+The `bulk-` idempotency-key prefix is reserved for internal group proposals.
+Ordinary silence create/cancel HTTP requests and the ordinary create producer
+reject that prefix, so they cannot create an unapprovable proposal that the
+approval and execution paths mistake for a group action. Existing records with
+this prefix and no companion evidence remain blocked; deployment review must
+inspect them rather than silently delete or approve them.
+
 ## Deployment and verification state
 
 Migration 140 records immutable cancellation intent; 141 adds one-shot
-execution claims; 145 stores Passkey votes and the approved decision. These
-migrations have not been exercised against an existing business database in
+execution claims; 145 stores Passkey votes and the approved decision; 146
+stores bulk group evidence bound to its reviewed proposal; 148 adds approval
+and uniqueness guards; 150 moves uniqueness to an active reservation that can
+be released only for a rejected or truly expired proposal with no approval,
+execution claim or possible upstream send. Historical evidence remains.
+If 146 ran earlier, inspect duplicate group or matcher
+evidence before applying 148 and resolve it explicitly; the migration will
+fail rather than delete historical proposals. These migrations have not been
+exercised against an existing business database in
 this batch. The source and process wiring are present, but isolated database,
 real Passkey, Alertmanager dispatch/readback, restart recovery and browser
 validation remain open. `implemented` in the main route contract refers to

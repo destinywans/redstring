@@ -341,6 +341,8 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	configSync.Register(api)
 	proposalService := v3proposals.New(s.DB, policy)
 	proposalService.ApprovalPasskeys = passkeyService
+	bulkService := v3events.NewBulk(s.DB, policy, nil)
+	proposalService.ApprovalEvidence = bulkService
 	proposalService.Register(api)
 	discovery := v3discovery.New(s.DB, policy)
 	textCommands, err := loadV3TextCommands(os.Getenv("AIOPS_V3_TEXT_COMMANDS_CONFIG"), cfg.EnvironmentIDs)
@@ -426,6 +428,33 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		return fmt.Errorf("configure V3 alert rule drafts: %w", err)
 	}
 	alertRuleWriter := v3alertrules.NewWriteService(s.DB, policy, ruleService, alertRuleDraftRepository)
+	enableApplier, enableEnvironments, err := loadV3AlertRuleEnableApplier(
+		os.Getenv("AIOPS_V3_ALERT_RULE_ENABLE_CONFIG"), *info, ruleSource, ruleBindings)
+	if err != nil {
+		return fmt.Errorf("configure V3 alert rule enable: %w", err)
+	}
+	var enableWorker *v3AlertRuleEnableWorker
+	if enableApplier != nil {
+		if passkeyService == nil {
+			return fmt.Errorf("V3 alert rule enable requires proposal passkeys")
+		}
+		alertRuleWriter.EnableApplier = enableApplier
+		alertRuleWriter.EnableApproval = &v3alertrules.AlertRuleApprovalAuthority{}
+		enableWorker = newV3AlertRuleEnableWorker(alertRuleWriter, enableEnvironments)
+		alertRuleWriter.EnableReady = enableWorker.Ready
+		proposalService.AlertRuleEnableReady = enableWorker.Ready
+		proposalService.AlertRuleEnableIntent = func(ctx context.Context, tx pgx.Tx, proposalID string) (v3proposals.AlertRuleEnableReview, error) {
+			intent, err := v3alertrules.LoadAlertRuleEnableIntentWithTx(ctx, tx, proposalID)
+			if err != nil {
+				return v3proposals.AlertRuleEnableReview{}, err
+			}
+			return v3proposals.AlertRuleEnableReview{
+				Kind: intent.Kind, EnvironmentID: intent.EnvironmentID,
+				ApplicationID: intent.ApplicationID, InvestigationID: intent.InvestigationID,
+				InvestigationUpdatedAt: intent.InvestigationUpdatedAt,
+			}, nil
+		}
+	}
 	trialRuntime, err := loadV3AlertTrialRuntime(os.Getenv("AIOPS_V3_ALERT_RULE_TRIAL_CONFIG"), cfg,
 		ruleSource, ruleBindings, alertRuleWriter)
 	if err != nil {
@@ -448,25 +477,31 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		InhibitionHistory: inhibitionHistory,
 	}
 	var silenceWorker *v3SilenceWorker
+	var silenceLedger *v3alertmanager.DatabaseSilenceLedger
+	var silenceCreateReady func(context.Context, string) error
 	if silenceExecutionEnabled {
-		ledger := v3alertmanager.NewDatabaseSilenceLedger(s.DB, policy, alertmanagerLabels, alertmanagerBindings)
+		silenceLedger = v3alertmanager.NewDatabaseSilenceLedger(s.DB, policy, alertmanagerLabels, alertmanagerBindings)
 		producer := &v3proposals.SilenceProductProducer{
-			Proposals: proposalService, Ledger: ledger, Client: alertmanagerSource,
+			Proposals: proposalService, Ledger: silenceLedger, Client: alertmanagerSource,
 		}
 		executor := &v3alertmanager.SilenceExecutor{
-			Ledger: ledger, Client: alertmanagerSource,
-			Actions:   &v3proposals.SilenceExecutionActionSource{Proposals: proposalService},
-			Approvals: &v3proposals.SilenceApprovalAuthority{Proposals: proposalService},
+			Ledger: silenceLedger, Client: alertmanagerSource,
+			Actions:       &v3proposals.SilenceExecutionActionSource{Proposals: proposalService},
+			Approvals:     &v3proposals.SilenceApprovalAuthority{Proposals: proposalService},
+			GroupEvidence: bulkService,
 		}
 		silenceWorker = newV3SilenceWorker(s.DB, executor)
 		executor.Worker = silenceWorker
+		silenceCreateReady = executor.CreateReady
 		proposalService.ApprovalWorkflow = executor
-		proposalService.RegisterApprovals(api)
 		alertmanagerService.SilenceCreateProposals = producer
 		alertmanagerService.SilenceCancelProposals = &v3alertmanager.DatabaseSilenceCancelProduct{
-			Ledger: ledger, Source: alertmanagerSource, Review: producer,
+			Ledger: silenceLedger, Source: alertmanagerSource, Review: producer,
 		}
 		alertmanagerService.SilenceWorkflow = executor
+	}
+	if silenceExecutionEnabled || enableWorker != nil {
+		proposalService.RegisterApprovals(api)
 	}
 	if promotionRepository, ok := configSync.Repository.(*v3configsync.GitLabClient); ok && promotionRepository != nil {
 		alertmanagerService.ConfigPromotionProjectID = promotionRepository.ProjectID()
@@ -730,6 +765,28 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		return fmt.Errorf("configure V3 change alert coverage: %w", err)
 	}
 	v3changeview.New(s, policy, v3changeview.AuditReviewSource{DB: s.DB}, v3changeview.AlertCovered(changeAlertCoverage)).Register(api)
+	if silenceExecutionEnabled {
+		groupIdentityBindings, err := loadV3BulkGroupSilenceBindings(
+			os.Getenv("AIOPS_V3_BULK_GROUP_SILENCE_CONFIG"), *info, alertmanagerSource,
+			alertmanagerLabels, alertmanagerBindings, alertmanagerPolicyBindings, opsConfig)
+		if err != nil {
+			return fmt.Errorf("configure V3 bulk group silence: %w", err)
+		}
+		if len(groupIdentityBindings) > 0 {
+			// The group transaction and range-coverage callback each need a
+			// connection. A one-connection pool cannot execute this path.
+			if changeAlertCoverage == nil || s.DB.Config().MaxConns < 2 {
+				return fmt.Errorf("V3 bulk group silence requires complete alert-range coverage and at least two DB connections")
+			}
+			bulkService.Silence = &v3events.BulkSilenceSource{
+				Proposals: proposalService, Ledger: silenceLedger, Client: alertmanagerSource,
+				CreateReady:         silenceCreateReady,
+				ApplicationBindings: alertmanagerBindings, EnvironmentLabels: alertmanagerLabels,
+				IngressSources: opsConfig.Sources, GroupIdentityBindings: groupIdentityBindings,
+				AlertRangeCovered: changeAlertCoverage,
+			}
+		}
+	}
 	v3traces.New(s, policy, telemetry).Register(api)
 	events := v3events.New(s.DB, func(ctx context.Context, user core.User, app, env, action string) error {
 		return policy.Authorize(ctx, user, rbac.V3Decision{Module: "events", Action: action, ApplicationID: app, EnvironmentID: env})
@@ -743,7 +800,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	events.GroupPolicyBindings = alertmanagerPolicyBindings
 	events.RegisterNew(api)
 	events.RegisterV3Incidents(api)
-	v3events.NewBulk(s.DB, policy, nil).Register(api)
+	bulkService.Register(api)
 	pushService.Register(api)
 	pushService.RegisterPublic(api)
 	knowledgeV3 := &v3knowledge.Service{DB: s.DB, Knowledge: know, Policy: policy}
@@ -774,6 +831,13 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		go func() {
 			if err := silenceWorker.Run(ctx); err != nil && ctx.Err() == nil {
 				log.Printf("V3 silence worker stopped: %v", err)
+			}
+		}()
+	}
+	if enableWorker != nil {
+		go func() {
+			if err := enableWorker.Run(ctx); err != nil && ctx.Err() == nil {
+				log.Printf("V3 alert rule enable worker stopped: %v", err)
 			}
 		}()
 	}

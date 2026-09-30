@@ -49,6 +49,7 @@
 - [V3 MCP 服务领域链路](examples/v3-mcp-domain.md)：完整受限发现、环境绑定、人工审核与未知调用历史边界。
 - [V3 指标提问来源与恢复](api/v3-metrics-ask.md)：单服务受审查快照、幂等对话和多实例上线约束。
 - [V3 告警详情与人工认领](examples/v3-alert-detail-claim.md)：持久事件来源、可空证据、修订约束和前端缺口。
+- [V3 静默审批与批量分组证据](api/v3-silence-executor.md)：双人 Passkey、独立执行、专用组标签配置与验收边界。
 - [V3 通知路由草稿](api/v3-notification-route-drafts.md)：Alertmanager 环境子树、匿名接收方引用、GitLab 人工审阅草稿与未激活边界。
 - [V3 抑制规则与草稿](api/v3-inhibition-drafts.md)：受权抑制读取、七天历史试算、GitLab 待审草稿与未激活边界。
 - [V3 规则助手](api/v3-rule-assistant.md)：受审目录中的模型草稿生成、Prometheus 采样预览与真实来源边界。

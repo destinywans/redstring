@@ -36,7 +36,7 @@ v3_route('post', '/silences', 'Propose a bounded Alertmanager silence',
     desc='Requires one selected environment, an open investigation in the exact active application, current human session, silences.manage and proposals.change. Matchers must contain exactly one exact application equality; the server adds the exact environment matcher. Idempotency-Key is scoped to the human actor. An immutable digest-bound pending proposal and audit are committed in one transaction. This request does not reserve or create an upstream silence. The approval and independent executor must be configured for this environment, otherwise 501 not_connected is returned.')
 P['/silences']['post']['parameters'].append({
     'name': 'Idempotency-Key', 'in': 'header', 'required': True,
-    'schema': string(minLength=8, maxLength=128)})
+    'schema': string(minLength=8, maxLength=128, description='The bulk- prefix is reserved for internal alert-group proposals.')})
 P['/silences']['post']['responses']['501'] = {
     'description': 'Approval or independent execution workflow is not connected',
     'content': {'application/json': {'schema': ref('Error')}}}
@@ -47,7 +47,7 @@ v3_route('delete', '/silences/{id}', 'Propose cancellation of one owned silence'
     desc='The path ID is an Alertmanager UUID, but ID alone grants no cancellation authority. Requires a confirmed AIOps create operation for that exact ID, current application/environment ownership, an exact operation annotation and full payload match in a fresh complete Alertmanager read, an open investigation, current human session, silences.view/manage and proposals.change. Stores immutable evidence, pending proposal and audit atomically. The handler never expires the upstream silence. A separate approved executor must revalidate everything before the write. Missing approval/executor integration returns 501 not_connected.')
 P['/silences/{id}']['delete']['parameters'].append({
     'name': 'Idempotency-Key', 'in': 'header', 'required': True,
-    'schema': string(minLength=8, maxLength=128)})
+    'schema': string(minLength=8, maxLength=128, description='The bulk- prefix is reserved for internal alert-group proposals.')})
 P['/silences/{id}']['delete']['responses']['501'] = {
     'description': 'Approval or independent execution workflow is not connected',
     'content': {'application/json': {'schema': ref('Error')}}}

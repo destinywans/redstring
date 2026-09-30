@@ -72,6 +72,10 @@ func (s *WriteService) handleEnable(w http.ResponseWriter, r *http.Request, env 
 		writeError(w, problem(503, "rule_applier_not_connected", "Alert rule deployment target is not connected"))
 		return
 	}
+	if s.EnableReady == nil || s.EnableReady(r.Context(), env) != nil {
+		writeError(w, problem(503, "enable_not_connected", "Alert rule approval worker is not connected"))
+		return
+	}
 	if !hexID(in.InvestigationID) || len(key) < 8 {
 		writeError(w, problem(422, "invalid_enable_request", "An investigation ID and an Idempotency-Key of at least eight characters are required"))
 		return

@@ -1,6 +1,6 @@
 # V3 告警规则写入与试运行（WAN-118）
 
-本文件描述领域后端代码的真实边界。正式入口已装配 `draft` 创建、修订和导入；仅在受信 Prometheus 规则来源、独立 GitLab 草稿目标和迁移就绪时存在条件式成功路径。`dry_run` 已接入可选的应用隔离查询配置与持久 worker；缺配置时继续返回 503。`enabled` 的领域内双人批准验证、GitOps 待审部署 MR、独立执行及读回路径已实现，仍须 WAN-117 接入告警规则的公共批准入口、配置受信目标并启动独立 worker。迁移 141–143、145、147 未在现有业务库执行，也未运行真实 Prometheus、GitLab 或 Argo CD 联调。
+本文件描述领域后端代码的真实边界。正式入口已装配 `draft` 创建、修订和导入；仅在受信 Prometheus 规则来源、独立 GitLab 草稿目标和迁移就绪时存在条件式成功路径。`dry_run` 已接入可选的应用隔离查询配置与持久 worker；缺配置时继续返回 503。`enabled` 已接入默认关闭的私有 GitOps 目标、公共双真人 Passkey 批准、独立 worker 和精确读回路径。迁移 141–143、145、147 未在现有业务库执行，也未运行真实 Prometheus、GitLab 或 Argo CD 联调。
 
 ## 路由与状态
 
@@ -40,15 +40,17 @@
 
 领域提供以下服务端接口与实现，不能由浏览器请求伪造执行：
 
-1. `AlertRuleApprovalAuthority.VerifyWithTx(ctx, tx, proposalID, actionDigest)`：在执行认领事务中核验当前有效、与发起人不同的两名真人 Passkey 提案批准；证明绑定提案 ID、动作与审查摘要、已消费挑战、当前账号/会话/凭据/权限与应用环境。普通账户断言不是批准。执行 ID 来自持久批准决议，执行记录保存两名审批者。此核验器只消费已批准决议；WAN-117 公共批准入口目前仍只接受静默动作，须加入告警规则动作读取及就绪分支，才能生产决议。
+1. `AlertRuleApprovalAuthority.VerifyWithTx(ctx, tx, proposalID, actionDigest)`：在执行认领事务中核验当前有效、与发起人不同的两名真人 Passkey 提案批准；证明绑定提案 ID、动作与审查摘要、已消费挑战、当前账号/会话/凭据/权限与应用环境。普通账户断言不是批准。执行 ID 来自持久批准决议，执行记录保存两名审批者。公共批准入口通过注入的领域回调校验不可变规则意图与审查摘要，再检查该环境的独立 worker 是否就绪；只在配置了启用目标和提案 Passkey 时注册。
 2. `GitOpsAlertRuleApplier.Plan/Prepare/Lookup/Observe`：仅由服务端配置固定 GitOps 项目、受保护目标分支、真实 Prometheus YAML 文件与 Argo CD 应用。`Plan` 根据完整文件字节计算拟议内容摘要；`Prepare` 使用固定执行 ID 对账后创建待审部署 MR，绝不自行合并或请求 Argo CD 同步；`Lookup` 只读对账同一分支；`Observe` 只在独立 MR 审查、精确摘要的合并提交与 Argo CD 同修订同步均可核验时报告 `synced`。不可部署草稿 JSON MR 不能当作部署制品。
 
 独立 `RunEnableWorker` 在批准后调用 `ExecuteApproved`，领取持久执行 ID 与租约；当前授权、批准、调查、绑定、来源规则和 YAML 计划均需在远端动作前复核，远端动作后再核。状态先为 `pending_review`。合并与同步后调用 `ObserveEnabled`；只有当前绑定 Prometheus 组中唯一规则的表达式、持续时间、全部标签与注解精确匹配，才记录 `enabled`。观察是只读对账：即使创建者之后撤权或调查结案，仍须能准确记录已生效规则，不能把不可读等同于未启用。证据不完整时保持待观察或失败关闭，不能报告 `enabled`。
 
 `NewGitOpsAlertRuleApplier(AlertRuleGitOpsConfig)` 只接受服务端构造的明确绑定。GitLab 与 Argo CD URL、各自 0600 凭据文件，以及每项环境、应用、规则组、Prometheus 文件身份、GitLab 项目、受保护目标分支、YAML 文件、仓库 URL、Argo CD 应用/项目/命名空间/来源目录/目标集群与命名空间都必须显式给出。`AllowLoopbackHTTP` 仅供隔离本地适配检查，产品配置必须关闭。运维还须确认 Argo CD 应用实际消费这个原生规则文件；来源目录与同步状态本身不能证明该文件已被 Prometheus 加载，最终仍以精确的 Prometheus 规则读回为准。配置不齐则构造失败或请求返回未接入。
 
+正式入口只在设置 `AIOPS_V3_ALERT_RULE_ENABLE_CONFIG` 时读取受保护的绝对路径 0600 JSON 文件；配置必须把 `environment_id`、`application_id`、`group`、`provider_file` 精确对应当前受信规则来源，并固定上述 GitOps 目标。顶层字段为 `gitlab_url`、`gitlab_token_file`、`argo_url`、`argo_token_file`、`bindings`；每项绑定还需 `project_id`、`target_branch`、`yaml_path`、`repo_url`、`argo_application`、`argo_project`、`argo_namespace`、`argo_source_path`、`destination_server`、`destination_namespace`。令牌文件绝对路径、0600，端点 HTTPS；配置不含令牌明文。启动仅校验本地配置并装配适配器，不访问 GitLab、Argo CD 或 Prometheus。`mode=enabled` 创建前检查确切环境的 worker 正在运行且批准与执行表可读；缺配置、Passkey、worker 或表时返回不可用，不导出远端草稿。
+
 GitLab 目标分支必须被精确保护，禁用强制推送及直接推送，允许受控人员合并；适配器核对与目标匹配的保护规则。部署分支名由持久执行 ID 唯一决定，远端结果不明时只查同一分支与 MR。待审 MR 只改一个既有 YAML 文件；观察时要求独立真人批准发生在最终 collected 差异版本生成之后、合并之前，最终差异 head SHA 还必须匹配源提交。合并与 Argo CD 同步均不由适配器发起。当前 GitLab API 的批准和保护读回是观察时证据，不能单独证明历史合并瞬间的治理策略；真实仓库应保留独立的审查与保护审计记录。协议依据：[GitLab protected branches](https://docs.gitlab.com/api/protected_branches/)、[GitLab MR diff versions](https://docs.gitlab.com/api/merge_requests/#retrieve-merge-request-diff-versions)、[GitLab MR approvals](https://docs.gitlab.com/api/merge_request_approvals/) 和 [Argo CD application API](https://argo-cd.readthedocs.io/en/stable/developer-guide/api-docs/)。
 
 回滚接线时先停止独立 worker 并移除启用适配配置，新请求随即失败关闭；保留持久操作和远端待审 MR 供人工核对。已经合并且由 Prometheus 读到的规则不能靠停用 worker 撤回，需另走受审 GitOps 回滚。不要删除未核对的远端分支、MR 或执行记录。
 
-`cmd/aiops` 已有可选隔离查询源和 worker 接线，但尚无真实隔离端点与迁移运行证据。WAN-117 需另行注入批准核验器、部署适配器并启动启用 worker；缺任何绑定时 `enabled` 明确失败，不降级为假成功。主 POST 原按 `draft` 条件式成功路径计数，新增 `dry_run` 和 `enabled` 领域条件式路径不增加主路由完成数；页面及真实 GitLab、Argo CD、Prometheus 均未验收。冻结新建页仍发送 `query/op/threshold/for_minutes`，与后端的完整规则输入不一致，页面提示也会把待批准误写成已启用，须由 WAN-117 对齐。
+`cmd/aiops` 已有可选隔离查询源、启用适配器、提案批准和各自独立的 worker 接线，但尚无真实隔离端点与迁移运行证据。缺任何绑定时 `enabled` 明确失败，不降级为假成功。主 POST 原按 `draft` 条件式成功路径计数，新增 `dry_run` 和 `enabled` 条件式路径不增加主路由完成数；页面及真实 GitLab、Argo CD、Prometheus 均未验收。冻结新建页仍发送 `query/op/threshold/for_minutes`，与后端的完整规则输入不一致，页面提示也会把待批准误写成已启用，须由 WAN-117 对齐。

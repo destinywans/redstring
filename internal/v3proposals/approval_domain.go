@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -16,6 +17,8 @@ import (
 )
 
 const approvalVoteLifetime = 15 * time.Minute
+
+const alertRuleEnableActionKind = "prometheus.alert_rule.enable"
 
 // ApprovalResult is a durable decision snapshot. A pending result never has
 // execution authority; execution_id is allocated only with the second vote.
@@ -90,6 +93,18 @@ func approvalBinding(a v3alertmanager.SilenceReviewedAction) v3passkey.ProposalB
 		EnvironmentID: a.EnvironmentID}
 }
 
+func (s *Service) approvalEvidenceReadyTx(ctx context.Context, tx pgx.Tx,
+	action v3alertmanager.SilenceReviewedAction) error {
+	if action.Kind != v3alertmanager.ProposedSilenceCreateKind || action.Create == nil ||
+		!strings.HasPrefix(action.Create.IdempotencyKey, "bulk-") {
+		return nil
+	}
+	if s.ApprovalEvidence == nil {
+		return v3alertmanager.ErrNotConfigured
+	}
+	return s.ApprovalEvidence.BulkEvidenceReadyWithTx(ctx, tx, action)
+}
+
 // loadApprovalActionTx takes the proposal write lock before the immutable
 // action reader's SHARE locks, so two approvals cannot deadlock on promotion.
 func (s *Service) loadApprovalActionTx(ctx context.Context, tx pgx.Tx, id string) (record,
@@ -105,17 +120,76 @@ func (s *Service) loadApprovalActionTx(ctx context.Context, tx pgx.Tx, id string
 	if err != nil {
 		return record{}, zero, err
 	}
-	a, err := (&SilenceExecutionActionSource{Proposals: s}).LoadReviewedActionWithTx(ctx, tx, id)
+	var kind string
+	if err = tx.QueryRow(ctx, `SELECT action_kind FROM v3_proposal_actions
+ WHERE proposal_id=$1 FOR SHARE`, id).Scan(&kind); errors.Is(err, pgx.ErrNoRows) {
+		return record{}, zero, store.ErrNotFound
+	} else if err != nil {
+		return record{}, zero, err
+	}
+	var a v3alertmanager.SilenceReviewedAction
+	if kind == alertRuleEnableActionKind {
+		a, err = s.loadAlertRuleEnableApprovalActionTx(ctx, tx, id, v)
+	} else {
+		a, err = (&SilenceExecutionActionSource{Proposals: s}).LoadReviewedActionWithTx(ctx, tx, id)
+	}
 	if err != nil {
 		return record{}, zero, err
 	}
 	if a.ProposalID != v.ID || a.Status != v.Status || a.EnvironmentID != v.EnvironmentID ||
 		a.ApplicationID != v.ApplicationID || a.InvestigationID != v.InvestigationID ||
 		a.CreatorID == "" || a.ActionDigest == "" || a.ReviewContentDigest == "" ||
-		(a.Kind != v3alertmanager.ProposedSilenceCreateKind && a.Kind != v3alertmanager.ProposedSilenceCancelKind) {
+		(a.Kind != v3alertmanager.ProposedSilenceCreateKind && a.Kind != v3alertmanager.ProposedSilenceCancelKind &&
+			a.Kind != alertRuleEnableActionKind) {
 		return record{}, zero, ErrInvalidProposal
 	}
 	return v, a, nil
+}
+
+// A domain verifier must reconstruct and check the immutable alert-rule intent
+// and review bytes before this shared passkey/quorum flow can bind to them.
+// This approval envelope is never passed to the silence executor.
+func (s *Service) loadAlertRuleEnableApprovalActionTx(ctx context.Context, tx pgx.Tx,
+	id string, review record) (v3alertmanager.SilenceReviewedAction, error) {
+	var zero v3alertmanager.SilenceReviewedAction
+	if s.AlertRuleEnableIntent == nil {
+		return zero, v3alertmanager.ErrNotConfigured
+	}
+	intent, err := s.AlertRuleEnableIntent(ctx, tx, id)
+	if err != nil {
+		return zero, err
+	}
+	var kind, actionDigest, reviewDigest, creatorID, creatorKind, sourceKind string
+	var env, app, investigation, parentCreator string
+	var updatedAt time.Time
+	var version int
+	err = tx.QueryRow(ctx, `SELECT a.action_kind,a.action_digest,a.review_content_digest,
+ a.creator_id,p.creator_kind,a.source_kind,a.environment_id,a.application_id,
+ a.investigation_id,p.created_by,a.investigation_updated_at,a.schema_version
+ FROM v3_proposal_actions a JOIN v3_proposals p ON p.id=a.proposal_id
+ WHERE a.proposal_id=$1 FOR SHARE OF a,p`, id).Scan(&kind, &actionDigest,
+		&reviewDigest, &creatorID, &creatorKind, &sourceKind, &env, &app,
+		&investigation, &parentCreator, &updatedAt, &version)
+	if err != nil {
+		return zero, err
+	}
+	if kind != alertRuleEnableActionKind || intent.Kind != kind || version != 1 ||
+		creatorKind != "user" || sourceKind != "human_request" || creatorID == "" ||
+		creatorID != parentCreator || !silenceProductDigest.MatchString(actionDigest) ||
+		!silenceProductDigest.MatchString(reviewDigest) ||
+		env != review.EnvironmentID || app != review.ApplicationID ||
+		investigation != review.InvestigationID ||
+		intent.EnvironmentID != env || intent.ApplicationID != app ||
+		intent.InvestigationID != investigation || updatedAt.IsZero() ||
+		!updatedAt.Equal(intent.InvestigationUpdatedAt) {
+		return zero, ErrInvalidProposal
+	}
+	return v3alertmanager.SilenceReviewedAction{
+		ProposalID: id, Kind: kind, Status: review.Status,
+		ActionDigest: actionDigest, ReviewContentDigest: reviewDigest,
+		CreatorID: creatorID, EnvironmentID: env, ApplicationID: app,
+		InvestigationID: investigation, InvestigationUpdatedAt: updatedAt,
+	}, nil
 }
 
 func lockApprovalActorTx(ctx context.Context, tx pgx.Tx, actor v3passkey.Actor) error {
@@ -224,6 +298,9 @@ func (s *Service) ApprovalOptions(ctx context.Context, actor v3passkey.Actor, pr
 		return empty, err
 	}
 	if err = approvalGrantTx(ctx, tx, actor.UserID, v.EnvironmentID, v.ApplicationID, v.TeamID); err != nil {
+		return empty, err
+	}
+	if err = s.approvalEvidenceReadyTx(ctx, tx, action); err != nil {
 		return empty, err
 	}
 	return approvalBinding(action), tx.Commit(ctx)
@@ -432,6 +509,9 @@ func (s *Service) ApproveProposal(ctx context.Context, actor v3passkey.Actor, pr
 			return empty, err
 		}
 		return result, tx.Commit(ctx)
+	}
+	if err = s.approvalEvidenceReadyTx(ctx, tx, action); err != nil {
+		return empty, err
 	}
 	binding := approvalBinding(action)
 	proof, err := s.ApprovalPasskeys.VerifyProposalAssertionWithTx(ctx, tx, actor, binding,

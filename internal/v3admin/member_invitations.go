@@ -427,7 +427,7 @@ func (s *Service) confirmInvitationDelivery(ctx context.Context, actor core.User
 		return err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes)
- VALUES($1,'v3.member.invitation.relay_accepted',$2,'success',jsonb_build_object('environment',$3))`,
+ VALUES($1,'v3.member.invitation.relay_accepted',$2,'success',jsonb_build_object('environment',$3::text))`,
 		actor.ID, id, environment); err != nil {
 		return err
 	}
@@ -537,7 +537,7 @@ func (s *Service) acceptInvitation(ctx context.Context, input invitationAcceptan
 		return err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes)
- VALUES($1,'v3.member.invitation.accepted',$1,'success',jsonb_build_object('invitation_id',$2,
+ VALUES($1,'v3.member.invitation.accepted',$1,'success',jsonb_build_object('invitation_id',$2::text,
  'access','pending_scope_grant'))`, accountID, id); err != nil {
 		return err
 	}

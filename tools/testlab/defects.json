@@ -514,7 +514,7 @@
     "status": "in_progress",
     "description": "四个列表entity selector改为单次语句投影，保留RC/current authority/会话/通知scope/claim与case写强锁及link去重表锁。三列表17业务场景全绿，最终v3events48PASS含子测试/0fail/skip且独立复审通过；源码15125d6e，新正式binary已重建，原完整性能和24h仍待。",
     "before": "性能be78：7500请求285错误3.8%，PG285cancel均incident FOR UPDATE；停负载后锁消退，无残留事务。",
-    "after": "17业务场景及完整v3events race已验证；新1512源完整回归862b1c94执行中。不能以模块green代原25RPS/两档性能。",
+    "after": "17业务场景/v3events48PASS；最终1512完整862：2510passed/0fail/79解释skip，原skip保留；正式04c链323passed且20原本地gate补当前正证。doctor53/cert/HMAC准入通过；原25RPS及两档性能仍待，24h未开始。",
     "fix_commit": "8d3bcf99b90c2b657af6037ec313843ab7a9de6e",
     "fix": "https://github.com/destinywans/aiops-canvas/commit/8d3bcf99b90c2b657af6037ec313843ab7a9de6e",
     "first_failure_source": "774223bb3e48b34b1f2c4cb0358f2de9747088594e1aba9fb1934120373eafe2",
@@ -527,7 +527,10 @@
       ".local/testlab/first-failures/wan162-list-claim-corrected-red.jsonl",
       ".local/testlab/first-failures/wan162-incidents-route-red.jsonl",
       ".local/testlab/first-failures/wan162-incidents-addendum-red.jsonl",
-      ".local/testlab/wan162-final-three-lists-full-race.jsonl"
+      ".local/testlab/wan162-final-three-lists-full-race.jsonl",
+      ".local/testlab/final-862-skip-classification.json",
+      ".local/testlab/followup-04c-gate-coverage.json",
+      ".local/testlab/wan162-performance-readmission.json"
     ],
     "case_ids": [
       "perf.rps25"

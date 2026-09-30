@@ -324,3 +324,12 @@ be78e046-38f9-4abc-a045-45cc2ff16c16源774/bfb71212正式性能已中断，保�
 私有原red/green及 `.local/testlab/wan162-three-lists-evidence-summary.json` 保留。GroupPolicy外部响应使用协议Mock，数据库、路由handler、权限、真实时钟、认领和状态事务为真实本地；不能替代真实组织或正式V3黑盒验收。模块green不能关闭原25RPS失败。
 
 正式双实例已按新源码重建并fresh nonce/HMAC核验：非racebinary `cb7f3d80a307256512a8e5ecd41a3ed95f2242b726816e573c2fa4a0668b4c60`，runtime `338e14784bb40f2d05000a8b76322cc8bea158e65ce3357c014f1111373fe48d`。完整静态/PG/race/专项回归 `862b1c94-dc3c-4932-8403-ba6527704831` 运行中；随后串行正式接口和原两档完整性能复测。旧归档操作不重做，原性能失败不覆盖，24小时尚未开始。WAN-162保持In Progress，原51项及全166接口尚未收口。
+
+
+### 2026-10-01 · 最终完整回归与正式链复验
+
+862b1c94-dc3c-4932-8403-ba6527704831最终2510passed/0failed/79skipped，源码始末15125d6e一致，終态blocked保持；开始Git SHA960c18e、实际Go工作树1512随后提交8d3bcf9，不能将后来Git提交冒充开始时SHA。79逐条分类：18无测试包、46专项opt-in、4本地live、7暂停nativeCI/CD、1Ollama容量、3付费外部，0未解释。30原skip在同run专项另pass，原状态不覆写。static6、baseline1839P/78S、MFA28P、Passkey25P、configsync133P、regressions479P/1S。通过数量包含Go顶层与子测试及工具记录，不是独立业务场景数量。
+
+04c97c68-c676-4d1d-8388-643ff4cef5e3新正式链20:55:40Z通过，1512始末同源，323pass/0fail/skip：entry232、components11、content69、local-live10、Jenkins1。原16 backend+4 local-live门控均补当前源证据；OIDC通过组件调用原named Go test并断言pass，按formal_test映射，其余19有同名记录。原skip与blocked终态不改。当前50个normal2xx method/path含aux，不是主166完整覆盖。临时Grafana/Jenkins按owner/run清理；唯一已完成Jenkins合成job读回区别于7暂停原生CI/CD，未启动SCM/远程agent/镜像构建或部署。
+
+三格式报告导出；final-862-skip-classification及followup-04c-gate-coverage私有0600，分别按5e0504e1/3d57b9cf/5dc4e7b3证据ID登记于862报告。doctor53/53、零活动run、fresh nonce/HMAC、实际1512非racebinarycb7/runtime338以及证书90000秒余窗均通过。助手自主决定补齐4旧本地live的同源证据后再压测，未扩张暂停域。原两档18分钟性能复验及连续24h尚未开始，WAN162仍InProgress，原51/主166未收口；原性能首红、归档库和所有外部/暂停/缺能力待办保留。

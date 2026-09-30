@@ -1,3 +1,16 @@
+## CP-230 · 2026-10-01 · 1512正式链通过，原性能复验准入
+
+- 最终全量862为2510passed/0failed/79skipped、source始末1512；逐项分类 **18无测试包、46专项opt-in、4local-live、7暂停nativeCI/CD、1Ollama容量、3付费外部**，0未解释。30条原skip在同run专项另pass；其余20必要本地gate已由新正式链补正证，原skip与blocked终态不改。私有final-862-skip-classification与followup-04c-gate-coverage按evidence ID登记，三格式报告已导出。
+- **04c97c68-c676-4d1d-8388-643ff4cef5e3** 已20:55:40Z passed，source始末1512、323pass/0fail/skip：entry232、components11、content69、local-live10、Jenkins1。当前50 normal2xx method/path含aux，非全主166覆盖。OIDC原名由components实际运行Go并断言该test pass，以正式回调case的formal_test字段映射；其余19原名均有actual pass。遥测/Grafana/Jenkins临时资源已按owner/run收尾；Jenkins仅唯一已完成合成job读回，未恢复暂停7nativeCI/CD。
+- root再次doctor **53/53**、零active run、fresh nonce/HMAC验证监督98778/双API98779、98780（仅快照）、Go1512/binarycb7/runtime338一致；主证书checkend90000成功，到2026-10-02T08:58:11Z。private wan162-performance-readmission.json。仅准入，不能计性能或24h通过；下一步原base/scale各18分钟和SSE/资源恢复/一致性，require_escalated采自有CPU/RSS/FD/PG，goroutine/heap缺失明示。
+- 归档UUIDeeb805fd已完成不能重复，freshAPP9270802仍base种子，不删证据/改阈值/隐藏认领重试。原be78/06a/2e首红全部保留；WAN162保持InProgress至原性能复验。**24小时尚未开始**；性能支持路径通过才新trial/连续86400。WAN152聚合上限、暂停域/Ollama/真实外部/缺能力HighTODO不关闭。无产品前端/合并部署，保留.claude。
+
+## CP-229 · 2026-10-01 · 最终全量无失败，正式链串行复验
+
+- 完整 **862b1c94-dc3c-4932-8403-ba6527704831** 已20:52:30Z终态blocked：**2510passed/0failed/79skipped**（含Go顶层/子测试及工具记录），Go输入始末均 **15125d6e…090a**。原skip保留、不能改成passed；79分类由轻量只读代理逐项核对，三格式报告已导出。run开始Git SHA960c18e、实际Go工作树1512；源码后来提交8d3bcf9，未改变该Go输入。专项入口/记录已 **e65046e6d69a27e78b8970f0dfa6bf15de55e048** 提交推送并精确远端确认，非产品新修。
+- root确认零活动run、fresh nonce/HMAC的1512正式双实例、binary cb7f3d80/runtime338e1478一致后启动 **04c97c68-c676-4d1d-8388-643ff4cef5e3** /session88906：entry、components、content、local-live-gates、jenkins串行。自主决定补4原local-live和16backend gate当前源证据：两遥测/四provider probe以及自有fresh Jenkins单fixture job的唯一已完成build只读验收；**不恢复7暂停nativeCI/CD**、无SCM/remote agent/Docker socket/部署。组件按owner/run/image收尾，不并行重型测试/性能/重启API/改Go。
+- 当前性能原例复测和真实24小时均未开始。原be78/06a/2e首红、旧archive数据库保留，不重做归档或删seed。正式链终态/原skip映射→scoped记录提交推送/Linear→doctor/HMAC/资源/cert→原两档18分钟性能。WAN152/暂停域/Ollama/外部/缺能力High待办不关闭，产品前端未改测/无合并部署，保留.claude。
+
 ## CP-228 · 2026-10-01 · WAN162最终定向回归通过，1512正式实例与完整复验
 
 - 四个只读entity helper最小快照修复及新17业务场景已完成。最终 **15125d6ecd371864b894edfd91b7ca4944bf69dc305359d0e385a879f8cc090a** 始末一致，v3events真实PG/race127.732秒、**48PASS（21top/27sub）/0fail/0skip**；独立XHigh已读raw/metadata并确认无阻断。相关auth29PASS复用c8源码并明示对应实现未改；本轮完整862会另收新源证据。所有原red/fixture错误与green均保存，不能拿模块green代原k6。

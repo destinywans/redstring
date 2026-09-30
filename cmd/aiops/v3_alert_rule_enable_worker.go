@@ -45,8 +45,9 @@ func (w *v3AlertRuleEnableWorker) Ready(ctx context.Context, env string) error {
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	_, err := w.writer.DB.Exec(probeCtx, `SELECT 1 FROM v3_proposal_approval_decisions,
- v3_alert_rule_enable_intents, v3_alert_rule_enable_executions LIMIT 0`)
+	_, err := w.writer.DB.Exec(probeCtx, `SELECT 1 FROM v3_proposals,
+ v3_proposal_actions, v3_proposal_approval_decisions,
+ v3_proposal_approval_revocations, v3_alert_rule_enable_executions LIMIT 0`)
 	if err != nil {
 		return fmt.Errorf("alert rule enable worker tables unavailable: %w", err)
 	}

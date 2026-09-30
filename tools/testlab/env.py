@@ -139,7 +139,7 @@ def doctor(root):
     except Exception as e:
         rows.append({"name": "docker daemon", "status": "blocked", "detail": str(e)})
     import components
-    ports={PORT,18560,18561,18562,18564,18565,18567,18580,18581,18582,18583,18585,18586,18587,18588,18589,18590,18591,18592,18594,18595,18596,18597,18598,18599,18600,18602,18603,18604,465,*components.PORTS.values()}
+    ports={PORT,18560,18561,18562,18564,18565,18567,18580,18581,18582,18583,18585,18586,18587,18588,18589,18590,18591,18592,18594,18595,18596,18597,18598,18599,18600,18602,18603,18604,18606,18607,465,*components.PORTS.values()}
     owned_ports={};verified=False
     state=root/'.local/testlab/environment.json'
     try:
@@ -245,7 +245,7 @@ def cleanup(root, run_id):
     store=Store(root);store.reconcile_dead_runs()
     if any(r.get('status') in ('queued','running') for r in store.runs()):
         raise RuntimeError('a recorded test run is active; cleanup would interrupt its owned environment')
-    if any(_port_open(port) for port in (18583,18585,18586,18587,18588,18589,18590,18591,18592,18594,18595,18596,18597,18598,18599,18600,18602,18603,18604,465)):
+    if any(_port_open(port) for port in (18583,18585,18586,18587,18588,18589,18590,18591,18592,18594,18595,18596,18597,18598,18599,18600,18602,18603,18604,18606,18607,465)):
         raise RuntimeError('temporary HTTPS/OIDC/SMTP/Vault consumer entry is still listening; its owning invocation must finish before cleanup')
     info=_inspect(data['container']);_owner(info,owner)
     backend_path=root/'.local/testlab/backend-fixture.json'

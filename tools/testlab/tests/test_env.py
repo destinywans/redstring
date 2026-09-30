@@ -107,7 +107,7 @@ class EnvironmentTests(unittest.TestCase):
 
     def test_temporary_consumer_ports_refuse_cleanup_before_any_docker_mutation(self):
         self.write()
-        for port in (465, 18586, 18587, 18588, 18589, 18590, 18591, 18592, 18594, 18595, 18596, 18597, 18598, 18599, 18600, 18602, 18603, 18604):
+        for port in (465, 18586, 18587, 18588, 18589, 18590, 18591, 18592, 18594, 18595, 18596, 18597, 18598, 18599, 18600, 18602, 18603, 18604, 18606, 18607):
             with self.subTest(port=port), patch.object(env, '_port_open', side_effect=lambda p: p == port), patch.object(env, '_inspect') as inspect:
                 with self.assertRaisesRegex(RuntimeError, 'consumer entry'):
                     env.cleanup(self.root, 'run-one')

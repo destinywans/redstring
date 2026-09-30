@@ -1,6 +1,6 @@
 """Owner-only GitLab/kind/Argo; chain merges only its independently reviewed product MR."""
 from __future__ import annotations
-import argparse,base64,hashlib,json,os,re,secrets,shutil,socket,ssl,subprocess,sys,time,urllib.error,urllib.request
+import argparse,base64,hashlib,json,os,re,secrets,shutil,socket,ssl,subprocess,sys,time,urllib.error,urllib.request,uuid
 from pathlib import Path
 from load.seed import fixture,private
 ROOT=Path(__file__).resolve().parents[2]
@@ -11,6 +11,80 @@ ARGO_MANIFEST='https://raw.githubusercontent.com/argoproj/argo-cd/'+ARGO_VERSION
 CLUSTER='aiops-backend-testlab'
 LABEL='aiops.testlab.owner'
 PORT=18580
+
+class BootstrapBlocked(RuntimeError):pass
+
+
+def guard_namespace(data,name,allow_absent=False):
+    raw=kubectl(data,'get','namespace',name,'--ignore-not-found','-o','json')
+    if not raw.strip() and allow_absent:return
+    if not raw.strip() or json.loads(raw).get('metadata',{}).get('labels',{}).get(LABEL)!=data['owner']:
+        raise BootstrapBlocked('dedicated GitOps namespace owner mismatch')
+
+
+def owned_gitlab_ca(data):
+    work=ROOT/'.local/testlab/environments'/data['owner']/'gitops'
+    if (not re.fullmatch('testlab-[0-9a-f]{12}',data['owner']) or Path(data['work']).resolve()!=work.resolve() or
+        data.get('cluster')!=CLUSTER or data.get('gitlab_name')!='aiops-'+data['owner']+'-gitlab'):
+        raise BootstrapBlocked('dedicated GitOps fixture boundary mismatch')
+    info=owned_container(data['gitlab_name'],data['owner'])
+    ports=[b for values in (info or {}).get('NetworkSettings',{}).get('Ports',{}).values() for b in (values or [])]
+    if not info or not info.get('State',{}).get('Running') or {'HostIp':'127.0.0.1','HostPort':str(PORT)} not in ports:
+        raise BootstrapBlocked('owned GitLab HTTPS listener unavailable')
+    path=work/'tls.crt'
+    if path.resolve()!=path or path.is_symlink() or not path.is_file() or path.stat().st_mode&0o777!=0o600 or path.stat().st_size>64<<10:
+        raise BootstrapBlocked('private owned GitLab CA required')
+    return path
+
+
+def restore_gitlab_ca(data):
+    guard_namespace(data,'argocd');path=owned_gitlab_ca(data)
+    kubectl(data,'apply','-n','argocd','-f','-',input=json.dumps({'apiVersion':'v1','kind':'ConfigMap','metadata':{'name':'argocd-tls-certs-cm'},'data':{'host.docker.internal':path.read_text()}}))
+    current=json.loads(kubectl(data,'get','configmap','argocd-tls-certs-cm','-n','argocd','-o','json'))
+    if current.get('data',{}).get('host.docker.internal')!=path.read_text():raise BootstrapBlocked('owned GitLab CA restoration not confirmed')
+
+
+def argo_failure(data,method,path,status=None,error=None,body=None):
+    # Requests, credentials and Authorization are never recorded. Error bodies
+    # remain private; stdout only gives the query-free path and status/type.
+    row={'method':method,'url':data['argo_url']+path.split('?')[0],'status':status}
+    if error is not None:row['error_type']=type(error).__name__
+    if body is not None:row.update(body=body[:64<<10].decode('utf-8','replace'),body_truncated=len(body)>64<<10)
+    private(Path(data['work'])/('argo-http-red-'+uuid.uuid4().hex+'.json'),row)
+
+
+def wait_argo_api(data,seconds=30):
+    if data.get('argo_url')!='https://localhost:18581':raise BootstrapBlocked('owned Argo HTTPS origin mismatch')
+    context=ssl.create_default_context(cafile=data['ca_file']);deadline=time.monotonic()+seconds
+    last=None
+    while time.monotonic()<deadline:
+        try:
+            request=urllib.request.Request(data['argo_url']+'/healthz',method='GET')
+            with urllib.request.urlopen(request,context=context,timeout=min(3,max(.01,deadline-time.monotonic()))) as response:
+                raw=response.read((64<<10)+1)
+                if response.status==200 and len(raw)<=64<<10:return
+                raise BootstrapBlocked('owned Argo health response invalid')
+        except (OSError,urllib.error.URLError) as error:last=error
+        time.sleep(min(.5,max(0,deadline-time.monotonic())))
+    argo_failure(data,'GET','/healthz',error=last)
+    raise BootstrapBlocked('owned Argo verified TLS/API readiness deadline exceeded')
+
+
+def validate_chain_bootstrap(data):
+    if data.get('bootstrap_ready') is not True:raise BootstrapBlocked('owned GitOps preparation incomplete; run prepare before chain')
+    guard_namespace(data,'argocd');guard_namespace(data,'testlab-rules');ca=owned_gitlab_ca(data)
+    current=json.loads(kubectl(data,'get','configmap','argocd-tls-certs-cm','-n','argocd','-o','json'))
+    if current.get('data',{}).get('host.docker.internal')!=ca.read_text():raise BootstrapBlocked('owned Argo repository CA drift; preparation required')
+    wait_argo_api(data)
+    token=Path(data.get('argo_token_file',''))
+    if token.resolve()!=Path(data['work'])/'argo-read-token' or token.is_symlink() or not token.is_file() or token.stat().st_mode&0o777!=0o600:
+        raise BootstrapBlocked('owned Argo read-only credential required')
+    app=argo_http(data,'GET','/api/v1/applications/testlab-rules',token=token.read_text().strip())
+    spec=app.get('spec',{});status=app.get('status',{})
+    if (spec.get('project')!='default' or spec.get('source')!={'repoURL':data.get('runtime_repo_url'),'targetRevision':'main','path':'workload'} or
+        spec.get('destination')!={'server':'https://kubernetes.default.svc','namespace':'testlab-rules'} or status.get('conditions') or
+        status.get('sync',{}).get('status')!='Synced' or status.get('health',{}).get('status')!='Healthy'):
+        raise BootstrapBlocked('owned Argo application is not prepared and Synced/Healthy')
 
 
 def emit(id,status,actual,started=None,**extra):
@@ -152,6 +226,7 @@ def kubectl(data,*args,timeout=120,input=None):
 
 
 def kind(data):
+    data['bootstrap_ready']=False;save(data)
     started=time.monotonic();name=CLUSTER+'-control-plane';info=owned_container(name,data['owner'])
     if info is None:
         r=resources();emit('gitops.kind_resources','passed' if r['headroom_gib']>=4 else 'blocked',r)
@@ -183,9 +258,13 @@ def argo(data):
         if len(raw)>=4<<20:raise RuntimeError('official Argo manifest exceeds limit')
         manifest.write_bytes(raw);os.chmod(manifest,0o600)
     data['argo_manifest_sha256']=hashlib.sha256(manifest.read_bytes()).hexdigest();save(data)
+    guard_namespace(data,'argocd',allow_absent=True)
     kubectl(data,'create','namespace','argocd','--dry-run=client','-o','json')
     kubectl(data,'apply','-f','-',input=json.dumps({'apiVersion':'v1','kind':'Namespace','metadata':{'name':'argocd','labels':{'aiops.testlab.owner':data['owner']}}}))
     kubectl(data,'apply','-n','argocd','-f',str(manifest),timeout=180)
+    # The official installation reapplies this ConfigMap without custom data.
+    # Restore the owned GitLab trust before any later bootstrap step can fail.
+    restore_gitlab_ca(data)
     deadline=time.monotonic()+600
     while time.monotonic()<deadline:
         try:
@@ -201,13 +280,21 @@ def argo_http(data,method,path,body=None,token=None,want=200):
     request=urllib.request.Request(data['argo_url']+path,data=None if body is None else json.dumps(body).encode(),headers={'Content-Type':'application/json',**({'Authorization':'Bearer '+token} if token else {})},method=method)
     try:
         with urllib.request.urlopen(request,context=ssl.create_default_context(cafile=data['ca_file']),timeout=30) as response:code=response.status;raw=response.read(2<<20)
-    except urllib.error.HTTPError as error:code=error.code;raw=error.read(2<<20)
-    if code!=want:raise RuntimeError('owned Argo API '+path.split('?')[0]+' HTTP '+str(code))
+    except urllib.error.HTTPError as error:
+        try:code=error.code;raw=error.read(2<<20)
+        finally:error.close()
+    except (OSError,urllib.error.URLError) as error:
+        argo_failure(data,method,path,error=error)
+        raise BootstrapBlocked('owned Argo transport '+method+' '+path.split('?')[0]+' '+type(error).__name__) from None
+    if code!=want:
+        argo_failure(data,method,path,status=code,body=raw)
+        raise RuntimeError('owned Argo API '+path.split('?')[0]+' HTTP '+str(code))
     return json.loads(raw)
 
 def runtime_application(data):
     import importlib.util
     module_spec=importlib.util.spec_from_file_location('testlab_gitops_workload',ROOT/'tools/testlab/gitops/workload.py');module=importlib.util.module_from_spec(module_spec);module_spec.loader.exec_module(module);files=module.files
+    guard_namespace(data,'argocd')
     work=Path(data['work']);crt,key=cert(data)
     def apply(namespace,obj):kubectl(data,'apply','-n',namespace,'-f','-',input=json.dumps(obj))
     def tls_secret(namespace,name):
@@ -216,6 +303,7 @@ def runtime_application(data):
     kubectl(data,'patch','service','argocd-server','-n','argocd','--type','merge','-p',json.dumps({'spec':{'type':'NodePort','ports':[{'name':'https','port':443,'targetPort':8080,'nodePort':30443}]}}))
     kubectl(data,'rollout','restart','deployment/argocd-server','-n','argocd')
     kubectl(data,'rollout','status','deployment/argocd-server','-n','argocd','--timeout=90s',timeout=100)
+    wait_argo_api(data)
     secret=json.loads(kubectl(data,'get','secret','argocd-initial-admin-secret','-n','argocd','-o','json'));password=base64.b64decode(secret['data']['password']).decode()
     token=argo_http(data,'POST','/api/v1/session',{'username':'admin','password':password})['token']
     host=command(['docker','exec',CLUSTER+'-control-plane','getent','hosts','host.docker.internal']).split()[0]
@@ -310,9 +398,13 @@ def main():
     p=argparse.ArgumentParser();p.add_argument('command',choices=['prepare','verify','gitlab','kind','chain']);a=p.parse_args();data=setup_state();errors=0
     if a.command=='chain':
         try:
+            validate_chain_bootstrap(data)
             import importlib.util
             spec=importlib.util.spec_from_file_location('testlab_gitops_chain',ROOT/'tools/testlab/gitops/chain.py');module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);module.run(data,ROOT);return 0
-        except Exception as error:emit('gitops.product_rule_chain','failed',{'error':type(error).__name__+': '+str(error),'complete':False,'mock_fallback':False});return 1
+        except Exception as error:
+            blocked=isinstance(error,BootstrapBlocked)
+            emit('gitops.product_rule_chain','blocked' if blocked else 'failed',{'error':type(error).__name__+': '+str(error),'complete':False,'mock_fallback':False});return 2 if blocked else 1
+    data['bootstrap_ready']=False;save(data)
     # Independent systems continue after the other is blocked. Never stop existing resources to free room.
     if a.command in ('prepare','verify','gitlab'):
         try:
@@ -322,6 +414,8 @@ def main():
     if a.command in ('prepare','verify','kind'):
         try:kind(data)
         except Exception as e:emit('gitops.kind_argo','blocked',{'error':type(e).__name__+': '+str(e),'mock_fallback':False});errors+=1
+    if not errors and a.command in ('prepare','verify','kind') and data.get('product_env'):
+        data['bootstrap_ready']=True;save(data)
     return 2 if errors else 0
 
 if __name__=='__main__':sys.exit(main())

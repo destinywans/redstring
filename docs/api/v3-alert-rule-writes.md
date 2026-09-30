@@ -45,6 +45,10 @@
 
 独立 `RunEnableWorker` 在批准后调用 `ExecuteApproved`，领取持久执行 ID 与租约；当前授权、批准、调查、绑定、来源规则和 YAML 计划均需在远端动作前复核，远端动作后再核。状态先为 `pending_review`。合并与同步后调用 `ObserveEnabled`；只有当前绑定 Prometheus 组中唯一规则的表达式、持续时间、全部标签与注解精确匹配，才记录 `enabled`。观察是只读对账：即使创建者之后撤权或调查结案，仍须能准确记录已生效规则，不能把不可读等同于未启用。证据不完整时保持待观察或失败关闭，不能报告 `enabled`。
 
+若进程在部署 MR 成功而本地回执尚未提交时停止，已有 `reserved/uncertain/exporting` 执行不会因批准过期或撤销而从 worker 消失。`ExecuteApproved` 的新写入校验失败后，只能核验原不可变动作、历史双人决议/投票及既有执行身份，持有新 generation 和有界租约，按原 `execution_id` 只读查询；不调用 `Plan/Prepare`，不分配新身份、不补发 MR。活动租约仍阻止接管，旧执行或旧对账响应无法覆盖新 generation。没有既有执行记录的失效批准仍被拒绝。
+
+GitOps `LookupForReconciliation` 仅 GET 原确定分支，验证项目/目标/基础提交/单文件差异与完整内容字节，允许原 MR 已合并；正常 `Lookup/Prepare` 的 opened 回执契约保持严格。匹配的 opened/merged 回执恢复到 `pending_review`，保留真实查询状态，再沿原只读观察链核验审核、同步及实际 Prometheus 规则。查询故障留在可重试 `uncertain`；当前未找到 MR 或回执不可信则为 `stale_remote`、需要人工按原身份核对。查无结果不能证明以前超时的远端 POST 永远未成功；不可据此另建执行或远端 MR。领取、结果和审计使用事务与 generation 条件原子记账。
+
 `NewGitOpsAlertRuleApplier(AlertRuleGitOpsConfig)` 只接受服务端构造的明确绑定。GitLab 与 Argo CD URL、各自 0600 凭据文件，以及每项环境、应用、规则组、Prometheus 文件身份、GitLab 项目、受保护目标分支、YAML 文件、仓库 URL、Argo CD 应用/项目/命名空间/来源目录/目标集群与命名空间都必须显式给出。`AllowLoopbackHTTP` 仅供隔离本地适配检查，产品配置必须关闭。运维还须确认 Argo CD 应用实际消费这个原生规则文件；来源目录与同步状态本身不能证明该文件已被 Prometheus 加载，最终仍以精确的 Prometheus 规则读回为准。配置不齐则构造失败或请求返回未接入。
 
 正式入口只在设置 `AIOPS_V3_ALERT_RULE_ENABLE_CONFIG` 时读取受保护的绝对路径 0600 JSON 文件；配置必须把 `environment_id`、`application_id`、`group`、`provider_file` 精确对应当前受信规则来源，并固定上述 GitOps 目标。顶层字段为 `gitlab_url`、`gitlab_token_file`、`argo_url`、`argo_token_file`、`bindings`；每项绑定还需 `project_id`、`target_branch`、`yaml_path`、`repo_url`、`argo_application`、`argo_project`、`argo_namespace`、`argo_source_path`、`destination_server`、`destination_namespace`。令牌文件绝对路径、0600，端点 HTTPS；配置不含令牌明文。启动仅校验本地配置并装配适配器，不访问 GitLab、Argo CD 或 Prometheus。`mode=enabled` 创建前检查确切环境的 worker 正在运行且批准与执行表可读；缺配置、Passkey、worker 或表时返回不可用，不导出远端草稿。

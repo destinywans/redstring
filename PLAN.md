@@ -1,5 +1,7 @@
 # AIOps Canvas 实施计划
 
+**2026-09-30 Review 风险修复（CP-206）：** 四项 Top Risks 已独立提交推送并集成到当前 `codex/v3-backend`：WAN-129 OIDC 原会话边界，WAN-130 SSE 池/网络期限/停机，WAN-131 多轮工具正文一致性，WAN-132 失效批准后的原执行身份只读恢复。隔离 PG、受影响定向 `-race`、完整规则模块 `-race`、本地 TCP/TLS 和最终主程序构建通过。修复为 In Review，真实外部与产品验收仍待后续；五项缺上下文事项为 High / Todo（WAN-133～137）。未修改真实配置、业务库或部署。见 [本轮记录](docs/releases/2026-09-30-backend-top-risks.md) 与 [CP-206](CHECKPOINT.md)。
+
 **2026-09-30 后端合并交用户 Review（CP-205）：** WAN-118 手工事件状态与 WAN-123 复盘来源闭合，WAN-123 Runbook 搜索/提及/预览引用及 WAN-124 私人画布模板保留项已合入 `codex/wan-117-v3-integration`。主路由保持 **165/166 implemented、1 mock**，OpenAPI **336 路径、407 操作、496 schema**。最小 Go 构建、静态契约与差异检查完成；按用户要求未运行测试、迁移、服务或页面。迁移 151/152 待执行，评测执行器和案例输入生产者仍未实现；用户将先 Review，再自行决定测试。见 [CP-205](CHECKPOINT.md)。
 
 **2026-09-30 画布历史恢复与 Agent 链路列表（CP-204）：** WAN-121 私人通用画布保留默认完整详情，同时提供省略历史的结构读取、413 恢复入口及受权逐节点分页；WAN-120 `/traces?scope=agent` 读取最近 24 小时持久已结束运行与已报告 Span，保留缺失覆盖率等未知值。两项领域提交及公共契约 `c465c3f` 已推送到既有集成分支并回读，主路由仍 **165/166 implemented、1 mock**。最小 Go 构建和静态契约检查通过；测试、真实数据库/HTTP 与冻结页面尚未验收，见 [CP-204](CHECKPOINT.md)。

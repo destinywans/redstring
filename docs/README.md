@@ -1,5 +1,7 @@
 # 项目文档
 
+- [后端 Review Top Risks 修复](releases/2026-09-30-backend-top-risks.md)：WAN-129～132 修复、定向证据与 WAN-133～137 高优先级上下文待办。
+
 - [资源关系知识图谱合同](plans/2026-09-22-resource-knowledge-graph.md)、[本机交付记录](releases/2026-09-22-resource-knowledge-graph.md)：真实资源分组、局部探索与覆盖详情，WAN-101。
 
 - [基础设施 Dashboard](infrastructure-dashboard.md)、[采集恢复与本机交付记录](releases/2026-09-22-infrastructure-dashboard.md)：图表、数据口径、真实指标和故障恢复。

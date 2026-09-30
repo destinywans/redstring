@@ -160,6 +160,9 @@ type Request struct {
 }
 type Runner interface {
 	Models() []Model
+	// Run emits append-only visible text across all model/tool rounds. On
+	// success, the returned body must contain all emitted deltas as its prefix;
+	// callers can append any remaining suffix without replacing prior text.
 	Run(context.Context, Request, func(Event) error) (string, error)
 }
 type Provider struct {
@@ -604,7 +607,12 @@ func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) 
 	if err != nil {
 		return "", err
 	}
-	var final string
+	// The product stream is append-only across model/tool rounds. Retain every
+	// visible model delta in the returned body, not just the last model round.
+	// Each non-partial model event repeats that round's accumulated text; only
+	// its unstreamed suffix may be appended (including final-only responses).
+	var answer, roundText strings.Builder
+	finalAnswer := false
 	for ev, runErr := range run.Run(ctx, "worker", sid, contentFromMessage(req.Messages[len(req.Messages)-1], genai.RoleUser), agent.RunConfig{StreamingMode: agent.StreamingModeSSE}) {
 		if runErr != nil {
 			mu.Lock()
@@ -615,12 +623,15 @@ func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) 
 			}
 			return "", runErr
 		}
-		if ev == nil || ev.Content == nil {
+		if ev == nil || ev.Content == nil || ev.Author != "investigator" || ev.Content.Role != string(genai.RoleModel) {
 			continue
 		}
 		var text strings.Builder
 		hasCall := false
 		for _, part := range ev.Content.Parts {
+			if part == nil {
+				continue
+			}
 			if part.FunctionCall != nil {
 				hasCall = true
 			}
@@ -632,9 +643,21 @@ func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) 
 			if err = send(Event{Type: "delta", Delta: text.String()}); err != nil {
 				return "", err
 			}
+			answer.WriteString(text.String())
+			roundText.WriteString(text.String())
 		}
-		if !ev.Partial && ev.Author == "investigator" && !hasCall && text.Len() > 0 {
-			final = text.String()
+		if !ev.Partial {
+			if !strings.HasPrefix(text.String(), roundText.String()) {
+				return "", errors.New("model round response differs from streamed content")
+			}
+			if suffix := strings.TrimPrefix(text.String(), roundText.String()); suffix != "" {
+				if err = send(Event{Type: "delta", Delta: suffix}); err != nil {
+					return "", err
+				}
+				answer.WriteString(suffix)
+			}
+			roundText.Reset()
+			finalAnswer = !hasCall && text.Len() > 0
 		}
 	}
 	mu.Lock()
@@ -646,10 +669,10 @@ func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) 
 	if ctx.Err() != nil {
 		return "", ctx.Err()
 	}
-	if final == "" {
+	if !finalAnswer {
 		return "", errors.New("model returned no final answer")
 	}
-	return final, nil
+	return answer.String(), nil
 }
 
 func contentFromMessage(message Message, role genai.Role) *genai.Content {

@@ -295,7 +295,8 @@
             "entry"
           ],
           "parser": "testlab_json",
-          "timeout_seconds": 900
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
         }
       ],
       "gap_ids": [
@@ -325,7 +326,8 @@
             "verify"
           ],
           "parser": "testlab_json",
-          "timeout_seconds": 1800
+          "timeout_seconds": 1800,
+          "cleanup_grace_seconds": 45
         }
       ],
       "gap_ids": [
@@ -336,6 +338,165 @@
         18,
         19,
         20
+      ]
+    },
+    {
+      "id": "content",
+      "name": "正式模板/上传知识/事件时间线",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/content_chain.py",
+            "chain"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        14,
+        15,
+        22,
+        46,
+        47
+      ]
+    },
+    {
+      "id": "identity",
+      "name": "正式Keycloak OIDC登录/绑定/撤销",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/identity.py",
+            "chain"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        1
+      ]
+    },
+    {
+      "id": "invitations",
+      "name": "正式HTTPS邀请/TLS465/跨组件失败",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/invitations.py",
+            "chain"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        5
+      ]
+    },
+    {
+      "id": "vault",
+      "name": "正式连接器/Vault精确凭据绑定",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/vault_chain.py",
+            "chain"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        14,
+        17,
+        41
+      ]
+    },
+    {
+      "id": "jenkins",
+      "name": "原Jenkins实际构建只读Gate",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/jenkins_gate.py",
+            "run"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        14,
+        50
+      ]
+    },
+    {
+      "id": "local-live-gates",
+      "name": "原有真实遥测读取/四provider probe",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/telemetry_gates.py"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        8,
+        18,
+        19,
+        20
+      ]
+    },
+    {
+      "id": "silence",
+      "name": "正式普通静默/双审批/真实AM丢响应与崩溃恢复",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/silence_chain.py",
+            "chain"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 1800,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        2,
+        10,
+        11,
+        40
       ]
     },
     {
@@ -351,7 +512,8 @@
             "prepare"
           ],
           "parser": "testlab_json",
-          "timeout_seconds": 1800
+          "timeout_seconds": 1800,
+          "cleanup_grace_seconds": 45
         },
         {
           "argv": [
@@ -360,7 +522,8 @@
             "chain"
           ],
           "parser": "testlab_json",
-          "timeout_seconds": 1200
+          "timeout_seconds": 1200,
+          "cleanup_grace_seconds": 45
         }
       ],
       "gap_ids": [
@@ -387,7 +550,8 @@
             "AIOPS_TESTLAB_FAULTS_ENABLED": "dedicated-temp-container"
           },
           "parser": "testlab_json",
-          "timeout_seconds": 600
+          "timeout_seconds": 600,
+          "cleanup_grace_seconds": 45
         }
       ],
       "gap_ids": [
@@ -410,7 +574,8 @@
             "base"
           ],
           "parser": "testlab_json",
-          "timeout_seconds": 1800
+          "timeout_seconds": 1800,
+          "cleanup_grace_seconds": 45
         },
         {
           "argv": [
@@ -421,7 +586,8 @@
             "scale"
           ],
           "parser": "testlab_json",
-          "timeout_seconds": 1800
+          "timeout_seconds": 1800,
+          "cleanup_grace_seconds": 45
         }
       ],
       "gap_ids": [
@@ -446,7 +612,8 @@
             "scale"
           ],
           "parser": "testlab_json",
-          "timeout_seconds": 90000
+          "timeout_seconds": 90000,
+          "cleanup_grace_seconds": 45
         }
       ],
       "gap_ids": [

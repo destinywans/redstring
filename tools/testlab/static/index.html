@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>AIOps · 验证运行台</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">跳到当前内容</a>
+  <div class="workspace">
+    <aside class="sidebar" aria-label="运行台导航">
+      <a class="brand" href="/" aria-label="AIOps 验证运行台首页"><span class="brand-icon" aria-hidden="true">A</span><span>AIOps<small>验证运行台</small></span></a>
+      <p class="nav-label">本次验证</p>
+      <nav id="navigation">
+        <button data-view="overview" aria-current="page">总览<span>01</span></button>
+        <button data-view="cases">测试用例<span>02</span></button>
+        <button data-view="interfaces">接口矩阵<span>03</span></button>
+        <button data-view="defects">缺陷与修复<span>04</span></button>
+        <button data-view="gaps">未覆盖事项<span>05</span></button>
+        <button data-view="metrics">性能记录<span>06</span></button>
+        <button data-view="history">运行历史<span>07</span></button>
+      </nav>
+      <div class="sidebar-note"><span class="readonly-dot"></span>只读 · 不触发测试<p>结果来自运行记录。缺少证据的项目保留未知状态。</p></div>
+    </aside>
+    <div class="body">
+      <header class="topbar">
+        <div class="scope-label">AIOps Canvas <span>/</span> 后端验证</div>
+        <div class="top-actions"><span id="connection" class="connection" role="status">连接中</span><button id="refresh" class="button compact">刷新记录</button></div>
+      </header>
+      <main id="main" tabindex="-1">
+        <div class="page-heading"><div><p class="eyebrow">验证证据 / TEST LAB</p><h1 id="page-title">运行总览</h1><p id="page-description">跟踪执行进度，逐项核对结果和证据。</p></div><label class="run-picker">当前运行<select id="run-select" aria-label="选择运行"><option value="">正在读取运行记录…</option></select></label></div>
+        <div id="notice" class="notice" role="status" hidden></div>
+        <div id="run-meta" class="run-meta" hidden></div>
+        <section id="overview-view" class="view" aria-label="运行总览"><div id="overview-content"></div></section>
+        <section id="cases-view" class="view" aria-label="测试用例" hidden>
+          <div class="filters"><label>模块<select id="module-filter"><option value="">全部模块</option></select></label><label>类型<select id="type-filter"><option value="">全部类型</option></select></label><label>状态<select id="status-filter"><option value="">全部状态</option></select></label><label>证据模式<select id="mode-filter"><option value="">全部模式</option></select></label><label class="search">搜索用例<input id="case-search" type="search" placeholder="名称、ID 或模块" autocomplete="off"></label><button id="reset-filters" class="button">清除筛选</button></div>
+          <div id="cases-content"></div><div id="pagination" class="pagination"></div>
+        </section>
+        <section id="interfaces-view" class="view" aria-label="接口矩阵" hidden><div id="interfaces-content"></div></section>
+        <section id="defects-view" class="view" aria-label="缺陷与修复" hidden><div id="defects-content"></div></section>
+        <section id="gaps-view" class="view" aria-label="未覆盖事项" hidden><div id="gaps-content"></div></section>
+        <section id="metrics-view" class="view" aria-label="性能记录" hidden><div id="metrics-content"></div></section>
+        <section id="history-view" class="view" aria-label="运行历史" hidden><div id="history-content"></div></section>
+        <footer class="page-footer"><span>执行完成 ≠ 验证通过 ≠ 真实环境验收</span><span id="updated">尚未读取</span></footer>
+      </main>
+    </div>
+  </div>
+  <dialog id="case-dialog" aria-labelledby="case-dialog-title"><div class="dialog-heading"><div><p class="eyebrow">用例证据</p><h2 id="case-dialog-title">用例详情</h2></div><button id="close-dialog" class="button" aria-label="关闭用例详情">关闭</button></div><div id="case-detail"></div></dialog>
+</body>
+</html>

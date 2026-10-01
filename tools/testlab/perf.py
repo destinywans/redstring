@@ -116,6 +116,8 @@ def dashboard_metrics(actual,name=None):
             'p95_ms':value('http_req_duration','p(95)'),'p99_ms':value('http_req_duration','p(99)'),
             'error_rate':actual.get('unexpected_error_rate'), 'bounded_write':{'error_rate':value('bounded_write_errors','rate'),'p50_ms':value('bounded_write_latency','med'),'p95_ms':value('bounded_write_latency','p(95)'),'p99_ms':value('bounded_write_latency','p(99)')}, 'dropped_iterations':actual.get('dropped_iterations'),
             'generator_seconds':actual.get('generator_seconds'), 'declared_generator_resources':actual.get('generator',{}).get('declared_resources'), 'resources':actual.get('resource_samples',[]), 'full_sample_count':actual.get('full_sample_count',len(actual.get('resource_samples',[]))), 'resource_evidence':actual.get('resource_evidence'), 'resource_trends':actual.get('resource_trends'),
+            'measurement_completed':actual.get('measurement_completed'),'health_degraded':actual.get('health_degraded'),
+            'health_observation':actual.get('health_observation'),'health_evidence':actual.get('health_evidence'),
             'missing':actual.get('resource_missing',sorted(set(k for sample in actual.get('resource_samples',[]) for k in sample.get('missing',[])))),
             'trial_window':actual.get('trial_final'), 'resource_recovery':actual.get('resource_recovery')}
 
@@ -221,7 +223,7 @@ def diagnostic_get(port,path,limit,deadline):
         if transport[0] is not None:transport[0].close()
 
 
-def identity(data,timeout=5,diagnostic_deadline=None):
+def identity(data,timeout=5,diagnostic_deadline=None,*,measurement_api_pids=None):
     nonce=secrets.token_hex(16)
     if diagnostic_deadline is not None:
         status,raw=diagnostic_get(18560,'/attest?nonce='+nonce,1<<16,diagnostic_deadline)
@@ -239,7 +241,17 @@ def identity(data,timeout=5,diagnostic_deadline=None):
         or not hmac.compare_digest(receipt['proof'],control_proof(data['control_secret'],nonce,receipt['identity']))):
         raise RuntimeError('supervisor nonce/HMAC attestation mismatch')
     v=receipt['identity']
-    try:validate_identity(data,v)
+    try:
+        if measurement_api_pids is None:validate_identity(data,v)
+        elif (v.get('owner')!=data['owner'] or v.get('pid')!=data['supervisor_pid']
+              or type(v.get('pid')) is not int
+              or v.get('source_tree_sha')!=data['source_tree_sha'] or v.get('failed') is not False
+              or type(v.get('ready')) is not bool or not isinstance(v.get('api_pids'),list)
+              or len(measurement_api_pids)!=2 or len(set(measurement_api_pids))!=2
+              or any(type(pid) is not int or pid<=1 for pid in measurement_api_pids)
+              or any(type(pid) is not int or pid<=1 for pid in v['api_pids'])
+              or tuple(v['api_pids'])!=tuple(measurement_api_pids)):
+            raise RuntimeError('measurement identity changed or registered child exited')
     except Exception as error:
         # Preserve the authenticated failing snapshot without relaxing readiness.
         if v.get('owner')==data['owner'] and v.get('pid')==data['supervisor_pid']:
@@ -349,8 +361,13 @@ def frozen_inputs(data):
     return sorted(names,key=str)
 
 
-def frozen(data):
-    v=identity(data);current=source_fingerprint(ROOT)
+def frozen(data,*,measurement_api_pids=None,health_observer=None):
+    if measurement_api_pids is not None:
+        previous=data.get('_freeze_baseline')
+        if not previous or tuple(measurement_api_pids)!=previous[1]:raise RuntimeError('strict ready baseline required before high-load observation')
+        v=identity(data,measurement_api_pids=measurement_api_pids)
+    else:v=identity(data)
+    current=source_fingerprint(ROOT)
     if current=='unknown' or current!=data['source_tree_sha'] or current!=v.get('source_tree_sha'):raise RuntimeError('backend source changed or binary does not match source; restart/re-freeze required')
     digest=hashlib.sha256()
     names=frozen_inputs(data)
@@ -360,23 +377,35 @@ def frozen(data):
     baseline=(v['pid'],tuple(v.get('api_pids',[])),digest.hexdigest())
     if '_freeze_baseline' not in data:data['_freeze_baseline']=baseline
     if baseline!=data['_freeze_baseline']:raise RuntimeError('backend restarted or runtime/helper configuration changed; continuous window invalid')
+    if health_observer is not None:health_observer(v)
     return current
 
-def metrics(data):
+def metrics(data,*,measurement_api_pids=None,health_observer=None):
     captured={'at':time.time(),'missing':[]}
+    def checked_pids():
+        if measurement_api_pids is None:return identity(data).get('api_pids',[])
+        previous=data.get('_freeze_baseline')
+        if not previous or tuple(measurement_api_pids)!=previous[1] or not callable(health_observer):
+            raise RuntimeError('strict ready baseline and health observer required for measurement metrics')
+        current=identity(data,measurement_api_pids=measurement_api_pids)
+        health_observer(current)
+        return current['api_pids']
     try:
         captured['postgres']=json.loads(sql(data,"SELECT json_build_object('connections',(SELECT count(*) FROM pg_stat_activity WHERE datname=current_database()),'active',(SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND state='active'),'waiting',(SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock'),'locks',(SELECT count(*) FROM pg_locks WHERE NOT granted),'queued_replies',(SELECT count(*) FROM v3_conversation_replies WHERE state='queued'),'running_replies',(SELECT count(*) FROM v3_conversation_replies WHERE state='running'),'database_bytes',pg_database_size(current_database()));"))
     except Exception:captured['missing'].append('postgres_connections_locks_queue')
+    # Authentication/readiness failures must propagate; only resource probes may be missing.
+    pids=checked_pids()
     try:
-        pid=identity(data).get('api_pids',[]);captured['backend_processes']=[]
+        pid=pids;captured['backend_processes']=[]
         for p in pid:
             r=subprocess.run(['ps','-p',str(int(p)),'-o','rss=,%cpu='],capture_output=True,text=True,timeout=5)
             if r.returncode or not r.stdout.strip():raise RuntimeError()
             rss,cpu=r.stdout.split();captured['backend_processes'].append({'pid':p,'rss_kib':int(rss),'cpu_percent':float(cpu)})
     except Exception:captured['missing'].extend(['backend_cpu','backend_rss'])
     # macOS does not expose /proc; lsof permissions are explicitly distinguished from zero FDs.
+    pids=checked_pids()
     try:
-        pids=identity(data).get('api_pids',[]);captured['backend_fds']=[]
+        captured['backend_fds']=[]
         for p in pids:
             r=subprocess.run(['lsof','-a','-p',str(int(p)),'-Ff'],capture_output=True,text=True,timeout=5)
             if r.returncode:raise RuntimeError()
@@ -549,7 +578,34 @@ def k6(data,run,stage,rate,duration,gate=False,streams=None,hooks=None,strict_so
     log=open(work/'k6.log','w');os.chmod(work/'k6.log',0o600)
     proc=None;container=None;acquisition_attempted=False;outcome=None;next_metric=started;next_hook=started;next_chat=started;next_login=started+max(1,min(u['session_expires_at'] for u in data['users'])-time.time()-300);resources=[];hook_stats={'dryrun_calls':0,'webhook_calls':0,'chat_turns':0,'relogins':0,'failures':0,'chat_e2e_protocol_mock_ms_total':0,'chat_e2e_protocol_mock_ms_max':0,'model_evidence_mode':'protocol_mock'};resource_path=work/'resources.jsonl'
     resource=open(resource_path,'w');os.chmod(resource_path,0o600)
+    # Only these original saturation windows may observe unready, live, authenticated children.
+    observe_readiness=(strict_source is True and gate is False and hooks is None
+                       and (stage,rate,duration) in (('rps50',50,300),('burst100',100,60)))
+    measurement_pids=None;health_file=None
+    health={'samples':0,'unready_samples':0,'first_unready_elapsed':None,'last_unready_elapsed':None,
+            'observed_unready_sampling_span_seconds':0,'span_interpretation':'last minus first unready sample; not exact downtime','snapshots':[]}
+    def observe_health(current):
+        nonlocal health_file
+        health['samples']+=1
+        if current['ready']:return
+        elapsed=time.monotonic()-started
+        snapshot={'at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'elapsed_seconds':elapsed,'authenticated':True,
+                  'identity':{key:current[key] for key in ('owner','pid','api_pids','source_tree_sha','ready','failed')}}
+        if health_file is None:
+            fd=os.open(work/'health-observation.jsonl',os.O_WRONLY|os.O_CREAT|os.O_TRUNC|os.O_NOFOLLOW,0o600)
+            health_file=os.fdopen(fd,'w')
+        health_file.write(json.dumps(snapshot)+'\n');health_file.flush()
+        health['unready_samples']+=1
+        if health['first_unready_elapsed'] is None:health['first_unready_elapsed']=elapsed
+        health['last_unready_elapsed']=elapsed;health['observed_unready_sampling_span_seconds']=elapsed-health['first_unready_elapsed']
+        health['snapshots'].append(snapshot);health['snapshots']=health['snapshots'][-8:]
+    def health_status():
+        return {'health_degraded':health['unready_samples']>0,'health_observation':health,
+                'health_evidence':str((work/'health-observation.jsonl').relative_to(ROOT)) if health_file else None} if observe_readiness else {}
     try:
+        if observe_readiness:
+            frozen(data)  # Fresh strict admission, even when a previous stage established a baseline.
+            measurement_pids=data['_freeze_baseline'][1]
         acquisition_attempted=True
         created=subprocess.run(command,capture_output=True,text=True,timeout=bounded_timeout(20))
         if created.returncode or not re.fullmatch(r'[a-f0-9]{64}',created.stdout.strip()):raise RuntimeError('owned k6 container creation failed')
@@ -561,12 +617,15 @@ def k6(data,run,stage,rate,duration,gate=False,streams=None,hooks=None,strict_so
             if stage=='soak24h' and 'last_heartbeat' in locals() and now-last_heartbeat>120:raise RuntimeError('soak heartbeat gap indicates suspension/interruption; continuous window invalid')
             last_heartbeat=now
             if cancel_requested():raise KeyboardInterrupt()
-            if strict_source:frozen(data)
+            if strict_source:
+                if observe_readiness:frozen(data,measurement_api_pids=measurement_pids,health_observer=observe_health)
+                else:frozen(data)
             if streams:streams.sample_health(now-started,duration,startup=3 if stage=='self_check' else 15)
             # Detect a killed/stalled generator before accepting elapsed wall-clock time.
             if now-started>duration+120:raise RuntimeError('k6 exceeded planned duration plus bounded grace')
             if now>=next_metric:
-                measure=metrics(data);resource.write(json.dumps(measure)+'\n');resource.flush();resources.append(measure);resources=resources[-3:];next_metric=now+30
+                measure=metrics(data,measurement_api_pids=measurement_pids,health_observer=observe_health) if observe_readiness else metrics(data)
+                resource.write(json.dumps(measure)+'\n');resource.flush();resources.append(measure);resources=resources[-3:];next_metric=now+30
             if hooks and now>=next_hook:
                 for key in ('dryrun','webhook'):
                     h=hooks[key];hook_user=data['hook_user'] if h.get('account')=='admin' else data['users'][0]
@@ -603,12 +662,13 @@ def k6(data,run,stage,rate,duration,gate=False,streams=None,hooks=None,strict_so
                         session=__import__('hashlib').sha256(u['cookie'].encode()).hexdigest()
                         sql(data,f"UPDATE v3_conversation_replies r SET initiating_session_hash={quote(session)} FROM v3_conversations c WHERE c.id=r.conversation_id AND starts_with(c.id,{p}) AND c.owner_id={quote(u['id'])} AND r.state='running';")
                     streams.data['users']=data['users']
-            result('perf.'+stage,'running',{'stage':stage,'rate_rps':rate,'elapsed_seconds':round(now-started,1),'planned_seconds':duration,'source_sha':data['source_tree_sha'],'sse':streams.snapshot() if streams else None,'hooks':hook_stats,'resources':resources[-1] if resources else None,'declared_generator_resources':k6_declared_resources(data['owner'])},started)
+            result('perf.'+stage,'running',{'stage':stage,'rate_rps':rate,'elapsed_seconds':round(now-started,1),'planned_seconds':duration,'source_sha':data['source_tree_sha'],'sse':streams.snapshot() if streams else None,'hooks':hook_stats,'resources':resources[-1] if resources else None,'declared_generator_resources':k6_declared_resources(data['owner']),**health_status()},started)
             STOP.wait(2 if stage=='self_check' else 10)
         elapsed=time.monotonic()-started
         summary_path=work/'summary.json'
         summary=json.loads(summary_path.read_text()) if summary_path.exists() else None
         generator=k6_generator_evidence(name,data['owner'],proc,container)
+        generator.update(health_status())
         generator.update(summary_exists=summary_path.exists(),log_bytes=(work/'k6.log').stat().st_size)
         if summary is None:
             error=RuntimeError('k6 exited without real summary');error.testlab_generator=generator;raise error
@@ -617,19 +677,27 @@ def k6(data,run,stage,rate,duration,gate=False,streams=None,hooks=None,strict_so
         dropped=float(summary.get('metrics',{}).get('dropped_iterations',{}).get('values',{}).get('count',0));error_rate=float(summary.get('metrics',{}).get('unexpected_errors',{}).get('values',{}).get('rate',0))
         resource_samples=[json.loads(line) for line in resource_path.read_text().splitlines() if line.strip()]
         actual={**resource_summary(resource_samples),'stage':stage,'profile':data.get('counts',{}).get('profile'),'measurement_only':not gate and stage!='self_check','saturated':dropped>0 or error_rate>=0.001,'unexpected_error_rate':error_rate,'dropped_iterations':dropped,'generator_seconds':generator_seconds,'iterations':iterations,'minimum_iterations':rate*duration-1,'rate_rps':rate,'elapsed_seconds':elapsed,'planned_seconds':duration,'k6_exit':proc.returncode,'generator':generator,'summary':summary.get('metrics',{}),'resource_evidence':str(resource_path.relative_to(ROOT)),'resources_last':resources[-1] if resources else None,'hooks':hook_stats,'sse':streams.snapshot() if streams else None,'source_sha':data['source_tree_sha'],'k6_image':K6_IMAGE,'route_preflight':data.get('route_preflight'),'measured_routes':[r['path'] for r in data.get('route_preflight',[]) if r['measured']]+['own alert claim'], 'excluded_aggregate_paths':data.get('excluded_aggregate_paths',[]), 'full_aggregate_scope_accepted':bool(data.get('aggregate_measurement_supported')) and not data.get('excluded_aggregate_paths'),'coverage_limit':'services seed is real metadata; service health/metrics/deployment sources are not fabricated or benchmarked'}
+        if observe_readiness:
+            degraded=health['unready_samples']>0
+            actual.update(**health_status(),
+                          measurement_completed=elapsed>=duration and generator_seconds>=duration and iterations+dropped>=rate*duration-1,
+                          saturated=actual['saturated'] or degraded)
         if stage=='self_check':actual['renewal_plumbing']={'tool_schedule_override_only':True,'actual_product_ttl_changed':False,'k6_real_relogins':summary.get('metrics',{}).get('session_relogins',{}).get('values',{}).get('count',0),'twelve_hour_elapsed_acceptance':False}
         # The attach CLI return code is not a substitute for the real container exit status.
         state=generator.get('container',{}).get('state',{}) if generator.get('container') else {}
         good=proc.returncode==0 and state.get('ExitCode')==0 and state.get('Running') is False and not state.get('OOMKilled') and elapsed>=duration and generator_seconds>=duration and (iterations+dropped>=rate*duration-1 if not gate else iterations>=rate*duration-1) and not hook_stats['failures'] and (streams is None or sse_accepted(actual['sse'])) and (stage!='self_check' or actual['renewal_plumbing']['k6_real_relogins']>0)
+        if observe_readiness:good=good and not actual['health_degraded']
         outcome=(good,actual)
     except KeyboardInterrupt:
         _CLEANING=True;arm_cancel()
         generator=k6_generator_evidence(name,data['owner'],proc,container)
+        generator.update(health_status())
         if container is None and generator.get('container'):container=generator['container']
         safe_result(work,'perf.'+stage,'interrupted',{'elapsed_seconds':time.monotonic()-started,'planned_seconds':duration,'acceptance':False,'generator':generator},started,primary=True);raise
     except Exception as error:
         _CLEANING=True
         if not hasattr(error,'testlab_generator'):error.testlab_generator=k6_generator_evidence(name,data['owner'],proc,container)
+        error.testlab_generator.update(health_status())
         if container is None and error.testlab_generator.get('container'):container=error.testlab_generator['container']
         try:diagnostic=stage_error_evidence(data,work,error,resources[-1] if resources else None)
         except Exception as diagnostic_error:diagnostic={'diagnostic_error_type':type(diagnostic_error).__name__,'diagnostic_missing':['stage_error_evidence']}
@@ -654,7 +722,9 @@ def k6(data,run,stage,rate,duration,gate=False,streams=None,hooks=None,strict_so
                 if proc is not None and proc.poll() is None:
                     try:proc.kill();proc.wait(timeout=.2)
                     except Exception as reap_error:cleanup_errors.append({'step':'attach_process_reap','error_type':type(reap_error).__name__})
-            finally:resource.close();log.close()
+            finally:
+                resource.close();log.close()
+                if health_file is not None:health_file.close()
             if cleanup_errors:
                 safe_result(work,'perf.'+stage+'.cleanup','failed',{'errors':cleanup_errors,'acceptance':False,'container_id':container['id'] if container else None,'resource_cleanup_confirmed':False},started,primary=primary)
                 if not primary:raise RuntimeError('owned k6 cleanup failed')

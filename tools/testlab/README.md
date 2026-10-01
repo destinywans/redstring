@@ -41,7 +41,7 @@ prepare 一次性准备自有PG、轻型真实组件、证书、正式双V3账�
 执行中的 custom helper 会继续登记用例；暂时3/3不是整个组结束。整体结果以持久run/suite终态为准。环境block、外部待办、缺实现、跳过均不计通过；`full` 有这些结果就不能宣称全部验收完成。主166条契约与407历史库存分开核对，新增正常method/path仍不能证明所有输入和失败时序。
 
 
-性能首红证据保留操作使用 `profile.py`，只允许专属owner的两项明确上下文：06a848d7原failed运行，或8ac896b5原interrupted且基础rps25实际failed运行。第二项严格绑定Go1512、Git d6f7bd1、原APP OID9270802和固定三份0600 receipt；解析与SHA使用同一稳定FD字节批次，任何读取漂移失败关闭。8ac原SQLite缺末尾source审计，后停观察以actual_post_stop_observation明确记录，不补造原run字段。先用一个固定UUID仅读plan，确认无活动测试、真实HMAC进程/容器/五DSN归属，再同参数加 `--apply`。partial恢复必须沿用原UUID；日志0600保存在owner的profile目录，旧库以原OID留存，不DROP、不FORCE、不terminate PG backend。staging创建回执丢失而无可靠OID/tag证明时阻塞，不自动接管。apply上限40秒（quiescence8秒），超时保留WAL；实际进程和DDL结束不能因客户端超时而假定失败。成功只说明旧库留存和新空canonical/two extensions，始终ready=false，迁移/new binary/runtime需主会话另行初始化核验。
+性能首红证据保留操作使用 `profile.py`，只允许专属owner的三项明确历史上下文：06a848d7原failed运行、8ac896b5原interrupted且基础rps25实际failed运行，或1a998623原interrupted且基础rps50实际failed运行。第二项严格绑定Go1512、Git d6f7bd1、原APP OID9270802和固定三份0600 receipt；解析与SHA使用同一稳定FD字节批次，任何读取漂移失败关闭。8ac原SQLite缺末尾source审计，后停观察以actual_post_stop_observation明确记录，不补造原run字段。先用一个固定UUID仅读plan，确认无活动测试、真实HMAC进程/容器/五DSN归属，再同参数加 `--apply`。partial恢复必须沿用原UUID；日志0600保存在owner的profile目录，旧库以原OID留存，不DROP、不FORCE、不terminate PG backend。staging创建回执丢失而无可靠OID/tag证明时阻塞，不自动接管。apply上限40秒（quiescence8秒），超时保留WAL；实际进程和DDL结束不能因客户端超时而假定失败。成功只说明旧库留存和新空canonical/two extensions，始终ready=false，迁移/new binary/runtime需主会话另行初始化核验。
 
 ```sh
 python3 tools/testlab/profile.py --owner testlab-3cbde3095125 --run <同一操作UUID> --before-evidence-run 06a848d7-6821-463f-96bd-1ee2639ea6f8
@@ -63,3 +63,11 @@ python3 tools/testlab/profile.py --owner testlab-3cbde3095125 --run <同一操�
 压测生成器先保存本次精确容器的退出码、OOM 标志和结束时间，再按不可变 ID 清理；失败时缺失字段显示为缺失。取消共享35秒收尾预算，保留Runner45秒窗口；清理 SQL 使用独立短客户端和数据库时限，取消后无法确认的PG状态仍为待清理失败，不将子进程回收当作事务已经完成。离线子进程或协议测试不能确定真实生成器提前退出的根因，必须由新的真实运行取证。
 
 `profile.py` 的第三个上下文只处理已登记的 `1a998623-7a3d-4e10-b49b-5610205ad336` 性能中断、固定源码/二进制/runtime 和原 OID11131999。先使用新的 operation UUID 只读计划，复核后以同 UUID 加 `--apply`；它保存原数据库的 OID 和内容，通过标记 staging 发布空 canonical。两份较早证据库必须原样保持；未知目录状态或不确定 CREATE 停止并留 journal。该工具不迁移、不启动 API、不改 runtime；这些步骤需要在操作结束后单独验证，不能复用已经消耗的DDL预算或已变化的fixture快照。完成态重放只读，不启动新一轮归档。
+
+第三项严格绑定1a998623-7a3d-4e10-b49b-5610205ad336原interrupted14P2F5B、Go6ad/bfeb/runtime338、原APP OID11131999以及两份更早archive。原source_end缺失不补造。实际操作ace389de-da61-48ba-82e1-2cb8e6dcbead已经完成：新canonical OID11973905，原11131999同数据保存为同operation证据库；禁止新UUID重复归档或重做apply。后续实际冻结启动与准入记录见CHECKPOINT CP255。
+
+性能高负载采样与健康验收分开：严格准入之后，只对精确非gate `rps50/50RPS/300s`、`burst100/100RPS/60s`、无hooks且严格源码模式，在fresh HMAC、原两存活进程身份和全部冻结输入一致时继续记录真实ready=false。健康失败锁存，完整测量仍判阶段失败/非零，不因后续恢复转绿；观察跨度不是精确停机时长。25RPS、soak、故障注入、恢复和准入仍严格检查ready。4GiB生成器是显式测试配置，不能把声明值当Docker实测或把offline回归当容量验收。
+
+当前正式执行将base与scale分成两个单command私有manifest运行，沿用各自原五阶段。核验base终态、全部必要结果和原限额阻塞后才显式准入scale；现默认两command performance suite会继续下一command，不能用于需要失败后保留exactbase的现场。所有诊断及首次失败分别保留，禁止自动重试、缩短窗口或回填旧证据。
+
+已认证健康或身份校验失败必须传播为失败：默认25RPS、持续测试及恢复采样均不将其转换为CPU/RSS/FD缺失。只有PG、ps、lsof采集本身失败可标指标缺失。限定高负载即使完成测量且之后恢复健康，已观察的健康失败仍锁存，阶段返回非零；完整测量与验证通过分别显示。此闭环80离线回归及独立源审通过，不能代替真实负载结果。

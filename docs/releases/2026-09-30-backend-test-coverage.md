@@ -389,3 +389,11 @@ Go6ad893bb、非racebfeb9b98/runtime338e1478保持。正式performance1a998623�
 动作仅证明数量，不证明内容/完成率；人工事件持续时间与MTTR仍未知；Push没有公开地址，不验公网可达性；本地真实Prom注册及mapping配置不证明指标、完整服务健康/历史。SQL仅身份/最小授权/明示配置和读回，无业务或审计写、模型调用和外部通知。原工具readiness及取消缺陷已31离线/XHigh回归，后来两项预期误报的严格修由root对照生产调用链和原raw复核。
 
 当前源三组实际证据0e4b303、4a6(34P1缺producer)、9d1f49严格normal实际2xx并集57/166主路由+13辅助，证据d20d47ec-405e-4260-ac80-0bb28ce07ca6；不计库存、negative-only或旧源码证据，不承诺全部参数/权限/并发/全Schema。剩余本地、外部真实接入、权威缺实现、WAN152限额、暂停7nativeCI/CD和Ollama容量继续待办，整体验收未收口。
+
+## CP258 · 2026-10-01 · 测试工具健康失败传播修复
+
+原4g诊断ce56b388只25.92秒，真实签名ready=false但进程存活；首红及原证据989d73d5保留，容量和PG退化根因未验。限定50/300、100/60测量可持续采样，但健康失败锁存，完整测量不能变通过。独立审查再识别默认25/soak的metrics catch吞身份失败，同类错误反向闭环：保留原strict validator，移动两次identity到资源catch之外，仅资源探针失败可missing。
+
+原72/77候选均未提交或真实使用，全部红绿0600保留；最终80P0F0skip（raw5.698s，外层5.8353s），Go6ad始末不变，XHigh定向无阻断。实际metrics/identity+签名transport stub、本地Python子进程和CID清理夹具，非真实Docker/PG/API/24h。最终perf SHA22fbb6042e38d24a9543a4e12fc69673927f8b2186ea2b3f27f46734d840538a；首红k6-strict-metrics-1d2ebdb8，绿k6-strict-metrics-offline/a0b22821。
+
+当前无active负载，源/正式API/基础11973905/三历史库/暂停自有GitLab不变。下一步新不可变原50诊断并只读取PG/k6容量证据，再原base-only五阶段/明确结果闸/scale-only。两档性能未通过、24h未开始、整体未收口；暂停域、外部、缺实现及WAN152容量边界继续待办。

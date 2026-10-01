@@ -881,5 +881,28 @@
       ".local/testlab/perf-cleanup-acquisition-term-green-final.txt"
     ],
     "unverified": "real generator early-exit cause/OOM; full original performance profiles; continuous24h; PG transaction completion after cancelling docker exec"
+  },
+  {
+    "id": "TOOL-PERF-READINESS-OBSERVATION",
+    "title": "压测健康失败早停及身份采样误绿",
+    "status": "in_review",
+    "category": "test_tool",
+    "severity": "HIGH",
+    "description": "原50RPS在真实签名readyfalse但双API存活时提前终止；候选72离线绿被独立审查发现metrics签名false只标CPU/RSS/FD missing，可漏锁存而误绿。未将健康失败隐藏为通过，实际根因仍需完整测量确认。",
+    "before": "ce56仅25.92秒；frozen true→metrics signed false→恢复可漏失败",
+    "after": "default strict identity failures propagate outside CPU/FD catch; exact non-gate50/300 and100/60 retain signed pinned identity and latch unready as failed even after recovery; no automatic scale",
+    "first_failure_run": "ce56b388-45c6-4e09-99af-3f8130562279",
+    "first_failure_source": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
+    "local_evidence": [
+      ".local/testlab/first-failures/k6-readiness-797f92aa-7837-4aa6-8b1e-e253b135a5c4",
+      ".local/testlab/k6-readiness-offline/259aada7-ef0f-4772-a4a6-dbb5850d3d80",
+      ".local/testlab/first-failures/k6-metrics-readiness-4551ad73-6b0b-40f9-82af-aca65db720bf",
+      ".local/testlab/k6-metrics-readiness-offline/811a6209-970b-44c0-80b2-4ecec2513689",
+      ".local/testlab/first-failures/k6-strict-metrics-1d2ebdb8-8379-4454-8789-ae5597801ec6",
+      ".local/testlab/k6-strict-metrics-offline/a0b22821-a1d8-48f4-8fd4-cc11a6a5ac70"
+    ],
+    "case_ids": "实际ce56失败及offline交错首红分别追踪，不把旧attempt改为pass",
+    "validation": "80 offline passed/0fail/0skip and independent XHigh scoped review; actual metrics/identity signed transport stub and local child cleanup; real original50 still pending",
+    "fix_tool_sha256": "22fbb6042e38d24a9543a4e12fc69673927f8b2186ea2b3f27f46734d840538a"
   }
 ]

@@ -46,8 +46,53 @@ class FrozenInputTest(unittest.TestCase):
         self.rules.write_text(json.dumps({'bearer_token_file':'/etc/passwd'}))
         with self.assertRaisesRegex(RuntimeError,'escapes'):perf.frozen(self.data)
 
+    def test_observation_requires_strict_baseline_and_preserves_all_freeze_inputs(self):
+        observe=Mock()
+        with self.assertRaisesRegex(RuntimeError,'strict ready baseline'):perf.frozen(self.data,measurement_api_pids=(2,3),health_observer=observe)
+        perf.frozen(self.data)
+        current={'pid':1,'api_pids':[2,3],'source_tree_sha':'same','ready':False,'failed':False}
+        with patch.object(perf,'identity',return_value=current) as identity:
+            perf.frozen(self.data,measurement_api_pids=(2,3),health_observer=observe)
+            identity.assert_called_once_with(self.data,measurement_api_pids=(2,3))
+        observe.assert_called_once_with(current)
+        for path in (self.token,self.rules,self.binary):
+            previous=path.read_bytes();path.write_bytes(b'{"changed":true}' if path.suffix=='.json' else b'changed');observe.reset_mock()
+            with self.assertRaisesRegex(RuntimeError,'configuration changed'):perf.frozen(self.data,measurement_api_pids=(2,3),health_observer=observe)
+            observe.assert_not_called();path.write_bytes(previous)
+        with patch.object(perf,'source_fingerprint',return_value='changed'),self.assertRaisesRegex(RuntimeError,'source changed'):
+            perf.frozen(self.data,measurement_api_pids=(2,3),health_observer=observe)
+        with self.assertRaisesRegex(RuntimeError,'strict ready baseline'):perf.frozen(self.data,measurement_api_pids=(4,5))
+
 
 class IdentityAttestationTest(unittest.TestCase):
+    def test_unready_observation_is_fresh_authenticated_exact_live_generation_only(self):
+        data={'owner':'testlab-0123456789ab','control_secret':'synthetic-secret','supervisor_pid':12,'source_tree_sha':'same'}
+        current={'owner':data['owner'],'pid':12,'api_pids':[13,14],'ready':False,'failed':False,'source_tree_sha':'same'}
+        nonces=['a'*32,'b'*32];calls=[]
+        def transport(*args,**kwargs):
+            nonce=nonces[len(calls)];conn=Mock();calls.append(conn)
+            conn.getresponse.return_value.status=200
+            conn.getresponse.return_value.read.return_value=json.dumps({'nonce':nonce,'identity':current,'proof':perf.control_proof(data['control_secret'],nonce,current)}).encode();return conn
+        with patch.object(perf.secrets,'token_hex',side_effect=nonces),patch.object(perf.http.client,'HTTPConnection',side_effect=transport):
+            for _ in range(2):self.assertEqual(perf.identity(data,measurement_api_pids=(13,14)),current)
+        for index,conn in enumerate(calls):conn.request.assert_called_once_with('GET','/attest?nonce='+nonces[index]);conn.close.assert_called_once()
+        nonce='a'*32
+        variants=[{**current,'owner':'other'},{**current,'pid':99},{**current,'api_pids':[15,16]},
+                  {**current,'api_pids':[13.0,14]},{**current,'source_tree_sha':'changed'},
+                  {**current,'failed':True},{key:value for key,value in current.items() if key!='failed'},
+                  {**current,'ready':0}]
+        for altered in variants:
+            with self.subTest(altered=altered):
+                conn=Mock();conn.getresponse.return_value.status=200
+                conn.getresponse.return_value.read.return_value=json.dumps({'nonce':nonce,'identity':altered,'proof':perf.control_proof(data['control_secret'],nonce,altered)}).encode()
+                with patch.object(perf.secrets,'token_hex',return_value=nonce),patch.object(perf.http.client,'HTTPConnection',return_value=conn):
+                    with self.assertRaises(RuntimeError):perf.identity(data,measurement_api_pids=(13,14))
+                    with self.assertRaises(RuntimeError):perf.identity(data)
+                self.assertEqual(conn.request.call_count,2)
+        conn=Mock();conn.getresponse.return_value.status=200;conn.getresponse.return_value.read.return_value=json.dumps({'nonce':nonce,'identity':current,'proof':'forged'}).encode()
+        with patch.object(perf.secrets,'token_hex',return_value=nonce),patch.object(perf.http.client,'HTTPConnection',return_value=conn):
+            with self.assertRaisesRegex(RuntimeError,'attestation mismatch'):perf.identity(data,measurement_api_pids=(13,14))
+
     def test_signed_receipt_and_invalid_replay_or_forged_proof(self):
         data={'owner':'testlab-0123456789ab','control_secret':'synthetic-secret','supervisor_pid':12,'source_tree_sha':'same'}
         nonce='a'*32
@@ -84,6 +129,24 @@ class StageFailureEvidenceTest(unittest.TestCase):
         with patch.object(perf.secrets,'token_hex',return_value='a'*32),patch.object(perf.http.client,'HTTPConnection',return_value=self.receipt_connection()):
             with self.assertRaisesRegex(Exception,'two ready registered child PIDs required') as caught:perf.identity(self.data)
         self.assertEqual(caught.exception.testlab_authenticated_identity,self.current)
+    def test_metrics_strict_and_measurement_identity_failures_both_abort(self):
+        original=RuntimeError('authenticated generation rejected');observer=Mock()
+        with patch.object(perf,'sql',return_value='{}'),patch.object(perf,'identity',side_effect=original):
+            with self.assertRaises(RuntimeError) as caught:perf.metrics(self.data)
+            self.assertIs(caught.exception,original)
+            with self.assertRaises(RuntimeError) as caught:perf.metrics(self.data,measurement_api_pids=(13,14),health_observer=observer)
+            self.assertIs(caught.exception,original);observer.assert_not_called()
+        with patch.object(perf,'identity',return_value=self.current),patch.object(perf,'sql',side_effect=RuntimeError('unavailable')),patch.object(perf.subprocess,'run',side_effect=OSError('resource unavailable')):
+            actual=perf.metrics(self.data,measurement_api_pids=(13,14),health_observer=observer)
+        self.assertEqual(observer.call_count,2)
+        for key in ('postgres_connections_locks_queue','backend_cpu','backend_rss','backend_fd'):self.assertIn(key,actual['missing'])
+        with self.assertRaisesRegex(RuntimeError,'strict ready baseline'):perf.metrics(self.data,measurement_api_pids=(15,16),health_observer=observer)
+    def test_actual_default_metrics_rejects_signed_unready_and_bad_hmac(self):
+        for proof in (None,'forged'):
+            with self.subTest(proof=proof),patch.object(perf,'sql',return_value='{}'),patch.object(perf.secrets,'token_hex',return_value='a'*32),patch.object(perf.http.client,'HTTPConnection',return_value=self.receipt_connection(proof=proof)):
+                with self.assertRaises(RuntimeError) as caught:perf.metrics(self.data)
+                if proof is None:self.assertEqual(caught.exception.testlab_authenticated_identity,self.current)
+                else:self.assertIn('attestation mismatch',str(caught.exception))
     def test_valid_failure_and_fresh_snapshot_health_are_private_and_bounded(self):
         error=RuntimeError('secret must not be stored');error.testlab_authenticated_identity=dict(self.current)
         conn=Mock();conn.getresponse.return_value.status=503
@@ -199,7 +262,7 @@ class DiagnosticWallClockTest(unittest.TestCase):
         fresh=RuntimeError('unready');fresh.testlab_authenticated_identity=dict(self.current)
         data={**self.data,'base_urls':['http://127.0.0.1:18561','http://127.0.0.1:18562'],'environment':'test','users':[{'session_expires_at':9999999999}],'perf_password':'synthetic'}
         proc=Mock();proc.poll.return_value=None;cleanup_times=[];started=time.monotonic()
-        with patch.object(perf,'DIAGNOSTIC_BUDGET',.6),patch.object(perf.http.client,'HTTPConnection',side_effect=connection),patch.object(perf,'identity',side_effect=fresh),patch.object(perf.subprocess,'run',return_value=subprocess.CompletedProcess([],0,'a'*64,'')),patch.object(perf,'k6_container_state',return_value={'id':'a'*64,'image_id':'sha256:'+'b'*64}),patch.object(perf.subprocess,'Popen',return_value=proc),patch.object(perf,'frozen',side_effect=original),patch.object(perf,'own_remove',side_effect=lambda *args:cleanup_times.append(time.monotonic()-started)),patch.object(perf,'result') as result:
+        with patch.object(perf,'DIAGNOSTIC_BUDGET',.6),patch.object(perf.http.client,'HTTPConnection',side_effect=connection),patch.object(perf,'identity',side_effect=fresh),patch.object(perf.subprocess,'run',return_value=subprocess.CompletedProcess([],0,'a'*64,'')),patch.object(perf,'k6_container_state',return_value={'id':'a'*64,'image_id':'sha256:'+'b'*64}),patch.object(perf.subprocess,'Popen',return_value=proc),patch.object(perf,'frozen',side_effect=[None,original]),patch.object(perf,'own_remove',side_effect=lambda *args:cleanup_times.append(time.monotonic()-started)),patch.object(perf,'result') as result:
             with self.assertRaises(RuntimeError) as caught:perf.k6(data,'run','rps50',50,300)
         self.assertIs(caught.exception,original);self.assertEqual(len(cleanup_times),1);self.assertLess(cleanup_times[0],1.5)
         self.evidence.append({'scenario':'stage_cleanup','elapsed_to_cleanup_seconds':cleanup_times[0],'original_exception_preserved':True})

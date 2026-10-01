@@ -7,12 +7,16 @@ import html
 import json
 from pathlib import Path
 import re
+import subprocess
 from urllib.parse import quote
 
 from runner import git_value, source_fingerprint
+import source_equivalence as eq
 
 SCENARIOS = ('normal', 'authorization', 'boundary', 'idempotency', 'failure')
 AVAILABLE = ('local_ready', 'local_environment', 'external_pending', 'not_implemented', 'user_paused', 'needs_confirmation')
+EQUIVALENT_NOTE = '旧运行，产品源码输入等价复用；未重跑'
+HISTORICAL_NOTE = '旧源完整子包结果，未计当前整包通过'
 
 
 def _read(path, default):
@@ -69,13 +73,54 @@ def _binding(run, sha):
     return 'current'
 
 
-def _proof(run, record, environment, evidence_ids=()):
-    return {'run_id': run['id'], 'record_id': record.get('id'),
+def _http_equivalence(root, store, plans, source):
+    ids = plans.get('http_source_equivalence_registration_ids', [])
+    if source != eq.NEW_SOURCE or not isinstance(ids, list) or not ids or any(not isinstance(i, str) for i in ids):
+        return None, {}
+    registry = eq.resolve_store_registry(store, root, ids)
+    if not registry:
+        return None, {}
+    try:
+        snapshot = eq.collect_inputs(root)
+        if snapshot.source_sha == source and source_fingerprint(root) == source:
+            return snapshot, registry
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    return None, {}
+
+
+def _http_binding(run, source, snapshot, registry):
+    strict = _binding(run, source)
+    if strict == 'current' or snapshot is None or _binding(run, eq.OLD_SOURCE) != 'current':
+        return strict, None
+    evidence = {'kind': 'http', 'source_tree_sha': run.get('source_tree_sha'),
+                'source_tree_sha_end': run.get('source_tree_sha_end'), 'run_status': run.get('status')}
+    for digest, entry in registry.items():
+        if eq.qualify_http_evidence(snapshot, evidence, {digest: entry}) == 'current_product_inputs_equivalent':
+            return 'current_product_inputs_equivalent', {
+                'source_equivalence_proof_sha': digest,
+                'source_equivalence_registration_id': entry['registration_id'],
+                'source_equivalence_evidence_id': entry['proof_evidence_id'],
+                'source_equivalence_scope': 'http_product_source_inputs_only',
+                'source_binding_note': EQUIVALENT_NOTE}
+    return strict, None
+
+
+def _proof(run, record, environment, evidence_ids=(), binding='current', equivalence=None):
+    proof = {'run_id': run['id'], 'record_id': record.get('id'),
             'source_tree_sha': run.get('source_tree_sha'), 'source_tree_sha_end': run.get('source_tree_sha_end'),
+            'source_binding': binding,
             'git_sha': run.get('sha'), 'environment': environment,
             'evidence_ids': list(evidence_ids), 'evidence_mode': record.get('evidence_mode'),
             'proof_scope': record.get('proof_scope') or record.get('note', ''),
             'upstream_mode': record.get('upstream_mode'), 'run_status': run['status']}
+    # These remain original observed facts, never a binary/platform equivalence.
+    for key in ('actual_binary_sha', 'binary_sha256', 'platform', 'goos', 'goarch'):
+        if key in record:
+            proof[key] = record[key]
+        elif key in run:
+            proof[key] = run[key]
+    return {**proof, **(equivalence or {})}
 
 
 def _package_acceptance(package, runs, cases, source):
@@ -102,6 +147,23 @@ def _package_acceptance(package, runs, cases, source):
     return {'status': 'passed' if complete else 'incomplete', 'reason': '仅此包显式必需场景和同组结果；外部待办不计通过，也不推广为全部功能空间。',
             'evidence': evidence, 'blocking_cases': blockers,
             'external_todos': [{'run_id': latest['id'], 'case_id': c['id'], 'name': c['name'], 'evidence_ids': c.get('_evidence_ids', [])} for c in rows if c['status'] == 'external_todo']}
+
+
+def _historical_scenarios(package, runs, cases, registry):
+    if not registry:
+        return None
+    original = _package_acceptance(package, runs, cases, eq.OLD_SOURCE)
+    if not original.get('evidence'):
+        return None
+    statuses = {run['id']: run.get('status') for run in runs}
+    return {**original, 'source_tree_sha': eq.OLD_SOURCE, 'source_binding': 'historical',
+            'counts_as_current_acceptance': False, 'note': HISTORICAL_NOTE,
+            'evidence': [{**proof, 'original_source_binding': proof['source_binding'],
+                          'source_binding': 'historical', 'run_status': statuses.get(proof['run_id'])}
+                         for proof in original['evidence']],
+            'source_equivalence_registrations': [
+                {'proof_sha': digest, 'registration_id': entry['registration_id'],
+                 'evidence_id': entry['proof_evidence_id']} for digest, entry in sorted(registry.items())]}
 
 
 def _gates(runs, cases, source):
@@ -248,6 +310,8 @@ def get_overview(root, store, source_sha=None):
     main_file = root / 'docs/api/v3-contract.md'
     main = set((m, _path(p)) for m, p in re.findall(r'^\| (GET|POST|PUT|PATCH|DELETE) \| `([^`]+)` \|', main_file.read_text() if main_file.is_file() else '', re.M))
     plans = _read(root / 'tools/testlab/acceptance-plan.json', {})
+    snapshot, registry = _http_equivalence(root, store, plans, source)
+    http_bindings = {}
     plan_routes = {_key(p): p for p in plans.get('route_plans', [])}
     environments = {}
     for rid, kind, row in records:
@@ -269,8 +333,10 @@ def get_overview(root, store, source_sha=None):
         if kind != 'interfaces' or row.get('evidence_mode') == 'source':
             continue
         run = run_map.get(rid, {})
-        binding = _binding(run, source)
-        if binding != 'current':
+        if rid not in http_bindings:
+            http_bindings[rid] = _http_binding(run, source, snapshot, registry)
+        binding, equivalence = http_bindings[rid]
+        if binding not in ('current', 'current_product_inputs_equivalent'):
             rejected[binding] += 1
             continue
         case_id = case_for_record.get(row.get('id'))
@@ -291,7 +357,7 @@ def get_overview(root, store, source_sha=None):
         evidence_ids = actual_case.get('_evidence_ids', [])
         if not evidence_ids:
             rejected['unlinked_or_missing_original_evidence'] += 1
-        proof = _proof(run, row, environments.get(rid, {'status': 'unknown'}), evidence_ids)
+        proof = _proof(run, row, environments.get(rid, {'status': 'unknown'}), evidence_ids, binding, equivalence)
         for scenario, outcome in row.get('scenarios', {}).items():
             if scenario not in SCENARIOS or not isinstance(outcome, dict):
                 continue
@@ -333,12 +399,14 @@ def get_overview(root, store, source_sha=None):
             check_covered = sum(r[mode] == 'verified' for r in selected)
             check_complete = bool(keys) and check_covered == len(selected) == len(keys) and check_scenarios['status'] == 'passed'
             focused.append({**check, 'scenario_acceptance': check_scenarios,
+                            'historical_scenario_acceptance': _historical_scenarios(check, runs, cases, registry),
                             'acceptance_status': 'passed' if check_complete else 'incomplete',
                             'normal_covered': check_covered, 'normal_total': len(keys),
                             'scope': '有界子包证明，不能替代父工作包或真实外部验收。'})
         packages.append({**package, 'normal_total': len(assigned), 'normal_covered': covered,
                          'normal_samples': {'status': normal_status, 'covered': covered, 'total': len(assigned)},
                          'scenario_acceptance': scenario, 'acceptance_status': package_status,
+                         'historical_scenario_acceptance': _historical_scenarios(package, runs, cases, registry),
                          'focused_checks': focused,
                          'acceptance_reason': scenario['reason'],
                          'scope': '正常成功路径子场景；计划状态不代表完整测试包通过。'})
@@ -382,7 +450,7 @@ def get_overview(root, store, source_sha=None):
             'overall_status': 'ready_for_review' if gates and all(g['status'] == 'passed' for g in gates) else 'open', 'source': {'fingerprint': source, 'known': bool(re.fullmatch('[0-9a-f]{64}', source or '')),
             'git_sha': git_value(root, 'rev-parse', 'HEAD'), 'branch': git_value(root, 'branch', '--show-current')},
             'coverage': {'main': {'total': len(main), 'normal_success': len(main) - len(missing), 'missing': len(missing),
-                                 'scope': '当前源码、正式 HTTP 正常成功子场景；不等于完整接口验收或项目完成率。'},
+                                 'scope': '当前源码或已可信登记的产品源码输入等价、正式 HTTP 正常成功子场景；不等于完整接口验收或项目完成率。'},
                          'auxiliary': {'normal_success': len(auxiliary), 'routes': [{'method': m, 'path': p, 'evidence': auxiliary[(m, p)]} for m, p in sorted(auxiliary)]},
                          'protocol_mock': {'normal_success': sum(r['protocol_normal_status'] == 'verified' for r in ordered),
                                            'scope': '当前正式 HTTP 与 PG 的协议 Mock 子场景；不计真实主接口正常覆盖或真实策略强制验收。'},
@@ -400,7 +468,8 @@ def get_overview(root, store, source_sha=None):
                      'binding': 'current' if plans.get('source_tree_sha') == source else 'stale_or_unknown'},
             'limitations': ['没有统一整体完成率：不同验收门槛不能用库存格数或单次运行通过率相加。',
                             '单元、拒绝路径、源码库存、协议 Mock 和历史版本证据分开保留。',
-                            '51 项台账描述保留；缺少源码绑定的叙述未自动升级为当前通过。']}
+                            '51 项台账描述保留；缺少源码绑定的叙述未自动升级为当前通过。',
+                            EQUIVALENT_NOTE + '。仅复用接口证据，不证明二进制或平台等价，不用于完整回归、性能、长稳或工作包场景验收。']}
 
 
 def render_overview_report(data, fmt='json'):
@@ -453,19 +522,39 @@ def render_overview_report(data, fmt='json'):
             scope = {'owner': environment.get('owner', 'unknown'), 'data_source': environment.get('data_source', 'unknown'),
                      'runtime_sha': environment.get('backend', {}).get('runtime_sha', 'unknown'),
                      'postgres_image_id': environment.get('postgres', {}).get('image_id', 'unknown')}
+            if proof.get('source_binding') == 'current_product_inputs_equivalent':
+                scope.update({key: proof[key] for key in ('source_binding_note', 'source_equivalence_proof_sha',
+                              'source_equivalence_registration_id', 'source_equivalence_evidence_id', 'source_equivalence_scope')})
+            scope['source_binding'] = proof.get('source_binding', 'current')
+            for key in ('actual_binary_sha', 'binary_sha256', 'platform', 'goos', 'goarch'):
+                if key in proof:
+                    scope[key] = proof[key]
             lines.append('| ' + ' | '.join(cell(v) for v in (route['method'] + ' ' + route['path'] + ' · ' + proof['scenario'],
                 proof.get('actual_status'), proof['run_id'], proof['source_tree_sha'], json.dumps({**scope, 'evidence_mode': proof.get('evidence_mode'), 'proof_scope': proof.get('proof_scope')}, ensure_ascii=False), ', '.join(proof['evidence_ids']))) + ' |')
+    focused = [c for p in data['work_packages'] for c in p.get('focused_checks', [])]
+    lines.extend(['', f"历史完整已验功能子包：{sum((c.get('historical_scenario_acceptance') or {}).get('status') == 'passed' for c in focused)} / {len(focused)}；当前版本完整子包复验：{sum(c.get('acceptance_status') == 'passed' for c in focused)} / {len(focused)}。历史结果未计当前整包通过。"])
     lines.extend(['', '## 工作包里程碑'])
+    def historical_lines(item, indent):
+        previous = item.get('historical_scenario_acceptance')
+        if not previous:
+            return
+        lines.append(indent + '- ' + HISTORICAL_NOTE + '：' + previous['status'] + '。原源码 ' + previous['source_tree_sha'])
+        for proof in previous['evidence']:
+            lines.append(indent + '  - 历史场景原证据：' + json.dumps(proof, ensure_ascii=False))
+        for registration in previous['source_equivalence_registrations']:
+            lines.append(indent + '  - 展示登记：' + json.dumps(registration, ensure_ascii=False))
     for package in data['work_packages']:
         lines.append('- ' + cell(package.get('title', package['id'])) + '：正常样本 ' + cell(package.get('normal_samples', {}))
                      + '；场景验收 ' + package['scenario_acceptance']['status'] + '；整体 ' + package['acceptance_status'] + '。' + package['acceptance_reason'])
         for proof in package['scenario_acceptance'].get('evidence', []):
             lines.append('  - 明确场景证据：' + json.dumps(proof, ensure_ascii=False))
+        historical_lines(package, '  ')
         for check in package.get('focused_checks', []):
             lines.append('  - 有界子包：' + check['title'] + ' · ' + check['acceptance_status']
                          + ' · ' + check['evidence_mode'] + '。' + check.get('proof_scope', ''))
             for proof in check['scenario_acceptance'].get('evidence', []):
                 lines.append('    - 子包场景证据：' + json.dumps(proof, ensure_ascii=False))
+            historical_lines(check, '    ')
             for blocker in check['scenario_acceptance'].get('blocking_cases', []):
                 lines.append('    - 未通过或缺证据场景：' + json.dumps(blocker, ensure_ascii=False))
     lines.extend(['', '## 51 项缺口及关联范围'])

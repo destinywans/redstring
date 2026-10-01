@@ -1,3 +1,12 @@
+## CP-283 · 2026-10-02 · 当前回归及原入口闭环，整体看板恢复有效进度
+
+- 正式当前源59df五suite **ec0e9eb9-5fda-4c8a-8c37-4aac698df76d** 实际15:47:13.826368Z→16:17:28.045004Z **2556P0F79skip，原总体blocked保留**。五原Go命令均exit0/race/count1，全部2635原terminal精确匹配完整GoJSON/源码始末59df；四专项库schema/ownedPG/BASE/HMAC读回。79行共78原名：49本地原例已在本批30+正式入口16+组件smoke3于当前源真实通过；18无测试包、8用户暂停CI/CD、2付费模型名/3行、1Ollama容量继续可见。49精确原名/package/terminal/exit0/源及证据路径已独立审计，缺失0；不改原skip、不用旧源/HTTP等价替Go、不把三个run隐式洗成全绿。私有regression-next/handoff.json及current-source-skip-closure/proofs49为详细交付。
+- root16原正式后端入口 **69d94870-2fba-408f-80e1-61ca62f34b97** 实跑 **71P0F0skip**，16:18:28.939620Z结束；原GoJSON/race/源始末59df，相关UUIDschema释放，mainbinary89/runtime338/HMAC/PG同。没有额外登记HTTP正常矩阵行；不能用71条冒新HTTP调用。三原组件smoke e59110P及canonical5551的86P均当前源，证据范围独立。
+- 看板只HTTP启用可信940a4c54产品输入等价登记，当前真实主正常 **120/166**、46缺、31辅助；另24协议Mock正常/其中17待真实，不计真实租户。保留原source/run/binary/platform未知与Linux事实，标“旧运行，产品源码输入等价复用；未重跑”；Go/整包/性能/soak资格不改。整体仍open。
+- 实际浏览器发现0/26标题遮住已完成历史，先留截图/首发现再最小改显示：**历史完整已验21/26、当前版本完整子包复验0/26**并列；专项历史2/9单列，原子包必需marker和原始结果可展开，历史不计当前整包通过。QA85离线(42overview+43等价)，root最终42overview绿/Node语法/diffcheck；实际646与正常宽度无横向溢出、warn/error0，HTML/JSON/MD下载实证，0600截图及收据cp283-final。只重载owned8787，正式APIs未重启。
+- e36ea65性能依赖阶段失败停止最小工具修复93离线，099265f当前三smoke交付均已exact推送。当前无测试active；复用HTTP可见会话实施已有只读准备的owned3日TLS轮换/最小daemon保binary89/定向Go TLS及SMTP，连接器会话只读准备显式base-only准入；root负责看板/证据/交付，不并行重负载。旧aiops-24仍PAUSED，完整两档性能与真实24h未开始/未完成。
+- 决策遵循用户“结果不受影响前提下尽快”：保留934输入/126embed的精确两行test-only等价证明，HTTP有效历史复用且明示未重跑；Go真实当前复验；不全量重跑已完叶例或重建基础环境。WAN152上限、Trace全集可信生产链/权威生产者、真实租户/模型、8暂停CI/CD保持HighTODO。产品web/.claude/业务env/DB/其他集群/真实通知不动，不merge/deploy。下一：完成owned证书轮换与源/资源准入，冻结helpers/source/certs，显式base-only→受控scale-only性能，符合支持路径门槛后真实连续86400秒；整体不能因局部绿收口。
+
 ## CP-282 · 2026-10-02 · 当前三个原组件smoke闭环，性能失败链工具最小修复
 
 - 当前59df正式原组件smoke **e5913220-95e7-4088-aab9-8d6541c52784 10P0F0skip0blocked**、21离线通过；3原GoJSON/6terminal均pass，保原-race/-count=1/120s，仅-p1。helper只将GO/BINARY准入绑定59df/actual89，不开放任意hash/等价跳过。独立回读main/HMAC、PG/CID4CPU2GiB、BASE11973905/100/5000/10000/20前后同；UUIDOIDC DBrole/连接0、Gochildrenreaped、18089关闭。单次合成Loki日志按owned组件周期留，不冒30min采集/Grafana/真实组织验收。两文件10bc6601/2730e8c2已释放，私有current-source-parallel交付和三报告完整，oldsmoke证明不改。

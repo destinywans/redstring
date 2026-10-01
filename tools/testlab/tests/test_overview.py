@@ -7,10 +7,13 @@ import tempfile
 import unittest
 import shutil
 import subprocess
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from overview import get_overview, render_overview_report
 from store import Store
+import overview
+import source_equivalence as eq
 
 SOURCE = 'a' * 64
 OLD = 'b' * 64
@@ -441,6 +444,256 @@ console.log(JSON.stringify(root));
         self.assertIn('原始证据历史', report)
         self.assertIn('51 项缺口', report)
         self.assertIn('real tenant', report)
+
+
+class OverviewEquivalenceTests(unittest.TestCase):
+    """Real Store activation, with synthetic exact source inputs only."""
+    run_record = OverviewTests.run_record
+    case = OverviewTests.case
+    http = OverviewTests.http
+
+    def setUp(self):
+        from tools.testlab.tests.test_source_equivalence import StoreResolutionTests
+        self.fixture = StoreResolutionTests(methodName='runTest')
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.doCleanups)
+        self.root, self.store = self.fixture.root, self.fixture.store
+        for scope, group in self.fixture.groups.items():
+            self.store.update('runs', group['run']['id'], selected_suite='equivalence-' + scope)
+        (self.root / 'docs/api').mkdir(parents=True)
+        (self.root / 'docs/api/v3-contract.md').write_text('| GET | `/things` | things |\n')
+        (self.root / 'internal/apicontract').mkdir(parents=True)
+        (self.root / 'internal/apicontract/openapi.json').write_text(json.dumps({'paths': {'/things': {'get': {'tags': ['things']}}}}))
+        (self.root / 'tools/testlab').mkdir(parents=True)
+        self.plan = {'source_tree_sha': eq.NEW_SOURCE,
+                     'http_source_equivalence_registration_ids': [self.fixture.registration_id],
+                     'route_plans': [{'method': 'GET', 'path': '/things', 'package_id': 'p'}],
+                     'packages': [{'id': 'p', 'required_cases': [{'suite': 'api', 'name': 'complete'}]}]}
+        self.write_plan()
+        for target, attribute, value in [(eq, 'collect_inputs', eq.Snapshot(self.fixture.new, self.fixture.embedded)),
+                                         (eq, 'source_fingerprint', eq.NEW_SOURCE),
+                                         (overview, 'source_fingerprint', eq.NEW_SOURCE)]:
+            context = patch.object(target, attribute, return_value=value)
+            context.start()
+            self.addCleanup(context.stop)
+
+    def write_plan(self):
+        (self.root / 'tools/testlab/acceptance-plan.json').write_text(json.dumps(self.plan))
+
+    def old_run(self, status='passed', end=None, suite='api'):
+        return self.run_record(status, eq.OLD_SOURCE, eq.OLD_SOURCE if end is None else end, suite)
+
+    def view(self, **kwargs):
+        return get_overview(self.root, self.store, **kwargs)
+
+    def test_trusted_activation_reuses_http_with_original_source_and_references(self):
+        run, suite = self.old_run(); self.http(run, suite)
+        view = self.view()
+        self.assertEqual(view['coverage']['main']['normal_success'], 1)
+        proof = view['coverage']['routes'][0]['evidence'][0]
+        self.assertEqual(proof['source_binding'], 'current_product_inputs_equivalent')
+        self.assertEqual(proof['source_tree_sha'], eq.OLD_SOURCE)
+        self.assertEqual(proof['source_tree_sha_end'], eq.OLD_SOURCE)
+        self.assertEqual(proof['source_equivalence_proof_sha'], self.fixture.digest)
+        self.assertEqual(proof['source_equivalence_registration_id'], self.fixture.registration_id)
+        self.assertEqual(proof['source_equivalence_evidence_id'], self.fixture.registration['proof']['evidence_id'])
+        self.assertIn('未重跑', proof['source_binding_note'])
+        self.assertTrue(proof['evidence_ids'])
+        with self.store.connect() as conn:
+            stored = json.loads(conn.execute('SELECT data FROM runs WHERE id=?', (run['id'],)).fetchone()[0])
+        self.assertEqual(stored['source_tree_sha'], eq.OLD_SOURCE)
+        self.assertEqual(overview._binding(stored, eq.NEW_SOURCE), 'stale')
+        self.assertEqual(view['runs']['history'][0]['source_binding'], 'stale')
+
+    def test_empty_ids_and_self_reported_plan_flags_cannot_activate(self):
+        run, suite = self.old_run(); self.http(run, suite)
+        for ids in ([], ['invented'], self.fixture.registration_id):
+            self.plan['http_source_equivalence_registration_ids'] = ids
+            self.plan['equivalence_activation'] = dict(self.fixture.activation)
+            self.write_plan()
+            self.assertEqual(self.view()['coverage']['main']['normal_success'], 0)
+
+    def test_old_interrupted_running_queued_unknown_end_never_reuse(self):
+        for status, end in [('interrupted', eq.OLD_SOURCE), ('running', eq.OLD_SOURCE),
+                            ('queued', eq.OLD_SOURCE), ('passed', ''), ('passed', 'unknown'),
+                            ('passed', eq.NEW_SOURCE)]:
+            run, suite = self.old_run(status, end); self.http(run, suite)
+        run, suite = self.old_run()
+        self.store.update('runs', run['id'], source_tree_sha_end=None)
+        self.http(run, suite)
+        self.assertEqual(self.view()['coverage']['main']['normal_success'], 0)
+
+    def test_failed_or_blocked_old_run_keeps_passed_http_sample_and_original_status(self):
+        for status in ('failed', 'blocked'):
+            run, suite = self.old_run(status); self.http(run, suite)
+        view = self.view()
+        self.assertEqual(view['coverage']['main']['normal_success'], 1)
+        self.assertEqual([p['run_status'] for p in view['coverage']['routes'][0]['evidence']], ['failed', 'blocked'])
+
+    def test_source_override_cannot_substitute_actual_current_inputs(self):
+        run, suite = self.old_run(); self.http(run, suite)
+        with patch.object(overview, 'source_fingerprint', return_value=eq.OLD_SOURCE):
+            self.assertEqual(self.view(source_sha=eq.NEW_SOURCE)['coverage']['main']['normal_success'], 0)
+        with patch.object(eq, 'collect_inputs', return_value=eq.Snapshot(self.fixture.old, self.fixture.embedded)):
+            self.assertEqual(self.view(source_sha=eq.NEW_SOURCE)['coverage']['main']['normal_success'], 0)
+
+    def test_mock_conflict_stays_rejected_and_matching_mock_stays_mock(self):
+        run, suite = self.old_run()
+        self.case(run, suite, evidence_mode='protocol_mock')
+        self.store.add_record(run['id'], 'interfaces', {'method': 'GET', 'path': '/api/v1/things',
+            'evidence_mode': 'real_local', 'registration_evidence': True,
+            'scenarios': {'normal': {'status': 'passed', 'actual_status': 200, 'expected_status': 200}}})
+        view = self.view()
+        self.assertEqual(view['coverage']['main']['normal_success'], 0)
+        self.assertEqual(view['coverage']['protocol_mock']['normal_success'], 0)
+        self.assertEqual(view['coverage']['excluded_record_counts']['evidence_mode_conflict'], 1)
+        self.http(run, suite, mode='protocol_mock')
+        view = self.view()
+        self.assertEqual(view['coverage']['main']['normal_success'], 0)
+        self.assertEqual(view['coverage']['protocol_mock']['normal_success'], 1)
+        self.assertEqual(view['coverage']['routes'][0]['protocol_evidence'][0]['source_binding'], 'current_product_inputs_equivalent')
+
+    def test_http_status_parent_case_original_and_registration_gates_remain(self):
+        run, suite = self.old_run()
+        self.http(run, suite, code=403)
+        self.http(run, suite, registered=False)
+        self.http(run, suite, status='blocked')
+        self.store.add_record(run['id'], 'interfaces', {'method': 'GET', 'path': '/things',
+            'evidence_mode': 'real_local', 'registration_evidence': True,
+            'scenarios': {'normal': {'status': 'passed', 'actual_status': 200, 'expected_status': 200}}})
+        self.assertEqual(self.view()['coverage']['main']['normal_success'], 0)
+
+    def test_missing_original_http_evidence_cannot_reuse(self):
+        run, suite = self.old_run(); self.http(run, suite)
+        with self.store.connect() as conn:
+            conn.execute('DELETE FROM evidence WHERE run_id=?', (run['id'],))
+        self.assertEqual(self.view()['coverage']['main']['normal_success'], 0)
+
+    def test_registration_originals_cannot_be_replaced_with_pass_flags(self):
+        run, suite = self.old_run(); self.http(run, suite)
+        self.fixture.change_registration(lambda r: r['original_case'].update(completion={}, status='passed'))
+        self.assertEqual(self.view()['coverage']['main']['normal_success'], 0)
+
+    def test_strict_current_prefers_original_binding_without_registry(self):
+        run, suite = self.run_record(sha=eq.NEW_SOURCE, end=eq.NEW_SOURCE); self.http(run, suite)
+        self.plan['http_source_equivalence_registration_ids'] = []; self.write_plan()
+        proof = self.view()['coverage']['routes'][0]['evidence'][0]
+        self.assertEqual(proof['source_binding'], 'current')
+        self.assertNotIn('source_equivalence_registration_id', proof)
+
+    def test_packages_go_regression_performance_and_soak_do_not_use_http_equivalence(self):
+        run, suite = self.old_run(suite='full'); self.http(run, suite)
+        self.case(run, suite, name='complete')
+        view = self.view()
+        self.assertEqual(view['coverage']['main']['normal_success'], 1)
+        self.assertEqual(view['work_packages'][0]['scenario_acceptance']['status'], 'not_started')
+        self.assertNotEqual(next(g for g in view['gates'] if g['id'] == 'regression')['status'], 'passed')
+        self.assertFalse(any(g['status'] == 'passed' for g in view['gates'] if g['id'].startswith('performance') or g['id'] == 'soak'))
+
+    def test_trusted_history_exposes_old_complete_package_and_focused_without_current_pass(self):
+        self.plan['packages'][0]['focused_checks'] = [{'id': 'subset', 'title': 'old bounded subset',
+            'evidence_mode': 'real_local', 'route_keys': ['GET /api/v1/things'],
+            'required_cases': [{'suite': 'api', 'name': 'subset.complete'}]}]
+        self.write_plan()
+        run, suite = self.old_run(); self.http(run, suite)
+        self.case(run, suite, name='complete'); self.case(run, suite, name='subset.complete')
+        view = self.view(); package = view['work_packages'][0]
+        for item in (package, package['focused_checks'][0]):
+            self.assertNotEqual(item['acceptance_status'], 'passed')
+            self.assertEqual(item['scenario_acceptance']['status'], 'not_started')
+            historical = item['historical_scenario_acceptance']
+            self.assertEqual(historical['status'], 'passed')
+            self.assertEqual(historical['source_tree_sha'], eq.OLD_SOURCE)
+            self.assertFalse(historical['counts_as_current_acceptance'])
+            self.assertIn('旧源完整子包结果，未计当前整包通过', historical['note'])
+            self.assertEqual(historical['source_equivalence_registrations'][0]['registration_id'], self.fixture.registration_id)
+            self.assertTrue(all(p['run_id'] == run['id'] and p['source_tree_sha'] == eq.OLD_SOURCE
+                                and p['run_status'] == 'passed' and p['source_binding'] == 'historical'
+                                and p['evidence_ids'] for p in historical['evidence']))
+        self.assertEqual(view['overall_status'], 'open')
+        for fmt in ('md', 'html'):
+            report = render_overview_report(view, fmt)
+            self.assertIn('旧源完整子包结果，未计当前整包通过', report)
+            self.assertIn(run['id'], report)
+
+    def test_history_requires_trusted_ids_and_ignores_plan_pass_markers(self):
+        run, suite = self.old_run(); self.http(run, suite); self.case(run, suite, name='complete')
+        self.plan['http_source_equivalence_registration_ids'] = []
+        self.plan['packages'][0]['historical_scenario_acceptance'] = {'status': 'passed', 'source_tree_sha': eq.OLD_SOURCE}
+        self.write_plan()
+        historical = self.view()['work_packages'][0].get('historical_scenario_acceptance')
+        self.assertIsNone(historical)
+
+    def test_interrupted_history_is_visible_incomplete_with_original_status(self):
+        run, suite = self.old_run('interrupted'); self.case(run, suite, name='complete')
+        package = self.view()['work_packages'][0]
+        historical = package['historical_scenario_acceptance']
+        self.assertEqual(historical['status'], 'incomplete')
+        self.assertEqual(historical['evidence'][0]['run_status'], 'interrupted')
+        self.assertFalse(historical['counts_as_current_acceptance'])
+        self.assertNotEqual(package['acceptance_status'], 'passed')
+
+    def test_linux_and_unknown_binary_facts_survive_without_platform_equivalence(self):
+        for binary in (None, '0e222b144609dbb39214c5de15111a5e3d0b4e25a60453cafe3aa5884aa6c1fd'):
+            run, suite = self.old_run()
+            self.case(run, suite, evidence_mode='real_local')
+            self.store.add_record(run['id'], 'interfaces', {'method': 'GET', 'path': '/things',
+                'actual_binary_sha': binary, 'platform': 'linux/arm64' if binary else None,
+                'evidence_mode': 'real_local', 'registration_evidence': True,
+                'scenarios': {'normal': {'status': 'passed', 'actual_status': 200, 'expected_status': 200}}})
+        proofs = self.view()['coverage']['routes'][0]['evidence']
+        self.assertEqual([p['actual_binary_sha'] for p in proofs], [None, binary])
+        self.assertEqual([p['platform'] for p in proofs], [None, 'linux/arm64'])
+        self.assertTrue(all(p['source_equivalence_scope'] == 'http_product_source_inputs_only' for p in proofs))
+
+    def test_html_and_markdown_disclose_reuse_and_original_references(self):
+        run, suite = self.old_run(); self.http(run, suite)
+        for fmt in ('md', 'html'):
+            report = render_overview_report(self.view(), fmt)
+            self.assertIn('旧运行，产品源码输入等价复用；未重跑', report)
+            self.assertIn(eq.OLD_SOURCE, report)
+            self.assertIn(self.fixture.registration_id, report)
+            self.assertIn(self.fixture.registration['proof']['evidence_id'], report)
+
+    def test_interface_dom_discloses_reuse_and_links_registration_original(self):
+        if not shutil.which('node'):
+            self.skipTest('Node is required for isolated interface rendering')
+        run, suite = self.old_run(); self.http(run, suite); self.case(run, suite, name='complete')
+        app = Path(__file__).resolve().parents[1] / 'static/app.js'
+        harness = r'''
+const fs=require('fs'),vm=require('vm');
+class Node {
+  constructor(tag){this.tag=tag;this.children=[];this.style={};this.attrs={};this.textContent='';this.value='';}
+  append(...nodes){this.children.push(...nodes);}
+  replaceChildren(...nodes){this.children=nodes;}
+  setAttribute(k,v){this.attrs[k]=String(v);}
+  set innerHTML(value){throw new Error('Unsafe HTML rendering');}
+  get lastChild(){return this.children[this.children.length-1];}
+}
+const root=new Node('root'),inputs={};
+const document={createElement:tag=>new Node(tag),getElementById:id=>id==='interfaces-content'?root:inputs[id]||(inputs[id]=new Node('input'))};
+const source=fs.readFileSync(process.argv[1],'utf8');
+const startup=source.lastIndexOf('  document.querySelectorAll("[data-view]")');
+const data=JSON.parse(fs.readFileSync(0,'utf8'));
+vm.runInNewContext(source.slice(0,startup)+'state.overall='+JSON.stringify(data)+';renderInterfaces();renderOverview();root.append(inputs["overview-content"]);})();',{document,Node,root,inputs});
+console.log(JSON.stringify(root));
+'''
+        result = subprocess.run(['node', '-e', harness, str(app)], input=json.dumps(self.view()),
+                                text=True, capture_output=True, check=True)
+        tree = json.loads(result.stdout)
+        def nodes(node):
+            yield node
+            for child in node.get('children', []):
+                if isinstance(child, dict):
+                    yield from nodes(child)
+        rendered = '\n'.join(str(node.get('textContent', '')) for node in nodes(tree))
+        self.assertIn('旧运行，产品源码输入等价复用；未重跑', rendered)
+        self.assertIn('旧源完整子包结果，未计当前整包通过', rendered)
+        self.assertIn(eq.OLD_SOURCE, rendered)
+        self.assertIn(self.fixture.registration_id, rendered)
+        self.assertIn(self.fixture.digest, rendered)
+        self.assertTrue(any(node.get('href') == '/api/evidence/' + self.fixture.registration['proof']['evidence_id']
+                            for node in nodes(tree)))
 
 
 if __name__ == '__main__':

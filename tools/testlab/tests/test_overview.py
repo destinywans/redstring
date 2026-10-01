@@ -190,6 +190,34 @@ class OverviewTests(unittest.TestCase):
         self.assertEqual(v['coverage']['main']['normal_success'], 0)
         self.assertEqual(v['coverage']['auxiliary']['normal_success'], 1)
 
+    def test_current_partial_regression_is_visible_but_does_not_pass_full_gate(self):
+        old, osuite = self.run_record(sha=OLD, end=OLD, suite='baseline,mfa,passkey,configsync,regressions')
+        self.case(old, osuite, 'historical')
+        r, s = self.run_record(suite='baseline')
+        self.case(r, s, 'current')
+        self.case(r, s, 'special opt-in required', status='skipped')
+        gate = next(g for g in self.overview()['gates'] if g['id'] == 'regression')
+        self.assertEqual(gate['status'], 'incomplete')
+        self.assertEqual(gate['component_progress'][0]['run_id'], r['id'])
+        self.assertEqual(gate['component_progress'][0]['counts'], {'passed': 1, 'skipped': 1})
+        self.assertIn('专项跳过', gate['reason'])
+
+    def test_running_regression_with_pending_source_end_is_progress_only(self):
+        r, s = self.run_record(status='running', end=None, suite='baseline')
+        self.case(r, s, 'observed')
+        gate = next(g for g in self.overview()['gates'] if g['id'] == 'regression')
+        self.assertEqual(gate['status'], 'incomplete')
+        self.assertTrue(gate['component_progress'][0]['source_end_pending'])
+        self.assertIn('进行中', gate['reason'])
+
+    def test_separate_specialty_runs_cannot_implicitly_close_whole_regression(self):
+        for suite in ('baseline', 'mfa', 'passkey', 'configsync', 'regressions'):
+            r, s = self.run_record(suite=suite)
+            self.case(r, s, suite)
+        gate = next(g for g in self.overview()['gates'] if g['id'] == 'regression')
+        self.assertEqual(gate['status'], 'incomplete')
+        self.assertEqual(len(gate['component_progress']), 5)
+
     def test_historical_full_regression_does_not_become_current(self):
         r, s = self.run_record(sha=OLD, end=OLD, suite='baseline,mfa,passkey,configsync,regressions')
         self.case(r, s)

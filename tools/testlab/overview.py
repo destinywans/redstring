@@ -110,9 +110,29 @@ def _gates(runs, cases, source):
                          'ended_at': run.get('ended_at'), 'status': run['status']})
     current = [r for r in full if r['binding'] == 'current']
     regression_passed = any(r['status'] == 'passed' and r['evidence_complete'] and set(r['counts']) <= {'passed'} and r['counts'].get('passed', 0) > 0 for r in current)
+    # A current component run is progress even when it cannot close the full
+    # regression gate. In-flight source_end remains pending, never accepted.
+    component_progress = []
+    required = {'baseline', 'mfa', 'passkey', 'configsync', 'regressions'}
+    for run in runs:
+        selected = set(run.get('selected_suite', '').split(','))
+        pending = run['status'] in ('queued', 'running') and run.get('source_tree_sha') == source
+        if not (selected & required or selected == {'full'}):
+            continue
+        if _binding(run, source) != 'current' and not pending:
+            continue
+        rows = cases.get(run['id'], [])
+        component_progress.append({'run_id': run['id'], 'selected_suite': run.get('selected_suite'),
+            'status': run['status'], 'source_tree_sha': run.get('source_tree_sha'),
+            'source_end_pending': pending, 'counts': dict(collections.Counter(c['status'] for c in rows)),
+            'scope': '当前源码的组件进展；未经明确专项跳过映射和完整必需集合核验，不能推成完整回归通过。'})
+    progressing = any(r['source_end_pending'] for r in component_progress)
+    reason = ('当前源码回归进行中；结束后核对原始结果、源码末指纹与专项跳过，不能提前计通过。' if progressing
+              else '已记录当前源码的部分回归；专项跳过及完整必需集合仍需核对，不能将独立运行隐式拼成通过。' if component_progress and not regression_passed
+              else '完整回归的跳过项还需专项开关与跳过原因核对；历史回归不能替代当前源码验收。')
     gates.append({'id': 'regression', 'title': '当前源码完整回归',
-                  'status': 'passed' if regression_passed else 'incomplete' if current else 'stale' if full else 'not_started',
-                  'reason': '完整回归的跳过项还需专项开关与跳过原因核对；历史回归不能替代当前源码验收。', 'evidence': current, 'history': full})
+                  'status': 'passed' if regression_passed else 'incomplete' if current or component_progress else 'stale' if full else 'not_started',
+                  'reason': reason, 'evidence': current, 'component_progress': component_progress, 'history': full})
     expected = {'warmup': (10, 120), 'rps10': (10, 300), 'rps25': (25, 300), 'rps50': (50, 300), 'burst100': (100, 60)}
     profiles = {'base': [], 'scale': []}
     soak = []

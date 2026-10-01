@@ -1010,5 +1010,22 @@
       ".local/testlab/ingress-functional-regression/offline-marker-scope-first-red.log",
       ".local/testlab/ingress-functional-regression/actual-fix-and-push.json"
     ]
+  },
+  {
+    "id": "0a9e2827-cb74-441f-9527-ba9bcb953100",
+    "title": "测试看板：当前独立回归进展被旧完整运行覆盖",
+    "category": "test_tool",
+    "status": "in_review",
+    "before": "当前baseline单独运行被标not_started或旧full历史下stale；三反例22工具19P3F原红",
+    "after": "22P0F；当前组件/进行中明确显示，完整gate不隐式拼绿，source_end未定只作progress",
+    "source_sha": "fd50ff3d2633e89c9ce641d04f3ea84018b6cb07",
+    "fix_commit": "pending",
+    "local_evidence": [
+      ".local/testlab/current-source-baseline/overview-partial-first-red.log",
+      ".local/testlab/current-source-baseline/overview-partial-green.log",
+      ".local/testlab/current-source-baseline/ui-partial-progress-reload-after.json",
+      ".local/testlab/current-source-baseline/overall-regression-progress.png"
+    ],
+    "product_change_required": false
   }
 ]

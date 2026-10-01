@@ -1,3 +1,12 @@
+## CP-270 · 2026-10-01 · 进行中：当前源完整回归与下一批功能包
+
+- CP269代码ff0/a885及台账 **fd50ff3d2633e89c9ce641d04f3ea84018b6cb07** 均已推送exact remote，WAN136/138/139与原51文档已同步/读回；交付证明a6824633、Git回读b64901f9。94/166真实主、24辅助、6Mock、40首次本地、21需确认/3缺实现/2暂停；原性能/24h未完成与暂停范围保持。
+- fresh doctor53P/SQLite active0/Go6ad准入后唯一现场正式baseline **47be040d-8ee9-4392-86a8-d34266bbd154**，08:51:23.640253Z启动，session10934仅执行会话快照；当前 **running** 不能计通过。固定原命令 -race -count1 -p2 -parallel4/通用aiops_testlab+临时UUID schemas；不使用业务.env/APP/perf资源。专项跳过须逐项核对，不洗绿。代理限定silence两现文件/directory两新文件并行离线，无actual资源；root待baseline结束后再串行新功能包。
+- 用户明确催促并行后，纠正过度的root唯一现场限制：代理已实际独立运行 **81caee0f-c714-44f9-ae99-a240db861dcc passkey,configsync 158P0F0skip**（source_end/原JSON/残余由执行代理读回）；不同专用wan124passkey/wan124test+UUID schemas。接着授权其原regressions专项开关包，与root general UUID schemas隔离，禁止固定资源冲突。silence与directory作者收到freeze/快速集成后自行实际运行授权，各自私有lease/固定端口/UUID库；不共享readonly全局lease人为串行。性能/soak/重型继续独占。不用数量重复冒新增接口覆盖。
+- 回归门槛工具遗漏独立当前源码进展：旧full历史使current baseline显示stale，单独当前suite显示not_started。新增3真正反例 **22工具19P3F首红**保留，最小仅overview聚合补component_progress与pending source_end显示，原完整通过准则不变；修后 **22P0F0skip**。不会把独立专项/未解释skip或running拼成full通过。仅fresh完整argv/lstart/cwd核验重启owned8787只读UI，新PID **9427仅快照**；actual DOM显示当前回归进行中/整体未收口、94/166及历史隔离，JSerror0/646px截图保留；没有API或test进程信号。
+- Tempo独立源审：本轮2.7.2是ingester/WAL/backend，旧latest Kafka/live-store lag理由版本不符；cached BlockMetas poll失败保留previous、搜索超size跳过仍使raw HTTP200可能遗漏。正常raw计数齐/任务metrics不足以背书全集；false→503保护保持。后续需要新candidate的版本限定实际搜索/切块/poll/故障/遗漏反例包，属于本地契约/产品能力需确认，非外部账号依赖；不盲切flag/升级/Mock洗绿。源审不是现场验收，旧首blocked保留。
+- 当前源码/主runtime没改，不恢复旧aiops-24/native CI/CD；baseline尚在进行，全部结果待原Go JSON/skip/source_end/精确残余和三报告核对。上述有界工具修可独立提交，代理未完文件不混入。
+
 ## CP-269 · 2026-10-01 · 当前源MFA、上传Probe和真实入站功能补测交付
 
 - 用户继续授权功能优先；Go **6ad893bb…** /非race **bfeb9b98…** /主runtime **338e1478…** 均保持。旧aiops-24与7native CI/CD仍暂停，没有性能/24h运行；产品web/.claude/主API、canonical/三archive保持。root唯一串行现场，代理仅离线。

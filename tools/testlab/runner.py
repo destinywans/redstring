@@ -303,6 +303,7 @@ class Runner:
         if parser == "command":
             shell_case = self.new_case(spec, suite, command.get("name", " ".join(argv)), argv[0])
             cases[("command", "")] = shell_case
+        command_source_start = source_fingerprint(self.root) if parser == "go_json" else None
         try:
             self.process = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=(os.name == "posix"))
         except OSError as exc:
@@ -406,6 +407,7 @@ class Runner:
                                     continue
                             self.store.add_record(self.run_id, kind, record)
         exit_code = self.process.wait(timeout=3)
+        command_source_end = source_fingerprint(self.root) if parser == "go_json" else None
         self.process = None
         duration = time.monotonic() - started
         if log_size >= MAX_LOG_BYTES:
@@ -418,6 +420,23 @@ class Runner:
             elif parser == "go_json":
                 # Attempts are immutable: link aggregate command evidence separately.
                 self.store.add_record(self.run_id, "environment", {"kind": "command_evidence", "case_id": case["id"], "attempt_id": attempt["id"], "evidence_id": evidence})
+        if parser == "go_json":
+            # Record subprocess facts without modifying immutable test attempts.
+            # Unset Go controls stay unknown; no environment defaults are inferred.
+            completion = {
+                "version": 1, "kind": "go_command_completion",
+                "run_id": self.run_id, "suite_id": suite["id"],
+                "cwd": str(cwd), "argv": argv, "parser": parser,
+                "exit_code": exit_code, "timed_out": timed_out,
+                "cancelled": self.stop.is_set(), "malformed": malformed,
+                "source_tree_sha": command_source_start,
+                "source_tree_sha_end": command_source_end,
+                "go_environment": {key: env.get(key) for key in ("GOFLAGS", "GOWORK", "GOENV")},
+                "command_evidence_id": evidence,
+                "case_attempts": [{"case_id": c["id"], "attempt_id": a["id"]} for c, a in cases.values()],
+            }
+            completion_id = self.store.write_evidence(self.run_id, json.dumps(completion, ensure_ascii=False), mime="application/json", secrets=secrets)
+            self.store.add_record(self.run_id, "environment", {"kind": "go_command_completion", "suite_id": suite["id"], "evidence_ids": [completion_id]})
         if parser != "command" and (not saw_terminal or malformed or timed_out or exit_code != 0) and not self.stop.is_set():
             case, attempt = self.new_case(spec, suite, command.get("name", "命令结果审计"), "runner")
             handled_block = parser == "testlab_json" and exit_code == 2 and saw_terminal and not malformed and not timed_out and any(a.get("status") == "blocked" for _, a in cases.values()) and all(a.get("status") not in ("failed", "running", "queued") for _, a in cases.values())

@@ -102,7 +102,7 @@ class RunnerTests(unittest.TestCase):
         self.root = Path(self.tmp.name)
         (self.root / "tools/testlab").mkdir(parents=True)
 
-    def run_fixture(self, lines, parser="go_json", exit_code=0, extra=None):
+    def run_fixture(self, lines, parser="go_json", exit_code=0, extra=None, source_fingerprints=None):
         fixture = self.root / "fixture.py"
         fixture.write_text("import json\n" + "\n".join("print(" + repr(json.dumps(line)) + ", flush=True)" for line in lines) + f"\nraise SystemExit({exit_code})\n")
         command = {"argv": [sys.executable, str(fixture)], "parser": parser, "timeout_seconds": 5}
@@ -110,8 +110,70 @@ class RunnerTests(unittest.TestCase):
         manifest = self.root / "tools/testlab/suites.json"
         manifest.write_text(json.dumps({"suites": [{"id": "fixture", "commands": [command]}]}))
         runner = Runner(self.root)
-        with patch("runner.source_fingerprint", return_value="fixture-source"):
+        with patch("runner.source_fingerprint", return_value="fixture-source", side_effect=source_fingerprints):
             return runner.run("fixture")
+
+    def completion(self, detail):
+        records = [row for row in detail["environment"] if row.get("kind") == "go_command_completion"]
+        self.assertEqual(len(records), 1)
+        self.assertEqual(len(records[0]["evidence_ids"]), 1)
+        store = Store(self.root)
+        raw, mime = store.read_evidence(records[0]["evidence_ids"][0])
+        self.assertEqual(mime, "application/json")
+        return json.loads(raw), raw, store
+
+    def test_go_completion_preserves_actual_nonzero_exit_and_immutable_attempt_links(self):
+        detail = self.run_fixture([
+            {"Action": "run", "Package": "p", "Test": "TestOne"},
+            {"Action": "pass", "Package": "p", "Test": "TestOne"},
+            {"Action": "pass", "Package": "p"},
+        ], exit_code=3, extra={"env": {"GOFLAGS": "", "GOWORK": "off", "GOENV": "off", "TEST_DSN": "postgres://owned:private-secret@localhost/test"}})
+        self.assertEqual(detail["run"]["status"], "failed")
+        self.assertEqual(detail["summary"]["passed"], 1)
+        self.assertEqual(detail["summary"]["failed"], 1)
+        completion, raw, store = self.completion(detail)
+        self.assertIs(type(completion["exit_code"]), int)
+        self.assertEqual(completion["exit_code"], 3)
+        self.assertEqual(completion["go_environment"], {"GOFLAGS": "", "GOWORK": "off", "GOENV": "off"})
+        self.assertEqual(completion["cwd"], str(self.root.resolve()))
+        self.assertEqual(completion["argv"], [sys.executable, str(self.root / "fixture.py")])
+        self.assertEqual((completion["version"], completion["kind"], completion["parser"]), (1, "go_command_completion", "go_json"))
+        self.assertEqual(completion["run_id"], detail["run"]["id"])
+        self.assertEqual(completion["suite_id"], detail["suites"][0]["id"])
+        self.assertFalse(completion["timed_out"] or completion["cancelled"] or completion["malformed"])
+        case = next(row for row in detail["cases"] if row["name"] == "TestOne")
+        attempt = case["attempts"][0]
+        self.assertEqual(completion["case_attempts"], [{"case_id": case["id"], "attempt_id": attempt["id"]}])
+        self.assertEqual(attempt["evidence_ids"], [])  # terminal Go attempt remains immutable
+        association = next(row for row in detail["environment"] if row.get("kind") == "command_evidence")
+        self.assertEqual(association["evidence_id"], completion["command_evidence_id"])
+        output, _ = store.read_evidence(completion["command_evidence_id"])
+        self.assertTrue(output.startswith(b"\xe5\x91\xbd\xe4\xbb\xa4\xef\xbc\x9a"))
+        self.assertNotIn(b"private-secret", raw + output)
+        self.assertNotIn(b"TEST_DSN", raw)
+        with self.assertRaises(ValueError):
+            store.update("attempts", attempt["id"], status="failed")
+
+    def test_go_completion_keeps_unknown_environment_and_command_source_boundaries(self):
+        detail = self.run_fixture([
+            {"Action": "run", "Package": "p", "Test": "TestOne"},
+            {"Action": "run", "Package": "p", "Test": "TestOne/Child"},
+            {"Action": "pass", "Package": "p", "Test": "TestOne/Child"},
+            {"Action": "pass", "Package": "p", "Test": "TestOne"},
+            {"Action": "pass", "Package": "p"},
+        ], source_fingerprints=["run-source", "command-before", "command-after", "run-source"])
+        self.assertEqual(detail["run"]["status"], "passed")
+        self.assertEqual(detail["summary"]["passed"], 2)
+        self.assertEqual(len(detail["cases"]), 2)
+        completion, _, _ = self.completion(detail)
+        self.assertEqual(completion["exit_code"], 0)
+        self.assertEqual(completion["go_environment"], {"GOFLAGS": None, "GOWORK": None, "GOENV": None})
+        self.assertEqual(completion["source_tree_sha"], "command-before")
+        self.assertEqual(completion["source_tree_sha_end"], "command-after")
+        self.assertEqual({(row["case_id"], row["attempt_id"]) for row in completion["case_attempts"]},
+                         {(case["id"], case["attempts"][0]["id"]) for case in detail["cases"]})
+        detail = self.run_fixture([], parser="command")
+        self.assertFalse(any(row.get("kind") == "go_command_completion" for row in detail["environment"]))
 
     def test_go_results_respect_skip_and_package_failure(self):
         detail = self.run_fixture([

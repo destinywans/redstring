@@ -34,7 +34,7 @@ class EquivalenceTests(unittest.TestCase):
         self.proof = eq.prepare_proof(eq.Snapshot(self.old, self.embedded), self.patch, eq.ORIGINAL_BINARY_SHA)
         self.digest = eq.proof_digest(self.proof)
         self.evidence = {'kind': 'http', 'source_tree_sha': eq.OLD_SOURCE, 'source_tree_sha_end': eq.OLD_SOURCE,
-                         'actual_binary_sha': eq.ORIGINAL_BINARY_SHA}
+                         'actual_binary_sha': eq.ORIGINAL_BINARY_SHA, 'run_status': 'passed'}
         regression = {'status': 'passed', 'source_tree_sha': eq.NEW_SOURCE, 'source_tree_sha_end': eq.NEW_SOURCE,
                       'source_override_used': False, 'race': True, 'command_exit_code': 0, 'run_id': 'c1df5c71-4e9f-461f-9142-babc79bff261',
                       'evidence_ids': ['2dd19d1b-83b5-44c5-8bd2-08efcda0a229']}
@@ -54,7 +54,7 @@ class EquivalenceTests(unittest.TestCase):
 
     def test_explicit_complete_registration_labels_equivalence_without_mutating_record(self):
         before = copy.deepcopy(self.evidence)
-        self.assertEqual(self.qualify(), 'current_product_equivalent')
+        self.assertEqual(self.qualify(), 'current_product_inputs_equivalent')
         self.assertEqual(self.evidence, before)
         self.assertEqual(self.proof['changed_paths'], [eq.FIXTURE])
         self.assertEqual(self.proof['old_inputs']['cmd/data.txt'], self.proof['new_inputs']['cmd/data.txt'])
@@ -73,9 +73,31 @@ class EquivalenceTests(unittest.TestCase):
             with self.subTest(end=end):
                 self.assertEqual(self.qualify(evidence=dict(self.evidence, source_tree_sha_end=end)), 'ineligible')
 
-    def test_wrong_actual_old_binary_is_ineligible(self):
-        for binary in (None, 'f' * 64):
-            self.assertEqual(self.qualify(evidence=dict(self.evidence, actual_binary_sha=binary)), 'ineligible')
+    def test_linux_or_unknown_binary_does_not_change_exact_product_input_qualification(self):
+        linux = '0e222b144609dbb39214c5de15111a5e3d0b4e25a60453cafe3aa5884aa6c1fd'
+        for binary in (None, linux, 'f' * 64):
+            with self.subTest(binary=binary):
+                evidence = dict(self.evidence, actual_binary_sha=binary)
+                before = copy.deepcopy(evidence)
+                self.assertEqual(self.qualify(evidence=evidence), 'current_product_inputs_equivalent')
+                self.assertEqual(evidence, before)
+        evidence = dict(self.evidence)
+        del evidence['actual_binary_sha']
+        before = copy.deepcopy(evidence)
+        self.assertEqual(self.qualify(evidence=evidence), 'current_product_inputs_equivalent')
+        self.assertEqual(evidence, before)
+
+    def test_interrupted_running_or_queued_never_qualify_even_with_source_end(self):
+        for status in ('interrupted', 'running', 'queued'):
+            with self.subTest(status=status):
+                self.assertEqual(self.qualify(evidence=dict(self.evidence, run_status=status)), 'ineligible')
+                current = dict(self.evidence, source_tree_sha=eq.NEW_SOURCE,
+                               source_tree_sha_end=eq.NEW_SOURCE, run_status=status)
+                self.assertEqual(self.qualify(evidence=current), 'ineligible')
+
+    def test_unrelated_original_source_cannot_use_binary_independent_policy(self):
+        evidence = dict(self.evidence, source_tree_sha='f' * 64, actual_binary_sha=None)
+        self.assertEqual(self.qualify(evidence=evidence), 'ineligible')
 
     def test_unregistered_or_modified_proof_rejected(self):
         p = copy.deepcopy(self.proof)
@@ -254,7 +276,7 @@ class StoreResolutionTests(unittest.TestCase):
         resolved = self.resolve()
         self.assertEqual(list(resolved), [self.digest])
         self.assertEqual(resolved[self.digest]['activation']['original_case']['test_names'], self.expected_names)
-        self.assertEqual(eq.qualify_http_evidence(eq.Snapshot(self.new, self.embedded), self.evidence, resolved), 'current_product_equivalent')
+        self.assertEqual(eq.qualify_http_evidence(eq.Snapshot(self.new, self.embedded), self.evidence, resolved), 'current_product_inputs_equivalent')
 
     def test_no_explicit_registration_or_actual_new_source_never_activates(self):
         self.assertEqual(eq.resolve_store_registry(self.store, self.root, []), {})

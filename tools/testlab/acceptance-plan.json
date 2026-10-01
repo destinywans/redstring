@@ -5486,5 +5486,8 @@
       ],
       "proof_scope": "metrics旧模式冲突275条排除，不改SQLite；剔除1错误normal并新增1实际rule-normal，净113/166。仅正常子场景；整体未收口。"
     }
+  ],
+  "http_source_equivalence_registration_ids": [
+    "940a4c54-f90e-443d-94b0-3a65a1c36aff"
   ]
 }

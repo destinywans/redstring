@@ -1,3 +1,5 @@
+**2026-10-01 CP281：** 两行测试夹具已修，当前59df原授权锁与完整v3events race实际86通过；API当前源准入与数据保持已核。三个可见会话并行当前完整回归、3原组件smoke与看板可信HTTP输入等价显示，root统筹16正式入口原例。旧HTTP只标产品输入等价未重跑；Go/性能/24h必须当前真实执行，详见[当前检查点](CHECKPOINT.md)。
+
 **2026-10-01 CP280：** 五配置草稿完整组58P/27offline已验，4真实写normal与1合成历史Mock分开；原自然租约恢复、CAS/丢回包/审计和资源清理闭环。当前120/166真实正常、24Mock，首次本地正常队列0只说明子场景已有或条件已分类，Trace全集/外部/缺实现/完整回归/性能/24h仍未收口。接下来fixture/race/current fullreg，原78skip须逐项解释并核16backend opt-in，详见[当前检查点](CHECKPOINT.md)。
 
 **2026-10-01 CP279：** Trace列表剩余卡点明确为Tempo2.7.2可信全集契约需确认，高待办；本地连通与已知ID读回不冒完整正式正常。旧HTTP精确fixture等价工具41离线通过但尚未接入/激活，必须实际新源原case/race证明；Go/fullreg/perf/soak保持严格新源。草稿现场收尾、另一可见会话提前核完整回归隔离和skip，详见[当前检查点](CHECKPOINT.md)。

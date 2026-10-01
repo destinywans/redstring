@@ -5,6 +5,8 @@ The caller must obtain registry entries and activation evidence from its trusted
 immutable evidence store; a downloaded proof or pass flag is not registration.
 Only HTTP source eligibility can be extended. Existing case/mode/status/original
 artifact checks still apply, and Go, performance and soak gates remain strict.
+The reuse label proves identical product source inputs for this exact transition;
+it makes no claim about an old HTTP record's binary, platform or build identity.
 """
 from __future__ import annotations
 
@@ -194,16 +196,19 @@ def qualify_http_evidence(snapshot, evidence, registered_proofs):
 
     registered_proofs maps immutable proof digests to {proof, activation} entries
     resolved by the parent from its trusted store. This function neither creates
-    that registry nor verifies arbitrary user-supplied pass attestations.
+    that registry nor verifies arbitrary user-supplied pass attestations. The
+    caller must first retain the old run's strict source/end, case and HTTP
+    eligibility checks. actual_binary_sha, if known, remains an unmodified fact;
+    it is not a prerequisite for identical product-source-input qualification.
     """
-    if evidence.get('kind') != 'http':
+    if evidence.get('kind') != 'http' or evidence.get('run_status') in ('interrupted', 'running', 'queued'):
         return 'ineligible'
     start, end = evidence.get('source_tree_sha'), evidence.get('source_tree_sha_end')
     if not start or not end or start == 'unknown' or end == 'unknown':
         return 'ineligible'
     if start == end == snapshot.source_sha:
         return 'current'
-    if snapshot.source_sha != NEW_SOURCE or start != OLD_SOURCE or end != OLD_SOURCE or evidence.get('actual_binary_sha') != ORIGINAL_BINARY_SHA:
+    if snapshot.source_sha != NEW_SOURCE or start != OLD_SOURCE or end != OLD_SOURCE:
         return 'ineligible'
     for digest, entry in registered_proofs.items():
         try:
@@ -219,7 +224,7 @@ def qualify_http_evidence(snapshot, evidence, registered_proofs):
             expected = prepare_proof(Snapshot(old_inputs, snapshot.embedded), patch, ORIGINAL_BINARY_SHA)
             if expected != proof:
                 continue
-            return 'current_product_equivalent'
+            return 'current_product_inputs_equivalent'
         except (KeyError, ValueError, TypeError, AttributeError):
             continue
     return 'ineligible'
@@ -429,8 +434,8 @@ def resolve_store_registry(store, root, registration_ids=()):
                     entry = {'proof': proof, 'activation': activation,
                              'registration_id': ident, 'proof_evidence_id': registration['proof']['evidence_id']}
                     probe = {'kind': 'http', 'source_tree_sha': OLD_SOURCE, 'source_tree_sha_end': OLD_SOURCE,
-                             'actual_binary_sha': ORIGINAL_BINARY_SHA}
-                    if qualify_http_evidence(snapshot, probe, {digest: entry}) == 'current_product_equivalent':
+                             'run_status': 'passed'}
+                    if qualify_http_evidence(snapshot, probe, {digest: entry}) == 'current_product_inputs_equivalent':
                         registry[digest] = entry
                 except (OSError, KeyError, ValueError, TypeError, AttributeError, RecursionError):
                     continue  # A bad candidate cannot qualify or suppress another.

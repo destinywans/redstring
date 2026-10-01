@@ -70,8 +70,8 @@ func newListAuthorityFixture(t *testing.T) (*listClaimFixture, *listAuthorityTra
 		`INSERT INTO application_environments(id,application_id,key,name) VALUES('app-b-dev','app-b','dev','Dev'),('app-c-dev','app-c','dev','Dev')`,
 		`INSERT INTO v3_application_environments(application_id,environment_id) VALUES('app-b','dev'),('app-c','dev')`,
 		`INSERT INTO ops_incidents(id,source_id,application_id,environment_id,fingerprint,title,severity,alert_status,starts_at,updated_at,labels)
-		VALUES('incident-b','fixture','app-b','app-b-dev','fingerprint-b','App B title','warning','firing',now(),now()-interval '1 second','{"application":"app-b","environment":"dev"}'),
-		('incident-c','fixture','app-c','app-c-dev','fingerprint-c','App C title','warning','firing',now(),now()-interval '2 seconds','{"application":"app-c","environment":"dev"}')`,
+		VALUES('incident-b','fixture','app-b','app-b-dev','fingerprint-b','App B title','warning','firing',now(),(SELECT updated_at FROM ops_incidents WHERE id='incident')-interval '1 second','{"application":"app-b","environment":"dev"}'),
+		('incident-c','fixture','app-c','app-c-dev','fingerprint-c','App C title','warning','firing',now(),(SELECT updated_at FROM ops_incidents WHERE id='incident')-interval '2 seconds','{"application":"app-c","environment":"dev"}')`,
 	} {
 		if _, err := f.db.Exec(t.Context(), statement); err != nil {
 			t.Fatal(err)

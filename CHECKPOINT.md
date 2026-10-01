@@ -1,3 +1,12 @@
+## CP-281 · 2026-10-01 · 精确夹具修复及当前源准入，三个可见会话继续并行
+
+- 仅两行 list_authority_guard_test.go fixture 排序时间修正已 canonical；实际源 6ad→59df，934输入只此测试文件变化，126 embed无引用，产品输入e92f前后相同。实际公开Runner **5551ceca-88b7-4fbe-a233-b795b928c9f9** 于15:06:57.701904Z→15:12:15.079966Z **86P0F0skip**：原两授权锁叶及其parent3，完整v3events83，均race/-count=1/原GoJSON、实际源始末59df/exit0；不是overlay或旧源证明。HTML/JSON/MD已导出。
+- Runner completion新增28离线（26旧+2），正式5551已产生两份不可变Go完成证据53f75019/44d796f8，映射真实命令、退出、实际GOFLAGS/GOWORK/GOENV和case/attempt。原解析/计数/默认env未放宽；首次离线红及旧Go夹具红均保留。
+- source_equivalence 43离线及 actual Store registration **940a4c54-f90e-443d-94b0-3a65a1c36aff** resolver1，proof d3046dcb…；只HTTP资格允许精确这次产品输入等价。CP279的“每旧HTTP须bfeb”政策明确被独立XHigh审查纠正：本次只声称产品源码输入相同，不声称binary/platform等价，knownLinux和unknown保持原值。prepare_proof仍保原before bfeb与exact2line/源包络；interrupted/running/queued/unknownend和所有原case/mode/HTTP门槛拒绝。原source和failure/Mock/cleanup不改写，Go/fullreg/perf/soak不复用。看板接线由可见QA会话独占进行中，尚未声称已显示恢复120。
+- root fresh无active/HMAC/owner/PG CID c15f…/4CPU2GiB/BASE OID11973905及100/5000/10000/20后，仅backend.setup重建自有API，15:35:58.405259Z applied_verified：实际非racebinary **89f9348d26d38b79ec0a1cdc2aff2c59508fd6cb033c4f2caff9760e7f4e058b**、Go59df/runtime338未变，profile前后同。没有prepare_all/seed/archive/reset。首准入PG oid JSON字符串类型断言在mutation前止；只转OID int，保原数值和首次错误证据。当前runtime准入私有current-runtime-admission.json，任何控制继续fresh身份，不用登记PID快照。
+- 已将当前完整baseline/mfa/passkey/configsync/regressions交给独立连接器会话实跑；HTTP会话独占3原local smoke当前59df/89准入与原例复验；QA会话独占overview/报告/UI接口等价显示。root完成可信注册与正式入口16原GoJSON manifest准备，等baseline后执行，以免初始CPU/通用PG锁互相影响。不因模型容量故障停全局，root子代理失败未改文件，转已有可见会话；禁止重复启动和扩大到heavy/perf/soak。
+- 旧120/166真实正常、24Mock是6ad对应子场景，不是完整项目完成率。新源全回归及所有必要skip重新验证；Trace全集needs_confirmation High、WAN152上限、真实租户/模型/权威生产者和8CI/CD暂停仍待办。旧aiops-24保持PAUSED，产品web/.claude/业务env/DB/其他集群/真实账号通知不动，不merge/deploy。当前证书不足未来连续24h，须窗口前自有轮换/TLS定向验证；真实24h尚未开始。
+
 **CP280整合guard纠正：** 首次聚合断言失败根因是规则PUT route_plan仍属于local-components，导致真实正常及全部20marker已通过而configuration-gitops focused仅3/4。最小修改测试包归属和旧parent route_keys，原guard现在4/4+1/1通过；原58业务run、断言、normal120和source6ad未改。首红不是瞬时故障，证据e712db9d-d1b9-42d0-abf1-ec44a883e4d2保留完整说明。056fe4b已推送；这项元数据纠正随后单独提交，不把首红说成产品缺陷。
 
 ## CP-280 · 2026-10-01 · 五草稿接口58完整复验交付，下一精确fixture与新源回归

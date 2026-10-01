@@ -140,6 +140,7 @@ class OriginalSmokeTests(unittest.TestCase):
     def original_go(self, terminal='pass', returncode=0, name='TestLocalReadcheck'):
         proc = Mock(returncode=returncode)
         def popen(argv, **kwargs):
+            self.assertEqual('1', argv[argv.index('-p') + 1])
             self.assertIn('-race', argv)
             self.assertIn('-json', argv)
             self.assertIn('-count=1', argv)
@@ -167,6 +168,28 @@ class OriginalSmokeTests(unittest.TestCase):
         with patch.object(smoke, 'source_fingerprint', return_value='other'), patch.object(smoke.ro, 'inspect_pg') as inspect:
             with self.assertRaises(smoke.Blocked):
                 smoke.snapshot({'source_tree_sha': smoke.GO})
+            inspect.assert_not_called()
+
+    def test_current_source_and_binary_match_verified_admission_only(self):
+        self.assertEqual('59df22ad1d9c120f0fb24dfd3c4a3c8e0d3933a8b9cdfd6df5766721ce57537d', smoke.GO)
+        self.assertEqual('89f9348d26d38b79ec0a1cdc2aff2c59508fd6cb033c4f2caff9760e7f4e058b', smoke.BINARY)
+
+    def test_historical_source_blocks_before_binary_or_component_access(self):
+        historical = '6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437'
+        with patch.object(smoke, 'source_fingerprint', return_value=historical), \
+                patch.object(smoke, 'digest') as digest, patch.object(smoke.ro, 'inspect_pg') as inspect:
+            with self.assertRaises(smoke.Blocked):
+                smoke.snapshot({'source_tree_sha': historical})
+            digest.assert_not_called()
+            inspect.assert_not_called()
+
+    def test_historical_binary_blocks_before_component_access(self):
+        historical = 'bfeb9b985ee4ab07c3008cecd5409c611ff58fed928beba563f082071d6d208c'
+        data = {'source_tree_sha': smoke.GO, 'binary': 'owned-binary', 'binary_sha256': historical}
+        with patch.object(smoke, 'source_fingerprint', return_value=smoke.GO), \
+                patch.object(smoke, 'digest', return_value=historical), patch.object(smoke.ro, 'inspect_pg') as inspect:
+            with self.assertRaises(smoke.Blocked):
+                smoke.snapshot(data)
             inspect.assert_not_called()
 
     def test_explicit_scope_constructor_rejects_unowned(self):

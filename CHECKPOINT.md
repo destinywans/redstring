@@ -1,3 +1,11 @@
+## CP-282 · 2026-10-02 · 当前三个原组件smoke闭环，性能失败链工具最小修复
+
+- 当前59df正式原组件smoke **e5913220-95e7-4088-aab9-8d6541c52784 10P0F0skip0blocked**、21离线通过；3原GoJSON/6terminal均pass，保原-race/-count=1/120s，仅-p1。helper只将GO/BINARY准入绑定59df/actual89，不开放任意hash/等价跳过。独立回读main/HMAC、PG/CID4CPU2GiB、BASE11973905/100/5000/10000/20前后同；UUIDOIDC DBrole/连接0、Gochildrenreaped、18089关闭。单次合成Loki日志按owned组件周期留，不冒30min采集/Grafana/真实组织验收。两文件10bc6601/2730e8c2已释放，私有current-source-parallel交付和三报告完整，oldsmoke证明不改。
+- root复现性能编排工具问题：load阶段false后仍继续50/100依赖高负载，违背既定失败停止计划。只加break并登记remaining_stages blocked/未执行列表，保留原五阶段10/25/50/100 RPS、120/300/60秒和阈值；cleanup/SSEclose/resource_recovery/consistency仍执行，首失败和nonzero仍保留。必要2offline先1红1绿，最小修后关联三工具模块 **93P**/py_compile/diffcheck；第一次复验4个本地socket被沙箱禁止，在任何real负载前留证后onlyloopback ephemeral端口require_escalated实际93绿。不是已做性能证明，诊断或Homecapblocked不升级pass。
+- 当前完整五suite **ec0e9eb9-5fda-4c8a-8c37-4aac698df76d** 于15:47:13.826368Z正式启动，fresh53doctor/nonceHMAC/四库/9.60idleCPU及约5.43GB available准入；helper自身CID名/ID比较首红在test前止并记录，未冒产品问题。原完整GoJSON另存避免command长度上限。正在baseline，无产品失败已报告；尚未结束，不以中间counts声明全回归通过。root16正式入口manifest已准备，等baseline完成后执行，3smoke已独立current闭环。
+- QA可见会话正在接口-only可信等价显示，历史完整子包单列且不计当前父包通过；源码分类清单更新59df不改变route/断言。root已推送f5d834891a823368db3ec737fc81e4a71800429d并exactremote读回，WAN136/138/原51保存并WAN138+51freshreadback验证，CP281-delivery0600收据。
+- 当前证书不足未来24h，HTTP会话仅只读准备owned轮换/最小restart/TLS复验，实际操作须在本轮Go/入口结束、性能/24h窗口前。当前runtime59df/89/runtime338冻结；禁止heavy/perf/soak、重复run、业务/产品web/外部通知、合并部署。旧aiops-24仍PAUSED；本轮整体/两档性能/真实24h未收口。
+
 ## CP-281 · 2026-10-01 · 精确夹具修复及当前源准入，三个可见会话继续并行
 
 - 仅两行 list_authority_guard_test.go fixture 排序时间修正已 canonical；实际源 6ad→59df，934输入只此测试文件变化，126 embed无引用，产品输入e92f前后相同。实际公开Runner **5551ceca-88b7-4fbe-a233-b795b928c9f9** 于15:06:57.701904Z→15:12:15.079966Z **86P0F0skip**：原两授权锁叶及其parent3，完整v3events83，均race/-count=1/原GoJSON、实际源始末59df/exit0；不是overlay或旧源证明。HTML/JSON/MD已导出。

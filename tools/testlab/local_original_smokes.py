@@ -19,8 +19,8 @@ from env import _private
 from runner import command_env, source_fingerprint
 from faults import Blocked, private_json
 BASE=ROOT/'.local/testlab/current-local-smokes'
-GO='6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437'
-BINARY='bfeb9b985ee4ab07c3008cecd5409c611ff58fed928beba563f082071d6d208c'
+GO='59df22ad1d9c120f0fb24dfd3c4a3c8e0d3933a8b9cdfd6df5766721ce57537d'
+BINARY='89f9348d26d38b79ec0a1cdc2aff2c59508fd6cb033c4f2caff9760e7f4e058b'
 RUNTIME='338e14784bb40f2d05000a8b76322cc8bea158e65ce3357c014f1111373fe48d'
 PG='c15f900dd06c1026de8b79734eb689f088a5f6d60da3c8a88e618499743ab3a7'
 SOURCE_FILES=['tools/testlab/api_readonly_chain.py','tools/testlab/api_observe_coverage.py','tools/testlab/api_ingress_coverage.py','tools/testlab/identity.py','tools/testlab/env.py','tools/testlab/faults.py','tools/testlab/runner.py','tools/testlab/backend.py']
@@ -148,7 +148,7 @@ def validate_realm(data,cfg,work):
 def go_case(scope,work,package,name,explicit):
     environment=command_env(explicit,{});environment['GOCACHE']=str(ROOT/'.local/go-cache')
     _private(work/(name+'-explicit-env.json'),explicit)
-    argv=['go','test','-mod=readonly','-race','-json','-count=1','-run','^'+name+'$','-timeout','120s',package]
+    argv=['go','test','-mod=readonly','-p','1','-race','-json','-count=1','-run','^'+name+'$','-timeout','120s',package]
     _private(work/(name+'-command.json'),dict(argv=argv,environment_keys=sorted(explicit),scope='original case only; not entire module'))
     started=time.time();out=work/(name+'.go.jsonl');err=work/(name+'.stderr')
     with open(out,'xb') as stdout,open(err,'xb') as stderr:

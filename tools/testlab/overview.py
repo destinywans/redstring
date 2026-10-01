@@ -66,7 +66,8 @@ def _proof(run, record, environment, evidence_ids=()):
             'source_tree_sha': run.get('source_tree_sha'), 'source_tree_sha_end': run.get('source_tree_sha_end'),
             'git_sha': run.get('sha'), 'environment': environment,
             'evidence_ids': list(evidence_ids), 'evidence_mode': record.get('evidence_mode'),
-            'proof_scope': record.get('note', ''), 'run_status': run['status']}
+            'proof_scope': record.get('proof_scope') or record.get('note', ''),
+            'upstream_mode': record.get('upstream_mode'), 'run_status': run['status']}
 
 
 def _package_acceptance(package, runs, cases, source):
@@ -222,6 +223,8 @@ def get_overview(root, store, source_sha=None):
             environments[rid] = row
     routes = {key: {'method': key[0], 'path': key[1], 'module': modules.get(key, '未分类'), 'normal_status': 'missing',
                     'scenario_statuses': {s: 'missing' for s in SCENARIOS}, 'evidence': [], 'failed_evidence': [],
+                    'protocol_normal_status': 'missing', 'protocol_scenario_statuses': {s: 'missing' for s in SCENARIOS},
+                    'protocol_evidence': [], 'protocol_failed_evidence': [],
                     'availability': plan_routes.get(key, {}).get('availability', 'needs_confirmation'),
                     'priority': plan_routes.get(key, {}).get('priority', 'P1'), 'package_id': plan_routes.get(key, {}).get('package_id'),
                     'reason': plan_routes.get(key, {}).get('reason', '尚未分类；需要核对本地测试条件。'),
@@ -238,9 +241,12 @@ def get_overview(root, store, source_sha=None):
         if binding != 'current':
             rejected[binding] += 1
             continue
-        if row.get('evidence_mode') != 'real_local':
+        protocol = row.get('evidence_mode') == 'protocol_mock' or row.get('upstream_mode') == 'protocol_mock'
+        if row.get('evidence_mode') != 'real_local' and not protocol:
             rejected['mock_or_non_http'] += 1
             continue
+        if protocol:
+            rejected['protocol_not_real_acceptance'] += 1
         key = _key(row)
         case_id = case_for_record.get(row.get('id'))
         evidence_ids = case_map.get(case_id, {}).get('_evidence_ids', [])
@@ -262,13 +268,13 @@ def get_overview(root, store, source_sha=None):
                 target = routes[key]
                 entry = {**proof, 'scenario': scenario, 'actual_status': code, 'status': outcome.get('status')}
                 if passed:
-                    target['scenario_statuses'][scenario] = 'verified'
-                    target['evidence'].append(entry)
+                    target['protocol_scenario_statuses' if protocol else 'scenario_statuses'][scenario] = 'verified'
+                    target['protocol_evidence' if protocol else 'evidence'].append(entry)
                     if scenario == 'normal':
-                        target['normal_status'] = 'verified'
+                        target['protocol_normal_status' if protocol else 'normal_status'] = 'verified'
                 elif outcome.get('status') == 'failed':
-                    target['failed_evidence'].append(entry)
-            elif scenario == 'normal' and passed:
+                    target['protocol_failed_evidence' if protocol else 'failed_evidence'].append(entry)
+            elif scenario == 'normal' and passed and not protocol:
                 auxiliary[key].append({**proof, 'scenario': scenario, 'actual_status': code, 'status': outcome.get('status')})
     ordered = sorted(routes.values(), key=lambda r: (r['priority'], r['module'], r['path'], r['method']))
     missing = [r for r in ordered if r['normal_status'] == 'missing']
@@ -280,9 +286,22 @@ def get_overview(root, store, source_sha=None):
         normal_status = 'none' if covered == 0 else 'passed' if covered == len(assigned) else 'partial'
         scenario = _package_acceptance(package, runs, cases, source)
         package_status = 'passed' if normal_status == 'passed' and scenario['status'] == 'passed' else scenario['status'] if scenario['status'] == 'needs_scenario_plan' else 'incomplete'
+        focused = []
+        for check in package.get('focused_checks', []):
+            keys = set(check.get('route_keys', []))
+            selected = [r for r in assigned if r['method'] + ' ' + r['path'] in keys]
+            mode = 'protocol_normal_status' if check.get('evidence_mode') == 'protocol_mock' else 'normal_status'
+            check_scenarios = _package_acceptance(check, runs, cases, source)
+            check_covered = sum(r[mode] == 'verified' for r in selected)
+            check_complete = bool(keys) and check_covered == len(selected) == len(keys) and check_scenarios['status'] == 'passed'
+            focused.append({**check, 'scenario_acceptance': check_scenarios,
+                            'acceptance_status': 'passed' if check_complete else 'incomplete',
+                            'normal_covered': check_covered, 'normal_total': len(keys),
+                            'scope': '有界子包证明，不能替代父工作包或真实外部验收。'})
         packages.append({**package, 'normal_total': len(assigned), 'normal_covered': covered,
                          'normal_samples': {'status': normal_status, 'covered': covered, 'total': len(assigned)},
                          'scenario_acceptance': scenario, 'acceptance_status': package_status,
+                         'focused_checks': focused,
                          'acceptance_reason': scenario['reason'],
                          'scope': '正常成功路径子场景；计划状态不代表完整测试包通过。'})
     gaps = _read(root / 'tools/testlab/gaps.json', [])
@@ -327,6 +346,8 @@ def get_overview(root, store, source_sha=None):
             'coverage': {'main': {'total': len(main), 'normal_success': len(main) - len(missing), 'missing': len(missing),
                                  'scope': '当前源码、正式 HTTP 正常成功子场景；不等于完整接口验收或项目完成率。'},
                          'auxiliary': {'normal_success': len(auxiliary), 'routes': [{'method': m, 'path': p, 'evidence': auxiliary[(m, p)]} for m, p in sorted(auxiliary)]},
+                         'protocol_mock': {'normal_success': sum(r['protocol_normal_status'] == 'verified' for r in ordered),
+                                           'scope': '当前正式 HTTP 与 PG 的协议 Mock 子场景；不计真实主接口正常覆盖或真实策略强制验收。'},
                          'routes': ordered, 'excluded_record_counts': dict(rejected)},
             'runs': {'active': [r for r in history if r['status'] in ('running', 'queued')], 'history': history,
                      'source_binding_counts': dict(collections.Counter(r['source_binding'] for r in history))},
@@ -352,6 +373,7 @@ def render_overview_report(data, fmt='json'):
     lines = ['# AIOps 后端整体验收报告', '', '整体状态：' + data['overall_status'],
              '生成时间：' + data['generated_at'], '源码指纹：' + str(source['fingerprint']),
              f"主接口正常 HTTP 子场景：{coverage['normal_success']} / {coverage['total']}；缺 {coverage['missing']} 项。",
+             f"协议 Mock 正常子场景：{data['coverage'].get('protocol_mock', {}).get('normal_success', 0)} 个主接口；不计上述真实覆盖。",
              coverage['scope'], '', '## 验收门槛']
     lines.extend(f"- {g['title']}：{g['status']}。{g['reason']}" for g in data['gates'])
     lines.extend(['', '## 优先行动'])
@@ -365,19 +387,24 @@ def render_overview_report(data, fmt='json'):
     def cell(value):
         return str(value).replace('|', '\\|').replace('\n', ' ')
     for route in data['coverage']['routes'] + data['coverage']['auxiliary']['routes']:
-        for proof in route['evidence']:
+        for proof in route['evidence'] + route.get('protocol_evidence', []):
             environment = proof.get('environment', {})
             scope = {'owner': environment.get('owner', 'unknown'), 'data_source': environment.get('data_source', 'unknown'),
                      'runtime_sha': environment.get('backend', {}).get('runtime_sha', 'unknown'),
                      'postgres_image_id': environment.get('postgres', {}).get('image_id', 'unknown')}
             lines.append('| ' + ' | '.join(cell(v) for v in (route['method'] + ' ' + route['path'] + ' · ' + proof['scenario'],
-                proof.get('actual_status'), proof['run_id'], proof['source_tree_sha'], json.dumps(scope, ensure_ascii=False), ', '.join(proof['evidence_ids']))) + ' |')
+                proof.get('actual_status'), proof['run_id'], proof['source_tree_sha'], json.dumps({**scope, 'evidence_mode': proof.get('evidence_mode'), 'proof_scope': proof.get('proof_scope')}, ensure_ascii=False), ', '.join(proof['evidence_ids']))) + ' |')
     lines.extend(['', '## 工作包里程碑'])
     for package in data['work_packages']:
         lines.append('- ' + cell(package.get('title', package['id'])) + '：正常样本 ' + cell(package.get('normal_samples', {}))
                      + '；场景验收 ' + package['scenario_acceptance']['status'] + '；整体 ' + package['acceptance_status'] + '。' + package['acceptance_reason'])
         for proof in package['scenario_acceptance'].get('evidence', []):
             lines.append('  - 明确场景证据：' + json.dumps(proof, ensure_ascii=False))
+        for check in package.get('focused_checks', []):
+            lines.append('  - 有界子包：' + check['title'] + ' · ' + check['acceptance_status']
+                         + ' · ' + check['evidence_mode'] + '。' + check.get('proof_scope', ''))
+            for proof in check['scenario_acceptance'].get('evidence', []):
+                lines.append('    - 子包场景证据：' + json.dumps(proof, ensure_ascii=False))
     lines.extend(['', '## 51 项缺口及关联范围'])
     for gap in data['gaps']:
         lines.extend(['', '### ' + str(gap['id']) + ' · ' + gap.get('name', ''),

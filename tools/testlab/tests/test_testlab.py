@@ -204,6 +204,28 @@ class RunnerTests(unittest.TestCase):
         self.assertFalse(any(r.get('evidence_mode')=='real_local' for r in detail['interfaces']))
         self.assertTrue(any(r.get('kind')=='interface_evidence_error' for r in detail['environment']))
 
+    def test_protocol_mock_survives_flat_http_conversion_with_scope(self):
+        row={'method':'PUT','path':'/api/v1/security','scenario':'normal',
+             'expected':{'status':[200]},'actual':{'status':200},'status':'passed',
+             'evidence_mode':'protocol_mock','upstream_mode':'protocol_mock',
+             'proof_scope':'HTTP adapter only; real enforcement unverified'}
+        detail=self.run_fixture([{'name':'protocol.normal','status':'passed',
+                                 'evidence_mode':'protocol_mock','interface':row}],parser='testlab_json')
+        actual=[r for r in detail['interfaces'] if r.get('evidence_mode')!='source']
+        self.assertEqual(len(actual),1)
+        self.assertEqual(actual[0]['evidence_mode'],'protocol_mock')
+        self.assertEqual(actual[0]['upstream_mode'],'protocol_mock')
+        self.assertEqual(actual[0]['proof_scope'],row['proof_scope'])
+        self.assertTrue(actual[0]['registration_evidence'])
+
+    def test_mock_upstream_cannot_claim_real_local_during_conversion(self):
+        row={'method':'GET','path':'/api/v1/security','scenario':'normal',
+             'expected':{'status':[200]},'actual':{'status':200},'status':'passed',
+             'evidence_mode':'real_local','upstream_mode':'protocol_mock'}
+        detail=self.run_fixture([{'name':'false-real','status':'passed','interface':row}],parser='testlab_json')
+        self.assertEqual(detail['run']['status'],'failed')
+        self.assertFalse(any(r.get('evidence_mode')=='real_local' for r in detail['interfaces']))
+
     def test_environment_not_inherited_and_expansion_explicit(self):
         with patch.dict(os.environ, {"TEST_DATABASE_URL": "production", "AIOPS_ENABLE_EXECUTION": "true"}):
             env = command_env({"TEST_DATABASE_URL": "${TEMP_DSN}"}, {"TEMP_DSN": "isolated"})

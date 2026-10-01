@@ -6,7 +6,7 @@
 
 整体只读入口为 `GET /api/overview`；下载 `/api/overview/report.json`、`/api/overview/report.html`、`/api/overview/report.md`，下载时重新核当前持久证据。跨运行事件流 `/api/overview/events` 按事件序号恢复。`report --run-id` 继续导出单次运行报告，不是整体报告。看板默认 `http://127.0.0.1:8787`，没有启动/停止测试或命令执行接口。
 
-当前顺序是先完成剩余工作包稳定综合场景准入，再分批本地真实组件与完整协议 Mock、权限/故障组合及相关回归，重型 GitLab/Argo 串行；最后当前源码完整回归、完整两档性能、连续 24 小时。旧性能优先自动化保持暂停，不因功能正常样本增加而自动恢复。计划建立时 57/166 只保留为历史快照；本轮追加样本到 85/166，当前数仍必须从看板实际证据读取。两包专项场景通过、另外七包场景计划尚待补齐，原 51 项不自动关闭。
+当前顺序是先完成剩余工作包稳定综合场景准入，再分批本地真实组件与完整协议 Mock、权限/故障组合及相关回归，重型 GitLab/Argo 串行；最后当前源码完整回归、完整两档性能、连续 24 小时。旧性能优先自动化保持暂停，不因功能正常样本增加而自动恢复。计划建立时 57/166 只保留为历史快照；CP266追加样本到85/166，CP267达到90/166，另2主接口协议Mock单列，当前数仍必须从看板实际证据读取。两包专项场景通过、另外七包场景计划尚待补齐，原 51 项不自动关闭。
 
 ```sh
 python3 tools/testlab/testlab.py doctor
@@ -21,6 +21,8 @@ python3 tools/testlab/testlab.py run --suite readonly,discovery,management
 python3 tools/testlab/testlab.py run --suite core
 python3 tools/testlab/testlab.py run --suite canvas-native
 python3 tools/testlab/testlab.py run --suite native-projection
+python3 tools/testlab/testlab.py run --suite connectors-functional
+python3 tools/testlab/testlab.py run --suite security-protocol
 python3 tools/testlab/testlab.py run --suite promotion
 python3 tools/testlab/testlab.py run --suite identity,invitations,vault
 python3 tools/testlab/testlab.py run --suite local-live-gates,jenkins
@@ -79,3 +81,5 @@ python3 tools/testlab/profile.py --owner testlab-3cbde3095125 --run <同一操�
 已认证健康或身份校验失败必须传播为失败：默认25RPS、持续测试及恢复采样均不将其转换为CPU/RSS/FD缺失。只有PG、ps、lsof采集本身失败可标指标缺失。限定高负载即使完成测量且之后恢复健康，已观察的健康失败仍锁存，阶段返回非零；完整测量与验证通过分别显示。此闭环80离线回归及独立源审通过，不能代替真实负载结果。
 
 当前生成器固定为4GiB/4CPU，原请求/VUs/速率/时长/断言不变；环境变量不能覆盖。此前2CPU的原50RPS窗口实际完成但健康和SSE失败，两容器cgroup节流证据留存。准备的新联合容量档要求专用PG为4CPU/2GiB：只在没有活动测试、真实签名身份及专用容器CID/标签/镜像/挂载/OID已核对后按CID调整CPU并读回，保留数据和运行实例；prepare默认PG容量仍为2CPU，不能冒同环境性能复现。每次记录实际HostConfig及新冻结，CPU4离线81绿只证明工具声明与命令，不是环境调整或性能通过。两配额同时变化仅证明联合档，不归因单个组件，不能覆盖旧2CPU结果或作为生产SLA。
+
+有界功能子包在整体页单列，需要稳定场景、正常HTTP原证据、源码始末一致与精确清理共同满足；子包绿不能把父包升级为完成。`connectors-functional` 使用新UUID库/角色、18606/18607和自有18612readiness relay，仅转发owned Prometheus；503注入不称Prom故障。`security-protocol` 使用独立UUID库、18602/18603、自有18614 HTTPS Mock、0600临时CA/token；验证外部成功丢响应时unknown与跨实例重复外写保护，真实安全强制和人工reconcile保持高待办。

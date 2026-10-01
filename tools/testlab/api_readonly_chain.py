@@ -496,6 +496,18 @@ class Chain:
         emit('readonly.fresh_database', 'passed', dict(database=self.database, user=self.db_user, owner=OWNER,
              synthetic_input=True, postgres_superuser=False, shared_app_database_touched=False))
 
+    def startup_environment(self):
+        """Trusted test subclasses may add their explicitly guarded dependencies."""
+        return {}
+
+    def apply_startup_environment(self, variables):
+        extra = self.startup_environment()
+        if (not isinstance(extra, dict) or set(extra).intersection(variables) or
+                any(not isinstance(key, str) or not re.fullmatch(r'[A-Z][A-Z0-9_]*', key) or
+                    not isinstance(value, str) or '\x00' in value for key, value in extra.items())):
+            raise Blocked('startup extension must preserve isolated database, address and model settings')
+        return dict(variables, **extra)
+
     def start(self):
         self.frozen()
         for index, port in enumerate(PORTS):
@@ -513,6 +525,7 @@ class Chain:
                 OPENAI_MODEL='readonly-synthetic', OPENAI_API_KEY='synthetic-no-inference',
                 OPENAI_BASE_URL='http://127.0.0.1:9/v1', EMBEDDING_PROVIDER='openai',
                 EMBEDDING_MODEL='readonly-synthetic', EMBEDDING_API_KEY='synthetic-no-embedding', EMBEDDING_BASE_URL='http://127.0.0.1:9/v1')
+            variables = self.apply_startup_environment(variables)
             log = os.open(self.work / ('api-' + str(index) + '.log'), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             try:
                 with acquisition_signals():

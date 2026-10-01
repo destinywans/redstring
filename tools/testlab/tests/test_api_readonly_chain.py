@@ -195,6 +195,33 @@ class ReadonlyProtectionTests(unittest.TestCase):
             self.assertEqual(dsn.path, '/' + self.chain.database)
             self.assertNotIn(self.chain.db_password, str(call.args))
 
+    def test_startup_extension_defaults_to_unchanged_isolated_environment(self):
+        base = {'DATABASE_URL': 'owned-db', 'AIOPS_ADDR': '127.0.0.1:18602'}
+        self.assertEqual(self.chain.apply_startup_environment(base), base)
+        self.assertEqual(base['DATABASE_URL'], 'owned-db')
+
+    def test_startup_extension_cannot_replace_isolation_or_model_boundaries(self):
+        base = {'DATABASE_URL': 'owned-db', 'AIOPS_ADDR': 'owned-port', 'OPENAI_BASE_URL': 'disabled'}
+        for key in base:
+            with self.subTest(key=key), patch.object(self.chain, 'startup_environment',
+                    return_value={key: 'foreign'}, create=True), self.assertRaises(readonly.Blocked):
+                self.chain.apply_startup_environment(base)
+
+    def test_startup_extension_rejects_invalid_environment_before_launch(self):
+        for extra in ([], {'bad-name': 'x'}, {'EXTRA': None}, {'EXTRA': 'bad\x00value'}):
+            with self.subTest(extra=extra), patch.object(self.chain, 'startup_environment',
+                    return_value=extra, create=True), self.assertRaises(readonly.Blocked):
+                self.chain.apply_startup_environment({'DATABASE_URL': 'owned-db'})
+
+    def test_startup_extension_explicit_authority_preserves_original_mapping(self):
+        base = {'DATABASE_URL': 'owned-db', 'AIOPS_ADDR': 'owned-port'}
+        extra = {'AIOPS_V3_SECURITY_AUTHORITY_URL': 'https://127.0.0.1:18614',
+                 'SSL_CERT_FILE': '/owned/run/ca.pem'}
+        with patch.object(self.chain, 'startup_environment', return_value=extra, create=True):
+            result = self.chain.apply_startup_environment(base)
+        self.assertEqual(result, dict(base, **extra))
+        self.assertEqual(base, {'DATABASE_URL': 'owned-db', 'AIOPS_ADDR': 'owned-port'})
+
     def test_role_database_creation_refuses_adoption_and_never_changes_shared_inputs(self):
         with patch.object(self.chain, 'frozen'), patch.object(self.chain, 'pg', return_value='{"role":true,"database":false}') as pg, \
              self.assertRaises(readonly.Blocked):

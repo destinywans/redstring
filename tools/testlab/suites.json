@@ -701,10 +701,14 @@
       "evidence_mode": "real_local",
       "formal_performance_acceptance": false,
       "formal_24h_acceptance": false,
-      "verification_scope": "five existing main targets; fresh UUID DB/18610/18611; native HTTP producers and transactional readback; no model or notifications; mappings prove configuration only",
+      "verification_scope": "七个主目标：原生事件peek/timeline/candidates、HTTP bulk claim与画布私有模板；memory仅合法空/partial/unavailable，不证明facts/conflicts生产者或bulk silence/investigate",
       "commands": [
         {
-          "argv": ["python3", "tools/testlab/api_native_projection_coverage.py", "--live"],
+          "argv": [
+            "python3",
+            "tools/testlab/api_native_projection_coverage.py",
+            "--live"
+          ],
           "parser": "testlab_json",
           "timeout_seconds": 900,
           "cleanup_grace_seconds": 45
@@ -793,6 +797,52 @@
       "gap_ids": [
         37,
         40
+      ]
+    },
+    {
+      "id": "connectors-functional",
+      "name": "正式连接器生命周期、权限与真实Prometheus恢复",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "verification_scope": "六个主接口与辅助启用生命周期；真实owned Prometheus只/-/ready，relay注入503，不证明凭据/Agent/指标查询",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_components_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        14,
+        46
+      ]
+    },
+    {
+      "id": "security-protocol",
+      "name": "正式安全策略接口、HTTPS Mock与未知结果保护",
+      "type": "integration",
+      "evidence_mode": "protocol_mock",
+      "verification_scope": "两主接口的正式Go/PG协议适配与台账；HTTPS Mock不证明真实安全强制，丢响应保unknown且拒绝重复apply",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_source_protocol_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        23,
+        24
       ]
     },
     {

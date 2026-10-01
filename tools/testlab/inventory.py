@@ -18,6 +18,9 @@ def interfaces(root):
                    'note':'源码契约声明；包含历史和条件式路由，正式V3注册及五类场景须分别核验'}
 
 def actual_interface(row):
+    mode=row.get('evidence_mode','real_local')
+    if mode not in ('real_local','protocol_mock') or (row.get('upstream_mode')=='protocol_mock' and mode!='protocol_mock'):
+        raise ValueError('explicit HTTP evidence mode must preserve protocol Mock scope')
     scenario=row['scenario']
     if scenario not in SCENARIOS:raise ValueError('unknown interface scenario')
     actual=row['actual'];expected=row['expected']
@@ -33,9 +36,10 @@ def actual_interface(row):
         raise ValueError('canonical local interface method/path required')
     # 401/403 can originate in middleware before a handler is selected.
     registered=(bool(row.get('registration_evidence')) or (row['status']=='passed' and 200<=actual_status<300)) and actual_status not in (401,403,404)
-    return {'method':method,'path':path,'evidence_mode':'real_local',
+    return {'method':method,'path':path,'evidence_mode':mode,
             'scenarios':{scenario:{'status':row['status'],'expected_status':expected_codes[0] if len(expected_codes)==1 else list(expected_codes),'actual_status':actual_status,'expected_detail':expected,'actual_detail':actual}},
             'registration_evidence':registered,'test_name':row.get('test_name'),
+            'upstream_mode':row.get('upstream_mode'), 'proof_scope':row.get('proof_scope',''),
             'note':'正式双V3实例真实HTTP断言；'+('响应支持已注册路径' if registered else '本次响应不单独证明路由注册')}
 
 def attach_defects(store,run_id):

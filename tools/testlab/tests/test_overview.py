@@ -94,6 +94,46 @@ class OverviewTests(unittest.TestCase):
             'registration_evidence': True, 'scenarios': {'normal': {'status': 'passed', 'actual_status': 200, 'expected_status': 200}}})
         self.assertEqual(self.overview()['coverage']['main']['normal_success'], 0)
 
+    def test_protocol_evidence_is_visible_without_promoting_real_normal_coverage(self):
+        r,s=self.run_record(); self.http(r,s,mode='protocol_mock')
+        v=self.overview(); route=next(x for x in v['coverage']['routes'] if x['method']=='GET')
+        self.assertEqual(v['coverage']['main']['normal_success'],0)
+        self.assertEqual(v['coverage']['protocol_mock']['normal_success'],1)
+        self.assertEqual(route['protocol_normal_status'],'verified')
+        self.assertTrue(route['protocol_evidence'][0]['evidence_ids'])
+        self.assertEqual(route['scenario_statuses']['normal'],'missing')
+        self.assertIn('协议 Mock 正常子场景：1',render_overview_report(v,'md'))
+        self.store.update('runs',r['id'],status='interrupted')
+        self.assertEqual(self.overview()['coverage']['protocol_mock']['normal_success'],0)
+
+    def test_focused_subset_cannot_close_parent_package_and_latest_failure_is_visible(self):
+        p=self.root/'tools/testlab/acceptance-plan.json'; plan=json.loads(p.read_text())
+        plan['packages'][0]['focused_checks']=[dict(id='subset',title='protocol subset',evidence_mode='protocol_mock',
+            proof_scope='protocol only',route_keys=['GET /api/v1/things'],
+            required_cases=[dict(suite='protocol',name='subset.complete')])]
+        p.write_text(json.dumps(plan))
+        r,s=self.run_record(suite='protocol'); self.http(r,s,mode='protocol_mock'); self.case(r,s,name='subset.complete')
+        v=self.overview(); check=v['work_packages'][0]['focused_checks'][0]
+        self.assertEqual(check['scenario_acceptance']['status'],'passed')
+        self.assertEqual(check['acceptance_status'],'passed')
+        self.assertEqual(check['normal_covered'],1)
+        self.assertEqual(v['work_packages'][0]['acceptance_status'],'needs_scenario_plan')
+        r2,s2=self.run_record(status='failed',suite='protocol'); self.case(r2,s2,name='subset.complete',status='failed')
+        check=self.overview()['work_packages'][0]['focused_checks'][0]
+        self.assertEqual(check['scenario_acceptance']['status'],'incomplete')
+        self.assertEqual(check['scenario_acceptance']['evidence'][0]['run_id'],r2['id'])
+
+    def test_focused_marker_without_route_proof_cannot_pass_subset(self):
+        p=self.root/'tools/testlab/acceptance-plan.json';plan=json.loads(p.read_text())
+        plan['packages'][0]['focused_checks']=[dict(id='subset',title='subset',evidence_mode='real_local',
+            route_keys=['GET /api/v1/things'],required_cases=[dict(suite='api',name='subset.complete')])]
+        p.write_text(json.dumps(plan))
+        r,s=self.run_record();self.case(r,s,name='subset.complete')
+        check=self.overview()['work_packages'][0]['focused_checks'][0]
+        self.assertEqual(check['scenario_acceptance']['status'],'passed')
+        self.assertEqual(check['normal_covered'],0)
+        self.assertEqual(check['acceptance_status'],'incomplete')
+
     def test_registered_but_missing_evidence_file_is_excluded(self):
         r, s = self.run_record(); self.http(r, s)
         self.assertEqual(self.overview()['coverage']['main']['normal_success'], 1)

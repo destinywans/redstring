@@ -148,7 +148,9 @@
     "required": "逐模块最小权限账户、固定源范围/内容样例；MCP发现不等于工具执行。",
     "source": "CP-085、093、162、165～167；WAN-122",
     "status": "queued",
-    "evidence_mode": "pending"
+    "evidence_mode": "pending",
+    "completed_subscenarios": "CP267 当前Go6ad正式连接器962cba41 60P：六主接口readiness/生命周期/权限/恢复/审计；上游owned真实Prom，503仅自有relay注入；不证明凭据、Agent工具或外部租户。",
+    "proof_scope": "仅明确当前源码绑定的有界子场景；Mock、真实来源与未验实际能力分开，整项未收口。"
   },
   {
     "id": 15,
@@ -240,7 +242,9 @@
     "required": "实现/提供能持久幂等 apply、完整 snapshot 和实时控制的 authority。",
     "source": "CP-198；internal/v3security/README.md",
     "status": "not_implemented",
-    "evidence_mode": "pending"
+    "evidence_mode": "pending",
+    "completed_subscenarios": "CP267 security-protocol 6263b675 27P及关联补强859cd26a 28P：正式双V3/UUID PG、HTTPS Mock snapshot/apply、401/403、428/412、429一次、exact operation/audit/applied关联。仅协议适配，不证明真正安全强制。",
+    "proof_scope": "仅明确当前源码绑定的有界子场景；Mock、真实来源与未验实际能力分开，整项未收口。"
   },
   {
     "id": 24,
@@ -249,7 +253,9 @@
     "required": "受控按原 operation ID 对账工具、权威回执及审计，不能删台账解锁。",
     "source": "internal/v3security/README.md:17-21",
     "status": "not_implemented",
-    "evidence_mode": "pending"
+    "evidence_mode": "pending",
+    "completed_subscenarios": "CP267 859cd26a：Mock apply已成功丢响应→unknown+完整操作/审计关联，applied保旧；跨实例GET503/PUT409且无重复外写。公开/自动reconcile未实现，未删pending恢复，不关闭本项。",
+    "proof_scope": "仅明确当前源码绑定的有界子场景；Mock、真实来源与未验实际能力分开，整项未收口。"
   },
   {
     "id": 25,

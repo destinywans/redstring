@@ -1376,19 +1376,19 @@
       "method": "GET",
       "path": "/api/v1/metrics/dashboard",
       "module": "资源与观测",
-      "availability": "local_environment",
+      "availability": "user_paused",
       "priority": "P1",
-      "package_id": "local-components",
-      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "package_id": "paused-delivery",
+      "reason": "正常指标Dashboard强制要求1小时内原生成功deployment与rollback marker；缺任一返回503 dashboard_markers_unavailable。该生产链属于暂停的原生CI/CD，不能仅安装Prom或SQL造marker关闭。",
       "prerequisites": [
-        "参见工作包 local-components 的隔离与证据前置"
+        "用户后续恢复原生CI/CD gate；正式生产部署、回滚events/executions/plans/action_plans结果并处于1h真实窗口"
       ],
       "source_refs": [
-        "tools/testlab/components.py",
-        "tools/testlab/silence_chain.py",
-        "cmd/aiops/v3.go"
+        "internal/v3observe/metrics.go:144",
+        "internal/v3observe/metrics.go:289",
+        "internal/v3observe/metrics.go:626"
       ],
-      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+      "proof_scope": "正常聚合DTO尚未验；拒绝/缺marker路径不代替成功生产链。"
     },
     {
       "method": "POST",
@@ -3154,7 +3154,6 @@
         "GET /api/v1/services/{id}/resilience",
         "POST /api/v1/services/{id}/resilience/proposals",
         "GET /api/v1/topology",
-        "GET /api/v1/metrics/dashboard",
         "POST /api/v1/metrics/ask",
         "GET /api/v1/traces",
         "GET /api/v1/traces/{id}",
@@ -3178,7 +3177,74 @@
         "POST /api/v1/service-mappings/discover",
         "POST /api/v1/members/invitations"
       ],
-      "scenario_plan_status": "needs_scenario_plan"
+      "scenario_plan_status": "needs_scenario_plan",
+      "focused_checks": [
+        {
+          "id": "connectors-functional",
+          "title": "连接器生命周期、权限与真实Prometheus恢复",
+          "command": "python3 tools/testlab/testlab.py run --suite connectors-functional",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "GET /api/v1/connectors",
+            "GET /api/v1/connectors/{id}",
+            "POST /api/v1/connectors/{id}/test",
+            "PATCH /api/v1/connectors/{id}",
+            "POST /api/v1/connectors",
+            "GET /api/v1/connector-types/{type}"
+          ],
+          "proof_scope": "六主接口与辅助启用，真实Prometheus readiness；503在自有relay注入。只证明登记/状态/偏好/审计，不证明凭据、指标或Agent执行。",
+          "required_cases": [
+            {
+              "suite": "connectors-functional",
+              "name": "components.connector.register"
+            },
+            {
+              "suite": "connectors-functional",
+              "name": "components.connector.authorization"
+            },
+            {
+              "suite": "connectors-functional",
+              "name": "components.connector.activation_failure"
+            },
+            {
+              "suite": "connectors-functional",
+              "name": "components.connector.activation"
+            },
+            {
+              "suite": "connectors-functional",
+              "name": "components.connector.patch"
+            },
+            {
+              "suite": "connectors-functional",
+              "name": "components.connector.probe_failure"
+            },
+            {
+              "suite": "connectors-functional",
+              "name": "components.connector.recovery"
+            },
+            {
+              "suite": "connectors-functional",
+              "name": "components.connector.revocation"
+            },
+            {
+              "suite": "connectors-functional",
+              "name": "components.connector.audit_consistency"
+            },
+            {
+              "suite": "connectors-functional",
+              "name": "components.relay_cleanup"
+            },
+            {
+              "suite": "connectors-functional",
+              "name": "management.cleanup"
+            },
+            {
+              "suite": "connectors-functional",
+              "name": "management.complete"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "local-source-protocols",
@@ -3209,7 +3275,58 @@
         "GET /api/v1/security",
         "PUT /api/v1/security"
       ],
-      "scenario_plan_status": "needs_scenario_plan"
+      "scenario_plan_status": "needs_scenario_plan",
+      "focused_checks": [
+        {
+          "id": "security-protocol",
+          "title": "安全策略HTTPS协议、ETag与丢响应未知状态保护",
+          "command": "python3 tools/testlab/testlab.py run --suite security-protocol",
+          "evidence_mode": "protocol_mock",
+          "route_keys": [
+            "GET /api/v1/security",
+            "PUT /api/v1/security"
+          ],
+          "proof_scope": "真实双V3/PG适配器，HTTPS上游为协议Mock；上游成功丢响应→unknown→503/409禁止重写。真实安全强制与人工unknown恢复仍高待办。",
+          "required_cases": [
+            {
+              "suite": "security-protocol",
+              "name": "protocol.https_ready"
+            },
+            {
+              "suite": "security-protocol",
+              "name": "protocol.security.normal"
+            },
+            {
+              "suite": "security-protocol",
+              "name": "protocol.security.authorization"
+            },
+            {
+              "suite": "security-protocol",
+              "name": "protocol.security.preconditions"
+            },
+            {
+              "suite": "security-protocol",
+              "name": "protocol.security.upstream_429"
+            },
+            {
+              "suite": "security-protocol",
+              "name": "protocol.security.response_loss"
+            },
+            {
+              "suite": "security-protocol",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "security-protocol",
+              "name": "readonly.complete"
+            },
+            {
+              "suite": "security-protocol",
+              "name": "protocol.security.operation_linkage"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "configuration-gitops",
@@ -3280,7 +3397,8 @@
       ],
       "proof_scope": "用户暂停，不能由规则GitOps绿替代应用交付证据",
       "route_keys": [
-        "GET /api/v1/changes"
+        "GET /api/v1/changes",
+        "GET /api/v1/metrics/dashboard"
       ],
       "scenario_plan_status": "needs_scenario_plan"
     }
@@ -3464,5 +3582,13 @@
     ],
     "proof_scope": "仅所列当前Go始末一致的正式本地功能样本及明确必需场景；不自动关闭51原缺口、完整两档性能、24h或非空记忆生产者。"
   },
-  "execution_order": "先定义剩余7包的综合场景验收准入→本地轻型真实组件/完整协议Mock→权限与故障组合/相关回归→重型配置GitOps串行→当前源码完整回归→完整两档性能→连续真实24h；旧性能优先自动化保持暂停。"
+  "execution_order": "先定义剩余7包的综合场景验收准入→本地轻型真实组件/完整协议Mock→权限与故障组合/相关回归→重型配置GitOps串行→当前源码完整回归→完整两档性能→连续真实24h；旧性能优先自动化保持暂停。",
+  "decision_history": [
+    {
+      "date": "2026-10-01",
+      "decision": "按用户继续授权新增两有界功能子包；父包综合验收仍未完成，Mock独立计数。metrics/dashboard依据源码移入暂停CI/CD生产链。",
+      "decided_by": "Codex under user-authorized autonomous choices",
+      "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437"
+    }
+  ]
 }

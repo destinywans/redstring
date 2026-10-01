@@ -81,3 +81,16 @@
 - 需要确认：`RecordConflict` 的正式非空冲突生产入口，以及 MCP 注册/环境绑定/发现链在正式 V3 的实际可用性；模块测试不能独自替代这两条业务入口。
 - 需要确认：旧压测中断留下的本轮 synthetic SSE running 行，清理前必须核精确所属 run、保留证据；不能删业务行或报已恢复。
 - 后续功能运行结果仅从 SQLite、源始末和登记证据复核后更新；本计划不填造完成时间、吞吐或全覆盖。
+
+
+## CP267 追加：连接器与安全策略协议子包
+
+保持 Go6ad、bfeb非race二进制及主runtime338冻结，独立用例并行实现，实际运行串行。`962cba41-56db-4c5d-a48d-8ebc4fc67bfd`连接器60通过，六主目标均有正常HTTP（其中一条已有证据，所以主正常覆盖85→90，不是91）；同owner真实Prometheus精确readiness，relay503故障、reader/跨环境/撤权、工具偏好、跨实例恢复和七条审计一致。UUID库/role、双API与relay精确清理，原canonical与归档不改。
+
+`6263b675-43fb-4ed1-bb3d-7cd20fca6446`安全协议27通过保留。交叉审查后补精确operation/scope/actor/controls/revision与审计target关联，错关联反例首红25例21P4F，修后31离线通过；原suite另新`859cd26a-089d-43f6-947f-5b8646d3c00a`28通过、无失败/跳过。上游成功后丢响应时保unknown，applied仍旧revision，跨实例GET503/PUT409且没有重复apply；原证据不覆写。HTTPS Mock临时CA/token0600，正式Go/UUID PG，但上游protocol_mock：两主接口正常协议证据单列，不抬成真实权威生效。真实策略强制和按原operation ID人工reconcile仍高待办。
+
+首次两例证明`actual_interface`会丢Mock标签并硬编码real_local，已修保留模式/范围，矛盾模式fail closed；26工具回归及真实协议接口记录验证。新增子包必须同时满足当前源稳定marker与对应正常接口原证据，空route或单marker不自动通过。父包综合仍未完成，2/9既定整包专项不变；本轮两个有界子包独立显示，不能借2/2洗绿父包。150受影响工具回归通过，仅工具/本地夹具，不是全Go回归。
+
+当前真实正常90/166，辅助21，协议Mock正常2主接口另列；缺76=54本地环境/协议Mock+17需确认+3缺实现+2用户暂停（另真实外部4组）。新增暂停路由为metrics/dashboard：loadDashboardMarkers强制成功deployment/rollback events及execution/plan关联、buildDashboard需1h窗口，缺任一503；属于暂停native CI/CD生产链，不SQL造marker，也不恢复暂停链。source refs internal/v3observe/metrics.go:144/289/626。
+
+下一独立实现批：本地真实logs与Trace detail优先；Trace列表要求实证fail-on-live-store-lag完整搜索能力，当前配置false，不擅自切true冒全量正常。个人资料/值班四路HTTPS Mock：上游只读snapshot，本地PG修改；读响应丢失要验证503且本地不变，不套安全外写unknown语义。两批尚未实际执行前不填通过。MFA、知识源/MCP、Vault/SMTP/IdP及其他必要P1仍继续，性能/24h不启动，旧自动化继续暂停。

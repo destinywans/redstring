@@ -1,3 +1,15 @@
+## CP-267 · 2026-10-01 · 连接器真实功能与安全HTTPS协议闭环，继续下一批补测
+
+- 用户“那继续吧”恢复CP266功能优先范围；原计划隔离/只后端/不恢复7nativeCI-CD/不默认性能与24h保持。沿用WAN136/138/139及测试分支，提交前HEAD63496b285f24ec562a17d88b0616b3972ac1e180，实际commit/push/remote回读另记Linear。`.claude/`保留，无Go/web改动，无真实账号/通知、业务.env/DB或他人集群操作。旧aiops-24仍PAUSED。
+- fresh doctor53通过、SQLite active0后，两个Astra High并行离线实现、root唯一串行真实运行。正式连接器`962cba41-56db-4c5d-a48d-8ebc4fc67bfd`60P0F0skip：六主接口readiness/启用偏好/故障恢复/reader与跨环境和撤权/审计；真实ownedProm18570，不验证凭据或Agent/metrics。newUUID DB/role、18606/7 API及18612 relay精确清理；实际forward200三次、relay503两次、审计七条。原Go6ad/bfeb/338与PG immutablec15 CPU4/2GiB/canonical11973905及三archives保持。
+- 安全协议`6263b675-43fb-4ed1-bb3d-7cd20fca6446`27P保留；独立交叉review指出关联证明遗漏后，25反例21P4F原红保留，31离线绿；原suite新`859cd26a-089d-43f6-947f-5b8646d3c00a`28P0F0skip复验。HTTPS localhost18614 Mock/独立UUID PG/双API18602/3、临时0600 CA/key/token。正常ETag改读/401403无上游/428412无新操作/429一次；上游成功丢响应externalrevision3/localapplied2、operation unknown/error apply_outcome_unknown、精确opID/scope/actor/controls/revision/audit target关联；另一实例读503写409、无重复apply。全部source始末6ad一致、资源清理读回。真实强制与manualreconcile高待办，协议Mock不代真实。
+- 工具首红：HTTP flat转换硬编码real_local，Mock模式与证明范围丢失，两Runner反例实红→保模式/拒绝Mock上游real_local→26绿；startup hook四项隔离守卫首红→58绿，受审子类仅能追加明确私有依赖，不能覆盖DSN/address/disabledmodel。子包聚合原证据/同源/正常路径缺一不可，空marker反例保持。最终受影响工具150P0F0skip，无全Go/产品前端验收声明。两新工具缺陷记录InReview，与产品缺陷分开。
+- 总体当前 **真实主正常90/166**（六target有一已覆盖，所以85→90）、辅助21、协议Mock正常2主接口单列；仍缺76=54本地环境/Mock+17需确认+3缺实现+2暂停，local_ready缺0；真实外部另4组。2/9父包专项仍不变；两个有界子包在总览单列2/2，父包仍needs_scenario_plan，不把子包/Mock抬为全部验收。51项14/23/24追加准确当前子场景，状态不关闭。原suite宽泛gap metadata保持历史不重写，新manifest纠正为对应14/46和23/24。
+- metrics/dashboard从本地组件移到暂停producer：144/289/626源码要求成功部署和回滚marker/executions/plans、1h真实窗口；缺marker503。仅Prom安装/规则GitOps不够，不SQL造marker或恢复CI/CD。当前资料/值班authority只读，安全authority是外写，两类失响应语义分开。
+- 只读UI8787新显示Mock计数和有界子包/证据，真实normal不变；fresh监听PID+完整argv+lstart/cwd后只重启ownedUI，API未信号。私有截图/DOM/日志/150绿、三run各HTML/JSON/MD保留于.local/testlab/functional-progress-ui与reports。最终字段已加载并HTTP回读2子包通过，实际浏览器查看90/166、2Mock、子包与父包未收口/接口筛选、JSerror0及三格式附件下载；只读UI新PID87687仅快照，后续必须freshguard，不依PID操作。CP267证明 1bf7fd35-ba5e-402b-8469-27bf103e0609、150绿 c76c8999-bc53-42fe-afbb-a8fdd8a3ef97 已登记原security复验run，附载记录不改原cases/status；完整三格式整体报告在.local/testlab/reports/functional-CP267。
+- **正在继续的下一独立代码批**（尚无真实测试）：components_functional独占api_observe_coverage.py/test，补logs与traces/{id}；traces list live-store-lag failclosed证明不足不切开关，单列高环境待办。protocol_functional独占api_profile_protocol_coverage.py/test，补GET/PATCH me、GET/PUT me/profile HTTPS Mock，18616独立；源码对应精确用户/session/env且只读上游→本地settings/audit，故障无本地写。两agent不启动资源、root串行，不能把开发状态写成通过。共用startup hookroot已归属，其他文件不交叉写。
+- 完整当前源回归、base/scale性能、连续86400仍未完成；Home/规模pagination cap、Ollama容量、60旧中断synthetic SSE running残余等高待办原证据不变。下一步先完成新两批离线/正式HTTP/原证据与精确清理，缺陷首红→最小修→原例及相关回归，然后依P1本地来源/MFA等继续，不自动seedscale/soak或恢复旧监控。整体未收口。
+
 ## CP-266 · 2026-10-01 · 整体看板纠偏、功能优先与首批真实补测完成
 
 - 用户明确要求把重点从单次原始记录改为“整体完成、本地余项、外部阻塞和当前瓶颈”，并授权统筹推进。此前CP265暂停保留；本轮恢复的是此功能优先范围，旧 `aiops-24` 仍PAUSED，不恢复原性能优先自动续跑。沿用 `codex/wan-138-backend-testlab`、既有WAN136/138/139；提交前HEAD/已推送05be15a，本次提交推送完成另以Git/Linear实际回读为准。`.claude/`无关用户内容保留，产品 `web/` 和Go源码未修改。

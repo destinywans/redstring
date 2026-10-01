@@ -937,5 +937,39 @@
       ".local/testlab/overall-dashboard-validation/stale-warning-ui.txt"
     ],
     "case_ids": "tools.testlab.tests.test_overview / ServerTests / 浏览器看板验证"
+  },
+  {
+    "id": "TOOL-HTTP-MOCK-CONVERSION",
+    "title": "HTTP证据转换把协议Mock误标真实本地",
+    "status": "in_review",
+    "description": "测试工具已确认缺陷。Runner转换flat interface时硬编码real_local，并丢proof_scope/upstream_mode；可把Mock正常HTTP抬成真实来源覆盖。发现于新security协议包准入，未将错误模式用于此次实际运行。",
+    "before": "两条实际Runner反例首红，Mock→real_local及矛盾模式未拒绝。",
+    "after": "保留显式protocol_mock及范围；Mock上游宣称real_local直接令采集失败。26工具回归绿，实际6263b675/859cd26a的security接口均protocol_mock。",
+    "fix": "WAN-138 CP267; inventory.py + RunnerTests",
+    "local_evidence": [
+      ".local/testlab/first-failures/WAN-138-http-mock-conversion-red.log",
+      ".local/testlab/fix-regressions/WAN-138-http-mock-conversion-green.log"
+    ],
+    "case_ids": [
+      "6263b675-43fb-4ed1-bb3d-7cd20fca6446",
+      "859cd26a-089d-43f6-947f-5b8646d3c00a"
+    ]
+  },
+  {
+    "id": "TOOL-SECURITY-OPERATION-LINKAGE",
+    "title": "安全策略测试需核对外部、台账、审计与applied精确关联",
+    "status": "in_review",
+    "description": "测试证明不足，未确认产品缺陷。原27通过检查数量状态，未检查关联错误；独立审查后新增opID/actor/target/controls反例首红。",
+    "before": "错关联反例25 tests:21P4F，原正式27P保留，只对应旧断言范围。",
+    "after": "31离线全绿；逐项核opID/scope/actor/revision/controls；原正式suite859cd26a复验28P，并新增唯一operation_linkage证据。未知操作未推进applied checkpoint。",
+    "fix": "WAN-138 CP267; validate_ledger + operation_linkage",
+    "local_evidence": [
+      ".local/testlab/source-protocol-offline/association-first-red.txt",
+      ".local/testlab/source-protocol-offline/association-final-green.txt"
+    ],
+    "case_ids": [
+      "6263b675-43fb-4ed1-bb3d-7cd20fca6446",
+      "859cd26a-089d-43f6-947f-5b8646d3c00a"
+    ]
   }
 ]

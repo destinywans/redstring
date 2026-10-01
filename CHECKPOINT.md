@@ -1,3 +1,5 @@
+**最新记录入口：[CP-292](#cp-292-current)，2026-10-02。** 当前Go93f/实际非race6d298：原100/60短复验SSE通过但完整性能仍待；正式入口/Canvas267P0F1缺producer，当前正常41/166。唯一active完整五组为289c7b57，先核SQLite真实终态，禁止重复启动。之后串行本轮metrics完整组，再fresh冻结BASE→门控SCALE；24h未开始。以下保留各次原始记录，CP291/292正文位于文件后部。
+
 ## CP-290 · 2026-10-02 · 新列表源原100突发仍失败，三个可见线程并行补SSE读取路径
 
 - CP289产品/记录已提交推送且exact ls-remote **61a3c355df32c763a2ea4854ef4c857684164268**，WAN136/138/163与51文档保存，138/163 fresh回读。root在无active/freshPG/nonceHMAC+UID/fullargv/lstart/cwd守卫下，私有备份原59/89并实际编译新非race，先精确停止旧双API再切换：**Go d4c85e247a897d761d7f8d134d459ee6743684d11df9d98ac663792ebb309b1a / binary8f8f5cd892c06906cbd30cca7a9255a528570bcb3255f4ebc45394bb7d4b1325 / runtime338** ready；PG配额/证书/数据不变。实际handoff sql-list-runtime-rebuild/15819bf9…/ready-handoff.json，原binary/fixture可恢复，不用模块测试冒正式main。
@@ -2244,6 +2246,8 @@
 - 三格式报告与完整原件已导出。当前交付 **sse-tx-validation-handoff.json** 登记证据 **c4a658da-3202-4632-aa30-a1735e55a629**；review产品7SHA、新测试SHA2b46、first-related-failure原件、精确paid skip及索引结果均关联。看板同PERF-SSE-100-FFE5追加候选回归，原ffe/b972/cdd3/7cab失败不覆盖、缺陷未关闭。
 - 下一root先scoped提交推送，再备份原main、fresh nonce/HMAC+UID/fullargv/lstart/cwd/PG/无active守卫，实际构建切换新非race双API，核新source/binary/runtime及doctor/capacity后复验原100/60/50normal10slow。原例通过后才新源完整BASE→显式SCALE；不调用默认双command性能。QA可见线程并行只读准备当前源正式HTTP重新验证范围，不运行负载或编辑冻结Go。
 - 整体OPEN；完整两档性能未完成、连续24h从未开始。当前产品源HTTP资格仍0/166，旧120仅历史；必要新源功能/正式接线仍要实际复验。WAN152/Trace/producer/外部/paid/Ollama/8暂停CI-CD保持高待办。web/.claude/业务.env/业务DB/真实账号通知不动，无merge/deploy。
+<a id="cp-292-current"></a>
+
 ## CP-292 · 2026-10-02 · 新非race main原100短复验SSE通过，正式接线回归与完整当前源回归继续
 
 - CP291已提交推送且exact ls-remote **c079583b3b0a23ea7bd96bfbe57cb7b0aa21110e**，WAN136/138/139/163与51文档保存，163/51 fresh回读。root在无active/精确PG/实际nonceHMAC+UID/fullargv/lstart/cwd守卫下，先build、私有备份旧d4/8f、等待原owned controller/唯一binary进程及3端口退出后切换。**22:06:06.808881Z实际Go93f768ed…/非racebinary6d29875d2b57c51fe812bc9e1f8746e662c75117c1403e7bfb3c7cab43005c70/runtime338 ready**；sse-tx-runtime-rebuild/fec35120…有真实ready/备份可恢复。PG4CPU2GiB/证书/数据/config不变；freshdoctor **53P**。

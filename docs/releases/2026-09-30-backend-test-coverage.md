@@ -405,3 +405,7 @@ Go6ad893bb、非racebfeb9b98/runtime338e1478保持。正式performance1a998623�
 独立只读评估认可一次明确联合4CPU容量复验。仅生成器固定CPU2→4、内存4GiB及所有原负载/门槛保持；81offline绿/原81首红5F保留，非实测PG修改或性能证明。当前PG仍2CPU，只有无active/freshHMAC/VM实际空闲/精确ownedCID-image-volume-OID-原limits/readback后才调整同一PGCPU；新recipe、freeze和run，不覆盖旧2CPU结果，不直接启动24h。完整性能未通过、24h未开始、整体未收口。
 
 记录纠正：CP258证据f9d2因Store根参数错误落到嵌套私有台账，原保留；正确canonical证据0673fba7-509e-464c-9560-d67873632aaf已进入真实看板，关联原ce56但不修改其cases/status。观察器首份0sample OID string/int误报也保留，新私有v2仅接受同精确OID，额外取证不冒formal基线。
+
+## CP263 · 联合4CPU原50诊断支持路径通过
+
+8ff4c9f9于04:12:31→04:18:51Z完成10通过/0失败/1首页性能阻塞，Go6ad始末一致。原50/300真实300.832秒、14943请求、58调度丢弃、0非预期HTTPerror；health unready0、SSE窗口违反0、原60s资源恢复/数据一致性/ownCID清理通过。高负载丢弃作为饱和信息保留，不称生产SLA或整轮通过。证据70b50ecd-8d1f-487b-8713-772aa741e68e/fullraw329e6ae4及三报告；实际联合PG4CPU2GiB/k64CPU4GiB，旧2CPU全部失败保留。下一仍需原基础/规模完整五阶段串行门控及86400，整体未收口；本条时正式两档和24h尚未开始。

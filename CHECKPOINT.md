@@ -1,3 +1,17 @@
+## CP-263 · 2026-10-01 · 联合4CPU原50诊断通过已支持检查，完整性能待执行
+
+- 唯一 **8ff4c9f9-5c20-43da-9950-d66dcd71758b** 实际 **04:12:31.897178→04:18:51.266923Z blocked10P0F1Homeblocked**；除原首页home_result_limit性能路径阻塞外均passed，非wholepass。Go6ad始末同/perf365884cf/bfeb/runtime338/同主API，原50/300真实 **300.831894584秒、14943 iterations、58 dropped、0unexpectedHTTPerrors、exit0/OOMfalse**；高负载丢弃仍显示saturated，测量验证通过不称无丢弃吞吐SLA。全部认证健康采样unready0、health_degraded=false；SSE50正常10慢/进展/重连通过、窗口违反0；原60秒资源恢复/数据一致性/精确自己的33c2CID清理与attachreaped均通过。
+- 凝缩证明 **70b50ecd-8d1f-487b-8713-772aa741e68e**，fullraw **329e6ae4-7ef1-469b-8316-a0a312e6c28e**及三报告。额外observer31真实samples、PG实际4CPU2GiB与k6实际4CPU4GiB、CID/image/限制固定；原stage结束immutable_not_running即止，不能当整窗覆盖或Go池wait证明。旧2CPU18a5 failed7P4F1B、ce56/a779/1a与全部首红/缺失保持，不覆写；联合4CPU结果只证明在该档观察改善，不能归因单一PG/k6或生产SLA。
+- 下一原正式阶梯拆为两个独立private single-command manifest：base **16eb3b7db6775288dc04199d980b7bb250759ce741174928d6ac6adcb36e073a**、scale **b14c9b57b3e1bb2e943dd09f496b7b31f6d6b97c6206485eaad0ab074c98adf2**，各原120/300/300/300/60秒、不改阈值/数据。只root验证base所有阶段/25每路原500ms/2s/SSE/recovery/consistency/sourceend与exactHome阻塞后才显式scale；无自动失败后seedscale。本条时尚未开始正式base/scale或24h，需fresh准入+新actual资源freeze后启动base-only。任何health/SSE失败不得soak。
+- 当前无activequeued/running；PG已同CID4CPU2GiB/BASE11973905/三archive，生成器固定4CPU4GiB；自有GitLab暂停数据保持。完整两档性能**未通过**、24h**未开始**、整体**未收口**；WAN152caps/暂停7native/Ollama/外部/权威缺实现/其余必要本地项仍高待办。无Go/产品前端/业务.env或DB/其他集群/真实账号通知、合并部署，.claude保留。
+
+## CP-262 · 2026-10-01 · 自有PG4CPU读回，新联合容量档原50诊断运行
+
+- 生成器4CPU/81离线和CP259–261 **25a154cd93d0419f854099c88e914c9fd38d2f0c** 已提交推送，精确lsremote一致；WAN136/138/163/51同步原完整失败、81工具范围、实际资源决策与canonical证据纠正。原2CPU18a5 failed7P4F1blocked/9d982/raw/报告保留，不重复旧测试或覆盖。
+- 私有guarded调整脚本 ccd617ee852fe638c24b494fc7bcb78e18fdf98db6218f65074a400e745adb47 首次瞬时CPU余量不足在mutation/intent前止，原操作输出保留，fresh另3秒实际11.079idle cores；原守卫同脚本再次校验实际 **10.194778 idle cores、MemAvailable7,617,822,720B、12CPU** 及无SQLite active、activeRule0、freshHMAC、PG immutableCID c15f900d/image9f6f5e8f/bindmount/OID11973905/原CPU2memory2GiB后，仅同PG CPU2→4于 **04:09:57.197→04:09:57.494Z applied_verified**。前后PID/memory2GiB/image/mount/100/5000/10000/20/HMAC均相等；没有重启API、改host或他人容器，三archives和暂停ownGitLab不变。证据 **44e66c77-f4e2-4b82-b415-eeb644471aec**/私有capacity-admission；配额变化不冒测试通过。
+- 新不可变CPU4-v4 recipe **d9582ee2ebcb0fdce73d9cc31759df3d13e020f8c6c9c64407d9ff83fbe350e2**，manifest **0b437f11e55433a3c1ca024a8b8dc3da3a74d0c0712d73efe8fe300d2875fa0f**。明确PGactualCPU4/2GiB且sameCID/image/owner，K6fixedCPU4/4GiB，Go6ad/bfeb/runtime338/perf365884cf；新freeze，不沿旧2CPU记录。fresh doctor53/HMAC/binary/source/resources可采/cert90000/noactive后，唯一 **8ff4c9f9-5c20-43da-9950-d66dcd71758b** 于 **04:12:31.897178Z** 开始原50RPS/300秒diagnostic_only，session17072，自己的k6CID **33c2c5782f9cb85847a573134206f66ec86f28b34028eecbc9f0be3d2b9781d7**，raw59d8b8465955/rps50。禁重复run/改冻结helper/Go/runtime/API/并行heavy。
+- 另私有只读observer v2sha4dd3ce99绑定本新run/immutablePG取actual资源和等待，最长360秒/命令≤5，额外诊断不是正式性能baseline，pool内部wait仍missing。实际结束/健康锁存/SSE/60s恢复/一致性/source_end/ownCID清理尚待收，不称容量通过或归因单一组件。原两档**未通过**、24h**未开始**、整体**未收口**，实际新档任何health/SSE失败不得soak；原base-only完整五阶段→结果闸→scale-only及必要本地余项继续。
+
 ## CP-261 · 2026-10-01 · 新固定生成器4CPU档81离线通过，PG尚未调整
 
 - 原2CPU full50失败9d982a0d与全部原证据保留；只读独审认可一次**联合4CPU容量复验**有cgroup证据支持，条件为无active、fresh nonce/HMAC、VM实际12CPU/空闲、ownedPG exactCID/name/image/mount/OID/PID/原2CPU2GiB、按CID改CPU并精确读回。不认为quota是唯一根因，不关闭待确认的Go池Acquire/授权SQL热点。

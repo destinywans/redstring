@@ -1103,7 +1103,9 @@
     "retest_run_id": "48390f22-1f69-443a-b943-3857c161045a",
     "before": "30P3F；具体资源拒绝由完整调用链隐藏为404not_found，跨环境middleware仍403。",
     "after": "三个精确工具期待修为404，14离线与原组53P0F；两个来源前置blocked保持，不接受任意4xx或改权限。",
-    "product_change_required": false
+    "product_change_required": false,
+    "fix_commit": "3044d0026219f57cf1c55653d266acba90c5a86f",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/3044d0026219f57cf1c55653d266acba90c5a86f"
   },
   {
     "id": "TOOL-RULES-GENERATION-COLLECTION",
@@ -1119,7 +1121,9 @@
     "evidence_ids": [
       "62439d30-faf1-4492-9220-66d882740886",
       "d370a896-1474-4e1a-b7cf-eb9f4c69cc4f"
-    ]
+    ],
+    "fix_commit": "3044d0026219f57cf1c55653d266acba90c5a86f",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/3044d0026219f57cf1c55653d266acba90c5a86f"
   },
   {
     "id": "ENV-INVITATION-LOCAL-TLS465",
@@ -1130,7 +1134,9 @@
     "retest_run_id": "e4f89186-59ca-45e1-9745-16dde201c526",
     "before": "即使escalated主机bind仍PermissionError13；原2P3F保留，未sudo或改系统。",
     "after": "现有固定python image仅自有Docker loopback465/0.5CPU128MiB/精确CID私有挂载，原组实际48P0F0skip并清理；证明本地替代环境可用，不称主机bind已修。",
-    "product_change_required": false
+    "product_change_required": false,
+    "fix_commit": "3044d0026219f57cf1c55653d266acba90c5a86f",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/3044d0026219f57cf1c55653d266acba90c5a86f"
   },
   {
     "id": "TOOL-INVITATION-OUTER-CONTRACT-CLEANUP",
@@ -1141,7 +1147,9 @@
     "retest_run_id": "e4f89186-59ca-45e1-9745-16dde201c526",
     "before": "23P5F；外层env_view_only应409而非内部handler422，清理实际CID已删却因stderr小写误报。",
     "after": "完整链精确409且零SMTP/台账不变；精确不存在错误匹配只规范大小写。27离线与原48P通过，三个UUID DB/roles/连接、持有进程/CID/端口全部无残余。",
-    "product_change_required": false
+    "product_change_required": false,
+    "fix_commit": "3044d0026219f57cf1c55653d266acba90c5a86f",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/3044d0026219f57cf1c55653d266acba90c5a86f"
   },
   {
     "id": "TOOL-PRIVATE-MANIFEST-SCOPE",
@@ -1152,6 +1160,43 @@
     "related_failure_run_id": "aef876f3-0b2c-4294-b36e-eb69f0da32f9",
     "before": "cleanup_seconds不是Runner有效键；cleanup_grace_seconds60超过45在资源前被阻；邀请private误关联模型gap6。",
     "after": "正式manifest均有效cleanup_grace_seconds45，不放宽Runner；invitation归gap5/46，目录归3/4/46。原raw manifests/results不改，旧误关联不得作模型验收。",
-    "product_change_required": false
+    "product_change_required": false,
+    "fix_commit": "3044d0026219f57cf1c55653d266acba90c5a86f",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/3044d0026219f57cf1c55653d266acba90c5a86f"
+  },
+  {
+    "id": "TOOL-OVERALL-CURRENT-COMPONENT-DISPLAY",
+    "title": "整体看板与报告没有展开当前回归组件失败",
+    "category": "test_tool",
+    "status": "in_review",
+    "before": "独立QA真实首页/HTML/MD只展示泛化incomplete和旧2510/79，遗漏API已提供当前baseline1889P4F78skip、blocked regressions与其它组件。",
+    "after": "当前回归组件独立全宽展示，失败记录明确叶/父/package/command包装，旧2510/79历史隔离，gate incomplete保持。24定向测试绿；实际1280/646浏览器显示、四运行入口及完整JSON/HTML/MD下载复验通过。首轮窄gate列布局失败原件保留，最小全宽修后原尺寸复验。",
+    "product_change_required": false,
+    "local_evidence": [
+      ".local/testlab/dashboard-parallel-qa/20261001-1826/QA.md",
+      ".local/testlab/overall-display-fix/red.txt",
+      ".local/testlab/overall-display-fix/red-ui.txt",
+      ".local/testlab/overall-display-fix/green.txt",
+      ".local/testlab/dashboard-parallel-qa/CP273-retest/layout/QA.md",
+      ".local/testlab/dashboard-parallel-qa/CP273-retest/layout/regression-1280.png",
+      ".local/testlab/dashboard-parallel-qa/CP273-retest/layout/regression-646.png",
+      ".local/testlab/dashboard-parallel-qa/CP273-retest/layout/report-validation.json"
+    ]
+  },
+  {
+    "id": "TOOL-OVERALL-BLOCKER-REASON",
+    "title": "整体聚合遗漏原阻塞needed和error_code",
+    "category": "test_tool",
+    "status": "in_review",
+    "before": "策略原件已有缺environment route/可信完整7天history，聚合只读actual.reason导致页面空理由。",
+    "after": "只读verified原reason或needed加error_code、转义渲染；原status/evidence/门槛不变，无字段不猜根因。24工具绿，独立真实浏览器与完整JSON/HTML/MD已核两个准确阻塞原因；原两项仍blocked。",
+    "product_change_required": false,
+    "local_evidence": [
+      ".local/testlab/dashboard-parallel-qa/20261001-1826/QA.md",
+      ".local/testlab/overall-display-fix/red.txt",
+      ".local/testlab/overall-display-fix/green.txt",
+      ".local/testlab/dashboard-parallel-qa/CP273-retest/layout/QA.md",
+      ".local/testlab/dashboard-parallel-qa/CP273-retest/layout/report-validation.json"
+    ]
   }
 ]

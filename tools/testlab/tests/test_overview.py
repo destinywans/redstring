@@ -5,6 +5,8 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import shutil
+import subprocess
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from overview import get_overview, render_overview_report
@@ -164,6 +166,109 @@ class OverviewTests(unittest.TestCase):
         self.assertEqual(pending[0]['method'],'GET')
         self.assertEqual(pending[0]['normal_status'],'missing')
         self.assertTrue(pending[0]['protocol_evidence'])
+
+    def test_blocker_needed_and_error_code_from_original_are_preserved(self):
+        p = self.root / 'tools/testlab/acceptance-plan.json'
+        plan = json.loads(p.read_text())
+        plan['packages'][0]['required_cases'] = [dict(suite='api', name='complete')]
+        p.write_text(json.dumps(plan))
+        r, s = self.run_record(status='blocked')
+        self.case(r, s, name='complete')
+        needed = 'trusted complete environment-bound seven-day history producer; not present'
+        self.case(r, s, name='history', status='blocked', actual={'needed': needed, 'error_code': 'not_connected'})
+        self.case(r, s, name='route', status='blocked', actual={'error_code': 'route_source_unavailable'})
+        self.case(r, s, name='unknown', status='blocked', actual={'normal_verified': False})
+        blockers = {b['name']: b for b in self.overview()['work_packages'][0]['scenario_acceptance']['blocking_cases']}
+        self.assertIn(needed, blockers['history']['reason'])
+        self.assertIn('not_connected', blockers['history']['reason'])
+        self.assertEqual(blockers['route']['reason'], 'route_source_unavailable')
+        self.assertEqual(blockers['unknown']['reason'], '')
+        for b in blockers.values():
+            self.assertEqual(b['status'], 'blocked')
+            self.assertTrue(b['evidence_ids'])
+
+    def test_regression_components_are_rendered_in_reports_and_dashboard(self):
+        old, old_suite = self.run_record(sha=OLD, end=OLD, suite='full')
+        self.case(old, old_suite, name='history')
+        runs = []
+        for suite in ('baseline', 'regressions', 'passkey,configsync', 'mfa'):
+            r, s = self.run_record(status='failed' if suite == 'baseline' else 'blocked' if suite == 'regressions' else 'passed', suite=suite)
+            runs.append(r)
+            self.case(r, s, name=suite)
+            if suite == 'baseline':
+                self.case(r, s, name='leaf', status='failed')
+                self.case(r, s, name='package wrapper', status='failed')
+                self.case(r, s, name='opt-in', status='skipped')
+            if suite == 'regressions':
+                self.case(r, s, name='unavailable', status='blocked')
+        data = self.overview()
+        gate = next(g for g in data['gates'] if g['id'] == 'regression')
+        self.assertEqual(gate['status'], 'incomplete')
+        for fmt in ('md', 'html'):
+            report = render_overview_report(data, fmt).split('优先行动')[0]
+            for r in runs:
+                self.assertIn(r['id'], report)
+            for suite in ('baseline', 'regressions', 'passkey,configsync', 'mfa'):
+                self.assertIn(suite, report)
+            self.assertIn('2 失败记录', report)
+            self.assertIn('1 跳过', report)
+            self.assertIn('1 受阻', report)
+            self.assertIn('不等于独立产品缺陷数', report)
+            self.assertIn('不计当前源码通过', report)
+            self.assertIn('/api/runs/' + runs[0]['id'] + '/report.html', report)
+        self.assertIn('href="/api/runs/', render_overview_report(data, 'html'))
+        unsafe = json.loads(json.dumps(data))
+        unsafe_component = next(g for g in unsafe['gates'] if g['id'] == 'regression')['component_progress'][0]
+        unsafe_component.update(selected_suite='<script>component</script>', run_id='"/><script>record</script>')
+        escaped = render_overview_report(unsafe, 'html')
+        self.assertNotIn('<script>', escaped)
+        self.assertIn('&lt;script&gt;component&lt;/script&gt;', escaped)
+        self.assertIn('%22%2F%3E%3Cscript%3Erecord%3C%2Fscript%3E', escaped)
+        if not shutil.which('node'):
+            self.skipTest('Node is required for the isolated DOM rendering check')
+        app = Path(__file__).resolve().parents[1] / 'static/app.js'
+        harness = r'''
+const fs = require('fs'), vm = require('vm');
+class Node {
+  constructor(tag) {this.tag=tag;this.children=[];this.style={};this.attrs={};this.textContent='';}
+  append(...nodes) {this.children.push(...nodes);}
+  replaceChildren(...nodes) {this.children=nodes;}
+  setAttribute(k,v) {this.attrs[k]=String(v);}
+  set innerHTML(value) {throw new Error('Unsafe HTML rendering');}
+  get lastChild() {return this.children[this.children.length-1];}
+}
+const root=new Node('root');
+const document={createElement:tag=>new Node(tag),getElementById:()=>root};
+const source=fs.readFileSync(process.argv[1],'utf8');
+const startup=source.lastIndexOf('  document.querySelectorAll("[data-view]")');
+const data=JSON.parse(fs.readFileSync(0,'utf8'));
+const code=source.slice(0,startup)+'state.overall='+JSON.stringify(data)+';renderOverview();})();';
+vm.runInNewContext(code,{document,Node});
+console.log(JSON.stringify(root));
+'''
+        result = subprocess.run(['node', '-e', harness, str(app)], input=json.dumps(data), text=True, capture_output=True, check=True)
+        tree = json.loads(result.stdout)
+        def nodes(n):
+            yield n
+            for child in n.get('children', []):
+                if isinstance(child, dict):
+                    yield from nodes(child)
+        rendered = '\n'.join(str(n.get('textContent', '')) for n in nodes(tree))
+        for suite in ('baseline', 'regressions', 'passkey,configsync', 'mfa'):
+            self.assertIn(suite, rendered)
+        self.assertIn('2 失败记录', rendered)
+        self.assertIn('1 跳过', rendered)
+        self.assertIn('1 受阻', rendered)
+        self.assertIn('不等于独立产品缺陷数', rendered)
+        self.assertIn('不计当前源码通过', rendered)
+        progress = next(n for n in nodes(tree) if n.get('className') == 'regression-progress')
+        self.assertEqual(len(progress['children']), len(runs))
+        self.assertFalse(any(n.get('tag') == 'table' for n in nodes(progress)))
+        for card in progress['children']:
+            self.assertEqual(card['className'], 'regression-component')
+            self.assertTrue(any(n.get('tag') == 'button' and '查看运行' in n.get('textContent', '') for n in nodes(card)))
+        gates = next(n for n in nodes(tree) if n.get('className') == 'acceptance-gates')
+        self.assertFalse(any(n.get('className') == 'regression-component' for n in nodes(gates)))
 
     def test_registered_but_missing_evidence_file_is_excluded(self):
         r, s = self.run_record(); self.http(r, s)

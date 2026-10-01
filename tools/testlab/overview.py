@@ -7,6 +7,7 @@ import html
 import json
 from pathlib import Path
 import re
+from urllib.parse import quote
 
 from runner import git_value, source_fingerprint
 
@@ -32,6 +33,13 @@ def _actual(case):
     # The display field is deliberately truncated to 8 KiB by Store. Never infer
     # acceptance from its text; only the registered original JSON item is usable.
     return case.get('_verified_actual', {})
+
+
+def _blocking_reason(case):
+    actual = _actual(case)
+    # Display only explicit fields from the verified original, never infer a cause.
+    parts = [actual.get('reason') or actual.get('needed'), actual.get('error_code')]
+    return '；'.join(dict.fromkeys(p for p in parts if isinstance(p, str) and p))
 
 
 def _original_actual(store, case):
@@ -89,7 +97,7 @@ def _package_acceptance(package, runs, cases, source):
                  'status': matching[k]['status'] if k in matching else 'missing',
                  'evidence_ids': matching[k].get('_evidence_ids', []) if k in matching else []} for k in sorted(keys)]
     blockers = [{'run_id': latest['id'], 'case_id': c['id'], 'name': c['name'], 'status': c['status'],
-                 'reason': _actual(c).get('reason', ''), 'evidence_ids': c.get('_evidence_ids', [])}
+                 'reason': _blocking_reason(c), 'evidence_ids': c.get('_evidence_ids', [])}
                 for c in rows if c['status'] not in allowed or not c.get('_evidence_ids')]
     return {'status': 'passed' if complete else 'incomplete', 'reason': '仅此包显式必需场景和同组结果；外部待办不计通过，也不推广为全部功能空间。',
             'evidence': evidence, 'blocking_cases': blockers,
@@ -402,7 +410,27 @@ def render_overview_report(data, fmt='json'):
              f"协议 Mock 正常子场景：{data['coverage'].get('protocol_mock', {}).get('normal_success', 0)} 个主接口；不计上述真实覆盖。",
              f"尚需本地正常路径补测：{len(data.get('execution_queue', []))} 项；Mock正常已验、真实来源待验：{len(data.get('protocol_verified_pending_real', []))} 项。两者均未视为完整接口验收。",
              coverage['scope'], '', '## 验收门槛']
-    lines.extend(f"- {g['title']}：{g['status']}。{g['reason']}" for g in data['gates'])
+    report_links = {}
+    for gate in data['gates']:
+        lines.append(f"- {gate['title']}：{gate['status']}。{gate['reason']}")
+        components = gate.get('component_progress', [])
+        if components:
+            lines.append('  - 当前组件进展；失败记录含叶用例及父/package/command 包装，不等于独立产品缺陷数。')
+        for component in components:
+            counts = component.get('counts', {})
+            url = '/api/runs/' + quote(component['run_id'], safe='') + '/report.html'
+            link = '[运行记录](' + url + ')'
+            report_links[link] = url
+            lines.append(f"  - {component['selected_suite']} · {component['status']}："
+                         f"{counts.get('passed', 0)} 通过 / {counts.get('failed', 0)} 失败记录 / "
+                         f"{counts.get('skipped', 0)} 跳过 / {counts.get('blocked', 0)} 受阻；"
+                         f"运行 {component['run_id']} · {link}"
+                         + ('；结束源码待核对' if component.get('source_end_pending') else ''))
+        for historical in gate.get('history', []):
+            counts = historical.get('counts', {})
+            lines.append(f"  - 历史完整回归：{counts.get('passed', 0)} 通过 / {counts.get('failed', 0)} 失败记录 / "
+                         f"{counts.get('skipped', 0)} 跳过；运行 {historical['run_id']} · "
+                         + ('当前源码' if historical.get('binding') == 'current' else '不计当前源码通过'))
     lines.extend(['', '## 优先行动'])
     lines.extend('- ' + str(a.get('action', a.get('title', a))) for a in data['next_actions'])
     lines.extend(['', '## 未覆盖主接口', '', '| 接口 | 分类 | 原因 |', '| --- | --- | --- |'])
@@ -454,4 +482,7 @@ def render_overview_report(data, fmt='json'):
     text = '\n'.join(lines) + '\n'
     if fmt == 'md':
         return text
-    return '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>AIOps 后端整体验收报告</title><style>body{font:16px/1.7 system-ui;margin:32px;max-width:1100px}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style><body><pre>' + html.escape(text) + '</pre></body></html>'
+    escaped = html.escape(text)
+    for link, url in report_links.items():
+        escaped = escaped.replace(html.escape(link), '<a href="' + html.escape(url, quote=True) + '">运行记录</a>')
+    return '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>AIOps 后端整体验收报告</title><style>body{font:16px/1.7 system-ui;margin:32px;max-width:1100px}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style><body><pre>' + escaped + '</pre></body></html>'

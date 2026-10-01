@@ -72,6 +72,7 @@ class ProfileSafetyTests(unittest.TestCase):
     def attestation(self, url):
         nonce = url.rsplit('=', 1)[1]
         identity = dict(owner=profile.OWNER, pid=100, api_pids=[101, 102], ready=True, source_tree_sha=self.fixture['source_tree_sha'])
+        if self.fixture['source_tree_sha']=='6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437':identity['failed']=False
         return dict(nonce=nonce, identity=identity, proof=profile.backend.control_proof(self.fixture['control_secret'], nonce, identity))
 
     def second_context(self):
@@ -341,6 +342,182 @@ class ProfileSafetyTests(unittest.TestCase):
             if path.is_symlink(): path.unlink(); target.unlink()
             path.write_bytes(raw); os.chmod(path, 0o600)
         self.stop.assert_not_called(); self.assertEqual(self.commands, [])
+
+    def third_context(self):
+        before='1a998623-7a3d-4e10-b49b-5610205ad336';source='6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437'
+        self.fixture['source_tree_sha']=source
+        runtime=self.root/'.local/testlab/runtime-config.json';profile.env._private(runtime,{'owner':profile.OWNER,'env':{}})
+        self.fixture['runtime_sha']=profile.digest(runtime);profile.env._private(self.fixture_path,self.fixture)
+        self.enterContext(patch.object(profile,'THIRD_BINARY_SHA',profile.digest(self.fixture['binary']),create=True))
+        self.enterContext(patch.object(profile,'THIRD_RUNTIME_SHA',profile.digest(runtime),create=True))
+        self.enterContext(patch.object(profile,'source_fingerprint',return_value=source))
+        self.catalog['canonical']['oid']=11131999
+        self.catalog['canonical']['tag']='previous approved fresh marker'
+        # Static catalog entries for both earlier, already-completed rotations.
+        protected={}
+        for operation,old,oid in [('eeb805fd-25d9-4651-8ee3-fd399359df15',profile.BEFORE,16388),('8a8aa6c1-de2c-4161-8760-02d4e3e81b00',SECOND_BEFORE,9270802)]:
+            nonce=uuid.UUID(operation).hex;name=profile.APP+'_evidence_'+nonce
+            tag=json.dumps(dict(schema=1,owner=profile.OWNER,run_id=operation,before_evidence_run=old,canonical=profile.APP,archive=name,fresh=profile.APP+'_fresh_'+nonce,kind='archive'),sort_keys=True,separators=(',',':'))
+            protected[name]={'oid':oid,'owner':'testlab','tag':tag}
+        self.catalog['protected_archives']=protected
+        evidence={'status':'interrupted','started_at':'2026-10-01T01:02:12.699753+00:00','ended_at':'2026-10-01T01:20:52.676646+00:00','sha':'2851932739e47d9f241be0e78e57d27d3fba2acf','pid':36446,'selected_suite':'performance','source_tree_sha':source}
+        with contextlib.closing(sqlite3.connect(self.ledger)) as connection,connection:
+            connection.execute('CREATE TABLE cases(id TEXT PRIMARY KEY,run_id TEXT,data TEXT NOT NULL)')
+            connection.execute('INSERT INTO runs VALUES(?,?)',(before,json.dumps(evidence)))
+            cases=[('perf.rps50','failed'),('command audit','failed')]+[('passing '+str(i),'passed') for i in range(14)]+[('blocked '+str(i),'blocked') for i in range(5)]
+            for i,(name,status) in enumerate(cases):connection.execute('INSERT INTO cases VALUES(?,?,?)',('third-'+str(i),before,json.dumps({'name':name,'status':status})))
+        identity=dict(owner=profile.OWNER,pid=100,api_pids=[101,102],source_tree_sha=source,ready=True,failed=False)
+        freeze={'run_id':before,'at':'2026-10-01T01:03:58.060842+00:00','run_started_at':evidence['started_at'],'runner_pid_snapshot':36446,'identity':identity}
+        stopped={'run_id':before,'at':'2026-10-01T01:20:50.943762+00:00','runner_pid_snapshot':36446,'identity':identity,'source_tree_sha':source,'formal_performance_accepted':False,'formal_24h_accepted':False}
+        observed={'run':{'id':before,**evidence},'at':'2026-10-01T01:24:58.792890+00:00','observed_source_after_stop':source,'source_tree_sha_end_original':None,'do_not_backfill_missing_end':True,'active_runs':[],'counts':{'oid':11131999,'services':1000,'alerts':100000,'messages':500000,'users':20},'metrics':{'postgres':{'running_replies':0,'queued_replies':0,'locks':0,'waiting':0},'backend_processes':[{'pid':101},{'pid':102}]},'error_root_message_from_original_case':'RuntimeError: k6 exited without real summary','formal_performance_accepted':False,'formal_24h_started':False}
+        for name,value in [('wan163-formal-performance-run-freeze.json',freeze),('wan163-formal-performance-first-stop.json',stopped),('wan163-formal-performance-post-stop-proof.json',observed)]:profile.env._private(self.ledger.parent/name,value)
+        return evidence
+
+    def make_third(self,run=None):return profile.Rotation(self.root,profile.OWNER,run or self.run,'1a998623-7a3d-4e10-b49b-5610205ad336')
+
+    def test_third_exact_context_plan_apply_replay_preserves_two_previous_archives(self):
+        self.third_context();old=copy.deepcopy(self.catalog['protected_archives']);self.rotation=self.make_third()
+        planned=self.rotation.plan();self.assertEqual(self.commands,[]);self.stop.assert_not_called()
+        self.assertTrue(planned['before_evidence']['original_ledger_source_end_missing']);self.assertNotIn('source_tree_sha_end',planned['before_evidence'])
+        self.assertEqual(planned['catalog']['protected_archives'],old)
+        self.assertTrue(self.rotation.apply()['applied']);self.assertEqual(self.catalog['archive']['oid'],11131999)
+        self.assertEqual(self.catalog['protected_archives'],old);self.assertEqual(len(self.commands),6)
+        journal=json.loads(self.rotation.journal_path.read_text());self.assertEqual(journal['protected_archives_before'],old)
+        self.assertEqual(journal['protected_archives_after'],old);self.assertEqual(self.rotation.journal_path.stat().st_mode&0o777,0o600)
+        before=list(self.commands)
+        with patch.object(profile,'source_fingerprint',return_value='d'*64):self.assertTrue(self.make_third().apply()['already_complete'])
+        self.assertEqual(self.commands,before)
+
+    def test_third_another_operation_cannot_rotate_new_canonical(self):
+        self.third_context();self.rotation=self.make_third();self.rotation.apply();later=copy.deepcopy(self.catalog);later['archive']=None;later['fresh']=None
+        other=self.make_third(str(uuid.uuid4()));before=list(self.commands)
+        with patch.object(other,'catalog',return_value=later),self.assertRaises(profile.Blocked):other.plan()
+        self.assertEqual(self.commands,before)
+
+    def test_third_exact_ledger_and_actual_rps50_failure_required(self):
+        evidence=self.third_context()
+        for key,value in [('status','failed'),('ended_at',None),('selected_suite','entry'),('sha','foreign'),('source_tree_sha','f'*64),('source_tree_sha_end','f'*64),('source_tree_sha_end',None),('pid',9)]:
+            with contextlib.closing(sqlite3.connect(self.ledger)) as c,c:
+                c.execute('UPDATE runs SET data=? WHERE id=?',(json.dumps({**evidence,key:value}),'1a998623-7a3d-4e10-b49b-5610205ad336'))
+            with self.subTest(key=key,value=value),self.assertRaises(profile.Blocked):self.make_third()
+        with contextlib.closing(sqlite3.connect(self.ledger)) as c,c:
+            c.execute('UPDATE runs SET data=? WHERE id=?',(json.dumps(evidence),'1a998623-7a3d-4e10-b49b-5610205ad336'))
+            c.execute('UPDATE cases SET data=? WHERE id=?',(json.dumps({'name':'different','status':'failed'}),'third-0'))
+        with self.assertRaises(profile.Blocked):self.make_third()
+        self.assertEqual(self.commands,[]);self.stop.assert_not_called()
+
+    def test_third_current_binary_runtime_source_oid_are_exact(self):
+        self.third_context()
+        for attr,value in [('THIRD_BINARY_SHA','f'*64),('THIRD_RUNTIME_SHA','f'*64)]:
+            with patch.object(profile,attr,value,create=True),self.assertRaises(profile.Blocked):self.make_third()
+        with patch.object(profile,'source_fingerprint',return_value='f'*64),self.assertRaises(profile.Blocked):self.make_third()
+        self.catalog['canonical']['oid']+=1
+        with self.assertRaises(profile.Blocked):self.make_third().plan()
+        self.assertEqual(self.commands,[]);self.stop.assert_not_called()
+
+    def test_third_receipts_missing_malformed_symlink_identity_time_and_scope_are_refused(self):
+        self.third_context();directory=self.ledger.parent
+        names=['wan163-formal-performance-run-freeze.json','wan163-formal-performance-first-stop.json','wan163-formal-performance-post-stop-proof.json']
+        original=[(directory/name).read_bytes() for name in names]
+        for i,name in enumerate(names):
+            path=directory/name
+            for attack in ('missing','malformed','public','symlink','wrong-run'):
+                with self.subTest(file=name,attack=attack):
+                    if attack=='missing':path.unlink()
+                    elif attack=='malformed':path.write_text('{invalid')
+                    elif attack=='public':path.chmod(0o644)
+                    elif attack=='symlink':target=path.with_name(name+'.target');target.write_bytes(original[i]);target.chmod(0o600);path.unlink();path.symlink_to(target)
+                    else:
+                        row=json.loads(original[i]);row['run_id']='foreign' if i<2 else None
+                        if i==2:row['run']['id']='foreign'
+                        profile.env._private(path,row)
+                    with self.assertRaises((profile.Blocked,OSError,ValueError)):self.make_third()
+                    if path.is_symlink():path.unlink();target.unlink()
+                    path.write_bytes(original[i]);path.chmod(0o600)
+        attacks=[(0,'runner_pid_snapshot',9),(0,'run_started_at','foreign'),(1,'source_tree_sha','f'*64),(1,'at','2026-10-02T00:00:00Z'),(2,'observed_source_after_stop','f'*64),(2,'at','2026-10-01T01:00:00Z'),(2,'do_not_backfill_missing_end',False),(2,'active_runs',['other']),(2,'counts',{'oid':11131999,'services':100,'alerts':5000,'messages':10000,'users':20}),(2,'source_tree_sha_end_original','f'*64)]
+        for i,key,value in attacks:
+            row=json.loads(original[i]);row[key]=value;profile.env._private(directory/names[i],row)
+            with self.subTest(key=key),self.assertRaises(profile.Blocked):self.make_third()
+            (directory/names[i]).write_bytes(original[i]);(directory/names[i]).chmod(0o600)
+        self.assertEqual(self.commands,[]);self.stop.assert_not_called()
+
+    def test_third_old_archive_oid_tag_drift_blocks_before_stop(self):
+        self.third_context()
+        for name in list(self.catalog['protected_archives']):
+            old=copy.deepcopy(self.catalog['protected_archives'][name]);self.catalog['protected_archives'][name]['oid']+=1
+            with self.assertRaises(profile.Blocked):self.make_third().plan()
+            self.catalog['protected_archives'][name]=old
+            self.catalog['protected_archives'][name]['tag']='foreign'
+            with self.assertRaises(profile.Blocked):self.make_third().plan()
+            self.catalog['protected_archives'][name]=old
+        self.assertEqual(self.commands,[]);self.stop.assert_not_called()
+
+    def test_third_partial_create_unknown_is_retained_not_retried(self):
+        self.third_context();self.rotation=self.make_third();self.fail_after='create-fresh'
+        with self.assertRaises(profile.Blocked):self.rotation.apply()
+        self.assertEqual(self.catalog['archive']['oid'],11131999);before=list(self.commands)
+        with self.assertRaises(profile.Blocked):self.make_third().apply()
+        self.assertEqual(self.commands,before)
+
+    def test_third_lost_rename_readback_resumes_forward_without_duplicate_write(self):
+        self.third_context();self.rotation=self.make_third();original=self.command;lost=[False]
+        def command(argv,*,input,timeout):
+            if input.startswith('ALTER DATABASE') and not lost[0]:
+                self.fail_after='rename-archive';lost[0]=True;return original(argv,input=input,timeout=timeout)
+            if input.startswith('BEGIN READ ONLY; ') and lost[0] and self.catalog['archive'] and self.catalog['archive']['tag']=='previous approved fresh marker':raise subprocess.TimeoutExpired('owned readback',timeout)
+            return original(argv,input=input,timeout=timeout)
+        with patch.object(profile.env,'_cmd',side_effect=command),self.assertRaises(profile.Blocked):self.rotation.apply()
+        self.assertEqual(self.catalog['archive']['oid'],11131999);self.assertTrue(self.make_third().apply()['applied'])
+        self.assertEqual(sum('RENAME TO "'+self.rotation.archive+'"' in statement for statement in self.commands),1)
+
+    def test_third_partial_source_runtime_or_receipt_drift_blocks_remaining_writes(self):
+        self.third_context();self.rotation=self.make_third()
+        with patch.object(self.rotation,'shutdown',side_effect=profile.Blocked('controlled interruption after persisted intent')),self.assertRaises(profile.Blocked):self.rotation.apply()
+        before=list(self.commands)
+        with patch.object(profile,'source_fingerprint',return_value='f'*64),self.assertRaises(profile.Blocked):self.rotation.apply()
+        runtime=self.root/'.local/testlab/runtime-config.json';original=runtime.read_bytes();runtime.write_bytes(b'changed')
+        with self.assertRaises(profile.Blocked):self.rotation.apply()
+        runtime.write_bytes(original)
+        receipt=self.ledger.parent/'wan163-formal-performance-run-freeze.json';row=json.loads(receipt.read_text());row['extra']='changed same semantics';profile.env._private(receipt,row)
+        with self.assertRaises(profile.Blocked):self.make_third()
+        self.assertEqual(self.commands,before);self.stop.assert_not_called()
+
+    def test_third_unknown_ledger_state_and_changed_case_count_or_before_are_refused(self):
+        self.third_context()
+        with self.assertRaises(profile.Blocked):profile.Rotation(self.root,profile.OWNER,self.run,str(uuid.uuid4()))
+        with contextlib.closing(sqlite3.connect(self.ledger)) as c,c:
+            c.execute('INSERT INTO runs VALUES(?,?)',('foreign',json.dumps({'status':'unknown'})))
+        with self.assertRaises(profile.Blocked):self.make_third()
+        with contextlib.closing(sqlite3.connect(self.ledger)) as c,c:
+            c.execute('DELETE FROM runs WHERE id=?',('foreign',));c.execute('DELETE FROM cases WHERE id=?',('third-20',))
+        with self.assertRaises(profile.Blocked):self.make_third()
+        self.assertEqual(self.commands,[]);self.stop.assert_not_called()
+
+    def test_third_identity_and_poststop_worker_snapshot_changes_failclosed(self):
+        self.third_context();directory=self.ledger.parent
+        freeze=directory/'wan163-formal-performance-run-freeze.json';stopped=directory/'wan163-formal-performance-first-stop.json';observed=directory/'wan163-formal-performance-post-stop-proof.json'
+        rows=[json.loads(path.read_text()) for path in (freeze,stopped,observed)]
+        for path,original in ((freeze,rows[0]),(stopped,rows[1])):
+            for key,value in [('owner','foreign'),('pid',999),('api_pids',[101,999]),('api_pids',[101,101]),('ready',False),('failed',True),('source_tree_sha','f'*64)]:
+                row=copy.deepcopy(original);row['identity'][key]=value;profile.env._private(path,row)
+                with self.subTest(file=path.name,key=key),self.assertRaises(profile.Blocked):self.make_third()
+                profile.env._private(path,original)
+        for key in ('running_replies','queued_replies','locks','waiting'):
+            row=copy.deepcopy(rows[2]);row['metrics']['postgres'][key]=1;profile.env._private(observed,row)
+            with self.subTest(counter=key),self.assertRaises(profile.Blocked):self.make_third()
+        profile.env._private(observed,rows[2]);self.assertEqual(self.commands,[]);self.stop.assert_not_called()
+
+    def test_third_unknown_journal_phase_and_changed_complete_archive_snapshot_are_refused(self):
+        self.third_context();self.rotation=self.make_third();self.rotation.apply();path=self.rotation.journal_path;original=json.loads(path.read_text())
+        for change in ({'stage':'unknown'},{'protected_archives_after':{}},{'original_oid':11131998}):
+            profile.env._private(path,{**original,**change})
+            with self.subTest(change=change),self.assertRaises(profile.Blocked):self.make_third().apply()
+        profile.env._private(path,original);self.assertEqual(len(self.commands),6)
+
+    def test_third_fresh_hmac_child_generation_must_match_original_receipts(self):
+        self.third_context();rotation=self.make_third();changed={**rotation.third_identity,'api_pids':[101,999]}
+        with patch.object(rotation,'supervisor',return_value=changed),self.assertRaises(profile.Blocked):rotation.plan()
+        self.assertFalse(rotation.journal_path.exists());self.assertEqual(self.commands,[]);self.stop.assert_not_called()
 
     def shutdown(self, data):
         self.assertEqual(data['owner'], profile.OWNER); self.running = False

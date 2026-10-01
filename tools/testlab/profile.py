@@ -39,6 +39,17 @@ SECOND_BEFORE = '8ac896b5-70c4-43c8-a934-309ce357e31d'
 SECOND_SHA = 'd6f7bd11d4cf06e4b14ab56df83c4ef737e71c6c'
 SECOND_SOURCE = '15125d6ecd371864b894edfd91b7ca4944bf69dc305359d0e385a879f8cc090a'
 SECOND_OID = 9270802
+THIRD_BEFORE = '1a998623-7a3d-4e10-b49b-5610205ad336'
+THIRD_SHA = '2851932739e47d9f241be0e78e57d27d3fba2acf'
+THIRD_SOURCE = '6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437'
+THIRD_BINARY_SHA = 'bfeb9b985ee4ab07c3008cecd5409c611ff58fed928beba563f082071d6d208c'
+THIRD_RUNTIME_SHA = '338e14784bb40f2d05000a8b76322cc8bea158e65ce3357c014f1111373fe48d'
+THIRD_OID = 11131999
+THIRD_RECEIPTS = ('wan163-formal-performance-run-freeze.json',
+    'wan163-formal-performance-first-stop.json', 'wan163-formal-performance-post-stop-proof.json')
+PROTECTED_ARCHIVES = (
+    ('eeb805fd-25d9-4651-8ee3-fd399359df15', BEFORE, 16388),
+    ('8a8aa6c1-de2c-4161-8760-02d4e3e81b00', SECOND_BEFORE, SECOND_OID))
 APP = 'aiops_testlab_app'
 PORTS = (18560, 18561, 18562)
 DSNS = {'TEST_DATABASE_URL': 'aiops_testlab', 'TESTLAB_MFA_DSN': 'wan124mfa',
@@ -177,7 +188,7 @@ def process_port(pid, port, *, timeout=3):
 
 class Rotation:
     def __init__(self, root, owner, run_id, before):
-        if owner != OWNER or before not in (BEFORE, SECOND_BEFORE):
+        if owner != OWNER or before not in (BEFORE, SECOND_BEFORE, THIRD_BEFORE):
             raise Blocked('profile is restricted to the explicit current owner and before-evidence run')
         self.nonce = canonical_uuid(run_id)
         self.root, self.run_id, self.before = Path(root).resolve(), run_id, before
@@ -216,6 +227,20 @@ class Rotation:
         if before == SECOND_BEFORE and not (self.journal and self.journal.get('stage') == 'complete'):
             if self.data['source_tree_sha'] != SECOND_SOURCE or self.current_source != SECOND_SOURCE:
                 raise Blocked('second approved evidence requires its exact current and registered binary source')
+        if before == THIRD_BEFORE:
+            if self.journal and self.journal.get('stage') not in ('planned','stop_intent','stopped','rename_archive_intent','archive_tag_intent','create_fresh_intent','fresh_created','fresh_tag_intent','extensions_intent','publish_canonical_intent','complete'):
+                raise Blocked('third approved journal phase unknown')
+            if self.journal and (self.journal.get('original_oid') != THIRD_OID
+                    or self.journal.get('binary_sha256') != THIRD_BINARY_SHA
+                    or self.journal.get('runtime_sha256') != THIRD_RUNTIME_SHA
+                    or self.journal.get('registered_source_tree_sha') != THIRD_SOURCE):
+                raise Blocked('third approved journal OID/binary/runtime/source differs')
+            if not (self.journal and self.journal.get('stage') == 'complete'):
+                runtime_path = safe_path(self.root / '.local/testlab/runtime-config.json')
+                if (self.data['source_tree_sha'] != THIRD_SOURCE or self.current_source != THIRD_SOURCE
+                        or self.binary_sha != THIRD_BINARY_SHA or self.data.get('runtime_sha') != THIRD_RUNTIME_SHA
+                        or digest(runtime_path) != THIRD_RUNTIME_SHA):
+                    raise Blocked('third approved current and registered source/binary/runtime differs')
         self.info = self.pg_guard()
         self.ledger_guard()
 
@@ -245,7 +270,7 @@ class Rotation:
                     raise Blocked('unknown ledger test state blocks profile rotation')
                 if identifier_ == self.before:
                     evidence = row
-            required_status = 'interrupted' if self.before == SECOND_BEFORE else 'failed'
+            required_status = 'interrupted' if self.before in (SECOND_BEFORE, THIRD_BEFORE) else 'failed'
             if not evidence or evidence.get('status') != required_status or not evidence.get('ended_at'):
                 raise Blocked('exact terminal before-evidence performance red required')
             self.evidence = {key: evidence.get(key) for key in ('status', 'sha', 'started_at', 'ended_at')}
@@ -266,6 +291,18 @@ class Rotation:
                     raise Blocked('second approved interruption lacks the actual failed perf.rps25 case')
                 self.evidence.update(expected, failed_rps25_case_ids=sorted(failures))
                 self.evidence.update(self.second_external_evidence(evidence))
+            if self.before == THIRD_BEFORE:
+                expected = dict(selected_suite='performance', sha=THIRD_SHA, source_tree_sha=THIRD_SOURCE)
+                if any(evidence.get(key) != value for key,value in expected.items()) or 'source_tree_sha_end' in evidence:
+                    raise Blocked('third approved ledger source/suite/commit differs or missing original end was backfilled')
+                statuses,failures = {},[]
+                for case_id,raw in connection.execute('SELECT id,data FROM cases WHERE run_id=?',(self.before,)):
+                    self.budget(2);case=json.loads(raw);status=case.get('status');statuses[status]=statuses.get(status,0)+1
+                    if case.get('name')=='perf.rps50' and status=='failed':failures.append(case_id)
+                if statuses != {'passed':14,'failed':2,'blocked':5} or not failures:
+                    raise Blocked('third approved original 14P/2F/5B and actual failed perf.rps50 required')
+                self.evidence.update(expected,failed_rps50_case_ids=sorted(failures),original_case_counts=statuses)
+                self.evidence.update(self.third_external_evidence(evidence))
             if self.journal and self.journal['before_evidence'] != self.evidence:
                 raise Blocked('historical before-evidence receipt changed')
         finally:
@@ -330,6 +367,81 @@ class Rotation:
             original_ledger_source_end_missing='source_tree_sha_end' not in evidence,
             ledger_source_tree_sha_end=evidence.get('source_tree_sha_end'))
 
+    def third_external_evidence(self,evidence):
+        # Use the actual receipt schemas. No original Runner end or post-stop
+        # HMAC/binary field is invented; the latter record is a later observation.
+        paths=[safe_path(self.root/'.local/testlab'/name) for name in THIRD_RECEIPTS]
+        (freeze,stopped,observed),hashes=receipt_snapshots(paths)
+        if not all(isinstance(row,dict) for row in (freeze,stopped,observed)):
+            raise Blocked('third approved source receipts must be objects')
+        observed_run=observed.get('run')
+        if not isinstance(observed_run,dict):raise Blocked('third approved post-stop ledger snapshot missing')
+        if freeze.get('run_id')!=THIRD_BEFORE or stopped.get('run_id')!=THIRD_BEFORE or observed_run.get('id')!=THIRD_BEFORE:
+            raise Blocked('third approved source receipt run differs')
+        for key in ('status','sha','started_at','ended_at','selected_suite','source_tree_sha','pid'):
+            if observed_run.get(key)!=evidence.get(key):raise Blocked('third approved post-stop ledger snapshot differs')
+        if ('source_tree_sha_end' in observed_run or 'source_tree_sha_end_original' not in observed or observed.get('source_tree_sha_end_original') is not None
+                or observed.get('do_not_backfill_missing_end') is not True
+                or observed.get('observed_source_after_stop')!=THIRD_SOURCE
+                or stopped.get('source_tree_sha')!=THIRD_SOURCE
+                or freeze.get('run_started_at')!=evidence['started_at']
+                or observed.get('active_runs')!=[]
+                or observed.get('counts')!={'oid':THIRD_OID,'services':1000,'alerts':100000,'messages':500000,'users':20}
+                or observed.get('error_root_message_from_original_case')!='RuntimeError: k6 exited without real summary'
+                or stopped.get('formal_performance_accepted') is not False
+                or stopped.get('formal_24h_accepted') is not False
+                or observed.get('formal_performance_accepted') is not False
+                or observed.get('formal_24h_started') is not False):
+            raise Blocked('third approved scope/source/nonacceptance receipt differs')
+        try:
+            def timestamp(value):
+                parsed=datetime.datetime.fromisoformat(value)
+                if parsed.tzinfo is None:raise ValueError('timezone required')
+                return parsed.timestamp()
+            start,end,initial,stop,later=map(timestamp,(evidence['started_at'],evidence['ended_at'],freeze['at'],stopped['at'],observed['at']))
+            if not start<=initial<=stop<=end+5 or not start<=end<=later:raise ValueError('observation times differ')
+        except (ValueError,TypeError,KeyError,OverflowError) as error:
+            raise Blocked('third approved source observation times invalid') from error
+        initial=self.journal.get('initial_hmac_identity') if self.journal else None
+        pid=initial['pid'] if initial else self.data['supervisor_pid']
+        identities=[row.get('identity') for row in (freeze,stopped)]
+        for current in identities:
+            if not isinstance(current,dict):raise Blocked('third approved authenticated stop/freeze identity missing')
+            pids=current.get('api_pids',[])
+            if (current.get('owner')!=OWNER or current.get('pid')!=pid or current.get('source_tree_sha')!=THIRD_SOURCE
+                    or current.get('ready') is not True or current.get('failed') is not False
+                    or not isinstance(pids,list) or len(pids)!=2
+                    or any(type(p) is not int or p<=1 for p in pids) or len(set(pids))!=2):
+                raise Blocked('third approved freeze/stop identity differs')
+        if (identities[0]!=identities[1] or initial and identities[0]!=initial
+                or any(row.get('runner_pid_snapshot')!=evidence.get('pid') for row in (freeze,stopped))):
+            raise Blocked('third approved process/runner identity differs')
+        metrics=observed.get('metrics',{})
+        if not isinstance(metrics,dict):raise Blocked('third approved post-stop metrics missing')
+        postgres=metrics.get('postgres',{});processes=metrics.get('backend_processes')
+        if (not isinstance(postgres,dict) or not isinstance(processes,list) or len(processes)!=2 or not all(isinstance(row,dict) and type(row.get('pid')) is int for row in processes)
+                or any(type(postgres.get(key)) is not int or postgres.get(key)!=0 for key in ('running_replies','queued_replies','locks','waiting'))
+                or [row.get('pid') for row in processes]!=identities[0]['api_pids']):
+            raise Blocked('third approved post-stop worker/lock/process observation differs')
+        self.third_identity=identities[0]
+        return dict(source_post_stop=THIRD_SOURCE,source_observed_at=observed['at'],
+            source_evidence_mode='actual_post_stop_observation',source_evidence_sha256=hashes,
+            original_ledger_source_end_missing=True,ledger_source_tree_sha_end=None,
+            approved_binary_sha256=THIRD_BINARY_SHA,approved_runtime_sha256=THIRD_RUNTIME_SHA)
+
+    def protected_archives_guard(self,catalog):
+        if self.before!=THIRD_BEFORE:return
+        expected={}
+        for run,before,oid in PROTECTED_ARCHIVES:
+            nonce=canonical_uuid(run);archive=APP+'_evidence_'+nonce
+            tag=json.dumps(dict(schema=1,owner=OWNER,run_id=run,before_evidence_run=before,
+                canonical=APP,archive=archive,fresh=APP+'_fresh_'+nonce,kind='archive'),sort_keys=True,separators=(',',':'))
+            expected[archive]={'oid':oid,'owner':'testlab','tag':tag}
+        if catalog.get('protected_archives')!=expected:
+            raise Blocked('third approved prior archive OID/owner/tag differs')
+        if self.journal and (self.journal.get('protected_archives_before')!=expected or self.journal.get('stage')=='complete' and self.journal.get('protected_archives_after')!=expected):
+            raise Blocked('third approved prior archive journal snapshot differs')
+
     def pg_guard(self):
         info = guard_pg(inspect_pg(self.data['postgres_container'], self.budget(3)), OWNER,
                         self.journal.get('postgres_image_id') if self.journal else None)
@@ -348,6 +460,9 @@ class Rotation:
     def unchanged(self):
         if digest(self.environment_path) != self.environment_sha or digest(self.backend_path) != self.fixture_sha or digest(self.binary) != self.binary_sha:
             raise Blocked('profile original environment/backend/binary changed')
+        if self.before == THIRD_BEFORE and not (self.journal and self.journal.get('stage') == 'complete'):
+            if digest(safe_path(self.root/'.local/testlab/runtime-config.json'))!=THIRD_RUNTIME_SHA or source_fingerprint(self.root)!=THIRD_SOURCE:
+                raise Blocked('third approved source/runtime changed during partial operation')
         if self.journal and self.journal.get('stage') != 'complete':
             for key, value in [('environment_sha256', self.environment_sha), ('fixture_sha256', self.fixture_sha), ('binary_sha256', self.binary_sha)]:
                 if self.journal.get(key) != value:
@@ -388,7 +503,15 @@ class Rotation:
             ','.join(quoted(x) for x in (APP, self.archive, self.fresh)) + ")), '[]'::json)")
         parts.append("'pending_ddl',(SELECT count(*) FROM pg_stat_activity WHERE application_name=" +
                      quoted('profile-ddl-' + self.nonce) + " AND state='active')")
-        return json.loads(self.pg('SELECT json_build_object(' + ','.join(parts) + ')'))
+        if self.before == THIRD_BEFORE:
+            protected=[]
+            for run,_,_ in PROTECTED_ARCHIVES:
+                name=APP+'_evidence_'+canonical_uuid(run)
+                protected.append(quoted(name)+",(SELECT json_build_object('oid',d.oid::bigint,'owner',pg_get_userbyid(d.datdba),'tag',shobj_description(d.oid,'pg_database')) FROM pg_database d WHERE datname="+quoted(name)+')')
+            parts.append("'protected_archives',json_build_object("+','.join(protected)+')')
+        catalog=json.loads(self.pg('SELECT json_build_object(' + ','.join(parts) + ')'))
+        self.protected_archives_guard(catalog)
+        return catalog
 
     def layout(self, catalog):
         old = self.journal['original_oid']
@@ -504,15 +627,20 @@ class Rotation:
 
     def plan(self):
         catalog = self.catalog()
+        self.protected_archives_guard(catalog)
         if self.journal:
             state = self.layout(catalog)
         else:
             current = self.supervisor()
+            if self.before == THIRD_BEFORE and current != self.third_identity:
+                raise Blocked('third approved fresh supervisor differs from freeze/stop process identity')
             canonical = catalog['canonical']
             if not canonical or canonical['owner'] != 'testlab' or catalog['archive'] or catalog['fresh']:
                 raise Blocked('canonical APP missing/foreign or archive/staging name already exists')
             if self.before == SECOND_BEFORE and canonical['oid'] != SECOND_OID:
                 raise Blocked('second approved evidence original APP OID differs; refusing re-archive')
+            if self.before == THIRD_BEFORE and canonical['oid'] != THIRD_OID:
+                raise Blocked('third approved original APP OID differs; refusing re-archive')
             state = 'original'
             self.initial_identity = current
         return dict(self.identity_fields(), phase=state, catalog=catalog, environment_run_id=self.environment['run_id'],
@@ -600,6 +728,8 @@ class Rotation:
                 before_evidence=self.evidence, initial_hmac_identity=self.initial_identity,
                 initial_hmac_receipt=self.hmac_receipt,
                 fresh_oid=None, fresh_create_completed=False, ready=False)
+            if self.before == THIRD_BEFORE:
+                self.journal.update(runtime_sha256=THIRD_RUNTIME_SHA,protected_archives_before=planned['catalog']['protected_archives'])
             private_file(self.journal_path, json.dumps(self.journal))
             self.sync_journal_directory()
         self.unchanged()
@@ -646,6 +776,7 @@ class Rotation:
                 contents = self.schema(APP)
                 if contents != {'user_tables': 0, 'extensions': ['pgcrypto', 'vector']}:
                     raise Blocked('fresh canonical is not empty with exact public extensions')
+                if self.before == THIRD_BEFORE:self.save(protected_archives_after=catalog['protected_archives'])
                 self.save(stage='complete', last_catalog=catalog, fresh_initial_schema=contents, archive_data_deleted=False,
                           migrations_executed=False, api_started=False, runtime_reinitialized=False, ready=False)
                 return dict(self.identity_fields(), applied=True, archive_original_oid=self.journal['original_oid'],

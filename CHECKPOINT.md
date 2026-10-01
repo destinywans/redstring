@@ -1,3 +1,11 @@
+## CP-254 · 2026-10-01 · 第三次基础库代际保全工具离线审查通过，现场未执行
+
+- collector/62回归及记录 **74e7ed3**已独立提交，推送与精确回读按Git实际输出。第三profile仅profile.py/test_profile.py，58P0F0skip/1.162s（原45+新增13），first red准确53例49P4error因原精确before白名单拒绝新context，原raw0600保留；不是执行DDL的红。profile **1715721e87b3c113fc99a78147a91d2b7a9c69e7e16ebb61138dcf91b901dbe1**、test **5be85210d7c0e525205a283e0ee0bbfa4e4521ea648e91cece4ca8c5535e42bd**。独立XHigh核SHA/metadata/源6ad始末、精确授权、partial/replay及旧archives无新阻断，**仅源码/offline证明，未现场plan/apply/stop/DDL/startup**。
+- 新context只允许历史1a998623/285/interrupted14P2F5B/实际rps50失败、当前Go6ad/bfeb/runtime338及APP11131999；不锁后续文档提交HEAD。三份真实freeze/stop/poststop收据同FD/同bytes解析hash并末尾inode/path复核，区分later observation与缺失end，绝不伪postHMAC/binary/source_end。两旧证据库16388/9270802 exact名称/OID/owner/tag逐catalog核并journalbefore/after保持。源/runtime/receipt漂移、未知phase/CREATE、重复新UUID归档拒绝；complete replay无mutation。
+- 自主选择B的理由：保持原五个DSN、credentials/seed/backend等守卫与SQL target，避免将新APP context传播到多入口；只重命名当前自有scale库，原OID/数据保存，新tagged空stage发布canonical，不DELETE/DROP/FORCE/终止未知连接。六步DDL共享40秒及连接quiescence8秒保持。所有真实操作必须rootfresh无active SQLite、nonce/HMAC、actuallisteners/未知client0及PG/CID-owner-image/catalog核验。
+- root启动配方 `.local/testlab/resume_frozen_base.py`仅0600私有操作记录、未执行。只已完成journal的plan读回，不调用apply；原bfeb/338正式daemon先完整写fixture再gate释放child，实际迁移/bootstrap，两旧reserved scope/connector constant配置SQL记录SHA，不重新构建或调用重写timestamp/runtime方法。初版必然旧fixture SHA冲突/继承40秒DDL预算，独审发现后预执行修为写完整新fixture后独立readonly Rotation，新budget，不放宽历史guard；XHigh目标确认关闭。失败保留两代库，不复制旧sessions/trials/results。此配方编译/源审不能冒真实启动验收。
+- 当前仍原APP11131999规模档/两archives，主API30985/30986/30987仅快照；无正式load/24h，Go6ad/bfeb/338不变。下一步scoped提交本工具、生成唯一operation UUID，先真实plan，检查后同UUID apply，保留journal/原库counts，再原冻结启动配方；现场不足failclosed留证，不扩大环境。exactbase100/5000/10000/20、配置/登录/必要入口/SSE复验后才原50诊断/两档性能。完整性能未通过、24h未开始、整体未收口，不前端/业务.env/DB/其他集群/真实账号通知、合并部署，.claude保留。
+
 ## CP-253 · 2026-10-01 · k6取证与取消收尾离线闭环，真实原因待新基础档验证
 
 - 原生投影包/CP252 **16862fa57a51c6680082db2132a43ef73a5424ca**已推送并精确远端回读，WAN136/138/163及原51文档已同步。49实测/36HTTP及两测试误报首红保持，Go6ad/bfeb/runtime338、主super30985/API30986/87未变；57/166正常主+13辅助，不冒全覆盖。此处PID仅快照，操作仍fresh nonce/HMAC/listener。

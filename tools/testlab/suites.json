@@ -1306,6 +1306,58 @@
           "cleanup_grace_seconds": 45
         }
       ]
+    },
+    {
+      "id": "rule-assistant-container-functional",
+      "name": "Linux隔离规则生成与合成七天预览",
+      "type": "integration",
+      "evidence_mode": "protocol_mock",
+      "gap_ids": [
+        18,
+        46
+      ],
+      "verification_scope": "Linux非race正式HTTP与UUID PG；模型及2017点七天历史均protocol Mock。独立Docker私有DNS/TLS/身份/限额/清理证明；不证明真实推理、历史或Darwin平台等价。需已准备且严格核验build/current.json；不会自动重建。",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_rule_assistant_container_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 480,
+          "cleanup_grace_seconds": 45,
+          "env": {
+            "PYTHONDONTWRITEBYTECODE": "1"
+          }
+        }
+      ]
+    },
+    {
+      "id": "topology-protocol",
+      "name": "完整拓扑DTO与合成调用图协议",
+      "type": "integration",
+      "evidence_mode": "protocol_mock",
+      "gap_ids": [
+        20,
+        46
+      ],
+      "verification_scope": "真实PG/双API与原生快照导入器；调用边来自明确合成external_snapshot_file，11指标序列各6点protocol Mock。完整DTO/权限/故障/版本验证；真实权威生产者、流量与历史仍待确认。",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_topology_protocol_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 300,
+          "cleanup_grace_seconds": 45,
+          "env": {
+            "PYTHONDONTWRITEBYTECODE": "1"
+          }
+        }
+      ]
     }
   ]
 }

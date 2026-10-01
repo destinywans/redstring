@@ -1269,6 +1269,23 @@
       ".local/testlab/rule-generation-parallel/handoff.json",
       ".local/testlab/rule-generation-parallel/evidence-mode-consistency.json"
     ],
-    "fix_commit": "d22f449f48314c7fafc398b94aa50450307461ab (aggregation); producer commit pending"
+    "fix_commit": "d22f449f48314c7fafc398b94aa50450307461ab (aggregation); 7a94c407b62f5664e41df1aca594b4e1eed7c817 (producer)"
+  },
+  {
+    "id": "TOOL-PROMOTION-SOFTDELETE-CLEANUP",
+    "title": "GitLab19普通DELETE是延迟删除，临时项目未在清理期限内消失",
+    "category": "test_tool",
+    "severity": "MEDIUM",
+    "status": "in_review",
+    "before": "正式d7e7e423业务73P/66HTTP，DELETE202后3个own项目仍HTTP200/marked。整体2failed/1blocked/1external_todo保持。",
+    "after": "用户明确授权本轮临时项目永久清理后，严格owner/run/ID/namespace/实际renamed full_path清理原11–13及复验14–16均实际404；78offline与45cc原完整组75P/1external通过本地清理。原首红/两次自动审批拒绝保留，40秒总预算未放宽。",
+    "product_change_required": false,
+    "first_failure_run": "d7e7e423-a8e3-441a-a73d-367e8cf04e3a",
+    "local_evidence": [
+      ".local/testlab/config-gitops-parallel/runner-delivery.json",
+      ".local/testlab/config-gitops-parallel/permanent-cleanup-approval-packet.json"
+    ],
+    "source": "https://docs.gitlab.com/api/projects/#delete-a-project",
+    "validation_run": "45cc3283-2416-47c1-a3f6-a77923702f1d"
   }
 ]

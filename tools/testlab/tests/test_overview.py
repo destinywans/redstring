@@ -190,14 +190,18 @@ class OverviewTests(unittest.TestCase):
         needed = 'trusted complete environment-bound seven-day history producer; not present'
         self.case(r, s, name='history', status='blocked', actual={'needed': needed, 'error_code': 'not_connected'})
         self.case(r, s, name='route', status='blocked', actual={'error_code': 'route_source_unavailable'})
+        self.case(r, s, name='cleanup', status='failed', actual={'error': 'promotion owned cleanup incomplete'})
+        self.case(r, s, name='invalid_error', status='blocked', actual={'error': {'unverified': 'cause'}})
         self.case(r, s, name='unknown', status='blocked', actual={'normal_verified': False})
         blockers = {b['name']: b for b in self.overview()['work_packages'][0]['scenario_acceptance']['blocking_cases']}
         self.assertIn(needed, blockers['history']['reason'])
         self.assertIn('not_connected', blockers['history']['reason'])
         self.assertEqual(blockers['route']['reason'], 'route_source_unavailable')
+        self.assertEqual(blockers['cleanup']['reason'], 'promotion owned cleanup incomplete')
+        self.assertEqual(blockers['invalid_error']['reason'], '')
         self.assertEqual(blockers['unknown']['reason'], '')
         for b in blockers.values():
-            self.assertEqual(b['status'], 'blocked')
+            self.assertEqual(b['status'], 'failed' if b['name'] == 'cleanup' else 'blocked')
             self.assertTrue(b['evidence_ids'])
 
     def test_regression_components_are_rendered_in_reports_and_dashboard(self):

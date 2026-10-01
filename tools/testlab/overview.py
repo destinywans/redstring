@@ -38,7 +38,7 @@ def _actual(case):
 def _blocking_reason(case):
     actual = _actual(case)
     # Display only explicit fields from the verified original, never infer a cause.
-    parts = [actual.get('reason') or actual.get('needed'), actual.get('error_code')]
+    parts = [actual.get('reason') or actual.get('needed') or actual.get('error'), actual.get('error_code')]
     return '；'.join(dict.fromkeys(p for p in parts if isinstance(p, str) and p))
 
 

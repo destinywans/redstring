@@ -37,6 +37,9 @@ python3 tools/testlab/testlab.py run --suite bulk-actions-functional
 python3 tools/testlab/testlab.py run --suite rule-create-functional
 python3 tools/testlab/testlab.py run --suite metrics-ask-functional
 python3 tools/testlab/testlab.py run --suite rule-assistant-functional
+# Linux协议包需预先记录并严格核验专用cross-build证明；缺失明确blocked，不自动构建
+python3 tools/testlab/testlab.py run --suite rule-assistant-container-functional
+python3 tools/testlab/testlab.py run --suite topology-protocol
 python3 tools/testlab/testlab.py run --suite promotion
 python3 tools/testlab/testlab.py run --suite identity,invitations,vault
 python3 tools/testlab/testlab.py run --suite local-live-gates,jenkins

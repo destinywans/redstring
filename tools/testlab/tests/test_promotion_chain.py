@@ -155,7 +155,10 @@ class PromotionTests(unittest.TestCase):
         with patch.object(self.chain,'pg',side_effect=pg),self.assertRaises(promotion.Blocked):
             self.chain.create_database('source')
         self.assertEqual(self.chain.created_dbs,['source'])
-        self.assertEqual(len(calls),3)
+        self.assertEqual(self.chain.created_roles,['source'])
+        self.assertEqual(len(calls),5)
+        self.assertIn('NOSUPERUSER NOCREATEDB NOCREATEROLE',calls[2])
+        self.assertIn('OWNER "'+self.chain.db_users['source']+'"',calls[3])
 
     def test_dsn_exact_loopback_user_port_base_database_and_new_name(self):
         value=self.chain.dsn('production')
@@ -801,6 +804,217 @@ class PromotionTests(unittest.TestCase):
         evidence=json.loads((self.chain.work/'cross-project-schema.json').read_text())
         self.assertTrue(evidence['control_positive_before_injection'])
         self.assertEqual(evidence['production_rows_after_denial'],{'target':0,'ledger':0,'audit':0})
+
+    def test_isolated_api_dsn_never_reuses_control_database_or_superuser(self):
+        for tier in promotion.PORTS:
+            parsed=promotion.urllib.parse.urlsplit(self.chain.dsn(tier))
+            self.assertEqual(parsed.username,self.chain.db_users[tier])
+            self.assertEqual(parsed.password,self.chain.db_passwords[tier])
+            self.assertNotEqual(parsed.password,'private')
+            self.assertEqual((parsed.hostname,parsed.port,parsed.path),
+                             ('127.0.0.1',15461,'/'+self.chain.databases[tier]))
+            query=dict(promotion.urllib.parse.parse_qsl(parsed.query))
+            self.assertEqual(query['application_name'],'promotion-api-'+tier+'-'+self.chain.run_id)
+            self.assertEqual(query['sslmode'],'disable')
+        with patch.object(promotion,'budgeted_inspect',return_value=self.pginfo),patch.object(self.chain,'command',return_value='0') as command:
+            self.chain.pg(self.chain.databases['source'],'SELECT 1',read=True)
+            argv=command.call_args.args[0]
+            self.assertEqual(argv[argv.index('-U')+1],self.chain.db_users['source'])
+            self.chain.pg('postgres','SELECT 1',read=True,admin=True)
+            argv=command.call_args.args[0]
+            self.assertEqual(argv[argv.index('-U')+1],'testlab')
+
+    def test_existing_role_is_never_adopted_or_modified(self):
+        with patch.object(self.chain,'pg',side_effect=['0','1']) as pg:
+            with self.assertRaisesRegex(promotion.Blocked,'role already exists'):
+                self.chain.create_database('source')
+        self.assertEqual(self.chain.created_roles,[])
+        self.assertTrue(all(call.kwargs.get('read') for call in pg.call_args_list))
+
+    def test_replaced_exact_cid_is_rejected_before_sql_or_gitlab_request(self):
+        self.chain.backend['promotion_pg_cid']='expected-pg'
+        self.chain.gitlab['promotion_cid']='expected-gitlab'
+        with patch.object(promotion,'budgeted_inspect',return_value=self.pginfo|{'Id':'foreign'}),patch.object(self.chain,'command') as command:
+            with self.assertRaises(promotion.Blocked):
+                self.chain.pg('postgres','SELECT 1',read=True,admin=True)
+            command.assert_not_called()
+        with patch.object(promotion,'budgeted_inspect',return_value=self.gitinfo|{'Id':'foreign'}),patch.object(promotion,'transport') as network:
+            with self.assertRaises(promotion.Blocked):self.chain.git('GET','/api/v4/user')
+            network.assert_not_called()
+        with self.assertRaises(promotion.Blocked):
+            promotion.guard_gitlab(self.gitinfo|{'Id':'foreign'},self.backend,self.gitlab,self.root)
+
+    def test_popen_handle_remains_registered_when_state_write_fails(self):
+        proc=Mock(pid=12345)
+        with patch.object(self.chain,'frozen'),patch.object(self.chain,'assert_database'),patch.object(promotion,'free_port'), \
+             patch.object(promotion.subprocess,'Popen',return_value=proc),patch.object(self.chain,'save',side_effect=OSError('state write failed')):
+            with self.assertRaises(OSError):self.chain.start('source')
+        self.assertIs(self.chain.processes['source'],proc)
+        self.assertEqual(self.chain.state['pids']['source'],12345)
+
+    def test_tls_certificate_failure_closes_registered_unstarted_listener(self):
+        server=Mock();ctx=Mock();ctx.load_cert_chain.side_effect=OSError('certificate fixture')
+        with patch.object(promotion,'ThreadingHTTPServer',return_value=server),patch.object(promotion.ssl,'SSLContext',return_value=ctx):
+            with self.assertRaises(OSError):promotion.TLSProxy(self.chain,'source')
+        self.assertIs(self.chain.proxies['source'].server,server)
+        server.server_close.assert_called_once();server.shutdown.assert_not_called()
+
+    def test_controlled_proxy_state_failure_closes_registered_started_thread(self):
+        promotion.private_bytes(self.chain.work/'source-token',b'owned-writer')
+        promotion.private_bytes(self.chain.work/'production-token',b'owned-reader')
+        server=Mock();ctx=Mock();thread=Mock(ident=123)
+        thread.is_alive.side_effect=[True,False]
+        with patch.object(self.chain,'assert_project'),patch.object(promotion,'free_port'), \
+             patch.object(promotion,'ThreadingHTTPServer',return_value=server),patch.object(promotion.ssl,'SSLContext',return_value=ctx), \
+             patch.object(promotion.threading,'Thread',return_value=thread),patch.object(promotion.ControlledGitLabProxy,'save',side_effect=OSError('state write failed')):
+            with self.assertRaises(OSError):promotion.ControlledGitLabProxy(self.chain)
+        self.assertIs(self.chain.git_proxy.server,server)
+        server.shutdown.assert_called_once();server.server_close.assert_called_once();thread.join.assert_called_once()
+
+    def test_role_marker_mismatch_preserves_role_but_cleans_other_owned_role(self):
+        self.chain.projects.clear();self.chain.created_roles=['source','production'];calls=[]
+        def pg(db,statement,**kwargs):
+            calls.append(statement)
+            if statement.startswith('SELECT COALESCE'):
+                return 'foreign' if self.chain.db_users['source'] in statement else self.chain.db_marker('role-production')
+            return '0'
+        with patch.object(self.chain,'stop',return_value={}),patch.object(self.chain,'pg',side_effect=pg),patch.object(promotion,'emit'):
+            with self.assertRaises(promotion.Blocked):self.chain.cleanup()
+        drops=[s for s in calls if s.startswith('DROP ROLE')]
+        self.assertEqual(drops,['DROP ROLE "'+self.chain.db_users['production']+'";'])
+        row=json.loads((self.chain.work/'resource-end.json').read_text())
+        self.assertEqual(row['errors'][0]['resource'],'role-source')
+        self.assertTrue(row['roles'][0]['absent'])
+
+    def test_role_drop_timeout_is_never_replayed_and_absence_is_read_back(self):
+        self.chain.projects.clear();self.chain.created_roles=['source'];calls=[]
+        def pg(db,statement,**kwargs):
+            calls.append(statement)
+            if statement.startswith('SELECT COALESCE'):return self.chain.db_marker('role-source')
+            if statement.startswith('DROP ROLE'):raise subprocess.TimeoutExpired(['private'],8)
+            return '0'
+        with patch.object(self.chain,'stop',return_value={}),patch.object(self.chain,'pg',side_effect=pg),patch.object(promotion,'emit'):
+            self.chain.cleanup()
+        self.assertEqual(sum(s.startswith('DROP ROLE') for s in calls),1)
+        row=json.loads((self.chain.work/'resource-end.json').read_text())
+        self.assertTrue(row['roles'][0]['absent']);self.assertTrue(row['roles'][0]['timeout_recovered'])
+
+    def test_project_delete_accepted_needs_api_absence_after_independent_role_cleanup(self):
+        self.chain.created_roles=['source'];order=[]
+        def git(method,path,body=None,**kwargs):
+            order.append(method)
+            return ({'message':'404 Project Not Found'},{},404) if method=='GET' else ({},{})
+        def pg(db,statement,**kwargs):
+            order.append('role')
+            return self.chain.db_marker('role-source') if statement.startswith('SELECT COALESCE') else '0'
+        with patch.object(self.chain,'stop',return_value={}),patch.object(self.chain,'assert_project',return_value={'path_with_namespace':'root/owned'}), \
+             patch.object(self.chain,'git',side_effect=git),patch.object(self.chain,'pg',side_effect=pg),patch.object(promotion,'emit'):
+            self.chain.cleanup()
+        self.assertEqual(order[0],'DELETE');self.assertEqual(order[-1],'GET')
+        self.assertIn('role',order[1:-1])
+        row=json.loads((self.chain.work/'resource-end.json').read_text())
+        self.assertTrue(row['projects'][0]['api_absent'])
+        self.assertTrue(row['projects'][0]['delete_scheduled'])
+
+    def test_sigint_and_sigterm_during_popen_acquisition_retain_handle_before_cancellation(self):
+        for sig in (signal.SIGINT,signal.SIGTERM):
+            with self.subTest(signal=sig):
+                self.chain.processes.clear();proc=Mock(pid=12345);previous=signal.getsignal(sig)
+                def acquire(*args,**kwargs):
+                    signal.raise_signal(sig)
+                    return proc
+                with patch.object(self.chain,'frozen'),patch.object(self.chain,'assert_database'),patch.object(promotion,'free_port'), \
+                     patch.object(promotion.subprocess,'Popen',side_effect=acquire):
+                    with self.assertRaisesRegex(promotion.Blocked,'acquisition interrupted'):
+                        self.chain.start('source')
+                self.assertIs(self.chain.processes['source'],proc)
+                self.assertEqual(signal.getsignal(sig),previous)
+
+    def test_sigint_during_listener_acquisition_registers_and_closes_exact_server(self):
+        server=Mock()
+        def acquire(*args,**kwargs):
+            signal.raise_signal(signal.SIGINT)
+            return server
+        with patch.object(promotion,'ThreadingHTTPServer',side_effect=acquire):
+            with self.assertRaisesRegex(promotion.Blocked,'acquisition interrupted'):
+                promotion.TLSProxy(self.chain,'source')
+        self.assertIs(self.chain.proxies['source'].server,server)
+        server.server_close.assert_called_once();server.shutdown.assert_not_called()
+
+    def test_create_database_timeout_records_intent_and_retains_unmarked_exact_database(self):
+        calls=[]
+        def create(db,statement,**kwargs):
+            calls.append(statement)
+            if statement.startswith('CREATE DATABASE'):raise subprocess.TimeoutExpired(['private'],8)
+            return '0'
+        with patch.object(self.chain,'pg',side_effect=create):
+            with self.assertRaises(subprocess.TimeoutExpired):self.chain.create_database('source')
+        self.assertEqual(self.chain.created_dbs,['source']);self.assertEqual(self.chain.pending_dbs,['source'])
+        self.assertEqual(sum(s.startswith('CREATE DATABASE') for s in calls),1)
+        self.chain.projects.clear();calls=[]
+        def cleanup(db,statement,**kwargs):
+            calls.append(statement)
+            if statement.startswith('SELECT json_build_object'):
+                return json.dumps({'present':True,'owner':self.chain.db_users['source'],'active_create_commands':0})
+            if statement.startswith('SELECT COALESCE'):return self.chain.db_marker('role-source')
+            if 'datdba=' in statement:return '1'
+            return ''
+        with patch.object(self.chain,'stop',return_value={}),patch.object(self.chain,'pg',side_effect=cleanup),patch.object(promotion,'emit'):
+            with self.assertRaises(promotion.Blocked):self.chain.cleanup()
+        self.assertFalse(any(s.startswith(('CREATE','DROP')) for s in calls))
+        row=json.loads((self.chain.work/'resource-end.json').read_text())
+        self.assertEqual(row['databases'][0]['creation_intent_readback']['owner'],self.chain.db_users['source'])
+        self.assertFalse(row['databases'][0]['dropped'])
+        self.assertEqual({e['resource'] for e in row['errors']},{'database-source','role-source'})
+
+    def test_uncommitted_database_intent_is_read_back_without_database_ddl_replay(self):
+        self.chain.projects.clear();self.chain.created_dbs=['source'];self.chain.pending_dbs=['source'];self.chain.created_roles=['source'];calls=[]
+        def pg(db,statement,**kwargs):
+            calls.append(statement)
+            if statement.startswith('SELECT json_build_object'):
+                return json.dumps({'present':False,'owner':None,'active_create_commands':0})
+            if statement.startswith('SELECT COALESCE'):return self.chain.db_marker('role-source')
+            return '0'
+        with patch.object(self.chain,'stop',return_value={}),patch.object(self.chain,'pg',side_effect=pg),patch.object(promotion,'emit'):
+            self.chain.cleanup()
+        self.assertFalse(any(s.startswith(('CREATE DATABASE','DROP DATABASE')) for s in calls))
+        self.assertEqual(sum(s.startswith('DROP ROLE') for s in calls),1)
+        row=json.loads((self.chain.work/'resource-end.json').read_text())
+        self.assertTrue(row['databases'][0]['creation_not_committed_or_already_absent'])
+
+    def test_http200_with_404_message_does_not_prove_project_absent(self):
+        responses=[(202,b'{}',{}),(202,b'{}',{}),(200,b'{"message":"404 Project Not Found"}',{}),
+                   (404,b'{"message":"404 Project Not Found"}',{})]
+        with patch.object(self.chain,'stop',return_value={}),patch.object(self.chain,'assert_project',return_value={'path_with_namespace':'root/owned'}), \
+             patch.object(promotion,'budgeted_inspect',return_value=self.gitinfo),patch.object(promotion,'transport',side_effect=responses) as transport, \
+             patch.object(promotion.time,'sleep'),patch.object(promotion,'emit'):
+            self.chain.cleanup()
+        self.assertEqual(transport.call_count,4)
+        row=json.loads((self.chain.work/'resource-end.json').read_text())
+        self.assertEqual(row['projects'][0]['readback_status'],404)
+
+    def test_marked_project_cleanup_accepts_only_exact_run_deletion_rename(self):
+        name=self.chain.project_name+'-deletion_scheduled-7'
+        marked={'id':7,'name':name,'path':name,'path_with_namespace':'root/'+name,'namespace':{'id':1},
+                'description':self.chain.db_marker('project-main'),'marked_for_deletion_on':'2026-10-01'}
+        with patch.object(self.chain,'git',return_value=(marked,{})):
+            self.assertEqual(self.chain.assert_project('main',deleting=True),marked)
+        for change in [dict(marked,id=8),dict(marked,name=name+'-foreign'),dict(marked,path='foreign'),
+                       dict(marked,path_with_namespace='other/'+name),dict(marked,marked_for_deletion_on=None),
+                       dict(marked,description='foreign')]:
+            with patch.object(self.chain,'git',return_value=(change,{})),self.assertRaises(promotion.Blocked):
+                self.chain.assert_project('main',deleting=True)
+
+    def test_permanent_project_remove_requires_actual_owned_marked_full_path(self):
+        project={'path_with_namespace':'root/'+self.chain.project_name+'-deletion_scheduled-7'}
+        with patch.object(promotion,'budgeted_inspect',return_value=self.gitinfo),patch.object(self.chain,'assert_project',return_value=project), \
+             patch.object(promotion,'transport',return_value=(202,b'{}',{})) as network:
+            for body in [{'permanently_remove':True,'full_path':'root/foreign'},
+                         {'permanently_remove':True,'full_path':project['path_with_namespace'],'extra':True}]:
+                with self.assertRaises(promotion.Blocked):self.chain.git('DELETE','/api/v4/projects/7',body,want=202)
+            network.assert_not_called()
+            self.chain.git('DELETE','/api/v4/projects/7',{'permanently_remove':True,'full_path':project['path_with_namespace']},want=202)
+            network.assert_called_once()
 
 
 if __name__=='__main__':

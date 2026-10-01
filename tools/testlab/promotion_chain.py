@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import signal
 import socket
 import ssl
 import stat
@@ -45,6 +46,28 @@ GITLAB_PROXY_ORIGIN = 'https://localhost:18604'
 GITLAB_PROXY_PORT = 18604
 LIMIT = 2 << 20
 LABEL = 'aiops.testlab.owner'
+PG_CID = 'c15f900dd06c1026de8b79734eb689f088a5f6d60da3c8a88e618499743ab3a7'
+GITLAB_CID = 'e348f0a8682bd85219d878864569f54111a1d3195e24bb3e8b143b407b2356a6'
+
+
+def helper_hashes():
+    return {name: hashlib.sha256((ROOT/'tools/testlab'/name).read_bytes()).hexdigest()
+            for name in ('promotion_chain.py', 'api_readonly_chain.py', 'identity.py', 'gitops.py')}
+
+
+@contextlib.contextmanager
+def acquisition_signals():
+    """Retain each newly acquired handle before honoring either cancellation."""
+    interrupted = []
+    previous = {sig: signal.signal(sig, lambda signum, frame: interrupted.append(signum))
+                for sig in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        yield
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+    if interrupted:
+        raise Blocked('promotion resource acquisition interrupted after retaining its owned handle')
 
 
 def emit(name, status, actual, **fields):
@@ -96,6 +119,7 @@ def guard_pg(info, backend):
     if (not info or info.get('Name') != '/' + expected or backend.get('postgres_container') != expected
             or info.get('Config', {}).get('Image') != PG_IMAGE
             or info.get('Config', {}).get('Labels', {}).get(LABEL) != backend['owner']
+            or backend.get('promotion_pg_cid') and info.get('Id') != backend['promotion_pg_cid']
             or not info.get('State', {}).get('Running')
             or info.get('NetworkSettings', {}).get('Ports', {}).get('5432/tcp') !=
             [{'HostIp': '127.0.0.1', 'HostPort': '15461'}]):
@@ -111,6 +135,7 @@ def guard_gitlab(info, backend, config, root):
             or config.get('gitlab_image') != GITLAB or not info or info.get('Name') != '/' + expected
             or info.get('Config', {}).get('Image') != GITLAB
             or info.get('Config', {}).get('Labels', {}).get(LABEL) != backend['owner']
+            or config.get('promotion_cid') and info.get('Id') != config['promotion_cid']
             or not info.get('State', {}).get('Running')
             or info.get('NetworkSettings', {}).get('Ports', {}).get('443/tcp') !=
             [{'HostIp': '127.0.0.1', 'HostPort': '18580'}]):
@@ -238,12 +263,21 @@ class TLSProxy:
                     if conn:
                         conn.close()
             do_GET = do_POST = relay
-        self.server = ThreadingHTTPServer(('127.0.0.1', PORTS[tier][0]), Handler)
-        self.server.daemon_threads = True
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        ctx.load_cert_chain(str(chain.work/'entry.crt'), str(chain.work/'entry.key'))
-        self.server.socket = ctx.wrap_socket(self.server.socket, server_side=True)
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True); self.thread.start()
+        self.server, self.thread = None, None
+        try:
+            with acquisition_signals():
+                self.server = ThreadingHTTPServer(('127.0.0.1', PORTS[tier][0]), Handler)
+                chain.proxies[tier] = self
+            self.server.daemon_threads = True
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ctx.load_cert_chain(str(chain.work/'entry.crt'), str(chain.work/'entry.key'))
+            self.server.socket = ctx.wrap_socket(self.server.socket, server_side=True)
+            self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+            with acquisition_signals():
+                self.thread.start()
+        except BaseException:
+            self.close()
+            raise
 
     def arm_drop(self, method, path):
         if method != 'POST' or not re.fullmatch(r'/api/v1/config-sync/mr-[1-9][0-9]*/import', path):
@@ -254,7 +288,13 @@ class TLSProxy:
             self.drop = (method, path); self.drop_receipt = None
 
     def close(self):
-        self.server.shutdown(); self.server.server_close(); self.thread.join(timeout=2)
+        if self.server is not None:
+            if self.thread is not None and self.thread.is_alive():
+                self.server.shutdown()
+            self.server.server_close()
+        if self.thread is not None and self.thread.ident is not None:
+            self.thread.join(timeout=2)
+            check(not self.thread.is_alive(), 'owned TLS thread did not stop')
 
 
 class ControlledGitLabProxy:
@@ -316,18 +356,22 @@ class ControlledGitLabProxy:
                     except OSError:
                         pass
             do_GET = do_POST = relay
-        self.server = ThreadingHTTPServer(('127.0.0.1', GITLAB_PROXY_PORT), Handler)
-        self.server.daemon_threads = True
+        self.server, self.thread = None, None
         try:
+            with acquisition_signals():
+                self.server = ThreadingHTTPServer(('127.0.0.1', GITLAB_PROXY_PORT), Handler)
+                chain.git_proxy = self
+            self.server.daemon_threads = True
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             ctx.load_cert_chain(str(chain.work/'entry.crt'), str(chain.work/'entry.key'))
             self.server.socket = ctx.wrap_socket(self.server.socket, server_side=True)
             self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-            self.thread.start()
+            with acquisition_signals():
+                self.thread.start()
+            self.save()
         except BaseException:
-            self.server.server_close()
+            self.close()
             raise
-        self.save()
 
     def save(self):
         _private(self.chain.work/'controlled-gitlab-proxy.json',
@@ -476,7 +520,7 @@ class ControlledGitLabProxy:
         return json.dumps(outgoing, ensure_ascii=False, separators=(',', ':')).encode(), dropping
 
     def close(self):
-        self.server.shutdown(); self.server.server_close(); self.thread.join(timeout=2)
+        TLSProxy.close(self)
 
 
 class Chain:
@@ -489,15 +533,20 @@ class Chain:
         expected_binary = self.root/'.local/testlab/environments'/backend['owner']/'backend/aiops'
         if Path(backend.get('binary', '')).resolve() != expected_binary or expected_binary.is_symlink():
             raise Blocked('promotion verified binary path ownership mismatch')
-        self.work = self.root/'.local/testlab/environments'/backend['owner']/'promotion'/run_id
+        self.work = self.root/'.local/testlab/config-gitops-parallel'/run_id
         if self.work.resolve() != self.work:
             raise Blocked('promotion private work traverses a symlink')
         self.work.mkdir(mode=0o700, parents=True, exist_ok=False)
         self.module = MODULE
         self.processes, self.proxies, self.cookies = {}, {}, {}
         self.git_proxy = None
-        self.databases = {tier: 'aiops_testlab_promotion_'+('prod' if tier == 'production' else 'source')+'_'+run_id[:12] for tier in PORTS}
-        self.created_dbs, self.projects, self.tokens = [], {}, []
+        self.databases = {tier: 'aiops_testlab_promotion_'+('prod' if tier == 'production' else 'source')+'_'+run_id for tier in PORTS}
+        self.db_users = {tier: 'promotion_'+('prod' if tier == 'production' else 'source')+'_'+run_id for tier in PORTS}
+        self.db_passwords = {tier: secrets.token_urlsafe(32) for tier in PORTS}
+        self.created_dbs, self.pending_dbs, self.created_roles, self.projects, self.tokens = [], [], [], {}, []
+        self.helper_sha256 = helper_hashes()
+        runtime = self.root/'.local/testlab/runtime-config.json'
+        self.runtime_sha256 = hashlib.sha256(runtime.read_bytes()).hexdigest() if runtime.is_file() else None
         self.project_name = 'testlab-promotion-' + run_id
         self.target, self.prefix = 'config-' + run_id[:12], 'aiops-promotions-' + run_id[:12] + '/'
         self.source_id = 'testlab-source-' + run_id[:12]
@@ -506,11 +555,12 @@ class Chain:
         self.completed = False
         self.admin = {tier: {'email': 'promotion-'+tier+'-'+run_id+'@testlab.invalid',
                              'password': secrets.token_urlsafe(36)} for tier in PORTS}
-        _private(self.work/'credentials.json', self.admin)
+        _private(self.work/'credentials.json', {'administrators': self.admin, 'database_passwords': self.db_passwords})
         self.state = {'owner': backend['owner'], 'run_id': run_id, 'work': str(self.work), 'databases': self.databases,
                       'source_tree_sha': backend['source_tree_sha'], 'binary_sha256': self.image_hash,
                       'ports': PORTS, 'projects': self.projects, 'pids': {}, 'token_ids': self.tokens,
-                      'source_instance': self.source_id, 'target': self.target, 'branch_prefix': self.prefix}
+                      'source_instance': self.source_id, 'target': self.target, 'branch_prefix': self.prefix,
+                      'database_roles': self.db_users, 'helper_sha256': self.helper_sha256, 'runtime_sha256': self.runtime_sha256}
         self.save()
 
     def save(self):
@@ -519,6 +569,10 @@ class Chain:
     def frozen(self):
         if source_fingerprint(self.root) != self.backend['source_tree_sha'] or hashlib.sha256(Path(self.backend['binary']).read_bytes()).hexdigest() != self.image_hash:
             raise Blocked('promotion formal source/binary changed')
+        if helper_hashes() != self.helper_sha256:
+            raise Blocked('promotion helper source changed during invocation')
+        if self.runtime_sha256 is not None and hashlib.sha256((self.root/'.local/testlab/runtime-config.json').read_bytes()).hexdigest() != self.runtime_sha256:
+            raise Blocked('promotion main runtime changed during invocation')
 
     def command(self, argv, *, input=None, timeout=30, binary=False):
         result = subprocess.run(argv, input=input, capture_output=True, text=not binary, timeout=timeout)
@@ -533,11 +587,12 @@ class Chain:
             raise Blocked('promotion SQL database is outside exact run tuple')
         if database == 'postgres' and not admin:
             raise Blocked('promotion control database requires explicit lifecycle operation')
-        guard_pg(budgeted_inspect(self.backend['postgres_container'], deadline), self.backend)
+        info = guard_pg(budgeted_inspect(self.backend['postgres_container'], deadline), self.backend)
         timeout = remaining(deadline, 8 if deadline else 30)
         payload = 'BEGIN READ ONLY; '+statement+'; COMMIT;' if read else statement
-        return self.command(['docker', 'exec', '-i', self.backend['postgres_container'], 'psql', '-X', '-qAt',
-                             '-v', 'ON_ERROR_STOP=1', '-U', 'testlab', '-d', database], input=payload, timeout=timeout).strip()
+        user = 'testlab' if admin else self.db_users[next(tier for tier, name in self.databases.items() if name == database)]
+        return self.command(['docker', 'exec', '-i', '-e', 'PGAPPNAME=promotion-sql-'+self.run_id, self.backend['postgres_container'], 'psql', '-X', '-qAt',
+                             '-v', 'ON_ERROR_STOP=1', '-U', user, '-d', database], input=payload, timeout=timeout).strip()
 
     def db_marker(self, tier):
         return json.dumps({'owner': self.backend['owner'], 'run_id': self.run_id, 'tier': tier}, sort_keys=True)
@@ -551,20 +606,29 @@ class Chain:
 
     def create_database(self, tier):
         name = self.databases[tier]
-        check(re.fullmatch('aiops_testlab_promotion_(?:source|prod)_[a-f0-9]{12}', name), 'invalid run DB name')
+        check(re.fullmatch('aiops_testlab_promotion_(?:source|prod)_[a-f0-9]{32}', name), 'invalid run DB name')
         existing = self.pg('postgres', 'SELECT count(*) FROM pg_database WHERE datname='+quote(name), admin=True, read=True)
         if existing != '0':
             raise Blocked('fresh promotion database already exists; refusing reuse')
-        # Create + marker are separate PostgreSQL statements; immediately record
-        # the successful create, but cleanup refuses an absent ownership marker.
-        self.pg('postgres', 'CREATE DATABASE "'+name+'" OWNER testlab;', admin=True)
-        self.created_dbs.append(tier); self.state['created_databases'] = self.created_dbs; self.save()
+        user = self.db_users[tier]
+        if self.pg('postgres', 'SELECT count(*) FROM pg_roles WHERE rolname='+quote(user), admin=True, read=True) != '0':
+            raise Blocked('fresh promotion role already exists; refusing reuse')
+        self.created_roles.append(tier); self.state['created_roles'] = self.created_roles; self.save()
+        self.pg('postgres', 'BEGIN; CREATE ROLE "'+user+'" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD '+quote(self.db_passwords[tier])+'; COMMENT ON ROLE "'+user+'" IS '+quote(self.db_marker('role-'+tier))+'; COMMIT;', admin=True)
+        # Record intent before nontransactional CREATE: a client timeout does
+        # not prove whether the server committed. Cleanup reads this exact tuple
+        # and retains a DB whose marker was not successfully established.
+        self.created_dbs.append(tier); self.pending_dbs.append(tier)
+        self.state['created_databases'] = self.created_dbs; self.state['pending_databases'] = self.pending_dbs; self.save()
+        self.pg('postgres', 'CREATE DATABASE "'+name+'" OWNER "'+user+'";', admin=True)
         self.pg('postgres', 'COMMENT ON DATABASE "'+name+'" IS '+quote(self.db_marker(tier))+';', admin=True)
+        self.pg('postgres', 'REVOKE CONNECT,TEMPORARY ON DATABASE "'+name+'" FROM PUBLIC;', admin=True)
         self.assert_database(tier)
-        self.pg(name, 'CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public; CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;')
+        self.pending_dbs.remove(tier); self.save()
+        self.pg(name, 'CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public; CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;', admin=True)
 
-    def git(self, method, path, body=None, *, role='root', want=200, deadline=None):
-        guard_gitlab(budgeted_inspect(self.gitlab['gitlab_name'], deadline), self.backend, self.gitlab, self.root)
+    def git(self, method, path, body=None, *, role='root', want=200, deadline=None, with_status=False):
+        info = guard_gitlab(budgeted_inspect(self.gitlab['gitlab_name'], deadline), self.backend, self.gitlab, self.root)
         if not path.startswith('/api/v4/') or any(char in path for char in ('#', '\\')):
             raise Blocked('owned GitLab path mismatch')
         if method != 'GET':
@@ -573,7 +637,12 @@ class Chain:
                 owned = [key for key, item in self.projects.items() if str(item['id']) == match[1]]
                 if len(owned) != 1:
                     raise Blocked('GitLab mutation outside exact fresh run project')
-                self.assert_project(owned[0], deadline)
+                if method == 'DELETE' and isinstance(body, dict) and body.get('permanently_remove') is True:
+                    project = self.assert_project(owned[0], deadline, deleting=True)
+                    if body != {'permanently_remove': True, 'full_path': project['path_with_namespace']}:
+                        raise Blocked('permanent project cleanup requires its exact marked full path')
+                else:
+                    self.assert_project(owned[0], deadline)
             elif not (method == 'POST' and path in ('/api/v4/projects', '/api/v4/users/3/personal_access_tokens')
                       or method == 'DELETE' and any(path == '/api/v4/personal_access_tokens/'+str(item['id']) for item in self.tokens)):
                 raise Blocked('GitLab mutation outside owned lifecycle operations')
@@ -585,12 +654,21 @@ class Chain:
             row = {'stage': 'owned_gitlab', 'method': method, 'path': path.split('?')[0], 'status': status, 'expected': list(expected)}
             preserve_first_failure(self.work, row)
             raise AssertionError('owned GitLab contract HTTP '+str(status)+' for '+path.split('?')[0])
-        return (json.loads(raw) if raw else {}), response_headers
+        result = (json.loads(raw) if raw else {}), response_headers
+        return (*result, status) if with_status else result
 
-    def assert_project(self, key, deadline=None):
+    def assert_project(self, key, deadline=None, *, deleting=False):
         item = self.projects[key]
         project, _ = self.git('GET', '/api/v4/projects/'+str(item['id']), deadline=deadline)
-        if project.get('id') != item['id'] or project.get('name') != item['name'] or project.get('path') != item['name'] or project.get('namespace', {}).get('id') != item['namespace_id'] or project.get('description') != self.db_marker('project-'+key):
+        name = item['name']
+        if deleting:
+            if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', project.get('marked_for_deletion_on') or ''):
+                raise Blocked('permanent cleanup requires this run project already marked for deletion')
+            allowed = (name, name+'-deletion_scheduled-'+str(item['id']))
+            if project.get('name') not in allowed or project.get('path_with_namespace') != 'root/'+project.get('name', ''):
+                raise Blocked('marked project exact deletion rename/full path mismatch')
+            name = project['name']
+        if project.get('id') != item['id'] or project.get('name') != name or project.get('path') != name or project.get('namespace', {}).get('id') != item['namespace_id'] or project.get('description') != self.db_marker('project-'+key):
             raise Blocked('GitLab project owner/run/id/name/namespace marker mismatch; refusing mutation')
         return project
 
@@ -700,7 +778,10 @@ class Chain:
         parsed = urllib.parse.urlsplit(self.backend['database_url'])
         if parsed.hostname != '127.0.0.1' or parsed.port != 15461 or parsed.username != 'testlab' or parsed.path != '/aiops_testlab_app':
             raise Blocked('base generated DSN ownership mismatch')
-        return urllib.parse.urlunsplit(parsed._replace(path='/'+self.databases[tier]))
+        query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+        query = [(key, value) for key, value in query if key != 'application_name']
+        query.append(('application_name', 'promotion-api-'+tier+'-'+self.run_id))
+        return urllib.parse.urlunsplit(parsed._replace(netloc=self.db_users[tier]+':'+self.db_passwords[tier]+'@127.0.0.1:15461',path='/'+self.databases[tier],query=urllib.parse.urlencode(query)))
 
     def start(self, tier):
         self.frozen(); self.assert_database(tier)
@@ -718,8 +799,10 @@ class Chain:
                      'EMBEDDING_BASE_URL': 'http://127.0.0.1:18578/v1', 'EMBEDDING_API_KEY': 'synthetic-testlab-key'}
         with open(self.work/(tier+'-api.log'), 'ab') as log:
             os.chmod(log.name, 0o600)
-            proc = subprocess.Popen([self.backend['binary']], cwd=self.root, env=command_env(variables, {}), stdout=log, stderr=log)
-        self.processes[tier] = proc; self.state['pids'][tier] = proc.pid; self.save()
+            with acquisition_signals():
+                proc = subprocess.Popen([self.backend['binary']], cwd=self.root, env=command_env(variables, {}), stdout=log, stderr=log)
+                self.processes[tier] = proc; self.state['pids'][tier] = proc.pid
+            self.save()
         deadline = time.monotonic()+60
         while time.monotonic() < deadline:
             if proc.poll() is not None:
@@ -1192,7 +1275,7 @@ class Chain:
     def cleanup(self):
         deadline = time.monotonic()+40
         stages = {}
-        errors, observations = [], {'owner': self.backend['owner'], 'run_id': self.run_id, 'processes': {}, 'projects': [], 'databases': [], 'tokens': []}
+        errors, observations = [], {'owner': self.backend['owner'], 'run_id': self.run_id, 'processes': {}, 'projects': [], 'databases': [], 'roles': [], 'tokens': []}
         def attempt(label, action):
             try:
                 return action()
@@ -1216,7 +1299,16 @@ class Chain:
                 self.assert_project(key, deadline)
                 pid = self.projects[key]['id']
                 self.git('DELETE', '/api/v4/projects/'+str(pid), want=202, deadline=deadline)
-                observations['projects'].append({'id': pid, 'name': self.projects[key]['name'], 'delete_scheduled': True})
+                row = {'id': pid, 'name': self.projects[key]['name'], 'delete_scheduled': True, 'api_absent': False}
+                observations['projects'].append(row)
+                # GitLab 18+ Free uses delayed deletion. Only this generated
+                # project, its exact marker and actual renamed full path qualify
+                # for immediate fixture cleanup; instance settings stay intact.
+                marked = self.assert_project(key, deadline, deleting=True)
+                self.git('DELETE', '/api/v4/projects/'+str(pid),
+                         {'permanently_remove': True, 'full_path': marked['path_with_namespace']},
+                         want=202, deadline=deadline)
+                row['permanent_remove_requested'] = True
             attempt('project-'+key, delete_project)
         for token in self.tokens:
             def revoke(token=token):
@@ -1232,15 +1324,33 @@ class Chain:
                 stages[label] = 'held-process-stop'
                 if self.processes.get(tier) is not None:
                     raise Blocked('run process not confirmed stopped; refusing DB drop')
+                name = self.databases[tier]
+                intent = None
+                if tier in self.pending_dbs:
+                    stages[label] = 'creation-intent-readback'
+                    intent = json.loads(self.pg('postgres',
+                        "SELECT json_build_object('present', EXISTS(SELECT 1 FROM pg_database WHERE datname="+quote(name)+"),"
+                        "'owner', (SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname="+quote(name)+"),"
+                        "'active_create_commands', (SELECT count(*) FROM pg_stat_activity WHERE application_name="+quote('promotion-sql-'+self.run_id)+
+                        " AND query="+quote('CREATE DATABASE "'+name+'" OWNER "'+self.db_users[tier]+'";')+" AND state='active'))",
+                            read=True, admin=True, deadline=deadline))
+                    row = {'name': name, 'creation_intent_readback': intent, 'dropped': False}
+                    observations['databases'].append(row)
+                    if intent.get('present') is False and intent.get('active_create_commands') == 0:
+                        row.update(dropped=True, creation_not_committed_or_already_absent=True)
+                        return
+                    if intent.get('owner') != self.db_users[tier] or intent.get('active_create_commands') != 0:
+                        raise Blocked('run DB creation outcome/owner is uncertain; retained without DDL replay')
                 stages[label] = 'owner-marker'
                 self.assert_database(tier, deadline)
-                name = self.databases[tier]
                 stages[label] = 'active-connections'
                 connections = self.pg('postgres', 'SELECT count(*) FROM pg_stat_activity WHERE datname='+quote(name), read=True, admin=True, deadline=deadline)
                 if connections != '0':
                     raise Blocked('run DB still has active connections; retained without forced termination')
-                row = {'name': name, 'owner_marker_verified': True, 'dropped': False}
-                observations['databases'].append(row)
+                if intent is None:
+                    row = {'name': name, 'dropped': False}
+                    observations['databases'].append(row)
+                row['owner_marker_verified'] = True
                 statement = 'DROP DATABASE "'+name+'";'
                 stages[label] = 'drop-database'
                 timed_out = None
@@ -1279,6 +1389,56 @@ class Chain:
                 # do not retry the deletion or outlive the cleanup budget.
                 raise Blocked('run DB absent but connections or DROP session remain; cleanup unconfirmed')
             attempt('database-'+tier, drop_db)
+        for tier in self.created_roles:
+            def drop_role(tier=tier):
+                user = self.db_users[tier]
+                label = 'role-'+tier
+                stages[label] = 'database-creation-outcome'
+                if tier in self.pending_dbs and not any(row['name'] == self.databases[tier] and row['dropped']
+                                                       for row in observations['databases']):
+                    raise Blocked('run database creation outcome remains unconfirmed; retaining its role')
+                stages[label] = 'role-marker'
+                marker = self.pg('postgres', "SELECT COALESCE(shobj_description(oid,'pg_authid'),'') FROM pg_roles WHERE rolname="+quote(user), admin=True, read=True, deadline=deadline)
+                if marker == '':
+                    exists = self.pg('postgres', 'SELECT count(*) FROM pg_roles WHERE rolname='+quote(user), admin=True, read=True, deadline=deadline)
+                    if exists == '0':
+                        observations['roles'].append({'name': user, 'absent': True, 'creation_not_committed': True})
+                        return
+                if marker != self.db_marker('role-'+tier):
+                    raise Blocked('promotion role owner/run/tier marker mismatch; refusing drop')
+                stages[label] = 'role-owned-database'
+                owned = self.pg('postgres', 'SELECT count(*) FROM pg_database WHERE datdba=(SELECT oid FROM pg_roles WHERE rolname='+quote(user)+')', admin=True, read=True, deadline=deadline)
+                if owned != '0':
+                    raise Blocked('owned role still owns a database; retained without reassigning')
+                stages[label] = 'drop-role'
+                # Transactional role DROP has no timeout replay. A fresh read
+                # establishes outcome; a present role remains an explicit red.
+                timeout_error = None
+                try:
+                    self.pg('postgres', 'DROP ROLE "'+user+'";', admin=True, deadline=deadline)
+                except subprocess.TimeoutExpired as error:
+                    timeout_error = error
+                stages[label] = 'role-readback'
+                absent = self.pg('postgres', 'SELECT count(*) FROM pg_roles WHERE rolname='+quote(user), admin=True, read=True, deadline=deadline) == '0'
+                observations['roles'].append({'name': user, 'owner_marker_verified': True, 'absent': absent, 'timeout_recovered': timeout_error is not None and absent})
+                if not absent:
+                    if timeout_error is not None:
+                        raise timeout_error
+                    raise Blocked('owned role DROP not confirmed absent')
+            attempt('role-'+tier, drop_role)
+        # Wait for GitLab asynchronous deletes only after independent API/DB/
+        # role cleanup, so a slow project job cannot consume their budget.
+        for row in observations['projects']:
+            def wait_project_absence(row=row):
+                while remaining(deadline, 1) > 0:
+                    result, _, status = self.git('GET', '/api/v4/projects/'+str(row['id']), want=(200, 404), deadline=deadline, with_status=True)
+                    if status == 404 and result.get('message') == '404 Project Not Found':
+                        row['api_absent'] = True
+                        row['readback_status'] = status
+                        return
+                    time.sleep(.2)
+                raise Blocked('owned project deletion still visible at cleanup deadline')
+            attempt('project-readback-'+str(row['id']), wait_project_absence)
         observations['errors'] = errors
         observations['private_evidence_retained'] = True
         _private(self.work/'resource-end.json', observations)
@@ -1291,9 +1451,17 @@ def doctor(root):
     backend, _ = attest(root)
     current = supervisor.attest(backend)
     validate_identity(backend, current)
+    runtime = Path(root)/'.local/testlab/runtime-config.json'
+    if (runtime.is_symlink() or not runtime.is_file() or not backend.get('runtime_sha')
+            or hashlib.sha256(runtime.read_bytes()).hexdigest() != backend['runtime_sha']):
+        raise Blocked('promotion main runtime differs from verified fixture')
     gitlab = private_json(Path(root)/'.local/testlab/gitops-environment.json')
-    guard_pg(_inspect(backend['postgres_container']), backend)
-    guard_gitlab(_inspect(gitlab['gitlab_name']), backend, gitlab, root)
+    pg = guard_pg(_inspect(backend['postgres_container']), backend)
+    gl = guard_gitlab(_inspect(gitlab['gitlab_name']), backend, gitlab, root)
+    if pg.get('Id') != PG_CID or gl.get('Id') != GITLAB_CID:
+        raise Blocked('promotion exact authorized PG/GitLab CID mismatch')
+    backend = dict(backend, promotion_pg_cid=pg['Id'])
+    gitlab = dict(gitlab, promotion_cid=gl['Id'])
     for ports in PORTS.values():
         for port in ports:
             free_port(port)

@@ -1,3 +1,12 @@
+## CP-278 · 2026-10-01 · 三个并行功能包227通过，GitLab永久清理获授权并实证
+
+- 真实配置提升 **45cc3283-2416-47c1-a3f6-a77923702f1d：75P0F/66HTTP+1external_todo**（13:45:21→13:47:43Z）。本地独立合成reviewer精确SHA审批、受保护MR、production UUID实例导入/重复与跨实例/上游成功响应丢失/本地审计与边界通过。外部企业历史治理和物理审核人身份不计通过，Runner总体blocked仍保留；子验收9marker及清理通过。原d7e7首红73P/2F/1B/1external与两次自动审批拒绝永久删除均留存；用户直接回复“授权本轮临时项目永久清理”，严格owner/run/projectID/namespace/实际renamed full_path后原11–13和复验14–16均实际404，PAT撤销/UUID库role/持有进程及端口无残余。78offline绿，不改产品逻辑或清理预算，原GitLab保留运行供下包复用。
+- Linux规则助手 **cc1eaa13-7545-45ea-8b2f-a297836f82ec：69P0F/55HTTP**（13:38:28→13:42:14Z），48protocolMock7real。真实Linux非raceGobinary0e22、独立私有Docker DNS/TLS/严格CA与身份/cgroup核验；生成/预览两个正常仅协议Mock，2017点历史明确合成，实际10/15s超时及每故障单请求/权限/幂等/原生审计通过。5ownedCID/network/UUIDDBrole/18690–97清理。首次容量双扣、Docker29网络声明和query目录工具红保持。业务69对应helper d0f8；随后只增加显式build/current.json/--build-proof选择器，4离线反例与同build纯只读校验通过，当前helper7144/tests25b5，未重建或重跑69，也未回填旧SHA。20原工具离线证明复用；默认suite --live生成新UUID，不含历史绝对build路径。
+- 完整拓扑协议 **6fe78a68-c24b-47f3-ba49-a55fbf10e191：83P0F/65HTTP**（13:49:20→13:49:55Z）。32正常严格递归契约和完整图/树/Sankey/详情oracle；原生importer读取合成external_snapshot_file的2节点1calls边，11指标序列各6点Mock，双实例/11源故障恢复/权限/撤session/graph revision/audit与40秒清理通过。不是真实权威calls生产者/流量或历史，保持待确认。36自有+58基础工具离线绿；原容量/业务权限预期/重复ready marker三次工具失败不覆盖。新两suite各12必要marker含清理/complete登记。
+- 三包验收完成时root快照 **116/166真实正常、50缺、31辅助、23Mock正常/其中16待真实，首次本地6**；数字仅正常子场景，并非整体完成率。后续HTTP草稿包已有部分通过证据使实时看板继续增加，不把未通过整组提前关闭。新的具体失败actual.error现在从登记原JSON展示，25overview离线首红→绿，未知/非字符串不推断原因。父包、完整当前回归、两档性能及24h仍未完成；24h从未开始。
+- 并行队列持续推进：HTTP会话独占config-drafts两新文件/18706–12/UUID库，五草稿接口首次工具错误保留后原组复验；QA会话接仅剩Trace列表完整性只读本地可行性，不启flag/重启/扩能力。root整合共享台账/看板/提交，另一连接器可见会话已交付69+索引后空闲，无冗余负载。fixture精确两行补丁仍未canonical；source_equivalence纯模块22离线准备，未接入或激活，不把旧HTTP/fullreg冒新源。后续需真实Store绑定及当前原case/race/fullreg，Linux证据不冒Darwin等价。
+- Go6ad/bfeb/mainruntime338冻结，产品web/.claude/业务env/DB/真实账号通知不动；aiops-24、7nativeCI/CD仍暂停，无merge/deploy。scoped提交/精确push与Linear136/138/139和原51更新收据随后保存私有CP278-delivery。
+
 ## CP-277 · 2026-10-01 · metrics模式修133完整复验交付，下一真实配置/容器协议并行
 
 - 最终metrics **114593a7-1a08-4270-a362-ce938be859cd 133P0F0skip/111HTTP**，当前6ad/bfeb/runtime338；99protocol_mock+12real_local逐条原case/nested/interface/Runner一致。3 metrics normal和23 SSE均Mock。22question/22conversations/44messages/22replies/89events/95audit精确持久结果、22模型输入逐项匹配、32真实源读；原默认4min真实timeout240.039419s、丢响应/截断SSE/503429各一次无自动retry。跨实例终态、重复与范围/撤session/撤sourcebinding后403/SSE、audit故障回滚原组通过。4heldPopen、Prom exactCID、UUIDDBrole/18654–58已清理；不是真实推理或生产源/自然TTL证明。

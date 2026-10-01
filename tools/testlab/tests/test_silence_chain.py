@@ -1,4 +1,4 @@
-import copy, http.client, json, os, sqlite3, ssl, subprocess, sys, tempfile, threading, unittest
+import contextlib, copy, http.client, io, json, os, sqlite3, ssl, subprocess, sys, tempfile, threading, unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -10,11 +10,14 @@ import identity
 class SilenceProtectionTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name).resolve()
-        owner='testlab-abcdef123456';self.work=self.root/'.local/testlab/environments'/owner;binary=self.work/'backend/aiops';binary.parent.mkdir(parents=True);binary.write_bytes(b'owned binary')
+        owner=silence.readonly.OWNER;self.work=self.root/'.local/testlab/environments'/owner;binary=self.work/'backend/aiops';binary.parent.mkdir(parents=True);binary.write_bytes(b'owned binary')
         self.backend={'owner':owner,'binary':str(binary),'source_tree_sha':'frozen','postgres_container':'aiops-'+owner+'-pg'}
         password_path=self.work/'perf/users-password.json';password_path.parent.mkdir();identity._private(password_path,{'password':'generated-private-password-'+'x'*24})
         self.component={'owner':owner,'work':str(self.work)}
         self.chain=silence.Chain(self.root,self.backend,self.component,'a'*32)
+        self.chain.resource=Mock(database='aiops_testlab_readonly_'+'a'*32,db_user='readonly_'+'a'*32)
+        self.chain.resource.pg_application.return_value='readonly-sql-'+'a'*32
+        self.chain.frozen=Mock();self.chain.app='fresh-http-application';self.chain.admin_id='fresh-bootstrap-admin'
         self.operation='b'*32;self.uuid='12345678-1234-1234-1234-123456789abc'
         self.payload={'annotations':{'aiops_operation_id':self.operation},'matchers':[{'name':'application','value':'testlab','isRegex':False,'isEqual':True},{'name':'environment','value':'test','isRegex':False,'isEqual':True}],'comment':'Owned test','createdBy':'user','startsAt':'2026-09-30T12:00:00Z','endsAt':'2026-09-30T12:30:00Z'}
         self.observed=dict(copy.deepcopy(self.payload),id=self.uuid,status={'state':'active'})
@@ -32,25 +35,51 @@ class SilenceProtectionTests(unittest.TestCase):
             with self.subTest(item=item),self.assertRaises(AssertionError):silence.exact_create(item,self.payload,self.operation,self.uuid)
 
     def test_component_label_and_live_loopback_are_checked_before_http(self):
-        info={'State':{'Running':True},'Config':{'Labels':{'aiops.testlab.owner':self.backend['owner']}},'NetworkSettings':{'Ports':{'9093/tcp':[{'HostIp':'127.0.0.1','HostPort':'18571'}]}}}
+        info={'Id':'a'*64,'Name':'/aiops-'+self.backend['owner']+'-alertmanager','Image':'sha256:'+'b'*64,'State':{'Running':True},'Config':{'Image':'prom/alertmanager:v0.34.1','Labels':{'aiops.testlab.owner':self.backend['owner']}},'NetworkSettings':{'Ports':{'9093/tcp':[{'HostIp':'127.0.0.1','HostPort':'18571'}]}},'Mounts':[{'Source':str(silence.ROOT/'tools/testlab/components/alertmanager.yml'),'Destination':'/etc/alertmanager/alertmanager.yml','RW':False}]}
         with patch.object(identity,'budgeted_inspect',return_value=info):silence.guard_component(self.backend,'alertmanager',18571)
         for changed in [dict(info,State={'Running':False}),dict(info,Config={'Labels':{'aiops.testlab.owner':'foreign'}}),dict(info,NetworkSettings={'Ports':{'9093/tcp':[{'HostIp':'0.0.0.0','HostPort':'18571'}]}})]:
             with patch.object(identity,'budgeted_inspect',return_value=changed),self.assertRaises(identity.Blocked):silence.guard_component(self.backend,'alertmanager',18571)
 
     def test_doctor_stops_before_component_or_ports_when_base_not_attested(self):
-        with patch.object(silence,'attest',side_effect=identity.Blocked('source unknown')),patch.object(silence,'guard_component') as guard,patch.object(identity,'free_port') as ports,self.assertRaises(identity.Blocked):silence.doctor(self.root)
+        previous=silence.readonly.PORTS
+        with patch.object(silence.readonly,'doctor',side_effect=identity.Blocked('source unknown')),patch.object(silence,'guard_component') as guard,patch.object(identity,'free_port') as ports,self.assertRaises(identity.Blocked):silence.doctor(self.root)
         guard.assert_not_called();ports.assert_not_called()
+        self.assertEqual(silence.readonly.PORTS,previous)
 
     def test_new_run_state_private_and_never_includes_login_secret(self):
         path=self.chain.work/'state.json';self.assertEqual(path.stat().st_mode&0o777,0o600);raw=path.read_text()
         self.assertNotIn(self.chain.password,raw);self.assertEqual(json.loads(raw)['bulk_history_acceptance'],False)
 
-    def test_constructor_uses_actual_backend_schema_and_owned_private_password(self):
+    def test_constructor_uses_fresh_password_without_canonical_business_credential_read(self):
         backend=dict(self.backend)
         path=self.work/'perf/users-password.json'
         chain=silence.Chain(self.root,backend,self.component,'c'*32)
-        self.assertEqual(chain.password,json.loads(path.read_text())['password'])
+        self.assertNotEqual(chain.password,json.loads(path.read_text())['password']);self.assertGreaterEqual(len(chain.password),24)
         self.assertNotIn(chain.password,(chain.work/'state.json').read_text())
+
+    def test_real_json_emitter_preserves_status_and_qualified_modes_without_duplicate_keywords(self):
+        self.chain.context=object()
+        output=io.StringIO()
+        with patch.object(silence,'request_local',return_value=(200,{'items':[]},{})),contextlib.redirect_stdout(output):
+            self.chain.call('GET','/api/v1/silences')
+            self.chain.qualify(1,'verified fixture semantics',{'verified':True})
+        rows=[json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual(len(rows),2)
+        self.assertEqual([row['evidence_mode'] for row in rows],['real_local','real_local'])
+        self.assertFalse(rows[0]['interface']['registration_evidence'])
+        self.assertTrue(rows[1]['interface']['registration_evidence'])
+
+    def test_negative_paths_use_detail_not_found_contract_not_approval_error_code(self):
+        self.chain.creator_cookie='creator';self.chain.approvers=[('first','first-cookie',None),('second','second-cookie',None)]
+        self.chain.am=Mock(records=[]);self.chain.proposal_record=Mock(return_value={'status':'rejected'})
+        def answer(method,path,body=None,cookie=None,**kwargs):
+            status=kwargs.get('want',200)
+            code='unauthorized' if status==401 else 'forbidden' if status==403 else 'not_found' if status==404 else 'invalid_matchers' if path.endswith('/preview') else 'invalid_comment' if path.endswith('/comments') else 'invalid_reason'
+            return {'error':{'code':code}},{}
+        with patch.object(self.chain,'call',side_effect=answer) as call,patch.object(identity,'emit'):
+            self.chain.negative_paths('b'*32,'INV-'+'d'*32,{})
+        self.assertEqual(call.call_count,15)
+        self.assertEqual(call.call_args.args[:2],('GET','/api/v1/proposals/'+'0'*32))
 
     def test_constructor_failure_retains_private_stack_without_public_exception_value(self):
         with patch.object(sys,'argv',['silence_chain.py','chain','--root',str(self.root)]),patch.object(silence,'doctor',return_value=(self.backend,self.component)),patch.object(silence,'Chain',side_effect=KeyError('missing_fixture_field')),patch.object(identity,'emit') as emit:
@@ -73,24 +102,20 @@ class SilenceProtectionTests(unittest.TestCase):
     def test_prepare_seed_obeys_real_role_name_unique_constraint(self):
         database=sqlite3.connect(':memory:');self.addCleanup(database.close)
         database.executescript('CREATE TABLE rbac_roles(id text PRIMARY KEY,name text NOT NULL UNIQUE); CREATE TABLE users(id text PRIMARY KEY,email text,name text,role text,password_hash text); CREATE TABLE rbac_user_roles(user_id text,role_id text); CREATE TABLE v3_role_grants(role_id text,module text,action text,scope_kind text,scope_id text,assurance text);')
-        database.execute('INSERT INTO users(id,password_hash) VALUES(?,?)',('perf-'+self.backend['owner']+'-user-5','synthetic-hash'));database.commit()
-        self.chain.backend.update(database_url='private-fixture',instance_config='private-config',admin={'email':'owned@testlab.invalid','password':'private-password'})
-        def openssl(*args,**kwargs):
-            for name in ('tls.crt','tls.key'):(self.chain.work/name).write_text('offline certificate fixture')
-            return subprocess.CompletedProcess(args[0],0,'','')
-        with patch.object(silence.subprocess,'run',side_effect=openssl),patch.object(silence.ssl,'create_default_context'),patch.object(self.chain,'sql',side_effect=database.executescript),patch.object(self.chain,'observe',return_value=3),patch.object(silence,'guard_component',side_effect=RuntimeError('stop before live component')),self.assertRaisesRegex(RuntimeError,'stop before live component'):
-            self.chain.prepare()
+        database.execute('INSERT INTO users(id,password_hash) VALUES(?,?)',(self.chain.admin_id,'synthetic-hash'));database.commit()
+        with patch.object(self.chain,'sql',side_effect=database.executescript),patch.object(self.chain,'observe',return_value=3):self.chain.seed_identities()
         rows=database.execute('SELECT id,name FROM rbac_roles').fetchall();self.assertEqual(len(rows),2);self.assertEqual(len({name for _,name in rows}),2)
 
     def test_sql_failure_keeps_bounded_private_stderr_without_public_values(self):
-        info={'State':{'Running':True},'Config':{'Labels':{'aiops.testlab.owner':self.backend['owner']}}}
+        info={'Id':silence.ingress.PG_CID,'State':{'Running':True},'Config':{'Labels':{'aiops.testlab.owner':self.backend['owner']}}}
         result=subprocess.CompletedProcess([],3,'','ERROR: duplicate fixture role; private-canary '+('x'*(70<<10)))
         with patch.object(identity,'budgeted_inspect',return_value=info),patch.object(silence.subprocess,'run',return_value=result) as run,self.assertRaises(AssertionError) as error:
             self.chain.sql('private statement with private-canary')
         self.assertNotIn('private-canary',str(error.exception))
         path=self.chain.work/'sql-failure-1.json';self.assertEqual(path.stat().st_mode&0o777,0o600);data=json.loads(path.read_text())
         self.assertTrue(data['stderr_truncated']);self.assertLessEqual(len(data['stderr']),64<<10);self.assertEqual(data['exit_code'],3)
-        self.assertNotIn('private statement',path.read_text());self.assertEqual(run.call_args.kwargs['input'],'private statement with private-canary')
+        self.assertNotIn('private statement',path.read_text());self.assertTrue(run.call_args.kwargs['input'].endswith('private statement with private-canary'))
+        self.assertNotIn('aiops_testlab_app',run.call_args.args[0]);self.assertIn(self.chain.resource.database,run.call_args.args[0])
 
     def test_sql_owner_refusal_precedes_any_command(self):
         info={'State':{'Running':True},'Config':{'Labels':{'aiops.testlab.owner':'foreign-owner'}}}
@@ -98,8 +123,8 @@ class SilenceProtectionTests(unittest.TestCase):
         run.assert_not_called()
 
     def test_source_or_binary_change_blocks_before_process_launch(self):
-        with patch.object(identity,'source_fingerprint',return_value='frozen'):self.chain.frozen()
-        with patch.object(identity,'source_fingerprint',return_value='changed'),self.assertRaises(identity.Blocked):self.chain.frozen()
+        with patch.object(identity,'source_fingerprint',return_value='frozen'):silence.Chain.frozen(self.chain)
+        with patch.object(identity,'source_fingerprint',return_value='changed'),self.assertRaises(identity.Blocked):silence.Chain.frozen(self.chain)
 
     def test_fixed_transport_refuses_other_ports_and_network_path(self):
         for port,path in [(18561,'/api/v1/silences'),(443,'/'),(18571,'//remote')]:
@@ -162,7 +187,7 @@ class SilenceProtectionTests(unittest.TestCase):
             with patch.object(silence,'request_local',return_value=(status,value,{})),patch.object(identity,'emit') as emit:
                 self.chain.call('POST',path,want=status)
             row=emit.call_args.kwargs['interface']
-            self.assertEqual(row['path'],expected_path);self.assertEqual(row['status'],'passed');self.assertEqual(row['actual'],status);self.assertEqual(row['expected'],[status]);self.assertTrue(row['registration_evidence'])
+            self.assertEqual(row['path'],expected_path);self.assertEqual(row['status'],'passed');self.assertEqual(row['actual'],status);self.assertEqual(row['expected'],[status]);self.assertFalse(row['registration_evidence'])
             self.assertEqual(row['scenario'],'normal');self.assertEqual(row['method'],'POST')
 
     def test_expected_http_rejections_have_scenario_but_never_register_route(self):
@@ -178,6 +203,114 @@ class SilenceProtectionTests(unittest.TestCase):
         with patch.object(silence,'request_local',return_value=(403,{'error':{'code':'forbidden'}},{})),patch.object(identity,'emit') as emit,self.assertRaises(AssertionError):
             self.chain.call('GET','/api/v1/silences',want=200)
         row=emit.call_args.kwargs['interface'];self.assertEqual(row['status'],'failed');self.assertEqual(row['expected'],[200]);self.assertFalse(row['registration_evidence'])
+
+    def test_status_only_success_is_never_qualified_before_business_proof(self):
+        self.chain.context=Mock();self.chain.frozen=Mock()
+        with patch.object(silence,'request_local',return_value=(200,{'items':[{'id':'unverified'}]},{})),patch.object(identity,'emit') as emit:
+            self.chain.call('GET','/api/v1/silences')
+        self.assertFalse(emit.call_args.kwargs['interface']['registration_evidence'])
+    def test_operation_proof_rejects_two_created_uuids_for_same_operation(self):
+        records=[dict(id=self.uuid,annotations={'aiops_operation_id':self.operation}),dict(id='other',annotations={'aiops_operation_id':self.operation})]
+        with self.assertRaises(AssertionError):silence.unique_operation(records,self.operation,self.uuid)
+    def test_configured_fault_without_actual_response_close_is_not_loss_evidence(self):
+        receipt=dict(method='POST',operation_id=self.operation,status=200,fault_mode='drop',fault_phase='upstream_accepted')
+        with self.assertRaises(AssertionError):silence.exact_fault([receipt],'POST','drop',operation=self.operation)
+
+    def test_qualification_requires_proof_preserves_raw_case_and_exact_response_hash(self):
+        self.chain.context=Mock()
+        with patch.object(silence,'request_local',return_value=(200,{'items':[{'id':'owned'}]},{})),patch.object(identity,'emit') as emit:
+            self.chain.call('GET','/api/v1/silences');raw=emit.call_args.kwargs['interface']
+            with self.assertRaises(AssertionError):self.chain.qualify(1,'case',{'verified':False})
+            self.assertEqual(emit.call_count,1)
+            self.chain.qualify(1,'case',{'verified':True});qualified=emit.call_args.kwargs['interface']
+        self.assertFalse(raw['registration_evidence']);self.assertTrue(qualified['registration_evidence']);self.assertEqual(qualified['original_call_id'],1)
+        self.assertEqual(qualified['response_sha256'],self.chain.http_records[1]['sha256'])
+        with self.assertRaises(AssertionError):self.chain.qualify(1,'duplicate',{'verified':True})
+    def test_changed_response_or_foreign_proof_scope_cannot_be_qualified(self):
+        self.chain.context=Mock()
+        with patch.object(silence,'request_local',return_value=(200,{'items':[]},{})),patch.object(identity,'emit') as emit:self.chain.call('GET','/api/v1/silences')
+        with patch.object(identity,'emit') as emit,self.assertRaises(AssertionError):self.chain.qualify(1,'case',{'verified':True,'run_id':'foreign'})
+        emit.assert_not_called()
+        Path(self.chain.http_records[1]['file']).write_text('{}')
+        with patch.object(identity,'emit') as emit,self.assertRaises(identity.Blocked):self.chain.qualify(1,'case',{'verified':True})
+        emit.assert_not_called()
+    def test_operation_and_consumed_drop_proofs_accept_only_exact_single_actual_receipt(self):
+        record=dict(id=self.uuid,annotations={'aiops_operation_id':self.operation});self.assertEqual(silence.unique_operation([record],self.operation,self.uuid),record)
+        receipt=dict(method='POST',operation_id=self.operation,upstream_id=self.uuid,status=200,fault_mode='drop',fault_phase='response_closed')
+        self.assertEqual(silence.exact_fault([receipt],'POST','drop',operation=self.operation),receipt)
+        for change in (dict(status=503),dict(fault_mode=None),dict(fault_phase='upstream_accepted'),dict(operation_id='foreign')):
+            with self.assertRaises(AssertionError):silence.exact_fault([dict(receipt,**change)],'POST','drop',operation=self.operation)
+        with self.assertRaises(AssertionError):silence.exact_fault([receipt,receipt],'POST','drop',operation=self.operation)
+    def test_uuid_application_binding_maps_real_provider_label_to_http_generated_id(self):
+        operations,am=silence.owned_source_config(self.chain.app,'actual-environment-row',self.chain.run_id,'private-token','private-webhook')
+        self.assertEqual(am['environments']['test']['application_bindings'],{'testlab':self.chain.app})
+        mapping=operations['sources'][0]['mappings'][0];self.assertEqual(mapping['application_id'],self.chain.app);self.assertEqual(mapping['environment_id'],'actual-environment-row')
+        self.assertEqual(mapping['labels'],{'application':'testlab','environment':'test'});self.assertEqual(operations['feishu_channels'],[])
+        with self.assertRaises(AssertionError):silence.owned_source_config('testlab','testlab-test',self.chain.run_id,'token','webhook')
+    def test_database_scope_identity_guard_precedes_ddl_and_sql_refuses_canonical_db(self):
+        scope=silence.DatabaseScope.__new__(silence.DatabaseScope);scope.data=self.backend
+        with patch.object(identity,'budgeted_inspect',return_value={'Id':'foreign'}),patch.object(silence.readonly.Chain,'pg') as pg,self.assertRaises(identity.Blocked):scope.pg('DROP DATABASE owned')
+        pg.assert_not_called()
+        self.chain.resource.database='aiops_testlab_app'
+        info={'Id':silence.ingress.PG_CID,'State':{'Running':True},'Config':{'Labels':{'aiops.testlab.owner':self.backend['owner']}}}
+        with patch.object(identity,'budgeted_inspect',return_value=info),patch.object(silence.subprocess,'run') as run,self.assertRaises(identity.Blocked):self.chain.sql('DELETE FROM sessions')
+        run.assert_not_called()
+    def test_private_configuration_drift_blocks_before_launch_or_business_io(self):
+        path=self.chain.work/'source.json';identity._private(path,{'bound':'owned'});self.chain.pin_files(path)
+        with patch.object(identity,'source_fingerprint',return_value='frozen'):silence.Chain.frozen(self.chain)
+        path.write_text('{"bound":"foreign"}')
+        with patch.object(identity,'source_fingerprint',return_value='frozen'),self.assertRaises(identity.Blocked):silence.Chain.frozen(self.chain)
+    def test_component_recreation_and_wrong_internal_port_cannot_pass_immutable_guard(self):
+        port,internal,image,files=silence.ingress.COMPONENTS['alertmanager']
+        info={'Id':'a'*64,'Name':'/aiops-'+self.backend['owner']+'-alertmanager','Image':'sha256:'+'b'*64,'State':{'Running':True},'Config':{'Image':image,'Labels':{'aiops.testlab.owner':self.backend['owner']}},'NetworkSettings':{'Ports':{internal+'/tcp':[{'HostIp':'127.0.0.1','HostPort':str(port)}]}},'Mounts':[{'Source':str(silence.ROOT/'tools/testlab/components'/files[0]),'Destination':'/etc/alertmanager/'+files[0],'RW':False}]}
+        pinned=silence.ingress.component_guard('alertmanager',info);self.backend['silence_components']={'alertmanager':pinned}
+        for changed in (dict(info,Id='c'*64),dict(info,NetworkSettings={'Ports':{'other/tcp':[{'HostIp':'127.0.0.1','HostPort':str(port)}]}})):
+            with patch.object(identity,'budgeted_inspect',return_value=changed),self.assertRaises(identity.Blocked):silence.guard_component(self.backend,'alertmanager',port)
+    def test_owned_popen_is_registered_before_persistence_failure_for_finally_cleanup(self):
+        self.chain.variables={};self.chain.resource.processes=[];proc=Mock(pid=123)
+        with patch.object(identity,'free_port'),patch.object(silence.subprocess,'Popen',return_value=proc),patch.object(silence,'_private',side_effect=OSError('injected state failure')),self.assertRaises(OSError):self.chain.start_api()
+        self.assertIs(self.chain.proc,proc);self.assertEqual(self.chain.resource.processes,[proc])
+    def fake_flow(self,public_bad=False,create_bad=False):
+        chain=self.chain;chain.context=Mock();chain.creator_cookie='owned-cookie';chain.labels={'application':'testlab','environment':'test','alertname':'OwnedAlert','signal_id':'owned-signal'}
+        pid='b'*32;cancel_pid='c'*32;inv='INV-'+'d'*32;comment='Owned silence '+chain.run_id+' normal'
+        pending=lambda identity:dict(proposal_id=identity,status='pending_review',action_digest='e'*64,effect='no_upstream_write',upstream_id=None,execution_status=None)
+        payload=dict(self.payload,comment=comment,createdBy=chain.uids[0],matchers=[dict(name=k,value=v,isRegex=False,isEqual=True) for k,v in chain.labels.items()])
+        actual=dict(copy.deepcopy(payload),id=self.uuid,status={'state':'active'});expired=dict(copy.deepcopy(actual),endsAt='2026-09-30T12:10:00Z',status={'state':'expired'})
+        if create_bad:actual['comment']='foreign'
+        public={'items':[dict(id=self.uuid,state='foreign' if public_bad else 'active',creator=chain.uids[0],reason=comment,matchers=[dict(k=k,v=v) for k,v in chain.labels.items()])],'partial':False,'unavailable_environments':[]}
+        chain.am=Mock(records=[]);chain.am.count.return_value=1;chain.approve=Mock(return_value=[])
+        def row(identity):
+            action=dict(creator_id=chain.uids[0],application_id=chain.app,environment_id='test',investigation_id=inv,action_digest='e'*64,review_content_digest='f'*64)
+            audit=dict(actor=chain.uids[0],actor_kind='user',application=chain.app,target=identity,outcome='success',action='v3.proposal.silence_cancel_requested' if identity==cancel_pid else 'v3.proposal.silence_create_requested',changes=dict(environment_id='test',investigation_id=inv,action_digest='e'*64,review_content_digest='f'*64))
+            return dict(status='pending',creator=chain.uids[0],application=chain.app,environment='test',content={'investigation_id':inv},claims=0,decisions=0,action=action,audits=[audit])
+        chain.proposal_record=Mock(side_effect=row)
+        chain.confirmed=Mock(side_effect=[dict(upstream=self.uuid,payload=payload,operation=self.operation),dict(upstream=self.uuid)])
+        chain.observed_silence=Mock(side_effect=[actual,expired])
+        responses=[(201,{'id':inv},{}),(202,pending(pid),{}),(202,pending(pid),{}),(200,public,{}),(202,pending(cancel_pid),{}),(202,pending(cancel_pid),{})]
+        return responses
+    def test_full_normal_flow_qualifies_only_after_exact_create_and_cancel_semantics(self):
+        responses=self.fake_flow()
+        with patch.object(silence,'request_local',side_effect=responses),patch.object(identity,'emit') as emit:self.chain.flow('normal')
+        rows=[c.kwargs['interface'] for c in emit.call_args_list if 'interface' in c.kwargs]
+        self.assertEqual(sum(r['registration_evidence'] for r in rows),5)
+        self.assertTrue(all(not r['registration_evidence'] for r in rows if not r['name'].endswith('.qualified')))
+        self.assertEqual(self.chain.am.count.call_args_list[0].kwargs,{'operation':self.operation})
+    def test_bad_durable_create_or_public_dto_never_qualifies_any_flow_response(self):
+        for public_bad,create_bad in ((True,False),(False,True)):
+            self.chain.http_records={};self.chain.qualified=set();self.chain.call_number=0
+            # Each subcase has its own evidence directory to preserve originals.
+            self.chain.work=self.work/('bad-flow-'+str(public_bad));self.chain.work.mkdir(mode=0o700)
+            responses=self.fake_flow(public_bad,create_bad)
+            with patch.object(silence,'request_local',side_effect=responses),patch.object(identity,'emit') as emit,self.assertRaises(AssertionError):self.chain.flow('normal')
+            self.assertEqual(self.chain.qualified,set());self.assertFalse(any(c.kwargs.get('interface',{}).get('registration_evidence') for c in emit.call_args_list))
+    def test_pending_action_audit_and_receipt_must_have_exact_same_digest_creator_scope(self):
+        self.fake_flow();pid='b'*32;inv='INV-'+'d'*32;receipt={'proposal_id':pid,'action_digest':'e'*64}
+        row=self.chain.proposal_record(pid);self.chain.check_pending_action(row,receipt,inv,'v3.proposal.silence_create_requested')
+        for change in ('action_digest','creator_id','application_id','environment_id'):
+            bad=copy.deepcopy(row);bad['action'][change]='foreign'
+            with self.assertRaises(AssertionError):self.chain.check_pending_action(bad,receipt,inv,'v3.proposal.silence_create_requested')
+        bad=copy.deepcopy(row);bad['audits'][0]['changes']['review_content_digest']='foreign'
+        with self.assertRaises(AssertionError):self.chain.check_pending_action(bad,receipt,inv,'v3.proposal.silence_create_requested')
 
 
 class SilenceRelayProtocolTests(unittest.TestCase):
@@ -217,6 +350,7 @@ class SilenceRelayProtocolTests(unittest.TestCase):
         with self.assertRaises(http.client.RemoteDisconnected):self.request('POST','/api/v2/silences',self.payload)
         self.assertEqual(self.calls,['POST']);self.assertTrue(self.relay.accepted.is_set())
         self.assertEqual(self.relay.count('POST',operation='b'*32),1);self.assertEqual(self.relay.records[0]['status'],200)
+        silence.exact_fault(self.relay.records,'POST','drop',operation='b'*32)
     def test_auth_scope_and_foreign_delete_never_reach_upstream(self):
         self.assertEqual(self.request('POST','/api/v2/silences',self.payload,token='wrong-token'),403)
         bad=copy.deepcopy(self.payload);bad['matchers'][0]['value']='foreign'
@@ -228,6 +362,7 @@ class SilenceRelayProtocolTests(unittest.TestCase):
         uid='12345678-1234-1234-1234-123456789abc';self.relay.fault('DELETE',uid,'drop')
         with self.assertRaises(http.client.RemoteDisconnected):self.request('DELETE','/api/v2/silence/'+uid)
         self.assertEqual(self.calls,['POST','DELETE']);self.assertEqual(self.relay.count('DELETE',uid),1)
+        silence.exact_fault(self.relay.records,'DELETE','drop',upstream=uid)
     def test_crash_gate_holds_only_after_upstream_success_until_owned_release(self):
         self.relay.fault('POST',self.payload['comment'],'crash');errors=[]
         def invoke():
@@ -238,6 +373,7 @@ class SilenceRelayProtocolTests(unittest.TestCase):
         self.relay.release.set();request_thread.join(timeout=2)
         self.assertFalse(request_thread.is_alive());self.assertEqual(len(errors),1);self.assertIsInstance(errors[0],http.client.RemoteDisconnected)
         self.assertEqual(self.relay.count('POST',operation='b'*32),1)
+        silence.exact_fault(self.relay.records,'POST','crash',operation='b'*32)
 
     def test_cancellation_before_proxy_thread_start_closes_without_shutdown_deadlock(self):
         relay=silence.Relay(0,str(self.cert),str(self.key),self.upstream.server_port,'synthetic-token',{'owner':'testlab-unit'})

@@ -18,7 +18,7 @@
     "source": "CP-202；internal/v3passkey/README.md",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "正式软件ES256注册、真实独立两人proposal投票与第一票无执行；GitOps0bce4262五项通过",
+    "completed_subscenarios": "正式软件ES256注册、真实独立两人proposal投票与第一票无执行；GitOps0bce4262五项通过 CP270当前源f8a7af32软件ES256两独立批准真实AM普通静默三链131P；物理认证器与企业审批不关闭。",
     "proof_scope": "仅所列本地真实组件/PG/正式HTTP；整体未关闭"
   },
   {
@@ -40,7 +40,7 @@
     "source": "CP-196；WAN-119",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "完整目录/权限/去重本地逻辑；Mock MFA receipt→真实PG/audit；响应丢失不重发",
+    "completed_subscenarios": "完整目录/权限/去重本地逻辑；Mock MFA receipt→真实PG/audit；响应丢失不重发 CP270目录d421 54P0F：双V3/UUID PG+HTTPS协议Mock的分页、旧快照、撤权、原生提醒并发、外部接受后丢响应和本地audit失败；4外部receipt对应原生accepted2/uncertain2。真实目录/权威/阅读/unknown人工恢复仍待验。",
     "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
   },
   {
@@ -106,7 +106,7 @@
     "source": "CP-202、203；WAN-118；CP269/WAN136/138",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "WAN159143+153修后正式bd46318f55全部通过：普通静默/双独立软件Passkey、第一票无执行、create+cancel持久台账、真实AMPOST/DELETE成功丢响应/精确write1、SIGKILL后read-only恢复；CP269当前源MFA bd3632cf 28P -race/专用UUID schemas/锁等待后session/OTP等回滚并发消费；测试clock注入过期，不是实墙等待12h/自然30min/24h。新UUID静默全链包离线准备，尚未运行。",
+    "completed_subscenarios": "WAN159143+153修后正式bd46318f55全部通过：普通静默/双独立软件Passkey、第一票无执行、create+cancel持久台账、真实AMPOST/DELETE成功丢响应/精确write1、SIGKILL后read-only恢复；CP269当前源MFA bd3632cf 28P -race/专用UUID schemas/锁等待后session/OTP等回滚并发消费；测试clock注入过期，不是实墙等待12h/自然30min/24h。新UUID静默全链包离线准备，尚未运行。 CP270当前源UUID链f8a7af32 131P0F：8主接口、79HTTP/35语义qualified、真实AM创建/取消各3次且每operation1，normal/loss/crash三链及审核/评论/拒绝/重复通过；7提案/12票/6决定与claim/3createops/85audit读回，三代进程和UUID库角色清理，3AM记录expired保留。批量与自然expiry仍待验。",
     "proof_scope": "仅本地真实AM/PG/HTTPS/软件ES256和所列故障；55运行/源码8d0a，整体未关闭",
     "acceptance_note": "仅所列有界子场景；原整体状态保持，外部/Mock/未验能力分开，不能整体关闭。"
   },
@@ -118,7 +118,7 @@
     "source": "CP-203、206；WAN-132/136",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "WAN140 DB重试；0bce4262双软件Passkey/MR5独立审核→Argo→实际Prom规则精确生效五项",
+    "completed_subscenarios": "WAN140 DB重试；0bce4262双软件Passkey/MR5独立审核→Argo→实际Prom规则精确生效五项 CP270当前source普通静默三链f8a7af32外部AM接受后响应关闭、SIGKILL/new generation read-only恢复与本地operation审计对应通过；不是所有写组件或24h恢复证明。",
     "proof_scope": "仅所列本地真实组件/PG/正式HTTP；整体未关闭"
   },
   {
@@ -423,7 +423,7 @@
     "source": "CP-073、080、171、206；WAN-133/136",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "规则DB故障/晚提交模块；5b3913ec双实例真实TERM/KILL/PG租约/SSE精确恢复7项",
+    "completed_subscenarios": "规则DB故障/晚提交模块；5b3913ec双实例真实TERM/KILL/PG租约/SSE精确恢复7项 CP270 f8a7af32验证仅持有本包Popen的SIGKILL/新代恢复，三代退出和本UUID精确清理；通用其他组件/自然租约/长稳仍待验。",
     "proof_scope": "仅所列本地真实组件/PG/正式HTTP；整体未关闭"
   },
   {

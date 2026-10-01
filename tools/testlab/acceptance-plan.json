@@ -3386,6 +3386,57 @@
               "name": "readonly.complete"
             }
           ]
+        },
+        {
+          "id": "silence",
+          "title": "普通静默、双人审批、提案与未知结果恢复",
+          "command": "python3 tools/testlab/testlab.py run --suite silence",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "GET /api/v1/silences",
+            "POST /api/v1/silences",
+            "POST /api/v1/silences/preview",
+            "DELETE /api/v1/silences/{id}",
+            "GET /api/v1/proposals/{id}",
+            "POST /api/v1/proposals/{id}/approve",
+            "POST /api/v1/proposals/{id}/comments",
+            "POST /api/v1/proposals/{id}/reject"
+          ],
+          "required_cases": [
+            {
+              "suite": "silence",
+              "name": "silence.preview"
+            },
+            {
+              "suite": "silence",
+              "name": "silence.authorization_boundary"
+            },
+            {
+              "suite": "silence",
+              "name": "silence.review_only"
+            },
+            {
+              "suite": "silence",
+              "name": "silence.flow.normal"
+            },
+            {
+              "suite": "silence",
+              "name": "silence.flow.loss"
+            },
+            {
+              "suite": "silence",
+              "name": "silence.flow.crash"
+            },
+            {
+              "suite": "silence",
+              "name": "silence.cleanup"
+            },
+            {
+              "suite": "silence",
+              "name": "silence.formal_chain"
+            }
+          ],
+          "proof_scope": "独立UUID PG/正式非race API、软件ES256独立双人批准、真实ownedAM每操作只写一次；原上游响应丢失与SIGKILL/新代恢复、台账/审计/原响应精确关联。8主正常和全部marker齐才关闭子包。物理Passkey、批量完整生产者、自然30分钟、多worker竞态和性能/24h另验。"
         }
       ]
     },
@@ -3690,7 +3741,7 @@
     {
       "package_id": "local-components",
       "priority": "P1",
-      "action": "先补双人审批、真实静默及提案详情/评论/拒绝，再分批完成本地组件与故障组合场景；Trace列表阻塞保持可见",
+      "action": "已完成普通静默双人批准/丢响应/崩溃有界链；并行补真实专属Prom规则读与即时dry-run、AM策略读取和故障边界，Trace搜索完整性阻塞保持。",
       "preconditions": [
         "审批/静默迁移到fresh UUID库；只读完整AM加载/出站证明，保留双人边界、丢响应与崩溃台账",
         "列出稳定suite/name必需场景与对应主接口，不以正常样本齐全判包完成",
@@ -3701,9 +3752,9 @@
     {
       "package_id": "local-source-protocols",
       "priority": "P1",
-      "action": "先完成组织目录与MFA提醒的受控HTTPS协议Mock，再补Confluence内容读取；MCP首次合法生产链需确认后再测",
+      "action": "目录/MFA提醒协议子包已验；继续本地TLS SMTP邀请功能链及明确边界，真实租户权威与MCP首次生产链仍待确认。",
       "preconditions": [
-        "当前40项首次本地正常队列继续推进；6个已Mock正常仍需真实来源，不重复冒新增真实覆盖",
+        "CP270实时首次本地正常队列30项，8已Mock正常仍需真实来源；计数从看板读取，不重复冒新增真实覆盖。",
         "每个目标核对正式注册/发现、非空DTO和来源关联，429/超时/丢响应/权限漂移逐项",
         "真实飞书/Notion/Confluence、完整身份及安全authority外部待办保持",
         "目录仅自有子API进程代理/私有CA：固定两host、无外部透传；外部成功本地失败仅fresh UUID库精确故障DDL，不触及canonical或archives"
@@ -3880,6 +3931,12 @@
       "date": "2026-10-01",
       "decided_by": "Codex following direct user request to accelerate parallel testing",
       "decision": "CP270 root baseline、独立passkey/configsync和regressions、目录协议等轻型功能实际并行，各UUID schemas/库/端口私有lease，源冻结和原失败保留。性能/长稳与重型仍独占；只读看板显示独立组件当前进展但不隐式拼full绿。Tempo2.7.2搜索local契约与真实外部待办分开。",
+      "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437"
+    },
+    {
+      "date": "2026-10-01",
+      "decided_by": "Codex under user-authorized autonomous choices",
+      "decision": "CP270三个独立代理实际执行；静默131、目录54、Passkey/config158等有原始证据。下一邀请采用仅loopback TLS465捕获，因为正式SMTP端口固定465，放弃额外Linux容器接线；先验端口无人且不接管。规则新建本包专属同版Prom与UUID exporter，弥补共享源无授权标签/2s interval前置，共享Prom/AM不变。baseline fixture两行候选已反例验证，待冻结功能窗口结束整合；不拼完整回归。",
       "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437"
     }
   ],

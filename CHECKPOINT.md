@@ -1,3 +1,14 @@
+## CP-271 · 2026-10-01 · 实际并行功能交付，整体覆盖102/166
+
+- 用户催促后纠正“代理只离线、root唯一现场”的过度串行：三个独立代理实际运行专属数据库/schema、端口和lease的工作包；root负责集成，性能/24h及重型仍独占且未启动。用户自主选择授权持续，旧aiops-24/native CI/CD暂停不变；Go6ad/bfeb/runtime338保持，产品web/.claude/业务.env/真实账号通知均未动。
+- 当前源 Passkey/configsync **81caee0f 158P0F0skip**、regressions **d73a2282 479P0F1付费skip**，后者blocked而非passed；专库/UUID schemas、源码始末、原GoJSON与清理有实际证明。主baseline **47be040d** 已于09:19:11.052921Z终failed **1889P4F78skip**：仅一个grant_revoke真实叶失败，父/package/command三包装，不能称4个产品Bug。78=18无可执行测试包+60 opt-in，46逐条关联当前专项通过，剩14为8CI/CD（7native+Jenkins）、2付费、1Ollama、3本地原smoke；不拼完整回归绿。原command GoJSON1MiB截断明确记录，逐case证据保持。
+- 该叶失败确认测试夹具排序依赖初始化耗时。受控overlay red **fcfe2d8e** 两原例均红，实际b,c,incident；候选green **76bea4a8** 只将b/c时间锚定原incident减1/2秒，保留强制延迟、原race/timeout/assert，两原例绿。source_override与联合SHA单列，不能计canonical回归；最小两行patch保存在.local/testlab/list-authority-fixture，待当前功能冻结窗口后整合。四实验schema残余0。generalDB剩3旧UUID schema无法可靠归属本次run，未删除；536a7d0c/5b6c778e只读收尾证明与skip mapping保留。
+- 目录协议首次 **90014961 33P5F**（工具误要求并发都200与清理8秒checkpoint超时）；b162修后54绿，最终 **d421f52f 54P0F0skip**、09:25:04.716132→09:25:29.062481Z、6ad始末。最终4外部接受receipt对应native accepted2/uncertain2，actor/target/env/attempt/audit逐项关联；最终并发200sent0/200sent1，实际503pending只在b162原即时证据，不混称最终观察。三UUID库/role/端口精确无残余。全局checkpoint磁盘并非DB逻辑隔离，原两次cleanup失败保留、状态实际改变后同UUID恢复；不放预算/自动retry。36离线+root58相关工具绿。五文件交付 **0385851535bc970b6e149e0a44a9d5c95628f18c** 已push并exact lsremote回读。
+- 静默首次 **64765ee0 4P2F** emit模式字段重复、**ba60316b 50P2F** 主proposal缺失errorcode期待错；两次未到AM写且cleanup绿。精确工具修后44 unit/TLS绿，完整 **f8a7af32 131P0F0skip**、09:38:28.246544→09:40:28.695412Z、79HTTP/35目标语义qualified、8主正常。normal/loss/crash三链均独立双人软件ES256批准、实际AM创建与取消各3次/每operation1；7提案、12票、6决定/claim、3createops、85审计读回。三代heldPopen退出、UUID库role及18595/6/7无残余，3AM记录expired保留；不发新signal/真实通知，不代批量/物理Passkey/自然expiry/多worker/24h。原红与三报告、delivery-readback保留。
+- 现场整体 **102/166真实主正常、27辅助、8协议Mock**；缺64中首次本地 **30**，8已Mock真实来源仍待验；父包与有界子包分别判定。新增silence八稳定marker子包，不关闭51整项。旧完整2510/79不作当前source验收，完整两档性能/连续86400仍未完成。
+- 当前并行后续：邀请正式HTTPS+仅loopback TLS465捕获（生产端口固定，避免额外Linux容器接线；端口占用则阻塞，不接管），真实accepted后丢响应/本地audit失败；规则用本UUID新专属同版轻型Prom/exporter，补共享rule无授权标签/2s interval前置，不改共享源；AM policy与空inhibitions两正常可先做，route树/7天preview前置不足保明确blocked，不伪造history。各作者新两文件独占，root快审freeze后本人现场；完整doctor前后与关键边界，避免逐HTTP全53重复开销。
+- 下一步收以上有界新包、整合准确缺口与Linear；候选夹具未canonical、剩本地与caps未闭合，整体未收口。不恢复老自动化、合并或部署。提交/推送与Linear实际收据随后追加。
+
 ## CP-270 · 2026-10-01 · 进行中：当前源完整回归与下一批功能包
 
 - CP269代码ff0/a885及台账 **fd50ff3d2633e89c9ce641d04f3ea84018b6cb07** 均已推送exact remote，WAN136/138/139与原51文档已同步/读回；交付证明a6824633、Git回读b64901f9。94/166真实主、24辅助、6Mock、40首次本地、21需确认/3缺实现/2暂停；原性能/24h未完成与暂停范围保持。

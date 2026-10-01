@@ -1019,13 +1019,78 @@
     "before": "当前baseline单独运行被标not_started或旧full历史下stale；三反例22工具19P3F原红",
     "after": "22P0F；当前组件/进行中明确显示，完整gate不隐式拼绿，source_end未定只作progress",
     "source_sha": "fd50ff3d2633e89c9ce641d04f3ea84018b6cb07",
-    "fix_commit": "pending",
+    "fix_commit": "d45ce24c09a3dcd93d88204f56a2bafe725f9aa4",
     "local_evidence": [
       ".local/testlab/current-source-baseline/overview-partial-first-red.log",
       ".local/testlab/current-source-baseline/overview-partial-green.log",
       ".local/testlab/current-source-baseline/ui-partial-progress-reload-after.json",
       ".local/testlab/current-source-baseline/overall-regression-progress.png"
     ],
-    "product_change_required": false
+    "product_change_required": false,
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/d45ce24c09a3dcd93d88204f56a2bafe725f9aa4"
+  },
+  {
+    "id": "TOOL-DIRECTORY-CONCURRENT-PENDING",
+    "title": "目录提醒测试误判并发待定响应",
+    "category": "test_tool",
+    "status": "in_review",
+    "before": "90014961 33P5F：一个发送成功，另一个原生 pending 返回503；工具错误要求两个都200。",
+    "after": "原pending即时证据保留；原组b162及最终d421均54P0F0skip，精确发送次数、原生attempt/audit与未知结果关联验证。503只在确实pending且没有第二发送时允许，不泛化接受。",
+    "first_failure_run_id": "90014961-16f0-4910-af28-48f648fc725e",
+    "retest_run_id": "d421f52f-5eb4-4dde-96c9-8d1070ce57a5",
+    "fix_commit": "0385851535bc970b6e149e0a44a9d5c95628f18c",
+    "product_change_required": false,
+    "local_evidence": [
+      ".local/testlab/directory-protocol-offline/final-delivery-proof.json"
+    ]
+  },
+  {
+    "id": "ENV-PARALLEL-PG-CHECKPOINT-CLEANUP",
+    "title": "并行工作包共享PG checkpoint导致专属库清理超时",
+    "category": "environment",
+    "status": "in_review",
+    "before": "90014961首次8秒DROP专属UUID库超时；显式复核后第二次仍等待全局checkpoint。不同数据库不等于独立磁盘/checkpointer。",
+    "after": "首次失败不修改；实际状态改变且exactCID/零连接/UUID归属核验后同UUID显式恢复成功，最终三个自有库与角色无残余。b162/d421自身cleanup通过。",
+    "first_failure_run_id": "90014961-16f0-4910-af28-48f648fc725e",
+    "product_change_required": false,
+    "local_evidence": [
+      ".local/testlab/directory-protocol-offline/final-exact-residual.json",
+      ".local/testlab/directory-protocol-offline/final-delivery-proof.json"
+    ]
+  },
+  {
+    "id": "TOOL-LIST-AUTHORITY-FIXTURE-ORDER",
+    "title": "撤权锁测试夹具排序依赖初始化耗时",
+    "category": "test_tool",
+    "status": "in_review",
+    "before": "正式baseline47be：1889P4F78skip，只有一条叶grant_revoke失败，其余为包装。后续受控overlay两条原例排序b,c,incident均红。",
+    "after": "候选仅将b/c时间锚定原incident减1/2秒；强制原incident延迟、原race/等待预算/权限断言保留，两条原例绿，四schema残余0。候选非canonical，仓库Go待冻结功能包结束后整合，不计完整回归通过。",
+    "first_failure_run_id": "47be040d-8ee9-4392-86a8-d34266bbd154",
+    "candidate_red_run_id": "fcfe2d8e-29c0-4e62-a86e-d239cadab37f",
+    "candidate_green_run_id": "76bea4a8-ec11-4135-9fd8-32af4a70c90a",
+    "fix_commit": "pending_frozen_functional_completion",
+    "product_change_required": false,
+    "local_evidence": [
+      ".local/testlab/list-authority-fixture/completion-receipt.json",
+      ".local/testlab/list-authority-fixture/minimal-repo-fix.patch"
+    ]
+  },
+  {
+    "id": "TOOL-SILENCE-EMIT-CONTRACT",
+    "title": "静默测试重复传结果模式且混用proposal错误契约",
+    "category": "test_tool",
+    "status": "in_review",
+    "before": "64765ee0 4P2F重复evidence_mode；ba60316b 50P2F，主proposal缺失应not_found而非审批辅助码。两次未发生AM写，cleanup通过。",
+    "after": "最小修两个精确调用契约，44 unit/TLS全绿；原silence全链f8a7af32 131P0F0skip，normal/loss/crash及8主正常语义qualified。",
+    "first_failure_run_id": "64765ee0-bed9-4447-ae77-c132bbd18575",
+    "related_failure_run_id": "ba60316b-12c5-415a-b301-ec39023d8616",
+    "retest_run_id": "f8a7af32-5b42-4bf3-bdaa-1f58e8fadd12",
+    "fix_commit": "pending",
+    "product_change_required": false,
+    "local_evidence": [
+      ".local/testlab/silence-functional-regression/real-emitter-corrected-fixture-first-red.log",
+      ".local/testlab/silence-functional-regression/detail-not-found-contract-first-red.log",
+      ".local/testlab/silence-functional-regression/detail-not-found-full44-green.log"
+    ]
   }
 ]

@@ -1794,7 +1794,7 @@
         "internal/v3sourceregistry",
         "cmd/aiops/v3.go"
       ],
-      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+      "proof_scope": "本地上传来源可真实补测；外部组织源只完整协议Mock，真实租户/索引/持续刷新仍待验。"
     },
     {
       "method": "POST",
@@ -1945,73 +1945,85 @@
       "method": "GET",
       "path": "/api/v1/mcp-servers",
       "module": "集成中心",
-      "availability": "local_environment",
+      "availability": "needs_confirmation",
       "priority": "P1",
       "package_id": "local-source-protocols",
-      "reason": "已有辅助环境绑定/发现/候选审核入口；需本地MCP协议Mock和正式可信注册，不启用Agent工具执行。",
+      "reason": "源审：MCP发现/人工审核/开关实现和四路注册已有；首次登记依赖ai_extensions。历史POST/PUT ai-extensions可Save，但当前V3 gate缺MarkV3Route会501；V3 binding/discover只消费现有registration。需确认合法legacy→V3兼容生产链或恢复接线范围，不能SQL造registration当本轮正式公开正常。",
       "prerequisites": [
-        "参见工作包 local-source-protocols 的隔离与证据前置"
+        "明确首次registration的公开可信生产者、版本和本轮授权边界；当前严格V3不能仅靠protocol Mock填库",
+        "可另行评估真实legacy HTTP登记→V3绑定/发现的兼容迁移，但明确legacy来源，不宣称V3注册已接通",
+        "受审只读MCP列表协议及精确snapshot/hash/registration/binding/audit；执行器仍不在本轮"
       ],
       "source_refs": [
-        "internal/v3mcp/service.go",
-        "internal/aiextensions/http.go",
-        "cmd/aiops/v3.go"
+        "internal/aiextensions/http.go:57",
+        "internal/httpapi/v3_routes.go:35",
+        "internal/v3mcp/service.go:41",
+        "cmd/aiops/v3_mcp_entry_test.go:124"
       ],
-      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+      "proof_scope": "只读源审生产者缺口，尚无本轮正式非空HTTP验收；不是断言整个MCP功能缺失"
     },
     {
       "method": "GET",
       "path": "/api/v1/mcp-servers/{id}",
       "module": "集成中心",
-      "availability": "local_environment",
+      "availability": "needs_confirmation",
       "priority": "P1",
       "package_id": "local-source-protocols",
-      "reason": "已有辅助环境绑定/发现/候选审核入口；需本地MCP协议Mock和正式可信注册，不启用Agent工具执行。",
+      "reason": "源审：MCP发现/人工审核/开关实现和四路注册已有；首次登记依赖ai_extensions。历史POST/PUT ai-extensions可Save，但当前V3 gate缺MarkV3Route会501；V3 binding/discover只消费现有registration。需确认合法legacy→V3兼容生产链或恢复接线范围，不能SQL造registration当本轮正式公开正常。",
       "prerequisites": [
-        "参见工作包 local-source-protocols 的隔离与证据前置"
+        "明确首次registration的公开可信生产者、版本和本轮授权边界；当前严格V3不能仅靠protocol Mock填库",
+        "可另行评估真实legacy HTTP登记→V3绑定/发现的兼容迁移，但明确legacy来源，不宣称V3注册已接通",
+        "受审只读MCP列表协议及精确snapshot/hash/registration/binding/audit；执行器仍不在本轮"
       ],
       "source_refs": [
-        "internal/v3mcp/service.go",
-        "internal/aiextensions/http.go",
-        "cmd/aiops/v3.go"
+        "internal/aiextensions/http.go:57",
+        "internal/httpapi/v3_routes.go:35",
+        "internal/v3mcp/service.go:41",
+        "cmd/aiops/v3_mcp_entry_test.go:124"
       ],
-      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+      "proof_scope": "只读源审生产者缺口，尚无本轮正式非空HTTP验收；不是断言整个MCP功能缺失"
     },
     {
       "method": "PATCH",
       "path": "/api/v1/mcp-servers/{id}/tools/{name}",
       "module": "集成中心",
-      "availability": "local_environment",
+      "availability": "needs_confirmation",
       "priority": "P1",
       "package_id": "local-source-protocols",
-      "reason": "已有辅助环境绑定/发现/候选审核入口；需本地MCP协议Mock和正式可信注册，不启用Agent工具执行。",
+      "reason": "源审：MCP发现/人工审核/开关实现和四路注册已有；首次登记依赖ai_extensions。历史POST/PUT ai-extensions可Save，但当前V3 gate缺MarkV3Route会501；V3 binding/discover只消费现有registration。需确认合法legacy→V3兼容生产链或恢复接线范围，不能SQL造registration当本轮正式公开正常。",
       "prerequisites": [
-        "参见工作包 local-source-protocols 的隔离与证据前置"
+        "明确首次registration的公开可信生产者、版本和本轮授权边界；当前严格V3不能仅靠protocol Mock填库",
+        "可另行评估真实legacy HTTP登记→V3绑定/发现的兼容迁移，但明确legacy来源，不宣称V3注册已接通",
+        "受审只读MCP列表协议及精确snapshot/hash/registration/binding/audit；执行器仍不在本轮"
       ],
       "source_refs": [
-        "internal/v3mcp/service.go",
-        "internal/aiextensions/http.go",
-        "cmd/aiops/v3.go"
+        "internal/aiextensions/http.go:57",
+        "internal/httpapi/v3_routes.go:35",
+        "internal/v3mcp/service.go:41",
+        "cmd/aiops/v3_mcp_entry_test.go:124"
       ],
-      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+      "proof_scope": "只读源审生产者缺口，尚无本轮正式非空HTTP验收；不是断言整个MCP功能缺失"
     },
     {
       "method": "POST",
       "path": "/api/v1/mcp-servers/{id}/review",
       "module": "集成中心",
-      "availability": "local_environment",
+      "availability": "needs_confirmation",
       "priority": "P1",
       "package_id": "local-source-protocols",
-      "reason": "已有辅助环境绑定/发现/候选审核入口；需本地MCP协议Mock和正式可信注册，不启用Agent工具执行。",
+      "reason": "源审：MCP发现/人工审核/开关实现和四路注册已有；首次登记依赖ai_extensions。历史POST/PUT ai-extensions可Save，但当前V3 gate缺MarkV3Route会501；V3 binding/discover只消费现有registration。需确认合法legacy→V3兼容生产链或恢复接线范围，不能SQL造registration当本轮正式公开正常。",
       "prerequisites": [
-        "参见工作包 local-source-protocols 的隔离与证据前置"
+        "明确首次registration的公开可信生产者、版本和本轮授权边界；当前严格V3不能仅靠protocol Mock填库",
+        "可另行评估真实legacy HTTP登记→V3绑定/发现的兼容迁移，但明确legacy来源，不宣称V3注册已接通",
+        "受审只读MCP列表协议及精确snapshot/hash/registration/binding/audit；执行器仍不在本轮"
       ],
       "source_refs": [
-        "internal/v3mcp/service.go",
-        "internal/aiextensions/http.go",
-        "cmd/aiops/v3.go"
+        "internal/aiextensions/http.go:57",
+        "internal/httpapi/v3_routes.go:35",
+        "internal/v3mcp/service.go:41",
+        "cmd/aiops/v3_mcp_entry_test.go:124"
       ],
-      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+      "proof_scope": "只读源审生产者缺口，尚无本轮正式非空HTTP验收；不是断言整个MCP功能缺失"
     },
     {
       "method": "GET",
@@ -3304,6 +3316,76 @@
               "name": "readonly.complete"
             }
           ]
+        },
+        {
+          "id": "ingress-functional",
+          "title": "真实指标Pull、合成Push及权限/预算/审计",
+          "command": "python3 tools/testlab/testlab.py run --suite ingress-functional",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "GET /api/v1/ingest/pull/{id}",
+            "POST /api/v1/ingest/pull/{id}/test",
+            "POST /api/v1/ingest/push/test"
+          ],
+          "proof_scope": "仅当前UUID本地真实Prometheus信号与正式Pull，五类内建合成Push；验证用户10/min预算、故障恢复、权限/撤权和精确audit/attempt/receipt。源60/min与并发4、慢读并发撤权、崩溃恢复及真实外部Webhook仍未验证。通知仅owned capture，原捕获不删除。",
+          "required_cases": [
+            {
+              "suite": "ingress-functional",
+              "name": "ingress.source_scope"
+            },
+            {
+              "suite": "ingress-functional",
+              "name": "ingress.real_signal"
+            },
+            {
+              "suite": "ingress-functional",
+              "name": "ingress.private_source_configuration"
+            },
+            {
+              "suite": "ingress-functional",
+              "name": "ingress.pull.preview"
+            },
+            {
+              "suite": "ingress-functional",
+              "name": "ingress.pull.test"
+            },
+            {
+              "suite": "ingress-functional",
+              "name": "ingress.push.five_types"
+            },
+            {
+              "suite": "ingress-functional",
+              "name": "ingress.authorization_boundary"
+            },
+            {
+              "suite": "ingress-functional",
+              "name": "ingress.pull.failure_recovery"
+            },
+            {
+              "suite": "ingress-functional",
+              "name": "ingress.pull.budget"
+            },
+            {
+              "suite": "ingress-functional",
+              "name": "ingress.revocation"
+            },
+            {
+              "suite": "ingress-functional",
+              "name": "ingress.audit_consistency"
+            },
+            {
+              "suite": "ingress-functional",
+              "name": "ingress.relay_cleanup"
+            },
+            {
+              "suite": "ingress-functional",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "ingress-functional",
+              "name": "readonly.complete"
+            }
+          ]
         }
       ]
     },
@@ -3437,6 +3519,34 @@
               "name": "readonly.complete"
             }
           ]
+        },
+        {
+          "id": "upload-probe",
+          "title": "上传来源连接测试及完整调用链审计",
+          "command": "python3 tools/testlab/testlab.py run --suite content",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "POST /api/v1/knowledge-sources/test"
+          ],
+          "proof_scope": "实际上传来源Probe；精确应用、owner与环境、早拒绝无audit、真正Probe有attempted/result两审计且业务表不变。外部租户、索引/自动刷新与慢读撤权未验；原content链一起复验。",
+          "required_cases": [
+            {
+              "suite": "content",
+              "name": "content.upload_source"
+            },
+            {
+              "suite": "content",
+              "name": "content.upload_connection_probe"
+            },
+            {
+              "suite": "content",
+              "name": "content.cleanup"
+            },
+            {
+              "suite": "content",
+              "name": "content.chain"
+            }
+          ]
         }
       ]
     },
@@ -3519,8 +3629,9 @@
     {
       "package_id": "local-components",
       "priority": "P1",
-      "action": "先定义剩余包综合场景准入，再分批补本地真实观测/Vault/SMTP/IdP接口：正常、权限、边界、故障与精确清理逐项登记",
+      "action": "先补双人审批、真实静默及提案详情/评论/拒绝，再分批完成本地组件与故障组合场景；Trace列表阻塞保持可见",
       "preconditions": [
+        "审批/静默迁移到fresh UUID库；只读完整AM加载/出站证明，保留双人边界、丢响应与崩溃台账",
         "列出稳定suite/name必需场景与对应主接口，不以正常样本齐全判包完成",
         "fresh owner/CID/nonce-HMAC；轻型组件按依赖分批，独立UUID库和精确端口",
         "Prometheus/Loki/Tempo数据由受控实际负载产生；来源绑定/未知字段与身份范围复核；通知仅本地捕获"
@@ -3529,11 +3640,12 @@
     {
       "package_id": "local-source-protocols",
       "priority": "P1",
-      "action": "继续组织目录、知识源与MCP的完整协议Mock；本人资料/值班和安全已验子场景保留，真实authority待验",
+      "action": "先完成组织目录与MFA提醒的受控HTTPS协议Mock，再补Confluence内容读取；MCP首次合法生产链需确认后再测",
       "preconditions": [
-        "先补尚缺正常路径的目标；六个已Mock正常不重复冒新增覆盖",
+        "当前40项首次本地正常队列继续推进；6个已Mock正常仍需真实来源，不重复冒新增真实覆盖",
         "每个目标核对正式注册/发现、非空DTO和来源关联，429/超时/丢响应/权限漂移逐项",
-        "真实飞书/Notion/Confluence、完整身份及安全authority外部待办保持"
+        "真实飞书/Notion/Confluence、完整身份及安全authority外部待办保持",
+        "目录仅自有子API进程代理/私有CA：固定两host、无外部透传；外部成功本地失败仅fresh UUID库精确故障DDL，不触及canonical或archives"
       ]
     },
     {
@@ -3641,58 +3753,47 @@
   ],
   "classification_scope": "逐接口正常HTTP补测的前置分拣，不是后端实现完成度判定；缺实现包括必需非空生产链缺能力，外部真实验收另列。needs_confirmation尚未获得完整正式生产者调用链证明。",
   "latest_review_record": {
+    "checkpoint": "CP269",
     "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
-    "normal_main": 85,
+    "normal_main": 94,
     "total_main": 166,
-    "remaining_main": 81,
-    "normal_auxiliary": 19,
+    "remaining_main": 72,
+    "normal_auxiliary": 24,
+    "protocol_mock_normal_main": 6,
+    "first_local_normal_queue": 40,
     "remaining_classification": {
       "local_ready": 0,
-      "local_environment": 60,
-      "needs_confirmation": 17,
+      "local_environment": 46,
+      "needs_confirmation": 21,
       "not_implemented": 3,
-      "user_paused": 1
+      "user_paused": 2
     },
     "scenario_accepted_package_ids": [
       "local-reads",
       "native-discovery"
     ],
-    "remaining_packages_need_explicit_scenario_plan": 7,
-    "evidence_source": "本轮主线程提供的真实运行结果；看板必须动态核持久证据，不将此记录当结果源。",
+    "focused_checks_passed": 5,
+    "focused_checks_total": 6,
+    "evidence_source": "当前Go始末一致的持久证据去重；本记录是Review快照，UI动态核SQLite，不以硬编码数字当结果源。",
     "runs": [
       {
-        "id": "9c0673a4-fa92-4da1-a9f6-4c2be9d5a1ea",
-        "suite": "readonly",
-        "passed": 77
+        "id": "bd3632cf-19e6-4ed5-afc1-750a596c1278",
+        "suite": "mfa",
+        "passed": 28,
+        "scope": "current-source isolated PG race; clock-injected expiry, not wall-time window"
       },
       {
-        "id": "21f49d9f-173a-4b77-b845-b6e9c8c088d3",
-        "suite": "discovery",
-        "passed": 32,
-        "external_todo": 1
-      },
-      {
-        "id": "ed76ba96-610a-40b9-8d5d-073a44e50d85",
-        "suite": "readonly",
-        "passed": 89
-      },
-      {
-        "id": "0f6e2c4d-3f3b-4a3e-b045-b252343a55b9",
-        "suite": "management",
-        "passed": 130
-      },
-      {
-        "id": "b4cfa3bc-392f-494a-820f-7f455db5942d",
+        "id": "e41f9aa0-2757-433c-9fb1-a0861458c2fb",
         "suite": "content",
-        "passed": 69
+        "passed": 86
       },
       {
-        "id": "80b62861-143f-4f79-b526-0507cbf5c655",
-        "suite": "native-projection",
-        "passed": 62
+        "id": "87180b9d-45c0-402f-9266-692c7d7e74bf",
+        "suite": "ingress-functional",
+        "passed": 72
       }
     ],
-    "proof_scope": "仅所列当前Go始末一致的正式本地功能样本及明确必需场景；不自动关闭51原缺口、完整两档性能、24h或非空记忆生产者。"
+    "proof_scope": "正式HTTP正常样本不等于完整接口验收；Trace列表阻塞、全Go回归、完整两档性能、真实连续24h、真实租户/权威与原51整项仍未收口。"
   },
   "execution_order": "先定义剩余7包的综合场景验收准入→本地轻型真实组件/完整协议Mock→权限与故障组合/相关回归→重型配置GitOps串行→当前源码完整回归→完整两档性能→连续真实24h；旧性能优先自动化保持暂停。",
   "decision_history": [
@@ -3701,6 +3802,77 @@
       "decision": "按用户继续授权新增两有界功能子包；父包综合验收仍未完成，Mock独立计数。metrics/dashboard依据源码移入暂停CI/CD生产链。",
       "decided_by": "Codex under user-authorized autonomous choices",
       "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437"
+    },
+    {
+      "date": "2026-10-01",
+      "decided_by": "Codex under user-authorized autonomous choices",
+      "decision": "CP269 functional-first：MFA当前源28项回归；四MCP主路由已有消费者和legacy生产者，但当前V3首次生产链待确认移needs_confirmation。新增上传Probe/真实Pull+合成Push有界验收，保留首次工具红；AM脱敏只凭加载及actual容器配置联合证明，不把secret当local。",
+      "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437"
+    },
+    {
+      "date": "2026-10-01",
+      "decided_by": "Codex under user-authorized autonomous choices",
+      "decision": "CP269上传Probe原红工具漏scope/完整审计，原组86绿；入站marker重复run_id工具红后原组72绿。下一批审批/静默8路径与目录2协议路径并行离线准备，root串行现场；仅进程私有双host CONNECT/TLS Mock与fresh UUID库精确拒写DDL获自主定界，不修改Go/hosts/system CA/主runtime。",
+      "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437"
+    }
+  ],
+  "review_record_history": [
+    {
+      "checkpoint": "CP266",
+      "record": {
+        "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
+        "normal_main": 85,
+        "total_main": 166,
+        "remaining_main": 81,
+        "normal_auxiliary": 19,
+        "remaining_classification": {
+          "local_ready": 0,
+          "local_environment": 60,
+          "needs_confirmation": 17,
+          "not_implemented": 3,
+          "user_paused": 1
+        },
+        "scenario_accepted_package_ids": [
+          "local-reads",
+          "native-discovery"
+        ],
+        "remaining_packages_need_explicit_scenario_plan": 7,
+        "evidence_source": "本轮主线程提供的真实运行结果；看板必须动态核持久证据，不将此记录当结果源。",
+        "runs": [
+          {
+            "id": "9c0673a4-fa92-4da1-a9f6-4c2be9d5a1ea",
+            "suite": "readonly",
+            "passed": 77
+          },
+          {
+            "id": "21f49d9f-173a-4b77-b845-b6e9c8c088d3",
+            "suite": "discovery",
+            "passed": 32,
+            "external_todo": 1
+          },
+          {
+            "id": "ed76ba96-610a-40b9-8d5d-073a44e50d85",
+            "suite": "readonly",
+            "passed": 89
+          },
+          {
+            "id": "0f6e2c4d-3f3b-4a3e-b045-b252343a55b9",
+            "suite": "management",
+            "passed": 130
+          },
+          {
+            "id": "b4cfa3bc-392f-494a-820f-7f455db5942d",
+            "suite": "content",
+            "passed": 69
+          },
+          {
+            "id": "80b62861-143f-4f79-b526-0507cbf5c655",
+            "suite": "native-projection",
+            "passed": 62
+          }
+        ],
+        "proof_scope": "仅所列当前Go始末一致的正式本地功能样本及明确必需场景；不自动关闭51原缺口、完整两档性能、24h或非空记忆生产者。"
+      }
     }
   ]
 }

@@ -971,5 +971,44 @@
       "6263b675-43fb-4ed1-bb3d-7cd20fca6446",
       "859cd26a-089d-43f6-947f-5b8646d3c00a"
     ]
+  },
+  {
+    "id": "80e62192-916b-4a82-bf76-b88e712ffbda",
+    "title": "测试工具：上传Probe遗漏范围及外层审计契约",
+    "category": "test_tool",
+    "status": "in_review",
+    "description": "正式handler要求精确应用且真正Probe写两审计；原reader局部无写判断已纠正。工具修复及原content组86项实际复验通过，完整后端验收继续。",
+    "before": "f31587a2：漏application_id返回422；无audit断言也违背完整调用链",
+    "after": "e41f9aa0：86通过/0失败/0跳过；10Probe/精确8新audit、七业务表和旧审计不变，早拒绝0；root29工具回归。",
+    "fix_commit": "ff0df759cd31957ecbd25f9fadfdb6ac940960ef",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/ff0df759cd31957ecbd25f9fadfdb6ac940960ef",
+    "first_failure_run_id": "f31587a2-f851-49f7-a91a-ee645cffb9af",
+    "retest_run_id": "e41f9aa0-2757-433c-9fb1-a0861458c2fb",
+    "local_evidence": [
+      ".local/testlab/content-probe-offline/actual-first-failure.json",
+      ".local/testlab/content-probe-offline/scope-audit-first-red.txt",
+      ".local/testlab/content-probe-offline/root-scope-audit-full.log",
+      ".local/testlab/content-probe-offline/actual-fix-and-push.json"
+    ],
+    "product_change_required": false
+  },
+  {
+    "id": "13596739-d621-406a-879e-bfa8248c9b5b",
+    "title": "测试工具：入站真实信号结果标识重复scope字段",
+    "category": "test_tool",
+    "status": "in_review",
+    "description": "首次现场成功采集后stable marker重复run_id导致整组失败；最小修scope精确合并，原组72项及114相关工具复验通过，未改Go。",
+    "before": "d5fbca0a：17P3F；TypeError重复run_id，信号不重试、原数据保留",
+    "after": "87180b9d：72P0F0skip；14Pull attempts/14audit、5synthetic Push/5audit关联与原precise cleanup；38module/114相关tools绿",
+    "fix_commit": "a885d007aacc74ab0dfae2e757a49df95c546dfb",
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/a885d007aacc74ab0dfae2e757a49df95c546dfb",
+    "first_failure_run_id": "d5fbca0a-ea14-42cb-9005-30e26b934552",
+    "retest_run_id": "87180b9d-45c0-402f-9266-692c7d7e74bf",
+    "product_change_required": false,
+    "local_evidence": [
+      ".local/testlab/ingress-functional-regression/actual-first-failure.json",
+      ".local/testlab/ingress-functional-regression/offline-marker-scope-first-red.log",
+      ".local/testlab/ingress-functional-regression/actual-fix-and-push.json"
+    ]
   }
 ]

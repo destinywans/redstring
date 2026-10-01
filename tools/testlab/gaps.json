@@ -26,10 +26,10 @@
     "name": "TOTP 密钥生命周期",
     "remaining": "可选账户 TOTP 不等于强制 MFA 登录。持久密钥跨重启不可更换；种子重加密轮换流程未实现。",
     "required": "持久 0600 密钥、备份恢复与轮换设计；锁等待到期另见 WAN-135。",
-    "source": "internal/v3mfa/README.md；WAN-135",
+    "source": "internal/v3mfa/README.md；WAN-135；CP269/WAN136/138",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "真实PG advisory/factor/audit锁跨session、OTP、fresh login八例与回滚；账户生命周期专项",
+    "completed_subscenarios": "真实PG advisory/factor/audit锁跨session、OTP、fresh login八例与回滚；账户生命周期专项；CP269：bd3632cf当前Go6ad MFA专用库28P0F0skip -race，8锁等待场景分别session/fresh login/OTP/factor/audit与recovery事务回滚、消费并发；expiry测试时钟为注入输入，不是实墙窗口。UUID schema清理后计数0，证明57d2849c-0113-4079-9bda-698d3eeda27e；模块/handler与真实PG证明，不冒正式二进制HTTP正常或完整回归。",
     "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
   },
   {
@@ -91,22 +91,24 @@
     "name": "通知路由与抑制草稿",
     "remaining": "读取/试算/待审 MR 已接；真实 Alertmanager 配置子树独占、匿名接收者映射、完整历史及 GitLab 草稿隔离未验。",
     "required": "真实来源和最小权限 GitLab；确认自动化不会合并/部署草稿。",
-    "source": "CP-188、191、194；WAN-118",
+    "source": "CP-188、191、194；WAN-118；CP269/WAN136/138",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "真实AM接受Prom firing→本地capture receiver；产品route MR待验",
-    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+    "completed_subscenarios": "真实AM接受Prom firing→本地capture receiver；产品route MR待验；CP269 ingress 87180b9d 72P：真实owned /signal→Prom→AM，仅本地capture 251→256，旧prefix exact/新增5条本signal；严格actual加载配置/容器bytes/所有出站渠道首尾证明。不是产品通知MR、完整延迟/retry或生产SLA。",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入",
+    "acceptance_note": "仅所列有界子场景；原整体状态保持，外部/Mock/未验能力分开，不能整体关闭。"
   },
   {
     "id": 10,
     "name": "静默与批量范围",
     "remaining": "物理Passkey/企业审批外部待办；分组批量静默须唯一group标签/权威完整覆盖生产者，旧NULL不能补造；自然30分钟expiry未验，手动cancel不能替代。",
     "required": "受审来源/唯一组标签，明确授权启动和故障用例。",
-    "source": "CP-202、203；WAN-118",
+    "source": "CP-202、203；WAN-118；CP269/WAN136/138",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "WAN159143+153修后正式bd46318f55全部通过：普通静默/双独立软件Passkey、第一票无执行、create+cancel持久台账、真实AMPOST/DELETE成功丢响应/精确write1、SIGKILL后read-only恢复",
-    "proof_scope": "仅本地真实AM/PG/HTTPS/软件ES256和所列故障；55运行/源码8d0a，整体未关闭"
+    "completed_subscenarios": "WAN159143+153修后正式bd46318f55全部通过：普通静默/双独立软件Passkey、第一票无执行、create+cancel持久台账、真实AMPOST/DELETE成功丢响应/精确write1、SIGKILL后read-only恢复；CP269当前源MFA bd3632cf 28P -race/专用UUID schemas/锁等待后session/OTP等回滚并发消费；测试clock注入过期，不是实墙等待12h/自然30min/24h。新UUID静默全链包离线准备，尚未运行。",
+    "proof_scope": "仅本地真实AM/PG/HTTPS/软件ES256和所列故障；55运行/源码8d0a，整体未关闭",
+    "acceptance_note": "仅所列有界子场景；原整体状态保持，外部/Mock/未验能力分开，不能整体关闭。"
   },
   {
     "id": 11,
@@ -146,11 +148,12 @@
     "name": "外部连接器和内容读取",
     "remaining": "GitLab 新 V3 精确入口、Harbor、Notion/Confluence/飞书文档、MCP 业务服务的完整实连/授权/失败链缺验收记录；并非全部从未实测。",
     "required": "逐模块最小权限账户、固定源范围/内容样例；MCP发现不等于工具执行。",
-    "source": "CP-085、093、162、165～167；WAN-122",
+    "source": "CP-085、093、162、165～167；WAN-122；CP269/WAN136/138",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "CP267 当前Go6ad正式连接器962cba41 60P：六主接口readiness/生命周期/权限/恢复/审计；上游owned真实Prom，503仅自有relay注入；不证明凭据、Agent工具或外部租户。",
-    "proof_scope": "仅明确当前源码绑定的有界子场景；Mock、真实来源与未验实际能力分开，整项未收口。"
+    "completed_subscenarios": "CP267 当前Go6ad正式连接器962cba41 60P：六主接口readiness/生命周期/权限/恢复/审计；上游owned真实Prom，503仅自有relay注入；不证明凭据、Agent工具或外部租户。；CP269 content e41f9aa0 86P含upload Probe完整handler scope/owner/env/正常审计；ingress 87180b9d 72P含真实指标Pull非空range对应、5类synthetic Push receipt/event/fence/audit。非真实签名vendor/外部内容、索引或全部连接器。",
+    "proof_scope": "仅明确当前源码绑定的有界子场景；Mock、真实来源与未验实际能力分开，整项未收口。",
+    "acceptance_note": "仅所列有界子场景；原整体状态保持，外部/Mock/未验能力分开，不能整体关闭。"
   },
   {
     "id": 15,
@@ -342,11 +345,12 @@
   {
     "id": 33,
     "name": "MCP 实际调用",
-    "remaining": "发现与人工审核开关已有；V3受审执行器和按登记/环境/快照归属的调用记录生产者未接。",
+    "remaining": "发现与人工审核开关已有；V3受审执行器和按登记/环境/快照归属的调用记录生产者未接。 CP269独立源审另外确认当前V3首次MCP登记入口缺可达性：历史AI extensions Save已有但未MarkV3Route，V3 binding/discover不能首次创建。兼容生产链需确认，四读/审核/开关正常样本暂不靠SQL填出；与执行器缺能力分开。",
     "required": "具体只读执行器、授权/取消/记录契约；开关不等于执行授权。",
-    "source": "docs/api/v3-contract.md:318-320",
+    "source": "docs/api/v3-contract.md:318-320；internal/aiextensions/http.go:57；internal/httpapi/v3_routes.go:35；CP269只读源审",
     "status": "not_implemented",
-    "evidence_mode": "pending"
+    "evidence_mode": "pending",
+    "priority": "High"
   },
   {
     "id": 34,
@@ -405,10 +409,10 @@
     "name": "MFA 跨锁等待到期",
     "remaining": "锁前取时钟的路径已记录，实际等待和timeout使会话/OTP超期的幅度尚无隔离复现。",
     "required": "一次性 PG 锁等待/时钟用例，核对锁后时间。",
-    "source": "WAN-135",
+    "source": "WAN-135；CP269/WAN136/138",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "advisory、factor、audit等待跨有效期全部真实PG/race rollback",
+    "completed_subscenarios": "advisory、factor、audit等待跨有效期全部真实PG/race rollback；CP269：bd3632cf当前Go6ad MFA专用库28P0F0skip -race，8锁等待场景分别session/fresh login/OTP/factor/audit与recovery事务回滚、消费并发；expiry测试时钟为注入输入，不是实墙窗口。UUID schema清理后计数0，证明57d2849c-0113-4079-9bda-698d3eeda27e；模块/handler与真实PG证明，不冒正式二进制HTTP正常或完整回归。",
     "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
   },
   {
@@ -475,12 +479,12 @@
     "name": "写接口安全参数",
     "remaining": "产品页面If-Match/revision/requestID等接线本轮前端排除；主路由全部业务场景仍需矩阵逐项覆盖，不从响应数或401/403推断完成。",
     "required": "按机器契约传参，覆盖过期/撤权/重放/不确定结果。",
-    "source": "CP-185～205；WAN-125/127/128；CP266/WAN-139；CP268/WAN136/138",
+    "source": "CP-185～205；WAN-125/127/128；CP266/WAN-139；CP268/WAN136/138；CP269/WAN136/138",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "entry b8241602 230断言中主30/166正常证明；content e8814ea6 69断言/62实际HTTP；源8d0a readonly 1fbdd662 98通过/89实际HTTP、26主+1辅助GET正常；management fdd28078 130通过/113实际HTTP、17目标中15正常、2profile仅503；双实例ETag/role revision单赢家、幂等关注/取消、撤session、原生事务审计一致性。不同源和重复路由不简单相加。；CP266：80b62861 bulk claim正常、跨实例读回、相同调用者重试changed=0、越权207及重复ID422；数据库唯一认领及审计一致。正常其他动作、取消/事务锁失败和完整安全组合仍需逐场景验。；CP268：32f0c484正式四本人路由49P0F，越权/readonly输入/故障无本地写、跨实例精确读回与两条audit；协议Mock仅证明相应只读上游。91d418dd日志/Trace明细的权限、空level不读源、隐藏trace404、撤权0sourcecalls与mapping revisions/actor/target/exactbindings审计；不证明全部166或慢响应并发撤权。",
+    "completed_subscenarios": "entry b8241602 230断言中主30/166正常证明；content e8814ea6 69断言/62实际HTTP；源8d0a readonly 1fbdd662 98通过/89实际HTTP、26主+1辅助GET正常；management fdd28078 130通过/113实际HTTP、17目标中15正常、2profile仅503；双实例ETag/role revision单赢家、幂等关注/取消、撤session、原生事务审计一致性。不同源和重复路由不简单相加。；CP266：80b62861 bulk claim正常、跨实例读回、相同调用者重试changed=0、越权207及重复ID422；数据库唯一认领及审计一致。正常其他动作、取消/事务锁失败和完整安全组合仍需逐场景验。；CP268：32f0c484正式四本人路由49P0F，越权/readonly输入/故障无本地写、跨实例精确读回与两条audit；协议Mock仅证明相应只读上游。91d418dd日志/Trace明细的权限、空level不读源、隐藏trace404、撤权0sourcecalls与mapping revisions/actor/target/exactbindings审计；不证明全部166或慢响应并发撤权。；CP269 content上传Probe10场景：7业务表及旧audit prefix不变，4真正Probe精确attempted/result8audit，6早拒绝0；ingress用户10/min真实第11次429无IO/台账、scope/双实例撤权/14Pull14audit/5Push5audit；source60/concurrent4、慢IO撤权与commit后API丢响应仍待验。",
     "proof_scope": "仅所列本地真实组件/PG/正式HTTP；整体未关闭",
-    "acceptance_note": "仅新增精确子场景，历史与原状态保留；协议Mock不关闭真实来源，整项未收口。"
+    "acceptance_note": "仅所列有界子场景；原整体状态保持，外部/Mock/未验能力分开，不能整体关闭。"
   },
   {
     "id": 47,

@@ -1211,6 +1211,51 @@
         }
       ],
       "verification_scope": "正式production合成实例配置元数据：非空DTO、中英文、精确权限/撤权、空配置/非法启动/nonprod。没有来源或Vault连接，不证明配置提升/真实生产租户/自然TTL/HTTPS传输。"
+    },
+    {
+      "id": "bulk-actions-functional",
+      "name": "原生告警分组调查与静默待审提案专项",
+      "type": "functional",
+      "evidence_mode": "real_local",
+      "gap_ids": [
+        46
+      ],
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_bulk_actions_functional_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "verification_scope": "已有bulk同一路由动作专项：同步调查为real_local，静默原生pending批准边界使用严格AM协议Mock；3提案、投票/决定/执行/源写0。未证明真实AM批准执行、group上限或持续性能。"
+    },
+    {
+      "id": "rule-create-functional",
+      "name": "规则 24h trial 原生创建受理（非长稳）",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "gap_ids": [
+        46,
+        50
+      ],
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_rule_create_functional_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 360,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "verification_scope": "Admission, durable state/audit and one natural evaluation only. 24h/1440 points, failover/restart and performance unverified. The accepted trial is deliberately interrupted at bounded package cleanup; no continuous acceptance claim. Isolated API entry uses HTTP; only trial provider transport TLS verified."
     }
   ]
 }

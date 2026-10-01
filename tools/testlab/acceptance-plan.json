@@ -3886,6 +3886,234 @@
             }
           ],
           "proof_scope": "真人韧性提案real_local；discover/resilience两个GET仅protocol_mock。完整service/list/detail/topology三前置仍blocked，helper完成exit0只允许JSON采集，外Runnerblocked exit2保持。"
+        },
+        {
+          "id": "bulk-investigate-native",
+          "title": "批量调查原生事务/权限和锁等待",
+          "command": "python3 tools/testlab/testlab.py run --suite bulk-actions-functional",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "POST /api/v1/alert-groups/bulk"
+          ],
+          "required_cases": [
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.native_producers"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.investigate_normal"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.idempotency_dual_instance"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.member_link_extension"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.ordered_partial"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.authorization_parameters"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.transaction_rollback_recovery"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.revocation_waiting"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.session_expiry_waiting"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.silence_pending_protocol"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.silence_retry_partial"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.silence_audit_fault_recovery"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.silence_grant_revocation"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.silence_approval_boundary"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.ledger_invariants"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "readonly.complete"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.handoff"
+            }
+          ],
+          "proof_scope": "已有bulk同一路由动作专项：同步调查为real_local，静默原生pending批准边界使用严格AM协议Mock；3提案、投票/决定/执行/源写0。未证明真实AM批准执行、group上限或持续性能。"
+        },
+        {
+          "id": "bulk-silence-protocol",
+          "title": "批量静默原生待批准，来源协议Mock",
+          "command": "python3 tools/testlab/testlab.py run --suite bulk-actions-functional",
+          "evidence_mode": "protocol_mock",
+          "route_keys": [
+            "POST /api/v1/alert-groups/bulk"
+          ],
+          "required_cases": [
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.native_producers"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.investigate_normal"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.idempotency_dual_instance"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.member_link_extension"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.ordered_partial"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.authorization_parameters"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.transaction_rollback_recovery"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.revocation_waiting"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.session_expiry_waiting"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.silence_pending_protocol"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.silence_retry_partial"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.silence_audit_fault_recovery"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.silence_grant_revocation"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.silence_approval_boundary"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.ledger_invariants"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "readonly.complete"
+            },
+            {
+              "suite": "bulk-actions-functional",
+              "name": "bulk.handoff"
+            }
+          ],
+          "proof_scope": "已有bulk同一路由动作专项：同步调查为real_local，静默原生pending批准边界使用严格AM协议Mock；3提案、投票/决定/执行/源写0。未证明真实AM批准执行、group上限或持续性能。"
+        },
+        {
+          "id": "rule-create-functional",
+          "title": "规则dry_run原生创建与启动一个自然点",
+          "command": "python3 tools/testlab/testlab.py run --suite rule-create-functional",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "POST /api/v1/alert-rules"
+          ],
+          "required_cases": [
+            {
+              "suite": "rule-create-functional",
+              "name": "create.accepted"
+            },
+            {
+              "suite": "rule-create-functional",
+              "name": "create.cross_instance"
+            },
+            {
+              "suite": "rule-create-functional",
+              "name": "create.idempotency"
+            },
+            {
+              "suite": "rule-create-functional",
+              "name": "create.authorization"
+            },
+            {
+              "suite": "rule-create-functional",
+              "name": "create.boundaries"
+            },
+            {
+              "suite": "rule-create-functional",
+              "name": "create.audit_rollback"
+            },
+            {
+              "suite": "rule-create-functional",
+              "name": "create.live_evaluation"
+            },
+            {
+              "suite": "rule-create-functional",
+              "name": "create.revocation"
+            },
+            {
+              "suite": "rule-create-functional",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "rule-create-functional",
+              "name": "rules.cleanup"
+            },
+            {
+              "suite": "rule-create-functional",
+              "name": "create.cleanup"
+            },
+            {
+              "suite": "rule-create-functional",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "Admission, durable state/audit and one natural evaluation only. 24h/1440 points, failover/restart and performance unverified. The accepted trial is deliberately interrupted at bounded package cleanup; no continuous acceptance claim. Isolated API entry uses HTTP; only trial provider transport TLS verified."
         }
       ]
     },
@@ -4384,26 +4612,32 @@
   ],
   "classification_scope": "逐接口正常HTTP补测的前置分拣，不是后端实现完成度判定；缺实现包括必需非空生产链缺能力，外部真实验收另列。needs_confirmation尚未获得完整正式生产者调用链证明。",
   "latest_review_record": {
-    "checkpoint": "CP275",
-    "at": "2026-10-01T12:03:02.244143+00:00",
+    "checkpoint": "CP276",
+    "at": "2026-10-01T12:17:00.929608+00:00",
     "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
     "normal_main": 113,
     "total_main": 166,
     "remaining_main": 53,
-    "normal_auxiliary": 29,
+    "normal_auxiliary": 31,
     "protocol_mock_normal_main": 17,
-    "protocol_verified_pending_real": 12,
     "first_local_normal_queue": 12,
+    "protocol_verified_pending_real": 12,
+    "evidence_source": "root实际live与SQLite/header/raw/source末/两个handoff逐项核验；bulk独审通过、rule独审进行中；metrics分类原组复验仍进行中。",
     "runs": [
       {
-        "id": "97c0eebf-c1fe-4515-87ab-0ea0cc68226d",
-        "suite": "lower-sources-functional",
-        "passed": 42,
-        "scope": "production合成配置元数据，仅连接未验证；18HTTP"
+        "id": "13300ff4-f073-44c7-ab64-408af17dbb74",
+        "suite": "bulk-actions-functional",
+        "passed": 77,
+        "scope": "同一路由动作无normal增量；investigate真实/静默来源Mock"
+      },
+      {
+        "id": "15b00c03-890e-4de7-9a23-bd1aa8baa6b0",
+        "suite": "rule-create-functional",
+        "passed": 41,
+        "scope": "真实trial受理+自然首点1，cleanup刻意中断24h窗"
       }
     ],
-    "evidence_source": "root核对SQLite原42用例/source始末/原command21,080字节、两个helperSHA、cleanup和handoff；独立只读XHigh核准，无重复现场负载。",
-    "proof_scope": "主覆盖含在执行metrics包已经通过的正常HTTP子场景；不代表其整包通过。lower新增1正式metadata正常。性能/持续与完整回归未收口。"
+    "proof_scope": "metrics旧模式冲突275条排除，不改SQLite；剔除1错误normal并新增1实际rule-normal，净113/166。仅正常子场景；整体未收口。"
   },
   "execution_order": "先定义剩余7包的综合场景验收准入→本地轻型真实组件/完整协议Mock→权限与故障组合/相关回归→重型配置GitOps串行→当前源码完整回归→完整两档性能→连续真实24h；旧性能优先自动化保持暂停。",
   "decision_history": [
@@ -4521,6 +4755,18 @@
       "decided_by": "root under direct user urgency/autonomy authorization",
       "decision": "下层来源只读元数据42实际通过即独立交付；其他可见会话继续指标/规则与bulk，root不重复已证明负载。拓扑只读复核纠正：现Kubernetes结构边不满足calls/depends_on正RPS图，保留needs_confirmation。",
       "reason": "隔离轻包并行减少等待；配置元数据不冒连接成功，调用图来源尚无权威producer证明。"
+    },
+    {
+      "checkpoint": "CP276",
+      "decided_by": "root with independent readonly reviewer",
+      "decision": "bulk77原包通过即时交付，原claim已有路由不新增接口数量；调查real、静默Mock分列。metrics旧nested模式缺失由原case模式拒绝进入覆盖，保留SQLite原错误分类记录；作者单独修collector并原组复验。",
+      "reason": "用户要求结果不变尽量快，独立包不等待其他阻塞，同时修复实际虚增证据错误。"
+    },
+    {
+      "checkpoint": "CP276",
+      "decision": "bulk私有manifest沿用services的20/25/46关联不准确，正式目录更正为46；原SQLite不回填。rule-create46/50与明确受理子场景关联，不关闭恢复/完整交付；不关联安全未知恢复24或韧性25。",
+      "decided_by": "root after original51 exact title readback",
+      "reason": "台账关联必须对应实际场景，不让拷贝元数据污染其他缺口。"
     }
   ],
   "review_record_history": [
@@ -4692,6 +4938,28 @@
         }
       ],
       "proof_scope": "234P0F只是三个有界工作包；真实主正常111/166不是项目完成率；完整回归、必要剩余、两档性能、24h未收口。"
+    },
+    {
+      "checkpoint": "CP275",
+      "at": "2026-10-01T12:03:02.244143+00:00",
+      "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
+      "normal_main": 113,
+      "total_main": 166,
+      "remaining_main": 53,
+      "normal_auxiliary": 29,
+      "protocol_mock_normal_main": 17,
+      "protocol_verified_pending_real": 12,
+      "first_local_normal_queue": 12,
+      "runs": [
+        {
+          "id": "97c0eebf-c1fe-4515-87ab-0ea0cc68226d",
+          "suite": "lower-sources-functional",
+          "passed": 42,
+          "scope": "production合成配置元数据，仅连接未验证；18HTTP"
+        }
+      ],
+      "evidence_source": "root核对SQLite原42用例/source始末/原command21,080字节、两个helperSHA、cleanup和handoff；独立只读XHigh核准，无重复现场负载。",
+      "proof_scope": "主覆盖含在执行metrics包已经通过的正常HTTP子场景；不代表其整包通过。lower新增1正式metadata正常。性能/持续与完整回归未收口。"
     }
   ]
 }

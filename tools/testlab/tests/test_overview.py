@@ -38,8 +38,8 @@ class OverviewTests(unittest.TestCase):
         suite = self.store.add_suite(run['id'], {'id': suite, 'name': suite})
         return run, suite
 
-    def case(self, run, suite, name='http', actual='', status='passed', raw_evidence=None):
-        case = self.store.add_case(run['id'], suite['id'], name=name, gap_ids=[1])
+    def case(self, run, suite, name='http', actual='', status='passed', raw_evidence=None, evidence_mode='source'):
+        case = self.store.add_case(run['id'], suite['id'], name=name, gap_ids=[1], evidence_mode=evidence_mode)
         attempt = self.store.start_attempt(case)
         try:
             structured = ast.literal_eval(actual) if isinstance(actual, str) and actual else actual or {}
@@ -51,7 +51,7 @@ class OverviewTests(unittest.TestCase):
         return case
 
     def http(self, run, suite, method='GET', code=200, scenario='normal', mode='real_local', registered=True, status='passed', path='/api/v1/things'):
-        self.case(run, suite, status=status)
+        self.case(run, suite, status=status, evidence_mode=mode)
         return self.store.add_record(run['id'], 'interfaces', {'method': method, 'path': path, 'evidence_mode': mode,
             'registration_evidence': registered, 'scenarios': {scenario: {'status': status, 'actual_status': code, 'expected_status': code}}})
 
@@ -107,6 +107,19 @@ class OverviewTests(unittest.TestCase):
         self.assertIn('协议 Mock 正常子场景：1',render_overview_report(v,'md'))
         self.store.update('runs',r['id'],status='interrupted')
         self.assertEqual(self.overview()['coverage']['protocol_mock']['normal_success'],0)
+
+    def test_conflicting_case_and_interface_modes_cannot_claim_acceptance(self):
+        for case_mode, interface_mode in [('protocol_mock', 'real_local'), ('real_local', 'protocol_mock')]:
+            with self.subTest(case_mode=case_mode):
+                r, s = self.run_record()
+                self.case(r, s, evidence_mode=case_mode)
+                self.store.add_record(r['id'], 'interfaces', {'method': 'GET', 'path': '/api/v1/things',
+                    'evidence_mode': interface_mode, 'registration_evidence': True,
+                    'scenarios': {'normal': {'status': 'passed', 'actual_status': 200, 'expected_status': 200}}})
+        v = self.overview()
+        self.assertEqual(v['coverage']['main']['normal_success'], 0)
+        self.assertEqual(v['coverage']['protocol_mock']['normal_success'], 0)
+        self.assertEqual(v['coverage']['excluded_record_counts']['evidence_mode_conflict'], 2)
 
     def test_focused_subset_cannot_close_parent_package_and_latest_failure_is_visible(self):
         p=self.root/'tools/testlab/acceptance-plan.json'; plan=json.loads(p.read_text())

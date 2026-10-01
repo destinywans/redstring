@@ -33,6 +33,8 @@ python3 tools/testlab/testlab.py run --suite notification-routes-functional
 python3 tools/testlab/testlab.py run --suite services-functional
 python3 tools/testlab/testlab.py run --suite local-original-smokes
 python3 tools/testlab/testlab.py run --suite lower-sources-functional
+python3 tools/testlab/testlab.py run --suite bulk-actions-functional
+python3 tools/testlab/testlab.py run --suite rule-create-functional
 python3 tools/testlab/testlab.py run --suite promotion
 python3 tools/testlab/testlab.py run --suite identity,invitations,vault
 python3 tools/testlab/testlab.py run --suite local-live-gates,jenkins
@@ -115,3 +117,7 @@ CP273三个可见会话的限定工作包已实际入库：映射73通过（上�
 `local-original-smokes` 可重复运行三个原有Go opt-in函数，使用显式owned组件与UUID DB/role、真实Keycloak授权码登录及单次UUID Loki记录；原Go JSON必须真正pass且退出0，skip不能洗pass。数据、凭据和配置仅.local，callback18089须空闲；Grafana不配置不称已验，没有正式主HTTP增量。合成日志保留至owned组件退休，专用realm会话按原TTL，不全局删记录。
 
 `lower-sources-functional` 验证production合成实例的服务器配置元数据、中英文与权限、缺配置和非法启动/nonprod；42项实际通过、18 HTTP。来源和Vault地址均由零连接capture证明未调用，DTO明确连接未验证。双UUID库/role与独占18670–72清理；不证明实际连接、配置提升、自然TTL或HTTPS传输。
+
+`bulk-actions-functional` 补已有分组路由的调查和静默动作：同步调查real_local，待批准静默的AM绑定protocol_mock；完整77断言、53 HTTP，实际PG锁等待撤权/session过期及审计回滚。未使用批准接口，投票/决定/执行/AM写0。原失败和清理证据保留，不增加已有路由的normal数量。
+
+`rule-create-functional` 验证原生24h dry_run任务创建、精确台账/audit、双实例、幂等/权限/容量/回滚，并真实TLS查询一个自然Prometheus点。整个专项41断言/20HTTP；cleanup明确中断任务并清理独占18680–85/UUID DB及worker，不作连续24h或1440点完成证明。

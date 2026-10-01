@@ -1241,5 +1241,31 @@
       ".local/testlab/current-local-smokes/public-delivery-readback.json",
       ".local/testlab/current-local-smokes/delivery-readback-final.json"
     ]
+  },
+  {
+    "id": "TOOL-BULK-ACTIONS-CONTRACT-FIXTURES",
+    "title": "批量工具TLS headers、跨环境来源和action JSON错误假设",
+    "category": "test_tool",
+    "status": "in_review",
+    "before": "092c/2942/64ed三原标准Runner红，分别headers list、一个source跨环境、snapshot.silence读错；原报告不改。",
+    "after": "限定helper修正后原包13300ff4 77P，18离线与原native/Mock语义均通过，自有资源精确清理。",
+    "product_change_required": false,
+    "local_evidence": [
+      ".local/testlab/bulk-actions-parallel/runner-delivery-latest.json"
+    ]
+  },
+  {
+    "id": "TOOL-MOCK-INTERFACE-MODE-CONFLICT",
+    "title": "Mock模型case与nested接口模式不一致导致真实覆盖虚增",
+    "category": "test_tool",
+    "severity": "HIGH",
+    "status": "in_review",
+    "before": "6a8fc693等metrics原case protocol_mock，nested遗漏模式被actual_interface默认real_local；真实正常数113含一条错误指标normal。原SQLite不回填。",
+    "after": "聚合拒绝显式case-vs-interface模式冲突，25离线反例先红后绿；producer由独立会话补nested模式/反例和完整原组复验，最终证据待追加。",
+    "product_change_required": false,
+    "local_evidence": [
+      ".local/testlab/overview-mode-consistency/first-red.txt",
+      ".local/testlab/overview-mode-consistency/green.txt"
+    ]
   }
 ]

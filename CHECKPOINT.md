@@ -1,3 +1,11 @@
+## CP-276 · 2026-10-01 · bulk77与规则创建41交付，修正Mock虚增
+
+- bulk标准 **13300ff4-f073-44c7-ab64-408af17dbb74 77P0F0blocked/53HTTP**，12:00:24.124822→12:01:01.599631Z；内部0a97有76，最终handoff marker补成77。调查43实际HTTP real、静默10协议Mock，7原生调查/根/上下文、8事件/审计；实际锁等待events/canvas撤权与会话过期、audit整组回滚且同批兄弟成功、跨实例幂等/关联扩展/partial均有证据。3pending提案/action/evidence/reservation/audit；审批投票/决议/claim、执行与AM写全部0，独立worker合法开但未绕人工边界。独立XHigh核准，18offline绿。原092c/2942/64ed三工具红及全部清理报告保留；UUIDDBrole/heldPopen/TLS18660–64无残余。同一路由已有claim normal不增加数量；正式两个模式子验收/18marker已登记。原私有gap20/25误关联更正为正式46，不回填旧SQLite。
+- rule-create最终 **15b00c03-890e-4de7-9a23-bd1aa8baa6b0 41P0F0skip/20HTTP**，12:15:38.421191→12:16:25.488161Z；5offline绿，源码/helper两SHA匹配。新增1主POST alert-rules dry_run原生202，精确actor/app/target/env/pending/digests audit、双实例、同ID/改载荷409、active容量429、他人状态404/撤权403、audit失败0trial0audit。真实TLS worker自然Prom点1，实际时窗86400，cleanup明确中断，不作1440点或持续验收。4heldAPI/Prom exactCID/UUIDDBrole/18680–85清理，第一21cf也是41P保留无虚构首红。正式suite/12必要marker，g46/50仅受理子项；API HTTP/provider TLS边界清楚。
+- 独审确认metrics/rule collector漏nested interface模式，被inventory默认real_local；旧6a8fc等的Mock模型normal虚增1主。root追加精确反例先红1/25→最小聚合修→25绿：显式case与interface模式不一致一律排除，275旧冲突保留原SQLite/raw而不冒有效覆盖。collector作者已补nested mode/反例，原完整4分钟组复验仍在执行；133旧passed仍历史，不作为真实模型normal。缺陷TOOL-MOCK-INTERFACE-MODE-CONFLICT高/工具类别登记，不是产品Go bug。
+- 仅fresh精确UID/完整argv/lstart/cwd两次守卫且nonce-HMAC主控制身份通过后重启owned8787看板，API未重启；actual live主 **113/166、53缺、31辅助/17Mock、12首次本地**。数字为剔除metrics错误1+新增真实rule创建1，非错误证据洗绿；CP275原113贡献解释已由本CP明确纠正。UI执行进度/验证结果仍分开、完整回归与两档性能/24h未完成。root工具25overview+18bulk+5create+2inventory+26testlab=76实际通过；一次错误test_server文件pattern得到0tests未计通过，改用现有test_testlab26实测通过。
+- 所有Go6ad/bfeb/mainruntime338始末冻结；产品web/.claude/业务env/DB/真实账户通知未动，oldautomation/7nativeCI-CD不恢复。规则PUT只读核必须原生draft+GitLab导出MR，仍需重型独占窗口，不轻包假PG完成。下一收metrics分类复验/台账交付，再排GitLab相关必要本地内容及完整回归；fixture候选两行未canonical、source等价方案尚未实现。scoped commit/push/精确回读与Linear随后留receipt；不合并部署。
+
 ## CP-275 · 2026-10-01 · 下层来源42实际通过独立交付，两个可见现场继续
 
 - lower-sources-functional正式 **97c0eebf-c1fe-4515-87ab-0ea0cc68226d**，11:50:27.016429→11:50:49.647019Z，**42P0F0skip0blocked/18HTTP**，4离线绿；双production合成API非空两来源两环境、ZH/EN精确DTO/顺序/脱敏/权限/跨环境/双实例撤权及session撤销，缺配置空集合、非法环境真实启动exit1、nonprod404。仅新增1主GET配置元数据正常，连接仍未验证。两UUID库role、7heldPopen和18670–72清理；capture0、业务audit before==after，Go6ad/bfeb始末与helper/testSHA精确匹配，原command59eca311实际21,080字节与三报告已存。

@@ -273,6 +273,14 @@ def get_overview(root, store, source_sha=None):
         if binding != 'current':
             rejected[binding] += 1
             continue
+        case_id = case_for_record.get(row.get('id'))
+        actual_case = case_map.get(case_id, {})
+        case_mode = actual_case.get('evidence_mode')
+        # A nested interface omitted by a producer must never promote its
+        # explicitly mocked parent case. Keep the original records immutable.
+        if case_mode in ('real_local', 'protocol_mock') and case_mode != row.get('evidence_mode'):
+            rejected['evidence_mode_conflict'] += 1
+            continue
         protocol = row.get('evidence_mode') == 'protocol_mock' or row.get('upstream_mode') == 'protocol_mock'
         if row.get('evidence_mode') != 'real_local' and not protocol:
             rejected['mock_or_non_http'] += 1
@@ -280,8 +288,7 @@ def get_overview(root, store, source_sha=None):
         if protocol:
             rejected['protocol_not_real_acceptance'] += 1
         key = _key(row)
-        case_id = case_for_record.get(row.get('id'))
-        evidence_ids = case_map.get(case_id, {}).get('_evidence_ids', [])
+        evidence_ids = actual_case.get('_evidence_ids', [])
         if not evidence_ids:
             rejected['unlinked_or_missing_original_evidence'] += 1
         proof = _proof(run, row, environments.get(rid, {'status': 'unknown'}), evidence_ids)
@@ -291,7 +298,6 @@ def get_overview(root, store, source_sha=None):
             code = outcome.get('actual_status')
             wanted = outcome.get('expected_status')
             expected = wanted if isinstance(wanted, list) else [wanted]
-            actual_case = case_map.get(case_id, {})
             passed = (outcome.get('status') == 'passed' and type(code) is int and code in expected
                       and actual_case.get('status') == 'passed' and bool(evidence_ids))
             if scenario == 'normal':

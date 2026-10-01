@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-01T10:28:07.394281+00:00",
+  "updated_at": "2026-10-01T11:20:41.141895+00:00",
   "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
   "catalogue_sha256": "8e95110f65aca68b1385128e4bbb229b4bea7b499b5690c8eab54181d0229329",
   "coverage_snapshot": {
@@ -1286,17 +1286,18 @@
       "method": "GET",
       "path": "/api/v1/services",
       "module": "资源与观测",
-      "availability": "local_environment",
+      "availability": "needs_confirmation",
       "priority": "P1",
       "package_id": "local-components",
-      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "reason": "CP273正式7a62e019已实测阻塞：Complete view needs successful native deployment, full service metrics, owner/oncall and alert coverage; no release/AI success fabricated or paused CI/CD resumed.",
       "prerequisites": [
-        "参见工作包 local-components 的隔离与证据前置"
+        "确认上述真实生产者/来源准入；不得伪造业务SQL成功、恢复暂停CI/CD或仅打开完整性flag"
       ],
       "source_refs": [
         "tools/testlab/components.py",
         "tools/testlab/silence_chain.py",
-        "cmd/aiops/v3.go"
+        "cmd/aiops/v3.go",
+        "tools/testlab/api_services_functional_coverage.py"
       ],
       "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
     },
@@ -1304,17 +1305,18 @@
       "method": "GET",
       "path": "/api/v1/services/{id}",
       "module": "资源与观测",
-      "availability": "local_environment",
+      "availability": "needs_confirmation",
       "priority": "P1",
       "package_id": "local-components",
-      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "reason": "CP273正式7a62e019已实测阻塞：Complete detail additionally needs recent native completed model run and matching assistant reply; real producer not present in this package.",
       "prerequisites": [
-        "参见工作包 local-components 的隔离与证据前置"
+        "确认上述真实生产者/来源准入；不得伪造业务SQL成功、恢复暂停CI/CD或仅打开完整性flag"
       ],
       "source_refs": [
         "tools/testlab/components.py",
         "tools/testlab/silence_chain.py",
-        "cmd/aiops/v3.go"
+        "cmd/aiops/v3.go",
+        "tools/testlab/api_services_functional_coverage.py"
       ],
       "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
     },
@@ -1358,17 +1360,18 @@
       "method": "GET",
       "path": "/api/v1/topology",
       "module": "资源与观测",
-      "availability": "local_environment",
+      "availability": "needs_confirmation",
       "priority": "P1",
       "package_id": "local-components",
-      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "reason": "CP273正式7a62e019已实测阻塞：Current CMDB projection is explicitly partial; complete topology_v1 requires exact application-linked graph and full source/version-bound metrics.",
       "prerequisites": [
-        "参见工作包 local-components 的隔离与证据前置"
+        "确认上述真实生产者/来源准入；不得伪造业务SQL成功、恢复暂停CI/CD或仅打开完整性flag"
       ],
       "source_refs": [
         "tools/testlab/components.py",
         "tools/testlab/silence_chain.py",
-        "cmd/aiops/v3.go"
+        "cmd/aiops/v3.go",
+        "tools/testlab/api_services_functional_coverage.py"
       ],
       "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
     },
@@ -3556,6 +3559,333 @@
               "name": "readonly.complete"
             }
           ]
+        },
+        {
+          "id": "connectors-mapping-functional",
+          "title": "映射非空发现、接纳与原生失败回滚（上游Mock）",
+          "command": "python3 tools/testlab/testlab.py run --suite connectors-mapping-functional",
+          "evidence_mode": "protocol_mock",
+          "route_keys": [
+            "POST /api/v1/service-mappings/discover",
+            "POST /api/v1/service-mappings/accept"
+          ],
+          "required_cases": [
+            {
+              "suite": "connectors-mapping-functional",
+              "name": "mapping.vault_scope"
+            },
+            {
+              "suite": "connectors-mapping-functional",
+              "name": "mapping.activation_faults"
+            },
+            {
+              "suite": "connectors-mapping-functional",
+              "name": "mapping.nonempty_discovery"
+            },
+            {
+              "suite": "connectors-mapping-functional",
+              "name": "mapping.discovery_versions"
+            },
+            {
+              "suite": "connectors-mapping-functional",
+              "name": "mapping.authorization"
+            },
+            {
+              "suite": "connectors-mapping-functional",
+              "name": "mapping.boundaries"
+            },
+            {
+              "suite": "connectors-mapping-functional",
+              "name": "mapping.upstream_recovery"
+            },
+            {
+              "suite": "connectors-mapping-functional",
+              "name": "mapping.audit_rollback"
+            },
+            {
+              "suite": "connectors-mapping-functional",
+              "name": "mapping.accept_idempotency"
+            },
+            {
+              "suite": "connectors-mapping-functional",
+              "name": "mapping.audit_consistency"
+            },
+            {
+              "suite": "connectors-mapping-functional",
+              "name": "mapping.revocation"
+            },
+            {
+              "suite": "connectors-mapping-functional",
+              "name": "mapping.discovery_storage_failure"
+            },
+            {
+              "suite": "connectors-mapping-functional",
+              "name": "mapping.cleanup"
+            },
+            {
+              "suite": "connectors-mapping-functional",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "connectors-mapping-functional",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "两主正常仅GitLab协议Mock；真实Vault最小path策略与UUID PG、非空候选/显式受权接纳/跨实例读回、旧review拒绝/幂等、Vault缺字段/上游503429超时丢响应/本地audit与discovery storage整批回滚。真实GitLab重型链、自然expiry/锁等待/500来源/性能/24h另验。"
+        },
+        {
+          "id": "invitation-functional",
+          "title": "本地真实SMTP邀请创建、消费与不确定发送",
+          "command": "python3 tools/testlab/testlab.py run --suite invitation-functional",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "POST /api/v1/members/invitations"
+          ],
+          "proof_scope": "HTTPS SecureCookie/CA、固定UUID本地TLS SMTP、两账户原生消费、权限/重放/双实例重复、DATA丢250/QUIT丢响应/audit失败后pending及即时拒重试；邮件/native/审计核验后关联原callID和响应SHA。真实组织邮箱、自然expiry/pending恢复另验。",
+          "required_cases": [
+            {
+              "suite": "invitation-functional",
+              "name": "invitation.tls_ready"
+            },
+            {
+              "suite": "invitation-functional",
+              "name": "invitation.normal"
+            },
+            {
+              "suite": "invitation-functional",
+              "name": "invitation.acceptance"
+            },
+            {
+              "suite": "invitation-functional",
+              "name": "invitation.authorization"
+            },
+            {
+              "suite": "invitation-functional",
+              "name": "invitation.inputs"
+            },
+            {
+              "suite": "invitation-functional",
+              "name": "invitation.data_response_loss"
+            },
+            {
+              "suite": "invitation-functional",
+              "name": "invitation.quit_response_loss"
+            },
+            {
+              "suite": "invitation-functional",
+              "name": "invitation.audit_commit_failure"
+            },
+            {
+              "suite": "invitation-functional",
+              "name": "invitation.operation_linkage"
+            },
+            {
+              "suite": "invitation-functional",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "invitation-functional",
+              "name": "readonly.complete"
+            }
+          ]
+        },
+        {
+          "id": "notification-routes-functional",
+          "title": "真实环境路由树与只读路径试算",
+          "command": "python3 tools/testlab/testlab.py run --suite notification-routes-functional",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "GET /api/v1/notification-routes",
+            "POST /api/v1/notification-routes/test"
+          ],
+          "required_cases": [
+            {
+              "suite": "notification-routes-functional",
+              "name": "routes.source_load"
+            },
+            {
+              "suite": "notification-routes-functional",
+              "name": "routes.local_capture"
+            },
+            {
+              "suite": "notification-routes-functional",
+              "name": "routes.native_ingress"
+            },
+            {
+              "suite": "notification-routes-functional",
+              "name": "routes.nonempty_tree"
+            },
+            {
+              "suite": "notification-routes-functional",
+              "name": "routes.sample_paths"
+            },
+            {
+              "suite": "notification-routes-functional",
+              "name": "routes.authorization"
+            },
+            {
+              "suite": "notification-routes-functional",
+              "name": "routes.boundaries"
+            },
+            {
+              "suite": "notification-routes-functional",
+              "name": "routes.failure_recovery"
+            },
+            {
+              "suite": "notification-routes-functional",
+              "name": "routes.inflight_revocation"
+            },
+            {
+              "suite": "notification-routes-functional",
+              "name": "routes.session_revocation"
+            },
+            {
+              "suite": "notification-routes-functional",
+              "name": "routes.readonly_consistency"
+            },
+            {
+              "suite": "notification-routes-functional",
+              "name": "routes.cleanup"
+            },
+            {
+              "suite": "notification-routes-functional",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "notification-routes-functional",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "独立owned AM环境子树/非空native告警和本地fixture capture；POST test只读试算，无发送/写入。真实生产渠道、草稿MR、七天历史与自然expiry另验。"
+        },
+        {
+          "id": "services-functional-native",
+          "title": "真人韧性提案；完整来源三项仍阻塞",
+          "command": "python3 tools/testlab/testlab.py run --suite services-functional",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "POST /api/v1/services/{id}/resilience/proposals"
+          ],
+          "required_cases": [
+            {
+              "suite": "services-functional",
+              "name": "services.native_producers"
+            },
+            {
+              "suite": "services-functional",
+              "name": "services.discovery_protocol"
+            },
+            {
+              "suite": "services-functional",
+              "name": "services.resilience_protocol"
+            },
+            {
+              "suite": "services-functional",
+              "name": "services.human_proposals"
+            },
+            {
+              "suite": "services-functional",
+              "name": "services.authorization"
+            },
+            {
+              "suite": "services-functional",
+              "name": "services.parameters"
+            },
+            {
+              "suite": "services-functional",
+              "name": "services.failure_recovery"
+            },
+            {
+              "suite": "services-functional",
+              "name": "services.discovery_failure_recovery"
+            },
+            {
+              "suite": "services-functional",
+              "name": "services.proposal_grant_revocation"
+            },
+            {
+              "suite": "services-functional",
+              "name": "services.revocation"
+            },
+            {
+              "suite": "services-functional",
+              "name": "services.audit_consistency"
+            },
+            {
+              "suite": "services-functional",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "services-functional",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "真人韧性提案real_local；discover/resilience两个GET仅protocol_mock。完整service/list/detail/topology三前置仍blocked，helper完成exit0只允许JSON采集，外Runnerblocked exit2保持。"
+        },
+        {
+          "id": "services-functional-protocol",
+          "title": "服务发现与韧性上游协议Mock，实际聚合器未验",
+          "command": "python3 tools/testlab/testlab.py run --suite services-functional",
+          "evidence_mode": "protocol_mock",
+          "route_keys": [
+            "GET /api/v1/services/discover",
+            "GET /api/v1/services/{id}/resilience"
+          ],
+          "required_cases": [
+            {
+              "suite": "services-functional",
+              "name": "services.native_producers"
+            },
+            {
+              "suite": "services-functional",
+              "name": "services.discovery_protocol"
+            },
+            {
+              "suite": "services-functional",
+              "name": "services.resilience_protocol"
+            },
+            {
+              "suite": "services-functional",
+              "name": "services.human_proposals"
+            },
+            {
+              "suite": "services-functional",
+              "name": "services.authorization"
+            },
+            {
+              "suite": "services-functional",
+              "name": "services.parameters"
+            },
+            {
+              "suite": "services-functional",
+              "name": "services.failure_recovery"
+            },
+            {
+              "suite": "services-functional",
+              "name": "services.discovery_failure_recovery"
+            },
+            {
+              "suite": "services-functional",
+              "name": "services.proposal_grant_revocation"
+            },
+            {
+              "suite": "services-functional",
+              "name": "services.revocation"
+            },
+            {
+              "suite": "services-functional",
+              "name": "services.audit_consistency"
+            },
+            {
+              "suite": "services-functional",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "services-functional",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "真人韧性提案real_local；discover/resilience两个GET仅protocol_mock。完整service/list/detail/topology三前置仍blocked，helper完成exit0只允许JSON采集，外Runnerblocked exit2保持。"
         }
       ]
     },
@@ -3778,62 +4108,6 @@
               "name": "readonly.complete"
             }
           ]
-        },
-        {
-          "id": "invitation-functional",
-          "title": "本地真实SMTP邀请创建、消费与不确定发送",
-          "command": "python3 tools/testlab/testlab.py run --suite invitation-functional",
-          "evidence_mode": "real_local",
-          "route_keys": [
-            "POST /api/v1/invitations"
-          ],
-          "proof_scope": "HTTPS SecureCookie/CA、固定UUID本地TLS SMTP、两账户原生消费、权限/重放/双实例重复、DATA丢250/QUIT丢响应/audit失败后pending及即时拒重试；邮件/native/审计核验后关联原callID和响应SHA。真实组织邮箱、自然expiry/pending恢复另验。",
-          "required_cases": [
-            {
-              "suite": "invitation-functional",
-              "name": "invitation.tls_ready"
-            },
-            {
-              "suite": "invitation-functional",
-              "name": "invitation.normal"
-            },
-            {
-              "suite": "invitation-functional",
-              "name": "invitation.acceptance"
-            },
-            {
-              "suite": "invitation-functional",
-              "name": "invitation.authorization"
-            },
-            {
-              "suite": "invitation-functional",
-              "name": "invitation.inputs"
-            },
-            {
-              "suite": "invitation-functional",
-              "name": "invitation.data_response_loss"
-            },
-            {
-              "suite": "invitation-functional",
-              "name": "invitation.quit_response_loss"
-            },
-            {
-              "suite": "invitation-functional",
-              "name": "invitation.audit_commit_failure"
-            },
-            {
-              "suite": "invitation-functional",
-              "name": "invitation.operation_linkage"
-            },
-            {
-              "suite": "invitation-functional",
-              "name": "readonly.cleanup"
-            },
-            {
-              "suite": "invitation-functional",
-              "name": "readonly.complete"
-            }
-          ]
         }
       ]
     },
@@ -4040,38 +4314,39 @@
   ],
   "classification_scope": "逐接口正常HTTP补测的前置分拣，不是后端实现完成度判定；缺实现包括必需非空生产链缺能力，外部真实验收另列。needs_confirmation尚未获得完整正式生产者调用链证明。",
   "latest_review_record": {
-    "checkpoint": "CP272",
-    "at": "2026-10-01T10:29:52.124957+00:00",
+    "checkpoint": "CP273",
+    "at": "2026-10-01T11:20:41.141895+00:00",
     "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
-    "normal_main": 108,
+    "normal_main": 111,
     "total_main": 166,
-    "remaining_main": 58,
+    "remaining_main": 55,
     "normal_auxiliary": 29,
-    "protocol_mock_normal_main": 8,
-    "first_local_normal_queue": 24,
-    "evidence_source": "持久SQLite当前source始末一致的正常2xx证据；Review快照不替代UI动态统计。",
+    "protocol_mock_normal_main": 16,
+    "protocol_verified_pending_real": 12,
+    "first_local_normal_queue": 14,
+    "evidence_source": "root已读公共SQLite、HTTP整体API、原运行及清理收据；范围重分类减少可执行队列不增加通过。",
     "runs": [
       {
-        "id": "48390f22-1f69-443a-b943-3857c161045a",
-        "suite": "alert-policy-functional",
-        "passed": 53,
-        "blocked": 2,
-        "scope": "two partial native read paths; missing route/history prerequisites remain blocked"
+        "id": "cac4578a-0a76-4981-a384-e149c62da54a",
+        "suite": "connectors-mapping-functional",
+        "passed": 73,
+        "scope": "GitLab GET-only协议Mock；真实PG/Vault与失败回滚"
       },
       {
-        "id": "ce60208c-71e9-4dd1-a193-2dc1b7c374ab",
-        "suite": "rules-read-functional",
-        "passed": 47,
-        "scope": "two actual current samples only, not six-hour or24h"
+        "id": "9058317f-3150-468d-b420-eb5706333ece",
+        "suite": "notification-routes-functional",
+        "passed": 79,
+        "scope": "两真实正常；POST test只读试算，不发送"
       },
       {
-        "id": "e4f89186-59ca-45e1-9745-16dde201c526",
-        "suite": "invitation-functional",
-        "passed": 48,
-        "scope": "loopback TLS SMTP native records; real mailbox/natural expiry remain TODO"
+        "id": "7a62e019-7c99-404d-9015-7e18308713d9",
+        "suite": "services-functional",
+        "passed": 82,
+        "blocked": 4,
+        "scope": "3实际前置+1handoff包装，真人提案1real，2GET Mock；外层exit2"
       }
     ],
-    "proof_scope": "仅所列有界子场景。主成功样本不等于完整接口验收；当前baseline叶fixture未canonical修复，功能剩余、性能两档、连续24h、真实外部/authority/缺实现/暂停项未闭合。"
+    "proof_scope": "234P0F只是三个有界工作包；真实主正常111/166不是项目完成率；完整回归、必要剩余、两档性能、24h未收口。"
   },
   "execution_order": "先定义剩余7包的综合场景验收准入→本地轻型真实组件/完整协议Mock→权限与故障组合/相关回归→重型配置GitOps串行→当前源码完整回归→完整两档性能→连续真实24h；旧性能优先自动化保持暂停。",
   "decision_history": [
@@ -4139,6 +4414,49 @@
       ],
       "confirmed_status": "three wait_threads active/inProgress; new packages not yet accepted",
       "supersedes": "CP270 root-only actual execution restriction; original pauses and performance freeze remain"
+    },
+    {
+      "at": "2026-10-01T10:53:28.157261+00:00",
+      "checkpoint": "CP273",
+      "decision": "邀请有界gate严格使用helper TARGETS的POST /api/v1/members/invitations并归现有local-components，移除root误写的/invitations/local-source-protocols。",
+      "reason": "实时gate严格选assignedroutes而显示0/1，暴露root场景元数据录入错误；实际48P/原HTTP/108总数不受影响，未放宽验证。",
+      "decided_by": "root under existing authorization"
+    },
+    {
+      "at": "2026-10-01T11:20:41.141895+00:00",
+      "checkpoint": "CP273",
+      "decided_by": "root under user direct urgency/autonomy authorization",
+      "decision": "已交付会话立即复用于rule generation/preview/metrics ask与bulk investigate/silence独立轻包，原本地3smoke并行；已验证结果及时集成。service/list/detail/topology改为已实测缺可信来源需要确认，保留HighTODO，不用库存或Mock代真实成功。",
+      "reason": "在不影响结果前提下缩短耗时，避免root唯一现场、重复验收和环境依赖误标待执行。",
+      "threads": [
+        {
+          "id": "01a0f6f9-d258-7d21-821c-b0881683c29e",
+          "scope": "rule generation / preview / metrics ask",
+          "ports": [
+            18654,
+            18655,
+            18656,
+            18657,
+            18658
+          ]
+        },
+        {
+          "id": "01a0f2c9-e88f-7ba0-bf56-1d54273313c2",
+          "scope": "bulk investigate / silence",
+          "ports": [
+            18660,
+            18661,
+            18662,
+            18663,
+            18664
+          ]
+        },
+        {
+          "id": "01a0f2c9-fe91-7372-b8e3-947d17c854f0",
+          "scope": "actual browser QA completed; no unnecessary repeated load"
+        }
+      ],
+      "constraints": "轻型UUID隔离；性能/24h/重型串行，旧automation和7nativeCI/CD暂停，Go/runtime/helpers冻结。"
     }
   ],
   "review_record_history": [
@@ -4241,6 +4559,40 @@
         }
       ],
       "proof_scope": "正式HTTP正常样本不等于完整接口验收；Trace列表阻塞、全Go回归、完整两档性能、真实连续24h、真实租户/权威与原51整项仍未收口。"
+    },
+    {
+      "checkpoint": "CP272",
+      "at": "2026-10-01T10:29:52.124957+00:00",
+      "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
+      "normal_main": 108,
+      "total_main": 166,
+      "remaining_main": 58,
+      "normal_auxiliary": 29,
+      "protocol_mock_normal_main": 8,
+      "first_local_normal_queue": 24,
+      "evidence_source": "持久SQLite当前source始末一致的正常2xx证据；Review快照不替代UI动态统计。",
+      "runs": [
+        {
+          "id": "48390f22-1f69-443a-b943-3857c161045a",
+          "suite": "alert-policy-functional",
+          "passed": 53,
+          "blocked": 2,
+          "scope": "two partial native read paths; missing route/history prerequisites remain blocked"
+        },
+        {
+          "id": "ce60208c-71e9-4dd1-a193-2dc1b7c374ab",
+          "suite": "rules-read-functional",
+          "passed": 47,
+          "scope": "two actual current samples only, not six-hour or24h"
+        },
+        {
+          "id": "e4f89186-59ca-45e1-9745-16dde201c526",
+          "suite": "invitation-functional",
+          "passed": 48,
+          "scope": "loopback TLS SMTP native records; real mailbox/natural expiry remain TODO"
+        }
+      ],
+      "proof_scope": "仅所列有界子场景。主成功样本不等于完整接口验收；当前baseline叶fixture未canonical修复，功能剩余、性能两档、连续24h、真实外部/authority/缺实现/暂停项未闭合。"
     }
   ]
 }

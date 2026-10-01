@@ -1094,6 +1094,77 @@
         46
       ],
       "verification_scope": "固定本地SMTP捕获及双V3 HTTPS、原始调用响应+邮件/native台账/审计一致后才qualified；真实组织SMTP送达读取、自然24h code expiry/2min pending恢复另验。旧private manifest误关联gap6是工具分类错误，不作模型验收。"
+    },
+    {
+      "id": "connectors-mapping-functional",
+      "name": "真实Vault及GitLab协议Mock映射发现与显式接受",
+      "type": "integration",
+      "evidence_mode": "protocol_mock",
+      "verification_scope": "authenticated read-only HTTPS GitLab /api/v4/user and exact project IDs101/102/103; no external forwarding or write；真实UUID PG/Vault策略，mapping业务来自正式HTTP；不计真实GitLab或生产租户验收。",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_connectors_mapping_functional_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        14,
+        17,
+        46
+      ]
+    },
+    {
+      "id": "notification-routes-functional",
+      "name": "独立真实Alertmanager路由读取与只读试算",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "gap_ids": [
+        9,
+        46
+      ],
+      "verification_scope": "独立owned AM环境子树/非空native告警和本地fixture capture；POST test只读试算，无发送/写入。真实生产渠道、草稿MR、七天历史与自然expiry另验。",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_notification_routes_functional_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
+        }
+      ]
+    },
+    {
+      "id": "services-functional",
+      "name": "服务发现/拓扑/韧性有界功能与真实前置阻塞",
+      "type": "functional",
+      "evidence_mode": "real_local",
+      "gap_ids": [
+        20,
+        25,
+        46
+      ],
+      "verification_scope": "真人韧性提案real_local；discover/resilience两个GET仅protocol_mock。完整service/list/detail/topology三前置仍blocked，helper完成exit0只允许JSON采集，外Runnerblocked exit2保持。",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_services_functional_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
+        }
+      ]
     }
   ]
 }

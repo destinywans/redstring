@@ -94,9 +94,9 @@
     "source": "CP-188、191、194；WAN-118；CP269/WAN136/138",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "真实AM接受Prom firing→本地capture receiver；产品route MR待验；CP269 ingress 87180b9d 72P：真实owned /signal→Prom→AM，仅本地capture 251→256，旧prefix exact/新增5条本signal；严格actual加载配置/容器bytes/所有出站渠道首尾证明。不是产品通知MR、完整延迟/retry或生产SLA。；CP272 策略48390f22 53P0F+2blocked，正式policy200partial及空inhibitions206partial、真实AM加载revision/ETag、跨实例/慢响应撤权与503恢复通过；当前flat route缺environment分支、缺可信7天history故notification-routes503/preview501明确阻塞，不能用两个正常子项关闭整包。",
+    "completed_subscenarios": "真实AM接受Prom firing→本地capture receiver；产品route MR待验；CP269 ingress 87180b9d 72P：真实owned /signal→Prom→AM，仅本地capture 251→256，旧prefix exact/新增5条本signal；严格actual加载配置/容器bytes/所有出站渠道首尾证明。不是产品通知MR、完整延迟/retry或生产SLA。；CP272 策略48390f22 53P0F+2blocked，正式policy200partial及空inhibitions206partial、真实AM加载revision/ETag、跨实例/慢响应撤权与503恢复通过；当前flat route缺environment分支、缺可信7天history故notification-routes503/preview501明确阻塞，不能用两个正常子项关闭整包。；CP273 notification9058317f 79P0F0skip/59HTTP：独立同版真实AM非空test/staging子树/ETag/redaction、POST只读试算、两UUIDnative告警和独立fixture capture；产品试算零投递/零写。每故障GET/POST只读源一次503/半响应/丢响应/实际15s超时后原请求恢复，慢IO撤权403/删session401、业务/audit全表一致。ownAM exactCID、4Popen、UUIDDBrole/5端口已清理。生产渠道/MR激活、自然expiry、500节点/32深度/七天历史/性能24h未验。",
     "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入",
-    "acceptance_note": "仅所列有界子场景；原整体状态保持，外部/Mock/未验能力分开，不能整体关闭。"
+    "acceptance_note": "只关闭明确有界子场景；原整体状态与真实/Mock/blocked边界保持。"
   },
   {
     "id": 10,
@@ -151,7 +151,7 @@
     "source": "CP-085、093、162、165～167；WAN-122；CP269/WAN136/138",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "CP267 当前Go6ad正式连接器962cba41 60P：六主接口readiness/生命周期/权限/恢复/审计；上游owned真实Prom，503仅自有relay注入；不证明凭据、Agent工具或外部租户。；CP269 content e41f9aa0 86P含upload Probe完整handler scope/owner/env/正常审计；ingress 87180b9d 72P含真实指标Pull非空range对应、5类synthetic Push receipt/event/fence/audit。非真实签名vendor/外部内容、索引或全部连接器。",
+    "completed_subscenarios": "CP267 当前Go6ad正式连接器962cba41 60P：六主接口readiness/生命周期/权限/恢复/审计；上游owned真实Prom，503仅自有relay注入；不证明凭据、Agent工具或外部租户。；CP269 content e41f9aa0 86P含upload Probe完整handler scope/owner/env/正常审计；ingress 87180b9d 72P含真实指标Pull非空range对应、5类synthetic Push receipt/event/fence/audit。非真实签名vendor/外部内容、索引或全部连接器。；CP273 独立可见会话mapping cac4578a 73P0F0skip/52HTTP：真实PG/Vault最小权限、两非空候选→显式接受→跨实例读回/幂等/精确审计，GitLabTLS GET-only协议Mock，2主只计protocol。缺Vault字段/上游503429错ID超时丢响应、本地审计和候选storage整批回滚通过；Vault token403/metadata404/policy404、UUID DB/role/四进程/端口无残余。真实GitLab/自然expiry/锁等待/500source/性能24h仍待验。",
     "proof_scope": "仅明确当前源码绑定的有界子场景；Mock、真实来源与未验实际能力分开，整项未收口。",
     "acceptance_note": "仅所列有界子场景；原整体状态保持，外部/Mock/未验能力分开，不能整体关闭。"
   },
@@ -184,7 +184,7 @@
     "source": "docs/api/v3-connector-credentials.md:8-20",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "796b27b7正式六scope精确credential绑定、Vault least-policy/deny/TLS受控上游24项",
+    "completed_subscenarios": "796b27b7正式六scope精确credential绑定、Vault least-policy/deny/TLS受控上游24项；CP273 独立可见会话mapping cac4578a 73P0F0skip/52HTTP：真实PG/Vault最小权限、两非空候选→显式接受→跨实例读回/幂等/精确审计，GitLabTLS GET-only协议Mock，2主只计protocol。缺Vault字段/上游503429错ID超时丢响应、本地审计和候选storage整批回滚通过；Vault token403/metadata404/policy404、UUID DB/role/四进程/端口无残余。真实GitLab/自然expiry/锁等待/500source/性能24h仍待验。",
     "proof_scope": "仅所列本地真实组件/PG/正式HTTP；整体未关闭"
   },
   {
@@ -216,9 +216,9 @@
     "source": "docs/api/v3-traces-source.md；v3-topology-view.md；CP268/WAN136/138",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "真实OTel→Tempo指定span exact读回；CP268：91d418dd真实OTLP→ownedOTel→Tempo两条UUID闭合Trace，每条2span精确入库；正式GET traces/{id}校验root时长20ms/父子关系/允许操作及属性筛选，外环境trace404、relay503恢复/撤权0上游通过。GET traces保持503 not_configured，SearchFailClosed=false且live-store lag完整性HIGH环境阻塞，明细通过不能关闭。",
+    "completed_subscenarios": "真实OTel→Tempo指定span exact读回；CP268：91d418dd真实OTLP→ownedOTel→Tempo两条UUID闭合Trace，每条2span精确入库；正式GET traces/{id}校验root时长20ms/父子关系/允许操作及属性筛选，外环境trace404、relay503恢复/撤权0上游通过。GET traces保持503 not_configured，SearchFailClosed=false且live-store lag完整性HIGH环境阻塞，明细通过不能关闭。；CP273 services正式7a62e019 82P0F4blocked/64HTTP，Go6ad始末；真人韧性proposal1主real_local、5proposal5audit无执行。discover/resilience两个GET仅TLS协议Mock，分页/错误/503/半响应/丢响应/超时/权限/审计回滚通过。3完整服务/详情/拓扑前置未提供+1handoff包装保持blocked；helper完成exit0仅让JSON入库，外层blocked exit2未洗绿。CLI反例先红后绿/19离线，UUIDDBrole/4Popen/4端口无残余；真实聚合器/权威producer/CI暂停和完整拓扑仍High待办。",
     "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入",
-    "acceptance_note": "仅新增精确子场景，历史与原状态保留；协议Mock不关闭真实来源，整项未收口。",
+    "acceptance_note": "只关闭明确有界子场景；原整体状态与真实/Mock/blocked边界保持。",
     "priority": "High"
   },
   {
@@ -271,7 +271,9 @@
     "required": "真正的五类权威数据聚合器、修订/采集时间/完整性。",
     "source": "CP-172；WAN-120",
     "status": "not_implemented",
-    "evidence_mode": "pending"
+    "evidence_mode": "pending",
+    "completed_subscenarios": "；CP273 services正式7a62e019 82P0F4blocked/64HTTP，Go6ad始末；真人韧性proposal1主real_local、5proposal5audit无执行。discover/resilience两个GET仅TLS协议Mock，分页/错误/503/半响应/丢响应/超时/权限/审计回滚通过。3完整服务/详情/拓扑前置未提供+1handoff包装保持blocked；helper完成exit0仅让JSON入库，外层blocked exit2未洗绿。CLI反例先红后绿/19离线，UUIDDBrole/4Popen/4端口无残余；真实聚合器/权威producer/CI暂停和完整拓扑仍High待办。",
+    "acceptance_note": "只关闭明确有界子场景；原整体状态与真实/Mock/blocked边界保持。"
   },
   {
     "id": 26,
@@ -482,9 +484,9 @@
     "source": "CP-185～205；WAN-125/127/128；CP266/WAN-139；CP268/WAN136/138；CP269/WAN136/138",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "entry b8241602 230断言中主30/166正常证明；content e8814ea6 69断言/62实际HTTP；源8d0a readonly 1fbdd662 98通过/89实际HTTP、26主+1辅助GET正常；management fdd28078 130通过/113实际HTTP、17目标中15正常、2profile仅503；双实例ETag/role revision单赢家、幂等关注/取消、撤session、原生事务审计一致性。不同源和重复路由不简单相加。；CP266：80b62861 bulk claim正常、跨实例读回、相同调用者重试changed=0、越权207及重复ID422；数据库唯一认领及审计一致。正常其他动作、取消/事务锁失败和完整安全组合仍需逐场景验。；CP268：32f0c484正式四本人路由49P0F，越权/readonly输入/故障无本地写、跨实例精确读回与两条audit；协议Mock仅证明相应只读上游。91d418dd日志/Trace明细的权限、空level不读源、隐藏trace404、撤权0sourcecalls与mapping revisions/actor/target/exactbindings审计；不证明全部166或慢响应并发撤权。；CP269 content上传Probe10场景：7业务表及旧audit prefix不变，4真正Probe精确attempted/result8audit，6早拒绝0；ingress用户10/min真实第11次429无IO/台账、scope/双实例撤权/14Pull14audit/5Push5audit；source60/concurrent4、慢IO撤权与commit后API丢响应仍待验。；CP272 invitation48P（5正常延迟qualification）、rules47P、alert-policy53P+2blocked，精确权限、参数、原生审计、双实例与各限定故障；全部保持原首红和完整清理。不能从正常样本或拒绝路径关闭所有166接口场景。",
+    "completed_subscenarios": "entry b8241602 230断言中主30/166正常证明；content e8814ea6 69断言/62实际HTTP；源8d0a readonly 1fbdd662 98通过/89实际HTTP、26主+1辅助GET正常；management fdd28078 130通过/113实际HTTP、17目标中15正常、2profile仅503；双实例ETag/role revision单赢家、幂等关注/取消、撤session、原生事务审计一致性。不同源和重复路由不简单相加。；CP266：80b62861 bulk claim正常、跨实例读回、相同调用者重试changed=0、越权207及重复ID422；数据库唯一认领及审计一致。正常其他动作、取消/事务锁失败和完整安全组合仍需逐场景验。；CP268：32f0c484正式四本人路由49P0F，越权/readonly输入/故障无本地写、跨实例精确读回与两条audit；协议Mock仅证明相应只读上游。91d418dd日志/Trace明细的权限、空level不读源、隐藏trace404、撤权0sourcecalls与mapping revisions/actor/target/exactbindings审计；不证明全部166或慢响应并发撤权。；CP269 content上传Probe10场景：7业务表及旧audit prefix不变，4真正Probe精确attempted/result8audit，6早拒绝0；ingress用户10/min真实第11次429无IO/台账、scope/双实例撤权/14Pull14audit/5Push5audit；source60/concurrent4、慢IO撤权与commit后API丢响应仍待验。；CP272 invitation48P（5正常延迟qualification）、rules47P、alert-policy53P+2blocked，精确权限、参数、原生审计、双实例与各限定故障；全部保持原首红和完整清理。不能从正常样本或拒绝路径关闭所有166接口场景。；CP273 独立可见会话mapping cac4578a 73P0F0skip/52HTTP：真实PG/Vault最小权限、两非空候选→显式接受→跨实例读回/幂等/精确审计，GitLabTLS GET-only协议Mock，2主只计protocol。缺Vault字段/上游503429错ID超时丢响应、本地审计和候选storage整批回滚通过；Vault token403/metadata404/policy404、UUID DB/role/四进程/端口无残余。真实GitLab/自然expiry/锁等待/500source/性能24h仍待验。；CP273 notification9058317f 79P0F0skip/59HTTP：独立同版真实AM非空test/staging子树/ETag/redaction、POST只读试算、两UUIDnative告警和独立fixture capture；产品试算零投递/零写。每故障GET/POST只读源一次503/半响应/丢响应/实际15s超时后原请求恢复，慢IO撤权403/删session401、业务/audit全表一致。ownAM exactCID、4Popen、UUIDDBrole/5端口已清理。生产渠道/MR激活、自然expiry、500节点/32深度/七天历史/性能24h未验。；CP273 services正式7a62e019 82P0F4blocked/64HTTP，Go6ad始末；真人韧性proposal1主real_local、5proposal5audit无执行。discover/resilience两个GET仅TLS协议Mock，分页/错误/503/半响应/丢响应/超时/权限/审计回滚通过。3完整服务/详情/拓扑前置未提供+1handoff包装保持blocked；helper完成exit0仅让JSON入库，外层blocked exit2未洗绿。CLI反例先红后绿/19离线，UUIDDBrole/4Popen/4端口无残余；真实聚合器/权威producer/CI暂停和完整拓扑仍High待办。",
     "proof_scope": "仅所列本地真实组件/PG/正式HTTP；整体未关闭",
-    "acceptance_note": "仅所列有界子场景；原整体状态保持，外部/Mock/未验能力分开，不能整体关闭。"
+    "acceptance_note": "只关闭明确有界子场景；原整体状态与真实/Mock/blocked边界保持。"
   },
   {
     "id": 47,

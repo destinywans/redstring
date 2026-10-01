@@ -1181,7 +1181,9 @@
       ".local/testlab/dashboard-parallel-qa/CP273-retest/layout/regression-1280.png",
       ".local/testlab/dashboard-parallel-qa/CP273-retest/layout/regression-646.png",
       ".local/testlab/dashboard-parallel-qa/CP273-retest/layout/report-validation.json"
-    ]
+    ],
+    "fix_commit": "8d3f46d",
+    "commit_url": "https://github.com/destinywans/aiops-canvas/commit/8d3f46d"
   },
   {
     "id": "TOOL-OVERALL-BLOCKER-REASON",
@@ -1197,6 +1199,34 @@
       ".local/testlab/overall-display-fix/green.txt",
       ".local/testlab/dashboard-parallel-qa/CP273-retest/layout/QA.md",
       ".local/testlab/dashboard-parallel-qa/CP273-retest/layout/report-validation.json"
+    ],
+    "fix_commit": "8d3f46d",
+    "commit_url": "https://github.com/destinywans/aiops-canvas/commit/8d3f46d"
+  },
+  {
+    "id": "TOOL-NOTIFICATION-ROUTES-PUBLIC-ERROR",
+    "title": "通知试算all环境断言误用内部handler错误码",
+    "category": "test_tool",
+    "status": "in_review",
+    "before": "5b8325a2首红42P4F：一个HTTP断言错期待single_environment_required，实际公开middleware为env_view_only，其余三包装失败。",
+    "after": "GET按handler、POST按公开middleware409env_view_only；原完整9058317f79P0F/59HTTP、14离线通过，源Go未改。",
+    "product_change_required": false,
+    "local_evidence": [
+      ".local/testlab/notification-routes-parallel/handoff.json"
+    ]
+  },
+  {
+    "id": "TOOL-SERVICES-RUNNER-BLOCKED-COLLECTION",
+    "title": "服务helper正常完成但退出2被标准Runner误加失败",
+    "category": "test_tool",
+    "status": "in_review",
+    "before": "直接helper1818报告82P/3真实前置blocked，尚未录公共SQLite；helper末尾无条件exit2会使Runner追加command failure。",
+    "after": "只有execution完整、资格/cleanup就绪且无error才helper exit0；正式7a62e01982P0F4blocked，外层exit2保持。CLI先红后绿、19离线通过，实际数据入看板；3缺口+1handoff包装未改通过。",
+    "product_change_required": false,
+    "local_evidence": [
+      ".local/testlab/services-parallel/runner-cli-regression-red.txt",
+      ".local/testlab/services-parallel/runner-cli-regression-green.txt",
+      ".local/testlab/services-parallel/72acc754-f548-4f2a-b681-cbd4dc9acf03/runner-delivery.json"
     ]
   }
 ]

@@ -123,6 +123,31 @@ def _proof(run, record, environment, evidence_ids=(), binding='current', equival
     return {**proof, **(equivalence or {})}
 
 
+def _review_notes(rows, plans, run_map, source, evidence_exists):
+    ids = plans.get('regression_review_note_record_ids', [])
+    if not isinstance(ids, list) or any(not isinstance(i, str) for i in ids):
+        return []
+    result = []
+    for ident, rid, record in rows:
+        run = run_map.get(rid, {})
+        evidence_ids = record.get('evidence_ids')
+        if (ident not in ids or record.get('id') != ident or record.get('run_id') != rid
+                or record.get('kind') != 'regression_review_note'
+                or record.get('review_type') != 'human_evidence_audit'
+                or record.get('counts_as_acceptance') is not False
+                or _binding(run, source) != 'current'
+                or record.get('source_tree_sha') != source or record.get('source_tree_sha_end') != source
+                or not isinstance(record.get('note'), str) or not record['note'].strip()
+                or not isinstance(evidence_ids, list) or not evidence_ids
+                or any(not isinstance(e, str) or not evidence_exists(e, rid) for e in evidence_ids)):
+            continue
+        result.append({'id': ident, 'run_id': rid, 'run_status': run['status'],
+                       'source_tree_sha': source, 'source_tree_sha_end': source, 'source_binding': 'current',
+                       'review_type': 'human_evidence_audit', 'counts_as_acceptance': False,
+                       'note': record['note'], 'evidence_ids': list(evidence_ids)})
+    return result
+
+
 def _package_acceptance(package, runs, cases, source):
     required = package.get('required_cases')
     if not isinstance(required, list) or not required or any(not isinstance(r, dict) or not r.get('suite') or not r.get('name') for r in required):
@@ -276,6 +301,8 @@ def get_overview(root, store, source_sha=None):
         for case_id, raw in conn.execute('SELECT case_id,data FROM attempts ORDER BY rowid'):
             attempts[case_id].extend(json.loads(raw).get('evidence_ids', []))
         registered = {r[0]: (r[1], r[2]) for r in conn.execute('SELECT id,run_id,filename FROM evidence')}
+        reviews = [(r[0], r[1], json.loads(r[2])) for r in conn.execute(
+            "SELECT id,run_id,data FROM records WHERE kind='environment' AND json_extract(data,'$.kind')='regression_review_note' ORDER BY rowid")]
         case_for_record = {}
         latest_case = {}
         for run_id, kind, raw in conn.execute("SELECT run_id,type,data FROM events WHERE type='case' OR (type='interfaces' AND COALESCE(json_extract(data,'$.evidence_mode'),'')!='source') ORDER BY id"):
@@ -458,6 +485,7 @@ def get_overview(root, store, source_sha=None):
             'runs': {'active': [r for r in history if r['status'] in ('running', 'queued')], 'history': history,
                      'source_binding_counts': dict(collections.Counter(r['source_binding'] for r in history))},
             'gates': gates, 'work_packages': packages,
+            'regression_review_notes': _review_notes(reviews, plans, run_map, source, evidence_exists),
             'local_queue': [r for r in missing if r['availability'] in ('local_ready', 'local_environment')],
             'execution_queue': [r for r in missing if r['availability'] in ('local_ready', 'local_environment') and r['protocol_normal_status'] != 'verified'],
             'protocol_verified_pending_real': [r for r in missing if r['protocol_normal_status'] == 'verified'],
@@ -487,7 +515,17 @@ def render_overview_report(data, fmt='json'):
              coverage['scope'], '', '## 验收门槛']
     report_links = {}
     for gate in data['gates']:
-        lines.append(f"- {gate['title']}：{gate['status']}。{gate['reason']}")
+        reviews = data.get('regression_review_notes', []) if gate['id'] == 'regression' else []
+        reason = '跳过项已有人工证据审计记录；原回归结果与门槛通过资格保持独立。' if reviews else gate['reason']
+        lines.append(f"- {gate['title']}：{gate['status']}。{reason}")
+        for review in reviews:
+            lines.append('  - 人工证据审计记录（不计验收通过）：' + review['note'])
+            lines.append('    - 原运行 ' + review['run_id'] + ' · ' + review['run_status'] + ' · 原源码 ' + review['source_tree_sha'])
+            for ident in review['evidence_ids']:
+                url = '/api/evidence/' + quote(ident, safe='')
+                link = '[审计原证据 ' + ident + '](' + url + ')'
+                report_links[link] = url
+                lines.append('    - ' + link)
         components = gate.get('component_progress', [])
         if components:
             lines.append('  - 当前组件进展；失败记录含叶用例及父/package/command 包装，不等于独立产品缺陷数。')
@@ -579,5 +617,7 @@ def render_overview_report(data, fmt='json'):
         return text
     escaped = html.escape(text)
     for link, url in report_links.items():
-        escaped = escaped.replace(html.escape(link), '<a href="' + html.escape(url, quote=True) + '">运行记录</a>')
+        label = '审计原证据' if url.startswith('/api/evidence/') else '运行记录'
+        download = ' download' if url.startswith('/api/evidence/') else ''
+        escaped = escaped.replace(html.escape(link), '<a href="' + html.escape(url, quote=True) + '"' + download + '>' + label + '</a>')
     return '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>AIOps 后端整体验收报告</title><style>body{font:16px/1.7 system-ui;margin:32px;max-width:1100px}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style><body><pre>' + escaped + '</pre></body></html>'

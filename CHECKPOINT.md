@@ -1,3 +1,13 @@
+## CP-284 · 2026-10-02 · 已核跳过说明直接进入整体看板；TLS最小轮换已实际发布
+
+- 精确人工证据审计Store record **2daaccdb-96fb-4214-96f8-a8815c79be77** 与三原件312fd4ac/091a56a2/86f3949c显式登记。root独立再核49原terminal/package/exit0/source及8原GoJSON SHA；只读SQLite/显式plan pointer/同run source与evidence归属守卫支持审计说明展示，标不计验收通过。QA4必要反例先红→绿；_binding/_gates/_package_acceptance AST未变。实际8787重载、三报告/浏览器人工说明及3下载链接通过，原2556P79skip/blocked和current regression incomplete保留。首浏览器加载未就绪count0不冒缺数据，稳定读回1；首次QA Counter零failed键readback错误保留后get(0)最小修，不改原账。文件released，root交付不扩大产品web。
+- current_source已实际59df，normal120/166+24Mock，历史功能子包21/26/当前整包复验0/26明确并列；79原skip的49已核、18无test、8暂停CI/CD、2付费名/3行、1Ollama原因现在在整体页可见，不再误称全部未核。三报告及真实DOM证据私有cp284-audit/，所有原结果不变。
+- owned证书prepare轮换e26e0d59：子会话auto_review因未见可信用户明确轮换/重启授权在动作前拒绝，root补充主会话直接批准实施prepare专用证书及自主选择上下文后同审批已批准。首次拒绝留存，不绕过审批/重复问。实际root只换发同key3日cert，freshHMAC认证管理停旧fixture/controller及其自有API、直接原daemon重启保binary89/Go59/runtime338，不setup/rebuild/seed/Keychain；新cert **10ed42ae73d9bd29a2bea7f71c4c574343b53e6740e54efdcc25f6e1438b0150**，notAfter **2026-10-04T17:35:04Z**、checkend90000成功，5peer严格CA新DER与5无信任负例通过。controller39276/fixture39275/APIs39277/39278仅快照，任何动作须fresh身份。RAM signals reset如实，持久capture留。
+- 首次执行在https-reads出现工具AttributeError：顶层http=[]遮蔽http.client，轮换与新服务已ready；first-failure不可变。现在由HTTP会话只做probe-only最小复验，不重新换证/重启，不回滚有效cert，不拿旧CA成功冒新CA。HTTP/SMTP/原Go HTTPS/main实际受权TLS与后置source/CID/profile/capture核验尚待交付，不能仅凭5TLS握手关闭24h前置。
+- 连接器会话只读性能准备已完成：fresh53/HMAC/59df89runtime338/PG4CPU2GiB/exactBASE100/5000/10000/20成立，但旧证书90000失败/VM5.45GiB<6GiB；root待TLS交付后仅停止exactowner空闲GitLab保容器卷数据，再实测容量。原load含合成upsert/20登录及claim，非纯校验，不能额外prepare。原false stage后break/nonzero，显式单commandbase-only确保失败不自动scale；old6ad manifest/freeze保留，root新source59df显式manifest/freeze待生成。两档支持路径绿及唯一精确capblocked可按既定计划继续，整体不升pass。
+- 只读TLS-soak前置7a1dc546已核：当前source/trial为两个HTTPS，native loader nil client/defaultTimeout/no显式CA入口；旧15b00c03单点source HTTP、trial TLS200/旧6adbfeb、24h_acceptance=false，只证明旧点。当前实际native TLS结果尚待、不能据SDK/配置孤立推Bug或先加产品CA功能。原Go Prober旧cert两terminal确已通过，不否定实际旧成功。worker将补新main只读消费，不额外create trial、改时钟、压TTL或改system trust。
+- 本轮工具一次过宽rg把专用loopback18580合成GitLab凭据带入tool输出，私有incident记录；真实账号/业务env未读。后续JSON只取非敏感字段，凭据再次使用前轮换或退役，不能声称未暴露。源码与产品配置未改。旧自动化PAUSED；性能与真实24h未启动，整体未收口；产品web/.claude/真实通知/其他集群/默认分支不动。
+
 ## CP-283 · 2026-10-02 · 当前回归及原入口闭环，整体看板恢复有效进度
 
 - 正式当前源59df五suite **ec0e9eb9-5fda-4c8a-8c37-4aac698df76d** 实际15:47:13.826368Z→16:17:28.045004Z **2556P0F79skip，原总体blocked保留**。五原Go命令均exit0/race/count1，全部2635原terminal精确匹配完整GoJSON/源码始末59df；四专项库schema/ownedPG/BASE/HMAC读回。79行共78原名：49本地原例已在本批30+正式入口16+组件smoke3于当前源真实通过；18无测试包、8用户暂停CI/CD、2付费模型名/3行、1Ollama容量继续可见。49精确原名/package/terminal/exit0/源及证据路径已独立审计，缺失0；不改原skip、不用旧源/HTTP等价替Go、不把三个run隐式洗成全绿。私有regression-next/handoff.json及current-source-skip-closure/proofs49为详细交付。

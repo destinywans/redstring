@@ -61,6 +61,75 @@ class OverviewTests(unittest.TestCase):
     def overview(self):
         return get_overview(self.root, self.store, source_sha=SOURCE)
 
+    def review_note(self, run, **changes):
+        evidence = self.store.write_evidence(run['id'], 'registered manual audit original')
+        record = self.store.add_record(run['id'], 'environment', {
+            'kind': 'regression_review_note', 'run_id': run['id'], 'source_tree_sha': SOURCE,
+            'source_tree_sha_end': SOURCE, 'review_type': 'human_evidence_audit',
+            'counts_as_acceptance': False, 'note': '人工证据审计：49本地原例已核对；原79跳过及blocked保留。',
+            'evidence_ids': [evidence], **changes})
+        plan_path = self.root / 'tools/testlab/acceptance-plan.json'
+        plan = json.loads(plan_path.read_text())
+        plan['regression_review_note_record_ids'] = [record['id']]
+        plan_path.write_text(json.dumps(plan))
+        return record
+
+    def test_review_note_current_registered_original_displays_without_changing_gates(self):
+        run, suite = self.run_record(status='blocked', suite='baseline,mfa,passkey,configsync,regressions')
+        self.case(run, suite, status='skipped')
+        before = self.overview(); record = self.review_note(run)
+        after = self.overview()
+        self.assertEqual(before['gates'], after['gates'])
+        self.assertEqual(before['overall_status'], after['overall_status'])
+        note = after['regression_review_notes'][0]
+        self.assertEqual(note['id'], record['id'])
+        self.assertEqual(note['run_status'], 'blocked')
+        self.assertFalse(note['counts_as_acceptance'])
+        for fmt in ('json', 'md', 'html'):
+            report = render_overview_report(after, fmt)
+            self.assertIn('人工证据审计', report)
+            self.assertIn(record['evidence_ids'][0], report)
+        self.assertIn('href="/api/evidence/', render_overview_report(after, 'html'))
+
+    def test_review_note_old_source_wrong_run_and_nonmanual_acceptance_rejected(self):
+        for changes in ({'source_tree_sha': OLD}, {'source_tree_sha_end': OLD},
+                        {'run_id': 'wrong-run'}, {'review_type': 'automatic_pass'},
+                        {'counts_as_acceptance': True}, {'counts_as_acceptance': 0}):
+            run, _ = self.run_record(status='blocked')
+            self.review_note(run, **changes)
+            self.assertEqual(self.overview()['regression_review_notes'], [])
+        run, _ = self.run_record(sha=OLD, end=OLD)
+        self.review_note(run)
+        self.assertEqual(self.overview()['regression_review_notes'], [])
+
+    def test_review_note_explicit_pointer_same_run_and_existing_evidence_required(self):
+        for kind in ('missing', 'cross_run', 'unlisted'):
+            run, _ = self.run_record(status='blocked'); record = self.review_note(run)
+            if kind == 'missing':
+                with self.store.connect() as conn:
+                    conn.execute('DELETE FROM evidence WHERE id=?', (record['evidence_ids'][0],))
+            elif kind == 'cross_run':
+                other, _ = self.run_record()
+                with self.store.connect() as conn:
+                    conn.execute('UPDATE evidence SET run_id=? WHERE id=?', (other['id'], record['evidence_ids'][0]))
+            else:
+                plan_path = self.root / 'tools/testlab/acceptance-plan.json'
+                plan = json.loads(plan_path.read_text()); plan['regression_review_note_record_ids'] = []
+                plan_path.write_text(json.dumps(plan))
+            self.assertEqual(self.overview()['regression_review_notes'], [])
+
+    def test_review_note_injected_plan_marker_does_not_display_and_html_is_escaped(self):
+        run, _ = self.run_record(status='blocked')
+        plan_path = self.root / 'tools/testlab/acceptance-plan.json'
+        plan = json.loads(plan_path.read_text()); plan['regression_review_notes'] = [{'note': '<script>passed</script>'}]
+        plan_path.write_text(json.dumps(plan))
+        self.assertEqual(self.overview()['regression_review_notes'], [])
+        self.review_note(run, note='<script>passed</script>')
+        data = self.overview(); report = render_overview_report(data, 'html')
+        self.assertNotIn('<script>', report)
+        self.assertIn('&lt;script&gt;passed&lt;/script&gt;', report)
+        self.assertNotEqual(data['overall_status'], 'ready_for_review')
+
     def test_union_deduplicates_partial_failed_and_blocked_runs_without_hiding_failure(self):
         r, s = self.run_record(status='blocked'); self.http(r, s)
         r2, s2 = self.run_record(status='failed'); self.http(r2, s2); self.http(r2, s2, status='failed')

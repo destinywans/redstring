@@ -1,3 +1,12 @@
+## CP-289 · 2026-10-02 · 列表查询最小改进通过原权限与并发回归，SSE待原例复验
+
+- 连接器可见线程已交付实际池/Query只读分析：API1/2 成功Acquire平均等待497.398ms/9.583ms，池满与等待成立，慢Query hash精确对应Inbox/Groups。caller是等待者样本，Query包含取行，不证明唯一持有者或最终根因。原ffe/b972/cdd3首失败不覆盖，scale/真实24h从未开始。
+- 自主选择仅两列表一次物化应用/环境/V3绑定metadata，并内层限定`$1`环境；events.go/inbox.go/alert_groups.go共20插入/4删除，共用原18列投影。原详情/认领incidentSelect逐字相同SHA17d480cb…，授权/撤权/会话锁、事务、关闭时间MIN、排序/5001上限、池、超时、负载affinity/门槛不变。不猜扩池或增分页。实际新Go **d4c85e247a897d761d7f8d134d459ee6743684d11df9d98ac663792ebb309b1a**。
+- 专用127.0.0.1:15461/aiops_testlab、自建UUID schema、原模块`-race -count=1 -json`完整回归 **790572ae-82c1-46c7-8cf5-dae298eb085e：83P0F0skip，exit0，source始末d4c8**。覆盖自然过期/撤权/禁用/退出等待、100scope预算、首次/幂等/并发认领及持锁边界；三格式报告导出。准入无active、PG exactCID/image/owner/实际4CPU2GiB、main nonce/HMAC成立。main仍原59df/89，不能冒新二进制证明。
+- root空闲PG同REPEATABLE READ READ ONLY快照：新旧完整18列5000行JSON、重复环境/staging/空数组，**8比对相等**，详情SQL byte相同。Inbox原/新56.518/33.210ms，Groups55.689/33.996ms，仅本地无负载单点，不当正式性能或SSE修复。证据sql-list-output-compare/58944f5c…/handoff.json；前a42c1未过滤CTE与当前SQL不同，不复用SHA。
+- 独立可见连接器语义审查无确认缺陷；multiplicity/NULL/空数组/归档与binding/锁顺序保留。仍缺显式组合覆盖：Inbox投影后app归档、两列表env归档/映射删除、5000/5001+排序同值/多个或缺失closed；记覆盖缺口，不断言Bug。当前更改不扩大到这些行为。
+- 下一保原binary/fixture私有备份，fresh身份后仅构建/切换自有双API，登记新实际非racebinary/HMAC/source/runtime，再原100RPS/60秒/50正常10慢复验。尚未实证SSE恢复，不标修复完成、不自动scale/soak。整体OPEN；旧120/166 HTTP证明绑定当时源，新产品改动不能沿用6ad→59仅测试输入等价。WAN152/Trace/producer/外部/paid/Ollama/暂停CI-CD高TODO保持；web/.claude/业务环境/真实通知不动，无merge/deploy。
+
 ## CP-288 · 2026-10-02 · 实际池等待已采，临时诊断完成并精确恢复正式基线
 
 - 当前没有active测试。临时Go观测诊断 **cdd34ae1-9d81-42d1-b82b-44ef3b2f88a4** 实际 **2026-10-01T20:04:17.195414Z→20:06:40.798918Z**，**failed，9P4F1Homecap，CLI exit2**；四failed仍是同一burst/SSE/summary/command症状，非四产品bug。原100RPS/60秒、50正常/10慢、32KiB、5s socket/15s进展/5s重连宽限/60s计划重连、原用户/路由奇偶affinity及PG4CPU2GiB/k64CPU4GiB保持。正式ffe和非Go观测b972的首次失败及原件不覆盖。

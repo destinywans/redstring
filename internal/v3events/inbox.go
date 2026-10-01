@@ -35,7 +35,7 @@ func (s *Service) visibleInboxIncidentsTx(r *http.Request, tx pgx.Tx, since, unt
 	if !ok || len(scope.EnvironmentIDs) == 0 || s.AuthorizeTx == nil {
 		return nil, store.ErrForbidden
 	}
-	rows, err := tx.Query(r.Context(), incidentSelect+` WHERE e.key=ANY($1::text[]) AND NOT i.suspected AND i.updated_at >= $2 AND i.updated_at <= $3
+	rows, err := tx.Query(r.Context(), incidentListSelect+` WHERE e.key=ANY($1::text[]) AND NOT i.suspected AND i.updated_at >= $2 AND i.updated_at <= $3
 		ORDER BY i.updated_at DESC,i.id DESC LIMIT 5001`, scope.EnvironmentIDs, since, until)
 	if err != nil {
 		return nil, err

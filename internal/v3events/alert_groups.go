@@ -152,7 +152,7 @@ func (s *Service) visibleAlertIncidentsTx(r *http.Request, tx pgx.Tx, requestedE
 	if !ok || len(scope.EnvironmentIDs) == 0 || s.AuthorizeTx == nil {
 		return nil, store.ErrForbidden
 	}
-	rows, err := tx.Query(r.Context(), incidentSelect+` WHERE e.key=ANY($1::text[]) AND ($2='' OR e.key=$2)
+	rows, err := tx.Query(r.Context(), incidentListSelect+` WHERE e.key=ANY($1::text[]) AND ($2='' OR e.key=$2)
 		ORDER BY i.updated_at DESC,i.id DESC LIMIT 5001`, scope.EnvironmentIDs, requestedEnv)
 	if err != nil {
 		return nil, err

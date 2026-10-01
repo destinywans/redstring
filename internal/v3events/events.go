@@ -88,12 +88,28 @@ type incidentRecord struct {
 	ResolvedAt                                                                                                                                                     *time.Time
 }
 
-const incidentSelect = `SELECT i.id,i.source_id,i.fingerprint,i.labels,i.application_id,i.environment_id,e.key,i.title,i.severity,i.status,i.alert_status,i.summary,i.assignee_id,COALESCE(u.name,''),i.investigation_id,i.starts_at,i.updated_at,
- (SELECT MIN(closed.created_at) FROM events closed WHERE closed.investigation_id=i.investigation_id AND closed.type='investigation.closed')
+const incidentProjection = `i.id,i.source_id,i.fingerprint,i.labels,i.application_id,i.environment_id,e.key,i.title,i.severity,i.status,i.alert_status,i.summary,i.assignee_id,COALESCE(u.name,''),i.investigation_id,i.starts_at,i.updated_at,
+ (SELECT MIN(closed.created_at) FROM events closed WHERE closed.investigation_id=i.investigation_id AND closed.type='investigation.closed')`
+
+const incidentSelect = `SELECT ` + incidentProjection + `
  FROM ops_incidents i
  JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id AND NOT e.archived
  JOIN v3_application_environments ve ON ve.application_id=i.application_id AND ve.environment_id=e.key
  JOIN applications a ON a.id=i.application_id AND NOT a.archived
+ LEFT JOIN users u ON u.id=i.assignee_id`
+
+// incidentListSelect resolves the live metadata for the requested environments
+// once per statement, rather than joining it for every incident. The projection
+// and the subsequent held-lock authorization remain shared with incident reads.
+const incidentListSelect = `WITH incident_scopes AS MATERIALIZED (
+ SELECT e.id,e.application_id,e.key FROM application_environments e
+ JOIN v3_application_environments ve ON ve.application_id=e.application_id AND ve.environment_id=e.key
+ JOIN applications a ON a.id=e.application_id AND NOT a.archived
+ WHERE NOT e.archived AND e.key=ANY($1::text[])
+)
+SELECT ` + incidentProjection + `
+ FROM ops_incidents i
+ JOIN incident_scopes e ON e.id=i.environment_id AND e.application_id=i.application_id
  LEFT JOIN users u ON u.id=i.assignee_id`
 
 func scanIncident(row pgx.Row) (incidentRecord, error) {

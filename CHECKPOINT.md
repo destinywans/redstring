@@ -1,3 +1,14 @@
+## CP-290 · 2026-10-02 · 新列表源原100突发仍失败，三个可见线程并行补SSE读取路径
+
+- CP289产品/记录已提交推送且exact ls-remote **61a3c355df32c763a2ea4854ef4c857684164268**，WAN136/138/163与51文档保存，138/163 fresh回读。root在无active/freshPG/nonceHMAC+UID/fullargv/lstart/cwd守卫下，私有备份原59/89并实际编译新非race，先精确停止旧双API再切换：**Go d4c85e247a897d761d7f8d134d459ee6743684d11df9d98ac663792ebb309b1a / binary8f8f5cd892c06906cbd30cca7a9255a528570bcb3255f4ebc45394bb7d4b1325 / runtime338** ready；PG配额/证书/数据不变。实际handoff sql-list-runtime-rebuild/15819bf9…/ready-handoff.json，原binary/fixture可恢复，不用模块测试冒正式main。
+- fresh53doctor与单command新源/binary绑定准入通过；原100/60短复验 **7cabf1a4-9f66-4176-b932-e30b337833bb，21:04:49.790613Z→21:07:11.586484Z：failed8P4F1Homecap，CLIexit2，source始末d4**。PG4CPU2GiB/k64CPU4GiB、原affinity/50normal10slow/32KiB/5s socket/15s progress/5s grace/60s reconnect/断言保持；无Go观测，仅原clientIO与5s有界PG诊断，不是formal/24h。
+- actual63.5387秒、3698完成/2302drop/6000offered、58.20RPS，k6exit0/noOOM/10签名health全ready。仍同四窗口25偶数/API1，**25 readlineTimeout后225 headerTimeout**；producer **59成功/max311ms/0失败**。原quiet60资源恢复、BASE100/5000/10000且orphans0、exactownCID清理passed；不能拿恢复或HTTP0把SSE洗绿，四红为同症状结果，不四Bug。列表计划单点加速是真证据，但**不足以解决SSE**；原ffe/b972/cdd3全部保留。
+- root原件交付 **sql-list-burst100-handoff.json** 登记 **415fccdf-52c2-4d05-a01a-0cad41bffc40**；原burst8e9a283e/SSE973dd334/recoveryc70ea2aa/consistency2d4650cd与三报告已导出，raw perf/b470227903e4。只读看板实际overall open/失败可见；新产品源当前HTTP正常资格0/166，旧120仅旧源历史，不能利用旧6ad→59测试输入等价洗成新源已测。root只读初次误用event名解析0已按实际IO_exception/producer_success纠正，没有更改原结果。
+- 可见连接器只读源码核：两环境、非metrics、活动reply成功路径每batch **13SQL/13Acquire**，empty14，header前12（外层login另1）；这是源码计数，不是每请求运行采样。此前实际Acquire等待API1均值497ms使连续等待成为有区分力的候选。独立分析确认短READ COMMITTED普通事务可复用connection，必须避免now事务起点时钟、callback再借池、metrics普通读新增行锁及socket持连接；收益尚待实测。
+- 自主选择新最小候选：头前与每batch各一次短tx，保原查询/顺序/权限/逐批64帧4MiB边界，SessionTx用clock_timestamp；AllowedTx同cfg环境及conversation/canvas union，原MemberTx/AuthorizeWithTx/BackgroundTurnTx/metricsSourceTx传同tx。普通tx允许已有source鉴权FOR SHARE，但不套用给conv/question新增锁的recovery helper。Rows关闭+commit释放后写socket；empty保持flush后独立state/terminalRecheck（13Acquire→1，empty14→2，加BEGIN/COMMIT如实）。新能力部分配置failclosed，完全未配置旧回调兼容。不是缓存、减检查、扩池或放超时。
+- 已复用**三个用户可见线程**独占：连接器实施v3conversation/store/auth/cmd；HTTP仅新增sse_shared_connection_test.go（真正启用Tx、单连接/慢写释放/expiry/拒绝/取消等）；QA独立只读authority/lifecycle review。所有线程禁build/测试/PG/HTTP/Docker/负载/commit，root统一当前源码冻结后的真实执行，禁止互改或回退。当前无active测试，main仍d4/8f；实施源码变化不能冒main已对应。必要反例→修复→相关模块race→实际新main→原100/60，未绿不scale/24h。
+- 整体OPEN、完整两档性能未完成，真实连续24h从未启动。WAN152/Trace/producer/外部/paid/Ollama/8暂停CI-CD高TODO保持；产品web/.claude/业务.env/业务DB/真实账号通知不动，无merge/deploy。aiops-24按coordinator/SQLite/Git真实状态续接，不重复旧load或旧PID动作。
+
 ## CP-289 · 2026-10-02 · 列表查询最小改进通过原权限与并发回归，SSE待原例复验
 
 - 连接器可见线程已交付实际池/Query只读分析：API1/2 成功Acquire平均等待497.398ms/9.583ms，池满与等待成立，慢Query hash精确对应Inbox/Groups。caller是等待者样本，Query包含取行，不证明唯一持有者或最终根因。原ffe/b972/cdd3首失败不覆盖，scale/真实24h从未开始。

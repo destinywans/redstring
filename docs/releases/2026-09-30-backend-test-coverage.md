@@ -420,3 +420,8 @@ a8071b5a指标问答原完整组133P0F0skip，真实Prometheus+模型协议Mock�
 fresh53doctor/HMAC/UID/fullargv/lstart/cwd及实际PG4CPU2GiB、固定k64CPU4GiB、exactBASE11973905、VM11.1980idle/8.3406GBavailable/cert90000通过，新freeze绑定当前93f/main6d298/perf2e11。正式singlecommand BASE a21ab950于23:04:57.553272Z启动，原120s10→300s10/25/50→60s100及原pureDB25门槛/SSE/health/quiet60/一致性/清理不改，无extraobserver，fresh唯一runner独占caffeinate随退出。工具Store根及OID JSON类型首次失误保留，未变canonical结果/资源；只读准入修正精确字符串比较后绿。
 
 正式BASE尚在执行，支持路径全P且仅已知HomecapB才显式SCALE；默认双command禁止。原ffe/b972/cdd/7cab首红留、短dcfa通过不代完整，PERF-SSE-100-FFE5仍needs_confirmation。真实24h从未启动，WAN152/Trace/权威producer/真实租户/paid/Ollama/暂停CI-CD仍高TODO。产品web、用户.claude、业务环境与真实通知不动；不merge/deploy。具体最新运行及证据见CHECKPOINT CP293和coordinator-current真实SQLite。
+
+
+CP293追加：soak工具证据预审（只读，BASE冻结期间未修改helper）
+
+连接器独立审查49行，root核源码确认Python调用窗口含create/cleanup而非actual generator起止；JS自然续登已有，但正式gate缺独立计数/时刻证据。记A1/A2工具资格缺口、不判产品续登故障，正式soak前最小补可信窗口/自然12h续登证据并缺证拒收；保86400/1440点0missing/60s对齐原门槛。当前BASE/SCALE不动、私有副本只准备补丁/原反例，冻结窗口后root复验再新freeze。原严格正常24h不新增主动注入，故障独立suite分开报告，同一24h主动故障分窗未验；hooks内容root真实准入仍必要。原review SHA6177d0fc…，工作记录sse-tx-soak-qualification-followup.json。

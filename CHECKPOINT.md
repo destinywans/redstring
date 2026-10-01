@@ -1,3 +1,12 @@
+## CP-245 · 2026-10-01 · 性能工具分类纠正，第二授权修复完整回归中
+
+- root及XHigh已独立确认 **GET /alert-groups、GET /home都是纯PG+本地计算**；Groups外部policy在另一handler，Home未接入指标/oncall只输出状态。旧2s aggregate判读不适用，CP243/244相应Groups通过描述由本条更正，原描述保留。按原500/2000门槛两诊断各新增Groups失败case，旧mixed/aggregate通过attempt不覆写：b9 **failed11P2F1B**（GroupsP95511.526/evidencecbbd5e3a），be0 **failed9P2F1B**（555.076/evidencedc49143a），报告更新。
+- Medium仅三工具files将Home/Groups归db，三个可測list分别设置原500/2000/errors<.001；精确限额blocked仍不计通过/不设未测路径gate，原fallback/请求配比/4%write/15s/时长/rates不变。全部pureDB时aggregate_measurement_supported=false、空aggregate指标为缺失，不能称外部依赖聚合验收。Groups实际JS首红31tests7fail→绿；Home首红32tests6fail→ **32green/2.331s**（ResourceWarning视错误）。私有首红/green/mapping0600保持；XHigh最终工具审无阻断。工具尚未新真实k6，不冒性能收益。
+- High第二限定list/view实现及定向回归已完成，4productfiles+2newtests+旧guard fixture最小装线停止编辑。Go最终 **6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437**；可执行delegating seam真实PG首红100scope policy200对目标100失败；原query合并后 **52P0F0S/172.919s** 始末6ad一致，guard30全显式新callback。两次新夹具失败/demo约束/Claim当前revision修正记录保留，不产品Bug、不改契约。实际policy200→100，Groups402→302/Inbox403→303 authoritySQL；总量不含最终clock/candidate/通知/middleware。
+- private wan163-list-policy-evidence-summary含raw/metadata/4productionSHA。普通Authorize/WithTx、detail/Claim、nil默认/Team fallback保持双SQL；actor/session/grants锁、逐scope fresh app/env/mapping/permission/team、等待后及末DBclock、Policy后fresh tx不省。新RBAC fixture复用既有Background cleanup而非全部有界；正常已无cleanup errors/children，不宣称故障清理全有界。
+- root现场核source6ad、exact ownedPG/loopbackgeneralDSN及零其他active，唯一 **e6354b7c-11de-4d49-9729-da5854b5acd3 /session90124** 执行完整events/rbac race与相关store/httpapi auth回归，source冻结，禁止重复Go测试/产品编辑。XHigh正在最终Go证据复审。正式runtime仍旧bee/cf9，仅监督19716/API19717/19718快照，不能用旧binary验6ad；回归/复审后scopedGo提交推送，再实际新非race重建、HMAC/正式入口及原负载验证。
+- **24h及WAN163后完整两档未开始**；不能用工具Mock/SQL往返数字代500ms验收。新6ad尚未正式接口证明，bee严格58/166+aux18仅旧源响应契约证据。WAN152/暂停7nativeCI/CD/Ollama/真实外部/缺能力/本地主接口余项High待办保留，整体未收口。无产品前端/业务数据/其他项目通知/合并部署，.claude保留。
+
 ## CP-244 · 2026-10-01 · 单接口延迟稳定复现，限定读授权往返修复继续
 
 - 同bee/实际cf9/exact-base的唯一原25RPS300s稳定复验 **be0ab384-8b76-4e92-8d53-1723203007c4** 于 **23:44:12→23:50:38Z** 完成。实际 **300.412s/7501请求/0error0drop**，Inbox1500次 **P95 541.126/P99 657.201ms**，仍越原纯DB500/2000门槛；DBmix421.311/548.391、Groups555.076/674.405通过。SSE50正常10慢读、60秒重连、quiet60资源恢复及数据一致性全部通过。source始末bee。仅原单阶段诊断，不能代正式两档18分钟或连续24h。

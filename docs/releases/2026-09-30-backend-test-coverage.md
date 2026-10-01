@@ -351,3 +351,12 @@ WAN163生产修复3139fc8已推送；当前Go输入bee47136，实际非racebinar
 正式8cd312pass，readonly/discovery/management151bae239pass+1external_todo，core原8e69pass+1采集审计failed后最小phase命名修，原链0b62正式71pass/0fail/skip、61HTTP、actualclean DB/role absent。工具canonical/export scope/重复ready id三首次失败证据及定向离线回归均保留，XHigh二审放行。原生Webhooks/人工case/roles/session/audit来自HTTP；SQL只是身份输入和读回，不发送实际通知。
 
 当前严格normal2xx主并集58/166，aux18分开，排除GET/home只有registration。空200/只读合成audit/Mock不关闭非空业务或权威验收。私有coverage证据39765127及每run三格式报告可在只读看板访问；core CSV owner下载未验证，discovery CSV另有本地真实链。剩余108路由正常证明、缺生产执行器/外部和暂停域仍需追踪；整体未收口。
+
+
+### CP245：原性能分类纠正与第二授权修复边界
+
+GET /alert-groups 和 GET /home 的正式调用链仅PG及本地计算，不能使用依赖聚合2s/5s门槛。工具保持请求、4%写、15s超时、速率/时长及原500/2000目标，分别约束可测Inbox/Groups/Home；exact限额503仍blocked。全部实际routes为DB时external aggregate无指标/无验收证明。32项离线实际JS/工具回归及独立审查通过，未新真实k6。
+
+旧源bee的b9诊断在原25RPS300.416s/7501/零错误丢失下Inbox510.716、Groups511.526ms；be0同源稳定复验300.412s/7501/零错误丢失，Inbox541.126、Groups555.076ms均未达到原纯DB500ms。追加独立失败case后终态分别11P2F1B、9P2F1B；原mixed/aggregate通过attempt保留，报告已重新导出。
+
+第二限定list/view单当前权限statement候选源码6ad893bb已通过真实PG定向race52P0F0S，包括新callback上的guard30动态边界；只复用held锁事实、普通授权/写/Claim/Team原路径保持，policy命令200→100仍不证明HTTP收益。完整e635回归和独立Go复审正在执行，正式API仍旧binary，完整性能及连续24h未开始。主接口旧bee严格normal58/166+aux18不能冒新6ad或完整业务/权限验收。外部/缺实现/暂停域及本地余项继续显示待办。

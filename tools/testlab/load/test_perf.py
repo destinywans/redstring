@@ -276,7 +276,7 @@ class SSEAcceptanceTest(unittest.TestCase):
 
 class TrafficRouteEvidenceTest(unittest.TestCase):
     """Execute the load script with offline HTTP/metric stubs; no k6 or API load."""
-    def execute(self,excluded=(),status=200,body='{}'):
+    def execute(self,excluded=(),status=200,body='{}',gate='1',aggregate_supported=False):
         node=shutil.which('node')
         if not node:self.skipTest('Node required for offline JavaScript execution')
         source=(Path(__file__).parent/'traffic.js').read_text()
@@ -286,15 +286,57 @@ class TrafficRouteEvidenceTest(unittest.TestCase):
 const vm=require('vm');const input=JSON.parse(require('fs').readFileSync(0,'utf8'));
 const metrics={},calls=[];
 class Metric {constructor(name){if(metrics[name])throw Error('duplicate metric');this.name=name;metrics[name]=[];}add(value){metrics[this.name].push(value);}}
-const config={users:[{cookie:'synthetic',session_expires_at:Date.now()/1000+86400,conversation_id:'conversation-id',claim_alert_id:'alert-id',claim_revision:3}],base_urls:['http://127.0.0.1:18561'],environment:'synthetic',excluded_aggregate_paths:input.excluded,aggregate_measurement_supported:true};
+const config={users:[{cookie:'synthetic',session_expires_at:Date.now()/1000+86400,conversation_id:'conversation-id',claim_alert_id:'alert-id',claim_revision:3}],base_urls:['http://127.0.0.1:18561'],environment:'synthetic',excluded_aggregate_paths:input.excluded,aggregate_measurement_supported:input.aggregate_supported};
 const execution={vu:{idInTest:1},scenario:{iterationInTest:0}};
 const respond=(method,url,body,options)=>{calls.push({method,url,body,options});return {status:input.status,body:input.body,timings:{duration:7}};};
-const context={Counter:Metric,Rate:Metric,Trend:Metric,open:()=>JSON.stringify(config),__ENV:{GATE:'1'},execution,http:{get:(url,options)=>respond('GET',url,null,options),post:(url,body,options)=>respond('POST',url,body,options)}};
-vm.createContext(context);vm.runInContext(input.source+`;for(let i=0;i<50;i++){execution.scenario.iterationInTest=i;iteration();}globalThis.testOptions=options;globalThis.summary=handleSummary({metrics:'synthetic'});`,context);
+const context={Counter:Metric,Rate:Metric,Trend:Metric,open:()=>JSON.stringify(config),__ENV:{GATE:input.gate},execution,http:{get:(url,options)=>respond('GET',url,null,options),post:(url,body,options)=>respond('POST',url,body,options)}};
+vm.createContext(context);vm.runInContext(input.source+`;for(let i=0;i<50;i++){execution.scenario.iterationInTest=i;iteration();}globalThis.testOptions=options;globalThis.summary=handleSummary({metrics:{aggregate_latency:{values:{'p(95)':0}},database_latency:{values:{'p(95)':7}}},state:{testRunDurationMs:300000}});`,context);
 process.stdout.write(JSON.stringify({metrics,calls,options:context.testOptions,summary:context.summary}));
 '''
-        result=subprocess.run([node,'-e',harness],input=json.dumps({'source':source,'excluded':list(excluded),'status':status,'body':body}),text=True,capture_output=True,check=True,timeout=10)
+        result=subprocess.run([node,'-e',harness],input=json.dumps({'source':source,'excluded':list(excluded),'status':status,'body':body,'gate':gate,'aggregate_supported':aggregate_supported}),text=True,capture_output=True,check=True,timeout=10)
         return json.loads(result.stdout)
+    def test_local_db_route_classification_and_individual_gate(self):
+        result=self.execute();metrics=result['metrics'];thresholds=result['options']['thresholds']
+        with self.subTest(classification='database'):self.assertEqual(len(metrics['database_latency']),50)
+        with self.subTest(classification='aggregate'):self.assertEqual(len(metrics['aggregate_latency']),0)
+        for route in ('inbox','alert_groups'):
+            with self.subTest(route=route,metric='latency'):self.assertEqual(thresholds.get('route_'+route+'_latency'),['p(95)<=500','p(99)<=2000'])
+            with self.subTest(route=route,metric='errors'):self.assertEqual(thresholds.get('route_'+route+'_errors'),['rate<0.001'])
+        self.assertEqual(self.execute(gate='0')['options']['thresholds'],{})
+        excluded=self.execute(['/api/v1/inbox','/api/v1/alert-groups'])['options']['thresholds']
+        for route in ('inbox','alert_groups'):
+            self.assertNotIn('route_'+route+'_latency',excluded);self.assertNotIn('route_'+route+'_errors',excluded)
+    def test_preflight_groups_are_db_and_cannot_claim_aggregate_support(self):
+        data={'owner':'testlab-offline','base_urls':['http://offline.invalid','http://offline-peer.invalid']}
+        def request(data,base,method,path,*args,**kwargs):
+            if path=='/api/v1/home':return 503,{'error':{'code':'home_result_limit'}},{}
+            return 200,{},{}
+        def login(data,index):return {'conversation_id':'own-'+str(index)}
+        with patch.object(perf,'fixture',return_value=data),patch.object(perf,'seed',return_value={'prefix':'offline-'}),patch.object(perf,'login',side_effect=login),patch.object(perf,'sql',return_value='1'),patch.object(perf,'request',side_effect=request),patch.object(perf,'result'):
+            prepared=perf.prepare('base')
+        self.assertFalse(prepared['aggregate_measurement_supported'])
+        routes={row['path']:row for row in prepared['route_preflight']}
+        self.assertEqual(routes['/api/v1/alert-groups'].get('kind'),'db')
+        self.assertEqual(routes['/api/v1/inbox'].get('kind'),'db')
+    def test_home_is_db_with_eligible_gate_and_no_aggregate_samples(self):
+        result=self.execute();metrics=result['metrics'];thresholds=result['options']['thresholds']
+        with self.subTest(classification='database'):self.assertEqual(len(metrics['database_latency']),50)
+        with self.subTest(classification='aggregate'):self.assertEqual(metrics['aggregate_latency'],[])
+        with self.subTest(metric='latency'):self.assertEqual(thresholds.get('route_home_latency'),['p(95)<=500','p(99)<=2000'])
+        with self.subTest(metric='errors'):self.assertEqual(thresholds.get('route_home_errors'),['rate<0.001'])
+        excluded=self.execute(['/api/v1/home'])['options']['thresholds']
+        self.assertNotIn('route_home_latency',excluded);self.assertNotIn('route_home_errors',excluded)
+        data={'owner':'testlab-offline','base_urls':['http://offline.invalid','http://offline-peer.invalid']}
+        with patch.object(perf,'fixture',return_value=data),patch.object(perf,'seed',return_value={'prefix':'offline-'}),patch.object(perf,'login',side_effect=lambda data,index:{'conversation_id':'own-'+str(index)}),patch.object(perf,'sql',return_value='1'),patch.object(perf,'request',return_value=(200,{},{})),patch.object(perf,'result'):
+            prepared=perf.prepare('base')
+        with self.subTest(preflight='aggregate_support'):self.assertFalse(prepared['aggregate_measurement_supported'])
+        self.assertEqual({row['kind'] for row in prepared['route_preflight']},{'db'})
+        summary=json.loads(result['summary']['/private/summary.json'])
+        self.assertNotIn('aggregate_latency',summary['metrics']);self.assertEqual(summary['metrics']['database_latency']['values']['p(95)'],7)
+        self.assertEqual(summary['state']['testRunDurationMs'],300000)
+        legacy=self.execute(aggregate_supported=True)
+        self.assertEqual(legacy['options']['thresholds']['aggregate_latency'],['p(95)<=2000','p(99)<=5000'])
+        self.assertIn('aggregate_latency',json.loads(legacy['summary']['/private/summary.json'])['metrics'])
     def test_fixed_routes_cover_actual_requests_and_preserve_load_gates(self):
         result=self.execute();metrics=result['metrics'];calls=result['calls']
         expected={'conversation_list':15,'conversation_detail':14,'inbox':10,'alert_detail':0,'alert_claim':2,'alert_groups':5,'home':4}
@@ -312,10 +354,10 @@ process.stdout.write(JSON.stringify({metrics,calls,options:context.testOptions,s
             self.assertEqual(call['options']['timeout'],'15s')
             self.assertEqual(call['options']['headers']['Cookie'],'aiops_session=synthetic')
             if write:self.assertEqual(json.loads(call['body']),{'expected_revision':3})
-        self.assertEqual(len(metrics['database_latency']),41)
-        self.assertEqual(len(metrics['aggregate_latency']),9)
+        self.assertEqual(len(metrics['database_latency']),50)
+        self.assertEqual(len(metrics['aggregate_latency']),0)
         self.assertEqual(metrics['bounded_write_latency'],[7,7])
-        self.assertEqual(result['options']['thresholds'],{'dropped_iterations':['count==0'],'unexpected_errors':['rate<0.001'],'bounded_write_errors':['rate<0.001'],'database_latency':['p(95)<=500','p(99)<=2000'],'aggregate_latency':['p(95)<=2000','p(99)<=5000']})
+        self.assertEqual(result['options']['thresholds'],{'dropped_iterations':['count==0'],'unexpected_errors':['rate<0.001'],'bounded_write_errors':['rate<0.001'],'database_latency':['p(95)<=500','p(99)<=2000'],'route_inbox_latency':['p(95)<=500','p(99)<=2000'],'route_inbox_errors':['rate<0.001'],'route_alert_groups_latency':['p(95)<=500','p(99)<=2000'],'route_alert_groups_errors':['rate<0.001'],'route_home_latency':['p(95)<=500','p(99)<=2000'],'route_home_errors':['rate<0.001']})
         self.assertEqual(result['options']['summaryTrendStats'],['avg','min','med','max','p(95)','p(99)'])
         self.assertEqual(result['options']['scenarios']['traffic'],{'executor':'constant-arrival-rate','rate':10,'timeUnit':'1s','duration':'300s','preAllocatedVUs':40,'maxVUs':200,'gracefulStop':'15s'})
         self.assertIn('/private/summary.json',result['summary'])

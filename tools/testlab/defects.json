@@ -660,5 +660,43 @@
     ],
     "linked_issue": "WAN-138",
     "verification_run_id": "0b62bb45-8872-4b97-9986-e4c3e7dc1d86"
+  },
+  {
+    "id": "TOOL-PERF-LOCAL-AGGREGATE",
+    "title": "本地数据库列表误用依赖聚合性能门槛且混合掩盖慢路径",
+    "status": "in_review",
+    "category": "test_tool",
+    "linked_issue": "WAN-138 / WAN-163",
+    "before": "AlertGroups与Home实际只PG+内存，traffic误归aggregate2s/5s，混合P95可能掩盖Inbox/Groups单纯DB500ms越线",
+    "after": "候选已修：两路径归DB，Inbox/Groups/Home可测时各P95<=500/P99<=2000/errors<.001；精确限额blocked单列，空aggregate指标缺失，无外部聚合验收冒称",
+    "local_evidence": [
+      ".local/testlab/first-failures/perf-local-route-classification-red-verified.txt",
+      ".local/testlab/first-failures/perf-home-db-classification-red.txt",
+      ".local/testlab/perf-home-db-classification-green.txt",
+      ".local/testlab/perf-home-db-mapping-green.json"
+    ],
+    "validation": "32项实际JS离线/工具测试通过2.331s，XHigh最终无阻断；首红保留，真实新k6待验证，不把mock/工具通过当性能收益",
+    "original_failures_preserved": [
+      {
+        "run_id": "b9c56ab7-b99a-47e4-9880-c188063346ff",
+        "groups_p95_ms": 511.525809,
+        "appended_failed_case": "46825288-d839-4a19-a2e4-9a2f53f6c57c",
+        "evidence_id": "cbbd5e3a-1d77-4b57-becc-2d9ec96ef686",
+        "summary": "11pass/2failed/1blocked"
+      },
+      {
+        "run_id": "be0ab384-8b76-4e92-8d53-1723203007c4",
+        "groups_p95_ms": 555.07634755,
+        "appended_failed_case": "24190462-866b-4eae-84c4-9198d7aa574f",
+        "evidence_id": "dc49143a-5745-46ac-893d-d1ce9c22521c",
+        "summary": "9pass/2failed/1blocked"
+      }
+    ],
+    "limits": "请求配比、15s超时、4%写、授权、500ms原阈值、时长和负载不降低；旧mixed/aggregate通过attempt保持，root独立失败追加，报告已更新",
+    "tool_sha256": {
+      "traffic.js": "4b06d0f1f92945f739ad56765dd8045bf920904d575b85e03af3623883a08e32",
+      "perf.py": "84fd011d64c727c86b7b91f61a99b22cf9a5e4b3c7304e7572f7050ee89261ba",
+      "test_perf.py": "1b9c9a4598b588220a94d37c65e951d6a652e08e92b8b4ff7fe1b70f5d51c922"
+    }
   }
 ]

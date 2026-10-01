@@ -20,6 +20,12 @@ if(__ENV.GATE==='1'||__ENV.SELF_CHECK==='1')thresholds.bounded_write_errors=['ra
 if(config.force_relogin)thresholds.session_relogins=['count>0'];
 if(__ENV.GATE==='1'){
  thresholds.database_latency=['p(95)<=500','p(99)<=2000'];
+ for(const [path,route] of [['/api/v1/inbox','inbox'],['/api/v1/alert-groups','alert_groups'],['/api/v1/home','home']]){
+  if(!(config.excluded_aggregate_paths||[]).includes(path)){
+   thresholds['route_'+route+'_latency']=['p(95)<=500','p(99)<=2000'];
+   thresholds['route_'+route+'_errors']=['rate<0.001'];
+  }
+ }
  if(config.aggregate_measurement_supported)thresholds.aggregate_latency=['p(95)<=2000','p(99)<=5000'];
 }
 export const options={scenarios:{traffic:{executor:'constant-arrival-rate',rate:Number(__ENV.RATE||10),timeUnit:'1s',duration:__ENV.DURATION||'300s',preAllocatedVUs:40,maxVUs:200,gracefulStop:'15s'}},thresholds,summaryTrendStats:['avg','min','med','max','p(95)','p(99)'],discardResponseBodies:true,systemTags:['status','method','name','scenario','expected_response']};
@@ -38,7 +44,7 @@ export default function(){
    cookie=c[0].value;expires=Date.now()+(Number(ttl[1])-300)*1000;relogins.add(1);
  }
  const n=execution.scenario.iterationInTest%10;
- const paths=[['/api/v1/conversations','db'],['/api/v1/conversations/'+u.conversation_id,'db'],['/api/v1/inbox','db'],['/api/v1/conversations','db'],['/api/v1/conversations/'+u.conversation_id,'db'],['/api/v1/inbox','db'],['/api/v1/conversations','db'],['/api/v1/conversations/'+u.conversation_id,'db'],['/api/v1/alert-groups','aggregate'],['/api/v1/home','aggregate']];
+ const paths=[['/api/v1/conversations','db'],['/api/v1/conversations/'+u.conversation_id,'db'],['/api/v1/inbox','db'],['/api/v1/conversations','db'],['/api/v1/conversations/'+u.conversation_id,'db'],['/api/v1/inbox','db'],['/api/v1/conversations','db'],['/api/v1/conversations/'+u.conversation_id,'db'],['/api/v1/alert-groups','db'],['/api/v1/home','db']];
  for(let i=0;i<paths.length;i++){if((config.excluded_aggregate_paths||[]).includes(paths[i][0]))paths[i]=['/api/v1/alerts/'+u.claim_alert_id,'db'];}
  const [path,kind]=paths[n];
  const boundedWrite=execution.scenario.iterationInTest%25===24;
@@ -55,4 +61,7 @@ export default function(){
  if(boundedWrite){writeErrors.add(!valid);writeLatency.add(response.timings.duration);db.add(response.timings.duration);}
  else (kind==='db'?db:aggregate).add(response.timings.duration);
 }
-export function handleSummary(data){return {'/private/summary.json':JSON.stringify(data)};}
+export function handleSummary(data){
+ if(!config.aggregate_measurement_supported){const metrics={...data.metrics};delete metrics.aggregate_latency;data={...data,metrics};}
+ return {'/private/summary.json':JSON.stringify(data)};
+}

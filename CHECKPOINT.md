@@ -1,4 +1,13 @@
-**最新记录入口：[CP-293](#cp-293-current)，2026-10-02。** 当前Go93f/实际非race6d298：五组完整回归2602P0F79skip；49本地原skip已核当前证据并展示整体看板。metrics完整133P、原组件smoke10P；当前主正常42/166。唯一active正式BASE为a21ab950，实际23:04:57Z启动，禁止重复或并行重负载；原完整五阶段终态后门控显式SCALE，连续24h未开始。以下保留原始历史。
+**最新记录入口：[CP-294](#cp-294-current)，2026-10-02。** 当前Go93f/实际非race6d298：正式BASE a21ab950已失败，23:04:57→23:18:28Z；25RPS Inbox/Groups P95分别535.06/568.68ms超过原500ms，50/100已停止。SSE/恢复/一致性/owned清理通过。当前无active实际测试，三个可见会话只读比较、私有25诊断/soak资格准备；root收取后定向复现，不重复formal或准入SCALE/24h。原功能2602P0F79skip/49本地闭环、metrics133P/smoke10P与42/166正常保留。
+
+<a id="cp-294-current"></a>
+## CP-294 · 2026-10-02 · 当前BASE在原25RPS列表门槛失败，停止依赖并定向取证
+
+- **a21ab950-999a-4314-8665-698fe145c2ac，2026-10-01T23:04:57.553272Z→23:18:28.620500Z：failed12P2F2B，CLI2，原Go始末93f**。warmup120s10与300s10通过；原rps25实300.397531s、7501完成/0drop/0HTTPunexpected，实际k6 container Exit99/noOOM。**Inbox P95=535.058868ms/ P99=815.901180ms，Groups P95=568.677598ms/P99=831.191775ms**，两个原500ms阈值失败；混合DB P95=374.298250/P99=619.727459均通过，不能混合指标洗掉单接口失败。源/binary/runtime/helper/原负载、PG4CPU2GiB/k64CPU4GiB不变，无extraobserver。
+- 原helper正确阻塞rps50/burst100，第二failed为命令结果审计、同一性能门槛事件，不两个Bug。SSE全阶段 **50正常/10慢、33400帧/600重连/0协议错/0进展违反**；原quiet60恢复、BASE一致性及三exact ownk6CID清理均通过，不覆盖性能失败。剩余两个blocked为已知Homecap与依赖未执行。当前无active实际测试，caffeinate随本runner退出；不根据旧PID动作。完整BASE/规模/真实24h未完成。
+- 首失败原25证据 **3027401b-4f08-44b5-8447-75bb96b65893**；root handoff **67cc7140-0ea8-4a14-a41a-c390eb106d8f**、sse-tx-formal-base-failure-handoff.json及原raw、HTML/JSON/MD报告已导出。既有 **PERF-1512-DB-LATENCY / WAN163** 追加当前实测并保初次8ac失败及各修复历史；不另造两个缺陷。root首次通用缺陷登记格式纠正为工具metadata，原件登记保留、原cases/status没动。SSE原100首红PERF-SSE-100-FFE5仍未关闭（本次100未执行），25正常不代100或24h。
+- 当前真实性能验收失败成立，**根因需要确认**。source59/ffe原25通过与新93f不是受控因果对照：产品SSE路径及持久SSE历史已有改变，不能仅凭这两次定性为产品回归、CPU不足或噪声；不能盲扩池/放timeout/门槛。三个可见线程独立：QA只读同stage原始route/资源/环境差别，HTTP只私有prepare当前原25/300+120s10warmup/50+10SSE短诊断（明确不含原300s10热历史，不冒formal）及5s有界numericPG/cgroup observer，连接器只私有prepare soak A1真实generator窗口/A2 JS自然续登证据。全部禁shared edits/build/实际HTTP/PG/Docker/负载/commit，root统一fresh准入/运行；无重复任务或新heavy。
+- 下一先收只读/私有交付、review真实原25断言/firstred/finallycleanup及诊断证据边界，root新actualsource/HMAC/容量/PG/profile/唯一runner准入后定向复现取因果。首红→稳定复现→最小修→原例/受影响race或接口；**列表失败未解释或未修复前不SCALE/24h**。A1/A2只准备，正式soak前另行最小工具修复和定向资格复验；保86400/1440/0missing/60s对齐与真实12h，不改当前产品行为或把正常窗冒故障分窗。外部/暂停/缺能力及WAN152继续HighTODO，整体OPEN；web/.claude/业务env/DB/他集群/真实账号通知不动，无merge/deploy。
 
 <a id="cp-293-current"></a>
 ## CP-293 · 2026-10-02 · 当前完整回归及49本地跳过闭环，正式BASE重新准入

@@ -425,3 +425,10 @@ fresh53doctor/HMAC/UID/fullargv/lstart/cwd及实际PG4CPU2GiB、固定k64CPU4GiB
 CP293追加：soak工具证据预审（只读，BASE冻结期间未修改helper）
 
 连接器独立审查49行，root核源码确认Python调用窗口含create/cleanup而非actual generator起止；JS自然续登已有，但正式gate缺独立计数/时刻证据。记A1/A2工具资格缺口、不判产品续登故障，正式soak前最小补可信窗口/自然12h续登证据并缺证拒收；保86400/1440点0missing/60s对齐原门槛。当前BASE/SCALE不动、私有副本只准备补丁/原反例，冻结窗口后root复验再新freeze。原严格正常24h不新增主动注入，故障独立suite分开报告，同一24h主动故障分窗未验；hooks内容root真实准入仍必要。原review SHA6177d0fc…，工作记录sse-tx-soak-qualification-followup.json。
+
+
+## CP294 · 原25RPS两个列表性能门槛失败
+
+a21ab950正式BASE实际23:04:57.553272→23:18:28.620500Z failed12P2F2B/CLI2，Go93f始末，原120s10及300s10通过；25实300.397531s/7501完成0drop0HTTPunexpected/k6actualExit99/noOOM。Inbox P95535.058868/P99815.901180，Groups P95568.677598/P99831.191775，原500ms门槛失败；混合374.298250不洗两个列表。SSE33400帧/600重连/0窗口违规，quiet60/一致性/三ownCID清理P，原helper正确停50/100。原证据3027401b及handoff67cc7140、三报告保留，两个红是门槛和命令审计同一事件；Homecap及依赖阶段阻塞不计通过。
+
+既有PERF-1512-DB-LATENCY追加当前数据，不另造产品Bug；根因待确认，旧59成功与新SSE及持久历史不构成因果对照。当前无实际active；可见QA只读stage差异，HTTP私有原25短诊断prepare，连接器私有soak A1/A2资格补丁prepare，全部禁共享修改与实际负载。root收取后fresh准入定向复现，不blindretry/full/scale/24h，保首次失败/原断言。整体OPEN及既定外部/缺实现/暂停/聚合上限高TODO不变。

@@ -405,6 +405,34 @@ class GeneratorLifecycleTest(unittest.TestCase):
         for primary,expected in ((RuntimeError('k6 exited without real summary'),2),(KeyboardInterrupt(),130)):
             with self.subTest(primary=type(primary).__name__),patch.object(sys,'argv',['perf.py','prepare']),patch.object(perf,'prepare',side_effect=primary),patch.object(perf,'result',side_effect=BrokenPipeError()):
                 self.assertEqual(perf.main(),expected)
+    def test_load_stops_dependent_stages_after_first_failure_and_still_recovers(self):
+        streams=Mock();streams.snapshot.return_value={'peak_normal':50,'peak_slow':10}
+        calls=[]
+        def stage(data,run,name,rate,seconds,gate,stream):
+            calls.append((name,rate,seconds,gate))
+            passed=name!='rps25'
+            perf.result('perf.'+name,'passed' if passed else 'failed',{'controlled_stage':name})
+            return passed,{}
+        data={**self.data,'counts':{'exact_profile':True}}
+        with patch.object(sys,'argv',['perf.py','load','--profile','base']),patch.object(perf,'fixture',return_value=data),patch.object(perf,'prepare',return_value=data),patch.object(perf.subprocess,'run',return_value=subprocess.CompletedProcess([],0,'k6 v1.5.0','')),patch.object(perf,'Streams',return_value=streams),patch.object(perf,'k6',side_effect=stage),patch.object(perf,'sse_accepted',return_value=True),patch.object(perf,'resource_recovery',return_value=(True,{})) as recovery,patch.object(perf,'consistency',return_value=True) as consistent:
+            self.assertEqual(perf.main(),1)
+        self.assertEqual(calls,[('warmup',10,120,False),('rps10',10,300,False),('rps25',25,300,True)])
+        self.assertTrue(any(r[0]=='perf.rps25' and r[1]=='failed' for r in self.rows))
+        blocked=[r for r in self.rows if r[0]=='perf.remaining_stages']
+        self.assertEqual(len(blocked),1)
+        self.assertEqual(blocked[0][1],'blocked')
+        self.assertEqual(blocked[0][2]['unexecuted_stages'],['rps50','burst100'])
+        streams.close.assert_called_once();recovery.assert_called_once();consistent.assert_called_once()
+
+    def test_load_success_preserves_all_five_original_stages(self):
+        streams=Mock();streams.snapshot.return_value={'peak_normal':50,'peak_slow':10}
+        data={**self.data,'counts':{'exact_profile':True}}
+        with patch.object(sys,'argv',['perf.py','load','--profile','base']),patch.object(perf,'fixture',return_value=data),patch.object(perf,'prepare',return_value=data),patch.object(perf.subprocess,'run',return_value=subprocess.CompletedProcess([],0,'k6 v1.5.0','')),patch.object(perf,'Streams',return_value=streams),patch.object(perf,'k6',return_value=(True,{})) as stage,patch.object(perf,'sse_accepted',return_value=True),patch.object(perf,'resource_recovery',return_value=(True,{})),patch.object(perf,'consistency',return_value=True):
+            self.assertEqual(perf.main(),0)
+        self.assertEqual([tuple(c.args[2:6]) for c in stage.call_args_list],[('warmup',10,120,False),('rps10',10,300,False),('rps25',25,300,True),('rps50',50,300,False),('burst100',100,60,False)])
+        self.assertFalse(any(r[0]=='perf.remaining_stages' for r in self.rows))
+        streams.close.assert_called_once()
+
     def test_main_no_primary_stream_cleanup_failure_is_nonzero(self):
         stats={'stable_samples':1,'window_violations':0,'protocol_errors':0,'producer_errors':0,'normal_frames':1,'slow_bytes':1,'reconnects':1,'peak_normal':50,'peak_slow':10}
         from unittest.mock import Mock

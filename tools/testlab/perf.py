@@ -865,8 +865,14 @@ def _main():
             return 0 if good else 1
         if a.command=='load':
             good=True
-            for stage,rate,seconds,gate in [('warmup',10,120,False),('rps10',10,300,False),('rps25',25,300,True),('rps50',50,300,False),('burst100',100,60,False)]:
+            stages=[('warmup',10,120,False),('rps10',10,300,False),('rps25',25,300,True),('rps50',50,300,False),('burst100',100,60,False)]
+            for index,(stage,rate,seconds,gate) in enumerate(stages):
                 passed,_=k6(data,run,stage,rate,seconds,gate and a.profile=='base',streams);good=good and passed
+                if not passed:
+                    remaining=[s[0] for s in stages[index+1:]]
+                    if remaining:
+                        result('perf.remaining_stages','blocked',{'reason':'previous stage did not pass','failed_stage':stage,'unexecuted_stages':remaining,'formal_load_acceptance':False},started,expected='前置阶段通过后才执行后续负载阶段')
+                    break
             stats=streams.snapshot();sse_good=stats['peak_normal']==50 and stats['peak_slow']==10 and sse_accepted(stats)
             result('perf.sse','passed' if sse_good else 'failed',stats,started,expected='50正常/10真实慢读socket，数据库样本→正式SSE，重连cursor单调')
             streams.close();streams=None

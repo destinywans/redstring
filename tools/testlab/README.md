@@ -23,6 +23,8 @@ python3 tools/testlab/testlab.py run --suite canvas-native
 python3 tools/testlab/testlab.py run --suite native-projection
 python3 tools/testlab/testlab.py run --suite connectors-functional
 python3 tools/testlab/testlab.py run --suite security-protocol
+python3 tools/testlab/testlab.py run --suite directory-protocol
+python3 tools/testlab/testlab.py run --suite silence
 python3 tools/testlab/testlab.py run --suite promotion
 python3 tools/testlab/testlab.py run --suite identity,invitations,vault
 python3 tools/testlab/testlab.py run --suite local-live-gates,jenkins
@@ -93,3 +95,7 @@ python3 tools/testlab/profile.py --owner testlab-3cbde3095125 --run <同一操�
 `content` 新上传连接 Probe 必须带精确应用范围；实际 handler 对真正 Probe 写 attempted/result 两条审计，早拒绝应无审计。业务表不变、旧审计不变和新审计精确关联分别检查，不能把底层 reader 无写误当整个接口无写。原工具首次红保留，修复后重跑整个原 `content` 组。
 
 整体首次本地正常补测队列排除已Mock正常的接口；它们仍缺真实来源验收且主真实覆盖不增加。同组非通过场景的原证据/原因直接展示，有界子包不可洗绿父包。
+
+`directory-protocol` 在独立 UUID 数据库、双正式 V3 和只对子进程生效的 HTTPS CONNECT/TLS Mock 中验证目录分页、旧快照拒绝、撤权及 MFA 提醒。只允许两个固定测试上游，不做 DNS 透传，不修改系统 CA。发送接受后丢响应或本地审计提交失败必须保留不确定结果；并发请求可得到已处理或原生 pending 拒绝，须读回具体状态和外部发送次数。两个主接口正常证据记为协议 Mock，真实通讯录、租户权限、完整 MFA 权威、收件人阅读及未知结果人工恢复仍为高优先待办。
+
+轻型功能工作包可由独立代理并行现场执行，但须分配数据库/schema、端口和私有 lease，并保持源码冻结。不同数据库仍共享 PG 的 checkpoint 和磁盘资源；清理超时须保留失败、读回实际状态后显式恢复，不自动重试掩盖。性能、持续测试及重型组件仍独占资源。

@@ -3265,7 +3265,7 @@
             "GET /api/v1/logs",
             "GET /api/v1/traces/{id}"
           ],
-          "proof_scope": "两个正常主接口、原生HTTP服务与mapping审计、真实Loki及OTel→Tempo闭合Trace；source为UUID当前合成输入，非历史或持续采集证明。Trace列表503及HIGH完整性阻塞保持，因此整包仍未验收。",
+          "proof_scope": "两个正常主接口、原生HTTP服务与mapping审计、真实Loki及OTel→Tempo闭合Trace；source为UUID当前合成输入，非历史或持续采集证明。Trace列表503及HIGH完整性阻塞保持，因此整包仍未验收。 CP270 pinned Tempo2.7.2版本审查：旧live-store/Kafka lag假设来自latest，当前本地需要验证ingester/WAL/backend与缓存BlockMetas/超size跳过的搜索完整性契约；原首blocked证据保留，flag保持false，不切配置冒全集证明。",
           "required_cases": [
             {
               "suite": "observe-functional",
@@ -3547,6 +3547,67 @@
               "name": "content.chain"
             }
           ]
+        },
+        {
+          "id": "directory-protocol",
+          "title": "组织目录分页、撤权与MFA提醒未知结果保护",
+          "command": "python3 tools/testlab/testlab.py run --suite directory-protocol",
+          "evidence_mode": "protocol_mock",
+          "route_keys": [
+            "POST /api/v1/members/sync",
+            "POST /api/v1/members/mfa-reminders"
+          ],
+          "proof_scope": "真实双V3/UUID PG原生事务与审计，限定两host本地HTTPS协议Mock；本地只证明目录分页/晚快照/撤权、提醒幂等与外部接受后的丢响应/本地提交失败防重复。实际通讯录/租户权限、完整MFA权威、用户阅读与unknown人工恢复仍High待办。所有marker/原证据和正常样本齐才关闭子包，首红保留。",
+          "required_cases": [
+            {
+              "suite": "directory-protocol",
+              "name": "directory.proxy_ready"
+            },
+            {
+              "suite": "directory-protocol",
+              "name": "directory.sync.normal"
+            },
+            {
+              "suite": "directory-protocol",
+              "name": "directory.sync.faults"
+            },
+            {
+              "suite": "directory-protocol",
+              "name": "directory.sync.stale"
+            },
+            {
+              "suite": "directory-protocol",
+              "name": "directory.sync.authorization"
+            },
+            {
+              "suite": "directory-protocol",
+              "name": "directory.reminders.normal"
+            },
+            {
+              "suite": "directory-protocol",
+              "name": "directory.reminders.authority_faults"
+            },
+            {
+              "suite": "directory-protocol",
+              "name": "directory.reminders.response_loss"
+            },
+            {
+              "suite": "directory-protocol",
+              "name": "directory.reminders.audit_commit_failure"
+            },
+            {
+              "suite": "directory-protocol",
+              "name": "directory.operation_linkage"
+            },
+            {
+              "suite": "directory-protocol",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "directory-protocol",
+              "name": "readonly.complete"
+            }
+          ]
         }
       ]
     },
@@ -3813,6 +3874,12 @@
       "date": "2026-10-01",
       "decided_by": "Codex under user-authorized autonomous choices",
       "decision": "CP269上传Probe原红工具漏scope/完整审计，原组86绿；入站marker重复run_id工具红后原组72绿。下一批审批/静默8路径与目录2协议路径并行离线准备，root串行现场；仅进程私有双host CONNECT/TLS Mock与fresh UUID库精确拒写DDL获自主定界，不修改Go/hosts/system CA/主runtime。",
+      "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437"
+    },
+    {
+      "date": "2026-10-01",
+      "decided_by": "Codex following direct user request to accelerate parallel testing",
+      "decision": "CP270 root baseline、独立passkey/configsync和regressions、目录协议等轻型功能实际并行，各UUID schemas/库/端口私有lease，源冻结和原失败保留。性能/长稳与重型仍独占；只读看板显示独立组件当前进展但不隐式拼full绿。Tempo2.7.2搜索local契约与真实外部待办分开。",
       "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437"
     }
   ],

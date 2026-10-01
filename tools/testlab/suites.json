@@ -999,6 +999,30 @@
         14,
         46
       ]
+    },
+    {
+      "id": "directory-protocol",
+      "name": "组织目录与MFA提醒HTTPS协议 / 分页与不确定发送",
+      "type": "integration",
+      "evidence_mode": "protocol_mock",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_directory_protocol_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        3,
+        4,
+        6,
+        46
+      ]
     }
   ]
 }

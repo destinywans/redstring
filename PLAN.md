@@ -365,3 +365,4 @@ Web 工作区；React / TypeScript / Vite；React Flow；assistant-ui 外部状�
 
 不建立定时巡检；实际进展同步 Linear。检查点只追加，不用设计完成冒充运行完成。
 **2026-10-02 CP291：** 三个可见线程交付的SSE短READ COMMITTED复用连接候选已整合；当前93f真实PG新路径23P0F0skip、相关四模块279P0F/仅1付费专项跳过（blocked如实）。首次私有umask夹具误报保留并最小修，原安全断言不改。正式main仍d4/8f；先scoped交付→实际新非race main→原100/60复验，再当前源正式接口与完整两档性能，原首红不覆盖、24h未开始。详见[CP291](CHECKPOINT.md)。
+**2026-10-02 CP292：** 新93f实际非race6d298双API已ready、doctor53P；原100/60短复验11P0F1仅Homecap，SSE四窗口0违规/0IO，恢复与一致性通过，2379drop仍标饱和，不当完整性能。新main entry/Canvas原链267P0F1缺producer，当前正常41/166仅子场景。唯一active289c7b57原五suite当前源完整race；可见HTTP/连接器仅并行准备metrics和正式两档入口，root统一负载。完整两档/24h未完成，详见[CP292](CHECKPOINT.md)。

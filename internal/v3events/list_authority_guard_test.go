@@ -86,6 +86,9 @@ func newListAuthorityFixture(t *testing.T) (*listClaimFixture, *listAuthorityTra
 	}
 	t.Cleanup(pool.Close)
 	f.db, f.svc.DB = pool, pool
+	// Exercise the same explicit list-view entry point as cmd/aiops. Default/nil
+	// compatibility is separately verified in list_policy_query_test.go.
+	wireListViewPolicy(f)
 	return f, trace
 }
 
@@ -475,18 +478,18 @@ func TestListAuthorityGuardHundredScopeSQLBudget(t *testing.T) {
 			if n := trace.count("g.module=$2"); n != 100 {
 				t.Errorf("events policy=%d want=100", n)
 			}
-			clock, authority := 100, 402 // 6 + 99*(binding+clock+two policy); final clock excluded.
+			clock, authority := 100, 302 // 5 + 99*(binding+clock+one fresh policy); final clock excluded.
 			if path == "/api/v1/inbox" {
-				clock, authority = 101, 403
-			} // precheck2 + tables1 +100*4.
+				clock, authority = 101, 303
+			} // precheck2 + tables1 +100*3.
 			if n := trace.count("SELECT expires_at>clock_timestamp()"); n != clock {
 				t.Errorf("current DB clock queries=%d want=%d", n, clock)
 			}
-			actual := trace.count("SELECT id FROM users") + trace.count("SELECT user_id FROM sessions") + trace.count("LOCK TABLE rbac_user_roles,rbac_department_roles,v3_role_grants") + trace.count("FOR SHARE OF a,e,ve") + trace.count("g.module='environment'") + trace.count("g.module=$2") + trace.count("SELECT expires_at>clock_timestamp()") - 1
+			actual := trace.count("SELECT id FROM users") + trace.count("SELECT user_id FROM sessions") + trace.count("LOCK TABLE rbac_user_roles,rbac_department_roles,v3_role_grants") + trace.count("FOR SHARE OF a,e,ve") + trace.count("FROM v3_effective_role_grants") + trace.count("SELECT expires_at>clock_timestamp()") - 1
 			if actual != authority {
 				t.Errorf("authority-only SQL excluding final clock=%d want=%d", actual, authority)
 			}
-			t.Logf("100 scopes authority SQL=%d (includes Inbox precheck, excludes final clock, candidate/notification SQL and HTTP middleware); bindings=100 policy=200 clock=%d actor/session/table=1/1/1", actual, clock)
+			t.Logf("100 scopes authority SQL=%d (includes Inbox precheck, excludes final clock, candidate/notification SQL and HTTP middleware); bindings=100 policy=100 (two fresh EXISTS per statement) clock=%d actor/session/table=1/1/1", actual, clock)
 		})
 	}
 }

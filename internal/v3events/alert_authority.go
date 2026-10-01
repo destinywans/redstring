@@ -116,7 +116,11 @@ func (s *Service) authorizeAlertWithGuard(r *http.Request, tx pgx.Tx, v incident
 			guard.grantsHeld = true
 		}
 	}
-	err = s.AuthorizeTx(r.Context(), tx, user, v.ApplicationID, environment, action)
+	authorize := s.AuthorizeTx
+	if guard != nil && s.AuthorizeListTx != nil {
+		authorize = s.AuthorizeListTx
+	}
+	err = authorize(r.Context(), tx, user, v.ApplicationID, environment, action)
 	if !errors.Is(err, store.ErrForbidden) || ownerTeam == "" || s.AuthorizeTeamTx == nil {
 		return err
 	}

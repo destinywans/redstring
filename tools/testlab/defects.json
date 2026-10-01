@@ -577,6 +577,33 @@
       "formal_performance_acceptance": false,
       "formal_24h_acceptance": false,
       "remaining": "限定list/view两个fresh权限EXISTS单statement候选；尚无修后收益证明，不能重试覆盖首次失败"
+    },
+    "second_fix": {
+      "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
+      "scope": "only held matching list/view callback; two current RBAC EXISTS in one statement, ordinary/write/Claim/Team unchanged",
+      "authority_only_sql_100_scopes": {
+        "groups_before": 402,
+        "groups_after": 302,
+        "inbox_before": 403,
+        "inbox_after": 303
+      },
+      "targeted_real_pg_race": {
+        "pass": 52,
+        "fail": 0,
+        "skip": 0,
+        "elapsed_seconds": 172.919399292,
+        "guard_new_callback_cases": 30,
+        "evidence_id": "40f15a03-c90f-4f7b-b517-262bdec2ccd4"
+      },
+      "full_regression_run": "aa6a2001-83ea-448b-84cd-dcc78b41bbc9",
+      "full_real_pg_race": {
+        "pass": 135,
+        "fail": 0,
+        "skip": 0
+      },
+      "first_full_invocation_blocked": "e6354b7c-11de-4d49-9729-da5854b5acd3; root manifest explicit DSN omission; unchanged61pass59skip",
+      "independent_review": "XHigh no blocker",
+      "remaining": "new formal nonrace binary HTTP and original load gates; no actual performance/24h pass yet"
     }
   },
   {

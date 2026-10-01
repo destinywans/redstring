@@ -1,3 +1,18 @@
+## CP-247 · 2026-10-01 · 第二授权修复完整真实PG/race通过
+
+- 修正显式DSN后唯一 **aa6a2001-83ea-448b-84cd-dcc78b41bbc9** 于 **00:15:37→00:21:10Z** 完成 **passed135P0F0skip/block**。完整events/rbac race、相关store/httpapi auth均真实专属PG随机schema执行；Go始末 **6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437** 一致、必要清理无错误。首e635 blocked61P59skip及证据/报告仍原样，不用此后绿改写。
+- XHigh最终Go/定向52真实raw及工具32离线raw均无阻断。4prod限定list view fresh-query合并、2new tests、旧guard fixture显式callback及有关记录现在具备scoped提交条件。source6ad仍不是正式HTTP/性能通过：当前双API旧bee/cf9；下一步实际新非race重建、freshHMAC/source/binary/资源/证书/原APP和archives核验，再entry/core正式链及原120/300/300诊断，三个纯DB列表门槛由k6自动执行。
+- 24h、修后正式两档未开始。SQL402/403→302/303仅已证明往返减少；b9/be0原纯DBInbox/Groups失败都保持。模板消费可使用受控synthetic_test_configuration定义种子（只config、无运行/audit造假）验证已有消费API，author/import权威生产入口仍高待办；Medium仅新两个Python包离线编写，无live或对冻结Go修改。
+- 无当前active测试；Go源停止编辑，后续performance冻结helpers/runtime/API不并行heavy。不产品前端/业务.env或DB/其他项目集群通知，.claude保留，不合并部署；全166/原51剩余及WAN152/暂停7native/外部容量缺能力边界仍可见，整体未收口。
+
+## CP-246 · 2026-10-01 · 完整回归显式DSN修正并重跑
+
+- 工具及CP245记录 **3dd5c06739bb11ca81b0a2899b4499805d5f88d2** 已推送精确远端回读，Linear WAN138/163及原51文档同步。工具32离线及Go定向52均已XHigh最终无阻断，但不冒正式性能通过。
+- root首次临时full manifest漏显式 `TEST_DATABASE_URL` prepared引用，Runner按安全契约不自动继承凭据。因此 **e6354b7c** 00:10:44→00:10:54Z **blocked61pass/59skip**，始末6ad，仅实际单元通过/PG跳过，不是完整真实PG回归。这是root调用配置错误，非产品/Runner缺陷；首manifest、skip原因和证据 **13623903-0271-444c-b5dc-a8dd35a74aa3**/三报告保持，不覆写skip或改断言。
+- 私有manifest按既有语法加入explicit `${TEST_DATABASE_URL}`，实际command_env输出与专属loopback15461/general aiops_testlab DSN完全一致、Go6ad和零其他active通过后，新唯一 **aa6a2001-83ea-448b-84cd-dcc78b41bbc9 /session32130** 于 **00:15:37.731325Z** 在执行同完整events/rbac race及相关store/httpapi；不得重复run/编辑Go或用e635假green。目标定向summary登记40f15a03与e635关联，是独立证据，不是e635真实PGfull结果。等待aa终态raw/始末及必要0skip。
+- 依据用户并行提速授权，Medium独占两个新Canvas/template HTTP测试包文件，最多10个已存在主路由、先实际调用链/离线编写，**禁止live/Go/PG/正式API或重启**，不改既有helpers或suites。只native业务HTTP和必要协议Mock，SQL只身份最小grant/只读，不库存200/负面或Mock冒正常业务与真实外部；root后续新binary串行集成/firstred修验。此独立写工具不会改冻结Go，性能期间绝不live干扰。
+- 当前Go6ad尚未提交/正式runtime仍bee cf9；前端/业务数据/其他项目通知不触及、.claude保留。正式原性能两档和真实24h均未开始；WAN152/暂停native7/容量外部缺能力/余main路由仍高待办可见、整体未收口，未合并部署。
+
 ## CP-245 · 2026-10-01 · 性能工具分类纠正，第二授权修复完整回归中
 
 - root及XHigh已独立确认 **GET /alert-groups、GET /home都是纯PG+本地计算**；Groups外部policy在另一handler，Home未接入指标/oncall只输出状态。旧2s aggregate判读不适用，CP243/244相应Groups通过描述由本条更正，原描述保留。按原500/2000门槛两诊断各新增Groups失败case，旧mixed/aggregate通过attempt不覆写：b9 **failed11P2F1B**（GroupsP95511.526/evidencecbbd5e3a），be0 **failed9P2F1B**（555.076/evidencedc49143a），报告更新。

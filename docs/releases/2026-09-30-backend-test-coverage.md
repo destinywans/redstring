@@ -360,3 +360,8 @@ GET /alert-groups 和 GET /home 的正式调用链仅PG及本地计算，不能�
 旧源bee的b9诊断在原25RPS300.416s/7501/零错误丢失下Inbox510.716、Groups511.526ms；be0同源稳定复验300.412s/7501/零错误丢失，Inbox541.126、Groups555.076ms均未达到原纯DB500ms。追加独立失败case后终态分别11P2F1B、9P2F1B；原mixed/aggregate通过attempt保留，报告已重新导出。
 
 第二限定list/view单当前权限statement候选源码6ad893bb已通过真实PG定向race52P0F0S，包括新callback上的guard30动态边界；只复用held锁事实、普通授权/写/Claim/Team原路径保持，policy命令200→100仍不证明HTTP收益。完整e635回归和独立Go复审正在执行，正式API仍旧binary，完整性能及连续24h未开始。主接口旧bee严格normal58/166+aux18不能冒新6ad或完整业务/权限验收。外部/缺实现/暂停域及本地余项继续显示待办。
+
+
+### CP247：第二修复相关完整回归通过
+
+root首临时manifest漏显式DSN引用使e635成为blocked61pass/59skip，原manifest/skip/证据13623903保留，未冒完整PG通过。加prepared专属DSN引用后新aa6a2001于00:15:37–00:21:10Z真正执行完整events/rbac race和相关store/httpapi auth：135pass/0fail/skip，源码6ad893bb始末相同。定向52及最终源码经独立复审无阻断。正式runtime仍旧binary，新的HTTP及三个纯DB列表原k6门槛、完整性能/24h未执行，不能用回归或SQL往返数量声称性能修复。

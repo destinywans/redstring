@@ -86,6 +86,48 @@ func (p *V3Policy) AuthorizeWithTx(ctx context.Context, tx pgx.Tx, user core.Use
 	return authorizeV3(ctx, tx, user, decision)
 }
 
+// AuthorizeViewWithTx is an explicit read-only policy entry point. The list
+// caller retains its actor/session, scope and grant locks; this method never
+// caches decisions or borrows another connection. General and write callers
+// continue to use Authorize/AuthorizeWithTx.
+func (p *V3Policy) AuthorizeViewWithTx(ctx context.Context, tx pgx.Tx, user core.User, decision V3Decision) error {
+	if p == nil || p.Store == nil || tx == nil || user.ID == "" || user.Disabled || !validV3Decision(decision) {
+		return ErrInvalidV3Decision
+	}
+	if decision.Action != "view" {
+		return store.ErrForbidden
+	}
+	// Both predicates are evaluated from this statement's current snapshot.
+	// Keep the exact environment gate, module scopes, identity predicates and
+	// application mapping of the ordinary policy; no result survives this call.
+	var permitted bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS (
+ SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$1
+ AND g.module='environment' AND g.action='view'
+ AND ((g.scope_kind='global' AND g.scope_id='*') OR (g.scope_kind='environment' AND g.scope_id=$4))
+ ) AND EXISTS (
+ SELECT 1 FROM v3_effective_role_grants g WHERE g.user_id=$1
+ AND g.module=$2 AND g.action=$3
+ AND (g.action<>'approve' OR (g.v3_identity_kind='human' AND g.role_kind<>'machine'))
+ AND (
+      (g.scope_kind='global' AND g.scope_id='*')
+   OR (g.scope_kind='environment' AND g.scope_id=$4)
+   OR ($5<>'' AND g.scope_kind='application' AND g.scope_id=$5)
+   OR ($6<>'' AND g.scope_kind='team' AND g.scope_id=$6)
+ )
+ ) AND ($5='' OR EXISTS (
+ SELECT 1 FROM v3_application_environments ae
+ WHERE ae.application_id=$5 AND ae.environment_id=$4
+ ))`, user.ID, decision.Module, decision.Action, decision.EnvironmentID, decision.ApplicationID, decision.TeamID).Scan(&permitted)
+	if err != nil {
+		return err
+	}
+	if !permitted {
+		return store.ErrForbidden
+	}
+	return nil
+}
+
 func authorizeV3(ctx context.Context, q v3QueryRow, user core.User, decision V3Decision) error {
 	// A matrix cell marked conditional is not approval evidence. Until the
 	// server can verify a fresh passkey challenge and bind it to the exact

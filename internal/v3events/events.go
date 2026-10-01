@@ -29,6 +29,9 @@ type Service struct {
 	DB          *pgxpool.Pool
 	Authorize   Authorize
 	AuthorizeTx AuthorizeWithTx
+	// AuthorizeListTx is an optional view-only policy for the two held-lock list
+	// helpers. Missing configuration retains the ordinary authority path.
+	AuthorizeListTx AuthorizeWithTx
 	// AuthorizeTeamTx checks events grants against the current locked owner team.
 	// The composition root injects the same V3 policy used by AuthorizeTx.
 	AuthorizeTeamTx AuthorizeTeamWithTx

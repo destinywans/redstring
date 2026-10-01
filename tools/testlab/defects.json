@@ -1228,5 +1228,18 @@
       ".local/testlab/services-parallel/runner-cli-regression-green.txt",
       ".local/testlab/services-parallel/72acc754-f548-4f2a-b681-cbd4dc9acf03/runner-delivery.json"
     ]
+  },
+  {
+    "id": "TOOL-LOCAL-ORIGINAL-SMOKE-GUARDS",
+    "title": "原smoke隔离工具的容器字节读取、命名及Loki派生标签误判",
+    "category": "test_tool",
+    "status": "in_review",
+    "before": "c063守卫用cat读单文件bind失败；b2e wrapper http命名遮蔽stdlib；e4a把Loki已知service_name派生标签当UUID读回不一致。三首红及完整清理保留，没有产品Go缺陷。",
+    "after": "bounded exactCID:path docker cp单普通tar member/actual bytes，wire命名，原UUID/时间/正文全等仅白名单已知派生标签、未知仍拒；命中错误立即失败减少45秒空等。18offline反例绿、公开entrypoint原组三Go真实9fad10P0F/清理通过，旧8a37保留。",
+    "product_change_required": false,
+    "local_evidence": [
+      ".local/testlab/current-local-smokes/public-delivery-readback.json",
+      ".local/testlab/current-local-smokes/delivery-readback-final.json"
+    ]
   }
 ]

@@ -1165,6 +1165,30 @@
           "cleanup_grace_seconds": 45
         }
       ]
+    },
+    {
+      "id": "local-original-smokes",
+      "name": "三个原有本地Go smoke精确补验",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/local_original_smokes.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 660,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        14,
+        18,
+        46
+      ],
+      "verification_scope": "三个现有Go opt-in原case真实-race精确补验，Prom/Loki/Tempo、Keycloak测试realm和一个UUID合成日志；无主HTTP增量、不证明Grafana/30min持续采集或全模块。"
     }
   ]
 }

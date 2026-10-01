@@ -1,4 +1,14 @@
+## CP-274 · 2026-10-01 · 原本地Go smoke可重复入口交付
+
+- local-original-smokes公开入口 **9fad53f4-f861-4313-9e31-c743c739bfd0**，11:31:45.434883→11:32:05.620423Z，10P0F0skip；原TestLocalReadcheck、TestOIDCKeycloakLocalSmoke、TestRealLocalConnectorProbes和3provider子项均实际-race-json-count1 pass。18离线覆盖3首红/actual tar路径-CID-字节-symlink/HTTP命名/Loki未知label/skip或非零不能洗绿；公开源码和private实际密码literal扫描0，文件SHA与handoff一致，rootSQLite独立读回10实际case/source始末。
+- suite正式登记 `python3 tools/testlab/testlab.py run --suite local-original-smokes`；只读组件/Keycloak合成realm、UUIDDBrole及callback18089，源码6ad/bfeb/runtime338始末与四组件actualCID/config/helper相同，doctor前后53。heldGo退出、UUIDDBrole与回调无残余；公开proof6ce9c90c，原GoJSON及三报告可下载。三个baseline原skip映射保持，不改78历史skip或称全模块/完整回归绿；Grafana/30min连续采集未验，正常主覆盖仍111/166。
+- 首c063/b2e/e4a工具失败和私有8a37原例全部保存；移植只两个Python文件，不改Go/已有helper/sharedruntime。第三条不同UUID单次Loki合成日志留至owned组件退休，合成IdP session按原TTL，不全局删除；没有业务SQL种成功记录/真实账户/外部通知。g14/18/46仅补子场景，整项未关闭。两个可见现场会话仍并行新包，重型/perf/24h与旧automation/nativeCI保持暂停，不合并部署。
+- fixture唯一叶的候选两行SQL补丁已独立只读核准：仅_test.go、无go:embed引用，产品输入包络e92f前后相同，完整候选指纹59df；仍未整合，因为本轮HTTP冻结6ad。任何后续证据复用必须保留原源与版本，Go/full/perf/soak仍按新源实跑，不全局放宽当前binding；方案先留记录，当前未改聚合规则。下一步收新规则/指标与bulk完整原例，再选择最小源码整合与原case/full回归。
+
 ## CP-273 · 2026-10-01 · 可见会话连续并行交付，当前111/166
+
+- **交付收据：** 看板8d3f46d和功能包 **2b041ffcaf618efc72391c963d595db5edc5692b** 已推送，exact ls-remote同SHA；WAN136/138/139和原51四次保存成功，WAN138与51重新读取确认CP273/commit/111，私有CP273-delivery.json收据0600。整体仍未收口。
+- 三原smoke已收尾并读回 **8a37dab3 10P0F0skip**，11:20:52.310894→11:21:13.503884Z；精确3原skip和3provider子项、原GoJSON/audit、source始末/doctor53+53/UUIDDBrole/heldGo/callback18089无残余。公开证据bf077e5e、索引a517e103与四次首红/最终三报告均保留，Grafana未配置。共两次不同UUIDLoki受控单条日志留到owned组件退休，测试账号OIDC session按原TTL不全局注销；不冒完整历史采集/全回归。原例wrapper将小改为公开可重复入口，执行代理独占2新Python文件，不改Go/共享源。
 
 - 用户要求“结果不变，尽量快”，按CP272隔离策略实际复用三个侧栏会话。映射/通知作者已接规则生成、预览及metrics ask（18654–58）；HTTP作者已接bulk investigate/silence（18660–64）；看板只读QA已完成无需重复，root整合共享台账/提交。各包独占文件、UUID库/role/端口，不恢复heavy/CI或旧aiops-24。当前Go6ad/bfeb/runtime338未改，产品web/.env业务DB/.claude/其他集群/真实账号通知未动。
 - mapping **cac4578a 73P0F0skip/52HTTP**：真实PG/Vault最小权限，两候选→接受→跨实例→重复accepted0与精确audit；新增两主均GitLabTLS GET-only protocolMock。503429/错ID/实际5s超时/丢响应各一次源请求、审计与storage整批回滚；Vault token403/metadata404/policy404、UUIDDBrole/四heldPopen/18644–47实际清理。14离线；初60s manifest预算阻止在资源前，原失败保持。

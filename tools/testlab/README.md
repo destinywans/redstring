@@ -31,6 +31,7 @@ python3 tools/testlab/testlab.py run --suite alert-policy-functional
 python3 tools/testlab/testlab.py run --suite connectors-mapping-functional
 python3 tools/testlab/testlab.py run --suite notification-routes-functional
 python3 tools/testlab/testlab.py run --suite services-functional
+python3 tools/testlab/testlab.py run --suite local-original-smokes
 python3 tools/testlab/testlab.py run --suite promotion
 python3 tools/testlab/testlab.py run --suite identity,invitations,vault
 python3 tools/testlab/testlab.py run --suite local-live-gates,jenkins
@@ -109,3 +110,5 @@ python3 tools/testlab/profile.py --owner testlab-3cbde3095125 --run <同一操�
 CP272已交付三个有界包：`rules-read-functional`（当前真实样本即时dry-run，不是六小时历史或24h）、`invitation-functional`（仅loopback TLS465本地SMTP、原生台账和审计）与`alert-policy-functional`（两partial正常，缺route/history仍blocked）。独立会话分别负责服务/拓扑/韧性、映射发现/接受、只读看板验收；每包独占新增文件、UUID库与端口，root只整合共享台账与生产修复。轻型功能现场可并行，重型、性能和持续测试仍串行准入；实际缺口/外部/缺实现保持可见，不以线程数或正常样本数冒整体完成。
 
 CP273三个可见会话的限定工作包已实际入库：映射73通过（上游GitLab协议Mock）、通知路由79通过（独立真实AM，POST test只读求值）、服务82通过/4阻塞（3来源前置+1状态包装）。各自UUID库、角色、端口及自有进程已清理。当前真实主正常111/166、29辅助，16协议Mock正常/其中12缺真实来源；三完整视图前置改为需确认并保留原阻塞，不算新增通过。当前回归组件及阻塞理由在全宽面板和三格式报告中展开，1280/646浏览器实测通过。两执行会话立即复用于规则生成/预览/指标问答及bulk调查/静默，不恢复旧性能自动化或暂停CI/CD。
+
+`local-original-smokes` 可重复运行三个原有Go opt-in函数，使用显式owned组件与UUID DB/role、真实Keycloak授权码登录及单次UUID Loki记录；原Go JSON必须真正pass且退出0，skip不能洗pass。数据、凭据和配置仅.local，callback18089须空闲；Grafana不配置不称已验，没有正式主HTTP增量。合成日志保留至owned组件退休，专用realm会话按原TTL，不全局删记录。

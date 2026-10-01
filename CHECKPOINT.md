@@ -1,4 +1,14 @@
-**最新记录入口：[CP-294](#cp-294-current)，2026-10-02。** 当前Go93f/实际非race6d298：正式BASE a21ab950已失败，23:04:57→23:18:28Z；25RPS Inbox/Groups P95分别535.06/568.68ms超过原500ms，50/100已停止。SSE/恢复/一致性/owned清理通过。唯一active为原25短诊断7ed44236（23:38:25Z启动、非formal），root独占负载；QA/HTTP准备已交付，连接器仅私有soak资格补丁准备。先真实终态/取证，不重复formal或准入SCALE/24h。原功能2602P0F79skip/49本地闭环、metrics133P/smoke10P与42/166正常保留。
+**最新记录入口：[CP-295](#cp-295-current)，2026-10-02。** 当前Go93f/实际非race6d298：原25短诊断7ed44236已23:38:25→23:46:49Z结束13P0F1已知Homecap；Inbox/Groups P95为424.07/433.59ms、SSE/quiet60/一致性/清理通过。缺正式10/300前序，不能覆盖a21正式BASE首红或准入SCALE/24h；当前无active。QA只读比较两组，连接器已交付私有soak A1/A2工具候选；10Python+1Node离线通过，独审中、尚未应用。功能2602P0F79skip/49本地闭环及42/166正常保留，整体OPEN。
+
+<a id="cp-295-current"></a>
+## CP-295 · 2026-10-02 · 原25短例通过，正式首红保留并补长稳资格证据
+
+- 原25短诊断 **7ed44236-7287-4d35-8ded-0c55b089e83f，2026-10-01T23:38:25.690445Z→23:46:49.085459Z：blocked13P0F1仅已知Homecap，CLI2/原mainexit0，Go始末93f**。原120s10预热→300s25，实300.344641秒、7500完成/0drop/0HTTPunexpected/k6exit0/noOOM。原独立门槛Inbox **P95=424.072473/P99=1208.008736ms**、Groups **433.591623/1354.216704ms**均passed；SSE50正常10慢/19550frames/350重连/0进展违反；quiet60/BASE数据orphans0/2exactownCID清理passed。
+- 明确 **diagnostic_only**：缺正式300s10前序、50及100阶段，无extraobserver；私有执行AST及SHA另登记、共享perf2e11/Go93f/main6d298/runtime338/资源及原门槛没改。不能当正式BASE/受控因果、修复或用它关闭 **a21首红/PERF-1512-DB-LATENCY**，原100SSE风险仍待正式。原25证据 **ad27e8a2-3099-4bac-9fd5-b019e843ab5b**、handoff **9df6df11-a1e4-4049-8898-2e65347bf5ce** 与HTML/JSON/MD导出；下一只读QA比较7ed/a21时序/资源和持久历史，提出保原formal前序的最小因果取证，root统一负载。
+- 结束后实际SQLite无active，fresh nonce/HMAC双API ready、source/perf冻结输入保持，原件 **sse-tx-rps25-diagnostic-post-runtime-proof.json**；未按登记PID控制或重复负载。之前诊断准入/863会话660SSE会话181560events/1320SSE消息只读快照保留，原统计/容量/历史差异不能推出唯一根因。root一次台账SQL误按列读取status在写入前失败，已按实际JSON schema核验，原case不动。
+- 连接器私有准备 **sse-tx-soak-qualification-preparation/053d58b4-aecd-4832-b241-f137791b88f9** 交付A1 k6自身时间锚点/保守区间与A2 JS自然续登TTL/计数/时刻及12h后受权请求证据；root私有candidate **10Python离线+1Node模拟ABI通过**，这是反例/Mock逻辑资格、不是实际k6或12/24h。已独立只读深审，尚未应用共享helper，不改产品Go/实际main。普通BASE/SCALE行为、86400/1440/0missing/≤60s及资源门槛保留，进一步clock/原生metric机制尚待验证。
+- 既有正式BASE原列表失败仍需解释/修复，**不自动重跑洗绿、SCALE或24h**。当前真实24h从未启动、整体OPEN；WAN152/Trace/producer/真实租户/paid/Ollama与8暂停CI-CD高TODO保持，产品web/.claude/业务env/DB/其他集群/真实账号通知不动，无merge/deploy。
+
 
 <a id="cp-294-current"></a>
 ## CP-294 · 2026-10-02 · 当前BASE在原25RPS列表门槛失败，停止依赖并定向取证

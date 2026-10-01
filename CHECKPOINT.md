@@ -1,3 +1,12 @@
+## CP-253 · 2026-10-01 · k6取证与取消收尾离线闭环，真实原因待新基础档验证
+
+- 原生投影包/CP252 **16862fa57a51c6680082db2132a43ef73a5424ca**已推送并精确远端回读，WAN136/138/163及原51文档已同步。49实测/36HTTP及两测试误报首红保持，Go6ad/bfeb/runtime338、主super30985/API30986/87未变；57/166正常主+13辅助，不冒全覆盖。此处PID仅快照，操作仍fresh nonce/HMAC/listener。
+- collector最终 **62P0F0skip，3.845s**（先61/root3.843s，最后新增1 acquisition守卫），原始红绿0600保持。perf.py **872ad4ddc42f1071679cfde335c5717edffbebc8c0e4b599ca2c1cbc11ffe9da**、旧test **fc0b634609da520cdf993e8105995481046330c073348dd2fd3c1c0b23664f5a**、新test **7f9823558289c303a5aa7f0ff8ba278e06237107432a790777d126722d273020**，源仍6ad；独立XHigh已核primary/shared-budget/main-cancel，最后新cleanup Popen前作用域保护由root定向复核并有真实OS signal首红/绿。
+- 原k6 --rm改为create→精确immutable CID/owner/image→attach→先捕ExitCode/OOMKilled/FinishedAt及有限原因→finally仅自己CID删除。create响应丢失读回本次唯一名字，不盲重试；外国/未知/未确认清理失败不假绿。取消共用35秒截止为Runner45留余量，正文OS SIGTERM立即打断30秒socket，再优先CID，预算不足诊断明确missing；报告BrokenPipe/OSError保留原同一RuntimeError/KI。main清理首次TERM快成功也interrupted130，有原2/130不覆盖。cleanup专用SQL client5s/serverlock1s/statement4s，100ms轮询+自己child kill/wait/pipeclose；PG实际结束未确认仍pending failed，普通seed/business SQL、资源/负载/阈值保持。
+- 证据区分：body读取的os.kill SIGTERM在共享0.3秒内约0.125秒收owned child；新Popen-return边界是实际os.kill，约0.0038秒回收/关闭管道/恢复作用域。两SQL约0.106秒是Timer调用已注册handler callback加真实本地Python阻塞子进程，**不是OS信号交付或真实PG测试**。绿 `.local/testlab/perf-cleanup-acquisition-term-green-final.txt`；先前取消/报告红绿及原14P2F5B全部保留。取证工具绿不证明base50的OOM原因或正式性能通过。
+- exactbase选择B已只读审清关，第三profile候选58离线绿，root私有原bfeb/338启动配方已纠正旧fixture SHA/继承40秒DDL预算两个预执行问题；没有真实plan/apply/归档/启动/新seed。当前APP11131999规模档及两archives原封保持。下一步另scoped提交第三profile后fresh准入，六步tagged staging发布新canonical、原OID重命名证据库；原二进制实际迁移/bootstrap和受控配置SQL，不调用重建/重写runtime方法。未清关真实现场前不假已完成。
+- **正式完整性能未通过，24h未开始，整体未收口**。无active负载；cert90000秒检查通过。不前端/业务.env/DB/其他项目集群/实际账号通知，不合并部署；.claude保留。WAN152cap/暂停7nativeCI-CD/Ollama容量/外部缺能力及其余本地高待办保持。
+
 ## CP-252 · 2026-10-01 · 五条原生投影链49通过，工具取消总预算继续修复
 
 - 本次原生投影三次实际运行均同Go **6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437** / 非race **bfeb9b985ee4ab07c3008cecd5409c611ff58fed928beba563f082071d6d208c**，主supervisor30985/API30986/30987只快照，不曾重启；仍须fresh nonce/HMAC/实际listener核验。branch codex/wan-138-backend-testlab，当前已推送2851932739e47d9f241be0e78e57d27d3fba2acf；本包待scoped提交，未清关collector文件不混入。无产品前端/Go/runtime修改，不相关.claude保持。

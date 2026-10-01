@@ -117,12 +117,13 @@ class StageFailureEvidenceTest(unittest.TestCase):
         data={**self.data,'base_urls':['http://127.0.0.1:18561','http://127.0.0.1:18562'],'environment':'test','users':[{'session_expires_at':9999999999}],'perf_password':'synthetic'}
         original=RuntimeError('original guard failure');proc=Mock();proc.poll.return_value=None
         diagnostic={'error_evidence':'.local/testlab/fixed/error-evidence.json','reason':'retained'}
-        with patch.object(perf.subprocess,'Popen',return_value=proc),patch.object(perf,'frozen',side_effect=original),patch.object(perf,'stage_error_evidence',return_value=diagnostic) as capture,patch.object(perf,'own_remove'),patch.object(perf,'result') as result:
+        with patch.object(perf.subprocess,'run',return_value=subprocess.CompletedProcess([],0,'a'*64,'')),patch.object(perf,'k6_container_state',return_value={'id':'a'*64,'image_id':'sha256:'+'b'*64}),patch.object(perf.subprocess,'Popen',return_value=proc),patch.object(perf,'frozen',side_effect=original),patch.object(perf,'stage_error_evidence',return_value=diagnostic) as capture,patch.object(perf,'own_remove'),patch.object(perf,'result') as result:
             with self.assertRaises(RuntimeError) as caught:perf.k6(data,'run','rps50',50,300)
         self.assertIs(caught.exception,original)
         self.assertIs(capture.call_args.args[2],original)
-        self.assertEqual(result.call_args.args[1],'failed');self.assertFalse(result.call_args.args[2]['continuous_acceptance'])
-        self.assertEqual(result.call_args.args[2]['error_evidence'],diagnostic['error_evidence'])
+        stage=[call.args for call in result.call_args_list if call.args[0]=='perf.rps50'][-1]
+        self.assertEqual(stage[1],'failed');self.assertFalse(stage[2]['continuous_acceptance'])
+        self.assertEqual(stage[2]['error_evidence'],diagnostic['error_evidence'])
     def test_health_body_size_and_timeout_errors_do_not_expose_secrets(self):
         conn=Mock();conn.getresponse.return_value.status=200
         conn.getresponse.return_value.read.side_effect=[b'x'*4097,TimeoutError('private-secret')]
@@ -198,11 +199,12 @@ class DiagnosticWallClockTest(unittest.TestCase):
         fresh=RuntimeError('unready');fresh.testlab_authenticated_identity=dict(self.current)
         data={**self.data,'base_urls':['http://127.0.0.1:18561','http://127.0.0.1:18562'],'environment':'test','users':[{'session_expires_at':9999999999}],'perf_password':'synthetic'}
         proc=Mock();proc.poll.return_value=None;cleanup_times=[];started=time.monotonic()
-        with patch.object(perf,'DIAGNOSTIC_BUDGET',.6),patch.object(perf.http.client,'HTTPConnection',side_effect=connection),patch.object(perf,'identity',side_effect=fresh),patch.object(perf.subprocess,'Popen',return_value=proc),patch.object(perf,'frozen',side_effect=original),patch.object(perf,'own_remove',side_effect=lambda *args:cleanup_times.append(time.monotonic()-started)),patch.object(perf,'result') as result:
+        with patch.object(perf,'DIAGNOSTIC_BUDGET',.6),patch.object(perf.http.client,'HTTPConnection',side_effect=connection),patch.object(perf,'identity',side_effect=fresh),patch.object(perf.subprocess,'run',return_value=subprocess.CompletedProcess([],0,'a'*64,'')),patch.object(perf,'k6_container_state',return_value={'id':'a'*64,'image_id':'sha256:'+'b'*64}),patch.object(perf.subprocess,'Popen',return_value=proc),patch.object(perf,'frozen',side_effect=original),patch.object(perf,'own_remove',side_effect=lambda *args:cleanup_times.append(time.monotonic()-started)),patch.object(perf,'result') as result:
             with self.assertRaises(RuntimeError) as caught:perf.k6(data,'run','rps50',50,300)
         self.assertIs(caught.exception,original);self.assertEqual(len(cleanup_times),1);self.assertLess(cleanup_times[0],1.5)
         self.evidence.append({'scenario':'stage_cleanup','elapsed_to_cleanup_seconds':cleanup_times[0],'original_exception_preserved':True})
-        self.assertEqual(result.call_args.args[1],'failed');self.assertFalse(result.call_args.args[2]['continuous_acceptance'])
+        stage=[call.args for call in result.call_args_list if call.args[0]=='perf.rps50'][-1]
+        self.assertEqual(stage[1],'failed');self.assertFalse(stage[2]['continuous_acceptance'])
         self.assertFalse(any(thread.name=='testlab-diagnostic-deadline' for thread in threading.enumerate()))
 
 class TrialFinishTest(unittest.TestCase):

@@ -861,5 +861,25 @@
       ".local/testlab/first-failures/projection-push-host-original-body-red.json",
       ".local/testlab/projection-push-host-green-final.txt"
     ]
+  },
+  {
+    "id": "TOOL-PERF-GENERATOR-LIFECYCLE",
+    "title": "压测生成器退出证据丢失及取消清理生命周期缺口",
+    "category": "test_tool",
+    "linked_issue": "WAN-138 / WAN-163",
+    "status": "in_review",
+    "before": "1a998623 base50早退后--rm丢ExitCode/OOM；finally报告可覆盖primary，阻塞body/清理SQL/子进程创建取消可越Runner45s或返回假成功",
+    "after": "pinned CID ownership lifecycle captures real exit before cleanup;35s shared cancellation, short cleanup SQL, exact child reaping; primary preserved, final cancellation130, pending PG state never passed",
+    "validation": "62 offline/3.845s; independent XHigh and final scoped acquisition root review; actual local child/OS signal proofs separate from Docker/PG stubs and registered callback timers",
+    "first_failed_run": "1a998623-7a3d-4e10-b49b-5610205ad336",
+    "evidence_id": "9d47ad95-0206-4d2c-a7e2-9936738f613b",
+    "local_evidence": [
+      ".local/testlab/first-failures/k6-lifecycle-113291a3-5f5d-4c99-a8dd-62ded2da1a4d",
+      ".local/testlab/first-failures/k6-cancel-report-e48a04a8-9096-4920-a835-a5c925e4c6fb",
+      ".local/testlab/first-failures/perf-cleanup-sql-cancel-red.txt",
+      ".local/testlab/first-failures/perf-cleanup-acquisition-term-red.txt",
+      ".local/testlab/perf-cleanup-acquisition-term-green-final.txt"
+    ],
+    "unverified": "real generator early-exit cause/OOM; full original performance profiles; continuous24h; PG transaction completion after cancelling docker exec"
   }
 ]

@@ -12,6 +12,89 @@ K6_IMAGE='grafana/k6:1.5.0@sha256:2072ea9eafa596532d9aee0cc0e0a50cfb0e7fb703981a
 K6_RELEASE='https://github.com/grafana/k6/releases/tag/v1.5.0'
 STOP=threading.Event()
 DIAGNOSTIC_BUDGET=3
+CANCEL_BUDGET=35  # Leave margin inside the Runner's existing 45-second cleanup grace.
+CLEANUP_SQL_BUDGET=5
+_CANCEL_DEADLINE=None
+_STOP_REQUESTED=False
+_CLEANING=False
+
+def cancel_requested():return _STOP_REQUESTED or STOP.is_set()
+
+def arm_cancel():
+    global _CANCEL_DEADLINE,_STOP_REQUESTED
+    _STOP_REQUESTED=True
+    if _CANCEL_DEADLINE is None:_CANCEL_DEADLINE=time.monotonic()+CANCEL_BUDGET
+
+def cancel_signal(*args):
+    # No lock acquisition in a Python signal handler. Event.set can interrupt
+    # code holding that Event's lock; the scalar flag is also visible to workers.
+    arm_cancel()
+    if not _CLEANING:raise KeyboardInterrupt()
+
+def bounded_timeout(maximum):
+    if _CANCEL_DEADLINE is None:return maximum
+    remaining=_CANCEL_DEADLINE-time.monotonic()
+    if remaining<=0:raise TimeoutError('shared cancellation cleanup deadline elapsed')
+    return min(maximum,remaining)
+
+def cleanup_sql(data,statement):
+    global _CLEANING
+    previous_cleaning=_CLEANING
+    # Defer signal exceptions before acquisition starts, including the window
+    # after Popen creates the child but before its return value is registered.
+    _CLEANING=True
+    try:return _cleanup_sql(data,statement)
+    finally:_CLEANING=previous_cleaning
+
+def _cleanup_sql(data,statement):
+    # Only cleanup uses this short client/server budget. The seed and business
+    # SQL helper retains its original timeout. Killing docker exec is not proof
+    # that PG stopped: server-side timeouts bound remaining work independently.
+    if cancel_requested():raise RuntimeError('cancelled owned DB cleanup pending')
+    deadline=time.monotonic()+CLEANUP_SQL_BUDGET
+    command=['docker','exec','-i','-e','PGOPTIONS=-c lock_timeout=1000 -c statement_timeout=4000',
+        data['postgres_container'],'psql','-X','-qAt','-v','ON_ERROR_STOP=1','-U','testlab','-d','aiops_testlab_app']
+    proc=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    try:
+        payload=statement
+        while True:
+            if cancel_requested():raise RuntimeError('cancelled owned DB cleanup pending; server completion unconfirmed')
+            remaining=min(deadline-time.monotonic(),bounded_timeout(CLEANUP_SQL_BUDGET))
+            if remaining<=0:raise TimeoutError('owned DB cleanup pending; server completion unconfirmed')
+            try:
+                stdout,_=proc.communicate(input=payload,timeout=min(.1,remaining))
+                if cancel_requested():raise RuntimeError('cancelled owned DB cleanup pending; server completion unconfirmed')
+                if proc.returncode:raise RuntimeError('owned DB cleanup failed; server completion unconfirmed')
+                return stdout.strip()
+            except subprocess.TimeoutExpired:payload=None
+    finally:
+        if proc.poll() is None:proc.kill()
+        # Reap this exact child, even at the shared deadline; one short fixed
+        # margin stays inside the Runner's 45s grace after the 35s shared budget.
+        try:proc.wait(timeout=1)
+        finally:
+            for pipe in (proc.stdin,proc.stdout,proc.stderr):
+                if pipe is not None:pipe.close()
+
+def cleanup_stream_finish(data,prefix):
+    p=quote(prefix)
+    cleanup_sql(data,f"BEGIN; INSERT INTO v3_conversation_events(conversation_id,reply_id,payload) SELECT conversation_id,id,'{{\"type\":\"message.completed\"}}'::jsonb FROM v3_conversation_replies WHERE starts_with(conversation_id,{p}) AND state='running'; UPDATE v3_conversation_replies SET state='completed',finished_at=clock_timestamp() WHERE starts_with(conversation_id,{p}); UPDATE v3_conversation_messages SET state='completed' WHERE starts_with(conversation_id,{p}); UPDATE v3_conversations SET active_reply_id=NULL WHERE starts_with(id,{p}); COMMIT;")
+    if cancel_requested():raise RuntimeError('cancelled SSE DB finish pending; server completion unconfirmed')
+
+def safe_result(work,*args,primary=False,**kwargs):
+    try:result(*args,**kwargs);return True
+    except Exception as error:
+        # Reporting is a separate failure, never a replacement for the original
+        # business exception or cancellation. Store only bounded nonsecret types.
+        try:
+            path=Path(work)/'cleanup-reporting-error.json'
+            record=json.loads(path.read_text()) if path.exists() else {'errors':[]}
+            record['errors']=(record['errors']+[{'result_id':str(args[0])[:128],'error_type':type(error).__name__}])[-8:]
+            private(path,record)
+        except Exception:pass
+        if not primary:raise
+        return False
+
 
 def result(id,status,actual,started=None,**fields):
     if isinstance(actual,dict):
@@ -166,6 +249,7 @@ def identity(data,timeout=5,diagnostic_deadline=None):
 def stage_error_evidence(data,work,error,last_resource=None):
     """Bounded diagnostics only; never make an unready identity acceptable."""
     deadline=time.monotonic()+DIAGNOSTIC_BUDGET
+    if _CANCEL_DEADLINE is not None:deadline=min(deadline,_CANCEL_DEADLINE)
     def owned(value):
         return isinstance(value,dict) and value.get('owner')==data['owner'] and value.get('pid')==data['supervisor_pid']
     def snapshot(value):
@@ -180,14 +264,20 @@ def stage_error_evidence(data,work,error,last_resource=None):
         sampled['missing']=[item for item in value.get('missing',[])[:16] if isinstance(item,str) and re.fullmatch(r'[a-z_]{1,64}',item)]
         return sampled
     failed=getattr(error,'testlab_authenticated_identity',None)
-    reason=str(error) if str(error) in ('two ready registered child PIDs required','supervisor identity changed; refusing fault','supervisor nonce/HMAC attestation mismatch','bounded supervisor attestation unavailable','backend restarted or runtime/helper configuration changed; continuous window invalid','backend source changed or binary does not match source; restart/re-freeze required') else 'stage guard or execution exception'
+    reason=str(error) if str(error) in ('two ready registered child PIDs required','supervisor identity changed; refusing fault','supervisor nonce/HMAC attestation mismatch','bounded supervisor attestation unavailable','backend restarted or runtime/helper configuration changed; continuous window invalid','backend source changed or binary does not match source; restart/re-freeze required','k6 exited without real summary') else 'stage guard or execution exception'
     evidence={'at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'error_type':type(error).__name__,'reason':reason,'failure_authenticated_identity':snapshot(failed) if owned(failed) else None,'fresh_authenticated_identity':None,'health':[],'resources_last':numeric_sample(last_resource),'missing':['postgres_pool_internal_wait'],'diagnostic_scope':'fixed own public health endpoints; no auth material or response headers'}
+    if str(error)=='k6 exited without real summary':evidence['reason_code']='k6_missing_summary'
+    generator=getattr(error,'testlab_generator',None)
+    if isinstance(generator,dict):evidence['generator']=generator
     if last_resource is None:evidence['missing'].append('last_resource_sample')
     if not owned(failed):evidence['missing'].append('failure_authenticated_controller_identity')
     path=Path(work)/'error-evidence.json'
     if path.parent.is_symlink() or not path.parent.resolve().is_relative_to(Path(data['perf_work']).resolve()) or not path.resolve().is_relative_to((ROOT/'.local/testlab').resolve()):raise RuntimeError('diagnostic evidence outside owned stage')
     # Keep the failure-instant snapshot even if later diagnostic collection fails.
     private(path,evidence)
+    if cancel_requested():
+        evidence['missing'].append('cancelled_diagnostics_skipped_for_owned_container_cleanup');private(path,evidence)
+        return {'error_evidence':str(path.relative_to(ROOT)),'reason':reason,'reason_code':evidence.get('reason_code'),'generator':evidence.get('generator'),'diagnostic_missing':evidence['missing']}
     fresh=None
     try:fresh=identity(data,timeout=1,diagnostic_deadline=deadline)
     except Exception as diagnostic_error:
@@ -220,7 +310,7 @@ def stage_error_evidence(data,work,error,last_resource=None):
     else:evidence['missing'].append('owned_api_health_mapping')
     evidence['diagnostic_elapsed_seconds']=round(time.monotonic()-(deadline-DIAGNOSTIC_BUDGET),3)
     private(path,evidence)
-    return {'error_evidence':str(path.relative_to(ROOT)),'reason':reason,'diagnostic_missing':evidence['missing']}
+    return {'error_evidence':str(path.relative_to(ROOT)),'reason':reason,'reason_code':evidence.get('reason_code'),'generator':evidence.get('generator'),'diagnostic_missing':evidence['missing']}
 
 def frozen_inputs(data):
     names={Path(data['instance_config']),Path(data['binary']),ROOT/'tools/testlab/perf.py',ROOT/'tools/testlab/backend.py',ROOT/'tools/testlab/faults.py',ROOT/'tools/testlab/load/seed.py',ROOT/'tools/testlab/load/traffic.js',ROOT/'tools/testlab/fixtures.py',ROOT/'.local/testlab/component-environment.json'}
@@ -293,11 +383,44 @@ def metrics(data):
     captured['missing'].extend(['backend_goroutines','heap_profile'])
     return captured
 
-def own_remove(name,owner):
-    p=subprocess.run(['docker','inspect',name,'--format','{{json .Config.Labels}}'],capture_output=True,text=True)
-    if p.returncode:return
-    if json.loads(p.stdout).get('aiops.testlab.owner')!=owner:raise RuntimeError('refusing to stop unowned k6 container')
-    subprocess.run(['docker','rm','-f',name],capture_output=True,timeout=30)
+# Only these public identity/state fields are queried; inspect must never emit Config.Env.
+K6_INSPECT_FORMAT='{"id":{{json .Id}},"name":{{json .Name}},"owner":{{json (index .Config.Labels "aiops.testlab.owner")}},"configured_image":{{json .Config.Image}},"image_id":{{json .Image}},"state":{"Running":{{json .State.Running}},"OOMKilled":{{json .State.OOMKilled}},"ExitCode":{{json .State.ExitCode}},"StartedAt":{{json .State.StartedAt}},"FinishedAt":{{json .State.FinishedAt}}}}'
+
+def k6_container_state(name,owner,container_id=None,image_id=None):
+    """Fail closed on lookup failure, replacement, or any identity drift."""
+    target=container_id or name
+    reply=subprocess.run(['docker','inspect',target,'--format',K6_INSPECT_FORMAT],capture_output=True,text=True,timeout=bounded_timeout(5))
+    if reply.returncode or len(reply.stdout)>8192:raise RuntimeError('owned k6 container lookup unavailable')
+    value=json.loads(reply.stdout)
+    if (not isinstance(value,dict) or not re.fullmatch(r'[a-f0-9]{64}',str(value.get('id','')))
+        or value.get('name')!='/'+name or value.get('owner')!=owner or value.get('configured_image')!=K6_IMAGE
+        or not re.fullmatch(r'sha256:[a-f0-9]{64}',str(value.get('image_id','')))
+        or container_id and value['id']!=container_id or image_id and value['image_id']!=image_id):
+        raise RuntimeError('refusing unowned or replaced k6 container')
+    state=value.get('state',{})
+    if not isinstance(state,dict) or type(state.get('Running')) is not bool or type(state.get('OOMKilled')) is not bool or type(state.get('ExitCode')) is not int:raise RuntimeError('invalid owned k6 container state')
+    safe={key:state[key] for key in ('Running','OOMKilled','ExitCode')}
+    for key in ('StartedAt','FinishedAt'):
+        stamp=state.get(key)
+        if isinstance(stamp,str) and re.fullmatch(r'[0-9TZ:.+\-]{1,64}',stamp):safe[key]=stamp
+        else:safe[key]=None
+    return {key:value[key] for key in ('id','name','owner','configured_image','image_id')} | {'state':safe}
+
+def k6_generator_evidence(name,owner,proc,container=None):
+    value={'proc_returncode':proc.poll() if proc is not None else None,'container':None,'missing':[]}
+    if cancel_requested():
+        value['captured_identity']={key:container.get(key) for key in ('id','image_id')} if container else None
+        value['missing'].append('cancelled_state_inspection_skipped_for_owned_container_cleanup');return value
+    try:value['container']=k6_container_state(name,owner,container['id'] if container else None,container['image_id'] if container else None)
+    except Exception as error:value['missing'].append('container_state');value['container_lookup_error_type']=type(error).__name__
+    return value
+
+def own_remove(name,owner,container=None):
+    # Lookup again immediately before mutation, and remove immutable ID rather than name.
+    value=k6_container_state(name,owner,container['id'] if container else None,container['image_id'] if container else None)
+    reply=subprocess.run(['docker','rm','-f',value['id']],capture_output=True,text=True,timeout=bounded_timeout(15))
+    if reply.returncode:raise RuntimeError('owned k6 container cleanup failed')
+    return value['id']
 
 class SSEProtocolError(RuntimeError):pass
 
@@ -341,14 +464,14 @@ class Streams:
             thread=threading.Thread(target=self.consume,args=(i,),daemon=True);thread.start();self.threads.append(thread)
         thread=threading.Thread(target=self.produce,daemon=True);thread.start();self.threads.append(thread)
     def produce(self):
-        while not self.done.is_set() and not STOP.is_set():
+        while not self.done.is_set() and not cancel_requested():
             try:stream_emit(self.data,self.prefix,self.large)
             except Exception:
                 with self.lock:self.stats['producer_errors']+=1
             self.done.wait(1)
     def consume(self,index):
         slow=index>=self.normal;kind='slow' if slow else 'normal';u=self.data['users'][index%20];base=urlparse(self.data['base_urls'][index%2]);cursor=0
-        while not self.done.is_set() and not STOP.is_set():
+        while not self.done.is_set() and not cancel_requested():
             u=self.data['users'][index%20]
             conn=http.client.HTTPConnection(base.hostname,base.port,timeout=5);active=False
             try:
@@ -365,7 +488,7 @@ class Streams:
                 with self.lock:
                     self.connections.append(conn);self.stats['active_'+kind]+=1;self.stats['peak_'+kind]=max(self.stats['peak_'+kind],self.stats['active_'+kind]);self.clients[index]['active']=True
                 active=True;connected=time.monotonic();parser=SSEParser(cursor)
-                while not self.done.is_set() and not STOP.is_set():
+                while not self.done.is_set() and not cancel_requested():
                     if slow:
                         chunk=response.read(1)
                         if not chunk:break
@@ -381,10 +504,10 @@ class Streams:
                     if not slow and time.monotonic()-connected>=self.reconnect_seconds:break
                 with self.lock:self.stats['reconnects']+=1;self.stats['expected_disconnects']+=1
             except (OSError,http.client.HTTPException):
-                if not self.done.is_set() and not STOP.is_set():
+                if not self.done.is_set() and not cancel_requested():
                     with self.lock:self.stats['expected_disconnects']+=1
             except Exception:
-                if not self.done.is_set() and not STOP.is_set():
+                if not self.done.is_set() and not cancel_requested():
                     with self.lock:self.stats['errors']+=1;self.stats['protocol_errors']+=1
             finally:
                 conn.close()
@@ -400,25 +523,38 @@ class Streams:
             try:conn.sock.shutdown(2)
             except (OSError,AttributeError):pass
             conn.close()
-        for thread in self.threads:thread.join(timeout=6)
-        stream_finish(self.data,self.prefix)
+        for thread in self.threads:
+            try:thread.join(timeout=bounded_timeout(6))
+            except TimeoutError:break
+        pending=[thread.name for thread in self.threads if thread.is_alive()]
+        if cancel_requested():raise RuntimeError('cancelled SSE DB finish pending; retained leased rows and '+str(len(pending))+' workers at shared deadline')
+        if pending:raise RuntimeError('SSE worker cleanup did not finish')
+        cleanup_stream_finish(self.data,self.prefix)
 
 
 def k6(data,run,stage,rate,duration,gate=False,streams=None,hooks=None,strict_source=True):
-    started=time.monotonic();name='aiops-'+data['owner']+'-k6-'+run+'-'+stage
+    global _CLEANING
+    previous_cleaning=_CLEANING
+    started=time.monotonic();name='aiops-'+data['owner']+'-k6-'+run+'-'+stage+'-'+secrets.token_hex(6)
     work=Path(data['perf_work'])/run/stage;work.mkdir(parents=True,mode=0o700,exist_ok=True)
     # Docker reads this generated file from a private mount. Tokens never enter command arguments/env/stdout.
     private(work/'workload.json',{'base_urls':data['base_urls'],'environment':data['environment'],'users':data['users'],'password':data['perf_password'],'excluded_aggregate_paths':data.get('excluded_aggregate_paths',[]),'aggregate_measurement_supported':data.get('aggregate_measurement_supported',True),'force_relogin':stage=='self_check'})
-    command=['docker','run','--rm','--name',name,'--label','aiops.testlab.owner='+data['owner'],'--user','0:0','--cpus','2','--memory','1g','-v',str(work)+':/private','-v',str(ROOT/'tools/testlab/load/traffic.js')+':/load.js:ro','-e','RATE='+str(rate),'-e','DURATION='+str(duration)+'s','-e','GATE='+('1' if gate else '0'),'-e','SELF_CHECK='+('1' if stage=='self_check' else '0'),K6_IMAGE,'run','--quiet','/load.js']
+    command=['docker','create','--name',name,'--label','aiops.testlab.owner='+data['owner'],'--user','0:0','--cpus','2','--memory','1g','-v',str(work)+':/private','-v',str(ROOT/'tools/testlab/load/traffic.js')+':/load.js:ro','-e','RATE='+str(rate),'-e','DURATION='+str(duration)+'s','-e','GATE='+('1' if gate else '0'),'-e','SELF_CHECK='+('1' if stage=='self_check' else '0'),K6_IMAGE,'run','--quiet','/load.js']
     log=open(work/'k6.log','w');os.chmod(work/'k6.log',0o600)
-    proc=subprocess.Popen(command,stdout=log,stderr=log);next_metric=started;next_hook=started;next_chat=started;next_login=started+max(1,min(u['session_expires_at'] for u in data['users'])-time.time()-300);resources=[];hook_stats={'dryrun_calls':0,'webhook_calls':0,'chat_turns':0,'relogins':0,'failures':0,'chat_e2e_protocol_mock_ms_total':0,'chat_e2e_protocol_mock_ms_max':0,'model_evidence_mode':'protocol_mock'};resource_path=work/'resources.jsonl'
+    proc=None;container=None;acquisition_attempted=False;outcome=None;next_metric=started;next_hook=started;next_chat=started;next_login=started+max(1,min(u['session_expires_at'] for u in data['users'])-time.time()-300);resources=[];hook_stats={'dryrun_calls':0,'webhook_calls':0,'chat_turns':0,'relogins':0,'failures':0,'chat_e2e_protocol_mock_ms_total':0,'chat_e2e_protocol_mock_ms_max':0,'model_evidence_mode':'protocol_mock'};resource_path=work/'resources.jsonl'
     resource=open(resource_path,'w');os.chmod(resource_path,0o600)
     try:
+        acquisition_attempted=True
+        created=subprocess.run(command,capture_output=True,text=True,timeout=bounded_timeout(20))
+        if created.returncode or not re.fullmatch(r'[a-f0-9]{64}',created.stdout.strip()):raise RuntimeError('owned k6 container creation failed')
+        container={'id':created.stdout.strip(),'image_id':None}
+        container=k6_container_state(name,data['owner'],container['id'])
+        proc=subprocess.Popen(['docker','start','--attach',container['id']],stdout=log,stderr=log)
         while proc.poll() is None:
             now=time.monotonic()
             if stage=='soak24h' and 'last_heartbeat' in locals() and now-last_heartbeat>120:raise RuntimeError('soak heartbeat gap indicates suspension/interruption; continuous window invalid')
             last_heartbeat=now
-            if STOP.is_set():raise KeyboardInterrupt()
+            if cancel_requested():raise KeyboardInterrupt()
             if strict_source:frozen(data)
             if streams:streams.sample_health(now-started,duration,startup=3 if stage=='self_check' else 15)
             # Detect a killed/stalled generator before accepting elapsed wall-clock time.
@@ -466,32 +602,71 @@ def k6(data,run,stage,rate,duration,gate=False,streams=None,hooks=None,strict_so
         elapsed=time.monotonic()-started
         summary_path=work/'summary.json'
         summary=json.loads(summary_path.read_text()) if summary_path.exists() else None
-        if summary is None:raise RuntimeError('k6 exited without real summary')
+        generator=k6_generator_evidence(name,data['owner'],proc,container)
+        generator.update(summary_exists=summary_path.exists(),log_bytes=(work/'k6.log').stat().st_size)
+        if summary is None:
+            error=RuntimeError('k6 exited without real summary');error.testlab_generator=generator;raise error
         generator_seconds=float(summary.get('state',{}).get('testRunDurationMs',0))/1000
         iterations=float(summary.get('metrics',{}).get('iterations',{}).get('values',{}).get('count',0))
         dropped=float(summary.get('metrics',{}).get('dropped_iterations',{}).get('values',{}).get('count',0));error_rate=float(summary.get('metrics',{}).get('unexpected_errors',{}).get('values',{}).get('rate',0))
         resource_samples=[json.loads(line) for line in resource_path.read_text().splitlines() if line.strip()]
-        actual={**resource_summary(resource_samples),'stage':stage,'profile':data.get('counts',{}).get('profile'),'measurement_only':not gate and stage!='self_check','saturated':dropped>0 or error_rate>=0.001,'unexpected_error_rate':error_rate,'dropped_iterations':dropped,'generator_seconds':generator_seconds,'iterations':iterations,'minimum_iterations':rate*duration-1,'rate_rps':rate,'elapsed_seconds':elapsed,'planned_seconds':duration,'k6_exit':proc.returncode,'summary':summary.get('metrics',{}),'resource_evidence':str(resource_path.relative_to(ROOT)),'resources_last':resources[-1] if resources else None,'hooks':hook_stats,'sse':streams.snapshot() if streams else None,'source_sha':data['source_tree_sha'],'k6_image':K6_IMAGE,'route_preflight':data.get('route_preflight'),'measured_routes':[r['path'] for r in data.get('route_preflight',[]) if r['measured']]+['own alert claim'], 'excluded_aggregate_paths':data.get('excluded_aggregate_paths',[]), 'full_aggregate_scope_accepted':bool(data.get('aggregate_measurement_supported')) and not data.get('excluded_aggregate_paths'),'coverage_limit':'services seed is real metadata; service health/metrics/deployment sources are not fabricated or benchmarked'}
+        actual={**resource_summary(resource_samples),'stage':stage,'profile':data.get('counts',{}).get('profile'),'measurement_only':not gate and stage!='self_check','saturated':dropped>0 or error_rate>=0.001,'unexpected_error_rate':error_rate,'dropped_iterations':dropped,'generator_seconds':generator_seconds,'iterations':iterations,'minimum_iterations':rate*duration-1,'rate_rps':rate,'elapsed_seconds':elapsed,'planned_seconds':duration,'k6_exit':proc.returncode,'generator':generator,'summary':summary.get('metrics',{}),'resource_evidence':str(resource_path.relative_to(ROOT)),'resources_last':resources[-1] if resources else None,'hooks':hook_stats,'sse':streams.snapshot() if streams else None,'source_sha':data['source_tree_sha'],'k6_image':K6_IMAGE,'route_preflight':data.get('route_preflight'),'measured_routes':[r['path'] for r in data.get('route_preflight',[]) if r['measured']]+['own alert claim'], 'excluded_aggregate_paths':data.get('excluded_aggregate_paths',[]), 'full_aggregate_scope_accepted':bool(data.get('aggregate_measurement_supported')) and not data.get('excluded_aggregate_paths'),'coverage_limit':'services seed is real metadata; service health/metrics/deployment sources are not fabricated or benchmarked'}
         if stage=='self_check':actual['renewal_plumbing']={'tool_schedule_override_only':True,'actual_product_ttl_changed':False,'k6_real_relogins':summary.get('metrics',{}).get('session_relogins',{}).get('values',{}).get('count',0),'twelve_hour_elapsed_acceptance':False}
-        good=proc.returncode==0 and elapsed>=duration and generator_seconds>=duration and (iterations+dropped>=rate*duration-1 if not gate else iterations>=rate*duration-1) and not hook_stats['failures'] and (streams is None or sse_accepted(actual['sse'])) and (stage!='self_check' or actual['renewal_plumbing']['k6_real_relogins']>0)
-        result('perf.'+stage,'passed' if good else 'failed',actual,started,expected='真实完整时长、无遗漏iteration；25RPS阶段执行计划延迟门槛' if gate else '真实完整时长，报告饱和点与非预期错误')
-        return good,actual
+        # The attach CLI return code is not a substitute for the real container exit status.
+        state=generator.get('container',{}).get('state',{}) if generator.get('container') else {}
+        good=proc.returncode==0 and state.get('ExitCode')==0 and state.get('Running') is False and not state.get('OOMKilled') and elapsed>=duration and generator_seconds>=duration and (iterations+dropped>=rate*duration-1 if not gate else iterations>=rate*duration-1) and not hook_stats['failures'] and (streams is None or sse_accepted(actual['sse'])) and (stage!='self_check' or actual['renewal_plumbing']['k6_real_relogins']>0)
+        outcome=(good,actual)
     except KeyboardInterrupt:
-        own_remove(name,data['owner']);proc.wait(timeout=30);result('perf.'+stage,'interrupted',{'elapsed_seconds':time.monotonic()-started,'planned_seconds':duration,'acceptance':False},started);raise
+        _CLEANING=True;arm_cancel()
+        generator=k6_generator_evidence(name,data['owner'],proc,container)
+        if container is None and generator.get('container'):container=generator['container']
+        safe_result(work,'perf.'+stage,'interrupted',{'elapsed_seconds':time.monotonic()-started,'planned_seconds':duration,'acceptance':False,'generator':generator},started,primary=True);raise
     except Exception as error:
+        _CLEANING=True
+        if not hasattr(error,'testlab_generator'):error.testlab_generator=k6_generator_evidence(name,data['owner'],proc,container)
+        if container is None and error.testlab_generator.get('container'):container=error.testlab_generator['container']
         try:diagnostic=stage_error_evidence(data,work,error,resources[-1] if resources else None)
         except Exception as diagnostic_error:diagnostic={'diagnostic_error_type':type(diagnostic_error).__name__,'diagnostic_missing':['stage_error_evidence']}
-        own_remove(name,data['owner']);proc.wait(timeout=30)
-        result('perf.'+stage,'failed',{'error':type(error).__name__,'elapsed_seconds':time.monotonic()-started,'planned_seconds':duration,'continuous_acceptance':False,**diagnostic},started)
+        safe_result(work,'perf.'+stage,'failed',{'error':type(error).__name__,'elapsed_seconds':time.monotonic()-started,'planned_seconds':duration,'continuous_acceptance':False,**diagnostic},started,primary=True)
         raise
-    finally:resource.close();log.close()
+    finally:
+        primary=sys.exc_info()[0] is not None;cleanup_errors=[];removed_id=None;_CLEANING=True
+        try:
+            try:
+                if acquisition_attempted:
+                    try:removed_id=own_remove(name,data['owner'],container)
+                    except Exception as error:cleanup_errors.append({'step':'container_remove','error_type':type(error).__name__})
+                if proc is not None:
+                    try:proc.wait(timeout=bounded_timeout(5))
+                    except subprocess.TimeoutExpired:
+                        proc.terminate()
+                        try:proc.wait(timeout=bounded_timeout(3))
+                        except subprocess.TimeoutExpired:proc.kill();proc.wait(timeout=bounded_timeout(3))
+                        cleanup_errors.append({'step':'attach_process_forced_stop','error_type':'TimeoutExpired'})
+            except Exception as error:
+                cleanup_errors.append({'step':'attach_process_wait','error_type':type(error).__name__})
+                if proc is not None and proc.poll() is None:
+                    try:proc.kill();proc.wait(timeout=.2)
+                    except Exception as reap_error:cleanup_errors.append({'step':'attach_process_reap','error_type':type(reap_error).__name__})
+            finally:resource.close();log.close()
+            if cleanup_errors:
+                safe_result(work,'perf.'+stage+'.cleanup','failed',{'errors':cleanup_errors,'acceptance':False,'container_id':container['id'] if container else None,'resource_cleanup_confirmed':False},started,primary=primary)
+                if not primary:raise RuntimeError('owned k6 cleanup failed')
+            elif acquisition_attempted:safe_result(work,'perf.'+stage+'.cleanup','passed',{'removed_container_id':removed_id,'attach_process_exited':proc is None or proc.poll() is not None},started,primary=primary)
+        finally:_CLEANING=previous_cleaning
+    if outcome is not None:
+        if cancel_requested():
+            safe_result(work,'perf.'+stage,'interrupted',{'acceptance':False,'reason':'stop requested during generator cleanup'},started);raise KeyboardInterrupt()
+        good,actual=outcome
+        safe_result(work,'perf.'+stage,'passed' if good else 'failed',actual,started,expected='真实完整时长、无遗漏iteration；25RPS阶段执行计划延迟门槛' if gate else '真实完整时长，报告饱和点与非预期错误')
+        return outcome
 
 
 def resource_recovery(data,baseline,started):
     # Stop producers/sockets before this call; recovery remains inside the frozen window.
     deadline=time.monotonic()+60;samples=[]
     while time.monotonic()<deadline:
-        if STOP.is_set():raise KeyboardInterrupt()
+        if cancel_requested():raise KeyboardInterrupt()
         frozen(data);samples.append(metrics(data));STOP.wait(10)
     final=samples[-1];missing=sorted(set(baseline.get('missing',[])+final.get('missing',[])))
     checks={};b=baseline.get('postgres');v=final.get('postgres')
@@ -579,9 +754,12 @@ def hooks_config(data):
         data['hook_user']={'id':body['user']['id'],'cookie':token[0]}
     return h
 
-def main():
-    parser=argparse.ArgumentParser();parser.add_argument('command',choices=['prepare','self-check','load','soak']);parser.add_argument('--profile',choices=['base','scale'],default='base');parser.add_argument('--duration',type=int,default=86400);a=parser.parse_args();started=time.monotonic();streams=None
-    signal.signal(signal.SIGINT,lambda *args:STOP.set());signal.signal(signal.SIGTERM,lambda *args:STOP.set())
+class _CleanupInterrupted(KeyboardInterrupt):pass
+
+def _main():
+    global _CLEANING
+    parser=argparse.ArgumentParser();parser.add_argument('command',choices=['prepare','self-check','load','soak']);parser.add_argument('--profile',choices=['base','scale'],default='base');parser.add_argument('--duration',type=int,default=86400);a=parser.parse_args();started=time.monotonic();streams=None;failure_outcome=False
+    signal.signal(signal.SIGINT,cancel_signal);signal.signal(signal.SIGTERM,cancel_signal)
     try:
         if a.command in ('load','soak'):
             guard=fixture();frozen(guard)
@@ -633,16 +811,39 @@ def main():
         data['_soak_trial_accepted']=good
         return 0 if good else 1
     except KeyboardInterrupt:
-        result('perf.interrupted','interrupted',{'continuous_acceptance':False,'elapsed_seconds':time.monotonic()-started},started);return 130
+        failure_outcome=True;_CLEANING=True;arm_cancel()
+        safe_result(Path(data['perf_work']) if 'data' in locals() else ROOT/'.local/testlab','perf.interrupted','interrupted',{'continuous_acceptance':False,'elapsed_seconds':time.monotonic()-started},started,primary=True);return 130
     except Exception as e:
-        result('perf.environment','blocked',{'error':type(e).__name__+': '+str(e),'acceptance':False},started);return 2
+        failure_outcome=True;_CLEANING=True
+        safe_result(Path(data['perf_work']) if 'data' in locals() else ROOT/'.local/testlab','perf.environment','blocked',{'error':type(e).__name__+': '+str(e),'acceptance':False},started,primary=True);return 2
     finally:
-        if 'data' in locals() and data.get('_soak_trial') and not data.get('_soak_trial_accepted'):
-            own=data['_soak_trial']
-            try:sql(data,"UPDATE v3_alert_rule_trials SET status='stopped',lease_token='',lease_until=NULL,updated_at=clock_timestamp() WHERE id="+quote(own['id'])+" AND idempotency_key="+quote(own['key'])+" AND status IN ('dispatch_pending','queued','running');")
-            except Exception:result('perf.trial_cleanup','failed','only own unfinished soak trial could not be stopped; retained for diagnosis')
-        if streams:
-            try:streams.close()
-            except Exception:result('perf.sse_cleanup','failed','owned SSE producer cleanup failed; rows retained for evidence')
+        _CLEANING=True;cleanup_failed=False
+        try:
+            work=Path(data['perf_work']) if 'data' in locals() else ROOT/'.local/testlab'
+            if 'data' in locals() and data.get('_soak_trial') and not data.get('_soak_trial_accepted'):
+                own=data['_soak_trial']
+                try:
+                    if cancel_requested():raise RuntimeError('cancelled trial DB cleanup pending')
+                    cleanup_sql(data,"UPDATE v3_alert_rule_trials SET status='stopped',lease_token='',lease_until=NULL,updated_at=clock_timestamp() WHERE id="+quote(own['id'])+" AND idempotency_key="+quote(own['key'])+" AND status IN ('dispatch_pending','queued','running');")
+                    if cancel_requested():raise RuntimeError('cancelled trial DB cleanup pending; server completion unconfirmed')
+                except Exception:
+                    cleanup_failed=True
+                    safe_result(work,'perf.trial_cleanup','failed',{'reason':'own unfinished trial cleanup pending; retained for diagnosis','server_completion':'unconfirmed','acceptance':False},primary=True)
+            if streams:
+                try:
+                    streams.close()
+                    if cancel_requested():raise RuntimeError('cancelled SSE cleanup pending; server completion unconfirmed')
+                except Exception:
+                    cleanup_failed=True
+                    safe_result(work,'perf.sse_cleanup','failed',{'reason':'owned SSE cleanup incomplete; retained leased rows for evidence','server_completion':'unconfirmed','acceptance':False},primary=True)
+            if cancel_requested() and not failure_outcome:
+                safe_result(work,'perf.interrupted','interrupted',{'continuous_acceptance':False,'elapsed_seconds':time.monotonic()-started,'cleanup_completion_unconfirmed':True},started,primary=True)
+                raise _CleanupInterrupted()
+            if cleanup_failed and not failure_outcome:raise RuntimeError('owned performance cleanup incomplete')
+        finally:_CLEANING=False
+
+def main():
+    try:return _main()
+    except _CleanupInterrupted:return 130
 
 if __name__=='__main__':sys.exit(main())

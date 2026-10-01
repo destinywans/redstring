@@ -603,7 +603,36 @@
       },
       "first_full_invocation_blocked": "e6354b7c-11de-4d49-9729-da5854b5acd3; root manifest explicit DSN omission; unchanged61pass59skip",
       "independent_review": "XHigh no blocker",
-      "remaining": "new formal nonrace binary HTTP and original load gates; no actual performance/24h pass yet"
+      "remaining": "Actual new303 HTTP and original3-stage diagnosis now passed for supported routes; full base/scale18min each and continuous24h still pending; Home cap blocked, old fails immutable",
+      "formal_http": {
+        "run_id": "0e4b328b-6c12-4aa1-97af-df959644b2b5",
+        "pass": 303,
+        "fail": 0,
+        "skip": 0,
+        "evidence_id": "3f61220b-3c42-4d9a-991d-8ea5b1a0e814"
+      },
+      "original_load_diagnosis": {
+        "run_id": "64cd2def-431b-4169-9e90-66c1f53ac91b",
+        "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
+        "binary_sha256": "bfeb9b985ee4ab07c3008cecd5409c611ff58fed928beba563f082071d6d208c",
+        "pass": 11,
+        "fail": 0,
+        "blocked": 1,
+        "rps25_generator_seconds": 300.392413459,
+        "requests": 7501,
+        "unexpected_error_rate": 0,
+        "dropped_iterations": 0,
+        "inbox_requests": 1500,
+        "inbox_p95_ms": 493.4452593,
+        "inbox_p99_ms": 778.75979116,
+        "groups_requests": 750,
+        "groups_p95_ms": 474.78146685,
+        "groups_p99_ms": 713.56246983,
+        "sse_and_recovery_and_consistency": "passed",
+        "evidence_id": "d6ef6fb0-0ce7-4a97-8f16-9e518cba70c2",
+        "formal_performance_acceptance": false,
+        "formal_24h_acceptance": false
+      }
     }
   },
   {
@@ -724,6 +753,51 @@
       "traffic.js": "4b06d0f1f92945f739ad56765dd8045bf920904d575b85e03af3623883a08e32",
       "perf.py": "84fd011d64c727c86b7b91f61a99b22cf9a5e4b3c7304e7572f7050ee89261ba",
       "test_perf.py": "1b9c9a4598b588220a94d37c65e951d6a652e08e92b8b4ff7fe1b70f5d51c922"
+    },
+    "live_validation": {
+      "run_id": "64cd2def-431b-4169-9e90-66c1f53ac91b",
+      "raw_workdir": "d0c7b8d1e53a",
+      "all_db_route_gates_active": true,
+      "aggregate_latency_metric": "absent as unsupported, not false0",
+      "original_500ms_gates": "Inbox493.445/Groups474.781, noerror/drop",
+      "evidence_id": "d6ef6fb0-0ce7-4a97-8f16-9e518cba70c2"
     }
+  },
+  {
+    "id": "TOOL-CANVAS-MOCK-CLEANUP",
+    "title": "Mock 未开始服务时 shutdown 可永久等待",
+    "status": "in_review",
+    "category": "test_tool",
+    "linked_issue": "WAN-138",
+    "before": "independent XHigh review and executable offline first red; not a product defect",
+    "after": "bounded own Event polling Mock cleanup; preserve original BaseException and nonpassed SSE evidence",
+    "local_evidence": [
+      ".local/testlab/first-failures/canvas-stdlib-unstarted-shutdown-red.json",
+      ".local/testlab/first-failures/canvas-mock-cancel-red.txt",
+      ".local/testlab/canvas-mock-cancel-green-final.txt",
+      ".local/testlab/canvas-native-proof.json"
+    ],
+    "validation": "15 actual offline regressions/0.667s ResourceWarning=error + independent XHigh no blocker + native HTTP34pass1missing producer, real own resource cleanup confirmed",
+    "native_run_id": "4a6fd099-0873-417f-87b8-6474d7ad80df",
+    "evidence_id": "d23a1d7c-e1d4-49d9-a5b1-6f98c93a7bd6",
+    "unverified": "real model inference; authoritative template producer; full166; performance24h"
+  },
+  {
+    "id": "TOOL-CANVAS-SSE-CANCEL",
+    "title": "SSE取消在finally被未初始化结果覆盖",
+    "status": "in_review",
+    "category": "test_tool",
+    "linked_issue": "WAN-138",
+    "before": "independent XHigh review and executable offline first red; not a product defect",
+    "after": "bounded own Event polling Mock cleanup; preserve original BaseException and nonpassed SSE evidence",
+    "local_evidence": [
+      ".local/testlab/first-failures/canvas-mock-cancel-red.txt",
+      ".local/testlab/canvas-mock-cancel-green-final.txt",
+      ".local/testlab/canvas-native-proof.json"
+    ],
+    "validation": "15 actual offline regressions/0.667s ResourceWarning=error + independent XHigh no blocker + native HTTP34pass1missing producer, real own resource cleanup confirmed",
+    "native_run_id": "4a6fd099-0873-417f-87b8-6474d7ad80df",
+    "evidence_id": "d23a1d7c-e1d4-49d9-a5b1-6f98c93a7bd6",
+    "unverified": "real model inference; authoritative template producer; full166; performance24h"
   }
 ]

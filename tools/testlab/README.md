@@ -13,6 +13,7 @@ python3 tools/testlab/testlab.py run --suite regressions,query-plan,entry,compon
 python3 tools/testlab/testlab.py run --suite content
 python3 tools/testlab/testlab.py run --suite readonly,discovery,management
 python3 tools/testlab/testlab.py run --suite core
+python3 tools/testlab/testlab.py run --suite canvas-native
 python3 tools/testlab/testlab.py run --suite promotion
 python3 tools/testlab/testlab.py run --suite identity,invitations,vault
 python3 tools/testlab/testlab.py run --suite local-live-gates,jenkins
@@ -53,3 +54,5 @@ python3 tools/testlab/profile.py --owner testlab-3cbde3095125 --run <同一操�
 `python3 tools/testlab/diagnose.py` 仅用于准确基础档定位：固定原预热10RPS/120秒、10RPS/300秒、25RPS/300秒及原门槛，50正常/10慢读SSE与60秒重连、恢复/一致性核验。保留原混合负载、权限、超时及认领重试；要求exact base及冻结源码/配置/入口自身SHA。七路由指标定位实际HTTP延迟，不能代表全部阶段/规模档/24h；所有结果显式diagnostic_only和两个formal acceptance=false。SIGINT/SIGTERM交接及末段均返回interrupted/130。可通过私有固定manifest以testlab_json登记看板；现场准入与完整性能命令分别执行，不用诊断通过替代验收。
 
 `core` 复用管理专项的 UUID 专属数据库、受限角色和18606/18607两实例。只通过HTTP注册两服务、受认证本地原生Webhook写三告警，再验证非空Inbox/分组/事件草稿、人工事件与重放、角色、本人另一会话撤销及事务审计/导出申请。SQL只建身份与最小授权输入并读回；不写业务或审计结果。所有通知开关关闭。`all`为只读，导出正常及参数验证使用`test`，另断言all写409。实际结果/清理/首次失败经Runner进入看板；小型功能样本不代表性能档、全部166接口、外部权威或CSV owner下载。
+
+`canvas-native` 用独立 UUID 数据库与账号、18608/18609 双正式 API 验证模板消费、Canvas 分支/布局 CAS、节点消息、结论回写及原生 SSE。模板定义是明示的 `synthetic_test_configuration` 配置种子，业务运行结果由公开 HTTP 产生；模型为本地协议 Mock，只证明对应持久化和流协议。缺失的模板 author/import 权威生产者输出 `not_implemented`，因此原生断言全部通过时整体仍可为 blocked。Mock 启动失败与取消的清理有独立回归；不得以该组代替真实模型或生产模板验收。

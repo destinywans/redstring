@@ -670,6 +670,31 @@
       ]
     },
     {
+      "id": "canvas-native",
+      "name": "独立 Canvas / 模板原生 HTTP 功能链（模型协议 Mock）",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "formal_performance_acceptance": false,
+      "formal_24h_acceptance": false,
+      "verification_scope": {
+        "native_http": "10 fixed main Canvas/template/SSE operations; fresh owned UUID DB, ports 18608/18609",
+        "model": "protocol_mock case explicitly emitted; native state persistence only, no real inference proof",
+        "template_definition": "synthetic_test_configuration; owned definition seed, missing author/import/authority producer remains High not_implemented"
+      },
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_canvas_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
+        }
+      ]
+    },
+    {
       "id": "promotion",
       "name": "正式配置提升/受保护GitLab/生产独立导入",
       "type": "integration",

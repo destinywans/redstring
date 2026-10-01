@@ -365,3 +365,9 @@ GET /alert-groups 和 GET /home 的正式调用链仅PG及本地计算，不能�
 ### CP247：第二修复相关完整回归通过
 
 root首临时manifest漏显式DSN引用使e635成为blocked61pass/59skip，原manifest/skip/证据13623903保留，未冒完整PG通过。加prepared专属DSN引用后新aa6a2001于00:15:37–00:21:10Z真正执行完整events/rbac race和相关store/httpapi auth：135pass/0fail/skip，源码6ad893bb始末相同。定向52及最终源码经独立复审无阻断。正式runtime仍旧binary，新的HTTP及三个纯DB列表原k6门槛、完整性能/24h未执行，不能用回归或SQL往返数量声称性能修复。
+
+## CP249：实际新源原负载和Canvas功能证据
+
+修复a94f78f、Go6ad893bb及实际非racebfeb9b98：entry/core303、完整PG/race135、定向52后，原三阶段64cd2def于00:38:19→00:51:52Z完成11P1首页blocked。25真实300.392s/7501/0error/drop，Inbox1500次P95493.445/P99778.760ms，Groups750次474.781/713.562；原纯DB500/2000自动门槛、SSE50/10/60、资源恢复及一致性通过。证据d6ef6fb0-0ce7-4a97-8f16-9e518cba70c2；不能代完整两档18分钟或24h，旧失败保持。
+
+Canvas4a6fd099于00:53:17→00:53:30Z完成34通过/1缺实现。27真实HTTP含19正常/8边界授权幂等，10固定目标主路由及4支持主路由正常消费通过；证据d23a1d7c-e1d4-49d9-a5b1-6f98c93a7bd6。SQL仅身份/最小grant及明示合成模板定义配置，运行graph/message/writeback/SSE由正式HTTP产生；模型为协议Mock。权威模板生产者High缺实现保持blocked；无真实推理/生产模板/大历史恢复/full166承诺。临时UUID数据库/role、独立双API/Mock清理及端口关闭已实际核验。工具取消/Mock未开始服务的cleanup首红→15offline→真实链证据独立保存。

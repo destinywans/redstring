@@ -1,3 +1,20 @@
+## CP-249 · 2026-10-01 · 原25RPS收益实测与Canvas原生链通过
+
+- 修复a94/Go6ad/实际非racebfeb冻结一致，唯一诊断 **64cd2def-431b-4169-9e90-66c1f53ac91b** 00:38:19→00:51:52Z **blocked11P0F1B**。原120/300/300完整执行；25实际 **300.392413459s/7501/0error0drop**，Inbox1500 **P95493.4452593/P99778.75979116ms**、Groups750 **474.78146685/713.56246983ms**，各原500/2000及errors<.001自动k6 gate通过。SSE50正常10慢/60重连、quiet60资源恢复、数据一致性均passed。纯DB分类实际生效，unsupported aggregate曲线缺失不伪造0；raw d0c7b8d1e53a始末6ad，证据 **d6ef6fb0-0ce7-4a97-8f16-9e518cba70c2**/三报告。仅原3阶段diagnostic，不代完整18min两档或24h；首页cap保持blocked，原b9/be0两单路径失败不覆写。
+- Canvas15离线/XHigh复审无阻断后，freshnonce-HMAC/非racebinary/专有PG/18608/09及无其他active核验，串行 **4a6fd099-0873-417f-87b8-6474d7ad80df** 00:53:17→00:53:30Z **blocked34P0F1not_implemented**，27真实HTTP（19normal/8负面），全部10目标main及4support main正常路线通过。非空模板消费/分支/布局CAS409/模型协议Mock节点持久化/回写revision409/原生SSE完成与正文均实测；临时UUID库/role/API/Mock已清理，18608/09实际无listener；始末6ad，证据 **d23a1d7c-e1d4-49d9-a5b1-6f98c93a7bd6**/三报告。
+- 模板definition SQL只synthetic_test_configuration，业务结果HTTP产生；模板author/import权威生产者 **High缺实现**使run诚实blocked，模型是真本地协议Mock、真实推理未验。两新工具取消/cleanup首红→15green→34native证明分开登记 test_tool，非产品Bug。新增可重复正式 `canvas-native` suite/README，不能冒所有166主接口或Canvas大历史恢复覆盖。
+- CP248/新binary303/root69首次调用中断已同步WAN136/138/163及51文档；本条新诊断/Canvas结果继续同步。仅read-only代理核下一有限已有本地producer接口，不跑负载；正式全两档性能为下一阶段，24h尚未开始。证书Oct2 08:58:11Z需窗口前90000秒再次核。WAN152cap/7pausednative/Ollama容量/外部/缺能力与本地余项高待办保持，整体未收口。
+- 不改产品前端、不业务.env/DB、其他项目集群/真实账号通知，不合并部署；.claude保留。Git scoped工具/记录提交后冻结新manifest再原fullperformance，无并行heavy；仅自有run caffeinate随runner退出、不改系统设置。
+
+## CP-248 · 2026-10-01 · 新正式二进制303链通过，原负载诊断执行中
+
+- 修复 **a94f78f1034812b6b63ef0f1f88378ee2fe2aa27** 已推送并精确远端回读，WAN136/138/163及51文档已同步完整135与首DSN阻塞。经fresh nonce/HMAC核旧自有API后实际nonrace重建，新Go **6ad893bb…7437**、binary **bfeb9b985ee4ab07c3008cecd5409c611ff58fed928beba563f082071d6d208c**、runtime338未改。监督 **30985/APIs30986/30987** fresh attested ready，所有旧PID失效，只快照不得发信号；APP11131999及两archives不重种/归档。
+- 新源正式 **0e4b328b-6c12-4aa1-97af-df959644b2b5** 于00:27:57→00:29:06Z **passed303P0F0skip/block**：entry232/core71实际HTTP，source始末6ad，证据 **3f61220b-3c42-4d9a-991d-8ea5b1a0e814**/三报告。不是全166normal或全链证明。freshdoctor53/53、maincertcheckend90000（到Oct2 08:58:11Z）通过；CPU/RSS/FD/PG真实可采，goroutines/heap缺失。
+- root新诊断准入SQL误用product_messages与猜测prefix，且shell无fail-fast，导致检查报错后 **69ca8bf7** 仍被错误启动。root立刻freshSQLite+actualps+nonce/HMAC核仅本runner32550并TERM，00:33:42→00:34:40Z **interrupted4P1B**，未形成完整stage，无验收；私有首stop记录/seed-error保存、登记stop证据，原source_end缺失**不回填**。本次是root调用错误非产品Bug；实际后查PG0running/queued、API5conn/0lockwait、0ownk6残留，无需额外清理/数据删改。
+- 准入修正沿seed.py实际表/prefix查询，APP OID11131999/exactbase100/5000/10000/20、freshHMAC6ad/bfeb、原无active和资源/证书全通过；shell显式set-e保证失败不继续，私有诊断manifest cleanup宽限45s，没改runtime/frozenhelpers/原阈值/负载。唯一 **64cd2def-431b-4169-9e90-66c1f53ac91b /session38213** 于 **00:38:19.376068Z** 执行固定原120warm→300rps10→300rps25、50正常10慢SSE/60重连、恢复一致性；CPU采获require_escalated，资源/冻结/独占caffeinate仅fresh verifiedrunner自动退出，私有wan163-single-query-diagnostic-readmission/run-freeze。仍diagnostic_only，两formal=false，不代两档18min或24h。
+- 新Canvas两files离线初版经XHigh发现工具未启动Mock.shutdown永久等待、SSE KeyboardInterrupt被KeyError覆盖，已实际轻量stdlib socket首红及15定向offline绿/cleanup<1s修复、停止编辑，XHigh复审中；**禁止live至当前性能结束**，不触冻结helpers。模板definition synthetic config可消费测试，author/import生产者、真实推理高待办不关闭。
+- **24h及修后完整两档未开始**；当前未见完整25收益，不凭warmup/SQL数量过早关闭原b9/be0Inbox/Groups失败。原所有失败/skip/blocked保持；WAN152/暂停native7/容量/外部缺实现/main余项/51边界可见，整体未收口。产品前端、业务.env/DB、他人集群/通知不触及，.claude保留，无合并部署。
+
 ## CP-247 · 2026-10-01 · 第二授权修复完整真实PG/race通过
 
 - 修正显式DSN后唯一 **aa6a2001-83ea-448b-84cd-dcc78b41bbc9** 于 **00:15:37→00:21:10Z** 完成 **passed135P0F0skip/block**。完整events/rbac race、相关store/httpapi auth均真实专属PG随机schema执行；Go始末 **6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437** 一致、必要清理无错误。首e635 blocked61P59skip及证据/报告仍原样，不用此后绿改写。

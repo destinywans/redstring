@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-01",
+  "updated_at": "2026-10-01T10:28:07.394281+00:00",
   "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
   "catalogue_sha256": "8e95110f65aca68b1385128e4bbb229b4bea7b499b5690c8eab54181d0229329",
   "coverage_snapshot": {
@@ -3437,6 +3437,125 @@
             }
           ],
           "proof_scope": "独立UUID PG/正式非race API、软件ES256独立双人批准、真实ownedAM每操作只写一次；原上游响应丢失与SIGKILL/新代恢复、台账/审计/原响应精确关联。8主正常和全部marker齐才关闭子包。物理Passkey、批量完整生产者、自然30分钟、多worker竞态和性能/24h另验。"
+        },
+        {
+          "id": "alert-policy-functional",
+          "title": "实际告警策略与空抑制规则；路由和历史前置仍阻塞",
+          "command": "python3 tools/testlab/testlab.py run --suite alert-policy-functional",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "GET /api/v1/alert-groups/{id}/policy",
+            "GET /api/v1/inhibitions"
+          ],
+          "proof_scope": "真实AM已加载配置、HTTP UUID告警及来源绑定，精确revision/ETag、权限/慢上游撤权和503恢复；空抑制206partial、policy200partial保持诚实。当前flat route无环境分支和缺可信7天history仍blocked，正常2/2不判整包通过。",
+          "required_cases": [
+            {
+              "suite": "alert-policy-functional",
+              "name": "alert_policy.source_scope"
+            },
+            {
+              "suite": "alert-policy-functional",
+              "name": "alert_policy.native_ingress"
+            },
+            {
+              "suite": "alert-policy-functional",
+              "name": "alert_policy.policy"
+            },
+            {
+              "suite": "alert-policy-functional",
+              "name": "alert_policy.inhibitions_empty"
+            },
+            {
+              "suite": "alert-policy-functional",
+              "name": "alert_policy.authorization"
+            },
+            {
+              "suite": "alert-policy-functional",
+              "name": "alert_policy.boundaries"
+            },
+            {
+              "suite": "alert-policy-functional",
+              "name": "alert_policy.failure_recovery"
+            },
+            {
+              "suite": "alert-policy-functional",
+              "name": "alert_policy.revocation"
+            },
+            {
+              "suite": "alert-policy-functional",
+              "name": "alert_policy.audit_consistency"
+            },
+            {
+              "suite": "alert-policy-functional",
+              "name": "alert_policy.cleanup"
+            },
+            {
+              "suite": "alert-policy-functional",
+              "name": "alert_policy.formal_chain"
+            }
+          ]
+        },
+        {
+          "id": "rules-read-functional",
+          "title": "真实规则读取与当前采样即时dry-run",
+          "command": "python3 tools/testlab/testlab.py run --suite rules-read-functional",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "GET /api/v1/alert-rules",
+            "GET /api/v1/alert-rules/{id}",
+            "POST /api/v1/alert-rules/{id}/dry-run"
+          ],
+          "proof_scope": "非空正式规则、独立真实Prom当前两个自然样本、精确Decimal窗口oracle、权限/参数/503恢复/双实例撤权/原生审计与清理；仅当前采样窗口，不证明完整6h或24h，observed为辅助。",
+          "required_cases": [
+            {
+              "suite": "rules-read-functional",
+              "name": "rules.source_scope"
+            },
+            {
+              "suite": "rules-read-functional",
+              "name": "rules.real_samples"
+            },
+            {
+              "suite": "rules-read-functional",
+              "name": "rules.http_list_detail"
+            },
+            {
+              "suite": "rules-read-functional",
+              "name": "rules.instant_dryrun"
+            },
+            {
+              "suite": "rules-read-functional",
+              "name": "rules.authorization"
+            },
+            {
+              "suite": "rules-read-functional",
+              "name": "rules.boundaries"
+            },
+            {
+              "suite": "rules-read-functional",
+              "name": "rules.failure_recovery"
+            },
+            {
+              "suite": "rules-read-functional",
+              "name": "rules.revocation"
+            },
+            {
+              "suite": "rules-read-functional",
+              "name": "rules.audit_consistency"
+            },
+            {
+              "suite": "rules-read-functional",
+              "name": "rules.cleanup"
+            },
+            {
+              "suite": "rules-read-functional",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "rules-read-functional",
+              "name": "readonly.complete"
+            }
+          ]
         }
       ]
     },
@@ -3659,6 +3778,62 @@
               "name": "readonly.complete"
             }
           ]
+        },
+        {
+          "id": "invitation-functional",
+          "title": "本地真实SMTP邀请创建、消费与不确定发送",
+          "command": "python3 tools/testlab/testlab.py run --suite invitation-functional",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "POST /api/v1/invitations"
+          ],
+          "proof_scope": "HTTPS SecureCookie/CA、固定UUID本地TLS SMTP、两账户原生消费、权限/重放/双实例重复、DATA丢250/QUIT丢响应/audit失败后pending及即时拒重试；邮件/native/审计核验后关联原callID和响应SHA。真实组织邮箱、自然expiry/pending恢复另验。",
+          "required_cases": [
+            {
+              "suite": "invitation-functional",
+              "name": "invitation.tls_ready"
+            },
+            {
+              "suite": "invitation-functional",
+              "name": "invitation.normal"
+            },
+            {
+              "suite": "invitation-functional",
+              "name": "invitation.acceptance"
+            },
+            {
+              "suite": "invitation-functional",
+              "name": "invitation.authorization"
+            },
+            {
+              "suite": "invitation-functional",
+              "name": "invitation.inputs"
+            },
+            {
+              "suite": "invitation-functional",
+              "name": "invitation.data_response_loss"
+            },
+            {
+              "suite": "invitation-functional",
+              "name": "invitation.quit_response_loss"
+            },
+            {
+              "suite": "invitation-functional",
+              "name": "invitation.audit_commit_failure"
+            },
+            {
+              "suite": "invitation-functional",
+              "name": "invitation.operation_linkage"
+            },
+            {
+              "suite": "invitation-functional",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "invitation-functional",
+              "name": "readonly.complete"
+            }
+          ]
         }
       ]
     },
@@ -3865,47 +4040,38 @@
   ],
   "classification_scope": "逐接口正常HTTP补测的前置分拣，不是后端实现完成度判定；缺实现包括必需非空生产链缺能力，外部真实验收另列。needs_confirmation尚未获得完整正式生产者调用链证明。",
   "latest_review_record": {
-    "checkpoint": "CP269",
+    "checkpoint": "CP272",
+    "at": "2026-10-01T10:29:52.124957+00:00",
     "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
-    "normal_main": 94,
+    "normal_main": 108,
     "total_main": 166,
-    "remaining_main": 72,
-    "normal_auxiliary": 24,
-    "protocol_mock_normal_main": 6,
-    "first_local_normal_queue": 40,
-    "remaining_classification": {
-      "local_ready": 0,
-      "local_environment": 46,
-      "needs_confirmation": 21,
-      "not_implemented": 3,
-      "user_paused": 2
-    },
-    "scenario_accepted_package_ids": [
-      "local-reads",
-      "native-discovery"
-    ],
-    "focused_checks_passed": 5,
-    "focused_checks_total": 6,
-    "evidence_source": "当前Go始末一致的持久证据去重；本记录是Review快照，UI动态核SQLite，不以硬编码数字当结果源。",
+    "remaining_main": 58,
+    "normal_auxiliary": 29,
+    "protocol_mock_normal_main": 8,
+    "first_local_normal_queue": 24,
+    "evidence_source": "持久SQLite当前source始末一致的正常2xx证据；Review快照不替代UI动态统计。",
     "runs": [
       {
-        "id": "bd3632cf-19e6-4ed5-afc1-750a596c1278",
-        "suite": "mfa",
-        "passed": 28,
-        "scope": "current-source isolated PG race; clock-injected expiry, not wall-time window"
+        "id": "48390f22-1f69-443a-b943-3857c161045a",
+        "suite": "alert-policy-functional",
+        "passed": 53,
+        "blocked": 2,
+        "scope": "two partial native read paths; missing route/history prerequisites remain blocked"
       },
       {
-        "id": "e41f9aa0-2757-433c-9fb1-a0861458c2fb",
-        "suite": "content",
-        "passed": 86
+        "id": "ce60208c-71e9-4dd1-a193-2dc1b7c374ab",
+        "suite": "rules-read-functional",
+        "passed": 47,
+        "scope": "two actual current samples only, not six-hour or24h"
       },
       {
-        "id": "87180b9d-45c0-402f-9266-692c7d7e74bf",
-        "suite": "ingress-functional",
-        "passed": 72
+        "id": "e4f89186-59ca-45e1-9745-16dde201c526",
+        "suite": "invitation-functional",
+        "passed": 48,
+        "scope": "loopback TLS SMTP native records; real mailbox/natural expiry remain TODO"
       }
     ],
-    "proof_scope": "正式HTTP正常样本不等于完整接口验收；Trace列表阻塞、全Go回归、完整两档性能、真实连续24h、真实租户/权威与原51整项仍未收口。"
+    "proof_scope": "仅所列有界子场景。主成功样本不等于完整接口验收；当前baseline叶fixture未canonical修复，功能剩余、性能两档、连续24h、真实外部/authority/缺实现/暂停项未闭合。"
   },
   "execution_order": "先定义剩余7包的综合场景验收准入→本地轻型真实组件/完整协议Mock→权限与故障组合/相关回归→重型配置GitOps串行→当前源码完整回归→完整两档性能→连续真实24h；旧性能优先自动化保持暂停。",
   "decision_history": [
@@ -3938,6 +4104,41 @@
       "decided_by": "Codex under user-authorized autonomous choices",
       "decision": "CP270三个独立代理实际执行；静默131、目录54、Passkey/config158等有原始证据。下一邀请采用仅loopback TLS465捕获，因为正式SMTP端口固定465，放弃额外Linux容器接线；先验端口无人且不接管。规则新建本包专属同版Prom与UUID exporter，弥补共享源无授权标签/2s interval前置，共享Prom/AM不变。baseline fixture两行候选已反例验证，待冻结功能窗口结束整合；不拼完整回归。",
       "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437"
+    },
+    {
+      "at": "2026-10-01T10:28:07.394281+00:00",
+      "checkpoint": "CP272",
+      "decided_by": "root under user direct authorization",
+      "decision": "复用两个可见会话并新建映射会话，执行者在独占文件/UUID库/端口内实际执行与最小工具修复；root只集成共享变更，重型/性能/24h串行。",
+      "reason": "用户要求结果不变前提下尽量快，并明确要独立侧栏会话；纠正root唯一现场和过度审批造成的串行。",
+      "threads": [
+        {
+          "id": "01a0f2c9-e88f-7ba0-bf56-1d54273313c2",
+          "scope": "services/topology/resilience",
+          "ports": [
+            18640,
+            18641,
+            18642,
+            18643
+          ]
+        },
+        {
+          "id": "01a0f6f9-d258-7d21-821c-b0881683c29e",
+          "scope": "mapping discover/accept",
+          "ports": [
+            18644,
+            18645,
+            18646,
+            18647
+          ]
+        },
+        {
+          "id": "01a0f2c9-fe91-7372-b8e3-947d17c854f0",
+          "scope": "readonly overall UI/evidence/report QA"
+        }
+      ],
+      "confirmed_status": "three wait_threads active/inProgress; new packages not yet accepted",
+      "supersedes": "CP270 root-only actual execution restriction; original pauses and performance freeze remain"
     }
   ],
   "review_record_history": [
@@ -3997,6 +4198,49 @@
         ],
         "proof_scope": "仅所列当前Go始末一致的正式本地功能样本及明确必需场景；不自动关闭51原缺口、完整两档性能、24h或非空记忆生产者。"
       }
+    },
+    {
+      "checkpoint": "CP269",
+      "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
+      "normal_main": 94,
+      "total_main": 166,
+      "remaining_main": 72,
+      "normal_auxiliary": 24,
+      "protocol_mock_normal_main": 6,
+      "first_local_normal_queue": 40,
+      "remaining_classification": {
+        "local_ready": 0,
+        "local_environment": 46,
+        "needs_confirmation": 21,
+        "not_implemented": 3,
+        "user_paused": 2
+      },
+      "scenario_accepted_package_ids": [
+        "local-reads",
+        "native-discovery"
+      ],
+      "focused_checks_passed": 5,
+      "focused_checks_total": 6,
+      "evidence_source": "当前Go始末一致的持久证据去重；本记录是Review快照，UI动态核SQLite，不以硬编码数字当结果源。",
+      "runs": [
+        {
+          "id": "bd3632cf-19e6-4ed5-afc1-750a596c1278",
+          "suite": "mfa",
+          "passed": 28,
+          "scope": "current-source isolated PG race; clock-injected expiry, not wall-time window"
+        },
+        {
+          "id": "e41f9aa0-2757-433c-9fb1-a0861458c2fb",
+          "suite": "content",
+          "passed": 86
+        },
+        {
+          "id": "87180b9d-45c0-402f-9266-692c7d7e74bf",
+          "suite": "ingress-functional",
+          "passed": 72
+        }
+      ],
+      "proof_scope": "正式HTTP正常样本不等于完整接口验收；Trace列表阻塞、全Go回归、完整两档性能、真实连续24h、真实租户/权威与原51整项仍未收口。"
     }
   ]
 }

@@ -1085,12 +1085,73 @@
     "first_failure_run_id": "64765ee0-bed9-4447-ae77-c132bbd18575",
     "related_failure_run_id": "ba60316b-12c5-415a-b301-ec39023d8616",
     "retest_run_id": "f8a7af32-5b42-4bf3-bdaa-1f58e8fadd12",
-    "fix_commit": "pending",
+    "fix_commit": "59981780b66038c3a02e62d95e038e367fc367fa",
     "product_change_required": false,
     "local_evidence": [
       ".local/testlab/silence-functional-regression/real-emitter-corrected-fixture-first-red.log",
       ".local/testlab/silence-functional-regression/detail-not-found-contract-first-red.log",
       ".local/testlab/silence-functional-regression/detail-not-found-full44-green.log"
+    ],
+    "fix": "https://github.com/destinywans/aiops-canvas/commit/59981780b66038c3a02e62d95e038e367fc367fa"
+  },
+  {
+    "id": "TOOL-ALERT-POLICY-RESOURCE-HIDING",
+    "title": "策略工具将资源隐藏404误期待403",
+    "category": "test_tool",
+    "status": "in_review",
+    "first_failure_run_id": "335d40d6-2ec1-4932-bdda-b884786fda16",
+    "retest_run_id": "48390f22-1f69-443a-b943-3857c161045a",
+    "before": "30P3F；具体资源拒绝由完整调用链隐藏为404not_found，跨环境middleware仍403。",
+    "after": "三个精确工具期待修为404，14离线与原组53P0F；两个来源前置blocked保持，不接受任意4xx或改权限。",
+    "product_change_required": false
+  },
+  {
+    "id": "TOOL-RULES-GENERATION-COLLECTION",
+    "title": "规则工具两代日志和ready结果key冲突导致假失败",
+    "category": "test_tool",
+    "status": "in_review",
+    "first_failure_run_id": "4b92bb80-f48c-4cbe-82ca-a24a846570f9",
+    "related_failure_run_id": "a6d1cdba-b53f-42a3-bb22-37cfe0aba91e",
+    "retest_run_id": "ce60208c-71e9-4dd1-a193-2dc1b7c374ab",
+    "before": "首次O_EXCL原日志存在及cleanup误检查已删除Prom；下一次45P1F是重复readonly.api_ready稳定key，collector不可变规则正确拒绝。",
+    "after": "每代exclusive日志和ready key独立；cleanup精确ownCID/name不存在。24离线先红后绿，原整包47P0F0skip/exit0，不改collector或生产Go。",
+    "product_change_required": false,
+    "evidence_ids": [
+      "62439d30-faf1-4492-9220-66d882740886",
+      "d370a896-1474-4e1a-b7cf-eb9f4c69cc4f"
     ]
+  },
+  {
+    "id": "ENV-INVITATION-LOCAL-TLS465",
+    "title": "macOS主机低端口465无法绑定",
+    "category": "environment",
+    "status": "in_review",
+    "first_failure_run_id": "f00595e0-92b5-478a-9552-d19ff6999f57",
+    "retest_run_id": "e4f89186-59ca-45e1-9745-16dde201c526",
+    "before": "即使escalated主机bind仍PermissionError13；原2P3F保留，未sudo或改系统。",
+    "after": "现有固定python image仅自有Docker loopback465/0.5CPU128MiB/精确CID私有挂载，原组实际48P0F0skip并清理；证明本地替代环境可用，不称主机bind已修。",
+    "product_change_required": false
+  },
+  {
+    "id": "TOOL-INVITATION-OUTER-CONTRACT-CLEANUP",
+    "title": "邀请工具遗漏外层all环境拒绝及Docker错误大小写",
+    "category": "test_tool",
+    "status": "in_review",
+    "first_failure_run_id": "b5d7d0e9-a615-4e0d-b3ef-f07651c1e37e",
+    "retest_run_id": "e4f89186-59ca-45e1-9745-16dde201c526",
+    "before": "23P5F；外层env_view_only应409而非内部handler422，清理实际CID已删却因stderr小写误报。",
+    "after": "完整链精确409且零SMTP/台账不变；精确不存在错误匹配只规范大小写。27离线与原48P通过，三个UUID DB/roles/连接、持有进程/CID/端口全部无残余。",
+    "product_change_required": false
+  },
+  {
+    "id": "TOOL-PRIVATE-MANIFEST-SCOPE",
+    "title": "私有manifest清理上限与缺口关联录入错误",
+    "category": "test_tool",
+    "status": "in_review",
+    "first_failure_run_id": "cf765613-b096-4fb5-86c3-c092982a02cb",
+    "related_failure_run_id": "aef876f3-0b2c-4294-b36e-eb69f0da32f9",
+    "before": "cleanup_seconds不是Runner有效键；cleanup_grace_seconds60超过45在资源前被阻；邀请private误关联模型gap6。",
+    "after": "正式manifest均有效cleanup_grace_seconds45，不放宽Runner；invitation归gap5/46，目录归3/4/46。原raw manifests/results不改，旧误关联不得作模型验收。",
+    "product_change_required": false
   }
 ]

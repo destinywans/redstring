@@ -25,6 +25,9 @@ python3 tools/testlab/testlab.py run --suite connectors-functional
 python3 tools/testlab/testlab.py run --suite security-protocol
 python3 tools/testlab/testlab.py run --suite directory-protocol
 python3 tools/testlab/testlab.py run --suite silence
+python3 tools/testlab/testlab.py run --suite rules-read-functional
+python3 tools/testlab/testlab.py run --suite invitation-functional
+python3 tools/testlab/testlab.py run --suite alert-policy-functional
 python3 tools/testlab/testlab.py run --suite promotion
 python3 tools/testlab/testlab.py run --suite identity,invitations,vault
 python3 tools/testlab/testlab.py run --suite local-live-gates,jenkins
@@ -99,3 +102,5 @@ python3 tools/testlab/profile.py --owner testlab-3cbde3095125 --run <同一操�
 `directory-protocol` 在独立 UUID 数据库、双正式 V3 和只对子进程生效的 HTTPS CONNECT/TLS Mock 中验证目录分页、旧快照拒绝、撤权及 MFA 提醒。只允许两个固定测试上游，不做 DNS 透传，不修改系统 CA。发送接受后丢响应或本地审计提交失败必须保留不确定结果；并发请求可得到已处理或原生 pending 拒绝，须读回具体状态和外部发送次数。两个主接口正常证据记为协议 Mock，真实通讯录、租户权限、完整 MFA 权威、收件人阅读及未知结果人工恢复仍为高优先待办。
 
 轻型功能工作包可由独立代理并行现场执行，但须分配数据库/schema、端口和私有 lease，并保持源码冻结。不同数据库仍共享 PG 的 checkpoint 和磁盘资源；清理超时须保留失败、读回实际状态后显式恢复，不自动重试掩盖。性能、持续测试及重型组件仍独占资源。
+
+CP272已交付三个有界包：`rules-read-functional`（当前真实样本即时dry-run，不是六小时历史或24h）、`invitation-functional`（仅loopback TLS465本地SMTP、原生台账和审计）与`alert-policy-functional`（两partial正常，缺route/history仍blocked）。独立会话分别负责服务/拓扑/韧性、映射发现/接受、只读看板验收；每包独占新增文件、UUID库与端口，root只整合共享台账与生产修复。轻型功能现场可并行，重型、性能和持续测试仍串行准入；实际缺口/外部/缺实现保持可见，不以线程数或正常样本数冒整体完成。

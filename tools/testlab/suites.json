@@ -1014,15 +1014,86 @@
           ],
           "parser": "testlab_json",
           "timeout_seconds": 900,
-          "cleanup_seconds": 45
+          "cleanup_grace_seconds": 45
         }
       ],
       "gap_ids": [
         3,
         4,
-        6,
         46
       ]
+    },
+    {
+      "id": "alert-policy-functional",
+      "name": "真实告警组策略/空抑制配置与缺前置降级",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_alert_policy_functional_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        10,
+        14,
+        46
+      ],
+      "verification_scope": "两正常仅当前AM策略200partial与空inhibitions206partial；route树缺环境分支与7天history仍显式blocked，不证明运行抑制/完整通知历史。"
+    },
+    {
+      "id": "rules-read-functional",
+      "name": "独立真实Prometheus规则读取与即时dry-run",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_rules_read_functional_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        8,
+        11,
+        12,
+        46
+      ],
+      "verification_scope": "本UUID原生服务及独立同版Prometheus自然当前样本；主list/detail/instant dry-run与辅助observed分开。不证明六小时完整历史、连续24h trial、旧共享规则、MR或通知。"
+    },
+    {
+      "id": "invitation-functional",
+      "name": "正式成员邀请与消费 / HTTPS及本地TLS465捕获",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_invitation_functional_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        5,
+        46
+      ],
+      "verification_scope": "固定本地SMTP捕获及双V3 HTTPS、原始调用响应+邮件/native台账/审计一致后才qualified；真实组织SMTP送达读取、自然24h code expiry/2min pending恢复另验。旧private manifest误关联gap6是工具分类错误，不作模型验收。"
     }
   ]
 }

@@ -1,3 +1,12 @@
+## CP-272 · 2026-10-01 · 独立可见会话并行，功能覆盖108/166
+
+- 用户再次澄清需要侧栏独立会话及“结果不变尽量快”；root已复用HTTP会话01a0f2c9-e88f（服务/拓扑/韧性18640–43）和看板QA会话01a0f2c9-fe91（只读），新建01a0f6f9-d258（mapping discover/accept18644–47）。一次compact wait确认三者active/inProgress，后续看到两执行者准入和实际调用链核对。各自新增两文件/private目录/fresh UUID库，授权本人实际执行、最小工具修和原例复验；root只整合共享文件，不再唯一现场。禁止重复已有六连接器正常证据冒新增；允许轻包并行，性能/24h/重型继续独占，aiops-24与native CI/CD保持暂停。
+- 策略最终 **48390f22 53P0F+2blocked**，10:02:43.615327→10:03:03.022471Z；真实AM loaded/revision/ETag与UUID原生告警、policy200partial及空inhibitions206partial、权限/503恢复/慢响应撤权通过。两缺口为flat route无环境分支和缺可信7天history，route503/preview501明确blocked，不能判整包通过。首次cf76560s预算在资源前阻；335d30P3F是工具误期待403而完整资源链应404not_found，14离线与原组复验；无生产权限修改。
+- 规则最终 **ce60208c-71e9-4dd1-a193-2dc1b7c374ab 47P0F0skip/exit0**，10:16:04.445150→10:16:54.610713Z；list/detail/即时dry-run三主、observed辅助；独立同版Prom1CPU512MiB真实当前两个自然样本、15秒评价/Decimal精确oracle，权限/参数/503两窗口恢复/双实例撤权/审计全绿。原aef预算、4b92日志O_EXCL/cleanup误检查已删source、a6d145P1F重复immutable ready keys首红保持；仅工具世代日志/keys/精确cleanup修，24离线先红后绿。原command d370a896、准确bounded proof62439d30，旧误选2bab历史artifact记录更正而未改原结果。四持有API/UUID DBrole/Prom exactCID/name/五端口全部清理，非6h完整历史/旧共享rule/24h证明。
+- 邀请最终 **e4f89186-59ca-45e1-9745-16dde201c526 48P0F0skip**，10:19:47.234734→10:20:05.933720Z；27离线，28HTTP/5delayed-qualified（主invite3、辅accept2），原callID/responseSHA/mail/native/audit proof逐项关联。5SMTP=5attempt：2接受用户viewer/无自动范围授权，1未消费delivered、1DATA丢250 superseded、1audit失败pending；QUIT已250成功、即时重试/旧码409，显式新HTTP可独立新邮件，不掩自动重发。host低端口f005权限失败保留，用已有精确python镜像仅自有Docker loopback465/0.5CPU128MiB/private mounts代替，不sudo或改系统。b5d23P5F的外层all环境应409env_view_only而非内部422、Docker不存在stderr大小写误报分别最小修；原红/报告保留。三个childUUID库roles/conns、两heldAPI/CID/四端口全部精确无残余；真实邮箱、自然24h expiry/2min pending恢复仍待办。
+- 三组Go始末 **6ad893bb…**、binarybfeb/mainruntime338保持，doctor/HMAC/own资源证明实际读取；root汇总正式manifest与稳定场景focused gates，并将邀请错误private gap6关联纠正为5/46（旧manifest/results不改、不能作模型验收），目录有效cleanup_grace45而非无效cleanup_seconds。所有临时凭据/运行数据仅.local/0600，产品web/.claude/业务.env/DB/真实外部通知/其他集群未动。
+- 当前SQLite/UI **108/166真实主正常、29辅助、8协议Mock**；缺58、首次本地24（32local队列含8已Mock）。仅正常成功子场景覆盖，不是项目完成率；基线fixture两行候选仍未canonical，必要场景/性能完整两档/连续86400均未闭合。独立可见会话继续补测，root收包后做源码修复与受影响验证；不合并部署。root相关工具与整体聚合 **87P0F/2.948s**、diff检查通过；WAN138与原51已同步并行决定，最终提交/远端回读与结果更新随后追加。
+
 ## CP-271 · 2026-10-01 · 实际并行功能交付，整体覆盖102/166
 
 - 用户催促后纠正“代理只离线、root唯一现场”的过度串行：三个独立代理实际运行专属数据库/schema、端口和lease的工作包；root负责集成，性能/24h及重型仍独占且未启动。用户自主选择授权持续，旧aiops-24/native CI/CD暂停不变；Go6ad/bfeb/runtime338保持，产品web/.claude/业务.env/真实账号通知均未动。
@@ -7,6 +16,7 @@
 - 静默首次 **64765ee0 4P2F** emit模式字段重复、**ba60316b 50P2F** 主proposal缺失errorcode期待错；两次未到AM写且cleanup绿。精确工具修后44 unit/TLS绿，完整 **f8a7af32 131P0F0skip**、09:38:28.246544→09:40:28.695412Z、79HTTP/35目标语义qualified、8主正常。normal/loss/crash三链均独立双人软件ES256批准、实际AM创建与取消各3次/每operation1；7提案、12票、6决定/claim、3createops、85审计读回。三代heldPopen退出、UUID库role及18595/6/7无残余，3AM记录expired保留；不发新signal/真实通知，不代批量/物理Passkey/自然expiry/多worker/24h。原红与三报告、delivery-readback保留。
 - 现场整体 **102/166真实主正常、27辅助、8协议Mock**；缺64中首次本地 **30**，8已Mock真实来源仍待验；父包与有界子包分别判定。新增silence八稳定marker子包，不关闭51整项。旧完整2510/79不作当前source验收，完整两档性能/连续86400仍未完成。
 - 当前并行后续：邀请正式HTTPS+仅loopback TLS465捕获（生产端口固定，避免额外Linux容器接线；端口占用则阻塞，不接管），真实accepted后丢响应/本地audit失败；规则用本UUID新专属同版轻型Prom/exporter，补共享rule无授权标签/2s interval前置，不改共享源；AM policy与空inhibitions两正常可先做，route树/7天preview前置不足保明确blocked，不伪造history。各作者新两文件独占，root快审freeze后本人现场；完整doctor前后与关键边界，避免逐HTTP全53重复开销。
+- 静默与台账提交 **59981780b66038c3a02e62d95e038e367fc367fa** 已push并exact lsremote核验；WAN136/138/139与原51文档均CP271同步成功，WAN138/文档读回精确commit和102/166。交付证明 **a9112050-2b45-48bf-a86b-c9978cf0d71c**；整体HTML/JSON/MD三HTTP200全文私有导出（JSON7.63MB不截断入证据），实际浏览器102/166、7/8子包与blocked可见、JSerror0，截图保留。
 - 下一步收以上有界新包、整合准确缺口与Linear；候选夹具未canonical、剩本地与caps未闭合，整体未收口。不恢复老自动化、合并或部署。提交/推送与Linear实际收据随后追加。
 
 ## CP-270 · 2026-10-01 · 进行中：当前源完整回归与下一批功能包

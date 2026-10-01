@@ -1,3 +1,28 @@
+## CP-261 · 2026-10-01 · 新固定生成器4CPU档81离线通过，PG尚未调整
+
+- 原2CPU full50失败9d982a0d与全部原证据保留；只读独审认可一次**联合4CPU容量复验**有cgroup证据支持，条件为无active、fresh nonce/HMAC、VM实际12CPU/空闲、ownedPG exactCID/name/image/mount/OID/PID/原2CPU2GiB、按CID改CPU并精确读回。不认为quota是唯一根因，不关闭待确认的Go池Acquire/授权SQL热点。
+- High仅perf K6_CPUS **2→4**、generator tests两个受影响声明/command期望及1固定不受env覆盖/OOM不自动retry例；test_perf.py保持原SHA。首红81例76P5F raw保留，最终 **81P0F0skip/raw5.838s/外层5.998786s**，Go6ad始末同，实际Python子进程+Docker stub，未真实调整PG或执行load。metadata/raw0600 `.local/testlab/k6-cpu4-offline/2da10867-07e6-4e36-b748-c5e1335d736a`，原80全部其他行为保持。
+- perf **365884cf66b254d3db37fae794b18dc8130d3a82db0c219757848d3a316e08d6**、test_perf **3e27885a472892ef0f777d0f8a7826330506ce57cf1ad396124dc144087b68d3**、generator **66ac7f3a1f6b3159a79f267c5eb7c1a7979a4aef4a546b5f5029c7dc1149847f**。root已核diff/首红绿/资源声明与命令一致，没有JS/数据/VUs/请求/速率/时长/门槛/健康/清理变更。原K6内存仍4GiB，新元数据只declared，不冒实际HostConfig。
+- 当前无active负载/24h，PG仍2CPU/2GiB、正式Go6ad/bfeb/338/API47577/78/79/BASE11973905/三archive/暂停自有GitLab保持。本工具scoped提交后才能guarded真实PG CPU4调整，再newrecipe/freeze/原50/300。两配额同变只验证联合容量档，不归因单一组件、不覆写旧环境证据、不宣称生产SLA。健康/SSE任何失败不得soak；原两档未通过、24h未开始、整体未收口。
+
+## CP-260 · 2026-10-01 · 原50窗口完成但健康/SSE失败，CPU配额节流已取证
+
+- 原诊断 **18a5d739-54cd-4bc8-87b1-750fef377352** 实际 **03:50:23.402375→03:56:52.400992Z failed7P4F1Homeblocked**；不是4个独立Bug。Go6ad始末同，原50/300 k6真实 **306.735441337秒、10904 iterations、4097 dropped、unexpected error0、exit0/OOMfalse**，自己的a944e9ea精确CID已删除/attachreaped。主source/API/helper/binary/runtime不变，完整窗口measurement_completed=true但已认证readyfalse两次锁存、health_degraded=true，绝不计通过。全原始frame证据a8ebfcf8-acc7-42fa-adf3-60a9f3e6e257；凝缩证明 **9d982a0d-63bb-461c-a38d-7fe69aabe0ac**/私有actual-diagnostic-summary.json。三报告已导出。
+- SSE50正常10慢实际峰值达标但 **21稳定窗口违反**，最后正常半数25客户端无15秒内进展，125重连/零protocolerror；因此SSE失败，不隐藏为普通断线。停载原 **60秒资源恢复通过**（PG9→21≤29、FD10/12→18/16在各+10内，锁/队列/运行0），一致性通过；fresh停后同HMAC47577/78/79 readytrue、CPU0/锁队列0不洗掉失败。
+- 额外只读observer原版本2eb523e1因OID JSONstring与int比较错误误报canonical_database_identity_drift、0sample结束；firstfile5b0b49保留。新私有v2 **4dd3ce997354a2bc4b20f98fd555b7f4fc286e2b34bf9b7e22e1acadc7b65676**仅认可同精确decimal/intOID、7离线正负检查，其他owner/CID/source/tag守卫不变；实际 **25samples/03:52:40.218→03:55:40.539Z**，原负载结束immutable_container_not_running止，明示未覆盖起始2分钟且不是formal基线。实际PG **2CPU/2GiB**，k6 **2CPU/4GiB**；PGCPU中位210.37%、k6中位201.72%（Docker短窗口可>配额），完整样本实际memory_usage峰值以原证据为准：k6 1,393,716,888B（约1.30GiB），无OOM。资源memory_usage不是RSS、pool内部wait仍未采。
+- 实际独立5秒cgroup计数差：PG54period/53throttled、19,539,409us累计线程节流；k652period/38throttled、12,715,783us。**CPU配额限制真实存在**，不能把线程累计节流秒数当墙钟不可用或断言是健康失败唯一原因。多scope授权长事务约每scope3SQL/同业务池health Ping是已读源码候选；PG无lockwait不证明无Go池Acquire排队，相关内部计数缺失，不冒生产rootcause已确认。
+- 自主选择一次显式新CPU容量档准备：仅本ownedPG同CID/image/memory/数据CPU2→4及可复现k6 CPU2→4，原请求、VUs、时长、SSE、权限与阈值保持；停载时操作/freshVM12CPU headroom/owner identity/守卫及前后收据，任何未满足不执行，不动host或他人组件。**目前PG仍2CPU、工具首红候选正在offline，尚未实际调整或新load**；独审决策待回。新档必须另外run/记录环境，不能覆盖旧2CPU失败或称生产SLA，不自动增加到更高配额。
+- CP258根代理metadata证据f9d2f8f4因Store根参数误写到嵌套私有台账、未进入真实看板；原保留，仅记录更正，新 canonical proof **0673fba7-509e-464c-9560-d67873632aaf** 已在真实Store/root关联ce56，不改原cases/status。这是记录工具操作错误，不是产品/原性能pass。上次root只读读actual误当dict被str拒绝，不影响任何运行，现从完整raw terminal frame解析。
+- 原两档性能**未通过**、24h**未开始**、整体**未收口**。无activequeued/running、APP11973905 exactBASE/三archive/暂停自有GitLab保持；newCPU候选清关/准入后再新original50，之后root门控base-only五阶段→scale-only。WAN152cap/暂停7native/Ollama/外部/权威缺能力/本地必要余项保留，无产品前端/业务.env或DB/其他集群/真实账号通知、合并部署，.claude不动。
+
+## CP-259 · 2026-10-01 · 原50RPS完整窗口诊断启动，性能仍未收口
+
+- CP258工具与记录已 **dad6fff42e3ca874e3557603ffab93862107960a** 提交推送，精确lsremote一致；WAN136/138/163/51同步。80offline绿/独审为工具证据，登记f9d2f8f4-c663-40be-9de0-7bcaf0181113附原ce56但不改历史cases/counts/status。最终perf22fbb604、Go6ad/bfeb/338保持。
+- 新不可变v3 recipe **12c47c0a9075282b5f94a3a50456c1bd08fd89ce0642da421edbda1ea47f8625**，manifest **8b0fb5ae10cce967e7323ac42277b3ac0e6a690d90633e9d31f23b4f997b4e90**，只新toolSHA/新freeze，不覆盖原1g/4g/v2。root误加doctor --json及PG OID字符串/int断言均由set-e阻止在run前，没有seed/load；私有corrected doctor/admission记录保留。正式fresh doctor53、SQLite0active、HMAC47577/78/79、实际bfeb/Go6ad、CPU RSS FD PG可采、cert checkend90000、MemAvailable8,022,949,888B≥6GiB、APP11973905 exact100/5000/10000/20均准入。
+- 唯一 **18a5d739-54cd-4bc8-87b1-750fef377352** 于 **2026-10-01T03:50:23.402375Z** 开始原50RPS/300秒diagnostic_only，session78036；actual自己的k6 CID a944e9ea8c5603352fb1fc120548f087e9d4094b367ed7b6d05f6353b66fe2f7，work ff532d9b08b0/rps50。健康退化锁存为失败，不以跑满计通过；SSE50正常10慢、恢复60/一致性仍需终态验证。禁止重复run、改冻结Go/helper/runtime/API或并行heavy。
+- root另启动只读extra PG/k6 observer source2eb523e1，绑定本run及PG immutableCID c15f900d/Image9f6f5e8f，最长360秒/命令≤5秒，只资源/等待聚合和md5，不SQL正文；**额外诊断load，不能冒正式性能基线或pool内部wait证明**。实际完成证据待收，不称采集成功。自有GitLab暂停/三archive保留，不影响本次API/PG测试。
+- 原完整两档性能**未通过**、24h**未开始**、整体**未收口**。待真实原50终态/健康/Exit OOM/恢复/一致性/source_end/ownCID清理，分析实际退化原因后再原base-only五阶段/结果闸/scale-only。不放宽门槛、只保留明确WAN152 cap blocked、不自动规模seed或soak；外部/暂停7native/缺实现/Ollama/本地必要余项仍高待办。无产品前端/业务.env或DB/其他集群/真实通知、合并部署，.claude保留。
+
 ## CP-258 · 2026-10-01 · 健康与身份失败传播闭环，80离线通过及独审无阻断
 
 - CP257的72候选未提交/live；实用metrics签名采样交错首红后，77绿只关闭显式高负载采样漏锁存。root反向检查及XHigh再确认默认25/soak同类HIGH工具问题：frozen healthy→metrics实读signed unready/坏HMAC被CPU/FD except吞为missing→恢复，可能误passed；没有其他历史状态守卫覆盖。这是已确认测试工具路径，不能据此倒推既有真实运行失败或篡改结果。

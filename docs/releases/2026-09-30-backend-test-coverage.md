@@ -397,3 +397,11 @@ Go6ad893bb、非racebfeb9b98/runtime338e1478保持。正式performance1a998623�
 原72/77候选均未提交或真实使用，全部红绿0600保留；最终80P0F0skip（raw5.698s，外层5.8353s），Go6ad始末不变，XHigh定向无阻断。实际metrics/identity+签名transport stub、本地Python子进程和CID清理夹具，非真实Docker/PG/API/24h。最终perf SHA22fbb6042e38d24a9543a4e12fc69673927f8b2186ea2b3f27f46734d840538a；首红k6-strict-metrics-1d2ebdb8，绿k6-strict-metrics-offline/a0b22821。
 
 当前无active负载，源/正式API/基础11973905/三历史库/暂停自有GitLab不变。下一步新不可变原50诊断并只读取PG/k6容量证据，再原base-only五阶段/明确结果闸/scale-only。两档性能未通过、24h未开始、整体未收口；暂停域、外部、缺实现及WAN152容量边界继续待办。
+
+## CP260–261 · 原高负载完整失败与联合CPU容量档
+
+18a5d739原50/300于03:50:23→03:56:52Z failed7P4F1Homeblocked，Go6ad始末相同；k6实际306.735s、10904请求、4097调度丢弃、0非预期HTTPerror，exit0/OOMfalse，自己的CID清理。健康false两次锁存、SSE21窗口违反，原60秒恢复与一致性通过。证据9d982a0d与全rawa8eb及三格式报告保留。额外observer25采样实际PG2CPU2GiB、k62CPU4GiB，两份5秒cgroup差证实频繁配额节流；内存usage峰k6约1.30GiB不是RSS。只支持容量约束假设，未证明唯一根因或Go池Acquire队列。
+
+独立只读评估认可一次明确联合4CPU容量复验。仅生成器固定CPU2→4、内存4GiB及所有原负载/门槛保持；81offline绿/原81首红5F保留，非实测PG修改或性能证明。当前PG仍2CPU，只有无active/freshHMAC/VM实际空闲/精确ownedCID-image-volume-OID-原limits/readback后才调整同一PGCPU；新recipe、freeze和run，不覆盖旧2CPU结果，不直接启动24h。完整性能未通过、24h未开始、整体未收口。
+
+记录纠正：CP258证据f9d2因Store根参数错误落到嵌套私有台账，原保留；正确canonical证据0673fba7-509e-464c-9560-d67873632aaf已进入真实看板，关联原ce56但不修改其cases/status。观察器首份0sample OID string/int误报也保留，新私有v2仅接受同精确OID，额外取证不冒formal基线。

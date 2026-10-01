@@ -10,7 +10,7 @@ from faults import validate_identity
 ROOT=Path(__file__).resolve().parents[2]
 K6_IMAGE='grafana/k6:1.5.0@sha256:2072ea9eafa596532d9aee0cc0e0a50cfb0e7fb703981a46179af5f4f22c5ea4'
 K6_MEMORY='4g'
-K6_CPUS=2
+K6_CPUS=4  # Fixed owned-generator diagnostic capacity; not backend SLA acceptance.
 K6_RELEASE='https://github.com/grafana/k6/releases/tag/v1.5.0'
 STOP=threading.Event()
 DIAGNOSTIC_BUDGET=3

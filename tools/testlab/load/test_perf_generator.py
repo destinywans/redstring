@@ -141,13 +141,23 @@ class GeneratorLifecycleTest(unittest.TestCase):
         self.assertTrue(any(row[0]=='perf.rps50.cleanup' and row[1]=='failed' for row in self.rows))
     def test_resource_limits_and_original_generator_contract_unchanged(self):
         self.failure();create=next(c for c in self.commands if c[1]=='create')
-        for flag,value in (('--cpus','2'),('--memory','4g'),('--user','0:0')):self.assertEqual(create[create.index(flag)+1],value)
+        for flag,value in (('--cpus','4'),('--memory','4g'),('--user','0:0')):self.assertEqual(create[create.index(flag)+1],value)
         self.assertIn('RATE=50',create);self.assertIn('GATE=0',create);self.assertIn(perf.K6_IMAGE,create)
         self.assertEqual(create[-3:],['run','--quiet','/load.js'])
         self.assertTrue(all('private-test-secret' not in str(cmd) for cmd in self.commands))
 
     def assert_declared_resources(self,value):
-        self.assertEqual(value,{'memory_limit':'4g','cpus':2,'image':perf.K6_IMAGE,'owner':self.data['owner'],'evidence_mode':'declared_config'})
+        self.assertEqual(value,{'memory_limit':'4g','cpus':4,'image':perf.K6_IMAGE,'owner':self.data['owner'],'evidence_mode':'declared_config'})
+    def test_fixed_four_cpu_profile_cannot_be_overridden_or_retry_oom(self):
+        with patch.dict(os.environ,{'K6_CPUS':'9','K6_MEMORY':'99g'}):error,stored=self.failure()
+        create=next(c for c in self.commands if c[1]=='create')
+        self.assertEqual(create[create.index('--cpus')+1],'4')
+        self.assertEqual(create[create.index('--memory')+1],'4g')
+        self.assert_declared_resources(stored['generator']['declared_resources'])
+        self.assertTrue(stored['generator']['container']['state']['OOMKilled'])
+        self.assertEqual(stored['generator']['proc_returncode'],137)
+        self.assertEqual(sum(c[1]=='create' for c in self.commands),1)
+        self.assertFalse(any(row[0]=='perf.rps50' and row[1]=='passed' for row in self.rows))
     def test_oom_with_new_declared_memory_remains_failed_and_never_retries(self):
         error,stored=self.failure()
         self.assert_declared_resources(stored['generator']['declared_resources'])

@@ -9,6 +9,8 @@ from backend import control_proof
 from faults import validate_identity
 ROOT=Path(__file__).resolve().parents[2]
 K6_IMAGE='grafana/k6:1.5.0@sha256:2072ea9eafa596532d9aee0cc0e0a50cfb0e7fb703981a46179af5f4f22c5ea4'
+K6_MEMORY='4g'
+K6_CPUS=2
 K6_RELEASE='https://github.com/grafana/k6/releases/tag/v1.5.0'
 STOP=threading.Event()
 DIAGNOSTIC_BUDGET=3
@@ -113,7 +115,7 @@ def dashboard_metrics(actual,name=None):
             'throughput_rps':value('iterations','rate'),'p50_ms':value('http_req_duration','med'),
             'p95_ms':value('http_req_duration','p(95)'),'p99_ms':value('http_req_duration','p(99)'),
             'error_rate':actual.get('unexpected_error_rate'), 'bounded_write':{'error_rate':value('bounded_write_errors','rate'),'p50_ms':value('bounded_write_latency','med'),'p95_ms':value('bounded_write_latency','p(95)'),'p99_ms':value('bounded_write_latency','p(99)')}, 'dropped_iterations':actual.get('dropped_iterations'),
-            'generator_seconds':actual.get('generator_seconds'), 'resources':actual.get('resource_samples',[]), 'full_sample_count':actual.get('full_sample_count',len(actual.get('resource_samples',[]))), 'resource_evidence':actual.get('resource_evidence'), 'resource_trends':actual.get('resource_trends'),
+            'generator_seconds':actual.get('generator_seconds'), 'declared_generator_resources':actual.get('generator',{}).get('declared_resources'), 'resources':actual.get('resource_samples',[]), 'full_sample_count':actual.get('full_sample_count',len(actual.get('resource_samples',[]))), 'resource_evidence':actual.get('resource_evidence'), 'resource_trends':actual.get('resource_trends'),
             'missing':actual.get('resource_missing',sorted(set(k for sample in actual.get('resource_samples',[]) for k in sample.get('missing',[])))),
             'trial_window':actual.get('trial_final'), 'resource_recovery':actual.get('resource_recovery')}
 
@@ -406,8 +408,12 @@ def k6_container_state(name,owner,container_id=None,image_id=None):
         else:safe[key]=None
     return {key:value[key] for key in ('id','name','owner','configured_image','image_id')} | {'state':safe}
 
+def k6_declared_resources(owner):
+    # This is the creation contract, not an observed Docker allocation or performance acceptance.
+    return {'memory_limit':K6_MEMORY,'cpus':K6_CPUS,'image':K6_IMAGE,'owner':owner,'evidence_mode':'declared_config'}
+
 def k6_generator_evidence(name,owner,proc,container=None):
-    value={'proc_returncode':proc.poll() if proc is not None else None,'container':None,'missing':[]}
+    value={'proc_returncode':proc.poll() if proc is not None else None,'container':None,'missing':[],'declared_resources':k6_declared_resources(owner)}
     if cancel_requested():
         value['captured_identity']={key:container.get(key) for key in ('id','image_id')} if container else None
         value['missing'].append('cancelled_state_inspection_skipped_for_owned_container_cleanup');return value
@@ -539,7 +545,7 @@ def k6(data,run,stage,rate,duration,gate=False,streams=None,hooks=None,strict_so
     work=Path(data['perf_work'])/run/stage;work.mkdir(parents=True,mode=0o700,exist_ok=True)
     # Docker reads this generated file from a private mount. Tokens never enter command arguments/env/stdout.
     private(work/'workload.json',{'base_urls':data['base_urls'],'environment':data['environment'],'users':data['users'],'password':data['perf_password'],'excluded_aggregate_paths':data.get('excluded_aggregate_paths',[]),'aggregate_measurement_supported':data.get('aggregate_measurement_supported',True),'force_relogin':stage=='self_check'})
-    command=['docker','create','--name',name,'--label','aiops.testlab.owner='+data['owner'],'--user','0:0','--cpus','2','--memory','1g','-v',str(work)+':/private','-v',str(ROOT/'tools/testlab/load/traffic.js')+':/load.js:ro','-e','RATE='+str(rate),'-e','DURATION='+str(duration)+'s','-e','GATE='+('1' if gate else '0'),'-e','SELF_CHECK='+('1' if stage=='self_check' else '0'),K6_IMAGE,'run','--quiet','/load.js']
+    command=['docker','create','--name',name,'--label','aiops.testlab.owner='+data['owner'],'--user','0:0','--cpus',str(K6_CPUS),'--memory',K6_MEMORY,'-v',str(work)+':/private','-v',str(ROOT/'tools/testlab/load/traffic.js')+':/load.js:ro','-e','RATE='+str(rate),'-e','DURATION='+str(duration)+'s','-e','GATE='+('1' if gate else '0'),'-e','SELF_CHECK='+('1' if stage=='self_check' else '0'),K6_IMAGE,'run','--quiet','/load.js']
     log=open(work/'k6.log','w');os.chmod(work/'k6.log',0o600)
     proc=None;container=None;acquisition_attempted=False;outcome=None;next_metric=started;next_hook=started;next_chat=started;next_login=started+max(1,min(u['session_expires_at'] for u in data['users'])-time.time()-300);resources=[];hook_stats={'dryrun_calls':0,'webhook_calls':0,'chat_turns':0,'relogins':0,'failures':0,'chat_e2e_protocol_mock_ms_total':0,'chat_e2e_protocol_mock_ms_max':0,'model_evidence_mode':'protocol_mock'};resource_path=work/'resources.jsonl'
     resource=open(resource_path,'w');os.chmod(resource_path,0o600)
@@ -597,7 +603,7 @@ def k6(data,run,stage,rate,duration,gate=False,streams=None,hooks=None,strict_so
                         session=__import__('hashlib').sha256(u['cookie'].encode()).hexdigest()
                         sql(data,f"UPDATE v3_conversation_replies r SET initiating_session_hash={quote(session)} FROM v3_conversations c WHERE c.id=r.conversation_id AND starts_with(c.id,{p}) AND c.owner_id={quote(u['id'])} AND r.state='running';")
                     streams.data['users']=data['users']
-            result('perf.'+stage,'running',{'stage':stage,'rate_rps':rate,'elapsed_seconds':round(now-started,1),'planned_seconds':duration,'source_sha':data['source_tree_sha'],'sse':streams.snapshot() if streams else None,'hooks':hook_stats,'resources':resources[-1] if resources else None},started)
+            result('perf.'+stage,'running',{'stage':stage,'rate_rps':rate,'elapsed_seconds':round(now-started,1),'planned_seconds':duration,'source_sha':data['source_tree_sha'],'sse':streams.snapshot() if streams else None,'hooks':hook_stats,'resources':resources[-1] if resources else None,'declared_generator_resources':k6_declared_resources(data['owner'])},started)
             STOP.wait(2 if stage=='self_check' else 10)
         elapsed=time.monotonic()-started
         summary_path=work/'summary.json'

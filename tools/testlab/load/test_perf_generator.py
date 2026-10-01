@@ -129,10 +129,38 @@ class GeneratorLifecycleTest(unittest.TestCase):
         self.assertTrue(any(row[0]=='perf.rps50.cleanup' and row[1]=='failed' for row in self.rows))
     def test_resource_limits_and_original_generator_contract_unchanged(self):
         self.failure();create=next(c for c in self.commands if c[1]=='create')
-        for flag,value in (('--cpus','2'),('--memory','1g'),('--user','0:0')):self.assertEqual(create[create.index(flag)+1],value)
+        for flag,value in (('--cpus','2'),('--memory','4g'),('--user','0:0')):self.assertEqual(create[create.index(flag)+1],value)
         self.assertIn('RATE=50',create);self.assertIn('GATE=0',create);self.assertIn(perf.K6_IMAGE,create)
         self.assertEqual(create[-3:],['run','--quiet','/load.js'])
         self.assertTrue(all('private-test-secret' not in str(cmd) for cmd in self.commands))
+
+    def assert_declared_resources(self,value):
+        self.assertEqual(value,{'memory_limit':'4g','cpus':2,'image':perf.K6_IMAGE,'owner':self.data['owner'],'evidence_mode':'declared_config'})
+    def test_oom_with_new_declared_memory_remains_failed_and_never_retries(self):
+        error,stored=self.failure()
+        self.assert_declared_resources(stored['generator']['declared_resources'])
+        self.assertTrue(stored['generator']['container']['state']['OOMKilled'])
+        self.assertEqual(stored['generator']['container']['state']['ExitCode'],137)
+        self.assertEqual(sum(c[1]=='create' for c in self.commands),1)
+        self.assertEqual(sum(c[1]=='start' for c in self.commands),1)
+        self.assertFalse(any(row[0]=='perf.rps50' and row[1]=='passed' for row in self.rows))
+        failed=next(row for row in self.rows if row[0]=='perf.rps50' and row[1]=='failed')
+        self.assert_declared_resources(failed[2]['generator']['declared_resources'])
+    def test_declared_resources_visible_in_running_and_completed_result(self):
+        self.mode='normal';stage=self.work/'run/rps50';stage.mkdir(parents=True)
+        (stage/'summary.json').write_text(json.dumps({'state':{'testRunDurationMs':10},'metrics':{'iterations':{'values':{'count':1}}}}))
+        good,actual=self.execute();self.assertTrue(good)
+        self.assert_declared_resources(actual['generator']['declared_resources'])
+        self.assert_declared_resources(perf.dashboard_metrics(actual)['declared_generator_resources'])
+        running=[row for row in self.rows if row[0]=='perf.rps50' and row[1]=='running']
+        self.assertTrue(running)
+        for row in running:self.assert_declared_resources(row[2]['declared_generator_resources'])
+    def test_cancelled_generator_still_declares_scoped_resources_without_pass(self):
+        with patch.object(perf,'frozen',side_effect=KeyboardInterrupt()):
+            with self.assertRaises(KeyboardInterrupt):self.execute()
+        interrupted=next(row for row in self.rows if row[0]=='perf.rps50' and row[1]=='interrupted')
+        self.assert_declared_resources(interrupted[2]['generator']['declared_resources'])
+        self.assertFalse(any(row[0]=='perf.rps50' and row[1]=='passed' for row in self.rows))
 
     def test_daemon_lookup_loss_after_child_exit_retains_returncode_and_explicit_missing(self):
         self.lookup_after_start=True;error,stored=self.failure()

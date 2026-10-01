@@ -695,6 +695,23 @@
       ]
     },
     {
+      "id": "native-projection",
+      "name": "复盘 / 签名 Push / 服务映射原生投影链",
+      "type": "interface",
+      "evidence_mode": "real_local",
+      "formal_performance_acceptance": false,
+      "formal_24h_acceptance": false,
+      "verification_scope": "five existing main targets; fresh UUID DB/18610/18611; native HTTP producers and transactional readback; no model or notifications; mappings prove configuration only",
+      "commands": [
+        {
+          "argv": ["python3", "tools/testlab/api_native_projection_coverage.py", "--live"],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
+        }
+      ]
+    },
+    {
       "id": "promotion",
       "name": "正式配置提升/受保护GitLab/生产独立导入",
       "type": "integration",

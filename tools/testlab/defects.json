@@ -799,5 +799,67 @@
     "native_run_id": "4a6fd099-0873-417f-87b8-6474d7ad80df",
     "evidence_id": "d23a1d7c-e1d4-49d9-a5b1-6f98c93a7bd6",
     "unverified": "real model inference; authoritative template producer; full166; performance24h"
+  },
+  {
+    "status": "in_review",
+    "category": "test_tool",
+    "linked_issue": "WAN-138",
+    "native_run_id": "9d1f67ab-fd09-4edc-a744-c72eac6a712c",
+    "evidence_id": "bc6690f7-4489-4236-931e-01605d44a091",
+    "validation": "31 original lifecycle offline/XHigh; final33 offline + native49/36HTTP; own UUID SQL/process cleanup verified; no product change",
+    "unverified": "public endpoint reachability, authoritative manual-case start/MTTR, action contents/completion, complete metrics/service health/history, performance/24h",
+    "id": "TOOL-PROJECTION-READINESS",
+    "title": "双阶段原生测试重复使用不可变就绪ID",
+    "before": "setup/source restart reuses readiness IDs/logs; Runner correctly rejects duplicate results",
+    "after": "reserve monotonically increasing generation before acquisition; unique readiness results and log files",
+    "local_evidence": []
+  },
+  {
+    "status": "in_review",
+    "category": "test_tool",
+    "linked_issue": "WAN-138",
+    "native_run_id": "9d1f67ab-fd09-4edc-a744-c72eac6a712c",
+    "evidence_id": "bc6690f7-4489-4236-931e-01605d44a091",
+    "validation": "31 original lifecycle offline/XHigh; final33 offline + native49/36HTTP; own UUID SQL/process cleanup verified; no product change",
+    "unverified": "public endpoint reachability, authoritative manual-case start/MTTR, action contents/completion, complete metrics/service health/history, performance/24h",
+    "id": "TOOL-PROJECTION-CANCEL",
+    "title": "原生HTTP测试取消异常被断言或报告错误覆盖",
+    "before": "Blocked converted to AssertionError; KI/SystemExit row may be uninitialized; reporting failure replaces original exception",
+    "after": "same primary exception/reason preserved; initialized nonpassing row; bounded own cleanup once; normal HTTP assertions remain strict"
+  },
+  {
+    "status": "in_review",
+    "category": "test_tool",
+    "linked_issue": "WAN-138",
+    "native_run_id": "9d1f67ab-fd09-4edc-a744-c72eac6a712c",
+    "evidence_id": "bc6690f7-4489-4236-931e-01605d44a091",
+    "validation": "31 original lifecycle offline/XHigh; final33 offline + native49/36HTTP; own UUID SQL/process cleanup verified; no product change",
+    "unverified": "public endpoint reachability, authoritative manual-case start/MTTR, action contents/completion, complete metrics/service health/history, performance/24h",
+    "id": "TOOL-PROJECTION-UNKNOWN-DURATION",
+    "title": "测试错误要求人工事件具备权威持续时间",
+    "before": "manual Case source started_at NULL but test requires a nonempty duration; native run c53be887 failed24P4F",
+    "after": "strict duration null, unknown flags and no MTTR KPI; exact source/content/status/action-count checks retained",
+    "first_failed_run": "c53be887-96a7-4237-b072-2c73eba9d272",
+    "first_evidence_id": "2461c93e-51f9-432f-ae18-5412fc2991f5"
+  },
+  {
+    "status": "in_review",
+    "category": "test_tool",
+    "linked_issue": "WAN-138",
+    "native_run_id": "9d1f67ab-fd09-4edc-a744-c72eac6a712c",
+    "evidence_id": "bc6690f7-4489-4236-931e-01605d44a091",
+    "validation": "31 original lifecycle offline/XHigh; final33 offline + native49/36HTTP; own UUID SQL/process cleanup verified; no product change",
+    "unverified": "public endpoint reachability, authoritative manual-case start/MTTR, action contents/completion, complete metrics/service health/history, performance/24h",
+    "id": "TOOL-PROJECTION-PUBLIC-HOST",
+    "title": "测试错误要求未配置公开地址的Push显示已配置状态",
+    "before": "explicit public_host empty; valid native receive/duplicate but hardcoded configured_unverified; 7c8a8e0f failed32P4F",
+    "after": "strict endpoint_host_unconfigured, empty host and exact POST events/change; existing receipt/count/idempotency/audit checks retained;9 invalid mutations rejected",
+    "first_failed_run": "7c8a8e0f-fb6d-4f52-8275-686171930828",
+    "first_evidence_id": "7bbc49c9-4e63-42fd-9449-422eccf30ff2",
+    "local_evidence": [
+      ".local/testlab/first-failures/projection-push-host-unit-red.txt",
+      ".local/testlab/first-failures/projection-push-host-original-body-red.json",
+      ".local/testlab/projection-push-host-green-final.txt"
+    ]
   }
 ]

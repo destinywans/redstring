@@ -371,3 +371,15 @@ root首临时manifest漏显式DSN引用使e635成为blocked61pass/59skip，原ma
 修复a94f78f、Go6ad893bb及实际非racebfeb9b98：entry/core303、完整PG/race135、定向52后，原三阶段64cd2def于00:38:19→00:51:52Z完成11P1首页blocked。25真实300.392s/7501/0error/drop，Inbox1500次P95493.445/P99778.760ms，Groups750次474.781/713.562；原纯DB500/2000自动门槛、SSE50/10/60、资源恢复及一致性通过。证据d6ef6fb0-0ce7-4a97-8f16-9e518cba70c2；不能代完整两档18分钟或24h，旧失败保持。
 
 Canvas4a6fd099于00:53:17→00:53:30Z完成34通过/1缺实现。27真实HTTP含19正常/8边界授权幂等，10固定目标主路由及4支持主路由正常消费通过；证据d23a1d7c-e1d4-49d9-a5b1-6f98c93a7bd6。SQL仅身份/最小grant及明示合成模板定义配置，运行graph/message/writeback/SSE由正式HTTP产生；模型为协议Mock。权威模板生产者High缺实现保持blocked；无真实推理/生产模板/大历史恢复/full166承诺。临时UUID数据库/role、独立双API/Mock清理及端口关闭已实际核验。工具取消/Mock未开始服务的cleanup首红→15offline→真实链证据独立保存。
+
+## CP252：原生投影补验及正式性能中断
+
+Go6ad893bb、非racebfeb9b98/runtime338e1478保持。正式performance1a998623于01:02:12→01:20:52Z中断14P2F5B；base25实际300.469s/7500/零错误丢失，Inbox460.267/657.090ms、Groups450.473/623.800达到原500/2000门槛。base50仅20.874秒k6退出无summary，原自动删除容器使ExitCode/OOM证据缺失，不能断言OOM或产品故障。当前APP11131999已scale，旧证据库保留；完整两档未通过、连续24h未开始，collector取证/取消45秒总预算及原异常保留仍在修复，未清关不再负载。
+
+新包第一次c53be887失败24P4F是人工Case没有权威开始时间，测试误要求duration非空；第二次7c8a8e0f失败32P4F是本包public_host为空，测试误要求configured_unverified。生产nullable/未知MTTR及endpoint_host_unconfigured均正确。原失败、raw、三格式报告保持；测试严格改为准确未知状态、缺失公开host和正确method/path，原响应红绿重放与33离线通过，不修改产品伪造权威数据或假公网地址。
+
+最终9d1f67ab-fd09-4edc-a744-c72eac6a712c于01:59:56→02:00:09Z完成49P0F0skip/block，36次实际HTTP，五目标 GET/postmortems、GET/ingest/push、GET/webhooks、GET/PUT/service-mappings 正常链通过。原生告警、人工事件CAS结案、独立peer发布、自审拒绝、签名Push接收与重复、非synthetic事件/回执/审计及mapping跨实例精确CAS读回均实测。数据库、角色和本次双API清理核验，主进程/源码未改；证据bc6690f7-4489-4236-931e-01605d44a091、三格式报告及raw均可追踪。
+
+动作仅证明数量，不证明内容/完成率；人工事件持续时间与MTTR仍未知；Push没有公开地址，不验公网可达性；本地真实Prom注册及mapping配置不证明指标、完整服务健康/历史。SQL仅身份/最小授权/明示配置和读回，无业务或审计写、模型调用和外部通知。原工具readiness及取消缺陷已31离线/XHigh回归，后来两项预期误报的严格修由root对照生产调用链和原raw复核。
+
+当前源三组实际证据0e4b303、4a6(34P1缺producer)、9d1f49严格normal实际2xx并集57/166主路由+13辅助，证据d20d47ec-405e-4260-ac80-0bb28ce07ca6；不计库存、negative-only或旧源码证据，不承诺全部参数/权限/并发/全Schema。剩余本地、外部真实接入、权威缺实现、WAN152限额、暂停7nativeCI/CD和Ollama容量继续待办，整体验收未收口。

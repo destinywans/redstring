@@ -14,6 +14,7 @@ python3 tools/testlab/testlab.py run --suite content
 python3 tools/testlab/testlab.py run --suite readonly,discovery,management
 python3 tools/testlab/testlab.py run --suite core
 python3 tools/testlab/testlab.py run --suite canvas-native
+python3 tools/testlab/testlab.py run --suite native-projection
 python3 tools/testlab/testlab.py run --suite promotion
 python3 tools/testlab/testlab.py run --suite identity,invitations,vault
 python3 tools/testlab/testlab.py run --suite local-live-gates,jenkins
@@ -56,3 +57,5 @@ python3 tools/testlab/profile.py --owner testlab-3cbde3095125 --run <同一操�
 `core` 复用管理专项的 UUID 专属数据库、受限角色和18606/18607两实例。只通过HTTP注册两服务、受认证本地原生Webhook写三告警，再验证非空Inbox/分组/事件草稿、人工事件与重放、角色、本人另一会话撤销及事务审计/导出申请。SQL只建身份与最小授权输入并读回；不写业务或审计结果。所有通知开关关闭。`all`为只读，导出正常及参数验证使用`test`，另断言all写409。实际结果/清理/首次失败经Runner进入看板；小型功能样本不代表性能档、全部166接口、外部权威或CSV owner下载。
 
 `canvas-native` 用独立 UUID 数据库与账号、18608/18609 双正式 API 验证模板消费、Canvas 分支/布局 CAS、节点消息、结论回写及原生 SSE。模板定义是明示的 `synthetic_test_configuration` 配置种子，业务运行结果由公开 HTTP 产生；模型为本地协议 Mock，只证明对应持久化和流协议。缺失的模板 author/import 权威生产者输出 `not_implemented`，因此原生断言全部通过时整体仍可为 blocked。Mock 启动失败与取消的清理有独立回归；不得以该组代替真实模型或生产模板验收。
+
+`native-projection` 用独立 UUID 数据库与账号、18610/18611 双正式 API 验证五条现有主接口：复盘摘要、Push 接收投影、Webhook 投影，以及服务映射的读取和 CAS 保存。业务来自原生告警、人工事件结案、独立审核发布、带签名的公开 Push 入口和映射 PUT；SQL 仅用于身份、最小授权、明示配置与只读断言，不伪造业务或审计结果。复盘人工事件没有权威开始时间，因此持续时间和 MTTR 必须保持未知；该包未配置公开 Push 地址，不能证明公网可达性。映射配置验收不证明指标、服务健康或完整历史；没有模型调用和外部通知。原生链、跨实例读回、拒绝写入后的事务审计以及本次资源清理均分别记录，不代表性能或 24 小时验收。

@@ -212,12 +212,12 @@
   {
     "id": 20,
     "name": "Tempo 与拓扑完整性",
-    "remaining": "高lag/采样/未插桩可能缺Trace；topology_v1真实生产者/高扇出/零流量未验，完整模式8节点12边不适合大拓扑。 GET /traces 当前搜索完整性准入未证，必须验证actual fail_on_high_lag行为，不能只开启声明旗标。",
+    "remaining": "高优先级：本地Tempo2.7.2完整搜索全集契约/metadata遗漏、陈旧cache和size skip失败关闭需确认；operator bool不足独立证明。权威topology calls生产者/真实流量、高扇出和规模策略仍未验证。旧latest live-store/Kafka lag假设已由CP270版本核对明确取代。",
     "required": "实际Tempo fail_on_high_lag、录制规则/6点测量、稳定资源身份和规模策略。",
     "source": "docs/api/v3-traces-source.md；v3-topology-view.md；CP268/WAN136/138",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "真实OTel→Tempo指定span exact读回；CP268：91d418dd真实OTLP→ownedOTel→Tempo两条UUID闭合Trace，每条2span精确入库；正式GET traces/{id}校验root时长20ms/父子关系/允许操作及属性筛选，外环境trace404、relay503恢复/撤权0上游通过。GET traces保持503 not_configured，SearchFailClosed=false且live-store lag完整性HIGH环境阻塞，明细通过不能关闭。；CP273 services正式7a62e019 82P0F4blocked/64HTTP，Go6ad始末；真人韧性proposal1主real_local、5proposal5audit无执行。discover/resilience两个GET仅TLS协议Mock，分页/错误/503/半响应/丢响应/超时/权限/审计回滚通过。3完整服务/详情/拓扑前置未提供+1handoff包装保持blocked；helper完成exit0仅让JSON入库，外层blocked exit2未洗绿。CLI反例先红后绿/19离线，UUIDDBrole/4Popen/4端口无残余；真实聚合器/权威producer/CI暂停和完整拓扑仍High待办。；CP278 6fe78a68完整拓扑协议83P/65HTTP、32正常完整DTO断言；真实原生importer导入合成external_snapshot_file 2节点1calls边，11指标序列6点Mock，双实例/撤权/会话撤销/故障恢复/版本与审计/清理通过。真实权威calls生产者、实际流量/历史与Trace搜索完整性仍待确认。",
+    "completed_subscenarios": "真实OTel→Tempo指定span exact读回；CP268：91d418dd真实OTLP→ownedOTel→Tempo两条UUID闭合Trace，每条2span精确入库；正式GET traces/{id}校验root时长20ms/父子关系/允许操作及属性筛选，外环境trace404、relay503恢复/撤权0上游通过。GET traces保持503 not_configured，SearchFailClosed=false且live-store lag完整性HIGH环境阻塞，明细通过不能关闭。；CP273 services正式7a62e019 82P0F4blocked/64HTTP，Go6ad始末；真人韧性proposal1主real_local、5proposal5audit无执行。discover/resilience两个GET仅TLS协议Mock，分页/错误/503/半响应/丢响应/超时/权限/审计回滚通过。3完整服务/详情/拓扑前置未提供+1handoff包装保持blocked；helper完成exit0仅让JSON入库，外层blocked exit2未洗绿。CLI反例先红后绿/19离线，UUIDDBrole/4Popen/4端口无残余；真实聚合器/权威producer/CI暂停和完整拓扑仍High待办。；CP278 6fe78a68完整拓扑协议83P/65HTTP、32正常完整DTO断言；真实原生importer导入合成external_snapshot_file 2节点1calls边，11指标序列6点Mock，双实例/撤权/会话撤销/故障恢复/版本与审计/清理通过。真实权威calls生产者、实际流量/历史与Trace搜索完整性仍待确认。；CP279前置只读诊断bc2601aa：actualTempo2.7.2固定ownedCID/image，7次bounded GET、2旧controlled ID精确search/detail、主scope空集不冒全集，前后HMAC/source/helper不变。原false flag/未新增正式HTTP正常，可信全集契约needs_confirmation；证据db72faeb-0376-4272-8067-0f29ccfbc415。",
     "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入",
     "acceptance_note": "只关闭明确有界子场景；原整体状态与真实/Mock/blocked边界保持。",
     "priority": "High"

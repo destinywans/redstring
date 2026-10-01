@@ -1,3 +1,10 @@
+## CP-279 · 2026-10-01 · Trace全集前置明确，源码等价工具仅离线准备
+
+- QA可见会话完成单一只读诊断bc2601aa：actualowned Tempo2.7.2/ingester-WAL-backend、7 bounded GET，2既有受控Trace各搜索与明细精确读回，主scope一小时空集不作完整证明。前后HMAC/Go6ad/bfeb/runtime338/CID/config/helper相同，未鉴权正式HTTP、未写/重启/启flag，新增normal0。原latest live-store/Kafka lag假设由pinned2.7.2核对取代；metadata遗漏/陈旧缓存/size skip全集失败关闭尚未确认，当前provider仅operator bool、未验证search metrics。本地可达不等于完整准入，主GET traces由首次本地待执行移到needs_confirmation High待办。后续独立21Trace全集DTO与版本内静默遗漏故障方案未执行，不改成观察样本语义；证据db72faeb-0376-4272-8067-0f29ccfbc415附载原observe时明确标后来诊断，不新增历史原test通过。
+- 精确两行_test fixture转换的source_equivalence模块+tests已完成41离线（22原+19可信Store解析）/py_compile，bool False冒退出码0及缺API首红均保留。读取实际immutable Store run/suite/case/attempt、精确command output SHA/Go JSON与源起止/canonical cwd/argv/environment，默认registration_ids=()无激活；不能自报passed/race或任意privateJSON当证明。没有更改Go/runtime/runner/overview资格，没有59df实际回归或激活。Linux0e22不适用bfeb窄白名单。后续须正式Runner completion证据、canonical原两case与完整v3events race实际通过，然后才仅HTTP聚合登记等价/原源原binary，Go/fullreg/perf/soak仍严格新源；需要按run核原binary证明，不能统一填bfeb。
+- HTTP会话仍独占五草稿包与18706–12；当前四写/预览/幂等/CAS/审计回滚通过子项而整组尚未交付，原0d08/9572/b320工具失败留存，不提前收口。连接器可见会话只读准备下一完整回归DSN隔离/专项开关/精确78skip映射，尚未启动Go/DB。root不重复启动或跑未解除冻结的fixture；Go6ad/mainruntime338继续冻结。
+- CP278 247628acc7bfb54e08d44f0511ec1d6cd32e3895已exact推送并同步WAN136/138/139与原51，fresh WAN138/51回读commit+run确认。owned8787精确UID/argv/lstart/cwd与nonce-HMAC后只重载看板，API未重启；三子验收marker完整，75P+1external/69P/83P，HTML/JSON/MD下载已实证且0600。reload时当前主normal119/166、Mock24为后续草稿部分正例，非完整验收；原批116快照保留。当前完整回归、两档性能、24h未收口，外部和暂停待办不计通过，产品web/.claude/业务env/DB/真实账号通知不变，不merge/deploy。下一收草稿完整证据，再实际fixture/race/fullreg；本CP scoped提交/push/Linear收据保存在私有CP279-delivery。
+
 ## CP-278 · 2026-10-01 · 三个并行功能包227通过，GitLab永久清理获授权并实证
 
 - 真实配置提升 **45cc3283-2416-47c1-a3f6-a77923702f1d：75P0F/66HTTP+1external_todo**（13:45:21→13:47:43Z）。本地独立合成reviewer精确SHA审批、受保护MR、production UUID实例导入/重复与跨实例/上游成功响应丢失/本地审计与边界通过。外部企业历史治理和物理审核人身份不计通过，Runner总体blocked仍保留；子验收9marker及清理通过。原d7e7首红73P/2F/1B/1external与两次自动审批拒绝永久删除均留存；用户直接回复“授权本轮临时项目永久清理”，严格owner/run/projectID/namespace/实际renamed full_path后原11–13和复验14–16均实际404，PAT撤销/UUID库role/持有进程及端口无残余。78offline绿，不改产品逻辑或清理预算，原GitLab保留运行供下包复用。

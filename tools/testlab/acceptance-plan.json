@@ -1415,19 +1415,20 @@
       "method": "GET",
       "path": "/api/v1/traces",
       "module": "资源与观测",
-      "availability": "local_environment",
+      "availability": "needs_confirmation",
       "priority": "P1",
       "package_id": "local-components",
-      "reason": "现有Tempo精确Trace读取已实测，但Trace搜索fail-on-live-store-lag尚无真实完整性证明，SearchFailClosed保持false，正式列表503 not_configured；HIGH环境待办，不能由明细通过关闭。",
+      "reason": "本地Tempo2.7.2可达且已知2条Trace可搜索；全集搜索契约/缓存元数据遗漏与size skip失败关闭尚未确认。当前provider仅operator bool且不核搜索metrics；未启flag，不能当成单纯组件待启动。",
       "prerequisites": [
-        "专用Tempo在live-store lag时搜索完整性与失败关闭的真实证据；不能仅切SearchFailClosed为true"
+        "版本内metadata/poll/size-skip反例与可信全集准入；见实际只读诊断db72faeb-0376-4272-8067-0f29ccfbc415",
+        "确认来源完整契约后再执行独立UUID正式21Trace全集DTO/权限/故障测试；不能把200或Mock当完整来源证明"
       ],
       "source_refs": [
         "tools/testlab/components.py",
         "tools/testlab/silence_chain.py",
         "cmd/aiops/v3.go"
       ],
-      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+      "proof_scope": "仅后续只读组件连通/两个受控ID精确读回，无新增正式主接口正常。可信全集契约继续High待办。"
     },
     {
       "method": "GET",
@@ -4904,6 +4905,13 @@
       "decided_by": "assistant",
       "date": "2026-10-01",
       "decision": "复用现有小型UUID隔离功能包先补当前证据；不恢复旧压测自动化、不自动加分页或缺失生产者"
+    },
+    {
+      "at": "2026-10-01T14:32:47.916020+00:00",
+      "decision": "Trace列表由首次本地待执行改为需要确认可信全集契约，高待办；不启声明旗标或改成样本语义。",
+      "by": "assistant under user autonomous decisions authorization",
+      "evidence_id": "db72faeb-0376-4272-8067-0f29ccfbc415",
+      "facts": "owned Tempo实际2.7.2、2controlled traces exact search/detail，source/context/config unchanged；没有复现静默遗漏，风险是pinned版本源审及client缺完整证明。"
     }
   ],
   "classification_scope": "逐接口正常HTTP补测的前置分拣，不是后端实现完成度判定；缺实现包括必需非空生产链缺能力，外部真实验收另列。needs_confirmation尚未获得完整正式生产者调用链证明。",

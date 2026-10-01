@@ -4114,6 +4114,127 @@
             }
           ],
           "proof_scope": "Admission, durable state/audit and one natural evaluation only. 24h/1440 points, failover/restart and performance unverified. The accepted trial is deliberately interrupted at bounded package cleanup; no continuous acceptance claim. Isolated API entry uses HTTP; only trial provider transport TLS verified."
+        },
+        {
+          "id": "metrics-ask-functional",
+          "title": "真实当前Prom与Mock模型问答完整流程",
+          "command": "python3 tools/testlab/testlab.py run --suite metrics-ask-functional",
+          "evidence_mode": "protocol_mock",
+          "route_keys": [
+            "POST /api/v1/metrics/ask"
+          ],
+          "required_cases": [
+            {
+              "suite": "metrics-ask-functional",
+              "name": "generation.real_source"
+            },
+            {
+              "suite": "metrics-ask-functional",
+              "name": "generation.native_bindings"
+            },
+            {
+              "suite": "metrics-ask-functional",
+              "name": "generation.completed_question"
+            },
+            {
+              "suite": "metrics-ask-functional",
+              "name": "generation.idempotency"
+            },
+            {
+              "suite": "metrics-ask-functional",
+              "name": "generation.authorization"
+            },
+            {
+              "suite": "metrics-ask-functional",
+              "name": "generation.boundaries"
+            },
+            {
+              "suite": "metrics-ask-functional",
+              "name": "generation.source_faults"
+            },
+            {
+              "suite": "metrics-ask-functional",
+              "name": "generation.inflight_revocation"
+            },
+            {
+              "suite": "metrics-ask-functional",
+              "name": "generation.audit_rollback"
+            },
+            {
+              "suite": "metrics-ask-functional",
+              "name": "generation.model_faults"
+            },
+            {
+              "suite": "metrics-ask-functional",
+              "name": "generation.session_revocation"
+            },
+            {
+              "suite": "metrics-ask-functional",
+              "name": "generation.saved_source_revocation"
+            },
+            {
+              "suite": "metrics-ask-functional",
+              "name": "generation.consistency"
+            },
+            {
+              "suite": "metrics-ask-functional",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "metrics-ask-functional",
+              "name": "generation.cleanup"
+            },
+            {
+              "suite": "metrics-ask-functional",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "模型/历史仅协议Mock，metrics完整闭环通过；规则两个正常明确环境blocked，不能因拒绝或边界通过关闭。"
+        },
+        {
+          "id": "rule-assistant-functional",
+          "title": "规则生成/预览协议验收，当前TLS前置阻塞",
+          "command": "python3 tools/testlab/testlab.py run --suite rule-assistant-functional",
+          "evidence_mode": "protocol_mock",
+          "route_keys": [
+            "POST /api/v1/alert-rules/generate",
+            "POST /api/v1/alert-rules/preview"
+          ],
+          "required_cases": [
+            {
+              "suite": "rule-assistant-functional",
+              "name": "generation.rules_tls_source"
+            },
+            {
+              "suite": "rule-assistant-functional",
+              "name": "generation.rules_normal"
+            },
+            {
+              "suite": "rule-assistant-functional",
+              "name": "generation.rules_authorization"
+            },
+            {
+              "suite": "rule-assistant-functional",
+              "name": "generation.rules_boundaries"
+            },
+            {
+              "suite": "rule-assistant-functional",
+              "name": "generation.rules_provider_faults"
+            },
+            {
+              "suite": "rule-assistant-functional",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "rule-assistant-functional",
+              "name": "generation.cleanup"
+            },
+            {
+              "suite": "rule-assistant-functional",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "模型/历史仅协议Mock，metrics完整闭环通过；规则两个正常明确环境blocked，不能因拒绝或边界通过关闭。"
         }
       ]
     },
@@ -4612,32 +4733,33 @@
   ],
   "classification_scope": "逐接口正常HTTP补测的前置分拣，不是后端实现完成度判定；缺实现包括必需非空生产链缺能力，外部真实验收另列。needs_confirmation尚未获得完整正式生产者调用链证明。",
   "latest_review_record": {
-    "checkpoint": "CP276",
-    "at": "2026-10-01T12:17:00.929608+00:00",
+    "checkpoint": "CP277",
+    "at": "2026-10-01T12:45:15.866347+00:00",
     "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
     "normal_main": 113,
     "total_main": 166,
     "remaining_main": 53,
     "normal_auxiliary": 31,
-    "protocol_mock_normal_main": 17,
-    "first_local_normal_queue": 12,
-    "protocol_verified_pending_real": 12,
-    "evidence_source": "root实际live与SQLite/header/raw/source末/两个handoff逐项核验；bulk独审通过、rule独审进行中；metrics分类原组复验仍进行中。",
+    "protocol_mock_normal_main": 20,
+    "first_local_normal_queue": 11,
+    "protocol_verified_pending_real": 13,
     "runs": [
       {
-        "id": "13300ff4-f073-44c7-ab64-408af17dbb74",
-        "suite": "bulk-actions-functional",
-        "passed": 77,
-        "scope": "同一路由动作无normal增量；investigate真实/静默来源Mock"
+        "id": "114593a7-1a08-4270-a362-ce938be859cd",
+        "suite": "metrics-ask-functional",
+        "passed": 133,
+        "scope": "111HTTP/99Mock12real/真实240.039s模型timeout，正常Mock1真实0"
       },
       {
-        "id": "15b00c03-890e-4de7-9a23-bd1aa8baa6b0",
-        "suite": "rule-create-functional",
-        "passed": 41,
-        "scope": "真实trial受理+自然首点1，cleanup刻意中断24h窗"
+        "id": "e905c8a1-05a2-429c-9576-02857113814c",
+        "suite": "rule-assistant-functional",
+        "passed": 33,
+        "blocked": 2,
+        "scope": "26HTTP/19Mock7real，无normal"
       }
     ],
-    "proof_scope": "metrics旧模式冲突275条排除，不改SQLite；剔除1错误normal并新增1实际rule-normal，净113/166。仅正常子场景；整体未收口。"
+    "evidence_source": "root source末/helper/testSHA/SQL/public真实字段、模式111+26逐项一致proof；21offline实际复验，旧记录不改。",
+    "proof_scope": "113主真实正常，Mock正常20/其中13待真实；Mock来源重叠不简单相加，不作完整验收。本地首次11，完整回归/性能/持续未收口。"
   },
   "execution_order": "先定义剩余7包的综合场景验收准入→本地轻型真实组件/完整协议Mock→权限与故障组合/相关回归→重型配置GitOps串行→当前源码完整回归→完整两档性能→连续真实24h；旧性能优先自动化保持暂停。",
   "decision_history": [
@@ -4767,6 +4889,13 @@
       "decision": "bulk私有manifest沿用services的20/25/46关联不准确，正式目录更正为46；原SQLite不回填。rule-create46/50与明确受理子场景关联，不关闭恢复/完整交付；不关联安全未知恢复24或韧性25。",
       "decided_by": "root after original51 exact title readback",
       "reason": "台账关联必须对应实际场景，不让拷贝元数据污染其他缺口。"
+    },
+    {
+      "checkpoint": "CP277",
+      "decided_by": "root under explicit autonomous parallel execution authorization",
+      "decision": "metrics producer显式nested+upstream模式，旧275冲突排除不重写；最终114593a7 133P仅Mock normal1，rules e90533P2blocked。两个可见会话继续existing promotion真实GitLab与独立Linux DNS/TLS规则协议包。",
+      "reason": "用户赶时间，复用既有入口避免重复实现；隔离协议环境解决host443 blocker且平台变化明确，不接管其他服务/修改系统DNSCA。",
+      "constraints": "独占文件/UUID库role/端口/privatelease；GitLab4GiB+2GiB估算reserve准入且禁SMTP，重型串行/7nativeCI暂停；Linux只.local新binary/buildflags/platform证据，所有模型/历史Mock。"
     }
   ],
   "review_record_history": [
@@ -4960,6 +5089,34 @@
       ],
       "evidence_source": "root核对SQLite原42用例/source始末/原command21,080字节、两个helperSHA、cleanup和handoff；独立只读XHigh核准，无重复现场负载。",
       "proof_scope": "主覆盖含在执行metrics包已经通过的正常HTTP子场景；不代表其整包通过。lower新增1正式metadata正常。性能/持续与完整回归未收口。"
+    },
+    {
+      "checkpoint": "CP276",
+      "at": "2026-10-01T12:17:00.929608+00:00",
+      "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
+      "normal_main": 113,
+      "total_main": 166,
+      "remaining_main": 53,
+      "normal_auxiliary": 31,
+      "protocol_mock_normal_main": 17,
+      "first_local_normal_queue": 12,
+      "protocol_verified_pending_real": 12,
+      "evidence_source": "root实际live与SQLite/header/raw/source末/两个handoff逐项核验；bulk独审通过、rule独审进行中；metrics分类原组复验仍进行中。",
+      "runs": [
+        {
+          "id": "13300ff4-f073-44c7-ab64-408af17dbb74",
+          "suite": "bulk-actions-functional",
+          "passed": 77,
+          "scope": "同一路由动作无normal增量；investigate真实/静默来源Mock"
+        },
+        {
+          "id": "15b00c03-890e-4de7-9a23-bd1aa8baa6b0",
+          "suite": "rule-create-functional",
+          "passed": 41,
+          "scope": "真实trial受理+自然首点1，cleanup刻意中断24h窗"
+        }
+      ],
+      "proof_scope": "metrics旧模式冲突275条排除，不改SQLite；剔除1错误normal并新增1实际rule-normal，净113/166。仅正常子场景；整体未收口。"
     }
   ]
 }

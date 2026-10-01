@@ -1261,11 +1261,14 @@
     "severity": "HIGH",
     "status": "in_review",
     "before": "6a8fc693等metrics原case protocol_mock，nested遗漏模式被actual_interface默认real_local；真实正常数113含一条错误指标normal。原SQLite不回填。",
-    "after": "聚合拒绝显式case-vs-interface模式冲突，25离线反例先红后绿；producer由独立会话补nested模式/反例和完整原组复验，最终证据待追加。",
+    "after": "聚合拒绝显式case-vs-interface模式冲突，25离线反例先红后绿；producer由独立会话补nested模式/反例和完整原组复验，最终证据待追加。；最终producer explicit nested/upstream模式21offline、标准114593a7原完整133P/111HTTP及e90533P2blocked，全部137原case/interface/record逐项匹配。Go6ad/真实240.039s、原故障不改/清理；旧SQL不回填。",
     "product_change_required": false,
     "local_evidence": [
       ".local/testlab/overview-mode-consistency/first-red.txt",
-      ".local/testlab/overview-mode-consistency/green.txt"
-    ]
+      ".local/testlab/overview-mode-consistency/green.txt",
+      ".local/testlab/rule-generation-parallel/handoff.json",
+      ".local/testlab/rule-generation-parallel/evidence-mode-consistency.json"
+    ],
+    "fix_commit": "d22f449f48314c7fafc398b94aa50450307461ab (aggregation); producer commit pending"
   }
 ]

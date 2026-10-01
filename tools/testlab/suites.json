@@ -1256,6 +1256,56 @@
         }
       ],
       "verification_scope": "Admission, durable state/audit and one natural evaluation only. 24h/1440 points, failover/restart and performance unverified. The accepted trial is deliberately interrupted at bounded package cleanup; no continuous acceptance claim. Isolated API entry uses HTTP; only trial provider transport TLS verified."
+    },
+    {
+      "id": "metrics-ask-functional",
+      "name": "真实当前指标与Mock模型完整问答",
+      "type": "integration",
+      "evidence_mode": "protocol_mock",
+      "gap_ids": [
+        18,
+        46
+      ],
+      "verification_scope": "正式HTTP/UUID PG；模型protocol Mock。当前Prom真实样本，不作真实模型推理/生产源/自然TTL验收。规则预览合成2017点非真实七天，当前TLS443非owner占用，两正常blocked。",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_rule_generation_functional_coverage.py",
+            "--live",
+            "--scope",
+            "metrics"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 480,
+          "cleanup_grace_seconds": 45
+        }
+      ]
+    },
+    {
+      "id": "rule-assistant-functional",
+      "name": "规则生成/合成历史预览与真实环境前置",
+      "type": "integration",
+      "evidence_mode": "protocol_mock",
+      "gap_ids": [
+        18,
+        46
+      ],
+      "verification_scope": "正式HTTP/UUID PG；模型protocol Mock。当前Prom真实样本，不作真实模型推理/生产源/自然TTL验收。规则预览合成2017点非真实七天，当前TLS443非owner占用，两正常blocked。",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_rule_generation_functional_coverage.py",
+            "--live",
+            "--scope",
+            "rules"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 300,
+          "cleanup_grace_seconds": 45
+        }
+      ]
     }
   ]
 }

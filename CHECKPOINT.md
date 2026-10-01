@@ -1,3 +1,12 @@
+## CP-277 · 2026-10-01 · metrics模式修133完整复验交付，下一真实配置/容器协议并行
+
+- 最终metrics **114593a7-1a08-4270-a362-ce938be859cd 133P0F0skip/111HTTP**，当前6ad/bfeb/runtime338；99protocol_mock+12real_local逐条原case/nested/interface/Runner一致。3 metrics normal和23 SSE均Mock。22question/22conversations/44messages/22replies/89events/95audit精确持久结果、22模型输入逐项匹配、32真实源读；原默认4min真实timeout240.039419s、丢响应/截断SSE/503429各一次无自动retry。跨实例终态、重复与范围/撤session/撤sourcebinding后403/SSE、audit故障回滚原组通过。4heldPopen、Prom exactCID、UUIDDBrole/18654–58已清理；不是真实推理或生产源/自然TTL证明。
+- 同最终helper规则 **e905c8a1-05a2-429c-9576-02857113814c 33P0F2blocked/26HTTP**，19Mock7real逐项模式一致；generate/preview正常0，非owner docker-nginx443不接管。旧6轮SQL/原报告/hash保持，source/hash边界单独记录，275错分类只在聚合排除。独立XHigh最终只读核mode转换/SQLite/原接口/旧报告未改，无阻断；root21offline通过。不重复实际240s或已审cleanup。正式两suite/focused gate分别登记，metrics的1目标正常仅Mock，不与rule阻塞混成通过。
+- 当前public整体快照 **113/166真实主正常、53缺、31辅助、20协议Mock正常（13仍缺真实）、11首次本地**；Mock与真实正常范围有重叠，不简单相加。含原scope中的支持对话/SSE协议normal，metrics目标+1Mock/0real。CP276、e342和d22均已exact远端回读，Linear136/138/139与原51已保存成功；最终本CP scoped提交/远端/Linear收据随后追加。24h从未开始、完整回归fixture候选未canonical、两档性能未闭合。
+- 已复用两可见会话继续：HTTP包优先现有promotion_chain.py，真实owned GitLab/MR/production UUID导入，不重造脚手架；只有freshHMAC/owner-CID/image/volume/禁SMTP/端口/资源（4GiB+2GiB估算reserve、空闲CPU>=4）准入才start原stopped自有GitLab e348…，不恢复整套bootstrap/别的集群/native7。Docker实际12CPU/25,159,299,072B，多个其他容器存在只读不触碰；实际容量不足必须环境blocked，不自动Mock替代。
+- 另一会话独占新container helper做generate/preview Linux私有DNS/TLS协议Mock，18690–97；mainDarwin/系统DNSCA/其他443不变。只有独立Linux非race新binary/toolchain/buildflags/平台与CID/network/mount/内UIDargv/TLS、UUIDDBrole和限额+reserve/cleanup完整可证明才计protocol。API2×512MiB/1CPU、fixture128MiB/0.5CPU上限，无真实模型/七天/24h冒充；需要大改共享framework则先准确blocked不扩大。权限/接口采集contract/mode offline先行，减少工具误判重复长跑。
+- Go6ad/bfeb/sharedAPI/helper冻结、产品web/.claude/业务env/DB/真实账号通知不动，oldautomation和7nativeCI保持暂停；重型/性能/soak串行，不合并部署。台账g18/46只补相应子场景，整体未收口。
+
 ## CP-276 · 2026-10-01 · bulk77与规则创建41交付，修正Mock虚增
 
 - bulk标准 **13300ff4-f073-44c7-ab64-408af17dbb74 77P0F0blocked/53HTTP**，12:00:24.124822→12:01:01.599631Z；内部0a97有76，最终handoff marker补成77。调查43实际HTTP real、静默10协议Mock，7原生调查/根/上下文、8事件/审计；实际锁等待events/canvas撤权与会话过期、audit整组回滚且同批兄弟成功、跨实例幂等/关联扩展/partial均有证据。3pending提案/action/evidence/reservation/audit；审批投票/决议/claim、执行与AM写全部0，独立worker合法开但未绕人工边界。独立XHigh核准，18offline绿。原092c/2942/64ed三工具红及全部清理报告保留；UUIDDBrole/heldPopen/TLS18660–64无残余。同一路由已有claim normal不增加数量；正式两个模式子验收/18marker已登记。原私有gap20/25误关联更正为正式46，不回填旧SQLite。

@@ -35,6 +35,8 @@ python3 tools/testlab/testlab.py run --suite local-original-smokes
 python3 tools/testlab/testlab.py run --suite lower-sources-functional
 python3 tools/testlab/testlab.py run --suite bulk-actions-functional
 python3 tools/testlab/testlab.py run --suite rule-create-functional
+python3 tools/testlab/testlab.py run --suite metrics-ask-functional
+python3 tools/testlab/testlab.py run --suite rule-assistant-functional
 python3 tools/testlab/testlab.py run --suite promotion
 python3 tools/testlab/testlab.py run --suite identity,invitations,vault
 python3 tools/testlab/testlab.py run --suite local-live-gates,jenkins
@@ -121,3 +123,5 @@ CP273三个可见会话的限定工作包已实际入库：映射73通过（上�
 `bulk-actions-functional` 补已有分组路由的调查和静默动作：同步调查real_local，待批准静默的AM绑定protocol_mock；完整77断言、53 HTTP，实际PG锁等待撤权/session过期及审计回滚。未使用批准接口，投票/决定/执行/AM写0。原失败和清理证据保留，不增加已有路由的normal数量。
 
 `rule-create-functional` 验证原生24h dry_run任务创建、精确台账/audit、双实例、幂等/权限/容量/回滚，并真实TLS查询一个自然Prometheus点。整个专项41断言/20HTTP；cleanup明确中断任务并清理独占18680–85/UUID DB及worker，不作连续24h或1440点完成证明。
+
+`metrics-ask-functional` 以owned真实当前Prom和固定HTTP模型Mock覆盖完整问答/双实例持久reply与SSE/权限、源及模型故障、实际240秒超时。最终133断言/111 HTTP，metrics正常只protocol Mock。`rule-assistant-functional` 同helper另scope，主机DNS+HTTPS443前置不满足时明确blocked，无正常。旧模式缺失原记录不重写，聚合冲突排除；新137接口逐项模式相符，不作真实模型或七天/24h证明。

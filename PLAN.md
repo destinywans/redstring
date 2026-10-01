@@ -1,4 +1,4 @@
-**最新记录入口：[CP294](CHECKPOINT.md#cp-294-current)。** 当前93f正式BASE在25RPS两个列表原P95≤500ms失败（Inbox535.06/Groups568.68ms）；原SSE/恢复/一致性/清理通过，50/100停止，无active实际测试。三个可见会话只读比较/私有25诊断与soak证据补丁准备，root定向复现取因果；不放门槛或准入SCALE/24h。功能2602P0F79skip/49本地当前闭环、metrics133P/组件10P及42/166正常保持，整体OPEN。
+**最新记录入口：[CP294](CHECKPOINT.md#cp-294-current)。** 当前93f正式BASE在25RPS两个列表原P95≤500ms失败（Inbox535.06/Groups568.68ms）；原SSE/恢复/一致性/清理通过，50/100停止。当前唯一active为7ed44236原25短诊断（10/120预热→25/300，非formal），root独占执行；独立证据比较已交付，soak证据补丁只私有准备；不放门槛或准入SCALE/24h。功能2602P0F79skip/49本地当前闭环、metrics133P/组件10P及42/166正常保持，整体OPEN。
 
 **2026-10-02 CP290：** 新源d4/实际非race8f原100/60再失败8P4F1Homecap，四窗口仍25正常SSE停滞；恢复/一致性/清理通过。列表加速不足以关闭SSE。已复用三个可见线程并行实施最小短tx复用连接、关键新路径测试、独立权限/生命周期审查；root统一真实验证。不省13条授权/读取、改pool/超时/门槛或跨socket持conn，保expiry/terminal边界，收益未证明。当前无active，完整两档/24h未完成。见[CP290](CHECKPOINT.md)。
 

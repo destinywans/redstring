@@ -1,4 +1,4 @@
-**最新记录入口：[CP292](CHECKPOINT.md#cp-292-current)。** 当前93f实际非race6d298的SSE原短例已通过；原完整五组289c7b57仍运行，不重复启动。先当前功能回归收据及metrics正式链，再本轮真实冻结完整BASE/SCALE；连续24h尚未开始。下面保留原计划及历史状态。
+**最新记录入口：[CP293](CHECKPOINT.md#cp-293-current)。** 当前93f实际非race6d298：完整五组2602P0F79skip，49本地原例当前证据闭环且整体页明确分类；metrics133P、原组件smoke10P。当前主正常42/166、整体OPEN。正式BASE唯一a21ab950已真实准入启动，原五阶段门槛及SSE保持，终态支持路径全P/仅HomecapB才显式SCALE；连续24h尚未开始。下面保留原计划及历史状态。
 
 **2026-10-02 CP290：** 新源d4/实际非race8f原100/60再失败8P4F1Homecap，四窗口仍25正常SSE停滞；恢复/一致性/清理通过。列表加速不足以关闭SSE。已复用三个可见线程并行实施最小短tx复用连接、关键新路径测试、独立权限/生命周期审查；root统一真实验证。不省13条授权/读取、改pool/超时/门槛或跨socket持conn，保expiry/terminal边界，收益未证明。当前无active，完整两档/24h未完成。见[CP290](CHECKPOINT.md)。
 

@@ -409,3 +409,14 @@ Go6ad893bb、非racebfeb9b98/runtime338e1478保持。正式performance1a998623�
 ## CP263 · 联合4CPU原50诊断支持路径通过
 
 8ff4c9f9于04:12:31→04:18:51Z完成10通过/0失败/1首页性能阻塞，Go6ad始末一致。原50/300真实300.832秒、14943请求、58调度丢弃、0非预期HTTPerror；health unready0、SSE窗口违反0、原60s资源恢复/数据一致性/ownCID清理通过。高负载丢弃作为饱和信息保留，不称生产SLA或整轮通过。证据70b50ecd-8d1f-487b-8713-772aa741e68e/fullraw329e6ae4及三报告；实际联合PG4CPU2GiB/k64CPU4GiB，旧2CPU全部失败保留。下一仍需原基础/规模完整五阶段串行门控及86400，整体未收口；本条时正式两档和24h尚未开始。
+
+
+## CP293 · 当前完整回归与本地跳过审计
+
+当前Go93f/实际非race6d298/runtime338：289c7b57原五suite真实22:15:57→22:44:35Z，2602P0F79skip/blocked保留，五Go命令exit0/race/count1。可见QA独立审79原名/原因与旧批次相同；root核五command completion原JSON30+入口16+新smoke3，49原本地skip已证明当前通过。其余18无测试包、8暂停CI-CD、3付费行（2名）及1Ollama容量仍可见。审计515c5095/人工说明5105d522不计验收，acceptance-plan显式登记且实际8787读回：regression incomplete、42/166主正常、soak not_started、overall open。旧2556P及旧smoke10P不冒当前。
+
+a8071b5a指标问答原完整组133P0F0skip，真实Prometheus+模型协议Mock，原240s超时/权限/SSE/撤权/提交失败/一致性和精确清理；证明282c1187及三报告。c5c279c7三个原组件Go opt-in实际race/count1共10P0F0skip，当前Keycloak/Prom/Loki/Tempo/UUID PG，原CLI与等待/清理不改；证明7b886265及三报告。只改私有wrapper的GO/BINARY绑定，不调用旧硬编码helper，不增加正式接口或24h资格。
+
+fresh53doctor/HMAC/UID/fullargv/lstart/cwd及实际PG4CPU2GiB、固定k64CPU4GiB、exactBASE11973905、VM11.1980idle/8.3406GBavailable/cert90000通过，新freeze绑定当前93f/main6d298/perf2e11。正式singlecommand BASE a21ab950于23:04:57.553272Z启动，原120s10→300s10/25/50→60s100及原pureDB25门槛/SSE/health/quiet60/一致性/清理不改，无extraobserver，fresh唯一runner独占caffeinate随退出。工具Store根及OID JSON类型首次失误保留，未变canonical结果/资源；只读准入修正精确字符串比较后绿。
+
+正式BASE尚在执行，支持路径全P且仅已知HomecapB才显式SCALE；默认双command禁止。原ffe/b972/cdd/7cab首红留、短dcfa通过不代完整，PERF-SSE-100-FFE5仍needs_confirmation。真实24h从未启动，WAN152/Trace/权威producer/真实租户/paid/Ollama/暂停CI-CD仍高TODO。产品web、用户.claude、业务环境与真实通知不动；不merge/deploy。具体最新运行及证据见CHECKPOINT CP293和coordinator-current真实SQLite。

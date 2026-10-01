@@ -8,6 +8,7 @@ import argparse,contextlib,hashlib,hmac,http.client,json,os,random,re,secrets,si
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
+from datetime import datetime,timezone
 
 from env import _private,_inspect,_owner,_process_port
 from faults import BASES,CONTROL,Blocked,attest,private_json
@@ -15,6 +16,9 @@ from runner import source_fingerprint
 
 ROOT=Path(__file__).resolve().parents[2]
 LIMIT=2<<20
+UPLOAD_PROBE_TABLES=('v3_knowledge_source_registrations','v3_knowledge_source_reads',
+                    'v3_knowledge_source_observations','v3_external_source_syncs',
+                    'v3_external_source_documents','management_audit','v3_uploads','v3_upload_revocations')
 
 def emit(name,status,actual,**fields):
     print(json.dumps(dict(id=name,name=name,status=status,actual=actual,module='formal-content',
@@ -102,6 +106,7 @@ class Chain:
         self.roles=[self.prefix+'owner',self.prefix+'other'];self.apps=[self.prefix+'app',self.prefix+'hidden']
         self.source_canvas='CV-'+self.prefix+'synthetic';self.alert=self.prefix+'alert'
         self.ids={};self.cookies={};self.calls=0;self.seeded=False;self.completed=False;self.interrupted=False
+        self.admin_user_id=None
         self.random=random.Random(20260930);self.marker='private-content-'+uuid.UUID(run_id).hex
         self.state={'owner':data['owner'],'run_id':run_id,'work':str(self.work),'source_tree_sha':data['source_tree_sha'],
                     'binary_sha256':data['binary_sha256'],'prefix':self.prefix,'seed':20260930,'users':self.users,
@@ -143,7 +148,7 @@ class Chain:
                 with os.fdopen(fd,'w') as stream:json.dump(row,stream);stream.flush();os.fsync(stream.fileno())
             except FileExistsError:pass
 
-    def call(self,user,method,path,body=None,want=200,scenario='normal',index=0,environment='test',headers=None,raw=None):
+    def call(self,user,method,path,body=None,want=200,scenario='normal',index=0,environment='test',headers=None,raw=None,validate=None):
         self.frozen()
         if not path.startswith('/api/v1/') or index not in (0,1) or environment not in ('test','staging'):raise Blocked('content business request boundary')
         base=BASES[index];h={'Origin':base,'X-AIOps-Environment':environment}
@@ -157,9 +162,15 @@ class Chain:
         self.calls+=1;expected=want if isinstance(want,tuple) else (want,)
         code=parsed.get('error',{}).get('code') if isinstance(parsed,dict) else 'non_object_response'
         matched=status in expected and code not in ('non_json_response','non_object_response')
+        validation_error=None
+        if matched and validate is not None:
+            try:validate(parsed)
+            except AssertionError:
+                matched=False;validation_error='content semantic or no-side-effect assertion failed'
         row={'method':method,'path':self.safe_path(path),'scenario':scenario,'status':'passed' if matched else 'failed',
              'expected':{'status':list(expected)},'actual':{'status':status,'error_code':code},'registration_evidence':status not in (401,403,404),
              'run_id':self.run_id,'call_id':self.run_id+'-'+str(self.calls),'test_name':'FormalOwnedContentChain'}
+        if validation_error:row['actual']['assertion']=validation_error
         _private(self.work/('http-'+str(self.calls)+'.json'),{'interface':row,'response':parsed})
         emit('content.http.'+str(self.calls),row['status'],row['actual'],expected=row['expected'],duration=time.monotonic()-began,interface=row)
         if not matched:
@@ -178,7 +189,7 @@ class Chain:
 
     def setup(self):
         for i,uid in enumerate(self.users):self.login(i,uid+'@testlab.invalid',self.password,index=i)
-        self.login('admin',self.data['admin']['email'],self.data['admin']['password'])
+        self.admin_user_id=self.login('admin',self.data['admin']['email'],self.data['admin']['password'])
         q=quote
         # Refuse to "repair" existing user grants from another work package.
         grants=json.loads(self.sql('SELECT COALESCE(json_agg(json_build_object(\'module\',module,\'scope_kind\',scope_kind,\'scope_id\',scope_id)),\'[]\'::json) FROM v3_effective_role_grants WHERE user_id='+q(self.users[1])+" AND module='knowledge'",read=True))
@@ -321,6 +332,121 @@ FROM knowledge_documents d JOIN knowledge_revisions kr ON kr.document_id=d.id AN
         emit('content.upload_source','passed',{'source_hash':hashlib.sha256(body).hexdigest(),'read_count':2,'content_version':1,
              'source_version_stable':True,'private_list':True,'cross_application_hidden':True,'untrusted_text_scope':'stored inert data; local canary0 and execution marker absent; not model robustness',
              'default_fetcher_private_IP_rejected':True,'SSRF_reply_count':reply_count,'canary_requests':sink.hits})
+        self.upload_probes(upload['url'])
+
+    def upload_probe_state(self,audit_cutoff=None):
+        # Root serializes this package against other writers. Global table
+        # fingerprints detect inserts, removals and equal-count mutations;
+        # Only counts/digests of existing rows leave PG. New handler audit
+        # receipts are read separately and checked against the exact contract.
+        if audit_cutoff is not None and (type(audit_cutoff) is not int or audit_cutoff<0):
+            raise Blocked('upload probe audit cutoff must be a nonnegative native ID')
+        parts=[]
+        for table in UPLOAD_PROBE_TABLES:
+            extra=",'max_id',COALESCE(max(t.id),0)" if table=='management_audit' else ''
+            predicate=' WHERE t.id<='+str(audit_cutoff) if table=='management_audit' and audit_cutoff is not None else ''
+            parts.append(quote(table)+",(SELECT json_build_object('count',count(*),'digest',"+
+                         "encode(sha256(convert_to(COALESCE(string_agg(to_jsonb(t)::text,E'\\n' ORDER BY to_jsonb(t)::text),''),'UTF8')),'hex')"+extra+") FROM "+table+' t'+predicate+')')
+        state=json.loads(self.sql('SELECT json_build_object('+','.join(parts)+')',read=True))
+        check(isinstance(state,dict) and set(state)==set(UPLOAD_PROBE_TABLES),'upload probe snapshot table set differs')
+        for table,value in state.items():
+            keys={'count','digest','max_id'} if table=='management_audit' else {'count','digest'}
+            check(isinstance(value,dict) and set(value)==keys and type(value['count']) is int and value['count']>=0
+                  and isinstance(value['digest'],str) and re.fullmatch('[a-f0-9]{64}',value['digest']),'upload probe snapshot is incomplete')
+            if table=='management_audit':check(type(value['max_id']) is int and value['max_id']>=0,'upload probe audit ID unavailable')
+        return state
+
+    def upload_probe_audit_rows(self,cutoff):
+        if type(cutoff) is not int or cutoff<0:raise Blocked('upload probe audit cutoff must be a nonnegative native ID')
+        rows=json.loads(self.sql("SELECT COALESCE(json_agg(to_jsonb(t) ORDER BY t.id),'[]'::json) FROM "+
+                                '(SELECT * FROM management_audit WHERE id>'+str(cutoff)+' ORDER BY id LIMIT 3) t',read=True))
+        check(isinstance(rows,list),'upload probe audit evidence unavailable')
+        return rows
+
+    def upload_probe_case(self,label,user,payload,want=200,code=None,scenario='normal',index=0,environment='test'):
+        check(re.fullmatch('[a-z_]{1,40}',label) is not None,'upload probe evidence label invalid')
+        before=self.upload_probe_state();cutoff=before['management_audit']['max_id']
+        proof={'label':label,'request':payload,'environment':environment,'before':before,'after':None,'state_unchanged':False,'new_audits':None}
+        _private(self.work/('upload-probe-'+label+'.json'),proof)
+        def validate(result):
+            after=self.upload_probe_state(audit_cutoff=cutoff);audits=self.upload_probe_audit_rows(cutoff)
+            proof.update(after=after,state_unchanged=before==after,new_audits=audits)
+            _private(self.work/('upload-probe-'+label+'.json'),proof)
+            check(before==after,'upload connection probe mutated business data or existing audit rows')
+            # UploadReader is read-only, but the public handler intentionally
+            # seals attempted/outcome audits because upload is a bound source.
+            outcomes=['attempted','success'] if want==200 else ['attempted','failure'] if want==503 and code=='source_connection_failed' else []
+            check(len(audits)==len(outcomes),'upload probe audit receipt count differs')
+            actor=self.users[user] if user in (0,1) else self.admin_user_id if user=='admin' else None
+            prior_id=cutoff
+            for audit,outcome in zip(audits,outcomes):
+                check(isinstance(audit,dict) and type(audit.get('id')) is int and audit['id']>prior_id
+                      and audit.get('actor_id')==actor and audit.get('actor_kind')=='user'
+                      and audit.get('application_id')==payload.get('application_id')
+                      and audit.get('action')=='v3.knowledge_source.connection.test' and audit.get('target')=='upload'
+                      and audit.get('outcome')==outcome and audit.get('changes')=={'environment_id':environment,'team_id':payload.get('team_id','')},
+                      'upload probe audit identity/scope/order/outcome differs or leaks request/credential data')
+                prior_id=audit['id']
+            if want==200:
+                check(isinstance(result,dict) and set(result)=={'ok','message','connected','observed_at','persistent','scope_verified'}
+                      and result['ok'] is True and result['connected'] is True and result['persistent'] is False
+                      and result['scope_verified'] is False and isinstance(result['message'],str) and 0<len(result['message'])<=1000,
+                      'upload connection probe success contract differs or overstates persistent scope')
+                try:observed=datetime.fromisoformat(result['observed_at'].replace('Z','+00:00'))
+                except (AttributeError,TypeError,ValueError):raise AssertionError('upload probe timestamp invalid')
+                check(observed.tzinfo is not None and -5<=(datetime.now(timezone.utc)-observed).total_seconds()<=60,'upload probe timestamp stale or unzoned')
+            else:
+                check(result.get('error',{}).get('code')==code and result.get('ok') is not True and result.get('connected') is not True,
+                      'upload probe rejection error differs or claims success')
+        self.call(user,'POST','/api/v1/knowledge-sources/test',payload,want=want,scenario=scenario,index=index,
+                  environment=environment,validate=validate)
+        return {'label':label,'state_unchanged':True,'audit_count':len(proof['new_audits'])}
+
+    def upload_probes(self,source_url):
+        check(source_url=='/api/v1/uploads/'+self.ids['upload']+'/content','probe original source identity changed')
+        request={'type':'upload','url':source_url,'application_id':self.apps[0],'team_id':'','spaces':[]};results=[]
+        cases=[('normal',0,request,200,None,'normal',1,'test'),
+               ('missing_scope',0,{'type':'upload','url':source_url,'team_id':'','spaces':[]},422,'invalid_source_scope','boundary',0,'test'),
+               ('unauthenticated',None,request,401,'unauthorized','authorization',0,'test'),
+               ('permission',0,request,403,'forbidden','authorization',0,'staging'),
+               ('owner',1,dict(request,application_id=self.apps[1]),503,'source_connection_failed','authorization',1,'test'),
+               ('invalid_url',0,dict(request,url='upload://'+self.ids['upload']),422,'invalid_source_connection','boundary',0,'test'),
+               ('invalid_secret',0,dict(request,secret_ref='vault://secret/testlab-placeholder#token'),422,'invalid_source_connection','boundary',1,'test')]
+        def run_case(case):
+            label,user,body,want,code,scenario,index,env=case
+            results.append(self.upload_probe_case(label,user,body,want=want,code=code,scenario=scenario,index=index,environment=env))
+        for case in cases[:5]:run_case(case)
+        # A real staging file owned by the same admin isolates the reader's
+        # environment predicate, rather than confusing it with another owner.
+        body=b'# Synthetic upload connection probe\n'+self.marker.encode()
+        name='content-'+uuid.UUID(self.run_id).hex+'.md'
+        def upload(user,env,key):
+            boundary='content-'+uuid.uuid4().hex
+            result,_=self.call(user,'POST','/api/v1/uploads',want=201,environment=env,
+                              raw=multipart(name,body,boundary),headers={'Content-Type':'multipart/form-data; boundary='+boundary})
+            identifier=self.remember(key,result['id'])
+            check(result.get('url')=='/api/v1/uploads/'+identifier+'/content','probe fixture canonical upload URL differs')
+            return result['url']
+        staging_url=upload('admin','staging','probe_staging_upload')
+        run_case(('environment','admin',dict(request,url=staging_url),503,'source_connection_failed','authorization',1,'test'))
+        for case in cases[5:]:run_case(case)
+        revoked_url=upload(0,'test','probe_revoked_upload')
+        revoked,_=self.call(0,'POST','/api/v1/uploads/'+self.ids['probe_revoked_upload']+'/revoke',{})
+        check(revoked=={'id':self.ids['probe_revoked_upload'],'revoked':True},'probe fixture revocation receipt differs')
+        run_case(('revoked_upload',0,dict(request,url=revoked_url),503,'source_connection_failed','boundary',1,'test'))
+        # The old cookie stays in this process intentionally. Restore login
+        # through HTTP before later original content workflows continue.
+        self.call(0,'POST','/api/v1/auth/logout',want=204)
+        try:run_case(('revoked_session',0,request,401,'unauthorized','authorization',1,'test'))
+        finally:self.login(0,self.users[0]+'@testlab.invalid',self.password)
+        emit('content.upload_connection_probe','passed',{'cases':[value['label'] for value in results],
+             'probe_count':len(results),'normal_path':'POST /api/v1/knowledge-sources/test; owner-local original upload',
+             'snapshot_tables':list(UPLOAD_PROBE_TABLES),'all_probe_state_unchanged':all(value['state_unchanged'] for value in results),
+             'unchanged_scope':'seven business tables and existing audit prefix; exact new handler receipts verified separately',
+             'persistent':False,'scope_verified':False,'upload_probe_audit_writes':sum(value['audit_count'] for value in results),
+             'expected_probe_audits':'attempted→success/failure exactly2 for normal/owner/environment/revoked_upload; early rejects0',
+             'not_verified':['Confluence/Notion/Feishu tenant authority','retrieval/vector indexing','automatic refresh'],
+             'fixture_mutations':'HTTP-only extra uploads, owner revocation and session logout/relogin; outside probe snapshots'})
 
     def incidents(self):
         payload={'title':self.prefix+'incident','severity':'P2','impact':None,'env':'test','services':[self.apps[0]],'alert_ids':[self.alert],

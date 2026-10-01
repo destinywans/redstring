@@ -174,4 +174,117 @@ class ContentChainOfflineTests(unittest.TestCase):
             self.assertEqual(c.execute(chain),143)
         self.assertEqual(signal.getsignal(signal.SIGTERM),previous);self.assertTrue(json.loads((chain.work/'exit.json').read_text())['interrupted'])
 
+    def probe_state(self):
+        state={name:{'count':1,'digest':'a'*64} for name in c.UPLOAD_PROBE_TABLES}
+        state['management_audit']['max_id']=100
+        return state
+    def probe_audits(self,chain,outcome='success'):
+        return [{'id':identifier,'actor_id':chain.users[0],'actor_kind':'user','application_id':chain.apps[0],
+                 'action':'v3.knowledge_source.connection.test','target':'upload','outcome':result,
+                 'changes':{'environment_id':'test','team_id':''}} for identifier,result in ((101,'attempted'),(102,outcome))]
+    def probe_response(self):
+        from datetime import datetime,timezone
+        return {'ok':True,'message':'Read-only source access succeeded','connected':True,
+                'observed_at':datetime.now(timezone.utc).isoformat(),'persistent':False,'scope_verified':False}
+    def probe_case(self,chain,response,before=None,after=None,want=200,code=None,audits=None):
+        before=before if before is not None else self.probe_state()
+        after=after if after is not None else before
+        audits=audits if audits is not None else self.probe_audits(chain,'success' if want==200 else 'failure') if want in (200,503) else []
+        with patch.object(chain,'frozen'),patch.object(chain,'upload_probe_state',side_effect=[before,after]), \
+             patch.object(chain,'upload_probe_audit_rows',return_value=audits), \
+             patch.object(c,'transport',return_value=(want,json.dumps(response).encode(),{})),patch.object(c,'emit') as emit:
+            result=chain.upload_probe_case('normal',0,{'type':'upload','url':'/api/v1/uploads/'+'a'*32+'/content',
+                         'application_id':chain.apps[0],'team_id':'','spaces':[]},want=want,code=code)
+        return result,emit
+    def test_probe_normal_exact_response_no_effects_and_formal_evidence(self):
+        chain=self.chain();result,emit=self.probe_case(chain,self.probe_response())
+        self.assertEqual(result['label'],'normal');self.assertTrue(result['state_unchanged'])
+        row=emit.call_args.kwargs['interface'];self.assertEqual(row['path'],'/api/v1/knowledge-sources/test')
+        self.assertEqual(row['method'],'POST');self.assertEqual(row['scenario'],'normal');self.assertTrue(row['registration_evidence'])
+        self.assertEqual(row['status'],'passed');self.assertEqual((chain.work/'upload-probe-normal.json').stat().st_mode&0o777,0o600)
+    def test_probe_does_not_accept_persistent_scope_or_empty_success(self):
+        for changed in ({},dict(self.probe_response(),persistent=True),dict(self.probe_response(),scope_verified=True),
+                        dict(self.probe_response(),connected=False),dict(self.probe_response(),observed_at='2000-01-01T00:00:00Z')):
+            with self.subTest(response=changed),self.assertRaises(AssertionError):self.probe_case(self.chain(),changed)
+    def test_probe_detects_same_count_state_mutation_every_table(self):
+        for name in c.UPLOAD_PROBE_TABLES:
+            before=self.probe_state();after=json.loads(json.dumps(before));after[name]['digest']='b'*64
+            chain=self.chain()
+            with self.subTest(table=name),self.assertRaises(AssertionError):self.probe_case(chain,self.probe_response(),before,after)
+            self.assertEqual(json.loads((chain.work/'first-failure.json').read_text())['status'],'failed')
+            row=json.loads((chain.work/'http-1.json').read_text())['interface']
+            self.assertEqual(row['status'],'failed');self.assertIn('assertion',row['actual'])
+    def test_probe_detects_new_read_registration_document_or_audit(self):
+        for name in c.UPLOAD_PROBE_TABLES:
+            before=self.probe_state();after=json.loads(json.dumps(before));after[name]['count']+=1
+            with self.subTest(table=name),self.assertRaises(AssertionError):self.probe_case(self.chain(),self.probe_response(),before,after)
+    def test_probe_failure_code_exact_and_no_success_claim(self):
+        self.probe_case(self.chain(),{'error':{'code':'source_connection_failed'}},want=503,code='source_connection_failed')
+        for response in ({'error':{'code':'other'}},{'ok':True,'error':{'code':'source_connection_failed'}}):
+            with self.assertRaises(AssertionError):self.probe_case(self.chain(),response,want=503,code='source_connection_failed')
+    def test_probe_state_is_read_only_all_tables_exact_and_no_body_output(self):
+        chain=self.chain()
+        with patch.object(chain,'sql',return_value=json.dumps(self.probe_state())) as sql:
+            self.assertEqual(chain.upload_probe_state(),self.probe_state())
+        statement=sql.call_args.args[0];self.assertTrue(sql.call_args.kwargs['read'])
+        for name in c.UPLOAD_PROBE_TABLES:self.assertIn('FROM '+name+' t',statement)
+        self.assertIn('sha256(',statement);self.assertIn('ORDER BY',statement)
+        for forbidden in ('INSERT','UPDATE','DELETE','TRUNCATE'):self.assertNotIn(forbidden,statement)
+        for malformed in ({},dict(self.probe_state(),management_audit={'count':1,'digest':'bad'})):
+            with patch.object(chain,'sql',return_value=json.dumps(malformed)),self.assertRaises(AssertionError):chain.upload_probe_state()
+    def test_probe_cases_are_bounded_no_sql_business_or_grants_and_old_cookie_revoked(self):
+        chain=self.chain();chain.remember('upload','a'*32);chain.cookies[0]='aiops_session=old-cookie'
+        calls=[];cases=[]
+        def call(user,method,path,body=None,**kwargs):
+            calls.append((user,method,path,kwargs))
+            if path=='/api/v1/uploads':
+                identifier=('b' if user=='admin' else 'c')*32
+                return {'id':identifier,'url':'/api/v1/uploads/'+identifier+'/content'},{}
+            return {'id':'c'*32,'revoked':True},{}
+        def probe(label,user,payload,**kwargs):
+            cases.append((label,user,payload,kwargs));return {'label':label,'state_unchanged':True,'audit_count':2 if label in ('normal','owner','environment','revoked_upload') else 0}
+        with patch.object(chain,'call',side_effect=call),patch.object(chain,'upload_probe_case',side_effect=probe), \
+             patch.object(chain,'login') as login,patch.object(chain,'sql') as sql,patch.object(c,'emit') as emit:
+            chain.upload_probes('/api/v1/uploads/'+'a'*32+'/content')
+        self.assertEqual([item[0] for item in cases],['normal','missing_scope','unauthenticated','permission','owner','environment','invalid_url','invalid_secret','revoked_upload','revoked_session'])
+        byname={item[0]:item for item in cases}
+        for label,user,payload,kwargs in cases:
+            if label=='missing_scope':self.assertNotIn('application_id',payload);continue
+            self.assertEqual(payload['application_id'],chain.apps[1] if label=='owner' else chain.apps[0])
+            self.assertEqual(payload['team_id'],'');self.assertEqual(payload['spaces'],[])
+        self.assertEqual(byname['normal'][3]['index'],1);self.assertEqual(byname['environment'][1],'admin')
+        self.assertEqual(byname['environment'][3]['environment'],'test')
+        self.assertEqual(byname['revoked_session'][1],0);login.assert_called_once();sql.assert_not_called()
+        self.assertTrue(any(x[2].endswith('/revoke') for x in calls));self.assertTrue(any(x[2]=='/api/v1/auth/logout' for x in calls))
+        self.assertEqual(chain.cookies[0],'aiops_session=old-cookie')
+        self.assertEqual(sum(x.args[:2]==('content.upload_connection_probe','passed') for x in emit.call_args_list),1)
+
+    def test_probe_exact_audit_identity_scope_order_and_no_missing_extra_or_secret(self):
+        chain=self.chain();good=self.probe_audits(chain)
+        variants=[[],good[:1],good+[dict(good[-1],id=103)],list(reversed(good)),[good[0],dict(good[1],id=101)]]
+        for key,value in [('actor_id','another-actor'),('application_id',chain.apps[1]),('action','another.action'),
+                          ('actor_kind','machine'),('target','notion'),('outcome','failure')]:
+            changed=json.loads(json.dumps(good));changed[-1][key]=value;variants.append(changed)
+        for changes in ({'environment_id':'staging','team_id':''},{'environment_id':'test','team_id':'foreign'},
+                        {'environment_id':'test','team_id':'','url':'secret-origin'},
+                        {'environment_id':'test','team_id':'','token':'private-token'}):
+            changed=json.loads(json.dumps(good));changed[-1]['changes']=changes;variants.append(changed)
+        for rows in variants:
+            with self.subTest(rows=rows),self.assertRaises(AssertionError):self.probe_case(chain,self.probe_response(),audits=rows)
+    def test_probe_early_scope_rejection_must_have_zero_audit_rows(self):
+        chain=self.chain();response={'error':{'code':'invalid_source_scope'}}
+        result,_=self.probe_case(chain,response,want=422,code='invalid_source_scope',audits=[])
+        self.assertEqual(result['audit_count'],0)
+        with self.assertRaises(AssertionError):self.probe_case(chain,response,want=422,code='invalid_source_scope',audits=self.probe_audits(chain))
+    def test_probe_audit_reader_is_bound_readonly_and_old_prefix_digest_excludes_only_new_ids(self):
+        chain=self.chain()
+        with patch.object(chain,'sql',return_value='[]') as sql:
+            self.assertEqual(chain.upload_probe_audit_rows(100),[])
+        self.assertTrue(sql.call_args.kwargs['read']);self.assertIn('id>100',sql.call_args.args[0]);self.assertIn('LIMIT 3',sql.call_args.args[0])
+        with patch.object(chain,'sql',return_value=json.dumps(self.probe_state())) as sql:chain.upload_probe_state(audit_cutoff=100)
+        self.assertIn('WHERE t.id<=100',sql.call_args.args[0])
+        for cutoff in (-1,True,'100; DELETE FROM management_audit'):
+            with patch.object(chain,'sql') as sql,self.assertRaises(c.Blocked):chain.upload_probe_audit_rows(cutoff)
+            sql.assert_not_called()
+
 if __name__=='__main__':unittest.main()

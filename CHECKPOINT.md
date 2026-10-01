@@ -1,3 +1,13 @@
+## CP-286 · 2026-10-02 · 当前基础档首失败保留，两个可见会话并行定位SSE
+
+- 正式base **ffe5f66c-fa04-4989-b263-d3b6e44eff4c** 实际 **2026-10-01T18:02:35.176506Z→18:22:24.158808Z**（北京时间02:02→02:22），终态 **failed，15通过/3失败/1已知Homecap阻塞，命令exit2**；当前没有active测试。Go59df始末相同，binary89/runtime338/PG4CPU2GiB/k64CPU4GiB/原五阶段与阈值冻结。三失败case是burst、SSE与command汇总，不能冒三个独立产品缺陷。原件和三格式报告保留，不能自动retry、开始scale或24h洗红。
+- 预热120秒及10/25/50各300秒全passed：完成1201/3001/7501/15001迭代，各0drop/0非预期HTTP错误/0SSE窗口违规；25档原纯DBP95≤500ms/P99≤2s/错误率<0.1%通过。100突发实际生成64.020秒，3594完成/2407drop/6001总offered、实际56.14RPS、200VU饱和、k6exit0/noOOM/10次签名health全ready。高档为饱和测量，drop本身不触发原失败；直接失败条件为SSE四窗口违规，不能拿HTTP错误0当完整通过。CPU/RSS/FD/PG实际可采，goroutines/heap仍missing。
+- 同一个Streams贯穿五阶段，最后100秒内22.3/33.2/46.6/57.6秒四窗口均为偶数0,2,…48（18561/API1）的25正常连接无进展；新增279 expected_disconnects仅25正常reconnect，另254为捕获的IO异常，errors/protocol_errors0不能证明传输正常。10.7秒活跃正常仅25，终态50及集中补帧是恢复证据，不否定失败。无renewal；正常客户端5秒socket读取超时、15秒进展预算保持。原客户端未保存IO phase/type/cursor，不能断言pool泄漏或特定产品根因。
+- API与用户奇偶、HTTP route奇偶固定绑定：API1含两份conversation_list及独占groups，API2含一份list和廉价alert_detail，负载不均是现有场景事实，尚非确认根因。只读服务端核没有持有PG连接跨socket写；查询共享pool、250ms授权重验与无独立DBdeadline是待实测候选。PG waiting0只表示Lock，不能排除pgx Acquire排队。禁止凭静态猜测加pool/CA/宽超时或改产品Go凑绿。
+- 停载后原60秒恢复 **passed**：60 running回复归0、queued0/锁等待0，FD/连接回原容差；一致性 **passed**，BASE100/5000/10000、告警/消息orphans0。5原k6 exact ownCID已清理，caffeinate随runner退出。资源恢复不洗burst失败，RSS单次缓存增加不自动判泄漏。原SSE9dc3fec1/burst081329b9/recovery5bf409f0/consistencyb67143bf及reports/ffe5…为证据。
+- 两个可见会话已实际分工：HTTP只读交付perf-readonly-diagnostic/01b289c2…，现独占两个新SSE诊断模块文件补有界0600分连接/producer时序（不运行负载）；连接器会话只读Go SSE/pool/查询调用链，不修改Go/服务。root准备单独原100RPS/60秒、50正常/10慢、同affinity/阈值/数据/资源的短诊断，只有fresh源码/HMAC/资源/无active准入后执行。新鲜连接缺少前1055秒历史，如不复现不能推翻原四窗口。正式源/helper/runtime仍未改；本次仅诊断辅助工具可独立交付。
+- aiops-24 ACTIVE提示已更新本run终态与禁scale/soak；后续先有区分力的复现→确认根因→最小修复→原例/相关回归。整体open、HTTP120/166/24Mock、原2556P79skip blocked、49本地原skip已核、历史子包21/26与当前完整0/26边界保持。WAN152/Trace全集/权威生产者/外部租户/付费/Ollama及8暂停CI/CD高TODO不变。真实连续24h从未开始；GitLab保持stopped保数据，产品web/.claude/业务env/真实账号通知不动，无merge/deploy。
+
 ## CP-285 · 2026-10-02 · TLS完整定向闭环，当前59df基础档正式运行已启动
 
 - 唯一active正式base **ffe5f66c-fa04-4989-b263-d3b6e44eff4c** 实际 **2026-10-01T18:02:35.176506Z**（北京时间10月2日02:02:35）启动，工具session86433仅本轮句柄。suite performance-source59df-base-only，新private manifest **881ca58811e22f88c400fa309cd555f3283d5d36af567d2c482fd45e5d826a9d**；old6ad manifest保留。原五阶段120s10预热、300s10/25/50、60s100/原阈值/SSE/恢复/一致性未改。当前只write/route/preflight、seed及warmup/其CID清理passed，恰已知Home性能capblocked，运行仍running，source_end尚未收回；不拿预热冒完整性能通过。

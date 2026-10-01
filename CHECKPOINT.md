@@ -1,3 +1,14 @@
+## CP-287 · 2026-10-02 · 原100/60稳定复现，已定位读取及响应头超时
+
+- 当前没有active测试。新短诊断 **b97224f7-eb5e-4800-bfc2-1245989f0970** 实际 **2026-10-01T19:09:47.547266Z→19:12:08.852356Z**，**failed，8P4F1Homecap，外层exit2**；四failed是burst/SSE/summary/command同一症状汇总，非四产品bug。原100RPS/60秒、50normal/10slow/32KiB/5s socket/15s进展/5s重连宽限/60s计划重连、原traffic奇偶/用户/路由和PG4CPU2GiB/k64CPU4GiB均保持；Go59df始末同、main89/runtime338未改。原正式ffe失败与全部证据未覆盖。
+- 独立可见HTTP会话交付两个新诊断文件，**16定向测试passed**（原代码对象复用、健康边界、cursor/EOF/超时/慢读/计划重连/续登/脱敏/容量/写错/清理及临时自有socket）。consumer/producer观察原code object，仅复制globals替换私有IO/emit包装，不改共享perf.py/原统计/门槛。SHA e2fa1ca765c9ccdf64d3e34e6c605976ee4b016736c5a76d23f329a2987235d2 与测试 cce0519c4827e1860d705b3433f011ea55ce8794b1fea411ee8c98770ccce2aa；8MiB上限/0600/父0700，线程结束后证据关闭。实际diagnostic.evidence通过，无截断/写错/残余原worker；14个5秒numeric-only PG诊断观察无错，明确非正式baseline、pool内部仍missing。
+- 新连接也发生同四窗口停滞，全部25偶数/API1：**25次readline TimeoutError后230次getresponse TimeoutError**，均非shutdown，TCP connect及发request快速，5秒socket预算耗于读/等待响应头。idx0第一窗口cursor127267、同期实际DB newest128167，末窗口进展年龄55.489秒。**58次producer成功，max247ms，0producer失败**，连续新增seq已保存；因此不能归因于producer停更、续登或必须先有1055秒连接历史。具体服务端等待机制仍需确认；PG主要idle-in-tx/ClientRead及少量BufferContent，无锁等不代表Go侧pool无排队。
+- 准备前确有200 baseconv+360保留SSEconv/127140events、20用户每18旧SSEconv、无active回复；新连接使用同APP历史持久数据，未删除/归档旧证据，不称fresh库。root私有原100/60 wrapper先经独立只读审查，修复初始freeze在prepare新对象丢失、任意RuntimeError文本脱敏及primary130被finally覆盖三项工具问题；保存初始freeze、实际load前重核main binary/runtime/PG/capacity，fixed error type/reason/phase、独立cleanup_failed保持主返回。首审记录保留，未当产品Go bug。
+- 原quiet60 **恢复passed**、BASE100/5000/10000及orphans0 **一致性passed**、exact ownk6CID清理passed；observer在quiet前停止。burst bd295760、SSE077f7e56、诊断完整2b87789a、恢复e7df220a、一致性de098f9c与三报告已导出。完整root时序/seq关联/SHA交付 **source59df-performance-admission/burst100-diagnostic-handoff.json**；raw **environments/testlab-3cbde3095125/perf/a3a610c261a9**。新diag是原症状复现，不代完整base/scale/24h。
+- 只读看板已登记PERF-SSE-100-FFE5高优先级验收失败/根因待确认，并关联4原件；实际HTTP读回显示overall open、120/166真实normal、两性能门槛incomplete及失败说明可见。原cases不改，修复/通过尚未宣称。根因类别产品/容量/工具仍需证据，原58次成功producer与client header阶段已缩小范围。
+- 下一最小动作由连接器可见会话只准备private ≤120行pool Stat/Acquire/Query时序诊断patch及精确恢复步骤，**不改Go/服务、不build/负载**；root审核后如需临时Go instrumentation，必须真实新source/binary和有效期内证书/资源/HMAC登记，非formal；结束preimage守卫恢复原Go59/main89后再正式验证，不能overlay改binary却冒59。不扩池、不改阈值/权限、不先增分页，scale与24h暂停准入。aiops-24 ACTIVE按实际SQLite/新检查点继续，禁止重复b972/ffe。
+- 整体未收口：历史子包21/26/当前完整0/26、原2556P79skip blocked及49本地原skip证据、HTTP120/166/24Mock边界不变；WAN152/Trace全集/权威生产者/外部租户/付费/Ollama/8暂停CI-CD高TODO仍可见。24h从未开始。scoped交付仅诊断工具与检查点；产品web/.claude/业务env/其他集群/真实账号通知不动，GitLab保持stopped保数据，无merge/deploy。
+
 ## CP-286 · 2026-10-02 · 当前基础档首失败保留，两个可见会话并行定位SSE
 
 - 正式base **ffe5f66c-fa04-4989-b263-d3b6e44eff4c** 实际 **2026-10-01T18:02:35.176506Z→18:22:24.158808Z**（北京时间02:02→02:22），终态 **failed，15通过/3失败/1已知Homecap阻塞，命令exit2**；当前没有active测试。Go59df始末相同，binary89/runtime338/PG4CPU2GiB/k64CPU4GiB/原五阶段与阈值冻结。三失败case是burst、SSE与command汇总，不能冒三个独立产品缺陷。原件和三格式报告保留，不能自动retry、开始scale或24h洗红。

@@ -1,3 +1,11 @@
+## CP-275 · 2026-10-01 · 下层来源42实际通过独立交付，两个可见现场继续
+
+- lower-sources-functional正式 **97c0eebf-c1fe-4515-87ab-0ea0cc68226d**，11:50:27.016429→11:50:49.647019Z，**42P0F0skip0blocked/18HTTP**，4离线绿；双production合成API非空两来源两环境、ZH/EN精确DTO/顺序/脱敏/权限/跨环境/双实例撤权及session撤销，缺配置空集合、非法环境真实启动exit1、nonprod404。仅新增1主GET配置元数据正常，连接仍未验证。两UUID库role、7heldPopen和18670–72清理；capture0、业务audit before==after，Go6ad/bfeb始末与helper/testSHA精确匹配，原command59eca311实际21,080字节与三报告已存。
+- 正式suite与14必要marker（含prod/nonprod IO和cleanup/complete）整合，configuration-gitops父包不因metadata子项洗绿。根4+24工具回归通过；独立XHigh只读核源码、handler/启动器/SQLite/report/资格/零IO和清理，无阻断且不重复负载。前两次617d/373a通过原件保持，最终仅nonprod标签/helperSHA补全；无首红不虚构失败。HTTP框架不冒HTTPS、实际来源Vault/配置提升/自然TTL未验，g46只补子项。
+- 最新root整体快照 **113/166主正常、53缺、29辅助/17Mock，首次本地12**；包含正在执行metrics包的已通过正常子场景，不称整包通过。两个可见现场会话继续完整metrics/rule与bulk组。指标原4分钟timeout不压缩；bulk首次action JSON工具误读红保留后原完整组复验。443实际属于非testlab docker-nginx，生成/preview正常保留环境blocked，不接管；新平台容器方案需要独立归属/清理及binary证据，先分包不拖已可交付结果。
+- QA反向复核修正早期拓扑建议：当前Kubernetes collector仅结构路由边，不提供完整视图所需calls/depends_on正RPS调用边。保持needs_confirmation，调用图权威exporter尚待确认；未以指标Mock或合成SQL关闭。原HANDOFF和TOPOLOGY-NEXT记录更正来源/具体条件。
+- 本轮不改Go/helpers/runtime/API/productweb或业务env/DB、.claude保持；旧automation/7nativeCI/CD/重型perf与24h暂停，完整基线fixture未canonical、两档性能与24h未收口。Git scoped提交/push/精确远端及Linear回读随后附收据，不合并部署。
+
 ## CP-274 · 2026-10-01 · 原本地Go smoke可重复入口交付
 
 - local-original-smokes公开入口 **9fad53f4-f861-4313-9e31-c743c739bfd0**，11:31:45.434883→11:32:05.620423Z，10P0F0skip；原TestLocalReadcheck、TestOIDCKeycloakLocalSmoke、TestRealLocalConnectorProbes和3provider子项均实际-race-json-count1 pass。18离线覆盖3首红/actual tar路径-CID-字节-symlink/HTTP命名/Loki未知label/skip或非零不能洗绿；公开源码和private实际密码literal扫描0，文件SHA与handoff一致，rootSQLite独立读回10实际case/source始末。

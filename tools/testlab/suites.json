@@ -1189,6 +1189,28 @@
         46
       ],
       "verification_scope": "三个现有Go opt-in原case真实-race精确补验，Prom/Loki/Tempo、Keycloak测试realm和一个UUID合成日志；无主HTTP增量、不证明Grafana/30min持续采集或全模块。"
+    },
+    {
+      "id": "lower-sources-functional",
+      "name": "下层来源只读元数据实际接口",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "gap_ids": [
+        46
+      ],
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_lower_sources_functional_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 300,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "verification_scope": "正式production合成实例配置元数据：非空DTO、中英文、精确权限/撤权、空配置/非法启动/nonprod。没有来源或Vault连接，不证明配置提升/真实生产租户/自然TTL/HTTPS传输。"
     }
   ]
 }

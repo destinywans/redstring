@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-01T11:20:41.141895+00:00",
+  "updated_at": "2026-10-01T12:03:02.244143+00:00",
   "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
   "catalogue_sha256": "8e95110f65aca68b1385128e4bbb229b4bea7b499b5690c8eab54181d0229329",
   "coverage_snapshot": {
@@ -4132,7 +4132,77 @@
         "POST /api/v1/notification-routes",
         "POST /api/v1/inhibitions"
       ],
-      "scenario_plan_status": "needs_scenario_plan"
+      "scenario_plan_status": "needs_scenario_plan",
+      "focused_checks": [
+        {
+          "id": "lower-sources-functional",
+          "title": "服务器配置的下层来源元数据，连接未验证",
+          "command": "python3 tools/testlab/testlab.py run --suite lower-sources-functional",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "GET /api/v1/integrations/lower-sources"
+          ],
+          "required_cases": [
+            {
+              "suite": "lower-sources-functional",
+              "name": "lower.nonempty_dto"
+            },
+            {
+              "suite": "lower-sources-functional",
+              "name": "lower.authorization"
+            },
+            {
+              "suite": "lower-sources-functional",
+              "name": "lower.revocation"
+            },
+            {
+              "suite": "lower-sources-functional",
+              "name": "lower.readonly_zero_io"
+            },
+            {
+              "suite": "lower-sources-functional",
+              "name": "lower.empty_config"
+            },
+            {
+              "suite": "lower-sources-functional",
+              "name": "lower.invalid_config"
+            },
+            {
+              "suite": "lower-sources-functional",
+              "name": "lower.nonprod"
+            },
+            {
+              "suite": "lower-sources-functional",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "lower-sources-functional",
+              "name": "lower.capture_cleanup"
+            },
+            {
+              "suite": "lower-sources-functional",
+              "name": "readonly.complete"
+            },
+            {
+              "suite": "lower-sources-functional",
+              "name": "readonly.cleanup.nonprod"
+            },
+            {
+              "suite": "lower-sources-functional",
+              "name": "lower.capture_cleanup.nonprod"
+            },
+            {
+              "suite": "lower-sources-functional",
+              "name": "readonly.complete.nonprod"
+            },
+            {
+              "suite": "lower-sources-functional",
+              "name": "lower.readonly_zero_io.nonprod"
+            }
+          ],
+          "proof_scope": "正式production合成实例配置元数据：非空DTO、中英文、精确权限/撤权、空配置/非法启动/nonprod。没有来源或Vault连接，不证明配置提升/真实生产租户/自然TTL/HTTPS传输。"
+        }
+      ]
     },
     {
       "id": "producer-gaps",
@@ -4314,39 +4384,26 @@
   ],
   "classification_scope": "逐接口正常HTTP补测的前置分拣，不是后端实现完成度判定；缺实现包括必需非空生产链缺能力，外部真实验收另列。needs_confirmation尚未获得完整正式生产者调用链证明。",
   "latest_review_record": {
-    "checkpoint": "CP273",
-    "at": "2026-10-01T11:20:41.141895+00:00",
+    "checkpoint": "CP275",
+    "at": "2026-10-01T12:03:02.244143+00:00",
     "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
-    "normal_main": 111,
+    "normal_main": 113,
     "total_main": 166,
-    "remaining_main": 55,
+    "remaining_main": 53,
     "normal_auxiliary": 29,
-    "protocol_mock_normal_main": 16,
+    "protocol_mock_normal_main": 17,
     "protocol_verified_pending_real": 12,
-    "first_local_normal_queue": 14,
-    "evidence_source": "root已读公共SQLite、HTTP整体API、原运行及清理收据；范围重分类减少可执行队列不增加通过。",
+    "first_local_normal_queue": 12,
     "runs": [
       {
-        "id": "cac4578a-0a76-4981-a384-e149c62da54a",
-        "suite": "connectors-mapping-functional",
-        "passed": 73,
-        "scope": "GitLab GET-only协议Mock；真实PG/Vault与失败回滚"
-      },
-      {
-        "id": "9058317f-3150-468d-b420-eb5706333ece",
-        "suite": "notification-routes-functional",
-        "passed": 79,
-        "scope": "两真实正常；POST test只读试算，不发送"
-      },
-      {
-        "id": "7a62e019-7c99-404d-9015-7e18308713d9",
-        "suite": "services-functional",
-        "passed": 82,
-        "blocked": 4,
-        "scope": "3实际前置+1handoff包装，真人提案1real，2GET Mock；外层exit2"
+        "id": "97c0eebf-c1fe-4515-87ab-0ea0cc68226d",
+        "suite": "lower-sources-functional",
+        "passed": 42,
+        "scope": "production合成配置元数据，仅连接未验证；18HTTP"
       }
     ],
-    "proof_scope": "234P0F只是三个有界工作包；真实主正常111/166不是项目完成率；完整回归、必要剩余、两档性能、24h未收口。"
+    "evidence_source": "root核对SQLite原42用例/source始末/原command21,080字节、两个helperSHA、cleanup和handoff；独立只读XHigh核准，无重复现场负载。",
+    "proof_scope": "主覆盖含在执行metrics包已经通过的正常HTTP子场景；不代表其整包通过。lower新增1正式metadata正常。性能/持续与完整回归未收口。"
   },
   "execution_order": "先定义剩余7包的综合场景验收准入→本地轻型真实组件/完整协议Mock→权限与故障组合/相关回归→重型配置GitOps串行→当前源码完整回归→完整两档性能→连续真实24h；旧性能优先自动化保持暂停。",
   "decision_history": [
@@ -4457,6 +4514,13 @@
         }
       ],
       "constraints": "轻型UUID隔离；性能/24h/重型串行，旧automation和7nativeCI/CD暂停，Go/runtime/helpers冻结。"
+    },
+    {
+      "checkpoint": "CP275",
+      "at": "2026-10-01T11:50:49.647019+00:00",
+      "decided_by": "root under direct user urgency/autonomy authorization",
+      "decision": "下层来源只读元数据42实际通过即独立交付；其他可见会话继续指标/规则与bulk，root不重复已证明负载。拓扑只读复核纠正：现Kubernetes结构边不满足calls/depends_on正RPS图，保留needs_confirmation。",
+      "reason": "隔离轻包并行减少等待；配置元数据不冒连接成功，调用图来源尚无权威producer证明。"
     }
   ],
   "review_record_history": [
@@ -4593,6 +4657,41 @@
         }
       ],
       "proof_scope": "仅所列有界子场景。主成功样本不等于完整接口验收；当前baseline叶fixture未canonical修复，功能剩余、性能两档、连续24h、真实外部/authority/缺实现/暂停项未闭合。"
+    },
+    {
+      "checkpoint": "CP273",
+      "at": "2026-10-01T11:20:41.141895+00:00",
+      "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
+      "normal_main": 111,
+      "total_main": 166,
+      "remaining_main": 55,
+      "normal_auxiliary": 29,
+      "protocol_mock_normal_main": 16,
+      "protocol_verified_pending_real": 12,
+      "first_local_normal_queue": 14,
+      "evidence_source": "root已读公共SQLite、HTTP整体API、原运行及清理收据；范围重分类减少可执行队列不增加通过。",
+      "runs": [
+        {
+          "id": "cac4578a-0a76-4981-a384-e149c62da54a",
+          "suite": "connectors-mapping-functional",
+          "passed": 73,
+          "scope": "GitLab GET-only协议Mock；真实PG/Vault与失败回滚"
+        },
+        {
+          "id": "9058317f-3150-468d-b420-eb5706333ece",
+          "suite": "notification-routes-functional",
+          "passed": 79,
+          "scope": "两真实正常；POST test只读试算，不发送"
+        },
+        {
+          "id": "7a62e019-7c99-404d-9015-7e18308713d9",
+          "suite": "services-functional",
+          "passed": 82,
+          "blocked": 4,
+          "scope": "3实际前置+1handoff包装，真人提案1real，2GET Mock；外层exit2"
+        }
+      ],
+      "proof_scope": "234P0F只是三个有界工作包；真实主正常111/166不是项目完成率；完整回归、必要剩余、两档性能、24h未收口。"
     }
   ]
 }

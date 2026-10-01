@@ -1,3 +1,5 @@
+**CP280整合guard纠正：** 首次聚合断言失败根因是规则PUT route_plan仍属于local-components，导致真实正常及全部20marker已通过而configuration-gitops focused仅3/4。最小修改测试包归属和旧parent route_keys，原guard现在4/4+1/1通过；原58业务run、断言、normal120和source6ad未改。首红不是瞬时故障，证据e712db9d-d1b9-42d0-abf1-ec44a883e4d2保留完整说明。056fe4b已推送；这项元数据纠正随后单独提交，不把首红说成产品缺陷。
+
 ## CP-280 · 2026-10-01 · 五草稿接口58完整复验交付，下一精确fixture与新源回归
 
 - 正式config-drafts **d243c9a6-7c04-4931-9a92-f8b2d55307c2 58P0F0blocked**、27offline/py_compile。4真实正常（规则import201/PUT200、抑制draft202、通知draft202），1抑制preview200协议Mock完整604800秒合成两条P1/P3，potential1/actual_hits null，不是真实7日采集。33私有Workflow回包和20权限反例（5×401/10×403/5×422）精确；正式全部mode一致。

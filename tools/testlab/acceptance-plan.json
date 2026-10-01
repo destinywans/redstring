@@ -889,7 +889,7 @@
       "module": "事件与告警",
       "availability": "local_environment",
       "priority": "P1",
-      "package_id": "local-components",
+      "package_id": "configuration-gitops",
       "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
       "prerequisites": [
         "参见工作包 local-components 的隔离与证据前置"
@@ -3154,7 +3154,6 @@
         "GET /api/v1/alert-rules",
         "GET /api/v1/alert-rules/{id}",
         "POST /api/v1/alert-rules/{id}/dry-run",
-        "PUT /api/v1/alert-rules/{id}",
         "GET /api/v1/notification-routes",
         "GET /api/v1/silences",
         "GET /api/v1/inhibitions",
@@ -5100,6 +5099,12 @@
       "by": "assistant under user autonomous decisions authorization",
       "evidence_id": "db72faeb-0376-4272-8067-0f29ccfbc415",
       "facts": "owned Tempo实际2.7.2、2controlled traces exact search/detail，source/context/config unchanged；没有复现静默遗漏，风险是pinned版本源审及client缺完整证明。"
+    },
+    {
+      "at": "2026-10-01T14:59:44.683790+00:00",
+      "decision": "把规则PUT的测试包归属统一为configuration-gitops，匹配已验证草稿/MR生命周期；本地读取/试运行仍local-components。",
+      "reason": "root整合guard首红：该接口真实normal与20marker全通过，但旧route_plan仍归local-components，配置draft focused计3/4，不能放宽guard掩盖归属错误。",
+      "by": "assistant authorized reversible metadata correction"
     }
   ],
   "classification_scope": "逐接口正常HTTP补测的前置分拣，不是后端实现完成度判定；缺实现包括必需非空生产链缺能力，外部真实验收另列。needs_confirmation尚未获得完整正式生产者调用链证明。",

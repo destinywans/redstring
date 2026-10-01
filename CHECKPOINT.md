@@ -1,3 +1,11 @@
+## CP-264 · 2026-10-01 · 原完整基础档性能已启动（单command串行闸）
+
+- CP262–263真实容量/50诊断记录已 **58b0d6926949c7edc19a30afbadcd23714396ed2** 提交推送并精确远端回读。原8ff诊断10P0F1Homeblocked、实际50/300/0unready/SSE/recovery/consistency/清理证明70b50ecd已核；不以诊断替全阶梯。源Go6ad/bfeb/runtime338/perf365884cf/ownedPG4CPU2GiB/k6fixed4CPU4GiB保持，旧2CPU失败保留。
+- 最新doctor53/无SQLite active/parent恰11cases仅Home性能blocked/nonceHMAC两API/实际PG sameCID-image-owner-running-CPU4memory2GiB/actualbinary/Go/helper/APP11973905 exact100/5000/10000/20/cert90000/CPU RSS FD PGavailable全部准入；goroutines/heap缺失明示。新baseline/freezing私有`.local/testlab/cpu4-performance-base-freeze.json`，原singlecommand manifest16eb3b7d；**没有启额外PGobserver或parallelheavy，不带诊断额外负载冒正式baseline**。
+- 唯一正式 **4ad8e597-43ef-462c-bece-3e8a9e107626** 于 **04:23:10.623390Z** 启动 `performance-cpu4-base-only` / session23502，原warmup10RPS120s→10/25/50RPS各300s→100RPS60s，原三个纯DB25门槛各500ms/2s。当前running，禁止重复run/改冻结Go/helper/runtime/API。显式新base-only不自动种scale；结束root核全阶段、SSE/recovery/consistency/sourceend/清理及恰首页限额后才能另scale-only。
+- 首次进程basename大小写匹配0在启动前停止，未有副作用；纠正为大小写不敏感basename但完整argv仍唯一精确匹配后，fresh实际runner argv/PID/lstart与SQLite/run/HMAC核验，独占当前runner生命周期的caffeinate -i -w防系统睡眠；私有记录保存，PID仅快照，caffeinate随本run结束，不改系统配置。所有后续signal仍fresh身份验证，不依此PID操作。
+- **基础完整仍在执行、完整两档未通过、24h未开始、整体未收口**。首页/WAN152caps/暂停7nativeCI-CD/Ollama/外部/缺权威/必要本地余项继续高待办；任何新增health/SSE/25正确性失败不得scale/soak。无产品前端/业务.env或DB/其他集群/真实账号通知、合并部署，.claude保留。下一收本唯一运行真实终态，精确证据/三报告/Linear/51后继续外层门控。
+
 ## CP-263 · 2026-10-01 · 联合4CPU原50诊断通过已支持检查，完整性能待执行
 
 - 唯一 **8ff4c9f9-5c20-43da-9950-d66dcd71758b** 实际 **04:12:31.897178→04:18:51.266923Z blocked10P0F1Homeblocked**；除原首页home_result_limit性能路径阻塞外均passed，非wholepass。Go6ad始末同/perf365884cf/bfeb/runtime338/同主API，原50/300真实 **300.831894584秒、14943 iterations、58 dropped、0unexpectedHTTPerrors、exit0/OOMfalse**；高负载丢弃仍显示saturated，测量验证通过不称无丢弃吞吐SLA。全部认证健康采样unready0、health_degraded=false；SSE50正常10慢/进展/重连通过、窗口违反0；原60秒资源恢复/数据一致性/精确自己的33c2CID清理与attachreaped均通过。

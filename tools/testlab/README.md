@@ -88,4 +88,8 @@ python3 tools/testlab/profile.py --owner testlab-3cbde3095125 --run <同一操�
 
 `observe-functional` 使用真实Loki、OTel和Tempo，HTTP生成service/mapping和audit，UUID当前合成日志与闭合Trace各单次入站，再走正式logs与trace-by-ID。Trace列表搜索完整性明确blocked，使整组仍blocked；50条样本或明细通过不证明完整搜索/历史/24h。只读relay503注入不称实际组件崩溃。此组与profile复用18616，仅可串行；仅本调用Popen/UUID库角色清理，源记录保留在owned组件，不删除共享数据。
 
+`ingress-functional` 补真实 Prometheus Pull 与五类内建合成 Push：先经正式 HTTP 生成 service、connector 和 metric target，再以一次受控 exporter 信号产生实际 scrape。发信号前必须证明 Alertmanager 所有目的地仅为 owned 本地捕获；脱敏 URL 不能作为证明，需实际加载指纹、只读挂载及容器内实际配置联合核验。此测试会改变共享测试 exporter，并可能追加本地通知捕获，记录副作用且不删除原记录。用户10/min预算、权限、撤权、注入503与精确台账/审计分别断言；源60/min、并发4、慢读撤权、崩溃恢复和外部Webhook仍待补。仅串行运行，无性能或持续采集验收含义。
+
+`content` 新上传连接 Probe 必须带精确应用范围；实际 handler 对真正 Probe 写 attempted/result 两条审计，早拒绝应无审计。业务表不变、旧审计不变和新审计精确关联分别检查，不能把底层 reader 无写误当整个接口无写。原工具首次红保留，修复后重跑整个原 `content` 组。
+
 整体首次本地正常补测队列排除已Mock正常的接口；它们仍缺真实来源验收且主真实覆盖不增加。同组非通过场景的原证据/原因直接展示，有界子包不可洗绿父包。

@@ -976,6 +976,29 @@
         20,
         46
       ]
+    },
+    {
+      "id": "ingress-functional",
+      "name": "实际Prometheus Pull与内建合成Push功能链",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "verification_scope": "HTTP生成service/connector/metric target；单次本地signal真实scrape、Pull精确非空matrix与attempt/audit；内建五类synthetic Push不是真实外部Webhook。先证明所有AM目的地只localcapture；有通知捕获副作用留证，不改共享配置。",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_ingress_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        14,
+        46
+      ]
     }
   ]
 }

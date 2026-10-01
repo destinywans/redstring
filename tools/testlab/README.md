@@ -1,6 +1,12 @@
 # 后端测试实验室
 
-[实施基线](../../docs/plans/2026-09-30-backend-testlab.md)。仓库根目录执行，不读取产品.env。私有凭据/运行数据仅在.local/testlab/。
+[实施基线](../../docs/plans/2026-09-30-backend-testlab.md)及[功能优先调整](../../docs/plans/2026-10-01-backend-functional-first.md)。仓库根目录执行，不读取产品.env。私有凭据/运行数据仅在.local/testlab/。
+
+默认看板展示**当前源码整体验收**：正式主接口正常样本覆盖、工作包综合场景验收、剩余本地工作、条件阻塞/缺能力/外部与暂停待办、当前运行、各最终 gate。单次运行、首次失败和原始日志仍可在历史中钻取。主 166 条接口与 407 条历史/辅助库存分开；五类格子不作为项目整体完成率。历史源不代替当前证据，正常样本齐全也不代表整包通过。
+
+整体只读入口为 `GET /api/overview`；下载 `/api/overview/report.json`、`/api/overview/report.html`、`/api/overview/report.md`，下载时重新核当前持久证据。跨运行事件流 `/api/overview/events` 按事件序号恢复。`report --run-id` 继续导出单次运行报告，不是整体报告。看板默认 `http://127.0.0.1:8787`，没有启动/停止测试或命令执行接口。
+
+当前顺序是先完成剩余工作包稳定综合场景准入，再分批本地真实组件与完整协议 Mock、权限/故障组合及相关回归，重型 GitLab/Argo 串行；最后当前源码完整回归、完整两档性能、连续 24 小时。旧性能优先自动化保持暂停，不因功能正常样本增加而自动恢复。计划建立时 57/166 只保留为历史快照；本轮追加样本到 85/166，当前数仍必须从看板实际证据读取。两包专项场景通过、另外七包场景计划尚待补齐，原 51 项不自动关闭。
 
 ```sh
 python3 tools/testlab/testlab.py doctor
@@ -21,8 +27,8 @@ python3 tools/testlab/testlab.py run --suite local-live-gates,jenkins
 python3 tools/testlab/testlab.py run --suite gitops
 python3 tools/testlab/testlab.py run --suite faults
 python3 tools/testlab/testlab.py run --suite claim-concurrency
-python3 tools/testlab/testlab.py run --suite performance
-python3 tools/testlab/testlab.py run --suite soak
+# 完整功能/权限/故障验收和资源准入后，性能用经过审核的单档 manifest 执行。
+# 连续24小时也须单独准入；不要从此示例自动启动 performance/soak/full。
 python3 tools/testlab/testlab.py report --run-id <运行ID>
 ```
 
@@ -58,7 +64,7 @@ python3 tools/testlab/profile.py --owner testlab-3cbde3095125 --run <同一操�
 
 `canvas-native` 用独立 UUID 数据库与账号、18608/18609 双正式 API 验证模板消费、Canvas 分支/布局 CAS、节点消息、结论回写及原生 SSE。模板定义是明示的 `synthetic_test_configuration` 配置种子，业务运行结果由公开 HTTP 产生；模型为本地协议 Mock，只证明对应持久化和流协议。缺失的模板 author/import 权威生产者输出 `not_implemented`，因此原生断言全部通过时整体仍可为 blocked。Mock 启动失败与取消的清理有独立回归；不得以该组代替真实模型或生产模板验收。
 
-`native-projection` 用独立 UUID 数据库与账号、18610/18611 双正式 API 验证五条现有主接口：复盘摘要、Push 接收投影、Webhook 投影，以及服务映射的读取和 CAS 保存。业务来自原生告警、人工事件结案、独立审核发布、带签名的公开 Push 入口和映射 PUT；SQL 仅用于身份、最小授权、明示配置与只读断言，不伪造业务或审计结果。复盘人工事件没有权威开始时间，因此持续时间和 MTTR 必须保持未知；该包未配置公开 Push 地址，不能证明公网可达性。映射配置验收不证明指标、服务健康或完整历史；没有模型调用和外部通知。原生链、跨实例读回、拒绝写入后的事务审计以及本次资源清理均分别记录，不代表性能或 24 小时验收。
+`native-projection` 用独立 UUID 数据库与账号、18610/18611 双正式 API 验证七条现有主接口：`GET /postmortems`、`GET /ingest/push`、`GET /webhooks`、`GET/PUT /service-mappings`、`POST /alert-groups/bulk` 与 `GET /memory`。业务来自原生告警、人工事件结案、独立审核发布、带签名的公开 Push 入口和映射 PUT；SQL 仅用于身份、最小授权、明示配置与只读断言，不伪造业务或审计结果。新增 bulk 只验原生 claim、精确读回与重复请求，不验 silence/investigate 执行；memory 只验当前精确授权 scope 的合法空数组及 partial/unavailable，只读成功不证明 facts/conflicts 生产者。复盘人工事件没有权威开始时间，因此持续时间和 MTTR 必须保持未知；该包未配置公开 Push 地址，不能证明公网可达性。映射配置验收不证明指标、服务健康或完整历史；没有模型调用和外部通知。原生链、跨实例读回、拒绝写入后的事务审计以及本次资源清理均分别记录，七个正常样本不等于完整工作包或性能/24 小时验收。
 
 压测生成器先保存本次精确容器的退出码、OOM 标志和结束时间，再按不可变 ID 清理；失败时缺失字段显示为缺失。取消共享35秒收尾预算，保留Runner45秒窗口；清理 SQL 使用独立短客户端和数据库时限，取消后无法确认的PG状态仍为待清理失败，不将子进程回收当作事务已经完成。离线子进程或协议测试不能确定真实生成器提前退出的根因，必须由新的真实运行取证。
 
@@ -68,7 +74,7 @@ python3 tools/testlab/profile.py --owner testlab-3cbde3095125 --run <同一操�
 
 性能高负载采样与健康验收分开：严格准入之后，只对精确非gate `rps50/50RPS/300s`、`burst100/100RPS/60s`、无hooks且严格源码模式，在fresh HMAC、原两存活进程身份和全部冻结输入一致时继续记录真实ready=false。健康失败锁存，完整测量仍判阶段失败/非零，不因后续恢复转绿；观察跨度不是精确停机时长。25RPS、soak、故障注入、恢复和准入仍严格检查ready。4GiB生成器是显式测试配置，不能把声明值当Docker实测或把offline回归当容量验收。
 
-当前正式执行将base与scale分成两个单command私有manifest运行，沿用各自原五阶段。核验base终态、全部必要结果和原限额阻塞后才显式准入scale；现默认两command performance suite会继续下一command，不能用于需要失败后保留exactbase的现场。所有诊断及首次失败分别保留，禁止自动重试、缩短窗口或回填旧证据。
+保留的性能执行配方将base与scale分成两个单command私有manifest，沿用各自原五阶段；当前暂停，待功能方向的准入完成后再评估。届时核验base终态、全部必要结果和原限额阻塞后才显式准入scale；现默认两command performance suite会继续下一command，不能用于需要失败后保留exactbase的现场。所有诊断及首次失败分别保留，禁止自动重试、缩短窗口或回填旧证据。
 
 已认证健康或身份校验失败必须传播为失败：默认25RPS、持续测试及恢复采样均不将其转换为CPU/RSS/FD缺失。只有PG、ps、lsof采集本身失败可标指标缺失。限定高负载即使完成测量且之后恢复健康，已观察的健康失败仍锁存，阶段返回非零；完整测量与验证通过分别显示。此闭环80离线回归及独立源审通过，不能代替真实负载结果。
 

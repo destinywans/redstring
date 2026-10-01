@@ -262,8 +262,11 @@ def positive_records(root):
     path = Path(root) / '.local/testlab/state.sqlite3'
     if not path.is_file() or path.is_symlink():
         raise Blocked('existing private Store ledger is required')
-    result = {'required_runs': {}, 'positive_routes': [], 'positive_runs': []}
-    routes, runs = set(), set()
+    source = source_fingerprint(root)
+    source_known = bool(re.fullmatch(r'[0-9a-f]{64}', source or ''))
+    result = {'required_runs': {}, 'positive_routes': [], 'positive_runs': [],
+              'source_tree_sha': source, 'historical_positive_routes': [], 'historical_positive_runs': []}
+    routes, runs, historical_routes, historical_runs = set(), set(), set(), set()
     connection = sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True, timeout=5)
     try:
         states = {row[0]: json.loads(row[1]) for row in connection.execute('SELECT id,data FROM runs')}
@@ -283,11 +286,20 @@ def positive_records(root):
                 normal = {'status': row.get('status'), 'actual_status': row.get('actual', {}).get('status')}
             status = normal.get('actual_status')
             if normal.get('status') == 'passed' and type(status) is int and 200 <= status < 300:
-                routes.add((row['method'], row['path'].removeprefix('/api/v1')))
-                runs.add(run_id)
+                route = (row['method'], row['path'].removeprefix('/api/v1'))
+                historical_routes.add(route)
+                historical_runs.add(run_id)
+                # Historical success cannot suppress a current-source acceptance test.
+                state = states[run_id]
+                if (source_known and state.get('source_tree_sha') == source and
+                        state.get('source_tree_sha_end') == source):
+                    routes.add(route)
+                    runs.add(run_id)
         result['positive_routes'] = [list(x) for x in sorted(routes)]
         result['positive_runs'] = sorted(runs)
-        result['scope'] = 'Historical successful normal HTTP cells; not a current-source full-coverage claim'
+        result['historical_positive_routes'] = [list(x) for x in sorted(historical_routes)]
+        result['historical_positive_runs'] = sorted(historical_runs)
+        result['scope'] = 'Completed passed-run normal real-local HTTP cells with current-source start/end binding; historical cells retained separately'
         return result
     finally:
         connection.close()

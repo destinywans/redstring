@@ -1,3 +1,22 @@
+## CP-266 · 2026-10-01 · 整体看板纠偏、功能优先与首批真实补测完成
+
+- 用户明确要求把重点从单次原始记录改为“整体完成、本地余项、外部阻塞和当前瓶颈”，并授权统筹推进。此前CP265暂停保留；本轮恢复的是此功能优先范围，旧 `aiops-24` 仍PAUSED，不恢复原性能优先自动续跑。沿用 `codex/wan-138-backend-testlab`、既有WAN136/138/139；提交前HEAD/已推送05be15a，本次提交推送完成另以Git/Linear实际回读为准。`.claude/`无关用户内容保留，产品 `web/` 和Go源码未修改。
+- 默认主页跨运行汇总当前Go指纹 **6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437**，不是407×5库存分母。主正常HTTP从57→**85/166**、辅助**19**单列；余**81=60本地环境/协议Mock+17需确认可信生产链+3缺实现+1用户暂停**，local_ready正常缺口0，真实外部待办另4组。只计同源码始末、正式HTTP预期2xx、通过用例、精确注册及存在的原证据；401/403、库存、协议Mock、旧源码、缺失source_end和中断不冒正常。失败/部分有效子项保留，不能洗成整包成功。
+- 五道门槛分开：功能/权限综合未完成；历史2510通过/79跳过不计当前源；完整base/scale性能未完成；连续24h从未开始。仅当前目录/列表(local-reads)和自产非空Runbook发现(native-discovery) **2/9个既定专项场景验收通过**；native-core44/44正常样本也不算整包完成，其余7包尚需明确稳定suite/name及综合场景准入。原51全部保持逐子场景未收口，补本轮实际子项与边界，不自动升级Done。
+- 六次新真实轻型运行（全Go6ad始末相等、原首红保留）：`9c0673a4-fa92-4da1-a9f6-4c2be9d5a1ea` readonly77P；`21f49d9f-173a-4b77-b845-b6e9c8c088d3` discovery32P1external_todo；`ed76ba96-610a-40b9-8d5d-073a44e50d85` repaired-readonly89P；`0f6e2c4d-3f3b-4a3e-b045-b252343a55b9` management130P；`b4cfa3bc-392f-494a-820f-7f455db5942d` content69P；`80b62861-143f-4f79-b526-0507cbf5c655` native-projection62P。新的6run各HTML/JSON/MD已导；readonly/discovery/native专属UUID库/角色与自有双API清理。content仅本地合成文本/私有模板/图输入，不SQL造审批、执行、事实生产结果。
+- selector原77通过仍漏本轮明确缺口目标，保留原运行/离线红，改为当前来源/实际正证与精确主路由匹配后重跑89P。native新bulk只证明claim→跨实例读回→重试changed0→越权207/重复ID422/唯一assignee与audit；不证明silence/investigate全链。GET memory仅合法空集合、partial/unavailable、跨实例幂等、401/422和DB/audit无副作用，不能关闭非空facts/conflicts生产者/治理/实际召回。
+- 看板新 `/api/overview`、全局持久序号SSE及三份整体报告；原单次记录作为钻取保留。独立深审发现长actual显示截断导致门槛解析失败、原缺陷链接遗漏和总体读取错误可被raw成功洗掉，均最小修；读已登记完整原JSON，不放宽性能时长/门槛。131受影响工具测试通过（14聚合/24服务核心/54selector/39native；仅工具/本地控制HTTP夹具）。原报告夹具漏新版字段首红1F也保留，补正确schema后131绿；SSE临时台账销毁前释放读取线程。真实浏览器检查桌面/390px、默认整体85/166、0本地直补/81缺口筛选、空memory范围、缺陷懒加载证据链接、51判定、503只读夹具错误保留、刷新；JSerror0、HTML/JSON/MD实际HTTP附件下载及来源/原证据引用通过。不测试产品前端。
+- canonical Store ROOT正确。本轮证明 **be38092d-a554-41ee-84bb-f002fecdf9b4** 附载最新native run，仅为交付记录，不重写终结cases；工具green **4dd97489-1c1d-4bef-8895-87e3d4849588**，原fixture红464bf2e2、长证据红f168b8ff/绿8113d5b6、selector红843af90a/绿e5fb8028、UI stale错误a7ad6f9b/DOM9548703d均已登记。私有 `.local/testlab/overall-dashboard-validation/` 与 `.local/testlab/reports/overall-functional-first/` 完整报告保存0600；大报告不挤入1MiB日志证据而截断冒JSON有效。
+- 源码/运行时保持Go6ad、非racebfeb/runtime338，自有PG同CID c15f900d、4CPU/2GiB/APP11973905基础档及三archive、暂停GitLab保持；正式super/API47577/47578/47579仅快照，后续动作必须fresh nonce/HMAC，不能依PID。仅独立只读看板8787按唯一完整argv+lstart重启加载新聚合代码；首次本地脚本signal.kill名称错误在发信号前止并留原intent，纠正os.kill后freshguard，仅该看板重启，未碰API。当前SQLite active0，无性能/长稳/重型并行。中断压测残余60合成running回复仍单独清理待确认，不因本轮轻型通过关闭。
+- 下一步按 [功能优先计划](docs/plans/2026-10-01-backend-functional-first.md)：**定义余包综合场景准入→分批本地真实观测/Vault/SMTP/IdP与完整HTTPS组织/知识/MCP协议Mock→权限/边界/故障组合复验→当前源完整回归→重型GitOps串行→必要瓶颈及两档性能→真实连续86400**。独立用例编写可并行，实际数据库/端口隔离；重型或资源敏感验收串行。WAN152/Home/规模分页上限、Ollama容量、权威生产者和真实外部租户、7暂停nativeCI/CD、证书窗口及首红恢复都高待办，不新增分页/生产者、不自动合并部署或发送真实通知。整体未收口。
+
+## CP-265 · 2026-10-01 · 用户暂停以重启电脑，全部测试与自动续跑停止
+
+- 用户于本轮明确“先暂停一下，我要重启电脑”。立即中断正在只读预检24h会话链的High代理；其他代理均已completed，没有继续源码读取/编辑/测试。aiops-24已**PAUSED**，只在用户明确恢复后继续。暂停后没有stage/commit/push；最新已推送仍05be15a7a83441c6449003eb5304456769b01d17，.claude无关保留。
+- fresh SQLite唯一run/fresh nonceHMAC/API身份/实际唯一完整Runner argv/lstart验证后，仅SIGTERM当前自有Runner，不向API或旧PID发信号。正式基础run **4ad8e597-43ef-462c-bece-3e8a9e107626** 于 **04:33:53.857107Z interrupted**（8passed/0failed/1首页blocked）；warmup/rps10通过，25尚未完成证据，不能补算通过。source_tree_sha_end缺失保持，停后身份观察不冒本run终态sourceend。
+- 实际activequeued/running0、ownedrunningk60、当前run专属caffeinate已随Runner结束。主正式super/API仍freshHMAC正常，仅测试停止，不改变源码、资源配额或数据库；专用PG4CPU2GiB/APP11973905/三archive、自有GitLab暂停保持。停后数据库状态 **{"queued_replies": 0, "running_replies": 60, "waiting_locks": 0}**；若有合成SSE运行行，属于中断清理待确认，不自动删除业务或假通过。暂停intent/完整stopped收据0600保存，证据 **d50014cf-0547-4f6b-b14c-1de1ae0a092f**；三报告已导出，原全部首红/复验不覆写。
+- **完整基础与规模性能未通过、24h从未开始、整体未收口**。重启后等待用户恢复指令，再核真实Git/进程/端口/Docker owner-CID-image-mount/OID/CPU4配置/数据库与证书，重建必要自有运行时（旧PID/nonce无效），保持原三archive/数据，不重复profile操作。新正式基础run重新执行完整原窗口，不能把本中断的零散时间拼接为通过；确认支持路径/必要本地缺口后才scale/连续86400。24h会话链预检尚未完成，需恢复后继续源审再实测。
+
 ## CP-264 · 2026-10-01 · 原完整基础档性能已启动（单command串行闸）
 
 - CP262–263真实容量/50诊断记录已 **58b0d6926949c7edc19a30afbadcd23714396ed2** 提交推送并精确远端回读。原8ff诊断10P0F1Homeblocked、实际50/300/0unready/SSE/recovery/consistency/清理证明70b50ecd已核；不以诊断替全阶梯。源Go6ad/bfeb/runtime338/perf365884cf/ownedPG4CPU2GiB/k6fixed4CPU4GiB保持，旧2CPU失败保留。

@@ -155,11 +155,12 @@
     "name": "真实 Runbook / 检索质量",
     "remaining": "旧 BGE 混合检索有成功证据；新实验应用完整审核内容、代表问题的命中/版本/范围与误判评测未闭环。",
     "required": "当前内容盘点、已审核 Runbook、标注问题集。",
-    "source": "CP-009；docs/releases/2026-09-20-lab-integration.md；WAN-62/68",
+    "source": "CP-009；docs/releases/2026-09-20-lab-integration.md；WAN-62/68；CP266/WAN-139",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "正式Runbook创建/版本引用；业务流程接口",
-    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+    "completed_subscenarios": "正式Runbook创建/版本引用；业务流程接口；CP266：21f49d9f 当前Go6ad非空HTTP Runbook独立审核发布→搜索/提及/人员预览32通过，真实组织/向量1external_todo；只证明关键词和本地业务/审计，不关闭检索质量与外部知识源。",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入",
+    "acceptance_note": "新增仅为明确子场景，原项保持未收口；当前源码实际证据由整体看板核对。"
   },
   {
     "id": 16,
@@ -291,18 +292,22 @@
     "name": "完整 Agent Trace / Memory / Coverage",
     "remaining": "主要读已持久/上报事实；未报告模型、用量、成本、完整覆盖/记忆命中/最近使用仍未知，已有 API 不代表完整遥测。",
     "required": "真实运行上报者与持续覆盖、字段来源、保留窗口证明。",
-    "source": "CP-173、184、187、204；WAN-120/121",
+    "source": "CP-173、184、187、204；WAN-120/121；CP266/WAN-139",
     "status": "not_implemented",
-    "evidence_mode": "pending"
+    "evidence_mode": "pending",
+    "completed_subscenarios": "尚未登记；CP266：80b62861 当前Go6ad GET /memory 合法空事实/冲突，partial和unavailable_fields精确契约、跨实例幂等、401/422及数据库/审计无副作用通过；不证明非空事实生产者、治理或实际召回。",
+    "acceptance_note": "新增仅为明确子场景，原项保持未收口；当前源码实际证据由整体看板核对。"
   },
   {
     "id": 30,
     "name": "首页业务权威信息",
     "remaining": "简报、值班、健康/SLO、建议/待办动作缺可信来源；返回 null/availability，不能用本地事件推断实时健康。",
     "required": "权威值班/SLO/简报生产者及来源失败状态。",
-    "source": "CP-176、177；WAN-117",
+    "source": "CP-176、177；WAN-117；CP266/WAN-139",
     "status": "not_implemented",
-    "evidence_mode": "pending"
+    "evidence_mode": "pending",
+    "completed_subscenarios": "尚未登记；CP266：ed76ba96 当前Go6ad readonly89通过含首页/个人关注/目录读取、授权与分页断言；正常HTTP样本补齐不关闭聚合上限或权威值班/业务生产者。",
+    "acceptance_note": "新增仅为明确子场景，原项保持未收口；当前源码实际证据由整体看板核对。"
   },
   {
     "id": 31,
@@ -367,11 +372,12 @@
     "name": "代理/多实例/监督",
     "remaining": "真实代理超时、缓冲、连接池、Secure Cookie/Origin、实例开关、worker supervision 未核验；本轮 TCP/停机测试不替代部署。",
     "required": "脱敏部署清单、受控SIGTERM/重启/断依赖、实际进程管理。",
-    "source": "CP-206；WAN-133",
+    "source": "CP-206；WAN-133；CP266/WAN-139",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "正式显式V3双API；真实PG跨实例回读",
-    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+    "completed_subscenarios": "正式显式V3双API；真实PG跨实例回读；CP266：六次新轻型功能包均核当前Go6ad始末相等、专用环境和双API，UUID专项库清理证据保留；不是并发故障/重启验收。",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入",
+    "acceptance_note": "新增仅为明确子场景，原项保持未收口；当前源码实际证据由整体看板核对。"
   },
   {
     "id": 38,
@@ -459,11 +465,12 @@
     "name": "写接口安全参数",
     "remaining": "产品页面If-Match/revision/requestID等接线本轮前端排除；主路由全部业务场景仍需矩阵逐项覆盖，不从响应数或401/403推断完成。",
     "required": "按机器契约传参，覆盖过期/撤权/重放/不确定结果。",
-    "source": "CP-185～205；WAN-125/127/128",
+    "source": "CP-185～205；WAN-125/127/128；CP266/WAN-139",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "entry b8241602 230断言中主30/166正常证明；content e8814ea6 69断言/62实际HTTP；源8d0a readonly 1fbdd662 98通过/89实际HTTP、26主+1辅助GET正常；management fdd28078 130通过/113实际HTTP、17目标中15正常、2profile仅503；双实例ETag/role revision单赢家、幂等关注/取消、撤session、原生事务审计一致性。不同源和重复路由不简单相加。",
-    "proof_scope": "仅所列本地真实组件/PG/正式HTTP；整体未关闭"
+    "completed_subscenarios": "entry b8241602 230断言中主30/166正常证明；content e8814ea6 69断言/62实际HTTP；源8d0a readonly 1fbdd662 98通过/89实际HTTP、26主+1辅助GET正常；management fdd28078 130通过/113实际HTTP、17目标中15正常、2profile仅503；双实例ETag/role revision单赢家、幂等关注/取消、撤session、原生事务审计一致性。不同源和重复路由不简单相加。；CP266：80b62861 bulk claim正常、跨实例读回、相同调用者重试changed=0、越权207及重复ID422；数据库唯一认领及审计一致。正常其他动作、取消/事务锁失败和完整安全组合仍需逐场景验。",
+    "proof_scope": "仅所列本地真实组件/PG/正式HTTP；整体未关闭",
+    "acceptance_note": "新增仅为明确子场景，原项保持未收口；当前源码实际证据由整体看板核对。"
   },
   {
     "id": 47,
@@ -481,9 +488,11 @@
     "name": "UI 能力语义误差",
     "remaining": "私人模板被称团队模板/自动脱敏；本地发布被称同步复盘；草稿MR被当立即生效；token一次性秘密和邀请接受页缺完整交互。",
     "required": "逐项改为实际能力，并验证真实用户流程。",
-    "source": "CP-175、188～205；WAN-125",
+    "source": "CP-175、188～205；WAN-125；CP266/WAN-139",
     "status": "queued",
-    "evidence_mode": "pending"
+    "evidence_mode": "pending",
+    "completed_subscenarios": "尚未登记；CP266：独立测试看板改为当前源码跨运行整体验收、主85/166/辅19、81缺口和五门槛；131工具回归及看板浏览器/只读故障夹具验证，不改测产品前端。",
+    "acceptance_note": "新增仅为明确子场景，原项保持未收口；当前源码实际证据由整体看板核对。"
   },
   {
     "id": 49,

@@ -75,10 +75,11 @@ MODULE = 'formal-api-projection'
 WIRE_SCENARIOS = {'normal', 'authorization', 'boundary', 'idempotency', 'failure'}
 
 TARGETS = (('GET', '/postmortems'), ('GET', '/ingest/push'), ('GET', '/webhooks'),
-           ('GET', '/service-mappings'), ('PUT', '/service-mappings'))
+           ('GET', '/service-mappings'), ('PUT', '/service-mappings'),
+           ('POST', '/alert-groups/bulk'), ('GET', '/memory'))
 SUPPORT = (('POST', '/auth/login'), ('POST', '/services'),
  ('POST', '/webhooks/alertmanager/{source}'), ('POST', '/events/change'),
- ('GET', '/incidents'), ('POST', '/incidents'), ('GET', '/incidents/{id}'),
+ ('GET', '/alert-groups'), ('GET', '/incidents'), ('POST', '/incidents'), ('GET', '/incidents/{id}'),
  ('POST', '/incidents/{id}/status'), ('GET', '/postmortems/draft'),
  ('GET', '/postmortems/candidates'), ('POST', '/postmortems'),
  ('POST', '/postmortems/{id}/publish'), ('GET', '/audit'), ('GET', '/audit/{id}'))
@@ -596,7 +597,7 @@ class Chain:
             if 200 <= status < 300:
                 self.contract.shape(method, path, status, value)
                 if purpose == 'target' and scenario == 'normal':
-                    check(validate is not None, 'target normal requires a nonempty business validator')
+                    check(validate is not None, 'target normal requires an explicit business-state validator')
                 if validate:
                     validate(value)
             elif status >= 400:
@@ -604,6 +605,8 @@ class Chain:
                       isinstance(actual_code, str) and isinstance(value['error'].get('message'), str),
                       'formal error DTO is invalid')
             row['status'] = 'passed'
+            if method == 'GET' and canonical == '/api/v1/memory':
+                row['proof_scope'] = 'legitimate empty scoped read with honest unavailable fields; no nonempty facts, producer, governance or recall acceptance'
             row['registration_evidence'] = (200 <= status < 300 and scenario == 'normal' and purpose == 'target'
                                             and (method, canonical[len('/api/v1'):]) in TARGETS)
         except BaseException as error:
@@ -851,22 +854,73 @@ class Chain:
         check(proof == dict(revision=initial['binding_revision']+1, audits=1, actor=self.users['reader']), 'mapping audit/revision changed after rejected writes')
         emit('projection.mapping_native_cas', 'passed', proof)
 
+    def bulk_claim(self):
+        groups, _ = self.call('reader', 'GET', '/api/v1/alert-groups', purpose='fixture')
+        selected = [row for row in groups['items'] if row['source_id'] == self.source_id and
+                    row['fingerprint'] == self.source_id]
+        check(len(selected) == 1 and selected[0]['count'] == 1 and selected[0]['state'] == 'firing' and
+              selected[0]['owner'] is None, 'native webhook group not exact/unclaimed/firing')
+        gid = selected[0]['id']
+        check(re.fullmatch(r'group:[0-9a-f]{24}', gid) is not None, 'public group identity invalid')
+        body = dict(ids=[gid], action='claim')
+        self.call('reader', 'POST', '/api/v1/alert-groups/bulk', body,
+                  validate=lambda v: verify_bulk_claim(v, gid, 'claimed', 1))
+        def readback(v):
+            rows = [row for row in v['items'] if row['id'] == gid]
+            check(len(rows) == 1 and rows[0]['owner'] == self.marker+' reader' and
+                  rows[0]['count'] == 1 and rows[0]['state'] == 'firing', 'bulk claim owner/readback changed scope or alert state')
+        self.call('reader', 'GET', '/api/v1/alert-groups', index=1, purpose='fixture', validate=readback)
+        self.call('reader', 'POST', '/api/v1/alert-groups/bulk', body, index=1, scenario='idempotency',
+                  validate=lambda v: verify_bulk_claim(v, gid, 'already_claimed', 0))
+        def forbidden(v):
+            check(v['action'] == 'claim' and len(v['results']) == 1 and
+                  v['results'][0] == dict(id=gid, outcome='not_found', matched=0, changed=0,
+                    investigation_id=None, proposal_id=None, error='not_found'), 'bulk denial leaked target or mutated state')
+        self.call('peer', 'POST', '/api/v1/alert-groups/bulk', body, want=207,
+                  scenario='authorization', validate=forbidden)
+        self.call('reader', 'POST', '/api/v1/alert-groups/bulk', dict(ids=[gid,gid], action='claim'),
+                  want=422, code='invalid_bulk_request', scenario='boundary')
+        self.call('reader', 'GET', '/api/v1/alert-groups', index=1, purpose='fixture', validate=readback)
+        proof = json.loads(self.sql("SELECT json_build_object('members',(SELECT count(*) FROM ops_incidents WHERE source_id="+
+            quote(self.source_id)+" AND assignee_id="+quote(self.users['reader'])+"),'audits',(SELECT count(*) FROM management_audit WHERE action='alert.claim' AND changes->>'alert_group_id'="+
+            quote(gid)+"),'actor',(SELECT actor_id FROM management_audit WHERE action='alert.claim' AND changes->>'alert_group_id'="+quote(gid)+"))", read=True))
+        check(proof == dict(members=1, audits=1, actor=self.users['reader']), 'bulk retry/denial added audit or changed assignment')
+        emit('projection.bulk_claim_transaction', 'passed', dict(proof, group_id=gid,
+             scope='claim only; no silence approval, upstream silence or investigation execution acceptance'))
+
+    def memory_empty_read(self):
+        before = json.loads(self.sql("SELECT json_build_object('facts',(SELECT count(*) FROM v3_memory_facts),"+
+            "'conflicts',(SELECT count(*) FROM v3_memory_conflicts),'audits',(SELECT count(*) FROM management_audit))", read=True))
+        check(before['facts'] == 0 and before['conflicts'] == 0, 'memory read cannot use fabricated fact/conflict seed')
+        self.call('reader', 'GET', '/api/v1/memory', validate=verify_empty_memory)
+        self.call('reader', 'GET', '/api/v1/memory', index=1, scenario='idempotency', validate=verify_empty_memory)
+        self.call(None, 'GET', '/api/v1/memory', want=401, code='unauthorized', scenario='authorization')
+        self.call('reader', 'GET', '/api/v1/memory?service=one&service=two', want=422,
+                  code='invalid_service', scenario='boundary')
+        after = json.loads(self.sql("SELECT json_build_object('facts',(SELECT count(*) FROM v3_memory_facts),"+
+            "'conflicts',(SELECT count(*) FROM v3_memory_conflicts),'audits',(SELECT count(*) FROM management_audit))", read=True))
+        check(before == after, 'read-only memory success/rejection changed facts, conflicts or audit')
+        emit('projection.memory_empty_read', 'passed', dict(after,
+            authority_limit='legal empty read only; source-backed nonempty facts, fact production, governance and recall remain unproven'))
+
     def run(self):
         self.provision();self.start();self.seed()
         for name in ('admin', *self.users):
             self.login(name)
         self.configure_sources()
-        for step in (self.postmortem, self.push, self.mappings):
+        for step in (self.postmortem, self.push, self.mappings, self.bulk_claim, self.memory_empty_read):
             self.frozen();step();self.frozen()
         rows = [json.loads(line) for line in (self.work/'interfaces.jsonl').read_text().splitlines()]
         positive = sorted({(row['method'],row['path']) for row in rows if row['registration_evidence']})
-        check(set(positive)=={(m,'/api/v1'+p) for m,p in TARGETS}, 'five exact normal targets not all evidenced')
+        check(set(positive)=={(m,'/api/v1'+p) for m,p in TARGETS}, 'seven exact normal targets not all evidenced')
         result = dict(run_id=self.run_id, database=self.database, http_results=self.calls, positive_routes=positive,
-            main_positive=5, source_tree_sha=self.data['source_tree_sha'], binary_sha256=self.data['binary_sha256'],
+            main_positive=len(TARGETS), source_tree_sha=self.data['source_tree_sha'], binary_sha256=self.data['binary_sha256'],
             configuration_sha256=self.config_digest, sql_business_writes=0, external_notifications=False,
             model_calls=False, unproven=MISSING, performance_acceptance=False, continuity_24h_acceptance=False,
             postmortem_authority_limit='manual-case duration/MTTR unknown; summary action count only, not action contents/completion',
             push_public_host_limit='public_host intentionally empty; no public endpoint reachability acceptance',
+            memory_authority_limit='legal empty read only; no nonempty facts, producer, governance or recall acceptance',
+            bulk_authority_limit='native bulk claim/readback/retry only; no silence or investigation execution acceptance',
             unverified=['full JSON Schema validation', 'external providers', 'metric/service-health completeness', 'performance', '24-hour continuity'],
             local_component_scope='owned live Prom registration; mapping validation only, no metric or service-health completeness assertion')
         _private(self.work/'result.json', result)
@@ -1056,6 +1110,28 @@ def verify_push(value, source):
           'Push unconfigured public endpoint projection differs')
 
 
+def verify_bulk_claim(value, gid, outcome, changed):
+    check(isinstance(value, dict) and value.get('action') == 'claim' and
+          isinstance(value.get('results'), list) and len(value['results']) == 1, 'bulk claim response shape differs')
+    check(value['results'][0] == dict(id=gid, outcome=outcome, matched=1, changed=changed,
+          investigation_id=None, proposal_id=None, error=None), 'bulk claim exact effect/outcome differs')
+
+
+def verify_empty_memory(value):
+    check(isinstance(value, dict) and value.get('partial') is True and
+          all(value.get(key) == [] for key in ('services', 'facts', 'conflicts')) and
+          all(key in value and value[key] is None for key in ('service', 'conflict', 'policy')),
+          'memory empty read fabricated content or completeness')
+    check(value.get('unavailable_fields') == ['working_layer', 'episodic_layer', 'semantic_layer',
+          'confidence', 'recalls', 'expires', 'policy'], 'memory unavailable capabilities not declared exactly')
+    layers = value.get('layers')
+    check(isinstance(layers, list) and len(layers) == 2 and
+          [layer.get('id') for layer in layers] == ['service', 'workspace'] and
+          all(layer.get('count') == 0 and layer.get('evidence') ==
+              dict(kind='current_published_facts', fact_ids=[]) for layer in layers),
+          'memory empty layer provenance/count differs')
+
+
 def verify_webhooks(value, source):
     matches = [x for x in value['inbound'] if x['id']==source+':change']
     check(len(matches)==1 and matches[0]['source_id']==source and matches[0]['count']=='1' and
@@ -1157,11 +1233,12 @@ def execute(chain):
 
 def inventory(root):
     contract = Contract(root)
-    return dict(module=MODULE, selected_route_count=5, total_operations_with_support=len(TARGETS) + len(SUPPORT),
+    return dict(module=MODULE, selected_route_count=len(TARGETS), total_operations_with_support=len(TARGETS) + len(SUPPORT),
         targets=[dict(method=m, path='/api/v1'+p, route_class='main' if (m,p) in contract.main else 'auxiliary_or_historical',
-                      planned_evidence='native_http_nonempty_business_and_transactional_readback') for m,p in TARGETS],
+                      planned_evidence=('native_http_honest_empty_scoped_read_no_producer_acceptance' if p == '/memory' else 'native_http_nonempty_business_and_transactional_readback')) for m,p in TARGETS],
         support_routes=[list(x) for x in SUPPORT], ports=list(PORTS), owner=OWNER,
         fresh_database_prefix='aiops_testlab_projection_', missing_sources=MISSING,
+        memory_authority_limit='legal empty read only; no nonempty facts, production, governance or recall acceptance',
         producer_scope='HTTP service registration, native Alertmanager webhook, manual case CAS close, independent postmortem review, public signed generic ingress, registered connector mapping CAS',
         exclusions=['synthetic Push test endpoint', 'SQL business or audit seed', 'Agent runtime/importer', 'personal authority simulation', 'full service health or history', 'external notifications/models', 'performance or 24h'],
         proof='source inventory only; no Docker/PG/API execution and no new positive acceptance evidence')

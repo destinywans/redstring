@@ -114,11 +114,11 @@ class ProjectionTests(unittest.TestCase):
                     self.assertFalse(row['registration_evidence']);self.assertIsNone(row['actual']['status'])
                     self.assertNotIn('projection.complete',[call.args[0] for call in emit.call_args_list])
 
-    def test_inventory_exact_five_main_no_environment_side_effects(self):
+    def test_inventory_exact_seven_main_no_environment_side_effects(self):
         with patch.object(projection, 'doctor') as doctor, patch.object(projection.subprocess, 'run') as run:
             value = projection.inventory(projection.ROOT)
-        self.assertEqual(value['selected_route_count'], 5)
-        self.assertEqual(sum(x['route_class']=='main' for x in value['targets']), 5)
+        self.assertEqual(value['selected_route_count'], 7)
+        self.assertEqual(sum(x['route_class']=='main' for x in value['targets']), 7)
         self.assertEqual(value['ports'], [18610,18611])
         self.assertIn('no new positive acceptance', value['proof'])
         self.assertIn('Agent runtime/importer', value['exclusions'])
@@ -259,6 +259,93 @@ class ProjectionTests(unittest.TestCase):
         with patch.object(projection,'transport',return_value=(200,json.dumps(value).encode(),{})),patch.object(projection,'emit'):
             self.chain.call('denied','GET','/api/v1/service-mappings',scenario='authorization',validate=lambda v:projection.check(not v['rows'],'leak'))
         row=json.loads((self.chain.work/'interfaces.jsonl').read_text());self.assertFalse(row['registration_evidence'])
+
+    def test_empty_memory_requires_honest_partial_dto_and_exact_unavailable_fields(self):
+        value = dict(layers=[dict(id=k, count=0, evidence=dict(kind='current_published_facts', fact_ids=[]))
+                             for k in ('service', 'workspace')], services=[], facts=[], conflicts=[],
+                     service=None, conflict=None, policy=None, partial=True,
+                     unavailable_fields=['working_layer', 'episodic_layer', 'semantic_layer',
+                                         'confidence', 'recalls', 'expires', 'policy'])
+        projection.verify_empty_memory(value)
+        for field, bad in (('facts', [{'id':'fabricated'}]), ('partial', False),
+                           ('policy', 'invented'), ('unavailable_fields', [])):
+            with self.subTest(field=field), self.assertRaises(AssertionError):
+                projection.verify_empty_memory(dict(value, **{field:bad}))
+        broken=copy.deepcopy(value);broken['layers'][0]['evidence']['fact_ids']=['fabricated']
+        with self.assertRaises(AssertionError):projection.verify_empty_memory(broken)
+
+    def test_bulk_response_checks_item_error_and_exact_retry_effect(self):
+        gid='group:'+'a'*24
+        value=dict(action='claim', results=[dict(id=gid,outcome='claimed',matched=1,changed=1,
+                    investigation_id=None,proposal_id=None,error=None)])
+        projection.verify_bulk_claim(value,gid,'claimed',1)
+        for field,bad in (('changed',0),('error','conflict'),('id','group:'+'b'*24),('matched',0)):
+            changed=copy.deepcopy(value);changed['results'][0][field]=bad
+            with self.subTest(field=field),self.assertRaises(AssertionError):
+                projection.verify_bulk_claim(changed,gid,'claimed',1)
+        value['results'][0].update(outcome='already_claimed',changed=0)
+        projection.verify_bulk_claim(value,gid,'already_claimed',0)
+
+    def test_added_targets_are_exact_and_memory_scope_is_explicit(self):
+        value=projection.inventory(projection.ROOT)
+        self.assertEqual(value['selected_route_count'],7)
+        self.assertIn(('POST','/alert-groups/bulk'),projection.TARGETS)
+        self.assertIn(('GET','/memory'),projection.TARGETS)
+        self.assertIn('empty read',value['memory_authority_limit'])
+
+    def test_bulk_protocol_readback_retry_and_denial_have_one_transactional_audit(self):
+        gid='group:'+'a'*24;self.chain.users['reader']='reader-id'
+        calls=[]
+        def call(user,method,path,body=None,**kw):
+            calls.append((user,method,path,body,kw))
+            if method=='GET':
+                value=dict(items=[dict(id=gid,source_id=self.chain.source_id,fingerprint=self.chain.source_id,
+                           count=1,state='firing',owner=None if len(calls)==1 else self.chain.marker+' reader')])
+            else:
+                outcome='not_found' if user=='peer' else 'already_claimed' if kw.get('scenario')=='idempotency' else 'claimed'
+                value=dict(action='claim',results=[dict(id=gid,outcome=outcome,matched=0 if user=='peer' else 1,
+                           changed=1 if outcome=='claimed' else 0,investigation_id=None,proposal_id=None,
+                           error='not_found' if user=='peer' else None)])
+            if 'validate' in kw:kw['validate'](value)
+            return value,{}
+        with patch.object(self.chain,'call',side_effect=call),patch.object(self.chain,'sql',
+                return_value=json.dumps(dict(members=1,audits=1,actor='reader-id'))) as sql,patch.object(projection,'emit'):
+            self.chain.bulk_claim()
+        requests=[c for c in calls if c[1]=='POST']
+        self.assertEqual([c[4].get('scenario','normal') for c in requests],
+                         ['normal','idempotency','authorization','boundary'])
+        self.assertEqual(requests[2][4]['want'],207)
+        self.assertEqual(calls[2][4]['index'],1)
+        self.assertTrue(sql.call_args.kwargs['read'])
+        self.assertTrue(sql.call_args.args[0].startswith('SELECT '))
+        self.assertIn("action='alert.claim'",sql.call_args.args[0])
+
+    def test_memory_protocol_uses_only_scoped_reads_preserves_audit_and_declares_limit(self):
+        calls=[];proof=dict(facts=0,conflicts=0,audits=7)
+        with patch.object(self.chain,'call',side_effect=lambda *a,**kw:calls.append((a,kw))), \
+                patch.object(self.chain,'sql',return_value=json.dumps(proof)) as sql,patch.object(projection,'emit') as emit:
+            self.chain.memory_empty_read()
+        self.assertEqual(len(calls),4)
+        self.assertEqual(calls[0][0],('reader','GET','/api/v1/memory'))
+        self.assertIs(calls[0][1]['validate'],projection.verify_empty_memory)
+        self.assertIsNone(calls[2][0][0]);self.assertEqual(calls[2][1]['want'],401)
+        self.assertEqual(calls[3][1]['code'],'invalid_service')
+        self.assertTrue(all(c.kwargs['read'] and c.args[0].startswith('SELECT ') for c in sql.call_args_list))
+        self.assertIn('remain unproven',emit.call_args.args[2]['authority_limit'])
+        with patch.object(self.chain,'call'),patch.object(self.chain,'sql',side_effect=[json.dumps(proof),json.dumps(dict(proof,audits=8))]),patch.object(projection,'emit'),self.assertRaises(AssertionError):
+            self.chain.memory_empty_read()
+
+    def test_memory_registered_success_explicitly_limits_empty_read_proof(self):
+        value=dict(layers=[dict(id=k,name=k,count=0,description='source scope',
+                     evidence=dict(kind='current_published_facts',fact_ids=[])) for k in ('service','workspace')],
+                   services=[],facts=[],conflicts=[],service=None,conflict=None,policy=None,partial=True,
+                   unavailable_fields=['working_layer','episodic_layer','semantic_layer','confidence','recalls','expires','policy'])
+        with patch.object(projection,'transport',return_value=(200,json.dumps(value).encode(),{})),patch.object(projection,'emit'):
+            self.chain.call('reader','GET','/api/v1/memory',validate=projection.verify_empty_memory)
+        row=json.loads((self.chain.work/'interfaces.jsonl').read_text())
+        self.assertTrue(row['registration_evidence'])
+        self.assertEqual(row['actual']['status'],200)
+        self.assertIn('no nonempty facts',row['proof_scope'])
 
     def test_first_failure_immutable_and_private(self):
         self.chain.first_red({'marker':'first'});self.chain.first_red({'marker':'later'})

@@ -5,6 +5,7 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import re
+import threading
 import time
 from urllib.parse import parse_qs, unquote, urlsplit
 
@@ -17,15 +18,41 @@ class LabHTTPServer(ThreadingHTTPServer):
     # actively listening process still fails bind; SO_REUSEPORT is not enabled.
     allow_reuse_address = True
 
+    def __init__(self, *args, **kwargs):
+        self.stream_condition = threading.Condition()
+        self.active_streams = 0
+        super().__init__(*args, **kwargs)
+
     def server_close(self):
         self.closing = True
         super().server_close()
+        # The event loops must release their SQLite readers before the caller
+        # tears down a temporary ledger or replaces this dashboard instance.
+        with self.stream_condition:
+            self.stream_condition.wait_for(lambda: self.active_streams == 0, timeout=6)
 
 
 def make_server(root, port=8787):
     root = Path(root).resolve()
     store = Store(root)
     static = root / "tools/testlab/static"
+    overview_cache = {}
+    overview_lock = threading.Lock()
+
+    def overview_snapshot():
+        # Reuse an unchanged persisted snapshot. A new event, source change or
+        # ledger/plan change invalidates it; downloads always compute afresh.
+        from overview import get_overview
+        from runner import source_fingerprint, git_value
+        with overview_lock:
+            with store.connect() as connection:
+                event_id = connection.execute("SELECT coalesce(max(id),0) FROM events").fetchone()[0]
+            ledgers = [root / "tools/testlab" / name for name in ("acceptance-plan.json", "gaps.json", "defects.json")]
+            ledgers += [root / "docs/api/v3-contract.md", root / "internal/apicontract/openapi.json"]
+            key = (event_id, source_fingerprint(root), git_value(root, "rev-parse", "HEAD"), git_value(root, "branch", "--show-current"), *(p.stat().st_mtime_ns if p.exists() else None for p in ledgers))
+            if key != overview_cache.get("key"):
+                overview_cache.update(key=key, data=get_overview(root, store))
+            return overview_cache["data"]
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -60,6 +87,15 @@ def make_server(root, port=8787):
                 if path == "/api/runs":
                     store.reconcile_dead_runs()
                     return self.send(200, json.dumps({"items": store.runs()}, ensure_ascii=False))
+                if path == "/api/overview" or re.fullmatch(r"/api/overview/report\.(json|html|md)", path):
+                    from overview import get_overview, render_overview_report
+                    store.reconcile_dead_runs()
+                    detail = overview_snapshot() if path == "/api/overview" else get_overview(root, store)
+                    if path == "/api/overview":
+                        return self.send(200, json.dumps(detail, ensure_ascii=False))
+                    fmt = path.rsplit(".", 1)[-1]
+                    mime = {"json": "application/json; charset=utf-8", "html": "text/html; charset=utf-8", "md": "text/markdown; charset=utf-8"}[fmt]
+                    return self.send(200, render_overview_report(detail, fmt), mime, f"testlab-overview.{fmt}")
                 match = re.fullmatch(r"/api/runs/([0-9a-f-]{36})(?:/report\.(json|html|md))?", path)
                 if match:
                     detail = store.detail(match.group(1))
@@ -68,10 +104,11 @@ def make_server(root, port=8787):
                         mime = {"json": "application/json; charset=utf-8", "html": "text/html; charset=utf-8", "md": "text/markdown; charset=utf-8"}[fmt]
                         return self.send(200, render_report(detail, fmt), mime, f"testlab-{match.group(1)}.{fmt}")
                     return self.send(200, json.dumps(detail, ensure_ascii=False))
-                if path == "/api/events":
+                if path in ("/api/events", "/api/overview/events"):
                     params = parse_qs(parsed.query)
-                    run_id = params.get("run_id", [""])[0]
-                    store.detail(run_id)
+                    run_id = params.get("run_id", [""])[0] if path == "/api/events" else None
+                    if run_id is not None:
+                        store.detail(run_id)
                     after = int(self.headers.get("Last-Event-ID", params.get("after", ["0"])[0]))
                     if after < 0:
                         raise ValueError()
@@ -95,6 +132,16 @@ def make_server(root, port=8787):
                 return
 
         def stream(self, run_id, after):
+            with self.server.stream_condition:
+                self.server.active_streams += 1
+            try:
+                self.stream_events(run_id, after)
+            finally:
+                with self.server.stream_condition:
+                    self.server.active_streams -= 1
+                    self.server.stream_condition.notify_all()
+
+        def stream_events(self, run_id, after):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
@@ -116,7 +163,7 @@ def make_server(root, port=8787):
                 time.sleep(.5)
 
         def do_HEAD(self):
-            if urlsplit(self.path).path == "/api/events":
+            if urlsplit(self.path).path in ("/api/events", "/api/overview/events"):
                 return self.send(405, '{"error":"event stream requires GET"}')
             self.do_GET()
 

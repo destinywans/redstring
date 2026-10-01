@@ -739,7 +739,7 @@ class ReadonlyEvidenceTests(unittest.TestCase):
             connection = sqlite3.connect(path)
             connection.executescript('CREATE TABLE runs(id TEXT,data TEXT); CREATE TABLE records(run_id TEXT,kind TEXT,data TEXT);')
             for run in readonly.BASELINE_RUNS:
-                connection.execute('INSERT INTO runs VALUES(?,?)', (run, json.dumps({'status': 'passed'})))
+                connection.execute('INSERT INTO runs VALUES(?,?)', (run, json.dumps({'status': 'passed', 'source_tree_sha': 'a' * 64, 'source_tree_sha_end': 'a' * 64})))
             connection.execute('INSERT INTO runs VALUES(?,?)', ('failed-run', '{"status":"failed"}'))
             positive = dict(method='GET', path='/api/v1/me', evidence_mode='real_local',
                             scenarios={'normal': {'status': 'passed', 'actual_status': 200}})
@@ -754,10 +754,50 @@ class ReadonlyEvidenceTests(unittest.TestCase):
             connection.commit()
             connection.close()
             before = path.read_bytes()
-            result = readonly.positive_records(root)
+            with patch.object(readonly, 'source_fingerprint', return_value='a' * 64):
+                result = readonly.positive_records(root)
             self.assertEqual(result['positive_routes'], [['GET', '/me'], ['GET', '/members']])
             self.assertEqual(path.read_bytes(), before)
             self.assertEqual(result['positive_runs'], [readonly.BASELINE_RUNS[0]])
+
+    def test_only_completed_current_source_success_can_remove_gets_from_revalidation(self):
+        source = 'a' * 64
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = root / '.local/testlab'
+            data.mkdir(parents=True)
+            connection = sqlite3.connect(data / 'state.sqlite3')
+            connection.executescript('CREATE TABLE runs(id TEXT,data TEXT); CREATE TABLE records(run_id TEXT,kind TEXT,data TEXT);')
+            for run in readonly.BASELINE_RUNS:
+                connection.execute('INSERT INTO runs VALUES(?,?)', (run, json.dumps({'status': 'passed'})))
+            fixtures = [
+                ('current', '/commands', dict(status='passed', source_tree_sha=source, source_tree_sha_end=source)),
+                ('stale', '/models', dict(status='passed', source_tree_sha='b' * 64, source_tree_sha_end='b' * 64)),
+                ('missing-end', '/models/admin', dict(status='passed', source_tree_sha=source)),
+                ('changed-end', '/home', dict(status='passed', source_tree_sha=source, source_tree_sha_end='b' * 64)),
+                ('interrupted', '/me', dict(status='interrupted', source_tree_sha=source, source_tree_sha_end=source)),
+                ('unknown-start', '/me/watched-services', dict(status='passed', source_tree_sha_end=source)),
+            ]
+            for run, path, state in fixtures:
+                connection.execute('INSERT INTO runs VALUES(?,?)', (run, json.dumps(state)))
+                record = dict(method='GET', path='/api/v1' + path, evidence_mode='real_local',
+                              scenarios={'normal': dict(status='passed', actual_status=200)})
+                connection.execute('INSERT INTO records VALUES(?,?,?)', (run, 'interfaces', json.dumps(record)))
+            connection.commit()
+            connection.close()
+            with patch.object(readonly, 'source_fingerprint', return_value=source):
+                result = readonly.positive_records(root)
+            self.assertEqual(result['positive_routes'], [['GET', '/commands']])
+            selected = [path for path in readonly.GETS if ['GET', path] not in result['positive_routes']]
+            self.assertNotIn('/commands', selected)
+            for _, path, _ in fixtures[1:]:
+                self.assertIn(path, selected)
+            self.assertEqual(result['positive_runs'], ['current'])
+            self.assertEqual(len(result['historical_positive_routes']), 5)
+            self.assertIn(['GET', '/models'], result['historical_positive_routes'])
+            self.assertNotIn(['GET', '/me'], result['historical_positive_routes'])
+            with patch.object(readonly, 'source_fingerprint', return_value='unknown'):
+                self.assertEqual(readonly.positive_records(root)['positive_routes'], [])
 
     def test_actual_contract_canonicalizes_details_without_conflating_166_main_with_auxiliary(self):
         contract = readonly.Contract(readonly.ROOT)

@@ -1,0 +1,3468 @@
+{
+  "version": 1,
+  "updated_at": "2026-10-01",
+  "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
+  "catalogue_sha256": "8e95110f65aca68b1385128e4bbb229b4bea7b499b5690c8eab54181d0229329",
+  "coverage_snapshot": {
+    "total": 166,
+    "normal_count": 57,
+    "remaining": 109,
+    "runs": [
+      "0e4b328b-6c12-4aa1-97af-df959644b2b5",
+      "4a6fd099-0873-417f-87b8-6474d7ad80df",
+      "9d1f67ab-fd09-4edc-a744-c72eac6a712c"
+    ],
+    "proof_evidence_id": "d20d47ec-405e-4260-ac80-0bb28ce07ca6",
+    "remaining_classification": {
+      "local_environment": 62,
+      "local_ready": 26,
+      "not_implemented": 3,
+      "needs_confirmation": 17,
+      "user_paused": 1
+    },
+    "note": "计划建立时历史57/166快照，后续已新增正式证据；本字段不是当前进度。看板从当前源、始末一致与已登记正常2xx证据动态重算。"
+  },
+  "route_plans": [
+    {
+      "method": "GET",
+      "path": "/api/v1/me",
+      "module": "身份与全局",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-source-protocols",
+      "reason": "正式入口已有HTTPS权威适配；本地完整协议Mock可补正常HTTP与失败时序，实际值班/MFA/安全强制来源仍外部待办。",
+      "prerequisites": [
+        "参见工作包 local-source-protocols 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "cmd/aiops/v3.go",
+        "internal/v3settings/profile_evidence_http.go",
+        "internal/v3security/README.md"
+      ],
+      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/me",
+      "module": "身份与全局",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-source-protocols",
+      "reason": "正式入口已有HTTPS权威适配；本地完整协议Mock可补正常HTTP与失败时序，实际值班/MFA/安全强制来源仍外部待办。",
+      "prerequisites": [
+        "参见工作包 local-source-protocols 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "cmd/aiops/v3.go",
+        "internal/v3settings/profile_evidence_http.go",
+        "internal/v3security/README.md"
+      ],
+      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/me/preferences",
+      "module": "身份与全局",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/me/watched-services",
+      "module": "身份与全局",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/search",
+      "module": "身份与全局",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-discovery",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-discovery 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/discovery_chain.py",
+        "internal/v3discovery"
+      ],
+      "proof_scope": "正式HTTP自产业务与审计、关键词/权限；不证明外部知识同步或向量索引"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/mentions",
+      "module": "身份与全局",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-discovery",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-discovery 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/discovery_chain.py",
+        "internal/v3discovery"
+      ],
+      "proof_scope": "正式HTTP自产业务与审计、关键词/权限；不证明外部知识同步或向量索引"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/home",
+      "module": "身份与全局",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "local-reads",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 local-reads 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_readonly_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "目录配置、诚实未知和读取/分页契约；空目录不证明Agent非空业务或真实模型"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/mentions/{kind}/{id}/preview",
+      "module": "身份与全局",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-discovery",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-discovery 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/discovery_chain.py",
+        "internal/v3discovery"
+      ],
+      "proof_scope": "正式HTTP自产业务与审计、关键词/权限；不证明外部知识同步或向量索引"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/commands",
+      "module": "身份与全局",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "local-reads",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 local-reads 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_readonly_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "目录配置、诚实未知和读取/分页契约；空目录不证明Agent非空业务或真实模型"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/models",
+      "module": "身份与全局",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "local-reads",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 local-reads 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_readonly_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "目录配置、诚实未知和读取/分页契约；空目录不证明Agent非空业务或真实模型"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/models/admin",
+      "module": "身份与全局",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "local-reads",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 local-reads 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_readonly_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "目录配置、诚实未知和读取/分页契约；空目录不证明Agent非空业务或真实模型"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/uploads",
+      "module": "身份与全局",
+      "availability": "local_ready",
+      "priority": "P1",
+      "package_id": "native-content",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-content 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/content_chain.py",
+        "internal/v3canvas",
+        "internal/v3uploads"
+      ],
+      "proof_scope": "本地文本/私有模板和原生事件记录；记忆冲突非空路径须确认可信生产者"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/instance",
+      "module": "身份与全局",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "local-reads",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 local-reads 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_readonly_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "目录配置、诚实未知和读取/分页契约；空目录不证明Agent非空业务或真实模型"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/integrations/lower-sources",
+      "module": "身份与全局",
+      "availability": "local_environment",
+      "priority": "P2",
+      "package_id": "configuration-gitops",
+      "reason": "需独立nonprod/production测试实例及受保护本地GitLab；配置提升不等同暂停的原生应用CI/CD。",
+      "prerequisites": [
+        "参见工作包 configuration-gitops 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/promotion_chain.py",
+        "internal/v3configsync"
+      ],
+      "proof_scope": "本地真实配置仓库/受保护MR/批准及读回；不是恢复暂停的7项原生应用CI/CD gate"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/config-sync",
+      "module": "身份与全局",
+      "availability": "local_environment",
+      "priority": "P2",
+      "package_id": "configuration-gitops",
+      "reason": "需独立nonprod/production测试实例及受保护本地GitLab；配置提升不等同暂停的原生应用CI/CD。",
+      "prerequisites": [
+        "参见工作包 configuration-gitops 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/promotion_chain.py",
+        "internal/v3configsync"
+      ],
+      "proof_scope": "本地真实配置仓库/受保护MR/批准及读回；不是恢复暂停的7项原生应用CI/CD gate"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/config-sync/{id}/import",
+      "module": "身份与全局",
+      "availability": "local_environment",
+      "priority": "P2",
+      "package_id": "configuration-gitops",
+      "reason": "需独立nonprod/production测试实例及受保护本地GitLab；配置提升不等同暂停的原生应用CI/CD。",
+      "prerequisites": [
+        "参见工作包 configuration-gitops 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/promotion_chain.py",
+        "internal/v3configsync"
+      ],
+      "proof_scope": "本地真实配置仓库/受保护MR/批准及读回；不是恢复暂停的7项原生应用CI/CD gate"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/promotions",
+      "module": "身份与全局",
+      "availability": "local_environment",
+      "priority": "P2",
+      "package_id": "configuration-gitops",
+      "reason": "需独立nonprod/production测试实例及受保护本地GitLab；配置提升不等同暂停的原生应用CI/CD。",
+      "prerequisites": [
+        "参见工作包 configuration-gitops 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/promotion_chain.py",
+        "internal/v3configsync"
+      ],
+      "proof_scope": "本地真实配置仓库/受保护MR/批准及读回；不是恢复暂停的7项原生应用CI/CD gate"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/conversations",
+      "module": "对话、画布与模板",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "local-reads",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 local-reads 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_readonly_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "目录配置、诚实未知和读取/分页契约；空目录不证明Agent非空业务或真实模型"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/conversations/{id}",
+      "module": "对话、画布与模板",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/conversations",
+      "module": "对话、画布与模板",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "local-reads",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 local-reads 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_readonly_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "目录配置、诚实未知和读取/分页契约；空目录不证明Agent非空业务或真实模型"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/conversations/{id}/messages",
+      "module": "对话、画布与模板",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/conversations/{id}/events",
+      "module": "对话、画布与模板",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/canvases",
+      "module": "对话、画布与模板",
+      "availability": "local_ready",
+      "priority": "P1",
+      "package_id": "native-content",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-content 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_canvas_coverage.py",
+        "internal/v3canvas"
+      ],
+      "proof_scope": "本地文本/私有模板和原生事件记录；记忆冲突非空路径须确认可信生产者"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/canvases",
+      "module": "对话、画布与模板",
+      "availability": "local_ready",
+      "priority": "P1",
+      "package_id": "native-content",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-content 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_canvas_coverage.py",
+        "internal/v3canvas"
+      ],
+      "proof_scope": "本地文本/私有模板和原生事件记录；记忆冲突非空路径须确认可信生产者"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/canvases/{id}",
+      "module": "对话、画布与模板",
+      "availability": "local_ready",
+      "priority": "P1",
+      "package_id": "native-content",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-content 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_canvas_coverage.py",
+        "internal/v3canvas"
+      ],
+      "proof_scope": "本地文本/私有模板和原生事件记录；记忆冲突非空路径须确认可信生产者"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/canvases/{id}/nodes/{node}/messages",
+      "module": "对话、画布与模板",
+      "availability": "local_ready",
+      "priority": "P1",
+      "package_id": "native-content",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-content 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_canvas_coverage.py",
+        "internal/v3canvas"
+      ],
+      "proof_scope": "本地文本/私有模板和原生事件记录；记忆冲突非空路径须确认可信生产者"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/canvas-templates",
+      "module": "对话、画布与模板",
+      "availability": "local_ready",
+      "priority": "P1",
+      "package_id": "native-content",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-content 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/content_chain.py",
+        "internal/v3canvas",
+        "internal/v3uploads"
+      ],
+      "proof_scope": "本地文本/私有模板和原生事件记录；记忆冲突非空路径须确认可信生产者"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/canvas-templates",
+      "module": "对话、画布与模板",
+      "availability": "local_ready",
+      "priority": "P1",
+      "package_id": "native-content",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-content 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/content_chain.py",
+        "internal/v3canvas",
+        "internal/v3uploads"
+      ],
+      "proof_scope": "本地文本/私有模板和原生事件记录；记忆冲突非空路径须确认可信生产者"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/investigations/{id}/canvas",
+      "module": "对话、画布与模板",
+      "availability": "local_ready",
+      "priority": "P1",
+      "package_id": "native-content",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-content 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_canvas_coverage.py",
+        "internal/v3canvas"
+      ],
+      "proof_scope": "本地文本/私有模板和原生事件记录；记忆冲突非空路径须确认可信生产者"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/investigations/{id}/branches",
+      "module": "对话、画布与模板",
+      "availability": "local_ready",
+      "priority": "P1",
+      "package_id": "native-content",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-content 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_canvas_coverage.py",
+        "internal/v3canvas"
+      ],
+      "proof_scope": "本地文本/私有模板和原生事件记录；记忆冲突非空路径须确认可信生产者"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/investigations/{id}/nodes/{node}",
+      "module": "对话、画布与模板",
+      "availability": "local_ready",
+      "priority": "P1",
+      "package_id": "native-content",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-content 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_canvas_coverage.py",
+        "internal/v3canvas"
+      ],
+      "proof_scope": "本地文本/私有模板和原生事件记录；记忆冲突非空路径须确认可信生产者"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/investigations/{id}/nodes/{node}/messages",
+      "module": "对话、画布与模板",
+      "availability": "local_ready",
+      "priority": "P1",
+      "package_id": "native-content",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-content 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_canvas_coverage.py",
+        "internal/v3canvas"
+      ],
+      "proof_scope": "本地文本/私有模板和原生事件记录；记忆冲突非空路径须确认可信生产者"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/investigations/{id}/writeback-preview",
+      "module": "对话、画布与模板",
+      "availability": "local_ready",
+      "priority": "P1",
+      "package_id": "native-content",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-content 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_canvas_coverage.py",
+        "internal/v3canvas"
+      ],
+      "proof_scope": "本地文本/私有模板和原生事件记录；记忆冲突非空路径须确认可信生产者"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/investigations/{id}/writeback",
+      "module": "对话、画布与模板",
+      "availability": "local_ready",
+      "priority": "P1",
+      "package_id": "native-content",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-content 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_canvas_coverage.py",
+        "internal/v3canvas"
+      ],
+      "proof_scope": "本地文本/私有模板和原生事件记录；记忆冲突非空路径须确认可信生产者"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/investigation-templates",
+      "module": "对话、画布与模板",
+      "availability": "local_ready",
+      "priority": "P1",
+      "package_id": "native-content",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-content 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_canvas_coverage.py",
+        "internal/v3canvas"
+      ],
+      "proof_scope": "本地文本/私有模板和原生事件记录；记忆冲突非空路径须确认可信生产者"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/investigation-templates/{id}/start",
+      "module": "对话、画布与模板",
+      "availability": "local_ready",
+      "priority": "P1",
+      "package_id": "native-content",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-content 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_canvas_coverage.py",
+        "internal/v3canvas"
+      ],
+      "proof_scope": "本地文本/私有模板和原生事件记录；记忆冲突非空路径须确认可信生产者"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/inbox",
+      "module": "事件与告警",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/alerts/{id}",
+      "module": "事件与告警",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/alerts/{id}/claim",
+      "module": "事件与告警",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/alert-groups",
+      "module": "事件与告警",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/alert-groups/{id}/policy",
+      "module": "事件与告警",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/alert-groups/bulk",
+      "module": "事件与告警",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{id}/peek",
+      "module": "事件与告警",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/people/{name}/peek",
+      "module": "事件与告警",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-discovery",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-discovery 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/discovery_chain.py",
+        "internal/v3discovery"
+      ],
+      "proof_scope": "正式HTTP自产业务与审计、关键词/权限；不证明外部知识同步或向量索引"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/incidents",
+      "module": "事件与告警",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/incidents/{id}",
+      "module": "事件与告警",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/incidents/{id}/timeline",
+      "module": "事件与告警",
+      "availability": "local_ready",
+      "priority": "P1",
+      "package_id": "native-content",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-content 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/content_chain.py",
+        "internal/v3canvas",
+        "internal/v3uploads"
+      ],
+      "proof_scope": "本地文本/私有模板和原生事件记录；记忆冲突非空路径须确认可信生产者"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/alert-rules",
+      "module": "事件与告警",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/alert-rules/{id}",
+      "module": "事件与告警",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/alert-rules/{id}/dry-run",
+      "module": "事件与告警",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/alert-rules/{id}",
+      "module": "事件与告警",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notification-routes",
+      "module": "事件与告警",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需当前独占环境的受审Alertmanager来源、匿名接收方及ETag；读取不要求创建GitLab MR，写草稿另列。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/gitops.py",
+        "tools/testlab/promotion_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/silences",
+      "module": "事件与告警",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/inhibitions",
+      "module": "事件与告警",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/silences/preview",
+      "module": "事件与告警",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/silences",
+      "module": "事件与告警",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/silences/{id}",
+      "module": "事件与告警",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/proposals/{id}",
+      "module": "事件与告警",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "正式静默提案生产者和软件WebAuthn双独立批准可生成真实本地记录；精确AM读回、丢响应不重发及拒绝/评论需补子场景。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/silence_chain.py",
+        "internal/v3proposals"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/proposals/{id}/approve",
+      "module": "事件与告警",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "正式静默提案生产者和软件WebAuthn双独立批准可生成真实本地记录；精确AM读回、丢响应不重发及拒绝/评论需补子场景。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/silence_chain.py",
+        "internal/v3proposals"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/proposals/{id}/reject",
+      "module": "事件与告警",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "正式静默提案生产者和软件WebAuthn双独立批准可生成真实本地记录；精确AM读回、丢响应不重发及拒绝/评论需补子场景。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/silence_chain.py",
+        "internal/v3proposals"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/proposals/{id}/comments",
+      "module": "事件与告警",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "正式静默提案生产者和软件WebAuthn双独立批准可生成真实本地记录；精确AM读回、丢响应不重发及拒绝/评论需补子场景。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/silence_chain.py",
+        "internal/v3proposals"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}",
+      "module": "事件与告警",
+      "availability": "not_implemented",
+      "priority": "P1",
+      "package_id": "producer-gaps",
+      "reason": "当前V3旧动作worker关闭，缺正式可生成完整审批/恢复/结案执行证据的生产链；存量投影模块证据不等于新正式HTTP成功链。",
+      "prerequisites": [
+        "参见工作包 producer-gaps 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3executions/README.md",
+        "docs/api/v3-contract.md"
+      ],
+      "proof_scope": "有读取/修改代码不等于正式进程有非空可信生产者；新增生产者不在本轮修复范围"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions/{id}/report/publish",
+      "module": "事件与告警",
+      "availability": "not_implemented",
+      "priority": "P1",
+      "package_id": "producer-gaps",
+      "reason": "当前V3旧动作worker关闭，缺正式可生成完整审批/恢复/结案执行证据的生产链；存量投影模块证据不等于新正式HTTP成功链。",
+      "prerequisites": [
+        "参见工作包 producer-gaps 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3executions/README.md",
+        "docs/api/v3-contract.md"
+      ],
+      "proof_scope": "有读取/修改代码不等于正式进程有非空可信生产者；新增生产者不在本轮修复范围"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/runbooks",
+      "module": "知识与记忆",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/runbooks/{id}",
+      "module": "知识与记忆",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/runbooks/{id}/dry-run",
+      "module": "知识与记忆",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/runbooks/{id}/submit",
+      "module": "知识与记忆",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/postmortems",
+      "module": "知识与记忆",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/memory",
+      "module": "知识与记忆",
+      "availability": "local_ready",
+      "priority": "P1",
+      "package_id": "native-content",
+      "reason": "正式当前环境读取合法空集合与partial/unavailable可验证；本轮原生链只证明此只读契约，不证明facts/conflicts可信生产者。",
+      "prerequisites": [
+        "参见工作包 native-content 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3memory/service.go",
+        "internal/v3memory/read.go"
+      ],
+      "proof_scope": "正常合法空/partial/unavailable只读；无非空facts/conflicts或实际记忆召回生产者验收。"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/memory/facts/{id}/{action}",
+      "module": "知识与记忆",
+      "availability": "needs_confirmation",
+      "priority": "P1",
+      "package_id": "native-content",
+      "reason": "需发布来源锚定的事实与真实人工冲突生产链；RecordConflict领域入口存在，正式进程如何产生非空冲突需核对；不得SQL伪造。",
+      "prerequisites": [
+        "参见工作包 native-content 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3memory/service.go",
+        "internal/v3memory/http.go"
+      ],
+      "proof_scope": "本地文本/私有模板和原生事件记录；记忆冲突非空路径须确认可信生产者"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/memory/conflicts/resolve",
+      "module": "知识与记忆",
+      "availability": "needs_confirmation",
+      "priority": "P1",
+      "package_id": "native-content",
+      "reason": "需发布来源锚定的事实与真实人工冲突生产链；RecordConflict领域入口存在，正式进程如何产生非空冲突需核对；不得SQL伪造。",
+      "prerequisites": [
+        "参见工作包 native-content 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3memory/service.go",
+        "internal/v3memory/http.go"
+      ],
+      "proof_scope": "本地文本/私有模板和原生事件记录；记忆冲突非空路径须确认可信生产者"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/knowledge-sources",
+      "module": "知识与记忆",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-source-protocols",
+      "reason": "上传/公开Web/本地绑定GitMarkdown或组织源协议Mock可补非空登记和探测；外部真实租户、持续同步和索引另待办。",
+      "prerequisites": [
+        "参见工作包 local-source-protocols 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3knowledgesources",
+        "internal/v3sourceregistry",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/knowledge/search",
+      "module": "知识与记忆",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-discovery",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-discovery 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/discovery_chain.py",
+        "internal/v3discovery"
+      ],
+      "proof_scope": "正式HTTP自产业务与审计、关键词/权限；不证明外部知识同步或向量索引"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services",
+      "module": "资源与观测",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{id}",
+      "module": "资源与观测",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/{id}/resilience",
+      "module": "资源与观测",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services/{id}/resilience/proposals",
+      "module": "资源与观测",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/topology",
+      "module": "资源与观测",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/metrics/dashboard",
+      "module": "资源与观测",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/metrics/ask",
+      "module": "资源与观测",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/traces",
+      "module": "资源与观测",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/traces/{id}",
+      "module": "资源与观测",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/services/discover",
+      "module": "资源与观测",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/services",
+      "module": "资源与观测",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "服务注册已有HTTP自产入口，可在本轮UUID环境验证；完整服务读取来源不足另列组件包，不能混同。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/logs",
+      "module": "资源与观测",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/changes",
+      "module": "资源与观测",
+      "availability": "user_paused",
+      "priority": "P2",
+      "package_id": "paused-delivery",
+      "reason": "非空原生交付运行来源依赖用户暂停的CI/CD/Workflows/VM gate；不恢复执行，不SQL伪造运行。",
+      "prerequisites": [
+        "参见工作包 paused-delivery 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/gaps.json",
+        "internal/v3changes"
+      ],
+      "proof_scope": "用户暂停，不能由规则GitOps绿替代应用交付证据"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/incidents/draft",
+      "module": "v4 新建流程",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/incidents",
+      "module": "v4 新建流程",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/alert-rules/generate",
+      "module": "v4 新建流程",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/alert-rules/preview",
+      "module": "v4 新建流程",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/alert-rules",
+      "module": "v4 新建流程",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/alert-rules/import",
+      "module": "v4 新建流程",
+      "availability": "local_environment",
+      "priority": "P2",
+      "package_id": "configuration-gitops",
+      "reason": "草稿MR需本地GitLab与精确受权AM/Prom来源；只保存/审核，不自动启用、合并或部署。",
+      "prerequisites": [
+        "参见工作包 configuration-gitops 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/gitops.py",
+        "tools/testlab/promotion_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实配置仓库/受保护MR/批准及读回；不是恢复暂停的7项原生应用CI/CD gate"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/notification-routes/test",
+      "module": "v4 新建流程",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/notification-routes",
+      "module": "v4 新建流程",
+      "availability": "local_environment",
+      "priority": "P2",
+      "package_id": "configuration-gitops",
+      "reason": "草稿MR需本地GitLab与精确受权AM/Prom来源；只保存/审核，不自动启用、合并或部署。",
+      "prerequisites": [
+        "参见工作包 configuration-gitops 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/gitops.py",
+        "tools/testlab/promotion_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实配置仓库/受保护MR/批准及读回；不是恢复暂停的7项原生应用CI/CD gate"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/inhibitions/preview",
+      "module": "v4 新建流程",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/inhibitions",
+      "module": "v4 新建流程",
+      "availability": "local_environment",
+      "priority": "P2",
+      "package_id": "configuration-gitops",
+      "reason": "需真实Alertmanager完整配置ETag、范围与独立GitLab草稿MR；只保存待审核，不激活抑制。",
+      "prerequisites": [
+        "参见工作包 configuration-gitops 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/components.py",
+        "tools/testlab/silence_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "本地真实配置仓库/受保护MR/批准及读回；不是恢复暂停的7项原生应用CI/CD gate"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/runbooks/draft",
+      "module": "v4 新建流程",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/runbooks",
+      "module": "v4 新建流程",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/postmortems/candidates",
+      "module": "v4 新建流程",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/postmortems/draft",
+      "module": "v4 新建流程",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/postmortems",
+      "module": "v4 新建流程",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/knowledge-sources/test",
+      "module": "v4 新建流程",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-source-protocols",
+      "reason": "上传/公开Web/本地绑定GitMarkdown或组织源协议Mock可补非空登记和探测；外部真实租户、持续同步和索引另待办。",
+      "prerequisites": [
+        "参见工作包 local-source-protocols 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3knowledgesources",
+        "internal/v3sourceregistry",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/knowledge-sources",
+      "module": "v4 新建流程",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-source-protocols",
+      "reason": "上传/公开Web/本地绑定GitMarkdown或组织源协议Mock可补非空登记和探测；外部真实租户、持续同步和索引另待办。",
+      "prerequisites": [
+        "参见工作包 local-source-protocols 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3knowledgesources",
+        "internal/v3sourceregistry",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-runs/{id}/trace",
+      "module": "Agent 链路",
+      "availability": "needs_confirmation",
+      "priority": "P1",
+      "package_id": "producer-gaps",
+      "reason": "领域处理器已实现，但正式进程非空可信Agent/Prompt/已结束run/案例快照或护栏目录生产者需确认；不得SQL造业务结果，Eval/实际执行器缺能力另待办。",
+      "prerequisites": [
+        "参见工作包 producer-gaps 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3agents/service.go",
+        "internal/v3agents/catalog.go",
+        "internal/v3agents/eval_case_snapshots.go",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "有读取/修改代码不等于正式进程有非空可信生产者；新增生产者不在本轮修复范围"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/connectors",
+      "module": "集成中心",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "本地真实只读组件/协议Mock及Vault登记可生成连接器和映射证据；凭据仅本轮私有test值，不代表生产连接健康。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/vault_chain.py",
+        "tools/testlab/components.py",
+        "internal/v3integrations"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/connectors/{id}",
+      "module": "集成中心",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "本地真实只读组件/协议Mock及Vault登记可生成连接器和映射证据；凭据仅本轮私有test值，不代表生产连接健康。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/vault_chain.py",
+        "tools/testlab/components.py",
+        "internal/v3integrations"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/connectors/{id}/test",
+      "module": "集成中心",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "本地真实只读组件/协议Mock及Vault登记可生成连接器和映射证据；凭据仅本轮私有test值，不代表生产连接健康。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/vault_chain.py",
+        "tools/testlab/components.py",
+        "internal/v3integrations"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/connectors/{id}",
+      "module": "集成中心",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "本地真实只读组件/协议Mock及Vault登记可生成连接器和映射证据；凭据仅本轮私有test值，不代表生产连接健康。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/vault_chain.py",
+        "tools/testlab/components.py",
+        "internal/v3integrations"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/connectors",
+      "module": "集成中心",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "本地真实只读组件/协议Mock及Vault登记可生成连接器和映射证据；凭据仅本轮私有test值，不代表生产连接健康。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/vault_chain.py",
+        "tools/testlab/components.py",
+        "internal/v3integrations"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/connector-types/{type}",
+      "module": "集成中心",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "本地真实只读组件/协议Mock及Vault登记可生成连接器和映射证据；凭据仅本轮私有test值，不代表生产连接健康。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/vault_chain.py",
+        "tools/testlab/components.py",
+        "internal/v3integrations"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/mcp-servers",
+      "module": "集成中心",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-source-protocols",
+      "reason": "已有辅助环境绑定/发现/候选审核入口；需本地MCP协议Mock和正式可信注册，不启用Agent工具执行。",
+      "prerequisites": [
+        "参见工作包 local-source-protocols 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3mcp/service.go",
+        "internal/aiextensions/http.go",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/mcp-servers/{id}",
+      "module": "集成中心",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-source-protocols",
+      "reason": "已有辅助环境绑定/发现/候选审核入口；需本地MCP协议Mock和正式可信注册，不启用Agent工具执行。",
+      "prerequisites": [
+        "参见工作包 local-source-protocols 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3mcp/service.go",
+        "internal/aiextensions/http.go",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/mcp-servers/{id}/tools/{name}",
+      "module": "集成中心",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-source-protocols",
+      "reason": "已有辅助环境绑定/发现/候选审核入口；需本地MCP协议Mock和正式可信注册，不启用Agent工具执行。",
+      "prerequisites": [
+        "参见工作包 local-source-protocols 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3mcp/service.go",
+        "internal/aiextensions/http.go",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mcp-servers/{id}/review",
+      "module": "集成中心",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-source-protocols",
+      "reason": "已有辅助环境绑定/发现/候选审核入口；需本地MCP协议Mock和正式可信注册，不启用Agent工具执行。",
+      "prerequisites": [
+        "参见工作包 local-source-protocols 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3mcp/service.go",
+        "internal/aiextensions/http.go",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ingest/pull/{id}",
+      "module": "集成中心",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "本地真实只读组件/协议Mock及Vault登记可生成连接器和映射证据；凭据仅本轮私有test值，不代表生产连接健康。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/vault_chain.py",
+        "tools/testlab/components.py",
+        "internal/v3integrations"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ingest/pull/{id}/test",
+      "module": "集成中心",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "本地真实只读组件/协议Mock及Vault登记可生成连接器和映射证据；凭据仅本轮私有test值，不代表生产连接健康。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/vault_chain.py",
+        "tools/testlab/components.py",
+        "internal/v3integrations"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ingest/push",
+      "module": "集成中心",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/ingest/push/test",
+      "module": "集成中心",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "本地真实只读组件/协议Mock及Vault登记可生成连接器和映射证据；凭据仅本轮私有test值，不代表生产连接健康。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/vault_chain.py",
+        "tools/testlab/components.py",
+        "internal/v3integrations"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/service-mappings",
+      "module": "集成中心",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/service-mappings/accept",
+      "module": "集成中心",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "本地真实只读组件/协议Mock及Vault登记可生成连接器和映射证据；凭据仅本轮私有test值，不代表生产连接健康。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/vault_chain.py",
+        "tools/testlab/components.py",
+        "internal/v3integrations"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/service-mappings/discover",
+      "module": "集成中心",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "本地真实只读组件/协议Mock及Vault登记可生成连接器和映射证据；凭据仅本轮私有test值，不代表生产连接健康。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/vault_chain.py",
+        "tools/testlab/components.py",
+        "internal/v3integrations"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/service-mappings",
+      "module": "集成中心",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/coverage",
+      "module": "集成中心",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "local-reads",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 local-reads 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_readonly_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "目录配置、诚实未知和读取/分页契约；空目录不证明Agent非空业务或真实模型"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/webhooks",
+      "module": "集成中心",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/webhooks/{id}/redeliver",
+      "module": "集成中心",
+      "availability": "not_implemented",
+      "priority": "P1",
+      "package_id": "producer-gaps",
+      "reason": "主契约该行仍mock；只能测试诚实缺实现响应，不能计正常业务成功。",
+      "prerequisites": [
+        "参见工作包 producer-gaps 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md"
+      ],
+      "proof_scope": "有读取/修改代码不等于正式进程有非空可信生产者；新增生产者不在本轮修复范围"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/api-tokens",
+      "module": "集成中心",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agents/lifecycle",
+      "module": "Agent 运行台",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "local-reads",
+      "reason": "空集合/权限的正式读取可本地验证；非空目录和执行内容依赖可信生产者，不能用空列表关闭完整能力验收。",
+      "prerequisites": [
+        "参见工作包 local-reads 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_readonly_chain.py",
+        "internal/v3agents/service.go"
+      ],
+      "proof_scope": "目录配置、诚实未知和读取/分页契约；空目录不证明Agent非空业务或真实模型"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agents/{id}",
+      "module": "Agent 运行台",
+      "availability": "needs_confirmation",
+      "priority": "P1",
+      "package_id": "producer-gaps",
+      "reason": "领域处理器已实现，但正式进程非空可信Agent/Prompt/已结束run/案例快照或护栏目录生产者需确认；不得SQL造业务结果，Eval/实际执行器缺能力另待办。",
+      "prerequisites": [
+        "参见工作包 producer-gaps 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3agents/service.go",
+        "internal/v3agents/catalog.go",
+        "internal/v3agents/eval_case_snapshots.go",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "有读取/修改代码不等于正式进程有非空可信生产者；新增生产者不在本轮修复范围"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agents/{id}/rollout",
+      "module": "Agent 运行台",
+      "availability": "needs_confirmation",
+      "priority": "P1",
+      "package_id": "producer-gaps",
+      "reason": "领域处理器已实现，但正式进程非空可信Agent/Prompt/已结束run/案例快照或护栏目录生产者需确认；不得SQL造业务结果，Eval/实际执行器缺能力另待办。",
+      "prerequisites": [
+        "参见工作包 producer-gaps 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3agents/service.go",
+        "internal/v3agents/catalog.go",
+        "internal/v3agents/eval_case_snapshots.go",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "有读取/修改代码不等于正式进程有非空可信生产者；新增生产者不在本轮修复范围"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agents/{id}/rollback",
+      "module": "Agent 运行台",
+      "availability": "needs_confirmation",
+      "priority": "P1",
+      "package_id": "producer-gaps",
+      "reason": "领域处理器已实现，但正式进程非空可信Agent/Prompt/已结束run/案例快照或护栏目录生产者需确认；不得SQL造业务结果，Eval/实际执行器缺能力另待办。",
+      "prerequisites": [
+        "参见工作包 producer-gaps 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3agents/service.go",
+        "internal/v3agents/catalog.go",
+        "internal/v3agents/eval_case_snapshots.go",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "有读取/修改代码不等于正式进程有非空可信生产者；新增生产者不在本轮修复范围"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/agents/{id}/level",
+      "module": "Agent 运行台",
+      "availability": "needs_confirmation",
+      "priority": "P1",
+      "package_id": "producer-gaps",
+      "reason": "领域处理器已实现，但正式进程非空可信Agent/Prompt/已结束run/案例快照或护栏目录生产者需确认；不得SQL造业务结果，Eval/实际执行器缺能力另待办。",
+      "prerequisites": [
+        "参见工作包 producer-gaps 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3agents/service.go",
+        "internal/v3agents/catalog.go",
+        "internal/v3agents/eval_case_snapshots.go",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "有读取/修改代码不等于正式进程有非空可信生产者；新增生产者不在本轮修复范围"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/prompts",
+      "module": "Agent 运行台",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "local-reads",
+      "reason": "空集合/权限的正式读取可本地验证；非空目录和执行内容依赖可信生产者，不能用空列表关闭完整能力验收。",
+      "prerequisites": [
+        "参见工作包 local-reads 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_readonly_chain.py",
+        "internal/v3agents/service.go"
+      ],
+      "proof_scope": "目录配置、诚实未知和读取/分页契约；空目录不证明Agent非空业务或真实模型"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/prompts/{id}",
+      "module": "Agent 运行台",
+      "availability": "needs_confirmation",
+      "priority": "P1",
+      "package_id": "producer-gaps",
+      "reason": "领域处理器已实现，但正式进程非空可信Agent/Prompt/已结束run/案例快照或护栏目录生产者需确认；不得SQL造业务结果，Eval/实际执行器缺能力另待办。",
+      "prerequisites": [
+        "参见工作包 producer-gaps 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3agents/service.go",
+        "internal/v3agents/catalog.go",
+        "internal/v3agents/eval_case_snapshots.go",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "有读取/修改代码不等于正式进程有非空可信生产者；新增生产者不在本轮修复范围"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/prompts/{id}/trial",
+      "module": "Agent 运行台",
+      "availability": "needs_confirmation",
+      "priority": "P1",
+      "package_id": "producer-gaps",
+      "reason": "领域处理器已实现，但正式进程非空可信Agent/Prompt/已结束run/案例快照或护栏目录生产者需确认；不得SQL造业务结果，Eval/实际执行器缺能力另待办。",
+      "prerequisites": [
+        "参见工作包 producer-gaps 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3agents/service.go",
+        "internal/v3agents/catalog.go",
+        "internal/v3agents/eval_case_snapshots.go",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "有读取/修改代码不等于正式进程有非空可信生产者；新增生产者不在本轮修复范围"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/prompts/{id}/versions",
+      "module": "Agent 运行台",
+      "availability": "needs_confirmation",
+      "priority": "P1",
+      "package_id": "producer-gaps",
+      "reason": "领域处理器已实现，但正式进程非空可信Agent/Prompt/已结束run/案例快照或护栏目录生产者需确认；不得SQL造业务结果，Eval/实际执行器缺能力另待办。",
+      "prerequisites": [
+        "参见工作包 producer-gaps 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3agents/service.go",
+        "internal/v3agents/catalog.go",
+        "internal/v3agents/eval_case_snapshots.go",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "有读取/修改代码不等于正式进程有非空可信生产者；新增生产者不在本轮修复范围"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-tools",
+      "module": "Agent 运行台",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "local-reads",
+      "reason": "空集合/权限的正式读取可本地验证；非空目录和执行内容依赖可信生产者，不能用空列表关闭完整能力验收。",
+      "prerequisites": [
+        "参见工作包 local-reads 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_readonly_chain.py",
+        "internal/v3agents/service.go"
+      ],
+      "proof_scope": "目录配置、诚实未知和读取/分页契约；空目录不证明Agent非空业务或真实模型"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/evals/{id}",
+      "module": "Agent 运行台",
+      "availability": "needs_confirmation",
+      "priority": "P1",
+      "package_id": "producer-gaps",
+      "reason": "领域处理器已实现，但正式进程非空可信Agent/Prompt/已结束run/案例快照或护栏目录生产者需确认；不得SQL造业务结果，Eval/实际执行器缺能力另待办。",
+      "prerequisites": [
+        "参见工作包 producer-gaps 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3agents/service.go",
+        "internal/v3agents/catalog.go",
+        "internal/v3agents/eval_case_snapshots.go",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "有读取/修改代码不等于正式进程有非空可信生产者；新增生产者不在本轮修复范围"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/evals",
+      "module": "Agent 运行台",
+      "availability": "needs_confirmation",
+      "priority": "P1",
+      "package_id": "producer-gaps",
+      "reason": "领域处理器已实现，但正式进程非空可信Agent/Prompt/已结束run/案例快照或护栏目录生产者需确认；不得SQL造业务结果，Eval/实际执行器缺能力另待办。",
+      "prerequisites": [
+        "参见工作包 producer-gaps 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3agents/service.go",
+        "internal/v3agents/catalog.go",
+        "internal/v3agents/eval_case_snapshots.go",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "有读取/修改代码不等于正式进程有非空可信生产者；新增生产者不在本轮修复范围"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/eval-cases/{id}",
+      "module": "Agent 运行台",
+      "availability": "needs_confirmation",
+      "priority": "P1",
+      "package_id": "producer-gaps",
+      "reason": "领域处理器已实现，但正式进程非空可信Agent/Prompt/已结束run/案例快照或护栏目录生产者需确认；不得SQL造业务结果，Eval/实际执行器缺能力另待办。",
+      "prerequisites": [
+        "参见工作包 producer-gaps 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3agents/service.go",
+        "internal/v3agents/catalog.go",
+        "internal/v3agents/eval_case_snapshots.go",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "有读取/修改代码不等于正式进程有非空可信生产者；新增生产者不在本轮修复范围"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/eval-cases/{id}/labels",
+      "module": "Agent 运行台",
+      "availability": "needs_confirmation",
+      "priority": "P1",
+      "package_id": "producer-gaps",
+      "reason": "领域处理器已实现，但正式进程非空可信Agent/Prompt/已结束run/案例快照或护栏目录生产者需确认；不得SQL造业务结果，Eval/实际执行器缺能力另待办。",
+      "prerequisites": [
+        "参见工作包 producer-gaps 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3agents/service.go",
+        "internal/v3agents/catalog.go",
+        "internal/v3agents/eval_case_snapshots.go",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "有读取/修改代码不等于正式进程有非空可信生产者；新增生产者不在本轮修复范围"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-runs",
+      "module": "Agent 运行台",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "local-reads",
+      "reason": "空集合/权限的正式读取可本地验证；非空目录和执行内容依赖可信生产者，不能用空列表关闭完整能力验收。",
+      "prerequisites": [
+        "参见工作包 local-reads 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_readonly_chain.py",
+        "internal/v3agents/service.go"
+      ],
+      "proof_scope": "目录配置、诚实未知和读取/分页契约；空目录不证明Agent非空业务或真实模型"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-runs/{id}",
+      "module": "Agent 运行台",
+      "availability": "needs_confirmation",
+      "priority": "P1",
+      "package_id": "producer-gaps",
+      "reason": "领域处理器已实现，但正式进程非空可信Agent/Prompt/已结束run/案例快照或护栏目录生产者需确认；不得SQL造业务结果，Eval/实际执行器缺能力另待办。",
+      "prerequisites": [
+        "参见工作包 producer-gaps 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3agents/service.go",
+        "internal/v3agents/catalog.go",
+        "internal/v3agents/eval_case_snapshots.go",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "有读取/修改代码不等于正式进程有非空可信生产者；新增生产者不在本轮修复范围"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-runs/{id}/feedback",
+      "module": "Agent 运行台",
+      "availability": "needs_confirmation",
+      "priority": "P1",
+      "package_id": "producer-gaps",
+      "reason": "领域处理器已实现，但正式进程非空可信Agent/Prompt/已结束run/案例快照或护栏目录生产者需确认；不得SQL造业务结果，Eval/实际执行器缺能力另待办。",
+      "prerequisites": [
+        "参见工作包 producer-gaps 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3agents/service.go",
+        "internal/v3agents/catalog.go",
+        "internal/v3agents/eval_case_snapshots.go",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "有读取/修改代码不等于正式进程有非空可信生产者；新增生产者不在本轮修复范围"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/guardrails",
+      "module": "Agent 运行台",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "local-reads",
+      "reason": "空集合/权限的正式读取可本地验证；非空目录和执行内容依赖可信生产者，不能用空列表关闭完整能力验收。",
+      "prerequisites": [
+        "参见工作包 local-reads 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_readonly_chain.py",
+        "internal/v3agents/service.go"
+      ],
+      "proof_scope": "目录配置、诚实未知和读取/分页契约；空目录不证明Agent非空业务或真实模型"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/guardrails/{id}",
+      "module": "Agent 运行台",
+      "availability": "needs_confirmation",
+      "priority": "P1",
+      "package_id": "producer-gaps",
+      "reason": "领域处理器已实现，但正式进程非空可信Agent/Prompt/已结束run/案例快照或护栏目录生产者需确认；不得SQL造业务结果，Eval/实际执行器缺能力另待办。",
+      "prerequisites": [
+        "参见工作包 producer-gaps 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "internal/v3agents/service.go",
+        "internal/v3agents/catalog.go",
+        "internal/v3agents/eval_case_snapshots.go",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "有读取/修改代码不等于正式进程有非空可信生产者；新增生产者不在本轮修复范围"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/me/profile",
+      "module": "设置",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-source-protocols",
+      "reason": "正式入口已有HTTPS权威适配；本地完整协议Mock可补正常HTTP与失败时序，实际值班/MFA/安全强制来源仍外部待办。",
+      "prerequisites": [
+        "参见工作包 local-source-protocols 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "cmd/aiops/v3.go",
+        "internal/v3settings/profile_evidence_http.go",
+        "internal/v3security/README.md"
+      ],
+      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/me/profile",
+      "module": "设置",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-source-protocols",
+      "reason": "正式入口已有HTTPS权威适配；本地完整协议Mock可补正常HTTP与失败时序，实际值班/MFA/安全强制来源仍外部待办。",
+      "prerequisites": [
+        "参见工作包 local-source-protocols 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "cmd/aiops/v3.go",
+        "internal/v3settings/profile_evidence_http.go",
+        "internal/v3security/README.md"
+      ],
+      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/me/sessions/{id}",
+      "module": "设置",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/members",
+      "module": "设置",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "local-reads",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 local-reads 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/api_readonly_chain.py",
+        "cmd/aiops/v3.go"
+      ],
+      "proof_scope": "目录配置、诚实未知和读取/分页契约；空目录不证明Agent非空业务或真实模型"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/members/invitations",
+      "module": "设置",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-components",
+      "reason": "本地SMTP捕获/TLS relay与新UUID账号可验证发出/丢响应/本地提交失败；不发真实邮箱。",
+      "prerequisites": [
+        "参见工作包 local-components 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "tools/testlab/invitations.py",
+        "tools/testlab/smtp_capture.py"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/members/sync",
+      "module": "设置",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-source-protocols",
+      "reason": "本地飞书目录/MFA权威协议Mock与回执可验；真实组织目录与外部通知未授权，仍待办。",
+      "prerequisites": [
+        "参见工作包 local-source-protocols 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "cmd/aiops/v3.go",
+        "tools/testlab/gaps.json"
+      ],
+      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/members/mfa-reminders",
+      "module": "设置",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-source-protocols",
+      "reason": "本地飞书目录/MFA权威协议Mock与回执可验；真实组织目录与外部通知未授权，仍待办。",
+      "prerequisites": [
+        "参见工作包 local-source-protocols 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "cmd/aiops/v3.go",
+        "tools/testlab/gaps.json"
+      ],
+      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/roles",
+      "module": "设置",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/roles/{id}",
+      "module": "设置",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/roles/{id}",
+      "module": "设置",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/security",
+      "module": "设置",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-source-protocols",
+      "reason": "正式入口已有HTTPS权威适配；本地完整协议Mock可补正常HTTP与失败时序，实际值班/MFA/安全强制来源仍外部待办。",
+      "prerequisites": [
+        "参见工作包 local-source-protocols 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "cmd/aiops/v3.go",
+        "internal/v3settings/profile_evidence_http.go",
+        "internal/v3security/README.md"
+      ],
+      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/security",
+      "module": "设置",
+      "availability": "local_environment",
+      "priority": "P1",
+      "package_id": "local-source-protocols",
+      "reason": "正式入口已有HTTPS权威适配；本地完整协议Mock可补正常HTTP与失败时序，实际值班/MFA/安全强制来源仍外部待办。",
+      "prerequisites": [
+        "参见工作包 local-source-protocols 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "cmd/aiops/v3.go",
+        "internal/v3settings/profile_evidence_http.go",
+        "internal/v3security/README.md"
+      ],
+      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/me/notification-settings",
+      "module": "设置",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/me/notification-settings",
+      "module": "设置",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/me/ai-preferences",
+      "module": "设置",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/me/ai-preferences",
+      "module": "设置",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workspace",
+      "module": "设置",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/workspace",
+      "module": "设置",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/audit",
+      "module": "设置",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/audit/{id}",
+      "module": "设置",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/audit/export",
+      "module": "设置",
+      "availability": "local_ready",
+      "priority": "P0",
+      "package_id": "native-core",
+      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "prerequisites": [
+        "参见工作包 native-core 的隔离与证据前置"
+      ],
+      "source_refs": [
+        "docs/api/v3-contract.md",
+        "tools/testlab/api_core_coverage.py"
+      ],
+      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+    }
+  ],
+  "packages": [
+    {
+      "id": "local-reads",
+      "title": "当前源码目录、个人关注、列表分页与权限",
+      "priority": "P0",
+      "status": "planned",
+      "command": "python3 tools/testlab/testlab.py run --suite readonly",
+      "prerequisites": [
+        "fresh doctor、nonce/HMAC、专用PG与非race正式二进制一致",
+        "新UUID数据库/role；自有18602/18603端口空闲",
+        "当前源目录选择已修复并完成原例复验；继续以实际逐接口证据判断，不从历史通过推断"
+      ],
+      "proof_scope": "目录配置、诚实未知和读取/分页契约；空目录不证明Agent非空业务或真实模型",
+      "route_keys": [
+        "GET /api/v1/home",
+        "GET /api/v1/commands",
+        "GET /api/v1/models",
+        "GET /api/v1/models/admin",
+        "GET /api/v1/instance",
+        "GET /api/v1/conversations",
+        "POST /api/v1/conversations",
+        "GET /api/v1/coverage",
+        "GET /api/v1/agents/lifecycle",
+        "GET /api/v1/prompts",
+        "GET /api/v1/agent-tools",
+        "GET /api/v1/agent-runs",
+        "GET /api/v1/guardrails",
+        "GET /api/v1/members"
+      ],
+      "required_cases": [
+        {
+          "suite": "readonly",
+          "name": "readonly.complete"
+        },
+        {
+          "suite": "readonly",
+          "name": "readonly.cleanup"
+        },
+        {
+          "suite": "readonly",
+          "name": "readonly.catalog_scope"
+        },
+        {
+          "suite": "readonly",
+          "name": "readonly.native_conversations"
+        },
+        {
+          "suite": "readonly",
+          "name": "readonly.audit_source"
+        }
+      ],
+      "acceptance_scope": "本包现有独立suite的完整本地断言、范围权限、业务读回和精确清理；正常路由子项齐全。不是所有输入空间或外部真实验收。",
+      "allowed_case_statuses": [
+        "passed"
+      ],
+      "scenario_plan_status": "defined"
+    },
+    {
+      "id": "native-discovery",
+      "title": "非空Runbook、知识搜索、提及与人员预览",
+      "priority": "P0",
+      "status": "planned",
+      "command": "python3 tools/testlab/testlab.py run --suite discovery",
+      "prerequisites": [
+        "独立UUID数据库/role及18602/18603",
+        "HTTP创建Runbook→提交→独立审核发布，不写SQL业务结果"
+      ],
+      "proof_scope": "正式HTTP自产业务与审计、关键词/权限；不证明外部知识同步或向量索引",
+      "route_keys": [
+        "GET /api/v1/search",
+        "GET /api/v1/mentions",
+        "GET /api/v1/mentions/{kind}/{id}/preview",
+        "GET /api/v1/people/{name}/peek",
+        "POST /api/v1/knowledge/search"
+      ],
+      "required_cases": [
+        {
+          "suite": "discovery",
+          "name": "readonly.complete"
+        },
+        {
+          "suite": "discovery",
+          "name": "readonly.cleanup"
+        }
+      ],
+      "acceptance_scope": "本包现有独立suite的完整本地断言、范围权限、业务读回和精确清理；正常路由子项齐全。不是所有输入空间或外部真实验收。",
+      "allowed_case_statuses": [
+        "passed",
+        "external_todo"
+      ],
+      "scenario_plan_status": "defined"
+    },
+    {
+      "id": "native-core",
+      "title": "服务关注、事件批量/认领/时间线与复盘候选",
+      "priority": "P0",
+      "status": "planned",
+      "command": "python3 tools/testlab/testlab.py run --suite management,core,native-projection",
+      "prerequisites": [
+        "已核当前CLI支持逗号suite多选；management/core/native-projection均已登记，但bulk等新目标仍需单独用例",
+        "新UUID库/role及声明端口18606/18607、18610/18611",
+        "新Webhook产生事件、HTTP服务与人工事件生命周期，不注入业务结果"
+      ],
+      "proof_scope": "正式HTTP服务/关注、非空事件、bulk claim读回/重复请求、CAS、复盘候选与审计样本；bulk silence/investigate及完整组合场景尚未验收",
+      "route_keys": [
+        "PATCH /api/v1/me/preferences",
+        "GET /api/v1/me/watched-services",
+        "GET /api/v1/conversations/{id}",
+        "POST /api/v1/conversations/{id}/messages",
+        "GET /api/v1/conversations/{id}/events",
+        "GET /api/v1/inbox",
+        "GET /api/v1/alerts/{id}",
+        "POST /api/v1/alerts/{id}/claim",
+        "GET /api/v1/alert-groups",
+        "POST /api/v1/alert-groups/bulk",
+        "GET /api/v1/services/{id}/peek",
+        "GET /api/v1/incidents",
+        "GET /api/v1/incidents/{id}",
+        "GET /api/v1/runbooks",
+        "GET /api/v1/runbooks/{id}",
+        "POST /api/v1/runbooks/{id}/dry-run",
+        "POST /api/v1/runbooks/{id}/submit",
+        "GET /api/v1/postmortems",
+        "POST /api/v1/services",
+        "GET /api/v1/incidents/draft",
+        "POST /api/v1/incidents",
+        "GET /api/v1/runbooks/draft",
+        "POST /api/v1/runbooks",
+        "GET /api/v1/postmortems/candidates",
+        "GET /api/v1/postmortems/draft",
+        "POST /api/v1/postmortems",
+        "GET /api/v1/ingest/push",
+        "GET /api/v1/service-mappings",
+        "PUT /api/v1/service-mappings",
+        "GET /api/v1/webhooks",
+        "POST /api/v1/api-tokens",
+        "DELETE /api/v1/me/sessions/{id}",
+        "GET /api/v1/roles",
+        "GET /api/v1/roles/{id}",
+        "PUT /api/v1/roles/{id}",
+        "GET /api/v1/me/notification-settings",
+        "PUT /api/v1/me/notification-settings",
+        "GET /api/v1/me/ai-preferences",
+        "PUT /api/v1/me/ai-preferences",
+        "GET /api/v1/workspace",
+        "PUT /api/v1/workspace",
+        "GET /api/v1/audit",
+        "GET /api/v1/audit/{id}",
+        "POST /api/v1/audit/export"
+      ],
+      "scenario_plan_status": "needs_scenario_plan"
+    },
+    {
+      "id": "native-content",
+      "title": "上传、Canvas私有模板、时间线与记忆生产链核对",
+      "priority": "P1",
+      "status": "planned",
+      "command": "python3 tools/testlab/testlab.py run --suite content",
+      "prerequisites": [
+        "fresh自有主runtime验证；content当前共享主库，禁止与性能并行",
+        "显式本轮前缀、HTTP生产/SQL只读回核、登记精确清理",
+        "POST canvas-templates需基于HTTP创建的通用画布补正式链"
+      ],
+      "proof_scope": "本地文本上传、私有模板和原生时间线；GET memory合法空/partial/unavailable只读，不证明facts/conflicts生产者或记忆业务完整验收",
+      "route_keys": [
+        "POST /api/v1/uploads",
+        "GET /api/v1/canvases",
+        "POST /api/v1/canvases",
+        "GET /api/v1/canvases/{id}",
+        "POST /api/v1/canvases/{id}/nodes/{node}/messages",
+        "GET /api/v1/canvas-templates",
+        "POST /api/v1/canvas-templates",
+        "GET /api/v1/investigations/{id}/canvas",
+        "POST /api/v1/investigations/{id}/branches",
+        "PATCH /api/v1/investigations/{id}/nodes/{node}",
+        "POST /api/v1/investigations/{id}/nodes/{node}/messages",
+        "GET /api/v1/investigations/{id}/writeback-preview",
+        "POST /api/v1/investigations/{id}/writeback",
+        "GET /api/v1/investigation-templates",
+        "POST /api/v1/investigation-templates/{id}/start",
+        "POST /api/v1/incidents/{id}/timeline",
+        "GET /api/v1/memory",
+        "POST /api/v1/memory/facts/{id}/{action}",
+        "POST /api/v1/memory/conflicts/resolve"
+      ],
+      "scenario_plan_status": "needs_scenario_plan"
+    },
+    {
+      "id": "local-components",
+      "title": "本地真实Prometheus/Alertmanager/Loki/Tempo/Vault与连接器",
+      "priority": "P1",
+      "status": "planned",
+      "command": "python3 tools/testlab/testlab.py run --suite components,vault,silence",
+      "prerequisites": [
+        "恢复仅当前owner的所需轻型组件，精确端口与卷",
+        "重新生成本轮受控指标/日志/Trace，服务端精确绑定",
+        "只读来源与软件ES256双独立批准；不发送外部通知"
+      ],
+      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验",
+      "route_keys": [
+        "GET /api/v1/alert-groups/{id}/policy",
+        "GET /api/v1/alert-rules",
+        "GET /api/v1/alert-rules/{id}",
+        "POST /api/v1/alert-rules/{id}/dry-run",
+        "PUT /api/v1/alert-rules/{id}",
+        "GET /api/v1/notification-routes",
+        "GET /api/v1/silences",
+        "GET /api/v1/inhibitions",
+        "POST /api/v1/silences/preview",
+        "POST /api/v1/silences",
+        "DELETE /api/v1/silences/{id}",
+        "GET /api/v1/proposals/{id}",
+        "POST /api/v1/proposals/{id}/approve",
+        "POST /api/v1/proposals/{id}/reject",
+        "POST /api/v1/proposals/{id}/comments",
+        "GET /api/v1/services",
+        "GET /api/v1/services/{id}",
+        "GET /api/v1/services/{id}/resilience",
+        "POST /api/v1/services/{id}/resilience/proposals",
+        "GET /api/v1/topology",
+        "GET /api/v1/metrics/dashboard",
+        "POST /api/v1/metrics/ask",
+        "GET /api/v1/traces",
+        "GET /api/v1/traces/{id}",
+        "GET /api/v1/services/discover",
+        "GET /api/v1/logs",
+        "POST /api/v1/alert-rules/generate",
+        "POST /api/v1/alert-rules/preview",
+        "POST /api/v1/alert-rules",
+        "POST /api/v1/notification-routes/test",
+        "POST /api/v1/inhibitions/preview",
+        "GET /api/v1/connectors",
+        "GET /api/v1/connectors/{id}",
+        "POST /api/v1/connectors/{id}/test",
+        "PATCH /api/v1/connectors/{id}",
+        "POST /api/v1/connectors",
+        "GET /api/v1/connector-types/{type}",
+        "GET /api/v1/ingest/pull/{id}",
+        "POST /api/v1/ingest/pull/{id}/test",
+        "POST /api/v1/ingest/push/test",
+        "POST /api/v1/service-mappings/accept",
+        "POST /api/v1/service-mappings/discover",
+        "POST /api/v1/members/invitations"
+      ],
+      "scenario_plan_status": "needs_scenario_plan"
+    },
+    {
+      "id": "local-source-protocols",
+      "title": "HTTPS来源、身份/MFA/安全控制器与MCP协议Mock",
+      "priority": "P1",
+      "status": "planned",
+      "command": null,
+      "prerequisites": [
+        "独立HTTPS协议Mock，私有临时凭据、受审server配置与精确应用环境",
+        "先核对正式注册/发现生产者，再做分页/429/丢响应/撤权/重试",
+        "安全apply Mock成功只证明回执/台账协议，不证明实际强制策略"
+      ],
+      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办",
+      "route_keys": [
+        "GET /api/v1/me",
+        "PATCH /api/v1/me",
+        "GET /api/v1/knowledge-sources",
+        "POST /api/v1/knowledge-sources/test",
+        "POST /api/v1/knowledge-sources",
+        "GET /api/v1/mcp-servers",
+        "GET /api/v1/mcp-servers/{id}",
+        "PATCH /api/v1/mcp-servers/{id}/tools/{name}",
+        "POST /api/v1/mcp-servers/{id}/review",
+        "GET /api/v1/me/profile",
+        "PUT /api/v1/me/profile",
+        "POST /api/v1/members/sync",
+        "POST /api/v1/members/mfa-reminders",
+        "GET /api/v1/security",
+        "PUT /api/v1/security"
+      ],
+      "scenario_plan_status": "needs_scenario_plan"
+    },
+    {
+      "id": "configuration-gitops",
+      "title": "规则草稿、配置MR与生产隔离导入",
+      "priority": "P2",
+      "status": "planned",
+      "command": "python3 tools/testlab/testlab.py run --suite promotion",
+      "prerequisites": [
+        "功能包P0/P1先完成；重型GitLab独占窗口与资源守卫",
+        "仅本轮owner项目/独立两人审核，复用已有合法审批，不自动合并",
+        "导入使用独立production测试实例/UUID库，非真实生产"
+      ],
+      "proof_scope": "本地真实配置仓库/受保护MR/批准及读回；不是恢复暂停的7项原生应用CI/CD gate",
+      "route_keys": [
+        "GET /api/v1/integrations/lower-sources",
+        "GET /api/v1/config-sync",
+        "POST /api/v1/config-sync/{id}/import",
+        "POST /api/v1/promotions",
+        "POST /api/v1/alert-rules/import",
+        "POST /api/v1/notification-routes",
+        "POST /api/v1/inhibitions"
+      ],
+      "scenario_plan_status": "needs_scenario_plan"
+    },
+    {
+      "id": "producer-gaps",
+      "title": "缺少正式生产者的Agent/Eval/执行记录",
+      "priority": "P1",
+      "status": "blocked",
+      "command": null,
+      "prerequisites": [
+        "确认RegisterCatalogAgent/RegisterPrompt/RegisterGuardPolicy/RecordEvalCaseSnapshot等正式可信入口",
+        "不能SQL伪造执行、审核、模型结果、评测或审计",
+        "仅模块集成证据与拒绝路径可独立验证；缺能力保留待办"
+      ],
+      "proof_scope": "有读取/修改代码不等于正式进程有非空可信生产者；新增生产者不在本轮修复范围",
+      "route_keys": [
+        "GET /api/v1/executions/{id}",
+        "POST /api/v1/executions/{id}/report/publish",
+        "GET /api/v1/agent-runs/{id}/trace",
+        "POST /api/v1/webhooks/{id}/redeliver",
+        "GET /api/v1/agents/{id}",
+        "POST /api/v1/agents/{id}/rollout",
+        "POST /api/v1/agents/{id}/rollback",
+        "PATCH /api/v1/agents/{id}/level",
+        "GET /api/v1/prompts/{id}",
+        "POST /api/v1/prompts/{id}/trial",
+        "POST /api/v1/prompts/{id}/versions",
+        "GET /api/v1/evals/{id}",
+        "POST /api/v1/evals",
+        "GET /api/v1/eval-cases/{id}",
+        "POST /api/v1/eval-cases/{id}/labels",
+        "GET /api/v1/agent-runs/{id}",
+        "POST /api/v1/agent-runs/{id}/feedback",
+        "PATCH /api/v1/guardrails/{id}"
+      ],
+      "scenario_plan_status": "needs_scenario_plan"
+    },
+    {
+      "id": "paused-delivery",
+      "title": "原生CI/CD与交付变更来源",
+      "priority": "P2",
+      "status": "deferred",
+      "command": null,
+      "prerequisites": [
+        "用户后续明确恢复7项native CI/CD gate才执行",
+        "不得借用其他练习集群/VM/工作流"
+      ],
+      "proof_scope": "用户暂停，不能由规则GitOps绿替代应用交付证据",
+      "route_keys": [
+        "GET /api/v1/changes"
+      ],
+      "scenario_plan_status": "needs_scenario_plan"
+    }
+  ],
+  "next_actions": [
+    {
+      "package_id": "local-components",
+      "priority": "P1",
+      "action": "先定义剩余包综合场景准入，再分批补本地真实观测/Vault/SMTP/IdP接口：正常、权限、边界、故障与精确清理逐项登记",
+      "preconditions": [
+        "列出稳定suite/name必需场景与对应主接口，不以正常样本齐全判包完成",
+        "fresh owner/CID/nonce-HMAC；轻型组件按依赖分批，独立UUID库和精确端口",
+        "Prometheus/Loki/Tempo数据由受控实际负载产生；来源绑定/未知字段与身份范围复核；通知仅本地捕获"
+      ]
+    },
+    {
+      "package_id": "local-source-protocols",
+      "priority": "P1",
+      "action": "补完整HTTPS协议Mock适配链：组织目录/资料/值班/安全、知识源和MCP注册发现，覆盖超时、429、丢响应与权限漂移",
+      "preconditions": [
+        "每个目标明确受审配置、Mock服务/数据、预期正常DTO及非空业务断言",
+        "不SQL造执行/审批/评测结果；安全权威Mock不证明实际策略强制",
+        "保留真实飞书/Notion/Confluence/组织身份和硬件待办，Mock不关闭它们"
+      ]
+    },
+    {
+      "package_id": "configuration-gitops",
+      "priority": "P2",
+      "action": "轻型功能/权限与故障组合复验后，再串行补规则/通知/抑制草稿MR和独立配置导入",
+      "preconditions": [
+        "先完成剩余包明确场景计划与本地可执行P1；重型GitLab/Argo资源准入、独占串行",
+        "复用本轮owner仓库、独立账号与审批边界，不自动合并、部署或恢复7项暂停的原生CI/CD",
+        "每次上游成功响应丢失/本地提交失败保留首红与外部、本地台账及审计；修复后原例及相关race/接口回归"
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "functional",
+      "title": "当前源功能、逻辑、HTTP与权限",
+      "status": "incomplete"
+    },
+    {
+      "id": "local-integration",
+      "title": "必要本地真实组件及明确Mock协议",
+      "status": "incomplete"
+    },
+    {
+      "id": "recovery",
+      "title": "并发/崩溃/响应丢失及修复回归",
+      "status": "incomplete"
+    },
+    {
+      "id": "current-regression",
+      "title": "冻结源码后的完整后端回归与跳过解释",
+      "status": "required"
+    },
+    {
+      "id": "performance",
+      "title": "完整基础档/规模档性能",
+      "status": "not_completed",
+      "depends_on": [
+        "functional",
+        "local-integration",
+        "recovery",
+        "current-regression"
+      ]
+    },
+    {
+      "id": "soak",
+      "title": "真实连续24小时",
+      "status": "not_started",
+      "depends_on": [
+        "performance"
+      ]
+    }
+  ],
+  "external_todos": [
+    {
+      "id": "real-tenants",
+      "title": "飞书/Notion/Confluence真实租户与权限",
+      "status": "external_pending",
+      "priority": "P1",
+      "proof_scope": "协议Mock通过不能关闭真实租户验收"
+    },
+    {
+      "id": "real-models",
+      "title": "付费真实模型及Ollama原容量档",
+      "status": "external_pending",
+      "priority": "P1",
+      "proof_scope": "协议Mock不能证明真实推理；Ollama容量环境阻塞单列"
+    },
+    {
+      "id": "real-authorities",
+      "title": "生产值班/完整MFA/实际安全策略权威来源",
+      "status": "external_pending",
+      "priority": "P1",
+      "proof_scope": "本地权威协议Mock不能证明实际强制策略"
+    },
+    {
+      "id": "hardware-passkey",
+      "title": "物理认证器、真实组织审批与邮箱送达",
+      "status": "external_pending",
+      "priority": "P1",
+      "proof_scope": "软件ES256与SMTP捕获只关闭本地子场景"
+    }
+  ],
+  "paused_todos": [
+    {
+      "id": "native-ci-cd",
+      "title": "7项原生CI/CD、Workflows及VM gate",
+      "status": "user_paused",
+      "priority": "P1"
+    }
+  ],
+  "decisions": [
+    {
+      "decided_by": "user",
+      "date": "2026-10-01",
+      "decision": "默认看板展示整体完成与本地剩余；功能覆盖优先于性能/24h",
+      "supersedes": "CP264性能优先继续base→scale的推进顺序"
+    },
+    {
+      "decided_by": "assistant",
+      "date": "2026-10-01",
+      "decision": "复用现有小型UUID隔离功能包先补当前证据；不恢复旧压测自动化、不自动加分页或缺失生产者"
+    }
+  ],
+  "classification_scope": "逐接口正常HTTP补测的前置分拣，不是后端实现完成度判定；缺实现包括必需非空生产链缺能力，外部真实验收另列。needs_confirmation尚未获得完整正式生产者调用链证明。",
+  "latest_review_record": {
+    "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
+    "normal_main": 85,
+    "total_main": 166,
+    "remaining_main": 81,
+    "normal_auxiliary": 19,
+    "remaining_classification": {
+      "local_ready": 0,
+      "local_environment": 60,
+      "needs_confirmation": 17,
+      "not_implemented": 3,
+      "user_paused": 1
+    },
+    "scenario_accepted_package_ids": [
+      "local-reads",
+      "native-discovery"
+    ],
+    "remaining_packages_need_explicit_scenario_plan": 7,
+    "evidence_source": "本轮主线程提供的真实运行结果；看板必须动态核持久证据，不将此记录当结果源。",
+    "runs": [
+      {
+        "id": "9c0673a4-fa92-4da1-a9f6-4c2be9d5a1ea",
+        "suite": "readonly",
+        "passed": 77
+      },
+      {
+        "id": "21f49d9f-173a-4b77-b845-b6e9c8c088d3",
+        "suite": "discovery",
+        "passed": 32,
+        "external_todo": 1
+      },
+      {
+        "id": "ed76ba96-610a-40b9-8d5d-073a44e50d85",
+        "suite": "readonly",
+        "passed": 89
+      },
+      {
+        "id": "0f6e2c4d-3f3b-4a3e-b045-b252343a55b9",
+        "suite": "management",
+        "passed": 130
+      },
+      {
+        "id": "b4cfa3bc-392f-494a-820f-7f455db5942d",
+        "suite": "content",
+        "passed": 69
+      },
+      {
+        "id": "80b62861-143f-4f79-b526-0507cbf5c655",
+        "suite": "native-projection",
+        "passed": 62
+      }
+    ],
+    "proof_scope": "仅所列当前Go始末一致的正式本地功能样本及明确必需场景；不自动关闭51原缺口、完整两档性能、24h或非空记忆生产者。"
+  },
+  "execution_order": "先定义剩余7包的综合场景验收准入→本地轻型真实组件/完整协议Mock→权限与故障组合/相关回归→重型配置GitOps串行→当前源码完整回归→完整两档性能→连续真实24h；旧性能优先自动化保持暂停。"
+}

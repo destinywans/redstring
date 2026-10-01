@@ -188,7 +188,10 @@ class Store:
 
     def events(self, run_id, after=0, limit=200):
         with self.connect() as conn:
-            rows = conn.execute("SELECT * FROM events WHERE run_id=? AND id>? ORDER BY id LIMIT ?", (run_id, max(0, after), min(1000, limit))).fetchall()
+            if run_id is None:
+                rows = conn.execute("SELECT * FROM events WHERE id>? ORDER BY id LIMIT ?", (max(0, after), min(1000, limit))).fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM events WHERE run_id=? AND id>? ORDER BY id LIMIT ?", (run_id, max(0, after), min(1000, limit))).fetchall()
         return [dict(id=r["id"], run_id=r["run_id"], type=r["type"], created_at=r["created_at"], data=json.loads(r["data"])) for r in rows]
 
     def recent_events(self, run_id, limit=200):

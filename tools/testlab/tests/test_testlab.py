@@ -283,6 +283,50 @@ class ServerTests(unittest.TestCase):
         res.close()
         conn.close()
 
+    def test_overall_sse_replays_new_runs_after_persisted_cursor(self):
+        cursor = self.store.events(self.run['id'])[-1]['id']
+        other = self.store.create_run('def', 'test')
+        expected = self.store.events(None, cursor)
+        self.assertEqual(expected[0]['run_id'], other['id'])
+        conn = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=3)
+        conn.request('GET', '/api/overview/events?after=0', headers={'Last-Event-ID': str(cursor)})
+        response = conn.getresponse()
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.readline().decode(), f"id: {expected[0]['id']}\n")
+        self.assertIn(other['id'].encode(), response.readline())
+        response.close()
+        conn.close()
+        self.assertEqual(self.request('HEAD', '/api/overview/events')[0], 405)
+        self.assertEqual(self.request('GET', '/api/overview/events?after=-1')[0], 400)
+
+    def test_overall_reports_are_attachments_and_do_not_allow_writes(self):
+        import overview
+        snapshot = {
+            'overall_status': 'incomplete', 'generated_at': 'now', 'next_actions': [],
+            'source': {'fingerprint': 'current'},
+            'coverage': {
+                'main': {'normal_success': 1, 'total': 2, 'missing': 1, 'scope': 'partial'},
+                'routes': [], 'auxiliary': {'normal_success': 0, 'routes': []},
+            },
+            'gates': [], 'work_packages': [], 'gaps': [], 'defects': [],
+            'external_todos': [], 'paused_todos': [], 'limitations': [],
+        }
+        with patch.object(overview, 'get_overview', return_value=snapshot):
+            self.assertEqual(json.loads(self.request('GET', '/api/overview')[1]), snapshot)
+            for fmt in ('json', 'html', 'md'):
+                conn = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=3)
+                self.addCleanup(conn.close)
+                conn.request('GET', '/api/overview/report.' + fmt)
+                response = conn.getresponse()
+                body = response.read()
+                self.assertEqual(response.status, 200)
+                self.assertEqual(response.getheader('Content-Disposition'), f'attachment; filename="testlab-overview.{fmt}"')
+                self.assertIn(b'current', body)
+                conn.close()
+        self.assertEqual(self.request('POST', '/api/overview')[0], 405)
+        self.assertEqual(self.request('GET', '/api/overview', {'Origin': 'https://evil.example'})[0], 403)
+        self.assertEqual(self.request('GET', '/api/overview/report.pdf')[0], 404)
+
     def test_reports_download_same_persisted_run(self):
         run_id = self.run["id"]
         for fmt in ("json", "html", "md"):

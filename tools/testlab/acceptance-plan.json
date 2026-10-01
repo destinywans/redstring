@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "updated_at": "2026-10-01T14:10:01.792519+00:00",
+  "updated_at": "2026-10-01T14:51:59.577079+00:00",
   "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
-  "catalogue_sha256": "9f35c2f5fe32af1892628c0fc0e2bbf48a5e98bb97513a14e4c595e4da074367",
+  "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
     "total": 166,
     "normal_count": 57,
@@ -4357,6 +4357,98 @@
             }
           ],
           "proof_scope": "真实PG/双API与原生快照导入器；调用边来自明确合成external_snapshot_file，11指标序列各6点protocol Mock。完整DTO/权限/故障/版本验证；真实权威生产者、流量与历史仍待确认。"
+        },
+        {
+          "id": "config-drafts-functional-history-protocol",
+          "title": "五草稿原完整组：七天合成历史预览",
+          "command": "python3 tools/testlab/testlab.py run --suite config-drafts-functional",
+          "evidence_mode": "protocol_mock",
+          "route_keys": [
+            "POST /api/v1/inhibitions/preview"
+          ],
+          "required_cases": [
+            {
+              "suite": "config-drafts-functional",
+              "name": "promotion.owned_setup"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.routes.source_load"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.synthetic_identities"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.source_ready"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.rule_import"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.rule_update"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.inhibition_preview"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.inhibition_create"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.notification_create"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.exact_mr"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.idempotency"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.cas"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.authorization"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.audit_consistency"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.audit_rollback"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.response_loss"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.remote_local_recovery"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.cleanup"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.complete"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "promotion.cleanup"
+            }
+          ],
+          "proof_scope": "四真实本地待审草稿HTTP+1合成七天历史预览protocol Mock；真实owned GitLab opened MR/实际TLS/PG及审计，未merge/激活/通知。自然60秒租约、远端成功本地提交失败、CAS/响应丢失/权限/清理闭环；真实七日历史与生产治理未验。"
         }
       ]
     },
@@ -4601,7 +4693,8 @@
         "POST /api/v1/promotions",
         "POST /api/v1/alert-rules/import",
         "POST /api/v1/notification-routes",
-        "POST /api/v1/inhibitions"
+        "POST /api/v1/inhibitions",
+        "PUT /api/v1/alert-rules/{id}"
       ],
       "scenario_plan_status": "needs_scenario_plan",
       "focused_checks": [
@@ -4726,6 +4819,101 @@
             "external_todo"
           ],
           "proof_scope": "45cc3283正式75P/66HTTP，9必要marker与UUID库/角色/PAT/进程/项目精确清理通过；用户明确授权本轮own项目永久清理，11–16实际404。1企业历史/物理审核人external_todo单列不计通过；原d7e7首红与两次自动审批拒绝保留，不代表真实生产或配置激活。"
+        },
+        {
+          "id": "config-drafts-functional-native",
+          "title": "五草稿原完整组：真实本地四写路径",
+          "command": "python3 tools/testlab/testlab.py run --suite config-drafts-functional",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "POST /api/v1/alert-rules/import",
+            "PUT /api/v1/alert-rules/{id}",
+            "POST /api/v1/inhibitions",
+            "POST /api/v1/notification-routes"
+          ],
+          "required_cases": [
+            {
+              "suite": "config-drafts-functional",
+              "name": "promotion.owned_setup"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.routes.source_load"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.synthetic_identities"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.source_ready"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.rule_import"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.rule_update"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.inhibition_preview"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.inhibition_create"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.notification_create"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.exact_mr"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.idempotency"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.cas"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.authorization"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.audit_consistency"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.audit_rollback"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.response_loss"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.remote_local_recovery"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.cleanup"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "drafts.complete"
+            },
+            {
+              "suite": "config-drafts-functional",
+              "name": "promotion.cleanup"
+            }
+          ],
+          "proof_scope": "四真实本地待审草稿HTTP+1合成七天历史预览protocol Mock；真实owned GitLab opened MR/实际TLS/PG及审计，未merge/激活/通知。自然60秒租约、远端成功本地提交失败、CAS/响应丢失/权限/清理闭环；真实七日历史与生产治理未验。"
         }
       ]
     },
@@ -4807,7 +4995,7 @@
     {
       "package_id": "configuration-gitops",
       "priority": "P2",
-      "action": "真实配置MR/隔离导入75本地场景已验，企业治理外部待办保留；复用同owner GitLab串行补规则import/PUT、抑制preview/draft、通知draft五接口。",
+      "action": "配置MR/隔离导入与五草稿原组已通过本地限定场景；实际部署/企业治理外部及暂停CI保留。现在先精确_test fixture修复、原case/race及当前完整回归，随后性能/持续窗口。",
       "preconditions": [
         "先完成剩余包明确场景计划与本地可执行P1；重型GitLab/Argo资源准入、独占串行",
         "复用本轮owner仓库、独立账号与审批边界，不自动合并、部署或恢复7项暂停的原生CI/CD",
@@ -4916,39 +5104,25 @@
   ],
   "classification_scope": "逐接口正常HTTP补测的前置分拣，不是后端实现完成度判定；缺实现包括必需非空生产链缺能力，外部真实验收另列。needs_confirmation尚未获得完整正式生产者调用链证明。",
   "latest_review_record": {
-    "checkpoint": "CP278",
-    "at": "2026-10-01T14:10:01.792519+00:00",
+    "checkpoint": "CP280",
+    "at": "2026-10-01T14:51:59.577079+00:00",
     "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
-    "normal_main": 116,
+    "normal_main": 120,
     "total_main": 166,
-    "remaining_main": 50,
+    "remaining_main": 46,
     "normal_auxiliary": 31,
-    "protocol_mock_normal_main": 23,
-    "first_local_normal_queue": 6,
-    "protocol_verified_pending_real": 16,
+    "protocol_mock_normal_main": 24,
+    "first_local_normal_queue": 0,
+    "protocol_verified_pending_real": 17,
     "runs": [
       {
-        "id": "45cc3283-2416-47c1-a3f6-a77923702f1d",
-        "suite": "promotion",
-        "passed": 75,
-        "external_todo": 1,
-        "scope": "66HTTP真实本地，清理通过；企业治理外部待办导致run blocked"
-      },
-      {
-        "id": "cc1eaa13-7545-45ea-8b2f-a297836f82ec",
-        "suite": "rule-assistant-container-functional",
-        "passed": 69,
-        "scope": "55HTTP/48Mock7real；新增2主Mock正常，实际Linuxbinary"
-      },
-      {
-        "id": "6fe78a68-c24b-47f3-ba49-a55fbf10e191",
-        "suite": "topology-protocol",
-        "passed": 83,
-        "scope": "65HTTP/32拓扑完整正常；新增1主Mock正常，真实producer待确认"
+        "id": "d243c9a6-7c04-4931-9a92-f8b2d55307c2",
+        "suite": "config-drafts-functional",
+        "passed": 58,
+        "scope": "四真实本地待审草稿HTTP+1合成七天历史预览protocol Mock；真实owned GitLab opened MR/实际TLS/PG及审计，未merge/激活/通知。自然60秒租约、远端成功本地提交失败、CAS/响应丢失/权限/清理闭环；真实七日历史与生产治理未验。"
       }
     ],
-    "evidence_source": "root读取实际SQLite、source始末、作者精确handoff/cleanup/独立离线验证；历史工具红不覆盖。",
-    "proof_scope": "116/166仅真实正常子场景，不是整体完成率。另23Mock正常有范围重叠，16待真实；完整回归/两档性能/24h未收口。"
+    "proof_scope": "120真实正常+24Mock正常范围有重叠，不作完整验收或项目完成率。零首次本地队列只表示正常子场景已有或已如实分类，Trace全集等高待确认/缺能力/外部/暂停仍存在。"
   },
   "execution_order": "先定义剩余7包的综合场景验收准入→本地轻型真实组件/完整协议Mock→权限与故障组合/相关回归→重型配置GitOps串行→当前源码完整回归→完整两档性能→连续真实24h；旧性能优先自动化保持暂停。",
   "decision_history": [

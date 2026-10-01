@@ -1,3 +1,11 @@
+## CP-280 · 2026-10-01 · 五草稿接口58完整复验交付，下一精确fixture与新源回归
+
+- 正式config-drafts **d243c9a6-7c04-4931-9a92-f8b2d55307c2 58P0F0blocked**、27offline/py_compile。4真实正常（规则import201/PUT200、抑制draft202、通知draft202），1抑制preview200协议Mock完整604800秒合成两条P1/P3，potential1/actual_hits null，不是真实7日采集。33私有Workflow回包和20权限反例（5×401/10×403/5×422）精确；正式全部mode一致。
+- 原生6opened MR未merge/activate/notify；同键幂等账本/审计/MR不变、stale CAS409、PUT200成功丢回包同键v3唯一MR/audit、reserve前审计503零变更。远端成功本地终态审计失败保留exporting，实际剩余58.797秒/总59.913秒自然租约后唯一显式同键恢复复用MR，pending audit4/全部18精确。没有压TTL/时钟或重试掩盖故障。原0d08身份播种时序、9572代理POST限定/编号、b320 PUT权限反例漏键三工具红与原SQL/报告保留；后置oracle错计幂等首红只修normal筛选，原正式数据未改。
+- 后置独立复核四次项目17–20均实际404/PAT9–12撤销、8own源容器不存在、4UUIDDBrole/连接0、heldAPI/18706–12释放；main6ad/bfeb/runtime338、ownedPG/GitLab/共享promotion7cd不变。helper7c9236f4/tests37c9b615精确handoff；原组已释放，不冗余重跑。两个模式子验收各20必要marker含promotion/drafts清理完整，父包不自动全绿。
+- 当前root正常样本并集 **120/166真实、46缺、31辅助、24Mock正常/17待真实；首次本地正常队列0**。零队列只表示现有首次本地子场景证据/分类已齐，不等于所有本地故障/能力或整体测试完成；Trace全集needs_confirmation High、权威生产者、外部/缺实现/暂停保持。历史57快照不作当前进度。新source等价41仅offline准备，未激活；旧完整1889P4F78skip/fixture候选未canonical，完整性能/24h未完成。
+- 并行下一阶段：独立会话已核四回归库ownedPG/public只扩展，无业务表，3未知旧schema不动；准备精确78skip（18无tests+60opt-in），46旧专项+3原smoke同源映射，剩8暂停CI/CD/2付费/1Ollama。既有五Go suite不启16backend黑盒原例，不能以其本身拼完整验收。root处理canonical两行fixture和原两例/full v3events race及可信completion，Go/fullreg/perf/soak仍新source严格实际验证；源码转换前留完整old6ad产品输入证明与原binary证据。当前Go尚6ad、所有live已终态，接线尚未改变运行环境；旧automation/7nativeCI继续暂停，产品web/.claude/业务env/DB/真实账号通知不动、不merge/deploy。scoped提交/push/Linear收据随后私有CP280-delivery。
+
 ## CP-279 · 2026-10-01 · Trace全集前置明确，源码等价工具仅离线准备
 
 - QA可见会话完成单一只读诊断bc2601aa：actualowned Tempo2.7.2/ingester-WAL-backend、7 bounded GET，2既有受控Trace各搜索与明细精确读回，主scope一小时空集不作完整证明。前后HMAC/Go6ad/bfeb/runtime338/CID/config/helper相同，未鉴权正式HTTP、未写/重启/启flag，新增normal0。原latest live-store/Kafka lag假设由pinned2.7.2核对取代；metadata遗漏/陈旧缓存/size skip全集失败关闭尚未确认，当前provider仅operator bool、未验证search metrics。本地可达不等于完整准入，主GET traces由首次本地待执行移到needs_confirmation High待办。后续独立21Trace全集DTO与版本内静默遗漏故障方案未执行，不改成观察样本语义；证据db72faeb-0376-4272-8067-0f29ccfbc415附载原observe时明确标后来诊断，不新增历史原test通过。

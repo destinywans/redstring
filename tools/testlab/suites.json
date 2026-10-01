@@ -1358,6 +1358,33 @@
           }
         }
       ]
+    },
+    {
+      "id": "config-drafts-functional",
+      "name": "配置草稿五接口完整功能与恢复",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "gap_ids": [
+        13,
+        18,
+        46
+      ],
+      "verification_scope": "四真实本地待审草稿HTTP+1合成七天历史预览protocol Mock；真实owned GitLab opened MR/实际TLS/PG及审计，未merge/激活/通知。自然60秒租约、远端成功本地提交失败、CAS/响应丢失/权限/清理闭环；真实七日历史与生产治理未验。",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_config_drafts_functional_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 600,
+          "cleanup_grace_seconds": 45,
+          "env": {
+            "PYTHONDONTWRITEBYTECODE": "1"
+          }
+        }
+      ]
     }
   ]
 }

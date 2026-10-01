@@ -41,6 +41,7 @@ python3 tools/testlab/testlab.py run --suite rule-assistant-functional
 python3 tools/testlab/testlab.py run --suite rule-assistant-container-functional
 python3 tools/testlab/testlab.py run --suite topology-protocol
 python3 tools/testlab/testlab.py run --suite promotion
+python3 tools/testlab/testlab.py run --suite config-drafts-functional
 python3 tools/testlab/testlab.py run --suite identity,invitations,vault
 python3 tools/testlab/testlab.py run --suite local-live-gates,jenkins
 python3 tools/testlab/testlab.py run --suite gitops

@@ -118,6 +118,18 @@ func (s *Store) Session(ctx context.Context, token string) (core.User, error) {
 	e := s.DB.QueryRow(ctx, "SELECT u.id,u.email,u.name,"+sessionLegacyRole+" FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND NOT u.disabled AND u.deleted_at IS NULL", Hash(token)).Scan(&u.ID, &u.Email, &u.Name, &u.Role)
 	return u, e
 }
+
+// SessionTx retains the ordinary identity projection on the caller's connection.
+// Wall-clock expiry must remain fresh even after waits inside a transaction.
+// It takes no additional row locks and never borrows the pool.
+func (s *Store) SessionTx(ctx context.Context, tx pgx.Tx, token string) (core.User, error) {
+	if tx == nil {
+		return core.User{}, ErrSessionRevoked
+	}
+	var u core.User
+	err := tx.QueryRow(ctx, "SELECT u.id,u.email,u.name,"+sessionLegacyRole+" FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>clock_timestamp() AND NOT u.disabled AND u.deleted_at IS NULL", Hash(token)).Scan(&u.ID, &u.Email, &u.Name, &u.Role)
+	return u, err
+}
 func (s *Store) Applications(ctx context.Context) ([]core.Application, error) {
 	rows, e := s.DB.Query(ctx, "SELECT "+appColumns+" FROM applications ORDER BY name")
 	if e != nil {

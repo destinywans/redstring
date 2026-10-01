@@ -364,3 +364,4 @@ Web 工作区；React / TypeScript / Vite；React Flow；assistant-ui 外部状�
 - 主 Agent：契约、集成、演示环境、验证、Linear 与检查点。
 
 不建立定时巡检；实际进展同步 Linear。检查点只追加，不用设计完成冒充运行完成。
+**2026-10-02 CP291：** 三个可见线程交付的SSE短READ COMMITTED复用连接候选已整合；当前93f真实PG新路径23P0F0skip、相关四模块279P0F/仅1付费专项跳过（blocked如实）。首次私有umask夹具误报保留并最小修，原安全断言不改。正式main仍d4/8f；先scoped交付→实际新非race main→原100/60复验，再当前源正式接口与完整两档性能，原首红不覆盖、24h未开始。详见[CP291](CHECKPOINT.md)。

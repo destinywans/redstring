@@ -88,6 +88,15 @@ type conversationEnvironmentAuthorizer interface {
 	Authorize(context.Context, core.User, rbac.V3Decision) error
 }
 
+type conversationEnvironmentTxAuthorizer struct {
+	policy *rbac.V3Policy
+	tx     pgx.Tx
+}
+
+func (a conversationEnvironmentTxAuthorizer) Authorize(ctx context.Context, user core.User, decision rbac.V3Decision) error {
+	return a.policy.AuthorizeWithTx(ctx, a.tx, user, decision)
+}
+
 // The conversation list contains owner-scoped chats and canvases. Return the
 // union of their current view environments; the route and object readers still
 // enforce their own operation and source-specific permissions.
@@ -603,9 +612,10 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		return false
 	}
 	chat := v3conversation.New(s.DB, modelRuntime, v3conversation.Options{
-		CurrentUser:    httpapi.CurrentUser,
-		RefreshSession: s.Session,
-		Shutdown:       ctx,
+		CurrentUser:      httpapi.CurrentUser,
+		RefreshSession:   s.Session,
+		RefreshSessionTx: s.SessionTx,
+		Shutdown:         ctx,
 		AuthorizeMetricsSource: func(ctx context.Context, ownerID, environmentID string, source v3conversation.MetricsSource) error {
 			return metricReader.AuthorizeMetricSourceVersion(ctx, ownerID, environmentID, source.ApplicationID,
 				source.BindingID, source.ConnectorID, source.ResourceID, source.QueryID, source.Fingerprint)
@@ -731,6 +741,9 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 			return "", v3conversation.ErrEnvironment
 		},
 		AllowedEnvironments: allowedConversationEnvs,
+		AllowedEnvironmentsTx: func(ctx context.Context, tx pgx.Tx, user core.User) ([]string, error) {
+			return allowedConversationEnvironments(ctx, user, cfg.EnvironmentIDs, conversationEnvironmentTxAuthorizer{policy: policy, tx: tx})
+		},
 		ValidateAttachments: uploads.ValidateAttachments,
 	})
 	if err := chat.RecoverInterrupted(ctx); err != nil {

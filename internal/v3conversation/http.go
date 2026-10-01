@@ -415,8 +415,12 @@ func pagination(r *http.Request) (int, int, string) {
 }
 
 func (s *Service) latestReply(ctx context.Context, conv string) (string, error) {
+	return s.latestReplyQuery(ctx, s.db, conv)
+}
+
+func (s *Service) latestReplyQuery(ctx context.Context, q sseReadQueryer, conv string) (string, error) {
 	var id string
-	err := s.db.QueryRow(ctx, `SELECT r.id FROM v3_conversation_replies r
+	err := q.QueryRow(ctx, `SELECT r.id FROM v3_conversation_replies r
 		JOIN v3_conversation_messages m ON m.id=r.user_message_id AND m.conversation_id=r.conversation_id
 		WHERE r.conversation_id=$1 ORDER BY m.sort_order DESC,r.id DESC LIMIT 1`, conv).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -431,66 +435,22 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	// EventSource cannot set the environment header. The persisted conversation
-	// and authenticated owner determine the scope, never a mutable browser default.
-	actual, _, err := s.owned(r.Context(), id, u.ID, "")
+	useTx, err := s.sseTxMode()
 	if err != nil {
 		operationError(w, err)
 		return
 	}
-	if _, err = s.allowed(r.Context(), u, actual); err != nil {
-		operationError(w, err)
-		return
-	}
-	cursor, ok := lastEventCursor(r.Header.Values("Last-Event-ID"))
-	if !ok {
-		apiError(w, 422, "invalid_event_cursor", "Last-Event-ID must be a nonnegative event ID")
-		return
-	}
-	var reply string
-	var pastTerminal bool
-	requestedReply := r.URL.Query().Get("reply_id")
-	if values, present := r.URL.Query()["reply_id"]; present {
-		if len(values) != 1 || requestedReply == "" || strings.TrimSpace(requestedReply) != requestedReply || len(requestedReply) > 128 {
-			apiError(w, 422, "invalid_reply", "Reply ID is unavailable for this conversation")
-			return
-		}
-	}
-	if cursor > 0 {
-		// Event IDs are global. Resolve a reconnect cursor to its own reply
-		// within the authorized conversation, even after a newer turn starts.
-		err = s.db.QueryRow(r.Context(), `SELECT e.reply_id, EXISTS (
-			SELECT 1 FROM v3_conversation_events terminal
-			WHERE terminal.conversation_id=e.conversation_id AND terminal.reply_id=e.reply_id
-				AND terminal.seq<=e.seq AND terminal.payload->>'type'='message.completed'
-		) FROM v3_conversation_events e
-			WHERE e.seq=$1 AND e.conversation_id=$2`, cursor, id).Scan(&reply, &pastTerminal)
-		if errors.Is(err, pgx.ErrNoRows) {
-			apiError(w, 422, "invalid_event_cursor", "Last-Event-ID is unavailable for this conversation")
-			return
-		}
-		if err == nil && requestedReply != "" && requestedReply != reply {
-			apiError(w, 422, "invalid_event_cursor", "Last-Event-ID does not belong to this reply")
-			return
-		}
-	} else if requestedReply != "" {
-		err = s.db.QueryRow(r.Context(), `SELECT id FROM v3_conversation_replies
-			WHERE id=$1 AND conversation_id=$2`, requestedReply, id).Scan(&reply)
-		if errors.Is(err, pgx.ErrNoRows) {
-			apiError(w, 422, "invalid_reply", "Reply ID is unavailable for this conversation")
-			return
-		}
-	} else {
-		reply, err = s.latestReply(r.Context(), id)
-	}
+	open, err := s.readSSEOpen(r.Context(), r, id, u, useTx)
 	if err != nil {
-		operationError(w, err)
+		var invalid *sseRequestError
+		if errors.As(err, &invalid) {
+			apiError(w, 422, invalid.code, invalid.message)
+		} else {
+			operationError(w, err)
+		}
 		return
 	}
-	if err = s.authorizeReplay(r.Context(), id, reply, u.ID, actual); err != nil {
-		operationError(w, err)
-		return
-	}
+	actual, reply, cursor := open.environment, open.reply, open.cursor
 	_, ok = w.(http.Flusher)
 	if !ok {
 		apiError(w, 503, "stream_unavailable", "Streaming unavailable")
@@ -510,40 +470,27 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 	}
 	// A terminal event closes this reply, even if a stale writer left events
 	// behind it. Reconnecting at or past that cursor is an empty stream.
-	if pastTerminal {
+	if open.pastTerminal {
 		return
 	}
 	lastKeepalive := time.Now()
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	cookie, err := r.Cookie("aiops_session")
-	if err != nil || s.opts.RefreshSession == nil {
+	if err != nil || (!useTx && s.opts.RefreshSession == nil) {
 		return
 	}
 	terminalRecheck := false
 	for {
 		// Authorization may change after EventSource opens. Revalidate before
 		// each event batch so revoked sessions or grants stop receiving output.
-		current, authErr := s.opts.RefreshSession(r.Context(), cookie.Value)
-		if authErr != nil || current.ID != u.ID || current.Disabled {
-			return
-		}
-		if _, _, authErr = s.owned(r.Context(), id, current.ID, actual); authErr != nil {
-			return
-		}
-		if _, authErr = s.allowed(r.Context(), current, actual); authErr != nil {
-			return
-		}
-		if authErr = s.authorizeReplay(r.Context(), id, reply, current.ID, actual); authErr != nil {
-			return
-		}
-		batch, more, err := s.replayBatch(r.Context(), reply, cursor)
+		batch, more, err := s.readSSEBatch(r.Context(), cookie.Value, id, u.ID, actual, reply, cursor, useTx)
 		if err != nil {
 			return
 		}
 		terminal := false
-		// replayBatch has already closed the rows and released its pool
-		// connection. A slow client can only hold this bounded in-memory batch.
+		// All read rows are closed and any short transaction is committed and
+		// released. A slow client only holds this bounded in-memory batch.
 		for _, event := range batch {
 			if err = stream.writeEvent(event); err != nil {
 				return
@@ -602,8 +549,12 @@ func (s *Service) events(w http.ResponseWriter, r *http.Request) {
 // permission that started it. Completed replies are immutable history and need
 // only the caller's conversation view permission, checked by events itself.
 func (s *Service) authorizeReplay(ctx context.Context, conv, reply, owner, env string) error {
+	return s.authorizeReplayQuery(ctx, s.db, nil, conv, reply, owner, env)
+}
+
+func (s *Service) authorizeReplayQuery(ctx context.Context, q sseReadQueryer, tx pgx.Tx, conv, reply, owner, env string) error {
 	var state, sessionHash string
-	err := s.db.QueryRow(ctx, `SELECT state,initiating_session_hash FROM v3_conversation_replies
+	err := q.QueryRow(ctx, `SELECT state,initiating_session_hash FROM v3_conversation_replies
 		WHERE id=$1 AND conversation_id=$2`, reply, conv).Scan(&state, &sessionHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
@@ -611,7 +562,7 @@ func (s *Service) authorizeReplay(ctx context.Context, conv, reply, owner, env s
 	if err != nil {
 		return err
 	}
-	if err := s.authorizeMetricsSource(ctx, conv, owner, env); err != nil {
+	if err := s.authorizeMetricsSourceQuery(ctx, q, tx, conv, owner, env); err != nil {
 		return err
 	}
 	if state == "completed" || state == "failed" {
@@ -624,13 +575,16 @@ func (s *Service) authorizeReplay(ctx context.Context, conv, reply, owner, env s
 		return ErrForbidden
 	}
 	var active bool
-	err = s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM sessions
+	err = q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM sessions
 		WHERE token_hash=$1 AND user_id=$2 AND expires_at>clock_timestamp())`, sessionHash, owner).Scan(&active)
 	if err != nil {
 		return err
 	}
 	if !active {
 		return ErrForbidden
+	}
+	if tx != nil {
+		return s.authorizeBackgroundTurnTx(ctx, tx, owner, env)
 	}
 	return s.authorizeBackgroundTurn(ctx, owner, env)
 }

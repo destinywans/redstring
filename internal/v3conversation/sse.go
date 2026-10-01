@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 const (
@@ -24,9 +26,18 @@ type replayEvent struct {
 }
 
 func (s *Service) replayBatch(ctx context.Context, reply string, cursor int64) ([]replayEvent, bool, error) {
+	return s.replayBatchQuery(ctx, s.db, reply, cursor)
+}
+
+type sseReadQueryer interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+func (s *Service) replayBatchQuery(ctx context.Context, q sseReadQueryer, reply string, cursor int64) ([]replayEvent, bool, error) {
 	// NULL prevents an oversized persisted payload from being transferred to
 	// the process at all. Never advance the cursor past an omitted event.
-	rows, err := s.db.Query(ctx, `SELECT seq,
+	rows, err := q.Query(ctx, `SELECT seq,
 		CASE WHEN octet_length(payload::text)<=$4 THEN payload ELSE NULL END
 		FROM v3_conversation_events WHERE reply_id=$1 AND seq>$2 ORDER BY seq LIMIT $3`,
 		reply, cursor, replayBatchSize, replayBatchBytes)

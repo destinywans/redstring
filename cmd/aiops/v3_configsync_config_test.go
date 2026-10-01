@@ -16,6 +16,10 @@ func writeV3ConfigSyncFile(t *testing.T, name string, content []byte, mode os.Fi
 	if err := os.WriteFile(path, content, mode); err != nil {
 		t.Fatal(err)
 	}
+	// Exercise the requested permission case even under a restrictive umask.
+	if err := os.Chmod(path, mode); err != nil {
+		t.Fatal(err)
+	}
 	return path
 }
 

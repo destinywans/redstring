@@ -42,12 +42,18 @@ type Options struct {
 	// RefreshSession rechecks revocation and disabled-account state while a
 	// long-lived SSE connection is open. Nil fails the event stream closed.
 	RefreshSession func(context.Context, string) (core.User, error)
+	// RefreshSessionTx and AllowedEnvironmentsTx opt SSE reads into one short
+	// READ COMMITTED transaction per phase. Both must be configured together,
+	// with AuthorizeBackgroundTurnTx; partial configuration fails closed.
+	// Every Tx callback must use the supplied connection, never borrow the pool.
+	RefreshSessionTx func(context.Context, pgx.Tx, string) (core.User, error)
 	// Environment resolves the instance's fixed environment or request header.
 	// The default requires X-AIOps-Environment for writes.
 	Environment func(*http.Request) (string, error)
 	// AllowedEnvironments returns the user's currently authorized environment IDs.
 	// It is required; a missing resolver fails closed.
-	AllowedEnvironments func(context.Context, core.User) ([]string, error)
+	AllowedEnvironments   func(context.Context, core.User) ([]string, error)
+	AllowedEnvironmentsTx func(context.Context, pgx.Tx, core.User) ([]string, error)
 	// DefaultModel returns the user's saved preference for one environment.
 	// Empty or stale preferences use that environment's configured default when
 	// model bindings exist; legacy unbound runners use the first catalog model.
@@ -59,8 +65,8 @@ type Options struct {
 	// Nil or an error fails the background reply closed.
 	AuthorizeBackgroundTurn func(context.Context, string, string) error
 	// AuthorizeBackgroundTurnTx rechecks the owner and grant on the same
-	// transaction connection that holds an expired reply lock. A missing
-	// callback fails recovery closed and discards partial model output.
+	// transaction connection for recovery and explicitly configured SSE reads.
+	// A missing callback fails these operations closed.
 	AuthorizeBackgroundTurnTx func(context.Context, pgx.Tx, string, string) error
 	// AuthorizeMetricsSource and its transactional variant revalidate the
 	// persisted service, reviewed query and connector binding of metric-backed
@@ -253,6 +259,10 @@ func (s *Service) allowed(ctx context.Context, user core.User, requested string)
 	if err != nil {
 		return nil, err
 	}
+	return selectAllowedEnvironments(visible, requested)
+}
+
+func selectAllowedEnvironments(visible []string, requested string) ([]string, error) {
 	allowed := make([]string, 0, len(visible))
 	for _, env := range visible {
 		if env == "" || env == "all" {
@@ -352,8 +362,12 @@ func (s *Service) create(ctx context.Context, sessionToken, owner, env, title, c
 }
 
 func (s *Service) owned(ctx context.Context, id, owner, env string) (string, string, error) {
+	return s.ownedQuery(ctx, s.db, id, owner, env)
+}
+
+func (s *Service) ownedQuery(ctx context.Context, q sseReadQueryer, id, owner, env string) (string, string, error) {
 	var actual, model string
-	err := s.db.QueryRow(ctx, `SELECT environment_id,default_model_id FROM v3_conversations WHERE id=$1 AND owner_id=$2`, id, owner).Scan(&actual, &model)
+	err := q.QueryRow(ctx, `SELECT environment_id,default_model_id FROM v3_conversations WHERE id=$1 AND owner_id=$2`, id, owner).Scan(&actual, &model)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", ErrNotFound
 	}

@@ -2234,3 +2234,13 @@
 
 
 2026-09-30 23:54定位更正：848ce917首红精确路径为GET /me（权威oncall缺配置→503 oncall_unavailable），此前记录将http.7误认为/home；/home成功断言保留。fixture、pagination、dependency_unavailable三个工具场景名不在Runner枚举，malformed为采集协议问题；按canonical场景记录细分purpose，不扩大允许值或冒正常覆盖。原首次失败不覆写。当前冻结回归c5063e10已2479通过/0失败/79跳过，源始末8d0a一致；分类18无测试包/12本地live/3付费外部记录/46专项开关，30个skip对应同run另专项实际pass，全部原skip保留。
+## CP-291 · 2026-10-02 · SSE短事务候选通过真实PG/race，保留首次测试夹具失败与外部待办
+
+- 三个用户可见线程已交付并释放：连接器实施7个产品文件、HTTP独占新增真实Tx路径测试、QA对固定产品SHA独立只读审查未发现阻断。root整合，当前实际Go **93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb**；正式main仍CP290的 **d4c8/8f8f/runtime338**，不能把模块结果当新二进制或性能证明。当前SQLite无active测试，其他线程不启动负载。
+- 候选保留原查询与权限顺序，将SSE头前及每批读取各放在短READ COMMITTED普通事务中，复用同一PG连接。SessionTx使用clock_timestamp，环境仍调用原conversation/canvas权限union；metrics源复核保留原SHARE锁。Rows关闭和commit完成后才写socket/flush/等待；空批仍在flush后独立查state和terminal。完全未配置时旧路径兼容，部分Tx能力配置失败关闭。未减鉴权、扩池、放超时、改变64帧/4MiB批界、轮询、路由affinity、速率或验收门槛；额外BEGIN/COMMIT与实际收益需负载复验。
+- 新路径原实际PG单连接专项 **35ddf7b7-6b2f-431c-8dcd-b12d686d31f6：23P0F0skip，21:47:04.306411Z→21:47:13.363121Z，Go JSON/race/count1/exit0，source始末93f**。19具体场景含慢写期间连接释放、自然会话到期跨tx、下一批撤权/禁用、源权限、部分callback、真实commit失败、query取消、cursor及空批完成竞态；23包括父/汇总，不23个Bug。
+- 相关4模块原组 **0a291bbc-1fe0-43d8-8b9b-fc9ea9ad58c0：279P0F1skip，21:48:57.276006Z→21:51:13.038256Z，Goexit0/CLIexit2/blocked，source始末93f**。唯一skip为TestV3DeepSeekHTTPPGSmoke付费真实模型opt-in，仍High外部待办，不启用或冒通过。原本地100k合成索引专项显式专用DB开关后通过，随机UUID schema不改canonical APP，也不当正式性能。
+- 首次相关组 **02dbbf37-9a5e-4d5f-b629-aa4c8672be27：275P5F2skip** 保留。原因实测为测试私有077 umask把请求0644弱权限夹具创建成0600；root仅在夹具写入后Chmod明确待测模式，原弱权限拒绝断言与产品安全校验不改，原5红含同一症状父/包/命令。另一skip为缺本地索引opt-in，已在本次补跑；旧源c530新路径a1c99854的23P保留，不冒93f。
+- 三格式报告与完整原件已导出。当前交付 **sse-tx-validation-handoff.json** 登记证据 **c4a658da-3202-4632-aa30-a1735e55a629**；review产品7SHA、新测试SHA2b46、first-related-failure原件、精确paid skip及索引结果均关联。看板同PERF-SSE-100-FFE5追加候选回归，原ffe/b972/cdd3/7cab失败不覆盖、缺陷未关闭。
+- 下一root先scoped提交推送，再备份原main、fresh nonce/HMAC+UID/fullargv/lstart/cwd/PG/无active守卫，实际构建切换新非race双API，核新source/binary/runtime及doctor/capacity后复验原100/60/50normal10slow。原例通过后才新源完整BASE→显式SCALE；不调用默认双command性能。QA可见线程并行只读准备当前源正式HTTP重新验证范围，不运行负载或编辑冻结Go。
+- 整体OPEN；完整两档性能未完成、连续24h从未开始。当前产品源HTTP资格仍0/166，旧120仅历史；必要新源功能/正式接线仍要实际复验。WAN152/Trace/producer/外部/paid/Ollama/8暂停CI-CD保持高待办。web/.claude/业务.env/业务DB/真实账号通知不动，无merge/deploy。

@@ -349,9 +349,15 @@ func (s *Service) findMetricsQuestionTx(ctx context.Context, tx pgx.Tx, in Metri
 }
 
 func (s *Service) authorizeMetricsSource(ctx context.Context, conversationID, owner, env string) error {
+	return s.authorizeMetricsSourceQuery(ctx, s.db, nil, conversationID, owner, env)
+}
+
+// SSE reuses these ordinary reads without the recovery helper's extra row locks.
+// Only the existing source authorizer may pin its own authorization/source rows.
+func (s *Service) authorizeMetricsSourceQuery(ctx context.Context, q sseReadQueryer, tx pgx.Tx, conversationID, owner, env string) error {
 	var source MetricsSource
 	var required bool
-	err := s.db.QueryRow(ctx, `SELECT metrics_source_required FROM v3_conversations
+	err := q.QueryRow(ctx, `SELECT metrics_source_required FROM v3_conversations
 		WHERE id=$1 AND owner_id=$2 AND environment_id=$3`, conversationID, owner, env).Scan(&required)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound
@@ -362,7 +368,7 @@ func (s *Service) authorizeMetricsSource(ctx context.Context, conversationID, ow
 	if !required {
 		return nil
 	}
-	err = s.db.QueryRow(ctx, `SELECT application_id,binding_id,connector_id,resource_id,query_id,source_fingerprint
+	err = q.QueryRow(ctx, `SELECT application_id,binding_id,connector_id,resource_id,query_id,source_fingerprint
 		FROM v3_metrics_questions WHERE conversation_id=$1 AND owner_id=$2 AND environment_id=$3`,
 		conversationID, owner, env).Scan(&source.ApplicationID, &source.BindingID, &source.ConnectorID, &source.ResourceID, &source.QueryID, &source.Fingerprint)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -370,6 +376,9 @@ func (s *Service) authorizeMetricsSource(ctx context.Context, conversationID, ow
 	}
 	if err != nil {
 		return err
+	}
+	if tx != nil {
+		return s.authorizeMetricsSourceTx(ctx, tx, owner, env, source)
 	}
 	if s.opts.AuthorizeMetricsSource == nil {
 		return ErrMetricsSourceUnavailable

@@ -94,3 +94,13 @@
 当前真实正常90/166，辅助21，协议Mock正常2主接口另列；缺76=54本地环境/协议Mock+17需确认+3缺实现+2用户暂停（另真实外部4组）。新增暂停路由为metrics/dashboard：loadDashboardMarkers强制成功deployment/rollback events及execution/plan关联、buildDashboard需1h窗口，缺任一503；属于暂停native CI/CD生产链，不SQL造marker，也不恢复暂停链。source refs internal/v3observe/metrics.go:144/289/626。
 
 下一独立实现批：本地真实logs与Trace detail优先；Trace列表要求实证fail-on-live-store-lag完整搜索能力，当前配置false，不擅自切true冒全量正常。个人资料/值班四路HTTPS Mock：上游只读snapshot，本地PG修改；读响应丢失要验证503且本地不变，不套安全外写unknown语义。两批尚未实际执行前不填通过。MFA、知识源/MCP、Vault/SMTP/IdP及其他必要P1仍继续，性能/24h不启动，旧自动化继续暂停。
+
+## CP268 · 资料/值班只读协议与真实日志/Trace专项
+
+已执行 `profile-protocol`：32f0c484，49通过、0失败/跳过，四主路由HTTPS上游明确Mock，本地业务修改由真实V3/UUID PG产生。本人/session/env与当前授权、readonly字段、429/丢读响应/错scope时本地零写、跨实例状态及exact audit均验；空值班指派、未验证联系人和空factor不证明真实authority。
+
+已执行 `observe-functional`：91d418dd，48通过、0失败、1高环境阻塞。真实Loki日志与OTLP→OTel→Tempo闭合Trace，HTTP服务/mapping生产、计数/属性/权限/边界/故障恢复/撤权/audit及精准清理；当前UUID合成输入不是历史完整性。Trace列表保持503，未证live-store lag failclosed搜索，不能切开关/放宽断言。独立只读交叉review无有证据的新阻断。
+
+真实正常仍90/166（logs/detail已有正常证明，不能再加接口），Mock正常6单列；54本地来源分类内部拆为48尚需首次正常补测、6Mock已验真实待验。其余17需确认生产者、3缺实现、2暂停，父包2/9与有界包3/4分开。总览直接显示同组阻塞原因和原证据，即使目标正常2/2也不转整包绿。197受影响工具回归、实际1280页面/附件下载及doctor53证明分别保留。CP268证明6116b0cc-682c-4111-ac8e-25b8978a8184，Go6ad/bfeb/runtime338不变，无性能/24h/产品前端操作。
+
+下一组先做三目标ingress轻型包：HTTP创建本UUIDservice/Promconnector/metric_resource，owned受控signal精确selector、真实Prom scrape、两代私有API日志；Pull正常/授权/预算attempt与audit，Push内建synthetic五类型/receipt/audit不误算真实Webhook。mapping发现/接受需要真实GitLab项目、Vault绑定、精确activation/probe，重型读取独占另排；不恢复暂停CI/CD或SQL造候选。knowledge/MCP及组织权威协议继续按现有生产链分包，Mock已验子场景不重复冒进度。

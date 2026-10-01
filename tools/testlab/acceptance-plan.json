@@ -1415,9 +1415,9 @@
       "availability": "local_environment",
       "priority": "P1",
       "package_id": "local-components",
-      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "reason": "现有Tempo精确Trace读取已实测，但Trace搜索fail-on-live-store-lag尚无真实完整性证明，SearchFailClosed保持false，正式列表503 not_configured；HIGH环境待办，不能由明细通过关闭。",
       "prerequisites": [
-        "参见工作包 local-components 的隔离与证据前置"
+        "专用Tempo在live-store lag时搜索完整性与失败关闭的真实证据；不能仅切SearchFailClosed为true"
       ],
       "source_refs": [
         "tools/testlab/components.py",
@@ -3243,6 +3243,67 @@
               "name": "management.complete"
             }
           ]
+        },
+        {
+          "id": "observe-functional",
+          "title": "真实日志与Trace明细；Trace列表完整性仍阻塞",
+          "command": "python3 tools/testlab/testlab.py run --suite observe-functional",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "GET /api/v1/logs",
+            "GET /api/v1/traces/{id}"
+          ],
+          "proof_scope": "两个正常主接口、原生HTTP服务与mapping审计、真实Loki及OTel→Tempo闭合Trace；source为UUID当前合成输入，非历史或持续采集证明。Trace列表503及HIGH完整性阻塞保持，因此整包仍未验收。",
+          "required_cases": [
+            {
+              "suite": "observe-functional",
+              "name": "observe.source_scope"
+            },
+            {
+              "suite": "observe-functional",
+              "name": "observe.real_ingest"
+            },
+            {
+              "suite": "observe-functional",
+              "name": "observe.http_logs"
+            },
+            {
+              "suite": "observe-functional",
+              "name": "observe.http_trace_detail"
+            },
+            {
+              "suite": "observe-functional",
+              "name": "observe.authorization"
+            },
+            {
+              "suite": "observe-functional",
+              "name": "observe.boundaries"
+            },
+            {
+              "suite": "observe-functional",
+              "name": "observe.failure_recovery"
+            },
+            {
+              "suite": "observe-functional",
+              "name": "observe.revocation"
+            },
+            {
+              "suite": "observe-functional",
+              "name": "observe.audit_consistency"
+            },
+            {
+              "suite": "observe-functional",
+              "name": "observe.relay_cleanup"
+            },
+            {
+              "suite": "observe-functional",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "observe-functional",
+              "name": "readonly.complete"
+            }
+          ]
         }
       ]
     },
@@ -3323,6 +3384,57 @@
             {
               "suite": "security-protocol",
               "name": "protocol.security.operation_linkage"
+            }
+          ]
+        },
+        {
+          "id": "profile-protocol",
+          "title": "本人资料、值班快照与本地修改隔离",
+          "command": "python3 tools/testlab/testlab.py run --suite profile-protocol",
+          "evidence_mode": "protocol_mock",
+          "route_keys": [
+            "GET /api/v1/me",
+            "PATCH /api/v1/me",
+            "GET /api/v1/me/profile",
+            "PUT /api/v1/me/profile"
+          ],
+          "proof_scope": "双V3/PG自账户字段修改、偏好持久化、会话绑定和exact audit；上游为HTTPS只读snapshot Mock，429/丢读响应/错scope不得本地落库。联系人verified=false，不证明真实值班/组织/设备/MFA。",
+          "required_cases": [
+            {
+              "suite": "profile-protocol",
+              "name": "profile.https_ready"
+            },
+            {
+              "suite": "profile-protocol",
+              "name": "profile.me.normal"
+            },
+            {
+              "suite": "profile-protocol",
+              "name": "profile.profile.normal"
+            },
+            {
+              "suite": "profile-protocol",
+              "name": "profile.authorization"
+            },
+            {
+              "suite": "profile-protocol",
+              "name": "profile.readonly_inputs"
+            },
+            {
+              "suite": "profile-protocol",
+              "name": "profile.upstream_faults"
+            },
+            {
+              "suite": "profile-protocol",
+              "name": "profile.account_audit_linkage"
+            },
+            {
+              "suite": "profile-protocol",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "profile-protocol",
+              "name": "readonly.complete"
             }
           ]
         }
@@ -3417,11 +3529,11 @@
     {
       "package_id": "local-source-protocols",
       "priority": "P1",
-      "action": "补完整HTTPS协议Mock适配链：组织目录/资料/值班/安全、知识源和MCP注册发现，覆盖超时、429、丢响应与权限漂移",
+      "action": "继续组织目录、知识源与MCP的完整协议Mock；本人资料/值班和安全已验子场景保留，真实authority待验",
       "preconditions": [
-        "每个目标明确受审配置、Mock服务/数据、预期正常DTO及非空业务断言",
-        "不SQL造执行/审批/评测结果；安全权威Mock不证明实际策略强制",
-        "保留真实飞书/Notion/Confluence/组织身份和硬件待办，Mock不关闭它们"
+        "先补尚缺正常路径的目标；六个已Mock正常不重复冒新增覆盖",
+        "每个目标核对正式注册/发现、非空DTO和来源关联，429/超时/丢响应/权限漂移逐项",
+        "真实飞书/Notion/Confluence、完整身份及安全authority外部待办保持"
       ]
     },
     {

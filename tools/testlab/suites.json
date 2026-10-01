@@ -846,6 +846,30 @@
       ]
     },
     {
+      "id": "profile-protocol",
+      "name": "本人资料、值班与HTTPS只读权威协议",
+      "type": "integration",
+      "evidence_mode": "protocol_mock",
+      "verification_scope": "四主路由正式本地PG自账户修改和只读HTTPS snapshot Mock；真实值班/组织/联系人/设备/MFA权威待办，上游失读响应503本地不变，无externalapply",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_profile_protocol_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        22,
+        30,
+        46
+      ]
+    },
+    {
       "id": "performance",
       "name": "k6阶梯压测 / SSE",
       "type": "performance",
@@ -927,6 +951,30 @@
         6,
         7,
         14
+      ]
+    },
+    {
+      "id": "observe-functional",
+      "name": "真实Loki日志与OTel-Tempo明细功能",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "verification_scope": "正式双V3 HTTP和原生服务/mapping/audit；真实Loki日志与OTel入Tempo闭合Trace；Trace列表只验证503并保留HIGH搜索完整性环境阻塞，relay503是注入故障不是实际组件崩溃",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "tools/testlab/api_observe_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 900,
+          "cleanup_grace_seconds": 45
+        }
+      ],
+      "gap_ids": [
+        19,
+        20,
+        46
       ]
     }
   ]

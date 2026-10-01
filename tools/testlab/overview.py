@@ -88,8 +88,12 @@ def _package_acceptance(package, runs, cases, source):
                  'source_binding': _binding(latest, source), 'suite': k[0], 'name': k[1],
                  'status': matching[k]['status'] if k in matching else 'missing',
                  'evidence_ids': matching[k].get('_evidence_ids', []) if k in matching else []} for k in sorted(keys)]
+    blockers = [{'run_id': latest['id'], 'case_id': c['id'], 'name': c['name'], 'status': c['status'],
+                 'reason': _actual(c).get('reason', ''), 'evidence_ids': c.get('_evidence_ids', [])}
+                for c in rows if c['status'] not in allowed or not c.get('_evidence_ids')]
     return {'status': 'passed' if complete else 'incomplete', 'reason': '仅此包显式必需场景和同组结果；外部待办不计通过，也不推广为全部功能空间。',
-            'evidence': evidence, 'external_todos': [{'run_id': latest['id'], 'case_id': c['id'], 'name': c['name'], 'evidence_ids': c.get('_evidence_ids', [])} for c in rows if c['status'] == 'external_todo']}
+            'evidence': evidence, 'blocking_cases': blockers,
+            'external_todos': [{'run_id': latest['id'], 'case_id': c['id'], 'name': c['name'], 'evidence_ids': c.get('_evidence_ids', [])} for c in rows if c['status'] == 'external_todo']}
 
 
 def _gates(runs, cases, source):
@@ -205,7 +209,7 @@ def get_overview(root, store, source_sha=None):
         for case in group:
             case['_evidence_ids'] = [e for e in attempts.get(case['id'], []) if evidence_exists(e, case['run_id'])]
             case['_suite_key'] = suites.get(case['suite_id'])
-            if case['name'].startswith('perf.'):
+            if case['name'].startswith('perf.') or case['status'] not in ('passed', 'queued', 'running'):
                 case['_verified_actual'], case['_actual_evidence_id'] = _original_actual(store, case)
     contract = _read(root / 'internal/apicontract/openapi.json', {'paths': {}})
     modules = {}
@@ -353,6 +357,8 @@ def get_overview(root, store, source_sha=None):
                      'source_binding_counts': dict(collections.Counter(r['source_binding'] for r in history))},
             'gates': gates, 'work_packages': packages,
             'local_queue': [r for r in missing if r['availability'] in ('local_ready', 'local_environment')],
+            'execution_queue': [r for r in missing if r['availability'] in ('local_ready', 'local_environment') and r['protocol_normal_status'] != 'verified'],
+            'protocol_verified_pending_real': [r for r in missing if r['protocol_normal_status'] == 'verified'],
             'blockers': {'counts': classified, 'routes': [r for r in missing if r['availability'] not in ('local_ready', 'local_environment')]},
             'next_actions': plans.get('next_actions', []), 'gaps': gaps, 'defects': defects,
             'external_todos': plans.get('external_todos', []), 'paused_todos': plans.get('paused_todos', []),
@@ -374,6 +380,7 @@ def render_overview_report(data, fmt='json'):
              '生成时间：' + data['generated_at'], '源码指纹：' + str(source['fingerprint']),
              f"主接口正常 HTTP 子场景：{coverage['normal_success']} / {coverage['total']}；缺 {coverage['missing']} 项。",
              f"协议 Mock 正常子场景：{data['coverage'].get('protocol_mock', {}).get('normal_success', 0)} 个主接口；不计上述真实覆盖。",
+             f"尚需本地正常路径补测：{len(data.get('execution_queue', []))} 项；Mock正常已验、真实来源待验：{len(data.get('protocol_verified_pending_real', []))} 项。两者均未视为完整接口验收。",
              coverage['scope'], '', '## 验收门槛']
     lines.extend(f"- {g['title']}：{g['status']}。{g['reason']}" for g in data['gates'])
     lines.extend(['', '## 优先行动'])
@@ -405,6 +412,8 @@ def render_overview_report(data, fmt='json'):
                          + ' · ' + check['evidence_mode'] + '。' + check.get('proof_scope', ''))
             for proof in check['scenario_acceptance'].get('evidence', []):
                 lines.append('    - 子包场景证据：' + json.dumps(proof, ensure_ascii=False))
+            for blocker in check['scenario_acceptance'].get('blocking_cases', []):
+                lines.append('    - 未通过或缺证据场景：' + json.dumps(blocker, ensure_ascii=False))
     lines.extend(['', '## 51 项缺口及关联范围'])
     for gap in data['gaps']:
         lines.extend(['', '### ' + str(gap['id']) + ' · ' + gap.get('name', ''),

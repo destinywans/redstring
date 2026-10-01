@@ -134,6 +134,37 @@ class OverviewTests(unittest.TestCase):
         self.assertEqual(check['normal_covered'],0)
         self.assertEqual(check['acceptance_status'],'incomplete')
 
+    def test_focused_normal_and_markers_cannot_hide_same_suite_environment_blocker(self):
+        p=self.root/'tools/testlab/acceptance-plan.json';plan=json.loads(p.read_text())
+        plan['packages'][0]['focused_checks']=[dict(id='subset',title='subset',evidence_mode='real_local',
+            route_keys=['GET /api/v1/things'],required_cases=[dict(suite='api',name='subset.complete')])]
+        p.write_text(json.dumps(plan))
+        r,s=self.run_record(status='blocked');self.http(r,s);self.case(r,s,name='subset.complete')
+        blocked=self.case(r,s,name='unproven.source',status='blocked',actual=str({'reason':'Source completeness unverified'}))
+        v=self.overview();check=v['work_packages'][0]['focused_checks'][0]
+        self.assertEqual(check['normal_covered'],1)
+        self.assertEqual(check['acceptance_status'],'incomplete')
+        blockers=check['scenario_acceptance']['blocking_cases']
+        self.assertEqual(len(blockers),1)
+        self.assertEqual(blockers[0]['case_id'],blocked['id'])
+        self.assertEqual(blockers[0]['status'],'blocked')
+        self.assertEqual(blockers[0]['reason'],'Source completeness unverified')
+        self.assertTrue(blockers[0]['evidence_ids'])
+        self.assertIn('unproven.source',render_overview_report(v,'md'))
+
+    def test_mock_verified_normal_remains_missing_real_but_leaves_first_local_execution_queue(self):
+        r,s=self.run_record();self.http(r,s,mode='protocol_mock')
+        v=self.overview()
+        self.assertEqual(v['coverage']['main']['normal_success'],0)
+        self.assertEqual(v['coverage']['main']['missing'],2)
+        self.assertEqual(len(v['local_queue']),2)
+        self.assertEqual(len(v['execution_queue']),1)
+        pending=v['protocol_verified_pending_real']
+        self.assertEqual(len(pending),1)
+        self.assertEqual(pending[0]['method'],'GET')
+        self.assertEqual(pending[0]['normal_status'],'missing')
+        self.assertTrue(pending[0]['protocol_evidence'])
+
     def test_registered_but_missing_evidence_file_is_excluded(self):
         r, s = self.run_record(); self.http(r, s)
         self.assertEqual(self.overview()['coverage']['main']['normal_success'], 1)

@@ -198,22 +198,25 @@
     "name": "日志采集完整性",
     "remaining": "ES .keyword/ignore_above历史漏索引、模板/等级生产者、Loki租户lookback/保留和真实30分钟聚合性能未验。",
     "required": "映射/回填、受信脱敏模板、采集覆盖声明；100条样本不当全集。",
-    "source": "docs/api/v3-logs-source.md:23-46",
+    "source": "docs/api/v3-logs-source.md:23-46；CP268/WAN136/138",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "真实Loki受控日志写入/读取",
-    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+    "completed_subscenarios": "真实Loki受控日志写入/读取；CP268：91d418dd Go6ad正式双V3及真实Loki4条UUID当前合成输入，经HTTP服务/mapping/audit生产；3条test日志读取、完整计数/错误率/模式/histogram、角色/隐藏环境/参数/relay503恢复/跨实例撤权0上游及精确审计通过。48P0F另Trace列表1blocked；非旧历史/持续窗口/性能证明。",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入",
+    "acceptance_note": "仅新增精确子场景，历史与原状态保留；协议Mock不关闭真实来源，整项未收口。"
   },
   {
     "id": 20,
     "name": "Tempo 与拓扑完整性",
-    "remaining": "高lag/采样/未插桩可能缺Trace；topology_v1真实生产者/高扇出/零流量未验，完整模式8节点12边不适合大拓扑。",
+    "remaining": "高lag/采样/未插桩可能缺Trace；topology_v1真实生产者/高扇出/零流量未验，完整模式8节点12边不适合大拓扑。 GET /traces 当前搜索完整性准入未证，必须验证actual fail_on_high_lag行为，不能只开启声明旗标。",
     "required": "实际Tempo fail_on_high_lag、录制规则/6点测量、稳定资源身份和规模策略。",
-    "source": "docs/api/v3-traces-source.md；v3-topology-view.md",
+    "source": "docs/api/v3-traces-source.md；v3-topology-view.md；CP268/WAN136/138",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "真实OTel→Tempo指定span exact读回",
-    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+    "completed_subscenarios": "真实OTel→Tempo指定span exact读回；CP268：91d418dd真实OTLP→ownedOTel→Tempo两条UUID闭合Trace，每条2span精确入库；正式GET traces/{id}校验root时长20ms/父子关系/允许操作及属性筛选，外环境trace404、relay503恢复/撤权0上游通过。GET traces保持503 not_configured，SearchFailClosed=false且live-store lag完整性HIGH环境阻塞，明细通过不能关闭。",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入",
+    "acceptance_note": "仅新增精确子场景，历史与原状态保留；协议Mock不关闭真实来源，整项未收口。",
+    "priority": "High"
   },
   {
     "id": 21,
@@ -229,11 +232,12 @@
     "name": "个人资料全字段 authority",
     "remaining": "完整设备/会话、登录方式、联系方式和 factor 的权威数据生产者不由仓库提供；缺可信来源时 GET/PUT 不可用。",
     "required": "部署实际完整 producer；仅提供 URL/token 不会生成数据。",
-    "source": "CP-195；WAN-119",
+    "source": "CP-195；WAN-119；CP268/WAN136/138",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "正式Canvas/对话关键业务路径；真实用户完整产品语义仍待验",
-    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入"
+    "completed_subscenarios": "正式Canvas/对话关键业务路径；真实用户完整产品语义仍待验；CP268：32f0c484 Go6ad正式双V3/PG与HTTPS只读snapshot Mock，49P0F：GET/PATCH me、GET/PUT me/profile精确账户/session/env与自账户持久修改、另一用户不变、readonly字段422、匿名/跨环境拒绝、每路429/读响应丢失/错scope503且本地用户/settings/audit不变，exact actor/target/changes审计2条；contacts verified=false、factors空，不证明真实完整authority。",
+    "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入",
+    "acceptance_note": "仅新增精确子场景，历史与原状态保留；协议Mock不关闭真实来源，整项未收口。"
   },
   {
     "id": 23,
@@ -309,11 +313,11 @@
     "name": "首页业务权威信息",
     "remaining": "简报、值班、健康/SLO、建议/待办动作缺可信来源；返回 null/availability，不能用本地事件推断实时健康。",
     "required": "权威值班/SLO/简报生产者及来源失败状态。",
-    "source": "CP-176、177；WAN-117；CP266/WAN-139",
+    "source": "CP-176、177；WAN-117；CP266/WAN-139；CP268/WAN136/138",
     "status": "not_implemented",
     "evidence_mode": "pending",
-    "completed_subscenarios": "尚未登记；CP266：ed76ba96 当前Go6ad readonly89通过含首页/个人关注/目录读取、授权与分页断言；正常HTTP样本补齐不关闭聚合上限或权威值班/业务生产者。",
-    "acceptance_note": "新增仅为明确子场景，原项保持未收口；当前源码实际证据由整体看板核对。"
+    "completed_subscenarios": "尚未登记；CP266：ed76ba96 当前Go6ad readonly89通过含首页/个人关注/目录读取、授权与分页断言；正常HTTP样本补齐不关闭聚合上限或权威值班/业务生产者。；CP268：32f0c484只验证精确用户/environment的HTTPS值班snapshot Mock（assignments=[]且oncall.active=false）与本人资料；没有真实值班指派、健康/SLO/简报生产者，不关闭Home数据上限或业务authority。",
+    "acceptance_note": "仅新增精确子场景，历史与原状态保留；协议Mock不关闭真实来源，整项未收口。"
   },
   {
     "id": 31,
@@ -471,12 +475,12 @@
     "name": "写接口安全参数",
     "remaining": "产品页面If-Match/revision/requestID等接线本轮前端排除；主路由全部业务场景仍需矩阵逐项覆盖，不从响应数或401/403推断完成。",
     "required": "按机器契约传参，覆盖过期/撤权/重放/不确定结果。",
-    "source": "CP-185～205；WAN-125/127/128；CP266/WAN-139",
+    "source": "CP-185～205；WAN-125/127/128；CP266/WAN-139；CP268/WAN136/138",
     "status": "queued",
     "evidence_mode": "pending",
-    "completed_subscenarios": "entry b8241602 230断言中主30/166正常证明；content e8814ea6 69断言/62实际HTTP；源8d0a readonly 1fbdd662 98通过/89实际HTTP、26主+1辅助GET正常；management fdd28078 130通过/113实际HTTP、17目标中15正常、2profile仅503；双实例ETag/role revision单赢家、幂等关注/取消、撤session、原生事务审计一致性。不同源和重复路由不简单相加。；CP266：80b62861 bulk claim正常、跨实例读回、相同调用者重试changed=0、越权207及重复ID422；数据库唯一认领及审计一致。正常其他动作、取消/事务锁失败和完整安全组合仍需逐场景验。",
+    "completed_subscenarios": "entry b8241602 230断言中主30/166正常证明；content e8814ea6 69断言/62实际HTTP；源8d0a readonly 1fbdd662 98通过/89实际HTTP、26主+1辅助GET正常；management fdd28078 130通过/113实际HTTP、17目标中15正常、2profile仅503；双实例ETag/role revision单赢家、幂等关注/取消、撤session、原生事务审计一致性。不同源和重复路由不简单相加。；CP266：80b62861 bulk claim正常、跨实例读回、相同调用者重试changed=0、越权207及重复ID422；数据库唯一认领及审计一致。正常其他动作、取消/事务锁失败和完整安全组合仍需逐场景验。；CP268：32f0c484正式四本人路由49P0F，越权/readonly输入/故障无本地写、跨实例精确读回与两条audit；协议Mock仅证明相应只读上游。91d418dd日志/Trace明细的权限、空level不读源、隐藏trace404、撤权0sourcecalls与mapping revisions/actor/target/exactbindings审计；不证明全部166或慢响应并发撤权。",
     "proof_scope": "仅所列本地真实组件/PG/正式HTTP；整体未关闭",
-    "acceptance_note": "新增仅为明确子场景，原项保持未收口；当前源码实际证据由整体看板核对。"
+    "acceptance_note": "仅新增精确子场景，历史与原状态保留；协议Mock不关闭真实来源，整项未收口。"
   },
   {
     "id": 47,

@@ -83,3 +83,9 @@ python3 tools/testlab/profile.py --owner testlab-3cbde3095125 --run <同一操�
 当前生成器固定为4GiB/4CPU，原请求/VUs/速率/时长/断言不变；环境变量不能覆盖。此前2CPU的原50RPS窗口实际完成但健康和SSE失败，两容器cgroup节流证据留存。准备的新联合容量档要求专用PG为4CPU/2GiB：只在没有活动测试、真实签名身份及专用容器CID/标签/镜像/挂载/OID已核对后按CID调整CPU并读回，保留数据和运行实例；prepare默认PG容量仍为2CPU，不能冒同环境性能复现。每次记录实际HostConfig及新冻结，CPU4离线81绿只证明工具声明与命令，不是环境调整或性能通过。两配额同时变化仅证明联合档，不归因单个组件，不能覆盖旧2CPU结果或作为生产SLA。
 
 有界功能子包在整体页单列，需要稳定场景、正常HTTP原证据、源码始末一致与精确清理共同满足；子包绿不能把父包升级为完成。`connectors-functional` 使用新UUID库/角色、18606/18607和自有18612readiness relay，仅转发owned Prometheus；503注入不称Prom故障。`security-protocol` 使用独立UUID库、18602/18603、自有18614 HTTPS Mock、0600临时CA/token；验证外部成功丢响应时unknown与跨实例重复外写保护，真实安全强制和人工reconcile保持高待办。
+
+`profile-protocol` 覆盖 GET/PATCH `/me` 与 GET/PUT `/me/profile`：独立UUID PG及HTTPS只读snapshot Mock、0600私有CA/token，真实本地更新与审计；读依赖429/丢响应/错scope必须503且本地不变。真实完整资料、值班、MFA等权威仍外部待验。
+
+`observe-functional` 使用真实Loki、OTel和Tempo，HTTP生成service/mapping和audit，UUID当前合成日志与闭合Trace各单次入站，再走正式logs与trace-by-ID。Trace列表搜索完整性明确blocked，使整组仍blocked；50条样本或明细通过不证明完整搜索/历史/24h。只读relay503注入不称实际组件崩溃。此组与profile复用18616，仅可串行；仅本调用Popen/UUID库角色清理，源记录保留在owned组件，不删除共享数据。
+
+整体首次本地正常补测队列排除已Mock正常的接口；它们仍缺真实来源验收且主真实覆盖不增加。同组非通过场景的原证据/原因直接展示，有界子包不可洗绿父包。

@@ -1,4 +1,4 @@
-**最新记录入口：[CP296](CHECKPOINT.md#cp-296-current)。** 用户明确暂停压测，先当前版本接口复验/完整业务链；实际无active。当前42/166正式正常、本地证据队列94；三个可见会话分事件→复盘→Runbook、上传/Token/配置、独立清单，root核隔离后并行功能实跑。已完成soak工具103Python+1Node离线修复留记录，native/12h/24h资格未验且暂停；不自动恢复perf/soak/性能优化。缺实现/上限/Trace/外部与原CI-CD/前端暂停域继续明示，整体OPEN。
+**最新记录入口：[CP296](CHECKPOINT.md#cp-296-current)。** 用户明确暂停压测，先当前版本接口复验/完整业务链；实际无active。当前42/166正式正常、本地可执行队列93（待补真实清单94）；三个可见会话分事件→复盘→Runbook、上传/Token/配置、独立清单，root核隔离后并行功能实跑。已完成soak工具103Python+1Node离线修复留记录，native/12h/24h资格未验且暂停；不自动恢复perf/soak/性能优化。缺实现/上限/Trace/外部与原CI-CD/前端暂停域继续明示，整体OPEN。
 
 **2026-10-02 CP290：** 新源d4/实际非race8f原100/60再失败8P4F1Homecap，四窗口仍25正常SSE停滞；恢复/一致性/清理通过。列表加速不足以关闭SSE。已复用三个可见线程并行实施最小短tx复用连接、关键新路径测试、独立权限/生命周期审查；root统一真实验证。不省13条授权/读取、改pool/超时/门槛或跨socket持conn，保expiry/terminal边界，收益未证明。当前无active，完整两档/24h未完成。见[CP290](CHECKPOINT.md)。
 

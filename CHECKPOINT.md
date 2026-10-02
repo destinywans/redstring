@@ -1,4 +1,4 @@
-**最新记录入口：[CP-296](#cp-296-current)，2026-10-02。** 用户明确暂停压测，优先当前版本接口复验和完整业务链。当前Go93f/main6d298、实际无active；禁止新perf/soak/仪表化/性能优化。主接口当前正常42/166，本地证据队列实时94条（此前93为快照）；三个可见会话重分配事件→复盘→Runbook、上传/Token/配置、独立验收清单。soak工具修复103Python+1Node离线通过留交付，原生资格/12h/24h未验且暂停。旧性能首红/缺实现/上限/外部及原CI-CD/前端暂停边界保留，整体OPEN。
+**最新记录入口：[CP-296](#cp-296-current)，2026-10-02。** 用户明确暂停压测，优先当前版本接口复验和完整业务链。当前Go93f/main6d298、实际无active；禁止新perf/soak/仪表化/性能优化。主接口当前正常42/166，本地可执行证据队列93条（本地待补真实清单94）；三个可见会话重分配事件→复盘→Runbook、上传/Token/配置、独立验收清单。soak工具修复103Python+1Node离线通过留交付，原生资格/12h/24h未验且暂停。旧性能首红/缺实现/上限/外部及原CI-CD/前端暂停边界保留，整体OPEN。
 
 <a id="cp-296-current"></a>
 ## CP-296 · 2026-10-02 · 用户暂停压测，转当前接口与完整业务链验收
@@ -11,6 +11,7 @@
 - CI/CD/Workflows/VM沿此前明确暂停，范围核对在批准测试计划第104行记录WAN89/90/91/92历史“开发/构建测试/部署/故障验证”暂停；本轮恢复规则GitOps不等于恢复原生交付。产品前端依用户本轮“先放着、调整后统一测”保持不修改/测试。本次问原因不是明确恢复，root不自行改变这些边界。用户表示真实外部飞书/Notion/Confluence/模型/组织权限/物理Passkey/邮箱资源会设法提供；待收到再做真实验收，Mock只证明协议/逻辑。
 - 已完成的工具修复留可审查交付：A1新增固定k6 scenario/engine锚点/保守区间，替代Python create/cleanup时间；原end_high检查仅排除确定短窗，不声明保守结束下界独立证明86400；固定executor/退出/迭代/原门槛保留。A2新增JS自然TTL43200/实际续登计数时刻及12h后受权请求，独审指出计数原可绑定11h55旧cookie；root新增反例真实先红后改为当前cookie续登elapsed≥12h后且请求成功才计。**103Python离线/自有临时socket-process回归+1Node模拟ABI通过**；没有native k6/真实12h或24h，按用户暂停延后，不误称工具全部资格已验。Go93f/实际main不变，四tool文件新hash及proof见soak-qualification-application-current.json与final-offline-validation.json；旧privateperf入口hash会拒收，未来恢复前必须重新freeze。
 - root应用脚本变量重用使最终proof JSON误写新CJS测试，首Node SyntaxError/前像/private proof完整保留；按精确本轮schema/候选SHA恢复文件并纠正pointer，之后才运行真正late-cookie先红及最小修。归工具错误，不称产品缺陷或用语法失败当业务反例。相关原件root-application-first-tool-error.json保留，不涉及产品Go/API/PG/用户改动。
+- **计数口径纠正**：fresh overview.local_queue为94，而实际execution_queue为93，差项是 `POST /api/v1/metrics/ask`：当前协议Mock资格已验，尚未有真实模型正常证明；执行队列排除已验协议子场景。上文“上一93为快照”解释不准确，由本条取代。用户所引93可执行任务正确，78旧真实+15旧协议Mock待当前复验由QA继续独立核；不把94说成新增一个没测接口。
 - 交付只testlab工具/必要文档scoped提交推送，Linear WAN136/138/139/163及原51更新本次用户决定和优先级。产品web/.claude/业务env/DB/他集群/真实账号通知不动，不merge/deploy。整体OPEN，后续只实际接口与链路验收，性能/24h须用户之后明确恢复。
 
 

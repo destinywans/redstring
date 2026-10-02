@@ -104,3 +104,16 @@
 真实正常仍90/166（logs/detail已有正常证明，不能再加接口），Mock正常6单列；54本地来源分类内部拆为48尚需首次正常补测、6Mock已验真实待验。其余17需确认生产者、3缺实现、2暂停，父包2/9与有界包3/4分开。总览直接显示同组阻塞原因和原证据，即使目标正常2/2也不转整包绿。197受影响工具回归、实际1280页面/附件下载及doctor53证明分别保留。CP268证明6116b0cc-682c-4111-ac8e-25b8978a8184，Go6ad/bfeb/runtime338不变，无性能/24h/产品前端操作。
 
 下一组先做三目标ingress轻型包：HTTP创建本UUIDservice/Promconnector/metric_resource，owned受控signal精确selector、真实Prom scrape、两代私有API日志；Pull正常/授权/预算attempt与audit，Push内建synthetic五类型/receipt/audit不误算真实Webhook。mapping发现/接受需要真实GitLab项目、Vault绑定、精确activation/probe，重型读取独占另排；不恢复暂停CI/CD或SQL造候选。knowledge/MCP及组织权威协议继续按现有生产链分包，Mock已验子场景不重复冒进度。
+
+
+## 2026-10-02 · CP297 当前功能续验与精确业务链边界
+
+用户最新直接决定暂停压测，先当前版本接口复验和完整业务链；本段取代此前“立即性能→soak”的排程。自动化只推进功能，不准备新的负载/仪表化或24h。旧性能首红全部保留，24h从未开始。
+
+原版 `native-projection`（e814791d）62P、`management`（ea702622）130P、`core`（c63c2fdb）71P、`connectors-functional`（0e430a1d）60P已当前Go93f/实际main6d298执行；原断言未改、各自UUID库/角色与专用端口清理、始末源绑定和三报告由原件复核。正常样本增加不表示故障场景或完整链全部验收；特别projection原组没有故障场景。
+
+**撤回候选包的错误正向断言**：`POST /incidents` 的 `open_canvas:true` 已正确写 `v3_incident_cases.investigation_id`（incident_create.go:366–375），没有漏写同一对象；`ops_incidents` 是独立告警来源。人工case状态resolved只结束case、不关闭investigation（incident_case_status.go:87–88、216–221）；其复盘从精确case resolved事件产生（v3postmortems/source.go:36–48），可正式发布。Runbook postmortem来源目前强制ops incident、同调查closed report及investigation.closed事件（v3knowledge/runbooks.go:519–525、draft_source.go:55–61），不接受case复盘。旧调查close没有MarkV3，被501 gate拒绝（httpapi/v3_routes.go:35–37），V3也明确停旧action/ops workers（cmd/aiops/main.go:239–246）。因此既不能期待人工case复盘直接创建Runbook返回200，也不能用SQL造closed报告或恢复旧worker绕开边界。
+
+先执行两条合法链：①本地告警→人工case及调查Canvas派生/回写→case CAS resolve→同case复盘发布，精确验证被拒Runbook来源的无副作用；②本人正式上传非空Markdown→source=import创建Runbook→提交→另一受权manager审核→内容/record/history/validation preview读回。分别标注模型Mock与合成告警输入、来源/审计关联。两条通过不能合计为“case复盘→Runbook”整链通过。是否新增case来源、无恢复执行的调查结案或迁移恢复执行/ops传播至V3，属于High产品决策待办，保持可见，不自动扩实现。
+
+并行使用互不复用的UUID库/role及18602/03（readonly）、18606/07（management/core/components依次）、18610/11（projection）；新上传import链候选拟独占18620/21，root审所有origin/lock/SQL/进程cleanup后才实跑。旧full tests/backend硬编码库名/同owner组件/18578，不能简单替换库名放宽守卫；已有当前完整回归证据保留，优先补正式HTTP与同对象链，不重复整组冒新增覆盖。

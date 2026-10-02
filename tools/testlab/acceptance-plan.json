@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-01T14:51:59.577079+00:00",
+  "updated_at": "2026-10-02T00:35:34.110074+00:00",
   "source_tree_sha": "59df22ad1d9c120f0fb24dfd3c4a3c8e0d3933a8b9cdfd6df5766721ce57537d",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -4972,7 +4972,7 @@
     {
       "package_id": "local-components",
       "priority": "P1",
-      "action": "本地规则Linux协议69、完整拓扑协议83已验；真实权威生产者/Trace搜索/历史仍阻塞。先补剩余本地功能，再处理当前回归fixture与完整回归，最后性能和连续24h。",
+      "action": "先复验当前93f已有UUID功能组，再补完整业务链及剩余本地功能；性能/soak用户暂停。原组通过仅代表登记子场景，不关闭未计划故障或可信全集。",
       "preconditions": [
         "审批/静默迁移到fresh UUID库；只读完整AM加载/出站证明，保留双人边界、丢响应与崩溃台账",
         "列出稳定suite/name必需场景与对应主接口，不以正常样本齐全判包完成",
@@ -4994,7 +4994,7 @@
     {
       "package_id": "configuration-gitops",
       "priority": "P2",
-      "action": "配置MR/隔离导入与五草稿原组已通过本地限定场景；实际部署/企业治理外部及暂停CI保留。现在先精确_test fixture修复、原case/race及当前完整回归，随后性能/持续窗口。",
+      "action": "配置原完整草稿/MR与隔离导入需当前源复验；自有GitLab凭据轮换/资源守卫后串行，不恢复原生CI/VM/Workflows。性能/soak保持用户暂停。",
       "preconditions": [
         "先完成剩余包明确场景计划与本地可执行P1；重型GitLab/Argo资源准入、独占串行",
         "复用本轮owner仓库、独立账号与审批边界，不自动合并、部署或恢复7项暂停的原生CI/CD",
@@ -5079,6 +5079,22 @@
       "title": "7项原生CI/CD、Workflows及VM gate",
       "status": "user_paused",
       "priority": "P1"
+    },
+    {
+      "id": "performance",
+      "title": "基础档/规模档压力测试及诊断",
+      "status": "user_paused",
+      "priority": "P1",
+      "decided_at": "2026-10-02T00:35:34.110074+00:00",
+      "reason": "用户直接要求先完成当前接口与完整业务链，恢复需后续明确决定；原失败与未开始证据保留。"
+    },
+    {
+      "id": "soak",
+      "title": "真实连续24小时验收",
+      "status": "user_paused",
+      "priority": "P1",
+      "decided_at": "2026-10-02T00:35:34.110074+00:00",
+      "reason": "用户直接要求先完成当前接口与完整业务链，恢复需后续明确决定；原失败与未开始证据保留。"
     }
   ],
   "decisions": [
@@ -5129,7 +5145,7 @@
     ],
     "proof_scope": "120真实正常+24Mock正常范围有重叠，不作完整验收或项目完成率。零首次本地队列只表示正常子场景已有或已如实分类，Trace全集等高待确认/缺能力/外部/暂停仍存在。"
   },
-  "execution_order": "先定义剩余7包的综合场景验收准入→本地轻型真实组件/完整协议Mock→权限与故障组合/相关回归→重型配置GitOps串行→当前源码完整回归→完整两档性能→连续真实24h；旧性能优先自动化保持暂停。",
+  "execution_order": "当前源原readonly/management/core/native-projection等UUID功能组→同对象上传import Runbook治理链与合法人工事件/调查Canvas/复盘链→当前剩余真实组件及协议Mock→必要权限/幂等/故障与相关回归→重型配置GitOps串行。用户已暂停performance/soak，禁止自动恢复、筹备仪表化或准入24h。",
   "decision_history": [
     {
       "date": "2026-10-01",
@@ -5264,6 +5280,14 @@
       "decision": "metrics producer显式nested+upstream模式，旧275冲突排除不重写；最终114593a7 133P仅Mock normal1，rules e90533P2blocked。两个可见会话继续existing promotion真实GitLab与独立Linux DNS/TLS规则协议包。",
       "reason": "用户赶时间，复用既有入口避免重复实现；隔离协议环境解决host443 blocker且平台变化明确，不接管其他服务/修改系统DNSCA。",
       "constraints": "独占文件/UUID库role/端口/privatelease；GitLab4GiB+2GiB估算reserve准入且禁SMTP，重型串行/7nativeCI暂停；Linux只.local新binary/buildflags/platform证据，所有模型/历史Mock。"
+    },
+    {
+      "checkpoint": "CP297",
+      "at": "2026-10-02T00:35:34.110074+00:00",
+      "decided_by": "user + root under existing autonomous parallel execution authorization",
+      "decision": "用户暂停 performance/soak；先当前源正式接口和同对象完整业务链。复用原 UUID 小包与不交叉的端口并行；合法缺口明确待决策，不造生产者/结果。",
+      "reason": "现存调查结案V3 gate501；人工事件复盘不满足Runbook当前ops调查来源契约；原候选错误200已撤回，独立上传导入治理链可执行。",
+      "constraints": "Go93f/main6d298保持；原assertions/首次失败/权限/cleanup；产品前端及原生CI/Workflows/VM暂停；实际外部租户仍待办。"
     }
   ],
   "review_record_history": [
@@ -5493,5 +5517,23 @@
   "regression_review_note_record_ids": [
     "2daaccdb-96fb-4214-96f8-a8815c79be77",
     "5105d522-8345-462b-84cf-d264c1e4e974"
+  ],
+  "business_chain_constraints": [
+    {
+      "id": "case-postmortem-runbook",
+      "priority": "High",
+      "status": "needs_product_decision",
+      "facts": "open_canvas正确关联v3_incident_cases.investigation_id，case resolved不关闭investigation；case复盘可发布；Runbook postmortem来源当前只接受ops_incident+closed investigation report+closed event。旧close未MarkV3，501，V3停旧workers/ops relay。",
+      "next": "分别实跑人工事件/Canvas/复盘与上传import Runbook治理，不把两段合并为整链；用户Review是否支持case来源/人工调查结案/恢复执行V3迁移。",
+      "sources": [
+        "internal/v3events/incident_create.go",
+        "internal/v3events/incident_case_status.go",
+        "internal/v3postmortems/source.go",
+        "internal/v3knowledge/runbooks.go",
+        "internal/v3knowledge/draft_source.go",
+        "internal/httpapi/v3_routes.go",
+        "cmd/aiops/main.go"
+      ]
+    }
   ]
 }

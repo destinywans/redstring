@@ -1,4 +1,16 @@
-**最新记录入口：[CP-296](#cp-296-current)，2026-10-02。** 用户明确暂停压测，优先当前版本接口复验和完整业务链。当前Go93f/main6d298、实际无active；禁止新perf/soak/仪表化/性能优化。主接口当前正常42/166，本地可执行证据队列93条（本地待补真实清单94）；三个可见会话重分配事件→复盘→Runbook、上传/Token/配置、独立验收清单。soak工具修复103Python+1Node离线通过留交付，原生资格/12h/24h未验且暂停。旧性能首红/缺实现/上限/外部及原CI-CD/前端暂停边界保留，整体OPEN。
+**最新记录入口：[CP-297](#cp-297-current)，2026-10-02。** 用户暂停performance/soak，当前接口与完整链优先。当前Go93f/main6d298不变；六个原功能包446P/0F/1外部待办，主正常83/166、本地可执行52（动态看板可能继续更新）。实际证据20ed24a6登记、三报告及UUID库/role/进程清理核对；不是整体闭环。批量调查组并行实跑、上传import Runbook治理链新候选由连接器会话独占准备；人工case复盘→Runbook来源不支持/旧close501明确High产品决策TODO。压测、24h及原生CI-CD/Workflows/VM/产品web暂停，不恢复。
+
+
+<a id="cp-297-current"></a>
+## CP-297 · 2026-10-02 · 当前源接口实跑并行推进，精确业务链边界
+
+- 用户暂停压测后，root不再性能诊断/仪表化或准入24h。先收三个可见会话私有候选，独立只读复核人工case→调查→结案→复盘→Runbook：open_canvas关联正确，是case/ops两种来源；旧close未MarkV3为501且旧workers/ops relay停用；Runbook postmortem消费者只收ops调查closed来源。撤回候选人工case复盘期待200的错误前置，不把合法422当产品Bug。完整源审/调用顺序及High产品决策待办见[功能优先计划](docs/plans/2026-10-01-backend-functional-first.md#2026-10-02--cp297-当前功能续验与精确业务链边界)，gap15与机器计划已记录，不用SQL结果或启旧worker绕过。
+- root先真实nonce/HMAC、exactPGCID/image、当前source/binary及分组空闲端口准入：readonly18602/03、projection18610/11独立新UUIDDB/role，PG仅共享引擎、不碰mainAPP。HTTP会话实跑原projection；QA实跑原readonly，后串行discovery；root在18606/07依次原management/core/components。所有原helper/断言/权限/超时保持，未重建main，未修改Go或产品web。初QA compaction偏回旧统计任务，root及时校正为单次实际readonly执行，未重复启动。
+- **六包当前source93f原件**：projection `e814791d-4e90-4c50-b598-2d4831ff8af1` 62P/47HTTP；management `ea702622-a561-4eae-9fd4-25fd72df7127` 130P/113HTTP；core `c63c2fdb-702e-4e93-8295-192f1fe36f02` 71P/61HTTP；components `0e430a1d-7aa4-40c6-b9e9-45d940ea8edb` 60P/43HTTP；readonly `89fb6f5f-25d1-4ec2-b813-0a0b750809c9` 91P/82HTTP；discovery `ecba6f08-a3a5-4fc9-88c2-65f8bfca5075` 32P/26HTTP及1external_todo（真实identity/向量）。**合计446P0F1外部待办，5passed+1blocked**，不修改blocked为绿；projection原组无failure场景，不冒完整链。都真实正式V3非racebinary6d298，始末Go93f、UUIDDB/role/ownedPopen清理通过，3格式私有报告已导出。
+- root逐run读取不可变case证据/原始JSON行、binary/source始末、原normal范围、cleanup精确字段及三报告SHA，汇总 `.local/testlab/cp297-functional-bundle-review.json` 登记 **20ed24a6-fe70-4334-b268-6e22c102d715**。动态主正常 **83/166**、剩余83，本地execution_queue **52**（local_queue53含当前模型Mock已验、真实模型待办）；正常子场景不是完整接口/整包/项目完成率。原完整2602/79skip及旧失败保留。机器计划更新暂停与来源边界，46条overview离线回归通过。
+- HTTP下一原bulk完整组：root私有wrapper仅重绑定当前SOURCE_SHA/BINARY_SHA，原所有15marker/assertions/审批/timeout/cleanup/helper字节保持；新UUIDDB+TLS18660..18664，实际fresh准入已保存current-bulk-functional/995cd6f9目录。独立待审静默只Mock协议/人工审批前置、不冒执行。source/main/资源共享修改禁止，原首失败留后再修复/复验。
+- 连接器旧fullbackend候选硬绑库名/同owner五组件/18578，简单UUID换名会破坏守卫，未执行；已有当前完整回归与ENTRY原件，不再重复大组冒新增正常。该会话改独占新增`api_runbook_import_chain.py`及离线测试，候选本人上传Markdown→import Runbook→submit→独立review→record/history/validation preview，拟18620/21、独立UUIDDB/role；root审后才实跑。同case Canvas→复盘链和import治理链分列，不能相加为复盘→Runbook完成。
+- `.claude/`用户改动保留；无业务env/DB、他集群、真实通知、默认分支merge或部署。后续只继续明确隔离功能包/缺陷最小修→原例/相关回归；性能/soak需后续用户明确恢复。当前整体OPEN。
 
 <a id="cp-296-current"></a>
 ## CP-296 · 2026-10-02 · 用户暂停压测，转当前接口与完整业务链验收

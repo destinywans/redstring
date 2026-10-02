@@ -158,14 +158,15 @@
   {
     "id": 15,
     "name": "真实 Runbook / 检索质量",
-    "remaining": "旧 BGE 混合检索有成功证据；新实验应用完整审核内容、代表问题的命中/版本/范围与误判评测未闭环。",
+    "remaining": "旧 BGE 混合检索有成功证据；新实验应用完整审核内容、代表问题的命中/版本/范围与误判评测未闭环。 CP297实际源码复核：人工事件resolved复盘与ops调查closed复盘为不同来源；Runbook当前只收ops调查closed来源，case复盘不能直连。旧调查close未MarkV3返回501且旧workers/ops relay停用。是否支持人工case来源/无恢复执行的调查结案/迁移执行链为产品决策待办，不能靠SQL或启旧worker关闭；上传import→独立审核为另一个可运行正向链。",
     "required": "当前内容盘点、已审核 Runbook、标注问题集。",
-    "source": "CP-009；docs/releases/2026-09-20-lab-integration.md；WAN-62/68；CP266/WAN-139",
+    "source": "CP-009；docs/releases/2026-09-20-lab-integration.md；WAN-62/68；CP266/WAN-139；CP297；docs/plans/2026-10-01-backend-functional-first.md",
     "status": "queued",
     "evidence_mode": "pending",
     "completed_subscenarios": "正式Runbook创建/版本引用；业务流程接口；CP266：21f49d9f 当前Go6ad非空HTTP Runbook独立审核发布→搜索/提及/人员预览32通过，真实组织/向量1external_todo；只证明关键词和本地业务/审计，不关闭检索质量与外部知识源。",
     "proof_scope": "本地真实组件 / PG / 正式HTTP；涉及外部模型、飞书、认证器的子项仅协议Mock，不关闭真实接入",
-    "acceptance_note": "新增仅为明确子场景，原项保持未收口；当前源码实际证据由整体看板核对。"
+    "acceptance_note": "新增仅为明确子场景，原项保持未收口；当前源码实际证据由整体看板核对。",
+    "priority": "High"
   },
   {
     "id": 16,

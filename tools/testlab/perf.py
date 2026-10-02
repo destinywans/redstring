@@ -1,6 +1,6 @@
 """Real owned-DB k6 load and continuous wall-clock soak. No compressed acceptance."""
 from __future__ import annotations
-import argparse,datetime,hashlib,hmac,http.client,json,os,re,secrets,signal,socket,subprocess,sys,threading,time,uuid
+import argparse,datetime,hashlib,hmac,http.client,json,math,os,re,secrets,signal,socket,subprocess,sys,threading,time,uuid
 from pathlib import Path
 from urllib.parse import urlparse
 from load.seed import fixture,seed,sql,quote,private,stream_seed,stream_emit,stream_finish
@@ -567,13 +567,74 @@ class Streams:
         cleanup_stream_finish(self.data,self.prefix)
 
 
+def qualify_soak_summary(summary,rate,duration):
+    """Soak-only proof from k6's own clock/metrics; never wrapper/create/cleanup times."""
+    evidence={'accepted':False,'source':'k6 1.5.0 execution state + JS metrics + real Cookie Max-Age',
+              'normal_window_only':True,'summary_includes_graceful_stop':True}
+    def number(value,label):
+        if type(value) not in (int,float) or not math.isfinite(value):raise ValueError('missing or invalid '+label)
+        return float(value)
+    def metric(name,kind):
+        value=summary.get('metrics',{}).get(name,{})
+        if value.get('type')!=kind:raise ValueError('missing or invalid '+name)
+        return value.get('values',{})
+    def gauge(name):
+        values=metric(name,'gauge');low=number(values.get('min'),name);high=number(values.get('max'),name)
+        if low>high:raise ValueError('unordered '+name)
+        return low,high
+    def counter(name):
+        count=number(metric(name,'counter').get('count'),name)
+        if count<1 or not count.is_integer():raise ValueError('no actual '+name)
+        return int(count)
+    try:
+        meta=summary.get('soak_evidence',{})
+        if (rate,duration)!=(10,86400) or meta.get('schema')!=1 or meta.get('scenario')!='traffic' or meta.get('executor')!='constant-arrival-rate' or meta.get('duration_seconds')!=86400 or meta.get('rate_rps')!=10 or meta.get('force_relogin') is not False:
+            raise ValueError('formal uncompressed soak metadata required')
+        run_ms=number(summary.get('state',{}).get('testRunDurationMs'),'testRunDurationMs')
+        if run_ms<86400000:raise ValueError('real generator duration below 86400 seconds')
+        scenario_low,scenario_high=gauge('soak_scenario_start_ms')
+        start_low,_=gauge('soak_test_start_lower_ms');_,start_high=gauge('soak_test_start_upper_ms')
+        _,last_finished=gauge('soak_iteration_finished_ms')
+        if scenario_low<=0 or scenario_low!=scenario_high or start_low<=0 or not 0<=start_high-start_low<=1000:
+            raise ValueError('missing or ambiguous generator clock interval')
+        # Date.now is integer milliseconds. Bracket the scheduler start; preserve uncertainty.
+        scenario_upper=scenario_low+1;end_low=start_low+run_ms;end_high=start_high+run_ms
+        if start_low>scenario_upper or last_finished<scenario_low or last_finished>end_high or end_high<scenario_upper+86400000:
+            raise ValueError('generator execution clock ordering invalid')
+        window={'scenario_started_at_lower':scenario_low/1000,'scenario_started_at_upper':scenario_upper/1000,
+                'engine_started_at_lower':start_low/1000,'engine_started_at_upper':start_high/1000,
+                'engine_finished_at_lower':end_low/1000,'engine_finished_at_upper':end_high/1000,
+                'last_iteration_completed_at':last_finished/1000,'clock_interval_width_seconds':(start_high-start_low)/1000,
+                'arrival_duration_seconds_configured':86400,'arrival_deadline_at_lower':scenario_low/1000+86400,
+                'arrival_deadline_at_upper':scenario_upper/1000+86400,'graceful_stop_seconds_configured':15,
+                'engine_duration_seconds_including_graceful_stop':run_ms/1000,
+                'arrival_deadline_evidence':'source-derived executor deadline; not an observed stop timestamp'}
+        evidence['window']=window
+        count=counter('session_relogins');post12=counter('soak_authenticated_after_12h')
+        renewed_low,renewed_high=gauge('soak_renewed_at_ms')
+        elapsed_low,elapsed_high=gauge('soak_renewed_elapsed_ms')
+        ttl_low,ttl_high=gauge('soak_renewal_ttl_seconds');due_low,due_high=gauge('soak_renewal_due_offset_ms')
+        evidence['renewal']={'js_relogins':count,'first_renewed_at':renewed_low/1000,'last_renewed_at':renewed_high/1000,
+                             'first_elapsed_seconds':elapsed_low/1000,'last_elapsed_seconds':elapsed_high/1000,
+                             'ttl_seconds_min':ttl_low,'ttl_seconds_max':ttl_high,'due_offset_ms_min':due_low,
+                             'due_offset_ms_max':due_high,'authenticated_requests_after_12h':post12,'force_relogin':False}
+        if ttl_low!=43200 or ttl_high!=43200 or due_low<0 or elapsed_low<0 or elapsed_high<43200000 or renewed_low<scenario_low or renewed_high>end_high:
+            raise ValueError('natural 12h TTL renewal/time proof missing')
+        if renewed_low-scenario_low!=elapsed_low or renewed_high-scenario_low!=elapsed_high:
+            raise ValueError('renewal epoch/elapsed evidence inconsistent')
+        evidence['accepted']=True
+    except (ValueError,TypeError,AttributeError) as error:
+        evidence['reason']=str(error) if isinstance(error,ValueError) else 'missing or malformed soak evidence'
+    return evidence
+
+
 def k6(data,run,stage,rate,duration,gate=False,streams=None,hooks=None,strict_source=True):
     global _CLEANING
     previous_cleaning=_CLEANING
     started=time.monotonic();name='aiops-'+data['owner']+'-k6-'+run+'-'+stage+'-'+secrets.token_hex(6)
     work=Path(data['perf_work'])/run/stage;work.mkdir(parents=True,mode=0o700,exist_ok=True)
     # Docker reads this generated file from a private mount. Tokens never enter command arguments/env/stdout.
-    private(work/'workload.json',{'base_urls':data['base_urls'],'environment':data['environment'],'users':data['users'],'password':data['perf_password'],'excluded_aggregate_paths':data.get('excluded_aggregate_paths',[]),'aggregate_measurement_supported':data.get('aggregate_measurement_supported',True),'force_relogin':stage=='self_check'})
+    private(work/'workload.json',{'base_urls':data['base_urls'],'environment':data['environment'],'users':data['users'],'password':data['perf_password'],'excluded_aggregate_paths':data.get('excluded_aggregate_paths',[]),'aggregate_measurement_supported':data.get('aggregate_measurement_supported',True),'force_relogin':stage=='self_check','soak_qualification':stage=='soak24h'})
     command=['docker','create','--name',name,'--label','aiops.testlab.owner='+data['owner'],'--user','0:0','--cpus',str(K6_CPUS),'--memory',K6_MEMORY,'-v',str(work)+':/private','-v',str(ROOT/'tools/testlab/load/traffic.js')+':/load.js:ro','-e','RATE='+str(rate),'-e','DURATION='+str(duration)+'s','-e','GATE='+('1' if gate else '0'),'-e','SELF_CHECK='+('1' if stage=='self_check' else '0'),K6_IMAGE,'run','--quiet','/load.js']
     log=open(work/'k6.log','w');os.chmod(work/'k6.log',0o600)
     proc=None;container=None;acquisition_attempted=False;outcome=None;next_metric=started;next_hook=started;next_chat=started;next_login=started+max(1,min(u['session_expires_at'] for u in data['users'])-time.time()-300);resources=[];hook_stats={'dryrun_calls':0,'webhook_calls':0,'chat_turns':0,'relogins':0,'failures':0,'chat_e2e_protocol_mock_ms_total':0,'chat_e2e_protocol_mock_ms_max':0,'model_evidence_mode':'protocol_mock'};resource_path=work/'resources.jsonl'
@@ -687,6 +748,9 @@ def k6(data,run,stage,rate,duration,gate=False,streams=None,hooks=None,strict_so
         state=generator.get('container',{}).get('state',{}) if generator.get('container') else {}
         good=proc.returncode==0 and state.get('ExitCode')==0 and state.get('Running') is False and not state.get('OOMKilled') and elapsed>=duration and generator_seconds>=duration and (iterations+dropped>=rate*duration-1 if not gate else iterations>=rate*duration-1) and not hook_stats['failures'] and (streams is None or sse_accepted(actual['sse'])) and (stage!='self_check' or actual['renewal_plumbing']['k6_real_relogins']>0)
         if observe_readiness:good=good and not actual['health_degraded']
+        if stage=='soak24h':
+            actual['soak_qualification']=qualify_soak_summary(summary,rate,duration)
+            good=good and actual['soak_qualification']['accepted']
         outcome=(good,actual)
     except KeyboardInterrupt:
         _CLEANING=True;arm_cancel()
@@ -881,11 +945,17 @@ def _main():
             return 0 if good and sse_good and recovered and consistent else 1
         if a.duration!=86400:raise RuntimeError('formal soak duration must be exactly 86400 seconds; use self-check for plumbing')
         start_trial(data,hooks,run)
-        load_start=time.time()
+        python_call_start=time.time()
         good,actual=k6(data,run,'soak24h',10,86400,True,streams,hooks)
-        load_end=time.time()
+        python_call_end=time.time()
+        qualification=actual.get('soak_qualification',{'accepted':False});window=qualification.get('window',{})
+        # Conservative k6 bounds preserve <=60s admission without adding a clock tolerance.
+        load_start=window.get('scenario_started_at_upper',0);load_end=window.get('engine_finished_at_lower',0)
         trial_good,actual['trial_final']=finish_trial(data,hooks,load_start,load_end)
-        good=good and trial_good and actual['generator_seconds']>=86400 and actual['hooks']['dryrun_calls']>0 and actual['hooks']['webhook_calls']>0 and actual['hooks']['chat_turns']>0 and actual['hooks']['relogins']>0
+        actual['trial_final'].update(timing_source='k6 scenario start upper / execution end lower',
+                                    timing_is_conservative_bounds=True,python_call_started_at=python_call_start,
+                                    python_call_finished_at=python_call_end,execution_window=window)
+        good=good and qualification['accepted'] and trial_good and actual['generator_seconds']>=86400 and actual['hooks']['dryrun_calls']>0 and actual['hooks']['webhook_calls']>0 and actual['hooks']['chat_turns']>0 and actual['hooks']['relogins']>0
         stats=streams.snapshot();good=good and stats['peak_normal']==2 and stats['peak_slow']==1 and stats['reconnects']>0 and sse_accepted(stats) and consistency(data)
         streams.close();streams=None
         recovered,actual['resource_recovery']=resource_recovery(data,resource_baseline,started);good=good and recovered

@@ -118,10 +118,6 @@ def doctor(root):
     if component.get('owner') != OWNER or Path(component.get('work', '')).resolve() != work.resolve():
         raise Blocked('component owner/work mismatch')
     vault = guard_vault(readonly.inspect_pg('aiops-' + OWNER + '-vault'))
-    for name in ('tls-cert.pem', 'tls-key.pem'):
-        p = work / name
-        if p.is_symlink() or not p.is_file() or p.stat().st_mode & 0o777 != 0o600:
-            raise Blocked('owned private TLS material required')
     if not component.get('credentials', {}).get('vault_token'):
         raise Blocked('owned Vault provisioning credential missing')
     return dict(data, vault_identity=vault, component_work=str(work),
@@ -342,7 +338,7 @@ class Chain(readonly.Chain):
             return {}
         return dict(AIOPS_VAULT_URL='http://127.0.0.1:18572', AIOPS_VAULT_TOKEN=self.vault_tokens[0],
                     AIOPS_V3_CONNECTOR_CREDENTIAL_BINDINGS=json.dumps(self.binding),
-                    SSL_CERT_FILE=str(Path(self.data['component_work']) / 'tls-cert.pem'))
+                    SSL_CERT_FILE=str(self.work / 'tls-cert.pem'))
 
     def start(self):
         self.generation += 1
@@ -403,8 +399,13 @@ class Chain(readonly.Chain):
         self.vault('GET', '/v1/secret/data/' + self.vault_path + '-sibling', token=token, want=403)
         self.vault('POST', '/v1/secret/data/' + self.vault_path, {'data': {'token': 'forbidden'}}, token=token, want=403)
         self.marker_case('mapping.vault_scope', {'exact_path_read': True, 'sibling_read_denied': True, 'write_denied': True})
-        cert = Path(self.data['component_work']) / 'tls-cert.pem'
-        key = Path(self.data['component_work']) / 'tls-key.pem'
+        cert, key = self.work / 'tls-cert.pem', self.work / 'tls-key.pem'
+        # Each invocation owns its trust identity independently of shared TLS expiry.
+        result = subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-sha256', '-nodes',
+                                 '-days', '2', '-subj', '/CN=localhost', '-addext',
+                                 'subjectAltName=DNS:localhost,IP:127.0.0.1', '-keyout', str(key), '-out', str(cert)],
+                                capture_output=True, timeout=20, umask=0o077)
+        check(result.returncode == 0, 'invocation TLS certificate generation failed')
         self.server = GitLabServer(self.protocol, str(cert), str(key))
 
     def state_snapshot(self):

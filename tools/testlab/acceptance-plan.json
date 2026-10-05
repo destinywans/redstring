@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-02T00:35:34.110074+00:00",
+  "updated_at": "2026-10-05",
   "source_tree_sha": "59df22ad1d9c120f0fb24dfd3c4a3c8e0d3933a8b9cdfd6df5766721ce57537d",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -4971,8 +4971,8 @@
   "next_actions": [
     {
       "package_id": "local-components",
-      "priority": "P1",
-      "action": "先复验当前93f已有UUID功能组，再补完整业务链及剩余本地功能；性能/soak用户暂停。原组通过仅代表登记子场景，不关闭未计划故障或可信全集。",
+      "priority": "P0",
+      "action": "P0先补当前源剩余可执行接口场景：正常/认证鉴权/越权/边界及适用幂等/故障，修复发现缺陷并原例/相关回归。接口阶段完成后才完整业务链；performance/24h后续另行安排。",
       "preconditions": [
         "审批/静默迁移到fresh UUID库；只读完整AM加载/出站证明，保留双人边界、丢响应与崩溃台账",
         "列出稳定suite/name必需场景与对应主接口，不以正常样本齐全判包完成",
@@ -4982,10 +4982,10 @@
     },
     {
       "package_id": "local-source-protocols",
-      "priority": "P1",
-      "action": "目录/MFA提醒协议子包已验；继续本地TLS SMTP邀请功能链及明确边界，真实租户权威与MCP首次生产链仍待确认。",
+      "priority": "P0",
+      "action": "继续当前源knowledge/source协议、ingress与规则generate/preview/alert-policy等剩余接口组及未验边界。directory/invitation已本次原组复验，不重复冒新增；缺完整链前置、真实租户与权威producer另列，先接口后完整链。",
       "preconditions": [
-        "CP270实时首次本地正常队列30项，8已Mock正常仍需真实来源；计数从看板读取，不重复冒新增真实覆盖。",
+        "CP298末execution_queue27、local_queue40含13协议已验仍待真实；后续计数从看板读，不以历史42/93或完整组公共setup数量判接口完成。",
         "每个目标核对正式注册/发现、非空DTO和来源关联，429/超时/丢响应/权限漂移逐项",
         "真实飞书/Notion/Confluence、完整身份及安全authority外部待办保持",
         "目录仅自有子API进程代理/私有CA：固定两host、无外部透传；外部成功本地失败仅fresh UUID库精确故障DDL，不触及canonical或archives"
@@ -5145,7 +5145,7 @@
     ],
     "proof_scope": "120真实正常+24Mock正常范围有重叠，不作完整验收或项目完成率。零首次本地队列只表示正常子场景已有或已如实分类，Trace全集等高待确认/缺能力/外部/暂停仍存在。"
   },
-  "execution_order": "当前源原readonly/management/core/native-projection等UUID功能组→同对象上传import Runbook治理链与合法人工事件/调查Canvas/复盘链→当前剩余真实组件及协议Mock→必要权限/幂等/故障与相关回归→重型配置GitOps串行。用户已暂停performance/soak，禁止自动恢复、筹备仪表化或准入24h。",
+  "execution_order": "当前版本接口正常/认证鉴权/越权/边界/适用幂等与故障逐组补测→缺陷最小修复及原例/相关回归→接口阶段可执行项与明确阻塞审计→完整跨模块业务链。性能/真实24h后续另行安排，当前禁止启动或准备；自动化已删除不重建。",
   "decision_history": [
     {
       "date": "2026-10-01",
@@ -5288,6 +5288,15 @@
       "decision": "用户暂停 performance/soak；先当前源正式接口和同对象完整业务链。复用原 UUID 小包与不交叉的端口并行；合法缺口明确待决策，不造生产者/结果。",
       "reason": "现存调查结案V3 gate501；人工事件复盘不满足Runbook当前ops调查来源契约；原候选错误200已撤回，独立上传导入治理链可执行。",
       "constraints": "Go93f/main6d298保持；原assertions/首次失败/权限/cleanup；产品前端及原生CI/Workflows/VM暂停；实际外部租户仍待办。"
+    },
+    {
+      "date": "2026-10-05",
+      "checkpoint": "CP298",
+      "decider": "user",
+      "decision": "先完成当前版本后端接口测试，再完整业务链；性能及24h后续另行安排。",
+      "supersedes": "CP297接口与完整链并行推进顺序；此前暂停于本次授权接口阶段内解除。",
+      "scope": "接口包现有对象HTTP生产只是用例前置，不能冒完整业务链。外部/缺实现/暂停/需产品决定独立，不计通过。",
+      "automation": "aiops-24已删除，不重建。"
     }
   ],
   "review_record_history": [
@@ -5534,6 +5543,64 @@
         "internal/httpapi/v3_routes.go",
         "cmd/aiops/main.go"
       ]
+    }
+  ],
+  "interface_phase": {
+    "status": "in_progress",
+    "acceptance": "逐实际公开接口核对当前源正常/认证鉴权/越权/边界及适用幂等/故障/一致性与清理；正常样本覆盖不是完整接口验收。",
+    "scope": "本地实际组件优先、明确协议Mock可验证协议逻辑；真实外部待办/缺实现/暂停/需要产品决定独立，不视为通过。",
+    "next_phase": "完整跨模块业务链，接口阶段完成后再实际运行。",
+    "deferred": [
+      "performance",
+      "soak",
+      "runbook-import完整链候选"
+    ],
+    "latest_result_snapshot": {
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "main_normal_success": 96,
+      "main_total": 166,
+      "execution_queue": 27,
+      "local_queue": 40,
+      "protocol_mock_normal": 20,
+      "current_groups_passed_cases": 527,
+      "current_groups_blocked_cases": 5,
+      "scope": "9 current interface groups last respective result only; commonsetup included, not complete interface acceptance. Trace entiresearch and3service complete-source prerequisites plus parentwrapper blocked. Firstred retained."
+    }
+  },
+  "interface_subpackages": [
+    {
+      "id": "private-content-interfaces",
+      "suite_id": "content-interfaces-functional",
+      "targets": [
+        [
+          "GET",
+          "/canvas-templates"
+        ],
+        [
+          "POST",
+          "/canvas-templates"
+        ],
+        [
+          "POST",
+          "/incidents/{id}/timeline"
+        ]
+      ],
+      "required_cases": [
+        "content_interfaces.http_inputs",
+        "content_interfaces.private_templates",
+        "content_interfaces.template_authorization",
+        "content_interfaces.template_boundaries",
+        "content_interfaces.template_duplicate",
+        "content_interfaces.template_rollback",
+        "content_interfaces.timeline",
+        "content_interfaces.timeline_authorization",
+        "content_interfaces.timeline_boundaries",
+        "content_interfaces.timeline_rollback",
+        "content_interfaces.revocation",
+        "content_interfaces.audit_consistency"
+      ],
+      "latest_run_id": "b6fa5338-d926-492f-a4dc-7d97cfe1955e",
+      "scope": "Only privategenericroot template and one manualtimeline interface subgroup, not complete content/wholechain acceptance. Official/teamproducer and other retainedcontent/ACL/inflight/expiry/crash/liststorage/capacity unverified."
     }
   ]
 }

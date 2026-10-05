@@ -1,9 +1,12 @@
 import contextlib
 import copy
+from datetime import datetime, timezone
 import io
 import json
 from pathlib import Path
 import sys
+import ssl
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -168,6 +171,94 @@ class MappingCoverageTests(unittest.TestCase):
             self.chain.cleanup()
         self.chain.server.close.assert_called_once()
         self.assertEqual(vault.call_count, 3)
+
+    def offline_vault(self, chain, method, path, *args, **kwargs):
+        if path == '/v1/auth/token/create':
+            return {'auth': {'client_token': 'ephemeral-token'}}
+        if method == 'GET' and not path.endswith('-sibling'):
+            return {'data': {'data': {'token': chain.secret}}}
+        return {}
+
+    def prepare_offline(self, chain):
+        def server(protocol, cert, key):
+            # Keep real certificate/key loading without opening a listener.
+            ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER).load_cert_chain(cert, key)
+            self.assertEqual(Path(cert), chain.work / 'tls-cert.pem')
+            self.assertEqual(Path(key), chain.work / 'tls-key.pem')
+            return Mock()
+        with patch.object(chain, 'vault', side_effect=lambda *a, **kw: self.offline_vault(chain, *a, **kw)), \
+                patch.object(chain, 'marker_case'), patch.object(mapping, 'GitLabServer', side_effect=server), \
+                patch.object(mapping.readonly, 'private_json', side_effect=AssertionError('shared config access')):
+            chain.prepare_vault()
+
+    def test_expired_shared_tls_is_not_reused(self):
+        shared = self.chain.root / 'shared-component'
+        shared.mkdir()
+        cert, key = shared / 'tls-cert.pem', shared / 'tls-key.pem'
+        subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-sha256', '-nodes', '-days', '1',
+                        '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost',
+                        '-out', str(cert), '-keyout', str(key)], check=True, capture_output=True, timeout=20)
+        subprocess.run(['openssl', 'x509', '-in', str(cert), '-signkey', str(key), '-days', '0',
+                        '-out', str(cert)], check=True, capture_output=True, timeout=20)
+        self.assertLess(ssl.cert_time_to_seconds(ssl._ssl._test_decode_cert(str(cert))['notAfter']),
+                        datetime.now(timezone.utc).timestamp())
+        original = cert.read_bytes(), key.read_bytes()
+        self.chain.data['component_work'] = str(shared)
+        self.prepare_offline(self.chain)
+        own = self.chain.work / 'tls-cert.pem'
+        decoded = ssl._ssl._test_decode_cert(str(own))
+        self.assertGreater(ssl.cert_time_to_seconds(decoded['notAfter']), datetime.now(timezone.utc).timestamp() + 86400)
+        self.assertIn(('DNS', 'localhost'), decoded['subjectAltName'])
+        subprocess.run(['openssl', 'verify', '-CAfile', str(own), '-verify_hostname', 'localhost', str(own)],
+                       check=True, capture_output=True, timeout=20)
+        self.assertNotEqual(own.read_bytes(), original[0])
+        self.assertEqual((cert.read_bytes(), key.read_bytes()), original)
+
+    def test_uuid_tls_identity_permissions_and_exact_trust_without_shared_config(self):
+        other = mapping.Chain(self.chain.root, dict(self.chain.data), str(uuid.uuid4()))
+        identities = []
+        for chain in (self.chain, other):
+            self.prepare_offline(chain)
+            cert, key = chain.work / 'tls-cert.pem', chain.work / 'tls-key.pem'
+            identities.append((cert.read_bytes(), key.read_bytes()))
+            for path in (cert, key):
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+                self.assertFalse(path.is_symlink())
+            chain.binding = [{'owned': True}]
+            self.assertEqual(chain.startup_environment()['SSL_CERT_FILE'], str(cert))
+        self.assertNotEqual(identities[0][0], identities[1][0])
+        self.assertNotEqual(identities[0][1], identities[1][1])
+
+    def test_doctor_keeps_vault_admission_without_shared_tls_files(self):
+        work = self.chain.root / '.local/testlab/environments' / mapping.OWNER
+        component = dict(owner=mapping.OWNER, work=str(work), credentials={'vault_token': 'root-secret'})
+        with patch.object(mapping, 'ports_free'), \
+                patch.object(mapping.readonly, 'doctor', return_value=self.chain.data), \
+                patch.object(mapping.readonly, 'inspect_pg', return_value={'Id': mapping.PG_CID}), \
+                patch.object(mapping.readonly, 'private_json', return_value=component), \
+                patch.object(mapping, 'guard_vault', return_value={'owned': True}):
+            admitted = mapping.doctor(self.chain.root)
+        self.assertEqual(admitted['vault_root_token'], 'root-secret')
+        self.assertEqual(admitted['source_tree_sha'], mapping.SOURCE_SHA)
+        self.assertEqual(admitted['binary_sha256'], mapping.BINARY_SHA)
+        self.assertFalse(work.exists())
+
+    def test_tls_generation_failure_still_cleans_provisioned_vault(self):
+        chain = self.chain
+        with patch.object(chain, 'vault', side_effect=lambda *a, **kw: self.offline_vault(chain, *a, **kw)) as vault, \
+                patch.object(chain, 'marker_case'), patch.object(mapping, 'GitLabServer') as server, \
+                patch.object(mapping.subprocess, 'run', return_value=Mock(returncode=1)), \
+                patch.object(mapping.readonly.Chain, 'cleanup') as cleanup, \
+                patch.object(mapping.socket, 'socket') as sock, contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(AssertionError, 'TLS certificate generation failed'):
+                chain.prepare_vault()
+            sock.return_value.__enter__.return_value.connect_ex.return_value = 1
+            chain.cleanup()
+        server.assert_not_called()
+        cleanup.assert_called_once()
+        vault.assert_any_call('POST', '/v1/auth/token/revoke', {'token': 'ephemeral-token'}, want=204)
+        vault.assert_any_call('DELETE', '/v1/secret/metadata/' + chain.vault_path, want=204)
+        vault.assert_any_call('DELETE', '/v1/sys/policies/acl/mapping-' + chain.run_id, want=204)
 
 
 if __name__ == '__main__':

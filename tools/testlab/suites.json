@@ -1385,6 +1385,30 @@
           }
         }
       ]
+    },
+    {
+      "id": "content-interfaces-functional",
+      "name": "私人Canvas模板与人工事件时间线独立接口",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "gap_ids": [
+        46,
+        50
+      ],
+      "verification_scope": "3个接口/12原marker：业务前置全由正式HTTP创建、UUID隔离DB/API/role；私有模板跨owner/实例/环境/重复/审计回滚/撤权，manual timeline追加/读回/授权/边界/审计回滚。官方团队producer、多节点retention、团队组合、inflight/expiry/crash/liststorage或capacity仍未验；非完整跨模块链。",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "-B",
+            "tools/testlab/api_content_interfaces_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 300,
+          "cleanup_grace_seconds": 45
+        }
+      ]
     }
   ]
 }

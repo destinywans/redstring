@@ -84,11 +84,11 @@ class Source(rules.Source):
                 self.send_response(status);self.send_header('Content-Length',str(len(data)));self.send_header('Connection','close');self.end_headers();self.wfile.write(data)
         # Replace only our acquired relay, preserving exporter and own Prom.
         self.relay.close();self.relay=rules.LocalServer(RELAY_PORT,Handler)
-        components=ro.private_json(ROOT/'.local/testlab/component-environment.json');component_work=Path(components['work'])
-        check(components.get('owner')==ro.OWNER and component_work.resolve()==ROOT/'.local/testlab/environments'/ro.OWNER,'TLS material is not exact owned testlab component work')
         cert,key=chain.work/'tls-cert.pem',chain.work/'tls-key.pem'
-        for original,target in ((component_work/'tls-cert.pem',cert),(component_work/'tls-key.pem',key)):
-            check(original.is_file() and not original.is_symlink(),'owned component TLS material unavailable');ro.private_file(target,original.read_text())
+        # Fresh invocation-owned trust avoids inheriting expired shared component material.
+        result=subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-sha256','-nodes','-days','2','-subj','/CN=localhost',
+            '-addext','subjectAltName=DNS:localhost,IP:127.0.0.1','-keyout',str(key),'-out',str(cert)],capture_output=True,timeout=20,umask=0o077)
+        check(result.returncode==0,'invocation TLS certificate generation failed')
         chain.trial_token=ro.secrets.token_urlsafe(32);ro.private_file(chain.work/'trial-token',chain.trial_token)
         self.trial=rules.LocalServer(TRIAL_PORT,Handler);tls=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);tls.load_cert_chain(cert,key);self.trial.server.socket=tls.wrap_socket(self.trial.server.socket,server_side=True)
         config={'endpoints':[dict(environment_id='test',application_id=chain.app,url='https://localhost:'+str(TRIAL_PORT),bearer_token_file=str(chain.work/'trial-token'),isolation_attested=True,isolation_reviewed_by='UUID-owned single-scrape Prometheus and exact source HTTP guards',isolation_reviewed_at=datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00','Z'))]}

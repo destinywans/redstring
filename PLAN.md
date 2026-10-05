@@ -1,4 +1,4 @@
-**CP300最新实际：126/166正常子场景，剩40；23组相应结果1173P2B1external，整体OPEN。** 服务发现真实30P/14HTTP及故障恢复28P/10HTTP已验，下一准备真实空Prom规则preview接口；完整链、性能/24h、原生交付与产品web继续暂缓。正常数不是完整验收，外部/producer/历史合同独立。
+**CP300最新实际：126/166正常子场景，剩39；23组相应结果1173P2B1external，整体OPEN。** 服务发现真实30P/14HTTP及故障恢复28P/10HTTP已验，下一准备真实空Prom规则preview接口；完整链、性能/24h、原生交付与产品web继续暂缓。正常数不是完整验收，外部/producer/历史合同独立。
 
 **当前入口：[CP300](CHECKPOINT.md#cp-300-current)，2026-10-05，持续当前接口验收。** 已新增MCP/服务空目录实际37P23HTTP：真实normal124/166，剩42，其中23已有协议来源normal；仅空集合证明，非空能力/完整场景不能计通过。原18组1012P与新空目录37P及mapping27P共1076P（含前置/汇总），原2B1external保留；当前无active，真实GitLab mapping已27P10HTTP，小模型接口仅准备。先接口，再完整业务链；performance/24h及原生CI-CD/Workflows/VM/产品web保持暂停，不重建自动化。
 

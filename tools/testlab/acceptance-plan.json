@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-05T14:27:10.442988+00:00",
+  "updated_at": "2026-10-05T15:21:18.439255+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -1565,16 +1565,24 @@
       "availability": "local_environment",
       "priority": "P1",
       "package_id": "local-components",
-      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "reason": "Generate不调用QueryRange；真实小模型原15秒header期限内未完成正式draft，首502保留；确切network error待确认。",
       "prerequisites": [
         "参见工作包 local-components 的隔离与证据前置"
       ],
       "source_refs": [
-        "tools/testlab/components.py",
-        "tools/testlab/silence_chain.py",
-        "cmd/aiops/v3.go"
+        "internal/v3ruleassistant/generate.go:189",
+        "internal/v3ruleassistant/generate_adapter.go:174",
+        "tools/testlab/api_rule_generate_real_model_coverage.py"
       ],
-      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+      "proof_scope": "原protocol normal保留；真实来源正常未通过，不用metrics真实小模型通过替代；model质量未知。",
+      "superseded_context": [
+        {
+          "at": "2026-10-05T15:21:18.439255+00:00",
+          "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+          "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+        }
+      ],
+      "first_failure_run_id": "7e2b5621-adaa-4296-abc6-3c2888aac245"
     },
     {
       "method": "POST",
@@ -1583,16 +1591,23 @@
       "availability": "local_environment",
       "priority": "P1",
       "package_id": "local-components",
-      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "reason": "当前源正式Linux API真实Prom合法empty已25P：valid/no_observed_series不要求七天非空前置；非空历史完整性仍待。",
       "prerequisites": [
         "参见工作包 local-components 的隔离与证据前置"
       ],
       "source_refs": [
-        "tools/testlab/components.py",
-        "tools/testlab/silence_chain.py",
-        "cmd/aiops/v3.go"
+        "internal/v3ruleassistant/preview.go:205",
+        "tools/testlab/api_rule_preview_real_empty_coverage.py"
       ],
-      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+      "proof_scope": "真实空matrix正常+401/403+preview审计/budget/精确清理；请求窗口7d不冒非空7d或质量。",
+      "superseded_context": [
+        {
+          "at": "2026-10-05T15:21:18.439255+00:00",
+          "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+          "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+        }
+      ],
+      "proof_evidence_id": "aa07b659-eb8d-40f1-a1be-6450286a7561"
     },
     {
       "method": "POST",
@@ -3722,6 +3737,93 @@
             }
           ],
           "proof_scope": "仅上传审计失败503时metadata/content/audit/TMPDIR零残留，恢复201各一次与第二API精确bytes读回；不是上传全部场景/整链。"
+        },
+        {
+          "id": "private-content-interfaces",
+          "title": "私人Canvas模板与人工时间线独立接口",
+          "command": "python3 tools/testlab/testlab.py run --suite content-interfaces-functional",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "GET /api/v1/canvas-templates",
+            "POST /api/v1/canvas-templates",
+            "POST /api/v1/incidents/{id}/timeline"
+          ],
+          "required_cases": [
+            {
+              "suite": "content-interfaces-functional",
+              "name": "content_interfaces.http_inputs"
+            },
+            {
+              "suite": "content-interfaces-functional",
+              "name": "content_interfaces.private_templates"
+            },
+            {
+              "suite": "content-interfaces-functional",
+              "name": "content_interfaces.template_authorization"
+            },
+            {
+              "suite": "content-interfaces-functional",
+              "name": "content_interfaces.template_boundaries"
+            },
+            {
+              "suite": "content-interfaces-functional",
+              "name": "content_interfaces.template_duplicate"
+            },
+            {
+              "suite": "content-interfaces-functional",
+              "name": "content_interfaces.template_rollback"
+            },
+            {
+              "suite": "content-interfaces-functional",
+              "name": "content_interfaces.timeline"
+            },
+            {
+              "suite": "content-interfaces-functional",
+              "name": "content_interfaces.timeline_authorization"
+            },
+            {
+              "suite": "content-interfaces-functional",
+              "name": "content_interfaces.timeline_boundaries"
+            },
+            {
+              "suite": "content-interfaces-functional",
+              "name": "content_interfaces.timeline_rollback"
+            },
+            {
+              "suite": "content-interfaces-functional",
+              "name": "content_interfaces.revocation"
+            },
+            {
+              "suite": "content-interfaces-functional",
+              "name": "content_interfaces.audit_consistency"
+            },
+            {
+              "suite": "content-interfaces-functional",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "content-interfaces-functional",
+              "name": "content_interfaces.cleanup"
+            },
+            {
+              "suite": "content-interfaces-functional",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "仅3个独立接口：HTTP合法私人源、私人模板正常/授权/边界/重复/审计回滚，人工时间线正常/授权/边界/回滚，撤权、整账审计一致性与UUID DB/role双API精确清理。正式官方/团队模板producer仍缺；其他Canvas/调查/存储容量/并发场景未计入；不运行content.chain或完整业务链。",
+          "current_original_evidence": {
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "run_id": "b6fa5338-d926-492f-a4dc-7d97cfe1955e",
+            "proof_evidence_ids": [
+              "e3927031-c3c0-42cc-a264-bbc8e3997820",
+              "c1339964-7d10-43ae-a16a-075fcc957148",
+              "d02e5d23-f714-4be3-aa51-ea70488f0872"
+            ],
+            "registration_review_ref": ".local/testlab/cp300-interface-scenario-gate-audit/45bd909a-6bbb-4d6e-9baa-20f0ed326a69/report.json",
+            "scope": "仅列出的接口子场景；不计为父包或全部接口验收。",
+            "review_record_id": "a689f9d2-96cf-4ed5-aaca-9e05afda88fa"
+          }
         }
       ]
     },
@@ -4947,8 +5049,8 @@
         },
         {
           "id": "config-drafts-functional-history-protocol",
-          "title": "五草稿原完整组：七天合成历史预览",
-          "command": "python3 tools/testlab/testlab.py run --suite config-drafts-functional",
+          "title": "抑制草稿预览：合成七天历史协议场景",
+          "command": null,
           "evidence_mode": "protocol_mock",
           "route_keys": [
             "POST /api/v1/inhibitions/preview"
@@ -5035,7 +5137,21 @@
               "name": "promotion.cleanup"
             }
           ],
-          "proof_scope": "四真实本地待审草稿HTTP+1合成七天历史预览protocol Mock；真实owned GitLab opened MR/实际TLS/PG及审计，未merge/激活/通知。自然60秒租约、远端成功本地提交失败、CAS/响应丢失/权限/清理闭环；真实七日历史与生产治理未验。"
+          "proof_scope": "仅POST inhibitions/preview的合成七天历史协议输入与正式双API/PG consumer；复用93f原5bf935bb完整原组及清理marker。不得提升为真实七天历史、真实preview normal或父包验收；同run其他四个真实本地写接口在configuration-gitops分别登记。",
+          "current_original_evidence": {
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "run_id": "5bf935bb-0035-4ae7-b546-b9c016ec18d6",
+            "proof_evidence_ids": [
+              "cc81200b-9305-4199-82ae-6fbcafbf224a",
+              "ccd124ff-de58-4404-bcde-20038f8a2118"
+            ],
+            "registration_review_ref": ".local/testlab/cp300-interface-scenario-gate-audit/45bd909a-6bbb-4d6e-9baa-20f0ed326a69/report.json",
+            "scope": "仅列出的接口子场景；不计为父包或全部接口验收。",
+            "review_record_id": "ea080fb4-97a2-42d7-892a-be46c5fef1d8",
+            "recorded_entry": "python3 -B .local/testlab/cp299-config-drafts-preparation/91493447-6bc7-4466-acb6-123ab43da5ad/run_current.py"
+          },
+          "rerun_preconditions": "仅记录原93f准入入口；该私有wrapper和manifest绑定原件，不可直接重放。需重新捕获当前helper/runner/runtime SHA、fresh UUID和资源准入；不得运行旧6ad canonical CLI。"
         },
         {
           "id": "service-discovery-real-source",
@@ -5164,6 +5280,148 @@
             }
           ],
           "proof_scope": "28P/10HTTP.failure，精确本UUID Binding旧UID撤销，首次自然Namespace LIST403锚点、第二last_attempt推进而完整source/resources/relations/links及success不变；fresh5min内双API200完整旧DTO/当前授权；新BindingUID自然15LIST清error/推进success，业务audit不变和精确cleanup。newnormal0，不验超过5min/WATCH断线/UID churn/生产集群/完整业务链。"
+        },
+        {
+          "id": "rule-preview-real-empty",
+          "title": "真实空Prom预览接口子场景",
+          "command": null,
+          "recorded_entry": "本次run唯一private manifest，旧UUID不直接重放",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "POST /api/v1/alert-rules/preview"
+          ],
+          "required_cases": [
+            {
+              "suite": "rule-preview-real-empty",
+              "name": "preview_empty.linux"
+            },
+            {
+              "suite": "rule-preview-real-empty",
+              "name": "preview_empty.source"
+            },
+            {
+              "suite": "rule-preview-real-empty",
+              "name": "preview_empty.tls"
+            },
+            {
+              "suite": "rule-preview-real-empty",
+              "name": "preview_empty.normal"
+            },
+            {
+              "suite": "rule-preview-real-empty",
+              "name": "preview_empty.authorization"
+            },
+            {
+              "suite": "rule-preview-real-empty",
+              "name": "preview_empty.consistency"
+            },
+            {
+              "suite": "rule-preview-real-empty",
+              "name": "preview_empty.cleanup"
+            },
+            {
+              "suite": "rule-preview-real-empty",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "rule-preview-real-empty",
+              "name": "readonly.complete"
+            },
+            {
+              "suite": "rule-preview-real-empty",
+              "name": "container.cleanup"
+            }
+          ],
+          "allowed_case_statuses": [
+            "passed"
+          ],
+          "proof_scope": "25P/11HTTP，真实固定Prom空matrix/七天请求窗口→formal Linuxc800/TLS，合法empty DTO、401/403、2preview审计/budget1/零model或execution、全部UUID cleanup；非七天非空历史或质量/整链。",
+          "current_original_evidence": {
+            "run_id": "e8dbfa94-b363-4e30-8cde-53130df96354",
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "proof_evidence_ids": [
+              "aa07b659-eb8d-40f1-a1be-6450286a7561"
+            ]
+          },
+          "rerun_preconditions": "Fresh新UUID、当前helper/source/actualLinux build/HMAC/资源准入；不能直接重放本次manifest或自动retry。"
+        },
+        {
+          "id": "rule-generate-real-model",
+          "title": "真实小模型规则生成首失败（未通过）",
+          "command": null,
+          "recorded_entry": "本次run唯一private manifest，旧UUID不直接重放",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "POST /api/v1/alert-rules/generate"
+          ],
+          "required_cases": [
+            {
+              "suite": "rule-generate-real-model",
+              "name": "generate_real.linux"
+            },
+            {
+              "suite": "rule-generate-real-model",
+              "name": "generate_real.model"
+            },
+            {
+              "suite": "rule-generate-real-model",
+              "name": "generate_real.network"
+            },
+            {
+              "suite": "rule-generate-real-model",
+              "name": "generate_real.tls"
+            },
+            {
+              "suite": "rule-generate-real-model",
+              "name": "generate_real.identity"
+            },
+            {
+              "suite": "rule-generate-real-model",
+              "name": "generate_real.normal"
+            },
+            {
+              "suite": "rule-generate-real-model",
+              "name": "generate_real.replay"
+            },
+            {
+              "suite": "rule-generate-real-model",
+              "name": "generate_real.authorization"
+            },
+            {
+              "suite": "rule-generate-real-model",
+              "name": "generate_real.consistency"
+            },
+            {
+              "suite": "rule-generate-real-model",
+              "name": "generate_real.cleanup"
+            },
+            {
+              "suite": "rule-generate-real-model",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "rule-generate-real-model",
+              "name": "readonly.complete"
+            },
+            {
+              "suite": "rule-generate-real-model",
+              "name": "container.cleanup"
+            }
+          ],
+          "allowed_case_statuses": [
+            "passed"
+          ],
+          "proof_scope": "首native14P4F/CLI2，真实model收到原20s/15sheader/256token请求，未返回成功draft，normal增0；清理P/原502及日志保留；15秒header时序高可信待确认，非质量或非法JSON结论，不改参数或自动retry。",
+          "current_original_evidence": {
+            "run_id": "7e2b5621-adaa-4296-abc6-3c2888aac245",
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "proof_evidence_ids": [
+              "626880e1-60da-41ff-95ca-ccd2c38f697c"
+            ]
+          },
+          "rerun_preconditions": "Fresh新UUID、当前helper/source/actualLinux build/HMAC/资源准入；不能直接重放本次manifest或自动retry。"
         }
       ]
     },
@@ -5300,31 +5558,90 @@
         },
         {
           "id": "upload-probe",
-          "title": "上传来源连接测试及完整调用链审计",
-          "command": "python3 tools/testlab/testlab.py run --suite content",
+          "title": "本地上传来源Probe独立接口审计",
+          "command": "python3 tools/testlab/testlab.py run --suite knowledge-sources-interfaces-functional",
           "evidence_mode": "real_local",
           "route_keys": [
             "POST /api/v1/knowledge-sources/test"
           ],
-          "proof_scope": "实际上传来源Probe；精确应用、owner与环境、早拒绝无audit、真正Probe有attempted/result两审计且业务表不变。外部租户、索引/自动刷新与慢读撤权未验；原content链一起复验。",
+          "proof_scope": "实际owner Markdown上传来源Probe，精确应用/owner/环境授权与边界、早拒绝无audit、真实本地只读Probe attempted/result审计、故障/撤权与整账一致性。知识源登记仍unverified；Probe不持久化，不证明sync/index、外部租户/凭据、团队ACL、慢读撤权或第二笔审计故障；不要求content.chain。",
           "required_cases": [
             {
-              "suite": "content",
-              "name": "content.upload_source"
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "knowledge_interfaces.http_inputs"
             },
             {
-              "suite": "content",
-              "name": "content.upload_connection_probe"
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "knowledge_interfaces.authorization"
             },
             {
-              "suite": "content",
-              "name": "content.cleanup"
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "knowledge_interfaces.boundaries"
             },
             {
-              "suite": "content",
-              "name": "content.chain"
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "knowledge_interfaces.probe"
+            },
+            {
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "knowledge_interfaces.probe_failure"
+            },
+            {
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "knowledge_interfaces.revocation"
+            },
+            {
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "knowledge_interfaces.audit_consistency"
+            },
+            {
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "knowledge_interfaces.cleanup"
+            },
+            {
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "readonly.complete"
             }
-          ]
+          ],
+          "superseded_gate": {
+            "required_cases": [
+              {
+                "suite": "content",
+                "name": "content.upload_source"
+              },
+              {
+                "suite": "content",
+                "name": "content.upload_connection_probe"
+              },
+              {
+                "suite": "content",
+                "name": "content.cleanup"
+              },
+              {
+                "suite": "content",
+                "name": "content.chain"
+              }
+            ],
+            "command": "python3 tools/testlab/testlab.py run --suite content",
+            "reason": "旧content.chain覆盖完整业务链且无此独立子范围当前门控；以已有当前原knowledge接口组替换，仅上传探测子范围。",
+            "review_ref": ".local/testlab/cp300-interface-scenario-gate-audit/45bd909a-6bbb-4d6e-9baa-20f0ed326a69/report.json"
+          },
+          "current_original_evidence": {
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "run_id": "7d2c1b38-79aa-4f22-9b23-ad8ecce22eea",
+            "proof_evidence_ids": [
+              "e04c6c87-234d-4435-817f-3008599f0e7f",
+              "43c004d2-0739-48ac-baa9-9920ac7e8a30"
+            ],
+            "registration_review_ref": ".local/testlab/cp300-interface-scenario-gate-audit/45bd909a-6bbb-4d6e-9baa-20f0ed326a69/report.json",
+            "scope": "仅列出的接口子场景；不计为父包或全部接口验收。",
+            "review_record_id": "ed2cc630-737f-4ea9-80ef-0113a55add6d"
+          }
         },
         {
           "id": "directory-protocol",
@@ -5459,7 +5776,20 @@
               "name": "readonly.complete"
             }
           ],
-          "proof_scope": "3个接口/11原marker：HTTP自产业务前置、UUID隔离DB/role和18714/18715双API；原生owner Markdown上传登记、空/非空证据、精确权限/同app非owner/跨app和环境、语法与无secret、真实本地只读probe及attempted/result审计、重复POST独立登记、审计回滚与upload/权限撤销。登记保持unverified，probe不持久化且不证明sync/index；外部reader/真实凭据、团队ACL、容量、并发撤权、第二笔probe审计故障与同owner跨环境仍未验；非完整业务链。"
+          "proof_scope": "3个接口/11原marker：HTTP自产业务前置、UUID隔离DB/role和18714/18715双API；原生owner Markdown上传登记、空/非空证据、精确权限/同app非owner/跨app和环境、语法与无secret、真实本地只读probe及attempted/result审计、重复POST独立登记、审计回滚与upload/权限撤销。登记保持unverified，probe不持久化且不证明sync/index；外部reader/真实凭据、团队ACL、容量、并发撤权、第二笔probe审计故障与同owner跨环境仍未验；非完整业务链。",
+          "current_original_evidence": {
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "run_id": "7d2c1b38-79aa-4f22-9b23-ad8ecce22eea",
+            "proof_evidence_ids": [
+              "e04c6c87-234d-4435-817f-3008599f0e7f",
+              "43c004d2-0739-48ac-baa9-9920ac7e8a30",
+              "7f5f7be5-ac09-4760-b819-a859b802ce0e"
+            ],
+            "registration_review_ref": ".local/testlab/cp300-interface-scenario-gate-audit/45bd909a-6bbb-4d6e-9baa-20f0ed326a69/report.json",
+            "scope": "仅列出的接口子场景；不计为父包或全部接口验收。",
+            "review_record_id": "ed2cc630-737f-4ea9-80ef-0113a55add6d"
+          }
         }
       ]
     },
@@ -5490,7 +5820,7 @@
         {
           "id": "lower-sources-functional",
           "title": "服务器配置的下层来源元数据，连接未验证",
-          "command": "python3 tools/testlab/testlab.py run --suite lower-sources-functional",
+          "command": null,
           "evidence_mode": "real_local",
           "route_keys": [
             "GET /api/v1/integrations/lower-sources"
@@ -5553,12 +5883,25 @@
               "name": "lower.readonly_zero_io.nonprod"
             }
           ],
-          "proof_scope": "正式production合成实例配置元数据：非空DTO、中英文、精确权限/撤权、空配置/非法启动/nonprod。没有来源或Vault连接，不证明配置提升/真实生产租户/自然TTL/HTTPS传输。"
+          "proof_scope": "93f双API正式production/nonprod合成实例配置元数据：非空DTO、中英文、精确权限/撤权、空配置/非法启动、zero I/O与UUID清理。connected=false；没有来源/Vault连接，不证明真实生产租户、配置提升、自然TTL或HTTPS传输。",
+          "current_original_evidence": {
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "run_id": "0291e763-9348-4d82-8dcb-e04bb9c3e000",
+            "proof_evidence_ids": [
+              "b07fee1f-ef1c-41c3-aea6-c28afa22bb52",
+              "0fc3c2bd-4276-4da9-9593-5b7c1ef2b5f5"
+            ],
+            "registration_review_ref": ".local/testlab/cp300-interface-scenario-gate-audit/45bd909a-6bbb-4d6e-9baa-20f0ed326a69/report.json",
+            "scope": "仅列出的接口子场景；不计为父包或全部接口验收。",
+            "recorded_entry": "python3 -B .local/testlab/cp298-lower-sources-current/95b7fb2e-701c-4469-ab2f-7435e33e07fa/current.py --live"
+          },
+          "rerun_preconditions": "仅记录原93f准入入口；该私有wrapper和manifest绑定原件，不可直接重放。需重新捕获当前helper/runner/runtime SHA、fresh UUID和资源准入；不得运行旧6ad canonical CLI。"
         },
         {
           "id": "config-promotion-functional",
-          "title": "真实配置MR与隔离生产导入已验证；企业治理仍外部待办",
-          "command": "python3 tools/testlab/testlab.py run --suite promotion",
+          "title": "真实配置MR与隔离导入本地场景；企业外部待办仍阻断",
+          "command": null,
           "evidence_mode": "real_local",
           "route_keys": [
             "GET /api/v1/config-sync",
@@ -5604,15 +5947,36 @@
             }
           ],
           "allowed_case_statuses": [
-            "passed",
-            "external_todo"
+            "passed"
           ],
-          "proof_scope": "45cc3283正式75P/66HTTP，9必要marker与UUID库/角色/PAT/进程/项目精确清理通过；用户明确授权本轮own项目永久清理，11–16实际404。1企业历史/物理审核人external_todo单列不计通过；原d7e7首红与两次自动审批拒绝保留，不代表真实生产或配置激活。"
+          "proof_scope": "93f原14cc9dc7：9个本地必需marker通过，真实owned GitLab MR、隔离source/target PG与双API，响应丢失/跨项目schema/负边界及UUID库/role/PAT/进程/项目精确清理。原run仍blocked，promotion.remaining企业历史/物理审核人external_todo不计通过且阻断本focused；不代表真实生产、配置激活或完整业务链。",
+          "current_original_evidence": {
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "run_id": "14cc9dc7-b738-4779-a779-e5360db7a1e1",
+            "proof_evidence_ids": [
+              "22b4f6d9-afc4-4edf-9560-b06185e481cc",
+              "7786ecfe-540c-47af-b78f-3845533c0002",
+              "178ca696-5311-448e-9e8e-8d7214835af9"
+            ],
+            "registration_review_ref": ".local/testlab/cp300-interface-scenario-gate-audit/45bd909a-6bbb-4d6e-9baa-20f0ed326a69/report.json",
+            "scope": "仅列出的接口子场景；不计为父包或全部接口验收。",
+            "review_record_id": "97a2a157-5dbc-4699-b0ea-44ac5dbab9f9",
+            "recorded_entry": "python3 .local/testlab/cp299-promotion-interface-preparation/a12e7ee2-df6a-482b-8234-adabcbb5d112/promotion_interfaces_current.py chain"
+          },
+          "rerun_preconditions": "仅记录原93f准入入口；该私有wrapper和manifest绑定原件，不可直接重放。需重新捕获当前helper/runner/runtime SHA、fresh UUID和资源准入；不得运行旧6ad canonical CLI。",
+          "external_blocker": {
+            "name": "promotion.remaining",
+            "status": "external_todo",
+            "run_status": "blocked",
+            "evidence_id": "178ca696-5311-448e-9e8e-8d7214835af9",
+            "counts_as_pass": false
+          }
         },
         {
           "id": "config-drafts-functional-native",
-          "title": "五草稿原完整组：真实本地四写路径",
-          "command": "python3 tools/testlab/testlab.py run --suite config-drafts-functional",
+          "title": "配置草稿四个真实本地写接口",
+          "command": null,
           "evidence_mode": "real_local",
           "route_keys": [
             "POST /api/v1/alert-rules/import",
@@ -5644,10 +6008,6 @@
             {
               "suite": "config-drafts-functional",
               "name": "drafts.rule_update"
-            },
-            {
-              "suite": "config-drafts-functional",
-              "name": "drafts.inhibition_preview"
             },
             {
               "suite": "config-drafts-functional",
@@ -5702,7 +6062,21 @@
               "name": "promotion.cleanup"
             }
           ],
-          "proof_scope": "四真实本地待审草稿HTTP+1合成七天历史预览protocol Mock；真实owned GitLab opened MR/实际TLS/PG及审计，未merge/激活/通知。自然60秒租约、远端成功本地提交失败、CAS/响应丢失/权限/清理闭环；真实七日历史与生产治理未验。"
+          "proof_scope": "93f原5bf935bb仅四真实本地待审草稿写接口：owned GitLab opened MR/实际TLS/PG与exact审计，幂等/CAS/授权/审计回滚/响应丢失/远端成功本地提交失败恢复/自然60秒租约/精确清理；未merge/激活/通知。drafts.inhibition_preview为合成七天历史protocol Mock，单独登记在local-components，不作为这四route真实来源证明；真实七天历史、生产治理与整链未验。",
+          "current_original_evidence": {
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "run_id": "5bf935bb-0035-4ae7-b546-b9c016ec18d6",
+            "proof_evidence_ids": [
+              "cc81200b-9305-4199-82ae-6fbcafbf224a",
+              "ccd124ff-de58-4404-bcde-20038f8a2118"
+            ],
+            "registration_review_ref": ".local/testlab/cp300-interface-scenario-gate-audit/45bd909a-6bbb-4d6e-9baa-20f0ed326a69/report.json",
+            "scope": "仅列出的接口子场景；不计为父包或全部接口验收。",
+            "review_record_id": "ea080fb4-97a2-42d7-892a-be46c5fef1d8",
+            "recorded_entry": "python3 -B .local/testlab/cp299-config-drafts-preparation/91493447-6bc7-4466-acb6-123ab43da5ad/run_current.py"
+          },
+          "rerun_preconditions": "仅记录原93f准入入口；该私有wrapper和manifest绑定原件，不可直接重放。需重新捕获当前helper/runner/runtime SHA、fresh UUID和资源准入；不得运行旧6ad canonical CLI。"
         }
       ]
     },
@@ -6217,6 +6591,16 @@
       },
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
       "native_reexecuted": false
+    },
+    {
+      "at": "2026-10-05T15:21:18.439255+00:00",
+      "decision": "real_empty_preview_passed_real_generate_first_failure_preserved",
+      "decider": "assistant within user authorized interface-first scope",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "normal": 127,
+      "remaining": 39,
+      "whole_interface_acceptance": false,
+      "reason": "合法empty按实际合同，真实模型失败不调参数洗绿，其他接口独立继续；现有原件门控纠正不伪造新测试。"
     }
   ],
   "review_record_history": [
@@ -6479,16 +6863,17 @@
     ],
     "latest_result_snapshot": {
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
-      "main_normal_success": 126,
+      "main_normal_success": 127,
       "main_total": 166,
       "execution_queue": 0,
-      "local_queue": 20,
+      "local_queue": 19,
       "protocol_mock_normal": 32,
-      "current_groups_passed_cases": 1173,
+      "current_groups_passed_cases": 1212,
       "current_groups_blocked_cases": 2,
       "current_groups_external_todo_cases": 1,
-      "scope": "23个当前接口子组最新1173P2B1external含共同前置/HTTP步骤/父汇总；126/166仅normal，21协议待real+19两者均缺，fault组不新增normal；接口五类父包与整体OPEN。",
-      "remaining_real_normal": 40
+      "scope": "25当前相关子组latest1212P4F2B1external含共同前置/父汇总，不是独立断言数量；127/166仅normal（20协议待real+19两者均缺），生成首502保留，整包/接口phase与whole OPEN。",
+      "remaining_real_normal": 39,
+      "current_groups_failed_cases": 4
     },
     "scenario_evidence_layer_review": {
       "record_id": "7974f802-7051-4ee4-a133-89255ba1c216",
@@ -6507,7 +6892,7 @@
       "native_run_id": "fbf67c10-216b-4b1e-9969-e0d456ecea24",
       "proof_evidence_id": "c04e5562-56c7-460c-8a86-e44736deabe4",
       "real_normal_count_after_empty": 122,
-      "remaining_real_normal": 40,
+      "remaining_real_normal": 39,
       "full_interface_acceptance": false,
       "real_normal_count_after_mapping": 124,
       "mapping_run_id": "3307b8de-f802-4852-875d-fb2a144bfe1c",
@@ -6516,12 +6901,15 @@
       "metrics_real_run_id": "d6aa7bf3-6d58-410c-901c-7e88036546e5",
       "metrics_real_proof_evidence_id": "1d4a0243-c757-4967-8a61-39daf93c2159",
       "remaining_protocol_source_audit": ".local/testlab/cp300-remaining-real-source-audit/8e7bfb63-5bff-4f06-90b9-7b9e991e7c0b/report.md",
-      "next": "准备并fresh准入真实空Prom规则preview独立接口；不能强加7天非空历史前置或固定返回冒真实输入。",
+      "next": "继续既有原件精确门控登记和prefs/notify双API并发接口补证；不进入整链/perf/soak。",
       "real_normal_count_after_service_discovery": 126,
       "service_discovery_run_id": "f7ea6811-809f-4488-a9dc-592c8597ce75",
       "service_discovery_proof_evidence_id": "7f6ad9f1-c877-4b26-867a-34997f2f4622",
       "source_fault_recovery_run_id": "5abb813d-be8d-4941-bbef-66662dd611c2",
-      "source_fault_recovery_proof_evidence_id": "18cd23c5-bc4a-4517-89d6-ebf129fc2b29"
+      "source_fault_recovery_proof_evidence_id": "18cd23c5-bc4a-4517-89d6-ebf129fc2b29",
+      "real_normal_count_after_preview": 127,
+      "preview_run_id": "e8dbfa94-b363-4e30-8cde-53130df96354",
+      "preview_proof_evidence_id": "aa07b659-eb8d-40f1-a1be-6450286a7561"
     },
     "remaining_normal_context": {
       "status": "bounded_source_review_not_execution",
@@ -7092,6 +7480,65 @@
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
       "proof_evidence_id": "18cd23c5-bc4a-4517-89d6-ebf129fc2b29",
       "scope": "28P/10HTTP.failure，精确本UUID Binding旧UID撤销，首次自然Namespace LIST403锚点、第二last_attempt推进而完整source/resources/relations/links及success不变；fresh5min内双API200完整旧DTO/当前授权；新BindingUID自然15LIST清error/推进success，业务audit不变和精确cleanup。newnormal0，不验超过5min/WATCH断线/UID churn/生产集群/完整业务链。"
+    },
+    {
+      "id": "rule-preview-real-empty",
+      "suite_id": "rule-preview-real-empty",
+      "targets": [
+        [
+          "POST",
+          "/alert-rules/preview"
+        ]
+      ],
+      "required_cases": [
+        "preview_empty.linux",
+        "preview_empty.source",
+        "preview_empty.tls",
+        "preview_empty.normal",
+        "preview_empty.authorization",
+        "preview_empty.consistency",
+        "preview_empty.cleanup",
+        "readonly.cleanup",
+        "readonly.complete",
+        "container.cleanup"
+      ],
+      "latest_run_id": "e8dbfa94-b363-4e30-8cde-53130df96354",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "proof_evidence_id": "aa07b659-eb8d-40f1-a1be-6450286a7561",
+      "first_failure_run_ids": [
+        "b3580304-f23e-479e-95d2-6907872894b2",
+        "a265fa8f-e85f-4ef8-ab4e-7510c860352c"
+      ],
+      "scope": "25P/11HTTP，真实固定Prom空matrix/七天请求窗口→formal Linuxc800/TLS，合法empty DTO、401/403、2preview审计/budget1/零model或execution、全部UUID cleanup；非七天非空历史或质量/整链。"
+    },
+    {
+      "id": "rule-generate-real-model",
+      "suite_id": "rule-generate-real-model",
+      "targets": [
+        [
+          "POST",
+          "/alert-rules/generate"
+        ]
+      ],
+      "required_cases": [
+        "generate_real.linux",
+        "generate_real.model",
+        "generate_real.network",
+        "generate_real.tls",
+        "generate_real.identity",
+        "generate_real.normal",
+        "generate_real.replay",
+        "generate_real.authorization",
+        "generate_real.consistency",
+        "generate_real.cleanup",
+        "readonly.cleanup",
+        "readonly.complete",
+        "container.cleanup"
+      ],
+      "latest_run_id": "7e2b5621-adaa-4296-abc6-3c2888aac245",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "proof_evidence_id": "626880e1-60da-41ff-95ca-ccd2c38f697c",
+      "scope": "首native14P4F/CLI2，真实model收到原20s/15sheader/256token请求，未返回成功draft，normal增0；清理P/原502及日志保留；15秒header时序高可信待确认，非质量或非法JSON结论，不改参数或自动retry。"
     }
   ]
 }

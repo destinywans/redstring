@@ -1,4 +1,4 @@
-**最新记录入口：[CP-300](#cp-300-current)，2026-10-05，持续当前接口验收，整体 OPEN。** 真实正常126/166、剩40；新服务发现30P/14HTTP真实非空来源、权限及精确清理已核。正常子场景不等于完整接口验收，source故障恢复正独立补测；先接口后整链，performance/24h及暂停域保持暂停。
+**最新记录入口：[CP-300](#cp-300-current)，2026-10-05，持续当前接口验收，整体 OPEN。** 真实正常127/166、剩39；真实Prom空规则预览25P/11HTTP已核，真实生成首轮502保留。正常子场景不等于完整接口验收，source故障恢复28P已核；先接口后整链，performance/24h及暂停域保持暂停。
 
 <a id="cp-300-current"></a>
 ## CP-300 · 2026-10-05 · 重新逐接口查可执行路径并实际补证
@@ -39,6 +39,12 @@
 
 
 <a id="cp-299-current"></a>
+
+- **CP300规则preview首轮工具阻塞与最小回归保留**：原 `b3580304-f23e-479e-95d2-6907872894b2` blocked6P0F3B/CLI2，在API创建前精确Docker不存在回包小写不被识别；proof `c96730e2-8970-49f3-85aa-16bd655abdac` 与三报告保留。新增精确lowercase字面别名及失败inspect有界原回执，原反例红→25offline P/独审；没有casefold、忽略daemon/unknown create或放权限/资源/清理期限。
+- 原接口复验 `a265fa8f-e85f-4ef8-ab4e-7510c860352c` 14:54:54.498579Z→14:55:19.522483Z，14P3F/CLI2/source93f始末同、实际Linuxc800，7前置HTTP后尚未发出preview；工具误要求Prom回读包含文字`scrape_configs: []`，API/PG/role/network/Prom精确清理全P。proof `dac6f4d9-bd31-4e44-8e13-a3271b7e3d94`、三报告保原，三红含父汇总，不是三个产品bug，不新增normal。
+- 最小同固定Prom3.13.3/config诊断 `.local/testlab/cp300-rule-preview-prom-config-diagnostic/6bc74731-efae-4e67-ba23-4aecdf662c6e/result.json` 已真实复现：原mount bytes相同、加载YAML省略空scrape_configs，原文本assertion仍false；真实targets active/dropped/count全空，7d窗口QueryRange空matrix。三个原响应bytes/SHA与UUID精确CID清理保留，**该诊断为失败后的新资源复现，不是首native原响应，不是接口通过或七天非空历史**。下一先真实语义反例再最小修工具、新UUID原例复验；真实generate独立候选28offline prepared，20s/max256/严格JSON原合同及首失败保持。
+- Fresh Git为de7aaca/SQLite无active；coordinator旧current_commit/normal125等别名已按真实commit/126/40纠正，旧值加入state_corrections历史；性能/soak、产品web与暂停交付域不恢复。Linear新preview记录尚待本次交付同步，不称已同步。
+
 ## CP-299 · 2026-10-05 · 持续接口补测，不在批次完成后提前停工
 
 - 用户要求“继续，怎么停下来了”。在当前接口范围内持续推进剩余可执行测试；完整跨模块业务链仍等接口阶段之后，性能与24小时继续暂停，不重建自动化。共享重型资源串行，互不影响的UUID轻型包并行；本轮未修改产品Go、重建/重启main或轮换main证书。
@@ -2454,3 +2460,9 @@
 
 - **CP300真实GitLab映射终态**：`3307b8de-f802-4852-875d-fb2a144bfe1c`，13:08:20.345519Z→13:08:38.271038Z，27P0F0skip/10HTTP/CLI0、Go93f始末同；9原marker、UUID Reporter read_api项目1 token、Vault UUID单路径token权限拒绝、actual activate200→非空discover200→accept200/audit恰1→第二API精确cells/save与重复accepted0/全账不变。token exact身份核后DELETE、旧tokenGETuser401、Vault token/metadata/policy及UUID DB-role/Popen/端口清理P；proof `d578a934-74d4-44a0-9ca5-33dd23c847a9`，三报告已导出。只证明近期activation快照，discover无新远端枚举，非productionGitLab/CI/完整业务链。当前真实normal124/166缺42（23协议正常、19两类均缺），非空producer/合同与外部待办仍保留；不以通过数判整接口阶段通过。
 - 空目录成果已提交推送exactlsremote `192be9bcd18397797df595da4a7a4272544ef57f`；旧原件与用户文件保留，当前无active。该mapping原生组清理实测已完成，准备中的metrics小模型候选未计通过。
+
+
+- **CP300真实空Prom preview原例复验通过**：`e8dbfa94-b363-4e30-8cde-53130df96354` 15:05:46.458635Z→15:06:25.887739Z，25P0F0skip/CLI0、source93f始末同、actualLinuxc800（main6d仅准入）。30offline/实际相同Prom配置省略空字段反例红→绿/独审无阻断，source/schema/权限/资源/40秒清理原值。11正式HTTP、7marker、实际1次604800s请求窗口查询返回empty matrix，200 valid/no_observed_series不捏造点；匿名401/拒绝及跨env403不增加source或audit。2preview审计+2服务夹具审计/budget1/generation0，UUIDDB/role/API/Prom/network/四端口清理P；proof `aa07b659-eb8d-40f1-a1be-6450286a7561` 与三报告。config/targets保原bytes/SHA，range保parsed+SHA但未另存原bytes，明确粒度；非七天非空历史/质量/整链。root首次读取错误把两夹具审计算成preview审计，写proof前停止，按原action子集核实纠正，native原结果未动。
+- **CP300真实规则生成首失败保留**：`7e2b5621-adaa-4296-abc6-3c2888aac245` failed14P4F/CLI2、source93f始末同/actualLinuxc800，固定qwen2.5:0.5b/a8b0manifest/2CPU2GiB、产品原256 token、20s总超时与15s响应头超时。第5正式HTTP 502 rule_generate_ambiguous，原断言/first-failure/三报告和精确cleanup P保留，proof `626880e1-60da-41ff-95ca-ccd2c38f697c`。四红包含父汇总，不是四个产品bug，不增加normal；不repair/预热/提高token或超时/换key自动retry。
+- 原provider请求1599bytes/hash2a1f08df已到relay且模型实际处理354token任务；15:09:16.032保存请求、15:09:17.460模型加载结束并开始提示处理、15:09:31.046首502，15.014秒高度吻合响应头超时。**确切network error/最终provider回复未保留，原因标需要确认；不说模型整15秒都加载、不归因非法JSON或质量。** model日志统计仅完成GIN POST为0，不能冒没发推理。root初筛文件名遗漏real-request，经精确库存与独审纠正，没有改原件。测试relay silent disconnect catch/daemon handler未等待是证据缺口，列工具待办；当前仅1实际请求日志20313bytes，无独立硬文件字节上限，不宣称有该上限。
+- 正常计数实际127/166，remaining39（20协议待真实+19尚无两类normal），整体与接口phaseOPEN；继续内容/知识/配置既有原件精确门控登记和prefs/notify双API并发partial update最小接口包，不进入跨模块完整业务链或性能/24h。外部模型/组织权威/producer/暂停域高待办保留，原小模型metrics39P不代此generate正常。

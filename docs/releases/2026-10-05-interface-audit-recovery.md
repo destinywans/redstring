@@ -150,3 +150,8 @@ JSON证据 `09a23b78-4afc-42f5-9981-fce3599f8f91` 已实际HTTP200/MIME/run核�
 - 原f31业务22P/8HTTP，但原False被inventory fallback回升，原工具失败证据0670d12a-ce09-4adf-abff-ff11f3677472和原记录/报告保留。inventory显式false守卫与overview精确历史veto独审、离线原例通过；历史SQLite不改，556记录不是556产品缺陷。
 - 新d0279bc1-544e-4b66-b9ca-c1b371bedc1d UTC18:18:39→18:19:46 native22P/8HTTP/source93f始末，root终态证据资格共23P；仅scope=agent&view=all真实空PG消费者与诚实partial/三missing/真实24h窗口、两API静态一致、401/4×422/全账无变/精确清理。无业务Agent SQL/Tempo/模型调用，占位模型配置存在但未调用。
 - proof fbd629de-d9d7-410e-92c2-ac577a2ac6f7，实际六报告下载proof8a6e0084-2ed3-4da9-ba96-f7fc7ed437d7。正常127→128/166、缺38；app全集/权威producer/span/cost/对象权限/父包/整链/性能仍OPEN，性能24h继续暂停。未merge/deploy。
+
+## 2026-10-06 · 角色矩阵现有接口审计回滚
+
+- 原830f1bef-135e-4591-b30e-0f0c4fea2c86 UTC18:23:41→18:24:15，正式双binary93f/6d/runtime338，29P0F0skip/14HTTP/source始末同。34offline及独审后fresh准入，新UUID DBrole/18852–53、原420/12/40含≤4restore/45grace不变。
+- 精确v3.role.matrix.updated success audit503回滚所有role/grant/revision/audit及其他public表摘要；移除故障samebody/samerevision另一API200，revision+1/audit+1，两分组grant与原会话403→200实际验证。目标synthetic businessrole与身份ACL明示，不冒公开role创建或组织权威来源；完整3ledger/11rolewire0600留存。proof a700ca22-ee6a-478a-a4e9-feeacfd413ba，normal增0，当前128/166缺38/wholeOPEN。未merge/deploy。

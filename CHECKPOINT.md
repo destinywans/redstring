@@ -15,6 +15,12 @@
 **最新记录入口：[CP-301](#cp-301-current)，2026-10-06 (+08)，接口验收持续推进，整体 OPEN。** 当前真实正常127/166、剩39；Pull29P/Workspace25P/Claim72P/Canvas34P已实跑，首次失败保留。继续现有接口适用场景，先接口后整链；性能/24h及暂停域保持暂停。
 
 
+- **角色矩阵正式审计故障子组** `830f1bef-135e-4591-b30e-0f0c4fea2c86` UTC18:23:41.062567→18:24:15.450816，29P0F0skip/14HTTP/CLI0/源93f始末/Darwin6d/runtime338。34offline/AST/inventory/独审后18:22:58 root fresh HMAC/UID/argv/lstart/cwd/PG exactCID4CPU2GiB/无active/host25.664GB、UUID710ed8...18852–53准入。仅目标synthetic businessrole/身份ACL，不改admin关联、不冒公共role创建producer；所有矩阵变动走正式PUT。
+- 精确actor/application空/action v3.role.matrix.updated/target/outcome success审计fault503admin_unavailable，使所有role/grant/scope/revision/audit及其它public表摘要完全不变；两API全DTO/header与原target cookie403保持。owner守卫撤fault后samebody/samerevision对侧200，identity:view原分组正确生成members+roles global*/standard两grant，revision+1/exact1完整audit；两端读回一致且原target cookie马上200。完整before/failed/recovered ledgers/11rawrolewire0600保留，raw/SQLite14全False，normal增0。11required/2ready/精确UUIDDBrole/twoPopen/端口40cleanup内含≤4restore/grace45全P，proof `a700ca22-ee6a-478a-a4e9-feeacfd413ba`。旧normal/CAS/noop当前原c63c证据不重复。
+- root只读协调假设active时native已自然结束，断言在写前止，按fresh终态处理；根验证request_body原存JSON字符串，首次按dict读在证据写前止，解码原件后核对，无native/原件改变或重跑。该工具读取纠正保记录，不算产品缺陷。33对应latest1470P4F2B1external含setup/父汇总/资格核对，真实normal128/166缺38，接口和整体OPEN；inflight/旧writer/crash/真实org/整链/性能仍未补。
+
+- 角色run/overall三格式六实际下载HTTP200/MIME/attachment证明 `88e205dd-e86b-495d-bdc1-e927d0c6b8ed`，role focuspassed但native-core parentneeds_scenario_plan；窄核3route只读报告已登记 8e8c4bf3-40e7-46fb-a93e-d81338248a44，counts_as_acceptance=false，不冒38穷尽或正常证明。
+
 <a id="cp-301-current"></a>
 ## CP-301 · 2026-10-06 (+08) · 接口故障与并发场景继续实跑
 

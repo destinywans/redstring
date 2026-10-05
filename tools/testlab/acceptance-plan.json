@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-05T18:22:11.866649+00:00",
+  "updated_at": "2026-10-05T18:30:08.923918+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -3887,6 +3887,80 @@
             ],
             "scope": "首轮外层预算300秒超时，五必需marker缺失；原case/run failed保留。"
           }
+        },
+        {
+          "id": "role-audit-rollback",
+          "title": "角色矩阵审计回滚、版本保持及双实例授权恢复",
+          "command": "python3 tools/testlab/testlab.py run --suite formal-api-role-audit-rollback --manifest <fresh-root-admitted-singlemanifest>",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "GET /api/v1/roles/{id}",
+            "PUT /api/v1/roles/{id}"
+          ],
+          "required_cases": [
+            {
+              "suite": "formal-api-role-audit-rollback",
+              "name": "role_audit.http_baseline"
+            },
+            {
+              "suite": "formal-api-role-audit-rollback",
+              "name": "role_audit.rollback"
+            },
+            {
+              "suite": "formal-api-role-audit-rollback",
+              "name": "role_audit.failed_readback"
+            },
+            {
+              "suite": "formal-api-role-audit-rollback",
+              "name": "role_audit.fault_removed"
+            },
+            {
+              "suite": "formal-api-role-audit-rollback",
+              "name": "role_audit.recovery"
+            },
+            {
+              "suite": "formal-api-role-audit-rollback",
+              "name": "role_audit.exact_audit"
+            },
+            {
+              "suite": "formal-api-role-audit-rollback",
+              "name": "role_audit.read_consistency"
+            },
+            {
+              "suite": "formal-api-role-audit-rollback",
+              "name": "role_audit.permission_effect"
+            },
+            {
+              "suite": "formal-api-role-audit-rollback",
+              "name": "role_audit.cleanup"
+            },
+            {
+              "suite": "formal-api-role-audit-rollback",
+              "name": "management.cleanup"
+            },
+            {
+              "suite": "formal-api-role-audit-rollback",
+              "name": "management.complete"
+            },
+            {
+              "suite": "formal-api-role-audit-rollback",
+              "name": "management.api_ready.0"
+            },
+            {
+              "suite": "formal-api-role-audit-rollback",
+              "name": "management.api_ready.1"
+            }
+          ],
+          "proof_scope": "29P/14HTTP/11原role wire；精确actor/target/success审计503 admin_unavailable使全部role/grant/revision/audit/其它public摘要回滚，两API旧DTO/header和target403保持；移除fault samebody/samerevision对侧200，revision+1/audit+1，原target cookie新权限200。仅合成identity/target businessrole，无公共role创建producer或真实组织authority，normal+0/父包及整链OPEN。",
+          "current_original_evidence": {
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "run_id": "830f1bef-135e-4591-b30e-0f0c4fea2c86",
+            "proof_evidence_ids": [
+              "a700ca22-ee6a-478a-a4e9-feeacfd413ba"
+            ],
+            "scope": "本角色审计/恢复/真实授权子场景，旧正常/权限/CAS/noop证据可复用，父包及whole OPEN。"
+          }
         }
       ],
       "readonly_scenario_audit": {
@@ -7395,7 +7469,8 @@
     "2daaccdb-96fb-4214-96f8-a8815c79be77",
     "5105d522-8345-462b-84cf-d264c1e4e974",
     "7974f802-7051-4ee4-a133-89255ba1c216",
-    "c10b9fc1-5cf8-466c-9873-bbe5d9705cc6"
+    "c10b9fc1-5cf8-466c-9873-bbe5d9705cc6",
+    "efb1f970-efbe-460d-9ffd-27acf09cfe08"
   ],
   "business_chain_constraints": [
     {

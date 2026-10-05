@@ -1,4 +1,4 @@
-**最新记录入口：[CP-299](#cp-299-current)，2026-10-05，接口场景仍在推进。** 当前真实正常成功子场景120/166、协议Mock正常32；本地尚无正常样本的可执行队列0，但24项协议已验待真实、46项真实正常缺口及权限/边界/幂等/故障场景计划仍未收口。十组最新相应结果744P0F2B1外部待办，含共同前置/父汇总，不是744条独立业务断言。Go93f/native nonrace6d/runtime338未改，当前无active。继续接口场景复核，不因normal队列清零转入整链；完整业务链、performance/24h、CI-CD/Workflows/VM/产品web保持暂停。
+**最新记录入口：[CP-299](#cp-299-current)，2026-10-05，接口场景仍在推进。** 当前真实正常成功子场景120/166、协议Mock正常32；本地尚无正常样本的可执行队列0，但24项协议已验待真实、46项真实正常缺口及权限/边界/幂等/故障场景计划仍未收口。十三组最新相应结果854P0F2B1外部待办，含共同前置/父汇总，不是744条独立业务断言。Go93f/native nonrace6d/runtime338未改，当前无active。继续接口场景复核，不因normal队列清零转入整链；完整业务链、performance/24h、CI-CD/Workflows/VM/产品web保持暂停。
 
 
 <a id="cp-299-current"></a>
@@ -2388,3 +2388,11 @@
 - 原组新UUID实际复验 `ad670414-e915-4b72-be23-2b73f65fee91`：2026-10-05T10:33:04.190383Z → 10:33:54.587723Z、87P0F0skip/CLI0、source93f始末同；72原HTTP中13鉴权块现在完整保留有限结果，details仍遮蔽，撤权前后/丢响应CAS/审计回滚一致。临时项目26→404、PAT19撤销、两个UUID DB/role和18730–18734端口精确清理通过。root原件证明 `948f5620-bb67-49b5-a6b6-a227ff941c20`，三格式报告已导出；原87P运行/13遮蔽限制及独立证明 `40e9a1eb-9909-44ca-97ed-c03e48133412` 保留，最新相应结果仍87，不累加为174。
 - 新准入先因root猜测supervisor CLI字符串而在任何mutation前停止；实际完整argv已由fresh nonce/HMAC对应PID与已验证SHA、UID/lstart/cwd严格比对后准入，原脚本/first-error保留。未按旧PID发信号、修改环境或降低身份守卫。
 - 正常真实120/166、protocol32及normal execution_queue0保持；八接口元数据协议子包只限定上述场景通过，producer父包仍needs_scenario_plan，整体OPEN。现在并行准备上传、Token和人工事件的审计失败回滚接口场景，root统一隔离actual与修复闭环；不进入完整链/性能/24h，不重建自动化。
+
+
+- **CP299继续接口故障子包**：上传 `b546ad23` 15P/4HTTP、Token `82b7bae1` 28P/13HTTP、人工事件 `954c8cdc` 67P/47HTTP，root实际CLI0，source93f始末/main6d/runtime338不变，新UUID库/角色/独立端口与精确清理均P。原件复核证据 `05624f50-0d43-4e3b-9fc2-b53c44c5872b` / `73b72127-f201-4aae-aeaf-d741546d4c7d` / `038bab66-3026-4cf1-b87e-3b685efacc93`、三格式报告保留；看板新增仅三子包明示必需marker，不把父包判通过。十三组各自最新854P0F2B1外部，包含前置及父汇总，非854独立断言；normal120/166/protocol32/normal queue0与整体OPEN不变。
+- **本轮首红不覆盖**：upload入口 `1fbb0407` 在native/resource之前被Runner拒绝grace60，修private manifest为原上限45（40cleanup+4restore），不放宽Runner；Token `74c1d4bc` 9P3F是shared constructor字符串marker遮蔽方法，真实构造反例→只rename marker_case→16离线P→28原例P；事件 `8189151f` 38P4F的http27/28缺key/短key已422，http29前导OWS被HTTP trim后合法201，产品行为正确，wire内部非法字符及case header清除，旧23P2F→新26P含真实内存请求编码→原例67P。父汇总红不能冒多产品Bug，产品Go/权限/原422/503与回滚断言均未变。
+- **下一两组独立准备**：Runbook POST/create精确runbook.created审计故障，正式owner上传→draft；复盘POST/create与第二human publish精确created/published故障，正式manual case合法closed→draft。源表/完整row/审计与恢复/当前权限读回核账，SQL仅合成auth/grants、故障及只读核账，禁止SQL成功业务行/调查/Runbook完整链。18742/43与18744/45、新UUID库隔离，代理只准备/离线，root实际准入执行；缺实现/真实外部/产品决定与暂停域仍明示。
+- root准入文档的available_bytes取host vm_stat，可证明主机余量，**不是Docker VM可用内存证明**，原记录保留并在原件复核中明确；下一组另核实际自有PG `/proc/meminfo` 的VM余量，不倒填原准入或运行。
+
+- **看板原件绑定复核**：root首次错误读取旧schema key并把upload放错parent、把Token辅助DELETE当166主接口导致focused incomplete，未交付前保原plan证据并纠正为实际native-content/main-POST+显式auxiliary-DELETE。撤销必需marker/HTTP未删，overview断言不改；actual /api/overview 三子包通过、父包仍needs_scenario_plan/整体open，证据 `8c9d049d-b89b-41e2-8f9c-818e3dd674ad`。

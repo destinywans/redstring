@@ -372,3 +372,6 @@ Web 工作区；React / TypeScript / Vite；React Flow；assistant-ui 外部状�
 **2026-10-02 CP292：** 新93f实际非race6d298双API已ready、doctor53P；原100/60短复验11P0F1仅Homecap，SSE四窗口0违规/0IO，恢复与一致性通过，2379drop仍标饱和，不当完整性能。新main entry/Canvas原链267P0F1缺producer，当前正常41/166仅子场景。唯一active289c7b57原五suite当前源完整race；可见HTTP/连接器仅并行准备metrics和正式两档入口，root统一负载。完整两档/24h未完成，详见[CP292](CHECKPOINT.md)。
 
 **CP299接口工具修复补充**：Agent/Prompt/Eval八接口协议子包原87P后识别13鉴权证据误脱敏，首红保留；最小安全schema修复96离线P、原组新UUID `ad670414` 再87P并恢复13结构化结果，产品Go未改。上传/Token/人工事件审计回滚接口候选正在独立并行准备，整体接口尚未收口。
+
+
+**CP299接口故障补证**：上传15P、Token28P、人工事件67P当前源独立原组均CLI0；Token marker命名冲突及事件OWS夹具误判首红保留，最小测试工具修复后原例新UUID复验，产品Go/权限未改。十三组相应最新854P0F2B1外部（含前置/父汇总），normal120/166与整体OPEN不变。看板仅三个必需marker子包P，Runbook创建/复盘创建发布审计故障候选并行准备，root独立资源准入；先接口、后整链，性能/24h继续暂停。

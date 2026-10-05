@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-05",
+  "updated_at": "2026-10-05T11:14:58.201757+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -3202,6 +3202,129 @@
             }
           ],
           "proof_scope": "1个GET接口/10原marker：HTTP原生人工case前置、UUID隔离DB/role与18628/18629双API；开放case排除、关闭revision候选、权限/环境边界、重复读取、存储故障/恢复、撤权和只读一致性。仅候选列表；未创建/发布复盘，未执行调查结案/Runbook完整链。ops investigation结案producer、1000候选上限/256扫描分页、并发撤权/expiry与团队ACL仍未验；此端口与content-interfaces-functional串行。"
+        },
+        {
+          "id": "token-audit-rollback",
+          "title": "Token签发与撤销审计回滚",
+          "command": "python3 tools/testlab/testlab.py run --suite token-audit-rollback",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "POST /api/v1/api-tokens"
+          ],
+          "required_cases": [
+            {
+              "suite": "token-audit-rollback",
+              "name": "token_audit.native_issue_consume"
+            },
+            {
+              "suite": "token-audit-rollback",
+              "name": "token_audit.issue_rollback"
+            },
+            {
+              "suite": "token-audit-rollback",
+              "name": "token_audit.issue_recovery"
+            },
+            {
+              "suite": "token-audit-rollback",
+              "name": "token_audit.revoke_rollback"
+            },
+            {
+              "suite": "token-audit-rollback",
+              "name": "token_audit.revoke_recovery"
+            },
+            {
+              "suite": "token-audit-rollback",
+              "name": "token_audit.fault_removed"
+            },
+            {
+              "suite": "token-audit-rollback",
+              "name": "token_audit.consistency"
+            },
+            {
+              "suite": "token-audit-rollback",
+              "name": "token_audit.cleanup"
+            },
+            {
+              "suite": "token-audit-rollback",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "token-audit-rollback",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "仅签发/撤销审计503整hash/state/audit保持、恢复一次、撤销跨实例401/其他token仍200、重复revoke无新审计与私有清理；不是全部权限或完整业务链。 主接口normal计数仅POST，DELETE是辅助接口，原必需撤销marker和13HTTP证据仍完整保留，不冒166主接口计数。",
+          "auxiliary_route_keys": [
+            "DELETE /api/v1/api-tokens/{id}"
+          ]
+        },
+        {
+          "id": "incident-fault-interfaces",
+          "title": "人工事件创建授权、格式与审计回滚",
+          "command": "python3 tools/testlab/testlab.py run --suite incident-fault-interfaces",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "POST /api/v1/incidents"
+          ],
+          "required_cases": [
+            {
+              "suite": "incident-fault-interfaces",
+              "name": "incident_fault.http_inputs"
+            },
+            {
+              "suite": "incident-fault-interfaces",
+              "name": "incident_fault.authorization"
+            },
+            {
+              "suite": "incident-fault-interfaces",
+              "name": "incident_fault.format_boundaries"
+            },
+            {
+              "suite": "incident-fault-interfaces",
+              "name": "incident_fault.scope_boundary"
+            },
+            {
+              "suite": "incident-fault-interfaces",
+              "name": "incident_fault.external_actions_rejected"
+            },
+            {
+              "suite": "incident-fault-interfaces",
+              "name": "incident_fault.empty_case_storage"
+            },
+            {
+              "suite": "incident-fault-interfaces",
+              "name": "incident_fault.audit_rollback"
+            },
+            {
+              "suite": "incident-fault-interfaces",
+              "name": "incident_fault.fault_removed"
+            },
+            {
+              "suite": "incident-fault-interfaces",
+              "name": "incident_fault.recovery"
+            },
+            {
+              "suite": "incident-fault-interfaces",
+              "name": "incident_fault.recovery_repeat"
+            },
+            {
+              "suite": "incident-fault-interfaces",
+              "name": "incident_fault.current_authorization"
+            },
+            {
+              "suite": "incident-fault-interfaces",
+              "name": "incident_fault.cleanup"
+            },
+            {
+              "suite": "incident-fault-interfaces",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "incident-fault-interfaces",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "仅POST/incidents正常前置HTTP生产、认证/权限/scope、DTO/key/JSON、外部动作诚实拒绝、审计503整账回滚、恢复201及同key200/冲突409、当前撤权/恢复；不是状态生命周期/调查/复盘/Runbook整链。"
         }
       ]
     },
@@ -3238,7 +3361,53 @@
         "POST /api/v1/memory/facts/{id}/{action}",
         "POST /api/v1/memory/conflicts/resolve"
       ],
-      "scenario_plan_status": "needs_scenario_plan"
+      "scenario_plan_status": "needs_scenario_plan",
+      "focused_checks": [
+        {
+          "id": "upload-audit-rollback",
+          "title": "上传创建审计故障回滚与恢复",
+          "command": "python3 tools/testlab/testlab.py run --suite formal-api-upload-audit-rollback",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "POST /api/v1/uploads"
+          ],
+          "required_cases": [
+            {
+              "suite": "formal-api-upload-audit-rollback",
+              "name": "upload_audit.empty_storage"
+            },
+            {
+              "suite": "formal-api-upload-audit-rollback",
+              "name": "upload_audit.rollback"
+            },
+            {
+              "suite": "formal-api-upload-audit-rollback",
+              "name": "upload_audit.fault_removed"
+            },
+            {
+              "suite": "formal-api-upload-audit-rollback",
+              "name": "upload_audit.recovery"
+            },
+            {
+              "suite": "formal-api-upload-audit-rollback",
+              "name": "upload_audit.content_bytes"
+            },
+            {
+              "suite": "formal-api-upload-audit-rollback",
+              "name": "upload_audit.cleanup"
+            },
+            {
+              "suite": "formal-api-upload-audit-rollback",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "formal-api-upload-audit-rollback",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "仅上传审计失败503时metadata/content/audit/TMPDIR零残留，恢复201各一次与第二API精确bytes读回；不是上传全部场景/整链。"
+        }
+      ]
     },
     {
       "id": "local-components",
@@ -5382,6 +5551,17 @@
       "decided_by": "assistant under user-confirmed interface-first scope",
       "status": "implemented_progress_rule",
       "evidence_run": "40fd4768-f7b3-4ebd-ba1d-ba8702b5e36f"
+    },
+    {
+      "date": "2026-10-05",
+      "decision": "首红保留：Token inherited marker工具冲突、事件leading OWS夹具误判最小修并原例新UUID复验；继续Runbook创建/复盘创建发布审计一致性独立接口故障子包，不提前跨模块整链。",
+      "decided_by": "assistant under user-authorized interface-first scope",
+      "status": "implemented_three_subgroups_next_two_preparing",
+      "evidence_runs": [
+        "b546ad23-1357-4be6-93ab-062b7a728f35",
+        "82b7bae1-203f-4402-9d00-29dd54408422",
+        "954c8cdc-171b-4035-beff-32b2a871ef7e"
+      ]
     }
   ],
   "classification_scope": "逐接口正常HTTP补测的前置分拣，不是后端实现完成度判定；缺实现包括必需非空生产链缺能力，外部真实验收另列。needs_confirmation尚未获得完整正式生产者调用链证明。",
@@ -5823,10 +6003,10 @@
       "execution_queue": 0,
       "local_queue": 24,
       "protocol_mock_normal": 32,
-      "current_groups_passed_cases": 744,
+      "current_groups_passed_cases": 854,
       "current_groups_blocked_cases": 2,
       "current_groups_external_todo_cases": 1,
-      "scope": "十个当前接口组各自最新结果；共同前置、HTTP子步骤和父汇总计在其中，不是744独立业务断言，不是完整接口验收。尚无正常样本队列0不关闭权限/边界/幂等/故障未验。"
+      "scope": "十三个当前接口组各自最新结果744+15+28+67；含共同前置/HTTP子步骤/父汇总，不是854独立断言；两政策blocked与一external原样保留，父包/整体仍OPEN。"
     }
   },
   "interface_subpackages": [
@@ -5987,6 +6167,87 @@
       "latest_run_id": "ad670414-e915-4b72-be23-2b73f65fee91",
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
       "scope": "八接口既有元数据有界正常、权限/越权、输入、CAS、重复POST合同、审计回滚、确认200后响应丢失、同会话撤权前200后404与数据一致性；正式生产导入使用合成签名协议输入。配置已保存但routing_connected=false、traffic=null；Eval只pending元数据。未验真实权威artifact/模型/执行/流量/评测结果、完整五类逐接口空间或跨模块整链。"
+    },
+    {
+      "id": "upload-audit-rollback",
+      "suite_id": "formal-api-upload-audit-rollback",
+      "targets": [
+        [
+          "POST",
+          "/uploads"
+        ]
+      ],
+      "required_cases": [
+        "upload_audit.empty_storage",
+        "upload_audit.rollback",
+        "upload_audit.fault_removed",
+        "upload_audit.recovery",
+        "upload_audit.content_bytes",
+        "upload_audit.cleanup",
+        "readonly.cleanup",
+        "readonly.complete"
+      ],
+      "latest_run_id": "b546ad23-1357-4be6-93ab-062b7a728f35",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "scope": "仅上传审计失败503时metadata/content/audit/TMPDIR零残留，恢复201各一次与第二API精确bytes读回；不是上传全部场景/整链。"
+    },
+    {
+      "id": "token-audit-rollback",
+      "suite_id": "token-audit-rollback",
+      "targets": [
+        [
+          "POST",
+          "/api-tokens"
+        ],
+        [
+          "DELETE",
+          "/api-tokens/{id}"
+        ]
+      ],
+      "required_cases": [
+        "token_audit.native_issue_consume",
+        "token_audit.issue_rollback",
+        "token_audit.issue_recovery",
+        "token_audit.revoke_rollback",
+        "token_audit.revoke_recovery",
+        "token_audit.fault_removed",
+        "token_audit.consistency",
+        "token_audit.cleanup",
+        "readonly.cleanup",
+        "readonly.complete"
+      ],
+      "latest_run_id": "82b7bae1-203f-4402-9d00-29dd54408422",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "scope": "仅签发/撤销审计503整hash/state/audit保持、恢复一次、撤销跨实例401/其他token仍200、重复revoke无新审计与私有清理；不是全部权限或完整业务链。"
+    },
+    {
+      "id": "incident-fault-interfaces",
+      "suite_id": "incident-fault-interfaces",
+      "targets": [
+        [
+          "POST",
+          "/incidents"
+        ]
+      ],
+      "required_cases": [
+        "incident_fault.http_inputs",
+        "incident_fault.authorization",
+        "incident_fault.format_boundaries",
+        "incident_fault.scope_boundary",
+        "incident_fault.external_actions_rejected",
+        "incident_fault.empty_case_storage",
+        "incident_fault.audit_rollback",
+        "incident_fault.fault_removed",
+        "incident_fault.recovery",
+        "incident_fault.recovery_repeat",
+        "incident_fault.current_authorization",
+        "incident_fault.cleanup",
+        "readonly.cleanup",
+        "readonly.complete"
+      ],
+      "latest_run_id": "954c8cdc-171b-4035-beff-32b2a871ef7e",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "scope": "仅POST/incidents正常前置HTTP生产、认证/权限/scope、DTO/key/JSON、外部动作诚实拒绝、审计503整账回滚、恢复201及同key200/冲突409、当前撤权/恢复；不是状态生命周期/调查/复盘/Runbook整链。"
     }
   ]
 }

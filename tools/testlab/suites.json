@@ -1457,6 +1457,66 @@
           "cleanup_grace_seconds": 45
         }
       ]
+    },
+    {
+      "id": "formal-api-upload-audit-rollback",
+      "name": "上传创建审计回滚",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "verification_scope": "新UUID隔离库/role、专用双API，source93f/main6d/runtime338和exactPG守卫；仅有界接口故障子包，不完整业务链/性能/24h。运行前root检查无其他冲突运行及环境身份。",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "-B",
+            "tools/testlab/api_upload_audit_rollback_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 300,
+          "cleanup_grace_seconds": 45
+        }
+      ]
+    },
+    {
+      "id": "token-audit-rollback",
+      "name": "Token签发撤销审计回滚",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "verification_scope": "新UUID隔离库/role、专用双API，source93f/main6d/runtime338和exactPG守卫；仅有界接口故障子包，不完整业务链/性能/24h。运行前root检查无其他冲突运行及环境身份。",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "-B",
+            "tools/testlab/api_token_audit_rollback_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 300,
+          "cleanup_grace_seconds": 45
+        }
+      ]
+    },
+    {
+      "id": "incident-fault-interfaces",
+      "name": "人工事件创建授权及审计回滚",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "verification_scope": "新UUID隔离库/role、专用双API，source93f/main6d/runtime338和exactPG守卫；仅有界接口故障子包，不完整业务链/性能/24h。运行前root检查无其他冲突运行及环境身份。",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "-B",
+            "tools/testlab/api_incident_fault_interfaces_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 300,
+          "cleanup_grace_seconds": 45
+        }
+      ]
     }
   ]
 }

@@ -188,3 +188,11 @@ proof1be14ad9-b0c1-4534-96d6-64a9cb08c5ef/9登记原件/三格式报告，raw/re
 新1f8d71ba实际27P/9HTTP，原17offline及独审通过。真实当前Prom（合成样本）及固定模型协议Mock正式生产completed/source-bound会话；唯一应用services:view grant撤销后POST messages403，六业务/审计账及175其他public/其他grant摘要不变、无新来源/模型调用。原grant精确恢复后旧Cookie读取原DTO200，不新发turn。四Popen两轮、持有Prom exactCID、UUID库/角色及五端口按同40秒预算清理，root独立absence读回；proof0c40535c-13ed-4c59-b095-97f47306fec3。27含setup/汇总，不是27独立场景；部分完整ACL/恢复账与counter结论依冻结运行时断言，未冒事后重算。
 
 两run三格式及overall共九实际下载proof aadfb18a-73f5-4502-ab6b-a64ebe1a5204。普通focus passed；metrics required场景passed，但协议normal无独立登记，完整focus仍incomplete。所有原HTTP registrationFalse，normal新增0；当前128/166、剩38，35对应latest1529P4F2B1external含前置/父汇总，整体OPEN。Go93f/Darwin6d/runtime338不改；尚未验证活动SSE/自然到期/真实模型质量/整链。继续接口输入边界和合法normal缺口核对，性能/24h及原暂停域保持。
+
+### CP305 消息输入与正文大小拒绝（2026-10-06 +08）
+
+13offline、AST/inventory及独审后，新0c52f169实际30P0F0skip/12HTTP、Go93f始末/Darwin6d/runtime338，UTC20:22:55→20:24:15。保持原API12/420outer/单40cleanup45，无模型server或产品Go修改。正式创建空会话后，7类422包含空白text、reasoning超长/不支持、未知model、缺上传引用、未知字段和实际JSON正文2MiB+1；最后text仍低于2MiB，不能冒独立text上限。七请求长度/SHA按原nonce独立重建相等，未保存大正文。
+
+六业务/审计表及175其它public摘要不变，仅正式1空conversation/1create audit，sessions排除；旧detail DTO200前后一致。12原/normalized资格False，18required齐；零推理/同Cookie/Content-Type靠冻结校验链及运行时断言，不冒独立流量/headers重算。精确UUID DBrole/两Popen/两端口清理及root新nonce/HMAC只读absence读回通过。proof37a70b6f-7a7e-4f8c-8969-29f7a8a17286，run/overall六报告实际下载proof22a7834b-8a78-440f-b475-78921a80ff64。
+
+该有界focus通过不推广完整输入空间或父接口；36对应latest1559P4F2B1external含前置/父汇总。CP304–305三组89验证记录/35HTTP，normal增0，当前128/166余38。原Generate失败、真实外部/缺权威producer/暂停/可信历史待办保持，整体OPEN。按接口→整链顺序继续；性能/24h及产品前端不恢复。

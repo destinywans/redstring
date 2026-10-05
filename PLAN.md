@@ -1,3 +1,5 @@
+**2026-10-06 CP305当前：** 本轮三个接口子组89验证记录/35HTTP通过；新输入组30P/12HTTP（7类422及拒绝无业务审计副作用，sessions排除），独立资源清理和报告下载已证。正常128/166、缺38，接口与整体OPEN。先接口后整链，性能/24h及暂停域保持；见[CP305](CHECKPOINT.md#cp-305-current)和[38项前置](docs/releases/2026-10-06-interface-remaining38.md)。
+
 **2026-10-06 当前优先级：继续接口验收，完成后再完整业务链；performance/24h及原暂停域保持暂停。正常成功128/166、缺38，接口阶段和整体OPEN。**
 
 本轮普通对象/跨实例退出32P/14HTTP及指标会话应用撤权27P/9HTTP已实跑、无失败跳过、精确清理；normal均新增0，指标模型仍协议Mock。35对应latest1529P4F2B1external含前置/汇总，接口及整体OPEN。下一仅有界消息输入拒绝和剩38合法normal路径核对，性能/24h不恢复。Go93f/main6d/runtime338不变；证据、首失败及边界见[CP-304](CHECKPOINT.md#cp-304-current)和[交付记录](docs/releases/2026-10-05-interface-audit-recovery.md)。

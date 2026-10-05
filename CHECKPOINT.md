@@ -1,3 +1,16 @@
+**最新记录入口：[CP-305](#cp-305-current)，2026-10-06 (+08)。当前真实正常128/166、缺38；本轮三个有界子组89条验证记录通过/35正式HTTP，normal新增0，接口和整体OPEN。先接口后整链；性能/24h和原暂停域保持。**
+
+<a id="cp-305-current"></a>
+## CP-305 · 2026-10-06 (+08) · 消息输入/体积边界实际验收
+
+- 用户要求持续接口验收、保证结果下尽快。CP304两授权子组已scoped提交/推送/exactlsremote `c790fd543b5f23357cf7e3efe3d53fce7d539320`；WAN136/138/139/163及原51文档保存，138/51 fresh回读已证。本组实现与独审并行、root统一实际一次新UUID；保`.claude`及held Agent/Runbook，不扩新能力/前端/性能。
+- 两新工具helper b61ba73c/tests5bce2cef，复用已冻结普通组6501cb3c的私有atomic UUID/Popen生命周期，保持compiled namespace双transport/BASES，扩本组422 exact code/message/JSON在emit前校验。legacy401/404-only actualself.call反例1F原件保，13offline P/AST2/inventory与exactSHA独审；未改shared helpers、权限/原API12/420outer/单40cleanup+45grace或产品Go。
+- 实际 `0c52f169-490f-45ee-9d7c-d9c6700bcf9d`，UTC20:22:55.625156→20:24:15.999208，30P0F0skip/12正式HTTP、CLI0、Go93f始末/非race6d/runtime338。root20:22:45 fresh nonce/HMAC/UID完整argv+lstart+cwd、PG exact4CPU2GiB/无active/Host26.737GB/10.261估计空闲core准入，新UUIDdc6e...18868–69。只synthetic owner/ACL SQL及正式models控制/create201生产空会话，没有SQL业务行或推理server。
+- 七个真实422：空白text invalid_text、129reasoning invalid_reasoning、未配置显式model invalid_model、已确认reasoningnone的模型请求high unsupported_reasoning、不存在完整paste上传引用 invalid_attachment、未知字段 invalid_body、编码JSON实际2,097,153B invalid_body。最后text2,097,103B<2MiB，证明decode/body容量而非text上限；root及独审按实际nonce重建七request bytes/SHA相等，大正文/headers/Cookie不持久化。
+- created/final六完整业务/审计表相等，仅1空conversation/1create.completed audit，message/reply/event/metricsquestion为空；175其它public摘要含uploads不变、**sessions明确排除**，不能称全库未变。原detail200 DTO前后相同；Content-Type/同Cookie/零推理是冻结代码与原passed marker断言，没有独立provider流量计数。12raw及按test_name筛12normalized全False，18mandatory齐；30含前置/汇总，非30独立场景/输入空间穷尽。
+- owned Popen两进程、UUID库/角色、18868–69 cleanup P；40是预算非实测耗时。root20:25:25独立精确catalog0/0、portsfree、PG/main freshHMAC同源，不对旧PID发signals。proof `37a70b6f-7a7e-4f8c-8969-29f7a8a17286`登记17安全JSON原件。run三报告导出，run/overall六实际HTMLJSONMD下载200/MIME/attachment proof `22a7834b-8a78-440f-b475-78921a80ff64`；新focus passed但native-core needs_scenario_plan/父接口整体OPEN。
+- 36对应latest1559P4F2B1external含28接口子组+8基础对应；本轮对象/退出32P、metrics app ACL27P、input30P合89条记录/35HTTP，正常新增0，旧31不累加。Generate原14P4F/502、外部/缺权威producer/暂停和可信历史高待办保持；[剩38路由与前置](docs/releases/2026-10-06-interface-remaining38.md)已逐项核对当前集合。下一优先核现有接口适用故障/业务场景证据，真实正常新增需对应可信来源/能力；不擅自放门槛、开旧worker、实现producer/分页或改模型洗绿。完整链在接口阶段之后，性能/24h不恢复，自动化不重建。
+
 **最新记录入口：[CP-304](#cp-304-current)，2026-10-06 (+08)。正常128/166、缺38，仅正常子场景；普通会话对象/跨实例退出授权32P/14HTTP，指标会话应用撤权27P/9HTTP；normal均增0、接口及整体OPEN。先接口后整链，性能/24h及原暂停域保持。**
 
 <a id="cp-304-current"></a>

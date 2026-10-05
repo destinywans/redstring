@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-05T13:34:30.116167+00:00",
+  "updated_at": "2026-10-05T13:46:41.218119+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -6076,6 +6076,18 @@
       "decision": "纠正Execution消费者已实现但可信历史前置缺，redeliver保持用户暂停；实际真实GitLab映射正常补证",
       "run_id": "3307b8de-f802-4852-875d-fb2a144bfe1c",
       "proof_evidence_id": "d578a934-74d4-44a0-9ca5-33dd23c847a9"
+    },
+    {
+      "at": "2026-10-05T13:46:41.218119+00:00",
+      "decision": "correct_root_evidence_registration_only",
+      "reason": "Store.write_evidence positional misuse placed JSON in MIME; append correct JSON evidence and preserve original metadata/files; no native result/source rewrite",
+      "supersedes_evidence_ids": {
+        "f6cef35a-9833-444c-866e-7e6eb604af12": "c04e5562-56c7-460c-8a86-e44736deabe4",
+        "d578a934-74d4-44a0-9ca5-33dd23c847a9": "7b1ccbaf-7845-4287-82e3-223bf5458a87",
+        "4004d651-eef2-4329-a29b-33eac5347242": "1d4a0243-c757-4967-8a61-39daf93c2159"
+      },
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "native_reexecuted": false
     }
   ],
   "review_record_history": [
@@ -6364,16 +6376,16 @@
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
       "basis": "用户要求继续核46；独立21逐route审查纠正两个合法空列表前置，真实GitLab mapping与小模型独立准备，旧有界无发现不视为穷尽结论",
       "native_run_id": "fbf67c10-216b-4b1e-9969-e0d456ecea24",
-      "proof_evidence_id": "f6cef35a-9833-444c-866e-7e6eb604af12",
+      "proof_evidence_id": "c04e5562-56c7-460c-8a86-e44736deabe4",
       "real_normal_count_after_empty": 122,
       "remaining_real_normal": 41,
       "full_interface_acceptance": false,
       "real_normal_count_after_mapping": 124,
       "mapping_run_id": "3307b8de-f802-4852-875d-fb2a144bfe1c",
-      "mapping_proof_evidence_id": "d578a934-74d4-44a0-9ca5-33dd23c847a9",
+      "mapping_proof_evidence_id": "7b1ccbaf-7845-4287-82e3-223bf5458a87",
       "real_normal_count_after_small_model": 125,
       "metrics_real_run_id": "d6aa7bf3-6d58-410c-901c-7e88036546e5",
-      "metrics_real_proof_evidence_id": "4004d651-eef2-4329-a29b-33eac5347242",
+      "metrics_real_proof_evidence_id": "1d4a0243-c757-4967-8a61-39daf93c2159",
       "remaining_protocol_source_audit": ".local/testlab/cp300-remaining-real-source-audit/8e7bfb63-5bff-4f06-90b9-7b9e991e7c0b/report.md",
       "next": "existing ownedKind15-list inventory/service-discovery正常candidate，root现已只读证实apiserver和9deploy；只准备无认证/业务写或native测试"
     }
@@ -6808,7 +6820,7 @@
       ],
       "latest_run_id": "fbf67c10-216b-4b1e-9969-e0d456ecea24",
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
-      "proof_evidence_id": "f6cef35a-9833-444c-866e-7e6eb604af12",
+      "proof_evidence_id": "c04e5562-56c7-460c-8a86-e44736deabe4",
       "scope": "正式空目录200/完整DTO、匿名401、不可访问环境403、服务4非法filter422、正式logout/旧Cookie双API401/重登200、全10业务表与audit零写；仅empty_collection，非空能力/完整接口/整链未闭合。"
     },
     {
@@ -6839,7 +6851,7 @@
       ],
       "latest_run_id": "3307b8de-f802-4852-875d-fb2a144bfe1c",
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
-      "proof_evidence_id": "d578a934-74d4-44a0-9ca5-33dd23c847a9",
+      "proof_evidence_id": "7b1ccbaf-7845-4287-82e3-223bf5458a87",
       "scope": "真实owned project1 read_api Reporter→Vault UUID只读→activate点时快照→非空discover/accept、审计1、第二API精确cells/save读回、重复accepted0/全账不变；旧协议auth/fault不混，非实时远端发现/完整接口/整链。"
     },
     {
@@ -6865,7 +6877,7 @@
       ],
       "latest_run_id": "d6aa7bf3-6d58-410c-901c-7e88036546e5",
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
-      "proof_evidence_id": "4004d651-eef2-4329-a29b-33eac5347242",
+      "proof_evidence_id": "1d4a0243-c757-4967-8a61-39daf93c2159",
       "scope": "39P/20HTTP；固定真实小模型实际仅推理1次、249byte非空回复/持久账/SSE，跨API replay及拒绝不增加source/model/DB/audit；自有Prom/model/模型卷及UUID DB/角色/API清理；quality、model unavailable/recovery、旧大模型/paid、全链/性能/24h未关闭。"
     }
   ]

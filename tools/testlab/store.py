@@ -14,6 +14,11 @@ import uuid
 STATUSES = ("queued", "running", "passed", "failed", "skipped", "blocked", "not_implemented", "external_todo", "interrupted")
 MAX_LOG_BYTES = 1024 * 1024
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+MIME_RE = re.compile(r"[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+(?:;[ \t]*charset=[A-Za-z0-9_.-]+)?")
+
+
+def valid_evidence_mime(value):
+    return isinstance(value, str) and len(value) <= 128 and not any(c in value for c in '\r\n') and bool(MIME_RE.fullmatch(value))
 
 
 def now():
@@ -201,6 +206,8 @@ class Store:
         return data
 
     def write_evidence(self, run_id, content, mime="text/plain; charset=utf-8", secrets=()):
+        if not valid_evidence_mime(mime):
+            raise ValueError("invalid evidence MIME; pass evidence content as the second argument")
         ident = str(uuid.uuid4())
         content = bounded(scrub(content, secrets))
         path = self.evidence_dir / (ident + ".txt")
@@ -223,7 +230,9 @@ class Store:
             raise KeyError(ident)
         fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
         with os.fdopen(fd, "rb") as src:
-            return src.read(MAX_LOG_BYTES + 256), row["mime"]
+            # Preserve historical metadata, but never put invalid data in an HTTP header.
+            mime = row["mime"] if valid_evidence_mime(row["mime"]) else "text/plain; charset=utf-8"
+            return src.read(MAX_LOG_BYTES + 256), mime
 
     def runs(self):
         with self.connect() as conn:

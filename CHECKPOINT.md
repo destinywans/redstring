@@ -17,6 +17,9 @@
 - Fresh看板 **125/166真实正常、缺41（22协议已验待真实、19两者均缺）**；local_queue21/execution0、无active，整体OPEN。21相应接口子组最新1115P2B1external（共同前置与父汇总在内），不是1115独立断言或全部场景通过。
 - 剩余23协议来源独立审查私有8e7bfb63/report.md只读：服务发现有正式 inventory15LIST→convert→SaveSnapshot生产链，可用真实ownedKind只读输入；label_selector只控制app链接、不过滤collection，所以候选不设置application_binding、用现有UID/image/replicas，不创造Deployment/Run。root已fresh exactNode CID eac66a03.../image664b3989/owner/0600kubeconfig/显式context/loopbackTLS，实际只读9deploy metadata，receipt cp300-kubernetes-read-preflight/7860fda3...；新UUID只读RBAC认证candidate准备中，未实施Kube写、未启CI/Argo/VM/整链。其余历史7日/组织/五权威聚合/producer待办不Mock洗绿。
 
+
+- **CP300附件登记纠正（不改native结果）**：独审发现root三次 `Store.write_evidence(run_id,label,json)`错位，旧文件只保存label、JSON错存MIME。原ID/文件/元数据原样保留，按签名追加JSON附件并经看板真实HTTP200下载/Content-Type/JSON/run核实：empty **c04e5562-56c7-460c-8a86-e44736deabe4**、mapping **7b1ccbaf-7845-4287-82e3-223bf5458a87**、model **1d4a0243-c757-4967-8a61-39daf93c2159**，分别取代前述f6cef/d578/4004三个错误汇总附件；原7/8/9marker及native receipt/运行记录仍有效，不重复运行洗绿。机器计划最新proof pointer已纠正，历史文字保留。本次另为Store加MIME写前类型/结构/CRLF拒绝与历史坏MIME只读safe text fallback，原错误metadata不重写。定向反例原6F1E→3P；相关28工具+46overview P，未改Go/binary/main。模型原Ollama tags/log响应未另存，独审只能核运行时pin与1次推理断言，不能独立重算已清理容器的原日志；明确证据粒度而非声称保存全集。
+
 **最新记录入口：[CP-299](#cp-299-current)，2026-10-05，本轮接口补证已交付，整体验收仍OPEN。** 当前真实正常成功子场景120/166、协议Mock正常32；本地尚无正常样本的可执行队列0，但24项协议已验待真实、46项真实正常缺口及权限/边界/幂等/故障场景计划仍未收口。十八组最新相应结果1012P0F2B1外部待办，含共同前置/父汇总，不是1012条独立业务断言。Go93f/native nonrace6d/runtime338未改，当前无active。继续接口场景复核，不因normal队列清零转入整链；完整业务链、performance/24h、CI-CD/Workflows/VM/产品web保持暂停。 本轮新增AI/普通偏好通知/CSV三个正式HTTP组102P52HTTP(含前置和父汇总)，原首红保留；本次有界剩余审查未确认新必需本地项，下一步核剩余契约/外部/producer阻塞。
 
 

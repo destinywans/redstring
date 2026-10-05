@@ -50,3 +50,5 @@ P 数含前置、HTTP 子步骤和父汇总，不是独立断言数量。Token D
 只读分层复核登记JSON `759efb99-362b-4453-bbfa-dca537499a72`、Markdown `3c83f302-7bc4-4bdd-94b3-61edf8a1d626`：19个选定Go例为4个直接service PG与15个注册handler/显式测试路由；每例自身RUN/PASS保存，聚合terminal保8、缺11。五个原正式HTTP组29业务marker/88相关回执可查。旧bulk会话到期marker的一行JSON因原文本脱敏不能解析，字段标未知，不人工补true或改原case状态。此复核不是新运行，也不计整包通过。
 
 本轮有界剩余审查 `787cca7f-567f-4f3b-afa4-61477211205a` 未确认新的必需本地执行项，范围为native-core/native-content相关证据，不是166接口穷尽判定。Trace全集版本/来源契约、聚合分页/容量与权威七日历史、未接线producer及外部/暂停独立开放，不由正常样本或子组数量关闭。新增八组268P含setup/HTTP/父汇总，每组的适用合同及未验证范围均可回看；性能和24h不自动恢复。
+
+最终工具交付 `2246dec3fb9e1bb0b4772e38f8227b23190b94ef`（AI及分层）和 `bec30dda86e5d034a28b46fb5dfc463de334caf1`（普通设置/CSV）均推送并精确远端回读。三个新增正式HTTP组102P/52HTTP；本文件八组共268P/139HTTP，均含前置/HTTP子步骤/父汇总，不是整体通过率。整体看板及HTML/JSON/Markdown真实导出证明 `ec23554a-6202-4d94-bd7b-1e5293efbd61`，source93f/overall OPEN/父needs_scenario_plan保留。当前无active，产品代码未改；无默认分支合并或部署。

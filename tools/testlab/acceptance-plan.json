@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-05T14:13:27.496165+00:00",
+  "updated_at": "2026-10-05T14:27:10.442988+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -5047,55 +5047,123 @@
           ],
           "required_cases": [
             {
-              "suite": "service-discovery-real-source",
+              "suite": "formal-api-service-discovery-real",
               "name": "discovery_real.auth_scope"
             },
             {
-              "suite": "service-discovery-real-source",
+              "suite": "formal-api-service-discovery-real",
               "name": "discovery_real.real_lists"
             },
             {
-              "suite": "service-discovery-real-source",
+              "suite": "formal-api-service-discovery-real",
               "name": "discovery_real.native_snapshot"
             },
             {
-              "suite": "service-discovery-real-source",
+              "suite": "formal-api-service-discovery-real",
               "name": "discovery_real.nonempty"
             },
             {
-              "suite": "service-discovery-real-source",
+              "suite": "formal-api-service-discovery-real",
               "name": "discovery_real.second_api"
             },
             {
-              "suite": "service-discovery-real-source",
+              "suite": "formal-api-service-discovery-real",
               "name": "discovery_real.authorization"
             },
             {
-              "suite": "service-discovery-real-source",
+              "suite": "formal-api-service-discovery-real",
               "name": "discovery_real.parameters"
             },
             {
-              "suite": "service-discovery-real-source",
+              "suite": "formal-api-service-discovery-real",
               "name": "discovery_real.revocation"
             },
             {
-              "suite": "service-discovery-real-source",
+              "suite": "formal-api-service-discovery-real",
               "name": "discovery_real.ledger"
             },
             {
-              "suite": "service-discovery-real-source",
+              "suite": "formal-api-service-discovery-real",
               "name": "discovery_real.cleanup"
             },
             {
-              "suite": "service-discovery-real-source",
+              "suite": "formal-api-service-discovery-real",
               "name": "readonly.cleanup"
             },
             {
-              "suite": "service-discovery-real-source",
+              "suite": "formal-api-service-discovery-real",
               "name": "readonly.complete"
             }
           ],
           "proof_scope": "30P/14HTTP，真实ownedKind15LIST→formal main native snapshot→12真实workload正常DTO、双API/匿名401/无对象权200 exact empty/跨env403/参数/撤权/业务与audit整账；UUID PG/role/Popen及三认证UID精确清理。原工具错403期望首红保留。source failure/recovery另补，watch/生产集群/完整服务注册/拓扑全集/整链未验。"
+        },
+        {
+          "id": "service-discovery-source-fault-recovery",
+          "title": "服务发现真实采集撤权故障与自然恢复",
+          "command": "fresh准入新UUID/singlemanifest，root独占授权本轮Binding撤销与恢复；不复用旧manifest或提高TTL",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "GET /api/v1/services/discover"
+          ],
+          "required_cases": [
+            {
+              "suite": "formal-api-service-discovery-fault-recovery",
+              "name": "discovery_fault.auth_scope"
+            },
+            {
+              "suite": "formal-api-service-discovery-fault-recovery",
+              "name": "discovery_fault.real_lists"
+            },
+            {
+              "suite": "formal-api-service-discovery-fault-recovery",
+              "name": "discovery_fault.native_snapshot"
+            },
+            {
+              "suite": "formal-api-service-discovery-fault-recovery",
+              "name": "discovery_fault.baseline"
+            },
+            {
+              "suite": "formal-api-service-discovery-fault-recovery",
+              "name": "discovery_fault.binding_revoked"
+            },
+            {
+              "suite": "formal-api-service-discovery-fault-recovery",
+              "name": "discovery_fault.error_anchor"
+            },
+            {
+              "suite": "formal-api-service-discovery-fault-recovery",
+              "name": "discovery_fault.failure_frozen"
+            },
+            {
+              "suite": "formal-api-service-discovery-fault-recovery",
+              "name": "discovery_fault.cached_readback"
+            },
+            {
+              "suite": "formal-api-service-discovery-fault-recovery",
+              "name": "discovery_fault.binding_recreated"
+            },
+            {
+              "suite": "formal-api-service-discovery-fault-recovery",
+              "name": "discovery_fault.recovered"
+            },
+            {
+              "suite": "formal-api-service-discovery-fault-recovery",
+              "name": "discovery_fault.ledger"
+            },
+            {
+              "suite": "formal-api-service-discovery-fault-recovery",
+              "name": "discovery_fault.cleanup"
+            },
+            {
+              "suite": "formal-api-service-discovery-fault-recovery",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "formal-api-service-discovery-fault-recovery",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "28P/10HTTP.failure，精确本UUID Binding旧UID撤销，首次自然Namespace LIST403锚点、第二last_attempt推进而完整source/resources/relations/links及success不变；fresh5min内双API200完整旧DTO/当前授权；新BindingUID自然15LIST清error/推进success，业务audit不变和精确cleanup。newnormal0，不验超过5min/WATCH断线/UID churn/生产集群/完整业务链。"
         }
       ]
     },
@@ -6416,10 +6484,10 @@
       "execution_queue": 0,
       "local_queue": 20,
       "protocol_mock_normal": 32,
-      "current_groups_passed_cases": 1145,
+      "current_groups_passed_cases": 1173,
       "current_groups_blocked_cases": 2,
       "current_groups_external_todo_cases": 1,
-      "scope": "22个当前接口子组各自最新1145P2B1external包含前置、HTTP步骤和父汇总；126/166仅normal，21协议待real+19两者均缺，接口五类父包与整体OPEN。",
+      "scope": "23个当前接口子组最新1173P2B1external含共同前置/HTTP步骤/父汇总；126/166仅normal，21协议待real+19两者均缺，fault组不新增normal；接口五类父包与整体OPEN。",
       "remaining_real_normal": 40
     },
     "scenario_evidence_layer_review": {
@@ -6433,7 +6501,7 @@
     },
     "bounded_remaining_review": {
       "status": "reopened_specific_local_paths",
-      "at": "2026-10-05T14:13:27.496165+00:00",
+      "at": "2026-10-05T14:27:10.442988+00:00",
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
       "basis": "用户要求继续核46；独立21逐route审查纠正两个合法空列表前置，真实GitLab mapping与小模型独立准备，旧有界无发现不视为穷尽结论",
       "native_run_id": "fbf67c10-216b-4b1e-9969-e0d456ecea24",
@@ -6448,10 +6516,32 @@
       "metrics_real_run_id": "d6aa7bf3-6d58-410c-901c-7e88036546e5",
       "metrics_real_proof_evidence_id": "1d4a0243-c757-4967-8a61-39daf93c2159",
       "remaining_protocol_source_audit": ".local/testlab/cp300-remaining-real-source-audit/8e7bfb63-5bff-4f06-90b9-7b9e991e7c0b/report.md",
-      "next": "实际source fault/recovery子场景私有候选；仅删本run BindingUID，第二次自然403锚点保存完整旧snapshot，恢复新UID、自然15LIST，无clock/SQL状态/业务workload写入。",
+      "next": "准备并fresh准入真实空Prom规则preview独立接口；不能强加7天非空历史前置或固定返回冒真实输入。",
       "real_normal_count_after_service_discovery": 126,
       "service_discovery_run_id": "f7ea6811-809f-4488-a9dc-592c8597ce75",
-      "service_discovery_proof_evidence_id": "7f6ad9f1-c877-4b26-867a-34997f2f4622"
+      "service_discovery_proof_evidence_id": "7f6ad9f1-c877-4b26-867a-34997f2f4622",
+      "source_fault_recovery_run_id": "5abb813d-be8d-4941-bbef-66662dd611c2",
+      "source_fault_recovery_proof_evidence_id": "18cd23c5-bc4a-4517-89d6-ebf129fc2b29"
+    },
+    "remaining_normal_context": {
+      "status": "bounded_source_review_not_execution",
+      "at": "2026-10-05T14:27:10.442988+00:00",
+      "count": 40,
+      "protocol_only": 21,
+      "neither_normal": 19,
+      "primary_prerequisite_counts": {
+        "authority_producer": 24,
+        "source_contract": 2,
+        "historical_completeness": 2,
+        "organization_external": 8,
+        "paused": 4
+      },
+      "proof_evidence_ids": {
+        "json": "4c66b2fd-f34e-44fe-b99a-79fc312910bc",
+        "md": "94cd31c5-1aa3-4ef8-b32a-af3a82db908d"
+      },
+      "limitation": "主前置可交叉，不是40都没测、不是40都缺实现；报告只审剩余正常前置，不宣称166五类全部完成。",
+      "new_feasible": "真实Prom空matrix preview在原合同valid/no_observed_series为200；独立候选prepared不计native；generate不依赖七天QueryRange，但HTTPS模型/20s严格JSON成功仍实际未验。"
     }
   },
   "interface_subpackages": [
@@ -6946,7 +7036,7 @@
     },
     {
       "id": "service-discovery-real-source",
-      "suite_id": "service-discovery-real-source",
+      "suite_id": "formal-api-service-discovery-real",
       "targets": [
         [
           "GET",
@@ -6972,6 +7062,36 @@
       "proof_evidence_id": "7f6ad9f1-c877-4b26-867a-34997f2f4622",
       "first_failure_run_id": "c4ba7960-b0f9-4b6a-8785-78aa21697993",
       "scope": "30P/14HTTP，真实ownedKind15LIST→formal main native snapshot→12真实workload正常DTO、双API/匿名401/无对象权200 exact empty/跨env403/参数/撤权/业务与audit整账；UUID PG/role/Popen及三认证UID精确清理。原工具错403期望首红保留。source failure/recovery另补，watch/生产集群/完整服务注册/拓扑全集/整链未验。"
+    },
+    {
+      "id": "service-discovery-source-fault-recovery",
+      "suite_id": "formal-api-service-discovery-fault-recovery",
+      "targets": [
+        [
+          "GET",
+          "/services/discover"
+        ]
+      ],
+      "required_cases": [
+        "discovery_fault.auth_scope",
+        "discovery_fault.real_lists",
+        "discovery_fault.native_snapshot",
+        "discovery_fault.baseline",
+        "discovery_fault.binding_revoked",
+        "discovery_fault.error_anchor",
+        "discovery_fault.failure_frozen",
+        "discovery_fault.cached_readback",
+        "discovery_fault.binding_recreated",
+        "discovery_fault.recovered",
+        "discovery_fault.ledger",
+        "discovery_fault.cleanup",
+        "readonly.cleanup",
+        "readonly.complete"
+      ],
+      "latest_run_id": "5abb813d-be8d-4941-bbef-66662dd611c2",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "proof_evidence_id": "18cd23c5-bc4a-4517-89d6-ebf129fc2b29",
+      "scope": "28P/10HTTP.failure，精确本UUID Binding旧UID撤销，首次自然Namespace LIST403锚点、第二last_attempt推进而完整source/resources/relations/links及success不变；fresh5min内双API200完整旧DTO/当前授权；新BindingUID自然15LIST清error/推进success，业务audit不变和精确cleanup。newnormal0，不验超过5min/WATCH断线/UID churn/生产集群/完整业务链。"
     }
   ]
 }

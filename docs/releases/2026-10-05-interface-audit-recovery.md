@@ -137,3 +137,10 @@ JSON证据 `09a23b78-4afc-42f5-9981-fce3599f8f91` 已实际HTTP200/MIME/run核�
 正式现有接口子组72P/50HTTP；源93f/Darwin6d/runtime338，UUID隔离DB/role与18840–41两代4ownedPopen。服务HTTP→认证Webhook三告警，独立view/change、xmin CAS和整账审计503回滚→旧revision对侧恢复、logout跨实例失效及精确清理。proof43102f57-8af4-4c63-a6f7-129b38b82185/run a58a5a6c-d921-4d4a-b24c-3408294e8a88，三格式报告。
 
 首341c65P1F/command300秒外层timeout，48HTTP原断言P、UUID清理P，但五marker缺失所以保failed，proof0ca78b1d-c727-4e58-9ac2-2a9b3f56e73b与原command/报告。仅新UUID外层420秒；API12/权限/断言/40cleanup含4恢复/45grace不变，不自动retry或修改首红。normal增0，不证明自然expiry/锁等待/真实组织/通知/整链；产品Go/main/cert/canonicalAPP均未改变。
+
+
+## CP301 Canvas创建审计回滚独立交付
+
+现有POST/canvases两条ai_draft=false路径，34P/16正式HTTP、source93f/Darwin6d/runtime338，run eb6e8823-032c-4706-8b1a-24dcd2a84047 UTC17:41:44.458911→17:43:09.572468。合法HTTPservices前置，各503audit_unavailable保持完整六表+其他public账；去fault对侧samebody201/exact1audit，plan root/INV原生root-context-event与graph实际读回。proof1d2a25cc-9c46-44b6-9165-d9c5a03b88a0及三报告/raw12wire+完整snapshots0600，UUIDDBrole/两Popen/18844–45清理P。
+
+23offline与独审无阻断；outer420/API12/40cleanup含4restore/45grace。INV先前仅源码可行，现在为本次实际201/graph证据，但normal增0（POST已有plan normal），不调用模型/producer/整链，不证明所有并发crash。原offline fixture22P1F前像保留，首stdout未完整另存；产品Go/main/cert/canonicalAPP无变化。31对应latest1418P4F2B1external含前置/汇总，原首红/外部/缺能力/暂停仍可见。

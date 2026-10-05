@@ -1,4 +1,4 @@
-**最新记录入口：[CP-301](#cp-301-current)，2026-10-06 (+08)，接口验收持续推进，整体 OPEN。** 当前真实正常127/166、剩39；Pull29P/Workspace25P/Claim72P已实跑，首次失败保留。继续现有接口适用场景，先接口后整链；性能/24h及暂停域保持暂停。
+**最新记录入口：[CP-301](#cp-301-current)，2026-10-06 (+08)，接口验收持续推进，整体 OPEN。** 当前真实正常127/166、剩39；Pull29P/Workspace25P/Claim72P/Canvas34P已实跑，首次失败保留。继续现有接口适用场景，先接口后整链；性能/24h及暂停域保持暂停。
 
 
 <a id="cp-301-current"></a>
@@ -25,6 +25,10 @@
 - **告警来源/独立权限/认领审计子组**：first `341c773a-c1b3-48c0-b67c-b6d2792515c0` UTC17:24:50.644606→17:29:57.180289，65P1F/CLI2，原command timeout=True/exit2，48HTTP原预期P；缺session_revocation/ledger及三个cleanup/complete必需marker，不算整组P。private真实cleanup DBrole/4ownPopen absent、审计回滚/恢复已P，原proof `0ca78b1d-c727-4e58-9ac2-2a9b3f56e73b`/command `e30c790a-44cb-457a-b677-6f7fe2c9b547`/三报告保留。根因为外层300秒编排预算不足，不是观测到API拒绝或事务缺陷；显式newUUID90a8...只外层420秒，原API12、断言/权限、40cleanup含≤4恢复、45grace保持，无自动retry/原件回填。
 - retest `a58a5a6c-d921-4d4a-b24c-3408294e8a88` UTC17:34:23.367669→17:39:45.612171，72P0F0skip/CLI0/50HTTP/Go93f始末/Darwin6d/runtime338。34offline/AST/inventory/独审后17:34:10 fresh HMAC/UID/argv/lstart/cwd/PG4CPU2GiB/无active/host26.125GB准入；两正式HTTP服务→认证Webhook202三告警，独立view/change与跨env拒绝、原CAS412/当前200/他人409回归；精确alert.claim succeeded审计503events_unavailable保持全部ops rows+xmin/assignee/updated_at/audit及其他全部public表摘要，去fault同旧revision对侧200/exact1audit。正式logout后旧cookie两API401、另一actor仍200，最终2claims/2audits/隐藏第三告警无变。完整合成raw ledgers/50HTTP摘要及42原wire保存0600；两代4heldPopen/UUIDDBrole/18840–41清理P，证据 `43102f57-8af4-4c63-a6f7-129b38b82185` 真实HTTP下载200与三报告。正常增0，不真实org/自然expiry/inflight锁等待/通知/全状态组合/整链。工具首33tests32P1F为mock seed(self)断言错，原前像与stdout保留；新34P不改产品。
 - 30对应子组latest1384P4F2B1external（含前置/汇总），normal127/166缺39及原生成7e2四红/79skip/producer/外部/暂停项保持。native-content只读19路由报告JSON `69c3f8c9-dd14-463a-b957-c576791eef76`/MD `e78131d4-10c5-4bf3-ba48-5896879efd0f`已登记，唯一新候选为plan/investigation ai_draftfalse创建audit回滚，正常样本不是接口phase/父包通过；后续独立交付不混本次Claim要求。
+
+- **告警独立交付**已提交/推送 `06b5f173d7f25a0e2a8c1af5f3ac18108899e6b2`，exactlsremote；WAN136/138/139/163和原51保存，138/51 fresh回读commit+run匹配。Claim proof已登记/HTTP200，随后root把Canvas必然仍active作只读协调假设时，它已自然终态，断言失败于coordinator写前；按freshSQLite0active纠正，不重写或重复已登记proof，无native/case改变。
+- **Canvas创建两条现有事务接口** `eb6e8823-032c-4706-8b1a-24dcd2a84047` UTC17:41:44.458911→17:43:09.572468，34P0F0skip/CLI0/16HTTP/Go93f始末/Darwin6d/runtime338。23offline/AST/inventory/独审后17:41:31 fresh HMAC/tuple/PG4CPU2GiB/host26.081GB/无active、新UUID7db2...18844–45准入。正式HTTPservices201读回app/envrow；plan及单app investigation ai_draft=false精确success audit各503audit_unavailable，六张完整业务/audit表及其他176public表摘要完全保持；owner守卫撤fault后samebody另一API201，各一结构+audit，第二API详情/graph与原账相符无读副作用。INV随机root/NULLparent/revision0/empty initial context/event lineage、graph v0/omitempty与实际DB严格核，允许序列失败空洞。仅读创建，无模型/模板authority/分支执行/整链，正常增0。完整6表合成snapshot/其他摘要+12原wire0600；两heldPopen/UUIDDBrole/端口精确清理P，单40含≤4fault恢复/45grace；proof `1d2a25cc-9c46-44b6-9165-d9c5a03b88a0` actualHTTP200/三格式报告。
+- 工具首23tests22P1F为离线counterexample错误修改INV路径不应写的canvas[]空表，保tests前像及结构化结果，首stdout没有完整另存工件如实标注；修fixture造真实残留，不改helper/native/assertion。31对应latest1418P4F2B1external含前置/汇总，原7e2/model、79skip、producer/外部/暂停域保留。下一Trace仅合法scope=agent partial空消费者现有分支准备；app全集仍缺可信完整性来源，已知ID与partial200不代全集，正常127/166缺39和整体OPEN保持。
 
 <a id="cp-300-current"></a>
 ## CP-300 · 2026-10-05 · 重新逐接口查可执行路径并实际补证

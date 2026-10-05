@@ -4062,6 +4062,83 @@
             "scope": "仅列出的接口子场景；不计为父包或全部接口验收。",
             "review_record_id": "a689f9d2-96cf-4ed5-aaca-9e05afda88fa"
           }
+        },
+        {
+          "id": "canvas-creation-audit-rollback",
+          "title": "Canvas两类创建审计回滚和跨实例恢复",
+          "command": "python3 tools/testlab/testlab.py run --suite formal-api-canvas-creation-audit --manifest <fresh-root-admitted-singlemanifest>",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "POST /api/v1/canvases"
+          ],
+          "required_cases": [
+            {
+              "suite": "formal-api-canvas-creation-audit",
+              "name": "canvas_creation.http_service"
+            },
+            {
+              "suite": "formal-api-canvas-creation-audit",
+              "name": "canvas_creation.permissions"
+            },
+            {
+              "suite": "formal-api-canvas-creation-audit",
+              "name": "canvas_creation.boundaries"
+            },
+            {
+              "suite": "formal-api-canvas-creation-audit",
+              "name": "canvas_creation.plan.rollback"
+            },
+            {
+              "suite": "formal-api-canvas-creation-audit",
+              "name": "canvas_creation.plan.fault_removed"
+            },
+            {
+              "suite": "formal-api-canvas-creation-audit",
+              "name": "canvas_creation.plan.recovery"
+            },
+            {
+              "suite": "formal-api-canvas-creation-audit",
+              "name": "canvas_creation.plan.readback"
+            },
+            {
+              "suite": "formal-api-canvas-creation-audit",
+              "name": "canvas_creation.investigation.rollback"
+            },
+            {
+              "suite": "formal-api-canvas-creation-audit",
+              "name": "canvas_creation.investigation.fault_removed"
+            },
+            {
+              "suite": "formal-api-canvas-creation-audit",
+              "name": "canvas_creation.investigation.recovery"
+            },
+            {
+              "suite": "formal-api-canvas-creation-audit",
+              "name": "canvas_creation.investigation.readback"
+            },
+            {
+              "suite": "formal-api-canvas-creation-audit",
+              "name": "canvas_creation.cleanup"
+            },
+            {
+              "suite": "formal-api-canvas-creation-audit",
+              "name": "management.cleanup"
+            },
+            {
+              "suite": "formal-api-canvas-creation-audit",
+              "name": "management.complete"
+            }
+          ],
+          "proof_scope": "34P/16正式HTTP；HTTPservices201读回app/envrow，ai_draft=false的plan与单app investigation，各精确success audit503audit_unavailable保持六完整表及其他全部public摘要；去faultsamebody对侧201，各exact1audit及实际原生结构/第二API读回。INV随机root/nullparent/revision0/initial context/event lineage、graph v0/omitempty真实核，序列允许空洞。原完整snapshot/12wire0600，UUIDDBrole/两Popen18844–45清理P。normal0，不模型/模板authority/分支回复/整链/所有并发crash。",
+          "current_original_evidence": {
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "run_id": "eb6e8823-032c-4706-8b1a-24dcd2a84047",
+            "proof_evidence_ids": [
+              "1d2a25cc-9c46-44b6-9165-d9c5a03b88a0"
+            ],
+            "scope": "仅现有创建两个子分支的事务故障，不是完整调查/模板/父包。"
+          }
         }
       ],
       "readonly_scenario_audit": {
@@ -7264,10 +7341,10 @@
       "execution_queue": 0,
       "local_queue": 19,
       "protocol_mock_normal": 32,
-      "current_groups_passed_cases": 1384,
+      "current_groups_passed_cases": 1418,
       "current_groups_blocked_cases": 2,
       "current_groups_external_todo_cases": 1,
-      "scope": "30对应子组latest1384P4F2B1external（原1312+Claim72），含前置/父汇总；first Claim65P1F和其他原首红保留不叠加，normal127/166缺39，接口phase/wholeOPEN。",
+      "scope": "31对应子组latest1418P4F2B1external（原1384+Canvas34），含前置/父汇总；原firstClaim65P1F/其他首红单列保留。normal127/166缺39，仅normal；接口phase/wholeOPEN。",
       "remaining_real_normal": 39,
       "current_groups_failed_cases": 4,
       "new_interface_scene_runs": [
@@ -7305,6 +7382,13 @@
           "summary": "72P/50HTTP全部原marker通过，新UUID显式仅外层420",
           "normal_added": 0,
           "proof_evidence_id": "43102f57-8af4-4c63-a6f7-129b38b82185"
+        },
+        {
+          "id": "eb6e8823-032c-4706-8b1a-24dcd2a84047",
+          "status": "passed",
+          "summary": "34P/16HTTP，plan/INV各503六表回滚→samebody对侧201+实际结构读回",
+          "normal_added": 0,
+          "proof_evidence_id": "1d2a25cc-9c46-44b6-9165-d9c5a03b88a0"
         }
       ]
     },
@@ -7334,7 +7418,7 @@
       "metrics_real_run_id": "d6aa7bf3-6d58-410c-901c-7e88036546e5",
       "metrics_real_proof_evidence_id": "1d4a0243-c757-4967-8a61-39daf93c2159",
       "remaining_protocol_source_audit": ".local/testlab/cp300-remaining-real-source-audit/8e7bfb63-5bff-4f06-90b9-7b9e991e7c0b/report.md",
-      "next": "继续现有POST Canvas plan/investigation ai_draftfalse审计回滚子组；并核Trace合法agent partial读取分支，仍先接口，整链/perf/soak暂停。",
+      "next": "只准备/审查现有GETtraces scope=agent的合法partial空真实PG消费者接口；不能关闭app Tempo全集/Agent producer，不恢复整链/perf/soak。",
       "real_normal_count_after_service_discovery": 126,
       "service_discovery_run_id": "f7ea6811-809f-4488-a9dc-592c8597ce75",
       "service_discovery_proof_evidence_id": "7f6ad9f1-c877-4b26-867a-34997f2f4622",
@@ -8152,6 +8236,36 @@
       "first_run_id": "341c773a-c1b3-48c0-b67c-b6d2792515c0",
       "first_proof_evidence_id": "0ca78b1d-c727-4e58-9ac2-2a9b3f56e73b",
       "scope": "72P/50正式HTTP；HTTPservices与认证Webhook产生三告警，独立view/change、xmin当前重试/旧412/其他认领409、精确alert.claim succeeded审计503events_unavailable整账回滚，samebody旧revision对侧200/exact一audit；真实logout旧cookie两API401。完整ops rows+xmin/audit与其他public摘要、原wire保存0600，UUIDDBrole/两代4heldPopen/18840–41清理P。normal0；不自然expiry/等待竞态/真实组织/通知/整链。首300秒编排中断65P1F保留，新UUID仅外层420/API12/40cleanup含≤4restore/45grace原值。"
+    },
+    {
+      "id": "canvas-creation-audit-rollback",
+      "suite_id": "formal-api-canvas-creation-audit",
+      "targets": [
+        [
+          "POST",
+          "/canvases"
+        ]
+      ],
+      "required_cases": [
+        "canvas_creation.http_service",
+        "canvas_creation.permissions",
+        "canvas_creation.boundaries",
+        "canvas_creation.plan.rollback",
+        "canvas_creation.plan.fault_removed",
+        "canvas_creation.plan.recovery",
+        "canvas_creation.plan.readback",
+        "canvas_creation.investigation.rollback",
+        "canvas_creation.investigation.fault_removed",
+        "canvas_creation.investigation.recovery",
+        "canvas_creation.investigation.readback",
+        "canvas_creation.cleanup",
+        "management.cleanup",
+        "management.complete"
+      ],
+      "latest_run_id": "eb6e8823-032c-4706-8b1a-24dcd2a84047",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "proof_evidence_id": "1d2a25cc-9c46-44b6-9165-d9c5a03b88a0",
+      "scope": "34P/16正式HTTP；HTTPservices201读回app/envrow，ai_draft=false的plan与单app investigation，各精确success audit503audit_unavailable保持六完整表及其他全部public摘要；去faultsamebody对侧201，各exact1audit及实际原生结构/第二API读回。INV随机root/nullparent/revision0/initial context/event lineage、graph v0/omitempty真实核，序列允许空洞。原完整snapshot/12wire0600，UUIDDBrole/两Popen18844–45清理P。normal0，不模型/模板authority/分支回复/整链/所有并发crash。"
     }
   ]
 }

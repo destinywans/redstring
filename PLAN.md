@@ -1,6 +1,6 @@
-**最新执行状态：[CP-301](CHECKPOINT.md#cp-301-current)，2026-10-06 (+08)。** 当前真实正常127/166、剩39，仅normal覆盖；新Claim72P/50HTTP、Pull29P与Workspace25P，30对应子组latest1384P4F2B1external含前置/汇总，首次编排失败不回填。继续现有接口必要场景；完整链在接口之后，性能/24h、产品前端及CI/CD/Workflows/VM保持暂停，整体OPEN。
+**最新执行状态：[CP-301](CHECKPOINT.md#cp-301-current)，2026-10-06 (+08)。** 当前真实正常127/166、剩39，仅normal覆盖；Claim72P/50HTTP及Canvas创建34P/16HTTP已正式闭合，31对应子组latest1418P4F2B1external含前置/汇总，首红保留。继续现有Trace agent partial空消费者接口；完整链仍在接口之后，性能/24h和原暂停域保持，整体OPEN。
 
-**当前入口：[CP300](CHECKPOINT.md#cp-300-current)，2026-10-05，持续当前接口验收。** 已新增MCP/服务空目录实际37P23HTTP：真实normal124/166，剩42，其中23已有协议来源normal；仅空集合证明，非空能力/完整场景不能计通过。原18组1012P与新空目录37P及mapping27P共1076P（含前置/汇总），原2B1external保留；当前无active，真实GitLab mapping已27P10HTTP，小模型接口仅准备。先接口，再完整业务链；performance/24h及原生CI-CD/Workflows/VM/产品web保持暂停，不重建自动化。
+**历史CP300入口与当时快照：[CP300](CHECKPOINT.md#cp-300-current)，2026-10-05，持续当前接口验收。** 已新增MCP/服务空目录实际37P23HTTP：真实normal124/166，剩42，其中23已有协议来源normal；仅空集合证明，非空能力/完整场景不能计通过。原18组1012P与新空目录37P及mapping27P共1076P（含前置/汇总），原2B1external保留；当前无active，真实GitLab mapping已27P10HTTP，小模型接口仅准备。先接口，再完整业务链；performance/24h及原生CI-CD/Workflows/VM/产品web保持暂停，不重建自动化。
 
 **历史CP299入口与当时快照：**
 

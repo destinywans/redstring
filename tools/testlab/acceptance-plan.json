@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-05T13:46:41.218119+00:00",
+  "updated_at": "2026-10-05T14:13:27.496165+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -1456,19 +1456,20 @@
       "method": "GET",
       "path": "/api/v1/services/discover",
       "module": "资源与观测",
-      "availability": "local_environment",
+      "availability": "local_ready",
       "priority": "P1",
       "package_id": "local-components",
-      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "reason": "正式ownedKind inventory15LIST/native SaveSnapshot已真实30P/14HTTP；非空12workload、权限过滤及精确清理；故障/恢复正独立准备，不能以normal关闭全部场景。",
       "prerequisites": [
         "参见工作包 local-components 的隔离与证据前置"
       ],
       "source_refs": [
-        "tools/testlab/components.py",
-        "tools/testlab/silence_chain.py",
-        "cmd/aiops/v3.go"
+        "internal/inventory/postgres.go",
+        "internal/inventory/sync.go",
+        "internal/v3observe/discover.go",
+        "tools/testlab/api_service_discovery_real_source_coverage.py"
       ],
-      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+      "proof_scope": "30P/14HTTP，真实ownedKind15LIST→formal main native snapshot→12真实workload正常DTO、双API/匿名401/无对象权200 exact empty/跨env403/参数/撤权/业务与audit整账；UUID PG/role/Popen及三认证UID精确清理。原工具错403期望首红保留。source failure/recovery另补，watch/生产集群/完整服务注册/拓扑全集/整链未验。"
     },
     {
       "method": "POST",
@@ -5035,6 +5036,66 @@
             }
           ],
           "proof_scope": "四真实本地待审草稿HTTP+1合成七天历史预览protocol Mock；真实owned GitLab opened MR/实际TLS/PG及审计，未merge/激活/通知。自然60秒租约、远端成功本地提交失败、CAS/响应丢失/权限/清理闭环；真实七日历史与生产治理未验。"
+        },
+        {
+          "id": "service-discovery-real-source",
+          "title": "服务发现真实只读来源与非空接口",
+          "command": "先fresh source/binary/HMAC/ownedPG与Kind/UUID准入，再single manifest formal-api-service-discovery-real；不借旧freeze或重复原UUID",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "GET /api/v1/services/discover"
+          ],
+          "required_cases": [
+            {
+              "suite": "service-discovery-real-source",
+              "name": "discovery_real.auth_scope"
+            },
+            {
+              "suite": "service-discovery-real-source",
+              "name": "discovery_real.real_lists"
+            },
+            {
+              "suite": "service-discovery-real-source",
+              "name": "discovery_real.native_snapshot"
+            },
+            {
+              "suite": "service-discovery-real-source",
+              "name": "discovery_real.nonempty"
+            },
+            {
+              "suite": "service-discovery-real-source",
+              "name": "discovery_real.second_api"
+            },
+            {
+              "suite": "service-discovery-real-source",
+              "name": "discovery_real.authorization"
+            },
+            {
+              "suite": "service-discovery-real-source",
+              "name": "discovery_real.parameters"
+            },
+            {
+              "suite": "service-discovery-real-source",
+              "name": "discovery_real.revocation"
+            },
+            {
+              "suite": "service-discovery-real-source",
+              "name": "discovery_real.ledger"
+            },
+            {
+              "suite": "service-discovery-real-source",
+              "name": "discovery_real.cleanup"
+            },
+            {
+              "suite": "service-discovery-real-source",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "service-discovery-real-source",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "30P/14HTTP，真实ownedKind15LIST→formal main native snapshot→12真实workload正常DTO、双API/匿名401/无对象权200 exact empty/跨env403/参数/撤权/业务与audit整账；UUID PG/role/Popen及三认证UID精确清理。原工具错403期望首红保留。source failure/recovery另补，watch/生产集群/完整服务注册/拓扑全集/整链未验。"
         }
       ]
     },
@@ -6350,16 +6411,16 @@
     ],
     "latest_result_snapshot": {
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
-      "main_normal_success": 125,
+      "main_normal_success": 126,
       "main_total": 166,
       "execution_queue": 0,
-      "local_queue": 21,
+      "local_queue": 20,
       "protocol_mock_normal": 32,
-      "current_groups_passed_cases": 1115,
+      "current_groups_passed_cases": 1145,
       "current_groups_blocked_cases": 2,
       "current_groups_external_todo_cases": 1,
-      "scope": "21个当前接口子组各自最新1115P2B1external含共同前置/HTTP子步骤/父汇总，非1115独立断言；125/166仅normal，22已有protocol待real与19两者均缺，父包和整体验收OPEN。",
-      "remaining_real_normal": 41
+      "scope": "22个当前接口子组各自最新1145P2B1external包含前置、HTTP步骤和父汇总；126/166仅normal，21协议待real+19两者均缺，接口五类父包与整体OPEN。",
+      "remaining_real_normal": 40
     },
     "scenario_evidence_layer_review": {
       "record_id": "7974f802-7051-4ee4-a133-89255ba1c216",
@@ -6372,13 +6433,13 @@
     },
     "bounded_remaining_review": {
       "status": "reopened_specific_local_paths",
-      "at": "2026-10-05T13:34:30.116167+00:00",
+      "at": "2026-10-05T14:13:27.496165+00:00",
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
       "basis": "用户要求继续核46；独立21逐route审查纠正两个合法空列表前置，真实GitLab mapping与小模型独立准备，旧有界无发现不视为穷尽结论",
       "native_run_id": "fbf67c10-216b-4b1e-9969-e0d456ecea24",
       "proof_evidence_id": "c04e5562-56c7-460c-8a86-e44736deabe4",
       "real_normal_count_after_empty": 122,
-      "remaining_real_normal": 41,
+      "remaining_real_normal": 40,
       "full_interface_acceptance": false,
       "real_normal_count_after_mapping": 124,
       "mapping_run_id": "3307b8de-f802-4852-875d-fb2a144bfe1c",
@@ -6387,7 +6448,10 @@
       "metrics_real_run_id": "d6aa7bf3-6d58-410c-901c-7e88036546e5",
       "metrics_real_proof_evidence_id": "1d4a0243-c757-4967-8a61-39daf93c2159",
       "remaining_protocol_source_audit": ".local/testlab/cp300-remaining-real-source-audit/8e7bfb63-5bff-4f06-90b9-7b9e991e7c0b/report.md",
-      "next": "existing ownedKind15-list inventory/service-discovery正常candidate，root现已只读证实apiserver和9deploy；只准备无认证/业务写或native测试"
+      "next": "实际source fault/recovery子场景私有候选；仅删本run BindingUID，第二次自然403锚点保存完整旧snapshot，恢复新UID、自然15LIST，无clock/SQL状态/业务workload写入。",
+      "real_normal_count_after_service_discovery": 126,
+      "service_discovery_run_id": "f7ea6811-809f-4488-a9dc-592c8597ce75",
+      "service_discovery_proof_evidence_id": "7f6ad9f1-c877-4b26-867a-34997f2f4622"
     }
   },
   "interface_subpackages": [
@@ -6879,6 +6943,35 @@
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
       "proof_evidence_id": "1d4a0243-c757-4967-8a61-39daf93c2159",
       "scope": "39P/20HTTP；固定真实小模型实际仅推理1次、249byte非空回复/持久账/SSE，跨API replay及拒绝不增加source/model/DB/audit；自有Prom/model/模型卷及UUID DB/角色/API清理；quality、model unavailable/recovery、旧大模型/paid、全链/性能/24h未关闭。"
+    },
+    {
+      "id": "service-discovery-real-source",
+      "suite_id": "service-discovery-real-source",
+      "targets": [
+        [
+          "GET",
+          "/services/discover"
+        ]
+      ],
+      "required_cases": [
+        "discovery_real.auth_scope",
+        "discovery_real.real_lists",
+        "discovery_real.native_snapshot",
+        "discovery_real.nonempty",
+        "discovery_real.second_api",
+        "discovery_real.authorization",
+        "discovery_real.parameters",
+        "discovery_real.revocation",
+        "discovery_real.ledger",
+        "discovery_real.cleanup",
+        "readonly.cleanup",
+        "readonly.complete"
+      ],
+      "latest_run_id": "f7ea6811-809f-4488-a9dc-592c8597ce75",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "proof_evidence_id": "7f6ad9f1-c877-4b26-867a-34997f2f4622",
+      "first_failure_run_id": "c4ba7960-b0f9-4b6a-8785-78aa21697993",
+      "scope": "30P/14HTTP，真实ownedKind15LIST→formal main native snapshot→12真实workload正常DTO、双API/匿名401/无对象权200 exact empty/跨env403/参数/撤权/业务与audit整账；UUID PG/role/Popen及三认证UID精确清理。原工具错403期望首红保留。source failure/recovery另补，watch/生产集群/完整服务注册/拓扑全集/整链未验。"
     }
   ]
 }

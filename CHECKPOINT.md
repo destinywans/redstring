@@ -1,4 +1,4 @@
-**最新记录入口：[CP-300](#cp-300-current)，2026-10-05，继续当前接口验收，整体仍 OPEN。** 已实际补 MCP/服务合法空目录：37P、23HTTP，source93f始末相同、CLI0；真实正常子场景125/166，剩41（22已有协议正常、19两者均缺），不等于完整接口验收。非空来源/生产者及权限故障子场景仍独立。性能、24h、原生交付与产品前端保持暂停，未重建自动化。
+**最新记录入口：[CP-300](#cp-300-current)，2026-10-05，持续当前接口验收，整体 OPEN。** 真实正常126/166、剩40；新服务发现30P/14HTTP真实非空来源、权限及精确清理已核。正常子场景不等于完整接口验收，source故障恢复正独立补测；先接口后整链，performance/24h及暂停域保持暂停。
 
 <a id="cp-300-current"></a>
 ## CP-300 · 2026-10-05 · 重新逐接口查可执行路径并实际补证
@@ -19,6 +19,13 @@
 
 
 - **CP300附件登记纠正（不改native结果）**：独审发现root三次 `Store.write_evidence(run_id,label,json)`错位，旧文件只保存label、JSON错存MIME。原ID/文件/元数据原样保留，按签名追加JSON附件并经看板真实HTTP200下载/Content-Type/JSON/run核实：empty **c04e5562-56c7-460c-8a86-e44736deabe4**、mapping **7b1ccbaf-7845-4287-82e3-223bf5458a87**、model **1d4a0243-c757-4967-8a61-39daf93c2159**，分别取代前述f6cef/d578/4004三个错误汇总附件；原7/8/9marker及native receipt/运行记录仍有效，不重复运行洗绿。机器计划最新proof pointer已纠正，历史文字保留。本次另为Store加MIME写前类型/结构/CRLF拒绝与历史坏MIME只读safe text fallback，原错误metadata不重写。定向反例原6F1E→3P；相关28工具+46overview P，未改Go/binary/main。模型原Ollama tags/log响应未另存，独审只能核运行时pin与1次推理断言，不能独立重算已清理容器的原日志；明确证据粒度而非声称保存全集。
+
+
+
+- **CP300真实服务发现接口终态**：`f7ea6811-809f-4488-a9dc-592c8597ce75`，14:00:06.156781Z→14:00:23.552127Z，30P0F0skip、实际CLI0，source93f始末同/nonrace6d。29offline P；真实ownedKind15LIST→正式main inventory→SaveSnapshot产生12workload，实际14HTTP、双API非空DTO、原UID/image/replicas/来源、匿名401/跨环境403、无对象权200 exact空、参数422/unknown空、撤权后对侧隐藏、业务及audit不变。10marker齐，UUID PG/role/持有Popen/端口及三只读认证对象精确UID清理P（unknown/errors均空）；独审无阻断。证明 `7f6ad9f1-c877-4b26-867a-34997f2f4622`、三报告与真实HTTP JSON下载已核。原完整SQL snapshot和每次DELETE原包未另存，不能冒独立离线重算；运行冻结断言/receipt给出相应证明。未写Deployment、恢复CI/Argo/VM或SQL伪造业务成功。
+- 原 `c4ba7960-b0f9-4b6a-8785-78aa21697993` 18P4F首红和proof `e00c8872-dcc5-4a99-92d1-dc1dc0acb8cd`/三报告保留：工具误期望无对象权403；原逐对象services/resources过滤合同是200完整空DTO。只最小修正期望并添加空DTO/信息泄漏反例，匿名/环境拒绝不变；四红包含父汇总，不是四个产品bug。原3f9/665b工具字节preimage是事后重构且hash吻合，明确不是同时期归档。
+- 当前真实正常 **126/166、剩40（21协议正常待真实、19两者均缺）**，normal execution_queue0、local_queue20、无active；22子组相应最新1145P2B1external含前置与父汇总，整体OPEN。原正常计数不是完整接口验收；继续source失败/恢复实际接口子场景。下一独立候选只撤销本UUID Binding，让下一轮Namespace LIST403保完整旧快照，从首次失败落库/第二次自然失败作锚点避开合法inflight成功，再恢复新UID自然15LIST；不改clock/TTL/SQL状态、不动业务workload。
+- 证据登记另有root错误：Store误以data目录构造，`61647e8b-e47b-4a8d-8aed-1544b2b0860c`保存到私有嵌套库（原件保留，非看板证据）。已使用真实repo ROOT追加正确proof并实际HTTP200 JSON解析；无native结果变更。前述MIME修复已scoped提交推送1169b2f；仅看板8787按fresh监听者身份重载，main/source/runtime未改。receipt `.local/testlab/cp300-dashboard-mime-reload/d50d3aba-299b-447a-b26e-ed87d41152c4/receipt.json`，历史坏附件安全text、正确附件JSON实际下载P。
 
 **最新记录入口：[CP-299](#cp-299-current)，2026-10-05，本轮接口补证已交付，整体验收仍OPEN。** 当前真实正常成功子场景120/166、协议Mock正常32；本地尚无正常样本的可执行队列0，但24项协议已验待真实、46项真实正常缺口及权限/边界/幂等/故障场景计划仍未收口。十八组最新相应结果1012P0F2B1外部待办，含共同前置/父汇总，不是1012条独立业务断言。Go93f/native nonrace6d/runtime338未改，当前无active。继续接口场景复核，不因normal队列清零转入整链；完整业务链、performance/24h、CI-CD/Workflows/VM/产品web保持暂停。 本轮新增AI/普通偏好通知/CSV三个正式HTTP组102P52HTTP(含前置和父汇总)，原首红保留；本次有界剩余审查未确认新必需本地项，下一步核剩余契约/外部/producer阻塞。
 

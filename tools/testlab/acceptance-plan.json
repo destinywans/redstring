@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-05T15:21:18.439255+00:00",
+  "updated_at": "2026-10-05T15:41:19.908205+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -3656,6 +3656,57 @@
             }
           ],
           "proof_scope": "CSV download anonymous401/owner200/headerless200/peer404/wrongenv403/currentrevoke403恢复、完整七列含time/敏感及hidden环境排除、全audit/exports读台账不变；service两审计+export一次为正式最小前置，不Runbook链/大分页/expiry/formula全覆盖。"
+        },
+        {
+          "id": "user-settings-concurrency",
+          "title": "偏好与通知双实例并发部分更新",
+          "command": "python3 tools/testlab/testlab.py run --suite user-settings-concurrency --manifest <fresh-root-admitted-singlemanifest>",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "PATCH /api/v1/me/preferences",
+            "PUT /api/v1/me/notification-settings",
+            "GET /api/v1/me/notification-settings"
+          ],
+          "required_cases": [
+            {
+              "suite": "user-settings-concurrency",
+              "name": "settings_concurrency.http_baseline"
+            },
+            {
+              "suite": "user-settings-concurrency",
+              "name": "settings_concurrency.preferences_pair"
+            },
+            {
+              "suite": "user-settings-concurrency",
+              "name": "settings_concurrency.notifications_pair"
+            },
+            {
+              "suite": "user-settings-concurrency",
+              "name": "settings_concurrency.ledger"
+            },
+            {
+              "suite": "user-settings-concurrency",
+              "name": "settings_concurrency.cleanup"
+            },
+            {
+              "suite": "user-settings-concurrency",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "user-settings-concurrency",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "27P/16正式HTTP，existing-row同一合成用户双API各一次偏好theme/density与通知quiet/digest并发partial update；客户端调用区间实际重叠6.652/6.086584ms，任一合法序列、完整行及peer不变、各audit+2、通知双API读回、UUID cleanup。非SQL overlap/所有交错/insert path/组织身份/送达/整链/性能；normal增0。",
+          "current_original_evidence": {
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "run_id": "3c34a25f-5a64-432d-a240-f533750d7953",
+            "proof_evidence_ids": [
+              "44b140c5-dc14-411a-8fda-dc36917f4cf5"
+            ],
+            "scope": "仅当前明确双实例更新子场景，不计完整接口或父包通过。"
+          }
         }
       ]
     },
@@ -6868,10 +6919,10 @@
       "execution_queue": 0,
       "local_queue": 19,
       "protocol_mock_normal": 32,
-      "current_groups_passed_cases": 1212,
+      "current_groups_passed_cases": 1239,
       "current_groups_blocked_cases": 2,
       "current_groups_external_todo_cases": 1,
-      "scope": "25当前相关子组latest1212P4F2B1external含共同前置/父汇总，不是独立断言数量；127/166仅normal（20协议待real+19两者均缺），生成首502保留，整包/接口phase与whole OPEN。",
+      "scope": "26当前相关子组latest1239P4F2B1external含共同前置/父汇总，不是独立断言数量；127/166仅normal（20协议待real+19两者均缺），生成首502保留，整包/接口phase与whole OPEN。",
       "remaining_real_normal": 39,
       "current_groups_failed_cases": 4
     },
@@ -6901,7 +6952,7 @@
       "metrics_real_run_id": "d6aa7bf3-6d58-410c-901c-7e88036546e5",
       "metrics_real_proof_evidence_id": "1d4a0243-c757-4967-8a61-39daf93c2159",
       "remaining_protocol_source_audit": ".local/testlab/cp300-remaining-real-source-audit/8e7bfb63-5bff-4f06-90b9-7b9e991e7c0b/report.md",
-      "next": "继续既有原件精确门控登记和prefs/notify双API并发接口补证；不进入整链/perf/soak。",
+      "next": "继续核现有接口权限/边界/故障场景与精确门控；normal0队列不是接口验收完成，不进入整链/perf/soak。",
       "real_normal_count_after_service_discovery": 126,
       "service_discovery_run_id": "f7ea6811-809f-4488-a9dc-592c8597ce75",
       "service_discovery_proof_evidence_id": "7f6ad9f1-c877-4b26-867a-34997f2f4622",
@@ -6909,18 +6960,20 @@
       "source_fault_recovery_proof_evidence_id": "18cd23c5-bc4a-4517-89d6-ebf129fc2b29",
       "real_normal_count_after_preview": 127,
       "preview_run_id": "e8dbfa94-b363-4e30-8cde-53130df96354",
-      "preview_proof_evidence_id": "aa07b659-eb8d-40f1-a1be-6450286a7561"
+      "preview_proof_evidence_id": "aa07b659-eb8d-40f1-a1be-6450286a7561",
+      "settings_concurrency_run_id": "3c34a25f-5a64-432d-a240-f533750d7953",
+      "settings_concurrency_proof_evidence_id": "44b140c5-dc14-411a-8fda-dc36917f4cf5"
     },
     "remaining_normal_context": {
       "status": "bounded_source_review_not_execution",
       "at": "2026-10-05T14:27:10.442988+00:00",
-      "count": 40,
-      "protocol_only": 21,
+      "count": 39,
+      "protocol_only": 20,
       "neither_normal": 19,
       "primary_prerequisite_counts": {
         "authority_producer": 24,
         "source_contract": 2,
-        "historical_completeness": 2,
+        "historical_completeness": 1,
         "organization_external": 8,
         "paused": 4
       },
@@ -6928,9 +6981,31 @@
         "json": "4c66b2fd-f34e-44fe-b99a-79fc312910bc",
         "md": "94cd31c5-1aa3-4ef8-b32a-af3a82db908d"
       },
-      "limitation": "主前置可交叉，不是40都没测、不是40都缺实现；报告只审剩余正常前置，不宣称166五类全部完成。",
-      "new_feasible": "真实Prom空matrix preview在原合同valid/no_observed_series为200；独立候选prepared不计native；generate不依赖七天QueryRange，但HTTPS模型/20s严格JSON成功仍实际未验。"
-    }
+      "limitation": "原40来源报告不改；真实空Prom preview关闭1个历史误前置后当前39。主前置可交叉，不是39都没测或缺实现，normal审查不代表166五类已完成。",
+      "new_feasible": "preview已当前25P/11HTTP；generate真实首502待原因闭合，normal增0；继续可执行现有接口场景。"
+    },
+    "remaining_normal_context_history": [
+      {
+        "status": "bounded_source_review_not_execution",
+        "at": "2026-10-05T14:27:10.442988+00:00",
+        "count": 40,
+        "protocol_only": 21,
+        "neither_normal": 19,
+        "primary_prerequisite_counts": {
+          "authority_producer": 24,
+          "source_contract": 2,
+          "historical_completeness": 2,
+          "organization_external": 8,
+          "paused": 4
+        },
+        "proof_evidence_ids": {
+          "json": "4c66b2fd-f34e-44fe-b99a-79fc312910bc",
+          "md": "94cd31c5-1aa3-4ef8-b32a-af3a82db908d"
+        },
+        "limitation": "主前置可交叉，不是40都没测、不是40都缺实现；报告只审剩余正常前置，不宣称166五类全部完成。",
+        "new_feasible": "真实Prom空matrix preview在原合同valid/no_observed_series为200；独立候选prepared不计native；generate不依赖七天QueryRange，但HTTPS模型/20s严格JSON成功仍实际未验。"
+      }
+    ]
   },
   "interface_subpackages": [
     {
@@ -7539,6 +7614,37 @@
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
       "proof_evidence_id": "626880e1-60da-41ff-95ca-ccd2c38f697c",
       "scope": "首native14P4F/CLI2，真实model收到原20s/15sheader/256token请求，未返回成功draft，normal增0；清理P/原502及日志保留；15秒header时序高可信待确认，非质量或非法JSON结论，不改参数或自动retry。"
+    },
+    {
+      "id": "user-settings-concurrency",
+      "suite_id": "user-settings-concurrency",
+      "targets": [
+        [
+          "PATCH",
+          "/me/preferences"
+        ],
+        [
+          "PUT",
+          "/me/notification-settings"
+        ],
+        [
+          "GET",
+          "/me/notification-settings"
+        ]
+      ],
+      "required_cases": [
+        "settings_concurrency.http_baseline",
+        "settings_concurrency.preferences_pair",
+        "settings_concurrency.notifications_pair",
+        "settings_concurrency.ledger",
+        "settings_concurrency.cleanup",
+        "readonly.cleanup",
+        "readonly.complete"
+      ],
+      "latest_run_id": "3c34a25f-5a64-432d-a240-f533750d7953",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "proof_evidence_id": "44b140c5-dc14-411a-8fda-dc36917f4cf5",
+      "scope": "27P/16正式HTTP，existing-row同一合成用户双API各一次偏好theme/density与通知quiet/digest并发partial update；客户端调用区间实际重叠6.652/6.086584ms，任一合法序列、完整行及peer不变、各audit+2、通知双API读回、UUID cleanup。非SQL overlap/所有交错/insert path/组织身份/送达/整链/性能；normal增0。"
     }
   ]
 }

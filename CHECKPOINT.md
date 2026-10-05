@@ -1,4 +1,4 @@
-**最新记录入口：[CP-300](#cp-300-current)，2026-10-05，持续当前接口验收，整体 OPEN。** 真实正常127/166、剩39；真实Prom空规则预览25P/11HTTP已核，真实生成首轮502保留。正常子场景不等于完整接口验收，source故障恢复28P已核；先接口后整链，performance/24h及暂停域保持暂停。
+**最新记录入口：[CP-300](#cp-300-current)，2026-10-05，持续当前接口验收，整体 OPEN。** 真实正常127/166、剩39；偏好/通知双实例并发27P/16HTTP已核，当前26子组1239P4F2B1external（含前置/汇总）。生成首502保留；先接口后整链，performance/24h及暂停域保持暂停。
 
 <a id="cp-300-current"></a>
 ## CP-300 · 2026-10-05 · 重新逐接口查可执行路径并实际补证
@@ -37,6 +37,10 @@
 - 故障实际独审补充：65resources/189relations/0links可从原JSON独立重算完整相等，baseline与cached API完全相等；本次 `inflight_completion_allowed=false`，首次403前晚成功的交错只离线覆盖，未知create/201后证据写失败也仅离线，不能宣称native发生。共享4秒为代码绝对期限与receipt，未保各请求原耗时。
 **最新记录入口：[CP-299](#cp-299-current)，2026-10-05，本轮接口补证已交付，整体验收仍OPEN。** 当前真实正常成功子场景120/166、协议Mock正常32；本地尚无正常样本的可执行队列0，但24项协议已验待真实、46项真实正常缺口及权限/边界/幂等/故障场景计划仍未收口。十八组最新相应结果1012P0F2B1外部待办，含共同前置/父汇总，不是1012条独立业务断言。Go93f/native nonrace6d/runtime338未改，当前无active。继续接口场景复核，不因normal队列清零转入整链；完整业务链、performance/24h、CI-CD/Workflows/VM/产品web保持暂停。 本轮新增AI/普通偏好通知/CSV三个正式HTTP组102P52HTTP(含前置和父汇总)，原首红保留；本次有界剩余审查未确认新必需本地项，下一步核剩余契约/外部/producer阻塞。
 
+
+
+- **CP300偏好/通知实际双实例并发**：`3c34a25f-5a64-432d-a240-f533750d7953`，15:28:41.021279Z→15:28:56.439461Z，27P0F0skip/CLI0、source93f始末同/Darwin6d/runtime338。23offline P与独审后root fresh nonce/HMAC、PG-CID/配额、两个空闲端口及native headroom准入；未动main/Go/web。两同用户existing-row原始pair各一次、正式16HTTP，偏好theme/density与通知quiet/digest客户端transport区间重叠6.652ms/6.086584ms，两种合法响应顺序均接受，最终字段合并、完整其他列/peer不变、每组恰两个audit，通知对侧及本人GET无副作用。区间不是SQL事务交错证明，不称全部并发时序、insert path、动态订阅、真实身份/送达、整链或性能。UUID DB/role/持有API/worker/18748–49清理P；proof `44b140c5-dc14-411a-8fda-dc36917f4cf5` 已经看板真实200/application-json下载。normal不增加，当前127/166余39；当前26组1239P4F2B1external含前置/父汇总，所有首失败保持。
+- **抑制预览剩余真实路径只读核实**：`POST /inhibitions/preview` 合法empty alerts可以200，但每个200仍强制可信完整[now-7d,now]历史；无history501、partial/短窗由formal client拒绝503。空AM config只满足第一来源，没有短窗/采样诚实降级200分支，现有main仅注入HTTP历史consumer，未发现本地现成history生产链。原合成7d继续协议Mock，不以自己填complete/date或零发生代替连续真实历史。私有只读报告 `.local/testlab/cp300-inhibition-preview-real-viability/7b96eb89-ebcc-4c49-8cfd-ab01ff09373e/report.json`、SHA bd9a74851a4b43afde6bded028472c1d321ea9b522bdaaa189e2189282d2ac8b；不是新运行或缺实现泛断言。继续当前接口权限/边界/故障缺口核对，完整链/perf/24h仍不运行。
 
 <a id="cp-299-current"></a>
 

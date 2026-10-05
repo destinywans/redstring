@@ -99,3 +99,12 @@ CP300真实GitLab `mapping-real-source` 原运行 `3307b8de-f802-4852-875d-fb2a1
 - **CP300真实规则生成首失败保留**：`7e2b5621-adaa-4296-abc6-3c2888aac245` failed14P4F/CLI2、source93f始末同/actualLinuxc800，固定qwen2.5:0.5b/a8b0manifest/2CPU2GiB、产品原256 token、20s总超时与15s响应头超时。第5正式HTTP 502 rule_generate_ambiguous，原断言/first-failure/三报告和精确cleanup P保留，proof `626880e1-60da-41ff-95ca-ccd2c38f697c`。四红包含父汇总，不是四个产品bug，不增加normal；不repair/预热/提高token或超时/换key自动retry。
 - 原provider请求1599bytes/hash2a1f08df已到relay且模型实际处理354token任务；15:09:16.032保存请求、15:09:17.460模型加载结束并开始提示处理、15:09:31.046首502，15.014秒高度吻合响应头超时。**确切network error/最终provider回复未保留，原因标需要确认；不说模型整15秒都加载、不归因非法JSON或质量。** model日志统计仅完成GIN POST为0，不能冒没发推理。root初筛文件名遗漏real-request，经精确库存与独审纠正，没有改原件。测试relay silent disconnect catch/daemon handler未等待是证据缺口，列工具待办；当前仅1实际请求日志20313bytes，无独立硬文件字节上限，不宣称有该上限。
 - 正常计数实际127/166，remaining39（20协议待真实+19尚无两类normal），整体与接口phaseOPEN；继续内容/知识/配置既有原件精确门控登记和prefs/notify双API并发partial update最小接口包，不进入跨模块完整业务链或性能/24h。外部模型/组织权威/producer/暂停域高待办保留，原小模型metrics39P不代此generate正常。
+
+
+## CP300：偏好与通知双实例并发接口
+
+原运行 `3c34a25f-5a64-432d-a240-f533750d7953` 实际27P/16HTTP/CLI0、source93f始末同/Darwin6d；两同用户existing-row原pair各执行一次，PATCH偏好theme/density与PUT通知quiet/digest从不同API发送，客户端调用区间重叠6.652ms/6.086584ms。接受任一合法串行响应顺序，检查最终合并、完整settings其他列与peer不变、每pair审计+2、通知双API GET无副作用。27含前置/HTTP/父汇总，不是27独立断言。23离线通过及独审不是native替代。
+
+注册JSON证据 `44b140c5-dc14-411a-8fda-dc36917f4cf5` 已真实HTTP下载核run及MIME；私有raw含两pair-wire时间/请求响应SHA与原result/cleanup，UUID DB/role/持有Popen/API端口和线程精确清理通过。证明是客户端请求区间重叠，不能声称服务器SQL事务一定重叠或覆盖全部交错；insert path、动态订阅、真实身份/外部送达未验。普通偏好没有独立GET，使用持久行及合法响应，未造GET/me授权前置。normal增0，当前127/166、剩39，完整接口阶段OPEN。
+
+剩余抑制preview已单路由只读核实：空alert合法，但成功必须可信完整168小时来源，没有部分/短窗降级200；现owned AM只能证明当前配置。原协议Mock历史不关闭真实历史项。后续继续当前能力的接口场景；不新增historyproducer、恢复整链或性能/24h。

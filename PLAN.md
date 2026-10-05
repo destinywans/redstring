@@ -375,3 +375,6 @@ Web 工作区；React / TypeScript / Vite；React Flow；assistant-ui 外部状�
 
 
 **CP299接口故障补证**：上传15P、Token28P、人工事件67P当前源独立原组均CLI0；Token marker命名冲突及事件OWS夹具误判首红保留，最小测试工具修复后原例新UUID复验，产品Go/权限未改。十三组相应最新854P0F2B1外部（含前置/父汇总），normal120/166与整体OPEN不变。看板仅三个必需marker子包P，Runbook创建/复盘创建发布审计故障候选并行准备，root独立资源准入；先接口、后整链，性能/24h继续暂停。
+
+
+**CP299 Runbook/复盘故障补证**：当前源正式原例19P/37P，独立审核及审计故障回滚、一次恢复和双API读回、UUID清理均P；实际Docker VM容量/HMAC准入、工具33离线P，产品Go/main未改。十五组对应最新910P0F2B1外部含前置/父汇总，仍OPEN。继续依据当前原件明确父包适用场景与真正待测，不因正常样本齐全进入整链；性能/24h保持暂停。

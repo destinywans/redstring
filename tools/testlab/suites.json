@@ -1517,6 +1517,46 @@
           "cleanup_grace_seconds": 45
         }
       ]
+    },
+    {
+      "id": "runbook-audit-rollback",
+      "name": "Runbook创建审计回滚",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "verification_scope": "仅POST Runbooks创建runbook.created故障503全库业务/审计/来源账保持、恢复201逐表恰一份及对侧详情与上传bytes一致；正式upload/draft为前置，不submit/执行/整链。 fresh root容量/nonce-HMAC/无冲突运行准入，原300s/45grace/40cleanup+4restore。",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "-B",
+            "tools/testlab/api_runbook_audit_rollback_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 300,
+          "cleanup_grace_seconds": 45
+        }
+      ]
+    },
+    {
+      "id": "postmortem-audit-rollback",
+      "name": "复盘创建及独立审核发布审计回滚",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "verification_scope": "仅POST Postmortems创建/独立human publish审计故障503保持全账、review/updated_at/source/sections/actions，恢复201/200恰一份actor/source审计，跨API records/summary一致；真实HTTP case合法closed为前置，不ops调查/Runbook整链/物理reviewer。 fresh root容量/nonce-HMAC/无冲突运行准入，原300s/45grace/40cleanup+4restore。",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "-B",
+            "tools/testlab/api_postmortem_audit_rollback_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 300,
+          "cleanup_grace_seconds": 45
+        }
+      ]
     }
   ]
 }

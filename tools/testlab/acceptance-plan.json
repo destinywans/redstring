@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-05T11:14:58.201757+00:00",
+  "updated_at": "2026-10-05T11:29:07.133822+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -3325,6 +3325,126 @@
             }
           ],
           "proof_scope": "仅POST/incidents正常前置HTTP生产、认证/权限/scope、DTO/key/JSON、外部动作诚实拒绝、审计503整账回滚、恢复201及同key200/冲突409、当前撤权/恢复；不是状态生命周期/调查/复盘/Runbook整链。"
+        },
+        {
+          "id": "runbook-audit-rollback",
+          "title": "Runbook创建审计回滚",
+          "command": "python3 tools/testlab/testlab.py run --suite runbook-audit-rollback",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "POST /api/v1/runbooks"
+          ],
+          "auxiliary_route_keys": [],
+          "required_cases": [
+            {
+              "suite": "runbook-audit-rollback",
+              "name": "runbook_audit.http_source"
+            },
+            {
+              "suite": "runbook-audit-rollback",
+              "name": "runbook_audit.baseline"
+            },
+            {
+              "suite": "runbook-audit-rollback",
+              "name": "runbook_audit.rollback"
+            },
+            {
+              "suite": "runbook-audit-rollback",
+              "name": "runbook_audit.fault_removed"
+            },
+            {
+              "suite": "runbook-audit-rollback",
+              "name": "runbook_audit.recovery"
+            },
+            {
+              "suite": "runbook-audit-rollback",
+              "name": "runbook_audit.detail_consistency"
+            },
+            {
+              "suite": "runbook-audit-rollback",
+              "name": "runbook_audit.cleanup"
+            },
+            {
+              "suite": "runbook-audit-rollback",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "runbook-audit-rollback",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "仅POST Runbooks创建runbook.created故障503全库业务/审计/来源账保持、恢复201逐表恰一份及对侧详情与上传bytes一致；正式upload/draft为前置，不submit/执行/整链。 辅助publish不冒166主接口计数，仍保全部必需marker及真实HTTP。"
+        },
+        {
+          "id": "postmortem-audit-rollback",
+          "title": "复盘创建及独立审核发布审计回滚",
+          "command": "python3 tools/testlab/testlab.py run --suite postmortem-audit-rollback",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "POST /api/v1/postmortems"
+          ],
+          "auxiliary_route_keys": [
+            "POST /api/v1/postmortems/{id}/publish"
+          ],
+          "required_cases": [
+            {
+              "suite": "postmortem-audit-rollback",
+              "name": "postmortem_audit.http_inputs"
+            },
+            {
+              "suite": "postmortem-audit-rollback",
+              "name": "postmortem_audit.resolved_source"
+            },
+            {
+              "suite": "postmortem-audit-rollback",
+              "name": "postmortem_audit.create_rollback"
+            },
+            {
+              "suite": "postmortem-audit-rollback",
+              "name": "postmortem_audit.create_fault_removed"
+            },
+            {
+              "suite": "postmortem-audit-rollback",
+              "name": "postmortem_audit.create_recovery"
+            },
+            {
+              "suite": "postmortem-audit-rollback",
+              "name": "postmortem_audit.review_readback"
+            },
+            {
+              "suite": "postmortem-audit-rollback",
+              "name": "postmortem_audit.independent_review"
+            },
+            {
+              "suite": "postmortem-audit-rollback",
+              "name": "postmortem_audit.publish_rollback"
+            },
+            {
+              "suite": "postmortem-audit-rollback",
+              "name": "postmortem_audit.publish_fault_removed"
+            },
+            {
+              "suite": "postmortem-audit-rollback",
+              "name": "postmortem_audit.publish_recovery"
+            },
+            {
+              "suite": "postmortem-audit-rollback",
+              "name": "postmortem_audit.published_readback"
+            },
+            {
+              "suite": "postmortem-audit-rollback",
+              "name": "postmortem_audit.cleanup"
+            },
+            {
+              "suite": "postmortem-audit-rollback",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "postmortem-audit-rollback",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "仅POST Postmortems创建/独立human publish审计故障503保持全账、review/updated_at/source/sections/actions，恢复201/200恰一份actor/source审计，跨API records/summary一致；真实HTTP case合法closed为前置，不ops调查/Runbook整链/物理reviewer。 辅助publish不冒166主接口计数，仍保全部必需marker及真实HTTP。"
         }
       ]
     },
@@ -5562,6 +5682,16 @@
         "82b7bae1-203f-4402-9d00-29dd54408422",
         "954c8cdc-171b-4035-beff-32b2a871ef7e"
       ]
+    },
+    {
+      "date": "2026-10-05",
+      "decision": "Runbook创建、复盘创建/独立审核发布审计回滚原例P；继续把当前原件按接口适用场景统筹，不以更多正常重复/无限理论故障代替明确验收清单。",
+      "decided_by": "assistant under user-authorized interface-first scope",
+      "status": "implemented_bounded_subgroups",
+      "evidence_runs": [
+        "45d2074b-a7a8-436e-89b6-87e9a3d76ae5",
+        "a99059ad-8563-4538-9d42-01767535b4ff"
+      ]
     }
   ],
   "classification_scope": "逐接口正常HTTP补测的前置分拣，不是后端实现完成度判定；缺实现包括必需非空生产链缺能力，外部真实验收另列。needs_confirmation尚未获得完整正式生产者调用链证明。",
@@ -6003,10 +6133,10 @@
       "execution_queue": 0,
       "local_queue": 24,
       "protocol_mock_normal": 32,
-      "current_groups_passed_cases": 854,
+      "current_groups_passed_cases": 910,
       "current_groups_blocked_cases": 2,
       "current_groups_external_todo_cases": 1,
-      "scope": "十三个当前接口组各自最新结果744+15+28+67；含共同前置/HTTP子步骤/父汇总，不是854独立断言；两政策blocked与一external原样保留，父包/整体仍OPEN。"
+      "scope": "十五个当前接口子组各自最新854+19+37；含前置/HTTP子步骤/父汇总，非910独立业务断言。normalqueue0和五审计故障子包P不代表全接口；两blocked及1external保留，父包/整体OPEN。"
     }
   },
   "interface_subpackages": [
@@ -6248,6 +6378,67 @@
       "latest_run_id": "954c8cdc-171b-4035-beff-32b2a871ef7e",
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
       "scope": "仅POST/incidents正常前置HTTP生产、认证/权限/scope、DTO/key/JSON、外部动作诚实拒绝、审计503整账回滚、恢复201及同key200/冲突409、当前撤权/恢复；不是状态生命周期/调查/复盘/Runbook整链。"
+    },
+    {
+      "id": "runbook-audit-rollback",
+      "suite_id": "runbook-audit-rollback",
+      "targets": [
+        [
+          "POST",
+          "/runbooks"
+        ]
+      ],
+      "required_cases": [
+        "runbook_audit.http_source",
+        "runbook_audit.baseline",
+        "runbook_audit.rollback",
+        "runbook_audit.fault_removed",
+        "runbook_audit.recovery",
+        "runbook_audit.detail_consistency",
+        "runbook_audit.cleanup",
+        "readonly.cleanup",
+        "readonly.complete"
+      ],
+      "latest_run_id": "45d2074b-a7a8-436e-89b6-87e9a3d76ae5",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "scope": "仅POST Runbooks创建runbook.created故障503全库业务/审计/来源账保持、恢复201逐表恰一份及对侧详情与上传bytes一致；正式upload/draft为前置，不submit/执行/整链。",
+      "auxiliary_route_keys": []
+    },
+    {
+      "id": "postmortem-audit-rollback",
+      "suite_id": "postmortem-audit-rollback",
+      "targets": [
+        [
+          "POST",
+          "/postmortems"
+        ],
+        [
+          "POST",
+          "/postmortems/{id}/publish"
+        ]
+      ],
+      "required_cases": [
+        "postmortem_audit.http_inputs",
+        "postmortem_audit.resolved_source",
+        "postmortem_audit.create_rollback",
+        "postmortem_audit.create_fault_removed",
+        "postmortem_audit.create_recovery",
+        "postmortem_audit.review_readback",
+        "postmortem_audit.independent_review",
+        "postmortem_audit.publish_rollback",
+        "postmortem_audit.publish_fault_removed",
+        "postmortem_audit.publish_recovery",
+        "postmortem_audit.published_readback",
+        "postmortem_audit.cleanup",
+        "readonly.cleanup",
+        "readonly.complete"
+      ],
+      "latest_run_id": "a99059ad-8563-4538-9d42-01767535b4ff",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "scope": "仅POST Postmortems创建/独立human publish审计故障503保持全账、review/updated_at/source/sections/actions，恢复201/200恰一份actor/source审计，跨API records/summary一致；真实HTTP case合法closed为前置，不ops调查/Runbook整链/物理reviewer。",
+      "auxiliary_route_keys": [
+        "POST /api/v1/postmortems/{id}/publish"
+      ]
     }
   ]
 }

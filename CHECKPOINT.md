@@ -1,4 +1,4 @@
-**最新记录入口：[CP-299](#cp-299-current)，2026-10-05，接口场景仍在推进。** 当前真实正常成功子场景120/166、协议Mock正常32；本地尚无正常样本的可执行队列0，但24项协议已验待真实、46项真实正常缺口及权限/边界/幂等/故障场景计划仍未收口。十三组最新相应结果854P0F2B1外部待办，含共同前置/父汇总，不是744条独立业务断言。Go93f/native nonrace6d/runtime338未改，当前无active。继续接口场景复核，不因normal队列清零转入整链；完整业务链、performance/24h、CI-CD/Workflows/VM/产品web保持暂停。
+**最新记录入口：[CP-299](#cp-299-current)，2026-10-05，接口场景仍在推进。** 当前真实正常成功子场景120/166、协议Mock正常32；本地尚无正常样本的可执行队列0，但24项协议已验待真实、46项真实正常缺口及权限/边界/幂等/故障场景计划仍未收口。十五组最新相应结果910P0F2B1外部待办，含共同前置/父汇总，不是744条独立业务断言。Go93f/native nonrace6d/runtime338未改，当前无active。继续接口场景复核，不因normal队列清零转入整链；完整业务链、performance/24h、CI-CD/Workflows/VM/产品web保持暂停。
 
 
 <a id="cp-299-current"></a>
@@ -2396,3 +2396,7 @@
 - root准入文档的available_bytes取host vm_stat，可证明主机余量，**不是Docker VM可用内存证明**，原记录保留并在原件复核中明确；下一组另核实际自有PG `/proc/meminfo` 的VM余量，不倒填原准入或运行。
 
 - **看板原件绑定复核**：root首次错误读取旧schema key并把upload放错parent、把Token辅助DELETE当166主接口导致focused incomplete，未交付前保原plan证据并纠正为实际native-content/main-POST+显式auxiliary-DELETE。撤销必需marker/HTTP未删，overview断言不改；actual /api/overview 三子包通过、父包仍needs_scenario_plan/整体open，证据 `8c9d049d-b89b-41e2-8f9c-818e3dd674ad`。
+
+- **CP299另外两个有界接口原组**：Runbook创建 `45d2074b-a7a8-436e-89b6-87e9a3d76ae5` 19P/6HTTP，复盘创建与独立审核发布 `a99059ad-8563-4538-9d42-01767535b4ff` 37P/17HTTP，root实际CLI0、source93f始末/非race6d/runtime338一致。故障503整库相关业务行与audit、upload来源或manualcase状态/血缘保持，finally移除精确trigger/function，恢复201/200逐表一次、独立human边界和对侧DTO/bytes读回、UUID DB/role/ports cleanup均P。原件复核 `a5abb74e-2a96-416a-8bde-f534fd29af4e` / `0ad25de6-7f86-4b4e-8fa3-f1ecf1a6e879`，三格式报告；不submit/执行/调查/完整业务链。
+- Runbook17离线P+独立只读合同/cleanup审查；PM首离线11P1F是工具把GET查询守卫套POST，同路径加exactmethod守卫后16P+原native37P，原件留存，不产品Bug。actual fresh准入记录分别核host与Docker VM内存（5.10/5.16GB）及nonce/HMAC、真实process UID/fullargvSHA/lstart/cwd、PG exactCID4CPU2GiB；无main重启或shared业务写。
+- **当前十五组相应最新910P0F2B1external**（前置/HTTP/父汇总在内，非910独立业务断言），normal120/166/protocol32/normal queue0与整体OPEN不变。看板只新增两个明示必需marker子包：PM publish为辅助接口，不冒166分母，原publish marker与HTTP仍必须P；父包完整场景计划继续统筹，不能靠子包绿收口。下一只读复核native-core/native-content适用场景与可复用原证据，不重复已有49本地/授权与已验故障，不扩大能力或恢复整链/perf/24h。

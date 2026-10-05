@@ -11,6 +11,54 @@ from overview import _original_actual
 
 
 class JsonEvidenceTests(unittest.TestCase):
+    def authorization_event(self):
+        return {'name': 'catalog.http', 'status': 'passed',
+                'actual': {'status': 403},
+                'interface': {'scenarios': {'authorization': {
+                    'status': 'passed', 'actual_status': 403, 'expected_status': [401, 403],
+                    'expected_detail': {'Authorization': 'Bearer offline-marker'},
+                    'actual_detail': {'error_code': 'permission_denied'}}}}}
+
+    def test_authorization_scenario_preserves_only_typed_outcomes(self):
+        event = self.authorization_event()
+        value = json.loads(scrub(event))
+        result = value['interface']['scenarios']['authorization']
+        self.assertEqual(result, {'status': 'passed', 'actual_status': 403,
+                                 'expected_status': [401, 403],
+                                 'expected_detail': '[REDACTED]', 'actual_detail': '[REDACTED]'})
+        self.assertEqual(json.loads(scrub(value)), value)
+        self.assertNotIn('offline-marker', json.dumps(value))
+        three = {key: result[key] for key in ('status', 'actual_status', 'expected_status')}
+        self.assertEqual(json.loads(scrub({'scenarios': {'authorization': three}}))[
+            'scenarios']['authorization'], three)
+
+    def test_authorization_exception_rejects_headers_wrong_paths_and_untyped_fields(self):
+        event = self.authorization_event()
+        outcome = event['interface']['scenarios']['authorization']
+        for bad in (dict(outcome, token='offline-marker'), dict(outcome, actual_status=True),
+                    dict(outcome, actual_status=600), dict(outcome, expected_status=[]),
+                    dict(outcome, expected_status=['403']), dict(outcome, status='Bearer offline-marker')):
+            self.assertEqual(json.loads(scrub({'scenarios': {'authorization': bad}}))[
+                'scenarios']['authorization'], '[REDACTED]')
+        for outer in ({'headers': {'authorization': outcome}},
+                      {'actual': {'interface': event['interface']}},
+                      {'Authorization': outcome}):
+            self.assertNotIn('actual_status', scrub(outer))
+            self.assertNotIn('offline-marker', scrub(outer))
+
+    def test_persisted_authorization_result_and_secret_header_remain_separate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            ledger = Store(temporary)
+            run = ledger.create_run()
+            event = self.authorization_event()
+            event['headers'] = {'Authorization': 'Bearer offline-marker', 'Cookie': 'offline-cookie'}
+            ident = ledger.write_evidence(run['id'], scrub(event))
+            raw, _ = ledger.read_evidence(ident)
+            value = json.loads(raw)
+            self.assertEqual(value['interface']['scenarios']['authorization']['actual_status'], 403)
+            self.assertNotIn(b'offline-marker', raw)
+            self.assertNotIn(b'offline-cookie', raw)
+
     def event(self):
         return {'name': 'ingress.private_source_configuration', 'status': 'passed',
                 'actual': {'config_sha256': {'push-token': 'a'*64, 'source-token': 'c'*64,

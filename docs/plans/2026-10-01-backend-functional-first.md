@@ -2,6 +2,8 @@
 
 **CP299 2026-10-05持续推进**：保当前Go93f/实际native nonrace6d/runtime338，原ingress、政策、复盘候选、Linux规则助手、knowledge和静默审批六组最新相应结果441P0F2B，正常成功子场景113/166、本地正常补证8（local待真实23含15已协议待真实）。两个测试工具缺陷保首红、最小修与原组复验；Mock/Linux平台、完整来源前置、外部和缺能力仍单列。接口阶段没有因批次结束而收口或停止；剩余配置草稿/提升接口串行恢复自有GitLab前先完成凭据轮换候选独审和恢复窗口修复。不得把normal数量或明确小子包通过升为父整包完整验收；完整链/性能24h/暂停域保持原边界。证据及决定见[CP299](../../CHECKPOINT.md#cp-299-current)。
 
+**CP299后续终态**：自有GitLab凭据恢复实际完成，草稿58P和提升75P1external已执行。当前normal120/166、local执行0/local待真实16；八组574P0F2B1external，不含历史重复与失败包装。不等于完整接口验收，五父包场景矩阵仅记录已观察/未验，不拼绿。继续Agent配置导入/Prompt对象接口可行补测及其余25需确认分类；不SQL伪造业务成功记录、不恢复legacy workers、性能/24h仍暂停。
+
 **当前顺序（2026-10-05 用户确认，CP298）**：先完成当前版本后端接口测试，再执行完整业务链；性能和连续24小时之后另行安排。此条取代下文历史接口/完整链并行及性能续跑顺序。逐接口检查正常、认证/鉴权、越权、边界及适用幂等/故障/一致性；原生对象生产可以作为独立接口组的前置，不代表跨模块完整链已验。Mock只证明协议子场景，外部真实待办、缺实现、用户暂停或产品契约需决定单列。Runbook完整链候选暂停保留，自动化已删除、不重建，产品web与原生CI-CD/Workflows/VM仍不恢复。
 
 恢复前动态正常样本87/166、本地execution_queue42（local49含7个已Mock待真实），实际Go93f/磁盘binary6d298未变；正常样本数量不能判断接口阶段完成。原当前回归、首次失败、历史计划与下文证据保留其原范围。
@@ -125,3 +127,19 @@
 先执行两条合法链：①本地告警→人工case及调查Canvas派生/回写→case CAS resolve→同case复盘发布，精确验证被拒Runbook来源的无副作用；②本人正式上传非空Markdown→source=import创建Runbook→提交→另一受权manager审核→内容/record/history/validation preview读回。分别标注模型Mock与合成告警输入、来源/审计关联。两条通过不能合计为“case复盘→Runbook”整链通过。是否新增case来源、无恢复执行的调查结案或迁移恢复执行/ops传播至V3，属于High产品决策待办，保持可见，不自动扩实现。
 
 并行使用互不复用的UUID库/role及18602/03（readonly）、18606/07（management/core/components依次）、18610/11（projection）；新上传import链候选拟独占18620/21，root审所有origin/lock/SQL/进程cleanup后才实跑。旧full tests/backend硬编码库名/同owner组件/18578，不能简单替换库名放宽守卫；已有当前完整回归证据保留，优先补正式HTTP与同对象链，不重复整组冒新增覆盖。
+
+### CP299 · Agent/Prompt/Eval既有元数据接口实际完成，继续五类接口场景复核
+
+- 原实际运行 `40fd4768-f7b3-4ebd-ba1d-ba8702b5e36f`，2026-10-05T10:16:53.040506Z → 10:17:40.514411Z，87P0F0skip、root实际CLI0，Go93f始末一致。输入由正式服务与受审GitLab签名配置导入产生，双账号独立审核仅合并本轮临时输入；8个目标与辅助Prompt创建均明确协议Mock，不计权威生产、模型、流量或Eval执行。72条原HTTP、11业务marker、清理与父命令含在87中，不是87个独立业务用例。
+- 覆盖配置stable→canary→rollback→level、非override评测门槛、Prompt不可变版本、Eval重复POST独立pending元数据；正常/权限/越权/输入、审计失败回滚、确认上游200后丢响应、旧CAS409、相同会话撤权前3对象200后404、无虚假执行字段。独立UUID DB/角色、18730–18734端口、精确临时项目/PAT清理原件已产生，独立终态审查另登记。
+- 候选独审先发现两个工具证明缺口：撤权没有前置200、创建项目/PAT丢响应可能没有清理handle。实际运行前新增受审前置与有界精确创建意图对账，清理未知不冒通过；追加磁盘持久失败仍执行原清理的回归，13离线P。原候选/报告保留，未改产品Go、共享promotion helper或权限/阈值。
+- 看板真实normal保持120/166，protocol normal24→32，正常execution_queue8→0；local_queue24为已协议待真实，46真实正常缺口/完整五类场景仍OPEN。继续独立审查native-core当前原件的适用场景和最多3个可执行接口缺口，不进入完整链或性能/24h。
+- root只读观察误用 `Store(.local/testlab)` 创建/读取嵌套空库导致0/166，已识别弃用并用 `Store(repo root)` 核正式库；原件 `.local/testlab/cp299-root-observation-correction/store-root-invocation-error.json` 保留。未用错误0发布或更改正式原件/环境。
+
+### CP299 · 鉴权证据脱敏工具缺陷的首次复现、最小修复与原组复验
+
+- 独立审查原 `40fd4768` 时发现13个 `interface.scenarios.authorization` 被通用凭据规则整块遮蔽；JSON合法，原actual和72个私有响应完整，正常资格未受影响。原运行/原件不改，首红元数据登记 `c09b6188-ec2b-4166-a70c-c3d2ab17b548`；旧实现新增9回归实测7P1F1E，不作为产品Bug。
+- Store最小修：只在两个精确路径接受三/五字段、有限status与100–599非bool整数HTTP码/非空列表；两个detail整块遮蔽，未知字段/token/header/其他嵌套或大写Authorization维持脱敏，两次scrub同义。新增分支独审通过；9 JSON +28 runner/server/store +46 overview +13 Agent共96离线P。Store `e8bb6d9d850ab61aa5a1fcdd1a8a1cef6c0af28af1b991659b6080c4228c1f3a`，未改产品Go。
+- 原组新UUID实际复验 `ad670414-e915-4b72-be23-2b73f65fee91`：2026-10-05T10:33:04.190383Z → 10:33:54.587723Z、87P0F0skip/CLI0、source93f始末同；72原HTTP中13鉴权块现在完整保留有限结果，details仍遮蔽，撤权前后/丢响应CAS/审计回滚一致。临时项目26→404、PAT19撤销、两个UUID DB/role和18730–18734端口精确清理通过。root原件证明 `948f5620-bb67-49b5-a6b6-a227ff941c20`，三格式报告已导出；原87P运行/13遮蔽限制及独立证明 `40e9a1eb-9909-44ca-97ed-c03e48133412` 保留，最新相应结果仍87，不累加为174。
+- 新准入先因root猜测supervisor CLI字符串而在任何mutation前停止；实际完整argv已由fresh nonce/HMAC对应PID与已验证SHA、UID/lstart/cwd严格比对后准入，原脚本/first-error保留。未按旧PID发信号、修改环境或降低身份守卫。
+- 正常真实120/166、protocol32及normal execution_queue0保持；八接口元数据协议子包只限定上述场景通过，producer父包仍needs_scenario_plan，整体OPEN。现在并行准备上传、Token和人工事件的审计失败回滚接口场景，root统一隔离actual与修复闭环；不进入完整链/性能/24h，不重建自动化。

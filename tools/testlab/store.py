@@ -28,13 +28,36 @@ def scrub(value, secrets=()):
     except (ValueError, TypeError, RecursionError):
         return _scrub_text(value, secrets)
 
-    def redact(item):
+    def authorization_outcome(item):
+        # Only the finite HTTP outcome schema is safe; details remain private.
+        fields = {'status', 'actual_status', 'expected_status'}
+        if not isinstance(item, dict) or set(item) not in (fields, fields | {'expected_detail', 'actual_detail'}):
+            return None
+        code = lambda value: type(value) is int and 100 <= value <= 599
+        expected = item['expected_status']
+        if (not isinstance(item['status'], str) or item['status'] not in STATUSES
+                or not code(item['actual_status'])
+                or not (code(expected) or isinstance(expected, list) and expected and all(code(v) for v in expected))):
+            return None
+        return {key: '[REDACTED]' if key in ('expected_detail', 'actual_detail') else value
+                for key, value in item.items()}
+
+    def redact(item, path=()):
         if isinstance(item, dict):
-            return {_scrub_text(key, secrets): "[REDACTED]"
-                    if re.search(r"(?i)(password|passwd|secret|token|api[_-]?key|authorization|cookie|set-cookie)$", str(key))
-                    else redact(child) for key, child in item.items()}
+            result = {}
+            for key, child in item.items():
+                child_path = path + (key,)
+                sensitive = re.search(r"(?i)(password|passwd|secret|token|api[_-]?key|authorization|cookie|set-cookie)$", str(key))
+                if sensitive:
+                    outcome = authorization_outcome(child) if child_path in (
+                        ('scenarios', 'authorization'), ('interface', 'scenarios', 'authorization')) else None
+                    value = '[REDACTED]' if outcome is None else outcome
+                else:
+                    value = redact(child, child_path)
+                result[_scrub_text(key, secrets)] = value
+            return result
         if isinstance(item, list):
-            return [redact(child) for child in item]
+            return [redact(child, path + (index,)) for index, child in enumerate(item)]
         return _scrub_text(item, secrets) if isinstance(item, str) else item
 
     return json.dumps(redact(structured), ensure_ascii=False)

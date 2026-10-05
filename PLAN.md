@@ -1,4 +1,5 @@
-**当前入口：[CP299](CHECKPOINT.md#cp-299-current)，2026-10-05，接口测试持续推进。** 当前正常成功子场景113/166、local正常补证8，六接口组441P2B与两个工具缺陷原例复验完成；静默/审批原组131P终态，配置草稿前置仅私有准备/独审，不并行启动重型组件。先接口，再完整业务链；performance/24h、CI-CD/Workflows/VM/产品web仍暂停，不重建自动化。正常数量、Mock通过或单批结束都不代表完整接口阶段收口；原失败、来源前置与缺能力/外部/暂停分别保留，继续可执行事项而不提前停工。
+**当前入口：[CP299](CHECKPOINT.md#cp-299-current)，2026-10-05，先接口场景收口。** 当前真实正常120/166、协议Mock正常32；尚无正常样本的本地execution_queue0，仍有24待真实及五类场景待核，不能判接口验收完成。十组最新结果744P0F2B1外部待办（含前置/汇总），当前无active；新增Agent/Prompt/Eval仅既有元数据及协议场景。先接口，再完整业务链；performance/24h及暂停域保持暂停，不重建自动化。
+
 **历史记录入口：[CP296](CHECKPOINT.md#cp-296-current)，当时快照与当时顺序。** 用户明确暂停压测，先当前版本接口复验/完整业务链；实际无active。当前42/166正式正常、本地可执行队列93（待补真实清单94）；三个可见会话分事件→复盘→Runbook、上传/Token/配置、独立清单，root核隔离后并行功能实跑。已完成soak工具103Python+1Node离线修复留记录，native/12h/24h资格未验且暂停；不自动恢复perf/soak/性能优化。缺实现/上限/Trace/外部与原CI-CD/前端暂停域继续明示，整体OPEN。
 
 **2026-10-02 CP290：** 新源d4/实际非race8f原100/60再失败8P4F1Homecap，四窗口仍25正常SSE停滞；恢复/一致性/清理通过。列表加速不足以关闭SSE。已复用三个可见线程并行实施最小短tx复用连接、关键新路径测试、独立权限/生命周期审查；root统一真实验证。不省13条授权/读取、改pool/超时/门槛或跨socket持conn，保expiry/terminal边界，收益未证明。当前无active，完整两档/24h未完成。见[CP290](CHECKPOINT.md)。
@@ -369,3 +370,5 @@ Web 工作区；React / TypeScript / Vite；React Flow；assistant-ui 外部状�
 不建立定时巡检；实际进展同步 Linear。检查点只追加，不用设计完成冒充运行完成。
 **2026-10-02 CP291：** 三个可见线程交付的SSE短READ COMMITTED复用连接候选已整合；当前93f真实PG新路径23P0F0skip、相关四模块279P0F/仅1付费专项跳过（blocked如实）。首次私有umask夹具误报保留并最小修，原安全断言不改。正式main仍d4/8f；先scoped交付→实际新非race main→原100/60复验，再当前源正式接口与完整两档性能，原首红不覆盖、24h未开始。详见[CP291](CHECKPOINT.md)。
 **2026-10-02 CP292：** 新93f实际非race6d298双API已ready、doctor53P；原100/60短复验11P0F1仅Homecap，SSE四窗口0违规/0IO，恢复与一致性通过，2379drop仍标饱和，不当完整性能。新main entry/Canvas原链267P0F1缺producer，当前正常41/166仅子场景。唯一active289c7b57原五suite当前源完整race；可见HTTP/连接器仅并行准备metrics和正式两档入口，root统一负载。完整两档/24h未完成，详见[CP292](CHECKPOINT.md)。
+
+**CP299接口工具修复补充**：Agent/Prompt/Eval八接口协议子包原87P后识别13鉴权证据误脱敏，首红保留；最小安全schema修复96离线P、原组新UUID `ad670414` 再87P并恢复13结构化结果，产品Go未改。上传/Token/人工事件审计回滚接口候选正在独立并行准备，整体接口尚未收口。

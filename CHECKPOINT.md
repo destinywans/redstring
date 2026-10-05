@@ -1,4 +1,5 @@
-**最新记录入口：[CP-299](#cp-299-current)，2026-10-05，仍在推进。** 当前接口正常成功子场景113/166，本地正常补证队列8；此数不是完整接口验收。主Go93f/实际native nonrace6d/runtime338未改。静默/审批原接口组已实际131P；独立证据审查与配置草稿前置恢复准备并行，重型组件尚未恢复。完整业务链、performance/24h、CI-CD/Workflows/VM/产品web继续暂停。
+**最新记录入口：[CP-299](#cp-299-current)，2026-10-05，接口场景仍在推进。** 当前真实正常成功子场景120/166、协议Mock正常32；本地尚无正常样本的可执行队列0，但24项协议已验待真实、46项真实正常缺口及权限/边界/幂等/故障场景计划仍未收口。十组最新相应结果744P0F2B1外部待办，含共同前置/父汇总，不是744条独立业务断言。Go93f/native nonrace6d/runtime338未改，当前无active。继续接口场景复核，不因normal队列清零转入整链；完整业务链、performance/24h、CI-CD/Workflows/VM/产品web保持暂停。
+
 
 <a id="cp-299-current"></a>
 ## CP-299 · 2026-10-05 · 持续接口补测，不在批次完成后提前停工
@@ -13,6 +14,20 @@
 - 本轮尚未提交/推送的新工具和文档仅是进行中交付；保`.claude/`与两个旧Runbook完整链候选。后续继续原静默终态、配置草稿/提升接口及相关原件复核，更新看板/51台账与Linear。无法执行的外部/权威producer/产品契约/用户暂停保持独立，不把正常105/166或local队列减少称完整接口阶段通过。
 
 - **CP299静默终态**：`b9e065d2-529f-4771-afe9-9cee7a8c5211` 原组131P0F0B、root实际CLI exit0，source93f始末相同；当前无active，正常子场景113/166、local执行8/local待真实23含15已协议待真实。六组最新相应结果合计441P0F2B，原工具失败和两政策前置仍保留。新增两个子包只登记明确原marker，不把native-core/local-source-protocols父包needs_scenario_plan洗为通过。独审GitLab候选发现事务提交→PAT结果落盘崩溃空窗，原候选未执行；在新UUID私有候选先补事务内pending fsync/提交marker，未知状态只读核精确ID及新token后限定恢复，不能重复轮换或复活旧PAT。
+
+- **CP299配置接口推进**：工具交付已提交/推送并精确远端回读 `c8dcd9bcf0b9ef2beb9731574ee042f68ce05c7a`，WAN136/138/139/163与51文档保存，138/51 fresh回读；当前Go/main/runtime不变。静默原件独审 `acc29b3d-1b97-456d-82d3-f5d1172ecf77` 核131JSON、8目标35语义receipt、normal/loss/crash各POST1/DELETE1、6首票无执行、6confirmedclaims及UUID清理；不冒物理Passkey/全链。
+- GitLab恢复v2私有 `d352e1c8-5aff-4733-b0c9-4efe1d22eafb` 实际 `09:17:30Z→09:18:55Z complete/CLI0`：same-key自有cert、精确3合成账号密码/PAT事务轮换、新身份200/旧PAT401、项目1/2及分支/保护/member digest不变、6本次Rails文件已清理；actual CID保留且running，原2CPU4GiB/卷不变，不恢复Argo凭据/原生CI/部署。21offline只是候选资格；原071a未运行、COMMIT空窗反例留存。first 6GiB启动前预算被root误用在已启动GitLab的草稿阶段而前置阻塞，未启动native；原件保存后按新增Prom512MiB+AM256MiB限额+2GiB余量/4idleCPU实际准入，非性能阈值或quota变化。
+- **原五配置草稿组** `5bf935bb-0035-4ae7-b546-b9c016ec18d6` **58P0F0B/实际CLI0**、source93f始末；四本地真实opened MR草稿HTTP、1合成7日history preview协议Mock，原14marker/600秒+45grace/自然60秒lease/响应丢失/CAS/当前授权/远端成功本地提交失败/精确项目-PAT-DB-role-自有Prom-AM清理保持；未merge/启用/发送通知。当前正常117/166/local执行3，仅剩配置sync列表/导入/提升；原父包与真实历史前置不洗绿。
+- **当前唯一实际运行**：配置提升原接口组 `14cc9dc7-b738-4779-a779-e5360db7a1e1`，private singlemanifest `2016eee8da65caaabdef9ead5d456541a6de15d46688e5139655c678852d39e6`，wrapper `3fb0f1abf2777759350f29ffdacbcb1d25c5c0234ae2a2e474c5461c2c970f82`。root fresh恢复后new3身份、source/binary/nonrace/HMAC/PG-CID/GitLab-CID/端口/实际资源准入，原1800秒/45grace/40cleanup不改。production字段仅UUID测试tier，必要独立reviewer3合并仅临时配置项目；不Argo/VM/nativeCI/产品部署或全业务链，原物理reviewer/企业历史external待办仍保留。
+
+- **CP299配置提升终态**：`14cc9dc7-b738-4779-a779-e5360db7a1e1` 实际09:29:38.839966Z→09:32:07.745209Z，75P0F1外部待办/CLI2，source93f始末；原external剩余项不改passed。八组最新相应结果574P0F2B1external，包含setup/父汇总；current normal120/166、local执行0、local待真实16，仍46真实正常缺口。SQLite无active；本地正常队列清空不等于全部接口场景完成。草稿独审`cc81200b-9305-4199-82ae-6fbcafbf224a`已核58case/14marker、6opened MR未merge、60.288s自然lease、UUID清理；四真实草稿与1七日历史Mock分开。配置提升原件复核继续。
+- **剩余生产者核查仍推进**：Agent目录实际可由正式schema2 agent_version配置导入产生，Prompt正式创建/版本已接线；新的有界接口候选通过已审核测试MR与合成签名manifest补消费者语义，source标协议Mock，不冒真实artifact/流量/权威目录。Agent Run、Prompt Trial案例及冻结input暂无非test caller；MCP V3无创建入口，legacy会启动已暂停旧workers，当前不恢复。只读源码报告`cp299-producer-viability/ab885843-fea5-4b12-9da3-71a65b2b1282/report.md`，其本身不是native通过。
+- **原接口场景快照**：独立v2只记录1223已核HTTP receipts和35未确认entry artifact，未验写未验/N-A未判定，operations=[]，不新增focused gate或拼父包全绿。五父包证据按原快照315248分件登记，index证据`3ac07a01-b64c-4adb-940d-32eeedc08ae6`；快照早于后续配置终态，不能当当前穷尽矩阵。原完整链候选和.claude保留。
+
+- **分类纠正并继续执行**：上述local0为八原组完成时快照；只读核正式import/登记后，Agent4、Prompt2、Eval pending2从needs_confirmation转local_environment待测，共8条。不是新增通过、回退或恢复暂停能力。当前real normal120/166、execution8/local24（16已协议待真实）、needs_confirmation17；两个源码报告登记`fcc38d43-a984-4604-b64f-ad2ad0010303,f3029349-fee9-416c-af98-860ff1444be2`。新Agent对象包仅准备，正式实际执行/审计/清理后才计相应来源Mock子场景。Memory/EvalCase/Guardrail/Run等producer缺接线与MCP暂停legacy入口已按具体函数更新机器计划理由，不把整个消费域误列缺实现。提升独审`22b4f6d9-afc4-4edf-9560-b06185e481cc`核76原actual/66目标HTTP/14reviewinputs、projects22/23/24→404/PAT17撤销/两UUIDDB-role absent，原external保留。
+
+- **当前拓扑原组** `2457a5f1-7961-46fe-b7e5-7758e7104ceb` 实际09:57:40.234689Z→09:58:17.440837Z，83P/CLI0、source93f始末；原9marker/300秒+45grace/40cleanup不改，图由native importer生产、来源与11指标明确protocolMock，不权威callgraph/流量。首run `ba8de440` native前因root相对manifest导致Runner只记basename，守卫正确拒绝；改绝对CLI后新run，原失败及三报告保留，无guard改动。first `_private(exclusive)` metadata错误也原件留存，无native资源。九组最新相应结果657P0F2B1external，仍非完整接口。
+- **Trace根因明确到版本契约**：正式handler为v3traces，非旧恒503路径。固定Tempo2.7.2原生configuration-only反例 `bebe1052` 用image0f7c6218/networknone/128MiB0.25CPU/私有只读YAML，version v2.7.2 exit0；live_store strict-unmarshal明确unknown field/exit1，无OOM，两个本UUID exactCID清除，旧Tempo/source/mainflag未改。证据`aa701856-f66b-4a6b-99f8-13226b8d110a`及只读五来源报告`74d8cab1-2e77-49d5-87f4-b5d321e61ac2`；首次版本正则漏v前缀留失败与1CID精确清理，不计产品Bug。ENV-TEMPO-SEARCH-CONTRACT高环境待办：版本特定契约/独立支持版本与冻结窗全集故障证明以后评审，不自动开flag/升级。Services成功release及legacy叙述来源依赖暂停交付，policy真实环境branch已有独立79P可复用、七日历史仅可信消费者，合成history不能冒实际七日。
 
 **历史记录入口：[CP-298](#cp-298-current)，2026-10-05。** 当时9组527P5B、正常96/166、local执行27（local40含13已协议待真实）、Mock20；以下原记录保留。
 
@@ -2357,3 +2372,19 @@
 - **CURRENT唯一active完整五suite 289c7b57-cba8-4652-bc93-ab90aab470e9，22:15:57.067438Z启动**，baseline/mfa/passkey/configsync/regressions使用原专用通用及专项PG/开关/race/p2；本记录时仍running，未冒通过。必须SQLite/fresh身份先核，不重复、不中途修改Go/helper/runtime、不并行heavy。原paid/外部/暂停skip如实核对，结束再判当前源完整资格。
 - 三个用户可见线程继续有界并行准备：QA只读已交付最小current entry/普通SSE/metrics SSE入口并释放；HTTP只写private新source/binary metrics原完整组wrapper+manifest（保240s真超时/480s预算/原marker），连接器只写private正式BASE/SCALE单入口原速率/阈值准备。都不build/HTTP/PG/Docker/运行/改共享源码，root审核并统一执行。metrics真实Prometheus/模型Mock边界明确，旧6ad固定常量不能盲复用；BASE没有诊断observer，支持路径全绿且仅Homecap B才显式SCALE，禁止默认双command及提前seed。
 - 下一核完整五组原GoJSON/source_end/skip；串行metrics原完整HTTP终态/撤源403等。随后fresh actual冻结新source/main/config/helpers/资源，原五阶段BASE→严格门控SCALE；完整两档未完成、连续24h从未开始。WAN152/Trace/producer/真实外部/paid/Ollama/8暂停CI-CD仍HighTODO；web/.claude/业务.env/业务DB/他集群/真实账号通知不动，无merge/deploy。
+
+### CP299 · Agent/Prompt/Eval既有元数据接口实际完成，继续五类接口场景复核
+
+- 原实际运行 `40fd4768-f7b3-4ebd-ba1d-ba8702b5e36f`，2026-10-05T10:16:53.040506Z → 10:17:40.514411Z，87P0F0skip、root实际CLI0，Go93f始末一致。输入由正式服务与受审GitLab签名配置导入产生，双账号独立审核仅合并本轮临时输入；8个目标与辅助Prompt创建均明确协议Mock，不计权威生产、模型、流量或Eval执行。72条原HTTP、11业务marker、清理与父命令含在87中，不是87个独立业务用例。
+- 覆盖配置stable→canary→rollback→level、非override评测门槛、Prompt不可变版本、Eval重复POST独立pending元数据；正常/权限/越权/输入、审计失败回滚、确认上游200后丢响应、旧CAS409、相同会话撤权前3对象200后404、无虚假执行字段。独立UUID DB/角色、18730–18734端口、精确临时项目/PAT清理原件已产生，独立终态审查另登记。
+- 候选独审先发现两个工具证明缺口：撤权没有前置200、创建项目/PAT丢响应可能没有清理handle。实际运行前新增受审前置与有界精确创建意图对账，清理未知不冒通过；追加磁盘持久失败仍执行原清理的回归，13离线P。原候选/报告保留，未改产品Go、共享promotion helper或权限/阈值。
+- 看板真实normal保持120/166，protocol normal24→32，正常execution_queue8→0；local_queue24为已协议待真实，46真实正常缺口/完整五类场景仍OPEN。继续独立审查native-core当前原件的适用场景和最多3个可执行接口缺口，不进入完整链或性能/24h。
+- root只读观察误用 `Store(.local/testlab)` 创建/读取嵌套空库导致0/166，已识别弃用并用 `Store(repo root)` 核正式库；原件 `.local/testlab/cp299-root-observation-correction/store-root-invocation-error.json` 保留。未用错误0发布或更改正式原件/环境。
+
+### CP299 · 鉴权证据脱敏工具缺陷的首次复现、最小修复与原组复验
+
+- 独立审查原 `40fd4768` 时发现13个 `interface.scenarios.authorization` 被通用凭据规则整块遮蔽；JSON合法，原actual和72个私有响应完整，正常资格未受影响。原运行/原件不改，首红元数据登记 `c09b6188-ec2b-4166-a70c-c3d2ab17b548`；旧实现新增9回归实测7P1F1E，不作为产品Bug。
+- Store最小修：只在两个精确路径接受三/五字段、有限status与100–599非bool整数HTTP码/非空列表；两个detail整块遮蔽，未知字段/token/header/其他嵌套或大写Authorization维持脱敏，两次scrub同义。新增分支独审通过；9 JSON +28 runner/server/store +46 overview +13 Agent共96离线P。Store `e8bb6d9d850ab61aa5a1fcdd1a8a1cef6c0af28af1b991659b6080c4228c1f3a`，未改产品Go。
+- 原组新UUID实际复验 `ad670414-e915-4b72-be23-2b73f65fee91`：2026-10-05T10:33:04.190383Z → 10:33:54.587723Z、87P0F0skip/CLI0、source93f始末同；72原HTTP中13鉴权块现在完整保留有限结果，details仍遮蔽，撤权前后/丢响应CAS/审计回滚一致。临时项目26→404、PAT19撤销、两个UUID DB/role和18730–18734端口精确清理通过。root原件证明 `948f5620-bb67-49b5-a6b6-a227ff941c20`，三格式报告已导出；原87P运行/13遮蔽限制及独立证明 `40e9a1eb-9909-44ca-97ed-c03e48133412` 保留，最新相应结果仍87，不累加为174。
+- 新准入先因root猜测supervisor CLI字符串而在任何mutation前停止；实际完整argv已由fresh nonce/HMAC对应PID与已验证SHA、UID/lstart/cwd严格比对后准入，原脚本/first-error保留。未按旧PID发信号、修改环境或降低身份守卫。
+- 正常真实120/166、protocol32及normal execution_queue0保持；八接口元数据协议子包只限定上述场景通过，producer父包仍needs_scenario_plan，整体OPEN。现在并行准备上传、Token和人工事件的审计失败回滚接口场景，root统一隔离actual与修复闭环；不进入完整链/性能/24h，不重建自动化。

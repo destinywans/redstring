@@ -155,3 +155,14 @@ JSON证据 `09a23b78-4afc-42f5-9981-fce3599f8f91` 已实际HTTP200/MIME/run核�
 
 - 原830f1bef-135e-4591-b30e-0f0c4fea2c86 UTC18:23:41→18:24:15，正式双binary93f/6d/runtime338，29P0F0skip/14HTTP/source始末同。34offline及独审后fresh准入，新UUID DBrole/18852–53、原420/12/40含≤4restore/45grace不变。
 - 精确v3.role.matrix.updated success audit503回滚所有role/grant/revision/audit及其他public表摘要；移除故障samebody/samerevision另一API200，revision+1/audit+1，两分组grant与原会话403→200实际验证。目标synthetic businessrole与身份ACL明示，不冒公开role创建或组织权威来源；完整3ledger/11rolewire0600留存。proof a700ca22-ee6a-478a-a4e9-feeacfd413ba，normal增0，当前128/166缺38/wholeOPEN。未merge/deploy。
+
+
+## 2026-10-06 · Generate原例仍失败，终态证据补齐
+
+本次只修测试relay的终态证据与同40秒收尾：真实socket首红1F→40offline P（7实际socket），xhigh exactSHA独审；旧完整body缓冲、产品15头/20总、256与固定模型、原断言保持，不预热/修内容/自动retry。旧Server TLS构造partial listener和model-log硬上限未验。
+
+原74929e23-f66f-4a8e-83c6-b83a86fdac0d UTC19:01:34.761919→19:02:41.262457，Linuxc800/Go93f始末、14P4F，外层CLI2/helper1。正常POST仍502，provider头19.922099秒到达，正文41µs、200/636bytes/1choice/stop；晚content独立JSONDecodeError。新实测支持本次上游响应头迟于15秒，buffer非主等待；仍无Go client.Do底层err，不能倒推旧7e2或把晚JSON认定先502的实际分支。normal增0，不产品修复或答案质量证明。
+
+proof1be14ad9-b0c1-4534-96d6-64a9cb08c5ef/9登记原件/三格式报告，raw/receipt/终态与同40清理完成；root只读6CID、网络/卷/端口/UUID库角色exactabsent，main/PG/canonical未控制。root首次只读验证输入误猜postgres角色已保留并用现有testlab角色纠正，不重跑接口。无完整postfailure attempt/audit快照，不回造已清理DB。当前128/166、缺38、接口与wholeOPEN；33对应latest1470P4F2B1external不追加重复suite计数。性能/24h及前端/原暂停域保持，未merge/deploy。
+
+实际看板run/overall HTML、JSON、Markdown六下载已HTTP200/MIME/attachment核实，proof96b66c39-03bf-4758-8fc0-efd80bf7b1cd。下一只读选择既有Conversation三接口对象鉴权/跨范围/会话失效缺口，先复用真实原件，不重复成功组或恢复整链/性能。

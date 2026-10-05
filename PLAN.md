@@ -1,3 +1,5 @@
+**2026-10-06 CP303当前：** 真实正常128/166、缺38，仅normal；Generate单次原例仍14P4F/502，实测上游headers19.922s晚于15秒，后body41µs，晚content非直接JSON仅离线证据。测试relay终态最小修复40offline/独审/native清理已证，不产品修复、换模型/放期限或自动重试；接口阶段及整体OPEN，先接口后整链，性能/24h/原暂停域保持。见 [CP303](CHECKPOINT.md#cp-303-current)。
+
 **2026-10-06 CP302当前：** 正常真实128/166、缺38，仅正常子场景；Trace原8HTTP/22P后独立root资格共23P，应用Tempo全集与producer仍OPEN。公共False资格与历史派生veto先红后修、离线及原例复验已通过，原件不改；556是历史记录数。33对应子组latest1470P4F2B1external含前置/汇总/资格核对，不代表接口阶段完成。角色正式审计/授权恢复29P也已实跑、normal增0。先接口适用场景、后整链；性能/24h/产品前端及原暂停域不恢复。见[CP302](CHECKPOINT.md#cp-302-current)。
 
 **最新执行状态：[CP-301](CHECKPOINT.md#cp-301-current)，2026-10-06 (+08)。** 当前真实正常127/166、剩39，仅normal覆盖；Claim72P/50HTTP及Canvas创建34P/16HTTP已正式闭合，31对应子组latest1418P4F2B1external含前置/汇总，首红保留。继续现有Trace agent partial空消费者接口；完整链仍在接口之后，性能/24h和原暂停域保持，整体OPEN。

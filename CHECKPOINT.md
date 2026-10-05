@@ -1,3 +1,16 @@
+**最新记录入口：[CP-303](#cp-303-current)，2026-10-06 (+08)。真实正常128/166、缺38，仅正常子场景；接口及整体OPEN。规则Generate原例仍502，已补终态证据，不改模型/期限，不自动重跑。先接口、后整链；性能/24h和原暂停域保持。**
+
+<a id="cp-303-current"></a>
+## CP-303 · 2026-10-06 (+08) · Generate功能首失败定位与测试证据修复
+
+- 用户继续授权接口验收，原46正常缺口此前已降至38（20协议正常待真实、18尚无两类正常）；128正常不等于完整接口。QA、实现及独审并行，root统一新UUID一次实际运行；`aiops-24`不重建。Go93f/Darwin6d/runtime338不改，实际本组Linux非racec800固定，保留用户`.claude`及held Agent/Runbook候选。
+- 旧 `7e2b5621-adaa-4296-abc6-3c2888aac245` 14P4F/502、原件/报告保持。只读诊断指出完整body先缓冲、silent断连及daemon收尾缺终态，但不能据缺证断言旧网络错误或模型格式。源诊断登记 `9cf70edf-d1b7-4864-b35a-03df61dfcfcb`，counts_as_acceptance=false，实际HTTP200/JSON下载核实。
+- **先红与最小工具修复**：真实localhost socket下游RST反例1F与两文件前像保留。原28+12共40offline P，含7实际ephemeral socket、AST2/inventoryP及xhigh exactSHA独审。只修本组relay固定phase/reason、UTC+单调elapsed、bytes/SHA、16项/每项64KiB有界证据writer，入队不冒持久化；同40秒budget先收relay再回收模型。写失败/未join/主动cutoff锁存不通过，仍继续精确资源清理。request/upstream/downstream错误分开，主动shutdown不归因上游；不改完整body缓冲、21秒relay socket、产品15头20总、256token、原fixture/system/model或断言，不预热/修JSON/重试。offline中4个fixture NameError原日志保留，仅修引用；旧gen.Server TLS初始化partial listener及旧model-log硬上限明确未验，不扩大重构。
+- **实际原例** `74929e23-f66f-4a8e-83c6-b83a86fdac0d`，UTC19:01:34.761919→19:02:41.262457，14P4F0skip；外层CLI2、helper1/未timeout或malformed，Go93f始末。root19:01:18.991586 fresh nonce/HMAC/UID/argv/lstart/cwd、actualPG4CPU2GiB、Linuxc800与模型完整pin、无active、Host26.189GB/VM7.207GB准入；资源UUIDab426.../18784–87。原900outer/40cleanup/45grace及固定2CPU2GiB Ollama不变，没有性能或额外observer。
+- 正式HTTP.5仍 `502 rule_generate_ambiguous`/normalFalse。单actual请求1599bytes，accepted→首红mtime15.032538秒；新mono显示上游headers19.922099秒、body仅追加41µs，200/636bytes、1choice/stop，晚content独立json.loads为JSONDecodeError。可以确认**本次上游头晚于15秒门槛，buffering不是这次主要等待**；不能恢复被Go client.Do丢掉的底层err、倒推旧run，或把晚内容误当先返回502实际分支。relay write返回也不证明产品采纳。1actual model请求已完成，原system/256/n1/streamfalse保持；不修改模型/超时洗绿，不冒答案质量或成功draft。
+- terminal/raw/receipt/SHA及新cleanup全部0600保留；forced0/worker0/writer与listenerdead/errors[]。root独立只读回验6exactCID、网络/模型卷/4端口、UUID库/角色均absent，PG/main未控制。首次root catalog verifier误猜postgres角色（未mutation），按既有testlab角色纠正只读读回，不重跑native；前像/firsterror保留。 只读聚合核对最初把25个interface_subpackages误当33对应组，断言在无native/证据变更时止；纠正范围为旧31基础对应加Trace/Role两组，Generate替换latest不加组，机器snapshot保旧历史。proof `1be14ad9-b0c1-4534-96d6-64a9cb08c5ef`附9登记JSON原件、三报告导出；实际run/overall三格式六下载HTTP200/MIME/attachment证明 `96b66c39-03bf-4758-8fc0-efd80bf7b1cd`；缺postfailure attempt/audit完整快照仍明示，不重构已删DB。
+- `TOOL-RULE-GENERATE-RELAY-TERMINAL` in_review；新工具证据修复验证成功，**业务接口仍failed、normal增0、完整接口/整链未完成**。同suite latest替换旧首次运行用于当前显示，旧首红在history保留；33对应latest仍1470P4F2B1external（含前置/父汇总/资格），不累加重复组或冒4Bug。外部真实来源/producer/暂停域继续高待办；继续适用接口场景，不能以execution_queue0判阶段完成。scoped提交/推送和Linear留交付；不merge/deploy。
+
 **最新记录入口：[CP-302](#cp-302-current)，2026-10-06 (+08)。当前真实正常128/166、缺38，仅正常子场景；接口阶段及整体仍 OPEN。** 先继续现有接口适用场景，后完整业务链；性能/24h、产品前端及原暂停域保持暂停。Go93f/Darwin6d/runtime338未改。
 
 <a id="cp-302-current"></a>

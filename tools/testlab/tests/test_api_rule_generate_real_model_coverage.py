@@ -1,5 +1,6 @@
-"""Pure offline guards. No subprocess, listener, model, Docker or database."""
-import ast,contextlib,copy,hashlib,io,json,os,sys,tempfile,types,unittest,uuid
+"""Offline guards and ephemeral synthetic sockets; no product/model/Docker/PG."""
+import ast,contextlib,copy,hashlib,io,json,os,socket,struct,sys,tempfile,threading,time,types,unittest,uuid
+from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import Mock,patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
@@ -22,16 +23,169 @@ class GenerateRealTests(unittest.TestCase):
         owner=types.SimpleNamespace(apps={'test':dict(rule_query=self.query)},work=self.work,model=model)
         with patch.object(candidate.gen,'Server') as server:
             relay=candidate.Relay(owner);handler_class=server.call_args.args[1]
+        self.addCleanup(lambda:relay.close() if not relay.writer_stopped else None)
         handler=handler_class.__new__(handler_class);handler.path='/model/test/chat/completions';raw=json.dumps(self.request()).encode()
         handler.headers={'Authorization':'Bearer '+relay.tokens['test'],'Content-Length':str(len(raw))}
         handler.rfile=io.BytesIO(raw);handler.wfile=io.BytesIO();handler.send_response=Mock();handler.send_header=Mock();handler.end_headers=Mock();handler.send_error=Mock()
+        handler.offline_relay=relay
         return relay,handler,raw
     def inference(self,handler,response):
         conn=Mock();wire=Mock(status=200);wire.read.return_value=response;wire.getheader.side_effect=lambda k,*args:'application/json'
         conn.getresponse.return_value=wire
         with patch.object(candidate.http.client,'HTTPConnection',return_value=conn) as factory,patch.object(candidate.metrics,'guard_model'):
             handler.do_POST()
+        deadline=time.monotonic()+1
+        while handler.offline_relay.jobs.unfinished_tasks and time.monotonic()<deadline:time.sleep(.005)
+        self.assertEqual(handler.offline_relay.jobs.unfinished_tasks,0)
         return factory,conn
+    @contextlib.contextmanager
+    def socket_relay(self,mode='normal'):
+        seen=threading.Event();release=threading.Event();raw=self.response()
+        class Upstream(BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                self.rfile.read(int(self.headers['Content-Length']));seen.set()
+                if mode in ('held','timeout'):release.wait(2)
+                try:
+                    self.send_response(200);self.send_header('Content-Type','application/json')
+                    body=raw if mode!='long' else b'x'*65537
+                    self.send_header('Content-Length',str(len(body)+(7 if mode=='partial' else 0)));self.end_headers()
+                    if mode=='held_body':release.wait(2)
+                    self.wfile.write(body)
+                except OSError:pass
+        upstream=ThreadingHTTPServer(('127.0.0.1',0),Upstream);upstream.daemon_threads=True
+        thread=threading.Thread(target=upstream.serve_forever,kwargs={'poll_interval':.01},daemon=True);thread.start()
+        server_type=candidate.gen.Server;connection_type=candidate.http.client.HTTPConnection
+        def server(port,handler,*args):return server_type(0,handler)
+        def connection(host,port,timeout):return connection_type(host,port,timeout=.1 if mode=='timeout' else timeout)
+        model=types.SimpleNamespace(model_cid='c'*64,inspect_model=Mock(return_value={}))
+        chain=types.SimpleNamespace(apps={'test':dict(rule_query=self.query)},work=self.work,model=model,cleanup_deadline=None)
+        with patch.object(candidate.gen,'Server',side_effect=server),patch.object(candidate,'MODEL_PORT',upstream.server_port),patch.object(candidate.http.client,'HTTPConnection',side_effect=connection),patch.object(candidate.metrics,'guard_model'):
+            relay=candidate.Relay(chain);port=relay.server.server.server_port
+            try:yield relay,port,seen,release,connection_type
+            finally:
+                release.set()
+                try:
+                    if not relay.writer_stopped:relay.close()
+                finally:upstream.shutdown();upstream.server_close();thread.join(1)
+    def wire_request(self,relay):
+        raw=json.dumps(self.request()).encode()
+        return (b'POST /model/test/chat/completions HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer '+relay.tokens['test'].encode()+b'\r\nContent-Length: '+str(len(raw)).encode()+b'\r\nConnection: close\r\n\r\n'+raw)
+    def test_real_socket_early_client_reset_keeps_terminal_receipt(self):
+        with self.socket_relay('held') as (relay,port,seen,release,_):
+            client=socket.create_connection(('127.0.0.1',port),timeout=1)
+            client.sendall(self.wire_request(relay));self.assertTrue(seen.wait(1))
+            client.setsockopt(socket.SOL_SOCKET,socket.SO_LINGER,struct.pack('ii',1,0));client.close();release.set()
+            deadline=time.monotonic()+1
+            while not (self.work/'real-provider-receipt.json').exists() and time.monotonic()<deadline:time.sleep(.005)
+        path=self.work/'real-provider-terminal-1.json'
+        self.assertTrue(path.exists(),'accepted inference must retain downstream disconnect terminal')
+        row=json.loads(path.read_text());self.assertIn(row['reason'],('downstream_broken_pipe','downstream_reset'))
+        self.assertEqual(row['provider_status'],200);self.assertEqual(row['response_sha256'],hashlib.sha256(self.response()).hexdigest())
+    def test_real_socket_still_buffers_all_upstream_before_downstream_headers(self):
+        with self.socket_relay('held_body') as (relay,port,seen,release,_):
+            with socket.create_connection(('127.0.0.1',port),timeout=1) as client:
+                client.sendall(self.wire_request(relay));self.assertTrue(seen.wait(1));client.settimeout(.05)
+                with self.assertRaises(TimeoutError):client.recv(1)
+                release.set();client.settimeout(1);response=b''
+                while True:
+                    part=client.recv(65536)
+                    if not part:break
+                    response+=part
+        body=response.split(b'\r\n\r\n',1)[1]
+        self.assertEqual(hashlib.sha256(body).hexdigest(),hashlib.sha256(self.response()).hexdigest())
+        terminal=json.loads((self.work/'real-provider-terminal-1.json').read_text())
+        self.assertEqual(terminal['reason'],'provider_forwarded')
+        self.assertLessEqual(terminal['timestamps']['upstream_body_at'],terminal['timestamps']['downstream_write_at'])
+        self.assertLessEqual(terminal['elapsed_seconds']['upstream_body_at'],terminal['elapsed_seconds']['downstream_write_at'])
+    def test_real_socket_upstream_header_timeout_is_terminal_and_not_retried(self):
+        with self.socket_relay('timeout') as (relay,port,seen,release,connection):
+            client=connection('127.0.0.1',port,timeout=1)
+            client.request('POST','/model/test/chat/completions',json.dumps(self.request()).encode(),{'Authorization':'Bearer '+relay.tokens['test']})
+            response=client.getresponse();self.assertEqual(response.status,502);response.read();client.close()
+        row=json.loads((self.work/'real-provider-terminal-1.json').read_text())
+        self.assertEqual(row['reason'],'upstream_header_timeout');self.assertEqual(row['started'],1);self.assertEqual(row['completed'],0)
+        self.assertIsNone(row['provider_status']);self.assertNotIn('error_text',row)
+    def test_real_socket_partial_body_records_short_read_without_changing_forwarding(self):
+        with self.socket_relay('partial') as (relay,port,seen,release,connection):
+            client=connection('127.0.0.1',port,timeout=1)
+            client.request('POST','/model/test/chat/completions',json.dumps(self.request()).encode(),{'Authorization':'Bearer '+relay.tokens['test']})
+            response=client.getresponse();self.assertEqual(response.status,200);body=response.read();client.close()
+        row=json.loads((self.work/'real-provider-terminal-1.json').read_text())
+        self.assertEqual(row['reason'],'upstream_partial_body')
+        self.assertEqual(hashlib.sha256(body).hexdigest(),hashlib.sha256(self.response()).hexdigest())
+        self.assertEqual(row['response_bytes'],len(self.response()))
+    def test_real_socket_long_body_preserves_original_502_and_caps_saved_prefix(self):
+        with self.socket_relay('long') as (relay,port,seen,release,connection):
+            client=connection('127.0.0.1',port,timeout=1)
+            client.request('POST','/model/test/chat/completions',json.dumps(self.request()).encode(),{'Authorization':'Bearer '+relay.tokens['test']})
+            response=client.getresponse();self.assertEqual(response.status,502);response.read();client.close()
+        row=json.loads((self.work/'real-provider-terminal-1.json').read_text())
+        self.assertEqual(row['reason'],'provider_body_limit');self.assertEqual(row['response_bytes'],65537);self.assertTrue(row['observed_body_truncated'])
+        self.assertEqual((self.work/'real-response-observed.json').stat().st_size,65536)
+        self.assertFalse((self.work/'real-response.json').exists())
+    def test_real_socket_daemon_handler_is_joined_with_remaining_cleanup_deadline(self):
+        with self.socket_relay('held_body') as (relay,port,seen,release,_):
+            client=socket.create_connection(('127.0.0.1',port),timeout=1);self.addCleanup(client.close)
+            client.sendall(self.wire_request(relay));self.assertTrue(seen.wait(1))
+            limit=time.monotonic()+.35
+            with self.assertRaises(AssertionError):relay.close(limit)
+            self.assertLess(time.monotonic(),limit+.05)
+            self.assertFalse(relay.active);self.assertFalse(relay.writer.is_alive())
+        self.assertTrue((self.work/'real-provider-terminal-1.json').exists())
+        self.assertEqual(json.loads((self.work/'real-provider-terminal-1.json').read_text())['reason'],'cleanup_forced_cutoff')
+        self.assertIn('cleanup_forced_cutoff',relay.cleanup_summary()['cleanup_errors'])
+    def test_real_socket_request_body_reset_is_not_attributed_to_upstream(self):
+        with self.socket_relay() as (relay,port,seen,release,_):
+            client=socket.create_connection(('127.0.0.1',port),timeout=1)
+            client.sendall(self.wire_request(relay)[:-100]);client.setsockopt(socket.SOL_SOCKET,socket.SO_LINGER,struct.pack('ii',1,0));client.close()
+        row=json.loads((self.work/'real-provider-terminal-1.json').read_text())
+        self.assertEqual(row['reason'],'request_reset');self.assertEqual(row['started'],0)
+        self.assertIsNone(row['provider_status']);self.assertFalse(seen.is_set())
+    def test_receipt_disk_failure_cannot_change_forwarded_response_or_block_owned_cleanup(self):
+        relay,handler,_=self.fake_relay()
+        original=candidate.private_bytes
+        def save(path,body):
+            if path.name.startswith('real-provider-terminal-'):raise OSError('synthetic write failure')
+            return original(path,body)
+        with patch.object(candidate,'private_bytes',side_effect=save):self.inference(handler,self.response())
+        self.assertEqual(hashlib.sha256(handler.wfile.getvalue()).hexdigest(),hashlib.sha256(self.response()).hexdigest())
+        handler.send_error.assert_not_called()
+        with self.assertRaises(AssertionError):relay.close(time.monotonic()+1)
+        self.assertEqual(relay.cleanup_summary()['evidence_errors'],['evidence_write_failed']);self.assertFalse(relay.writer.is_alive())
+    def test_stuck_receipt_writer_is_bounded_and_records_incomplete(self):
+        relay,handler,_=self.fake_relay();entered=threading.Event();release=threading.Event()
+        original=candidate.private_bytes
+        def save(path,body):
+            entered.set();release.wait(2);return original(path,body)
+        with patch.object(candidate,'private_bytes',side_effect=save):
+            relay.save('offline-only.json',{'fixed_reason':'synthetic'})
+            self.assertTrue(entered.wait(1));deadline=time.monotonic()+.1
+            with self.assertRaises(AssertionError):relay.close(deadline)
+            self.assertLess(time.monotonic(),deadline+.05)
+            self.assertIn('writer_join_incomplete',relay.cleanup_summary()['cleanup_errors'])
+            release.set();relay.writer.join(1)
+        self.assertFalse(relay.writer.is_alive())
+    def test_listener_creation_failure_leaves_writer_owned_by_original_cleanup(self):
+        owner=types.SimpleNamespace(apps={'test':dict(rule_query=self.query)},work=self.work,cleanup_deadline=None)
+        with patch.object(candidate.gen,'Server',side_effect=OSError('synthetic bind failure')),self.assertRaises(OSError):candidate.Relay(owner)
+        relay=owner.rule_fixture;relay.close(time.monotonic()+1)
+        self.assertFalse(relay.writer.is_alive());self.assertTrue(relay.creation_failed)
+    def test_relay_cleanup_failure_still_uses_same_deadline_for_remaining_resources(self):
+        c=candidate.Chain.__new__(candidate.Chain);c.api=[];c.work=self.work
+        c.rule_fixture=types.SimpleNamespace(close=Mock(side_effect=AssertionError('fixed failure')),cleanup_summary=Mock(return_value={'cleanup_errors':['writer_join_incomplete'],'evidence_errors':[]}))
+        c.model=types.SimpleNamespace(cleanup_owned=Mock());relay=c.rule_fixture
+        with patch.object(candidate.time,'monotonic',return_value=100),patch.object(candidate,'bounded_cleanup') as original,contextlib.redirect_stdout(io.StringIO()),self.assertRaises(AssertionError):c.cleanup()
+        relay.close.assert_called_once_with(140);c.model.cleanup_owned.assert_called_once_with(140)
+        original.assert_called_once_with(c);self.assertIs(c.rule_fixture,relay)
+        row=json.loads((self.work/'real-generate-cleanup.json').read_text());self.assertEqual(row['relay']['cleanup_errors'],['writer_join_incomplete'])
+    def test_monotonic_stage_receipt_survives_wall_clock_going_backwards(self):
+        relay,handler,_=self.fake_relay()
+        stamps=['2026-10-06T00:00:0'+str(i)+'+00:00' for i in (5,4,3,2,1,0)]
+        with patch.object(candidate.Relay,'stamp',side_effect=stamps):self.inference(handler,self.response())
+        row=json.loads((self.work/'real-provider-terminal-1.json').read_text())
+        self.assertGreater(row['timestamps']['accepted_at'],row['timestamps']['terminal_at'])
+        elapsed=list(row['elapsed_seconds'].values());self.assertEqual(elapsed,sorted(elapsed))
     def test_inventory_is_offline_and_exactly_one_target(self):
         with patch.object(candidate.ro,'doctor') as doctor,patch.object(candidate.linux.subprocess,'run') as subprocess_run,patch.object(candidate.sqlite3,'connect') as database,contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertEqual(candidate.main(['--inventory']),0)

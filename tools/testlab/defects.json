@@ -1305,5 +1305,22 @@
     ],
     "historical_rejected_records": 556,
     "scope": "556记录/60run/60route不是产品缺陷数；既有独立normal保持127，Trace新合法Agent分支+1，不Tempo或权威producer完整性"
+  },
+  {
+    "id": "TOOL-RULE-GENERATE-RELAY-TERMINAL",
+    "title": "规则Generate relay断连或收尾丢失终态证据",
+    "category": "test_tool",
+    "severity": "MEDIUM",
+    "status": "in_review",
+    "before": "旧silent BrokenPipe/Reset及daemon handler未等，首原502没有provider final；真实localhost RST反例1F保留。",
+    "after": "固定phase/reason、UTC与monoelapsed、bytes/SHA、bounded16/64KiB writer和同40 join；40offline含7实际socketP，新74929 terminal/raw/receipt持久与独立精确清理P，API502不洗绿。",
+    "first_failure_run": "7e2b5621-adaa-4296-abc6-3c2888aac245",
+    "validation_run": "74929e23-f66f-4a8e-83c6-b83a86fdac0d",
+    "product_change_required": false,
+    "normal_increment": 0,
+    "proof_evidence_ids": [
+      "1be14ad9-b0c1-4534-96d6-64a9cb08c5ef"
+    ],
+    "limitations": "旧Server TLS构造partial listener及model-log硬上限未验；client.Do底层err仍丢失，新run晚JSON不归因先返回的502。"
   }
 ]

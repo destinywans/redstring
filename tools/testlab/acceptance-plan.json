@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-05T18:30:08.923918+00:00",
+  "updated_at": "2026-10-05T19:09:47.448779+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -1572,7 +1572,7 @@
       "availability": "local_environment",
       "priority": "P1",
       "package_id": "local-components",
-      "reason": "Generate不调用QueryRange；真实小模型原15秒header期限内未完成正式draft，首502保留；确切network error待确认。",
+      "reason": "Generate不QueryRange；原502保留。新原fixture实测headers19.922099s迟于15s，后到content离线非直接JSON；工具terminal/同40cleanup已补，normal仍失败；不把新测量倒推旧client.Do类型或自动改模型/期限。",
       "prerequisites": [
         "参见工作包 local-components 的隔离与证据前置"
       ],
@@ -5756,7 +5756,7 @@
         },
         {
           "id": "rule-generate-real-model",
-          "title": "真实小模型规则生成首失败（未通过）",
+          "title": "真实小模型规则生成：原例仍失败，终态证据已补齐",
           "command": null,
           "recorded_entry": "本次run唯一private manifest，旧UUID不直接重放",
           "evidence_mode": "real_local",
@@ -5820,16 +5820,27 @@
           "allowed_case_statuses": [
             "passed"
           ],
-          "proof_scope": "首native14P4F/CLI2，真实model收到原20s/15sheader/256token请求，未返回成功draft，normal增0；清理P/原502及日志保留；15秒header时序高可信待确认，非质量或非法JSON结论，不改参数或自动retry。",
+          "proof_scope": "新原例74929实测14P4F/外层CLI2/helper1；actual Linuxc800/固定qwen2.5:0.5b/256/15header20total/无prewarm或retry。上游headers19.922099s，body仅追加41µs，先502的mtime约15.032538s；新run晚内容离线JSONDecodeError不倒推502实际分支或旧run。终态及同40资源清理P，normal0/wholeOPEN，不产品修复/性能/整链。",
           "current_original_evidence": {
-            "run_id": "7e2b5621-adaa-4296-abc6-3c2888aac245",
+            "run_id": "74929e23-f66f-4a8e-83c6-b83a86fdac0d",
             "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
             "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
             "proof_evidence_ids": [
-              "626880e1-60da-41ff-95ca-ccd2c38f697c"
+              "1be14ad9-b0c1-4534-96d6-64a9cb08c5ef"
             ]
           },
-          "rerun_preconditions": "Fresh新UUID、当前helper/source/actualLinux build/HMAC/资源准入；不能直接重放本次manifest或自动retry。"
+          "rerun_preconditions": "本次单次原fixture诊断已完成，无自动下一轮。先处理适用接口场景；模型/参数/超时不修改，旧首红/新失败均保留。",
+          "evidence_history": [
+            {
+              "run_id": "7e2b5621-adaa-4296-abc6-3c2888aac245",
+              "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+              "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+              "proof_evidence_ids": [
+                "626880e1-60da-41ff-95ca-ccd2c38f697c"
+              ]
+            }
+          ],
+          "first_failure_run_id": "7e2b5621-adaa-4296-abc6-3c2888aac245"
         },
         {
           "id": "pull-pending-capacity",
@@ -6838,7 +6849,7 @@
       "priority": "P0",
       "action": "继续当前源knowledge/source协议、ingress与规则generate/preview/alert-policy等剩余接口组及未验边界。directory/invitation已本次原组复验，不重复冒新增；缺完整链前置、真实租户与权威producer另列，先接口后完整链。",
       "preconditions": [
-        "当前源真实normal127/166（剩39=20协议待真实+19两类均缺）、protocol normal32、normal execution_queue0；五本地父包仍未收口。历史120/57及CP298队列只作历史，不计当前完整验收。",
+        "当前源真实normal128/166（剩38=20协议待真实+18两类均缺）、normal execution_queue0；正常子场景不是完整接口，适用本地故障/边界仍推进，外部/缺producer/暂停单列。",
         "每个目标核对正式注册/发现、非空DTO和来源关联，429/超时/丢响应/权限漂移逐项",
         "真实飞书/Notion/Confluence、完整身份及安全authority外部待办保持",
         "目录仅自有子API进程代理/私有CA：固定两host、无外部透传；外部成功本地失败仅fresh UUID库精确故障DDL，不触及canonical或archives"
@@ -7213,6 +7224,13 @@
       "remaining": 39,
       "whole_interface_acceptance": false,
       "reason": "合法empty按实际合同，真实模型失败不调参数洗绿，其他接口独立继续；现有原件门控纠正不伪造新测试。"
+    },
+    {
+      "checkpoint": "CP303",
+      "at": "2026-10-05T19:09:47.448779+00:00",
+      "decision": "用户继续授权先接口；一次原Generate功能诊断已完成，工具最小终态修复独审/40offline及native清理验证；真实API仍502。保持15/20/256和原模型，不性能/整链/缺producer扩实现。",
+      "run_id": "74929e23-f66f-4a8e-83c6-b83a86fdac0d",
+      "proof_evidence_id": "1be14ad9-b0c1-4534-96d6-64a9cb08c5ef"
     }
   ],
   "review_record_history": [
@@ -7491,7 +7509,7 @@
     }
   ],
   "interface_phase": {
-    "status": "in_progress",
+    "status": "open",
     "acceptance": "逐实际公开接口核对当前源正常/认证鉴权/越权/边界及适用幂等/故障/一致性与清理；正常样本覆盖不是完整接口验收。",
     "scope": "本地实际组件优先、明确协议Mock可验证协议逻辑；真实外部待办/缺实现/暂停/需要产品决定独立，不视为通过。",
     "next_phase": "完整跨模块业务链，接口阶段完成后再实际运行。",
@@ -7502,16 +7520,16 @@
     ],
     "latest_result_snapshot": {
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
-      "main_normal_success": 127,
+      "main_normal_success": 128,
       "main_total": 166,
       "execution_queue": 0,
       "local_queue": 19,
       "protocol_mock_normal": 32,
-      "current_groups_passed_cases": 1418,
+      "current_groups_passed_cases": 1470,
       "current_groups_blocked_cases": 2,
       "current_groups_external_todo_cases": 1,
-      "scope": "31对应子组latest1418P4F2B1external（原1384+Canvas34），含前置/父汇总；原firstClaim65P1F/其他首红单列保留。normal127/166缺39，仅normal；接口phase/wholeOPEN。",
-      "remaining_real_normal": 39,
+      "scope": "承接CP301的31对应子组1418P4F2B1external，CP302增加Trace23P与Role29P，得到33对应1470P4F2B1external；这含25个interface_subpackages和其他8个基础组，不能把25列表误当33。CP303重复Generate latest仍14P4F，旧首红保留而不再加组/加4F。仅记录范围，不是独立断言/完整验收。",
+      "remaining_real_normal": 38,
       "current_groups_failed_cases": 4,
       "new_interface_scene_runs": [
         {
@@ -7555,8 +7573,31 @@
           "summary": "34P/16HTTP，plan/INV各503六表回滚→samebody对侧201+实际结构读回",
           "normal_added": 0,
           "proof_evidence_id": "1d2a25cc-9c46-44b6-9165-d9c5a03b88a0"
+        },
+        {
+          "id": "d0279bc1-544e-4b66-b9ca-c1b371bedc1d",
+          "status": "passed",
+          "summary": "native22P+rootqualification1P，Trace Agent partial空读消费者，不App全集",
+          "normal_added": 1,
+          "proof_evidence_id": "fbd629de-d9d7-410e-92c2-ac577a2ac6f7"
+        },
+        {
+          "id": "830f1bef-135e-4591-b30e-0f0c4fea2c86",
+          "status": "passed",
+          "summary": "29P roleaudit rollback+same revision+samecookie permissions",
+          "normal_added": 0,
+          "proof_evidence_id": "a700ca22-ee6a-478a-a4e9-feeacfd413ba"
+        },
+        {
+          "id": "74929e23-f66f-4a8e-83c6-b83a86fdac0d",
+          "status": "failed",
+          "summary": "14P4F; Generate original once502/header19.922s/terminaldurable; old first7e2 retained, replaces latest same suite",
+          "normal_added": 0,
+          "proof_evidence_id": "1be14ad9-b0c1-4534-96d6-64a9cb08c5ef"
         }
-      ]
+      ],
+      "corresponding_groups": 33,
+      "interface_subpackages": 25
     },
     "scenario_evidence_layer_review": {
       "record_id": "7974f802-7051-4ee4-a133-89255ba1c216",
@@ -7638,6 +7679,98 @@
         },
         "limitation": "主前置可交叉，不是40都没测、不是40都缺实现；报告只审剩余正常前置，不宣称166五类全部完成。",
         "new_feasible": "真实Prom空matrix preview在原合同valid/no_observed_series为200；独立候选prepared不计native；generate不依赖七天QueryRange，但HTTPS模型/20s严格JSON成功仍实际未验。"
+      }
+    ],
+    "rule_generate_current_diagnosis": {
+      "run_id": "74929e23-f66f-4a8e-83c6-b83a86fdac0d",
+      "first_failure_run_id": "7e2b5621-adaa-4296-abc6-3c2888aac245",
+      "proof_evidence_id": "1be14ad9-b0c1-4534-96d6-64a9cb08c5ef",
+      "original_run_exact_network_cause": "needs_confirmation",
+      "current_upstream_headers_seconds": 19.922099,
+      "late_json": "offline_JSONDecodeError_only",
+      "normal_added": 0,
+      "product_source_unchanged": true,
+      "no_more_automatic_reproduction": true
+    },
+    "result_snapshot_history": [
+      {
+        "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+        "main_normal_success": 127,
+        "main_total": 166,
+        "execution_queue": 0,
+        "local_queue": 19,
+        "protocol_mock_normal": 32,
+        "current_groups_passed_cases": 1418,
+        "current_groups_blocked_cases": 2,
+        "current_groups_external_todo_cases": 1,
+        "scope": "31对应子组latest1418P4F2B1external（原1384+Canvas34），含前置/父汇总；原firstClaim65P1F/其他首红单列保留。normal127/166缺39，仅normal；接口phase/wholeOPEN。",
+        "remaining_real_normal": 39,
+        "current_groups_failed_cases": 4,
+        "new_interface_scene_runs": [
+          {
+            "id": "80d3b55a-16fc-415f-a210-833ee29c4312",
+            "status": "failed",
+            "summary": "27P1F; duplicate readiness protocol; business/cleanup P; not accepted",
+            "normal_added": 0,
+            "proof_evidence_id": "c15de222-871b-43ec-8923-aca3edd03c90"
+          },
+          {
+            "id": "f94d9728-473d-410f-90fc-85decdc1222e",
+            "status": "passed",
+            "summary": "29P; original6 requests/new UUID; first80d failed retained",
+            "normal_added": 0,
+            "proof_evidence_id": "a37a0c99-cdc8-4054-ad48-973d0558b163"
+          },
+          {
+            "id": "252de9ad-df9e-47a7-bf56-a3d7a09270f8",
+            "status": "passed",
+            "summary": "25P/11HTTP audit503 exactrollback+sameETag otherAPI recovery",
+            "normal_added": 0,
+            "proof_evidence_id": "3db8b40b-2b69-4809-b9b7-50fcd4b60cdd"
+          },
+          {
+            "id": "341c773a-c1b3-48c0-b67c-b6d2792515c0",
+            "status": "failed",
+            "summary": "65P1F/300秒编排超时，48HTTP预期及cleanup P，缺五mandatory marker；不接受整组",
+            "normal_added": 0,
+            "proof_evidence_id": "0ca78b1d-c727-4e58-9ac2-2a9b3f56e73b"
+          },
+          {
+            "id": "a58a5a6c-d921-4d4a-b24c-3408294e8a88",
+            "status": "passed",
+            "summary": "72P/50HTTP全部原marker通过，新UUID显式仅外层420",
+            "normal_added": 0,
+            "proof_evidence_id": "43102f57-8af4-4c63-a6f7-129b38b82185"
+          },
+          {
+            "id": "eb6e8823-032c-4706-8b1a-24dcd2a84047",
+            "status": "passed",
+            "summary": "34P/16HTTP，plan/INV各503六表回滚→samebody对侧201+实际结构读回",
+            "normal_added": 0,
+            "proof_evidence_id": "1d2a25cc-9c46-44b6-9165-d9c5a03b88a0"
+          },
+          {
+            "id": "d0279bc1-544e-4b66-b9ca-c1b371bedc1d",
+            "status": "passed",
+            "summary": "native22P+rootqualification1P，Trace Agent partial空读消费者，不App全集",
+            "normal_added": 1,
+            "proof_evidence_id": "fbd629de-d9d7-410e-92c2-ac577a2ac6f7"
+          },
+          {
+            "id": "830f1bef-135e-4591-b30e-0f0c4fea2c86",
+            "status": "passed",
+            "summary": "29P roleaudit rollback+same revision+samecookie permissions",
+            "normal_added": 0,
+            "proof_evidence_id": "a700ca22-ee6a-478a-a4e9-feeacfd413ba"
+          },
+          {
+            "id": "74929e23-f66f-4a8e-83c6-b83a86fdac0d",
+            "status": "failed",
+            "summary": "14P4F; Generate original once502/header19.922s/terminaldurable; old first7e2 retained, replaces latest same suite",
+            "normal_added": 0,
+            "proof_evidence_id": "1be14ad9-b0c1-4534-96d6-64a9cb08c5ef"
+          }
+        ]
       }
     ]
   },
@@ -8244,10 +8377,18 @@
         "readonly.complete",
         "container.cleanup"
       ],
-      "latest_run_id": "7e2b5621-adaa-4296-abc6-3c2888aac245",
+      "latest_run_id": "74929e23-f66f-4a8e-83c6-b83a86fdac0d",
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
-      "proof_evidence_id": "626880e1-60da-41ff-95ca-ccd2c38f697c",
-      "scope": "首native14P4F/CLI2，真实model收到原20s/15sheader/256token请求，未返回成功draft，normal增0；清理P/原502及日志保留；15秒header时序高可信待确认，非质量或非法JSON结论，不改参数或自动retry。"
+      "proof_evidence_id": "1be14ad9-b0c1-4534-96d6-64a9cb08c5ef",
+      "scope": "新原例74929实测14P4F/外层CLI2/helper1；actual Linuxc800/固定qwen2.5:0.5b/256/15header20total/无prewarm或retry。上游headers19.922099s，body仅追加41µs，先502的mtime约15.032538s；新run晚内容离线JSONDecodeError不倒推502实际分支或旧run。终态及同40资源清理P，normal0/wholeOPEN，不产品修复/性能/整链。",
+      "original_evidence_history": [
+        {
+          "latest_run_id": "7e2b5621-adaa-4296-abc6-3c2888aac245",
+          "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+          "proof_evidence_id": "626880e1-60da-41ff-95ca-ccd2c38f697c",
+          "scope": "首native14P4F/CLI2，真实model收到原20s/15sheader/256token请求，未返回成功draft，normal增0；清理P/原502及日志保留；15秒header时序高可信待确认，非质量或非法JSON结论，不改参数或自动retry。"
+        }
+      ]
     },
     {
       "id": "user-settings-concurrency",

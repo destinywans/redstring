@@ -3,7 +3,7 @@ Private Linux/model lifecycle copies only. No answer fixture, JSON repair,
 format injection, retries, paid provider, user11434, history or quality claim.
 """
 from __future__ import annotations
-import argparse,ast,copy,datetime,hashlib,http.client,importlib.util,inspect,json,os,re,secrets,socket,sqlite3,sys,textwrap,threading,time,uuid
+import argparse,ast,copy,datetime,hashlib,http.client,importlib.util,inspect,json,os,queue,re,secrets,socket,sqlite3,sys,textwrap,threading,time,uuid
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2];MODULE='rule-generate-real-model'
@@ -181,44 +181,150 @@ class Model(metrics.Chain):
 class Relay:
     def __init__(self,c):
         self.c=c;self.tokens={env:secrets.token_urlsafe(30) for env in c.apps};self.lock=threading.Lock();self.started=0;self.completed=0;self.source_reads=0;self.raw=None;f=self
+        self.active={};self.serial=0;self.jobs=queue.Queue(maxsize=16);self.evidence_errors=[];self.cleanup_errors=[];self.forced=set()
+        self.closing=False;self.writer_stopped=False;self.closer=None;self.server=None;self.creation_failed=False
+        # A failed listener constructor must still leave its writer owned by
+        # the original Chain cleanup, not an untracked daemon.
+        c.rule_fixture=self
+        self.writer=threading.Thread(target=self.write_receipts,daemon=True);self.writer.start()
         class Handler(BaseHTTPRequestHandler):
             def log_message(self,*args):pass
             def do_GET(self):
                 with f.lock:f.source_reads+=1
                 self.send_error(404)
             def do_POST(self):
-                conn=None
+                conn=None;raw=None;body=None;provider_status=None;reason='request_invalid';phase='request';serial=0
+                origin=time.monotonic();stamps={};elapsed={};worker=threading.current_thread()
+                def mark(name):stamps[name]=f.stamp();elapsed[name]=round(max(0,time.monotonic()-origin),6)
+                mark('accepted_at')
+                with f.lock:
+                    f.serial+=1;serial=f.serial;f.active[worker]={'downstream':getattr(self,'connection',None),'upstream':None}
                 try:
+                    if getattr(self,'connection',None):self.connection.settimeout(21)
+                    check(not f.closing,'relay cleanup already started')
                     check(self.path=='/model/test/chat/completions' and self.headers.get('Authorization')=='Bearer '+f.tokens['test'],'exact private model capability/path')
                     length=int(self.headers.get('Content-Length','0'));check(0<length<=32768,'bounded real model request')
                     raw=self.rfile.read(length);check(len(raw)==length,'truncated model request');request_shape(raw,c.apps['test']['rule_query'])
                     with f.lock:f.started+=1;count=f.started
-                    private_bytes(c.work/('real-request-'+str(count)+'.json'),raw)
+                    f.save('real-request-'+str(count)+'.json',raw)
+                    reason='duplicate_request'
                     check(count==1,'unexpected second inference request; no model retry')
+                    reason='model_identity_unverified';phase='model_identity'
                     metrics.guard_model(c.model.inspect_model(),c.model)
                     conn=http.client.HTTPConnection('127.0.0.1',MODEL_PORT,timeout=21)
+                    with f.lock:f.active[worker]['upstream']=conn
+                    phase='upstream_headers';reason='provider_io_failure'
                     conn.request('POST','/v1/chat/completions',raw,{'Content-Type':'application/json'})
-                    response=conn.getresponse();body=response.read(65537);check(len(body)<=65536,'real provider body exceeds product bound')
+                    with f.lock:f.active[worker]['upstream_socket']=conn.sock
+                    mark('upstream_request_sent_at')
+                    response=conn.getresponse();provider_status=response.status;mark('upstream_headers_at');phase='upstream_body'
+                    body=response.read(65537);mark('upstream_body_at')
+                    reason='provider_body_limit' if len(body)>65536 else 'upstream_partial_body' if type(response.length) is int and response.length>0 else 'provider_forwarded'
+                    check(len(body)<=65536,'real provider body exceeds product bound')
                     with f.lock:f.raw=body;f.completed+=1
-                    private_bytes(c.work/'real-response.json',body)
-                    ro._private(c.work/'real-provider-receipt.json',dict(status=response.status,content_type=response.getheader('Content-Type'),
+                    f.save('real-response.json',body)
+                    f.save('real-provider-receipt.json',dict(status=response.status,
                         request_sha256=hashlib.sha256(raw).hexdigest(),response_sha256=hashlib.sha256(body).hexdigest(),model_cid=c.model.model_cid,
                         actual_linux_binary_sha256=LINUX,darwin_admission_sha256=DARWIN,unchanged_bytes=True))
+                    phase='downstream_write'
                     self.send_response(response.status);self.send_header('Content-Type',response.getheader('Content-Type',''))
                     self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
-                except (BrokenPipeError,ConnectionResetError):pass
+                    mark('downstream_write_at')
+                except (BrokenPipeError,ConnectionResetError) as error:
+                    prefix='downstream_' if phase=='downstream_write' else 'upstream_' if phase in ('upstream_headers','upstream_body') else 'request_'
+                    reason=prefix+('broken_pipe' if isinstance(error,BrokenPipeError) else 'reset')
                 except Exception as error:
-                    ro._private(c.work/'real-provider-failure.json',dict(error_type=type(error).__name__,started=f.started,completed=f.completed,
-                        classification='environment/protocol/model ambiguity; no response repair or retry'))
+                    if isinstance(error,TimeoutError):reason='upstream_header_timeout' if phase=='upstream_headers' else 'upstream_body_timeout' if phase=='upstream_body' else 'downstream_write_timeout' if phase=='downstream_write' else 'request_timeout'
+                    elif isinstance(error,http.client.IncompleteRead):body=error.partial[:65537];reason='upstream_partial_body'
+                    elif isinstance(error,OSError):reason='provider_io_failure' if phase in ('upstream_headers','upstream_body') else 'downstream_write_failure' if phase=='downstream_write' else 'request_io_failure'
+                    f.save('real-provider-failure.json',dict(reason=reason,phase=phase,started=f.started,completed=f.completed,
+                        actual_linux_binary_sha256=LINUX,classification='environment/protocol/model ambiguity; no response repair or retry'))
                     try:self.send_error(502)
                     except OSError:pass
                 finally:
-                    if conn:conn.close()
-        self.server=gen.Server(RELAY_PORT,Handler,c.work/'tls-cert.pem',c.work/'tls-key.pem')
+                    if conn:
+                        try:conn.close()
+                        except OSError:pass
+                    if body is not None and reason in ('provider_body_limit','upstream_partial_body'):
+                        f.save('real-response-observed.json',body[:65536])
+                    mark('terminal_at')
+                    with f.lock:forced=worker in f.forced
+                    f.save('real-provider-terminal-'+str(serial)+'.json',dict(reason='cleanup_forced_cutoff' if forced else reason,
+                        observed_transport_reason=reason if forced else None,phase=phase,timestamps=stamps,elapsed_seconds=elapsed,
+                        provider_status=provider_status,request_bytes=len(raw) if raw is not None else None,
+                        request_sha256=hashlib.sha256(raw).hexdigest() if raw is not None else None,
+                        response_bytes=len(body) if body is not None else None,response_sha256=hashlib.sha256(body).hexdigest() if body is not None else None,
+                        observed_body_truncated=body is not None and len(body)>65536,started=f.started,completed=f.completed,
+                        actual_linux_binary_sha256=LINUX,darwin_admission_sha256=DARWIN))
+                    with f.lock:f.active.pop(worker,None)
+        try:self.server=gen.Server(RELAY_PORT,Handler,c.work/'tls-cert.pem',c.work/'tls-key.pem')
+        except BaseException:self.creation_failed=True;raise
+    @staticmethod
+    def stamp():return datetime.datetime.now(datetime.timezone.utc).isoformat()
+    def save(self,name,value):
+        raw=value if isinstance(value,bytes) else json.dumps(value,separators=(',',':')).encode()
+        if len(raw)>65536:
+            self.error('evidence_size_limit')
+            return
+        try:self.jobs.put_nowait((self.c.work/name,raw))
+        except queue.Full:
+            self.error('evidence_queue_full')
+    def error(self,reason,cleanup=False):
+        with self.lock:
+            errors=self.cleanup_errors if cleanup else self.evidence_errors
+            if reason not in errors:errors.append(reason)
+    def write_receipts(self):
+        while True:
+            item=self.jobs.get()
+            try:
+                if item is None:return
+                private_bytes(*item)
+            except BaseException:
+                self.error('evidence_write_failed')
+            finally:self.jobs.task_done()
     def env_tokens(self):return {'TESTLAB_RULE_'+kind+'_'+env.upper():token for env,token in self.tokens.items() for kind in ('MODEL','PREVIEW')}
     def snapshot(self):
         with self.lock:return dict(started=self.started,completed=self.completed,source_reads=self.source_reads,response_sha256=None if self.raw is None else hashlib.sha256(self.raw).hexdigest())
-    def close(self):self.server.close()
+    def close(self,deadline=None):
+        # Drain the original inference before stopping its model. Every join uses
+        # the same cleanup deadline; a stuck evidence writer cannot block it.
+        if deadline is None:deadline=getattr(self.c,'cleanup_deadline',None)
+        if deadline is None:deadline=time.monotonic()+3
+        end=min(deadline,time.monotonic()+8);self.closing=True
+        if self.closer is None and self.server is not None:
+            def stop_listener():
+                try:self.server.close()
+                except BaseException:self.error('listener_close_failed',cleanup=True)
+            self.closer=threading.Thread(target=stop_listener,daemon=True);self.closer.start()
+        if self.closer:self.closer.join(max(0,end-time.monotonic()))
+        with self.lock:workers=list(self.active)
+        drain=max(time.monotonic(),end-.25)
+        for worker in workers:worker.join(max(0,drain-time.monotonic()))
+        with self.lock:pending=list(self.active.items())
+        if pending:
+            self.error('cleanup_forced_cutoff',cleanup=True)
+            with self.lock:self.forced.update(worker for worker,_ in pending)
+        for worker,connections in pending:
+            for name,channel in connections.items():
+                channel=getattr(channel,'sock',None) if name=='upstream' else channel
+                if channel is not None:
+                    try:channel.shutdown(socket.SHUT_RDWR)
+                    except OSError:pass
+            worker.join(max(0,end-time.monotonic()))
+        if not self.writer_stopped and not self.active:
+            try:self.jobs.put_nowait(None);self.writer_stopped=True
+            except queue.Full:
+                self.error('evidence_queue_full')
+        self.writer.join(max(0,end-time.monotonic()))
+        if self.closer and self.closer.is_alive():self.error('listener_join_incomplete',cleanup=True)
+        if self.active:self.error('worker_join_incomplete',cleanup=True)
+        if self.writer.is_alive():self.error('writer_join_incomplete',cleanup=True)
+        check(not self.cleanup_errors and not self.evidence_errors,'relay terminal/evidence cleanup incomplete; original failure retained')
+    def cleanup_summary(self):
+        with self.lock:return dict(accepted_requests=self.serial,active_workers=len(self.active),forced_cutoffs=len(self.forced),
+            writer_alive=self.writer.is_alive(),listener_alive=bool(self.closer and self.closer.is_alive()),
+            creation_failed=self.creation_failed,evidence_errors=list(self.evidence_errors),cleanup_errors=list(self.cleanup_errors),
+            actual_linux_binary_sha256=LINUX,darwin_admission_sha256=DARWIN)
 
 class Contract(linux.Contract):pass
 class Chain(linux.Chain):
@@ -286,11 +392,22 @@ class Chain(linux.Chain):
         for item in reversed(self.api):
             try:self.stop_container(item)
             except BaseException as error:errors.append(type(error).__name__)
+        relay=getattr(self,'rule_fixture',None)
+        if relay:
+            try:relay.close(self.cleanup_deadline)
+            except BaseException as error:errors.append(type(error).__name__)
         try:self.model.cleanup_owned(self.cleanup_deadline)
         except BaseException as error:errors.append(type(error).__name__)
-        try:bounded_cleanup(self)
+        try:
+            # Relay evidence failure must not prevent the original owned API,
+            # network and UUID DB cleanup from using the remaining same budget.
+            self.rule_fixture=None;bounded_cleanup(self)
         except BaseException as error:errors.append(type(error).__name__)
-        ro._private(self.work/'real-generate-cleanup.json',dict(errors=errors,single_seconds=40,grace_seconds=45,linux_binary_sha256=LINUX))
+        finally:self.rule_fixture=relay
+        summary=relay.cleanup_summary() if relay else None
+        if summary and (summary['cleanup_errors'] or summary['evidence_errors']):
+            emit('generate_real.relay_terminal','failed',summary)
+        ro._private(self.work/'real-generate-cleanup.json',dict(errors=errors,relay=summary,single_seconds=40,grace_seconds=45,linux_binary_sha256=LINUX))
         check(not errors,'combined exact cleanup incomplete; first failure retained')
         emit('generate_real.cleanup','passed',dict(shared_deadline_seconds=40,grace_seconds=45,actual_linux_binary_sha256=LINUX))
 

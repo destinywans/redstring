@@ -21,6 +21,26 @@ def now():
 
 
 def scrub(value, secrets=()):
+    """Keep structured JSON valid while redacting before persistence."""
+    secrets = tuple(secrets)
+    try:
+        structured = value if isinstance(value, (dict, list)) else json.loads(str(value))
+    except (ValueError, TypeError, RecursionError):
+        return _scrub_text(value, secrets)
+
+    def redact(item):
+        if isinstance(item, dict):
+            return {_scrub_text(key, secrets): "[REDACTED]"
+                    if re.search(r"(?i)(password|passwd|secret|token|api[_-]?key|authorization|cookie|set-cookie)$", str(key))
+                    else redact(child) for key, child in item.items()}
+        if isinstance(item, list):
+            return [redact(child) for child in item]
+        return _scrub_text(item, secrets) if isinstance(item, str) else item
+
+    return json.dumps(redact(structured), ensure_ascii=False)
+
+
+def _scrub_text(value, secrets=()):
     """Redact before persistence, including credentials in URLs and structured logs."""
     value = str(value)
     for secret in sorted((str(s) for s in secrets if s and len(str(s)) >= 4), key=len, reverse=True):

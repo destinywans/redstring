@@ -1409,6 +1409,54 @@
           "cleanup_grace_seconds": 45
         }
       ]
+    },
+    {
+      "id": "knowledge-sources-interfaces-functional",
+      "name": "知识源登记、证据与本地上传探测独立接口",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "gap_ids": [
+        46,
+        50
+      ],
+      "verification_scope": "3个接口/11原marker：HTTP自产业务前置、UUID隔离DB/role和18714/18715双API；原生owner Markdown上传登记、空/非空证据、精确权限/同app非owner/跨app和环境、语法与无secret、真实本地只读probe及attempted/result审计、重复POST独立登记、审计回滚与upload/权限撤销。登记保持unverified，probe不持久化且不证明sync/index；外部reader/真实凭据、团队ACL、容量、并发撤权、第二笔probe审计故障与同owner跨环境仍未验；非完整业务链。",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "-B",
+            "tools/testlab/api_knowledge_sources_interfaces_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 300,
+          "cleanup_grace_seconds": 45
+        }
+      ]
+    },
+    {
+      "id": "postmortem-candidates-functional",
+      "name": "复盘候选列表独立接口",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "gap_ids": [
+        46,
+        50
+      ],
+      "verification_scope": "1个GET接口/10原marker：HTTP原生人工case前置、UUID隔离DB/role与18628/18629双API；开放case排除、关闭revision候选、权限/环境边界、重复读取、存储故障/恢复、撤权和只读一致性。仅候选列表；未创建/发布复盘，未执行调查结案/Runbook完整链。ops investigation结案producer、1000候选上限/256扫描分页、并发撤权/expiry与团队ACL仍未验；此端口与content-interfaces-functional串行。",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "-B",
+            "tools/testlab/api_postmortem_candidates_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 300,
+          "cleanup_grace_seconds": 45
+        }
+      ]
     }
   ]
 }

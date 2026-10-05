@@ -1,4 +1,20 @@
-**最新记录入口：[CP-298](#cp-298-current)，2026-10-05。** 用户确认先当前版本接口测试，再完整业务链；performance/24h留后续，不恢复。主Go93f/实际nonrace6d/runtime338未改，本次9组527P5B（保首次失败和真实阻塞）；当前正常96/166、待补70正常子场景，local执行27（local40含13已协议待真实）、Mock20单列。接口阶段仍in_progress，原完整链候选保留不跑；自动化已删除不重建，CI-CD/Workflows/VM/产品web保持暂停。
+**最新记录入口：[CP-299](#cp-299-current)，2026-10-05，仍在推进。** 当前接口正常成功子场景113/166，本地正常补证队列8；此数不是完整接口验收。主Go93f/实际native nonrace6d/runtime338未改。静默/审批原接口组已实际131P；独立证据审查与配置草稿前置恢复准备并行，重型组件尚未恢复。完整业务链、performance/24h、CI-CD/Workflows/VM/产品web继续暂停。
+
+<a id="cp-299-current"></a>
+## CP-299 · 2026-10-05 · 持续接口补测，不在批次完成后提前停工
+
+- 用户要求“继续，怎么停下来了”。在当前接口范围内持续推进剩余可执行测试；完整跨模块业务链仍等接口阶段之后，性能与24小时继续暂停，不重建自动化。共享重型资源串行，互不影响的UUID轻型包并行；本轮未修改产品Go、重建/重启main或轮换main证书。
+- **已完成的五组当前源原运行**：ingress修后 `74e35af6-23a6-4b97-8fbe-fa984c37fbd7` 72P，alert-policy `99c9333e-efd5-4520-9430-f678bd6df35f` 53P2B，postmortem-candidates `3cca2f32-c00f-48ed-8878-dd64c77d47c2` 41P，Linux规则助手 `1251e30f-19bb-4da0-b7d8-685aed117077` 69P，knowledge修后 `7d2c1b38-79aa-4f22-9b23-ad8ecce22eea` 75P。合计310P0F2B，包含共同setup/父汇总，并非310个独立业务断言。政策两个B是原共享AM未精确环境路由分支、没有可信7日抑制历史；不同测试包的模拟历史不关闭它们。各运行Go93f始末一致、原UUID数据库/角色/端口清理通过；逐marker原件审查及三格式报告由独立代理汇总。
+- **两个测试工具缺陷保首红并复验**：原ingress `e9de2604-883c-4e2d-9004-1200a93d642f` 72P，但存储前纯文本脱敏把JSON敏感值换成裸占位符，`ingress.private_source_configuration`及`readonly.complete`原证据不能解析；保持原运行/证据不动，不接受其marker。Store只对合法JSON先解析、逐值脱敏再序列化，仍遮蔽敏感值，不修历史或放松overview；6回归旧实现2F3E→6P，相关28+46工具回归P，随后原ingress新UUID72P。原knowledge `27659d24-21bb-4d76-868d-85ee3e48b738` 32P4F中HTTP23实际422，是工具把注册DTO错传严格连接测试DTO；产品校验正常，四红包括父汇总并非四Bug。只对POST/test投影其六字段，create与原鉴权/边界断言不变；新增反例旧16P1F→17P，原组新UUID75P。
+- **规则生成/预览的平台边界**：本机443被非本轮监听者占用，仅记录环境前置，不控制该监听者。使用已有隔离Linux容器入口，实际从相同Go93f非race构建linux/arm64 binary `c80084496a5c068116bf7fec8d48443eebb71985a5fd23e4d44f8bb662ba0b19`；固定镜像、UUID私有bridge/DNS/CA和内部443，原9marker/10秒与15秒故障断言/cleanup保持。69P只证明Linux正式HTTP及模型/7日历史协议Mock，不能冒Darwin平台、真实模型或真实历史。
+- **接口最小前置边界**：candidates只通过正式HTTP服务→认证入站→人工case→CAS resolved生成GET候选输入；不生成调查/复盘/Runbook链。knowledge只测来源注册、列表和连接探测，确认为unverified/sync=false及probe不持久化，不冒同步、索引、真实外部读取或模板权威生产者。
+- **当前唯一实际运行**：静默/双独立软件WebAuthn审批原组 `b9e065d2-529f-4771-afe9-9cee7a8c5211`，2026-10-05T09:02:55.548770Z启动。root fresh无active、nonce/HMAC、PG exactCID与原Prom/AM/捕获身份及local-only目的地核验后准入，private manifest `06daf1b0c3d2fe56f1930864763b4c063cacf4a1de03bf35b91ccf896775c6e0`；1800秒/45秒原预算、真实响应丢失与worker crash断言保留。只独占复用专用owner组件、创建/到期本UUID精确静默；保过期行和本地捕获，不清理旧静默。partial counts不能计整组通过。
+- **配置前置仅准备**：自有GitLab仍stopped，旧CP283合成凭据复用前需要轮换/退役。私有候选仅same-key自有证书、exact3合成账号密码/PAT事务轮换与旧PAT撤销、项目1/2分支/保护/成员哈希保持；独审、fresh资源与无active后才允许一次实际恢复，不启动Argo/K8s/VM/nativeCI/部署。候选准备和离线11P不算真实恢复或接口证明。
+- 本轮尚未提交/推送的新工具和文档仅是进行中交付；保`.claude/`与两个旧Runbook完整链候选。后续继续原静默终态、配置草稿/提升接口及相关原件复核，更新看板/51台账与Linear。无法执行的外部/权威producer/产品契约/用户暂停保持独立，不把正常105/166或local队列减少称完整接口阶段通过。
+
+- **CP299静默终态**：`b9e065d2-529f-4771-afe9-9cee7a8c5211` 原组131P0F0B、root实际CLI exit0，source93f始末相同；当前无active，正常子场景113/166、local执行8/local待真实23含15已协议待真实。六组最新相应结果合计441P0F2B，原工具失败和两政策前置仍保留。新增两个子包只登记明确原marker，不把native-core/local-source-protocols父包needs_scenario_plan洗为通过。独审GitLab候选发现事务提交→PAT结果落盘崩溃空窗，原候选未执行；在新UUID私有候选先补事务内pending fsync/提交marker，未知状态只读核精确ID及新token后限定恢复，不能重复轮换或复活旧PAT。
+
+**历史记录入口：[CP-298](#cp-298-current)，2026-10-05。** 当时9组527P5B、正常96/166、local执行27（local40含13已协议待真实）、Mock20；以下原记录保留。
 
 <a id="cp-298-current"></a>
 ## CP-298 · 2026-10-05 · 用户确定接口优先、完整链随后

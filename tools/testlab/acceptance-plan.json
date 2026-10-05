@@ -1254,16 +1254,18 @@
       "availability": "local_environment",
       "priority": "P1",
       "package_id": "local-source-protocols",
-      "reason": "上传/公开Web/本地绑定GitMarkdown或组织源协议Mock可补非空登记和探测；外部真实租户、持续同步和索引另待办。",
+      "reason": "本轮已登记独立接口子包；实际当前源证据按运行和原marker核对，正常成功样本不代表全部接口场景。",
       "prerequisites": [
-        "参见工作包 local-source-protocols 的隔离与证据前置"
+        "参见工作包 local-source-protocols 的隔离与证据前置",
+        "独立接口子包 private-knowledge-sources-interfaces；保持完整跨模块链后置、性能/24h暂停。"
       ],
       "source_refs": [
         "internal/v3knowledgesources",
         "internal/v3sourceregistry",
-        "cmd/aiops/v3.go"
+        "cmd/aiops/v3.go",
+        "tools/testlab/api_knowledge_sources_interfaces_coverage.py"
       ],
-      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+      "proof_scope": "3个接口/11原marker：HTTP自产业务前置、UUID隔离DB/role和18714/18715双API；原生owner Markdown上传登记、空/非空证据、精确权限/同app非owner/跨app和环境、语法与无secret、真实本地只读probe及attempted/result审计、重复POST独立登记、审计回滚与upload/权限撤销。登记保持unverified，probe不持久化且不证明sync/index；外部reader/真实凭据、团队ACL、容量、并发撤权、第二笔probe审计故障与同owner跨环境仍未验；非完整业务链。"
     },
     {
       "method": "POST",
@@ -1738,15 +1740,17 @@
       "availability": "local_ready",
       "priority": "P0",
       "package_id": "native-core",
-      "reason": "现有持久HTTP生产/读取入口可在本轮新UUID环境验证；正常与权限/边界/幂等/故障需分别记录。",
+      "reason": "本轮已登记独立接口子包；实际当前源证据按运行和原marker核对，正常成功样本不代表全部接口场景。",
       "prerequisites": [
-        "参见工作包 native-core 的隔离与证据前置"
+        "参见工作包 native-core 的隔离与证据前置",
+        "独立接口子包 private-postmortem-candidates-interfaces；保持完整跨模块链后置、性能/24h暂停。"
       ],
       "source_refs": [
         "docs/api/v3-contract.md",
-        "tools/testlab/api_core_coverage.py"
+        "tools/testlab/api_core_coverage.py",
+        "tools/testlab/api_postmortem_candidates_coverage.py"
       ],
-      "proof_scope": "正式HTTP业务状态、CAS、幂等、当前权限与审计；bulk目标须补专门用例，不能借其他接口绿关闭"
+      "proof_scope": "1个GET接口/10原marker：HTTP原生人工case前置、UUID隔离DB/role与18628/18629双API；开放case排除、关闭revision候选、权限/环境边界、重复读取、存储故障/恢复、撤权和只读一致性。仅候选列表；未创建/发布复盘，未执行调查结案/Runbook完整链。ops investigation结案producer、1000候选上限/256扫描分页、并发撤权/expiry与团队ACL仍未验；此端口与content-interfaces-functional串行。"
     },
     {
       "method": "GET",
@@ -1789,16 +1793,18 @@
       "availability": "local_environment",
       "priority": "P1",
       "package_id": "local-source-protocols",
-      "reason": "上传/公开Web/本地绑定GitMarkdown或组织源协议Mock可补非空登记和探测；外部真实租户、持续同步和索引另待办。",
+      "reason": "本轮已登记独立接口子包；实际当前源证据按运行和原marker核对，正常成功样本不代表全部接口场景。",
       "prerequisites": [
-        "参见工作包 local-source-protocols 的隔离与证据前置"
+        "参见工作包 local-source-protocols 的隔离与证据前置",
+        "独立接口子包 private-knowledge-sources-interfaces；保持完整跨模块链后置、性能/24h暂停。"
       ],
       "source_refs": [
         "internal/v3knowledgesources",
         "internal/v3sourceregistry",
-        "cmd/aiops/v3.go"
+        "cmd/aiops/v3.go",
+        "tools/testlab/api_knowledge_sources_interfaces_coverage.py"
       ],
-      "proof_scope": "本地上传来源可真实补测；外部组织源只完整协议Mock，真实租户/索引/持续刷新仍待验。"
+      "proof_scope": "3个接口/11原marker：HTTP自产业务前置、UUID隔离DB/role和18714/18715双API；原生owner Markdown上传登记、空/非空证据、精确权限/同app非owner/跨app和环境、语法与无secret、真实本地只读probe及attempted/result审计、重复POST独立登记、审计回滚与upload/权限撤销。登记保持unverified，probe不持久化且不证明sync/index；外部reader/真实凭据、团队ACL、容量、并发撤权、第二笔probe审计故障与同owner跨环境仍未验；非完整业务链。"
     },
     {
       "method": "POST",
@@ -1807,16 +1813,18 @@
       "availability": "local_environment",
       "priority": "P1",
       "package_id": "local-source-protocols",
-      "reason": "上传/公开Web/本地绑定GitMarkdown或组织源协议Mock可补非空登记和探测；外部真实租户、持续同步和索引另待办。",
+      "reason": "本轮已登记独立接口子包；实际当前源证据按运行和原marker核对，正常成功样本不代表全部接口场景。",
       "prerequisites": [
-        "参见工作包 local-source-protocols 的隔离与证据前置"
+        "参见工作包 local-source-protocols 的隔离与证据前置",
+        "独立接口子包 private-knowledge-sources-interfaces；保持完整跨模块链后置、性能/24h暂停。"
       ],
       "source_refs": [
         "internal/v3knowledgesources",
         "internal/v3sourceregistry",
-        "cmd/aiops/v3.go"
+        "cmd/aiops/v3.go",
+        "tools/testlab/api_knowledge_sources_interfaces_coverage.py"
       ],
-      "proof_scope": "正式HTTP适配器与本地Mock协议；飞书/Notion/Confluence、权威组织源真实租户仍外部待办"
+      "proof_scope": "3个接口/11原marker：HTTP自产业务前置、UUID隔离DB/role和18714/18715双API；原生owner Markdown上传登记、空/非空证据、精确权限/同app非owner/跨app和环境、语法与无secret、真实本地只读probe及attempted/result审计、重复POST独立登记、审计回滚与upload/权限撤销。登记保持unverified，probe不持久化且不证明sync/index；外部reader/真实凭据、团队ACL、容量、并发撤权、第二笔probe审计故障与同owner跨环境仍未验；非完整业务链。"
     },
     {
       "method": "GET",
@@ -3100,7 +3108,77 @@
         "GET /api/v1/audit/{id}",
         "POST /api/v1/audit/export"
       ],
-      "scenario_plan_status": "needs_scenario_plan"
+      "scenario_plan_status": "needs_scenario_plan",
+      "focused_checks": [
+        {
+          "id": "private-postmortem-candidates-interfaces",
+          "title": "复盘候选列表独立接口",
+          "command": "python3 tools/testlab/testlab.py run --suite postmortem-candidates-functional",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "GET /api/v1/postmortems/candidates"
+          ],
+          "required_cases": [
+            {
+              "suite": "postmortem-candidates-functional",
+              "name": "candidates.doctor"
+            },
+            {
+              "suite": "postmortem-candidates-functional",
+              "name": "candidates.http_inputs"
+            },
+            {
+              "suite": "postmortem-candidates-functional",
+              "name": "candidates.open_excluded"
+            },
+            {
+              "suite": "postmortem-candidates-functional",
+              "name": "candidates.closed_revision"
+            },
+            {
+              "suite": "postmortem-candidates-functional",
+              "name": "candidates.authorization"
+            },
+            {
+              "suite": "postmortem-candidates-functional",
+              "name": "candidates.scope_boundary"
+            },
+            {
+              "suite": "postmortem-candidates-functional",
+              "name": "candidates.repeat_read"
+            },
+            {
+              "suite": "postmortem-candidates-functional",
+              "name": "candidates.storage_failure"
+            },
+            {
+              "suite": "postmortem-candidates-functional",
+              "name": "candidates.recovery"
+            },
+            {
+              "suite": "postmortem-candidates-functional",
+              "name": "candidates.revocation"
+            },
+            {
+              "suite": "postmortem-candidates-functional",
+              "name": "candidates.read_only_consistency"
+            },
+            {
+              "suite": "postmortem-candidates-functional",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "postmortem-candidates-functional",
+              "name": "candidates.cleanup"
+            },
+            {
+              "suite": "postmortem-candidates-functional",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "1个GET接口/10原marker：HTTP原生人工case前置、UUID隔离DB/role与18628/18629双API；开放case排除、关闭revision候选、权限/环境边界、重复读取、存储故障/恢复、撤权和只读一致性。仅候选列表；未创建/发布复盘，未执行调查结案/Runbook完整链。ops investigation结案producer、1000候选上限/256扫描分页、并发撤权/expiry与团队ACL仍未验；此端口与content-interfaces-functional串行。"
+        }
+      ]
     },
     {
       "id": "native-content",
@@ -4670,6 +4748,80 @@
               "name": "readonly.complete"
             }
           ]
+        },
+        {
+          "id": "private-knowledge-sources-interfaces",
+          "title": "知识源登记、证据与本地上传探测独立接口",
+          "command": "python3 tools/testlab/testlab.py run --suite knowledge-sources-interfaces-functional",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "GET /api/v1/knowledge-sources",
+            "POST /api/v1/knowledge-sources",
+            "POST /api/v1/knowledge-sources/test"
+          ],
+          "required_cases": [
+            {
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "knowledge_interfaces.doctor"
+            },
+            {
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "knowledge_interfaces.http_inputs"
+            },
+            {
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "knowledge_interfaces.registration"
+            },
+            {
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "knowledge_interfaces.evidence"
+            },
+            {
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "knowledge_interfaces.authorization"
+            },
+            {
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "knowledge_interfaces.boundaries"
+            },
+            {
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "knowledge_interfaces.probe"
+            },
+            {
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "knowledge_interfaces.probe_failure"
+            },
+            {
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "knowledge_interfaces.replay_contract"
+            },
+            {
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "knowledge_interfaces.audit_rollback"
+            },
+            {
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "knowledge_interfaces.revocation"
+            },
+            {
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "knowledge_interfaces.audit_consistency"
+            },
+            {
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "knowledge_interfaces.cleanup"
+            },
+            {
+              "suite": "knowledge-sources-interfaces-functional",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "3个接口/11原marker：HTTP自产业务前置、UUID隔离DB/role和18714/18715双API；原生owner Markdown上传登记、空/非空证据、精确权限/同app非owner/跨app和环境、语法与无secret、真实本地只读probe及attempted/result审计、重复POST独立登记、审计回滚与upload/权限撤销。登记保持unverified，probe不持久化且不证明sync/index；外部reader/真实凭据、团队ACL、容量、并发撤权、第二笔probe审计故障与同owner跨环境仍未验；非完整业务链。"
         }
       ]
     },
@@ -5601,6 +5753,73 @@
       ],
       "latest_run_id": "b6fa5338-d926-492f-a4dc-7d97cfe1955e",
       "scope": "Only privategenericroot template and one manualtimeline interface subgroup, not complete content/wholechain acceptance. Official/teamproducer and other retainedcontent/ACL/inflight/expiry/crash/liststorage/capacity unverified."
+    },
+    {
+      "id": "private-knowledge-sources-interfaces",
+      "suite_id": "knowledge-sources-interfaces-functional",
+      "targets": [
+        [
+          "GET",
+          "/knowledge-sources"
+        ],
+        [
+          "POST",
+          "/knowledge-sources"
+        ],
+        [
+          "POST",
+          "/knowledge-sources/test"
+        ]
+      ],
+      "required_cases": [
+        "knowledge_interfaces.doctor",
+        "knowledge_interfaces.http_inputs",
+        "knowledge_interfaces.registration",
+        "knowledge_interfaces.evidence",
+        "knowledge_interfaces.authorization",
+        "knowledge_interfaces.boundaries",
+        "knowledge_interfaces.probe",
+        "knowledge_interfaces.probe_failure",
+        "knowledge_interfaces.replay_contract",
+        "knowledge_interfaces.audit_rollback",
+        "knowledge_interfaces.revocation",
+        "knowledge_interfaces.audit_consistency",
+        "readonly.cleanup",
+        "knowledge_interfaces.cleanup",
+        "readonly.complete"
+      ],
+      "latest_run_id": "7d2c1b38-79aa-4f22-9b23-ad8ecce22eea",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "scope": "3个接口/11原marker：HTTP自产业务前置、UUID隔离DB/role和18714/18715双API；原生owner Markdown上传登记、空/非空证据、精确权限/同app非owner/跨app和环境、语法与无secret、真实本地只读probe及attempted/result审计、重复POST独立登记、审计回滚与upload/权限撤销。登记保持unverified，probe不持久化且不证明sync/index；外部reader/真实凭据、团队ACL、容量、并发撤权、第二笔probe审计故障与同owner跨环境仍未验；非完整业务链。"
+    },
+    {
+      "id": "private-postmortem-candidates-interfaces",
+      "suite_id": "postmortem-candidates-functional",
+      "targets": [
+        [
+          "GET",
+          "/postmortems/candidates"
+        ]
+      ],
+      "required_cases": [
+        "candidates.doctor",
+        "candidates.http_inputs",
+        "candidates.open_excluded",
+        "candidates.closed_revision",
+        "candidates.authorization",
+        "candidates.scope_boundary",
+        "candidates.repeat_read",
+        "candidates.storage_failure",
+        "candidates.recovery",
+        "candidates.revocation",
+        "candidates.read_only_consistency",
+        "readonly.cleanup",
+        "candidates.cleanup",
+        "readonly.complete"
+      ],
+      "latest_run_id": "3cca2f32-c00f-48ed-8878-dd64c77d47c2",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "scope": "1个GET接口/10原marker：HTTP原生人工case前置、UUID隔离DB/role与18628/18629双API；开放case排除、关闭revision候选、权限/环境边界、重复读取、存储故障/恢复、撤权和只读一致性。仅候选列表；未创建/发布复盘，未执行调查结案/Runbook完整链。ops investigation结案producer、1000候选上限/256扫描分页、并发撤权/expiry与团队ACL仍未验；此端口与content-interfaces-functional串行。"
     }
   ]
 }

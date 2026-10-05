@@ -144,3 +144,9 @@ JSON证据 `09a23b78-4afc-42f5-9981-fce3599f8f91` 已实际HTTP200/MIME/run核�
 现有POST/canvases两条ai_draft=false路径，34P/16正式HTTP、source93f/Darwin6d/runtime338，run eb6e8823-032c-4706-8b1a-24dcd2a84047 UTC17:41:44.458911→17:43:09.572468。合法HTTPservices前置，各503audit_unavailable保持完整六表+其他public账；去fault对侧samebody201/exact1audit，plan root/INV原生root-context-event与graph实际读回。proof1d2a25cc-9c46-44b6-9165-d9c5a03b88a0及三报告/raw12wire+完整snapshots0600，UUIDDBrole/两Popen/18844–45清理P。
 
 23offline与独审无阻断；outer420/API12/40cleanup含4restore/45grace。INV先前仅源码可行，现在为本次实际201/graph证据，但normal增0（POST已有plan normal），不调用模型/producer/整链，不证明所有并发crash。原offline fixture22P1F前像保留，首stdout未完整另存；产品Go/main/cert/canonicalAPP无变化。31对应latest1418P4F2B1external含前置/汇总，原首红/外部/缺能力/暂停仍可见。
+
+## 2026-10-06 · 结果资格守卫与Trace合法空消费者
+
+- 原f31业务22P/8HTTP，但原False被inventory fallback回升，原工具失败证据0670d12a-ce09-4adf-abff-ff11f3677472和原记录/报告保留。inventory显式false守卫与overview精确历史veto独审、离线原例通过；历史SQLite不改，556记录不是556产品缺陷。
+- 新d0279bc1-544e-4b66-b9ca-c1b371bedc1d UTC18:18:39→18:19:46 native22P/8HTTP/source93f始末，root终态证据资格共23P；仅scope=agent&view=all真实空PG消费者与诚实partial/三missing/真实24h窗口、两API静态一致、401/4×422/全账无变/精确清理。无业务Agent SQL/Tempo/模型调用，占位模型配置存在但未调用。
+- proof fbd629de-d9d7-410e-92c2-ac577a2ac6f7，实际六报告下载proof8a6e0084-2ed3-4da9-ba96-f7fc7ed437d7。正常127→128/166、缺38；app全集/权威producer/span/cost/对象权限/父包/整链/性能仍OPEN，性能24h继续暂停。未merge/deploy。

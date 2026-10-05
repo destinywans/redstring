@@ -35,7 +35,8 @@ def actual_interface(row):
     if method not in ('GET','POST','PUT','PATCH','DELETE') or not isinstance(path,str) or not path.startswith('/api/') or any(marker in path for marker in ('://','?','#')):
         raise ValueError('canonical local interface method/path required')
     # 401/403 can originate in middleware before a handler is selected.
-    registered=(bool(row.get('registration_evidence')) or (row['status']=='passed' and 200<=actual_status<300)) and actual_status not in (401,403,404)
+    # An explicit refusal stays false; only legacy rows may infer it from 2xx.
+    registered=row.get('registration_evidence') is not False and (bool(row.get('registration_evidence')) or (row['status']=='passed' and 200<=actual_status<300)) and actual_status not in (401,403,404)
     return {'method':method,'path':path,'evidence_mode':mode,
             'scenarios':{scenario:{'status':row['status'],'expected_status':expected_codes[0] if len(expected_codes)==1 else list(expected_codes),'actual_status':actual_status,'expected_detail':expected,'actual_detail':actual}},
             'registration_evidence':registered,'test_name':row.get('test_name'),

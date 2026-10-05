@@ -1287,5 +1287,23 @@
     ],
     "source": "https://docs.gitlab.com/api/projects/#delete-a-project",
     "validation_run": "45cc3283-2416-47c1-a3f6-a77923702f1d"
+  },
+  {
+    "id": "TOOL-EXPLICIT-FALSE-REGISTRATION",
+    "title": "显式正常资格False被公共解析器回升",
+    "category": "test_tool",
+    "status": "in_review",
+    "description": "inventory保存显式False；overview同case原件精确veto旧normalizedTrue，不改历史SQLite。原f31业务22P，但工具资格失败；新d027原例22P及root独立资格23P实证，normal127→128。用户整体验收仍待。",
+    "before": "原JSON明确False仍被HTTP2xx fallback改为True，可能后续DTO失败仍计normal",
+    "after": "原raw/SQLite均False；完整必需marker、空DTO/真实窗口/全账/cleanup通过后独立root资格，不继承旧case veto",
+    "original_run_id": "f31da62c-2c07-4c68-ba32-8d75bf4ad4cc",
+    "retest_run_id": "d0279bc1-544e-4b66-b9ca-c1b371bedc1d",
+    "first_failure_source": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+    "proof_evidence_ids": [
+      "0670d12a-ce09-4adf-abff-ff11f3677472",
+      "fbd629de-d9d7-410e-92c2-ac577a2ac6f7"
+    ],
+    "historical_rejected_records": 556,
+    "scope": "556记录/60run/60route不是产品缺陷数；既有独立normal保持127，Trace新合法Agent分支+1，不Tempo或权威producer完整性"
   }
 ]

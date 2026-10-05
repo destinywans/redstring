@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-05T16:52:11.229696+00:00",
+  "updated_at": "2026-10-05T18:22:11.866649+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -1422,7 +1422,7 @@
       "availability": "needs_confirmation",
       "priority": "P1",
       "package_id": "local-components",
-      "reason": "正式v3traces全集search代码已有，但默认tempo_search_fail_closed=false诚实503；固定Tempo2.7.2不支持文档要求live_store.fail_on_high_lag，CP299原生配置反例已证实未知字段拒绝。需版本特定来源部署契约与冻结窗口全集/lag/失败完整性专项，不只是缺HTTP脚本，也不自动开flag/升级共享源。",
+      "reason": "现有scope=agent&view=all正式空消费者已验证诚实partial=true/三项missing/真实24h窗口/双实例/原账无变；应用scope全集默认可信标志仍false→503，需要版本来源完整契约，已知ID和此Agent分支不关闭它。",
       "prerequisites": [
         "版本内metadata/poll/size-skip反例与可信全集准入；见实际只读诊断db72faeb-0376-4272-8067-0f29ccfbc415",
         "确认来源完整契约后再执行独立UUID正式21Trace全集DTO/权限/故障测试；不能把200或Mock当完整来源证明"
@@ -1432,7 +1432,14 @@
         "docs/api/v3-traces-source.md",
         "tools/testlab/components.py"
       ],
-      "proof_scope": "实际OTLP/已知TraceID与协议层各自已有证据；完整全集仍blocked。CP299配置反例只证明旧镜像不支持该字段，不证明全集覆盖。"
+      "proof_scope": "d0279bc1原8HTTP/22P，资格单独复核后共23P、normal+1；仅empty partial Agent消费者，无Tempo请求、producer、spans/cost权威证明；旧f31工具False误提升原件保留。",
+      "decision_history": [
+        {
+          "at": "2026-10-05T18:22:11.866551+00:00",
+          "previous_reason": "正式v3traces全集search代码已有，但默认tempo_search_fail_closed=false诚实503；固定Tempo2.7.2不支持文档要求live_store.fail_on_high_lag，CP299原生配置反例已证实未知字段拒绝。需版本特定来源部署契约与冻结窗口全集/lag/失败完整性专项，不只是缺HTTP脚本，也不自动开flag/升级共享源。",
+          "decision": "Existing scope=agent&view=all empty persisted consumer now formally verified; app Tempo completeness remains unchanged"
+        }
+      ]
     },
     {
       "method": "GET",
@@ -5811,6 +5818,90 @@
             "proof_evidence_id": "c15de222-871b-43ec-8923-aca3edd03c90",
             "status": "failed",
             "summary": "27P1F; duplicate ready identity; tool naming only"
+          }
+        },
+        {
+          "id": "trace-agent-empty",
+          "title": "Trace Agent空消费者、诚实缺口和真实窗口",
+          "command": "python3 tools/testlab/testlab.py run --suite formal-api-trace-agent-empty --manifest <fresh-root-admitted-singlemanifest>",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "GET /api/v1/traces"
+          ],
+          "required_cases": [
+            {
+              "suite": "formal-api-trace-agent-empty",
+              "name": "trace_agent_empty.identities"
+            },
+            {
+              "suite": "formal-api-trace-agent-empty",
+              "name": "trace_agent_empty.empty_source"
+            },
+            {
+              "suite": "formal-api-trace-agent-empty",
+              "name": "trace_agent_empty.API0"
+            },
+            {
+              "suite": "formal-api-trace-agent-empty",
+              "name": "trace_agent_empty.API1"
+            },
+            {
+              "suite": "formal-api-trace-agent-empty",
+              "name": "trace_agent_empty.static_consistency"
+            },
+            {
+              "suite": "formal-api-trace-agent-empty",
+              "name": "trace_agent_empty.anonymous"
+            },
+            {
+              "suite": "formal-api-trace-agent-empty",
+              "name": "trace_agent_empty.invalid_queries"
+            },
+            {
+              "suite": "formal-api-trace-agent-empty",
+              "name": "trace_agent_empty.ledger"
+            },
+            {
+              "suite": "formal-api-trace-agent-empty",
+              "name": "trace_agent_empty.cleanup"
+            },
+            {
+              "suite": "formal-api-trace-agent-empty",
+              "name": "management.api_ready.0"
+            },
+            {
+              "suite": "formal-api-trace-agent-empty",
+              "name": "management.api_ready.1"
+            },
+            {
+              "suite": "formal-api-trace-agent-empty",
+              "name": "management.cleanup"
+            },
+            {
+              "suite": "formal-api-trace-agent-empty",
+              "name": "management.complete"
+            },
+            {
+              "suite": "formal-api-trace-agent-empty",
+              "name": "trace_agent_empty.root_normal_qualification"
+            }
+          ],
+          "proof_scope": "d0279bc1原8HTTP/22P，资格单独复核后共23P、normal+1；仅empty partial Agent消费者，无Tempo请求、producer、spans/cost权威证明；旧f31工具False误提升原件保留。",
+          "current_original_evidence": {
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "run_id": "d0279bc1-544e-4b66-b9ca-c1b371bedc1d",
+            "proof_evidence_ids": [
+              "fbd629de-d9d7-410e-92c2-ac577a2ac6f7"
+            ],
+            "scope": "仅既有Agent空读分支；app全集、producer和父包OPEN。"
+          },
+          "first_tool_failure": {
+            "run_id": "f31da62c-2c07-4c68-ba32-8d75bf4ad4cc",
+            "native_status": "passed",
+            "native_passed": 22,
+            "proof_evidence_id": "0670d12a-ce09-4adf-abff-ff11f3677472",
+            "reason": "raw False overridden by normalized fallback; original HTTP/product assertions P retained"
           }
         }
       ]

@@ -162,6 +162,92 @@ class OverviewTests(unittest.TestCase):
         self.assertEqual(route['normal_status'], 'missing')
         self.assertEqual(route['scenario_statuses']['authorization'], 'verified')
 
+    def original_http(self, run, suite, original_changes=None, item_changes=None, extra_evidence=None):
+        interface = dict(method='GET', path='/api/v1/things', scenario='normal',
+                         status='passed', actual={'status': 200}, expected={'status': 200},
+                         registration_evidence=False)
+        interface.update(original_changes or {})
+        item = dict(name='http', status='passed', actual={'status': 200}, interface=interface)
+        item.update(item_changes or {})
+        case = self.case(run, suite, raw_evidence=json.dumps(item), evidence_mode='real_local')
+        if extra_evidence is not None:
+            attempt = self.store.start_attempt(case)
+            self.store.finish_attempt(case, attempt, 'passed', {}, evidence_ids=[extra_evidence])
+        return self.store.add_record(run['id'], 'interfaces', dict(method='GET', path='/api/v1/things',
+            evidence_mode='real_local', registration_evidence=True,
+            scenarios={'normal': dict(status='passed', actual_status=200, expected_status=200)}))
+
+    def test_original_explicit_false_vetoes_historical_normalized_true(self):
+        r, s = self.run_record()
+        self.original_http(r, s)
+        view = self.overview()
+        self.assertEqual(view['coverage']['main']['normal_success'], 0)
+        self.assertEqual(view['coverage']['excluded_record_counts']['original_registration_explicit_false'], 1)
+
+    def test_original_veto_requires_exact_case_route_scenario_and_http_outcome(self):
+        for interface, item in [({'method': 'POST'}, {}), ({'path': '/api/v1/other'}, {}),
+                ({'scenario': 'boundary'}, {}), ({'status': 'failed'}, {}),
+                ({'actual': {'status': 201}}, {}), ({'expected': {'status': 201}}, {}),
+                ({}, {'name': 'other'}), ({}, {'status': 'failed'})]:
+            with self.subTest(interface=interface, item=item):
+                r, s = self.run_record()
+                self.original_http(r, s, interface, item)
+                view = self.overview()
+                self.assertEqual(view['coverage']['main']['normal_success'], 1)
+                self.assertEqual(view['coverage']['excluded_record_counts'].get('original_registration_explicit_false', 0), 0)
+
+    def test_original_false_veto_accepts_canonical_path_and_normalized_interface(self):
+        r, s = self.run_record()
+        self.original_http(r, s, {'path': '/things', 'scenarios': {
+            'normal': dict(status='passed', actual_status=200, expected_status=[200])}})
+        view = self.overview()
+        self.assertEqual(view['coverage']['main']['normal_success'], 0)
+        self.assertEqual(view['coverage']['excluded_record_counts']['original_registration_explicit_false'], 1)
+
+    def test_original_false_does_not_block_other_scenarios(self):
+        r, s = self.run_record()
+        self.original_http(r, s)
+        self.store.add_record(r['id'], 'interfaces', dict(method='GET', path='/api/v1/things',
+            evidence_mode='real_local', registration_evidence=True,
+            scenarios={'boundary': dict(status='passed', actual_status=200, expected_status=200)}))
+        view = self.overview()
+        route = next(row for row in view['coverage']['routes'] if row['method'] == 'GET')
+        self.assertEqual(route['normal_status'], 'missing')
+        self.assertEqual(route['scenario_statuses']['boundary'], 'verified')
+
+    def test_legacy_missing_true_and_nonboolean_registration_preserve_acceptance(self):
+        for registration in [True, None, 0, 'false']:
+            r, s = self.run_record()
+            self.original_http(r, s, {'registration_evidence': registration})
+            self.assertEqual(self.overview()['coverage']['main']['normal_success'], 1)
+        r, s = self.run_record(); self.http(r, s)
+        self.assertEqual(self.overview()['coverage']['main']['normal_success'], 1)
+
+    def test_root_qualification_case_can_attach_old_false_original(self):
+        r, s = self.run_record()
+        self.original_http(r, s)
+        with self.store.connect() as conn:
+            old = conn.execute('SELECT id FROM evidence WHERE run_id=?', (r['id'],)).fetchone()[0]
+        self.case(r, s, name='root.qualified', evidence_mode='real_local')
+        case = self.store.detail(r['id'])['cases'][-1]
+        attempt = self.store.start_attempt(case)
+        self.store.finish_attempt(case, attempt, 'passed', {}, evidence_ids=[old])
+        self.store.add_record(r['id'], 'interfaces', dict(method='GET', path='/api/v1/things',
+            evidence_mode='real_local', registration_evidence=True,
+            scenarios={'normal': dict(status='passed', actual_status=200, expected_status=200)}))
+        view = self.overview()
+        self.assertEqual(view['coverage']['main']['normal_success'], 1)
+        self.assertEqual(view['coverage']['excluded_record_counts']['original_registration_explicit_false'], 1)
+
+    def test_cross_run_false_evidence_does_not_veto_valid_qualification(self):
+        old_run, old_suite = self.run_record()
+        self.original_http(old_run, old_suite)
+        with self.store.connect() as conn:
+            old = conn.execute('SELECT id FROM evidence WHERE run_id=?', (old_run['id'],)).fetchone()[0]
+        r, s = self.run_record()
+        self.original_http(r, s, {'registration_evidence': True}, extra_evidence=old)
+        self.assertEqual(self.overview()['coverage']['main']['normal_success'], 1)
+
     def test_unlinked_or_missing_registered_original_evidence_is_not_proof(self):
         r, _ = self.run_record()
         self.store.add_record(r['id'], 'interfaces', {'method': 'GET', 'path': '/api/v1/things', 'evidence_mode': 'real_local',

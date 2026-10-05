@@ -59,6 +59,54 @@ def _original_actual(store, case):
     return {}, None
 
 
+def _original_registration_veto(store, case, row, scenario, outcome, cache):
+    """Honor an explicit producer veto even in immutable, older normalized rows.
+
+    Only originals attached to this mapped case can veto it. A later root
+    qualification may attach the old HTTP JSON as supporting evidence without
+    inheriting its veto, because its case name differs.
+    """
+    key = case.get('id')
+    if key not in cache:
+        items = []
+        for ident in case.get('_evidence_ids', []):
+            try:
+                raw, _ = store.read_evidence(ident)
+                item = json.loads(raw.decode('utf-8'))
+                if (isinstance(item, dict) and item.get('name') == case.get('name')
+                        and item.get('status') == case.get('status')
+                        and isinstance(item.get('interface'), dict)):
+                    items.append(item['interface'])
+            except (OSError, KeyError, UnicodeError, ValueError, RecursionError):
+                continue
+        cache[key] = items
+    for original in cache[key]:
+        if (original.get('registration_evidence') is not False
+                or original.get('method') != row.get('method')
+                or not isinstance(original.get('path'), str)
+                or _key(original) != _key(row)):
+            continue
+        if isinstance(original.get('scenarios'), dict):
+            observed = original['scenarios'].get(scenario)
+        elif original.get('scenario') == scenario:
+            actual, expected = original.get('actual'), original.get('expected')
+            observed = dict(status=original.get('status'),
+                            actual_status=actual.get('status') if isinstance(actual, dict) else actual,
+                            expected_status=expected.get('status') if isinstance(expected, dict) else expected)
+        else:
+            continue
+        if not isinstance(observed, dict):
+            continue
+        def codes(value):
+            return value if isinstance(value, list) else [value]
+        if (observed.get('status') == outcome.get('status')
+                and type(observed.get('actual_status')) is int
+                and observed['actual_status'] == outcome.get('actual_status')
+                and codes(observed.get('expected_status')) == codes(outcome.get('expected_status'))):
+            return True
+    return False
+
+
 def _binding(run, sha):
     if not re.fullmatch('[0-9a-f]{64}', sha or ''):
         return 'unknown'
@@ -355,6 +403,7 @@ def get_overview(root, store, source_sha=None):
                     'prerequisites': plan_routes.get(key, {}).get('prerequisites', [])} for key in main}
     auxiliary = collections.defaultdict(list)
     rejected = collections.Counter()
+    original_registration_cache = {}
     case_map = {c['id']: c for group in cases.values() for c in group}
     for rid, kind, row in records:
         if kind != 'interfaces' or row.get('evidence_mode') == 'source':
@@ -395,6 +444,9 @@ def get_overview(root, store, source_sha=None):
                       and actual_case.get('status') == 'passed' and bool(evidence_ids))
             if scenario == 'normal':
                 passed = passed and 200 <= code < 300 and row.get('registration_evidence') is True
+                if passed and _original_registration_veto(store, actual_case, row, scenario, outcome, original_registration_cache):
+                    rejected['original_registration_explicit_false'] += 1
+                    passed = False
             if key in routes:
                 target = routes[key]
                 entry = {**proof, 'scenario': scenario, 'actual_status': code, 'status': outcome.get('status')}

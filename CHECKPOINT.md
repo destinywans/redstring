@@ -1,3 +1,17 @@
+**最新记录入口：[CP-302](#cp-302-current)，2026-10-06 (+08)。当前真实正常128/166、缺38，仅正常子场景；接口阶段及整体仍 OPEN。** 先继续现有接口适用场景，后完整业务链；性能/24h、产品前端及原暂停域保持暂停。Go93f/Darwin6d/runtime338未改。
+
+<a id="cp-302-current"></a>
+## CP-302 · 2026-10-06 (+08) · Trace合法消费者与证据资格修复
+
+- 用户要求继续接口验收。前项Claim72P/Canvas34P已在6258393及之前独立交付；当前增加GET /traces的现有 `scope=agent&view=all` 空消费者正常分支，不新增执行器或造Agent业务数据。应用Tempo全集仍需可信来源完整契约，partial200不是全集验收。正常127→128、剩39→38；完整接口正常/授权/边界/幂等/故障仍按各分支证据推进，不能称38之外全部验收完。
+- **工具先红与最小修复**：Trace候选的后校验前正常登记先被独审拦下，两个实际base.call反例旧23P2F→新25P，全部原HTTP registration=False。第一次native `f31da62c-2c07-4c68-ba32-8d75bf4ad4cc` UTC18:06:02.439978→18:07:10.825210，业务22P/8HTTP/CLI0/源93f始末，但公共inventory把原False经2xx fallback重新改True；first tool proof `0670d12a-ce09-4adf-abff-ff11f3677472`、原normalized/raw/三报告保留，不把业务P冒工具资格P。
+- inventory只使显式boolFalse压过2xx fallback，legacy缺字段/显式True原状态排除不变；overview以同run有效附件、同mappedcase名称/状态、method/path/scenario/HTTP实际预期码精确veto旧normalizedTrue，仅影响normal。缓存按case，历史SQLite/原件不改，root新qualification名称独立不继承旧附件veto。inventory7及相关Runner17、overview53及相关JSON/Runner总90 offline P，AST/独审无阻断；首日志及前像保留（包含工具fixture路径alias/不存在测试模块的加载错误，不冒产品失败）。历史只读556记录/60run/60route被veto，不是556缺陷，独立旧normal仍127/166。
+- 只读8787由root fresh UID/fullargvSHA/lstart/cwd/listener精确核验后重启，未控制API/PG；实际HTTP /api/overview200重算127/166/39、veto556，恢复持久记录。唯一主API nonce/HMAC和Go/binary/runtime不变；不依旧PID动作。
+- **原例实际复验** `d0279bc1-544e-4b66-b9ca-c1b371bedc1d` UTC18:18:39.434476→18:19:46.842974，native22P0F0skip/8HTTP/CLI0/源93f始末/Darwin6d/runtime338。root18:18:07 fresh nonce/HMAC/UID/argv/lstart/cwd/PG exactCID4CPU2GiB/无active/host25.965GB/18848–49准入，UUID526a9e...新库/角色/两Popen；420outer/API12/40cleanup/grace45不改。仅合成身份三项environment/agents/traces:view环境test ACL，无Agent/runs/spans/feedback/app业务SQL写、无Tempo/模型调用；启动仍有闲置127.0.0.1:9模型占位配置，如实标明。
+- 正式两API200均exact partialtrue/source/aggregation/missing3项、空total/excluded/views/facets/items/scatter、12零桶；逐请求实际UTC24h窗口含nanos与≤2s真实壁钟边界，静态投影一致；匿名401、4非法query422；六完整空业务/audit表及其它全部public摘要不变。7原Trace wire和before/after/fullresult0600保留；13必需marker/精确UUID DBrole/两Popen/listener清理全P，raw及SQLite8条全False。
+- root完整终态后独立资格case（不是新HTTP）引用原management.http.2 case+原证据和proof `fbd629de-d9d7-410e-92c2-ac577a2ac6f7`，再追加独立normal interface记录；共23P（22native+1资格核对），正常128/166缺38，父包needs_scenario_plan/整体open保持。新focus仅Agent空读分支；Tempo全集、producer/span/cost、对象权限/运行数据、整链/性能/24h均未关闭。实际run/overall HTML、JSON、MD六下载HTTP200/attachment/MIME证明 `8a6e0084-2ed3-4da9-ba96-f7fc7ed437d7`；旧报告不覆盖。
+- 新root只读核dashboard/changes/inhibition三个剩余分支，无新合法本地normal样本，报告75d82429...保留；窄核不等于穷尽或phase完成。后续角色PUT精确审计回滚/同revision对侧恢复/同会话权限效果是独立已有接口子场景，normal增0；不恢复完整链、性能、24h或暂停域。工作限定本测试分支，未merge/deploy，Linear与Git交付继续按范围留证。
+
 **最新记录入口：[CP-301](#cp-301-current)，2026-10-06 (+08)，接口验收持续推进，整体 OPEN。** 当前真实正常127/166、剩39；Pull29P/Workspace25P/Claim72P/Canvas34P已实跑，首次失败保留。继续现有接口适用场景，先接口后整链；性能/24h及暂停域保持暂停。
 
 

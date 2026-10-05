@@ -1557,6 +1557,26 @@
           "cleanup_grace_seconds": 45
         }
       ]
+    },
+    {
+      "id": "ai-preferences-audit",
+      "name": "AI偏好HTTP审计回滚与状态重复更新",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "verification_scope": "正式PUT AI偏好独立审计503整settings/timestamp/audit回滚、恢复跨API读回、重复同payload状态幂等但每成功PUT审计+1；仅本地广告目录，无模型推理/探测，非完整接口或业务链。 fresh root无active/nonce-HMAC/资源准入，原300s/45grace/40cleanup+4restore。",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "-B",
+            "tools/testlab/api_ai_preferences_audit_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 300,
+          "cleanup_grace_seconds": 45
+        }
+      ]
     }
   ]
 }

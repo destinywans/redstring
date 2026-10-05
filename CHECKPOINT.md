@@ -1,4 +1,4 @@
-**最新记录入口：[CP-299](#cp-299-current)，2026-10-05，接口场景仍在推进。** 当前真实正常成功子场景120/166、协议Mock正常32；本地尚无正常样本的可执行队列0，但24项协议已验待真实、46项真实正常缺口及权限/边界/幂等/故障场景计划仍未收口。十五组最新相应结果910P0F2B1外部待办，含共同前置/父汇总，不是744条独立业务断言。Go93f/native nonrace6d/runtime338未改，当前无active。继续接口场景复核，不因normal队列清零转入整链；完整业务链、performance/24h、CI-CD/Workflows/VM/产品web保持暂停。
+**最新记录入口：[CP-299](#cp-299-current)，2026-10-05，接口场景仍在推进。** 当前真实正常成功子场景120/166、协议Mock正常32；本地尚无正常样本的可执行队列0，但24项协议已验待真实、46项真实正常缺口及权限/边界/幂等/故障场景计划仍未收口。十六组最新相应结果939P0F2B1外部待办，含共同前置/父汇总，不是939条独立业务断言。Go93f/native nonrace6d/runtime338未改，当前无active。继续接口场景复核，不因normal队列清零转入整链；完整业务链、performance/24h、CI-CD/Workflows/VM/产品web保持暂停。
 
 
 <a id="cp-299-current"></a>
@@ -2400,3 +2400,8 @@
 - **CP299另外两个有界接口原组**：Runbook创建 `45d2074b-a7a8-436e-89b6-87e9a3d76ae5` 19P/6HTTP，复盘创建与独立审核发布 `a99059ad-8563-4538-9d42-01767535b4ff` 37P/17HTTP，root实际CLI0、source93f始末/非race6d/runtime338一致。故障503整库相关业务行与audit、upload来源或manualcase状态/血缘保持，finally移除精确trigger/function，恢复201/200逐表一次、独立human边界和对侧DTO/bytes读回、UUID DB/role/ports cleanup均P。原件复核 `a5abb74e-2a96-416a-8bde-f534fd29af4e` / `0ad25de6-7f86-4b4e-8fa3-f1ecf1a6e879`，三格式报告；不submit/执行/调查/完整业务链。
 - Runbook17离线P+独立只读合同/cleanup审查；PM首离线11P1F是工具把GET查询守卫套POST，同路径加exactmethod守卫后16P+原native37P，原件留存，不产品Bug。actual fresh准入记录分别核host与Docker VM内存（5.10/5.16GB）及nonce/HMAC、真实process UID/fullargvSHA/lstart/cwd、PG exactCID4CPU2GiB；无main重启或shared业务写。
 - **当前十五组相应最新910P0F2B1external**（前置/HTTP/父汇总在内，非910独立业务断言），normal120/166/protocol32/normal queue0与整体OPEN不变。看板只新增两个明示必需marker子包：PM publish为辅助接口，不冒166分母，原publish marker与HTTP仍必须P；父包完整场景计划继续统筹，不能靠子包绿收口。下一只读复核native-core/native-content适用场景与可复用原证据，不重复已有49本地/授权与已验故障，不扩大能力或恢复整链/perf/24h。
+
+- **AI偏好首轮实际首红** `fe34ce99-47fc-46d8-905a-84decd419008` 10P3F，停在GET/models后目录协议断言，尚未偏好写入/故障注入；source93f始末、原UUID cleanup双markerP，三报告已导。原件 `9e13943d-4914-44ee-a85b-304cc54578c9` 保留，按正式DTO与自有默认config核准假设后修工具，禁止宽API枚举/改环境凑值。三红为同一症状的父汇总，不3产品Bug；正常字样不能关闭此fault subgroup。
+
+- **AI偏好工具修复及原例复验**：首fe34仅工具误要求responses，隔离配置/正式默认为精确chat_completions；新反例旧18P1F→20P，不接受任意API。新UUID `c3be014b-cf94-46d0-b4f1-d6e02b8409f0` 实际11:59:51.407184Z→12:00:09.517673Z **29P0F/15HTTP/CLI0**，全部8业务marker+cleanup/complete原JSONP，source93f始末及main6d/runtime338未变；root proof `4f6d9e6b-33eb-486c-b6c9-94c266b96619`，三格式报告导出。audit503全settings/timestamp/audit保持，恢复+重复各恰1audit；真实模型仍待。原fe34和TOOL-AI-CATALOG-CONTRACT-CP299 first red保留，已fixed_revalidated。当前六审计故障组/十六对应最新939P0F2B1external，含setup/父汇总，整体OPEN。
+- **证据层复核**：只读archive登记JSON `759efb99-362b-4453-bbfa-dca537499a72`、MD `3c83f302-7bc4-4bdd-94b3-61edf8a1d626`，19选定Go=4direct servicePG+15registered handler，五binary组29业务marker/88回执；源93f始末，未新测试。聚合11terminal截断、bulk旧masked-field无效JSON照实标未知，不回填原件或冒全包。Discovery原run ecba6f08已有binary CSV owner200/peer404/env403/撤权403，复用而不重复生成链；只补未确认匿名/读副作用和普通偏好/通知HTTP故障恢复。两个代理仅独占新工具/离线，root串行实际准入，不恢复整链/perf/24h。

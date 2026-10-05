@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-05T11:29:07.133822+00:00",
+  "updated_at": "2026-10-05T12:03:20.671112+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -3445,6 +3445,58 @@
             }
           ],
           "proof_scope": "仅POST Postmortems创建/独立human publish审计故障503保持全账、review/updated_at/source/sections/actions，恢复201/200恰一份actor/source审计，跨API records/summary一致；真实HTTP case合法closed为前置，不ops调查/Runbook整链/物理reviewer。 辅助publish不冒166主接口计数，仍保全部必需marker及真实HTTP。"
+        },
+        {
+          "id": "ai-preferences-audit",
+          "title": "AI偏好HTTP审计回滚与状态重复更新",
+          "command": "python3 tools/testlab/testlab.py run --suite ai-preferences-audit",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "PUT /api/v1/me/ai-preferences"
+          ],
+          "required_cases": [
+            {
+              "suite": "ai-preferences-audit",
+              "name": "ai_preferences_audit.catalog"
+            },
+            {
+              "suite": "ai-preferences-audit",
+              "name": "ai_preferences_audit.http_baseline"
+            },
+            {
+              "suite": "ai-preferences-audit",
+              "name": "ai_preferences_audit.rollback"
+            },
+            {
+              "suite": "ai-preferences-audit",
+              "name": "ai_preferences_audit.fault_removed"
+            },
+            {
+              "suite": "ai-preferences-audit",
+              "name": "ai_preferences_audit.recovery"
+            },
+            {
+              "suite": "ai-preferences-audit",
+              "name": "ai_preferences_audit.repeat_state"
+            },
+            {
+              "suite": "ai-preferences-audit",
+              "name": "ai_preferences_audit.consistency"
+            },
+            {
+              "suite": "ai-preferences-audit",
+              "name": "ai_preferences_audit.cleanup"
+            },
+            {
+              "suite": "ai-preferences-audit",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "ai-preferences-audit",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "正式PUT AI偏好独立审计503整settings/timestamp/audit回滚、恢复跨API读回、重复同payload状态幂等但每成功PUT审计+1；仅本地广告目录，无模型推理/探测，非完整接口或业务链。"
         }
       ]
     },
@@ -6096,7 +6148,8 @@
   ],
   "regression_review_note_record_ids": [
     "2daaccdb-96fb-4214-96f8-a8815c79be77",
-    "5105d522-8345-462b-84cf-d264c1e4e974"
+    "5105d522-8345-462b-84cf-d264c1e4e974",
+    "7974f802-7051-4ee4-a133-89255ba1c216"
   ],
   "business_chain_constraints": [
     {
@@ -6133,10 +6186,19 @@
       "execution_queue": 0,
       "local_queue": 24,
       "protocol_mock_normal": 32,
-      "current_groups_passed_cases": 910,
+      "current_groups_passed_cases": 939,
       "current_groups_blocked_cases": 2,
       "current_groups_external_todo_cases": 1,
-      "scope": "十五个当前接口子组各自最新854+19+37；含前置/HTTP子步骤/父汇总，非910独立业务断言。normalqueue0和五审计故障子包P不代表全接口；两blocked及1external保留，父包/整体OPEN。"
+      "scope": "十六个当前接口子组各自最新910+AI29；含前置/HTTP子步骤/父汇总，非939独立业务断言。normalqueue0和六审计故障子包P不代表全接口；两blocked及1external保留，父包/整体OPEN。"
+    },
+    "scenario_evidence_layer_review": {
+      "record_id": "7974f802-7051-4ee4-a133-89255ba1c216",
+      "evidence_ids": [
+        "759efb99-362b-4453-bbfa-dca537499a72",
+        "3c83f302-7bc4-4bdd-94b3-61edf8a1d626"
+      ],
+      "counts_as_whole_acceptance": false,
+      "note": "直接servicePG、registered handler和formal binary各自标记；原289 blocked79skip及canvas missing producer不洗绿。CSV owner已另发现当前Discovery原件，匿名/读副作用补测与普通偏好/通知binary审计503候选推进。"
     }
   },
   "interface_subpackages": [
@@ -6439,6 +6501,31 @@
       "auxiliary_route_keys": [
         "POST /api/v1/postmortems/{id}/publish"
       ]
+    },
+    {
+      "id": "ai-preferences-audit",
+      "suite_id": "ai-preferences-audit",
+      "targets": [
+        [
+          "PUT",
+          "/me/ai-preferences"
+        ]
+      ],
+      "required_cases": [
+        "ai_preferences_audit.catalog",
+        "ai_preferences_audit.http_baseline",
+        "ai_preferences_audit.rollback",
+        "ai_preferences_audit.fault_removed",
+        "ai_preferences_audit.recovery",
+        "ai_preferences_audit.repeat_state",
+        "ai_preferences_audit.consistency",
+        "ai_preferences_audit.cleanup",
+        "readonly.cleanup",
+        "readonly.complete"
+      ],
+      "latest_run_id": "c3be014b-cf94-46d0-b4f1-d6e02b8409f0",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "scope": "正式PUT AI偏好独立审计503整settings/timestamp/audit回滚、恢复跨API读回、重复同payload状态幂等但每成功PUT审计+1；仅本地广告目录，无模型推理/探测，非完整接口或业务链。"
     }
   ]
 }

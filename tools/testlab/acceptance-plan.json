@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-05T12:21:03.243201+00:00",
+  "updated_at": "2026-10-05T13:01:14.537190+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -1289,10 +1289,10 @@
       "method": "GET",
       "path": "/api/v1/services",
       "module": "资源与观测",
-      "availability": "needs_confirmation",
+      "availability": "local_ready",
       "priority": "P1",
       "package_id": "local-components",
-      "reason": "CP273正式7a62e019已实测阻塞：Complete view needs successful native deployment, full service metrics, owner/oncall and alert coverage; no release/AI success fabricated or paused CI/CD resumed.",
+      "reason": "当前正式HTTP空集合合同已实测；无登记/可见服务时200，匿名/环境/会话失效拒绝及重登恢复。非空来源/对象权限投影仍有生产前置待办。",
       "prerequisites": [
         "确认上述真实生产者/来源准入；不得伪造业务SQL成功、恢复暂停CI/CD或仅打开完整性flag"
       ],
@@ -1302,7 +1302,7 @@
         "cmd/aiops/v3.go",
         "tools/testlab/api_services_functional_coverage.py"
       ],
-      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+      "proof_scope": "CP300正式空集合子场景；不得代非空MCP登记/discovery/review或服务deployment/metrics/oncall完整性。"
     },
     {
       "method": "GET",
@@ -1958,10 +1958,10 @@
       "method": "GET",
       "path": "/api/v1/mcp-servers",
       "module": "集成中心",
-      "availability": "needs_confirmation",
+      "availability": "local_ready",
       "priority": "P1",
       "package_id": "local-source-protocols",
-      "reason": "V3绑定/发现/审核/开关已有消费者，缺V3登记创建入口；legacy ai-extensions在V3为501，启动legacy会开启暂停旧workers，本轮不恢复。已有登记consumer及模块协议证明与正式创建分别保留。",
+      "reason": "当前正式HTTP空集合合同已实测；无登记/可见服务时200，匿名/环境/会话失效拒绝及重登恢复。非空来源/对象权限投影仍有生产前置待办。",
       "prerequisites": [
         "明确首次registration的公开可信生产者、版本和本轮授权边界；当前严格V3不能仅靠protocol Mock填库",
         "可另行评估真实legacy HTTP登记→V3绑定/发现的兼容迁移，但明确legacy来源，不宣称V3注册已接通",
@@ -1973,7 +1973,7 @@
         "internal/v3mcp/service.go:41",
         "cmd/aiops/v3_mcp_entry_test.go:124"
       ],
-      "proof_scope": "只读源审生产者缺口，尚无本轮正式非空HTTP验收；不是断言整个MCP功能缺失"
+      "proof_scope": "CP300正式空集合子场景；不得代非空MCP登记/discovery/review或服务deployment/metrics/oncall完整性。"
     },
     {
       "method": "GET",
@@ -6062,6 +6062,13 @@
       "supersedes": "CP297接口与完整链并行推进顺序；此前暂停于本次授权接口阶段内解除。",
       "scope": "接口包现有对象HTTP生产只是用例前置，不能冒完整业务链。外部/缺实现/暂停/需产品决定独立，不计通过。",
       "automation": "aiops-24已删除，不重建。"
+    },
+    {
+      "at": "2026-10-05T13:01:14.537190+00:00",
+      "decision": "继续接口阶段，补空集合与真实来源；performance/soak仍用户暂停",
+      "source": "2026-10-05用户继续别停下",
+      "run_id": "fbf67c10-216b-4b1e-9969-e0d456ecea24",
+      "proof_evidence_id": "f6cef35a-9833-444c-866e-7e6eb604af12"
     }
   ],
   "review_record_history": [
@@ -6344,22 +6351,15 @@
       "note": "直接servicePG、registered handler和formal binary各自标记；原289 blocked79skip及canvas missing producer不洗绿。CSV owner已另发现当前Discovery原件，匿名/读副作用补测与普通偏好/通知binary审计503候选推进。"
     },
     "bounded_remaining_review": {
-      "status": "reviewed_with_contract_external_producer_blockers",
+      "status": "reopened_specific_local_paths",
+      "at": "2026-10-05T13:01:14.537190+00:00",
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
-      "record_id": "c10b9fc1-5cf8-466c-9873-bbe5d9705cc6",
-      "evidence_ids": [
-        "787cca7f-567f-4f3b-afa4-61477211205a"
-      ],
-      "scope": "native-core/native-content相关有界审查，非166全接口穷尽判定",
-      "new_required_local_tasks_confirmed": [],
-      "completed_assigned_csv_run_id": "d76f75c3-f3ee-4b9e-bfa6-86f09d2da626",
-      "counts_as_whole_acceptance": false,
-      "remaining": [
-        "Trace全集需要版本/来源完整性契约",
-        "聚合分页/容量及7日历史需要读取契约或权威producer",
-        "官方模板/Memory/EvalCase/AgentRun等正式producer；外部资源或用户暂停"
-      ],
-      "no_automatic_next_phase": true
+      "basis": "用户要求继续核46；独立21逐route审查纠正两个合法空列表前置，真实GitLab mapping与小模型独立准备，旧有界无发现不视为穷尽结论",
+      "native_run_id": "fbf67c10-216b-4b1e-9969-e0d456ecea24",
+      "proof_evidence_id": "f6cef35a-9833-444c-866e-7e6eb604af12",
+      "real_normal_count_after_empty": 122,
+      "remaining_real_normal": 44,
+      "full_interface_acceptance": false
     }
   },
   "interface_subpackages": [
@@ -6764,6 +6764,36 @@
       "latest_run_id": "d76f75c3-f3ee-4b9e-bfa6-86f09d2da626",
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
       "scope": "CSV download anonymous401/owner200/headerless200/peer404/wrongenv403/currentrevoke403恢复、完整七列含time/敏感及hidden环境排除、全audit/exports读台账不变；service两审计+export一次为正式最小前置，不Runbook链/大分页/expiry/formula全覆盖。"
+    },
+    {
+      "id": "empty-catalogs-interfaces",
+      "suite_id": "empty-catalogs-interfaces",
+      "targets": [
+        [
+          "GET",
+          "/mcp-servers"
+        ],
+        [
+          "GET",
+          "/services"
+        ]
+      ],
+      "required_cases": [
+        "empty_catalogs.baseline",
+        "empty_catalogs.normal",
+        "empty_catalogs.authorization",
+        "empty_catalogs.boundary",
+        "empty_catalogs.session_revoked",
+        "empty_catalogs.session_recovered",
+        "empty_catalogs.consistency",
+        "empty_catalogs.cleanup",
+        "readonly.cleanup",
+        "readonly.complete"
+      ],
+      "latest_run_id": "fbf67c10-216b-4b1e-9969-e0d456ecea24",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "proof_evidence_id": "f6cef35a-9833-444c-866e-7e6eb604af12",
+      "scope": "正式空目录200/完整DTO、匿名401、不可访问环境403、服务4非法filter422、正式logout/旧Cookie双API401/重登200、全10业务表与audit零写；仅empty_collection，非空能力/完整接口/整链未闭合。"
     }
   ]
 }

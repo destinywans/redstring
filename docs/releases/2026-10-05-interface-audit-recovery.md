@@ -52,3 +52,11 @@ P 数含前置、HTTP 子步骤和父汇总，不是独立断言数量。Token D
 本轮有界剩余审查 `787cca7f-567f-4f3b-afa4-61477211205a` 未确认新的必需本地执行项，范围为native-core/native-content相关证据，不是166接口穷尽判定。Trace全集版本/来源契约、聚合分页/容量与权威七日历史、未接线producer及外部/暂停独立开放，不由正常样本或子组数量关闭。新增八组268P含setup/HTTP/父汇总，每组的适用合同及未验证范围均可回看；性能和24h不自动恢复。
 
 最终工具交付 `2246dec3fb9e1bb0b4772e38f8227b23190b94ef`（AI及分层）和 `bec30dda86e5d034a28b46fb5dfc463de334caf1`（普通设置/CSV）均推送并精确远端回读。三个新增正式HTTP组102P/52HTTP；本文件八组共268P/139HTTP，均含前置/HTTP子步骤/父汇总，不是整体通过率。整体看板及HTML/JSON/Markdown真实导出证明 `ec23554a-6202-4d94-bd7b-1e5293efbd61`，source93f/overall OPEN/父needs_scenario_plan保留。当前无active，产品代码未改；无默认分支合并或部署。
+
+## CP300：合法空目录正常与具体前置纠正
+
+当前新增 `empty-catalogs-interfaces` 原生运行 `fbf67c10-216b-4b1e-9969-e0d456ecea24`：37P0F、23HTTP、CLI0、source93f始末，8必需marker及UUID DB/role/Popen/端口清理P，证明 `f6cef35a-9833-444c-866e-7e6eb604af12`。GET/mcp-servers 与 GET/services 无登记/可见服务时合法200、完整空DTO；双实例读回、匿名/环境403、4非法服务filter422、正式logout撤销Cookie两API401、重登恢复，以及10业务表/audit零写。只关闭空集合子场景；非空MCP登记/discovery/review/执行、服务release/metrics/oncall与对象过滤仍待。
+
+Fresh整体页实际正常122/166、缺44（25协议正常、19尚无两类正常），overall OPEN；不是完整接口阶段通过。Execution消费者已实现但可信完整历史/当前生产链尚缺；服务详情已有Canvas回复生产，但reader读取旧runs及暂停native deployment，不能笼统称AI producer全缺。原21项逐route审查工件及精确引用见CHECKPOINT CP300。
+
+原专用PG/Vault/GitLab刚停止，root按当前owner/CID/镜像/端口/卷/配额和mainnonce/HMAC恢复三个原容器，数据不重建、main不控制；Vaultdev重启的易失性明确记录。完整链/性能/24h与其他暂停范围没有恢复。真实GitLab mapping、小模型adapter及真实artifact输入各为不同证明范围，尚未实际执行者不计通过。

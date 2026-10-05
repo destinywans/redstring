@@ -1,3 +1,16 @@
+**最新记录入口：[CP-300](#cp-300-current)，2026-10-05，继续当前接口验收，整体仍 OPEN。** 已实际补 MCP/服务合法空目录：37P、23HTTP，source93f始末相同、CLI0；真实正常子场景122/166，剩44（25已有协议正常、19两者均缺），不等于完整接口验收。非空来源/生产者及权限故障子场景仍独立。性能、24h、原生交付与产品前端保持暂停，未重建自动化。
+
+<a id="cp-300-current"></a>
+## CP-300 · 2026-10-05 · 重新逐接口查可执行路径并实际补证
+
+- 用户要求“继续吧，别停下，接口还有46个没验收完成吧”。重新核对本轮 dashboard、SQLite、Git/源码，原真实normal120/166缺46，其中25已有正式binary+PG的协议来源正常、21尚无正常成功证据；原bounded审查没有发现不等于穷尽。分三路核21前置、真实GitLab mapping、Agent真实artifact输入，root整合与实际准入，不开启完整链或压测。
+- 独立21 route审查 `.local/testlab/cp300-missing-producer-audit/e38504a3-9ae7-4497-844a-dc01b7096467/report.md` 找到合法空集合 GET/mcp-servers、GET/services；原整列表都要非空producer/成功deployment的理由过宽。Execution读取/报告发布consumer已实现，缺可信完整历史与当前生产链；服务详情当前Canvas回复存在但保存v3节点表、旧详情仍读runs。redeliver另有明确暂停，不泛称全接口未实现。
+- **实际空集合组** `fbf67c10-216b-4b1e-9969-e0d456ecea24`，12:58:34.632200Z→12:58:52.701182Z，37P0F0skip、CLI0、Go93f始末同、native非race6d/runtime338；8原marker/23实际HTTP：200×10、401×6、403×2、422×4、204×1。十业务表保持空、全audit不变；两API同DTO、匿名401/无环境权限403、4非法服务filter422、正式logout→旧Cookie两API401→重登200，UUID DB/role/持有Popen/端口精确清理P。注册proof `f6cef35a-9833-444c-866e-7e6eb604af12`；三报告已导出。只关闭empty collection子场景，**非空MCP登记/discovery/review、服务deployment/metrics/oncall投影、对象ACL及dependency failure仍未证明**。
+- Fresh看板实际122/166、missing44、pending-real25、execution_queue0、overall OPEN；空集合范围已写route reason/proof_scope与focused子包。二十五仅协议+十九两类均缺不是“44都没测过”，更不是余项都外部阻塞。原历史与首次失败保留，不回填原件或改assertion。
+- 本轮准入中实际发现专用PG于12:34:58Z、GitLab于12:35:00Z停止，Vault也未监听，coordinator无active但旧运行快照已过时。核fresh main nonce/HMAC/源与exactCID/image/owner/卷/loopback/原quota、无active、容量后，仅恢复PG/Vault/GitLab三个原owned组件；未重建/reset/reseed/控制main。Vault dev数据易失，只允许后续新UUID路径与token，不能声称旧KV残留已验。实际GitLab账号1+ownedCA认证200；恢复证据 `.local/testlab/cp300-owned-resume/664a4ee0-22bf-40d6-a30c-72acc5aa6844/`。首root误用PG-only inspector被identity guard拒绝于任何依赖启动前，已保原件并用generic只读inspector+精确守卫纠正；属工具准备问题。两个overview投影错误schema及一readiness路径拼接错误均发生原证据写前，不是产品失败；正确schema coverage/main与声明Content-Length完整读取随后核实。
+- 下一继续真实GitLab映射两个接口的独立candidate审查/准入（仅现有project1读取身份、UUID read_api Reporter PAT、Vault单路径、正式activate/discover/accept/审计及重复读回），不创建/修改业务项目、不CI/Argo/VM。Agent真实blob候选仅prepared/15offline，不把合成exporter或artifact metadata引用冒native生产者证明；小模型metrics候选仅准备，不代旧qwen3.6+bge-m3容量gate或付费模型/语义验收。所有准备状态均非native通过。
+- 当前无active，productGo/web/main/runtime与用户`.claude`、旧Runbook全链候选保持；源93f/binary6d、PG4CPU2GiB、GitLab原2CPU4GiB。继续接口phase，完整业务链等接口phase决策后，performance/soak仍用户暂停。成果scoped commit/push测试分支与Linear记录，不默认merge/deploy。
+
 **最新记录入口：[CP-299](#cp-299-current)，2026-10-05，本轮接口补证已交付，整体验收仍OPEN。** 当前真实正常成功子场景120/166、协议Mock正常32；本地尚无正常样本的可执行队列0，但24项协议已验待真实、46项真实正常缺口及权限/边界/幂等/故障场景计划仍未收口。十八组最新相应结果1012P0F2B1外部待办，含共同前置/父汇总，不是1012条独立业务断言。Go93f/native nonrace6d/runtime338未改，当前无active。继续接口场景复核，不因normal队列清零转入整链；完整业务链、performance/24h、CI-CD/Workflows/VM/产品web保持暂停。 本轮新增AI/普通偏好通知/CSV三个正式HTTP组102P52HTTP(含前置和父汇总)，原首红保留；本次有界剩余审查未确认新必需本地项，下一步核剩余契约/外部/producer阻塞。
 
 

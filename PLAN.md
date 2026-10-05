@@ -1,3 +1,7 @@
+**当前入口：[CP300](CHECKPOINT.md#cp-300-current)，2026-10-05，持续当前接口验收。** 已新增MCP/服务空目录实际37P23HTTP：真实normal122/166，剩44，其中25已有协议来源normal；仅空集合证明，非空能力/完整场景不能计通过。原18组1012P与新空目录37P共1049P（含前置/汇总），原2B1external保留；当前无active，真实GitLab mapping和小模型接口仅准备。先接口，再完整业务链；performance/24h及原生CI-CD/Workflows/VM/产品web保持暂停，不重建自动化。
+
+**历史CP299入口与当时快照：**
+
 **当前入口：[CP299](CHECKPOINT.md#cp-299-current)，2026-10-05，先接口场景收口。** 当前真实正常120/166、协议Mock正常32；尚无正常样本的本地execution_queue0，仍有24待真实及五类场景待核，不能判接口验收完成。十组最新结果744P0F2B1外部待办（含前置/汇总），当前无active；新增Agent/Prompt/Eval仅既有元数据及协议场景。先接口，再完整业务链；performance/24h及暂停域保持暂停，不重建自动化。
 
 **历史记录入口：[CP296](CHECKPOINT.md#cp-296-current)，当时快照与当时顺序。** 用户明确暂停压测，先当前版本接口复验/完整业务链；实际无active。当前42/166正式正常、本地可执行队列93（待补真实清单94）；三个可见会话分事件→复盘→Runbook、上传/Token/配置、独立清单，root核隔离后并行功能实跑。已完成soak工具103Python+1Node离线修复留记录，native/12h/24h资格未验且暂停；不自动恢复perf/soak/性能优化。缺实现/上限/Trace/外部与原CI-CD/前端暂停域继续明示，整体OPEN。

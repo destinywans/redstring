@@ -60,3 +60,5 @@ P 数含前置、HTTP 子步骤和父汇总，不是独立断言数量。Token D
 Fresh整体页实际正常122/166、缺44（25协议正常、19尚无两类正常），overall OPEN；不是完整接口阶段通过。Execution消费者已实现但可信完整历史/当前生产链尚缺；服务详情已有Canvas回复生产，但reader读取旧runs及暂停native deployment，不能笼统称AI producer全缺。原21项逐route审查工件及精确引用见CHECKPOINT CP300。
 
 原专用PG/Vault/GitLab刚停止，root按当前owner/CID/镜像/端口/卷/配额和mainnonce/HMAC恢复三个原容器，数据不重建、main不控制；Vaultdev重启的易失性明确记录。完整链/性能/24h与其他暂停范围没有恢复。真实GitLab mapping、小模型adapter及真实artifact输入各为不同证明范围，尚未实际执行者不计通过。
+
+CP300真实GitLab `mapping-real-source` 原运行 `3307b8de-f802-4852-875d-fb2a144bfe1c` 实际27P/10HTTP/CLI0/source93f始末：UUID Reporter/read_api项目1 GET、Vault单路径read403/write403边界、正式activate点时快照、非空discover/accept、audit1、对侧精确binding/revision/DTO、重复accepted0整账不变，精确临时凭据及UUID资源清理。证据 `d578a934-74d4-44a0-9ca5-33dd23c847a9`，HTML/JSON/Markdown报告齐。真实normal124/166，余42（23已协议正常、19尚无两类正常）；该组不冒实时远端枚举、production GitLab或整接口/业务链通过。

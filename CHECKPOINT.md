@@ -1,4 +1,4 @@
-**最新记录入口：[CP-300](#cp-300-current)，2026-10-05，继续当前接口验收，整体仍 OPEN。** 已实际补 MCP/服务合法空目录：37P、23HTTP，source93f始末相同、CLI0；真实正常子场景122/166，剩44（25已有协议正常、19两者均缺），不等于完整接口验收。非空来源/生产者及权限故障子场景仍独立。性能、24h、原生交付与产品前端保持暂停，未重建自动化。
+**最新记录入口：[CP-300](#cp-300-current)，2026-10-05，继续当前接口验收，整体仍 OPEN。** 已实际补 MCP/服务合法空目录：37P、23HTTP，source93f始末相同、CLI0；真实正常子场景124/166，剩42（23已有协议正常、19两者均缺），不等于完整接口验收。非空来源/生产者及权限故障子场景仍独立。性能、24h、原生交付与产品前端保持暂停，未重建自动化。
 
 <a id="cp-300-current"></a>
 ## CP-300 · 2026-10-05 · 重新逐接口查可执行路径并实际补证
@@ -2427,3 +2427,6 @@
 - **看板/报告实际回读**：`ec23554a-6202-4d94-bd7b-1e5293efbd61` 核当前三个新focused P、native-core父needs_scenario_plan/overall OPEN、normal120/166/source93f、无active；三格式整体报告真实下载到私有 `interface-delivery-overview/116bf22e-25fe-40e3-9834-d877a9869c47`，各字节/SHA登记，不把报告导出称验收通过。AI原交付2246dec3fb9e1bb0b4772e38f8227b23190b94ef已推送/exact回读；本批普通设置与CSV工具待scoped交付。overview46回归P，产品web未改测。
 
 - **本轮接口交付已推送**：`2246dec3fb9e1bb0b4772e38f8227b23190b94ef`（AI及证据层）与 `bec30dda86e5d034a28b46fb5dfc463de334caf1`（普通设置与CSV）均已push并精确ls-remote。新增三正式HTTP组共102P52HTTP，八审计/读取有界子组268P139HTTP均只相应scope，前置和父汇总不冒独立断言。原首红/Go父blocked79skip/政策2B/配置1external保留；current normal120/166/32协议normal、整体OPEN。共享Go/main/config保持，only .claude/ 与两个旧Runbook完整链候选未跟踪且保留。无active实际测试，三个代理完成释放；未启动整链或恢复性能/24h。下一步处理精确剩余契约/生产者/外部资源，不能靠报告导出或小范围review自动关166完整接口。
+
+- **CP300真实GitLab映射终态**：`3307b8de-f802-4852-875d-fb2a144bfe1c`，13:08:20.345519Z→13:08:38.271038Z，27P0F0skip/10HTTP/CLI0、Go93f始末同；9原marker、UUID Reporter read_api项目1 token、Vault UUID单路径token权限拒绝、actual activate200→非空discover200→accept200/audit恰1→第二API精确cells/save与重复accepted0/全账不变。token exact身份核后DELETE、旧tokenGETuser401、Vault token/metadata/policy及UUID DB-role/Popen/端口清理P；proof `d578a934-74d4-44a0-9ca5-33dd23c847a9`，三报告已导出。只证明近期activation快照，discover无新远端枚举，非productionGitLab/CI/完整业务链。当前真实normal124/166缺42（23协议正常、19两类均缺），非空producer/合同与外部待办仍保留；不以通过数判整接口阶段通过。
+- 空目录成果已提交推送exactlsremote `192be9bcd18397797df595da4a7a4272544ef57f`；旧原件与用户文件保留，当前无active。该mapping原生组清理实测已完成，准备中的metrics小模型候选未计通过。

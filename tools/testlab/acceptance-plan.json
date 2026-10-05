@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-05T13:01:14.537190+00:00",
+  "updated_at": "2026-10-05T13:11:07.926014+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -1082,10 +1082,10 @@
       "method": "GET",
       "path": "/api/v1/executions/{id}",
       "module": "事件与告警",
-      "availability": "not_implemented",
+      "availability": "needs_confirmation",
       "priority": "P1",
       "package_id": "producer-gaps",
-      "reason": "当前V3旧动作worker关闭，缺正式可生成完整审批/恢复/结案执行证据的生产链；存量投影模块证据不等于新正式HTTP成功链。",
+      "reason": "读取/发布consumer已实现；本轮未有可信旧执行完整历史/正式导入前置，V3不启旧执行worker，不能以手写SQL成功或业务DB复用补正常。",
       "prerequisites": [
         "参见工作包 producer-gaps 的隔离与证据前置"
       ],
@@ -1093,16 +1093,16 @@
         "internal/v3executions/README.md",
         "docs/api/v3-contract.md"
       ],
-      "proof_scope": "有读取/修改代码不等于正式进程有非空可信生产者；新增生产者不在本轮修复范围"
+      "proof_scope": "明确已实现consumer与未接线生产历史边界；缺可信前置不是handler缺失。"
     },
     {
       "method": "POST",
       "path": "/api/v1/executions/{id}/report/publish",
       "module": "事件与告警",
-      "availability": "not_implemented",
+      "availability": "needs_confirmation",
       "priority": "P1",
       "package_id": "producer-gaps",
-      "reason": "当前V3旧动作worker关闭，缺正式可生成完整审批/恢复/结案执行证据的生产链；存量投影模块证据不等于新正式HTTP成功链。",
+      "reason": "读取/发布consumer已实现；本轮未有可信旧执行完整历史/正式导入前置，V3不启旧执行worker，不能以手写SQL成功或业务DB复用补正常。",
       "prerequisites": [
         "参见工作包 producer-gaps 的隔离与证据前置"
       ],
@@ -1110,7 +1110,7 @@
         "internal/v3executions/README.md",
         "docs/api/v3-contract.md"
       ],
-      "proof_scope": "有读取/修改代码不等于正式进程有非空可信生产者；新增生产者不在本轮修复范围"
+      "proof_scope": "明确已实现consumer与未接线生产历史边界；缺可信前置不是handler缺失。"
     },
     {
       "method": "GET",
@@ -1311,7 +1311,7 @@
       "availability": "needs_confirmation",
       "priority": "P1",
       "package_id": "local-components",
-      "reason": "CP273正式7a62e019已实测阻塞：Complete detail additionally needs recent native completed model run and matching assistant reply; real producer not present in this package.",
+      "reason": "非空详情必须成功native deployment（暂停域）；当前Canvas回复生产存在但保存v3节点reply，而reader仍要求旧runs completed，输入兼容合同未闭合。",
       "prerequisites": [
         "确认上述真实生产者/来源准入；不得伪造业务SQL成功、恢复暂停CI/CD或仅打开完整性flag"
       ],
@@ -2133,7 +2133,7 @@
       "availability": "local_environment",
       "priority": "P1",
       "package_id": "local-components",
-      "reason": "本地真实只读组件/协议Mock及Vault登记可生成连接器和映射证据；凭据仅本轮私有test值，不代表生产连接健康。",
+      "reason": "现有正式接口已以本轮真实GitLab项目1和Vault只读身份激活、非空发现/接受/审计与重复读回；原协议权限故障证据另列。",
       "prerequisites": [
         "参见工作包 local-components 的隔离与证据前置"
       ],
@@ -2142,7 +2142,7 @@
         "tools/testlab/components.py",
         "internal/v3integrations"
       ],
-      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+      "proof_scope": "CP300 owned GitLab actual activation point-in-time + formal native mapping; no fresh remote enumeration, production GitLab or whole-chain claim."
     },
     {
       "method": "POST",
@@ -2151,7 +2151,7 @@
       "availability": "local_environment",
       "priority": "P1",
       "package_id": "local-components",
-      "reason": "本地真实只读组件/协议Mock及Vault登记可生成连接器和映射证据；凭据仅本轮私有test值，不代表生产连接健康。",
+      "reason": "现有正式接口已以本轮真实GitLab项目1和Vault只读身份激活、非空发现/接受/审计与重复读回；原协议权限故障证据另列。",
       "prerequisites": [
         "参见工作包 local-components 的隔离与证据前置"
       ],
@@ -2160,7 +2160,7 @@
         "tools/testlab/components.py",
         "internal/v3integrations"
       ],
-      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+      "proof_scope": "CP300 owned GitLab actual activation point-in-time + formal native mapping; no fresh remote enumeration, production GitLab or whole-chain claim."
     },
     {
       "method": "PUT",
@@ -2217,10 +2217,10 @@
       "method": "POST",
       "path": "/api/v1/webhooks/{id}/redeliver",
       "module": "集成中心",
-      "availability": "not_implemented",
+      "availability": "user_paused",
       "priority": "P1",
       "package_id": "producer-gaps",
-      "reason": "主契约该行仍mock；只能测试诚实缺实现响应，不能计正常业务成功。",
+      "reason": "正式合同记录用户决定不启用出站重投递、不接发送器，本轮保持暂停；不自动发送通知。",
       "prerequisites": [
         "参见工作包 producer-gaps 的隔离与证据前置"
       ],
@@ -6069,6 +6069,12 @@
       "source": "2026-10-05用户继续别停下",
       "run_id": "fbf67c10-216b-4b1e-9969-e0d456ecea24",
       "proof_evidence_id": "f6cef35a-9833-444c-866e-7e6eb604af12"
+    },
+    {
+      "at": "2026-10-05T13:11:07.926014+00:00",
+      "decision": "纠正Execution消费者已实现但可信历史前置缺，redeliver保持用户暂停；实际真实GitLab映射正常补证",
+      "run_id": "3307b8de-f802-4852-875d-fb2a144bfe1c",
+      "proof_evidence_id": "d578a934-74d4-44a0-9ca5-33dd23c847a9"
     }
   ],
   "review_record_history": [
@@ -6358,8 +6364,11 @@
       "native_run_id": "fbf67c10-216b-4b1e-9969-e0d456ecea24",
       "proof_evidence_id": "f6cef35a-9833-444c-866e-7e6eb604af12",
       "real_normal_count_after_empty": 122,
-      "remaining_real_normal": 44,
-      "full_interface_acceptance": false
+      "remaining_real_normal": 42,
+      "full_interface_acceptance": false,
+      "real_normal_count_after_mapping": 124,
+      "mapping_run_id": "3307b8de-f802-4852-875d-fb2a144bfe1c",
+      "mapping_proof_evidence_id": "d578a934-74d4-44a0-9ca5-33dd23c847a9"
     }
   },
   "interface_subpackages": [
@@ -6794,6 +6803,37 @@
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
       "proof_evidence_id": "f6cef35a-9833-444c-866e-7e6eb604af12",
       "scope": "正式空目录200/完整DTO、匿名401、不可访问环境403、服务4非法filter422、正式logout/旧Cookie双API401/重登200、全10业务表与audit零写；仅empty_collection，非空能力/完整接口/整链未闭合。"
+    },
+    {
+      "id": "mapping-real-source",
+      "suite_id": "mapping-real-source",
+      "targets": [
+        [
+          "POST",
+          "/service-mappings/discover"
+        ],
+        [
+          "POST",
+          "/service-mappings/accept"
+        ]
+      ],
+      "required_cases": [
+        "mapping_real.read_identity",
+        "mapping_real.vault_scope",
+        "mapping_real.activation",
+        "mapping_real.nonempty_discovery",
+        "mapping_real.accepted",
+        "mapping_real.durable_readback",
+        "mapping_real.idempotency",
+        "mapping_real.ledger",
+        "mapping_real.cleanup",
+        "readonly.cleanup",
+        "readonly.complete"
+      ],
+      "latest_run_id": "3307b8de-f802-4852-875d-fb2a144bfe1c",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "proof_evidence_id": "d578a934-74d4-44a0-9ca5-33dd23c847a9",
+      "scope": "真实owned project1 read_api Reporter→Vault UUID只读→activate点时快照→非空discover/accept、审计1、第二API精确cells/save读回、重复accepted0/全账不变；旧协议auth/fault不混，非实时远端发现/完整接口/整链。"
     }
   ]
 }

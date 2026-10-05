@@ -1,3 +1,23 @@
+**最新记录入口：[CP-304](#cp-304-current)，2026-10-06 (+08)。正常128/166、缺38，仅正常子场景；普通会话对象/跨实例退出授权32P/14HTTP，指标会话应用撤权27P/9HTTP；normal均增0、接口及整体OPEN。先接口后整链，性能/24h及原暂停域保持。**
+
+<a id="cp-304-current"></a>
+## CP-304 · 2026-10-06 (+08) · 当前普通会话对象与旧会话接口补验
+
+- 用户要求继续、不停，46是旧正常缺口；现128/166、余38（20协议正常待真实、18尚无两类正常）。本组补必要授权，不把拒绝当正常或把计数当完整接口完成。三个独立角色并行窄核/实现/独审，root只准入一组；旧正常/detail env404/source删除403证据按原source/protocol边界复用，不重复调用模型。
+- 两新测试工具helper388f561a/tests f5d00031冻结，19offline/AST2/inventoryP和独审完成。actual self.call先红1E证明compiled copiedglobals漏原wire，最小绑定双transport/finally各恢复后原例P；原15P1F误要求auth辅助路由main，精确只例外既列login/logout后P。原件/前像保留，不是产品Bug；不改shared helpers/产品Go/权限/断言/超时。
+- actual `02710c39-fbb4-4761-bd62-f7971f8b233a` UTC19:40:18.749958→19:41:37.524941，31P0F0skip、14HTTP、CLI0、Go93f始末/nonrace6d/runtime338。root19:39:40.196495 fresh nonce/HMAC+实际UID/argv/lstart/cwd、PG exactCID4CPU2GiB、无active、Host26.579GB/估计10.322空闲core准入；资源UUID2c4107f7...18856–57、单420outer/API12/40cleanup/grace45固定。
+- 正式models控制→POST conversations201只1空会话/1completed audit；同env获准view/change peer POST messages与GET events404，同owner已获准两env后messages另env404；原API1正式logout204后保原Cookie三个目标同API1返回401（API0仅签发/重登，退出传播尚待新UUID补证），重登新Cookie对侧detail200与原DTO完全一致。完整conversation/messages/replies/events/audit及其他public摘要与created相同，messages/replies/events始终空；owner sessions只预期退出/登录改变，其他session完整摘要不变。没有SQL业务行或模型调用，不冒空会话SSE200/活动流切断。
+- 原9wire/14raw+normalized全False、17marker和全部31records保留。UUIDDBrole/持有Popen/两端口cleanupP，root19:43:18.795120 fresh只读PG catalog精确0/0、portsfree/mainHMAC及source仍同，无signals/主API或共享PG控制。proof `c982cd0b-4d02-4fba-bb42-dcf4eca9297b`登记16JSON原件；三报告导出。raw response header未单独落盘，JSON拒绝为冻结validator+实际passedcase断言，不称离线重算header。
+- root证明读取初误把detail.interfaces当14normalize（实421预填矩阵），在任何附件写前止；按immutable test_name筛实际14条全False后核验，原firsterror保留，无native重跑/历史SQL修改。34对应latest1501P4F2B1external含26 interface_subpackages及8基础对应，不是1501独立断言；Generate首红和其晚头/无合法JSON/未正常通过状态保持。
+- 已发现另一个已有能力的可补项：metrics-backed消息在应用ACL撤权后403。只有唯一services:view application witness可撤，保会话/env/连接器权限，正式metrics/ask生产源绑定对象、真实本地Prom及固定模型协议Mock明确边界。旧组合的Prom不存在判断/资源登记/daemon收尾不满足当前cleanup合同，不能原样复用；已授权仅约200–260行私有窄资源适配，不引Linux/TLS443/真实LLM或shared框架重构。仍prepared，未native、不加通过；root后续审最小候选才准入。活动SSE/自然TTL/metrics app权限、完整链、外部/producer/暂停域保持未关闭。
+
+- **跨实例范围纠正及新原例**：原31P中退出和拒绝均API1，先前“API0退出传播”表述过强；原件/原P保持，附注64c84987...。真正API0 logout204→API1旧Cookie对三个接口401的新例 `7b071e0f-1df1-4415-8609-b789ca026956` UTC19:58:31.013062→19:59:49.766187，32P0F0skip/14HTTP、CLI0、Go93f始末；两最小实际call/索引反例先红2F→修工具21offline P，helper6501cb3c/tests0fc2d381、独审不改权限/预算/产品。新10wire含API_index、18mandatory/完整账/cleanup P，root20:00:56精确DBrole0/0、18856–57free/HMAC读回；proof `a2223e3d-8c3c-42e0-b015-5734b0cd5a5a`登记17原件。独立只读65f85aec...报告核32P，未重跑资源。原focus最新替32P，不把31+32累加。
+- **指标会话应用授权子组实际闭合**：`1f8d71ba-8f94-4251-b6bf-c23cbdfd513c` UTC20:05:47.607060→20:06:27.863167，27P0F0skip/9HTTP、CLI0、源93f始末/binary6d。helper1c6a8d9d/tests d4b1beff，17offline/AST/inventory/静态及原件独审；root20:05:36 nonce/HMAC/真实tuple/PG exact4CPU2GiB/26.631GB与10.086估计空闲core/无active准入，新UUIDda7...独立18860–64、自有pinned Prom .5CPU256MiB和固定模型协议Mock。仅正式services/connector/binding/metrics ask201生产source-bound completed会话，actual source1/model1、active_reply NULL；唯一services:view/application grant撤销后原owner/env/session消息403，六完整业务/审计表+175其它public/其它grant摘要不变。403文案为统一ErrForbidden映射，不能据“Environment access required”推断环境grant缺失。exact原grant含created_at恢复后同Cookie旧detail200/原DTO，无新turn。原source是当前合成采集，非历史窗口/真实推理。27含9HTTP、17mandatory及1syntheticsetup，不冒27独立场景。
+- 四owned Popen两轮启动、持有Prom CIDcf8df7...、UUID库/角色和五port共享40cleanup记录P（40是预算非实测耗时）；root20:08:09独立只读absence/HMAC同源；proof `0c40535c-13ed-4c59-b095-97f47306fec3`登记15JSON。恢复完整ACL/ledger/counter及Cookie/headers未另存，依冻结代码/原passed marker运行时断言，不声称事后独立重算。两run各三报告导出、run和overall共九实际HTTP200/MIME/attachment下载proof `aadfb18a-73f5-4502-ab6b-a64ebe1a5204`。metrics required_scenarios passed，但协议normal未独立登记，focused整体incomplete；不得改False洗绿。35对应latest1529P4F2B1external含27接口子组+8基础对应；normal128/166剩38、native-core needs_scenario_plan/接口与整体OPEN保持。报告reader KeyError/status和syntax检查在附件写前止，纠正acceptance_status后实际下载通过，非产品Bug。
+- 下一仅准备普通消息输入/体积拒绝及无副作用子组；另一代理核剩38真实normal的合法生产路径，不把额外拒绝测试冒normal进度。性能/24h和原暂停域不恢复，Go/main/runtime均不改。
+
+- 剩38正常缺口已逐route窄核并与当前看板集合相等：20已有协议normal/18两类均无；主要条件为权威producer24、组织external8、暂停3、输入兼容且依赖暂停发布1、可信历史1、Generate原实测失败1。仅只读分类，不改旧availability或关闭待办、不冒穷尽调查；[具体路由与前置](docs/releases/2026-10-06-interface-remaining38.md)可review。新正常无即跑候选；继续现有接口适用输入/故障，不能用更多拒绝场景冒正常数量。
+
 **最新记录入口：[CP-303](#cp-303-current)，2026-10-06 (+08)。真实正常128/166、缺38，仅正常子场景；接口及整体OPEN。规则Generate原例仍502，已补终态证据，不改模型/期限，不自动重跑。先接口、后整链；性能/24h和原暂停域保持。**
 
 <a id="cp-303-current"></a>

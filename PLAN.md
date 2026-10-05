@@ -1,3 +1,7 @@
+**2026-10-06 当前优先级：继续接口验收，完成后再完整业务链；performance/24h及原暂停域保持暂停。正常成功128/166、缺38，接口阶段和整体OPEN。**
+
+本轮普通对象/跨实例退出32P/14HTTP及指标会话应用撤权27P/9HTTP已实跑、无失败跳过、精确清理；normal均新增0，指标模型仍协议Mock。35对应latest1529P4F2B1external含前置/汇总，接口及整体OPEN。下一仅有界消息输入拒绝和剩38合法normal路径核对，性能/24h不恢复。Go93f/main6d/runtime338不变；证据、首失败及边界见[CP-304](CHECKPOINT.md#cp-304-current)和[交付记录](docs/releases/2026-10-05-interface-audit-recovery.md)。
+
 **2026-10-06 CP303当前：** 真实正常128/166、缺38，仅normal；Generate单次原例仍14P4F/502，实测上游headers19.922s晚于15秒，后body41µs，晚content非直接JSON仅离线证据。测试relay终态最小修复40offline/独审/native清理已证，不产品修复、换模型/放期限或自动重试；接口阶段及整体OPEN，先接口后整链，性能/24h/原暂停域保持。见 [CP303](CHECKPOINT.md#cp-303-current)。
 
 **2026-10-06 CP302当前：** 正常真实128/166、缺38，仅正常子场景；Trace原8HTTP/22P后独立root资格共23P，应用Tempo全集与producer仍OPEN。公共False资格与历史派生veto先红后修、离线及原例复验已通过，原件不改；556是历史记录数。33对应子组latest1470P4F2B1external含前置/汇总/资格核对，不代表接口阶段完成。角色正式审计/授权恢复29P也已实跑、normal增0。先接口适用场景、后整链；性能/24h/产品前端及原暂停域不恢复。见[CP302](CHECKPOINT.md#cp-302-current)。

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-05T19:09:47.448779+00:00",
+  "updated_at": "2026-10-05T19:47:46.853341+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -3961,6 +3961,290 @@
             ],
             "scope": "本角色审计/恢复/真实授权子场景，旧正常/权限/CAS/noop证据可复用，父包及whole OPEN。"
           }
+        },
+        {
+          "id": "conversation-object-session-boundaries",
+          "title": "会话消息/SSE对象权限与退出后的旧会话拒绝",
+          "command": "python3 tools/testlab/testlab.py run --suite formal-conversation-object-session-boundaries --manifest <fresh-root-admitted-singlemanifest>",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "GET /api/v1/conversations/{id}",
+            "GET /api/v1/conversations/{id}/events",
+            "POST /api/v1/conversations/{id}/messages"
+          ],
+          "required_cases": [
+            {
+              "suite": "formal-conversation-object-session-boundaries",
+              "name": "conversation_boundaries.identities"
+            },
+            {
+              "suite": "formal-conversation-object-session-boundaries",
+              "name": "conversation_boundaries.configured_model"
+            },
+            {
+              "suite": "formal-conversation-object-session-boundaries",
+              "name": "conversation_boundaries.created"
+            },
+            {
+              "suite": "formal-conversation-object-session-boundaries",
+              "name": "conversation_boundaries.owner_detail"
+            },
+            {
+              "suite": "formal-conversation-object-session-boundaries",
+              "name": "conversation_boundaries.nonowner_messages"
+            },
+            {
+              "suite": "formal-conversation-object-session-boundaries",
+              "name": "conversation_boundaries.nonowner_events"
+            },
+            {
+              "suite": "formal-conversation-object-session-boundaries",
+              "name": "conversation_boundaries.crossenv_messages"
+            },
+            {
+              "suite": "formal-conversation-object-session-boundaries",
+              "name": "conversation_boundaries.logout"
+            },
+            {
+              "suite": "formal-conversation-object-session-boundaries",
+              "name": "conversation_boundaries.old_cookie_targets"
+            },
+            {
+              "suite": "formal-conversation-object-session-boundaries",
+              "name": "conversation_boundaries.cross_instance_logout"
+            },
+            {
+              "suite": "formal-conversation-object-session-boundaries",
+              "name": "conversation_boundaries.relogin_detail"
+            },
+            {
+              "suite": "formal-conversation-object-session-boundaries",
+              "name": "conversation_boundaries.ledger"
+            },
+            {
+              "suite": "formal-conversation-object-session-boundaries",
+              "name": "conversation_boundaries.cleanup"
+            },
+            {
+              "suite": "formal-conversation-object-session-boundaries",
+              "name": "readonly.fresh_database"
+            },
+            {
+              "suite": "formal-conversation-object-session-boundaries",
+              "name": "readonly.api_ready.0"
+            },
+            {
+              "suite": "formal-conversation-object-session-boundaries",
+              "name": "readonly.api_ready.1"
+            },
+            {
+              "suite": "formal-conversation-object-session-boundaries",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "formal-conversation-object-session-boundaries",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "32P/14正式HTTP，18marker：peer消息/SSE404、owner获准另一env消息404；API0正式logout204后API1三个旧Cookie入口401，新Cookie对侧detail200同DTO。created/final完整业务/审计和其他public摘要不变，无turn或模型调用；UUIDDBrole/两Popen/端口精确清理。所有raw/normalizedFalse，normal0，parent/phase OPEN；活动SSE/自然TTL/整链未验。原31P只API1退出同API1拒绝，保历史附scope correction。",
+          "current_original_evidence": {
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "run_id": "7b071e0f-1df1-4415-8609-b789ca026956",
+            "proof_evidence_ids": [
+              "a2223e3d-8c3c-42e0-b015-5734b0cd5a5a"
+            ],
+            "scope": "32P/14正式HTTP，18marker：peer消息/SSE404、owner获准另一env消息404；API0正式logout204后API1三个旧Cookie入口401，新Cookie对侧detail200同DTO。created/final完整业务/审计和其他public摘要不变，无turn或模型调用；UUIDDBrole/两Popen/端口精确清理。所有raw/normalizedFalse，normal0，parent/phase OPEN；活动SSE/自然TTL/整链未验。原31P只API1退出同API1拒绝，保历史附scope correction。"
+          },
+          "reused_evidence": {
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "routes": [
+              {
+                "route_key": "GET /api/v1/conversations/{id}",
+                "normal": {
+                  "run": "d6aa7bf3-6d58-410c-901c-7e88036546e5",
+                  "case": "readonly.http.13",
+                  "case_id": "c92b5a3a-e414-4bf9-8ef8-67a37b59b203",
+                  "evidence_id": "0e41c82a-d803-44db-a557-277212a5a875",
+                  "scope": "actual small model + real current Prom; completed durable detail, not global AI semantics"
+                },
+                "object_authorization": [
+                  {
+                    "run": "89fb6f5f-25d1-4ec2-b813-0a0b750809c9",
+                    "case": "readonly.http.59",
+                    "case_id": "ad4c15cd-a131-4b70-b254-d05b94b10df6",
+                    "evidence": "a3c88d7b-d4f4-4f2b-a217-c91060d00e25",
+                    "status": 404,
+                    "code": "not_found",
+                    "meaning": "reader reads peer-owned formally-created same-env conversation"
+                  },
+                  {
+                    "same_run": true,
+                    "case": "readonly.http.60",
+                    "case_id": "564f987c-3fe6-49fd-8faf-2044ae673808",
+                    "evidence": "0c8d35c3-731b-4301-8216-54d3f4fae2f2",
+                    "status": 404,
+                    "meaning": "reader reads hidden owner staging conversation; combined owner/environment difference"
+                  }
+                ],
+                "cross_environment": {
+                  "run": "4d1cb6f8-4f39-4b00-bdf8-ad9b4fa1258b",
+                  "run_status": "blocked; individual case passed",
+                  "case": "TestFormalBackendHTTP/ConversationPositiveAndCrossEnvironmentBoundary",
+                  "case_id": "8c974316-71da-437d-ae36-52164113103d",
+                  "evidence": "a44bcc84-ce8c-4a47-bb63-3fcb27495a3d",
+                  "source": "tests/backend/http_test.go:218–230 POST creates own conversation then same admin other environment GET404; actual http.Client.Do tests/backend/fixture_test.go:134–168; formal binary Popen tools/testlab/backend.py:120"
+                },
+                "source_binding_revocation": {
+                  "run": "a8071b5a-15b4-4c42-aadb-db2233f2a35d",
+                  "case": "readonly.http.110",
+                  "evidence": "c9cd27b8-dbce-4b6a-a4ea-3c10417fdb5b",
+                  "status": 403,
+                  "scope": "actual main consumer/source authorization; upstream fixed model protocol_mock remains as recorded. Formal DELETE external-target -> stored source recheck; not session logout"
+                },
+                "session_invalid": "No current93f formal target-route401 after an actual session invalidation found. Anonymous401 is separate."
+              },
+              {
+                "route_key": "GET /api/v1/conversations/{id}/events",
+                "normal": {
+                  "run": "d6aa7bf3-6d58-410c-901c-7e88036546e5",
+                  "case": "generation.http.14",
+                  "case_id": "925a262e-a691-4ea5-bc79-3f073ae69fb6",
+                  "evidence": "4b96bff7-b279-4aa0-935a-3e16a9a22c4e",
+                  "scope": "actual main terminal started/completed SSE from real small-model metrics question"
+                },
+                "object_authorization": "No formal binary same-env non-owner404 sample found in current93f records. Existing normal200 and source-revoke403 do not cover this.",
+                "cross_environment": "SSE uses stored ownership/environment, never X-AIOps-Environment. A changed browser/header default alone must not imply404; revoke own test environment/view ACL while actor retains staging admission -> actual persisted test source denied403 before latest-reply lookup. No normal SSE200 on empty no-reply conversation is claimed.",
+                "source_binding_revocation": {
+                  "run": "a8071b5a-15b4-4c42-aadb-db2233f2a35d",
+                  "case": "generation.http.111",
+                  "case_id": "703b137d-d9c4-480c-bdb7-040ff3370e45",
+                  "evidence": "5163e471-6b26-4110-a758-af102551a150",
+                  "status": 403,
+                  "scope": "actual formal HTTP source authorization; recorded protocol_mock model provenance preserved"
+                },
+                "session_invalid": "No current93f formal target SSE request401 after invalidating an actual login session found. Existing registered-handler active replay revocation source tests use httptest and SQL event/reply fixtures; preserve them as lower-layer proof, not formal producer/native proof."
+              },
+              {
+                "route_key": "POST /api/v1/conversations/{id}/messages",
+                "normal": {
+                  "run": "4d1cb6f8-4f39-4b00-bdf8-ad9b4fa1258b",
+                  "case": "TestFormalBackendHTTP/ConversationPositiveAndCrossEnvironmentBoundary",
+                  "evidence": "a44bcc84-ce8c-4a47-bb63-3fcb27495a3d",
+                  "record": "4a3ce93c-63d2-463d-a705-dcb3afb877b1",
+                  "status": 202,
+                  "scope": "real main accepting transaction + worker; answer explicitly fixed local protocol model (tests/backend/http_test.go:229 comment), no real-model semantic claim"
+                },
+                "object_authorization": "No current93f formal binary authenticated non-owner404 sample found; anonymous contract401 exists and is not object authorization.",
+                "cross_environment": "No target POST cross-environment404 record found. Formal send path checks selected allowed env and owned id before body/model selection; owner with both-env view/change grants can submit valid same payload under other-env header and obtain404.",
+                "source_binding_revocation": null,
+                "session_invalid": "No current93f target POST401 after actual logout found. Invalidated session rejects at authentication before accepting messages/model work."
+              }
+            ],
+            "scope": "原passed individualcase，包括whole blocked的4d；保留实际binaryHTTP与固定上游协议来源的区别，不修改原normal/classification"
+          },
+          "evidence_history": [
+            {
+              "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+              "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+              "run_id": "02710c39-fbb4-4761-bd62-f7971f8b233a",
+              "proof_evidence_ids": [
+                "c982cd0b-4d02-4fba-bb42-dcf4eca9297b",
+                "64c84987-06b7-4fb5-b799-19755109108a"
+              ],
+              "scope": "原普通对象/退出entry授权31P通过，未证明API0 logout传播；新增mandatory marker未运行，focus不可冒全范围通过"
+            }
+          ]
+        },
+        {
+          "id": "conversation-metrics-application-acl",
+          "title": "指标会话消息应用授权撤销与恢复",
+          "command": "python3 tools/testlab/testlab.py run --suite formal-conversation-metrics-application-acl --manifest <fresh-root-admitted-singlemanifest>",
+          "evidence_mode": "protocol_mock",
+          "route_keys": [
+            "POST /api/v1/conversations/{id}/messages"
+          ],
+          "required_cases": [
+            {
+              "suite": "formal-conversation-metrics-application-acl",
+              "name": "metrics_acl.identity"
+            },
+            {
+              "suite": "formal-conversation-metrics-application-acl",
+              "name": "metrics_acl.real_source"
+            },
+            {
+              "suite": "formal-conversation-metrics-application-acl",
+              "name": "metrics_acl.bindings"
+            },
+            {
+              "suite": "formal-conversation-metrics-application-acl",
+              "name": "metrics_acl.completed"
+            },
+            {
+              "suite": "formal-conversation-metrics-application-acl",
+              "name": "metrics_acl.revoked"
+            },
+            {
+              "suite": "formal-conversation-metrics-application-acl",
+              "name": "metrics_acl.forbidden"
+            },
+            {
+              "suite": "formal-conversation-metrics-application-acl",
+              "name": "metrics_acl.restore"
+            },
+            {
+              "suite": "formal-conversation-metrics-application-acl",
+              "name": "metrics_acl.recovered"
+            },
+            {
+              "suite": "formal-conversation-metrics-application-acl",
+              "name": "metrics_acl.ledger"
+            },
+            {
+              "suite": "formal-conversation-metrics-application-acl",
+              "name": "metrics_acl.cleanup"
+            },
+            {
+              "suite": "formal-conversation-metrics-application-acl",
+              "name": "readonly.fresh_database"
+            },
+            {
+              "suite": "formal-conversation-metrics-application-acl",
+              "name": "generation.api_ready.1.0"
+            },
+            {
+              "suite": "formal-conversation-metrics-application-acl",
+              "name": "generation.api_ready.1.1"
+            },
+            {
+              "suite": "formal-conversation-metrics-application-acl",
+              "name": "generation.api_ready.2.0"
+            },
+            {
+              "suite": "formal-conversation-metrics-application-acl",
+              "name": "generation.api_ready.2.1"
+            },
+            {
+              "suite": "formal-conversation-metrics-application-acl",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "formal-conversation-metrics-application-acl",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "27P/9正式HTTP：真实当前Prom+固定模型协议Mock的正式metrics ask201生产completed/source-bound会话；唯一services:view/application grant删除后同owner/session/env对侧消息403，完整六业务/审计表、其它public/其它grant摘要和source/model entry无变化；原grant含created_at精确恢复后同Cookie旧detail200同DTO。17mandatory及1syntheticsetup，四Popen两轮启动/精确PromCID/五port/UUIDDBrole共享40cleanupP；normal0/parentOPEN，非真实推理/整链/在途撤权。",
+          "current_original_evidence": {
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "run_id": "1f8d71ba-8f94-4251-b6bf-c23cbdfd513c",
+            "proof_evidence_ids": [
+              "0c40535c-13ed-4c59-b095-97f47306fec3"
+            ],
+            "scope": "27P/9正式HTTP：真实当前Prom+固定模型协议Mock的正式metrics ask201生产completed/source-bound会话；唯一services:view/application grant删除后同owner/session/env对侧消息403，完整六业务/审计表、其它public/其它grant摘要和source/model entry无变化；原grant含created_at精确恢复后同Cookie旧detail200同DTO。17mandatory及1syntheticsetup，四Popen两轮启动/精确PromCID/五port/UUIDDBrole共享40cleanupP；normal0/parentOPEN，非真实推理/整链/在途撤权。"
+          }
         }
       ],
       "readonly_scenario_audit": {
@@ -7231,6 +7515,15 @@
       "decision": "用户继续授权先接口；一次原Generate功能诊断已完成，工具最小终态修复独审/40offline及native清理验证；真实API仍502。保持15/20/256和原模型，不性能/整链/缺producer扩实现。",
       "run_id": "74929e23-f66f-4a8e-83c6-b83a86fdac0d",
       "proof_evidence_id": "1be14ad9-b0c1-4534-96d6-64a9cb08c5ef"
+    },
+    {
+      "id": "CP304-conversation-entry-boundaries",
+      "date": "2026-10-06",
+      "decision": "优先已有接口必要授权缺口：正常路径缺38保持；完成普通会话entry对象/会话子组，接续metrics-backed应用授权有界准备，不恢复performance/24h/完整链或原暂停域。",
+      "normal_added": 0,
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "run_id": "02710c39-fbb4-4761-bd62-f7971f8b233a",
+      "proof_evidence_id": "c982cd0b-4d02-4fba-bb42-dcf4eca9297b"
     }
   ],
   "review_record_history": [
@@ -7525,10 +7818,10 @@
       "execution_queue": 0,
       "local_queue": 19,
       "protocol_mock_normal": 32,
-      "current_groups_passed_cases": 1470,
+      "current_groups_passed_cases": 1529,
       "current_groups_blocked_cases": 2,
       "current_groups_external_todo_cases": 1,
-      "scope": "承接CP301的31对应子组1418P4F2B1external，CP302增加Trace23P与Role29P，得到33对应1470P4F2B1external；这含25个interface_subpackages和其他8个基础组，不能把25列表误当33。CP303重复Generate latest仍14P4F，旧首红保留而不再加组/加4F。仅记录范围，不是独立断言/完整验收。",
+      "scope": "35对应latest1529P4F2B1external含27接口子组+8基础组，含前置/父汇总。新增metrics ACL27P/9HTTP，普通组32P替旧31不累加；正常128/166余38，接口/整体OPEN保持。",
       "remaining_real_normal": 38,
       "current_groups_failed_cases": 4,
       "new_interface_scene_runs": [
@@ -7594,10 +7887,24 @@
           "summary": "14P4F; Generate original once502/header19.922s/terminaldurable; old first7e2 retained, replaces latest same suite",
           "normal_added": 0,
           "proof_evidence_id": "1be14ad9-b0c1-4534-96d6-64a9cb08c5ef"
+        },
+        {
+          "id": "7b071e0f-1df1-4415-8609-b789ca026956",
+          "status": "passed",
+          "summary": "32P/14HTTP API0 logout→API1拒绝及普通对象/环境授权；原31P保留",
+          "normal_added": 0,
+          "proof_evidence_id": "a2223e3d-8c3c-42e0-b015-5734b0cd5a5a"
+        },
+        {
+          "id": "1f8d71ba-8f94-4251-b6bf-c23cbdfd513c",
+          "status": "passed",
+          "summary": "27P/9HTTP realcurrentProm/fixedmodelMock appgrant revoke403+samecookie restoreGET200",
+          "normal_added": 0,
+          "proof_evidence_id": "0c40535c-13ed-4c59-b095-97f47306fec3"
         }
       ],
-      "corresponding_groups": 33,
-      "interface_subpackages": 25
+      "corresponding_groups": 35,
+      "interface_subpackages": 27
     },
     "scenario_evidence_layer_review": {
       "record_id": "7974f802-7051-4ee4-a133-89255ba1c216",
@@ -7771,8 +8078,277 @@
             "proof_evidence_id": "1be14ad9-b0c1-4534-96d6-64a9cb08c5ef"
           }
         ]
+      },
+      {
+        "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+        "main_normal_success": 128,
+        "main_total": 166,
+        "execution_queue": 0,
+        "local_queue": 19,
+        "protocol_mock_normal": 32,
+        "current_groups_passed_cases": 1470,
+        "current_groups_blocked_cases": 2,
+        "current_groups_external_todo_cases": 1,
+        "scope": "承接CP301的31对应子组1418P4F2B1external，CP302增加Trace23P与Role29P，得到33对应1470P4F2B1external；这含25个interface_subpackages和其他8个基础组，不能把25列表误当33。CP303重复Generate latest仍14P4F，旧首红保留而不再加组/加4F。仅记录范围，不是独立断言/完整验收。",
+        "remaining_real_normal": 38,
+        "current_groups_failed_cases": 4,
+        "new_interface_scene_runs": [
+          {
+            "id": "80d3b55a-16fc-415f-a210-833ee29c4312",
+            "status": "failed",
+            "summary": "27P1F; duplicate readiness protocol; business/cleanup P; not accepted",
+            "normal_added": 0,
+            "proof_evidence_id": "c15de222-871b-43ec-8923-aca3edd03c90"
+          },
+          {
+            "id": "f94d9728-473d-410f-90fc-85decdc1222e",
+            "status": "passed",
+            "summary": "29P; original6 requests/new UUID; first80d failed retained",
+            "normal_added": 0,
+            "proof_evidence_id": "a37a0c99-cdc8-4054-ad48-973d0558b163"
+          },
+          {
+            "id": "252de9ad-df9e-47a7-bf56-a3d7a09270f8",
+            "status": "passed",
+            "summary": "25P/11HTTP audit503 exactrollback+sameETag otherAPI recovery",
+            "normal_added": 0,
+            "proof_evidence_id": "3db8b40b-2b69-4809-b9b7-50fcd4b60cdd"
+          },
+          {
+            "id": "341c773a-c1b3-48c0-b67c-b6d2792515c0",
+            "status": "failed",
+            "summary": "65P1F/300秒编排超时，48HTTP预期及cleanup P，缺五mandatory marker；不接受整组",
+            "normal_added": 0,
+            "proof_evidence_id": "0ca78b1d-c727-4e58-9ac2-2a9b3f56e73b"
+          },
+          {
+            "id": "a58a5a6c-d921-4d4a-b24c-3408294e8a88",
+            "status": "passed",
+            "summary": "72P/50HTTP全部原marker通过，新UUID显式仅外层420",
+            "normal_added": 0,
+            "proof_evidence_id": "43102f57-8af4-4c63-a6f7-129b38b82185"
+          },
+          {
+            "id": "eb6e8823-032c-4706-8b1a-24dcd2a84047",
+            "status": "passed",
+            "summary": "34P/16HTTP，plan/INV各503六表回滚→samebody对侧201+实际结构读回",
+            "normal_added": 0,
+            "proof_evidence_id": "1d2a25cc-9c46-44b6-9165-d9c5a03b88a0"
+          },
+          {
+            "id": "d0279bc1-544e-4b66-b9ca-c1b371bedc1d",
+            "status": "passed",
+            "summary": "native22P+rootqualification1P，Trace Agent partial空读消费者，不App全集",
+            "normal_added": 1,
+            "proof_evidence_id": "fbd629de-d9d7-410e-92c2-ac577a2ac6f7"
+          },
+          {
+            "id": "830f1bef-135e-4591-b30e-0f0c4fea2c86",
+            "status": "passed",
+            "summary": "29P roleaudit rollback+same revision+samecookie permissions",
+            "normal_added": 0,
+            "proof_evidence_id": "a700ca22-ee6a-478a-a4e9-feeacfd413ba"
+          },
+          {
+            "id": "74929e23-f66f-4a8e-83c6-b83a86fdac0d",
+            "status": "failed",
+            "summary": "14P4F; Generate original once502/header19.922s/terminaldurable; old first7e2 retained, replaces latest same suite",
+            "normal_added": 0,
+            "proof_evidence_id": "1be14ad9-b0c1-4534-96d6-64a9cb08c5ef"
+          }
+        ],
+        "corresponding_groups": 33,
+        "interface_subpackages": 25
       }
-    ]
+    ],
+    "snapshot_history": [
+      {
+        "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+        "main_normal_success": 128,
+        "main_total": 166,
+        "execution_queue": 0,
+        "local_queue": 19,
+        "protocol_mock_normal": 32,
+        "current_groups_passed_cases": 1501,
+        "current_groups_blocked_cases": 2,
+        "current_groups_external_todo_cases": 1,
+        "scope": "承接CP303 33对应latest1470P4F2B1external，加本对象/会话31P得到34对应1501P4F2B1external；含26 interface_subpackages及8基础对应，前置/汇总不是独立断言；normal128/166剩38与父phase OPEN保持。",
+        "remaining_real_normal": 38,
+        "current_groups_failed_cases": 4,
+        "new_interface_scene_runs": [
+          {
+            "id": "80d3b55a-16fc-415f-a210-833ee29c4312",
+            "status": "failed",
+            "summary": "27P1F; duplicate readiness protocol; business/cleanup P; not accepted",
+            "normal_added": 0,
+            "proof_evidence_id": "c15de222-871b-43ec-8923-aca3edd03c90"
+          },
+          {
+            "id": "f94d9728-473d-410f-90fc-85decdc1222e",
+            "status": "passed",
+            "summary": "29P; original6 requests/new UUID; first80d failed retained",
+            "normal_added": 0,
+            "proof_evidence_id": "a37a0c99-cdc8-4054-ad48-973d0558b163"
+          },
+          {
+            "id": "252de9ad-df9e-47a7-bf56-a3d7a09270f8",
+            "status": "passed",
+            "summary": "25P/11HTTP audit503 exactrollback+sameETag otherAPI recovery",
+            "normal_added": 0,
+            "proof_evidence_id": "3db8b40b-2b69-4809-b9b7-50fcd4b60cdd"
+          },
+          {
+            "id": "341c773a-c1b3-48c0-b67c-b6d2792515c0",
+            "status": "failed",
+            "summary": "65P1F/300秒编排超时，48HTTP预期及cleanup P，缺五mandatory marker；不接受整组",
+            "normal_added": 0,
+            "proof_evidence_id": "0ca78b1d-c727-4e58-9ac2-2a9b3f56e73b"
+          },
+          {
+            "id": "a58a5a6c-d921-4d4a-b24c-3408294e8a88",
+            "status": "passed",
+            "summary": "72P/50HTTP全部原marker通过，新UUID显式仅外层420",
+            "normal_added": 0,
+            "proof_evidence_id": "43102f57-8af4-4c63-a6f7-129b38b82185"
+          },
+          {
+            "id": "eb6e8823-032c-4706-8b1a-24dcd2a84047",
+            "status": "passed",
+            "summary": "34P/16HTTP，plan/INV各503六表回滚→samebody对侧201+实际结构读回",
+            "normal_added": 0,
+            "proof_evidence_id": "1d2a25cc-9c46-44b6-9165-d9c5a03b88a0"
+          },
+          {
+            "id": "d0279bc1-544e-4b66-b9ca-c1b371bedc1d",
+            "status": "passed",
+            "summary": "native22P+rootqualification1P，Trace Agent partial空读消费者，不App全集",
+            "normal_added": 1,
+            "proof_evidence_id": "fbd629de-d9d7-410e-92c2-ac577a2ac6f7"
+          },
+          {
+            "id": "830f1bef-135e-4591-b30e-0f0c4fea2c86",
+            "status": "passed",
+            "summary": "29P roleaudit rollback+same revision+samecookie permissions",
+            "normal_added": 0,
+            "proof_evidence_id": "a700ca22-ee6a-478a-a4e9-feeacfd413ba"
+          },
+          {
+            "id": "74929e23-f66f-4a8e-83c6-b83a86fdac0d",
+            "status": "failed",
+            "summary": "14P4F; Generate original once502/header19.922s/terminaldurable; old first7e2 retained, replaces latest same suite",
+            "normal_added": 0,
+            "proof_evidence_id": "1be14ad9-b0c1-4534-96d6-64a9cb08c5ef"
+          },
+          {
+            "id": "02710c39-fbb4-4761-bd62-f7971f8b233a",
+            "status": "passed",
+            "summary": "31P/14HTTP formal owner/env/logout entry refusals; no inference",
+            "normal_added": 0,
+            "proof_evidence_id": "c982cd0b-4d02-4fba-bb42-dcf4eca9297b"
+          }
+        ],
+        "corresponding_groups": 34,
+        "interface_subpackages": 26
+      },
+      {
+        "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+        "main_normal_success": 128,
+        "main_total": 166,
+        "execution_queue": 0,
+        "local_queue": 19,
+        "protocol_mock_normal": 32,
+        "current_groups_passed_cases": 1502,
+        "current_groups_blocked_cases": 2,
+        "current_groups_external_todo_cases": 1,
+        "scope": "34对应latest1502P4F2B1external：同group原31P替为新32P，不重复累计；26接口子组加8基础组，含前置/父汇总。正常128/166、余38及接口/整体OPEN保持。",
+        "remaining_real_normal": 38,
+        "current_groups_failed_cases": 4,
+        "new_interface_scene_runs": [
+          {
+            "id": "80d3b55a-16fc-415f-a210-833ee29c4312",
+            "status": "failed",
+            "summary": "27P1F; duplicate readiness protocol; business/cleanup P; not accepted",
+            "normal_added": 0,
+            "proof_evidence_id": "c15de222-871b-43ec-8923-aca3edd03c90"
+          },
+          {
+            "id": "f94d9728-473d-410f-90fc-85decdc1222e",
+            "status": "passed",
+            "summary": "29P; original6 requests/new UUID; first80d failed retained",
+            "normal_added": 0,
+            "proof_evidence_id": "a37a0c99-cdc8-4054-ad48-973d0558b163"
+          },
+          {
+            "id": "252de9ad-df9e-47a7-bf56-a3d7a09270f8",
+            "status": "passed",
+            "summary": "25P/11HTTP audit503 exactrollback+sameETag otherAPI recovery",
+            "normal_added": 0,
+            "proof_evidence_id": "3db8b40b-2b69-4809-b9b7-50fcd4b60cdd"
+          },
+          {
+            "id": "341c773a-c1b3-48c0-b67c-b6d2792515c0",
+            "status": "failed",
+            "summary": "65P1F/300秒编排超时，48HTTP预期及cleanup P，缺五mandatory marker；不接受整组",
+            "normal_added": 0,
+            "proof_evidence_id": "0ca78b1d-c727-4e58-9ac2-2a9b3f56e73b"
+          },
+          {
+            "id": "a58a5a6c-d921-4d4a-b24c-3408294e8a88",
+            "status": "passed",
+            "summary": "72P/50HTTP全部原marker通过，新UUID显式仅外层420",
+            "normal_added": 0,
+            "proof_evidence_id": "43102f57-8af4-4c63-a6f7-129b38b82185"
+          },
+          {
+            "id": "eb6e8823-032c-4706-8b1a-24dcd2a84047",
+            "status": "passed",
+            "summary": "34P/16HTTP，plan/INV各503六表回滚→samebody对侧201+实际结构读回",
+            "normal_added": 0,
+            "proof_evidence_id": "1d2a25cc-9c46-44b6-9165-d9c5a03b88a0"
+          },
+          {
+            "id": "d0279bc1-544e-4b66-b9ca-c1b371bedc1d",
+            "status": "passed",
+            "summary": "native22P+rootqualification1P，Trace Agent partial空读消费者，不App全集",
+            "normal_added": 1,
+            "proof_evidence_id": "fbd629de-d9d7-410e-92c2-ac577a2ac6f7"
+          },
+          {
+            "id": "830f1bef-135e-4591-b30e-0f0c4fea2c86",
+            "status": "passed",
+            "summary": "29P roleaudit rollback+same revision+samecookie permissions",
+            "normal_added": 0,
+            "proof_evidence_id": "a700ca22-ee6a-478a-a4e9-feeacfd413ba"
+          },
+          {
+            "id": "74929e23-f66f-4a8e-83c6-b83a86fdac0d",
+            "status": "failed",
+            "summary": "14P4F; Generate original once502/header19.922s/terminaldurable; old first7e2 retained, replaces latest same suite",
+            "normal_added": 0,
+            "proof_evidence_id": "1be14ad9-b0c1-4534-96d6-64a9cb08c5ef"
+          },
+          {
+            "id": "7b071e0f-1df1-4415-8609-b789ca026956",
+            "status": "passed",
+            "summary": "32P/14HTTP API0 logout→API1拒绝及普通对象/环境授权；原31P保留",
+            "normal_added": 0,
+            "proof_evidence_id": "a2223e3d-8c3c-42e0-b015-5734b0cd5a5a"
+          }
+        ],
+        "corresponding_groups": 34,
+        "interface_subpackages": 26
+      }
+    ],
+    "remaining_normal_review": {
+      "evidence_id": "dda5fc4c-0ba3-46b4-a1d5-f26b88c0cc3f",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "missing_routes": 38,
+      "protocol_only_pending_real": 20,
+      "neither_normal": 18,
+      "counts_as_acceptance": false,
+      "document": "docs/releases/2026-10-06-interface-remaining38.md",
+      "scope": "source/original evidence review; unchanged availability and gates"
+    }
   },
   "interface_subpackages": [
     {
@@ -8573,6 +9149,84 @@
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
       "proof_evidence_id": "1d2a25cc-9c46-44b6-9165-d9c5a03b88a0",
       "scope": "34P/16正式HTTP；HTTPservices201读回app/envrow，ai_draft=false的plan与单app investigation，各精确success audit503audit_unavailable保持六完整表及其他全部public摘要；去faultsamebody对侧201，各exact1audit及实际原生结构/第二API读回。INV随机root/nullparent/revision0/initial context/event lineage、graph v0/omitempty真实核，序列允许空洞。原完整snapshot/12wire0600，UUIDDBrole/两Popen18844–45清理P。normal0，不模型/模板authority/分支回复/整链/所有并发crash。"
+    },
+    {
+      "id": "conversation-object-session-boundaries",
+      "suite_id": "formal-conversation-object-session-boundaries",
+      "targets": [
+        [
+          "GET",
+          "/conversations/{id}"
+        ],
+        [
+          "GET",
+          "/conversations/{id}/events"
+        ],
+        [
+          "POST",
+          "/conversations/{id}/messages"
+        ]
+      ],
+      "required_cases": [
+        "conversation_boundaries.identities",
+        "conversation_boundaries.configured_model",
+        "conversation_boundaries.created",
+        "conversation_boundaries.owner_detail",
+        "conversation_boundaries.nonowner_messages",
+        "conversation_boundaries.nonowner_events",
+        "conversation_boundaries.crossenv_messages",
+        "conversation_boundaries.logout",
+        "conversation_boundaries.old_cookie_targets",
+        "conversation_boundaries.cross_instance_logout",
+        "conversation_boundaries.relogin_detail",
+        "conversation_boundaries.ledger",
+        "conversation_boundaries.cleanup",
+        "readonly.fresh_database",
+        "readonly.api_ready.0",
+        "readonly.api_ready.1",
+        "readonly.cleanup",
+        "readonly.complete"
+      ],
+      "latest_run_id": "7b071e0f-1df1-4415-8609-b789ca026956",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "scope": "32P/14正式HTTP，18marker：peer消息/SSE404、owner获准另一env消息404；API0正式logout204后API1三个旧Cookie入口401，新Cookie对侧detail200同DTO。created/final完整业务/审计和其他public摘要不变，无turn或模型调用；UUIDDBrole/两Popen/端口精确清理。所有raw/normalizedFalse，normal0，parent/phase OPEN；活动SSE/自然TTL/整链未验。原31P只API1退出同API1拒绝，保历史附scope correction。",
+      "normal_added": 0,
+      "proof_evidence_id": "a2223e3d-8c3c-42e0-b015-5734b0cd5a5a",
+      "first_basic_run_id": "02710c39-fbb4-4761-bd62-f7971f8b233a"
+    },
+    {
+      "id": "conversation-metrics-application-acl",
+      "suite_id": "formal-conversation-metrics-application-acl",
+      "targets": [
+        [
+          "POST",
+          "/conversations/{id}/messages"
+        ]
+      ],
+      "required_cases": [
+        "metrics_acl.identity",
+        "metrics_acl.real_source",
+        "metrics_acl.bindings",
+        "metrics_acl.completed",
+        "metrics_acl.revoked",
+        "metrics_acl.forbidden",
+        "metrics_acl.restore",
+        "metrics_acl.recovered",
+        "metrics_acl.ledger",
+        "metrics_acl.cleanup",
+        "readonly.fresh_database",
+        "generation.api_ready.1.0",
+        "generation.api_ready.1.1",
+        "generation.api_ready.2.0",
+        "generation.api_ready.2.1",
+        "readonly.cleanup",
+        "readonly.complete"
+      ],
+      "latest_run_id": "1f8d71ba-8f94-4251-b6bf-c23cbdfd513c",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "scope": "27P/9正式HTTP：真实当前Prom+固定模型协议Mock的正式metrics ask201生产completed/source-bound会话；唯一services:view/application grant删除后同owner/session/env对侧消息403，完整六业务/审计表、其它public/其它grant摘要和source/model entry无变化；原grant含created_at精确恢复后同Cookie旧detail200同DTO。17mandatory及1syntheticsetup，四Popen两轮启动/精确PromCID/五port/UUIDDBrole共享40cleanupP；normal0/parentOPEN，非真实推理/整链/在途撤权。",
+      "normal_added": 0,
+      "proof_evidence_id": "0c40535c-13ed-4c59-b095-97f47306fec3"
     }
   ]
 }

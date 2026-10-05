@@ -166,3 +166,25 @@ JSON证据 `09a23b78-4afc-42f5-9981-fce3599f8f91` 已实际HTTP200/MIME/run核�
 proof1be14ad9-b0c1-4534-96d6-64a9cb08c5ef/9登记原件/三格式报告，raw/receipt/终态与同40清理完成；root只读6CID、网络/卷/端口/UUID库角色exactabsent，main/PG/canonical未控制。root首次只读验证输入误猜postgres角色已保留并用现有testlab角色纠正，不重跑接口。无完整postfailure attempt/audit快照，不回造已清理DB。当前128/166、缺38、接口与wholeOPEN；33对应latest1470P4F2B1external不追加重复suite计数。性能/24h及前端/原暂停域保持，未merge/deploy。
 
 实际看板run/overall HTML、JSON、Markdown六下载已HTTP200/MIME/attachment核实，proof96b66c39-03bf-4758-8fc0-efd80bf7b1cd。下一只读选择既有Conversation三接口对象鉴权/跨范围/会话失效缺口，先复用真实原件，不重复成功组或恢复整链/性能。
+
+
+**最新记录入口：[CP-304](#cp-304-current)，2026-10-06 (+08)。正常128/166、缺38，仅正常子场景；普通会话对象/退出后entry授权实际31P/14HTTP，normal增0、接口及整体OPEN。先接口后整链，性能/24h及原暂停域保持。**
+
+<a id="cp-304-current"></a>
+## CP-304 · 2026-10-06 (+08) · 当前普通会话对象与旧会话接口补验
+
+- 用户要求继续、不停，46是旧正常缺口；现128/166、余38（20协议正常待真实、18尚无两类正常）。本组补必要授权，不把拒绝当正常或把计数当完整接口完成。三个独立角色并行窄核/实现/独审，root只准入一组；旧正常/detail env404/source删除403证据按原source/protocol边界复用，不重复调用模型。
+- 两新测试工具helper388f561a/tests f5d00031冻结，19offline/AST2/inventoryP和独审完成。actual self.call先红1E证明compiled copiedglobals漏原wire，最小绑定双transport/finally各恢复后原例P；原15P1F误要求auth辅助路由main，精确只例外既列login/logout后P。原件/前像保留，不是产品Bug；不改shared helpers/产品Go/权限/断言/超时。
+- actual `02710c39-fbb4-4761-bd62-f7971f8b233a` UTC19:40:18.749958→19:41:37.524941，31P0F0skip、14HTTP、CLI0、Go93f始末/nonrace6d/runtime338。root19:39:40.196495 fresh nonce/HMAC+实际UID/argv/lstart/cwd、PG exactCID4CPU2GiB、无active、Host26.579GB/估计10.322空闲core准入；资源UUID2c4107f7...18856–57、单420outer/API12/40cleanup/grace45固定。
+- 正式models控制→POST conversations201只1空会话/1completed audit；同env获准view/change peer POST messages与GET events404，同owner已获准两env后messages另env404；原API1正式logout204后保原Cookie三个目标同API1返回401（API0仅签发/重登，退出传播尚待新UUID补证），重登新Cookie对侧detail200与原DTO完全一致。完整conversation/messages/replies/events/audit及其他public摘要与created相同，messages/replies/events始终空；owner sessions只预期退出/登录改变，其他session完整摘要不变。没有SQL业务行或模型调用，不冒空会话SSE200/活动流切断。
+- 原9wire/14raw+normalized全False、17marker和全部31records保留。UUIDDBrole/持有Popen/两端口cleanupP，root19:43:18.795120 fresh只读PG catalog精确0/0、portsfree/mainHMAC及source仍同，无signals/主API或共享PG控制。proof `c982cd0b-4d02-4fba-bb42-dcf4eca9297b`登记16JSON原件；三报告导出。raw response header未单独落盘，JSON拒绝为冻结validator+实际passedcase断言，不称离线重算header。
+- root证明读取初误把detail.interfaces当14normalize（实421预填矩阵），在任何附件写前止；按immutable test_name筛实际14条全False后核验，原firsterror保留，无native重跑/历史SQL修改。34对应latest1501P4F2B1external含26 interface_subpackages及8基础对应，不是1501独立断言；Generate首红和其晚头/无合法JSON/未正常通过状态保持。
+- 已发现另一个已有能力的可补项：metrics-backed消息在应用ACL撤权后403。只有唯一services:view application witness可撤，保会话/env/连接器权限，正式metrics/ask生产源绑定对象、真实本地Prom及固定模型协议Mock明确边界。旧组合的Prom不存在判断/资源登记/daemon收尾不满足当前cleanup合同，不能原样复用；已授权仅约200–260行私有窄资源适配，不引Linux/TLS443/真实LLM或shared框架重构。仍prepared，未native、不加通过；root后续审最小候选才准入。活动SSE/自然TTL/metrics app权限、完整链、外部/producer/暂停域保持未关闭。
+
+### CP304 续验：跨实例退出与指标会话应用授权（2026-10-06 +08）
+
+原02710的31P只证明API1退出后同API1拒绝；scope correction64c84987保留原件。最小工具索引/证据修复21offline通过并独审后，新7b071e0f实际32P/14HTTP、source93f始末、API0 logout204→API1三个旧Cookie接口401；10原wire含APIindex，完整账不变，精确UUID库/角色、两端口清理并独立读回。proof a2223e3d-8c3c-42e0-b015-5734b0cd5a5a；旧31P不重复计累计。
+
+新1f8d71ba实际27P/9HTTP，原17offline及独审通过。真实当前Prom（合成样本）及固定模型协议Mock正式生产completed/source-bound会话；唯一应用services:view grant撤销后POST messages403，六业务/审计账及175其他public/其他grant摘要不变、无新来源/模型调用。原grant精确恢复后旧Cookie读取原DTO200，不新发turn。四Popen两轮、持有Prom exactCID、UUID库/角色及五端口按同40秒预算清理，root独立absence读回；proof0c40535c-13ed-4c59-b095-97f47306fec3。27含setup/汇总，不是27独立场景；部分完整ACL/恢复账与counter结论依冻结运行时断言，未冒事后重算。
+
+两run三格式及overall共九实际下载proof aadfb18a-73f5-4502-ab6b-a64ebe1a5204。普通focus passed；metrics required场景passed，但协议normal无独立登记，完整focus仍incomplete。所有原HTTP registrationFalse，normal新增0；当前128/166、剩38，35对应latest1529P4F2B1external含前置/父汇总，整体OPEN。Go93f/Darwin6d/runtime338不改；尚未验证活动SSE/自然到期/真实模型质量/整链。继续接口输入边界和合法normal缺口核对，性能/24h及原暂停域保持。

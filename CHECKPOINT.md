@@ -1,4 +1,4 @@
-**最新记录入口：[CP-301](#cp-301-current)，2026-10-06 (+08)，接口验收持续推进，整体 OPEN。** 真实正常127/166、剩39；偏好/通知并发27P及知识源第二审计故障19P已实跑，生成首502保留。Pull并发上限候选准备中；先接口后整链，性能/24h及暂停域保持暂停。
+**最新记录入口：[CP-301](#cp-301-current)，2026-10-06 (+08)，接口验收持续推进，整体 OPEN。** 真实正常127/166、剩39；知识源第二审计19P、Pull来源并发原例29P已实跑，首次失败保留。Workspace审计回滚候选待独审/实际准入；先接口后整链，性能/24h及暂停域保持暂停。
 
 
 <a id="cp-301-current"></a>
@@ -9,6 +9,11 @@
 - 已登记proof `09a23b78-4afc-42f5-9981-fce3599f8f91`，实际HTTP200/application-json/run19P核实及三报告导出；原9marker全部P。原业务全摘要/完整审计prefix只在冻结运行内核对，没有另存完整快照，不声称能从已清理DB独立离线重算。外部reader/sync/index、首attempt审计失败、慢读撤权/crash、完整链/性能仍未验。本次只补现有接口故障，normal增0；27对应子组1258P4F2B1external含前置/父汇总，整体OPEN。
 - **平台字段纠正**：旧settings root-admission unused container_platform字段误继承linux/arm64；实际调用明确Darwin非race6d/Mach-O、Popen两实例。原准入不改，附注 `b50101f3-6436-4e03-bd97-40d52c58adf2` 与file/SHA核实，native断言/结果不变；新的知识probe准入使用binary_platform=darwin/arm64 Mach-O。此为工具元数据纠正，不是产品缺陷。旧127整体三格式下载proof `cd504851-2347-43a8-a30d-bced557ba2cd` 保留；新组稍后新快照，不覆盖当时报告。
 - **下一独立接口候选**：Pull真实Prom/read relay、同source双API四actual pending、第五429无新attempt/audit/sourceIO、释放完成及第六恢复200，只有六Pull请求，不性能。独立18824–28/UUID DBrole/Prom及Popen、provider原5秒/单40cleanup45grace不改。worker仍prepared未实际准入；不把客户端发起数冒actualpending或通过。Agent现consumer原Prompt version201/403/422/503原source93f可复用，新的opaque GitLab blob不被importer fetch/attest，不能改权威producer或real分类，held候选不运行。
+
+
+- **Pull来源并发接口原例闭合**：`f94d9728-473d-410f-90fc-85decdc1222e`，UTC16:39:00.552731→16:39:24.249140，实际29P0F0skip/CLI0/Go93f始末同/Darwin6d/runtime338。32离线+独审后，root16:38:21 fresh HMAC/实际tuple/PG4CPU2GiB/host25.90GB/VM7.879GB、新UUID d23d...冻结准入。原14HTTP/6Pull，无任何压测速率：两API四个授权actor actual4pending，独立第5零pending admin429/Retry-After60，完整before/after账相等且4实际来源receipt不增加；释放四actual200，第6恢复200；最终5success attempts/5success audits/源identity不变。真实Prom .5CPU256MiB+32MiB tmpfs、合成exposition、transparent响应等待≤3s/原5s provider，原source完整JSON+ledger/HTTP/cleanup保留。9业务/清理terminal marker及4实际generation readiness齐；专用DBrole/所有四Popen/精确CID/18824–28已清理，单40cleanup/grace45不变。
+- 首轮 `80d3b55a-16fc-415f-a210-833ee29c4312` 16:31:26→16:31:50为27P1F/CLI2；helper exit0、业务及cleanup P，但两generation复用readonly.api_ready.0/.1使原严格Runner correctly malformed。首proof `c15de222-871b-43ec-8923-aca3edd03c90`、原command `d4f99576-da8d-4227-ba61-10b513b04119`、三报告与源不改；修PrivateChain ready唯一码，重复协议反例仍failed，不放Runner/assert/deadline，新UUID仅原例一次复验。native前四工具反例（成功create receipt前CID、Server登记取消、第5已有pending导致错误推论、持续ENOSPC receipt挡cleanup）旧源/首红保留；持续ENOSPC只离线，不声称本机实际发生磁盘事故。
+- 新proof `a37a0c99-cdc8-4054-ad48-973d0558b163` 已登记及三报告导出。首次root只读摘要猜状态succeeded被拒于proof写前，核正式status=success后纠正，无native/原件变化。normal增0，仍127/166缺39；28相应子组latest1287P4F2B1external仅记录范围，完整接口OPEN。source60/min、crash/pending expiry、inflight撤权、真实外部credentials/持续history均未补；不恢复性能/24h/整链。下一workspace仅独立正式PUT审计503回滚及sameETag对侧恢复，候选25offline未native，不把注册handler旧证据冒正式binary故障。
 
 
 <a id="cp-300-current"></a>

@@ -117,3 +117,10 @@ CP300真实GitLab `mapping-real-source` 原运行 `3307b8de-f802-4852-875d-fb2a1
 JSON证据 `09a23b78-4afc-42f5-9981-fce3599f8f91` 已实际HTTP200/MIME/run核实及HTML/JSON/MD导出。全业务摘要/完整auditprefix在冻结运行内核对，未另存raw快照；不独立重算已清理DB或冒外部reader/sync/index、首attempt故障、慢读撤权/整链。当前正常127/166缺39、完整接口仍OPEN。
 
 旧settings准入的unused container_platform误写Linux，原件保留；实际file为Mach-O arm64、同SHA6d/nativePopen，附注 `b50101f3-6436-4e03-bd97-40d52c58adf2`，此组未新增产品修复。新知识组准入正确Darwin平台。当前Pull上限独立候选准备，不恢复性能/24h/整链。
+
+
+## CP301：Pull来源并发上限与拒绝副作用
+
+- **Pull来源并发接口原例闭合**：`f94d9728-473d-410f-90fc-85decdc1222e`，UTC16:39:00.552731→16:39:24.249140，实际29P0F0skip/CLI0/Go93f始末同/Darwin6d/runtime338。32离线+独审后，root16:38:21 fresh HMAC/实际tuple/PG4CPU2GiB/host25.90GB/VM7.879GB、新UUID d23d...冻结准入。原14HTTP/6Pull/50无任何压测速率：两API四个授权actor actual4pending，独立第5零pending admin429/Retry-After60，完整before/after账相等且4实际来源receipt不增加；释放四actual200，第6恢复200；最终5success attempts/5success audits/源identity不变。真实Prom .5CPU256MiB+32MiB tmpfs、合成exposition、transparent响应等待≤3s/原5s provider，原source完整JSON+ledger/HTTP/cleanup保留。9业务/清理terminal marker及4实际generation readiness齐；专用DBrole/所有四Popen/精确CID/18824–28已清理，单40cleanup/grace45不变。
+- 首轮 `80d3b55a-16fc-415f-a210-833ee29c4312` 16:31:26→16:31:50为27P1F/CLI2；helper exit0、业务及cleanup P，但两generation复用readonly.api_ready.0/.1使原严格Runner correctly malformed。首proof `c15de222-871b-43ec-8923-aca3edd03c90`、原command `d4f99576-da8d-4227-ba61-10b513b04119`、三报告与源不改；修PrivateChain ready唯一码，重复协议反例仍failed，不放Runner/assert/deadline，新UUID仅原例一次复验。native前四工具反例（成功create receipt前CID、Server登记取消、第5已有pending导致错误推论、持续ENOSPC receipt挡cleanup）旧源/首红保留；持续ENOSPC只离线，不声称本机实际发生磁盘事故。
+- 新proof `a37a0c99-cdc8-4054-ad48-973d0558b163` 已登记及三报告导出。首次root只读摘要猜状态succeeded被拒于proof写前，核正式status=success后纠正，无native/原件变化。normal增0，仍127/166缺39；28相应子组latest1287P4F2B1external仅记录范围，完整接口OPEN。source60/min、crash/pending expiry、inflight撤权、真实外部credentials/持续history均未补；不恢复性能/24h/整链。下一workspace仅独立正式PUT审计503回滚及sameETag对侧恢复，候选25offline未native，不把注册handler旧证据冒正式binary故障。

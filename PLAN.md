@@ -1,4 +1,4 @@
-**CP301最新实际：127/166正常子场景、剩39；27对应组1258P4F2B1external，整体OPEN。** 知识源第二审计故障19P/6HTTP与偏好/通知并发27P已实跑，正常不增。下一Pull源级4pending接口功能候选；先接口后整链，性能/24h及暂停域保持暂停。
+**最新执行状态：[CP-301](CHECKPOINT.md#cp-301-current)，2026-10-06 (+08)。** 当前正常真实127/166、剩39，仅正常路径覆盖；Pull来源并发29P原例闭合，原27P1F保留，28对应子组latest1287P4F2B1external含前置/汇总。Workspace审计回滚接口候选准备中。先接口验收、后完整业务链；性能、24h、CI/CD/Workflows/VM和产品前端保持暂停，整体OPEN。
 
 **当前入口：[CP300](CHECKPOINT.md#cp-300-current)，2026-10-05，持续当前接口验收。** 已新增MCP/服务空目录实际37P23HTTP：真实normal124/166，剩42，其中23已有协议来源normal；仅空集合证明，非空能力/完整场景不能计通过。原18组1012P与新空目录37P及mapping27P共1076P（含前置/汇总），原2B1external保留；当前无active，真实GitLab mapping已27P10HTTP，小模型接口仅准备。先接口，再完整业务链；performance/24h及原生CI-CD/Workflows/VM/产品web保持暂停，不重建自动化。
 

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-05T15:41:19.908205+00:00",
+  "updated_at": "2026-10-05T16:04:43.904096+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -5841,6 +5841,63 @@
             "scope": "仅列出的接口子场景；不计为父包或全部接口验收。",
             "review_record_id": "ed2cc630-737f-4ea9-80ef-0113a55add6d"
           }
+        },
+        {
+          "id": "knowledge-probe-result-audit",
+          "title": "知识源探测第二结果审计故障与恢复",
+          "command": "python3 tools/testlab/testlab.py run --suite formal-api-knowledge-probe-result-audit --manifest <fresh-root-admitted-singlemanifest>",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "POST /api/v1/knowledge-sources/test"
+          ],
+          "required_cases": [
+            {
+              "suite": "formal-api-knowledge-probe-result-audit",
+              "name": "knowledge_probe.http_input"
+            },
+            {
+              "suite": "formal-api-knowledge-probe-result-audit",
+              "name": "knowledge_probe.result_audit_failure"
+            },
+            {
+              "suite": "formal-api-knowledge-probe-result-audit",
+              "name": "knowledge_probe.attempt_preserved"
+            },
+            {
+              "suite": "formal-api-knowledge-probe-result-audit",
+              "name": "knowledge_probe.fault_removed"
+            },
+            {
+              "suite": "formal-api-knowledge-probe-result-audit",
+              "name": "knowledge_probe.recovery"
+            },
+            {
+              "suite": "formal-api-knowledge-probe-result-audit",
+              "name": "knowledge_probe.no_persistence"
+            },
+            {
+              "suite": "formal-api-knowledge-probe-result-audit",
+              "name": "knowledge_probe.cleanup"
+            },
+            {
+              "suite": "formal-api-knowledge-probe-result-audit",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "formal-api-knowledge-probe-result-audit",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "19P/6正式HTTP，自有upload真实Probe第二success审计故障503保留exact1attempted及全部非audit业务摘要/完整audit prefix；移除故障后同payload另一API显式200新增attempted+success，非幂等去重。仅本地owner reader/合成身份/精确UUID cleanup，不外部sync/index、首attempt故障/慢读撤权或整链；normal增0。摘要在运行时核对，未另存全raw快照。",
+          "current_original_evidence": {
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "run_id": "ceaacd29-d79e-4d02-aa77-7d048210ed3e",
+            "proof_evidence_ids": [
+              "09a23b78-4afc-42f5-9981-fce3599f8f91"
+            ],
+            "scope": "仅此第二笔审计故障子场景，不计全部接口/父包完成。"
+          }
         }
       ]
     },
@@ -6919,10 +6976,10 @@
       "execution_queue": 0,
       "local_queue": 19,
       "protocol_mock_normal": 32,
-      "current_groups_passed_cases": 1239,
+      "current_groups_passed_cases": 1258,
       "current_groups_blocked_cases": 2,
       "current_groups_external_todo_cases": 1,
-      "scope": "26当前相关子组latest1239P4F2B1external含共同前置/父汇总，不是独立断言数量；127/166仅normal（20协议待real+19两者均缺），生成首502保留，整包/接口phase与whole OPEN。",
+      "scope": "27当前相关子组latest1258P4F2B1external含共同前置/父汇总，不是独立断言数量；127/166仅normal（20协议待real+19两者均缺），生成首502保留，整包/接口phase与whole OPEN。",
       "remaining_real_normal": 39,
       "current_groups_failed_cases": 4
     },
@@ -6952,7 +7009,7 @@
       "metrics_real_run_id": "d6aa7bf3-6d58-410c-901c-7e88036546e5",
       "metrics_real_proof_evidence_id": "1d4a0243-c757-4967-8a61-39daf93c2159",
       "remaining_protocol_source_audit": ".local/testlab/cp300-remaining-real-source-audit/8e7bfb63-5bff-4f06-90b9-7b9e991e7c0b/report.md",
-      "next": "继续核现有接口权限/边界/故障场景与精确门控；normal0队列不是接口验收完成，不进入整链/perf/soak。",
+      "next": "继续Pull source-wide4pending实际功能候选，按root审查/fresh隔离准入运行；不整链/perf/soak。",
       "real_normal_count_after_service_discovery": 126,
       "service_discovery_run_id": "f7ea6811-809f-4488-a9dc-592c8597ce75",
       "service_discovery_proof_evidence_id": "7f6ad9f1-c877-4b26-867a-34997f2f4622",
@@ -6962,7 +7019,9 @@
       "preview_run_id": "e8dbfa94-b363-4e30-8cde-53130df96354",
       "preview_proof_evidence_id": "aa07b659-eb8d-40f1-a1be-6450286a7561",
       "settings_concurrency_run_id": "3c34a25f-5a64-432d-a240-f533750d7953",
-      "settings_concurrency_proof_evidence_id": "44b140c5-dc14-411a-8fda-dc36917f4cf5"
+      "settings_concurrency_proof_evidence_id": "44b140c5-dc14-411a-8fda-dc36917f4cf5",
+      "knowledge_probe_second_audit_run_id": "ceaacd29-d79e-4d02-aa77-7d048210ed3e",
+      "knowledge_probe_second_audit_proof_evidence_id": "09a23b78-4afc-42f5-9981-fce3599f8f91"
     },
     "remaining_normal_context": {
       "status": "bounded_source_review_not_execution",
@@ -7645,6 +7704,31 @@
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
       "proof_evidence_id": "44b140c5-dc14-411a-8fda-dc36917f4cf5",
       "scope": "27P/16正式HTTP，existing-row同一合成用户双API各一次偏好theme/density与通知quiet/digest并发partial update；客户端调用区间实际重叠6.652/6.086584ms，任一合法序列、完整行及peer不变、各audit+2、通知双API读回、UUID cleanup。非SQL overlap/所有交错/insert path/组织身份/送达/整链/性能；normal增0。"
+    },
+    {
+      "id": "knowledge-probe-result-audit",
+      "suite_id": "formal-api-knowledge-probe-result-audit",
+      "targets": [
+        [
+          "POST",
+          "/knowledge-sources/test"
+        ]
+      ],
+      "required_cases": [
+        "knowledge_probe.http_input",
+        "knowledge_probe.result_audit_failure",
+        "knowledge_probe.attempt_preserved",
+        "knowledge_probe.fault_removed",
+        "knowledge_probe.recovery",
+        "knowledge_probe.no_persistence",
+        "knowledge_probe.cleanup",
+        "readonly.cleanup",
+        "readonly.complete"
+      ],
+      "latest_run_id": "ceaacd29-d79e-4d02-aa77-7d048210ed3e",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "proof_evidence_id": "09a23b78-4afc-42f5-9981-fce3599f8f91",
+      "scope": "19P/6正式HTTP，自有upload真实Probe第二success审计故障503保留exact1attempted及全部非audit业务摘要/完整audit prefix；移除故障后同payload另一API显式200新增attempted+success，非幂等去重。仅本地owner reader/合成身份/精确UUID cleanup，不外部sync/index、首attempt故障/慢读撤权或整链；normal增0。摘要在运行时核对，未另存全raw快照。"
     }
   ]
 }

@@ -108,3 +108,12 @@ CP300真实GitLab `mapping-real-source` 原运行 `3307b8de-f802-4852-875d-fb2a1
 注册JSON证据 `44b140c5-dc14-411a-8fda-dc36917f4cf5` 已真实HTTP下载核run及MIME；私有raw含两pair-wire时间/请求响应SHA与原result/cleanup，UUID DB/role/持有Popen/API端口和线程精确清理通过。证明是客户端请求区间重叠，不能声称服务器SQL事务一定重叠或覆盖全部交错；insert path、动态订阅、真实身份/外部送达未验。普通偏好没有独立GET，使用持久行及合法响应，未造GET/me授权前置。normal增0，当前127/166、剩39，完整接口阶段OPEN。
 
 剩余抑制preview已单路由只读核实：空alert合法，但成功必须可信完整168小时来源，没有部分/短窗降级200；现owned AM只能证明当前配置。原协议Mock历史不关闭真实历史项。后续继续当前能力的接口场景；不新增historyproducer、恢复整链或性能/24h。
+
+
+## CP301：知识源第二笔结果审计失败
+
+原运行 `ceaacd29-d79e-4d02-aa77-7d048210ed3e`，UTC16:00:27.879284Z→16:00:53.747945Z，19P/6HTTP/CLI0、source93f始末/Darwin6d/runtime338。25offline与独审后实际fresh准入独立UUID DB/role及18820–21；owner上传真实读取、仅第二success审计精确故障503、第一attempted独立提交保留，业务全摘要及audit前缀不变；原fault撤除后同payload另一API200与attempted+success各一次。正常不增、无自动retry，恢复4秒折入单40cleanup/grace45，精确清理P。
+
+JSON证据 `09a23b78-4afc-42f5-9981-fce3599f8f91` 已实际HTTP200/MIME/run核实及HTML/JSON/MD导出。全业务摘要/完整auditprefix在冻结运行内核对，未另存raw快照；不独立重算已清理DB或冒外部reader/sync/index、首attempt故障、慢读撤权/整链。当前正常127/166缺39、完整接口仍OPEN。
+
+旧settings准入的unused container_platform误写Linux，原件保留；实际file为Mach-O arm64、同SHA6d/nativePopen，附注 `b50101f3-6436-4e03-bd97-40d52c58adf2`，此组未新增产品修复。新知识组准入正确Darwin平台。当前Pull上限独立候选准备，不恢复性能/24h/整链。

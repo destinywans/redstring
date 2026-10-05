@@ -1,4 +1,15 @@
-**最新记录入口：[CP-300](#cp-300-current)，2026-10-05，持续当前接口验收，整体 OPEN。** 真实正常127/166、剩39；偏好/通知双实例并发27P/16HTTP已核，当前26子组1239P4F2B1external（含前置/汇总）。生成首502保留；先接口后整链，performance/24h及暂停域保持暂停。
+**最新记录入口：[CP-301](#cp-301-current)，2026-10-06 (+08)，接口验收持续推进，整体 OPEN。** 真实正常127/166、剩39；偏好/通知并发27P及知识源第二审计故障19P已实跑，生成首502保留。Pull并发上限候选准备中；先接口后整链，性能/24h及暂停域保持暂停。
+
+
+<a id="cp-301-current"></a>
+## CP-301 · 2026-10-06 (+08) · 接口故障与并发场景继续实跑
+
+- 用户要求持续当前接口阶段。CP300将正常真实证据由原120/166推进至127/166、缺39；二十协议待真实与十九尚无两类正常区分，正常样本不是完整验收。设置双实例原组27P/16HTTP已交付 `bb782771aa02b9fee635ded6ea4f842b0f46d235`、push/exactlsremote与五Linear保存、138/51 fresh回读。此前当前46→39正常缺口与所有首次失败/外部/producer/暂停项保持。
+- **知识源第二结果审计故障** 原 `ceaacd29-d79e-4d02-aa77-7d048210ed3e`，UTC 2026-10-05T16:00:27.879284Z→16:00:53.747945Z（本地10-06），实际19P0F0skip/CLI0、Go93f始末同/Darwin6d/runtime338。25offline反例+AST/inventory与独审后，root16:00:10 fresh nonce/HMAC/UID/argv/lstart/cwd/PG-CID4CPU2GiB/18820–21/无active及native2core1GiB headroom准入；不保证CPU预留。新UUID `710a54a1-d116-4287-9370-10fe1401c5f7` 原formal 6HTTP：owner上传→精确actor/app/action/upload/success/env/team审计trigger拒第二笔→503audit_unavailable，exact1attempted保留、全部public非audit表摘要/完整audit prefix不变；移除trigger/function后同payload另一API200再加attempted+success。不是全audit rollback或幂等去重，未向外部读/发模型或通知；旧注册审计故障不是此第二笔证据。UUID DB/role/Popen/端口精确清理与同40秒恢复/cleanup期限P（restore最多其中4秒，grace45）。
+- 已登记proof `09a23b78-4afc-42f5-9981-fce3599f8f91`，实际HTTP200/application-json/run19P核实及三报告导出；原9marker全部P。原业务全摘要/完整审计prefix只在冻结运行内核对，没有另存完整快照，不声称能从已清理DB独立离线重算。外部reader/sync/index、首attempt审计失败、慢读撤权/crash、完整链/性能仍未验。本次只补现有接口故障，normal增0；27对应子组1258P4F2B1external含前置/父汇总，整体OPEN。
+- **平台字段纠正**：旧settings root-admission unused container_platform字段误继承linux/arm64；实际调用明确Darwin非race6d/Mach-O、Popen两实例。原准入不改，附注 `b50101f3-6436-4e03-bd97-40d52c58adf2` 与file/SHA核实，native断言/结果不变；新的知识probe准入使用binary_platform=darwin/arm64 Mach-O。此为工具元数据纠正，不是产品缺陷。旧127整体三格式下载proof `cd504851-2347-43a8-a30d-bced557ba2cd` 保留；新组稍后新快照，不覆盖当时报告。
+- **下一独立接口候选**：Pull真实Prom/read relay、同source双API四actual pending、第五429无新attempt/audit/sourceIO、释放完成及第六恢复200，只有六Pull请求，不性能。独立18824–28/UUID DBrole/Prom及Popen、provider原5秒/单40cleanup45grace不改。worker仍prepared未实际准入；不把客户端发起数冒actualpending或通过。Agent现consumer原Prompt version201/403/422/503原source93f可复用，新的opaque GitLab blob不被importer fetch/attest，不能改权威producer或real分类，held候选不运行。
+
 
 <a id="cp-300-current"></a>
 ## CP-300 · 2026-10-05 · 重新逐接口查可执行路径并实际补证

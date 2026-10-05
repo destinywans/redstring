@@ -3769,8 +3769,133 @@
             ],
             "scope": "仅此workspace审计故障恢复子场景，不计父包/whole完成。"
           }
+        },
+        {
+          "id": "alert-claim-webhook-authority-audit",
+          "title": "正式Webhook告警详情及认领权限、审计回滚与恢复",
+          "command": "python3 tools/testlab/testlab.py run --suite formal-api-alert-claim-interfaces --manifest <fresh-root-admitted-singlemanifest>",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "GET /api/v1/alerts/{id}",
+            "POST /api/v1/alerts/{id}/claim"
+          ],
+          "required_cases": [
+            {
+              "suite": "formal-api-alert-claim-interfaces",
+              "name": "alert_claim.http_ingress"
+            },
+            {
+              "suite": "formal-api-alert-claim-interfaces",
+              "name": "alert_claim.detail"
+            },
+            {
+              "suite": "formal-api-alert-claim-interfaces",
+              "name": "alert_claim.authorization"
+            },
+            {
+              "suite": "formal-api-alert-claim-interfaces",
+              "name": "alert_claim.revision_boundaries"
+            },
+            {
+              "suite": "formal-api-alert-claim-interfaces",
+              "name": "alert_claim.claim"
+            },
+            {
+              "suite": "formal-api-alert-claim-interfaces",
+              "name": "alert_claim.current_revision_retry"
+            },
+            {
+              "suite": "formal-api-alert-claim-interfaces",
+              "name": "alert_claim.stale_and_assigned"
+            },
+            {
+              "suite": "formal-api-alert-claim-interfaces",
+              "name": "alert_claim.audit_rollback"
+            },
+            {
+              "suite": "formal-api-alert-claim-interfaces",
+              "name": "alert_claim.fault_removed"
+            },
+            {
+              "suite": "formal-api-alert-claim-interfaces",
+              "name": "alert_claim.audit_recovery"
+            },
+            {
+              "suite": "formal-api-alert-claim-interfaces",
+              "name": "alert_claim.current_authority"
+            },
+            {
+              "suite": "formal-api-alert-claim-interfaces",
+              "name": "alert_claim.session_revocation"
+            },
+            {
+              "suite": "formal-api-alert-claim-interfaces",
+              "name": "alert_claim.ledger"
+            },
+            {
+              "suite": "formal-api-alert-claim-interfaces",
+              "name": "alert_claim.cleanup"
+            },
+            {
+              "suite": "formal-api-alert-claim-interfaces",
+              "name": "management.cleanup"
+            },
+            {
+              "suite": "formal-api-alert-claim-interfaces",
+              "name": "management.complete"
+            },
+            {
+              "suite": "formal-api-alert-claim-interfaces",
+              "name": "alert_claim.api_ready.setup.0"
+            },
+            {
+              "suite": "formal-api-alert-claim-interfaces",
+              "name": "alert_claim.api_ready.setup.1"
+            },
+            {
+              "suite": "formal-api-alert-claim-interfaces",
+              "name": "alert_claim.api_ready.source.0"
+            },
+            {
+              "suite": "formal-api-alert-claim-interfaces",
+              "name": "alert_claim.api_ready.source.1"
+            }
+          ],
+          "proof_scope": "72P/50正式HTTP；HTTPservices与认证Webhook产生三告警，独立view/change、xmin当前重试/旧412/其他认领409、精确alert.claim succeeded审计503events_unavailable整账回滚，samebody旧revision对侧200/exact一audit；真实logout旧cookie两API401。完整ops rows+xmin/audit与其他public摘要、原wire保存0600，UUIDDBrole/两代4heldPopen/18840–41清理P。normal0；不自然expiry/等待竞态/真实组织/通知/整链。首300秒编排中断65P1F保留，新UUID仅外层420/API12/40cleanup含≤4restore/45grace原值。",
+          "current_original_evidence": {
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "run_id": "a58a5a6c-d921-4d4a-b24c-3408294e8a88",
+            "proof_evidence_ids": [
+              "43102f57-8af4-4c63-a6f7-129b38b82185"
+            ],
+            "scope": "仅此告警来源、权限与审计回滚子组，不计父包/whole完成。"
+          },
+          "first_original_evidence": {
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "run_id": "341c773a-c1b3-48c0-b67c-b6d2792515c0",
+            "proof_evidence_ids": [
+              "0ca78b1d-c727-4e58-9ac2-2a9b3f56e73b"
+            ],
+            "scope": "首轮外层预算300秒超时，五必需marker缺失；原case/run failed保留。"
+          }
         }
-      ]
+      ],
+      "readonly_scenario_audit": {
+        "kind": "native-core-current-binary-scenario-mapping",
+        "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+        "record_id": "14222db2-8910-4b84-9822-d4ba4970459a",
+        "evidence_ids": [
+          "d98adbbf-affe-42f3-a0a1-494909b33547",
+          "ef05131f-6c16-4515-aa3c-f66a2484044f"
+        ],
+        "route_count": 44,
+        "normal_routes_with_individual_binary_pass": 44,
+        "normal_added": 0,
+        "whole_parent_pass": false,
+        "scope": "只读核原件：blocked run内P的正式binary HTTP个别case可证明该case；Go JSON解析不是handler层，原整run仍blocked。下一只补Webhook来源/独立view+change/claim审计回滚，原CAS及Runbook个别P复用。"
+      }
     },
     {
       "id": "native-content",
@@ -3938,7 +4063,19 @@
             "review_record_id": "a689f9d2-96cf-4ed5-aaca-9e05afda88fa"
           }
         }
-      ]
+      ],
+      "readonly_scenario_audit": {
+        "kind": "native-content-current-binary-scenario-mapping",
+        "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+        "record_id": "74796377-67c8-4605-87f4-f57d12a25d48",
+        "evidence_ids": [
+          "69c3f8c9-dd14-463a-b957-c576791eef76",
+          "e78131d4-10c5-4bf3-ba48-5896879efd0f"
+        ],
+        "normal_added": 0,
+        "whole_parent_pass": false,
+        "scope": "复用上传/私模板/时间线现有binary原件；唯一候选POST canvases ai_draft=false(plan/investigation)创建审计503整账回滚和明确恢复，prepared未实际证明investigation分支，不恢复整链/模型/producer。"
+      }
     },
     {
       "id": "local-components",
@@ -7055,6 +7192,32 @@
         }
       ],
       "proof_scope": "metrics旧模式冲突275条排除，不改SQLite；剔除1错误normal并新增1实际rule-normal，净113/166。仅正常子场景；整体未收口。"
+    },
+    {
+      "kind": "native-core-current-binary-scenario-mapping",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "record_id": "14222db2-8910-4b84-9822-d4ba4970459a",
+      "evidence_ids": [
+        "d98adbbf-affe-42f3-a0a1-494909b33547",
+        "ef05131f-6c16-4515-aa3c-f66a2484044f"
+      ],
+      "route_count": 44,
+      "normal_routes_with_individual_binary_pass": 44,
+      "normal_added": 0,
+      "whole_parent_pass": false,
+      "scope": "只读核原件：blocked run内P的正式binary HTTP个别case可证明该case；Go JSON解析不是handler层，原整run仍blocked。下一只补Webhook来源/独立view+change/claim审计回滚，原CAS及Runbook个别P复用。"
+    },
+    {
+      "kind": "native-content-current-binary-scenario-mapping",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "record_id": "74796377-67c8-4605-87f4-f57d12a25d48",
+      "evidence_ids": [
+        "69c3f8c9-dd14-463a-b957-c576791eef76",
+        "e78131d4-10c5-4bf3-ba48-5896879efd0f"
+      ],
+      "normal_added": 0,
+      "whole_parent_pass": false,
+      "scope": "复用上传/私模板/时间线现有binary原件；唯一候选POST canvases ai_draft=false(plan/investigation)创建审计503整账回滚和明确恢复，prepared未实际证明investigation分支，不恢复整链/模型/producer。"
     }
   ],
   "http_source_equivalence_registration_ids": [
@@ -7101,10 +7264,10 @@
       "execution_queue": 0,
       "local_queue": 19,
       "protocol_mock_normal": 32,
-      "current_groups_passed_cases": 1312,
+      "current_groups_passed_cases": 1384,
       "current_groups_blocked_cases": 2,
       "current_groups_external_todo_cases": 1,
-      "scope": "29当前对应子组latest1312P4F2B1external（28组1287+Workspace25），含共同前置/父汇总；首80d27P1F保留不叠加。正常127/166剩39仅normal，接口phase/wholeOPEN。",
+      "scope": "30对应子组latest1384P4F2B1external（原1312+Claim72），含前置/父汇总；first Claim65P1F和其他原首红保留不叠加，normal127/166缺39，接口phase/wholeOPEN。",
       "remaining_real_normal": 39,
       "current_groups_failed_cases": 4,
       "new_interface_scene_runs": [
@@ -7128,6 +7291,20 @@
           "summary": "25P/11HTTP audit503 exactrollback+sameETag otherAPI recovery",
           "normal_added": 0,
           "proof_evidence_id": "3db8b40b-2b69-4809-b9b7-50fcd4b60cdd"
+        },
+        {
+          "id": "341c773a-c1b3-48c0-b67c-b6d2792515c0",
+          "status": "failed",
+          "summary": "65P1F/300秒编排超时，48HTTP预期及cleanup P，缺五mandatory marker；不接受整组",
+          "normal_added": 0,
+          "proof_evidence_id": "0ca78b1d-c727-4e58-9ac2-2a9b3f56e73b"
+        },
+        {
+          "id": "a58a5a6c-d921-4d4a-b24c-3408294e8a88",
+          "status": "passed",
+          "summary": "72P/50HTTP全部原marker通过，新UUID显式仅外层420",
+          "normal_added": 0,
+          "proof_evidence_id": "43102f57-8af4-4c63-a6f7-129b38b82185"
         }
       ]
     },
@@ -7157,7 +7334,7 @@
       "metrics_real_run_id": "d6aa7bf3-6d58-410c-901c-7e88036546e5",
       "metrics_real_proof_evidence_id": "1d4a0243-c757-4967-8a61-39daf93c2159",
       "remaining_protocol_source_audit": ".local/testlab/cp300-remaining-real-source-audit/8e7bfb63-5bff-4f06-90b9-7b9e991e7c0b/report.md",
-      "next": "继续Pull source-wide4pending实际功能候选，按root审查/fresh隔离准入运行；不整链/perf/soak。",
+      "next": "继续现有POST Canvas plan/investigation ai_draftfalse审计回滚子组；并核Trace合法agent partial读取分支，仍先接口，整链/perf/soak暂停。",
       "real_normal_count_after_service_discovery": 126,
       "service_discovery_run_id": "f7ea6811-809f-4488-a9dc-592c8597ce75",
       "service_discovery_proof_evidence_id": "7f6ad9f1-c877-4b26-867a-34997f2f4622",
@@ -7933,6 +8110,48 @@
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
       "proof_evidence_id": "3db8b40b-2b69-4809-b9b7-50fcd4b60cdd",
       "scope": "25P/11正式HTTP，UUID合成workspace、Darwin6d正式双API：先正式GET/PUT确认权限与有效ETag；仅成功审计精确trigger故障503settings_unavailable，完整workspace(row/revision/updated_at)/audit+所有其他public表摘要保持；撤除后同body同ETag对侧200、revision2→3、exact审计+1、两API GET一致无副作用。全合成workspace/audit原snapshot及其他业务摘要/原wire保存0600，单40cleanup含≤4restore/grace45精确DBrole/Popen18832–33清理。normal增0，不组织权威、inflight撤权/旧writer/crash/整链。"
+    },
+    {
+      "id": "alert-claim-webhook-authority-audit",
+      "suite_id": "formal-api-alert-claim-interfaces",
+      "targets": [
+        [
+          "GET",
+          "/alerts/{id}"
+        ],
+        [
+          "POST",
+          "/alerts/{id}/claim"
+        ]
+      ],
+      "required_cases": [
+        "alert_claim.http_ingress",
+        "alert_claim.detail",
+        "alert_claim.authorization",
+        "alert_claim.revision_boundaries",
+        "alert_claim.claim",
+        "alert_claim.current_revision_retry",
+        "alert_claim.stale_and_assigned",
+        "alert_claim.audit_rollback",
+        "alert_claim.fault_removed",
+        "alert_claim.audit_recovery",
+        "alert_claim.current_authority",
+        "alert_claim.session_revocation",
+        "alert_claim.ledger",
+        "alert_claim.cleanup",
+        "management.cleanup",
+        "management.complete",
+        "alert_claim.api_ready.setup.0",
+        "alert_claim.api_ready.setup.1",
+        "alert_claim.api_ready.source.0",
+        "alert_claim.api_ready.source.1"
+      ],
+      "latest_run_id": "a58a5a6c-d921-4d4a-b24c-3408294e8a88",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "proof_evidence_id": "43102f57-8af4-4c63-a6f7-129b38b82185",
+      "first_run_id": "341c773a-c1b3-48c0-b67c-b6d2792515c0",
+      "first_proof_evidence_id": "0ca78b1d-c727-4e58-9ac2-2a9b3f56e73b",
+      "scope": "72P/50正式HTTP；HTTPservices与认证Webhook产生三告警，独立view/change、xmin当前重试/旧412/其他认领409、精确alert.claim succeeded审计503events_unavailable整账回滚，samebody旧revision对侧200/exact一audit；真实logout旧cookie两API401。完整ops rows+xmin/audit与其他public摘要、原wire保存0600，UUIDDBrole/两代4heldPopen/18840–41清理P。normal0；不自然expiry/等待竞态/真实组织/通知/整链。首300秒编排中断65P1F保留，新UUID仅外层420/API12/40cleanup含≤4restore/45grace原值。"
     }
   ]
 }

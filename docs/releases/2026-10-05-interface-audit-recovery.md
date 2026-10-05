@@ -130,3 +130,10 @@ JSON证据 `09a23b78-4afc-42f5-9981-fce3599f8f91` 已实际HTTP200/MIME/run核�
 
 - **Workspace正式接口审计回滚闭合**：`252de9ad-df9e-47a7-bf56-a3d7a09270f8` UTC16:48:40.102109→16:49:17.452097，实际25P0F0skip/CLI0/11HTTP/Go93f始末/Darwin6d/runtime338；25offline/AST/inventory及独审无阻断后root16:48:27 fresh HMAC/tuple/精确PG4CPU2GiB/host26.05GB/无active，UUID8b3dac...与18832–33准入。正式GET/PUT先确认合法admin与ETag，配置baseline revision2；仅success审计原生故障使PUT503settings_unavailable，全部default row/revision/updated_at/完整audit与其他public业务表摘要不变，两端GET保持相同DTO/ETag。owner核验撤除trigger/function后samebody/sameETag另一API200，revision2→3/updated_at推进、完整auditprefix+exact1/v3.workspace.updated，其他表保持；两端新DTO/ETag/cache一致，GET无副作用。完整合成workspace/audit原snapshot、其他所有public表摘要与9workspace wire body/SHA/ETag保存0600（无cookie），结果证明 `3db8b40b-2b69-4809-b9b7-50fcd4b60cdd` 与三报告。单40cleanup含≤4恢复/grace45、ownedDBrole/twoPopen/listeners精确清理P；不用service/registered-handler旧P替正式binary。
 - 本次仅补现有接口故障，未改产品Go/main/cert/runtime/PG canonical APP；normal增0、127/166缺39不变。29对应子组latest1312P4F2B1external含setup/父汇总，不是独立断言数量或整体通过。原80d和生成7e2首红、其他79skip/缺producer、外部/暂停域保持。下一仅只读native-core逐method适用场景证据核对，不重复原通过组、不拼子组为父绿；inflight撤权/旧writer/crash/组织authority、整链/性能仍未验。
+
+
+## CP301 告警详情/认领正式来源、权限与审计回滚
+
+正式现有接口子组72P/50HTTP；源93f/Darwin6d/runtime338，UUID隔离DB/role与18840–41两代4ownedPopen。服务HTTP→认证Webhook三告警，独立view/change、xmin CAS和整账审计503回滚→旧revision对侧恢复、logout跨实例失效及精确清理。proof43102f57-8af4-4c63-a6f7-129b38b82185/run a58a5a6c-d921-4d4a-b24c-3408294e8a88，三格式报告。
+
+首341c65P1F/command300秒外层timeout，48HTTP原断言P、UUID清理P，但五marker缺失所以保failed，proof0ca78b1d-c727-4e58-9ac2-2a9b3f56e73b与原command/报告。仅新UUID外层420秒；API12/权限/断言/40cleanup含4恢复/45grace不变，不自动retry或修改首红。normal增0，不证明自然expiry/锁等待/真实组织/通知/整链；产品Go/main/cert/canonicalAPP均未改变。

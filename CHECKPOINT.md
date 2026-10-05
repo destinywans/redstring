@@ -1,4 +1,4 @@
-**最新记录入口：[CP-301](#cp-301-current)，2026-10-06 (+08)，接口验收持续推进，整体 OPEN。** 当前真实正常127/166、剩39；Pull来源并发29P及Workspace审计回滚25P已实跑，首次失败保留。下一核核心接口适用场景，先接口后整链；性能/24h及暂停域保持暂停。
+**最新记录入口：[CP-301](#cp-301-current)，2026-10-06 (+08)，接口验收持续推进，整体 OPEN。** 当前真实正常127/166、剩39；Pull29P/Workspace25P/Claim72P已实跑，首次失败保留。继续现有接口适用场景，先接口后整链；性能/24h及暂停域保持暂停。
 
 
 <a id="cp-301-current"></a>
@@ -19,6 +19,12 @@
 - **Workspace正式接口审计回滚闭合**：`252de9ad-df9e-47a7-bf56-a3d7a09270f8` UTC16:48:40.102109→16:49:17.452097，实际25P0F0skip/CLI0/11HTTP/Go93f始末/Darwin6d/runtime338；25offline/AST/inventory及独审无阻断后root16:48:27 fresh HMAC/tuple/精确PG4CPU2GiB/host26.05GB/无active，UUID8b3dac...与18832–33准入。正式GET/PUT先确认合法admin与ETag，配置baseline revision2；仅success审计原生故障使PUT503settings_unavailable，全部default row/revision/updated_at/完整audit与其他public业务表摘要不变，两端GET保持相同DTO/ETag。owner核验撤除trigger/function后samebody/sameETag另一API200，revision2→3/updated_at推进、完整auditprefix+exact1/v3.workspace.updated，其他表保持；两端新DTO/ETag/cache一致，GET无副作用。完整合成workspace/audit原snapshot、其他所有public表摘要与9workspace wire body/SHA/ETag保存0600（无cookie），结果证明 `3db8b40b-2b69-4809-b9b7-50fcd4b60cdd` 与三报告。单40cleanup含≤4恢复/grace45、ownedDBrole/twoPopen/listeners精确清理P；不用service/registered-handler旧P替正式binary。
 - 本次仅补现有接口故障，未改产品Go/main/cert/runtime/PG canonical APP；normal增0、127/166缺39不变。29对应子组latest1312P4F2B1external含setup/父汇总，不是独立断言数量或整体通过。原80d和生成7e2首红、其他79skip/缺producer、外部/暂停域保持。下一仅只读native-core逐method适用场景证据核对，不重复原通过组、不拼子组为父绿；inflight撤权/旧writer/crash/组织authority、整链/性能仍未验。
 
+
+- **native-core逐场景只读核对**：44/44有当前93f正式binary正常个别case。旧whole-run=passed筛选遗漏4d blocked内已P的formal HTTP，追踪fixture真实http.Client与backend实际Popen后纠正，原错误索引与selection-correction留存；原整run仍blocked且不新增normal。完整44×五类映射已登记JSON `d98adbbf-affe-42f3-a0a1-494909b33547`/MD `ef05131f-6c16-4515-aa3c-f66a2484044f`，actualHTTP下载200核实；只读分析不是native执行或父包通过。唯一优先补项为单告警detail/claim的正式Webhook业务来源、独立view+change、精确审计503回滚/恢复；CAS和Runbook原个别P不重复冒新增。Claim两独立18840–41/UUID候选仍准备未实际准入，性能/整链不恢复。首次root登记读取Store.detail键名错误在写前即止，按现有顶层environment纠正，无run/case原件变化。
+
+- **告警来源/独立权限/认领审计子组**：first `341c773a-c1b3-48c0-b67c-b6d2792515c0` UTC17:24:50.644606→17:29:57.180289，65P1F/CLI2，原command timeout=True/exit2，48HTTP原预期P；缺session_revocation/ledger及三个cleanup/complete必需marker，不算整组P。private真实cleanup DBrole/4ownPopen absent、审计回滚/恢复已P，原proof `0ca78b1d-c727-4e58-9ac2-2a9b3f56e73b`/command `e30c790a-44cb-457a-b677-6f7fe2c9b547`/三报告保留。根因为外层300秒编排预算不足，不是观测到API拒绝或事务缺陷；显式newUUID90a8...只外层420秒，原API12、断言/权限、40cleanup含≤4恢复、45grace保持，无自动retry/原件回填。
+- retest `a58a5a6c-d921-4d4a-b24c-3408294e8a88` UTC17:34:23.367669→17:39:45.612171，72P0F0skip/CLI0/50HTTP/Go93f始末/Darwin6d/runtime338。34offline/AST/inventory/独审后17:34:10 fresh HMAC/UID/argv/lstart/cwd/PG4CPU2GiB/无active/host26.125GB准入；两正式HTTP服务→认证Webhook202三告警，独立view/change与跨env拒绝、原CAS412/当前200/他人409回归；精确alert.claim succeeded审计503events_unavailable保持全部ops rows+xmin/assignee/updated_at/audit及其他全部public表摘要，去fault同旧revision对侧200/exact1audit。正式logout后旧cookie两API401、另一actor仍200，最终2claims/2audits/隐藏第三告警无变。完整合成raw ledgers/50HTTP摘要及42原wire保存0600；两代4heldPopen/UUIDDBrole/18840–41清理P，证据 `43102f57-8af4-4c63-a6f7-129b38b82185` 真实HTTP下载200与三报告。正常增0，不真实org/自然expiry/inflight锁等待/通知/全状态组合/整链。工具首33tests32P1F为mock seed(self)断言错，原前像与stdout保留；新34P不改产品。
+- 30对应子组latest1384P4F2B1external（含前置/汇总），normal127/166缺39及原生成7e2四红/79skip/producer/外部/暂停项保持。native-content只读19路由报告JSON `69c3f8c9-dd14-463a-b957-c576791eef76`/MD `e78131d4-10c5-4bf3-ba48-5896879efd0f`已登记，唯一新候选为plan/investigation ai_draftfalse创建audit回滚，正常样本不是接口phase/父包通过；后续独立交付不混本次Claim要求。
 
 <a id="cp-300-current"></a>
 ## CP-300 · 2026-10-05 · 重新逐接口查可执行路径并实际补证

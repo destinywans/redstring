@@ -1577,6 +1577,46 @@
           "cleanup_grace_seconds": 45
         }
       ]
+    },
+    {
+      "id": "user-settings-audit",
+      "name": "普通偏好及通知设置HTTP审计回滚恢复",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "verification_scope": "普通偏好PATCH与通知PUT两独立audit503保持全settings/timestamps/audit、跨API原partial payload恢复和重复各audit+1/未提交列不变；通知双API GET零写。无假GET prefs/外部送达/整链。 fresh root身份/无active/资源准入；300s/45grace/40cleanup+4restore。",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "-B",
+            "tools/testlab/api_user_settings_audit_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 300,
+          "cleanup_grace_seconds": 45
+        }
+      ]
+    },
+    {
+      "id": "audit-csv-interfaces",
+      "name": "审计CSV正式下载权限与读副作用",
+      "type": "integration",
+      "evidence_mode": "real_local",
+      "verification_scope": "CSV download anonymous401/owner200/headerless200/peer404/wrongenv403/currentrevoke403恢复、完整七列含time/敏感及hidden环境排除、全audit/exports读台账不变；service两审计+export一次为正式最小前置，不Runbook链/大分页/expiry/formula全覆盖。 root fresh无active/identity/capacity，300s/45grace/40cleanup+4restore。",
+      "commands": [
+        {
+          "argv": [
+            "python3",
+            "-B",
+            "tools/testlab/api_audit_csv_coverage.py",
+            "--live"
+          ],
+          "parser": "testlab_json",
+          "timeout_seconds": 300,
+          "cleanup_grace_seconds": 45
+        }
+      ]
     }
   ]
 }

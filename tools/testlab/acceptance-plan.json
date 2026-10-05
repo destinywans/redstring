@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-05T12:03:20.671112+00:00",
+  "updated_at": "2026-10-05T12:21:03.243201+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -3497,6 +3497,148 @@
             }
           ],
           "proof_scope": "正式PUT AI偏好独立审计503整settings/timestamp/audit回滚、恢复跨API读回、重复同payload状态幂等但每成功PUT审计+1；仅本地广告目录，无模型推理/探测，非完整接口或业务链。"
+        },
+        {
+          "id": "user-settings-audit",
+          "title": "普通偏好及通知设置HTTP审计回滚恢复",
+          "command": "python3 tools/testlab/testlab.py run --suite user-settings-audit",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "PATCH /api/v1/me/preferences",
+            "PUT /api/v1/me/notification-settings"
+          ],
+          "required_cases": [
+            {
+              "suite": "user-settings-audit",
+              "name": "user_settings_audit.preferences.rollback"
+            },
+            {
+              "suite": "user-settings-audit",
+              "name": "user_settings_audit.preferences.fault_removed"
+            },
+            {
+              "suite": "user-settings-audit",
+              "name": "user_settings_audit.preferences.recovery"
+            },
+            {
+              "suite": "user-settings-audit",
+              "name": "user_settings_audit.preferences.repeat_state"
+            },
+            {
+              "suite": "user-settings-audit",
+              "name": "user_settings_audit.preferences.consistency"
+            },
+            {
+              "suite": "user-settings-audit",
+              "name": "user_settings_audit.notifications.rollback"
+            },
+            {
+              "suite": "user-settings-audit",
+              "name": "user_settings_audit.notifications.fault_removed"
+            },
+            {
+              "suite": "user-settings-audit",
+              "name": "user_settings_audit.notifications.recovery"
+            },
+            {
+              "suite": "user-settings-audit",
+              "name": "user_settings_audit.notifications.repeat_state"
+            },
+            {
+              "suite": "user-settings-audit",
+              "name": "user_settings_audit.notifications.consistency"
+            },
+            {
+              "suite": "user-settings-audit",
+              "name": "user_settings_audit.http_baseline"
+            },
+            {
+              "suite": "user-settings-audit",
+              "name": "user_settings_audit.authorization"
+            },
+            {
+              "suite": "user-settings-audit",
+              "name": "user_settings_audit.cleanup"
+            },
+            {
+              "suite": "user-settings-audit",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "user-settings-audit",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "普通偏好PATCH与通知PUT两独立audit503保持全settings/timestamps/audit、跨API原partial payload恢复和重复各audit+1/未提交列不变；通知双API GET零写。无假GET prefs/外部送达/整链。"
+        },
+        {
+          "id": "audit-csv-interfaces",
+          "title": "审计CSV正式下载权限与读副作用",
+          "command": "python3 tools/testlab/testlab.py run --suite audit-csv-interfaces",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "GET /api/v1/audit",
+            "GET /api/v1/audit/{id}",
+            "POST /api/v1/audit/export"
+          ],
+          "auxiliary_route_keys": [
+            "GET /api/v1/audit/exports/{id}"
+          ],
+          "required_cases": [
+            {
+              "suite": "audit-csv-interfaces",
+              "name": "audit_csv.native_inputs"
+            },
+            {
+              "suite": "audit-csv-interfaces",
+              "name": "audit_csv.native_export"
+            },
+            {
+              "suite": "audit-csv-interfaces",
+              "name": "audit_csv.owner_csv"
+            },
+            {
+              "suite": "audit-csv-interfaces",
+              "name": "audit_csv.headerless_csv"
+            },
+            {
+              "suite": "audit-csv-interfaces",
+              "name": "audit_csv.anonymous"
+            },
+            {
+              "suite": "audit-csv-interfaces",
+              "name": "audit_csv.other_owner"
+            },
+            {
+              "suite": "audit-csv-interfaces",
+              "name": "audit_csv.wrong_environment"
+            },
+            {
+              "suite": "audit-csv-interfaces",
+              "name": "audit_csv.revoked"
+            },
+            {
+              "suite": "audit-csv-interfaces",
+              "name": "audit_csv.restored"
+            },
+            {
+              "suite": "audit-csv-interfaces",
+              "name": "audit_csv.read_ledger"
+            },
+            {
+              "suite": "audit-csv-interfaces",
+              "name": "audit_csv.cleanup"
+            },
+            {
+              "suite": "audit-csv-interfaces",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "audit-csv-interfaces",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "CSV download anonymous401/owner200/headerless200/peer404/wrongenv403/currentrevoke403恢复、完整七列含time/敏感及hidden环境排除、全audit/exports读台账不变；service两审计+export一次为正式最小前置，不Runbook链/大分页/expiry/formula全覆盖。"
         }
       ]
     },
@@ -6149,7 +6291,8 @@
   "regression_review_note_record_ids": [
     "2daaccdb-96fb-4214-96f8-a8815c79be77",
     "5105d522-8345-462b-84cf-d264c1e4e974",
-    "7974f802-7051-4ee4-a133-89255ba1c216"
+    "7974f802-7051-4ee4-a133-89255ba1c216",
+    "c10b9fc1-5cf8-466c-9873-bbe5d9705cc6"
   ],
   "business_chain_constraints": [
     {
@@ -6186,10 +6329,10 @@
       "execution_queue": 0,
       "local_queue": 24,
       "protocol_mock_normal": 32,
-      "current_groups_passed_cases": 939,
+      "current_groups_passed_cases": 1012,
       "current_groups_blocked_cases": 2,
       "current_groups_external_todo_cases": 1,
-      "scope": "十六个当前接口子组各自最新910+AI29；含前置/HTTP子步骤/父汇总，非939独立业务断言。normalqueue0和六审计故障子包P不代表全接口；两blocked及1external保留，父包/整体OPEN。"
+      "scope": "十八个当前接口子组各自最新980+CSV32；含前置/HTTP子步骤/父汇总，非1012独立断言。八接口focused子组只相应scope，normal120/166、两blocked/1external及parent整体OPEN不洗绿。"
     },
     "scenario_evidence_layer_review": {
       "record_id": "7974f802-7051-4ee4-a133-89255ba1c216",
@@ -6199,6 +6342,24 @@
       ],
       "counts_as_whole_acceptance": false,
       "note": "直接servicePG、registered handler和formal binary各自标记；原289 blocked79skip及canvas missing producer不洗绿。CSV owner已另发现当前Discovery原件，匿名/读副作用补测与普通偏好/通知binary审计503候选推进。"
+    },
+    "bounded_remaining_review": {
+      "status": "reviewed_with_contract_external_producer_blockers",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "record_id": "c10b9fc1-5cf8-466c-9873-bbe5d9705cc6",
+      "evidence_ids": [
+        "787cca7f-567f-4f3b-afa4-61477211205a"
+      ],
+      "scope": "native-core/native-content相关有界审查，非166全接口穷尽判定",
+      "new_required_local_tasks_confirmed": [],
+      "completed_assigned_csv_run_id": "d76f75c3-f3ee-4b9e-bfa6-86f09d2da626",
+      "counts_as_whole_acceptance": false,
+      "remaining": [
+        "Trace全集需要版本/来源完整性契约",
+        "聚合分页/容量及7日历史需要读取契约或权威producer",
+        "官方模板/Memory/EvalCase/AgentRun等正式producer；外部资源或用户暂停"
+      ],
+      "no_automatic_next_phase": true
     }
   },
   "interface_subpackages": [
@@ -6526,6 +6687,83 @@
       "latest_run_id": "c3be014b-cf94-46d0-b4f1-d6e02b8409f0",
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
       "scope": "正式PUT AI偏好独立审计503整settings/timestamp/audit回滚、恢复跨API读回、重复同payload状态幂等但每成功PUT审计+1；仅本地广告目录，无模型推理/探测，非完整接口或业务链。"
+    },
+    {
+      "id": "user-settings-audit",
+      "suite_id": "user-settings-audit",
+      "targets": [
+        [
+          "PATCH",
+          "/me/preferences"
+        ],
+        [
+          "PUT",
+          "/me/notification-settings"
+        ]
+      ],
+      "required_cases": [
+        "user_settings_audit.preferences.rollback",
+        "user_settings_audit.preferences.fault_removed",
+        "user_settings_audit.preferences.recovery",
+        "user_settings_audit.preferences.repeat_state",
+        "user_settings_audit.preferences.consistency",
+        "user_settings_audit.notifications.rollback",
+        "user_settings_audit.notifications.fault_removed",
+        "user_settings_audit.notifications.recovery",
+        "user_settings_audit.notifications.repeat_state",
+        "user_settings_audit.notifications.consistency",
+        "user_settings_audit.http_baseline",
+        "user_settings_audit.authorization",
+        "user_settings_audit.cleanup",
+        "readonly.cleanup",
+        "readonly.complete"
+      ],
+      "latest_run_id": "c5f8def4-11f2-40b5-8ed0-31f71040fb31",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "scope": "普通偏好PATCH与通知PUT两独立audit503保持全settings/timestamps/audit、跨API原partial payload恢复和重复各audit+1/未提交列不变；通知双API GET零写。无假GET prefs/外部送达/整链。"
+    },
+    {
+      "id": "audit-csv-interfaces",
+      "suite_id": "audit-csv-interfaces",
+      "targets": [
+        [
+          "GET",
+          "/audit"
+        ],
+        [
+          "GET",
+          "/audit/{id}"
+        ],
+        [
+          "POST",
+          "/audit/export"
+        ],
+        [
+          "GET",
+          "/audit/exports/{id}"
+        ]
+      ],
+      "auxiliary_route_keys": [
+        "GET /api/v1/audit/exports/{id}"
+      ],
+      "required_cases": [
+        "audit_csv.native_inputs",
+        "audit_csv.native_export",
+        "audit_csv.owner_csv",
+        "audit_csv.headerless_csv",
+        "audit_csv.anonymous",
+        "audit_csv.other_owner",
+        "audit_csv.wrong_environment",
+        "audit_csv.revoked",
+        "audit_csv.restored",
+        "audit_csv.read_ledger",
+        "audit_csv.cleanup",
+        "readonly.cleanup",
+        "readonly.complete"
+      ],
+      "latest_run_id": "d76f75c3-f3ee-4b9e-bfa6-86f09d2da626",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "scope": "CSV download anonymous401/owner200/headerless200/peer404/wrongenv403/currentrevoke403恢复、完整七列含time/敏感及hidden环境排除、全audit/exports读台账不变；service两审计+export一次为正式最小前置，不Runbook链/大分页/expiry/formula全覆盖。"
     }
   ]
 }

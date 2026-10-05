@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-05T13:11:07.926014+00:00",
+  "updated_at": "2026-10-05T13:34:30.116167+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -1400,19 +1400,20 @@
       "method": "POST",
       "path": "/api/v1/metrics/ask",
       "module": "资源与观测",
-      "availability": "local_environment",
+      "availability": "local_ready",
       "priority": "P1",
       "package_id": "local-components",
-      "reason": "需受控真实观测/Alertmanager来源、精确绑定和有权HTTP业务对象；完整服务/韧性/拓扑不足字段用明确协议Mock范围补验，实际来源完整性另验。",
+      "reason": "当前source93f正式binary已经实际owned Prom当前非空样本+独占固定qwen2.5:0.5b真实模型正常、持久SSE、跨实例重放/匿名/权限/跨环境拒绝；故障恢复与答案质量独立待验，不关闭旧qwen3.6+bge-m3容量或付费gate。",
       "prerequisites": [
         "参见工作包 local-components 的隔离与证据前置"
       ],
       "source_refs": [
-        "tools/testlab/components.py",
-        "tools/testlab/silence_chain.py",
-        "cmd/aiops/v3.go"
+        "tools/testlab/api_metrics_real_model_coverage.py",
+        "cmd/aiops/v3.go",
+        "internal/v3observe/metrics_ask.go",
+        "internal/v3conversation/metrics_question.go"
       ],
-      "proof_scope": "本地真实来源/协议与有条件正式接口；规则历史以合成历史标识，真实7天/24h另验"
+      "proof_scope": "真实小模型adapter/scoped current Prom source/durable reply；合成受控样本明确，不完整模型质量/生产历史/整链/性能/24h"
     },
     {
       "method": "GET",
@@ -6337,15 +6338,16 @@
     ],
     "latest_result_snapshot": {
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
-      "main_normal_success": 120,
+      "main_normal_success": 125,
       "main_total": 166,
       "execution_queue": 0,
-      "local_queue": 24,
+      "local_queue": 21,
       "protocol_mock_normal": 32,
-      "current_groups_passed_cases": 1012,
+      "current_groups_passed_cases": 1115,
       "current_groups_blocked_cases": 2,
       "current_groups_external_todo_cases": 1,
-      "scope": "十八个当前接口子组各自最新980+CSV32；含前置/HTTP子步骤/父汇总，非1012独立断言。八接口focused子组只相应scope，normal120/166、两blocked/1external及parent整体OPEN不洗绿。"
+      "scope": "21个当前接口子组各自最新1115P2B1external含共同前置/HTTP子步骤/父汇总，非1115独立断言；125/166仅normal，22已有protocol待real与19两者均缺，父包和整体验收OPEN。",
+      "remaining_real_normal": 41
     },
     "scenario_evidence_layer_review": {
       "record_id": "7974f802-7051-4ee4-a133-89255ba1c216",
@@ -6358,17 +6360,22 @@
     },
     "bounded_remaining_review": {
       "status": "reopened_specific_local_paths",
-      "at": "2026-10-05T13:01:14.537190+00:00",
+      "at": "2026-10-05T13:34:30.116167+00:00",
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
       "basis": "用户要求继续核46；独立21逐route审查纠正两个合法空列表前置，真实GitLab mapping与小模型独立准备，旧有界无发现不视为穷尽结论",
       "native_run_id": "fbf67c10-216b-4b1e-9969-e0d456ecea24",
       "proof_evidence_id": "f6cef35a-9833-444c-866e-7e6eb604af12",
       "real_normal_count_after_empty": 122,
-      "remaining_real_normal": 42,
+      "remaining_real_normal": 41,
       "full_interface_acceptance": false,
       "real_normal_count_after_mapping": 124,
       "mapping_run_id": "3307b8de-f802-4852-875d-fb2a144bfe1c",
-      "mapping_proof_evidence_id": "d578a934-74d4-44a0-9ca5-33dd23c847a9"
+      "mapping_proof_evidence_id": "d578a934-74d4-44a0-9ca5-33dd23c847a9",
+      "real_normal_count_after_small_model": 125,
+      "metrics_real_run_id": "d6aa7bf3-6d58-410c-901c-7e88036546e5",
+      "metrics_real_proof_evidence_id": "4004d651-eef2-4329-a29b-33eac5347242",
+      "remaining_protocol_source_audit": ".local/testlab/cp300-remaining-real-source-audit/8e7bfb63-5bff-4f06-90b9-7b9e991e7c0b/report.md",
+      "next": "existing ownedKind15-list inventory/service-discovery正常candidate，root现已只读证实apiserver和9deploy；只准备无认证/业务写或native测试"
     }
   },
   "interface_subpackages": [
@@ -6834,6 +6841,32 @@
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
       "proof_evidence_id": "d578a934-74d4-44a0-9ca5-33dd23c847a9",
       "scope": "真实owned project1 read_api Reporter→Vault UUID只读→activate点时快照→非空discover/accept、审计1、第二API精确cells/save读回、重复accepted0/全账不变；旧协议auth/fault不混，非实时远端发现/完整接口/整链。"
+    },
+    {
+      "id": "metrics-real-model",
+      "suite_id": "metrics-real-model",
+      "targets": [
+        [
+          "POST",
+          "/metrics/ask"
+        ]
+      ],
+      "required_cases": [
+        "metrics_real.model",
+        "metrics_real.source",
+        "metrics_real.completed",
+        "metrics_real.replay",
+        "metrics_real.authorization",
+        "metrics_real.consistency",
+        "metrics_real.cleanup",
+        "readonly.cleanup",
+        "readonly.complete",
+        "metrics_real.complete"
+      ],
+      "latest_run_id": "d6aa7bf3-6d58-410c-901c-7e88036546e5",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "proof_evidence_id": "4004d651-eef2-4329-a29b-33eac5347242",
+      "scope": "39P/20HTTP；固定真实小模型实际仅推理1次、249byte非空回复/持久账/SSE，跨API replay及拒绝不增加source/model/DB/audit；自有Prom/model/模型卷及UUID DB/角色/API清理；quality、model unavailable/recovery、旧大模型/paid、全链/性能/24h未关闭。"
     }
   ]
 }

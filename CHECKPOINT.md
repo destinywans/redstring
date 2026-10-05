@@ -1,4 +1,4 @@
-**最新记录入口：[CP-300](#cp-300-current)，2026-10-05，继续当前接口验收，整体仍 OPEN。** 已实际补 MCP/服务合法空目录：37P、23HTTP，source93f始末相同、CLI0；真实正常子场景124/166，剩42（23已有协议正常、19两者均缺），不等于完整接口验收。非空来源/生产者及权限故障子场景仍独立。性能、24h、原生交付与产品前端保持暂停，未重建自动化。
+**最新记录入口：[CP-300](#cp-300-current)，2026-10-05，继续当前接口验收，整体仍 OPEN。** 已实际补 MCP/服务合法空目录：37P、23HTTP，source93f始末相同、CLI0；真实正常子场景125/166，剩41（22已有协议正常、19两者均缺），不等于完整接口验收。非空来源/生产者及权限故障子场景仍独立。性能、24h、原生交付与产品前端保持暂停，未重建自动化。
 
 <a id="cp-300-current"></a>
 ## CP-300 · 2026-10-05 · 重新逐接口查可执行路径并实际补证
@@ -10,6 +10,12 @@
 - 本轮准入中实际发现专用PG于12:34:58Z、GitLab于12:35:00Z停止，Vault也未监听，coordinator无active但旧运行快照已过时。核fresh main nonce/HMAC/源与exactCID/image/owner/卷/loopback/原quota、无active、容量后，仅恢复PG/Vault/GitLab三个原owned组件；未重建/reset/reseed/控制main。Vault dev数据易失，只允许后续新UUID路径与token，不能声称旧KV残留已验。实际GitLab账号1+ownedCA认证200；恢复证据 `.local/testlab/cp300-owned-resume/664a4ee0-22bf-40d6-a30c-72acc5aa6844/`。首root误用PG-only inspector被identity guard拒绝于任何依赖启动前，已保原件并用generic只读inspector+精确守卫纠正；属工具准备问题。两个overview投影错误schema及一readiness路径拼接错误均发生原证据写前，不是产品失败；正确schema coverage/main与声明Content-Length完整读取随后核实。
 - 下一继续真实GitLab映射两个接口的独立candidate审查/准入（仅现有project1读取身份、UUID read_api Reporter PAT、Vault单路径、正式activate/discover/accept/审计及重复读回），不创建/修改业务项目、不CI/Argo/VM。Agent真实blob候选仅prepared/15offline，不把合成exporter或artifact metadata引用冒native生产者证明；小模型metrics候选仅准备，不代旧qwen3.6+bge-m3容量gate或付费模型/语义验收。所有准备状态均非native通过。
 - 当前无active，productGo/web/main/runtime与用户`.claude`、旧Runbook全链候选保持；源93f/binary6d、PG4CPU2GiB、GitLab原2CPU4GiB。继续接口phase，完整业务链等接口phase决策后，performance/soak仍用户暂停。成果scoped commit/push测试分支与Linear记录，不默认merge/deploy。
+
+
+- **CP300真实小模型接口终态**：`d6aa7bf3-6d58-410c-901c-7e88036546e5` 13:28:08.219792Z→13:29:25.231175Z，39P0F0skip、CLI0、source93f始末同/actual nonrace6d。28offline P+独审先挡两工具缺陷（Prom exposition Content-Type、unknown-create把daemon失败误作absence），冻结6ea175b2/a51aa8fd后才freshHMAC/actualPG/固定Ollama2CPU2GiB+Prom.5CPU256MiB/VM8.10GB准入。实际qwen2.5:0.5b完整manifest a8b0c515...固定，UUID缓存唯一模型，20正式HTTP/只1次actual inference/249byte非空持久回复/SSE终态，精确Prom nonce+app/env非空样本；第二API replay、匿名/无change/跨环境拒绝不增加source/model/DB/audit。所有7marker+readonly cleanup/complete已核，注册proof `4004d651-eef2-4329-a29b-33eac5347242`，三报告已导出；model/Prom/UUID模型卷/DB/role/持有API及6端口清理P。**只证明小模型adapter/source/persistence，不证明答案质量、model failure/recovery、旧qwen3.6+bge-m3容量、paid、完整链或性能/24h**。
+- Root实际准入最初误将Prom镜像tag与Id比较，在任何native mutation前停；保原脚本/错误并改为原PROM_IMAGE_ID。结果读取首次猜错gen工作目录，未写proof或改原件，核actual constructor后从rule-generation-parallel/8c78eddb...注册；均工具准备/读取问题，不称产品首红。原结果/断言/SHA保留。
+- Fresh看板 **125/166真实正常、缺41（22协议已验待真实、19两者均缺）**；local_queue21/execution0、无active，整体OPEN。21相应接口子组最新1115P2B1external（共同前置与父汇总在内），不是1115独立断言或全部场景通过。
+- 剩余23协议来源独立审查私有8e7bfb63/report.md只读：服务发现有正式 inventory15LIST→convert→SaveSnapshot生产链，可用真实ownedKind只读输入；label_selector只控制app链接、不过滤collection，所以候选不设置application_binding、用现有UID/image/replicas，不创造Deployment/Run。root已fresh exactNode CID eac66a03.../image664b3989/owner/0600kubeconfig/显式context/loopbackTLS，实际只读9deploy metadata，receipt cp300-kubernetes-read-preflight/7860fda3...；新UUID只读RBAC认证candidate准备中，未实施Kube写、未启CI/Argo/VM/整链。其余历史7日/组织/五权威聚合/producer待办不Mock洗绿。
 
 **最新记录入口：[CP-299](#cp-299-current)，2026-10-05，本轮接口补证已交付，整体验收仍OPEN。** 当前真实正常成功子场景120/166、协议Mock正常32；本地尚无正常样本的可执行队列0，但24项协议已验待真实、46项真实正常缺口及权限/边界/幂等/故障场景计划仍未收口。十八组最新相应结果1012P0F2B1外部待办，含共同前置/父汇总，不是1012条独立业务断言。Go93f/native nonrace6d/runtime338未改，当前无active。继续接口场景复核，不因normal队列清零转入整链；完整业务链、performance/24h、CI-CD/Workflows/VM/产品web保持暂停。 本轮新增AI/普通偏好通知/CSV三个正式HTTP组102P52HTTP(含前置和父汇总)，原首红保留；本次有界剩余审查未确认新必需本地项，下一步核剩余契约/外部/producer阻塞。
 

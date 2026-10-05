@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-05T16:43:32.076311+00:00",
+  "updated_at": "2026-10-05T16:52:11.229696+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -3707,6 +3707,68 @@
             ],
             "scope": "仅当前明确双实例更新子场景，不计完整接口或父包通过。"
           }
+        },
+        {
+          "id": "workspace-audit-rollback",
+          "title": "工作区配置审计失败回滚与同ETag对侧恢复",
+          "command": "python3 tools/testlab/testlab.py run --suite formal-api-workspace-audit-rollback --manifest <fresh-root-admitted-singlemanifest>",
+          "evidence_mode": "real_local",
+          "route_keys": [
+            "GET /api/v1/workspace",
+            "PUT /api/v1/workspace"
+          ],
+          "required_cases": [
+            {
+              "suite": "formal-api-workspace-audit-rollback",
+              "name": "workspace_audit.http_baseline"
+            },
+            {
+              "suite": "formal-api-workspace-audit-rollback",
+              "name": "workspace_audit.rollback"
+            },
+            {
+              "suite": "formal-api-workspace-audit-rollback",
+              "name": "workspace_audit.failed_readback"
+            },
+            {
+              "suite": "formal-api-workspace-audit-rollback",
+              "name": "workspace_audit.fault_removed"
+            },
+            {
+              "suite": "formal-api-workspace-audit-rollback",
+              "name": "workspace_audit.recovery"
+            },
+            {
+              "suite": "formal-api-workspace-audit-rollback",
+              "name": "workspace_audit.exact_audit"
+            },
+            {
+              "suite": "formal-api-workspace-audit-rollback",
+              "name": "workspace_audit.read_consistency"
+            },
+            {
+              "suite": "formal-api-workspace-audit-rollback",
+              "name": "workspace_audit.cleanup"
+            },
+            {
+              "suite": "formal-api-workspace-audit-rollback",
+              "name": "management.cleanup"
+            },
+            {
+              "suite": "formal-api-workspace-audit-rollback",
+              "name": "management.complete"
+            }
+          ],
+          "proof_scope": "25P/11正式HTTP，UUID合成workspace、Darwin6d正式双API：先正式GET/PUT确认权限与有效ETag；仅成功审计精确trigger故障503settings_unavailable，完整workspace(row/revision/updated_at)/audit+所有其他public表摘要保持；撤除后同body同ETag对侧200、revision2→3、exact审计+1、两API GET一致无副作用。全合成workspace/audit原snapshot及其他业务摘要/原wire保存0600，单40cleanup含≤4restore/grace45精确DBrole/Popen18832–33清理。normal增0，不组织权威、inflight撤权/旧writer/crash/整链。",
+          "current_original_evidence": {
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "run_id": "252de9ad-df9e-47a7-bf56-a3d7a09270f8",
+            "proof_evidence_ids": [
+              "3db8b40b-2b69-4809-b9b7-50fcd4b60cdd"
+            ],
+            "scope": "仅此workspace审计故障恢复子场景，不计父包/whole完成。"
+          }
         }
       ]
     },
@@ -7039,10 +7101,10 @@
       "execution_queue": 0,
       "local_queue": 19,
       "protocol_mock_normal": 32,
-      "current_groups_passed_cases": 1287,
+      "current_groups_passed_cases": 1312,
       "current_groups_blocked_cases": 2,
       "current_groups_external_todo_cases": 1,
-      "scope": "28当前对应子组latest1287P4F2B1external（原27组1258+Pull29），含共同前置/父汇总；原80d首次27P1F保留，不重复叠加。127/166仅normal、剩39，whole与接口phaseOPEN。",
+      "scope": "29当前对应子组latest1312P4F2B1external（28组1287+Workspace25），含共同前置/父汇总；首80d27P1F保留不叠加。正常127/166剩39仅normal，接口phase/wholeOPEN。",
       "remaining_real_normal": 39,
       "current_groups_failed_cases": 4,
       "new_interface_scene_runs": [
@@ -7059,6 +7121,13 @@
           "summary": "29P; original6 requests/new UUID; first80d failed retained",
           "normal_added": 0,
           "proof_evidence_id": "a37a0c99-cdc8-4054-ad48-973d0558b163"
+        },
+        {
+          "id": "252de9ad-df9e-47a7-bf56-a3d7a09270f8",
+          "status": "passed",
+          "summary": "25P/11HTTP audit503 exactrollback+sameETag otherAPI recovery",
+          "normal_added": 0,
+          "proof_evidence_id": "3db8b40b-2b69-4809-b9b7-50fcd4b60cdd"
         }
       ]
     },
@@ -7834,6 +7903,36 @@
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
       "proof_evidence_id": "a37a0c99-cdc8-4054-ad48-973d0558b163",
       "scope": "29P/14正式HTTP、6 Pull，双API四个授权用户actual4pending；第5独立零pending管理员429且Retry-After60，无新attempt/audit/sourceIO；释放四读真实200、第6恢复200，exact5success attempts/audits及源identity不变。真实固定Prom scrape/query与合成exposition，仅改变响应等待≤3秒，provider原5秒。四ready独立generation；40cleanup/grace45精确UUID DBrole/Popen/持有CID及18824–28无残留。首80d27P1F不可变协议命名工具首红保留，新UUID原六请求复验；normal增0，60/source budget、crash/expiry、慢读撤权/外部credentials/完整历史/整链仍未验证。"
+    },
+    {
+      "id": "workspace-audit-rollback",
+      "suite_id": "formal-api-workspace-audit-rollback",
+      "targets": [
+        [
+          "GET",
+          "/workspace"
+        ],
+        [
+          "PUT",
+          "/workspace"
+        ]
+      ],
+      "required_cases": [
+        "workspace_audit.http_baseline",
+        "workspace_audit.rollback",
+        "workspace_audit.failed_readback",
+        "workspace_audit.fault_removed",
+        "workspace_audit.recovery",
+        "workspace_audit.exact_audit",
+        "workspace_audit.read_consistency",
+        "workspace_audit.cleanup",
+        "management.cleanup",
+        "management.complete"
+      ],
+      "latest_run_id": "252de9ad-df9e-47a7-bf56-a3d7a09270f8",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "proof_evidence_id": "3db8b40b-2b69-4809-b9b7-50fcd4b60cdd",
+      "scope": "25P/11正式HTTP，UUID合成workspace、Darwin6d正式双API：先正式GET/PUT确认权限与有效ETag；仅成功审计精确trigger故障503settings_unavailable，完整workspace(row/revision/updated_at)/audit+所有其他public表摘要保持；撤除后同body同ETag对侧200、revision2→3、exact审计+1、两API GET一致无副作用。全合成workspace/audit原snapshot及其他业务摘要/原wire保存0600，单40cleanup含≤4restore/grace45精确DBrole/Popen18832–33清理。normal增0，不组织权威、inflight撤权/旧writer/crash/整链。"
     }
   ]
 }

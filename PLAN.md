@@ -1,3 +1,5 @@
+**当前执行入口：[CP-309](CHECKPOINT.md#cp-309-current)。接口正常128/166、缺38，整体OPEN；真实Tempo单metadata冷发现反例已验，不能以200证明全集。三接口组184P/126HTTP原证据保留；当前无active。剩余实际前置见[清单](docs/releases/2026-10-06-interface-remaining38.md)，完整链随后，性能/24h与原暂停域保持。**
+
 **当前执行入口：[CP-308](CHECKPOINT.md#cp-308-current)，2026-10-06 (+08)。先接口有限场景：Canvas、来源预算/Probe及容量边界184P/126HTTP已验，normal128/166与剩38前置分列；Inbox/Groups精确容量边界已验、Trace可信全集来源仍高待办。原工具失败保留，整接口未收口，完整链随后，性能/24h与原暂停域不恢复。**
 
 **最新执行：[CP-307](CHECKPOINT.md#cp-307-current)。五接口批次205P/98HTTP，15目标路由；normal128/166缺38，整体OPEN。原查询撤回后复盘55P已核，工具8s稳定性High待办保留。先接口、后完整链，性能/24h及原暂停域不恢复。**

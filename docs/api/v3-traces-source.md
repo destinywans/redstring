@@ -41,3 +41,13 @@ WAN-120 的 `internal/v3traces` 负责 `/traces` 与 `/traces/{id}`；WAN-117 �
 `v3traces.New(store, policy, telemetry).Register(api)` 已替换旧 `v3observe` Trace 路由注册。前端目前未把查询框的 `q` 发送到 API，散点点击也未保留 `service`；这两处需在前端集成批次接线。
 
 定向验证包括受控 Tempo HTTP 测试（搜索拆窗、越权资源、缺失父 Span）、投影守恒检查，以及独立 PG schema 中的 HTTP 授权与读取后撤权测试。本地真实联调的采集/按 ID 读取证明与应用全集完整性待办分开记录；本轮产品前端仍暂停。
+
+## 2026-10-06 真实元数据发现反例
+
+固定 Tempo 2.7.2 原镜像的私有小数据块含两条合成历史 Trace。实际主动 flush 的完成指标与完整块文件先核实；全新读取实例使用空 WAL、无旧 tenant index、同一固定过去窗口，两个 search 时间切分配置为零。正常副本搜索精确两 ID，`totalBlocks=1`、`completedJobs=totalJobs=1`；逐 ID 也可读回。另一未启动副本仅移走自有 `meta.json` 后再冷启动，单次同窗搜索仍 HTTP200，返回空 Trace 和空 metrics。源块数据未动，原 metadata 精确恢复，两容器及端口独立清理已核。
+
+实际诊断：`93997b79-8568-4ef5-a6a4-f3bd51ac22fa`，原始生产/flush 来自 `a14898e0-4530-43a9-a0b5-46c8ad75d842`；Go93f始末，原非race二进制及runtime不变。登记 root proof：`a4f9e79c-ba63-46e0-828e-d342e7b9c52b`。反例验证工具最终通过，但**来源完整性未通过**，normal新增0，不证明既有主Tempo发生丢Trace或采集端未送达。
+
+此反例说明成功搜索和已发现任务的完成计数不足以证明发现了存储全集。现阶段默认完整性开关仍为false；不直接开启它或用已知ID读回关闭待办。后续需明确可验证的来源完整性准入，或审查调整全集定义及诚实的局部投影合同；这属于现有能力的合同修复边界，不能靠补正常样本或自动增加新系统解决。
+
+运行配置检查也按固定版本处理：[/status/config 的实现](https://raw.githubusercontent.com/grafana/tempo/v2.7.2/cmd/tempo/app/app.go)先输出描述前缀，再序列化实际配置；[search struct](https://raw.githubusercontent.com/grafana/tempo/v2.7.2/modules/frontend/search_sharder.go)的两个时间字段带 `omitempty`，零值会省略。工具先保存原件、按准确search路径核对零值，避免把metrics的30m默认值误当search配置。四个首次工具失败及三个根因保留，未放宽源完整性或改产品代码。

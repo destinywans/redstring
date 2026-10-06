@@ -1,3 +1,15 @@
+**最新入口：[CP-309](#cp-309-current)，2026-10-06 (+08)。三接口组184P/126HTTP已交付；正常128/166、缺38，接口仍OPEN。真实Tempo元数据缺失反例已确认，不能当全集验收通过。当前无active；完整链仍在接口之后，性能/24h及原暂停域保持。**
+
+<a id="cp-309-current"></a>
+## CP-309 · 真实 Trace 来源反例与接口阶段剩余前置
+
+- WAN138/WAN120，branch codex/wan-138-backend-testlab；前已推送7965510e19969cf76250c1bce7d6048e5cf121fc。Go93f/nonrace6d/runtime338不改，主API fresh nonce/HMAC、实际UID/argv/lstart/cwd/listener及PG exactCID4CPU2GiB守卫；未重启主环境或既有Tempo，canonical数据不动。保.claude与held Agent/Runbook候选。
+- 准备只读并行，root独占有界native。固定原生Tempo2.7.2/image0f7c6218，新UUID私有存储，两合成历史Trace；主动flush实际metric0→1、failed/retries均0及完整两对象块证明（a14898e0）复用，不再重复采集。新baseline与fault reader分别empty WAL/无旧tenant index，两个搜索切分时间为0，固定过去窗口排除ingester补齐。
+- 最终实际93997b79-8568-4ef5-a6a4-f3bd51ac22fa，UTC05:45:32.860762→05:46:11.792503，38.931741秒、CLI0/1诊断P；始末Go93f。baseline搜索精确2IDs，totalBlocks1/completedJobs1/totalJobs1，两个byID真实读回；fault启动首poll之前仅移走自有副本meta.json，冷搜索HTTP200、空traces、metrics空。原meta已精确恢复，块其它文件摘要未变；root独立核两exactCID absent、四端口free、既有Tempo状态与main source/binary/runtime/fresh HMAC不变，proof a4f9e79c-ba63-46e0-828e-d342e7b9c52b。
+- 这是**受控来源契约反例**，不是现场Trace丢失事故、API正常增量或完整接口通过；不证明poll/cache/size其它边界。产品完整来源默认false仍保护，不开启flag，不自动改投影合同或新增权威生产者。应用全集仍高待办，阻塞已从未确认假设变为有native反例的来源合同条件；详见[来源契约](docs/api/v3-traces-source.md)。
+- 四个首次工具失败运行13a0d8b0/797da127/a14898e0/afdba953及原件/三格式报告保留，未改绿：Docker小写不存在输出、snapshot父目录遗漏、有效配置解析为三个根因（后两配置失败属同一根因）。两个duration字段带yaml omitempty，真实零值会省略；原regex不能用metrics默认30m推断search。新原件先保存，再依准确path+存在search mapping+已核omitempty零值语义校验，非零/其它path/前缀/重复键反例拒绝。离线fixture的参数缺失/错误mapping定位也保留，不冒产品缺陷或四个Bug；旧无body证据不倒推。未安装额外依赖或改产品Go。
+- 当前44对应功能组1948P4F2B1external原口径不累加来源诊断；normal128/166、缺38，每项合法producer/真实来源/历史/外部/暂停前置已列，不重复协议刷数。所有五次诊断报告与注册证据ID可读，诊断通过仅表示反例被可靠验证。接口与whole仍OPEN；完整链未开始，性能/24h和原暂停域不恢复，aiops-24已删除不重建。当前无实际测试运行；下一步需要按剩38及Trace条件补可信输入或明确现有合同修复边界，不自行扩新能力或伪造success。
+
 **最新入口：[CP-308](#cp-308-current)，2026-10-06 (+08)。接口继续有限成批验收：Canvas 与来源预算/Probe 三组184P/126正式HTTP、6目标路由，normal仍128/166；Inbox/Groups精确容量边界已验，整体OPEN。性能/24h及原暂停域不恢复。**
 
 <a id="cp-308-current"></a>

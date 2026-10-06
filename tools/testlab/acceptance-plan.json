@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-06T05:07:18.915162+00:00",
+  "updated_at": "2026-10-06T05:50:39.734744+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -11488,5 +11488,22 @@
       "proof_evidence_id": "38200f07-9711-4fbd-ad0e-09b8e5ce3394",
       "counts_as_whole_acceptance": false
     }
-  ]
+  ],
+  "trace_source_boundary": {
+    "status": "needs_source_contract",
+    "priority": "HIGH",
+    "run_id": "93997b79-8568-4ef5-a6a4-f3bd51ac22fa",
+    "counts_as_acceptance": false,
+    "normal_added": 0,
+    "root_proof_id": "a4f9e79c-ba63-46e0-828e-d342e7b9c52b",
+    "scope": "single private native2.7.2 missing metadata cold-discovery counterexample; no live incident or other completeness boundary proof",
+    "product_default_false_unchanged": true,
+    "decision": "do not open trust flag; complete source admission or scoped contract repair remains required",
+    "first_tool_runs_preserved": [
+      "13a0d8b0-44aa-43ad-9181-72093daa974d",
+      "797da127-78bc-42c0-8c8b-237eb3e8ecbd",
+      "a14898e0-4530-43a9-a0b5-46c8ad75d842",
+      "afdba953-678c-4987-b42c-3f6a601f0c8b"
+    ]
+  }
 }

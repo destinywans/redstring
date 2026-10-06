@@ -1,3 +1,15 @@
+**最新入口：[CP-307](#cp-307-current)，2026-10-06 (+08)。五个有限接口批次205P/98次正式HTTP、15目标路由，normal仍128/166缺38，整体OPEN。性能/24h及原暂停域不恢复。**
+
+<a id="cp-307-current"></a>
+## CP-307 · 五个批次统一交付与测试工具成本纠偏
+
+- 当前issue WAN138，branch codex/wan-138-backend-testlab；本轮前已推送93421a9685315e9a99419d94ce472615b3e55242。产品Go93f/nonrace6d/runtime338不改，主环境fresh nonce/HMAC及实际tuple、PG exactCID4CPU2GiB均核；canonical数据/其他集群/账号不动，.claude及held Agent/Runbook候选保留。
+- 最新五组：普通对话4fe45ad7（29P/13HTTP，协议Mock）；Runbook62a04791（53P/27HTTP）；复盘1f75b032（55P/28HTTP）；核心查询db65acef（36P/15HTTP）；事务尾部4a29b4cf（32P/15HTTP）。共205条含fixture/汇总的验证记录，不是205独立场景或98接口。最新对应41组1764P4F2B1external=33接口子组+8基础；正常计数不增加、父包与整体仍OPEN。
+- 五组独立UUID库角色/端口清理及原marker、实际接口registration false均核。proof依次58657292、f79b2ff9、fc8534f2、97f48b0b、7e082c88，完整UUID见acceptance-plan及决定文档；三格式报告保留，可通过只读看板登记证据ID下载。原核心toolfixture首红、PM两次8s摘要阻塞不覆盖；不是新产品Bug。
+- PM工具每次ledger动态全172表摘要，计划定位41923行拼音字典JSON排序约3.3s；VALUES无收益，事务局部16MB移除spill却未明显提速，不是8s根因证明。停止实验，撤回VALUES/双oracle，原完整UNION每ledger一次、所有表/行/8s和28HTTP19marker不变。撤回后原整组实际55P/174.819s、清理HMAC/source通过；High工具稳定性待办保留，不称已修8s。25PM离线、11tail离线，其它15/10定向验证原结果复用。
+- 有限native-core44场景清单及五个明确漏项已有对应实际证据，原件与追加resolution保留；不冒44×5穷尽。Agent schema2元数据候选和inhibition七日历史不靠真实组件安装就能补权威来源，原38正常缺口各边界保留。
+- 当前无实际测试运行；接口阶段仍未整体收口，完整链尚未启动。下一步处理其它接口包的具体未证断言和真实前置，复用已证结果、成批执行；不再无限扩generic场景或重复协议正常刷数量。接口之后才完整链，性能24h暂停，aiops-24已删除不重建。决定与证据见[执行方式](docs/decisions/2026-10-06-interface-test-execution.md)。
+
 **最新执行入口：[CP-306](#cp-306-current)，2026-10-06 (+08)。接口仍128/166正常、缺38，整体OPEN。耗时已核，首个成批对话故障/恢复/重放组实际29P/13HTTP、59.46秒完成，normal增0；独立清理已核。先接口、后整链，性能/24h及原暂停域保持。**
 
 <a id="cp-306-current"></a>

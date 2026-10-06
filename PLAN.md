@@ -1,3 +1,5 @@
+**最新执行：[CP-307](CHECKPOINT.md#cp-307-current)。五接口批次205P/98HTTP，15目标路由；normal128/166缺38，整体OPEN。原查询撤回后复盘55P已核，工具8s稳定性High待办保留。先接口、后完整链，性能/24h及原暂停域不恢复。**
+
 **CP306当前执行调整：** 接口正常128/166、缺38，整体OPEN；实际运行远短于前轮墙钟，改用现有隔离fixture成批验证有关接口，准备并行、每工作包统一证据/交付。首个对话批量组已实际29P/13HTTP，59.46秒完成；模型协议Mock、normal0、持久重放及owner清理已核。继续有限场景证据关联和确切本地缺口，不重复刷计数。先接口后整链、性能/24h及原暂停域不恢复。见[执行决定](docs/decisions/2026-10-06-interface-test-execution.md)和[CP306](CHECKPOINT.md#cp-306-current)。
 
 **2026-10-06 CP305当前：** 本轮三个接口子组89验证记录/35HTTP通过；新输入组30P/12HTTP（7类422及拒绝无业务审计副作用，sessions排除），独立资源清理和报告下载已证。正常128/166、缺38，接口与整体OPEN。先接口后整链，性能/24h及暂停域保持；见[CP305](CHECKPOINT.md#cp-305-current)和[38项前置](docs/releases/2026-10-06-interface-remaining38.md)。

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-06T02:50:21.527840+00:00",
+  "updated_at": "2026-10-06T04:16:03.938888+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -4416,6 +4416,374 @@
             }
           ],
           "proof_scope": "正式普通对话202→provider500→failed、同会话恢复200→completed/四message，两API终态detail一致；持久SSE full/suffix/pastTerminal六实际请求/no model delta。模型Mock，非活跃断线/真实模型/整链；原失败保留，不增normal。"
+        },
+        {
+          "id": "formal-runbook-write-boundaries",
+          "title": "Runbook dry-run/submit权限、对象边界与审计回滚",
+          "route_keys": [
+            "POST /api/v1/runbooks/{id}/dry-run",
+            "POST /api/v1/runbooks/{id}/submit"
+          ],
+          "command": "python3 tools/testlab/testlab.py run --suite formal-runbook-write-boundaries --manifest <fresh-root-admitted-singlemanifest>",
+          "evidence_mode": "real_local",
+          "required_cases": [
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "runbook_writes.identity"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "runbook_writes.created"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "runbook_writes.nonmaintainer"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "runbook_writes.dry-run.unknown_object"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "runbook_writes.dry-run.wrong_environment"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "runbook_writes.dry-run.view_only"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "runbook_writes.dry-run.all_env"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "runbook_writes.dry-run.rollback"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "runbook_writes.dry-run.fault_removed"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "runbook_writes.dry-run.recovery"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "runbook_writes.dry-run.readback"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "runbook_writes.submit.unknown_object"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "runbook_writes.submit.wrong_environment"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "runbook_writes.submit.view_only"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "runbook_writes.submit.all_env"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "runbook_writes.submit.rollback"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "runbook_writes.submit.fault_removed"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "runbook_writes.submit.recovery"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "runbook_writes.submit.readback"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "runbook_writes.ledger"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "runbook_writes.cleanup"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "readonly.fresh_database"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "readonly.api_ready.0"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "readonly.api_ready.1"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "formal-runbook-write-boundaries",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "正式空白人工Runbook；view-only/非maintainer、未知对象、已授权错误环境、all-env拒绝；preview/submit独立audit503全账回滚、同payload对侧恢复及读回。preview为200但ok/validated/executed均false，submit进入review；无真实执行/验证producer/整链。逐拒绝ledger相等由冻结运行断言证明，不冒每次原始全账独立复算。",
+          "helper": "tools/testlab/api_runbook_write_boundaries_coverage.py"
+        },
+        {
+          "id": "formal-api-postmortem-write-boundaries",
+          "title": "复盘draft/create来源、权限及输入边界",
+          "route_keys": [
+            "GET /api/v1/postmortems/draft",
+            "POST /api/v1/postmortems"
+          ],
+          "command": "python3 tools/testlab/testlab.py run --suite formal-api-postmortem-write-boundaries --manifest <fresh-root-admitted-singlemanifest>",
+          "evidence_mode": "real_local",
+          "required_cases": [
+            {
+              "suite": "formal-api-postmortem-write-boundaries",
+              "name": "postmortem_boundaries.http_inputs"
+            },
+            {
+              "suite": "formal-api-postmortem-write-boundaries",
+              "name": "postmortem_boundaries.draft_invalid_incident"
+            },
+            {
+              "suite": "formal-api-postmortem-write-boundaries",
+              "name": "postmortem_boundaries.open_source"
+            },
+            {
+              "suite": "formal-api-postmortem-write-boundaries",
+              "name": "postmortem_boundaries.resolved_source"
+            },
+            {
+              "suite": "formal-api-postmortem-write-boundaries",
+              "name": "postmortem_boundaries.hidden_source"
+            },
+            {
+              "suite": "formal-api-postmortem-write-boundaries",
+              "name": "postmortem_boundaries.no_view"
+            },
+            {
+              "suite": "formal-api-postmortem-write-boundaries",
+              "name": "postmortem_boundaries.no_manage"
+            },
+            {
+              "suite": "formal-api-postmortem-write-boundaries",
+              "name": "postmortem_boundaries.acl_restored"
+            },
+            {
+              "suite": "formal-api-postmortem-write-boundaries",
+              "name": "postmortem_boundaries.invalid_status"
+            },
+            {
+              "suite": "formal-api-postmortem-write-boundaries",
+              "name": "postmortem_boundaries.duplicate_sections"
+            },
+            {
+              "suite": "formal-api-postmortem-write-boundaries",
+              "name": "postmortem_boundaries.empty_review"
+            },
+            {
+              "suite": "formal-api-postmortem-write-boundaries",
+              "name": "postmortem_boundaries.unknown_field"
+            },
+            {
+              "suite": "formal-api-postmortem-write-boundaries",
+              "name": "postmortem_boundaries.missing_revision"
+            },
+            {
+              "suite": "formal-api-postmortem-write-boundaries",
+              "name": "postmortem_boundaries.stale_revision"
+            },
+            {
+              "suite": "formal-api-postmortem-write-boundaries",
+              "name": "postmortem_boundaries.case_seq"
+            },
+            {
+              "suite": "formal-api-postmortem-write-boundaries",
+              "name": "postmortem_boundaries.create_control"
+            },
+            {
+              "suite": "formal-api-postmortem-write-boundaries",
+              "name": "postmortem_boundaries.duplicate"
+            },
+            {
+              "suite": "formal-api-postmortem-write-boundaries",
+              "name": "postmortem_boundaries.draft_excludes_existing"
+            },
+            {
+              "suite": "formal-api-postmortem-write-boundaries",
+              "name": "postmortem_boundaries.cleanup"
+            }
+          ],
+          "proof_scope": "正式HTTP人工Case/CAS resolved来源；空incident422、open来源、hidden环境、无view/manage、ACL原cookie恢复；七类输入/修订拒绝、合法create201及duplicate409/draft排除。stale revision仅合法但不匹配tag，不证明真实推进竞态；sessions排除，无publish/整链。两次8s全表摘要工具阻塞原件保留；当前原完整UNION恢复后55P/28HTTP通过；无收益VALUES/oracle撤回、不保留16MB设置；不证明原8s根因修复。",
+          "helper": "tools/testlab/api_postmortem_write_boundaries_coverage.py"
+        },
+        {
+          "id": "formal-core-query-permissions",
+          "title": "核心查询参数与事件对象权限",
+          "route_keys": [
+            "GET /api/v1/inbox",
+            "GET /api/v1/alert-groups",
+            "GET /api/v1/incidents",
+            "GET /api/v1/incidents/{id}",
+            "POST /api/v1/runbooks"
+          ],
+          "command": "python3 tools/testlab/testlab.py run --suite formal-core-query-permissions --manifest <fresh-root-admitted-singlemanifest>",
+          "evidence_mode": "real_local",
+          "required_cases": [
+            {
+              "suite": "formal-core-query-permissions",
+              "name": "core_queries.identity"
+            },
+            {
+              "suite": "formal-core-query-permissions",
+              "name": "core_queries.http_inputs"
+            },
+            {
+              "suite": "formal-core-query-permissions",
+              "name": "core_queries.case_created"
+            },
+            {
+              "suite": "formal-core-query-permissions",
+              "name": "core_queries.case_owner"
+            },
+            {
+              "suite": "formal-core-query-permissions",
+              "name": "core_queries.inbox_filter"
+            },
+            {
+              "suite": "formal-core-query-permissions",
+              "name": "core_queries.groups_severity"
+            },
+            {
+              "suite": "formal-core-query-permissions",
+              "name": "core_queries.incidents_status"
+            },
+            {
+              "suite": "formal-core-query-permissions",
+              "name": "core_queries.case_no_authority"
+            },
+            {
+              "suite": "formal-core-query-permissions",
+              "name": "core_queries.case_wrong_environment"
+            },
+            {
+              "suite": "formal-core-query-permissions",
+              "name": "core_queries.runbook_no_manage"
+            },
+            {
+              "suite": "formal-core-query-permissions",
+              "name": "core_queries.readback"
+            },
+            {
+              "suite": "formal-core-query-permissions",
+              "name": "core_queries.ledger"
+            },
+            {
+              "suite": "formal-core-query-permissions",
+              "name": "core_queries.cleanup"
+            },
+            {
+              "suite": "formal-core-query-permissions",
+              "name": "core_queries.api_ready.setup.0"
+            },
+            {
+              "suite": "formal-core-query-permissions",
+              "name": "core_queries.api_ready.setup.1"
+            },
+            {
+              "suite": "formal-core-query-permissions",
+              "name": "core_queries.api_ready.source.0"
+            },
+            {
+              "suite": "formal-core-query-permissions",
+              "name": "core_queries.api_ready.source.1"
+            },
+            {
+              "suite": "formal-core-query-permissions",
+              "name": "readonly.fresh_database"
+            },
+            {
+              "suite": "formal-core-query-permissions",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "formal-core-query-permissions",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "三个精确非法filter/severity/status422；真实人工Case owner200、同环境无权限404、已授权错误环境404；knowledge:view但无manage创建Runbook403；两API原DTO及完整业务/审计/其它public含sessions台账不变。首轮测试夹具遗漏人工impact/commander失败保留，修正输入后整组复验；无模型/外部通知/整链。",
+          "helper": "tools/testlab/api_core_query_permissions_coverage.py"
+        },
+        {
+          "id": "formal-api-core-transaction-tail",
+          "title": "服务、来源映射和会话撤销事务尾部",
+          "route_keys": [
+            "POST /api/v1/services",
+            "PUT /api/v1/service-mappings",
+            "DELETE /api/v1/me/sessions/{id}"
+          ],
+          "command": "python3 tools/testlab/testlab.py run --suite formal-api-core-transaction-tail --manifest <fresh-root-admitted-singlemanifest>",
+          "evidence_mode": "real_local",
+          "required_cases": [
+            {
+              "suite": "formal-api-core-transaction-tail",
+              "name": "core_tail.service.rollback"
+            },
+            {
+              "suite": "formal-api-core-transaction-tail",
+              "name": "core_tail.service.fault_removed"
+            },
+            {
+              "suite": "formal-api-core-transaction-tail",
+              "name": "core_tail.service.recovery"
+            },
+            {
+              "suite": "formal-api-core-transaction-tail",
+              "name": "core_tail.mapping.rollback"
+            },
+            {
+              "suite": "formal-api-core-transaction-tail",
+              "name": "core_tail.mapping.fault_removed"
+            },
+            {
+              "suite": "formal-api-core-transaction-tail",
+              "name": "core_tail.mapping.recovery"
+            },
+            {
+              "suite": "formal-api-core-transaction-tail",
+              "name": "core_tail.session.rollback"
+            },
+            {
+              "suite": "formal-api-core-transaction-tail",
+              "name": "core_tail.session.fault_removed"
+            },
+            {
+              "suite": "formal-api-core-transaction-tail",
+              "name": "core_tail.session.recovery"
+            },
+            {
+              "suite": "formal-api-core-transaction-tail",
+              "name": "core_tail.cleanup"
+            },
+            {
+              "suite": "formal-api-core-transaction-tail",
+              "name": "management.cleanup"
+            },
+            {
+              "suite": "formal-api-core-transaction-tail",
+              "name": "management.complete"
+            }
+          ],
+          "proof_scope": "三个正式HTTP audit503整账回滚、独立故障恢复及成功201/200/204，mapping仅登记元数据，对侧GET读回；会话成功撤销与401同API，不冒成功跨实例传播。全六表及其它public含sessions；无真实上游连接/模型/整链。",
+          "helper": "tools/testlab/api_core_transaction_tail_coverage.py"
         }
       ],
       "readonly_scenario_audit": {
@@ -4430,7 +4798,13 @@
         "normal_routes_with_individual_binary_pass": 44,
         "normal_added": 0,
         "whole_parent_pass": false,
-        "scope": "只读核原件：blocked run内P的正式binary HTTP个别case可证明该case；Go JSON解析不是handler层，原整run仍blocked。下一只补Webhook来源/独立view+change/claim审计回滚，原CAS及Runbook个别P复用。"
+        "scope": "只读核原件：blocked run内P的正式binary HTTP个别case可证明该case；Go JSON解析不是handler层，原整run仍blocked。下一只补Webhook来源/独立view+change/claim审计回滚，原CAS及Runbook个别P复用。",
+        "finite_scene_plan_review": {
+          "evidence_id": "56966524-f951-49a4-8f72-9dfff5f0a5e8",
+          "route_count": 44,
+          "counts_as_whole_acceptance": false,
+          "scope": "有限44route逐项场景映射及精确缺口补测；不宣称44×5全部类别/166接口/整链已验收，原blocked/failed整体结果保留。"
+        }
       }
     },
     {
@@ -8006,10 +8380,10 @@
       "execution_queue": 0,
       "local_queue": 19,
       "protocol_mock_normal": 32,
-      "current_groups_passed_cases": 1588,
+      "current_groups_passed_cases": 1764,
       "current_groups_blocked_cases": 2,
       "current_groups_external_todo_cases": 1,
-      "scope": "37对应latest1588P4F2B1external，29接口子组+8基础对应，含setup/父汇总。普通对话故障恢复29P/13HTTP，normal0；128/166缺38/整体OPEN。",
+      "scope": "41对应latest1764P4F2B1external，33接口子组+8基础对应，含setup/父汇总。本次五组205记录/98正式HTTP/15目标route，normal0；128/166缺38、整体OPEN。测试工具SQL诊断不计验收。",
       "remaining_real_normal": 38,
       "current_groups_failed_cases": 4,
       "new_interface_scene_runs": [
@@ -8103,10 +8477,38 @@
           "summary": "29P/13HTTP ordinary provider500 failure→recovery and six retained cursor replays; protocolMock/normal0",
           "normal_added": 0,
           "proof_evidence_id": "58657292-1533-48fe-a27c-fab50fe34c85"
+        },
+        {
+          "id": "62a04791-204c-4ba0-b4a2-356c72ef4212",
+          "status": "passed",
+          "summary": "53P/27HTTP focused existing-route boundaries; normal0; not whole interface/chain acceptance",
+          "normal_added": 0,
+          "proof_evidence_id": "f79b2ff9-d6fd-4af2-b416-350407bc0664"
+        },
+        {
+          "id": "1f75b032-50e0-4461-b02d-8855fa6c37d5",
+          "status": "passed",
+          "summary": "55P/28HTTP; original full UNION restored/no extraoracle, 174.819s; no normal gain/wholeinterface; previous two8s blocks retained",
+          "normal_added": 0,
+          "proof_evidence_id": "fc8534f2-d38c-4b59-bcdb-e5621a362cc0"
+        },
+        {
+          "id": "db65acef-70aa-4d10-839f-e9f9dd82738a",
+          "status": "passed",
+          "summary": "36P/15HTTP focused existing-route boundaries; normal0; not whole interface/chain acceptance",
+          "normal_added": 0,
+          "proof_evidence_id": "97f48b0b-2451-4b24-8807-cd92f6dce9fc"
+        },
+        {
+          "id": "4a29b4cf-8c14-4222-b8ef-de49455807f9",
+          "status": "passed",
+          "summary": "32P/15HTTP focused existing-route boundaries; normal0; not whole interface/chain acceptance",
+          "normal_added": 0,
+          "proof_evidence_id": "7e082c88-7e21-40ae-a2c6-4759065ed17f"
         }
       ],
-      "corresponding_groups": 37,
-      "interface_subpackages": 29
+      "corresponding_groups": 41,
+      "interface_subpackages": 33
     },
     "scenario_evidence_layer_review": {
       "record_id": "7974f802-7051-4ee4-a133-89255ba1c216",
@@ -9647,6 +10049,432 @@
         "normal_added": 0
       },
       "proof_evidence_id": "58657292-1533-48fe-a27c-fab50fe34c85"
+    },
+    {
+      "id": "formal-runbook-write-boundaries",
+      "title": "Runbook dry-run/submit权限、对象边界与审计回滚",
+      "route_keys": [
+        "POST /api/v1/runbooks/{id}/dry-run",
+        "POST /api/v1/runbooks/{id}/submit"
+      ],
+      "command": "python3 tools/testlab/testlab.py run --suite formal-runbook-write-boundaries --manifest <fresh-root-admitted-singlemanifest>",
+      "evidence_mode": "real_local",
+      "required_cases": [
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "runbook_writes.identity"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "runbook_writes.created"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "runbook_writes.nonmaintainer"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "runbook_writes.dry-run.unknown_object"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "runbook_writes.dry-run.wrong_environment"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "runbook_writes.dry-run.view_only"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "runbook_writes.dry-run.all_env"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "runbook_writes.dry-run.rollback"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "runbook_writes.dry-run.fault_removed"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "runbook_writes.dry-run.recovery"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "runbook_writes.dry-run.readback"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "runbook_writes.submit.unknown_object"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "runbook_writes.submit.wrong_environment"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "runbook_writes.submit.view_only"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "runbook_writes.submit.all_env"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "runbook_writes.submit.rollback"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "runbook_writes.submit.fault_removed"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "runbook_writes.submit.recovery"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "runbook_writes.submit.readback"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "runbook_writes.ledger"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "runbook_writes.cleanup"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "readonly.fresh_database"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "readonly.api_ready.0"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "readonly.api_ready.1"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "readonly.cleanup"
+        },
+        {
+          "suite": "formal-runbook-write-boundaries",
+          "name": "readonly.complete"
+        }
+      ],
+      "proof_scope": "正式空白人工Runbook；view-only/非maintainer、未知对象、已授权错误环境、all-env拒绝；preview/submit独立audit503全账回滚、同payload对侧恢复及读回。preview为200但ok/validated/executed均false，submit进入review；无真实执行/验证producer/整链。逐拒绝ledger相等由冻结运行断言证明，不冒每次原始全账独立复算。",
+      "helper": "tools/testlab/api_runbook_write_boundaries_coverage.py",
+      "run_id": "62a04791-204c-4ba0-b4a2-356c72ef4212",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "result_snapshot": {
+        "passed": 53,
+        "failed": 0,
+        "blocked": 0,
+        "skipped": 0,
+        "formal_HTTP_calls": 27,
+        "normal_added": 0
+      },
+      "proof_evidence_id": "f79b2ff9-d6fd-4af2-b416-350407bc0664",
+      "counts_as_whole_acceptance": false,
+      "historical_manifest": ".local/testlab/cp306-runbook-final-boundaries-actual/db23714f-6b83-4541-aa6a-5ac83a4fdba7/singlemanifest.json"
+    },
+    {
+      "id": "formal-api-postmortem-write-boundaries",
+      "title": "复盘draft/create来源、权限及输入边界",
+      "route_keys": [
+        "GET /api/v1/postmortems/draft",
+        "POST /api/v1/postmortems"
+      ],
+      "command": "python3 tools/testlab/testlab.py run --suite formal-api-postmortem-write-boundaries --manifest <fresh-root-admitted-singlemanifest>",
+      "evidence_mode": "real_local",
+      "required_cases": [
+        {
+          "suite": "formal-api-postmortem-write-boundaries",
+          "name": "postmortem_boundaries.http_inputs"
+        },
+        {
+          "suite": "formal-api-postmortem-write-boundaries",
+          "name": "postmortem_boundaries.draft_invalid_incident"
+        },
+        {
+          "suite": "formal-api-postmortem-write-boundaries",
+          "name": "postmortem_boundaries.open_source"
+        },
+        {
+          "suite": "formal-api-postmortem-write-boundaries",
+          "name": "postmortem_boundaries.resolved_source"
+        },
+        {
+          "suite": "formal-api-postmortem-write-boundaries",
+          "name": "postmortem_boundaries.hidden_source"
+        },
+        {
+          "suite": "formal-api-postmortem-write-boundaries",
+          "name": "postmortem_boundaries.no_view"
+        },
+        {
+          "suite": "formal-api-postmortem-write-boundaries",
+          "name": "postmortem_boundaries.no_manage"
+        },
+        {
+          "suite": "formal-api-postmortem-write-boundaries",
+          "name": "postmortem_boundaries.acl_restored"
+        },
+        {
+          "suite": "formal-api-postmortem-write-boundaries",
+          "name": "postmortem_boundaries.invalid_status"
+        },
+        {
+          "suite": "formal-api-postmortem-write-boundaries",
+          "name": "postmortem_boundaries.duplicate_sections"
+        },
+        {
+          "suite": "formal-api-postmortem-write-boundaries",
+          "name": "postmortem_boundaries.empty_review"
+        },
+        {
+          "suite": "formal-api-postmortem-write-boundaries",
+          "name": "postmortem_boundaries.unknown_field"
+        },
+        {
+          "suite": "formal-api-postmortem-write-boundaries",
+          "name": "postmortem_boundaries.missing_revision"
+        },
+        {
+          "suite": "formal-api-postmortem-write-boundaries",
+          "name": "postmortem_boundaries.stale_revision"
+        },
+        {
+          "suite": "formal-api-postmortem-write-boundaries",
+          "name": "postmortem_boundaries.case_seq"
+        },
+        {
+          "suite": "formal-api-postmortem-write-boundaries",
+          "name": "postmortem_boundaries.create_control"
+        },
+        {
+          "suite": "formal-api-postmortem-write-boundaries",
+          "name": "postmortem_boundaries.duplicate"
+        },
+        {
+          "suite": "formal-api-postmortem-write-boundaries",
+          "name": "postmortem_boundaries.draft_excludes_existing"
+        },
+        {
+          "suite": "formal-api-postmortem-write-boundaries",
+          "name": "postmortem_boundaries.cleanup"
+        }
+      ],
+      "proof_scope": "正式HTTP人工Case/CAS resolved来源；空incident422、open来源、hidden环境、无view/manage、ACL原cookie恢复；七类输入/修订拒绝、合法create201及duplicate409/draft排除。stale revision仅合法但不匹配tag，不证明真实推进竞态；sessions排除，无publish/整链。两次8s全表摘要工具阻塞原件保留；当前原完整UNION恢复后55P/28HTTP通过；无收益VALUES/oracle撤回、不保留16MB设置；不证明原8s根因修复。",
+      "helper": "tools/testlab/api_postmortem_write_boundaries_coverage.py",
+      "run_id": "1f75b032-50e0-4461-b02d-8855fa6c37d5",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "result_snapshot": {
+        "passed": 55,
+        "failed": 0,
+        "blocked": 0,
+        "skipped": 0,
+        "formal_HTTP_calls": 28,
+        "normal_added": 0
+      },
+      "proof_evidence_id": "fc8534f2-d38c-4b59-bcdb-e5621a362cc0",
+      "counts_as_whole_acceptance": false,
+      "historical_manifest": ".local/testlab/cp307-postmortem-final-original-query-actual/dd8da810-567d-494c-9c6a-9dc7eba7f124/singlemanifest.json",
+      "prior_query_candidate_run": {
+        "run_id": "23270aa5-b9b2-43bf-ab87-a038f0046b2f",
+        "proof_evidence_id": "b1fd5504-9419-44d4-bebb-7e6fbf894135",
+        "status": "passed",
+        "speed_improvement_proven": false
+      }
+    },
+    {
+      "id": "formal-core-query-permissions",
+      "title": "核心查询参数与事件对象权限",
+      "route_keys": [
+        "GET /api/v1/inbox",
+        "GET /api/v1/alert-groups",
+        "GET /api/v1/incidents",
+        "GET /api/v1/incidents/{id}",
+        "POST /api/v1/runbooks"
+      ],
+      "command": "python3 tools/testlab/testlab.py run --suite formal-core-query-permissions --manifest <fresh-root-admitted-singlemanifest>",
+      "evidence_mode": "real_local",
+      "required_cases": [
+        {
+          "suite": "formal-core-query-permissions",
+          "name": "core_queries.identity"
+        },
+        {
+          "suite": "formal-core-query-permissions",
+          "name": "core_queries.http_inputs"
+        },
+        {
+          "suite": "formal-core-query-permissions",
+          "name": "core_queries.case_created"
+        },
+        {
+          "suite": "formal-core-query-permissions",
+          "name": "core_queries.case_owner"
+        },
+        {
+          "suite": "formal-core-query-permissions",
+          "name": "core_queries.inbox_filter"
+        },
+        {
+          "suite": "formal-core-query-permissions",
+          "name": "core_queries.groups_severity"
+        },
+        {
+          "suite": "formal-core-query-permissions",
+          "name": "core_queries.incidents_status"
+        },
+        {
+          "suite": "formal-core-query-permissions",
+          "name": "core_queries.case_no_authority"
+        },
+        {
+          "suite": "formal-core-query-permissions",
+          "name": "core_queries.case_wrong_environment"
+        },
+        {
+          "suite": "formal-core-query-permissions",
+          "name": "core_queries.runbook_no_manage"
+        },
+        {
+          "suite": "formal-core-query-permissions",
+          "name": "core_queries.readback"
+        },
+        {
+          "suite": "formal-core-query-permissions",
+          "name": "core_queries.ledger"
+        },
+        {
+          "suite": "formal-core-query-permissions",
+          "name": "core_queries.cleanup"
+        },
+        {
+          "suite": "formal-core-query-permissions",
+          "name": "core_queries.api_ready.setup.0"
+        },
+        {
+          "suite": "formal-core-query-permissions",
+          "name": "core_queries.api_ready.setup.1"
+        },
+        {
+          "suite": "formal-core-query-permissions",
+          "name": "core_queries.api_ready.source.0"
+        },
+        {
+          "suite": "formal-core-query-permissions",
+          "name": "core_queries.api_ready.source.1"
+        },
+        {
+          "suite": "formal-core-query-permissions",
+          "name": "readonly.fresh_database"
+        },
+        {
+          "suite": "formal-core-query-permissions",
+          "name": "readonly.cleanup"
+        },
+        {
+          "suite": "formal-core-query-permissions",
+          "name": "readonly.complete"
+        }
+      ],
+      "proof_scope": "三个精确非法filter/severity/status422；真实人工Case owner200、同环境无权限404、已授权错误环境404；knowledge:view但无manage创建Runbook403；两API原DTO及完整业务/审计/其它public含sessions台账不变。首轮测试夹具遗漏人工impact/commander失败保留，修正输入后整组复验；无模型/外部通知/整链。",
+      "helper": "tools/testlab/api_core_query_permissions_coverage.py",
+      "run_id": "db65acef-70aa-4d10-839f-e9f9dd82738a",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "result_snapshot": {
+        "passed": 36,
+        "failed": 0,
+        "blocked": 0,
+        "skipped": 0,
+        "formal_HTTP_calls": 15,
+        "normal_added": 0
+      },
+      "proof_evidence_id": "97f48b0b-2451-4b24-8807-cd92f6dce9fc",
+      "counts_as_whole_acceptance": false,
+      "historical_manifest": ".local/testlab/cp306-core-query-regression-actual/0dd11baf-8717-41f9-add0-217c44a64ef0/singlemanifest.json"
+    },
+    {
+      "id": "formal-api-core-transaction-tail",
+      "title": "服务、来源映射和会话撤销事务尾部",
+      "route_keys": [
+        "POST /api/v1/services",
+        "PUT /api/v1/service-mappings",
+        "DELETE /api/v1/me/sessions/{id}"
+      ],
+      "command": "python3 tools/testlab/testlab.py run --suite formal-api-core-transaction-tail --manifest <fresh-root-admitted-singlemanifest>",
+      "evidence_mode": "real_local",
+      "required_cases": [
+        {
+          "suite": "formal-api-core-transaction-tail",
+          "name": "core_tail.service.rollback"
+        },
+        {
+          "suite": "formal-api-core-transaction-tail",
+          "name": "core_tail.service.fault_removed"
+        },
+        {
+          "suite": "formal-api-core-transaction-tail",
+          "name": "core_tail.service.recovery"
+        },
+        {
+          "suite": "formal-api-core-transaction-tail",
+          "name": "core_tail.mapping.rollback"
+        },
+        {
+          "suite": "formal-api-core-transaction-tail",
+          "name": "core_tail.mapping.fault_removed"
+        },
+        {
+          "suite": "formal-api-core-transaction-tail",
+          "name": "core_tail.mapping.recovery"
+        },
+        {
+          "suite": "formal-api-core-transaction-tail",
+          "name": "core_tail.session.rollback"
+        },
+        {
+          "suite": "formal-api-core-transaction-tail",
+          "name": "core_tail.session.fault_removed"
+        },
+        {
+          "suite": "formal-api-core-transaction-tail",
+          "name": "core_tail.session.recovery"
+        },
+        {
+          "suite": "formal-api-core-transaction-tail",
+          "name": "core_tail.cleanup"
+        },
+        {
+          "suite": "formal-api-core-transaction-tail",
+          "name": "management.cleanup"
+        },
+        {
+          "suite": "formal-api-core-transaction-tail",
+          "name": "management.complete"
+        }
+      ],
+      "proof_scope": "三个正式HTTP audit503整账回滚、独立故障恢复及成功201/200/204，mapping仅登记元数据，对侧GET读回；会话成功撤销与401同API，不冒成功跨实例传播。全六表及其它public含sessions；无真实上游连接/模型/整链。",
+      "helper": "tools/testlab/api_core_transaction_tail_coverage.py",
+      "run_id": "4a29b4cf-8c14-4222-b8ef-de49455807f9",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "result_snapshot": {
+        "passed": 32,
+        "failed": 0,
+        "blocked": 0,
+        "skipped": 0,
+        "formal_HTTP_calls": 15,
+        "normal_added": 0
+      },
+      "proof_evidence_id": "7e082c88-7e21-40ae-a2c6-4759065ed17f",
+      "counts_as_whole_acceptance": false,
+      "historical_manifest": ".local/testlab/cp306-core-transaction-tail-actual/3ded6c08-36ec-40dc-af0b-a22e2035b030/singlemanifest.json"
     }
   ]
 }

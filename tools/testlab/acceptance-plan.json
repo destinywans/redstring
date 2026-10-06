@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-06T04:16:03.938888+00:00",
+  "updated_at": "2026-10-06T05:07:18.915162+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -4784,6 +4784,190 @@
           ],
           "proof_scope": "三个正式HTTP audit503整账回滚、独立故障恢复及成功201/200/204，mapping仅登记元数据，对侧GET读回；会话成功撤销与401同API，不冒成功跨实例传播。全六表及其它public含sessions；无真实上游连接/模型/整链。",
           "helper": "tools/testlab/api_core_transaction_tail_coverage.py"
+        },
+        {
+          "id": "formal-api-canvas-mutation-audit",
+          "title": "Canvas分支与节点布局审计回滚及跨实例读回",
+          "route_keys": [
+            "POST /api/v1/investigations/{id}/branches",
+            "PATCH /api/v1/investigations/{id}/nodes/{node}"
+          ],
+          "command": "python3 tools/testlab/testlab.py run --suite formal-api-canvas-mutation-audit --manifest <fresh-root-admitted-singlemanifest>",
+          "evidence_mode": "real_local",
+          "required_cases": [
+            {
+              "suite": "formal-api-canvas-mutation-audit",
+              "name": "canvas_mutations.http_service"
+            },
+            {
+              "suite": "formal-api-canvas-mutation-audit",
+              "name": "canvas_mutations.created"
+            },
+            {
+              "suite": "formal-api-canvas-mutation-audit",
+              "name": "canvas_mutations.fork.rollback"
+            },
+            {
+              "suite": "formal-api-canvas-mutation-audit",
+              "name": "canvas_mutations.fork.fault_removed"
+            },
+            {
+              "suite": "formal-api-canvas-mutation-audit",
+              "name": "canvas_mutations.fork.recovery"
+            },
+            {
+              "suite": "formal-api-canvas-mutation-audit",
+              "name": "canvas_mutations.fork.readback"
+            },
+            {
+              "suite": "formal-api-canvas-mutation-audit",
+              "name": "canvas_mutations.layout.rollback"
+            },
+            {
+              "suite": "formal-api-canvas-mutation-audit",
+              "name": "canvas_mutations.layout.fault_removed"
+            },
+            {
+              "suite": "formal-api-canvas-mutation-audit",
+              "name": "canvas_mutations.layout.recovery"
+            },
+            {
+              "suite": "formal-api-canvas-mutation-audit",
+              "name": "canvas_mutations.layout.readback"
+            },
+            {
+              "suite": "formal-api-canvas-mutation-audit",
+              "name": "canvas_mutations.ledger"
+            },
+            {
+              "suite": "formal-api-canvas-mutation-audit",
+              "name": "canvas_mutations.cleanup"
+            },
+            {
+              "suite": "formal-api-canvas-mutation-audit",
+              "name": "management.fresh_database"
+            },
+            {
+              "suite": "formal-api-canvas-mutation-audit",
+              "name": "management.synthetic_identities"
+            },
+            {
+              "suite": "formal-api-canvas-mutation-audit",
+              "name": "management.api_ready.0"
+            },
+            {
+              "suite": "formal-api-canvas-mutation-audit",
+              "name": "management.api_ready.1"
+            },
+            {
+              "suite": "formal-api-canvas-mutation-audit",
+              "name": "management.cleanup"
+            },
+            {
+              "suite": "formal-api-canvas-mutation-audit",
+              "name": "management.complete"
+            }
+          ],
+          "proof_scope": "正式HTTP人工服务及ai_draft=false调查Canvas前置；分支fork与节点layout精确success audit503保持七完整表及全部其它public摘要，移除故障后samebody/sameCAS对侧201/200、精确actor/source审计和两API图结构读回；18正式HTTP/18必需marker，36P，独立UUID DB/role/API清理及原attempt JSON核验。normal0，不完整调查链、模板权威生产者、模型执行或全部并发/crash。",
+          "current_original_evidence": {
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "run_id": "5efed3b0-c9fe-49a5-8cc0-9e1415f5ed70",
+            "proof_evidence_ids": [
+              "43fa5fd5-068c-4ded-927e-658f277b27fb"
+            ],
+            "scope": "仅现有fork/layout事务及精确图读回，不关闭父包/链/模板能力。"
+          }
+        },
+        {
+          "id": "formal-inbox-groups-capacity-boundary",
+          "title": "Inbox与Groups的5000/5001容量边界",
+          "route_keys": [
+            "GET /api/v1/inbox",
+            "GET /api/v1/alert-groups"
+          ],
+          "command": "python3 tools/testlab/testlab.py run --suite formal-inbox-groups-capacity-boundary --manifest <fresh-root-admitted-singlemanifest>",
+          "evidence_mode": "real_local",
+          "required_cases": [
+            {
+              "suite": "formal-inbox-groups-capacity-boundary",
+              "name": "capacity.source_setup"
+            },
+            {
+              "suite": "formal-inbox-groups-capacity-boundary",
+              "name": "capacity.fixture_5000"
+            },
+            {
+              "suite": "formal-inbox-groups-capacity-boundary",
+              "name": "capacity.inbox_5000"
+            },
+            {
+              "suite": "formal-inbox-groups-capacity-boundary",
+              "name": "capacity.groups_5000"
+            },
+            {
+              "suite": "formal-inbox-groups-capacity-boundary",
+              "name": "capacity.fixture_5001"
+            },
+            {
+              "suite": "formal-inbox-groups-capacity-boundary",
+              "name": "capacity.inbox_5001"
+            },
+            {
+              "suite": "formal-inbox-groups-capacity-boundary",
+              "name": "capacity.groups_5001"
+            },
+            {
+              "suite": "formal-inbox-groups-capacity-boundary",
+              "name": "capacity.ledger"
+            },
+            {
+              "suite": "formal-inbox-groups-capacity-boundary",
+              "name": "capacity.cleanup"
+            },
+            {
+              "suite": "formal-inbox-groups-capacity-boundary",
+              "name": "capacity.api_ready.setup.0"
+            },
+            {
+              "suite": "formal-inbox-groups-capacity-boundary",
+              "name": "capacity.api_ready.setup.1"
+            },
+            {
+              "suite": "formal-inbox-groups-capacity-boundary",
+              "name": "capacity.api_ready.source.0"
+            },
+            {
+              "suite": "formal-inbox-groups-capacity-boundary",
+              "name": "capacity.api_ready.source.1"
+            },
+            {
+              "suite": "formal-inbox-groups-capacity-boundary",
+              "name": "readonly.fresh_database"
+            },
+            {
+              "suite": "formal-inbox-groups-capacity-boundary",
+              "name": "readonly.synthetic_identities"
+            },
+            {
+              "suite": "formal-inbox-groups-capacity-boundary",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "formal-inbox-groups-capacity-boundary",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "真实正式Webhook分26次生产5000→5001条事件/occurrence，精确时间戳、完整入站台账及0外部通知原marker核验；5000时mine过滤验证all5000/mine0/items[]及单组resolved_count5000，5001时两个GET均503 pagination_required。4个完整原始DTO独立重算；所有public前后hash保持、入站仅ops_incidents/ops_alert_occurrences变化，UUID库/role/双API精确清理，50原attempt JSON有效。33正式HTTP/17必需marker/50P，normal0；不证明默认all读取5000、分页实现、性能或整链，WAN152仍高优先级待办。",
+          "current_original_evidence": {
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "run_id": "7882d606-0ef9-4a9c-b22b-10dc6ef80be1",
+            "proof_evidence_ids": [
+              "38200f07-9711-4fbd-ad0e-09b8e5ce3394"
+            ],
+            "scope": "只证明现有容量拒绝边界，WAN152大规模完整读取契约仍待办。"
+          }
         }
       ],
       "readonly_scenario_audit": {
@@ -6817,6 +7001,84 @@
             "proof_evidence_id": "0670d12a-ce09-4adf-abff-ff11f3677472",
             "reason": "raw False overridden by normalized fallback; original HTTP/product assertions P retained"
           }
+        },
+        {
+          "id": "formal-api-source-budget-probe-attempt",
+          "title": "Pull来源预算自然冷却及Probe首次审计故障",
+          "route_keys": [
+            "GET /api/v1/ingest/pull/{id}",
+            "POST /api/v1/knowledge-sources/test"
+          ],
+          "command": "python3 tools/testlab/testlab.py run --suite formal-api-source-budget-probe-attempt --manifest <fresh-root-admitted-singlemanifest>",
+          "evidence_mode": "real_local",
+          "required_cases": [
+            {
+              "suite": "formal-api-source-budget-probe-attempt",
+              "name": "source_budget_probe.source"
+            },
+            {
+              "suite": "formal-api-source-budget-probe-attempt",
+              "name": "source_budget_probe.fixture"
+            },
+            {
+              "suite": "formal-api-source-budget-probe-attempt",
+              "name": "source_budget_probe.source60"
+            },
+            {
+              "suite": "formal-api-source-budget-probe-attempt",
+              "name": "source_budget_probe.source61"
+            },
+            {
+              "suite": "formal-api-source-budget-probe-attempt",
+              "name": "source_budget_probe.no_rejected_io"
+            },
+            {
+              "suite": "formal-api-source-budget-probe-attempt",
+              "name": "source_budget_probe.source_identity"
+            },
+            {
+              "suite": "formal-api-source-budget-probe-attempt",
+              "name": "source_budget_probe.source_recovery"
+            },
+            {
+              "suite": "formal-api-source-budget-probe-attempt",
+              "name": "source_budget_probe.probe_input"
+            },
+            {
+              "suite": "formal-api-source-budget-probe-attempt",
+              "name": "source_budget_probe.attempted_audit_failed"
+            },
+            {
+              "suite": "formal-api-source-budget-probe-attempt",
+              "name": "source_budget_probe.probe_no_residue"
+            },
+            {
+              "suite": "formal-api-source-budget-probe-attempt",
+              "name": "source_budget_probe.probe_fault_removed"
+            },
+            {
+              "suite": "formal-api-source-budget-probe-attempt",
+              "name": "source_budget_probe.probe_recovery"
+            },
+            {
+              "suite": "formal-api-source-budget-probe-attempt",
+              "name": "source_budget_probe.probe_no_persistence"
+            },
+            {
+              "suite": "formal-api-source-budget-probe-attempt",
+              "name": "source_budget_probe.cleanup"
+            }
+          ],
+          "proof_scope": "本地实际Prometheus读取合成exposition；六授权用户各10次共60次成功，第七用户第61次受来源预算429拒绝，身份/ingest完整台账及上游调用数保持；真实PG oldest年龄60.193628s、自然等待58.0110047s后仅一次第62次恢复。Upload来源Probe首次attempted audit503保持全部业务摘要及审计，移除故障后一次恢复、完整audit0→2重算；75正式HTTP/14必需marker，98P，UUID库/role/5端口及自有Prom精确清理、98原attempt JSON有效。UploadReader调用数未采、不冒0次读取；无外部token/真实租户/正常覆盖新增/整链。首次81P3F为同一个工具digest JSON key大小写错误，原失败及报告保留，固定bytes/SHA红绿验证后复验，不算三个产品Bug。",
+          "current_original_evidence": {
+            "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "source_tree_sha_end": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+            "run_id": "8e22c18c-bfa6-4066-977b-f1a304097993",
+            "proof_evidence_ids": [
+              "c15521e1-7677-43fe-b6ab-8b13ae32a821"
+            ],
+            "scope": "仅来源预算自然冷却和Probe首次attempted审计事务；原首次失败独立保留，不关闭父包或整链。"
+          }
         }
       ]
     },
@@ -7665,18 +7927,18 @@
     {
       "package_id": "local-components",
       "priority": "P0",
-      "action": "P0继续核当前原接口五类场景适用性与本地缺口并实际补测：正常样本execution_queue0不等于接口验收完成；原件审查先选未覆盖场景，保留首次失败并做最小修与回归。整链/性能/24h继续暂停。",
+      "action": "本轮有限核对明确的三个漏项（Canvas写事务、Pull来源预算、Probe首次审计）及Inbox/Groups容量边界已实际补齐。按当前源证据与docs/releases/2026-10-06-interface-remaining38.md处置剩38个真实正常路径前置，不无限扩generic场景；应用Trace来源完整性仍是可本地处理的高优先级待办，父包/整接口OPEN。接口阶段后才完整链；性能/24h暂停。",
       "preconditions": [
-        "审批/静默迁移到fresh UUID库；只读完整AM加载/出站证明，保留双人边界、丢响应与崩溃台账",
-        "列出稳定suite/name必需场景与对应主接口，不以正常样本齐全判包完成",
-        "fresh owner/CID/nonce-HMAC；轻型组件按依赖分批，独立UUID库和精确端口",
-        "Prometheus/Loki/Tempo数据由受控实际负载产生；来源绑定/未知字段与身份范围复核；通知仅本地捕获"
+        "复用已通过的有限组与首次失败记录，不把184测试记录或128正常样本解释为完整接口验收。",
+        "剩38区分schema2可信生产输入、7日真实完整历史、真实模型/组织/外部租户、缺实现与暂停；逐项保持实际前置，不能Mock洗为真实通过。",
+        "应用Trace按来源版本与完整性gate核验；partial已知ID/Agent读取不能关闭App全集。",
+        "不自行新建producer、分页能力、generic测试框架或恢复性能/soak；现有缺陷按授权最小修并原例回归。"
       ]
     },
     {
       "package_id": "local-source-protocols",
       "priority": "P0",
-      "action": "继续当前源knowledge/source协议、ingress与规则generate/preview/alert-policy等剩余接口组及未验边界。directory/invitation已本次原组复验，不重复冒新增；缺完整链前置、真实租户与权威producer另列，先接口后完整链。",
+      "action": "剩38个真实正常路径按已修订前置文档逐项保留：20协议待真实、18无正常证明。8个schema2消费者已有导入路径但可信正式生产输入未齐；7日完整历史、真实模型/组织源/租户与缺执行producer不靠重复协议Mock关闭。先处置接口明确阻塞，完整链后续，父包OPEN。",
       "preconditions": [
         "当前源真实normal128/166（剩38=20协议待真实+18两类均缺）、normal execution_queue0；正常子场景不是完整接口，适用本地故障/边界仍推进，外部/缺producer/暂停单列。",
         "每个目标核对正式注册/发现、非空DTO和来源关联，429/超时/丢响应/权限漂移逐项",
@@ -7687,7 +7949,7 @@
     {
       "package_id": "configuration-gitops",
       "priority": "P2",
-      "action": "当前源配置草稿58P、配置提升75P1external已验；保独立审批与丢响应/台账/清理证明，真实组织治理外部待办。暂不重复正常场景，不恢复原生CI/VM/Workflows或性能/soak。",
+      "action": "当前配置草稿58P、配置提升75P1external及有限必需场景原件复用，不重复开组；真实组织治理外部待办与原生CI/VM/Workflows暂停保持。按接口前置处置，不自行恢复重型交付或性能/soak。",
       "preconditions": [
         "先完成剩余包明确场景计划与本地可执行P1；重型GitLab/Argo资源准入、独占串行",
         "复用本轮owner仓库、独立账号与审批边界，不自动合并、部署或恢复7项暂停的原生CI/CD",
@@ -8380,10 +8642,10 @@
       "execution_queue": 0,
       "local_queue": 19,
       "protocol_mock_normal": 32,
-      "current_groups_passed_cases": 1764,
+      "current_groups_passed_cases": 1948,
       "current_groups_blocked_cases": 2,
       "current_groups_external_todo_cases": 1,
-      "scope": "41对应latest1764P4F2B1external，33接口子组+8基础对应，含setup/父汇总。本次五组205记录/98正式HTTP/15目标route，normal0；128/166缺38、整体OPEN。测试工具SQL诊断不计验收。",
+      "scope": "44对应latest1948P4F2B1external，36接口子组+8基础对应，含setup/父汇总；本轮Canvas、Source、容量三组184记录/126正式HTTP/6目标route，normal0，首次Source工具失败独立保留。128/166缺38、接口及整体OPEN；父包未整体验收、容量拒绝通过不关闭WAN152分页待办。",
       "remaining_real_normal": 38,
       "current_groups_failed_cases": 4,
       "new_interface_scene_runs": [
@@ -8505,10 +8767,38 @@
           "summary": "32P/15HTTP focused existing-route boundaries; normal0; not whole interface/chain acceptance",
           "normal_added": 0,
           "proof_evidence_id": "7e082c88-7e21-40ae-a2c6-4759065ed17f"
+        },
+        {
+          "id": "5efed3b0-c9fe-49a5-8cc0-9e1415f5ed70",
+          "status": "passed",
+          "summary": "36P/18HTTP fork/layout audit503整账回滚、sameCAS跨实例恢复与双API图读回；normal0",
+          "normal_added": 0,
+          "proof_evidence_id": "43fa5fd5-068c-4ded-927e-658f277b27fb"
+        },
+        {
+          "id": "e15bd136-8cd7-48c1-8db0-c9851965efe6",
+          "status": "failed",
+          "summary": "81P3F同一个工具digest JSON keys大小写问题，原失败及报告保留",
+          "normal_added": 0,
+          "proof_evidence_id": "0f6324e9-1a45-4b58-a4d3-24e1f8d37f30"
+        },
+        {
+          "id": "8e22c18c-bfa6-4066-977b-f1a304097993",
+          "status": "passed",
+          "summary": "98P/75HTTP source60→61拒绝无残留→真实自然冷却62恢复；Probe首次审计故障与恢复，UploadReader调用数未采",
+          "normal_added": 0,
+          "proof_evidence_id": "c15521e1-7677-43fe-b6ab-8b13ae32a821"
+        },
+        {
+          "id": "7882d606-0ef9-4a9c-b22b-10dc6ef80be1",
+          "status": "passed",
+          "summary": "50P/33HTTP 正式Webhook5000→5001、mine/groups完整DTO与pagination_required边界，全账及清理不变；normal0/WAN152仍TODO",
+          "normal_added": 0,
+          "proof_evidence_id": "38200f07-9711-4fbd-ad0e-09b8e5ce3394"
         }
       ],
-      "corresponding_groups": 41,
-      "interface_subpackages": 33
+      "corresponding_groups": 44,
+      "interface_subpackages": 36
     },
     "scenario_evidence_layer_review": {
       "record_id": "7974f802-7051-4ee4-a133-89255ba1c216",
@@ -8763,6 +9053,445 @@
         ],
         "corresponding_groups": 33,
         "interface_subpackages": 25
+      },
+      {
+        "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+        "main_normal_success": 128,
+        "main_total": 166,
+        "execution_queue": 0,
+        "local_queue": 19,
+        "protocol_mock_normal": 32,
+        "current_groups_passed_cases": 1764,
+        "current_groups_blocked_cases": 2,
+        "current_groups_external_todo_cases": 1,
+        "scope": "41对应latest1764P4F2B1external，33接口子组+8基础对应，含setup/父汇总。本次五组205记录/98正式HTTP/15目标route，normal0；128/166缺38、整体OPEN。测试工具SQL诊断不计验收。",
+        "remaining_real_normal": 38,
+        "current_groups_failed_cases": 4,
+        "new_interface_scene_runs": [
+          {
+            "id": "80d3b55a-16fc-415f-a210-833ee29c4312",
+            "status": "failed",
+            "summary": "27P1F; duplicate readiness protocol; business/cleanup P; not accepted",
+            "normal_added": 0,
+            "proof_evidence_id": "c15de222-871b-43ec-8923-aca3edd03c90"
+          },
+          {
+            "id": "f94d9728-473d-410f-90fc-85decdc1222e",
+            "status": "passed",
+            "summary": "29P; original6 requests/new UUID; first80d failed retained",
+            "normal_added": 0,
+            "proof_evidence_id": "a37a0c99-cdc8-4054-ad48-973d0558b163"
+          },
+          {
+            "id": "252de9ad-df9e-47a7-bf56-a3d7a09270f8",
+            "status": "passed",
+            "summary": "25P/11HTTP audit503 exactrollback+sameETag otherAPI recovery",
+            "normal_added": 0,
+            "proof_evidence_id": "3db8b40b-2b69-4809-b9b7-50fcd4b60cdd"
+          },
+          {
+            "id": "341c773a-c1b3-48c0-b67c-b6d2792515c0",
+            "status": "failed",
+            "summary": "65P1F/300秒编排超时，48HTTP预期及cleanup P，缺五mandatory marker；不接受整组",
+            "normal_added": 0,
+            "proof_evidence_id": "0ca78b1d-c727-4e58-9ac2-2a9b3f56e73b"
+          },
+          {
+            "id": "a58a5a6c-d921-4d4a-b24c-3408294e8a88",
+            "status": "passed",
+            "summary": "72P/50HTTP全部原marker通过，新UUID显式仅外层420",
+            "normal_added": 0,
+            "proof_evidence_id": "43102f57-8af4-4c63-a6f7-129b38b82185"
+          },
+          {
+            "id": "eb6e8823-032c-4706-8b1a-24dcd2a84047",
+            "status": "passed",
+            "summary": "34P/16HTTP，plan/INV各503六表回滚→samebody对侧201+实际结构读回",
+            "normal_added": 0,
+            "proof_evidence_id": "1d2a25cc-9c46-44b6-9165-d9c5a03b88a0"
+          },
+          {
+            "id": "d0279bc1-544e-4b66-b9ca-c1b371bedc1d",
+            "status": "passed",
+            "summary": "native22P+rootqualification1P，Trace Agent partial空读消费者，不App全集",
+            "normal_added": 1,
+            "proof_evidence_id": "fbd629de-d9d7-410e-92c2-ac577a2ac6f7"
+          },
+          {
+            "id": "830f1bef-135e-4591-b30e-0f0c4fea2c86",
+            "status": "passed",
+            "summary": "29P roleaudit rollback+same revision+samecookie permissions",
+            "normal_added": 0,
+            "proof_evidence_id": "a700ca22-ee6a-478a-a4e9-feeacfd413ba"
+          },
+          {
+            "id": "74929e23-f66f-4a8e-83c6-b83a86fdac0d",
+            "status": "failed",
+            "summary": "14P4F; Generate original once502/header19.922s/terminaldurable; old first7e2 retained, replaces latest same suite",
+            "normal_added": 0,
+            "proof_evidence_id": "1be14ad9-b0c1-4534-96d6-64a9cb08c5ef"
+          },
+          {
+            "id": "7b071e0f-1df1-4415-8609-b789ca026956",
+            "status": "passed",
+            "summary": "32P/14HTTP API0 logout→API1拒绝及普通对象/环境授权；原31P保留",
+            "normal_added": 0,
+            "proof_evidence_id": "a2223e3d-8c3c-42e0-b015-5734b0cd5a5a"
+          },
+          {
+            "id": "1f8d71ba-8f94-4251-b6bf-c23cbdfd513c",
+            "status": "passed",
+            "summary": "27P/9HTTP realcurrentProm/fixedmodelMock appgrant revoke403+samecookie restoreGET200",
+            "normal_added": 0,
+            "proof_evidence_id": "0c40535c-13ed-4c59-b095-97f47306fec3"
+          },
+          {
+            "id": "0c52f169-490f-45ee-9d7c-d9c6700bcf9d",
+            "status": "passed",
+            "summary": "30P/12HTTP seveninput422 noledgerresidue, sessions excluded; normal0",
+            "normal_added": 0,
+            "proof_evidence_id": "37a70b6f-7a7e-4f8c-8969-29f7a8a17286"
+          },
+          {
+            "id": "4fe45ad7-2110-4277-83fc-c970b5d45d47",
+            "status": "passed",
+            "summary": "29P/13HTTP ordinary provider500 failure→recovery and six retained cursor replays; protocolMock/normal0",
+            "normal_added": 0,
+            "proof_evidence_id": "58657292-1533-48fe-a27c-fab50fe34c85"
+          },
+          {
+            "id": "62a04791-204c-4ba0-b4a2-356c72ef4212",
+            "status": "passed",
+            "summary": "53P/27HTTP focused existing-route boundaries; normal0; not whole interface/chain acceptance",
+            "normal_added": 0,
+            "proof_evidence_id": "f79b2ff9-d6fd-4af2-b416-350407bc0664"
+          },
+          {
+            "id": "1f75b032-50e0-4461-b02d-8855fa6c37d5",
+            "status": "passed",
+            "summary": "55P/28HTTP; original full UNION restored/no extraoracle, 174.819s; no normal gain/wholeinterface; previous two8s blocks retained",
+            "normal_added": 0,
+            "proof_evidence_id": "fc8534f2-d38c-4b59-bcdb-e5621a362cc0"
+          },
+          {
+            "id": "db65acef-70aa-4d10-839f-e9f9dd82738a",
+            "status": "passed",
+            "summary": "36P/15HTTP focused existing-route boundaries; normal0; not whole interface/chain acceptance",
+            "normal_added": 0,
+            "proof_evidence_id": "97f48b0b-2451-4b24-8807-cd92f6dce9fc"
+          },
+          {
+            "id": "4a29b4cf-8c14-4222-b8ef-de49455807f9",
+            "status": "passed",
+            "summary": "32P/15HTTP focused existing-route boundaries; normal0; not whole interface/chain acceptance",
+            "normal_added": 0,
+            "proof_evidence_id": "7e082c88-7e21-40ae-a2c6-4759065ed17f"
+          }
+        ],
+        "corresponding_groups": 41,
+        "interface_subpackages": 33
+      },
+      {
+        "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+        "main_normal_success": 128,
+        "main_total": 166,
+        "execution_queue": 0,
+        "local_queue": 19,
+        "protocol_mock_normal": 32,
+        "current_groups_passed_cases": 1800,
+        "current_groups_blocked_cases": 2,
+        "current_groups_external_todo_cases": 1,
+        "scope": "42对应latest1800P4F2B1external，34接口子组+8基础对应，含setup/父汇总；新增Canvas36记录/18正式HTTP/2目标route，normal0。128/166缺38、接口及整体OPEN；父包未整体验收。",
+        "remaining_real_normal": 38,
+        "current_groups_failed_cases": 4,
+        "new_interface_scene_runs": [
+          {
+            "id": "80d3b55a-16fc-415f-a210-833ee29c4312",
+            "status": "failed",
+            "summary": "27P1F; duplicate readiness protocol; business/cleanup P; not accepted",
+            "normal_added": 0,
+            "proof_evidence_id": "c15de222-871b-43ec-8923-aca3edd03c90"
+          },
+          {
+            "id": "f94d9728-473d-410f-90fc-85decdc1222e",
+            "status": "passed",
+            "summary": "29P; original6 requests/new UUID; first80d failed retained",
+            "normal_added": 0,
+            "proof_evidence_id": "a37a0c99-cdc8-4054-ad48-973d0558b163"
+          },
+          {
+            "id": "252de9ad-df9e-47a7-bf56-a3d7a09270f8",
+            "status": "passed",
+            "summary": "25P/11HTTP audit503 exactrollback+sameETag otherAPI recovery",
+            "normal_added": 0,
+            "proof_evidence_id": "3db8b40b-2b69-4809-b9b7-50fcd4b60cdd"
+          },
+          {
+            "id": "341c773a-c1b3-48c0-b67c-b6d2792515c0",
+            "status": "failed",
+            "summary": "65P1F/300秒编排超时，48HTTP预期及cleanup P，缺五mandatory marker；不接受整组",
+            "normal_added": 0,
+            "proof_evidence_id": "0ca78b1d-c727-4e58-9ac2-2a9b3f56e73b"
+          },
+          {
+            "id": "a58a5a6c-d921-4d4a-b24c-3408294e8a88",
+            "status": "passed",
+            "summary": "72P/50HTTP全部原marker通过，新UUID显式仅外层420",
+            "normal_added": 0,
+            "proof_evidence_id": "43102f57-8af4-4c63-a6f7-129b38b82185"
+          },
+          {
+            "id": "eb6e8823-032c-4706-8b1a-24dcd2a84047",
+            "status": "passed",
+            "summary": "34P/16HTTP，plan/INV各503六表回滚→samebody对侧201+实际结构读回",
+            "normal_added": 0,
+            "proof_evidence_id": "1d2a25cc-9c46-44b6-9165-d9c5a03b88a0"
+          },
+          {
+            "id": "d0279bc1-544e-4b66-b9ca-c1b371bedc1d",
+            "status": "passed",
+            "summary": "native22P+rootqualification1P，Trace Agent partial空读消费者，不App全集",
+            "normal_added": 1,
+            "proof_evidence_id": "fbd629de-d9d7-410e-92c2-ac577a2ac6f7"
+          },
+          {
+            "id": "830f1bef-135e-4591-b30e-0f0c4fea2c86",
+            "status": "passed",
+            "summary": "29P roleaudit rollback+same revision+samecookie permissions",
+            "normal_added": 0,
+            "proof_evidence_id": "a700ca22-ee6a-478a-a4e9-feeacfd413ba"
+          },
+          {
+            "id": "74929e23-f66f-4a8e-83c6-b83a86fdac0d",
+            "status": "failed",
+            "summary": "14P4F; Generate original once502/header19.922s/terminaldurable; old first7e2 retained, replaces latest same suite",
+            "normal_added": 0,
+            "proof_evidence_id": "1be14ad9-b0c1-4534-96d6-64a9cb08c5ef"
+          },
+          {
+            "id": "7b071e0f-1df1-4415-8609-b789ca026956",
+            "status": "passed",
+            "summary": "32P/14HTTP API0 logout→API1拒绝及普通对象/环境授权；原31P保留",
+            "normal_added": 0,
+            "proof_evidence_id": "a2223e3d-8c3c-42e0-b015-5734b0cd5a5a"
+          },
+          {
+            "id": "1f8d71ba-8f94-4251-b6bf-c23cbdfd513c",
+            "status": "passed",
+            "summary": "27P/9HTTP realcurrentProm/fixedmodelMock appgrant revoke403+samecookie restoreGET200",
+            "normal_added": 0,
+            "proof_evidence_id": "0c40535c-13ed-4c59-b095-97f47306fec3"
+          },
+          {
+            "id": "0c52f169-490f-45ee-9d7c-d9c6700bcf9d",
+            "status": "passed",
+            "summary": "30P/12HTTP seveninput422 noledgerresidue, sessions excluded; normal0",
+            "normal_added": 0,
+            "proof_evidence_id": "37a70b6f-7a7e-4f8c-8969-29f7a8a17286"
+          },
+          {
+            "id": "4fe45ad7-2110-4277-83fc-c970b5d45d47",
+            "status": "passed",
+            "summary": "29P/13HTTP ordinary provider500 failure→recovery and six retained cursor replays; protocolMock/normal0",
+            "normal_added": 0,
+            "proof_evidence_id": "58657292-1533-48fe-a27c-fab50fe34c85"
+          },
+          {
+            "id": "62a04791-204c-4ba0-b4a2-356c72ef4212",
+            "status": "passed",
+            "summary": "53P/27HTTP focused existing-route boundaries; normal0; not whole interface/chain acceptance",
+            "normal_added": 0,
+            "proof_evidence_id": "f79b2ff9-d6fd-4af2-b416-350407bc0664"
+          },
+          {
+            "id": "1f75b032-50e0-4461-b02d-8855fa6c37d5",
+            "status": "passed",
+            "summary": "55P/28HTTP; original full UNION restored/no extraoracle, 174.819s; no normal gain/wholeinterface; previous two8s blocks retained",
+            "normal_added": 0,
+            "proof_evidence_id": "fc8534f2-d38c-4b59-bcdb-e5621a362cc0"
+          },
+          {
+            "id": "db65acef-70aa-4d10-839f-e9f9dd82738a",
+            "status": "passed",
+            "summary": "36P/15HTTP focused existing-route boundaries; normal0; not whole interface/chain acceptance",
+            "normal_added": 0,
+            "proof_evidence_id": "97f48b0b-2451-4b24-8807-cd92f6dce9fc"
+          },
+          {
+            "id": "4a29b4cf-8c14-4222-b8ef-de49455807f9",
+            "status": "passed",
+            "summary": "32P/15HTTP focused existing-route boundaries; normal0; not whole interface/chain acceptance",
+            "normal_added": 0,
+            "proof_evidence_id": "7e082c88-7e21-40ae-a2c6-4759065ed17f"
+          },
+          {
+            "id": "5efed3b0-c9fe-49a5-8cc0-9e1415f5ed70",
+            "status": "passed",
+            "summary": "36P/18HTTP fork/layout audit503整账回滚、sameCAS跨实例恢复与双API图读回；normal0",
+            "normal_added": 0,
+            "proof_evidence_id": "43fa5fd5-068c-4ded-927e-658f277b27fb"
+          }
+        ],
+        "corresponding_groups": 42,
+        "interface_subpackages": 34
+      },
+      {
+        "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+        "main_normal_success": 128,
+        "main_total": 166,
+        "execution_queue": 0,
+        "local_queue": 19,
+        "protocol_mock_normal": 32,
+        "current_groups_passed_cases": 1898,
+        "current_groups_blocked_cases": 2,
+        "current_groups_external_todo_cases": 1,
+        "scope": "43对应latest1898P4F2B1external，35接口子组+8基础对应，含setup/父汇总；本轮Canvas及Source共134记录/93正式HTTP/4目标route，normal0。128/166缺38、接口及整体OPEN；父包未整体验收，容量5000/5001仅离线准备未登记通过。",
+        "remaining_real_normal": 38,
+        "current_groups_failed_cases": 4,
+        "new_interface_scene_runs": [
+          {
+            "id": "80d3b55a-16fc-415f-a210-833ee29c4312",
+            "status": "failed",
+            "summary": "27P1F; duplicate readiness protocol; business/cleanup P; not accepted",
+            "normal_added": 0,
+            "proof_evidence_id": "c15de222-871b-43ec-8923-aca3edd03c90"
+          },
+          {
+            "id": "f94d9728-473d-410f-90fc-85decdc1222e",
+            "status": "passed",
+            "summary": "29P; original6 requests/new UUID; first80d failed retained",
+            "normal_added": 0,
+            "proof_evidence_id": "a37a0c99-cdc8-4054-ad48-973d0558b163"
+          },
+          {
+            "id": "252de9ad-df9e-47a7-bf56-a3d7a09270f8",
+            "status": "passed",
+            "summary": "25P/11HTTP audit503 exactrollback+sameETag otherAPI recovery",
+            "normal_added": 0,
+            "proof_evidence_id": "3db8b40b-2b69-4809-b9b7-50fcd4b60cdd"
+          },
+          {
+            "id": "341c773a-c1b3-48c0-b67c-b6d2792515c0",
+            "status": "failed",
+            "summary": "65P1F/300秒编排超时，48HTTP预期及cleanup P，缺五mandatory marker；不接受整组",
+            "normal_added": 0,
+            "proof_evidence_id": "0ca78b1d-c727-4e58-9ac2-2a9b3f56e73b"
+          },
+          {
+            "id": "a58a5a6c-d921-4d4a-b24c-3408294e8a88",
+            "status": "passed",
+            "summary": "72P/50HTTP全部原marker通过，新UUID显式仅外层420",
+            "normal_added": 0,
+            "proof_evidence_id": "43102f57-8af4-4c63-a6f7-129b38b82185"
+          },
+          {
+            "id": "eb6e8823-032c-4706-8b1a-24dcd2a84047",
+            "status": "passed",
+            "summary": "34P/16HTTP，plan/INV各503六表回滚→samebody对侧201+实际结构读回",
+            "normal_added": 0,
+            "proof_evidence_id": "1d2a25cc-9c46-44b6-9165-d9c5a03b88a0"
+          },
+          {
+            "id": "d0279bc1-544e-4b66-b9ca-c1b371bedc1d",
+            "status": "passed",
+            "summary": "native22P+rootqualification1P，Trace Agent partial空读消费者，不App全集",
+            "normal_added": 1,
+            "proof_evidence_id": "fbd629de-d9d7-410e-92c2-ac577a2ac6f7"
+          },
+          {
+            "id": "830f1bef-135e-4591-b30e-0f0c4fea2c86",
+            "status": "passed",
+            "summary": "29P roleaudit rollback+same revision+samecookie permissions",
+            "normal_added": 0,
+            "proof_evidence_id": "a700ca22-ee6a-478a-a4e9-feeacfd413ba"
+          },
+          {
+            "id": "74929e23-f66f-4a8e-83c6-b83a86fdac0d",
+            "status": "failed",
+            "summary": "14P4F; Generate original once502/header19.922s/terminaldurable; old first7e2 retained, replaces latest same suite",
+            "normal_added": 0,
+            "proof_evidence_id": "1be14ad9-b0c1-4534-96d6-64a9cb08c5ef"
+          },
+          {
+            "id": "7b071e0f-1df1-4415-8609-b789ca026956",
+            "status": "passed",
+            "summary": "32P/14HTTP API0 logout→API1拒绝及普通对象/环境授权；原31P保留",
+            "normal_added": 0,
+            "proof_evidence_id": "a2223e3d-8c3c-42e0-b015-5734b0cd5a5a"
+          },
+          {
+            "id": "1f8d71ba-8f94-4251-b6bf-c23cbdfd513c",
+            "status": "passed",
+            "summary": "27P/9HTTP realcurrentProm/fixedmodelMock appgrant revoke403+samecookie restoreGET200",
+            "normal_added": 0,
+            "proof_evidence_id": "0c40535c-13ed-4c59-b095-97f47306fec3"
+          },
+          {
+            "id": "0c52f169-490f-45ee-9d7c-d9c6700bcf9d",
+            "status": "passed",
+            "summary": "30P/12HTTP seveninput422 noledgerresidue, sessions excluded; normal0",
+            "normal_added": 0,
+            "proof_evidence_id": "37a70b6f-7a7e-4f8c-8969-29f7a8a17286"
+          },
+          {
+            "id": "4fe45ad7-2110-4277-83fc-c970b5d45d47",
+            "status": "passed",
+            "summary": "29P/13HTTP ordinary provider500 failure→recovery and six retained cursor replays; protocolMock/normal0",
+            "normal_added": 0,
+            "proof_evidence_id": "58657292-1533-48fe-a27c-fab50fe34c85"
+          },
+          {
+            "id": "62a04791-204c-4ba0-b4a2-356c72ef4212",
+            "status": "passed",
+            "summary": "53P/27HTTP focused existing-route boundaries; normal0; not whole interface/chain acceptance",
+            "normal_added": 0,
+            "proof_evidence_id": "f79b2ff9-d6fd-4af2-b416-350407bc0664"
+          },
+          {
+            "id": "1f75b032-50e0-4461-b02d-8855fa6c37d5",
+            "status": "passed",
+            "summary": "55P/28HTTP; original full UNION restored/no extraoracle, 174.819s; no normal gain/wholeinterface; previous two8s blocks retained",
+            "normal_added": 0,
+            "proof_evidence_id": "fc8534f2-d38c-4b59-bcdb-e5621a362cc0"
+          },
+          {
+            "id": "db65acef-70aa-4d10-839f-e9f9dd82738a",
+            "status": "passed",
+            "summary": "36P/15HTTP focused existing-route boundaries; normal0; not whole interface/chain acceptance",
+            "normal_added": 0,
+            "proof_evidence_id": "97f48b0b-2451-4b24-8807-cd92f6dce9fc"
+          },
+          {
+            "id": "4a29b4cf-8c14-4222-b8ef-de49455807f9",
+            "status": "passed",
+            "summary": "32P/15HTTP focused existing-route boundaries; normal0; not whole interface/chain acceptance",
+            "normal_added": 0,
+            "proof_evidence_id": "7e082c88-7e21-40ae-a2c6-4759065ed17f"
+          },
+          {
+            "id": "5efed3b0-c9fe-49a5-8cc0-9e1415f5ed70",
+            "status": "passed",
+            "summary": "36P/18HTTP fork/layout audit503整账回滚、sameCAS跨实例恢复与双API图读回；normal0",
+            "normal_added": 0,
+            "proof_evidence_id": "43fa5fd5-068c-4ded-927e-658f277b27fb"
+          },
+          {
+            "id": "e15bd136-8cd7-48c1-8db0-c9851965efe6",
+            "status": "failed",
+            "summary": "81P3F同一个工具digest JSON keys大小写问题，原失败及报告保留",
+            "normal_added": 0,
+            "proof_evidence_id": "0f6324e9-1a45-4b58-a4d3-24e1f8d37f30"
+          },
+          {
+            "id": "8e22c18c-bfa6-4066-977b-f1a304097993",
+            "status": "passed",
+            "summary": "98P/75HTTP source60→61拒绝无残留→真实自然冷却62恢复；Probe首次审计故障与恢复，UploadReader调用数未采",
+            "normal_added": 0,
+            "proof_evidence_id": "c15521e1-7677-43fe-b6ab-8b13ae32a821"
+          }
+        ],
+        "corresponding_groups": 43,
+        "interface_subpackages": 35
       }
     ],
     "snapshot_history": [
@@ -10475,6 +11204,289 @@
       "proof_evidence_id": "7e082c88-7e21-40ae-a2c6-4759065ed17f",
       "counts_as_whole_acceptance": false,
       "historical_manifest": ".local/testlab/cp306-core-transaction-tail-actual/3ded6c08-36ec-40dc-af0b-a22e2035b030/singlemanifest.json"
+    },
+    {
+      "id": "formal-api-canvas-mutation-audit",
+      "title": "Canvas分支与节点布局审计回滚及跨实例读回",
+      "route_keys": [
+        "POST /api/v1/investigations/{id}/branches",
+        "PATCH /api/v1/investigations/{id}/nodes/{node}"
+      ],
+      "command": "python3 tools/testlab/testlab.py run --suite formal-api-canvas-mutation-audit --manifest <fresh-root-admitted-singlemanifest>",
+      "evidence_mode": "real_local",
+      "required_cases": [
+        {
+          "suite": "formal-api-canvas-mutation-audit",
+          "name": "canvas_mutations.http_service"
+        },
+        {
+          "suite": "formal-api-canvas-mutation-audit",
+          "name": "canvas_mutations.created"
+        },
+        {
+          "suite": "formal-api-canvas-mutation-audit",
+          "name": "canvas_mutations.fork.rollback"
+        },
+        {
+          "suite": "formal-api-canvas-mutation-audit",
+          "name": "canvas_mutations.fork.fault_removed"
+        },
+        {
+          "suite": "formal-api-canvas-mutation-audit",
+          "name": "canvas_mutations.fork.recovery"
+        },
+        {
+          "suite": "formal-api-canvas-mutation-audit",
+          "name": "canvas_mutations.fork.readback"
+        },
+        {
+          "suite": "formal-api-canvas-mutation-audit",
+          "name": "canvas_mutations.layout.rollback"
+        },
+        {
+          "suite": "formal-api-canvas-mutation-audit",
+          "name": "canvas_mutations.layout.fault_removed"
+        },
+        {
+          "suite": "formal-api-canvas-mutation-audit",
+          "name": "canvas_mutations.layout.recovery"
+        },
+        {
+          "suite": "formal-api-canvas-mutation-audit",
+          "name": "canvas_mutations.layout.readback"
+        },
+        {
+          "suite": "formal-api-canvas-mutation-audit",
+          "name": "canvas_mutations.ledger"
+        },
+        {
+          "suite": "formal-api-canvas-mutation-audit",
+          "name": "canvas_mutations.cleanup"
+        },
+        {
+          "suite": "formal-api-canvas-mutation-audit",
+          "name": "management.fresh_database"
+        },
+        {
+          "suite": "formal-api-canvas-mutation-audit",
+          "name": "management.synthetic_identities"
+        },
+        {
+          "suite": "formal-api-canvas-mutation-audit",
+          "name": "management.api_ready.0"
+        },
+        {
+          "suite": "formal-api-canvas-mutation-audit",
+          "name": "management.api_ready.1"
+        },
+        {
+          "suite": "formal-api-canvas-mutation-audit",
+          "name": "management.cleanup"
+        },
+        {
+          "suite": "formal-api-canvas-mutation-audit",
+          "name": "management.complete"
+        }
+      ],
+      "proof_scope": "正式HTTP人工服务及ai_draft=false调查Canvas前置；分支fork与节点layout精确success audit503保持七完整表及全部其它public摘要，移除故障后samebody/sameCAS对侧201/200、精确actor/source审计和两API图结构读回；18正式HTTP/18必需marker，36P，独立UUID DB/role/API清理及原attempt JSON核验。normal0，不完整调查链、模板权威生产者、模型执行或全部并发/crash。",
+      "helper": "tools/testlab/api_canvas_mutation_audit_coverage.py",
+      "run_id": "5efed3b0-c9fe-49a5-8cc0-9e1415f5ed70",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "result_snapshot": {
+        "passed": 36,
+        "failed": 0,
+        "blocked": 0,
+        "skipped": 0,
+        "formal_HTTP_calls": 18,
+        "normal_added": 0
+      },
+      "proof_evidence_id": "43fa5fd5-068c-4ded-927e-658f277b27fb",
+      "counts_as_whole_acceptance": false,
+      "historical_manifest": ".local/testlab/cp308-canvas-mutation-actual/3fd91540-81d3-4de2-87e3-81a47bee3dac/singlemanifest.json"
+    },
+    {
+      "id": "formal-api-source-budget-probe-attempt",
+      "title": "Pull来源预算自然冷却及Probe首次审计故障",
+      "route_keys": [
+        "GET /api/v1/ingest/pull/{id}",
+        "POST /api/v1/knowledge-sources/test"
+      ],
+      "command": "python3 tools/testlab/testlab.py run --suite formal-api-source-budget-probe-attempt --manifest <fresh-root-admitted-singlemanifest>",
+      "evidence_mode": "real_local",
+      "required_cases": [
+        {
+          "suite": "formal-api-source-budget-probe-attempt",
+          "name": "source_budget_probe.source"
+        },
+        {
+          "suite": "formal-api-source-budget-probe-attempt",
+          "name": "source_budget_probe.fixture"
+        },
+        {
+          "suite": "formal-api-source-budget-probe-attempt",
+          "name": "source_budget_probe.source60"
+        },
+        {
+          "suite": "formal-api-source-budget-probe-attempt",
+          "name": "source_budget_probe.source61"
+        },
+        {
+          "suite": "formal-api-source-budget-probe-attempt",
+          "name": "source_budget_probe.no_rejected_io"
+        },
+        {
+          "suite": "formal-api-source-budget-probe-attempt",
+          "name": "source_budget_probe.source_identity"
+        },
+        {
+          "suite": "formal-api-source-budget-probe-attempt",
+          "name": "source_budget_probe.source_recovery"
+        },
+        {
+          "suite": "formal-api-source-budget-probe-attempt",
+          "name": "source_budget_probe.probe_input"
+        },
+        {
+          "suite": "formal-api-source-budget-probe-attempt",
+          "name": "source_budget_probe.attempted_audit_failed"
+        },
+        {
+          "suite": "formal-api-source-budget-probe-attempt",
+          "name": "source_budget_probe.probe_no_residue"
+        },
+        {
+          "suite": "formal-api-source-budget-probe-attempt",
+          "name": "source_budget_probe.probe_fault_removed"
+        },
+        {
+          "suite": "formal-api-source-budget-probe-attempt",
+          "name": "source_budget_probe.probe_recovery"
+        },
+        {
+          "suite": "formal-api-source-budget-probe-attempt",
+          "name": "source_budget_probe.probe_no_persistence"
+        },
+        {
+          "suite": "formal-api-source-budget-probe-attempt",
+          "name": "source_budget_probe.cleanup"
+        }
+      ],
+      "proof_scope": "本地实际Prometheus读取合成exposition；六授权用户各10次共60次成功，第七用户第61次受来源预算429拒绝，身份/ingest完整台账及上游调用数保持；真实PG oldest年龄60.193628s、自然等待58.0110047s后仅一次第62次恢复。Upload来源Probe首次attempted audit503保持全部业务摘要及审计，移除故障后一次恢复、完整audit0→2重算；75正式HTTP/14必需marker，98P，UUID库/role/5端口及自有Prom精确清理、98原attempt JSON有效。UploadReader调用数未采、不冒0次读取；无外部token/真实租户/正常覆盖新增/整链。首次81P3F为同一个工具digest JSON key大小写错误，原失败及报告保留，固定bytes/SHA红绿验证后复验，不算三个产品Bug。",
+      "helper": "tools/testlab/api_source_budget_probe_attempt_coverage.py",
+      "run_id": "8e22c18c-bfa6-4066-977b-f1a304097993",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "result_snapshot": {
+        "passed": 98,
+        "failed": 0,
+        "blocked": 0,
+        "skipped": 0,
+        "formal_HTTP_calls": 75,
+        "normal_added": 0
+      },
+      "proof_evidence_id": "c15521e1-7677-43fe-b6ab-8b13ae32a821",
+      "counts_as_whole_acceptance": false,
+      "first_failure": {
+        "run_id": "e15bd136-8cd7-48c1-8db0-c9851965efe6",
+        "status": "failed",
+        "passed": 81,
+        "failed": 3,
+        "proof_evidence_id": "0f6324e9-1a45-4b58-a4d3-24e1f8d37f30",
+        "cause": "工具digest JSON key大小写错误；三条失败记录对应同一问题，原失败保留。"
+      }
+    },
+    {
+      "id": "formal-inbox-groups-capacity-boundary",
+      "title": "Inbox与Groups的5000/5001容量边界",
+      "route_keys": [
+        "GET /api/v1/inbox",
+        "GET /api/v1/alert-groups"
+      ],
+      "command": "python3 tools/testlab/testlab.py run --suite formal-inbox-groups-capacity-boundary --manifest <fresh-root-admitted-singlemanifest>",
+      "evidence_mode": "real_local",
+      "required_cases": [
+        {
+          "suite": "formal-inbox-groups-capacity-boundary",
+          "name": "capacity.source_setup"
+        },
+        {
+          "suite": "formal-inbox-groups-capacity-boundary",
+          "name": "capacity.fixture_5000"
+        },
+        {
+          "suite": "formal-inbox-groups-capacity-boundary",
+          "name": "capacity.inbox_5000"
+        },
+        {
+          "suite": "formal-inbox-groups-capacity-boundary",
+          "name": "capacity.groups_5000"
+        },
+        {
+          "suite": "formal-inbox-groups-capacity-boundary",
+          "name": "capacity.fixture_5001"
+        },
+        {
+          "suite": "formal-inbox-groups-capacity-boundary",
+          "name": "capacity.inbox_5001"
+        },
+        {
+          "suite": "formal-inbox-groups-capacity-boundary",
+          "name": "capacity.groups_5001"
+        },
+        {
+          "suite": "formal-inbox-groups-capacity-boundary",
+          "name": "capacity.ledger"
+        },
+        {
+          "suite": "formal-inbox-groups-capacity-boundary",
+          "name": "capacity.cleanup"
+        },
+        {
+          "suite": "formal-inbox-groups-capacity-boundary",
+          "name": "capacity.api_ready.setup.0"
+        },
+        {
+          "suite": "formal-inbox-groups-capacity-boundary",
+          "name": "capacity.api_ready.setup.1"
+        },
+        {
+          "suite": "formal-inbox-groups-capacity-boundary",
+          "name": "capacity.api_ready.source.0"
+        },
+        {
+          "suite": "formal-inbox-groups-capacity-boundary",
+          "name": "capacity.api_ready.source.1"
+        },
+        {
+          "suite": "formal-inbox-groups-capacity-boundary",
+          "name": "readonly.fresh_database"
+        },
+        {
+          "suite": "formal-inbox-groups-capacity-boundary",
+          "name": "readonly.synthetic_identities"
+        },
+        {
+          "suite": "formal-inbox-groups-capacity-boundary",
+          "name": "readonly.cleanup"
+        },
+        {
+          "suite": "formal-inbox-groups-capacity-boundary",
+          "name": "readonly.complete"
+        }
+      ],
+      "proof_scope": "真实正式Webhook分26次生产5000→5001条事件/occurrence，精确时间戳、完整入站台账及0外部通知原marker核验；5000时mine过滤验证all5000/mine0/items[]及单组resolved_count5000，5001时两个GET均503 pagination_required。4个完整原始DTO独立重算；所有public前后hash保持、入站仅ops_incidents/ops_alert_occurrences变化，UUID库/role/双API精确清理，50原attempt JSON有效。33正式HTTP/17必需marker/50P，normal0；不证明默认all读取5000、分页实现、性能或整链，WAN152仍高优先级待办。",
+      "helper": "tools/testlab/api_inbox_groups_capacity_boundary.py",
+      "run_id": "7882d606-0ef9-4a9c-b22b-10dc6ef80be1",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "result_snapshot": {
+        "passed": 50,
+        "failed": 0,
+        "blocked": 0,
+        "skipped": 0,
+        "formal_HTTP_calls": 33,
+        "normal_added": 0
+      },
+      "proof_evidence_id": "38200f07-9711-4fbd-ad0e-09b8e5ce3394",
+      "counts_as_whole_acceptance": false
     }
   ]
 }

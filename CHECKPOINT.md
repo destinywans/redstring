@@ -1,3 +1,18 @@
+**最新入口：[CP-308](#cp-308-current)，2026-10-06 (+08)。接口继续有限成批验收：Canvas 与来源预算/Probe 三组184P/126正式HTTP、6目标路由，normal仍128/166；Inbox/Groups精确容量边界已验，整体OPEN。性能/24h及原暂停域不恢复。**
+
+<a id="cp-308-current"></a>
+## CP-308 · 接口有限漏项闭环与容量边界续验
+
+- issue WAN138，branch codex/wan-138-backend-testlab；前已推送47989b079ed37935c7c258649b59ad709b480872。Go93f/nonrace6d/runtime338不改，main fresh nonce/HMAC/真实tuple及PG exactCID4CPU2GiB保持；产品前端、性能/24h、旧CI/CD/Workflows/VM暂停，自动化已删除不重建。保.claude和held Agent/Runbook候选。
+- Canvas实际5efed3b0（36P/18HTTP/83.673s，2目标路由）：正式无模型investigation→fork和layout各审计503完整七表及175其它public回滚→移故障→同body/同CAS对侧成功及十次双实例完整graph读回。Root重算审计/event/context/layout与账，36个attempt原JSON有效、独立UUID库/role及两端口清理同源HMAC已核；proof43fa5fd5-068c-4ded-927e-658f277b27fb。初读8份历史NDJSON/混合stdout当单JSON误报，定位为非attempt历史附件，不修改collector或洗原件。
+- Source原75HTTP整组首e15bd136实际81P3F，是一项工具digest大小写错误的父/汇总三红，产品Go原sourceDigest小写json tags，夹具错用Go字段名。原失败/清理/报告及proof0f6324e9-1a45-4b58-a4d3-24e1f8d37f30保留；固定lowercase literal SHA反例先红，最小三keys修正后23offline P，旧uppercase明确拒绝，不镜像fixture/expected洗绿。
+- 修后新UUID原整组8e22c18c（98P/75HTTP/97.811s，2目标路由）：六actor各10正常来源读取→此前0次第七actor61被429且Retry-After60/完整attempt、identity、Pull审计与来源counter无增量；PG oldest真实60.193628s、自然等待58.011s后仅一次62恢复。Probe first attempted审计503完整business摘要+audit无残留，移故障后同body/API1成功仅attempted/success两audit。Root重算账及98原attempt JSON、独立UUID库role/五端口/ownProm清理/HMAC已核；proofc15521e1-7677-43fe-b6ab-8b13ae32a821。UploadReader运行次数未采，上传源不证外部token；Pull拒绝只三项完整账，不能冒整个public全集。
+- 三组含前置/汇总184记录，不是184独立场景；126HTTP不是126接口，normal新增0。最新44对应组1948P4F2B1external=36接口子组+8基础，父包及整体仍OPEN。真实模型Generate原失败、38正常缺口各实际producer/权威来源/历史/外部/暂停前置保留，八schema2元数据不重复协议冒真实；详见[剩38](docs/releases/2026-10-06-interface-remaining38.md)。
+- 独立QA有限清单/来源边界登记a26eefdc、55807401；Trace文档已纠正“尚无真实Tempo”、Agent一律503、通用新版live_store前置三处漂移。实际2.7.2配置拒绝原证可复用，应用全集来源完整性仍高待办，尚未现场证明静默丢Trace，不开可信开关洗绿。
+- Inbox/Groups5000/5001精确扫描边界为仍可本地做的有限功能验收：独立UUID库经26正式Webhook批生产5001合成告警，4目标GET（Inbox mine空items但all5000、Groups一组count5000；5001两503）及全public零写；不修改canonical/perf，不证default all5000序列化/分页能力。独立helper/反例11offline P及静态独审后root fresh准入，实际7882d606（50P/33HTTP/46.442s）已验。Root四份DTO、全部public摘要前后、入站仅两表变化、50原attempt JSON及独立UUID库role/端口/main HMAC核实；proof38200f07-9711-4fbd-ad0e-09b8e5ce3394。原33HTTP/API12/SQL8/420/40+45，批失败不重试或SQL补行。
+
+- 三组实际通过耗时83.673+97.811+46.442=227.926秒，首次失败另保；准备/修工具/审查/交付不是这227.926秒测试窗口。三格式报告与实际下载验证保留；有限子组当前实际无active，不把“运行结束”叫接口阶段完成。下一动作是应用Trace版本内可信完整来源准入或明确修复边界；38正常缺口每项具体前置已列出，缺producer/外部/暂停不靠重复协议刷数。接口优先，完整链尚未开始，不能将其默认为已验。
+
 **最新入口：[CP-307](#cp-307-current)，2026-10-06 (+08)。五个有限接口批次205P/98次正式HTTP、15目标路由，normal仍128/166缺38，整体OPEN。性能/24h及原暂停域不恢复。**
 
 <a id="cp-307-current"></a>

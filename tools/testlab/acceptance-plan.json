@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-06T05:50:39.734744+00:00",
+  "updated_at": "2026-10-06T06:41:02.815539+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -7927,12 +7927,13 @@
     {
       "package_id": "local-components",
       "priority": "P0",
-      "action": "本轮有限核对明确的三个漏项（Canvas写事务、Pull来源预算、Probe首次审计）及Inbox/Groups容量边界已实际补齐。按当前源证据与docs/releases/2026-10-06-interface-remaining38.md处置剩38个真实正常路径前置，不无限扩generic场景；应用Trace来源完整性仍是可本地处理的高优先级待办，父包/整接口OPEN。接口阶段后才完整链；性能/24h暂停。",
+      "action": "CP310五批接口具名场景已实际通过：匿名入口、核心读故障、输入/paste重复、MCP与知识源读故障、settings四GET故障。继续一批3接口6个快边界；复用原适用断言和故障mapper，剩38来源/能力/暂停条件单列。Trace反例足证不重复；接口先、完整链后，性能24h暂停。",
       "preconditions": [
-        "复用已通过的有限组与首次失败记录，不把184测试记录或128正常样本解释为完整接口验收。",
-        "剩38区分schema2可信生产输入、7日真实完整历史、真实模型/组织/外部租户、缺实现与暂停；逐项保持实际前置，不能Mock洗为真实通过。",
-        "应用Trace按来源版本与完整性gate核验；partial已知ID/Agent读取不能关闭App全集。",
-        "不自行新建producer、分页能力、generic测试框架或恢复性能/soak；现有缺陷按授权最小修并原例回归。"
+        "当前38正常缺口=34来源/生产能力+4暂停或兼容范围；并非38个随时可运行用例。原正常128与20协议待真实/18两类缺保持。",
+        "本地适用具名场景继续：真实读取503不能由写事务故障后的200读回替代；已有可靠断言复用，不默认补166×5。",
+        "下一actual由root fresh准入独立UUID库/role/端口，精确ACL恢复、全部public账、首红与原budget不变；共享PG轻型实际串行，准备并行。",
+        "Trace CP309真实来源反例足证当前全集条件不能假定，默认false；不再测试工具修补或重复冷启动。",
+        "接口阶段明确完成/阻塞边界前不运行整链；性能、24h、前端及原暂停域不恢复。"
       ]
     },
     {
@@ -7940,7 +7941,7 @@
       "priority": "P0",
       "action": "剩38个真实正常路径按已修订前置文档逐项保留：20协议待真实、18无正常证明。8个schema2消费者已有导入路径但可信正式生产输入未齐；7日完整历史、真实模型/组织源/租户与缺执行producer不靠重复协议Mock关闭。先处置接口明确阻塞，完整链后续，父包OPEN。",
       "preconditions": [
-        "当前源真实normal128/166（剩38=20协议待真实+18两类均缺）、normal execution_queue0；正常子场景不是完整接口，适用本地故障/边界仍推进，外部/缺producer/暂停单列。",
+        "当前real normal128/166；剩38的来源/实现/暂停条件见closure-plan。normal execution_queue0不代表适用本地场景完成。",
         "每个目标核对正式注册/发现、非空DTO和来源关联，429/超时/丢响应/权限漂移逐项",
         "真实飞书/Notion/Confluence、完整身份及安全authority外部待办保持",
         "目录仅自有子API进程代理/私有CA：固定两host、无外部透传；外部成功本地失败仅fresh UUID库精确故障DDL，不触及canonical或archives"
@@ -8108,7 +8109,7 @@
   ],
   "classification_scope": "逐接口正常HTTP补测的前置分拣，不是后端实现完成度判定；缺实现包括必需非空生产链缺能力，外部真实验收另列。needs_confirmation尚未获得完整正式生产者调用链证明。",
   "latest_review_record": {
-    "checkpoint": "CP280",
+    "checkpoint": "CP310-working",
     "at": "2026-10-01T14:51:59.577079+00:00",
     "source_tree_sha": "6ad893bbb853bee78ae1c8622220e963745826ffec34409cb68c0f87ffdf7437",
     "normal_main": 120,
@@ -8645,7 +8646,7 @@
       "current_groups_passed_cases": 1948,
       "current_groups_blocked_cases": 2,
       "current_groups_external_todo_cases": 1,
-      "scope": "44对应latest1948P4F2B1external，36接口子组+8基础对应，含setup/父汇总；本轮Canvas、Source、容量三组184记录/126正式HTTP/6目标route，normal0，首次Source工具失败独立保留。128/166缺38、接口及整体OPEN；父包未整体验收、容量拒绝通过不关闭WAN152分页待办。",
+      "scope": "44对应latest1948P4F2B1external，36接口子组+8基础对应，含setup/父汇总；本轮Canvas、Source、容量三组184记录/126正式HTTP/6目标route，normal0，首次Source工具失败独立保留。128/166缺38、接口及整体OPEN；父包未整体验收、容量拒绝通过不关闭WAN152分页待办。 CP310新增150P/74HTTP是三个有限新子组，运行合计135.863秒，normal0；原1948口径为CP308历史快照，不把新标签算整场景收口。",
       "remaining_real_normal": 38,
       "current_groups_failed_cases": 4,
       "new_interface_scene_runs": [
@@ -8795,6 +8796,41 @@
           "summary": "50P/33HTTP 正式Webhook5000→5001、mine/groups完整DTO与pagination_required边界，全账及清理不变；normal0/WAN152仍TODO",
           "normal_added": 0,
           "proof_evidence_id": "38200f07-9711-4fbd-ad0e-09b8e5ce3394"
+        },
+        {
+          "id": "172ff944-4894-4e3d-ad5c-b63808e6d08b",
+          "status": "passed",
+          "summary": "77P/46HTTP/31.445s; finite scenes only",
+          "normal_added": 0,
+          "proof_evidence_id": "d828207c-c2fd-4bd4-a97f-1c1b29d19052"
+        },
+        {
+          "id": "210d8422-5fbb-44bc-9cb5-03e6d1b14a1a",
+          "status": "passed",
+          "summary": "42P/16HTTP/72.107s; finite scenes only",
+          "normal_added": 0,
+          "proof_evidence_id": "78ff2913-6e9c-4806-bff9-2e5005a54da5"
+        },
+        {
+          "id": "9be0f6cb-c971-4ee4-b038-e204ca115e3f",
+          "status": "passed",
+          "summary": "31P/12HTTP/32.312s; finite scenes only",
+          "normal_added": 0,
+          "proof_evidence_id": "11c767b1-d2d7-418d-a487-69bd4d381182"
+        },
+        {
+          "id": "7b241f34-5b4f-45c8-a9e4-c32b28c251f4",
+          "status": "passed",
+          "summary": "30P/12HTTP/54.546s; finite scenes only",
+          "normal_added": 0,
+          "proof_evidence_id": "2c795a42-4ccb-458a-8074-33cda608a006"
+        },
+        {
+          "id": "e34a4eff-1a17-41e2-81cf-bd251b311bc3",
+          "status": "passed",
+          "summary": "46P/19HTTP/83.489s; finite scenes only",
+          "normal_added": 0,
+          "proof_evidence_id": "a4221bbf-3f59-4938-8ee4-416ec0e741da"
         }
       ],
       "corresponding_groups": 44,
@@ -11487,6 +11523,650 @@
       },
       "proof_evidence_id": "38200f07-9711-4fbd-ad0e-09b8e5ce3394",
       "counts_as_whole_acceptance": false
+    },
+    {
+      "id": "formal-catalog-anonymous-boundaries",
+      "title": "23条入口未登录拒绝",
+      "route_keys": [
+        "GET /api/v1/agent-runs",
+        "GET /api/v1/agent-tools",
+        "GET /api/v1/agents/lifecycle",
+        "GET /api/v1/commands",
+        "GET /api/v1/coverage",
+        "GET /api/v1/guardrails",
+        "GET /api/v1/prompts",
+        "GET /api/v1/audit",
+        "GET /api/v1/mentions",
+        "GET /api/v1/connector-types/{type}",
+        "POST /api/v1/connectors",
+        "GET /api/v1/investigation-templates",
+        "POST /api/v1/canvases/{id}/nodes/{node}/messages",
+        "POST /api/v1/investigations/{id}/branches",
+        "PATCH /api/v1/investigations/{id}/nodes/{node}",
+        "POST /api/v1/investigations/{id}/nodes/{node}/messages",
+        "POST /api/v1/investigations/{id}/writeback",
+        "GET /api/v1/investigations/{id}/writeback-preview",
+        "POST /api/v1/service-mappings/accept",
+        "POST /api/v1/service-mappings/discover",
+        "GET /api/v1/config-sync",
+        "POST /api/v1/config-sync/{id}/import",
+        "POST /api/v1/promotions"
+      ],
+      "command": "python3 tools/testlab/testlab.py run --suite formal-catalog-anonymous-boundaries --manifest <fresh-root-admitted-singlemanifest>",
+      "evidence_mode": "real_local",
+      "required_cases": [
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.inputs"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.0"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.1"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.2"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.3"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.4"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.5"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.6"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.7"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.8"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.9"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.10"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.11"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.12"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.13"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.14"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.15"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.16"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.17"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.18"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.19"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.20"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.21"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.target.22"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.ledger"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "catalog_anonymous.cleanup"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "readonly.fresh_database"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "readonly.api_ready.0"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "readonly.api_ready.1"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "readonly.cleanup"
+        },
+        {
+          "suite": "formal-catalog-anonymous-boundaries",
+          "name": "readonly.complete"
+        }
+      ],
+      "proof_scope": "23路由各双API未登录401；完整182public表零写，不代表认证后对象/团队鉴权。",
+      "helper": "tools/testlab/api_catalog_anonymous_boundary.py",
+      "run_id": "172ff944-4894-4e3d-ad5c-b63808e6d08b",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "result_snapshot": {
+        "passed": 77,
+        "failed": 0,
+        "blocked": 0,
+        "skipped": 0,
+        "formal_HTTP_calls": 46,
+        "normal_added": 0,
+        "actual_seconds": 31.444642
+      },
+      "proof_evidence_id": "d828207c-c2fd-4bd4-a97f-1c1b29d19052",
+      "counts_as_whole_acceptance": false
+    },
+    {
+      "id": "formal-core-reads-storage-failure",
+      "title": "Inbox、Groups、Incidents重复与存储故障恢复",
+      "route_keys": [
+        "GET /api/v1/inbox",
+        "GET /api/v1/alert-groups",
+        "GET /api/v1/incidents"
+      ],
+      "command": "python3 tools/testlab/testlab.py run --suite formal-core-reads-storage-failure --manifest <fresh-root-admitted-singlemanifest>",
+      "evidence_mode": "real_local",
+      "required_cases": [
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.http_inputs"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.0.baseline"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.0.repeat"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.0.fault"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.0.restore"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.0.recovery"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.1.baseline"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.1.repeat"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.1.fault"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.1.restore"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.1.recovery"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.2.baseline"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.2.repeat"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.2.fault"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.2.restore"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.2.recovery"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.ledger"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.cleanup"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.api_ready.setup.0"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.api_ready.setup.1"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.api_ready.source.0"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "core_read.api_ready.source.1"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "readonly.fresh_database"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "readonly.synthetic_identities"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "readonly.cleanup"
+        },
+        {
+          "suite": "formal-core-reads-storage-failure",
+          "name": "readonly.complete"
+        }
+      ],
+      "proof_scope": "三个正式GET：原200、重复200、自有ops_incidents SELECT503、精确ACL恢复及对侧200；182表含session/audit零写。原d10工具OID类型首红保留。",
+      "helper": "tools/testlab/api_core_reads_storage_failure.py",
+      "run_id": "210d8422-5fbb-44bc-9cb5-03e6d1b14a1a",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "result_snapshot": {
+        "passed": 42,
+        "failed": 0,
+        "blocked": 0,
+        "skipped": 0,
+        "formal_HTTP_calls": 16,
+        "normal_added": 0,
+        "actual_seconds": 72.107179
+      },
+      "proof_evidence_id": "78ff2913-6e9c-4806-bff9-2e5005a54da5",
+      "counts_as_whole_acceptance": false
+    },
+    {
+      "id": "formal-upload-input-repeat-boundaries",
+      "title": "上传、会话、规则输入拒绝及paste重复语义",
+      "route_keys": [
+        "POST /api/v1/uploads",
+        "POST /api/v1/conversations",
+        "POST /api/v1/alert-rules/preview"
+      ],
+      "command": "python3 tools/testlab/testlab.py run --suite formal-upload-input-repeat-boundaries --manifest <fresh-root-admitted-singlemanifest>",
+      "evidence_mode": "real_local",
+      "required_cases": [
+        {
+          "suite": "formal-upload-input-repeat-boundaries",
+          "name": "upload_input.http_inputs"
+        },
+        {
+          "suite": "formal-upload-input-repeat-boundaries",
+          "name": "upload_input.empty"
+        },
+        {
+          "suite": "formal-upload-input-repeat-boundaries",
+          "name": "upload_input.metadata_only_file"
+        },
+        {
+          "suite": "formal-upload-input-repeat-boundaries",
+          "name": "upload_input.declared_size_mismatch"
+        },
+        {
+          "suite": "formal-upload-input-repeat-boundaries",
+          "name": "upload_input.unknown_JSON_field"
+        },
+        {
+          "suite": "formal-upload-input-repeat-boundaries",
+          "name": "upload_input.conversation_blank"
+        },
+        {
+          "suite": "formal-upload-input-repeat-boundaries",
+          "name": "upload_input.conversation_unknown_field"
+        },
+        {
+          "suite": "formal-upload-input-repeat-boundaries",
+          "name": "upload_input.rule_op"
+        },
+        {
+          "suite": "formal-upload-input-repeat-boundaries",
+          "name": "upload_input.rule_for"
+        },
+        {
+          "suite": "formal-upload-input-repeat-boundaries",
+          "name": "upload_input.rule_range"
+        },
+        {
+          "suite": "formal-upload-input-repeat-boundaries",
+          "name": "upload_input.first_paste"
+        },
+        {
+          "suite": "formal-upload-input-repeat-boundaries",
+          "name": "upload_input.repeated_paste"
+        },
+        {
+          "suite": "formal-upload-input-repeat-boundaries",
+          "name": "upload_input.ledger"
+        },
+        {
+          "suite": "formal-upload-input-repeat-boundaries",
+          "name": "upload_input.cleanup"
+        },
+        {
+          "suite": "formal-upload-input-repeat-boundaries",
+          "name": "readonly.fresh_database"
+        },
+        {
+          "suite": "formal-upload-input-repeat-boundaries",
+          "name": "readonly.api_ready.0"
+        },
+        {
+          "suite": "formal-upload-input-repeat-boundaries",
+          "name": "readonly.api_ready.1"
+        },
+        {
+          "suite": "formal-upload-input-repeat-boundaries",
+          "name": "readonly.cleanup"
+        },
+        {
+          "suite": "formal-upload-input-repeat-boundaries",
+          "name": "readonly.complete"
+        }
+      ],
+      "proof_scope": "8类输入422、两次相同paste201产生不同ID/bytea/审计；全部拒绝无182表增量，成功仅upload/audit变化。无dedup/download/模型证明。",
+      "helper": "tools/testlab/api_upload_input_repeat_boundaries.py",
+      "run_id": "9be0f6cb-c971-4ee4-b038-e204ca115e3f",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "result_snapshot": {
+        "passed": 31,
+        "failed": 0,
+        "blocked": 0,
+        "skipped": 0,
+        "formal_HTTP_calls": 12,
+        "normal_added": 0,
+        "actual_seconds": 32.311656
+      },
+      "proof_evidence_id": "11c767b1-d2d7-418d-a487-69bd4d381182",
+      "counts_as_whole_acceptance": false
+    },
+    {
+      "id": "formal-catalog-reads-storage-failure",
+      "title": "MCP与知识源登记读取故障",
+      "route_keys": [
+        "GET /api/v1/mcp-servers",
+        "GET /api/v1/knowledge-sources"
+      ],
+      "command": "python3 tools/testlab/testlab.py run --suite formal-catalog-reads-storage-failure --manifest <fresh-root-admitted-singlemanifest>",
+      "evidence_mode": "real_local",
+      "required_cases": [
+        {
+          "suite": "formal-catalog-reads-storage-failure",
+          "name": "catalog_reads.http_inputs"
+        },
+        {
+          "suite": "formal-catalog-reads-storage-failure",
+          "name": "catalog_reads.0.baseline"
+        },
+        {
+          "suite": "formal-catalog-reads-storage-failure",
+          "name": "catalog_reads.0.repeat"
+        },
+        {
+          "suite": "formal-catalog-reads-storage-failure",
+          "name": "catalog_reads.0.fault"
+        },
+        {
+          "suite": "formal-catalog-reads-storage-failure",
+          "name": "catalog_reads.0.restore"
+        },
+        {
+          "suite": "formal-catalog-reads-storage-failure",
+          "name": "catalog_reads.0.recovery"
+        },
+        {
+          "suite": "formal-catalog-reads-storage-failure",
+          "name": "catalog_reads.1.baseline"
+        },
+        {
+          "suite": "formal-catalog-reads-storage-failure",
+          "name": "catalog_reads.1.repeat"
+        },
+        {
+          "suite": "formal-catalog-reads-storage-failure",
+          "name": "catalog_reads.1.fault"
+        },
+        {
+          "suite": "formal-catalog-reads-storage-failure",
+          "name": "catalog_reads.1.restore"
+        },
+        {
+          "suite": "formal-catalog-reads-storage-failure",
+          "name": "catalog_reads.1.recovery"
+        },
+        {
+          "suite": "formal-catalog-reads-storage-failure",
+          "name": "catalog_reads.ledger"
+        },
+        {
+          "suite": "formal-catalog-reads-storage-failure",
+          "name": "catalog_reads.cleanup"
+        },
+        {
+          "suite": "formal-catalog-reads-storage-failure",
+          "name": "readonly.fresh_database"
+        },
+        {
+          "suite": "formal-catalog-reads-storage-failure",
+          "name": "readonly.api_ready.0"
+        },
+        {
+          "suite": "formal-catalog-reads-storage-failure",
+          "name": "readonly.api_ready.1"
+        },
+        {
+          "suite": "formal-catalog-reads-storage-failure",
+          "name": "readonly.cleanup"
+        },
+        {
+          "suite": "formal-catalog-reads-storage-failure",
+          "name": "readonly.complete"
+        }
+      ],
+      "proof_scope": "MCP空目录及正式upload登记unverified source，8目标GET重复/精确SELECT503/ACL恢复/对侧200。主知识源表v3_knowledge_source_registrations，不是knowledge_documents；全public182零写及TMPDIR，no sync/index。",
+      "helper": "tools/testlab/api_catalog_reads_storage_failure.py",
+      "run_id": "7b241f34-5b4f-45c8-a9e4-c32b28c251f4",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "result_snapshot": {
+        "passed": 30,
+        "failed": 0,
+        "blocked": 0,
+        "skipped": 0,
+        "formal_HTTP_calls": 12,
+        "normal_added": 0,
+        "actual_seconds": 54.545787
+      },
+      "proof_evidence_id": "2c795a42-4ccb-458a-8074-33cda608a006",
+      "counts_as_whole_acceptance": false
+    },
+    {
+      "id": "formal-settings-reads-storage-failure",
+      "title": "Settings四GET自身读取故障恢复",
+      "route_keys": [
+        "GET /api/v1/me/ai-preferences",
+        "GET /api/v1/me/notification-settings",
+        "GET /api/v1/me/watched-services",
+        "GET /api/v1/models"
+      ],
+      "command": "python3 tools/testlab/testlab.py run --suite formal-settings-reads-storage-failure --manifest <fresh-root-admitted-singlemanifest>",
+      "evidence_mode": "real_local",
+      "required_cases": [
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.http_inputs"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.0.baseline"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.1.baseline"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.2.baseline"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.3.baseline"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.0.repeat"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.1.repeat"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.2.repeat"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.3.repeat"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.0.fault"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.1.fault"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.2.fault"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.3.fault"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.0.recovery"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.1.recovery"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.2.recovery"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.3.recovery"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.fault_installed"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.restore"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.ledger"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.cleanup"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.api_ready.0"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "settings_read.api_ready.1"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "readonly.fresh_database"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "readonly.synthetic_identities"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "readonly.cleanup"
+        },
+        {
+          "suite": "formal-settings-reads-storage-failure",
+          "name": "readonly.complete"
+        }
+      ],
+      "proof_scope": "正式login/AI与notification PUT，然后prefs/通知/watched/models原200/repeat200、两own表SELECT故障503、精确ACL恢复及对侧200；182表包括sessions/audit无变化。模型catalog无推理，watched为空，不冒非空source。",
+      "helper": "tools/testlab/api_settings_reads_storage_failure.py",
+      "run_id": "e34a4eff-1a17-41e2-81cf-bd251b311bc3",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "result_snapshot": {
+        "passed": 46,
+        "failed": 0,
+        "blocked": 0,
+        "skipped": 0,
+        "formal_HTTP_calls": 19,
+        "normal_added": 0,
+        "actual_seconds": 83.488963
+      },
+      "proof_evidence_id": "a4221bbf-3f59-4938-8ee4-416ec0e741da",
+      "counts_as_whole_acceptance": false
     }
   ],
   "trace_source_boundary": {
@@ -11505,5 +12185,63 @@
       "a14898e0-4530-43a9-a0b5-46c8ad75d842",
       "afdba953-678c-4987-b42c-3f6a601f0c8b"
     ]
+  },
+  "interface_closure_plan": {
+    "status": "open",
+    "document": "docs/plans/2026-10-06-interface-closure.md",
+    "normal": {
+      "verified": 128,
+      "total": 166,
+      "remaining": 38,
+      "normal_batch_ready": 0,
+      "missing_source_or_capability": 34,
+      "scope_or_pause_choice": 4
+    },
+    "normal_disposition_evidence_id": "029d87bb-fa7b-4201-acda-43a5eef9a85f",
+    "scene_reference_evidence_id": "4cca1d83-4ab7-4b0f-8bf5-a87c1f57bfd6",
+    "scene_scope": "Only applicable named assertions. 166x5 blank cells are not 830 newly required tests; a tag or 200 readback alone is not complete class acceptance.",
+    "first_tool_failed_run": "d10cd412-5567-4bd3-b750-dc06a0cccb3c",
+    "local_batches": [
+      {
+        "package_id": "formal-catalog-anonymous-boundaries",
+        "status": "passed",
+        "run_id": "172ff944-4894-4e3d-ad5c-b63808e6d08b",
+        "proof_evidence_id": "d828207c-c2fd-4bd4-a97f-1c1b29d19052"
+      },
+      {
+        "package_id": "formal-core-reads-storage-failure",
+        "status": "passed",
+        "run_id": "210d8422-5fbb-44bc-9cb5-03e6d1b14a1a",
+        "proof_evidence_id": "78ff2913-6e9c-4806-bff9-2e5005a54da5"
+      },
+      {
+        "package_id": "formal-upload-input-repeat-boundaries",
+        "status": "passed",
+        "run_id": "9be0f6cb-c971-4ee4-b038-e204ca115e3f",
+        "proof_evidence_id": "11c767b1-d2d7-418d-a487-69bd4d381182"
+      },
+      {
+        "package_id": "formal-settings-reads-storage-failure",
+        "status": "passed",
+        "responsible": "root with independent preparation",
+        "duration_seconds": null,
+        "run_id": "e34a4eff-1a17-41e2-81cf-bd251b311bc3",
+        "proof_evidence_id": "a4221bbf-3f59-4938-8ee4-416ec0e741da",
+        "actual_seconds": 83.488963
+      },
+      {
+        "package_id": "formal-catalog-reads-storage-failure",
+        "status": "passed",
+        "responsible": "root with independent preparation",
+        "duration_seconds": null,
+        "run_id": "7b241f34-5b4f-45c8-a9e4-c32b28c251f4",
+        "proof_evidence_id": "2c795a42-4ccb-458a-8074-33cda608a006",
+        "actual_seconds": 54.545787
+      }
+    ],
+    "source_and_pause_not_passed": true,
+    "performance": "paused",
+    "soak": "paused_unstarted",
+    "chains": "after_interface_phase"
   }
 }

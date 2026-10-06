@@ -1,3 +1,17 @@
+**最新入口：[CP-310](#cp-310-current)，2026-10-06 (+08)。五批226P/105HTTP已验，273.898秒实际运行；normal128/166、剩38来源/实现/暂停前置，接口仍OPEN。MCP/知识源与settings故障批已通过；下一三个查询输入边界及三个对象读取故障正在准备；恢复先fresh SQLite/HMAC，不能按快照重启。**
+
+<a id="cp-310-current"></a>
+## CP-310 · 有限接口收口计划与连续批次推进（进行中）
+
+- WAN138；branch codex/wan-138-backend-testlab，前已推送11ac346ac67a3d8204267b373878972473b292eb。产品Go93f/nonrace6d/runtime338不变，专用PG exactCID4CPU2GiB及主API fresh nonce/HMAC/实际tuple验证；canonical数据不动。性能/24h、产品前端及原暂停域不恢复，自动化已删除不重建，完整业务链在接口之后。
+- 已实际23匿名入口172ff944：77P/46HTTP/31.445s，双API exact401、182public含sessions/audit完整零写；proof d828207c-c2fd-4bd4-a97f-1c1b29d19052。匿名cookie门槛不冒认证后RBAC。
+- 已实际核心三GET210d8422：42P/16HTTP/72.107s，200/repeat200/自有ops_incidents SELECT503/精确ACL恢复/对侧200及完整182表零写；proof78ff2913-6e9c-4806-bff9-2e5005a54da5。原d10cd412首红17P3F/24.253s为工具OID JSONstring误要求int，fault尚未执行；只SQL oid/grantee::bigint最小修、原严格owner/effective ACL guards保留，13offline及原整组新UUID通过，首红不覆写。
+- 已实际输入9be0f6cb：31P/12HTTP/32.312s，八422拒绝完整账无变化、同paste两201/独立ID/两bytea和两audit；proof11c767b1-d2d7-418d-a487-69bd4d381182。无dedup/download/真实模型证明。前三通过实际135.863s（含fixture/start/cleanup），150记录含前置汇总、74HTTP不是74接口，normal0；UUID库role0/0、两端口free与main同源HMAC后置独立核实，三报告保存。
+- [有限收口计划](docs/plans/2026-10-06-interface-closure.md)记录剩38逐项完成标准/原件/责任/历史时长；34来源/能力+4暂停或兼容范围，20协议待真实+18两normal缺，不自动新增producer或改变partial合同。normal queue0不代表非normal完成；具名scene待核属于root工作，不能甩为用户选择。Trace CP309反例已足，停止重复来源实验。
+- 私有scene证据索引4cca1d83-4ab7-4b0f-8bf5-a87c1f57bfd6、38表029d87bb-fa7b-4201-acda-43a5eef9a85f已注册；2.5MiB原矩阵通过exact evidence refs缩为565718B以保持1MiB存储原限制，两个curation工具首错原件25128630保留。索引不是完整类别验收。五GET原fault为写失败后200/401，不证明自身读503；DELETEsilence误套读取模板已纠正为原202重复提案receipt/single audit/零AM DELETE，无新增需求。
+- 后续实际MCP/knowledge 7b241f34：30P/12HTTP/54.546s，formal upload登记unverified/no sync/index，准确表ai_extensions和v3_knowledge_source_registrations（不是knowledge_documents）；proof2c795a42-4ccb-458a-8074-33cda608a006。settings e34a4eff：46P/19HTTP/83.489s，prefs/通知/watched/models全部200/repeat/SELECT503/恢复；proofa4221bbf-3f59-4938-8ee4-416ec0e741da。各完整182账、有效ACL恢复/精确UUID库role/端口/main同源独立核实；模型仅配置目录/watch空，不冒推理/通知。SQL TABLE关键词变换问题在native前被root定位，compiled revoke/restore反例红后限定Python token修，15offline新资格取代14P。原API12/SQL8/420/sole40+45保持。五通过实际273.898s、226含汇总记录/105HTTP/normal0；15份原三格式报告实际HTTP下载200/与0600原文件SHA匹配。
+- 下一三个查询输入边界及三个对象读取故障私有准备中；role整表故障会先到environment_unavailable，不能盲证role mapper，暂不新增列ACL工具。有限读事务/输入合同与原具体assertions核对，不默认填166×5、不把run完成或标签数量叫接口收口。
+
 **最新入口：[CP-309](#cp-309-current)，2026-10-06 (+08)。三接口组184P/126HTTP已交付；正常128/166、缺38，接口仍OPEN。真实Tempo元数据缺失反例已确认，不能当全集验收通过。当前无active；完整链仍在接口之后，性能/24h及原暂停域保持。**
 
 <a id="cp-309-current"></a>

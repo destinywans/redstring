@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-05T19:47:46.853341+00:00",
+  "updated_at": "2026-10-06T02:50:21.527840+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -4338,6 +4338,84 @@
             ],
             "scope": "30P/12正式HTTP，18mandatory：正式models控制/空conversation创建后7合法422拒绝，code/固定消息/JSON在登记前验证；MaxBytesReader实际JSON 2MiB+1（text低于2MiB），request只长度/SHA不存正文。created/final六表+175其它public摘要一致，sessions排除，message/reply/event/metricsquestion空、仅1create audit；旧DTO200同。UUIDDBrole/Popen/18868–69按原40cleanup45释放并root独立absence读回。所有raw/normalizedFalse/normal0，非推理/完整接口或整链。"
           }
+        },
+        {
+          "id": "formal-conversation-turn-failure-recovery",
+          "title": "普通对话模型协议故障、恢复与持久事件游标重放",
+          "route_keys": [
+            "POST /api/v1/conversations/{id}/messages",
+            "GET /api/v1/conversations/{id}",
+            "GET /api/v1/conversations/{id}/events"
+          ],
+          "command": "python3 tools/testlab/testlab.py run --suite formal-conversation-turn-failure-recovery --manifest .local/testlab/cp306-conversation-turn-actual/8282fc83-5f2d-4566-bfde-1ebbbdb05394/singlemanifest.json",
+          "evidence_mode": "protocol_mock",
+          "required_cases": [
+            {
+              "suite": "formal-conversation-turn-failure-recovery",
+              "name": "conversation_turns.identity"
+            },
+            {
+              "suite": "formal-conversation-turn-failure-recovery",
+              "name": "conversation_turns.provider"
+            },
+            {
+              "suite": "formal-conversation-turn-failure-recovery",
+              "name": "conversation_turns.created"
+            },
+            {
+              "suite": "formal-conversation-turn-failure-recovery",
+              "name": "conversation_turns.failed"
+            },
+            {
+              "suite": "formal-conversation-turn-failure-recovery",
+              "name": "conversation_turns.failed_replay"
+            },
+            {
+              "suite": "formal-conversation-turn-failure-recovery",
+              "name": "conversation_turns.recovery"
+            },
+            {
+              "suite": "formal-conversation-turn-failure-recovery",
+              "name": "conversation_turns.completed"
+            },
+            {
+              "suite": "formal-conversation-turn-failure-recovery",
+              "name": "conversation_turns.completed_replay"
+            },
+            {
+              "suite": "formal-conversation-turn-failure-recovery",
+              "name": "conversation_turns.detail"
+            },
+            {
+              "suite": "formal-conversation-turn-failure-recovery",
+              "name": "conversation_turns.ledger"
+            },
+            {
+              "suite": "formal-conversation-turn-failure-recovery",
+              "name": "conversation_turns.cleanup"
+            },
+            {
+              "suite": "formal-conversation-turn-failure-recovery",
+              "name": "readonly.fresh_database"
+            },
+            {
+              "suite": "formal-conversation-turn-failure-recovery",
+              "name": "readonly.api_ready.0"
+            },
+            {
+              "suite": "formal-conversation-turn-failure-recovery",
+              "name": "readonly.api_ready.1"
+            },
+            {
+              "suite": "formal-conversation-turn-failure-recovery",
+              "name": "readonly.cleanup"
+            },
+            {
+              "suite": "formal-conversation-turn-failure-recovery",
+              "name": "readonly.complete"
+            }
+          ],
+          "proof_scope": "正式普通对话202→provider500→failed、同会话恢复200→completed/四message，两API终态detail一致；持久SSE full/suffix/pastTerminal六实际请求/no model delta。模型Mock，非活跃断线/真实模型/整链；原失败保留，不增normal。"
         }
       ],
       "readonly_scenario_audit": {
@@ -7617,6 +7695,23 @@
       "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
       "run_id": "02710c39-fbb4-4761-bd62-f7971f8b233a",
       "proof_evidence_id": "c982cd0b-4d02-4fba-bb42-dcf4eca9297b"
+    },
+    {
+      "id": "CP306-interface-execution-efficiency",
+      "at": "2026-10-06T02:41:03.185244+00:00",
+      "decided_by": "root under existing user autonomy and speed authorization",
+      "status": "first_batch_verified_not_whole_acceptance",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "proof_evidence_id": "58657292-1533-48fe-a27c-fab50fe34c85",
+      "scope": "Existing interface scenarios only; batching private fixture, parallel preparation, one verified package delivery; first failure and guards retained",
+      "product_source_changes": false,
+      "performance_paused": true,
+      "soak_paused": true,
+      "normal_count_unchanged": 128,
+      "remaining_real_normal": 38,
+      "document": "docs/decisions/2026-10-06-interface-test-execution.md",
+      "run_id": "4fe45ad7-2110-4277-83fc-c970b5d45d47",
+      "source_unchanged": true
     }
   ],
   "review_record_history": [
@@ -7911,10 +8006,10 @@
       "execution_queue": 0,
       "local_queue": 19,
       "protocol_mock_normal": 32,
-      "current_groups_passed_cases": 1559,
+      "current_groups_passed_cases": 1588,
       "current_groups_blocked_cases": 2,
       "current_groups_external_todo_cases": 1,
-      "scope": "36对应latest1559P4F2B1external：28接口子组+8基础对应，含setup/父汇总。消息输入30P/12HTTP新增normal0；本轮三个独立子组89验证记录/35HTTP。真实normal128/166、剩38，原失败/阻塞及接口整体OPEN保持。",
+      "scope": "37对应latest1588P4F2B1external，29接口子组+8基础对应，含setup/父汇总。普通对话故障恢复29P/13HTTP，normal0；128/166缺38/整体OPEN。",
       "remaining_real_normal": 38,
       "current_groups_failed_cases": 4,
       "new_interface_scene_runs": [
@@ -8001,10 +8096,17 @@
           "summary": "30P/12HTTP seveninput422 noledgerresidue, sessions excluded; normal0",
           "normal_added": 0,
           "proof_evidence_id": "37a70b6f-7a7e-4f8c-8969-29f7a8a17286"
+        },
+        {
+          "id": "4fe45ad7-2110-4277-83fc-c970b5d45d47",
+          "status": "passed",
+          "summary": "29P/13HTTP ordinary provider500 failure→recovery and six retained cursor replays; protocolMock/normal0",
+          "normal_added": 0,
+          "proof_evidence_id": "58657292-1533-48fe-a27c-fab50fe34c85"
         }
       ],
-      "corresponding_groups": 36,
-      "interface_subpackages": 28
+      "corresponding_groups": 37,
+      "interface_subpackages": 29
     },
     "scenario_evidence_layer_review": {
       "record_id": "7974f802-7051-4ee4-a133-89255ba1c216",
@@ -9457,6 +9559,94 @@
       "scope": "30P/12正式HTTP，18mandatory：正式models控制/空conversation创建后7合法422拒绝，code/固定消息/JSON在登记前验证；MaxBytesReader实际JSON 2MiB+1（text低于2MiB），request只长度/SHA不存正文。created/final六表+175其它public摘要一致，sessions排除，message/reply/event/metricsquestion空、仅1create audit；旧DTO200同。UUIDDBrole/Popen/18868–69按原40cleanup45释放并root独立absence读回。所有raw/normalizedFalse/normal0，非推理/完整接口或整链。",
       "normal_added": 0,
       "proof_evidence_id": "37a70b6f-7a7e-4f8c-8969-29f7a8a17286"
+    },
+    {
+      "id": "formal-conversation-turn-failure-recovery",
+      "title": "普通对话模型协议故障、恢复与持久事件游标重放",
+      "route_keys": [
+        "POST /api/v1/conversations/{id}/messages",
+        "GET /api/v1/conversations/{id}",
+        "GET /api/v1/conversations/{id}/events"
+      ],
+      "command": "python3 tools/testlab/testlab.py run --suite formal-conversation-turn-failure-recovery --manifest .local/testlab/cp306-conversation-turn-actual/8282fc83-5f2d-4566-bfde-1ebbbdb05394/singlemanifest.json",
+      "evidence_mode": "protocol_mock",
+      "required_cases": [
+        {
+          "suite": "formal-conversation-turn-failure-recovery",
+          "name": "conversation_turns.identity"
+        },
+        {
+          "suite": "formal-conversation-turn-failure-recovery",
+          "name": "conversation_turns.provider"
+        },
+        {
+          "suite": "formal-conversation-turn-failure-recovery",
+          "name": "conversation_turns.created"
+        },
+        {
+          "suite": "formal-conversation-turn-failure-recovery",
+          "name": "conversation_turns.failed"
+        },
+        {
+          "suite": "formal-conversation-turn-failure-recovery",
+          "name": "conversation_turns.failed_replay"
+        },
+        {
+          "suite": "formal-conversation-turn-failure-recovery",
+          "name": "conversation_turns.recovery"
+        },
+        {
+          "suite": "formal-conversation-turn-failure-recovery",
+          "name": "conversation_turns.completed"
+        },
+        {
+          "suite": "formal-conversation-turn-failure-recovery",
+          "name": "conversation_turns.completed_replay"
+        },
+        {
+          "suite": "formal-conversation-turn-failure-recovery",
+          "name": "conversation_turns.detail"
+        },
+        {
+          "suite": "formal-conversation-turn-failure-recovery",
+          "name": "conversation_turns.ledger"
+        },
+        {
+          "suite": "formal-conversation-turn-failure-recovery",
+          "name": "conversation_turns.cleanup"
+        },
+        {
+          "suite": "formal-conversation-turn-failure-recovery",
+          "name": "readonly.fresh_database"
+        },
+        {
+          "suite": "formal-conversation-turn-failure-recovery",
+          "name": "readonly.api_ready.0"
+        },
+        {
+          "suite": "formal-conversation-turn-failure-recovery",
+          "name": "readonly.api_ready.1"
+        },
+        {
+          "suite": "formal-conversation-turn-failure-recovery",
+          "name": "readonly.cleanup"
+        },
+        {
+          "suite": "formal-conversation-turn-failure-recovery",
+          "name": "readonly.complete"
+        }
+      ],
+      "proof_scope": "正式普通对话202→provider500→failed、同会话恢复200→completed/四message，两API终态detail一致；持久SSE full/suffix/pastTerminal六实际请求/no model delta。模型Mock，非活跃断线/真实模型/整链；原失败保留，不增normal。",
+      "run_id": "4fe45ad7-2110-4277-83fc-c970b5d45d47",
+      "result_snapshot": {
+        "passed": 29,
+        "failed": 0,
+        "blocked": 0,
+        "skipped": 0,
+        "formal_HTTP_calls": 13,
+        "normal_added": 0
+      },
+      "proof_evidence_id": "58657292-1533-48fe-a27c-fab50fe34c85"
     }
   ]
 }

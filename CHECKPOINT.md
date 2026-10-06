@@ -1,3 +1,17 @@
+**最新执行入口：[CP-306](#cp-306-current)，2026-10-06 (+08)。接口仍128/166正常、缺38，整体OPEN。耗时已核，首个成批对话故障/恢复/重放组实际29P/13HTTP、59.46秒完成，normal增0；独立清理已核。先接口、后整链，性能/24h及原暂停域保持。**
+
+<a id="cp-306-current"></a>
+## CP-306 · 接口执行效率纠偏与批量续验
+
+- **批量续验终态**：`4fe45ad7-2110-4277-83fc-c970b5d45d47`，UTC02:45:39.576351→02:46:39.033662（59.457秒），29P0F0skip/13HTTP、CLI0/Go93f始末/非race6d/runtime338。独立实现/审查后root fresh HMAC/实际tuple/专用PG exact4CPU2GiB/无active/host25.47GB准入；resource8282fc/18872–74。正式普通conversation同owner两turn：provider协议500持久failed并释放active_reply，再显式恢复200持久completed，旧失败行/审计完整保留；对侧按reply_id和Last-Event-ID做full/suffix/pastterminal六次持久重放，不增加模型请求，双API四message DTO一致。16marker+13HTTP=29条验证记录，不是29独立业务场景。
+- Root复算完整created/failed/completed ledger及解析帧/关联，两个模型请求500/200、13实际接口记录全False/protocol_mock，normal0。root验证初把407预填路由也当13actual record，在附件/计划写前止，按稳定test_name过滤纠正；保原工具first-error，native未重跑或改状态。27登记JSON和proof `58657292-1533-48fe-a27c-fab50fe34c85`、三报告保留。raw SSE字节/headers/Cookie未保存，parsed frame+received length/SHA及冻结runtime validator证明对应范围，不冒真实模型/活动断线/进程crash/整链。
+- 原单40cleanup含provider≤4/grace45；UTC02:47:21 fresh doctor/HMAC、exactUUID库角色0/0及三个端口free独立核实，主环境/PG/canonical未控制。两个新文件helper02d325a7/test92b70442，11offline P/AST2/inventory及独审已核；产品Go不变。当前37对应latest1588P4F2B1external，29接口子组+8基础，含前置/汇总；接口与wholeOPEN，normal128/166剩38及原Generate/外部/producer/暂停保留。
+- 下一并行只读把native-core44接口已有证据关联为有限场景清单，只补确实未验且适用场景，避免无限needs_scenario_plan或重复正常/拒绝测试；不恢复跨模块整链、性能24h或原暂停域。本轮结果完成后统一scoped交付与Linear同步，未merge/deploy。
+
+- 用户指出7:58:42仅新增8正常路径且任务未完成就停止。明确原UTC窗口12:58:34→18:19:46跨度5h21m，20原run实际跨度并集21m56s；延伸至20:24为26run/28m15s。界面起止未知，不强行对账或编造非运行时间分摊。核算原件证据 `c904896e-06cc-4255-8845-cad14efddd45`，counts_as_acceptance=false。
+- 主会话决定复用fixture、多个相关接口成批、准备并行、必要源/身份/资源/断言/首红不放宽，按完整工作包统一交付。新组为已有对话三个消费者接口的provider协议500失败、恢复completed与SSE游标重放；模型Mock不证真实模型，不新增producer或恢复整链。尚在准备。
+- 基线 `09898b74478ad5ee447b276fe1928cb3df80a076` 已推送；Go93f/binary6d/runtime338不改，保留.claude及held Agent/Runbook候选。当前无实际run，后续须fresh准入。本主题WAN138已保存执行决定，验收结果另补。详见[决定](docs/decisions/2026-10-06-interface-test-execution.md)。
+
 **最新记录入口：[CP-305](#cp-305-current)，2026-10-06 (+08)。当前真实正常128/166、缺38；本轮三个有界子组89条验证记录通过/35正式HTTP，normal新增0，接口和整体OPEN。先接口后整链；性能/24h和原暂停域保持。**
 
 <a id="cp-305-current"></a>

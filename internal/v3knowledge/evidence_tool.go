@@ -49,8 +49,9 @@ type indexedKnowledgeEvidence struct {
 
 var errKnowledgeEvidenceUnavailable = errors.New("indexed knowledge unavailable")
 
-// NewKnowledgeEvidenceTool is opt-in. It never calls the legacy unscoped
-// knowledge search methods, and is deliberately not registered by cmd/aiops.
+// NewKnowledgeEvidenceTool is opt-in. The V3 composition root binds it to a
+// currently authorized service or investigation's exact application/environment;
+// it never calls the legacy unscoped knowledge search methods.
 func NewKnowledgeEvidenceTool(opts KnowledgeEvidenceToolOptions) (inference.EvidenceTool, bool) {
 	if !opts.Enabled || opts.Service == nil || opts.Service.Knowledge == nil || opts.Service.Policy == nil ||
 		opts.CurrentUser == nil || opts.ActorID == "" || opts.ApplicationID == "" ||

@@ -1,5 +1,9 @@
 # 后端 API 契约
 
+## V3 正常使用入口（WAN-237～239，2026-10-07）
+
+新增 `POST /api/v1/roles` 和 `GET/PUT /api/v1/members/{id}/access`，提供明确范围的业务角色创建、完整成员授权快照和带版本的角色分配/启停；详见[成员授权契约](api/v3-member-access.md)。新增 `POST /api/v1/mcp-servers`，由部署侧精确来源准入及当前管理权限共同控制首次登记，登记不自动审核或执行工具；详见[MCP 登记契约](api/v3-mcp-registration.md)。普通对话新增知识工具，调查节点可调用固定应用和环境的四类只读工具，证据与成功回复原子保存；详见[取证边界](api/v3-investigation-evidence-tools.md)。这批辅助入口不增加冻结 166 项页面契约的计数，前端接线及外部模型/服务验收另列。
+
 ## 资源关系知识图谱（WAN-101）
 
 `GET /api/v1/resource-relations` 新增 `mode=overview|neighbors`，支持虚拟分组、中心一层邻居、方向和有界增量分页；无 mode 保留旧结构。`visible_id` 重验授权并补齐已加载节点间的边，`page_node_ids` 区分本页与上下文。类型多选、环境与 RBAC 严格作用于返回节点、边和分组；运行实例默认隐藏，事件排除。`GET /resources` 的 `graph_eligible=true` 将图谱可用性筛选前置到检索分页。详细字段与限制见 [资源 API](resources-api.md)。

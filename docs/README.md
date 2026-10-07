@@ -1,5 +1,8 @@
 # 项目文档
 
+- [V3 正常使用入口交付](releases/2026-10-07-v3-entrypoints.md)：WAN-237～239，成员授权、MCP 登记、调查与知识工具接线及验证边界。
+- [V3 成员授权](api/v3-member-access.md)、[MCP 首次登记](api/v3-mcp-registration.md)、[调查与知识取证工具](api/v3-investigation-evidence-tools.md)。
+
 - [独立后端 testlab 实施基线与追加决定](plans/2026-09-30-backend-testlab.md)、[测试入口与只读看板](../tools/testlab/README.md)、[跳过与接口覆盖边界](releases/2026-09-30-backend-test-coverage.md)：WAN-136/138/139，区分真实本地、Mock、冻结回归和未完成的24小时验收。
 
 - [后端 Review Top Risks 修复](releases/2026-09-30-backend-top-risks.md)：WAN-129～132 修复、定向证据与 WAN-133～137 高优先级上下文待办。

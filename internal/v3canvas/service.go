@@ -58,6 +58,10 @@ func lockCanvasInvestigationScopes(ctx context.Context, tx pgx.Tx, userID string
 type Service struct {
 	Store   *store.Store
 	Runtime inference.Runner
+	// The composition root binds only reviewed read tools to this persisted
+	// investigation application/environment. Ordinary canvases and drafts never
+	// use this callback. Arguments: owner, application, environment, model.
+	InvestigationToolsForTurn func(context.Context, string, string, string, string) ([]inference.EvidenceTool, error)
 }
 
 func New(st *store.Store) *Service { return &Service{Store: st} }

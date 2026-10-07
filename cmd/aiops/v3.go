@@ -343,7 +343,8 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	lowerSources.Register(api)
 	auditV3 := v3audit.New(s.DB, cfg.EnvironmentIDs)
 	auditV3.Register(api)
-	v3canvas.NewWithRuntime(s, modelRuntime).Register(api)
+	canvasV3 := v3canvas.NewWithRuntime(s, modelRuntime)
+	canvasV3.Register(api)
 	catalog := v3catalog.New(s, policy, cfg.EnvironmentIDs...)
 	catalog.RegisterWithoutServiceReads(api)
 	configSync, err := loadV3ConfigSync(os.Getenv("AIOPS_V3_CONFIG_SYNC_CONFIG"), cfg.Tier, s.DB, policy)
@@ -616,6 +617,28 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		}
 		return false
 	}
+	knowledgeV3 := &v3knowledge.Service{DB: s.DB, Knowledge: know, Policy: policy}
+	currentToolUser := func(ctx context.Context, id string) (core.User, error) {
+		member, err := s.Member(ctx, id)
+		if err != nil {
+			return core.User{}, err
+		}
+		if member.DeletedAt != nil || member.Disabled {
+			return core.User{}, store.ErrForbidden
+		}
+		return member.User, nil
+	}
+	readTools := v3ReadTools{
+		DB: s.DB, Models: toolModels, CurrentUser: currentToolUser,
+		LookupService: catalog.LookupServiceEvidence, Access: policy, Telemetry: telemetry,
+		KnowledgeTool: func(actorID, applicationID, environmentID string) (inference.EvidenceTool, bool) {
+			return v3knowledge.NewKnowledgeEvidenceTool(v3knowledge.KnowledgeEvidenceToolOptions{
+				Enabled: true, Service: knowledgeV3, ActorID: actorID, ApplicationID: applicationID,
+				EnvironmentID: environmentID, CurrentUser: currentToolUser,
+			})
+		},
+	}
+	canvasV3.InvestigationToolsForTurn = readTools.ForTurn
 	chat := v3conversation.New(s.DB, modelRuntime, v3conversation.Options{
 		CurrentUser:      httpapi.CurrentUser,
 		RefreshSession:   s.Session,
@@ -668,68 +691,8 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 			}
 			return policy.AuthorizeWithTx(ctx, tx, member.User, rbac.V3Decision{Module: "conversation", Action: "change", EnvironmentID: environmentID})
 		},
-		ToolsForTurn: func(_ context.Context, ownerID, environmentID, modelID string) ([]inference.EvidenceTool, error) {
-			if !toolModels[modelID] {
-				return nil, nil
-			}
-			tools := []inference.EvidenceTool{{
-				Name:        "read_service_profile",
-				Description: "Read one service's registered profile by exact service key in this conversation's environment. Health is unavailable unless independently observed.",
-				Read: func(ctx context.Context, key string) (inference.Evidence, error) {
-					member, err := s.Member(ctx, ownerID)
-					if err != nil || member.DeletedAt != nil || member.Disabled {
-						return inference.Evidence{}, errors.New("service profile unavailable")
-					}
-					profile, err := catalog.LookupServiceEvidence(ctx, member.User, environmentID, key)
-					if err != nil {
-						// Keep hidden and missing services indistinguishable to the model.
-						return inference.Evidence{}, errors.New("service profile unavailable")
-					}
-					content, err := json.Marshal(profile)
-					if err != nil {
-						return inference.Evidence{}, errors.New("service profile unavailable")
-					}
-					return inference.Evidence{Kind: "service_profile", Title: "Service profile: " + profile.Name, Content: string(content), Source: "service_catalog", TargetID: profile.ID}, nil
-				},
-			}}
-			if telemetry == nil {
-				return tools, nil
-			}
-			metricTool, ok := v3conversation.NewServiceMetricsTool(v3conversation.ServiceMetricsToolOptions{
-				DB: s.DB, OwnerID: ownerID, EnvironmentID: environmentID,
-				CurrentUser: func(ctx context.Context, id string) (core.User, error) {
-					member, err := s.Member(ctx, id)
-					if err != nil {
-						return core.User{}, err
-					}
-					if member.DeletedAt != nil || member.Disabled {
-						return core.User{}, store.ErrForbidden
-					}
-					return member.User, nil
-				},
-				LookupService: catalog.LookupServiceEvidence, Telemetry: telemetry,
-			})
-			if ok {
-				tools = append(tools, metricTool)
-			}
-			logTool, ok := v3conversation.NewServiceLogsTool(v3conversation.ServiceLogsToolOptions{
-				Enabled: true, DB: s.DB, OwnerID: ownerID, EnvironmentID: environmentID,
-				CurrentUser: func(ctx context.Context, id string) (core.User, error) {
-					member, err := s.Member(ctx, id)
-					if err != nil {
-						return core.User{}, err
-					}
-					if member.DeletedAt != nil || member.Disabled {
-						return core.User{}, store.ErrForbidden
-					}
-					return member.User, nil
-				},
-				LookupService: catalog.LookupServiceEvidence, Access: policy, Telemetry: telemetry,
-			})
-			if ok {
-				tools = append(tools, logTool)
-			}
-			return tools, nil
+		ToolsForTurn: func(ctx context.Context, ownerID, environmentID, modelID string) ([]inference.EvidenceTool, error) {
+			return readTools.ForTurn(ctx, ownerID, "", environmentID, modelID)
 		},
 		Environment: func(r *http.Request) (string, error) {
 			if cfg.Tier == "production" {
@@ -828,7 +791,6 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	bulkService.Register(api)
 	pushService.Register(api)
 	pushService.RegisterPublic(api)
-	knowledgeV3 := &v3knowledge.Service{DB: s.DB, Knowledge: know, Policy: policy}
 	knowledgeV3.Register(api)
 	knowledgeV3.RegisterSearch(api)
 	v3postmortems.New(s.DB, policy).Register(api)

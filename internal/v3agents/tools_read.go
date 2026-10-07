@@ -3,6 +3,7 @@ package v3agents
 import (
 	"errors"
 	"net/http"
+	"sort"
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
@@ -21,6 +22,11 @@ type registeredTool struct {
 // execute a tool. Only spans reported by the trusted in-process RecordSpan
 // producer contribute to the observed seven-day usage columns.
 func (s *Service) readTools(w http.ResponseWriter, r *http.Request) {
+	facets, valid := interactionFacets(r.URL.Query(), "connector", "agent")
+	if !valid {
+		invalid(w, "Invalid tool facets")
+		return
+	}
 	kind := r.URL.Query().Get("kind")
 	if kind == "" {
 		kind = "all"
@@ -70,8 +76,10 @@ func (s *Service) readTools(w http.ResponseWriter, r *http.Request) {
  a.id,a.name,a.application_id,a.environment_id,COALESCE(c.provider,'')
  FROM v3_agent_tools t JOIN v3_agents a ON a.id=t.agent_id
  LEFT JOIN v3_connectors c ON c.id=t.connector_id AND c.environment_id=a.environment_id
- WHERE a.environment_id=ANY($1) AND ($3='all' OR t.kind=$3) AND `+visibleAgentGrantSQL+`
- ORDER BY t.name,t.id LIMIT 1001 FOR SHARE OF t,a`, envs, httpapi.CurrentUser(r).ID, kind)
+ WHERE a.environment_id=ANY($1) AND ($3='all' OR t.kind=$3)
+ AND (cardinality($4::text[])=0 OR t.connector_id=ANY($4))
+ AND (cardinality($5::text[])=0 OR a.id=ANY($5)) AND `+visibleAgentGrantSQL+`
+ ORDER BY t.name,t.id LIMIT 1001 FOR SHARE OF t,a`, envs, httpapi.CurrentUser(r).ID, kind, facets["connector"], facets["agent"])
 	if err != nil {
 		unavailable(w)
 		return
@@ -269,6 +277,11 @@ func (s *Service) readTools(w http.ResponseWriter, r *http.Request) {
 			"note": promptLocalized(r, "已配置的环境上限；不代表执行器已接入", "Configured cap; executor availability is separate"),
 		})
 	}
+	catalogItems, err := s.readToolCatalog(r, tx, envs, kind, facets)
+	if err != nil {
+		runReadFailure(w, err)
+		return
+	}
 	// Session expiry uses wall-clock time; a long bounded read may outlive it.
 	if err = store.LockActiveSession(r.Context(), tx, cookie.Value, httpapi.CurrentUser(r).ID); errors.Is(err, store.ErrSessionRevoked) {
 		httpapi.Error(w, http.StatusUnauthorized, "unauthorized", "Session expired")
@@ -282,7 +295,7 @@ func (s *Service) readTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items := make([]any, 0, len(visible))
+	items := append(make([]any, 0, len(visible)+len(catalogItems)), catalogItems...)
 	for _, tool := range visible {
 		calls, errorRate := "—", "—"
 		if u, found := observed[tool.ID]; found && u.calls > 0 {
@@ -306,6 +319,17 @@ func (s *Service) readTools(w http.ResponseWriter, r *http.Request) {
 			item["brand"] = tool.Brand
 		}
 		items = append(items, item)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		a, b := items[i].(map[string]any), items[j].(map[string]any)
+		if a["name"].(string) != b["name"].(string) {
+			return a["name"].(string) < b["name"].(string)
+		}
+		return a["id"].(string) < b["id"].(string)
+	})
+	if len(items) > 200 {
+		items = items[:200]
+		truncated = true
 	}
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
 		"items": items, "levels": toolLevelDescriptions(r), "env_limits": limits,

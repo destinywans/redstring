@@ -305,6 +305,15 @@ func (s *Service) recordConflict(w http.ResponseWriter, r *http.Request) {
 			failure(w, store.ErrConflict)
 			return
 		}
+		eligible, policyErr := factWithinPolicy(r.Context(), tx, f.ID)
+		if policyErr != nil {
+			unavailable(w)
+			return
+		}
+		if !eligible {
+			failure(w, store.ErrConflict)
+			return
+		}
 		current, e := lockCurrentSource(r.Context(), tx, f.ID)
 		if e != nil {
 			unavailable(w)

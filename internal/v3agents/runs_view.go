@@ -79,6 +79,11 @@ func runTokens(v run) *int64 {
 // The list is bounded over all currently visible persisted rows before the
 // filter and display page are applied. Aggregates never use a truncated page.
 func (s *Service) Runs(w http.ResponseWriter, r *http.Request) {
+	facets, window, valid := runQuery(r)
+	if !valid {
+		invalid(w, "Invalid run facets or time range")
+		return
+	}
 	values := r.URL.Query()["filter"]
 	if len(values) > 1 {
 		invalid(w, "Select one run filter")
@@ -119,6 +124,10 @@ JOIN applications app ON app.id=v.application_id AND NOT app.archived
 JOIN v3_application_environments mapped ON mapped.application_id=app.id AND mapped.environment_id=v.environment_id
 JOIN application_environments e ON e.application_id=app.id AND e.key=v.environment_id AND NOT e.archived
 WHERE v.environment_id=ANY($1::text[])
+AND (cardinality($3::text[])=0 OR v.agent_id=ANY($3))
+AND (cardinality($4::text[])=0 OR v.version=ANY($4))
+AND (cardinality($5::text[])=0 OR v.trigger_kind=ANY($5))
+AND ($6::bigint=0 OR v.started_at>=clock_timestamp()-$6::bigint*interval '1 second')
 AND `+visibleAgentGrantSQL+`
 AND (app.owner_team_id IS NULL OR EXISTS (
  SELECT 1 FROM v3_effective_role_grants t WHERE t.user_id=$2 AND t.module='agents' AND t.action='view'
@@ -127,7 +136,7 @@ AND (app.owner_team_id IS NULL OR EXISTS (
    OR (t.scope_kind='team' AND t.scope_id=app.owner_team_id))
 ))
 ORDER BY v.started_at DESC,v.id DESC LIMIT 2001 FOR SHARE OF v`,
-		envs, httpapi.CurrentUser(r).ID)
+		envs, httpapi.CurrentUser(r).ID, facets["agent"], facets["version"], facets["trigger"], int64(window/time.Second))
 	if err != nil {
 		unavailable(w)
 		return
@@ -264,7 +273,7 @@ ORDER BY v.started_at DESC,v.id DESC LIMIT 2001 FOR SHARE OF v`,
 		unavailable(w)
 		return
 	}
-	httpapi.WriteJSON(w, 200, buildRunsView(visible, feedback, steps, filter, now))
+	httpapi.WriteJSON(w, 200, buildRunsView(visible, feedback, steps, filter, now, window))
 }
 
 func listRunFeedback(ctx context.Context, tx pgx.Tx, ids []string, userID string) (map[string]*runFeedback, error) {
@@ -318,7 +327,7 @@ WHERE run_id=ANY($1::text[]) GROUP BY run_id`, ids)
 	return result, err
 }
 
-func buildRunsView(records []runRecord, feedback map[string]*runFeedback, steps map[string]int64, filter string, now time.Time) map[string]any {
+func buildRunsView(records []runRecord, feedback map[string]*runFeedback, steps map[string]int64, filter string, now time.Time, windows ...time.Duration) map[string]any {
 	response := map[string]any{
 		"kpis": []any{}, "summary": nil, "trend": nil, "durations": nil,
 		"items": []runListItem{}, "counts": nil, "partial": true,
@@ -333,6 +342,17 @@ func buildRunsView(records []runRecord, feedback map[string]*runFeedback, steps 
 	start := now.UTC().Truncate(time.Hour).Add(-23 * time.Hour)
 	trend := runTrend{OK: make([]int, 24), Failed: make([]int, 24), Blocked: make([]int, 24),
 		WindowStartAt: runTimeString(start), IntervalMinutes: 60}
+	interval := time.Hour
+	if len(windows) > 0 && windows[0] > 0 {
+		window := windows[0]
+		interval = time.Duration((int64(window/time.Minute)+23)/24) * time.Minute
+		if interval < time.Minute {
+			interval = time.Minute
+		}
+		buckets := int((window + interval - 1) / interval)
+		start = now.UTC().Add(-window)
+		trend = runTrend{OK: make([]int, buckets), Failed: make([]int, buckets), Blocked: make([]int, buckets), WindowStartAt: runTimeString(start), IntervalMinutes: int(interval / time.Minute)}
+	}
 	durations := make([]int64, 0)
 	items := make([]runListItem, 0, 200)
 	matching := 0
@@ -364,7 +384,10 @@ func buildRunsView(records []runRecord, feedback map[string]*runFeedback, steps 
 				durations = append(durations, *duration)
 			}
 			if !v.Started.Before(start) && !v.Started.After(now) {
-				bucket := int(v.Started.UTC().Sub(start) / time.Hour)
+				bucket := int(v.Started.UTC().Sub(start) / interval)
+				if bucket >= len(trend.OK) {
+					bucket = len(trend.OK) - 1
+				}
 				switch v.Status {
 				case "success":
 					trend.OK[bucket]++

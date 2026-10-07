@@ -15,6 +15,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3interactionaudit"
 )
 
 type Access interface {
@@ -293,6 +294,13 @@ func (s *Service) RecordConflict(ctx context.Context, user core.User, a, b strin
 		return Conflict{}, err
 	}
 	for _, id := range []string{a, b} {
+		eligible, policyErr := factWithinPolicy(ctx, tx, id)
+		if policyErr != nil {
+			return Conflict{}, policyErr
+		}
+		if !eligible {
+			return Conflict{}, store.ErrConflict
+		}
 		current, sourceErr := lockCurrentSource(ctx, tx, id)
 		if sourceErr != nil {
 			return Conflict{}, sourceErr
@@ -319,6 +327,9 @@ func (s *Service) Register(api *httpapi.Server) {
 		handler         http.HandlerFunc
 	}{
 		{"GET /api/v1/memory", "view", s.view},
+		{"PATCH /api/v1/memory/facts/{id}", "manage", s.editFact},
+		{"GET /api/v1/memory/policy", "view", s.policy},
+		{"PUT /api/v1/memory/policy", "manage", s.policy},
 		{"GET /api/v1/memory/facts", "view", s.list},
 		{"POST /api/v1/memory/facts", "manage", s.produce},
 		{"POST /api/v1/memory/sources", "manage", s.publishSource},
@@ -328,7 +339,11 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"POST /api/v1/memory/conflicts/resolve", "manage", s.resolve},
 	}
 	for _, r := range routes {
-		api.Register(r.pattern, "viewer", r.handler)
+		handler := r.handler
+		if action, ok := map[string]string{"PATCH /api/v1/memory/facts/{id}": "memory.fact.edited", "PUT /api/v1/memory/policy": "memory.policy.updated"}[r.pattern]; ok {
+			v3interactionaudit.Mark(api, s.DB, r.pattern, action)
+		}
+		api.Register(r.pattern, "viewer", handler)
 		api.MarkV3ObjectRoute(r.pattern, "knowledge", r.action)
 	}
 }

@@ -217,6 +217,15 @@ func (s *Service) decide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if action == "confirm" {
+		eligible, policyErr := factWithinPolicy(r.Context(), tx, f.ID)
+		if policyErr != nil {
+			unavailable(w)
+			return
+		}
+		if !eligible {
+			failure(w, store.ErrConflict)
+			return
+		}
 		var current bool
 		current, err = lockCurrentSource(r.Context(), tx, f.ID)
 		if err != nil {
@@ -377,6 +386,15 @@ func (s *Service) resolve(w http.ResponseWriter, r *http.Request) {
 	// reviewed when the conflict was recorded. Lock in fact-ID order so two
 	// reversed resolution requests cannot deadlock on distinct sources.
 	for _, side := range sides {
+		eligible, policyErr := factWithinPolicy(r.Context(), tx, side.id)
+		if policyErr != nil {
+			unavailable(w)
+			return
+		}
+		if !eligible {
+			failure(w, store.ErrConflict)
+			return
+		}
 		current, sourceErr := lockCurrentSource(r.Context(), tx, side.id)
 		if sourceErr != nil {
 			unavailable(w)

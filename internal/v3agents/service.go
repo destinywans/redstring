@@ -17,6 +17,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3interactionaudit"
 )
 
 type Access interface {
@@ -51,6 +52,12 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"POST /api/v1/prompts/{id}/versions", "change", s.PromptVersion},
 		{"POST /api/v1/prompts/{id}/trial", "change", s.PromptTrial},
 		{"GET /api/v1/agent-tools", "view", s.Tools},
+		{"POST /api/v1/agent-tools", "manage", s.CreateTool},
+		{"GET /api/v1/eval-datasets", "view", s.Datasets},
+		{"POST /api/v1/eval-datasets", "change", s.CreateDataset},
+		{"POST /api/v1/eval-datasets/{id}/items", "change", s.DatasetItem},
+		{"POST /api/v1/agent-runs/{id}/annotations", "change", s.AnnotateRun},
+		{"GET /api/v1/prompts/{id}/versions", "view", s.PromptVersions},
 		{"GET /api/v1/evals/{id}", "view", s.EvalDetail},
 		{"POST /api/v1/evals", "change", s.CreateEval},
 		{"POST /api/v1/eval-cases", "change", s.CreateEvalCase},
@@ -66,7 +73,11 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"GET /api/v1/guardrails", "view", s.Guardrails},
 		{"PATCH /api/v1/guardrails/{id}", "manage", s.Guardrail},
 	} {
-		api.Register(route.pattern, "viewer", route.handler)
+		handler := route.handler
+		if action, ok := map[string]string{"POST /api/v1/agent-tools": "v3.agent.tool.catalog.registered", "POST /api/v1/eval-datasets": "v3.agent.dataset.created", "POST /api/v1/eval-datasets/{id}/items": "v3.agent.dataset.item.added", "POST /api/v1/agent-runs/{id}/annotations": "v3.agent.run.annotated"}[route.pattern]; ok {
+			v3interactionaudit.Mark(api, s.DB, route.pattern, action)
+		}
+		api.Register(route.pattern, "viewer", handler)
 		api.MarkV3ObjectRoute(route.pattern, "agents", route.action)
 	}
 	s.RegisterExecution(api)

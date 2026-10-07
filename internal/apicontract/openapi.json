@@ -42410,7 +42410,7 @@
       "get": {
         "summary": "Read authorized source-backed memory view",
         "operationId": "get_memory",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Returns only candidate or confirmed facts from exact current published document versions and current environment/application/team knowledge.view scope. Layer counts derive from returned bounded facts; services is the visible service-fact directory across current scope. Service and workspace are evidence categories, not claims of a complete memory system. Optional service must resolve exactly to a visible stable service ID, application ID or key; stable IDs take precedence over aliases. It filters facts and conflicts to that application/environment, while workspace layer count becomes zero. Ambiguous aliases return 409, no visible match 404. Open conflicts appear only when both fact sides remain visible. Facts are capped at 500 and open conflicts at 100; excess returns 413. Confidence, recall, expiry and policy are unknown, represented as null. This partial response differs from the frozen frontend MemoryView.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Returns only candidate or confirmed facts from exact current published document versions and current environment/application/team knowledge.view scope. Layer counts derive from returned bounded facts; services is the visible service-fact directory across current scope. Service and workspace are evidence categories, not claims of a complete memory system. Optional service must resolve exactly to a visible stable service ID, application ID or key; stable IDs take precedence over aliases. It filters facts and conflicts to that application/environment, while workspace layer count becomes zero. Ambiguous aliases return 409, no visible match 404. Open conflicts appear only when both fact sides remain visible. Facts are capped at 500 and open conflicts at 100; excess returns 413. Confidence, recall, expiry and policy are unknown, represented as null. This partial response differs from the frozen frontend MemoryView. Repeated source filters use exact visible document IDs; confidence supports high/medium/low/unknown, with only unknown matching because no confidence producer exists. Persisted TTL policies filter expired facts using confirmed_at otherwise created_at.",
         "responses": {
           "200": {
             "description": "Success",
@@ -42516,6 +42516,30 @@
               "type": "string"
             },
             "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "confidence",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
           }
         ]
       }
@@ -45066,6 +45090,143 @@
             }
           }
         }
+      },
+      "get": {
+        "summary": "Read actual persisted Prompt version history",
+        "operationId": "get_prompts_id_versions",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Current human session and exact Agent current active application/team/environment agents.view. Lists real persisted Prompt versions, author IDs and current pointer, never synthesized history. More than 1000 versions returns 413.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "version": {
+                            "type": "string"
+                          },
+                          "created_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "author": {
+                            "type": "string"
+                          },
+                          "current": {
+                            "type": "boolean"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "version",
+                          "created_at",
+                          "author",
+                          "current"
+                        ]
+                      }
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "prompts"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
       }
     },
     "/prompts/{id}/trial": {
@@ -45232,7 +45393,7 @@
       "get": {
         "summary": "Read persisted Agent tool governance metadata",
         "operationId": "get_agent_tools",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. At most 200 authorized registered tools, with a bounded scan of 1000 grant-filtered candidates. Governance fields come from the persisted registry; seven-day calls and error rate are observed RecordSpan events only and show an unknown marker when absent. Instrumentation coverage and live tool execution are unavailable. Environment caps do not grant executable authority.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. At most 200 authorized registered tools, with a bounded scan of 1000 grant-filtered candidates. Governance fields come from the persisted registry; seven-day calls and error rate are observed RecordSpan events only and show an unknown marker when absent. Instrumentation coverage and live tool execution are unavailable. Environment caps do not grant executable authority. Also lists ungranted environment catalog records requiring environment agents.view and connectors.view; any Agent facet excludes these ungranted rows. Repeated connector and agent facets use exact IDs before bounded reads.",
         "responses": {
           "200": {
             "description": "Success",
@@ -45307,6 +45468,12 @@
                             "type": "boolean"
                           },
                           "metrics_complete": {
+                            "type": "boolean"
+                          },
+                          "connector_id": {
+                            "type": "string"
+                          },
+                          "catalog_only": {
                             "type": "boolean"
                           }
                         },
@@ -45507,6 +45674,163 @@
               ]
             }
           },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "connector",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "agent",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          }
+        ]
+      },
+      "post": {
+        "summary": "Register catalog metadata without any Agent grant",
+        "operationId": "post_agent_tools",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Single environment; current human session, agents.manage and connectors.view required. Connector must belong to selected environment. Catalog storage has no Agent binding and cannot execute any tool; write tools remain human-approved proposals only. Registration and sanitized success audit are atomic.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Persisted record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "agent-tools"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3AgentToolCreate"
+              }
+            }
+          }
+        },
+        "parameters": [
           {
             "name": "X-AIOps-Environment",
             "in": "header",
@@ -46819,7 +47143,7 @@
       "get": {
         "summary": "Read authorized persisted Agent run records",
         "operationId": "get_agent_runs",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Session, selected environment, active Agent/application ownership and current scoped agents.view are rechecked in one read transaction; an application with a current owner team also requires separate team-scope access. Aggregates use all authorized persisted records, not just the 200 list items. No visible records produce null summary/trend/durations/counts, not observed zero. More than 200 matching items set truncated true; more than 2000 aggregate candidates return 413. No live runtime producer is connected.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Session, selected environment, active Agent/application ownership and current scoped agents.view are rechecked in one read transaction; an application with a current owner team also requires separate team-scope access. Aggregates use all authorized persisted records, not just the 200 list items. No visible records produce null summary/trend/durations/counts, not observed zero. More than 200 matching items set truncated true; more than 2000 aggregate candidates return 413. No live runtime producer is connected. Repeated agent/version/trigger facets and range restrict the authorized persisted scope before bounded aggregates and pagination; range also sets trend bucket interval/window. Absent range preserves prior all-history list and 24-hour trend.",
         "responses": {
           "200": {
             "description": "Success",
@@ -46931,6 +47255,58 @@
               "type": "string"
             },
             "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "agent",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "trigger",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "range",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "15m",
+                "30m",
+                "1h",
+                "6h",
+                "24h",
+                "7d",
+                "30d"
+              ]
+            }
           }
         ]
       }
@@ -55617,6 +55993,967 @@
               "type": "string"
             }
           },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/eval-datasets": {
+      "get": {
+        "summary": "Read persisted datasets and visible run counts",
+        "operationId": "get_eval_datasets",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Current human session and environment agents.view. Optional Agent ID filters to datasets containing a currently visible run of that Agent. Count is deduplicated currently authorized run references; source is a provenance category and does not import incidents automatically. Bounded to 200 datasets and 2000 items per dataset; excess 413.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3EvalDataset"
+                      }
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "eval-datasets"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      },
+      "post": {
+        "summary": "Create an empty persisted evaluation dataset",
+        "operationId": "post_eval_datasets",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Current human session, single environment and environment agents.change. Starts with zero items; creation does not execute an evaluation or import external data.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Persisted record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "eval-datasets"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "incidents",
+                      "runs",
+                      "manual"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "source"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/eval-datasets/{id}/items": {
+      "post": {
+        "summary": "Add a completed authorized run reference",
+        "operationId": "post_eval_datasets_id_items",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Dataset and run must share selected environment. Current environment agents.change and exact run application/current-owner-team agents.view required. Running run returns 409; duplicate references are idempotent and count includes only currently visible persisted runs. Item and sanitized audit commit atomically.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "count": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "count"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "eval-datasets"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "run_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "run_id"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-runs/{id}/annotations": {
+      "post": {
+        "summary": "Persist a human score and bounded note",
+        "operationId": "post_agent_runs_id_annotations",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Single environment and current human exact run application/current-owner-team agents.change. Only completed runs; annotations are durable human observations, not computed evaluation scores. Audit contains score and IDs, never note content.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "run_id": {
+                      "type": "string"
+                    },
+                    "score": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 5
+                    },
+                    "note": {
+                      "type": "string"
+                    },
+                    "created_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "run_id",
+                    "score",
+                    "note",
+                    "created_at"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Persisted record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "run_id": {
+                      "type": "string"
+                    },
+                    "score": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 5
+                    },
+                    "note": {
+                      "type": "string"
+                    },
+                    "created_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "run_id",
+                    "score",
+                    "note",
+                    "created_at"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "agent-runs"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "score": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 2000
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "score"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/memory/facts/{id}": {
+      "patch": {
+        "summary": "Edit evidence-backed text with revision CAS",
+        "operationId": "patch_memory_facts_id",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Single environment and current human exact source scope knowledge.manage. Candidate or confirmed facts only. Current document/version/hash/attribution and old evidence must still match; new fact must be a verbatim excerpt of the same source. CAS mismatch or stale provenance returns 409; non-evidence text 422. State returns to candidate, old confirmation is cleared, provenance preserved and revision increments. No AI assertion is accepted. Success audit is atomic and excludes fact text.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MemoryFactEvidence"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "memory"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expected_revision": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "fact": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "expected_revision",
+                  "fact"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/memory/policy": {
+      "get": {
+        "summary": "Read selected environment memory governance policy",
+        "operationId": "get_memory_policy",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Single selected environment, current human knowledge.view. Unconfigured default is ttl_days 90, proposers human and revision 0; TTL is enforced after a policy is explicitly persisted. human_ai expresses permitted proposal governance but no AI producer is connected.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MemoryPolicy"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "memory"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      },
+      "put": {
+        "summary": "Persist memory policy with revision CAS",
+        "operationId": "put_memory_policy",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Single environment, current human environment knowledge.manage; persisted policy and audit are atomic. First write requires revision 0. TTL applies to memory view and confirmation from original confirmed_at, otherwise created_at, including historical facts; changing a policy never renews timestamps. Records remain in governance history and may be manually expired. human_ai does not start an AI producer.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MemoryPolicy"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "memory"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expected_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "ttl_days": {
+                    "type": "integer",
+                    "enum": [
+                      30,
+                      90,
+                      180
+                    ]
+                  },
+                  "proposers": {
+                    "type": "string",
+                    "enum": [
+                      "human",
+                      "human_ai"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "expected_revision",
+                  "ttl_days",
+                  "proposers"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
           {
             "name": "X-AIOps-Environment",
             "in": "header",
@@ -82860,6 +84197,110 @@
         "required": [
           "items",
           "has_more"
+        ]
+      },
+      "V3AgentToolCreate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "read",
+              "write"
+            ]
+          },
+          "connector_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "kind",
+          "connector_id"
+        ]
+      },
+      "V3EvalDataset": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "incidents",
+              "runs",
+              "manual"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "source",
+          "count"
+        ]
+      },
+      "V3MemoryPolicy": {
+        "type": "object",
+        "properties": {
+          "ttl_days": {
+            "type": "integer",
+            "enum": [
+              30,
+              90,
+              180
+            ]
+          },
+          "proposers": {
+            "type": "string",
+            "enum": [
+              "human",
+              "human_ai"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "automatic_expiry_available": {
+            "type": "boolean"
+          },
+          "ai_production_available": {
+            "type": "boolean"
+          },
+          "policy_effect": {
+            "type": "string"
+          },
+          "configured": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ttl_days",
+          "proposers",
+          "revision",
+          "automatic_expiry_available",
+          "ai_production_available",
+          "policy_effect",
+          "configured"
         ]
       },
       "SecuritySSOProvider": {

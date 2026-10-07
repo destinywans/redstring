@@ -55,7 +55,10 @@ func readFailure(w http.ResponseWriter, err error) {
 // state can still change before their rows are pinned below.
 const memoryReadFacts = factSelect + ` f JOIN knowledge_documents d ON d.id=f.source_document_id
 WHERE f.environment_id=ANY($1::text[])
+ AND (cardinality($4::text[])=0 OR f.source_document_id=ANY($4))
+ AND (cardinality($5::text[])=0 OR 'unknown'=ANY($5))
  AND ($3::boolean OR f.state IN ('candidate','confirmed'))
+ AND ($3::boolean OR NOT EXISTS(SELECT 1 FROM v3_memory_policies p WHERE p.environment_id=f.environment_id AND COALESCE(f.confirmed_at,f.created_at)+p.ttl_days*interval '1 day'<=clock_timestamp()))
  AND d.lifecycle='published' AND d.version=f.source_version AND d.content_hash=f.source_content_hash
  AND d.source NOT LIKE 'runbook://v3/%'
  AND NOT EXISTS (SELECT 1 FROM v3_runbooks vr WHERE vr.document_id=d.id)
@@ -121,7 +124,17 @@ func (s *Service) readSnapshot(r *http.Request, includeInactive, includeView boo
 		return result, err
 	}
 	defer tx.Rollback(r.Context())
-	rows, err := tx.Query(r.Context(), memoryReadFacts, scope.EnvironmentIDs, user.ID, includeInactive)
+	sources, confidence := []string{}, []string{}
+	if includeView {
+		var valid bool
+		sources, confidence, valid = memoryFacets(r)
+		if !valid {
+			return result, ErrInvalid
+		}
+		sources = append([]string{}, sources...)
+		confidence = append([]string{}, confidence...)
+	}
+	rows, err := tx.Query(r.Context(), memoryReadFacts, scope.EnvironmentIDs, user.ID, includeInactive, sources, confidence)
 	if err != nil {
 		return result, err
 	}
@@ -193,6 +206,13 @@ func (s *Service) readSnapshot(r *http.Request, includeInactive, includeView boo
 			return result, sourceErr
 		}
 		if !current {
+			continue
+		}
+		eligible, policyErr := factWithinPolicy(r.Context(), tx, fact.ID)
+		if policyErr != nil {
+			return result, policyErr
+		}
+		if !includeInactive && !eligible {
 			continue
 		}
 		fact.SourceCurrent = &current

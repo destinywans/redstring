@@ -78,6 +78,11 @@ func memoryServiceID(appID, env string) string {
 }
 
 func (s *Service) view(w http.ResponseWriter, r *http.Request) {
+	sources, confidence, valid := memoryFacets(r)
+	if !valid {
+		failure(w, ErrInvalid)
+		return
+	}
 	values := r.URL.Query()["service"]
 	if len(values) > 1 || len(values) == 1 &&
 		(values[0] == "" || len(values[0]) > 1024 || strings.TrimSpace(values[0]) != values[0]) {
@@ -162,6 +167,13 @@ func (s *Service) view(w http.ResponseWriter, r *http.Request) {
 	serviceIDs, workspaceIDs := []string{}, []string{}
 	for _, fact := range snapshot.Facts {
 		if selected != nil && (fact.ApplicationID != selected.ApplicationID || fact.EnvironmentID != selected.EnvironmentID) {
+			continue
+		}
+		if len(sources) > 0 && !has(sources, fact.Source) {
+			continue
+		}
+		// No confidence producer exists; unknown is the only matching facet.
+		if len(confidence) > 0 && !has(confidence, "unknown") {
 			continue
 		}
 		visible[fact.ID] = fact

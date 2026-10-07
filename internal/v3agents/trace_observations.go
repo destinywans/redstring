@@ -12,6 +12,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3pagequery"
 )
 
 var (
@@ -73,7 +74,11 @@ func (s *Service) ReadTraceRunObservations(r *http.Request) (TraceRunObservation
 		return result, err
 	}
 	result.WindowEndAt = result.WindowEndAt.UTC()
-	result.WindowStartAt = result.WindowEndAt.Add(-24 * time.Hour)
+	window, rangeErr := v3pagequery.ParseRange(r.URL.Query(), 24*time.Hour)
+	if rangeErr != nil {
+		return result, ErrTraceRunInvalidRequest
+	}
+	result.WindowStartAt = result.WindowEndAt.Add(-window)
 	// Qualify both modules before LIMIT, so inaccessible runs cannot displace
 	// authorized rows. Current catalog/policy checks are repeated after locks,
 	// exactly as in Runs, to observe a revoke committed during this scan.
